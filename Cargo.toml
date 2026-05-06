@@ -17,3 +17,10 @@ rust-version = "1.85"
 
 [dev-dependencies]
 sdl2 = "0.37"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
