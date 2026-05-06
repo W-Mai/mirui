@@ -143,6 +143,25 @@ fn cmd_release() -> Result {
     run_cmd("git", &["tag", &tag])?;
     run_cmd("git", &["push", "origin", &tag])?;
 
+    // Create GitHub release with changelog content
+    let notes = extract_changelog_for_version(&root, &version);
+    let notes_arg = if notes.is_empty() {
+        format!("Release {tag}")
+    } else {
+        notes
+    };
+    println!("  → creating GitHub release...");
+    let status = Command::new("gh")
+        .args([
+            "release", "create", &tag, "--title", &tag, "--notes", &notes_arg,
+        ])
+        .current_dir(&root)
+        .status()
+        .map_err(|e| format!("gh release create failed: {e}"))?;
+    if !status.success() {
+        eprintln!("  ⚠ gh release create failed (non-fatal)");
+    }
+
     println!("  → publishing to crates.io...");
     cmd_publish(false)?;
 
@@ -180,6 +199,32 @@ fn run_cmd(cmd: &str, args: &[&str]) -> Result {
     } else {
         Err(format!("{cmd} {} failed", args.join(" ")).into())
     }
+}
+
+/// Extract the changelog section for a specific version from CHANGELOG.md
+fn extract_changelog_for_version(root: &str, version: &str) -> String {
+    let path = format!("{root}/CHANGELOG.md");
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return String::new();
+    };
+    let header = format!("## [{version}]");
+    let mut lines = content.lines();
+    // Find the start
+    let mut collecting = false;
+    let mut result = Vec::new();
+    for line in &mut lines {
+        if collecting {
+            if line.starts_with("## [") {
+                break;
+            }
+            result.push(line);
+        } else if line.starts_with(&header) {
+            collecting = true;
+        }
+    }
+    // Trim leading/trailing empty lines
+    let text = result.join("\n");
+    text.trim().to_string()
 }
 
 fn read_version(root: &str) -> Result<String> {
