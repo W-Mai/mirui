@@ -13,6 +13,9 @@ keywords = ["ui", "gui", "ecs", "embedded", "no-std"]
 categories = ["gui", "embedded"]
 rust-version = "1.85"
 
+[workspace]
+members = [".", "xtask"]
+
 [dependencies]
 
 [dev-dependencies]
