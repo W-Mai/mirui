@@ -1,0 +1,16 @@
+[package]
+name = "mirui"
+version = "0.0.1"
+edition = "2024"
+authors = ["Benign X <1341398182@qq.com>"]
+license = "MIT"
+description = "A lightweight, no_std ECS-driven UI framework for embedded, desktop, and WebAssembly"
+repository = "https://github.com/W-Mai/mirui"
+homepage = "https://github.com/W-Mai/mirui"
+documentation = "https://docs.rs/mirui"
+readme = "README.md"
+keywords = ["ui", "gui", "ecs", "embedded", "no-std"]
+categories = ["gui", "embedded"]
+rust-version = "1.85"
+
+[dependencies]
