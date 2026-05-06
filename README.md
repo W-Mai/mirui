@@ -18,7 +18,7 @@ A lightweight, `no_std` ECS-driven UI framework for embedded, desktop, and WebAs
 
 ```toml
 [dependencies]
-mirui = "0.0.1"
+mirui = "0.1"
 ```
 
 ## Roadmap
