@@ -1,6 +1,7 @@
 use crate::backend::{Backend, InputEvent};
 use crate::draw::SwRenderer;
 use crate::ecs::{Entity, World};
+use crate::event::dispatch::dispatch;
 use crate::widget::render_system;
 
 /// Main application entry point — ties World + Backend together
@@ -44,13 +45,15 @@ impl<B: Backend> App<B> {
         loop {
             match self.poll_event() {
                 Some(InputEvent::Quit) => break,
-                Some(_event) => {
-                    // TODO: dispatch to event system
+                Some(event) => {
+                    if let Some(root) = self.root {
+                        let info = self.backend.display_info();
+                        dispatch(&self.world, root, &event, info.width, info.height);
+                    }
                     self.render();
                 }
                 None => {}
             }
-            // Yield to avoid busy-spinning (platform-specific sleep would go here)
         }
     }
 }

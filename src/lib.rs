@@ -6,6 +6,7 @@ pub mod app;
 pub mod backend;
 pub mod draw;
 pub mod ecs;
+pub mod event;
 pub mod layout;
 pub mod types;
 pub mod widget;
