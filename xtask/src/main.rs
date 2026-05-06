@@ -262,11 +262,17 @@ fn find_cargo_tomls(root: &str) -> Vec<String> {
 
 fn rewrite_version(path: &str, next: &str) -> Result<bool> {
     let content = std::fs::read_to_string(path)?;
+    let mut in_package = false;
     let updated: String = content
         .lines()
         .map(|line| {
             let trimmed = line.trim();
-            if trimmed.starts_with("version =") && !trimmed.contains("workspace") {
+            if trimmed == "[package]" {
+                in_package = true;
+            } else if trimmed.starts_with('[') && trimmed != "[package]" {
+                in_package = false;
+            }
+            if in_package && trimmed.starts_with("version =") && !trimmed.contains("workspace") {
                 replace_semver(line, next)
             } else {
                 line.to_string()
