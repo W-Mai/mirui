@@ -58,6 +58,10 @@ name = "image_demo"
 required-features = ["sdl"]
 
 [[example]]
+name = "absolute_demo"
+required-features = ["sdl"]
+
+[[example]]
 name = "components_demo"
 required-features = ["sdl"]
 

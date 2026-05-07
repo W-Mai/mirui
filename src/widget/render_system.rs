@@ -28,6 +28,17 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     Some(node)
 }
 
+fn rects_intersect(a: &Rect, b: &Rect) -> bool {
+    a.x < b.x + b.w as i32
+        && a.x + a.w as i32 > b.x
+        && a.y < b.y + b.h as i32
+        && a.y + a.h as i32 > b.y
+}
+
+fn count_nodes(node: &LayoutNode) -> usize {
+    1 + node.children.iter().map(count_nodes).sum::<usize>()
+}
+
 /// Recursively emit draw commands from the computed layout tree
 fn draw_tree(
     node: &LayoutNode,
@@ -37,6 +48,12 @@ fn draw_tree(
     renderer: &mut dyn Renderer,
     clip: &Rect,
 ) {
+    // Skip entire subtree if node doesn't intersect clip
+    if !rects_intersect(&node.rect, clip) {
+        *idx += count_nodes(node);
+        return;
+    }
+
     if *idx < entities.len() {
         let entity = entities[*idx];
         if let Some(style) = world.get::<Style>(entity) {
@@ -199,6 +216,41 @@ pub fn render(
 
     let mut idx = 0;
     draw_tree(&layout_tree, world, &entities, &mut idx, renderer, &clip);
+}
+
+/// Render only the region that intersects `dirty_rect`. Widgets outside are skipped.
+pub fn render_region(
+    world: &World,
+    root: Entity,
+    screen_w: u16,
+    screen_h: u16,
+    scale: u16,
+    dirty_rect: &Rect,
+    renderer: &mut dyn Renderer,
+) {
+    let scale = if scale == 0 { 1 } else { scale };
+    let logical_w = screen_w / scale;
+    let logical_h = screen_h / scale;
+
+    let Some(mut layout_tree) = build_layout_tree(world, root) else {
+        return;
+    };
+
+    compute_layout(&mut layout_tree, 0, 0, logical_w, logical_h);
+    scale_rects(&mut layout_tree, scale);
+
+    let mut entities = Vec::new();
+    collect_entities_preorder(world, root, &mut entities);
+
+    let mut idx = 0;
+    draw_tree(
+        &layout_tree,
+        world,
+        &entities,
+        &mut idx,
+        renderer,
+        dirty_rect,
+    );
 }
 
 /// Collect the physical-pixel rects of all dirty entities, then remove Dirty flags.

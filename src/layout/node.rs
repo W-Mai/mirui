@@ -29,6 +29,13 @@ pub enum AlignItems {
     Stretch,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Position {
+    #[default]
+    Flex,
+    Absolute,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct LayoutStyle {
     pub direction: FlexDirection,
@@ -38,6 +45,9 @@ pub struct LayoutStyle {
     pub width: Option<u16>,
     pub height: Option<u16>,
     pub grow: f32,
+    pub position: Position,
+    pub left: Option<i32>,
+    pub top: Option<i32>,
 }
 
 #[derive(Clone, Copy, Debug, Default)]

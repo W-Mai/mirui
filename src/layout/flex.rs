@@ -1,6 +1,6 @@
 use crate::types::Rect;
 
-use super::node::{AlignItems, FlexDirection, JustifyContent, LayoutNode};
+use super::node::{AlignItems, FlexDirection, JustifyContent, LayoutNode, Position};
 
 pub fn compute_layout(node: &mut LayoutNode, x: i32, y: i32, available_w: u16, available_h: u16) {
     let pad = &node.style.padding;
@@ -22,10 +22,13 @@ pub fn compute_layout(node: &mut LayoutNode, x: i32, y: i32, available_w: u16, a
     let main_size = if is_row { inner_w } else { inner_h } as f32;
     let cross_size = if is_row { inner_h } else { inner_w };
 
-    // Calculate fixed sizes and total grow
+    // Calculate fixed sizes and total grow (only flex children)
     let mut fixed_total: f32 = 0.0;
     let mut grow_total: f32 = 0.0;
     for child in &node.children {
+        if child.style.position == Position::Absolute {
+            continue;
+        }
         let child_main = if is_row {
             child.style.width
         } else {
@@ -41,10 +44,19 @@ pub fn compute_layout(node: &mut LayoutNode, x: i32, y: i32, available_w: u16, a
     let remaining = (main_size - fixed_total).max(0.0);
 
     // Compute each child's main axis size
-    let child_count = node.children.len();
-    let mut sizes: alloc::vec::Vec<(u16, u16)> = alloc::vec::Vec::with_capacity(child_count);
+    let child_count = node
+        .children
+        .iter()
+        .filter(|c| c.style.position != Position::Absolute)
+        .count();
+    let mut sizes: alloc::vec::Vec<(u16, u16)> =
+        alloc::vec::Vec::with_capacity(node.children.len());
 
     for child in &node.children {
+        if child.style.position == Position::Absolute {
+            sizes.push((0, 0));
+            continue;
+        }
         let child_main = if is_row {
             child.style.width
         } else {
@@ -71,8 +83,13 @@ pub fn compute_layout(node: &mut LayoutNode, x: i32, y: i32, available_w: u16, a
         sizes.push((m, c));
     }
 
-    // Justify: compute starting offset and gap
-    let total_main: f32 = sizes.iter().map(|(m, _)| *m as f32).sum();
+    // Justify: compute starting offset and gap (flex children only)
+    let total_main: f32 = sizes
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| node.children[*i].style.position != Position::Absolute)
+        .map(|(_, (m, _))| *m as f32)
+        .sum();
     let free_space = (main_size - total_main).max(0.0);
 
     let (mut offset, gap) = match node.style.justify {
@@ -98,6 +115,16 @@ pub fn compute_layout(node: &mut LayoutNode, x: i32, y: i32, available_w: u16, a
 
     // Position children
     for (i, child) in node.children.iter_mut().enumerate() {
+        if child.style.position == Position::Absolute {
+            // Absolute: position relative to parent's top-left
+            let abs_x = x + child.style.left.unwrap_or(0);
+            let abs_y = y + child.style.top.unwrap_or(0);
+            let abs_w = child.style.width.unwrap_or(0);
+            let abs_h = child.style.height.unwrap_or(0);
+            compute_layout(child, abs_x, abs_y, abs_w, abs_h);
+            continue;
+        }
+
         let (m, c) = sizes[i];
 
         // Cross axis alignment
