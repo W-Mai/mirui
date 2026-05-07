@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2026-05-07
+
+### Added
+
+- `walk` iteration support in DSL — dynamic widget generation
+- `if` conditional rendering in DSL
+- Compile-time error on unknown widget attributes
+- Components: Button (pressed state), ProgressBar (click-to-set), Checkbox (toggle), Image (RGBA blit)
+- Built-in asset: thumbs-up image (16x16 RGBA)
+- `DrawCommand::Blit` — image rendering with alpha blending
+- `button_system` — automatic interaction for Button/Checkbox/ProgressBar
+- `Padding::all()` convenience constructor
+- `ui!` macro now returns top-level widget Entity
+- components_demo, walk_demo, image_demo examples
+
 ## [0.1.3] - 2026-05-07
 
 ### Added
