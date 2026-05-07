@@ -57,6 +57,10 @@ required-features = ["sdl"]
 name = "image_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "components_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true

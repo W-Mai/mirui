@@ -48,6 +48,17 @@ pub struct Padding {
     pub left: u16,
 }
 
+impl Padding {
+    pub fn all(v: u16) -> Self {
+        Self {
+            top: v,
+            right: v,
+            bottom: v,
+            left: v,
+        }
+    }
+}
+
 pub struct LayoutNode {
     pub style: LayoutStyle,
     pub children: Vec<LayoutNode>,

@@ -1,4 +1,5 @@
 use crate::backend::{Backend, InputEvent};
+use crate::components::button_system::button_system;
 use crate::draw::SwRenderer;
 use crate::ecs::{Entity, World};
 use crate::event::dispatch::dispatch;
@@ -48,6 +49,7 @@ impl<B: Backend> App<B> {
                 Some(event) => {
                     if let Some(root) = self.root {
                         let info = self.backend.display_info();
+                        button_system(&mut self.world, root, &event, info.width, info.height);
                         dispatch(&self.world, root, &event, info.width, info.height);
                     }
                     self.render();
