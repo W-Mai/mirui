@@ -9,6 +9,7 @@ use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
 use super::{Backend, DisplayInfo, InputEvent};
+use crate::types::Rect;
 
 pub struct SdlBackend {
     canvas: Canvas<Window>,
@@ -72,7 +73,7 @@ impl Backend for SdlBackend {
         &mut self.buf
     }
 
-    fn flush(&mut self) {
+    fn flush(&mut self, _area: &Rect) {
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "0");
         let mut texture = self
             .texture_creator

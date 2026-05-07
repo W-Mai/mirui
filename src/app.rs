@@ -47,7 +47,12 @@ impl<B: Backend> App<B> {
             info.scale,
             &mut renderer,
         );
-        self.backend.flush();
+        self.backend.flush(&Rect {
+            x: 0,
+            y: 0,
+            w: info.width,
+            h: info.height,
+        });
     }
 
     /// Get the dirty region (physical pixels) after event processing, clearing dirty flags.
@@ -86,7 +91,39 @@ impl<B: Backend> App<B> {
                 None => {}
             }
 
-            self.render();
+            self.render_dirty();
+        }
+    }
+
+    /// Render only dirty regions. Falls back to full render if no dirty tracking.
+    pub fn render_dirty(&mut self) {
+        let Some(root) = self.root else { return };
+        let info = self.backend.display_info();
+        let scale = if info.scale == 0 { 1 } else { info.scale };
+
+        // Collect dirty region
+        let dirty = render_system::collect_dirty_region(
+            &mut self.world,
+            root,
+            info.width,
+            info.height,
+            scale,
+        );
+
+        if let Some(area) = dirty {
+            let buf = self.backend.framebuffer();
+            let mut renderer = SwRenderer::new(buf, info.width as u32, info.height as u32);
+            renderer.scale = scale;
+            render_system::render_region(
+                &self.world,
+                root,
+                info.width,
+                info.height,
+                scale,
+                &area,
+                &mut renderer,
+            );
+            self.backend.flush(&area);
         }
     }
 }

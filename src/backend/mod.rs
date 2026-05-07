@@ -28,8 +28,8 @@ pub trait Backend {
     /// Get a mutable reference to the framebuffer (RGBA8888)
     fn framebuffer(&mut self) -> &mut [u8];
 
-    /// Flush the framebuffer to the display
-    fn flush(&mut self);
+    /// Flush a region of the framebuffer to the display
+    fn flush(&mut self, area: &Rect);
 
     /// Poll for input events (non-blocking, returns None when no events)
     fn poll_event(&mut self) -> Option<InputEvent>;
