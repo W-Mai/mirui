@@ -3,6 +3,7 @@ use crate::components::button_system::button_system;
 use crate::draw::SwRenderer;
 use crate::ecs::{Entity, World};
 use crate::event::dispatch::dispatch;
+use crate::types::Rect;
 use crate::widget::render_system;
 
 /// Main application entry point — ties World + Backend together
@@ -41,6 +42,19 @@ impl<B: Backend> App<B> {
             &mut renderer,
         );
         self.backend.flush();
+    }
+
+    /// Get the dirty region (physical pixels) after event processing, clearing dirty flags.
+    pub fn dirty_region(&mut self) -> Option<Rect> {
+        let root = self.root?;
+        let info = self.backend.display_info();
+        render_system::collect_dirty_region(
+            &mut self.world,
+            root,
+            info.width,
+            info.height,
+            info.scale,
+        )
     }
 
     /// Poll one event

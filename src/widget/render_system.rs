@@ -200,3 +200,77 @@ pub fn render(
     let mut idx = 0;
     draw_tree(&layout_tree, world, &entities, &mut idx, renderer, &clip);
 }
+
+/// Collect the physical-pixel rects of all dirty entities, then remove Dirty flags.
+/// Returns the bounding rect of all dirty regions, or None if nothing dirty.
+pub fn collect_dirty_region(
+    world: &mut World,
+    root: Entity,
+    screen_w: u16,
+    screen_h: u16,
+    scale: u16,
+) -> Option<Rect> {
+    use super::dirty::Dirty;
+
+    let scale = if scale == 0 { 1 } else { scale };
+    let logical_w = screen_w / scale;
+    let logical_h = screen_h / scale;
+
+    let mut layout_tree = build_layout_tree(world, root)?;
+    compute_layout(&mut layout_tree, 0, 0, logical_w, logical_h);
+    scale_rects(&mut layout_tree, scale);
+
+    let mut entities = Vec::new();
+    collect_entities_preorder(world, root, &mut entities);
+
+    let mut min_x = screen_w as i32;
+    let mut min_y = screen_h as i32;
+    let mut max_x: i32 = -1;
+    let mut max_y: i32 = -1;
+
+    for (i, &entity) in entities.iter().enumerate() {
+        if world.get::<Dirty>(entity).is_some() {
+            if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
+                if rect.x < min_x {
+                    min_x = rect.x;
+                }
+                if rect.y < min_y {
+                    min_y = rect.y;
+                }
+                let rx = rect.x + rect.w as i32;
+                let ry = rect.y + rect.h as i32;
+                if rx > max_x {
+                    max_x = rx;
+                }
+                if ry > max_y {
+                    max_y = ry;
+                }
+            }
+            world.remove::<Dirty>(entity);
+        }
+    }
+
+    if max_x < 0 {
+        None
+    } else {
+        Some(Rect {
+            x: min_x,
+            y: min_y,
+            w: (max_x - min_x) as u16,
+            h: (max_y - min_y) as u16,
+        })
+    }
+}
+
+fn find_rect_at_index(node: &LayoutNode, target: usize, idx: &mut usize) -> Option<Rect> {
+    if *idx == target {
+        return Some(node.rect);
+    }
+    *idx += 1;
+    for child in &node.children {
+        if let Some(r) = find_rect_at_index(child, target, idx) {
+            return Some(r);
+        }
+    }
+    None
+}

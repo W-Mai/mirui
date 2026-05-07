@@ -1,4 +1,5 @@
 pub mod builder;
+pub mod dirty;
 pub mod render_system;
 
 use alloc::vec::Vec;

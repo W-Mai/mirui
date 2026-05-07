@@ -1,5 +1,6 @@
 pub mod command;
 pub mod font;
+pub mod partial;
 pub mod renderer;
 pub mod sw;
 

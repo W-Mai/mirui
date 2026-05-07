@@ -6,6 +6,7 @@ use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::Rect;
+use crate::widget::dirty::Dirty;
 use crate::widget::{Children, Style, Widget};
 
 pub fn button_system(
@@ -22,6 +23,7 @@ pub fn button_system(
                     if let Some(btn) = world.get_mut::<Button>(target) {
                         btn.pressed = true;
                     }
+                    world.insert(target, Dirty);
                 }
                 if world.get::<ProgressBar>(target).is_some() {
                     if let Some(r) = get_entity_rect(world, root, target, screen_w, screen_h) {
@@ -30,6 +32,7 @@ pub fn button_system(
                             if let Some(pb) = world.get_mut::<ProgressBar>(target) {
                                 pb.value = ratio.clamp(0.0, 1.0);
                             }
+                            world.insert(target, Dirty);
                         }
                     }
                 }
@@ -41,6 +44,7 @@ pub fn button_system(
                     if let Some(cb) = world.get_mut::<Checkbox>(target) {
                         cb.toggle();
                     }
+                    world.insert(target, Dirty);
                 }
             }
             reset_all_buttons(world, root);
@@ -51,7 +55,10 @@ pub fn button_system(
 
 fn reset_all_buttons(world: &mut World, entity: Entity) {
     if let Some(btn) = world.get_mut::<Button>(entity) {
-        btn.pressed = false;
+        if btn.pressed {
+            btn.pressed = false;
+            world.insert(entity, Dirty);
+        }
     }
     if let Some(children) = world.get::<Children>(entity) {
         let ids: alloc::vec::Vec<Entity> = children.0.clone();
