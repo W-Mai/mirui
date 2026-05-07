@@ -14,7 +14,7 @@ categories = ["gui", "embedded"]
 rust-version = "1.85"
 
 [workspace]
-members = [".", "xtask"]
+members = [".", "xtask", "mirui-macros"]
 
 [dependencies]
 
@@ -45,9 +45,16 @@ required-features = ["sdl"]
 name = "text_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "dsl_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true
 codegen-units = 1
 strip = true
 panic = "abort"
+
+[dev-dependencies.mirui-macros]
+path = "mirui-macros"

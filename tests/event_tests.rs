@@ -2,8 +2,8 @@
 mod tests {
     use mirui::backend::InputEvent;
     use mirui::ecs::World;
+    use mirui::event::EventHandler;
     use mirui::event::dispatch::dispatch;
-    use mirui::event::{EventHandler, WidgetEvent};
     use mirui::layout::*;
     use mirui::types::Color;
     use mirui::widget::builder::WidgetBuilder;
