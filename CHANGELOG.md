@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] - 2026-05-07
+
+### Added
+
+- Rounded rectangle rendering (border_radius support)
+- Border rendering with rounded corners
+- 8x8 bitmap font (ASCII 32-126)
+- Text rendering: DrawCommand::Label, .text(), .text_color()
+- WidgetBuilder: .border(), .border_radius(), .text(), .text_color()
+- Event system: hit test, dispatch, EventHandler callback
+- click_demo and rounded_demo examples
+
 ## [0.1.1] - 2026-05-06
 
 ### Added
