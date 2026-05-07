@@ -143,7 +143,17 @@ fn draw_tree(
     }
 }
 
-/// Collect entities in pre-order (matching layout tree traversal)
+fn scale_rects(node: &mut LayoutNode, scale: u16) {
+    let s = scale as i32;
+    node.rect.x *= s;
+    node.rect.y *= s;
+    node.rect.w *= scale;
+    node.rect.h *= scale;
+    for child in &mut node.children {
+        scale_rects(child, scale);
+    }
+}
+
 fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity>) {
     out.push(entity);
     if let Some(children) = world.get::<Children>(entity) {
@@ -155,18 +165,28 @@ fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity
 }
 
 /// Run the render system: build layout → compute → draw
+/// `screen_w`/`screen_h` are physical pixels, `scale` is the HiDPI factor.
+/// Layout is computed in logical pixels (physical / scale), then scaled up for rendering.
 pub fn render(
     world: &World,
     root: Entity,
     screen_w: u16,
     screen_h: u16,
+    scale: u16,
     renderer: &mut dyn Renderer,
 ) {
+    let scale = if scale == 0 { 1 } else { scale };
+    let logical_w = screen_w / scale;
+    let logical_h = screen_h / scale;
+
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
     };
 
-    compute_layout(&mut layout_tree, 0, 0, screen_w, screen_h);
+    compute_layout(&mut layout_tree, 0, 0, logical_w, logical_h);
+
+    // Scale all rects to physical pixels
+    scale_rects(&mut layout_tree, scale);
 
     let clip = Rect {
         x: 0,

@@ -67,7 +67,7 @@ fn main() {
     // Render via ECS
     let mut buf = vec![0u8; (W * H * 4) as usize];
     let mut renderer = SwRenderer::new(&mut buf, W, H);
-    render_system::render(&world, root, W as u16, H as u16, &mut renderer);
+    render_system::render(&world, root, W as u16, H as u16, 1, &mut renderer);
     renderer.flush();
 
     // SDL display

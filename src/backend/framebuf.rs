@@ -27,6 +27,7 @@ impl<F: FnMut(&[u8])> Backend for FramebufBackend<F> {
         DisplayInfo {
             width: self.width,
             height: self.height,
+            scale: 1,
         }
     }
 

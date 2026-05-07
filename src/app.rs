@@ -31,7 +31,15 @@ impl<B: Backend> App<B> {
         let info = self.backend.display_info();
         let buf = self.backend.framebuffer();
         let mut renderer = SwRenderer::new(buf, info.width as u32, info.height as u32);
-        render_system::render(&self.world, root, info.width, info.height, &mut renderer);
+        renderer.scale = info.scale;
+        render_system::render(
+            &self.world,
+            root,
+            info.width,
+            info.height,
+            info.scale,
+            &mut renderer,
+        );
         self.backend.flush();
     }
 

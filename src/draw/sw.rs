@@ -7,11 +7,17 @@ pub struct SwRenderer<'a> {
     buf: &'a mut [u8],
     width: u32,
     height: u32,
+    pub scale: u16,
 }
 
 impl<'a> SwRenderer<'a> {
     pub fn new(buf: &'a mut [u8], width: u32, height: u32) -> Self {
-        Self { buf, width, height }
+        Self {
+            buf,
+            width,
+            height,
+            scale: 1,
+        }
     }
 
     fn put_pixel(&mut self, x: i32, y: i32, color: &Color, opa: u8) {
@@ -183,6 +189,7 @@ impl<'a> SwRenderer<'a> {
         opa: u8,
     ) {
         use super::font::{CHAR_H, CHAR_W, glyph};
+        let s = self.scale as i32;
         let mut cx = pos.x;
         let cy = pos.y;
         for &ch in text {
@@ -191,59 +198,72 @@ impl<'a> SwRenderer<'a> {
                 let byte = bitmap[row as usize];
                 for col in 0..CHAR_W as i32 {
                     if byte & (0x80 >> col) != 0 {
-                        let px = cx + col;
-                        let py = cy + row;
-                        if px >= clip.x
-                            && px < clip.x + clip.w as i32
-                            && py >= clip.y
-                            && py < clip.y + clip.h as i32
-                        {
-                            self.put_pixel(px, py, color, opa);
+                        for dy in 0..s {
+                            for dx in 0..s {
+                                let px = cx + col * s + dx;
+                                let py = cy + row * s + dy;
+                                if px >= clip.x
+                                    && px < clip.x + clip.w as i32
+                                    && py >= clip.y
+                                    && py < clip.y + clip.h as i32
+                                {
+                                    self.put_pixel(px, py, color, opa);
+                                }
+                            }
                         }
                     }
                 }
             }
-            cx += CHAR_W as i32;
+            cx += CHAR_W as i32 * s;
         }
     }
 
     fn blit_rgba(&mut self, pos: &Point, data: &[u8], width: u16, height: u16, clip: &Rect) {
+        let s = self.scale as i32;
         for row in 0..height as i32 {
             for col in 0..width as i32 {
-                let px = pos.x + col;
-                let py = pos.y + row;
-                if px < clip.x
-                    || px >= clip.x + clip.w as i32
-                    || py < clip.y
-                    || py >= clip.y + clip.h as i32
-                {
-                    continue;
-                }
                 let src_idx = ((row * width as i32 + col) * 4) as usize;
                 if src_idx + 3 >= data.len() {
                     break;
                 }
-                let dst_idx = ((py as u32 * self.width + px as u32) * 4) as usize;
-                if dst_idx + 3 >= self.buf.len() {
-                    break;
-                }
                 let a = data[src_idx + 3] as u16;
-                if a == 255 {
-                    self.buf[dst_idx] = data[src_idx];
-                    self.buf[dst_idx + 1] = data[src_idx + 1];
-                    self.buf[dst_idx + 2] = data[src_idx + 2];
-                    self.buf[dst_idx + 3] = 255;
-                } else if a > 0 {
-                    let inv = 255 - a;
-                    self.buf[dst_idx] =
-                        ((data[src_idx] as u16 * a + self.buf[dst_idx] as u16 * inv) / 255) as u8;
-                    self.buf[dst_idx + 1] = ((data[src_idx + 1] as u16 * a
-                        + self.buf[dst_idx + 1] as u16 * inv)
-                        / 255) as u8;
-                    self.buf[dst_idx + 2] = ((data[src_idx + 2] as u16 * a
-                        + self.buf[dst_idx + 2] as u16 * inv)
-                        / 255) as u8;
-                    self.buf[dst_idx + 3] = 255;
+                if a == 0 {
+                    continue;
+                }
+                for dy in 0..s {
+                    for dx in 0..s {
+                        let px = pos.x + col * s + dx;
+                        let py = pos.y + row * s + dy;
+                        if px < clip.x
+                            || px >= clip.x + clip.w as i32
+                            || py < clip.y
+                            || py >= clip.y + clip.h as i32
+                        {
+                            continue;
+                        }
+                        let dst_idx = ((py as u32 * self.width + px as u32) * 4) as usize;
+                        if dst_idx + 3 >= self.buf.len() {
+                            continue;
+                        }
+                        if a == 255 {
+                            self.buf[dst_idx] = data[src_idx];
+                            self.buf[dst_idx + 1] = data[src_idx + 1];
+                            self.buf[dst_idx + 2] = data[src_idx + 2];
+                            self.buf[dst_idx + 3] = 255;
+                        } else {
+                            let inv = 255 - a;
+                            self.buf[dst_idx] = ((data[src_idx] as u16 * a
+                                + self.buf[dst_idx] as u16 * inv)
+                                / 255) as u8;
+                            self.buf[dst_idx + 1] = ((data[src_idx + 1] as u16 * a
+                                + self.buf[dst_idx + 1] as u16 * inv)
+                                / 255) as u8;
+                            self.buf[dst_idx + 2] = ((data[src_idx + 2] as u16 * a
+                                + self.buf[dst_idx + 2] as u16 * inv)
+                                / 255) as u8;
+                            self.buf[dst_idx + 3] = 255;
+                        }
+                    }
                 }
             }
         }

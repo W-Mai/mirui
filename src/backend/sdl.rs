@@ -17,6 +17,7 @@ pub struct SdlBackend {
     buf: Vec<u8>,
     width: u16,
     height: u16,
+    scale: u16,
 }
 
 impl SdlBackend {
@@ -26,21 +27,35 @@ impl SdlBackend {
         let window = video
             .window(title, width as u32, height as u32)
             .position_centered()
+            .allow_highdpi()
             .build()
             .expect("SDL2 window creation failed");
         let canvas = window.into_canvas().build().expect("SDL2 canvas failed");
         let texture_creator = canvas.texture_creator();
         let event_pump = sdl.event_pump().expect("SDL2 event pump failed");
-        let buf = vec![0u8; width as usize * height as usize * 4];
+
+        let (draw_w, _) = canvas.output_size().unwrap();
+        let scale = (draw_w as u16) / width;
+        let scale = if scale == 0 { 1 } else { scale };
+
+        // Physical pixel framebuffer
+        let phys_w = width * scale;
+        let phys_h = height * scale;
+        let buf = vec![0u8; phys_w as usize * phys_h as usize * 4];
 
         Self {
             canvas,
             texture_creator,
             event_pump,
             buf,
-            width,
-            height,
+            width: phys_w,
+            height: phys_h,
+            scale,
         }
+    }
+
+    pub fn scale_factor(&self) -> u16 {
+        self.scale
     }
 }
 
@@ -49,6 +64,7 @@ impl Backend for SdlBackend {
         DisplayInfo {
             width: self.width,
             height: self.height,
+            scale: self.scale,
         }
     }
 
@@ -57,6 +73,7 @@ impl Backend for SdlBackend {
     }
 
     fn flush(&mut self) {
+        sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "0");
         let mut texture = self
             .texture_creator
             .create_texture_streaming(
