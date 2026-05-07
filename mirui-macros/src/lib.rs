@@ -14,6 +14,7 @@ struct WidgetCmd {
     var: syn::Ident,
     attrs: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
+    errors: Vec<proc_macro2::TokenStream>,
     children: Vec<WidgetCmd>,
 }
 
@@ -44,9 +45,14 @@ impl MiruiRune {
 
     fn parse_attrs(
         attrs: &[DsAttr],
-    ) -> (Vec<proc_macro2::TokenStream>, Vec<proc_macro2::TokenStream>) {
+    ) -> (
+        Vec<proc_macro2::TokenStream>,
+        Vec<proc_macro2::TokenStream>,
+        Vec<proc_macro2::TokenStream>,
+    ) {
         let mut builder_calls = Vec::new();
         let mut layout_fields = Vec::new();
+        let mut errors = Vec::new();
 
         for attr in attrs {
             let name = attr.name.to_string();
@@ -64,10 +70,13 @@ impl MiruiRune {
                 "justify" => layout_fields.push(quote! { justify: #value }),
                 "align" => layout_fields.push(quote! { align: #value }),
                 "padding" => layout_fields.push(quote! { padding: #value }),
-                _ => {}
+                unknown => {
+                    let msg = format!("unknown widget attribute `{}`", unknown);
+                    errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
+                }
             }
         }
-        (builder_calls, layout_fields)
+        (builder_calls, layout_fields, errors)
     }
 
     /// Recursively generate code from a WidgetCmd tree (post-order).
@@ -75,11 +84,17 @@ impl MiruiRune {
         let var = &cmd.var;
         let attrs = &cmd.attrs;
         let layout_fields = &cmd.layout_fields;
+        let errors = &cmd.errors;
 
-        // First, emit all children (post-order)
         let mut tokens = proc_macro2::TokenStream::new();
-        let child_vars: Vec<&syn::Ident> = cmd.children.iter().map(|c| &c.var).collect();
 
+        // Emit errors first
+        for e in errors {
+            tokens.extend(e.clone());
+        }
+
+        // Emit children (post-order)
+        let child_vars: Vec<&syn::Ident> = cmd.children.iter().map(|c| &c.var).collect();
         for child in &cmd.children {
             tokens.extend(Self::emit(child, world));
         }
@@ -114,7 +129,7 @@ impl DsRune for MiruiRune {
 
     fn inscribe_widget(&mut self, _name: &syn::Ident, attrs: &[DsAttr], children: &[DsTreeRef]) {
         let var = self.next_var();
-        let (builder_calls, layout_fields) = Self::parse_attrs(attrs);
+        let (builder_calls, layout_fields, errors) = Self::parse_attrs(attrs);
 
         // Push new children level
         self.stack.push(Vec::new());
@@ -131,6 +146,7 @@ impl DsRune for MiruiRune {
             var,
             attrs: builder_calls,
             layout_fields,
+            errors,
             children: my_children,
         };
 
