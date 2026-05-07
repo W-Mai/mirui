@@ -6,7 +6,7 @@ use mirui::types::Color;
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::ui;
 
-fn header(world: &mut World, parent: Entity) {
+fn header(world: &mut World, parent: Entity) -> Entity {
     ui! {
         :(
             parent: parent
@@ -22,7 +22,7 @@ fn header(world: &mut World, parent: Entity) {
     }
 }
 
-fn button_row(world: &mut World, parent: Entity) {
+fn button_row(world: &mut World, parent: Entity) -> Entity {
     ui! {
         :(
             parent: parent
@@ -37,7 +37,7 @@ fn button_row(world: &mut World, parent: Entity) {
     }
 }
 
-fn footer(world: &mut World, parent: Entity) {
+fn footer(world: &mut World, parent: Entity) -> Entity {
     ui! {
         :(
             parent: parent

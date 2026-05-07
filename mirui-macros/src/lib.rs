@@ -9,21 +9,29 @@ use xrune::ds_node::{DsRoot, DsTreeRef};
 use xrune::ds_rune::DsRune;
 use xrune::ds_rune::decipher::decipher;
 
-/// A command node in the compile-time widget tree.
+enum Cmd {
+    Widget(WidgetCmd),
+    Iter(IterCmd),
+}
+
 struct WidgetCmd {
     var: syn::Ident,
     attrs: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
     errors: Vec<proc_macro2::TokenStream>,
-    children: Vec<WidgetCmd>,
+    children: Vec<Cmd>,
 }
 
-/// Intermediate tree built during DSL traversal.
+struct IterCmd {
+    iterable: proc_macro2::TokenStream,
+    variable: syn::Ident,
+    body: Vec<Cmd>,
+}
+
 struct MiruiRune {
     world_expr: proc_macro2::TokenStream,
     parent_expr: proc_macro2::TokenStream,
-    /// Stack of widget cmd trees being built. Last = current parent's children vec.
-    stack: Vec<Vec<WidgetCmd>>,
+    stack: Vec<Vec<Cmd>>,
     counter: usize,
 }
 
@@ -32,7 +40,7 @@ impl MiruiRune {
         Self {
             world_expr: quote! { __world },
             parent_expr: quote! { __parent },
-            stack: vec![Vec::new()], // root level
+            stack: vec![Vec::new()],
             counter: 0,
         }
     }
@@ -79,8 +87,20 @@ impl MiruiRune {
         (builder_calls, layout_fields, errors)
     }
 
-    /// Recursively generate code from a WidgetCmd tree (post-order).
-    fn emit(cmd: &WidgetCmd, world: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
+    /// Emit a Cmd, returning generated tokens.
+    /// `parent_var` is the variable name of the parent widget that children attach to.
+    fn emit_cmd(
+        cmd: &Cmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        match cmd {
+            Cmd::Widget(w) => Self::emit_widget(w, world),
+            Cmd::Iter(i) => Self::emit_iter(i, world, parent_var),
+        }
+    }
+
+    fn emit_widget(cmd: &WidgetCmd, world: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
         let var = &cmd.var;
         let attrs = &cmd.attrs;
         let layout_fields = &cmd.layout_fields;
@@ -88,18 +108,28 @@ impl MiruiRune {
 
         let mut tokens = proc_macro2::TokenStream::new();
 
-        // Emit errors first
         for e in errors {
             tokens.extend(e.clone());
         }
 
-        // Emit children (post-order)
-        let child_vars: Vec<&syn::Ident> = cmd.children.iter().map(|c| &c.var).collect();
+        // Emit static widget children first (post-order)
+        let var_ts = quote! { #var };
+        let mut child_vars = Vec::new();
+        let mut deferred_iters = Vec::new();
+
         for child in &cmd.children {
-            tokens.extend(Self::emit(child, world));
+            match child {
+                Cmd::Widget(w) => {
+                    tokens.extend(Self::emit_widget(w, world));
+                    child_vars.push(&w.var);
+                }
+                Cmd::Iter(_) => {
+                    deferred_iters.push(child);
+                }
+            }
         }
 
-        // Then create this widget
+        // Create this widget with static children
         let layout_call = if layout_fields.is_empty() {
             quote! {}
         } else {
@@ -117,40 +147,70 @@ impl MiruiRune {
                 .id();
         });
 
+        // Now emit iter children — they attach dynamically to this widget
+        for iter_cmd in deferred_iters {
+            tokens.extend(Self::emit_cmd(iter_cmd, world, &var_ts));
+        }
+
         tokens
+    }
+
+    fn emit_iter(
+        cmd: &IterCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let iterable = &cmd.iterable;
+        let variable = &cmd.variable;
+
+        // Generate loop body — each widget in body attaches to parent_var
+        let mut body_tokens = proc_macro2::TokenStream::new();
+        for child in &cmd.body {
+            body_tokens.extend(Self::emit_cmd(child, world, parent_var));
+            // Attach each top-level widget in loop body to parent
+            if let Cmd::Widget(w) = child {
+                let child_var = &w.var;
+                body_tokens.extend(quote! {
+                    {
+                        use mirui::widget::{Children, Parent};
+                        (#world).insert(#child_var, Parent(#parent_var));
+                        if let Some(children) = (#world).get_mut::<Children>(#parent_var) {
+                            children.0.push(#child_var);
+                        }
+                    }
+                });
+            }
+        }
+
+        quote! {
+            for #variable in #iterable {
+                #body_tokens
+            }
+        }
     }
 }
 
 impl DsRune for MiruiRune {
-    fn inscribe_root(&mut self, _parent_expr: &syn::Expr) {
-        // parent_expr is the UI parent node — we don't use it directly in codegen
-        // world_expr is set separately from context attrs
-    }
+    fn inscribe_root(&mut self, _parent_expr: &syn::Expr) {}
 
     fn inscribe_widget(&mut self, _name: &syn::Ident, attrs: &[DsAttr], children: &[DsTreeRef]) {
         let var = self.next_var();
         let (builder_calls, layout_fields, errors) = Self::parse_attrs(attrs);
 
-        // Push new children level
         self.stack.push(Vec::new());
-
-        // Process children
         for child in children {
             decipher(child, self);
         }
-
-        // Pop children
         let my_children = self.stack.pop().unwrap();
 
-        let cmd = WidgetCmd {
+        let cmd = Cmd::Widget(WidgetCmd {
             var,
             attrs: builder_calls,
             layout_fields,
             errors,
             children: my_children,
-        };
+        });
 
-        // Add to parent's children list
         self.stack.last_mut().unwrap().push(cmd);
     }
 
@@ -160,11 +220,23 @@ impl DsRune for MiruiRune {
 
     fn inscribe_iter(
         &mut self,
-        _iterable: &syn::Expr,
-        _variable: &syn::Ident,
-        _children: &[DsTreeRef],
+        iterable: &syn::Expr,
+        variable: &syn::Ident,
+        children: &[DsTreeRef],
     ) {
-        // TODO: iteration
+        self.stack.push(Vec::new());
+        for child in children {
+            decipher(child, self);
+        }
+        let body = self.stack.pop().unwrap();
+
+        let cmd = Cmd::Iter(IterCmd {
+            iterable: quote! { #iterable },
+            variable: variable.clone(),
+            body,
+        });
+
+        self.stack.last_mut().unwrap().push(cmd);
     }
 
     fn seal(self) -> proc_macro2::TokenStream {
@@ -174,24 +246,33 @@ impl DsRune for MiruiRune {
 
         let root_cmds = &self.stack[0];
         for cmd in root_cmds {
-            tokens.extend(Self::emit(cmd, world));
+            tokens.extend(Self::emit_cmd(cmd, world, parent_entity));
         }
 
-        // Attach top-level widgets to parent
+        // Attach top-level widgets to parent (iter attaches inside its own loop)
+        let mut last_var = None;
         for cmd in root_cmds {
-            let var = &cmd.var;
-            tokens.extend(quote! {
-                {
-                    use mirui::widget::{Children, Parent};
-                    #world.insert(#var, Parent(#parent_entity));
-                    if let Some(children) = #world.get_mut::<Children>(#parent_entity) {
-                        children.0.push(#var);
+            if let Cmd::Widget(w) = cmd {
+                let var = &w.var;
+                last_var = Some(var.clone());
+                tokens.extend(quote! {
+                    {
+                        use mirui::widget::{Children, Parent};
+                        (#world).insert(#var, Parent(#parent_entity));
+                        if let Some(children) = (#world).get_mut::<Children>(#parent_entity) {
+                            children.0.push(#var);
+                        }
                     }
-                }
-            });
+                });
+            }
         }
 
-        tokens
+        // Return the top-level widget entity
+        if let Some(var) = last_var {
+            quote! { { #tokens #var } }
+        } else {
+            quote! { { #tokens } }
+        }
     }
 }
 
@@ -200,7 +281,6 @@ pub fn ui(input: TokenStream) -> TokenStream {
     let root = parse_macro_input!(input as DsRoot);
     let mut rune = MiruiRune::new();
 
-    // Extract world from context attrs
     let context_attrs = root.get_context_attrs();
     if let Some(world_attr) = context_attrs.iter().find(|a| a.name == "world") {
         let world_expr = &world_attr.value;
@@ -211,7 +291,6 @@ pub fn ui(input: TokenStream) -> TokenStream {
             .into();
     }
 
-    // parent is the entity to attach top-level widgets to
     let parent = root.get_parent();
     rune.parent_expr = quote! { #parent };
 

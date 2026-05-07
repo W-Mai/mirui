@@ -49,6 +49,10 @@ required-features = ["sdl"]
 name = "dsl_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "walk_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true
