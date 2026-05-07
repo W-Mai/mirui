@@ -84,6 +84,9 @@ impl MiruiRune {
                 "justify" => layout_fields.push(quote! { justify: #value }),
                 "align" => layout_fields.push(quote! { align: #value }),
                 "padding" => layout_fields.push(quote! { padding: #value }),
+                "position" => layout_fields.push(quote! { position: #value }),
+                "left" => layout_fields.push(quote! { left: Some(#value) }),
+                "top" => layout_fields.push(quote! { top: Some(#value) }),
                 unknown => {
                     let msg = format!("unknown widget attribute `{}`", unknown);
                     errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
