@@ -4,9 +4,9 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::Rect;
+use crate::types::{Color, Point, Rect};
 
-use super::{Children, Style, Widget};
+use super::{Children, Style, Text, Widget};
 
 /// Recursively build a LayoutNode tree from ECS entities
 fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
@@ -60,6 +60,22 @@ fn draw_tree(
                         clip,
                     );
                 }
+            }
+            // Draw text if present
+            if let Some(text) = world.get::<Text>(entity) {
+                let color = style.text_color.unwrap_or(Color::rgb(255, 255, 255));
+                renderer.draw(
+                    &DrawCommand::Label {
+                        pos: Point {
+                            x: node.rect.x + 2,
+                            y: node.rect.y + 2,
+                        },
+                        text: &text.0,
+                        color,
+                        opa: 255,
+                    },
+                    clip,
+                );
             }
         }
     }

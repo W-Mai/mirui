@@ -16,8 +16,12 @@ pub struct Style {
     pub border_color: Option<Color>,
     pub border_width: u16,
     pub border_radius: u16,
+    pub text_color: Option<Color>,
     pub layout: LayoutStyle,
 }
+
+/// Text content component
+pub struct Text(pub alloc::vec::Vec<u8>);
 
 /// Parent-children relationship
 pub struct Children(pub Vec<crate::ecs::Entity>);

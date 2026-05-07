@@ -47,6 +47,21 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
+    pub fn text(self, t: &str) -> Self {
+        self.world.insert(
+            self.entity,
+            super::Text(alloc::vec::Vec::from(t.as_bytes())),
+        );
+        self
+    }
+
+    pub fn text_color(self, color: Color) -> Self {
+        if let Some(style) = self.world.get_mut::<Style>(self.entity) {
+            style.text_color = Some(color);
+        }
+        self
+    }
+
     pub fn child(self, child: Entity) -> Self {
         self.world.insert(child, Parent(self.entity));
         if let Some(children) = self.world.get_mut::<Children>(self.entity) {
