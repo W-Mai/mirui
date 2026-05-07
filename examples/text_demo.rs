@@ -13,14 +13,22 @@ fn main() {
         .border_radius(8)
         .text("Hello, mirui!")
         .text_color(Color::rgb(255, 255, 255))
-        .layout(LayoutStyle { width: Some(140), height: Some(40), ..Default::default() })
+        .layout(LayoutStyle {
+            width: Some(140),
+            height: Some(40),
+            ..Default::default()
+        })
         .id();
 
     let label2 = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(63, 185, 80))
         .border_radius(8)
         .text("ECS + Flexbox")
-        .layout(LayoutStyle { width: Some(140), height: Some(40), ..Default::default() })
+        .layout(LayoutStyle {
+            width: Some(140),
+            height: Some(40),
+            ..Default::default()
+        })
         .id();
 
     let label3 = WidgetBuilder::new(&mut app.world)
@@ -28,7 +36,11 @@ fn main() {
         .border(Color::rgb(255, 255, 255), 2)
         .border_radius(12)
         .text("no_std :)")
-        .layout(LayoutStyle { width: Some(140), height: Some(40), ..Default::default() })
+        .layout(LayoutStyle {
+            width: Some(140),
+            height: Some(40),
+            ..Default::default()
+        })
         .id();
 
     let root = WidgetBuilder::new(&mut app.world)

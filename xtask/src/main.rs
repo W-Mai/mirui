@@ -36,6 +36,7 @@ fn cmd_ci() -> Result {
         ("build", cmd_build as fn() -> Result),
         ("test", cmd_test),
         ("lint", cmd_lint),
+        ("examples", cmd_examples),
         ("size", cmd_size),
     ] {
         println!("\n=== xtask: {name} ===");
@@ -54,8 +55,19 @@ fn cmd_test() -> Result {
 }
 
 fn cmd_lint() -> Result {
-    cargo(&["clippy", "--workspace", "--", "-D", "warnings"])?;
+    cargo(&[
+        "clippy",
+        "--workspace",
+        "--all-features",
+        "--",
+        "-D",
+        "warnings",
+    ])?;
     cargo(&["fmt", "--all", "--check"])
+}
+
+fn cmd_examples() -> Result {
+    cargo(&["build", "--examples", "--all-features"])
 }
 
 fn cmd_size() -> Result {
@@ -140,6 +152,11 @@ fn cmd_release() -> Result {
     println!("  → releasing {tag}");
 
     run_cmd("git", &["push", "origin", "main"])?;
+
+    // Wait for CI to pass
+    println!("  → waiting for CI...");
+    wait_for_ci(&root)?;
+
     run_cmd("git", &["tag", &tag])?;
     run_cmd("git", &["push", "origin", &tag])?;
 
@@ -167,6 +184,59 @@ fn cmd_release() -> Result {
 
     println!("\n  🎉 released {tag}!");
     Ok(())
+}
+
+fn wait_for_ci(root: &str) -> Result {
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(root)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+
+    let timeout = std::time::Duration::from_secs(10 * 60);
+    let start = std::time::Instant::now();
+
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(15));
+
+        let output = Command::new("gh")
+            .args([
+                "run",
+                "list",
+                "--workflow",
+                "ci.yml",
+                "--limit",
+                "5",
+                "--json",
+                "status,conclusion,headSha",
+                "-q",
+                &format!(".[] | select(.headSha == \"{head}\") | [.status, .conclusion] | @tsv"),
+            ])
+            .current_dir(root)
+            .output()?;
+
+        let out = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if let Some(first) = out.lines().next() {
+            let parts: Vec<&str> = first.split('\t').collect();
+            let status = parts.first().copied().unwrap_or("");
+            let conclusion = parts.get(1).copied().unwrap_or("");
+
+            if status == "completed" {
+                if conclusion == "success" {
+                    println!("  ✅ CI passed");
+                    return Ok(());
+                } else {
+                    return Err(format!("CI failed: {conclusion}").into());
+                }
+            }
+            println!("    CI: {status}...");
+        }
+
+        if start.elapsed() > timeout {
+            return Err("CI timeout (10 min)".into());
+        }
+    }
 }
 
 // --- helpers ---
