@@ -26,6 +26,7 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
 pub struct World {
     allocator: EntityAllocator,
     storages: Vec<(TypeId, Box<dyn ComponentStorage>)>,
+    resources: Vec<(TypeId, Box<dyn Any>)>,
 }
 
 impl Default for World {
@@ -33,6 +34,7 @@ impl Default for World {
         Self {
             allocator: EntityAllocator::new(),
             storages: Vec::new(),
+            resources: Vec::new(),
         }
     }
 }
@@ -105,5 +107,30 @@ impl World {
             .as_any_mut()
             .downcast_mut::<SparseSet<T>>()
             .unwrap()
+    }
+
+    pub fn insert_resource<T: 'static>(&mut self, value: T) {
+        let type_id = TypeId::of::<T>();
+        if let Some(pos) = self.resources.iter().position(|(id, _)| *id == type_id) {
+            self.resources[pos].1 = Box::new(value);
+        } else {
+            self.resources.push((type_id, Box::new(value)));
+        }
+    }
+
+    pub fn resource<T: 'static>(&self) -> Option<&T> {
+        let type_id = TypeId::of::<T>();
+        self.resources
+            .iter()
+            .find(|(id, _)| *id == type_id)
+            .and_then(|(_, v)| v.downcast_ref::<T>())
+    }
+
+    pub fn resource_mut<T: 'static>(&mut self) -> Option<&mut T> {
+        let type_id = TypeId::of::<T>();
+        self.resources
+            .iter_mut()
+            .find(|(id, _)| *id == type_id)
+            .and_then(|(_, v)| v.downcast_mut::<T>())
     }
 }
