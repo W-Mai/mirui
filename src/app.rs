@@ -1,7 +1,7 @@
 use crate::backend::{Backend, InputEvent};
 use crate::components::button_system::button_system;
 use crate::draw::SwRenderer;
-use crate::ecs::{Entity, System, SystemScheduler, World};
+use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::types::Rect;
 use crate::widget::render_system;
@@ -16,8 +16,11 @@ pub struct App<B: Backend> {
 
 impl<B: Backend> App<B> {
     pub fn new(backend: B) -> Self {
+        let mut world = World::new();
+        world.insert_resource(DeltaTime(0.0));
+        world.insert_resource(ElapsedTime(0.0));
         Self {
-            world: World::new(),
+            world,
             backend,
             root: None,
             systems: SystemScheduler::new(),
