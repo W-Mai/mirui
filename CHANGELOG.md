@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2026-05-08
+
+### Added
+
+- HiDPI support — scale factor for SDL backend, font + image scaling
+- Dirty flag system — component-level partial refresh tracking
+- `render_region` — only redraw widgets intersecting dirty rect
+- Absolute positioning — `Position::Absolute` + `left`/`top`
+- System scheduler — `add_system` + `add_fn` (closure support)
+- World resource API — `insert_resource`/`resource`/`resource_mut`
+- `set_position` — automatic old+new dirty tracking with PrevRect
+- `Backend::flush(area)` — partial flush with region
+- `App::render_dirty` — automatic dirty rect detection in run loop
+- `DeltaTime`/`ElapsedTime` resources
+- DSL: `position`/`left`/`top` attributes
+- `Padding::all()` convenience constructor
+
+### Performance
+
+- ESP32-C3 partial refresh: 160fps (vs 60fps full-screen)
+
 ## [0.1.4] - 2026-05-07
 
 ### Added
