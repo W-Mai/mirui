@@ -27,6 +27,8 @@ fn main() {
         Color::rgb(255, 200, 50),
     ];
 
+    let show_footer = true;
+
     ui! {
         :(
             parent: root
@@ -36,6 +38,9 @@ fn main() {
         container (direction: FlexDirection::Column, grow: 1.0) {
             walk colors.iter() with color {
                 item (bg_color: *color, grow: 1.0, border_radius: 4) {}
+            }
+            if show_footer {
+                footer (bg_color: Color::rgb(50, 50, 70), height: 30, text: "conditional!") {}
             }
         }
     };

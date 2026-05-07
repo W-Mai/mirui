@@ -12,6 +12,7 @@ use xrune::ds_rune::decipher::decipher;
 enum Cmd {
     Widget(WidgetCmd),
     Iter(IterCmd),
+    If(IfCmd),
 }
 
 struct WidgetCmd {
@@ -25,6 +26,11 @@ struct WidgetCmd {
 struct IterCmd {
     iterable: proc_macro2::TokenStream,
     variable: syn::Ident,
+    body: Vec<Cmd>,
+}
+
+struct IfCmd {
+    condition: proc_macro2::TokenStream,
     body: Vec<Cmd>,
 }
 
@@ -97,6 +103,7 @@ impl MiruiRune {
         match cmd {
             Cmd::Widget(w) => Self::emit_widget(w, world),
             Cmd::Iter(i) => Self::emit_iter(i, world, parent_var),
+            Cmd::If(i) => Self::emit_if(i, world, parent_var),
         }
     }
 
@@ -123,7 +130,7 @@ impl MiruiRune {
                     tokens.extend(Self::emit_widget(w, world));
                     child_vars.push(&w.var);
                 }
-                Cmd::Iter(_) => {
+                Cmd::Iter(_) | Cmd::If(_) => {
                     deferred_iters.push(child);
                 }
             }
@@ -188,6 +195,37 @@ impl MiruiRune {
             }
         }
     }
+
+    fn emit_if(
+        cmd: &IfCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let condition = &cmd.condition;
+
+        let mut body_tokens = proc_macro2::TokenStream::new();
+        for child in &cmd.body {
+            body_tokens.extend(Self::emit_cmd(child, world, parent_var));
+            if let Cmd::Widget(w) = child {
+                let child_var = &w.var;
+                body_tokens.extend(quote! {
+                    {
+                        use mirui::widget::{Children, Parent};
+                        (#world).insert(#child_var, Parent(#parent_var));
+                        if let Some(children) = (#world).get_mut::<Children>(#parent_var) {
+                            children.0.push(#child_var);
+                        }
+                    }
+                });
+            }
+        }
+
+        quote! {
+            if #condition {
+                #body_tokens
+            }
+        }
+    }
 }
 
 impl DsRune for MiruiRune {
@@ -214,8 +252,19 @@ impl DsRune for MiruiRune {
         self.stack.last_mut().unwrap().push(cmd);
     }
 
-    fn inscribe_if(&mut self, _condition: &syn::Expr, _children: &[DsTreeRef]) {
-        // TODO: conditional rendering
+    fn inscribe_if(&mut self, condition: &syn::Expr, children: &[DsTreeRef]) {
+        self.stack.push(Vec::new());
+        for child in children {
+            decipher(child, self);
+        }
+        let body = self.stack.pop().unwrap();
+
+        let cmd = Cmd::If(IfCmd {
+            condition: quote! { #condition },
+            body,
+        });
+
+        self.stack.last_mut().unwrap().push(cmd);
     }
 
     fn inscribe_iter(
