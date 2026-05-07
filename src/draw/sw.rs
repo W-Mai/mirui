@@ -1,4 +1,4 @@
-use crate::types::{Color, Rect};
+use crate::types::{Color, Point, Rect};
 
 use super::command::DrawCommand;
 use super::renderer::Renderer;
@@ -206,6 +206,48 @@ impl<'a> SwRenderer<'a> {
             cx += CHAR_W as i32;
         }
     }
+
+    fn blit_rgba(&mut self, pos: &Point, data: &[u8], width: u16, height: u16, clip: &Rect) {
+        for row in 0..height as i32 {
+            for col in 0..width as i32 {
+                let px = pos.x + col;
+                let py = pos.y + row;
+                if px < clip.x
+                    || px >= clip.x + clip.w as i32
+                    || py < clip.y
+                    || py >= clip.y + clip.h as i32
+                {
+                    continue;
+                }
+                let src_idx = ((row * width as i32 + col) * 4) as usize;
+                if src_idx + 3 >= data.len() {
+                    break;
+                }
+                let dst_idx = ((py as u32 * self.width + px as u32) * 4) as usize;
+                if dst_idx + 3 >= self.buf.len() {
+                    break;
+                }
+                let a = data[src_idx + 3] as u16;
+                if a == 255 {
+                    self.buf[dst_idx] = data[src_idx];
+                    self.buf[dst_idx + 1] = data[src_idx + 1];
+                    self.buf[dst_idx + 2] = data[src_idx + 2];
+                    self.buf[dst_idx + 3] = 255;
+                } else if a > 0 {
+                    let inv = 255 - a;
+                    self.buf[dst_idx] =
+                        ((data[src_idx] as u16 * a + self.buf[dst_idx] as u16 * inv) / 255) as u8;
+                    self.buf[dst_idx + 1] = ((data[src_idx + 1] as u16 * a
+                        + self.buf[dst_idx + 1] as u16 * inv)
+                        / 255) as u8;
+                    self.buf[dst_idx + 2] = ((data[src_idx + 2] as u16 * a
+                        + self.buf[dst_idx + 2] as u16 * inv)
+                        / 255) as u8;
+                    self.buf[dst_idx + 3] = 255;
+                }
+            }
+        }
+    }
 }
 
 impl Renderer for SwRenderer<'_> {
@@ -235,6 +277,14 @@ impl Renderer for SwRenderer<'_> {
                 opa,
             } => {
                 self.draw_label(pos, text, clip, color, *opa);
+            }
+            DrawCommand::Blit {
+                pos,
+                data,
+                width,
+                height,
+            } => {
+                self.blit_rgba(pos, data, *width, *height, clip);
             }
             _ => {}
         }

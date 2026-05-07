@@ -1,5 +1,9 @@
 use alloc::vec::Vec;
 
+use crate::components::button::Button;
+use crate::components::checkbox::Checkbox;
+use crate::components::image::Image;
+use crate::components::progress_bar::ProgressBar;
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
@@ -36,7 +40,16 @@ fn draw_tree(
     if *idx < entities.len() {
         let entity = entities[*idx];
         if let Some(style) = world.get::<Style>(entity) {
-            if let Some(color) = style.bg_color {
+            // Button overrides bg_color with pressed state
+            let bg = if let Some(btn) = world.get::<Button>(entity) {
+                Some(btn.current_color())
+            } else if let Some(cb) = world.get::<Checkbox>(entity) {
+                Some(cb.current_color())
+            } else {
+                style.bg_color
+            };
+
+            if let Some(color) = bg {
                 renderer.draw(
                     &DrawCommand::Fill {
                         area: node.rect,
@@ -60,6 +73,50 @@ fn draw_tree(
                         clip,
                     );
                 }
+            }
+            // ProgressBar: draw track + fill
+            if let Some(pb) = world.get::<ProgressBar>(entity) {
+                renderer.draw(
+                    &DrawCommand::Fill {
+                        area: node.rect,
+                        color: pb.track_color,
+                        radius: style.border_radius,
+                        opa: 255,
+                    },
+                    clip,
+                );
+                let fill_w = ((node.rect.w as f32) * pb.value.clamp(0.0, 1.0)) as u16;
+                if fill_w > 0 {
+                    renderer.draw(
+                        &DrawCommand::Fill {
+                            area: Rect {
+                                x: node.rect.x,
+                                y: node.rect.y,
+                                w: fill_w,
+                                h: node.rect.h,
+                            },
+                            color: pb.fill_color,
+                            radius: style.border_radius,
+                            opa: 255,
+                        },
+                        clip,
+                    );
+                }
+            }
+            // Image: blit pixels
+            if let Some(img) = world.get::<Image>(entity) {
+                renderer.draw(
+                    &DrawCommand::Blit {
+                        pos: Point {
+                            x: node.rect.x,
+                            y: node.rect.y,
+                        },
+                        data: &img.data,
+                        width: img.width,
+                        height: img.height,
+                    },
+                    clip,
+                );
             }
             // Draw text if present
             if let Some(text) = world.get::<Text>(entity) {

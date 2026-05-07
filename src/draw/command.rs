@@ -36,4 +36,10 @@ pub enum DrawCommand<'a> {
         width: u16,
         opa: Opa,
     },
+    Blit {
+        pos: Point,
+        data: &'a [u8], // RGBA
+        width: u16,
+        height: u16,
+    },
 }

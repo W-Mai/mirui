@@ -4,6 +4,7 @@ extern crate alloc;
 
 pub mod app;
 pub mod backend;
+pub mod components;
 pub mod draw;
 pub mod ecs;
 pub mod event;
