@@ -15,6 +15,7 @@ pub struct Style {
     pub bg_color: Option<Color>,
     pub border_color: Option<Color>,
     pub border_width: u16,
+    pub border_radius: u16,
     pub layout: LayoutStyle,
 }
 

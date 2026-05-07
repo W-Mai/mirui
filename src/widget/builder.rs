@@ -32,6 +32,21 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
+    pub fn border(self, color: Color, width: u16) -> Self {
+        if let Some(style) = self.world.get_mut::<Style>(self.entity) {
+            style.border_color = Some(color);
+            style.border_width = width;
+        }
+        self
+    }
+
+    pub fn border_radius(self, radius: u16) -> Self {
+        if let Some(style) = self.world.get_mut::<Style>(self.entity) {
+            style.border_radius = radius;
+        }
+        self
+    }
+
     pub fn child(self, child: Entity) -> Self {
         self.world.insert(child, Parent(self.entity));
         if let Some(children) = self.world.get_mut::<Children>(self.entity) {

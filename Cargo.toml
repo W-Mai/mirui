@@ -33,6 +33,10 @@ sdl2 = "0.37"
 name = "app_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "click_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true

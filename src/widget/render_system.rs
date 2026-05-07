@@ -41,11 +41,25 @@ fn draw_tree(
                     &DrawCommand::Fill {
                         area: node.rect,
                         color,
-                        radius: 0,
+                        radius: style.border_radius,
                         opa: 255,
                     },
                     clip,
                 );
+            }
+            if let Some(border_color) = style.border_color {
+                if style.border_width > 0 {
+                    renderer.draw(
+                        &DrawCommand::Border {
+                            area: node.rect,
+                            color: border_color,
+                            width: style.border_width,
+                            radius: style.border_radius,
+                            opa: 255,
+                        },
+                        clip,
+                    );
+                }
             }
         }
     }
