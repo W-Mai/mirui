@@ -4,6 +4,9 @@ use alloc::vec::Vec;
 /// Dirty flag component — marks an entity as needing redraw
 pub struct Dirty;
 
+/// Stores the previous rect before a position change
+pub struct PrevRect(pub Rect);
+
 /// Tracks dirty regions for partial refresh
 #[derive(Default)]
 pub struct DirtyRegions {

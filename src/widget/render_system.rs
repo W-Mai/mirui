@@ -298,6 +298,27 @@ pub fn collect_dirty_region(
                     max_y = ry;
                 }
             }
+            // Include previous rect (old position) if present
+            if let Some(prev) = world.remove::<super::dirty::PrevRect>(entity) {
+                let pr = prev.0;
+                let s = scale as i32;
+                let px = pr.x * s;
+                let py = pr.y * s;
+                let pw = pr.w as i32 * s;
+                let ph = pr.h as i32 * s;
+                if px < min_x {
+                    min_x = px;
+                }
+                if py < min_y {
+                    min_y = py;
+                }
+                if px + pw > max_x {
+                    max_x = px + pw;
+                }
+                if py + ph > max_y {
+                    max_y = py + ph;
+                }
+            }
             world.remove::<Dirty>(entity);
         }
     }
