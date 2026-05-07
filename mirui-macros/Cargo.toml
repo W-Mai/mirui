@@ -6,7 +6,7 @@ authors = ["Benign X <1341398182@qq.com>"]
 license = "MIT"
 description = "Declarative UI DSL macro for mirui — powered by xrune"
 repository = "https://github.com/W-Mai/mirui"
-publish = false
+publish = true
 
 [lib]
 proc-macro = true
