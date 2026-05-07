@@ -81,18 +81,13 @@ mod tests {
 
     #[test]
     fn system_runs() {
-        struct DoubleSystem;
-        impl System for DoubleSystem {
-            fn run(&self, world: &mut World) {
-                let e = world.spawn();
-                world.insert(e, 42u32);
-            }
+        fn double_system(world: &mut World) {
+            let e = world.spawn();
+            world.insert(e, 42u32);
         }
 
         let mut world = World::new();
-        let sys = DoubleSystem;
-        sys.run(&mut world);
-        // world should have one entity with component
+        double_system(&mut world);
         let e = Entity {
             id: 0,
             generation: 0,

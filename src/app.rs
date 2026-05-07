@@ -1,7 +1,7 @@
 use crate::backend::{Backend, InputEvent};
 use crate::components::button_system::button_system;
 use crate::draw::SwRenderer;
-use crate::ecs::{Entity, World};
+use crate::ecs::{Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::types::Rect;
 use crate::widget::render_system;
@@ -11,6 +11,7 @@ pub struct App<B: Backend> {
     pub world: World,
     pub backend: B,
     pub root: Option<Entity>,
+    pub systems: SystemScheduler,
 }
 
 impl<B: Backend> App<B> {
@@ -19,7 +20,12 @@ impl<B: Backend> App<B> {
             world: World::new(),
             backend,
             root: None,
+            systems: SystemScheduler::new(),
         }
+    }
+
+    pub fn add_system(&mut self, system: System) {
+        self.systems.add(system);
     }
 
     pub fn set_root(&mut self, root: Entity) {
@@ -62,10 +68,12 @@ impl<B: Backend> App<B> {
         self.backend.poll_event()
     }
 
-    /// Simple run loop: render + poll until quit
+    /// Simple run loop: systems + render + poll until quit
     pub fn run(&mut self) {
         self.render();
         loop {
+            self.systems.run_all(&mut self.world);
+
             match self.poll_event() {
                 Some(InputEvent::Quit) => break,
                 Some(event) => {
@@ -74,10 +82,11 @@ impl<B: Backend> App<B> {
                         button_system(&mut self.world, root, &event, info.width, info.height);
                         dispatch(&self.world, root, &event, info.width, info.height);
                     }
-                    self.render();
                 }
                 None => {}
             }
+
+            self.render();
         }
     }
 }
