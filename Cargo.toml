@@ -37,6 +37,10 @@ required-features = ["sdl"]
 name = "click_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "rounded_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true

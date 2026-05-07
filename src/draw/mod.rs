@@ -1,4 +1,5 @@
 pub mod command;
+pub mod font;
 pub mod renderer;
 pub mod sw;
 

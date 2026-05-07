@@ -1,6 +1,6 @@
 use crate::types::{Color, Opa, Point, Rect};
 
-pub enum DrawCommand {
+pub enum DrawCommand<'a> {
     Fill {
         area: Rect,
         color: Color,
@@ -12,6 +12,12 @@ pub enum DrawCommand {
         color: Color,
         width: u16,
         radius: u16,
+        opa: Opa,
+    },
+    Label {
+        pos: Point,
+        text: &'a [u8],
+        color: Color,
         opa: Opa,
     },
     Line {

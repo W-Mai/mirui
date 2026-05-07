@@ -174,6 +174,38 @@ impl<'a> SwRenderer<'a> {
             }
         }
     }
+    fn draw_label(
+        &mut self,
+        pos: &crate::types::Point,
+        text: &[u8],
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        use super::font::{CHAR_H, CHAR_W, glyph};
+        let mut cx = pos.x;
+        let cy = pos.y;
+        for &ch in text {
+            let bitmap = glyph(ch);
+            for row in 0..CHAR_H as i32 {
+                let byte = bitmap[row as usize];
+                for col in 0..CHAR_W as i32 {
+                    if byte & (0x80 >> col) != 0 {
+                        let px = cx + col;
+                        let py = cy + row;
+                        if px >= clip.x
+                            && px < clip.x + clip.w as i32
+                            && py >= clip.y
+                            && py < clip.y + clip.h as i32
+                        {
+                            self.put_pixel(px, py, color, opa);
+                        }
+                    }
+                }
+            }
+            cx += CHAR_W as i32;
+        }
+    }
 }
 
 impl Renderer for SwRenderer<'_> {
@@ -195,6 +227,14 @@ impl Renderer for SwRenderer<'_> {
                 opa,
             } => {
                 self.draw_border(area, clip, color, *width, *radius, *opa);
+            }
+            DrawCommand::Label {
+                pos,
+                text,
+                color,
+                opa,
+            } => {
+                self.draw_label(pos, text, clip, color, *opa);
             }
             _ => {}
         }
