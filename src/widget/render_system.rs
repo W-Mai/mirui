@@ -8,7 +8,7 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::{Color, Point, Rect};
+use crate::types::{Color, Fixed, Point, Rect};
 
 use super::{Children, Style, Text, Widget};
 
@@ -29,10 +29,7 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
 }
 
 fn rects_intersect(a: &Rect, b: &Rect) -> bool {
-    a.x < b.x + b.w as i32
-        && a.x + a.w as i32 > b.x
-        && a.y < b.y + b.h as i32
-        && a.y + a.h as i32 > b.y
+    a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y
 }
 
 fn count_nodes(node: &LayoutNode) -> usize {
@@ -102,8 +99,8 @@ fn draw_tree(
                     },
                     clip,
                 );
-                let fill_w = ((node.rect.w as f32) * pb.value.clamp(0.0, 1.0)) as u16;
-                if fill_w > 0 {
+                let fill_w = Fixed::from_f32(node.rect.w.to_f32() * pb.value.clamp(0.0, 1.0));
+                if fill_w > Fixed::ZERO {
                     renderer.draw(
                         &DrawCommand::Fill {
                             area: Rect {
@@ -125,8 +122,8 @@ fn draw_tree(
                 renderer.draw(
                     &DrawCommand::Blit {
                         pos: Point {
-                            x: node.rect.x,
-                            y: node.rect.y,
+                            x: node.rect.x.to_int(),
+                            y: node.rect.y.to_int(),
                         },
                         data: &img.data,
                         width: img.width,
@@ -141,8 +138,8 @@ fn draw_tree(
                 renderer.draw(
                     &DrawCommand::Label {
                         pos: Point {
-                            x: node.rect.x + 2,
-                            y: node.rect.y + 2,
+                            x: node.rect.x.to_int() + 2,
+                            y: node.rect.y.to_int() + 2,
                         },
                         text: &text.0,
                         color,
@@ -169,21 +166,25 @@ fn draw_tree(
         if let Some(scroll) = world.get::<crate::components::scroll::ScrollOffset>(entity) {
             let cx = clip.x.max(node.rect.x);
             let cy = clip.y.max(node.rect.y);
-            let cx2 = (clip.x + clip.w as i32).min(node.rect.x + node.rect.w as i32);
-            let cy2 = (clip.y + clip.h as i32).min(node.rect.y + node.rect.h as i32);
+            let cx2 = (clip.x + clip.w).min(node.rect.x + node.rect.w);
+            let cy2 = (clip.y + clip.h).min(node.rect.y + node.rect.h);
             let new_clip = Rect {
                 x: cx,
                 y: cy,
-                w: (cx2 - cx).max(0) as u16,
-                h: (cy2 - cy).max(0) as u16,
+                w: if cx2 > cx { cx2 - cx } else { Fixed::ZERO },
+                h: if cy2 > cy { cy2 - cy } else { Fixed::ZERO },
             };
             let s = world
                 .resource::<crate::backend::DisplayInfo>()
                 .map(|d| d.scale as i32)
                 .unwrap_or(1);
-            (new_clip, scroll.x * s, scroll.y * s)
+            (
+                new_clip,
+                Fixed::from_int(scroll.x * s),
+                Fixed::from_int(scroll.y * s),
+            )
         } else {
-            (*clip, 0, 0)
+            (*clip, Fixed::ZERO, Fixed::ZERO)
         };
 
     for child in &node.children {
@@ -208,8 +209,8 @@ fn draw_tree_offset(
     idx: &mut usize,
     renderer: &mut dyn Renderer,
     clip: &Rect,
-    offset_x: i32,
-    offset_y: i32,
+    offset_x: Fixed,
+    offset_y: Fixed,
 ) {
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
@@ -269,8 +270,8 @@ fn draw_tree_offset(
                     },
                     clip,
                 );
-                let fill_w = ((shifted_rect.w as f32) * pb.value.clamp(0.0, 1.0)) as u16;
-                if fill_w > 0 {
+                let fill_w = Fixed::from_f32(shifted_rect.w.to_f32() * pb.value.clamp(0.0, 1.0));
+                if fill_w > Fixed::ZERO {
                     renderer.draw(
                         &DrawCommand::Fill {
                             area: Rect {
@@ -291,8 +292,8 @@ fn draw_tree_offset(
                 renderer.draw(
                     &DrawCommand::Blit {
                         pos: Point {
-                            x: shifted_rect.x,
-                            y: shifted_rect.y,
+                            x: shifted_rect.x.to_int(),
+                            y: shifted_rect.y.to_int(),
                         },
                         data: &img.data,
                         width: img.width,
@@ -306,8 +307,8 @@ fn draw_tree_offset(
                 renderer.draw(
                     &DrawCommand::Label {
                         pos: Point {
-                            x: shifted_rect.x + 2,
-                            y: shifted_rect.y + 2,
+                            x: shifted_rect.x.to_int() + 2,
+                            y: shifted_rect.y.to_int() + 2,
                         },
                         text: &text.0,
                         color,
@@ -333,27 +334,21 @@ fn draw_tree_offset(
         if let Some(scroll) = world.get::<crate::components::scroll::ScrollOffset>(cur_entity) {
             let cx = clip.x.max(shifted_rect.x);
             let cy = clip.y.max(shifted_rect.y);
-            let cx2 = (clip.x + clip.w as i32).min(shifted_rect.x + shifted_rect.w as i32);
-            let cy2 = (clip.y + clip.h as i32).min(shifted_rect.y + shifted_rect.h as i32);
+            let cx2 = (clip.x + clip.w).min(shifted_rect.x + shifted_rect.w);
+            let cy2 = (clip.y + clip.h).min(shifted_rect.y + shifted_rect.h);
+            let s = world
+                .resource::<crate::backend::DisplayInfo>()
+                .map(|d| d.scale as i32)
+                .unwrap_or(1);
             (
                 Rect {
                     x: cx,
                     y: cy,
-                    w: (cx2 - cx).max(0) as u16,
-                    h: (cy2 - cy).max(0) as u16,
+                    w: if cx2 > cx { cx2 - cx } else { Fixed::ZERO },
+                    h: if cy2 > cy { cy2 - cy } else { Fixed::ZERO },
                 },
-                offset_x
-                    + scroll.x
-                        * world
-                            .resource::<crate::backend::DisplayInfo>()
-                            .map(|d| d.scale as i32)
-                            .unwrap_or(1),
-                offset_y
-                    + scroll.y
-                        * world
-                            .resource::<crate::backend::DisplayInfo>()
-                            .map(|d| d.scale as i32)
-                            .unwrap_or(1),
+                offset_x + Fixed::from_int(scroll.x * s),
+                offset_y + Fixed::from_int(scroll.y * s),
             )
         } else {
             (*clip, offset_x, offset_y)
@@ -366,10 +361,10 @@ fn draw_tree_offset(
 
 fn scale_rects(node: &mut LayoutNode, scale: u16) {
     let s = scale as i32;
-    node.rect.x *= s;
-    node.rect.y *= s;
-    node.rect.w *= scale;
-    node.rect.h *= scale;
+    node.rect.x = node.rect.x * s;
+    node.rect.y = node.rect.y * s;
+    node.rect.w = node.rect.w * s;
+    node.rect.h = node.rect.h * s;
     for child in &mut node.children {
         scale_rects(child, scale);
     }
@@ -404,16 +399,22 @@ pub fn render(
         return;
     };
 
-    compute_layout(&mut layout_tree, 0, 0, logical_w, logical_h);
+    compute_layout(
+        &mut layout_tree,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        Fixed::from_int(logical_w as i32),
+        Fixed::from_int(logical_h as i32),
+    );
 
     // Scale all rects to physical pixels
     scale_rects(&mut layout_tree, scale);
 
     let clip = Rect {
-        x: 0,
-        y: 0,
-        w: screen_w,
-        h: screen_h,
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+        w: Fixed::from_int(screen_w as i32),
+        h: Fixed::from_int(screen_h as i32),
     };
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
@@ -431,7 +432,13 @@ pub fn update_layout(world: &mut World, root: Entity, screen_w: u16, screen_h: u
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
     };
-    compute_layout(&mut layout_tree, 0, 0, logical_w, logical_h);
+    compute_layout(
+        &mut layout_tree,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        Fixed::from_int(logical_w as i32),
+        Fixed::from_int(logical_h as i32),
+    );
 
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
@@ -473,7 +480,13 @@ pub fn render_region(
         return;
     };
 
-    compute_layout(&mut layout_tree, 0, 0, logical_w, logical_h);
+    compute_layout(
+        &mut layout_tree,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        Fixed::from_int(logical_w as i32),
+        Fixed::from_int(logical_h as i32),
+    );
     scale_rects(&mut layout_tree, scale);
 
     let mut entities = Vec::new();
@@ -506,43 +519,51 @@ pub fn collect_dirty_region(
     let logical_h = screen_h / scale;
 
     let mut layout_tree = build_layout_tree(world, root)?;
-    compute_layout(&mut layout_tree, 0, 0, logical_w, logical_h);
+    compute_layout(
+        &mut layout_tree,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        Fixed::from_int(logical_w as i32),
+        Fixed::from_int(logical_h as i32),
+    );
     scale_rects(&mut layout_tree, scale);
 
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
 
-    let mut min_x = screen_w as i32;
-    let mut min_y = screen_h as i32;
+    let mut min_x: i32 = screen_w as i32;
+    let mut min_y: i32 = screen_h as i32;
     let mut max_x: i32 = -1;
     let mut max_y: i32 = -1;
 
     for (i, &entity) in entities.iter().enumerate() {
         if world.get::<Dirty>(entity).is_some() {
             if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
-                if rect.x < min_x {
-                    min_x = rect.x;
+                let rx = rect.x.to_int();
+                let ry = rect.y.to_int();
+                let rw = rect.w.to_int();
+                let rh = rect.h.to_int();
+                if rx < min_x {
+                    min_x = rx;
                 }
-                if rect.y < min_y {
-                    min_y = rect.y;
+                if ry < min_y {
+                    min_y = ry;
                 }
-                let rx = rect.x + rect.w as i32;
-                let ry = rect.y + rect.h as i32;
-                if rx > max_x {
-                    max_x = rx;
+                if rx + rw > max_x {
+                    max_x = rx + rw;
                 }
-                if ry > max_y {
-                    max_y = ry;
+                if ry + rh > max_y {
+                    max_y = ry + rh;
                 }
             }
             // Include previous rect (old position) if present
             if let Some(prev) = world.remove::<super::dirty::PrevRect>(entity) {
                 let pr = prev.0;
                 let s = scale as i32;
-                let px = pr.x * s;
-                let py = pr.y * s;
-                let pw = pr.w as i32 * s;
-                let ph = pr.h as i32 * s;
+                let px = pr.x.to_int() * s;
+                let py = pr.y.to_int() * s;
+                let pw = pr.w.to_int() * s;
+                let ph = pr.h.to_int() * s;
                 if px < min_x {
                     min_x = px;
                 }
@@ -564,10 +585,10 @@ pub fn collect_dirty_region(
         None
     } else {
         Some(Rect {
-            x: min_x,
-            y: min_y,
-            w: (max_x - min_x) as u16,
-            h: (max_y - min_y) as u16,
+            x: Fixed::from_int(min_x),
+            y: Fixed::from_int(min_y),
+            w: Fixed::from_int(max_x - min_x),
+            h: Fixed::from_int(max_y - min_y),
         })
     }
 }

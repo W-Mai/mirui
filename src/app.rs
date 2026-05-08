@@ -4,7 +4,7 @@ use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, s
 use crate::draw::SwRenderer;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 use crate::widget::render_system;
 
 /// Main application entry point — ties World + Backend together
@@ -59,10 +59,10 @@ impl<B: Backend> App<B> {
             &mut renderer,
         );
         self.backend.flush(&Rect {
-            x: 0,
-            y: 0,
-            w: info.width,
-            h: info.height,
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(info.width as i32),
+            h: Fixed::from_int(info.height as i32),
         });
     }
 

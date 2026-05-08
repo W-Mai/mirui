@@ -1,4 +1,4 @@
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 use alloc::vec::Vec;
 
 /// Dirty flag component — marks an entity as needing redraw
@@ -40,26 +40,28 @@ impl DirtyRegions {
         let mut max_x = i32::MIN;
         let mut max_y = i32::MIN;
         for r in &self.rects {
-            if r.x < min_x {
-                min_x = r.x;
+            let rx = r.x.to_int();
+            let ry = r.y.to_int();
+            let rw = r.w.to_int();
+            let rh = r.h.to_int();
+            if rx < min_x {
+                min_x = rx;
             }
-            if r.y < min_y {
-                min_y = r.y;
+            if ry < min_y {
+                min_y = ry;
             }
-            let rx = r.x + r.w as i32;
-            let ry = r.y + r.h as i32;
-            if rx > max_x {
-                max_x = rx;
+            if rx + rw > max_x {
+                max_x = rx + rw;
             }
-            if ry > max_y {
-                max_y = ry;
+            if ry + rh > max_y {
+                max_y = ry + rh;
             }
         }
         Some(Rect {
-            x: min_x,
-            y: min_y,
-            w: (max_x - min_x) as u16,
-            h: (max_y - min_y) as u16,
+            x: Fixed::from_int(min_x),
+            y: Fixed::from_int(min_y),
+            w: Fixed::from_int(max_x - min_x),
+            h: Fixed::from_int(max_y - min_y),
         })
     }
 }

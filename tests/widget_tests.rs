@@ -62,10 +62,10 @@ mod tests {
         assert_eq!(
             recorder.commands[0].0,
             Rect {
-                x: 0,
-                y: 0,
-                w: 200,
-                h: 100
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(0),
+                w: Fixed::from_int(200),
+                h: Fixed::from_int(100)
             }
         );
         assert_eq!(recorder.commands[0].1, Color::rgb(0, 0, 0));
@@ -74,10 +74,10 @@ mod tests {
         assert_eq!(
             recorder.commands[1].0,
             Rect {
-                x: 0,
-                y: 0,
-                w: 50,
-                h: 50
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(0),
+                w: Fixed::from_int(50),
+                h: Fixed::from_int(50)
             }
         );
         assert_eq!(recorder.commands[1].1, Color::rgb(255, 0, 0));
@@ -122,8 +122,8 @@ mod tests {
         // Root has no bg_color, so only 2 commands for children
         assert_eq!(recorder.commands.len(), 2);
         // Each child gets half: 100px wide
-        assert_eq!(recorder.commands[0].0.w, 100);
-        assert_eq!(recorder.commands[1].0.w, 100);
-        assert_eq!(recorder.commands[1].0.x, 100);
+        assert_eq!(recorder.commands[0].0.w, Fixed::from_int(100));
+        assert_eq!(recorder.commands[1].0.w, Fixed::from_int(100));
+        assert_eq!(recorder.commands[1].0.x, Fixed::from_int(100));
     }
 }

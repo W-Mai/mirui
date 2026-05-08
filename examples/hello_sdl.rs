@@ -1,5 +1,5 @@
 use mirui::draw::{DrawCommand, Renderer, SwRenderer};
-use mirui::types::{Color, Rect};
+use mirui::types::{Color, Fixed, Rect};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
@@ -23,10 +23,10 @@ fn main() {
 
     let mut buf = vec![0u8; (W * H * 4) as usize];
     let clip = Rect {
-        x: 0,
-        y: 0,
-        w: W as u16,
-        h: H as u16,
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+        w: Fixed::from_int(W as i32),
+        h: Fixed::from_int(H as i32),
     };
 
     // Draw with mirui's SwRenderer
@@ -36,10 +36,10 @@ fn main() {
     renderer.draw(
         &DrawCommand::Fill {
             area: Rect {
-                x: 0,
-                y: 0,
-                w: W as u16,
-                h: H as u16,
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                w: Fixed::from_int(W as i32),
+                h: Fixed::from_int(H as i32),
             },
             color: Color::rgb(30, 30, 46),
             radius: 0,
@@ -52,10 +52,10 @@ fn main() {
     renderer.draw(
         &DrawCommand::Fill {
             area: Rect {
-                x: 40,
-                y: 40,
-                w: 200,
-                h: 120,
+                x: Fixed::from_int(40),
+                y: Fixed::from_int(40),
+                w: Fixed::from_int(200),
+                h: Fixed::from_int(120),
             },
             color: Color::rgb(88, 166, 255),
             radius: 0,
@@ -68,10 +68,10 @@ fn main() {
     renderer.draw(
         &DrawCommand::Fill {
             area: Rect {
-                x: 140,
-                y: 100,
-                w: 200,
-                h: 120,
+                x: Fixed::from_int(140),
+                y: Fixed::from_int(100),
+                w: Fixed::from_int(200),
+                h: Fixed::from_int(120),
             },
             color: Color::rgb(63, 185, 80),
             radius: 0,
@@ -84,10 +84,10 @@ fn main() {
     renderer.draw(
         &DrawCommand::Fill {
             area: Rect {
-                x: 240,
-                y: 160,
-                w: 200,
-                h: 120,
+                x: Fixed::from_int(240),
+                y: Fixed::from_int(160),
+                w: Fixed::from_int(200),
+                h: Fixed::from_int(120),
             },
             color: Color::rgb(248, 81, 73),
             radius: 0,

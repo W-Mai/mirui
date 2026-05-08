@@ -111,15 +111,21 @@ fn main() {
     root.add_child(top_row);
     root.add_child(bottom_row);
 
-    compute_layout(&mut root, 0, 0, W as u16, H as u16);
+    compute_layout(
+        &mut root,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        Fixed::from_int(W as i32),
+        Fixed::from_int(H as i32),
+    );
 
     // Render
     let mut buf = vec![0u8; (W * H * 4) as usize];
     let clip = Rect {
-        x: 0,
-        y: 0,
-        w: W as u16,
-        h: H as u16,
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+        w: Fixed::from_int(W as i32),
+        h: Fixed::from_int(H as i32),
     };
     let mut renderer = SwRenderer::new(&mut buf, W, H);
 

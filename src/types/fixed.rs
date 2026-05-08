@@ -52,16 +52,6 @@ impl Fixed {
     pub const fn abs(self) -> Self {
         if self.0 < 0 { Self(-self.0) } else { self }
     }
-
-    #[inline]
-    pub const fn max(self, other: Self) -> Self {
-        if self.0 > other.0 { self } else { other }
-    }
-
-    #[inline]
-    pub const fn min(self, other: Self) -> Self {
-        if self.0 < other.0 { self } else { other }
-    }
 }
 
 impl Add for Fixed {

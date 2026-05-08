@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::components::scroll::ScrollOffset;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 use crate::widget::{Children, Style, Widget};
 
 fn build_rects(
@@ -86,7 +86,13 @@ pub fn hit_test(
     let mut root_node = LayoutNode::new(root_style.layout);
     let mut entities = Vec::new();
     build_rects(world, root, &mut root_node, &mut entities);
-    compute_layout(&mut root_node, 0, 0, screen_w, screen_h);
+    compute_layout(
+        &mut root_node,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        Fixed::from_int(screen_w as i32),
+        Fixed::from_int(screen_h as i32),
+    );
 
     let mut rects = Vec::new();
     collect_rects(&root_node, &mut rects);
@@ -99,9 +105,11 @@ pub fn hit_test(
     for (i, rect) in rects.iter().enumerate() {
         let (sx, sy) = scroll_offsets[i];
         // Widget's visual position = layout position - scroll offset
-        let vx = rect.x - sx;
-        let vy = rect.y - sy;
-        if x >= vx && x < vx + rect.w as i32 && y >= vy && y < vy + rect.h as i32 {
+        let vx = rect.x.to_int() - sx;
+        let vy = rect.y.to_int() - sy;
+        let rw = rect.w.to_int();
+        let rh = rect.h.to_int();
+        if x >= vx && x < vx + rw && y >= vy && y < vy + rh {
             hit = Some(entities[i]);
         }
     }

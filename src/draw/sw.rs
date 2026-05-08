@@ -1,4 +1,4 @@
-use crate::types::{Color, Point, Rect};
+use crate::types::{Color, Fixed, Point, Rect};
 
 use super::command::DrawCommand;
 use super::renderer::Renderer;
@@ -81,10 +81,10 @@ impl<'a> SwRenderer<'a> {
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, opa: u8, radius: u16) {
         let screen = Rect {
-            x: 0,
-            y: 0,
-            w: self.width as u16,
-            h: self.height as u16,
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(self.width as i32),
+            h: Fixed::from_int(self.height as i32),
         };
         let Some(draw_area) = area.intersect(clip) else {
             return;
@@ -93,15 +93,24 @@ impl<'a> SwRenderer<'a> {
             return;
         };
 
-        let r = radius.min(area.w / 2).min(area.h / 2);
+        let area_x = area.x.to_int();
+        let area_y = area.y.to_int();
+        let area_w = area.w.to_int() as u16;
+        let area_h = area.h.to_int() as u16;
+        let da_x = draw_area.x.to_int();
+        let da_y = draw_area.y.to_int();
+        let da_w = draw_area.w.to_int();
+        let da_h = draw_area.h.to_int();
 
-        for row in 0..draw_area.h as i32 {
-            let y = draw_area.y + row;
-            let py = y - area.y; // relative to rect
-            for col in 0..draw_area.w as i32 {
-                let x = draw_area.x + col;
-                let px = x - area.x; // relative to rect
-                if r > 0 && !Self::is_in_rounded_rect(px, py, area.w, area.h, r) {
+        let r = radius.min(area_w / 2).min(area_h / 2);
+
+        for row in 0..da_h {
+            let y = da_y + row;
+            let py = y - area_y;
+            for col in 0..da_w {
+                let x = da_x + col;
+                let px = x - area_x;
+                if r > 0 && !Self::is_in_rounded_rect(px, py, area_w, area_h, r) {
                     continue;
                 }
                 self.put_pixel(x, y, color, opa);
@@ -119,10 +128,10 @@ impl<'a> SwRenderer<'a> {
         opa: u8,
     ) {
         let screen = Rect {
-            x: 0,
-            y: 0,
-            w: self.width as u16,
-            h: self.height as u16,
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(self.width as i32),
+            h: Fixed::from_int(self.height as i32),
         };
         let Some(draw_area) = area.intersect(clip) else {
             return;
@@ -131,18 +140,27 @@ impl<'a> SwRenderer<'a> {
             return;
         };
 
-        let r = radius.min(area.w / 2).min(area.h / 2);
+        let area_x = area.x.to_int();
+        let area_y = area.y.to_int();
+        let area_w = area.w.to_int() as u16;
+        let area_h = area.h.to_int() as u16;
+        let da_x = draw_area.x.to_int();
+        let da_y = draw_area.y.to_int();
+        let da_w = draw_area.w.to_int();
+        let da_h = draw_area.h.to_int();
+
+        let r = radius.min(area_w / 2).min(area_h / 2);
         let bw = width as i32;
 
-        for row in 0..draw_area.h as i32 {
-            let y = draw_area.y + row;
-            let py = y - area.y;
-            for col in 0..draw_area.w as i32 {
-                let x = draw_area.x + col;
-                let px = x - area.x;
+        for row in 0..da_h {
+            let y = da_y + row;
+            let py = y - area_y;
+            for col in 0..da_w {
+                let x = da_x + col;
+                let px = x - area_x;
 
                 // Must be inside outer rounded rect
-                if r > 0 && !Self::is_in_rounded_rect(px, py, area.w, area.h, r) {
+                if r > 0 && !Self::is_in_rounded_rect(px, py, area_w, area_h, r) {
                     continue;
                 }
 
@@ -152,13 +170,13 @@ impl<'a> SwRenderer<'a> {
                 } else {
                     0
                 };
-                let inner_w = if area.w as i32 > 2 * bw {
-                    area.w - 2 * width
+                let inner_w = if area_w as i32 > 2 * bw {
+                    area_w - 2 * width
                 } else {
                     0
                 };
-                let inner_h = if area.h as i32 > 2 * bw {
-                    area.h - 2 * width
+                let inner_h = if area_h as i32 > 2 * bw {
+                    area_h - 2 * width
                 } else {
                     0
                 };
@@ -190,6 +208,10 @@ impl<'a> SwRenderer<'a> {
     ) {
         use super::font::{CHAR_H, CHAR_W, glyph};
         let s = self.scale as i32;
+        let clip_x = clip.x.to_int();
+        let clip_y = clip.y.to_int();
+        let clip_x2 = clip_x + clip.w.to_int();
+        let clip_y2 = clip_y + clip.h.to_int();
         let mut cx = pos.x;
         let cy = pos.y;
         for &ch in text {
@@ -202,11 +224,7 @@ impl<'a> SwRenderer<'a> {
                             for dx in 0..s {
                                 let px = cx + col * s + dx;
                                 let py = cy + row * s + dy;
-                                if px >= clip.x
-                                    && px < clip.x + clip.w as i32
-                                    && py >= clip.y
-                                    && py < clip.y + clip.h as i32
-                                {
+                                if px >= clip_x && px < clip_x2 && py >= clip_y && py < clip_y2 {
                                     self.put_pixel(px, py, color, opa);
                                 }
                             }
@@ -220,6 +238,10 @@ impl<'a> SwRenderer<'a> {
 
     fn blit_rgba(&mut self, pos: &Point, data: &[u8], width: u16, height: u16, clip: &Rect) {
         let s = self.scale as i32;
+        let clip_x = clip.x.to_int();
+        let clip_y = clip.y.to_int();
+        let clip_x2 = clip_x + clip.w.to_int();
+        let clip_y2 = clip_y + clip.h.to_int();
         for row in 0..height as i32 {
             for col in 0..width as i32 {
                 let src_idx = ((row * width as i32 + col) * 4) as usize;
@@ -234,11 +256,7 @@ impl<'a> SwRenderer<'a> {
                     for dx in 0..s {
                         let px = pos.x + col * s + dx;
                         let py = pos.y + row * s + dy;
-                        if px < clip.x
-                            || px >= clip.x + clip.w as i32
-                            || py < clip.y
-                            || py >= clip.y + clip.h as i32
-                        {
+                        if px < clip_x || px >= clip_x2 || py < clip_y || py >= clip_y2 {
                             continue;
                         }
                         let dst_idx = ((py as u32 * self.width + px as u32) * 4) as usize;

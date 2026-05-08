@@ -12,28 +12,45 @@ pub struct Point {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect {
-    pub x: i32,
-    pub y: i32,
-    pub w: u16,
-    pub h: u16,
+    pub x: Fixed,
+    pub y: Fixed,
+    pub w: Fixed,
+    pub h: Fixed,
 }
 
 impl Rect {
+    pub const ZERO: Self = Self {
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+        w: Fixed::ZERO,
+        h: Fixed::ZERO,
+    };
+
     pub fn intersect(&self, other: &Rect) -> Option<Rect> {
         let x1 = self.x.max(other.x);
         let y1 = self.y.max(other.y);
-        let x2 = (self.x + self.w as i32).min(other.x + other.w as i32);
-        let y2 = (self.y + self.h as i32).min(other.y + other.h as i32);
+        let x2 = (self.x + self.w).min(other.x + other.w);
+        let y2 = (self.y + self.h).min(other.y + other.h);
         if x1 < x2 && y1 < y2 {
             Some(Rect {
                 x: x1,
                 y: y1,
-                w: (x2 - x1) as u16,
-                h: (y2 - y1) as u16,
+                w: x2 - x1,
+                h: y2 - y1,
             })
         } else {
             None
         }
+    }
+
+    /// Convert to integer pixel rect (for rendering)
+    pub fn to_px(&self) -> (i32, i32, u16, u16) {
+        (
+            self.x.to_int(),
+            self.y.to_int(),
+            self.w.to_int() as u16,
+            self.h.to_int() as u16,
+        )
     }
 }
 

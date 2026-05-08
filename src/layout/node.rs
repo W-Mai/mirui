@@ -81,12 +81,7 @@ impl LayoutNode {
         Self {
             style,
             children: Vec::new(),
-            rect: Rect {
-                x: 0,
-                y: 0,
-                w: 0,
-                h: 0,
-            },
+            rect: Rect::ZERO,
         }
     }
 

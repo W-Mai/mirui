@@ -22,24 +22,30 @@ mod tests {
             ..Default::default()
         }));
 
-        compute_layout(&mut root, 0, 0, 300, 100);
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(300),
+            Fixed::from_int(100),
+        );
 
         assert_eq!(
             root.children[0].rect,
             Rect {
-                x: 0,
-                y: 0,
-                w: 100,
-                h: 50
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(0),
+                w: Fixed::from_int(100),
+                h: Fixed::from_int(50)
             }
         );
         assert_eq!(
             root.children[1].rect,
             Rect {
-                x: 100,
-                y: 0,
-                w: 100,
-                h: 50
+                x: Fixed::from_int(100),
+                y: Fixed::from_int(0),
+                w: Fixed::from_int(100),
+                h: Fixed::from_int(50)
             }
         );
     }
@@ -63,24 +69,30 @@ mod tests {
             ..Default::default()
         }));
 
-        compute_layout(&mut root, 0, 0, 100, 200);
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(200),
+        );
 
         assert_eq!(
             root.children[0].rect,
             Rect {
-                x: 0,
-                y: 0,
-                w: 80,
-                h: 60
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(0),
+                w: Fixed::from_int(80),
+                h: Fixed::from_int(60)
             }
         );
         assert_eq!(
             root.children[1].rect,
             Rect {
-                x: 0,
-                y: 60,
-                w: 80,
-                h: 60
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(60),
+                w: Fixed::from_int(80),
+                h: Fixed::from_int(60)
             }
         );
     }
@@ -110,12 +122,18 @@ mod tests {
             ..Default::default()
         }));
 
-        compute_layout(&mut root, 0, 0, 300, 100);
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(300),
+            Fixed::from_int(100),
+        );
 
-        assert_eq!(root.children[0].rect.x, 0);
-        assert_eq!(root.children[2].rect.x, 250); // 300 - 50
+        assert_eq!(root.children[0].rect.x, Fixed::from_int(0));
+        assert_eq!(root.children[2].rect.x, Fixed::from_int(250)); // 300 - 50
         // middle should be centered: (300 - 150) / 2 = 75
-        assert_eq!(root.children[1].rect.x, 125);
+        assert_eq!(root.children[1].rect.x, Fixed::from_int(125));
     }
 
     #[test]
@@ -137,10 +155,16 @@ mod tests {
             ..Default::default()
         }));
 
-        compute_layout(&mut root, 0, 0, 300, 100);
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(300),
+            Fixed::from_int(100),
+        );
 
-        assert_eq!(root.children[0].rect.w, 100); // 1/3 of 300
-        assert_eq!(root.children[1].rect.w, 200); // 2/3 of 300
+        assert_eq!(root.children[0].rect.w, Fixed::from_int(100)); // 1/3 of 300
+        assert_eq!(root.children[1].rect.w, Fixed::from_int(200)); // 2/3 of 300
     }
 
     #[test]
@@ -158,10 +182,16 @@ mod tests {
             ..Default::default()
         }));
 
-        compute_layout(&mut root, 0, 0, 200, 100);
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(200),
+            Fixed::from_int(100),
+        );
 
         // centered: (100 - 30) / 2 = 35
-        assert_eq!(root.children[0].rect.y, 35);
+        assert_eq!(root.children[0].rect.y, Fixed::from_int(35));
     }
 
     #[test]
@@ -184,9 +214,15 @@ mod tests {
             ..Default::default()
         }));
 
-        compute_layout(&mut root, 0, 0, 200, 100);
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(200),
+            Fixed::from_int(100),
+        );
 
-        assert_eq!(root.children[0].rect.x, 10);
-        assert_eq!(root.children[0].rect.y, 10);
+        assert_eq!(root.children[0].rect.x, Fixed::from_int(10));
+        assert_eq!(root.children[0].rect.y, Fixed::from_int(10));
     }
 }

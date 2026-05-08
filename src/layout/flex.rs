@@ -2,19 +2,11 @@ use crate::types::{Fixed, Rect};
 
 use super::node::{AlignItems, FlexDirection, JustifyContent, LayoutNode, Position};
 
-pub fn compute_layout(node: &mut LayoutNode, x: i32, y: i32, available_w: u16, available_h: u16) {
-    let avail_w = Fixed::from_int(available_w as i32);
-    let avail_h = Fixed::from_int(available_h as i32);
-
+pub fn compute_layout(node: &mut LayoutNode, x: Fixed, y: Fixed, avail_w: Fixed, avail_h: Fixed) {
     let w = node.style.width.resolve(avail_w).unwrap_or(avail_w);
     let h = node.style.height.resolve(avail_h).unwrap_or(avail_h);
 
-    node.rect = Rect {
-        x,
-        y,
-        w: w.to_int() as u16,
-        h: h.to_int() as u16,
-    };
+    node.rect = Rect { x, y, w, h };
 
     if node.children.is_empty() {
         return;
@@ -27,8 +19,8 @@ pub fn compute_layout(node: &mut LayoutNode, x: i32, y: i32, available_w: u16, a
 
     let inner_w = (w - pad_l - pad_r).max(Fixed::ZERO);
     let inner_h = (h - pad_t - pad_b).max(Fixed::ZERO);
-    let inner_x = x + pad_l.to_int();
-    let inner_y = y + pad_t.to_int();
+    let inner_x = x + pad_l;
+    let inner_y = y + pad_t;
 
     let is_row = node.style.direction == FlexDirection::Row;
     let main_size = if is_row { inner_w } else { inner_h };
@@ -125,15 +117,10 @@ pub fn compute_layout(node: &mut LayoutNode, x: i32, y: i32, available_w: u16, a
     // Position children
     for (i, child) in node.children.iter_mut().enumerate() {
         if child.style.position == Position::Absolute {
-            let abs_x = x + child.style.left.resolve(w).unwrap_or(Fixed::ZERO).to_int();
-            let abs_y = y + child.style.top.resolve(h).unwrap_or(Fixed::ZERO).to_int();
-            let abs_w = child.style.width.resolve(w).unwrap_or(Fixed::ZERO).to_int() as u16;
-            let abs_h = child
-                .style
-                .height
-                .resolve(h)
-                .unwrap_or(Fixed::ZERO)
-                .to_int() as u16;
+            let abs_x = x + child.style.left.resolve(w).unwrap_or(Fixed::ZERO);
+            let abs_y = y + child.style.top.resolve(h).unwrap_or(Fixed::ZERO);
+            let abs_w = child.style.width.resolve(w).unwrap_or(Fixed::ZERO);
+            let abs_h = child.style.height.resolve(h).unwrap_or(Fixed::ZERO);
             compute_layout(child, abs_x, abs_y, abs_w, abs_h);
             continue;
         }
@@ -148,19 +135,9 @@ pub fn compute_layout(node: &mut LayoutNode, x: i32, y: i32, available_w: u16, a
         };
 
         let (cx, cy, cw, ch) = if is_row {
-            (
-                inner_x + (offset).to_int(),
-                inner_y + cross_offset.to_int(),
-                m.to_int() as u16,
-                c.to_int() as u16,
-            )
+            (inner_x + offset, inner_y + cross_offset, m, c)
         } else {
-            (
-                inner_x + cross_offset.to_int(),
-                inner_y + (offset).to_int(),
-                c.to_int() as u16,
-                m.to_int() as u16,
-            )
+            (inner_x + cross_offset, inner_y + offset, c, m)
         };
 
         compute_layout(child, cx, cy, cw, ch);

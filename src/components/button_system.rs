@@ -5,7 +5,7 @@ use crate::components::progress_bar::ProgressBar;
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 use crate::widget::dirty::Dirty;
 use crate::widget::{Children, Style, Widget};
 
@@ -27,8 +27,9 @@ pub fn button_system(
                 }
                 if world.get::<ProgressBar>(target).is_some() {
                     if let Some(r) = get_entity_rect(world, root, target, screen_w, screen_h) {
-                        if r.w > 0 {
-                            let ratio = ((*x - r.x) as f32) / (r.w as f32);
+                        let rw = r.w.to_int();
+                        if rw > 0 {
+                            let ratio = ((*x - r.x.to_int()) as f32) / (rw as f32);
                             if let Some(pb) = world.get_mut::<ProgressBar>(target) {
                                 pb.value = ratio.clamp(0.0, 1.0);
                             }
@@ -76,7 +77,13 @@ fn get_entity_rect(
     screen_h: u16,
 ) -> Option<Rect> {
     let mut tree = build_layout(world, root)?;
-    compute_layout(&mut tree, 0, 0, screen_w, screen_h);
+    compute_layout(
+        &mut tree,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        Fixed::from_int(screen_w as i32),
+        Fixed::from_int(screen_h as i32),
+    );
     let mut entities = alloc::vec::Vec::new();
     collect_preorder(world, root, &mut entities);
     let idx = entities.iter().position(|&e| e == target)?;

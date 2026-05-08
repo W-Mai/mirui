@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use mirui::draw::{DrawCommand, Renderer, SwRenderer};
-    use mirui::types::{Color, Rect};
+    use mirui::types::{Color, Fixed, Rect};
 
     #[test]
     fn fill_rect_opaque() {
@@ -9,20 +9,20 @@ mod tests {
         let mut r = SwRenderer::new(&mut buf, 10, 10);
         let cmd = DrawCommand::Fill {
             area: Rect {
-                x: 2,
-                y: 2,
-                w: 3,
-                h: 3,
+                x: Fixed::from_int(2),
+                y: Fixed::from_int(2),
+                w: Fixed::from_int(3),
+                h: Fixed::from_int(3),
             },
             color: Color::rgb(255, 0, 0),
             radius: 0,
             opa: 255,
         };
         let clip = Rect {
-            x: 0,
-            y: 0,
-            w: 10,
-            h: 10,
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(10),
+            h: Fixed::from_int(10),
         };
         r.draw(&cmd, &clip);
 
@@ -46,10 +46,10 @@ mod tests {
         let mut r = SwRenderer::new(&mut buf, 10, 10);
         let cmd = DrawCommand::Fill {
             area: Rect {
-                x: 0,
-                y: 0,
-                w: 10,
-                h: 10,
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                w: Fixed::from_int(10),
+                h: Fixed::from_int(10),
             },
             color: Color::rgb(0, 255, 0),
             radius: 0,
@@ -57,10 +57,10 @@ mod tests {
         };
         // clip to top-left 5x5
         let clip = Rect {
-            x: 0,
-            y: 0,
-            w: 5,
-            h: 5,
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(5),
+            h: Fixed::from_int(5),
         };
         r.draw(&cmd, &clip);
 
@@ -88,20 +88,20 @@ mod tests {
         let mut r = SwRenderer::new(&mut buf, 4, 4);
         let cmd = DrawCommand::Fill {
             area: Rect {
-                x: 0,
-                y: 0,
-                w: 4,
-                h: 4,
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                w: Fixed::from_int(4),
+                h: Fixed::from_int(4),
             },
             color: Color::rgb(0, 0, 0),
             radius: 0,
             opa: 128, // ~50% opacity
         };
         let clip = Rect {
-            x: 0,
-            y: 0,
-            w: 4,
-            h: 4,
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(4),
+            h: Fixed::from_int(4),
         };
         r.draw(&cmd, &clip);
 

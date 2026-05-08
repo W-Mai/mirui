@@ -1,4 +1,4 @@
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 
 /// Compare two framebuffers and return the minimal bounding rect of changed pixels.
 /// Returns None if no change.
@@ -39,10 +39,10 @@ pub fn dirty_rect(prev: &[u8], curr: &[u8], width: u16, height: u16) -> Option<R
         None
     } else {
         Some(Rect {
-            x: min_x,
-            y: min_y,
-            w: (max_x - min_x + 1) as u16,
-            h: (max_y - min_y + 1) as u16,
+            x: Fixed::from_int(min_x),
+            y: Fixed::from_int(min_y),
+            w: Fixed::from_int(max_x - min_x + 1),
+            h: Fixed::from_int(max_y - min_y + 1),
         })
     }
 }
@@ -50,9 +50,9 @@ pub fn dirty_rect(prev: &[u8], curr: &[u8], width: u16, height: u16) -> Option<R
 /// Extract a sub-region from an RGBA framebuffer into a contiguous buffer.
 pub fn extract_region(buf: &[u8], width: u16, rect: &Rect, out: &mut [u8]) {
     let stride = width as usize * 4;
-    let rw = rect.w as usize * 4;
-    for row in 0..rect.h as usize {
-        let src_y = (rect.y as usize + row) * stride + rect.x as usize * 4;
+    let rw = rect.w.to_int() as usize * 4;
+    for row in 0..rect.h.to_int() as usize {
+        let src_y = (rect.y.to_int() as usize + row) * stride + rect.x.to_int() as usize * 4;
         let dst_y = row * rw;
         out[dst_y..dst_y + rw].copy_from_slice(&buf[src_y..src_y + rw]);
     }

@@ -148,8 +148,8 @@ pub fn scroll_system(
             let config = world.get::<ScrollConfig>(target);
             let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
             let computed = world.get::<crate::widget::ComputedRect>(target);
-            let container_h = computed.map(|c| c.0.h as i32).unwrap_or(0);
-            let container_w = computed.map(|c| c.0.w as i32).unwrap_or(0);
+            let container_h = computed.map(|c| c.0.h.to_int()).unwrap_or(0);
+            let container_w = computed.map(|c| c.0.w.to_int()).unwrap_or(0);
             let content_h = config
                 .map(|c| c.content_height as i32)
                 .unwrap_or(container_h);
@@ -237,8 +237,8 @@ pub fn scroll_inertia_system(world: &mut World) {
         };
         let config = world.get::<crate::components::scroll::ScrollConfig>(target);
         let computed = world.get::<crate::widget::ComputedRect>(target);
-        let container_h = computed.map(|c| c.0.h as i32).unwrap_or(0);
-        let container_w = computed.map(|c| c.0.w as i32).unwrap_or(0);
+        let container_h = computed.map(|c| c.0.h.to_int()).unwrap_or(0);
+        let container_w = computed.map(|c| c.0.w.to_int()).unwrap_or(0);
         let content_h = config
             .map(|c| c.content_height as i32)
             .unwrap_or(container_h);
@@ -390,8 +390,8 @@ fn is_at_boundary(world: &World, entity: Entity, delta_x: i32, delta_y: i32) -> 
     };
     let config = world.get::<ScrollConfig>(entity);
     let computed = world.get::<crate::widget::ComputedRect>(entity);
-    let container_h = computed.map(|c| c.0.h as i32).unwrap_or(0);
-    let container_w = computed.map(|c| c.0.w as i32).unwrap_or(0);
+    let container_h = computed.map(|c| c.0.h.to_int()).unwrap_or(0);
+    let container_w = computed.map(|c| c.0.w.to_int()).unwrap_or(0);
     let content_h = config
         .map(|c| c.content_height as i32)
         .unwrap_or(container_h);
