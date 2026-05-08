@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-05-08
+
+### Added
+
+- Query API — `World::query::<T>().and::<U>().without::<V>().collect_into(&mut buf)`
+- Enchants — DSL `[expr, ...]` syntax for attaching arbitrary components
+- `WidgetBuilder::image()` + DSL `image:` attribute
+- ScrollView — `ScrollOffset` + `ScrollConfig` components
+- Scroll drag interaction with vsync
+- Inertia scrolling (velocity decay)
+- Elastic bounce (snap back to boundary)
+- Scroll chaining (direction-aware, boundary check at resolve time)
+- Elastic resistance (spring damping on overscroll drag)
+- `ComputedRect` — persist layout results to entities
+- `InputEvent::TouchMove`
+- Nested scroll demo
+- Full README rewrite
+
 ## [0.1.5] - 2026-05-08
 
 ### Added
