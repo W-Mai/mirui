@@ -27,9 +27,9 @@ pub fn button_system(
                 }
                 if world.get::<ProgressBar>(target).is_some() {
                     if let Some(r) = get_entity_rect(world, root, target, screen_w, screen_h) {
-                        let rw = r.w.to_int();
-                        if rw > 0 {
-                            let ratio = ((*x - r.x.to_int()) as f32) / (rw as f32);
+                        let rw = r.w;
+                        if rw > Fixed::ZERO {
+                            let ratio = (*x - r.x).to_f32() / rw.to_f32();
                             if let Some(pb) = world.get_mut::<ProgressBar>(target) {
                                 pb.value = ratio.clamp(0.0, 1.0);
                             }

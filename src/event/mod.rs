@@ -4,13 +4,14 @@ pub mod hit_test;
 use alloc::boxed::Box;
 
 use crate::ecs::Entity;
+use crate::types::Fixed;
 
 /// Events that widgets can receive
 #[derive(Clone, Debug)]
 pub enum WidgetEvent {
-    Click { x: i32, y: i32 },
-    TouchDown { x: i32, y: i32 },
-    TouchUp { x: i32, y: i32 },
+    Click { x: Fixed, y: Fixed },
+    TouchDown { x: Fixed, y: Fixed },
+    TouchUp { x: Fixed, y: Fixed },
 }
 
 type EventCallback = Box<dyn Fn(Entity, &WidgetEvent) + Send>;

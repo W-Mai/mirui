@@ -45,7 +45,10 @@ mod tests {
         dispatch(
             &world,
             root,
-            &InputEvent::Release { x: 50, y: 50 },
+            &InputEvent::Release {
+                x: 50.into(),
+                y: 50.into(),
+            },
             200,
             200,
         );
@@ -88,7 +91,10 @@ mod tests {
         dispatch(
             &world,
             root,
-            &InputEvent::Release { x: 150, y: 150 },
+            &InputEvent::Release {
+                x: 150.into(),
+                y: 150.into(),
+            },
             200,
             200,
         );
@@ -139,7 +145,10 @@ mod tests {
         dispatch(
             &world,
             root,
-            &InputEvent::Release { x: 25, y: 25 },
+            &InputEvent::Release {
+                x: 25.into(),
+                y: 25.into(),
+            },
             200,
             200,
         );

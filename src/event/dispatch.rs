@@ -8,10 +8,7 @@ use super::{EventHandler, WidgetEvent};
 pub fn dispatch(world: &World, root: Entity, event: &InputEvent, screen_w: u16, screen_h: u16) {
     let (widget_event, x, y) = match event {
         InputEvent::Touch { x, y } => (WidgetEvent::TouchDown { x: *x, y: *y }, *x, *y),
-        InputEvent::Release { x, y } => {
-            // Release at same position = Click
-            (WidgetEvent::Click { x: *x, y: *y }, *x, *y)
-        }
+        InputEvent::Release { x, y } => (WidgetEvent::Click { x: *x, y: *y }, *x, *y),
         _ => return,
     };
 

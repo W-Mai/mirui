@@ -10,12 +10,12 @@ pub struct ScrollDragState {
     pub resolved: bool,
     pub target: Entity,
     pub hit_entity: Entity,
-    pub start_x: i32,
-    pub start_y: i32,
-    pub last_x: i32,
-    pub last_y: i32,
-    pub vel_x: i32,
-    pub vel_y: i32,
+    pub start_x: Fixed,
+    pub start_y: Fixed,
+    pub last_x: Fixed,
+    pub last_y: Fixed,
+    pub vel_x: Fixed,
+    pub vel_y: Fixed,
 }
 
 impl Default for ScrollDragState {
@@ -29,17 +29,17 @@ impl Default for ScrollDragState {
             resolved: false,
             target: null,
             hit_entity: null,
-            start_x: 0,
-            start_y: 0,
-            last_x: 0,
-            last_y: 0,
-            vel_x: 0,
-            vel_y: 0,
+            start_x: Fixed::ZERO,
+            start_y: Fixed::ZERO,
+            last_x: Fixed::ZERO,
+            last_y: Fixed::ZERO,
+            vel_x: Fixed::ZERO,
+            vel_y: Fixed::ZERO,
         }
     }
 }
 
-const DIRECTION_THRESHOLD: i32 = 5;
+const DIRECTION_THRESHOLD: Fixed = Fixed::from_int(5);
 
 pub fn scroll_system(
     world: &mut World,
@@ -63,8 +63,8 @@ pub fn scroll_system(
                 state.start_y = *y;
                 state.last_x = *x;
                 state.last_y = *y;
-                state.vel_x = 0;
-                state.vel_y = 0;
+                state.vel_x = Fixed::ZERO;
+                state.vel_y = Fixed::ZERO;
             }
         }
         InputEvent::TouchMove { x, y } => {
@@ -163,20 +163,16 @@ pub fn scroll_system(
             if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
                 match dir {
                     ScrollAxis::Vertical => {
-                        let eff_dy =
-                            elastic_resist(scroll.y, Fixed::from_int(-dy), Fixed::from_int(max_y));
+                        let eff_dy = elastic_resist(scroll.y, -dy, Fixed::from_int(max_y));
                         scroll.y += eff_dy;
                     }
                     ScrollAxis::Horizontal => {
-                        let eff_dx =
-                            elastic_resist(scroll.x, Fixed::from_int(-dx), Fixed::from_int(max_x));
+                        let eff_dx = elastic_resist(scroll.x, -dx, Fixed::from_int(max_x));
                         scroll.x += eff_dx;
                     }
                     ScrollAxis::Both => {
-                        let eff_dx =
-                            elastic_resist(scroll.x, Fixed::from_int(-dx), Fixed::from_int(max_x));
-                        let eff_dy =
-                            elastic_resist(scroll.y, Fixed::from_int(-dy), Fixed::from_int(max_y));
+                        let eff_dx = elastic_resist(scroll.x, -dx, Fixed::from_int(max_x));
+                        let eff_dy = elastic_resist(scroll.y, -dy, Fixed::from_int(max_y));
                         scroll.x += eff_dx;
                         scroll.y += eff_dy;
                     }
@@ -191,12 +187,12 @@ pub fn scroll_system(
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 match dir {
                     ScrollAxis::Vertical => {
-                        state.vel_x = 0;
+                        state.vel_x = Fixed::ZERO;
                         state.vel_y = -dy;
                     }
                     ScrollAxis::Horizontal => {
                         state.vel_x = -dx;
-                        state.vel_y = 0;
+                        state.vel_y = Fixed::ZERO;
                     }
                     ScrollAxis::Both => {
                         state.vel_x = -dx;
@@ -273,12 +269,20 @@ pub fn scroll_inertia_system(world: &mut World) {
         match dir {
             ScrollAxis::Vertical | ScrollAxis::Both => {
                 if offset_y < 0 {
-                    let diff = 0 - offset_y;
-                    new_vel_y = if diff.abs() <= 3 { diff } else { diff / 3 };
+                    let diff = Fixed::from_int(-offset_y);
+                    new_vel_y = if diff.abs() <= Fixed::from_int(3) {
+                        diff
+                    } else {
+                        diff / 3
+                    };
                     bouncing = true;
                 } else if offset_y > max_y {
-                    let diff = max_y - offset_y;
-                    new_vel_y = if diff.abs() <= 3 { diff } else { diff / 3 };
+                    let diff = Fixed::from_int(max_y - offset_y);
+                    new_vel_y = if diff.abs() <= Fixed::from_int(3) {
+                        diff
+                    } else {
+                        diff / 3
+                    };
                     bouncing = true;
                 }
             }
@@ -287,12 +291,20 @@ pub fn scroll_inertia_system(world: &mut World) {
         match dir {
             ScrollAxis::Horizontal | ScrollAxis::Both => {
                 if offset_x < 0 {
-                    let diff = 0 - offset_x;
-                    new_vel_x = if diff.abs() <= 3 { diff } else { diff / 3 };
+                    let diff = Fixed::from_int(-offset_x);
+                    new_vel_x = if diff.abs() <= Fixed::from_int(3) {
+                        diff
+                    } else {
+                        diff / 3
+                    };
                     bouncing = true;
                 } else if offset_x > max_x {
-                    let diff = max_x - offset_x;
-                    new_vel_x = if diff.abs() <= 3 { diff } else { diff / 3 };
+                    let diff = Fixed::from_int(max_x - offset_x);
+                    new_vel_x = if diff.abs() <= Fixed::from_int(3) {
+                        diff
+                    } else {
+                        diff / 3
+                    };
                     bouncing = true;
                 }
             }
@@ -300,30 +312,30 @@ pub fn scroll_inertia_system(world: &mut World) {
         }
     }
 
-    if new_vel_x == 0 && new_vel_y == 0 {
+    if new_vel_x == Fixed::ZERO && new_vel_y == Fixed::ZERO {
         return;
     }
 
     // Apply velocity
     if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
-        scroll.x += Fixed::from_int(new_vel_x);
-        scroll.y += Fixed::from_int(new_vel_y);
+        scroll.x += new_vel_x;
+        scroll.y += new_vel_y;
     }
     world.insert(target, crate::widget::dirty::Dirty);
 
     // Decay velocity
     if let Some(state) = world.resource_mut::<ScrollDragState>() {
         if bouncing {
-            state.vel_x = 0;
-            state.vel_y = 0;
+            state.vel_x = Fixed::ZERO;
+            state.vel_y = Fixed::ZERO;
         } else {
             state.vel_x = new_vel_x * 9 / 10;
             state.vel_y = new_vel_y * 9 / 10;
-            if state.vel_x.abs() < 1 {
-                state.vel_x = 0;
+            if state.vel_x.abs() < Fixed::ONE {
+                state.vel_x = Fixed::ZERO;
             }
-            if state.vel_y.abs() < 1 {
-                state.vel_y = 0;
+            if state.vel_y.abs() < Fixed::ONE {
+                state.vel_y = Fixed::ZERO;
             }
         }
     }
@@ -333,8 +345,8 @@ fn find_scroll_target_for_direction(
     world: &World,
     start: Entity,
     gesture_dir: ScrollAxis,
-    delta_x: i32,
-    delta_y: i32,
+    delta_x: Fixed,
+    delta_y: Fixed,
 ) -> Option<Entity> {
     let mut current = start;
     let mut last_matching: Option<Entity> = None;
@@ -397,7 +409,7 @@ fn elastic_resist(offset: Fixed, delta: Fixed, max: Fixed) -> Fixed {
     }
     delta * DAMPING / resistance_denom
 }
-fn is_at_boundary(world: &World, entity: Entity, delta_x: i32, delta_y: i32) -> bool {
+fn is_at_boundary(world: &World, entity: Entity, delta_x: Fixed, delta_y: Fixed) -> bool {
     let Some(scroll) = world.get::<ScrollOffset>(entity) else {
         return false;
     };
@@ -414,8 +426,10 @@ fn is_at_boundary(world: &World, entity: Entity, delta_x: i32, delta_y: i32) -> 
     let max_y = Fixed::from_int((content_h - container_h).max(0));
     let max_x = Fixed::from_int((content_w - container_w).max(0));
 
-    let at_y = (scroll.y <= Fixed::ZERO && delta_y < 0) || (scroll.y >= max_y && delta_y > 0);
-    let at_x = (scroll.x <= Fixed::ZERO && delta_x < 0) || (scroll.x >= max_x && delta_x > 0);
+    let at_y = (scroll.y <= Fixed::ZERO && delta_y < Fixed::ZERO)
+        || (scroll.y >= max_y && delta_y > Fixed::ZERO);
+    let at_x = (scroll.x <= Fixed::ZERO && delta_x < Fixed::ZERO)
+        || (scroll.x >= max_x && delta_x > Fixed::ZERO);
 
     let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
     match dir {

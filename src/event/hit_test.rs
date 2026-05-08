@@ -77,8 +77,8 @@ fn compute_scroll_recursive(
 pub fn hit_test(
     world: &World,
     root: Entity,
-    x: i32,
-    y: i32,
+    x: Fixed,
+    y: Fixed,
     screen_w: u16,
     screen_h: u16,
 ) -> Option<Entity> {
@@ -105,10 +105,10 @@ pub fn hit_test(
     for (i, rect) in rects.iter().enumerate() {
         let (sx, sy) = scroll_offsets[i];
         // Widget's visual position = layout position - scroll offset
-        let vx = rect.x.to_int() - sx;
-        let vy = rect.y.to_int() - sy;
-        let rw = rect.w.to_int();
-        let rh = rect.h.to_int();
+        let vx = rect.x - Fixed::from_int(sx);
+        let vy = rect.y - Fixed::from_int(sy);
+        let rw = rect.w;
+        let rh = rect.h;
         if x >= vx && x < vx + rw && y >= vy && y < vy + rh {
             hit = Some(entities[i]);
         }

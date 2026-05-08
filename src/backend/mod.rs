@@ -2,7 +2,7 @@ pub mod framebuf;
 #[cfg(feature = "sdl")]
 pub mod sdl;
 
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 
 /// Display information
 pub struct DisplayInfo {
@@ -14,9 +14,9 @@ pub struct DisplayInfo {
 /// Input event from the platform
 #[derive(Clone, Debug)]
 pub enum InputEvent {
-    Touch { x: i32, y: i32 },
-    TouchMove { x: i32, y: i32 },
-    Release { x: i32, y: i32 },
+    Touch { x: Fixed, y: Fixed },
+    TouchMove { x: Fixed, y: Fixed },
+    Release { x: Fixed, y: Fixed },
     Key { code: u32, pressed: bool },
     Quit,
 }

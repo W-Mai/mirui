@@ -103,15 +103,24 @@ impl Backend for SdlBackend {
                     ..
                 } => return Some(InputEvent::Quit),
                 Event::MouseButtonDown { x, y, .. } => {
-                    return Some(InputEvent::Touch { x, y });
+                    return Some(InputEvent::Touch {
+                        x: x.into(),
+                        y: y.into(),
+                    });
                 }
                 Event::MouseButtonUp { x, y, .. } => {
-                    return Some(InputEvent::Release { x, y });
+                    return Some(InputEvent::Release {
+                        x: x.into(),
+                        y: y.into(),
+                    });
                 }
                 Event::MouseMotion {
                     x, y, mousestate, ..
                 } if mousestate.left() => {
-                    return Some(InputEvent::TouchMove { x, y });
+                    return Some(InputEvent::TouchMove {
+                        x: x.into(),
+                        y: y.into(),
+                    });
                 }
                 _ => {}
             }
