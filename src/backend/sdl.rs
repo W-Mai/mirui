@@ -110,10 +110,8 @@ impl Backend for SdlBackend {
                 }
                 Event::MouseMotion {
                     x, y, mousestate, ..
-                } => {
-                    if mousestate.left() {
-                        return Some(InputEvent::TouchMove { x, y });
-                    }
+                } if mousestate.left() => {
+                    return Some(InputEvent::TouchMove { x, y });
                 }
                 _ => {}
             }
