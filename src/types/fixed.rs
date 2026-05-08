@@ -65,6 +65,20 @@ impl Fixed {
     pub const fn abs(self) -> Self {
         if self.0 < 0 { Self(-self.0) } else { self }
     }
+
+    /// Square root
+    pub fn sqrt(self) -> Self {
+        if self.0 <= 0 {
+            return Self::ZERO;
+        }
+        let mut x = self.0 as u32;
+        let mut y = x.div_ceil(2);
+        while y < x {
+            x = y;
+            y = (x + self.0 as u32 / x) / 2;
+        }
+        Self(x as i32)
+    }
 }
 
 impl Add for Fixed {

@@ -3,20 +3,6 @@ use crate::types::{Color, Fixed, Point, Rect};
 use super::command::DrawCommand;
 use super::renderer::Renderer;
 
-/// Integer square root (for Fixed raw values)
-fn isqrt_fixed(n: i32) -> i32 {
-    if n <= 0 {
-        return 0;
-    }
-    let mut x = n as u32;
-    let mut y = x.div_ceil(2);
-    while y < x {
-        x = y;
-        y = (x + n as u32 / x) / 2;
-    }
-    x as i32
-}
-
 pub struct SwRenderer<'a> {
     buf: &'a mut [u8],
     width: u32,
@@ -93,7 +79,7 @@ impl<'a> SwRenderer<'a> {
         } else {
             // Anti-alias: compute how far outside we are (in pixels)
             // Use linear falloff over 1px transition band
-            let dist = Fixed::from_raw(isqrt_fixed(dist_sq.raw()));
+            let dist = dist_sq.sqrt();
             let overshoot = dist - r;
             if overshoot >= Fixed::ONE {
                 Fixed::ZERO
