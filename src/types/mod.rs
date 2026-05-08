@@ -1,3 +1,7 @@
+pub mod fixed;
+
+pub use fixed::Fixed;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point {
     pub x: i32,
