@@ -43,6 +43,10 @@ impl<B: Backend> App<B> {
     pub fn render(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
+
+        // Update layout → write ComputedRect to entities
+        render_system::update_layout(&mut self.world, root, info.width, info.height, info.scale);
+
         let buf = self.backend.framebuffer();
         let mut renderer = SwRenderer::new(buf, info.width as u32, info.height as u32);
         renderer.scale = info.scale;

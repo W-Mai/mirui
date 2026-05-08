@@ -100,10 +100,15 @@ pub fn scroll_inertia_system(world: &mut World) {
             return;
         };
         let config = world.get::<crate::components::scroll::ScrollConfig>(target);
-        let container_h = config.map(|c| c.viewport_height as i32).unwrap_or(0);
-        let container_w = config.map(|c| c.viewport_width as i32).unwrap_or(0);
-        let content_h = config.map(|c| c.content_height as i32).unwrap_or(0);
-        let content_w = config.map(|c| c.content_width as i32).unwrap_or(0);
+        let computed = world.get::<crate::widget::ComputedRect>(target);
+        let container_h = computed.map(|c| c.0.h as i32).unwrap_or(0);
+        let container_w = computed.map(|c| c.0.w as i32).unwrap_or(0);
+        let content_h = config
+            .map(|c| c.content_height as i32)
+            .unwrap_or(container_h);
+        let content_w = config
+            .map(|c| c.content_width as i32)
+            .unwrap_or(container_w);
         let max_y = (content_h - container_h).max(0);
         let max_x = (content_w - container_w).max(0);
         let elastic = config.map(|c| c.elastic).unwrap_or(true);

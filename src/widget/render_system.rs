@@ -422,6 +422,39 @@ pub fn render(
     draw_tree(&layout_tree, world, &entities, &mut idx, renderer, &clip);
 }
 
+/// Compute layout and write ComputedRect to each entity (logical pixels).
+pub fn update_layout(world: &mut World, root: Entity, screen_w: u16, screen_h: u16, scale: u16) {
+    let scale = if scale == 0 { 1 } else { scale };
+    let logical_w = screen_w / scale;
+    let logical_h = screen_h / scale;
+
+    let Some(mut layout_tree) = build_layout_tree(world, root) else {
+        return;
+    };
+    compute_layout(&mut layout_tree, 0, 0, logical_w, logical_h);
+
+    let mut entities = Vec::new();
+    collect_entities_preorder(world, root, &mut entities);
+
+    let mut idx = 0;
+    write_computed_rects(&layout_tree, world, &entities, &mut idx);
+}
+
+fn write_computed_rects(
+    node: &LayoutNode,
+    world: &mut World,
+    entities: &[Entity],
+    idx: &mut usize,
+) {
+    if *idx < entities.len() {
+        world.insert(entities[*idx], super::ComputedRect(node.rect));
+    }
+    *idx += 1;
+    for child in &node.children {
+        write_computed_rects(child, world, entities, idx);
+    }
+}
+
 /// Render only the region that intersects `dirty_rect`. Widgets outside are skipped.
 pub fn render_region(
     world: &World,

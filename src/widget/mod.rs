@@ -30,6 +30,9 @@ pub struct Children(pub Vec<crate::ecs::Entity>);
 /// Who is my parent
 pub struct Parent(pub crate::ecs::Entity);
 
+/// Computed screen rect after layout (logical pixels)
+pub struct ComputedRect(pub crate::types::Rect);
+
 /// Move a widget to a new absolute position, automatically tracking dirty state.
 pub fn set_position(world: &mut crate::ecs::World, entity: crate::ecs::Entity, x: i32, y: i32) {
     use crate::types::Rect;
