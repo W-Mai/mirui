@@ -56,8 +56,8 @@ fn main() {
             ScrollConfig {
                 direction: mirui::components::scroll::ScrollAxis::Vertical,
                 elastic: true,
-                content_height: 1200,
-                content_width: 0,
+                content_height: Fixed::from_int(1200),
+                content_width: Fixed::ZERO,
             },
         ] {
             walk colors_outer.iter().enumerate() with item {
@@ -76,8 +76,8 @@ fn main() {
                         ScrollConfig {
                             direction: mirui::components::scroll::ScrollAxis::Horizontal,
                             elastic: true,
-                            content_height: 0,
-                            content_width: 600,
+                            content_height: Fixed::ZERO,
+                            content_width: Fixed::from_int(600),
                         },
                     ] {
                         walk colors_inner.iter() with color {
@@ -109,8 +109,8 @@ fn main() {
                     ScrollConfig {
                         direction: mirui::components::scroll::ScrollAxis::Vertical,
                         elastic: true,
-                        content_height: 500,
-                        content_width: 0,
+                        content_height: Fixed::from_int(500),
+                        content_width: Fixed::ZERO,
                     },
                 ] {
                     walk colors_inner.iter().enumerate() with item {

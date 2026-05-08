@@ -45,8 +45,8 @@ fn main() {
             ScrollConfig {
                 direction: mirui::components::scroll::ScrollAxis::Vertical,
                 elastic: true,
-                content_height: 480,
-                content_width: 0,
+                content_height: Fixed::from_int(480),
+                content_width: Fixed::ZERO,
             },
         ] {
             walk colors.iter() with item {

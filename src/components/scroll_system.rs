@@ -151,12 +151,8 @@ pub fn scroll_system(
             let computed = world.get::<crate::widget::ComputedRect>(target);
             let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
             let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
-            let content_h: Fixed = config
-                .map(|c| c.content_height.into())
-                .unwrap_or(container_h);
-            let content_w: Fixed = config
-                .map(|c| c.content_width.into())
-                .unwrap_or(container_w);
+            let content_h: Fixed = config.map(|c| c.content_height).unwrap_or(container_h);
+            let content_w: Fixed = config.map(|c| c.content_width).unwrap_or(container_w);
             let max_y = (content_h - container_h).max(Fixed::ZERO);
             let max_x = (content_w - container_w).max(Fixed::ZERO);
 
@@ -240,12 +236,8 @@ pub fn scroll_inertia_system(world: &mut World) {
         let computed = world.get::<crate::widget::ComputedRect>(target);
         let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
         let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
-        let content_h: Fixed = config
-            .map(|c| c.content_height.into())
-            .unwrap_or(container_h);
-        let content_w: Fixed = config
-            .map(|c| c.content_width.into())
-            .unwrap_or(container_w);
+        let content_h: Fixed = config.map(|c| c.content_height).unwrap_or(container_h);
+        let content_w: Fixed = config.map(|c| c.content_width).unwrap_or(container_w);
         let max_y = (content_h - container_h).max(Fixed::ZERO);
         let max_x = (content_w - container_w).max(Fixed::ZERO);
         let elastic = config.map(|c| c.elastic).unwrap_or(true);
@@ -408,16 +400,12 @@ fn is_at_boundary(world: &World, entity: Entity, delta_x: Fixed, delta_y: Fixed)
     };
     let config = world.get::<ScrollConfig>(entity);
     let computed = world.get::<crate::widget::ComputedRect>(entity);
-    let container_h = computed.map(|c| c.0.h.to_int()).unwrap_or(0);
-    let container_w = computed.map(|c| c.0.w.to_int()).unwrap_or(0);
-    let content_h = config
-        .map(|c| c.content_height as i32)
-        .unwrap_or(container_h);
-    let content_w = config
-        .map(|c| c.content_width as i32)
-        .unwrap_or(container_w);
-    let max_y = Fixed::from_int((content_h - container_h).max(0));
-    let max_x = Fixed::from_int((content_w - container_w).max(0));
+    let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
+    let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
+    let content_h = config.map(|c| c.content_height).unwrap_or(container_h);
+    let content_w = config.map(|c| c.content_width).unwrap_or(container_w);
+    let max_y = (content_h - container_h).max(Fixed::ZERO);
+    let max_x = (content_w - container_w).max(Fixed::ZERO);
 
     let at_y = (scroll.y <= Fixed::ZERO && delta_y < Fixed::ZERO)
         || (scroll.y >= max_y && delta_y > Fixed::ZERO);

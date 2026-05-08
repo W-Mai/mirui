@@ -1,17 +1,17 @@
-use crate::types::{Color, Opa, Point, Rect};
+use crate::types::{Color, Fixed, Opa, Point, Rect};
 
 pub enum DrawCommand<'a> {
     Fill {
         area: Rect,
         color: Color,
-        radius: u16,
+        radius: Fixed,
         opa: Opa,
     },
     Border {
         area: Rect,
         color: Color,
-        width: u16,
-        radius: u16,
+        width: Fixed,
+        radius: Fixed,
         opa: Opa,
     },
     Label {

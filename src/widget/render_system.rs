@@ -75,7 +75,7 @@ fn draw_tree(
                 );
             }
             if let Some(border_color) = style.border_color {
-                if style.border_width > 0 {
+                if style.border_width > Fixed::ZERO {
                     renderer.draw(
                         &DrawCommand::Border {
                             area: node.rect,
@@ -176,8 +176,8 @@ fn draw_tree(
             };
             let s = world
                 .resource::<crate::backend::DisplayInfo>()
-                .map(|d| d.scale as i32)
-                .unwrap_or(1);
+                .map(|d| d.scale)
+                .unwrap_or(Fixed::ONE);
             (new_clip, scroll.x * s, scroll.y * s)
         } else {
             (*clip, Fixed::ZERO, Fixed::ZERO)
@@ -243,7 +243,7 @@ fn draw_tree_offset(
                 );
             }
             if let Some(border_color) = style.border_color {
-                if style.border_width > 0 {
+                if style.border_width > Fixed::ZERO {
                     renderer.draw(
                         &DrawCommand::Border {
                             area: shifted_rect,
@@ -334,8 +334,8 @@ fn draw_tree_offset(
             let cy2 = (clip.y + clip.h).min(shifted_rect.y + shifted_rect.h);
             let s = world
                 .resource::<crate::backend::DisplayInfo>()
-                .map(|d| d.scale as i32)
-                .unwrap_or(1);
+                .map(|d| d.scale)
+                .unwrap_or(Fixed::ONE);
             (
                 Rect {
                     x: cx,
@@ -355,12 +355,11 @@ fn draw_tree_offset(
     }
 }
 
-fn scale_rects(node: &mut LayoutNode, scale: u16) {
-    let s = scale as i32;
-    node.rect.x = node.rect.x * s;
-    node.rect.y = node.rect.y * s;
-    node.rect.w = node.rect.w * s;
-    node.rect.h = node.rect.h * s;
+fn scale_rects(node: &mut LayoutNode, scale: Fixed) {
+    node.rect.x = node.rect.x * scale;
+    node.rect.y = node.rect.y * scale;
+    node.rect.w = node.rect.w * scale;
+    node.rect.h = node.rect.h * scale;
     for child in &mut node.children {
         scale_rects(child, scale);
     }
@@ -384,12 +383,17 @@ pub fn render(
     root: Entity,
     screen_w: u16,
     screen_h: u16,
-    scale: u16,
+    scale: Fixed,
     renderer: &mut dyn Renderer,
 ) {
-    let scale = if scale == 0 { 1 } else { scale };
-    let logical_w = screen_w / scale;
-    let logical_h = screen_h / scale;
+    let scale = if scale == Fixed::ZERO {
+        Fixed::ONE
+    } else {
+        scale
+    };
+    let scale_int = scale.to_int();
+    let logical_w = screen_w / scale_int as u16;
+    let logical_h = screen_h / scale_int as u16;
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -420,10 +424,15 @@ pub fn render(
 }
 
 /// Compute layout and write ComputedRect to each entity (logical pixels).
-pub fn update_layout(world: &mut World, root: Entity, screen_w: u16, screen_h: u16, scale: u16) {
-    let scale = if scale == 0 { 1 } else { scale };
-    let logical_w = screen_w / scale;
-    let logical_h = screen_h / scale;
+pub fn update_layout(world: &mut World, root: Entity, screen_w: u16, screen_h: u16, scale: Fixed) {
+    let scale = if scale == Fixed::ZERO {
+        Fixed::ONE
+    } else {
+        scale
+    };
+    let scale_int = scale.to_int();
+    let logical_w = screen_w / scale_int as u16;
+    let logical_h = screen_h / scale_int as u16;
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -464,13 +473,18 @@ pub fn render_region(
     root: Entity,
     screen_w: u16,
     screen_h: u16,
-    scale: u16,
+    scale: Fixed,
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
 ) {
-    let scale = if scale == 0 { 1 } else { scale };
-    let logical_w = screen_w / scale;
-    let logical_h = screen_h / scale;
+    let scale = if scale == Fixed::ZERO {
+        Fixed::ONE
+    } else {
+        scale
+    };
+    let scale_int = scale.to_int();
+    let logical_w = screen_w / scale_int as u16;
+    let logical_h = screen_h / scale_int as u16;
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -506,13 +520,18 @@ pub fn collect_dirty_region(
     root: Entity,
     screen_w: u16,
     screen_h: u16,
-    scale: u16,
+    scale: Fixed,
 ) -> Option<Rect> {
     use super::dirty::Dirty;
 
-    let scale = if scale == 0 { 1 } else { scale };
-    let logical_w = screen_w / scale;
-    let logical_h = screen_h / scale;
+    let scale = if scale == Fixed::ZERO {
+        Fixed::ONE
+    } else {
+        scale
+    };
+    let scale_int = scale.to_int();
+    let logical_w = screen_w / scale_int as u16;
+    let logical_h = screen_h / scale_int as u16;
 
     let mut layout_tree = build_layout_tree(world, root)?;
     compute_layout(
@@ -527,18 +546,18 @@ pub fn collect_dirty_region(
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
 
-    let mut min_x: i32 = screen_w as i32;
-    let mut min_y: i32 = screen_h as i32;
-    let mut max_x: i32 = -1;
-    let mut max_y: i32 = -1;
+    let mut min_x: Fixed = Fixed::from(screen_w);
+    let mut min_y: Fixed = Fixed::from(screen_h);
+    let mut max_x: Fixed = Fixed::from_int(-1);
+    let mut max_y: Fixed = Fixed::from_int(-1);
 
     for (i, &entity) in entities.iter().enumerate() {
         if world.get::<Dirty>(entity).is_some() {
             if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
-                let rx = rect.x.to_int();
-                let ry = rect.y.to_int();
-                let rx2 = (rect.x + rect.w).ceil().to_int();
-                let ry2 = (rect.y + rect.h).ceil().to_int();
+                let rx = rect.x;
+                let ry = rect.y;
+                let rx2 = (rect.x + rect.w).ceil();
+                let ry2 = (rect.y + rect.h).ceil();
                 if rx < min_x {
                     min_x = rx;
                 }
@@ -555,11 +574,10 @@ pub fn collect_dirty_region(
             // Include previous rect (old position) if present
             if let Some(prev) = world.remove::<super::dirty::PrevRect>(entity) {
                 let pr = prev.0;
-                let s = scale as i32;
-                let px = pr.x.to_int() * s;
-                let py = pr.y.to_int() * s;
-                let pw = pr.w.to_int() * s;
-                let ph = pr.h.to_int() * s;
+                let px = pr.x * scale;
+                let py = pr.y * scale;
+                let pw = pr.w * scale;
+                let ph = pr.h * scale;
                 if px < min_x {
                     min_x = px;
                 }
@@ -577,10 +595,15 @@ pub fn collect_dirty_region(
         }
     }
 
-    if max_x < 0 {
+    if max_x < Fixed::ZERO {
         None
     } else {
-        Some(Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
+        Some(Rect {
+            x: min_x,
+            y: min_y,
+            w: max_x - min_x,
+            h: max_y - min_y,
+        })
     }
 }
 

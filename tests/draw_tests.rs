@@ -15,7 +15,7 @@ mod tests {
                 h: Fixed::from_int(3),
             },
             color: Color::rgb(255, 0, 0),
-            radius: 0,
+            radius: Fixed::ZERO,
             opa: 255,
         };
         let clip = Rect {
@@ -52,7 +52,7 @@ mod tests {
                 h: Fixed::from_int(10),
             },
             color: Color::rgb(0, 255, 0),
-            radius: 0,
+            radius: Fixed::ZERO,
             opa: 255,
         };
         // clip to top-left 5x5
@@ -94,7 +94,7 @@ mod tests {
                 h: Fixed::from_int(4),
             },
             color: Color::rgb(0, 0, 0),
-            radius: 0,
+            radius: Fixed::ZERO,
             opa: 128, // ~50% opacity
         };
         let clip = Rect {

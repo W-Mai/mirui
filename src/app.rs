@@ -4,7 +4,7 @@ use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, s
 use crate::draw::SwRenderer;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 use crate::widget::render_system;
 
 /// Main application entry point — ties World + Backend together
@@ -93,9 +93,14 @@ impl<B: Backend> App<B> {
                     Some(event) => {
                         if let Some(root) = self.root {
                             let info = self.backend.display_info();
-                            let scale = if info.scale == 0 { 1 } else { info.scale };
-                            let lw = info.width / scale;
-                            let lh = info.height / scale;
+                            let scale = if info.scale == Fixed::ZERO {
+                                Fixed::ONE
+                            } else {
+                                info.scale
+                            };
+                            let scale_int = scale.to_int() as u16;
+                            let lw = info.width / scale_int;
+                            let lh = info.height / scale_int;
                             button_system(&mut self.world, root, &event, lw, lh);
                             scroll_system(&mut self.world, root, &event, lw, lh);
                             dispatch(&self.world, root, &event, lw, lh);
@@ -114,7 +119,11 @@ impl<B: Backend> App<B> {
     pub fn render_dirty(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
-        let scale = if info.scale == 0 { 1 } else { info.scale };
+        let scale = if info.scale == Fixed::ZERO {
+            Fixed::ONE
+        } else {
+            info.scale
+        };
 
         // Collect dirty region
         let dirty = render_system::collect_dirty_region(

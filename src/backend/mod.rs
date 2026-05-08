@@ -8,7 +8,7 @@ use crate::types::{Fixed, Rect};
 pub struct DisplayInfo {
     pub width: u16,
     pub height: u16,
-    pub scale: u16,
+    pub scale: Fixed,
 }
 
 /// Input event from the platform

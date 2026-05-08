@@ -9,7 +9,7 @@ use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
 use super::{Backend, DisplayInfo, InputEvent};
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 
 pub struct SdlBackend {
     canvas: Canvas<Window>,
@@ -18,7 +18,7 @@ pub struct SdlBackend {
     buf: Vec<u8>,
     width: u16,
     height: u16,
-    scale: u16,
+    scale: Fixed,
 }
 
 impl SdlBackend {
@@ -40,12 +40,13 @@ impl SdlBackend {
         let event_pump = sdl.event_pump().expect("SDL2 event pump failed");
 
         let (draw_w, _) = canvas.output_size().unwrap();
-        let scale = (draw_w as u16) / width;
-        let scale = if scale == 0 { 1 } else { scale };
+        let scale_int = (draw_w as u16) / width;
+        let scale_int = if scale_int == 0 { 1 } else { scale_int };
+        let scale = Fixed::from(scale_int);
 
         // Physical pixel framebuffer
-        let phys_w = width * scale;
-        let phys_h = height * scale;
+        let phys_w = width * scale_int;
+        let phys_h = height * scale_int;
         let buf = vec![0u8; phys_w as usize * phys_h as usize * 4];
 
         Self {
@@ -59,7 +60,7 @@ impl SdlBackend {
         }
     }
 
-    pub fn scale_factor(&self) -> u16 {
+    pub fn scale_factor(&self) -> Fixed {
         self.scale
     }
 }

@@ -1,7 +1,7 @@
 use mirui::draw::{Renderer, SwRenderer};
 use mirui::ecs::World;
 use mirui::layout::*;
-use mirui::types::{Color, Dimension};
+use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::render_system;
 use sdl2::event::Event;
@@ -67,7 +67,7 @@ fn main() {
     // Render via ECS
     let mut buf = vec![0u8; (W * H * 4) as usize];
     let mut renderer = SwRenderer::new(&mut buf, W, H);
-    render_system::render(&world, root, W as u16, H as u16, 1, &mut renderer);
+    render_system::render(&world, root, W as u16, H as u16, Fixed::ONE, &mut renderer);
     renderer.flush();
 
     // SDL display

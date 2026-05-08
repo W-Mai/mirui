@@ -1,4 +1,4 @@
-use crate::types::{Color, Point, Rect};
+use crate::types::{Color, Fixed, Point, Rect};
 
 use super::command::DrawCommand;
 use super::renderer::Renderer;
@@ -7,7 +7,7 @@ pub struct SwRenderer<'a> {
     buf: &'a mut [u8],
     width: u32,
     height: u32,
-    pub scale: u16,
+    pub scale: Fixed,
 }
 
 impl<'a> SwRenderer<'a> {
@@ -16,7 +16,7 @@ impl<'a> SwRenderer<'a> {
             buf,
             width,
             height,
-            scale: 1,
+            scale: Fixed::ONE,
         }
     }
 
@@ -79,9 +79,7 @@ impl<'a> SwRenderer<'a> {
         true
     }
 
-    fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, opa: u8, radius: u16) {
-        use crate::types::Fixed;
-
+    fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, opa: u8, radius: Fixed) {
         let screen = Rect::new(0, 0, self.width, self.height);
         let Some(draw_area) = area.intersect(clip) else {
             return;
@@ -92,7 +90,8 @@ impl<'a> SwRenderer<'a> {
 
         let area_w = area.w.to_int() as u16;
         let area_h = area.h.to_int() as u16;
-        let r = radius.min(area_w / 2).min(area_h / 2);
+        let r_int = radius.to_int() as u16;
+        let r = r_int.min(area_w / 2).min(area_h / 2);
 
         // Integer pixel bounds — use ceil for right/bottom to include partial edge pixels
         let px_x0 = draw_area.x.to_int();
@@ -144,8 +143,8 @@ impl<'a> SwRenderer<'a> {
         area: &Rect,
         clip: &Rect,
         color: &Color,
-        width: u16,
-        radius: u16,
+        width: Fixed,
+        radius: Fixed,
         opa: u8,
     ) {
         let screen = Rect::new(0, 0, self.width, self.height);
@@ -165,8 +164,9 @@ impl<'a> SwRenderer<'a> {
         let da_w = draw_area.w.to_int();
         let da_h = draw_area.h.to_int();
 
-        let r = radius.min(area_w / 2).min(area_h / 2);
-        let bw = width as i32;
+        let r_int = radius.to_int() as u16;
+        let r = r_int.min(area_w / 2).min(area_h / 2);
+        let bw = width.to_int();
 
         for row in 0..da_h {
             let y = da_y + row;
@@ -187,12 +187,12 @@ impl<'a> SwRenderer<'a> {
                     0
                 };
                 let inner_w = if area_w as i32 > 2 * bw {
-                    area_w - 2 * width
+                    (area_w as i32 - 2 * bw) as u16
                 } else {
                     0
                 };
                 let inner_h = if area_h as i32 > 2 * bw {
-                    area_h - 2 * width
+                    (area_h as i32 - 2 * bw) as u16
                 } else {
                     0
                 };
@@ -223,7 +223,7 @@ impl<'a> SwRenderer<'a> {
         opa: u8,
     ) {
         use super::font::{CHAR_H, CHAR_W, glyph};
-        let s = self.scale as i32;
+        let s = self.scale.to_int();
         let clip_x = clip.x.to_int();
         let clip_y = clip.y.to_int();
         let clip_x2 = clip_x + clip.w.to_int();
@@ -253,7 +253,7 @@ impl<'a> SwRenderer<'a> {
     }
 
     fn blit_rgba(&mut self, pos: &Point, data: &[u8], width: u16, height: u16, clip: &Rect) {
-        let s = self.scale as i32;
+        let s = self.scale.to_int();
         let clip_x = clip.x.to_int();
         let clip_y = clip.y.to_int();
         let clip_x2 = clip_x + clip.w.to_int();

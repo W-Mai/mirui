@@ -48,7 +48,7 @@ fn draw_node(renderer: &mut SwRenderer, node: &LayoutNode, clip: &Rect, depth: u
             &DrawCommand::Fill {
                 area: node.rect,
                 color,
-                radius: 0,
+                radius: Fixed::ZERO,
                 opa: 220,
             },
             clip,
@@ -134,7 +134,7 @@ fn main() {
         &DrawCommand::Fill {
             area: clip,
             color: Color::rgb(30, 30, 46),
-            radius: 0,
+            radius: Fixed::ZERO,
             opa: 255,
         },
         &clip,

@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use super::{Backend, DisplayInfo, InputEvent};
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 
 /// A simple framebuffer backend that owns a buffer and calls a user-provided flush callback.
 pub struct FramebufBackend<F: FnMut(&[u8], &Rect)> {
@@ -28,7 +28,7 @@ impl<F: FnMut(&[u8], &Rect)> Backend for FramebufBackend<F> {
         DisplayInfo {
             width: self.width,
             height: self.height,
-            scale: 1,
+            scale: Fixed::ONE,
         }
     }
 
