@@ -1,12 +1,16 @@
 use crate::backend::InputEvent;
-use crate::components::scroll::ScrollOffset;
+use crate::components::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
 
 /// Scroll drag state resource
 pub struct ScrollDragState {
     pub active: bool,
+    pub resolved: bool,
     pub target: Entity,
+    pub hit_entity: Entity,
+    pub start_x: i32,
+    pub start_y: i32,
     pub last_x: i32,
     pub last_y: i32,
     pub vel_x: i32,
@@ -15,12 +19,17 @@ pub struct ScrollDragState {
 
 impl Default for ScrollDragState {
     fn default() -> Self {
+        let null = Entity {
+            id: 0,
+            generation: 0,
+        };
         Self {
             active: false,
-            target: Entity {
-                id: 0,
-                generation: 0,
-            },
+            resolved: false,
+            target: null,
+            hit_entity: null,
+            start_x: 0,
+            start_y: 0,
             last_x: 0,
             last_y: 0,
             vel_x: 0,
@@ -28,6 +37,8 @@ impl Default for ScrollDragState {
         }
     }
 }
+
+const DIRECTION_THRESHOLD: i32 = 5;
 
 pub fn scroll_system(
     world: &mut World,
@@ -38,43 +49,129 @@ pub fn scroll_system(
 ) {
     match event {
         InputEvent::Touch { x, y } => {
-            // Find if touch lands on a scrollable widget
-            if let Some(target) = find_scroll_target(world, root, *x, *y, screen_w, screen_h) {
-                if let Some(state) = world.resource_mut::<ScrollDragState>() {
-                    state.active = true;
-                    state.target = target;
-                    state.last_x = *x;
-                    state.last_y = *y;
-                }
+            // Record start, don't resolve target yet
+            let hit = hit_test(world, root, *x, *y, screen_w, screen_h);
+            if let Some(state) = world.resource_mut::<ScrollDragState>() {
+                state.active = true;
+                state.resolved = false;
+                state.hit_entity = hit.unwrap_or(Entity {
+                    id: 0,
+                    generation: 0,
+                });
+                state.start_x = *x;
+                state.start_y = *y;
+                state.last_x = *x;
+                state.last_y = *y;
+                state.vel_x = 0;
+                state.vel_y = 0;
             }
         }
         InputEvent::TouchMove { x, y } => {
-            let (active, target, last_x, last_y) = {
+            let (active, resolved, _target, hit_entity, last_x, last_y, start_x, start_y) = {
                 let Some(state) = world.resource::<ScrollDragState>() else {
                     return;
                 };
-                (state.active, state.target, state.last_x, state.last_y)
+                (
+                    state.active,
+                    state.resolved,
+                    state.target,
+                    state.hit_entity,
+                    state.last_x,
+                    state.last_y,
+                    state.start_x,
+                    state.start_y,
+                )
             };
-            if active {
-                let dx = *x - last_x;
-                let dy = *y - last_y;
-                if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
-                    scroll.x -= dx;
-                    scroll.y -= dy;
+
+            if !active {
+                return;
+            }
+
+            // If not resolved yet, check if we've moved enough to determine direction
+            if !resolved {
+                let total_dx = (*x - start_x).abs();
+                let total_dy = (*y - start_y).abs();
+
+                if total_dx < DIRECTION_THRESHOLD && total_dy < DIRECTION_THRESHOLD {
+                    // Not enough movement to determine direction
+                    if let Some(state) = world.resource_mut::<ScrollDragState>() {
+                        state.last_x = *x;
+                        state.last_y = *y;
+                    }
+                    return;
                 }
-                world.insert(target, crate::widget::dirty::Dirty);
+
+                // Determine gesture direction
+                let gesture_dir = if total_dy > total_dx {
+                    ScrollAxis::Vertical
+                } else {
+                    ScrollAxis::Horizontal
+                };
+
+                // Find scroll target matching this direction
+                let found = find_scroll_target_for_direction(world, hit_entity, gesture_dir);
+
                 if let Some(state) = world.resource_mut::<ScrollDragState>() {
-                    state.vel_x = -dx;
-                    state.vel_y = -dy;
-                    state.last_x = *x;
-                    state.last_y = *y;
+                    state.resolved = true;
+                    if let Some(t) = found {
+                        state.target = t;
+                    } else {
+                        // No matching scroll target — deactivate
+                        state.active = false;
+                        return;
+                    }
                 }
+            }
+
+            // Apply scroll delta
+            let (target,) = {
+                let Some(state) = world.resource::<ScrollDragState>() else {
+                    return;
+                };
+                (state.target,)
+            };
+
+            let dx = *x - last_x;
+            let dy = *y - last_y;
+
+            // Only apply delta in the scroll direction
+            let config = world.get::<ScrollConfig>(target);
+            let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
+
+            if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
+                match dir {
+                    ScrollAxis::Vertical => scroll.y -= dy,
+                    ScrollAxis::Horizontal => scroll.x -= dx,
+                    ScrollAxis::Both => {
+                        scroll.x -= dx;
+                        scroll.y -= dy;
+                    }
+                }
+            }
+            world.insert(target, crate::widget::dirty::Dirty);
+
+            if let Some(state) = world.resource_mut::<ScrollDragState>() {
+                match dir {
+                    ScrollAxis::Vertical => {
+                        state.vel_x = 0;
+                        state.vel_y = -dy;
+                    }
+                    ScrollAxis::Horizontal => {
+                        state.vel_x = -dx;
+                        state.vel_y = 0;
+                    }
+                    ScrollAxis::Both => {
+                        state.vel_x = -dx;
+                        state.vel_y = -dy;
+                    }
+                }
+                state.last_x = *x;
+                state.last_y = *y;
             }
         }
         InputEvent::Release { .. } => {
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 state.active = false;
-                // velocity preserved for inertia
             }
         }
         _ => {}
@@ -83,19 +180,25 @@ pub fn scroll_system(
 
 /// Inertia system — call every frame to decelerate scroll after release
 pub fn scroll_inertia_system(world: &mut World) {
-    let (active, target, vel_x, vel_y) = {
+    let (active, resolved, target, vel_x, vel_y) = {
         let Some(state) = world.resource::<ScrollDragState>() else {
             return;
         };
-        (state.active, state.target, state.vel_x, state.vel_y)
+        (
+            state.active,
+            state.resolved,
+            state.target,
+            state.vel_x,
+            state.vel_y,
+        )
     };
 
-    if active {
+    if active || !resolved {
         return;
     }
 
     // Get scroll bounds for elastic
-    let (offset_x, offset_y, max_x, max_y, elastic) = {
+    let (offset_x, offset_y, max_x, max_y, elastic, dir) = {
         let Some(scroll) = world.get::<ScrollOffset>(target) else {
             return;
         };
@@ -112,34 +215,43 @@ pub fn scroll_inertia_system(world: &mut World) {
         let max_y = (content_h - container_h).max(0);
         let max_x = (content_w - container_w).max(0);
         let elastic = config.map(|c| c.elastic).unwrap_or(true);
-        (scroll.x, scroll.y, max_x, max_y, elastic)
+        let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
+        (scroll.x, scroll.y, max_x, max_y, elastic, dir)
     };
 
     let mut new_vel_x = vel_x;
     let mut new_vel_y = vel_y;
 
-    // Elastic bounce — if out of bounds, ignore inertia, lerp back to boundary
+    // Elastic bounce
     let mut bouncing = false;
     if elastic {
-        if offset_y < 0 {
-            let diff = 0 - offset_y;
-            new_vel_y = if diff.abs() <= 3 { diff } else { diff / 3 };
-            new_vel_x = 0;
-            bouncing = true;
-        } else if offset_y > max_y {
-            let diff = max_y - offset_y;
-            new_vel_y = if diff.abs() <= 3 { diff } else { diff / 3 };
-            new_vel_x = 0;
-            bouncing = true;
+        match dir {
+            ScrollAxis::Vertical | ScrollAxis::Both => {
+                if offset_y < 0 {
+                    let diff = 0 - offset_y;
+                    new_vel_y = if diff.abs() <= 3 { diff } else { diff / 3 };
+                    bouncing = true;
+                } else if offset_y > max_y {
+                    let diff = max_y - offset_y;
+                    new_vel_y = if diff.abs() <= 3 { diff } else { diff / 3 };
+                    bouncing = true;
+                }
+            }
+            _ => {}
         }
-        if offset_x < 0 {
-            let diff = 0 - offset_x;
-            new_vel_x = if diff.abs() <= 3 { diff } else { diff / 3 };
-            bouncing = true;
-        } else if offset_x > max_x {
-            let diff = max_x - offset_x;
-            new_vel_x = if diff.abs() <= 3 { diff } else { diff / 3 };
-            bouncing = true;
+        match dir {
+            ScrollAxis::Horizontal | ScrollAxis::Both => {
+                if offset_x < 0 {
+                    let diff = 0 - offset_x;
+                    new_vel_x = if diff.abs() <= 3 { diff } else { diff / 3 };
+                    bouncing = true;
+                } else if offset_x > max_x {
+                    let diff = max_x - offset_x;
+                    new_vel_x = if diff.abs() <= 3 { diff } else { diff / 3 };
+                    bouncing = true;
+                }
+            }
+            _ => {}
         }
     }
 
@@ -154,7 +266,7 @@ pub fn scroll_inertia_system(world: &mut World) {
     }
     world.insert(target, crate::widget::dirty::Dirty);
 
-    // Decay velocity (only when not bouncing)
+    // Decay velocity
     if let Some(state) = world.resource_mut::<ScrollDragState>() {
         if bouncing {
             state.vel_x = 0;
@@ -171,21 +283,31 @@ pub fn scroll_inertia_system(world: &mut World) {
         }
     }
 }
-fn find_scroll_target(
+
+/// Find a scroll target that matches the gesture direction.
+/// Walks up from `start` entity through parents.
+fn find_scroll_target_for_direction(
     world: &World,
-    root: Entity,
-    x: i32,
-    y: i32,
-    screen_w: u16,
-    screen_h: u16,
+    start: Entity,
+    gesture_dir: ScrollAxis,
 ) -> Option<Entity> {
-    // Walk up from hit target to find nearest scrollable ancestor
-    let hit = hit_test(world, root, x, y, screen_w, screen_h)?;
-    // Check hit entity and its ancestors for ScrollOffset
-    let mut current = hit;
+    let mut current = start;
     loop {
         if world.get::<ScrollOffset>(current).is_some() {
-            return Some(current);
+            let config = world.get::<ScrollConfig>(current);
+            let scroll_dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
+
+            let dir_matches = matches!(
+                (scroll_dir, gesture_dir),
+                (ScrollAxis::Both, _)
+                    | (ScrollAxis::Vertical, ScrollAxis::Vertical)
+                    | (ScrollAxis::Horizontal, ScrollAxis::Horizontal)
+            );
+
+            if dir_matches {
+                return Some(current);
+            }
+            // Direction doesn't match — continue up
         }
         if let Some(parent) = world.get::<crate::widget::Parent>(current) {
             current = parent.0;

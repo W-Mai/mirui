@@ -1,11 +1,12 @@
+use alloc::vec;
 use alloc::vec::Vec;
 
+use crate::components::scroll::ScrollOffset;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::Rect;
 use crate::widget::{Children, Style, Widget};
 
-/// Build layout tree and collect (entity, rect) pairs in pre-order
 fn build_rects(
     world: &World,
     entity: Entity,
@@ -27,7 +28,6 @@ fn build_rects(
     }
 }
 
-/// Collect computed rects from layout tree in pre-order
 fn collect_rects(node: &LayoutNode, rects: &mut Vec<Rect>) {
     rects.push(node.rect);
     for child in &node.children {
@@ -35,8 +35,45 @@ fn collect_rects(node: &LayoutNode, rects: &mut Vec<Rect>) {
     }
 }
 
+/// Compute the accumulated scroll offset for each entity.
+/// For each entity, this is the sum of all ancestor ScrollOffsets.
+fn compute_scroll_offsets(world: &World, root: Entity, entities: &[Entity]) -> Vec<(i32, i32)> {
+    let mut offsets = vec![(0i32, 0i32); entities.len()];
+    compute_scroll_recursive(world, root, 0, 0, &mut offsets, &mut 0);
+    offsets
+}
+
+fn compute_scroll_recursive(
+    world: &World,
+    entity: Entity,
+    acc_x: i32,
+    acc_y: i32,
+    offsets: &mut [(i32, i32)],
+    idx: &mut usize,
+) {
+    if *idx < offsets.len() {
+        offsets[*idx] = (acc_x, acc_y);
+    }
+    *idx += 1;
+
+    // If this entity has ScrollOffset, add it for children
+    let (child_acc_x, child_acc_y) = if let Some(scroll) = world.get::<ScrollOffset>(entity) {
+        (acc_x + scroll.x, acc_y + scroll.y)
+    } else {
+        (acc_x, acc_y)
+    };
+
+    if let Some(children) = world.get::<Children>(entity) {
+        for &child in &children.0 {
+            if world.get::<Widget>(child).is_some() {
+                compute_scroll_recursive(world, child, child_acc_x, child_acc_y, offsets, idx);
+            }
+        }
+    }
+}
+
 /// Hit test: given a coordinate, find the deepest widget entity that contains it.
-/// Returns entities from deepest to shallowest (last drawn = first hit).
+/// Accounts for scroll offsets.
 pub fn hit_test(
     world: &World,
     root: Entity,
@@ -54,10 +91,17 @@ pub fn hit_test(
     let mut rects = Vec::new();
     collect_rects(&root_node, &mut rects);
 
-    // Find deepest (last in pre-order that contains point)
+    // Compute accumulated scroll offsets
+    let scroll_offsets = compute_scroll_offsets(world, root, &entities);
+
+    // Find deepest widget that contains the point (accounting for scroll)
     let mut hit = None;
     for (i, rect) in rects.iter().enumerate() {
-        if x >= rect.x && x < rect.x + rect.w as i32 && y >= rect.y && y < rect.y + rect.h as i32 {
+        let (sx, sy) = scroll_offsets[i];
+        // Widget's visual position = layout position - scroll offset
+        let vx = rect.x - sx;
+        let vy = rect.y - sy;
+        if x >= vx && x < vx + rect.w as i32 && y >= vy && y < vy + rect.h as i32 {
             hit = Some(entities[i]);
         }
     }
