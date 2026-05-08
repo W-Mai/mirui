@@ -2,6 +2,7 @@ use crate::backend::InputEvent;
 use crate::components::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
+use crate::types::Fixed;
 
 /// Scroll drag state resource
 pub struct ScrollDragState {
@@ -162,16 +163,20 @@ pub fn scroll_system(
             if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
                 match dir {
                     ScrollAxis::Vertical => {
-                        let eff_dy = elastic_resist(scroll.y, -dy, max_y);
+                        let eff_dy =
+                            elastic_resist(scroll.y, Fixed::from_int(-dy), Fixed::from_int(max_y));
                         scroll.y += eff_dy;
                     }
                     ScrollAxis::Horizontal => {
-                        let eff_dx = elastic_resist(scroll.x, -dx, max_x);
+                        let eff_dx =
+                            elastic_resist(scroll.x, Fixed::from_int(-dx), Fixed::from_int(max_x));
                         scroll.x += eff_dx;
                     }
                     ScrollAxis::Both => {
-                        let eff_dx = elastic_resist(scroll.x, -dx, max_x);
-                        let eff_dy = elastic_resist(scroll.y, -dy, max_y);
+                        let eff_dx =
+                            elastic_resist(scroll.x, Fixed::from_int(-dx), Fixed::from_int(max_x));
+                        let eff_dy =
+                            elastic_resist(scroll.y, Fixed::from_int(-dy), Fixed::from_int(max_y));
                         scroll.x += eff_dx;
                         scroll.y += eff_dy;
                     }
@@ -249,7 +254,14 @@ pub fn scroll_inertia_system(world: &mut World) {
         let max_x = (content_w - container_w).max(0);
         let elastic = config.map(|c| c.elastic).unwrap_or(true);
         let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
-        (scroll.x, scroll.y, max_x, max_y, elastic, dir)
+        (
+            scroll.x.to_int(),
+            scroll.y.to_int(),
+            max_x,
+            max_y,
+            elastic,
+            dir,
+        )
     };
 
     let mut new_vel_x = vel_x;
@@ -294,8 +306,8 @@ pub fn scroll_inertia_system(world: &mut World) {
 
     // Apply velocity
     if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
-        scroll.x += new_vel_x;
-        scroll.y += new_vel_y;
+        scroll.x += Fixed::from_int(new_vel_x);
+        scroll.y += Fixed::from_int(new_vel_y);
     }
     world.insert(target, crate::widget::dirty::Dirty);
 
@@ -359,28 +371,29 @@ fn find_scroll_target_for_direction(
 /// Apply elastic resistance when overscrolling.
 /// `offset`: current scroll offset, `delta`: requested change, `max`: max allowed offset.
 /// Returns the effective delta to apply (reduced when out of bounds).
-fn elastic_resist(offset: i32, delta: i32, max: i32) -> i32 {
+fn elastic_resist(offset: Fixed, delta: Fixed, max: Fixed) -> Fixed {
     const DAMPING: i32 = 200;
 
     let new_offset = offset + delta;
 
     // If staying in bounds, no resistance
-    if new_offset >= 0 && new_offset <= max {
+    if new_offset >= Fixed::ZERO && new_offset <= max {
         return delta;
     }
 
     // Calculate how far out of bounds we are (or will be)
-    let overscroll = if new_offset < 0 {
+    let overscroll = if new_offset < Fixed::ZERO {
         -new_offset
     } else {
         new_offset - max
     };
 
     // Resistance: damping / (damping + overscroll)
-    // Use integer math: effective = delta * damping / (damping + overscroll)
-    let resistance_denom = DAMPING + overscroll;
+    // Use integer math on raw values
+    let over_int = overscroll.to_int();
+    let resistance_denom = DAMPING + over_int;
     if resistance_denom == 0 {
-        return 0;
+        return Fixed::ZERO;
     }
     delta * DAMPING / resistance_denom
 }
@@ -398,14 +411,11 @@ fn is_at_boundary(world: &World, entity: Entity, delta_x: i32, delta_y: i32) -> 
     let content_w = config
         .map(|c| c.content_width as i32)
         .unwrap_or(container_w);
-    let max_y = (content_h - container_h).max(0);
-    let max_x = (content_w - container_w).max(0);
+    let max_y = Fixed::from_int((content_h - container_h).max(0));
+    let max_x = Fixed::from_int((content_w - container_w).max(0));
 
-    // delta > 0 means user dragging content up (scroll down), offset increases
-    // At top boundary: offset <= 0 and dragging up (delta < 0)
-    // At bottom boundary: offset >= max and dragging down (delta > 0)
-    let at_y = (scroll.y <= 0 && delta_y < 0) || (scroll.y >= max_y && delta_y > 0);
-    let at_x = (scroll.x <= 0 && delta_x < 0) || (scroll.x >= max_x && delta_x > 0);
+    let at_y = (scroll.y <= Fixed::ZERO && delta_y < 0) || (scroll.y >= max_y && delta_y > 0);
+    let at_x = (scroll.x <= Fixed::ZERO && delta_x < 0) || (scroll.x >= max_x && delta_x > 0);
 
     let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
     match dir {

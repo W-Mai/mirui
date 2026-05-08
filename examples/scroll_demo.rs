@@ -2,7 +2,7 @@ use mirui::app::App;
 use mirui::backend::sdl::SdlBackend;
 use mirui::components::scroll::{ScrollConfig, ScrollOffset};
 use mirui::layout::*;
-use mirui::types::{Color, Dimension};
+use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::ui;
 
@@ -38,7 +38,10 @@ fn main() {
         :)
 
         scroll (direction: FlexDirection::Column, bg_color: Color::rgb(40, 40, 60), grow: 1.0) [
-            ScrollOffset { x: 0, y: 0 },
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
             ScrollConfig {
                 direction: mirui::components::scroll::ScrollAxis::Vertical,
                 elastic: true,

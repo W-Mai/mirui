@@ -122,8 +122,8 @@ fn draw_tree(
                 renderer.draw(
                     &DrawCommand::Blit {
                         pos: Point {
-                            x: node.rect.x.to_int(),
-                            y: node.rect.y.to_int(),
+                            x: node.rect.x,
+                            y: node.rect.y,
                         },
                         data: &img.data,
                         width: img.width,
@@ -138,8 +138,8 @@ fn draw_tree(
                 renderer.draw(
                     &DrawCommand::Label {
                         pos: Point {
-                            x: node.rect.x.to_int() + 2,
-                            y: node.rect.y.to_int() + 2,
+                            x: node.rect.x + Fixed::from_int(2),
+                            y: node.rect.y + Fixed::from_int(2),
                         },
                         text: &text.0,
                         color,
@@ -178,11 +178,7 @@ fn draw_tree(
                 .resource::<crate::backend::DisplayInfo>()
                 .map(|d| d.scale as i32)
                 .unwrap_or(1);
-            (
-                new_clip,
-                Fixed::from_int(scroll.x * s),
-                Fixed::from_int(scroll.y * s),
-            )
+            (new_clip, scroll.x * s, scroll.y * s)
         } else {
             (*clip, Fixed::ZERO, Fixed::ZERO)
         };
@@ -292,8 +288,8 @@ fn draw_tree_offset(
                 renderer.draw(
                     &DrawCommand::Blit {
                         pos: Point {
-                            x: shifted_rect.x.to_int(),
-                            y: shifted_rect.y.to_int(),
+                            x: shifted_rect.x,
+                            y: shifted_rect.y,
                         },
                         data: &img.data,
                         width: img.width,
@@ -307,8 +303,8 @@ fn draw_tree_offset(
                 renderer.draw(
                     &DrawCommand::Label {
                         pos: Point {
-                            x: shifted_rect.x.to_int() + 2,
-                            y: shifted_rect.y.to_int() + 2,
+                            x: shifted_rect.x + Fixed::from_int(2),
+                            y: shifted_rect.y + Fixed::from_int(2),
                         },
                         text: &text.0,
                         color,
@@ -347,8 +343,8 @@ fn draw_tree_offset(
                     w: if cx2 > cx { cx2 - cx } else { Fixed::ZERO },
                     h: if cy2 > cy { cy2 - cy } else { Fixed::ZERO },
                 },
-                offset_x + Fixed::from_int(scroll.x * s),
-                offset_y + Fixed::from_int(scroll.y * s),
+                offset_x + scroll.x * s,
+                offset_y + scroll.y * s,
             )
         } else {
             (*clip, offset_x, offset_y)

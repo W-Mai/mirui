@@ -1,3 +1,5 @@
+use crate::types::Fixed;
+
 /// Scroll direction
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum ScrollAxis {
@@ -9,8 +11,8 @@ pub enum ScrollAxis {
 
 /// Scroll offset component — any widget with this becomes scrollable
 pub struct ScrollOffset {
-    pub x: i32,
-    pub y: i32,
+    pub x: Fixed,
+    pub y: Fixed,
 }
 
 /// Scroll configuration

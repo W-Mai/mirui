@@ -58,7 +58,7 @@ fn compute_scroll_recursive(
 
     // If this entity has ScrollOffset, add it for children
     let (child_acc_x, child_acc_y) = if let Some(scroll) = world.get::<ScrollOffset>(entity) {
-        (acc_x + scroll.x, acc_y + scroll.y)
+        (acc_x + scroll.x.to_int(), acc_y + scroll.y.to_int())
     } else {
         (acc_x, acc_y)
     };

@@ -228,8 +228,8 @@ impl<'a> SwRenderer<'a> {
         let clip_y = clip.y.to_int();
         let clip_x2 = clip_x + clip.w.to_int();
         let clip_y2 = clip_y + clip.h.to_int();
-        let mut cx = pos.x;
-        let cy = pos.y;
+        let mut cx = pos.x.to_int();
+        let cy = pos.y.to_int();
         for &ch in text {
             let bitmap = glyph(ch);
             for row in 0..CHAR_H as i32 {
@@ -270,8 +270,8 @@ impl<'a> SwRenderer<'a> {
                 }
                 for dy in 0..s {
                     for dx in 0..s {
-                        let px = pos.x + col * s + dx;
-                        let py = pos.y + row * s + dy;
+                        let px = pos.x.to_int() + col * s + dx;
+                        let py = pos.y.to_int() + row * s + dy;
                         if px < clip_x || px >= clip_x2 || py < clip_y || py >= clip_y2 {
                             continue;
                         }

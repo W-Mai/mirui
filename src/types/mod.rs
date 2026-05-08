@@ -6,8 +6,8 @@ pub use fixed::Fixed;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point {
-    pub x: i32,
-    pub y: i32,
+    pub x: Fixed,
+    pub y: Fixed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
