@@ -3,6 +3,20 @@ use crate::types::{Color, Fixed, Point, Rect};
 use super::command::DrawCommand;
 use super::renderer::Renderer;
 
+/// Integer square root (for Fixed raw values)
+fn isqrt_fixed(n: i32) -> i32 {
+    if n <= 0 {
+        return 0;
+    }
+    let mut x = n as u32;
+    let mut y = x.div_ceil(2);
+    while y < x {
+        x = y;
+        y = (x + n as u32 / x) / 2;
+    }
+    x as i32
+}
+
 pub struct SwRenderer<'a> {
     buf: &'a mut [u8],
     width: u32,
@@ -45,38 +59,48 @@ impl<'a> SwRenderer<'a> {
         }
     }
 
-    /// Check if a pixel at (px, py) relative to rect origin is inside the rounded rect
-    fn is_in_rounded_rect(px: i32, py: i32, w: u16, h: u16, r: u16) -> bool {
-        let r = r as i32;
-        let w = w as i32;
-        let h = h as i32;
+    /// Compute coverage (0..Fixed::ONE) for a pixel at (px, py) relative to rect origin
+    /// in a rounded rect of size (w, h) with corner radius r.
+    /// Returns Fixed::ONE for fully inside, Fixed::ZERO for fully outside,
+    /// and a fractional value for edge pixels (anti-aliased).
+    fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> Fixed {
+        if r == Fixed::ZERO {
+            return Fixed::ONE;
+        }
 
-        // Four corner checks
-        if px < r && py < r {
-            // top-left corner
-            let dx = r - px - 1;
-            let dy = r - py - 1;
-            return dx * dx + dy * dy <= r * r;
+        // Determine which corner (if any) this pixel is in
+        let (cx, cy) = if px < r && py < r {
+            (r, r) // top-left
+        } else if px >= w - r && py < r {
+            (w - r, r) // top-right
+        } else if px < r && py >= h - r {
+            (r, h - r) // bottom-left
+        } else if px >= w - r && py >= h - r {
+            (w - r, h - r) // bottom-right
+        } else {
+            return Fixed::ONE; // not in a corner region
+        };
+
+        // Distance from pixel center to corner center
+        let dx = px - cx + Fixed::from_raw(128); // +0.5 for pixel center
+        let dy = py - cy + Fixed::from_raw(128);
+        let dist_sq = dx * dx + dy * dy;
+        let r_sq = r * r;
+
+        if dist_sq <= r_sq {
+            // Fully inside the rounded corner
+            Fixed::ONE
+        } else {
+            // Anti-alias: compute how far outside we are (in pixels)
+            // Use linear falloff over 1px transition band
+            let dist = Fixed::from_raw(isqrt_fixed(dist_sq.raw()));
+            let overshoot = dist - r;
+            if overshoot >= Fixed::ONE {
+                Fixed::ZERO
+            } else {
+                Fixed::ONE - overshoot
+            }
         }
-        if px >= w - r && py < r {
-            // top-right corner
-            let dx = px - (w - r);
-            let dy = r - py - 1;
-            return dx * dx + dy * dy <= r * r;
-        }
-        if px < r && py >= h - r {
-            // bottom-left corner
-            let dx = r - px - 1;
-            let dy = py - (h - r);
-            return dx * dx + dy * dy <= r * r;
-        }
-        if px >= w - r && py >= h - r {
-            // bottom-right corner
-            let dx = px - (w - r);
-            let dy = py - (h - r);
-            return dx * dx + dy * dy <= r * r;
-        }
-        true
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, opa: u8, radius: Fixed) {
@@ -88,10 +112,7 @@ impl<'a> SwRenderer<'a> {
             return;
         };
 
-        let area_w = area.w.to_int() as u16;
-        let area_h = area.h.to_int() as u16;
-        let r_int = radius.to_int() as u16;
-        let r = r_int.min(area_w / 2).min(area_h / 2);
+        let r = radius.min(area.w / 2).min(area.h / 2);
 
         // Integer pixel bounds — use ceil for right/bottom to include partial edge pixels
         let px_x0 = draw_area.x.to_int();
@@ -100,7 +121,6 @@ impl<'a> SwRenderer<'a> {
         let px_y1 = (draw_area.y + draw_area.h).ceil().to_int();
 
         for py in px_y0..px_y1 {
-            // Vertical coverage: how much of this pixel row is inside area?
             let pixel_top = Fixed::from_int(py);
             let pixel_bot = Fixed::from_int(py + 1);
             let cov_y_top = pixel_top.max(area.y);
@@ -108,28 +128,25 @@ impl<'a> SwRenderer<'a> {
             let cov_y = ((cov_y_bot - cov_y_top).raw().clamp(0, 256)) as u16;
 
             for px in px_x0..px_x1 {
-                // Rounded rect check (integer level)
-                if r > 0
-                    && !Self::is_in_rounded_rect(
-                        px - area.x.to_int(),
-                        py - area.y.to_int(),
-                        area_w,
-                        area_h,
-                        r,
-                    )
-                {
-                    continue;
-                }
-
-                // Horizontal coverage
                 let pixel_left = Fixed::from_int(px);
                 let pixel_right = Fixed::from_int(px + 1);
                 let cov_x_left = pixel_left.max(area.x);
                 let cov_x_right = pixel_right.min(area.x + area.w);
                 let cov_x = ((cov_x_right - cov_x_left).raw().clamp(0, 256)) as u16;
 
-                // Combined coverage (0..256 * 0..256 -> 0..255)
-                let cov = (cov_x as u32 * cov_y as u32 / 256).min(255) as u8;
+                // Edge coverage
+                let edge_cov = (cov_x as u32 * cov_y as u32 / 256).min(255) as u8;
+
+                // Corner AA coverage
+                let corner_cov = if r > Fixed::ZERO {
+                    let rel_x = Fixed::from_int(px) - area.x;
+                    let rel_y = Fixed::from_int(py) - area.y;
+                    Self::rounded_rect_coverage(rel_x, rel_y, area.w, area.h, r)
+                } else {
+                    Fixed::ONE
+                };
+
+                let cov = (edge_cov as u16 * (corner_cov.raw().clamp(0, 256) as u16) / 256) as u8;
                 let final_opa = (opa as u16 * cov as u16 / 255) as u8;
                 if final_opa > 0 {
                     self.put_pixel(px, py, color, final_opa);
@@ -155,62 +172,49 @@ impl<'a> SwRenderer<'a> {
             return;
         };
 
-        let area_x = area.x.to_int();
-        let area_y = area.y.to_int();
-        let area_w = area.w.to_int() as u16;
-        let area_h = area.h.to_int() as u16;
-        let da_x = draw_area.x.to_int();
-        let da_y = draw_area.y.to_int();
-        let da_w = draw_area.w.to_int();
-        let da_h = draw_area.h.to_int();
+        let r = radius.min(area.w / 2).min(area.h / 2);
+        let bw = width;
 
-        let r_int = radius.to_int() as u16;
-        let r = r_int.min(area_w / 2).min(area_h / 2);
-        let bw = width.to_int();
+        let px_x0 = draw_area.x.to_int();
+        let px_y0 = draw_area.y.to_int();
+        let px_x1 = (draw_area.x + draw_area.w).ceil().to_int();
+        let px_y1 = (draw_area.y + draw_area.h).ceil().to_int();
 
-        for row in 0..da_h {
-            let y = da_y + row;
-            let py = y - area_y;
-            for col in 0..da_w {
-                let x = da_x + col;
-                let px = x - area_x;
+        let inner_r = (r - bw).max(Fixed::ZERO);
+        let inner_w = (area.w - bw * 2).max(Fixed::ZERO);
+        let inner_h = (area.h - bw * 2).max(Fixed::ZERO);
 
-                // Must be inside outer rounded rect
-                if r > 0 && !Self::is_in_rounded_rect(px, py, area_w, area_h, r) {
+        for py in px_y0..px_y1 {
+            for px in px_x0..px_x1 {
+                let rel_x = Fixed::from_int(px) - area.x;
+                let rel_y = Fixed::from_int(py) - area.y;
+
+                // Outer coverage
+                let outer_cov = Self::rounded_rect_coverage(rel_x, rel_y, area.w, area.h, r);
+                if outer_cov == Fixed::ZERO {
                     continue;
                 }
 
-                // Must be outside inner rect (border region only)
-                let inner_r = if r as i32 > bw {
-                    (r as i32 - bw) as u16
-                } else {
-                    0
-                };
-                let inner_w = if area_w as i32 > 2 * bw {
-                    (area_w as i32 - 2 * bw) as u16
-                } else {
-                    0
-                };
-                let inner_h = if area_h as i32 > 2 * bw {
-                    (area_h as i32 - 2 * bw) as u16
-                } else {
-                    0
-                };
-
-                let ipx = px - bw;
-                let ipy = py - bw;
-
-                if ipx >= 0
-                    && ipy >= 0
-                    && ipx < inner_w as i32
-                    && ipy < inner_h as i32
-                    && (inner_r == 0
-                        || Self::is_in_rounded_rect(ipx, ipy, inner_w, inner_h, inner_r))
+                // Inner coverage (hole)
+                let inner_rel_x = rel_x - bw;
+                let inner_rel_y = rel_y - bw;
+                let inner_cov = if inner_rel_x >= Fixed::ZERO
+                    && inner_rel_y >= Fixed::ZERO
+                    && inner_rel_x < inner_w
+                    && inner_rel_y < inner_h
                 {
-                    continue;
-                }
+                    Self::rounded_rect_coverage(inner_rel_x, inner_rel_y, inner_w, inner_h, inner_r)
+                } else {
+                    Fixed::ZERO
+                };
 
-                self.put_pixel(x, y, color, opa);
+                // Border coverage = outer - inner
+                let border_cov = (outer_cov - inner_cov).max(Fixed::ZERO);
+                let cov = (border_cov.raw().clamp(0, 256)) as u8;
+                let final_opa = (opa as u16 * cov as u16 / 255) as u8;
+                if final_opa > 0 {
+                    self.put_pixel(px, py, color, final_opa);
+                }
             }
         }
     }
