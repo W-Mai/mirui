@@ -49,7 +49,10 @@ fn main() {
         .id();
 
     ui! {
-        :(parent: root  world: &mut app.world:)
+        :(
+            parent: root
+            world: &mut app.world
+        :)
 
         content (direction: FlexDirection::Column, grow: 1.0) {
             header (bg_color: Color::rgb(88, 166, 255), height: 40, text: "Hello mirui!") {}
@@ -68,7 +71,10 @@ fn main() {
 ```rust
 ui! {
     // Context: parent entity + world reference
-    :(parent: root  world: &mut world:)
+    :(
+        parent: root
+        world: &mut world
+    :)
 
     // Widgets with attributes
     widget_name (attr: value, attr: value) {
@@ -140,7 +146,10 @@ app.systems.add_fn(|world| { /* closure system */ });
 
 ```rust
 ui! {
-    :(parent: root  world: &mut world:)
+    :(
+        parent: root
+        world: &mut world
+    :)
 
     scroll_container (direction: FlexDirection::Column, grow: 1.0) [
         ScrollOffset { x: 0, y: 0 },
