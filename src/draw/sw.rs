@@ -80,6 +80,8 @@ impl<'a> SwRenderer<'a> {
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, opa: u8, radius: u16) {
+        use crate::types::Fixed;
+
         let screen = Rect::new(0, 0, self.width, self.height);
         let Some(draw_area) = area.intersect(clip) else {
             return;
@@ -88,27 +90,51 @@ impl<'a> SwRenderer<'a> {
             return;
         };
 
-        let area_x = area.x.to_int();
-        let area_y = area.y.to_int();
         let area_w = area.w.to_int() as u16;
         let area_h = area.h.to_int() as u16;
-        let da_x = draw_area.x.to_int();
-        let da_y = draw_area.y.to_int();
-        let da_w = draw_area.w.to_int();
-        let da_h = draw_area.h.to_int();
-
         let r = radius.min(area_w / 2).min(area_h / 2);
 
-        for row in 0..da_h {
-            let y = da_y + row;
-            let py = y - area_y;
-            for col in 0..da_w {
-                let x = da_x + col;
-                let px = x - area_x;
-                if r > 0 && !Self::is_in_rounded_rect(px, py, area_w, area_h, r) {
+        // Iterate over integer pixels covered by draw_area
+        let px_x0 = draw_area.x.to_int();
+        let px_y0 = draw_area.y.to_int();
+        let px_x1 = (draw_area.x + draw_area.w).to_int();
+        let px_y1 = (draw_area.y + draw_area.h).to_int();
+
+        for py in px_y0..px_y1 {
+            // Vertical coverage: how much of this pixel row is inside area?
+            let pixel_top = Fixed::from_int(py);
+            let pixel_bot = Fixed::from_int(py + 1);
+            let cov_y_top = pixel_top.max(area.y);
+            let cov_y_bot = pixel_bot.min(area.y + area.h);
+            let cov_y = ((cov_y_bot - cov_y_top).raw().clamp(0, 256)) as u16;
+
+            for px in px_x0..px_x1 {
+                // Rounded rect check (integer level)
+                if r > 0
+                    && !Self::is_in_rounded_rect(
+                        px - area.x.to_int(),
+                        py - area.y.to_int(),
+                        area_w,
+                        area_h,
+                        r,
+                    )
+                {
                     continue;
                 }
-                self.put_pixel(x, y, color, opa);
+
+                // Horizontal coverage
+                let pixel_left = Fixed::from_int(px);
+                let pixel_right = Fixed::from_int(px + 1);
+                let cov_x_left = pixel_left.max(area.x);
+                let cov_x_right = pixel_right.min(area.x + area.w);
+                let cov_x = ((cov_x_right - cov_x_left).raw().clamp(0, 256)) as u16;
+
+                // Combined coverage (0..256 * 0..256 -> 0..255)
+                let cov = (cov_x as u32 * cov_y as u32 / 256).min(255) as u8;
+                let final_opa = (opa as u16 * cov as u16 / 255) as u8;
+                if final_opa > 0 {
+                    self.put_pixel(px, py, color, final_opa);
+                }
             }
         }
     }
