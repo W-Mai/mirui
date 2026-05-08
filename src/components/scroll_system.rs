@@ -7,8 +7,10 @@ use crate::event::hit_test::hit_test;
 pub struct ScrollDragState {
     pub active: bool,
     pub target: Entity,
-    pub last_y: i32,
     pub last_x: i32,
+    pub last_y: i32,
+    pub vel_x: i32,
+    pub vel_y: i32,
 }
 
 impl Default for ScrollDragState {
@@ -19,8 +21,10 @@ impl Default for ScrollDragState {
                 id: 0,
                 generation: 0,
             },
-            last_y: 0,
             last_x: 0,
+            last_y: 0,
+            vel_x: 0,
+            vel_y: 0,
         }
     }
 }
@@ -60,6 +64,8 @@ pub fn scroll_system(
                 }
                 world.insert(target, crate::widget::dirty::Dirty);
                 if let Some(state) = world.resource_mut::<ScrollDragState>() {
+                    state.vel_x = -dx;
+                    state.vel_y = -dy;
                     state.last_x = *x;
                     state.last_y = *y;
                 }
@@ -68,12 +74,46 @@ pub fn scroll_system(
         InputEvent::Release { .. } => {
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 state.active = false;
+                // velocity preserved for inertia
             }
         }
         _ => {}
     }
 }
 
+/// Inertia system — call every frame to decelerate scroll after release
+pub fn scroll_inertia_system(world: &mut World) {
+    let (active, target, vel_x, vel_y) = {
+        let Some(state) = world.resource::<ScrollDragState>() else {
+            return;
+        };
+        (state.active, state.target, state.vel_x, state.vel_y)
+    };
+
+    if active || (vel_x == 0 && vel_y == 0) {
+        return;
+    }
+
+    // Apply velocity
+    if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
+        scroll.x += vel_x;
+        scroll.y += vel_y;
+    }
+    world.insert(target, crate::widget::dirty::Dirty);
+
+    // Decay velocity (friction)
+    if let Some(state) = world.resource_mut::<ScrollDragState>() {
+        state.vel_x = state.vel_x * 9 / 10;
+        state.vel_y = state.vel_y * 9 / 10;
+        // Stop when slow enough
+        if state.vel_x.abs() < 1 {
+            state.vel_x = 0;
+        }
+        if state.vel_y.abs() < 1 {
+            state.vel_y = 0;
+        }
+    }
+}
 fn find_scroll_target(
     world: &World,
     root: Entity,

@@ -1,6 +1,6 @@
 use crate::backend::{Backend, InputEvent};
 use crate::components::button_system::button_system;
-use crate::components::scroll_system::{ScrollDragState, scroll_system};
+use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, scroll_system};
 use crate::draw::SwRenderer;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
@@ -105,6 +105,7 @@ impl<B: Backend> App<B> {
                 }
             }
 
+            scroll_inertia_system(&mut self.world);
             self.render();
         }
     }
