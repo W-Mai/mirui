@@ -144,16 +144,36 @@ pub fn scroll_system(
             let dx = *x - last_x;
             let dy = *y - last_y;
 
+            // Read bounds for resistance calculation
             let config = world.get::<ScrollConfig>(target);
             let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
+            let computed = world.get::<crate::widget::ComputedRect>(target);
+            let container_h = computed.map(|c| c.0.h as i32).unwrap_or(0);
+            let container_w = computed.map(|c| c.0.w as i32).unwrap_or(0);
+            let content_h = config
+                .map(|c| c.content_height as i32)
+                .unwrap_or(container_h);
+            let content_w = config
+                .map(|c| c.content_width as i32)
+                .unwrap_or(container_w);
+            let max_y = (content_h - container_h).max(0);
+            let max_x = (content_w - container_w).max(0);
 
             if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
                 match dir {
-                    ScrollAxis::Vertical => scroll.y -= dy,
-                    ScrollAxis::Horizontal => scroll.x -= dx,
+                    ScrollAxis::Vertical => {
+                        let eff_dy = elastic_resist(scroll.y, -dy, max_y);
+                        scroll.y += eff_dy;
+                    }
+                    ScrollAxis::Horizontal => {
+                        let eff_dx = elastic_resist(scroll.x, -dx, max_x);
+                        scroll.x += eff_dx;
+                    }
                     ScrollAxis::Both => {
-                        scroll.x -= dx;
-                        scroll.y -= dy;
+                        let eff_dx = elastic_resist(scroll.x, -dx, max_x);
+                        let eff_dy = elastic_resist(scroll.y, -dy, max_y);
+                        scroll.x += eff_dx;
+                        scroll.y += eff_dy;
                     }
                 }
             }
@@ -336,6 +356,34 @@ fn find_scroll_target_for_direction(
     last_matching
 }
 
+/// Apply elastic resistance when overscrolling.
+/// `offset`: current scroll offset, `delta`: requested change, `max`: max allowed offset.
+/// Returns the effective delta to apply (reduced when out of bounds).
+fn elastic_resist(offset: i32, delta: i32, max: i32) -> i32 {
+    const DAMPING: i32 = 200;
+
+    let new_offset = offset + delta;
+
+    // If staying in bounds, no resistance
+    if new_offset >= 0 && new_offset <= max {
+        return delta;
+    }
+
+    // Calculate how far out of bounds we are (or will be)
+    let overscroll = if new_offset < 0 {
+        -new_offset
+    } else {
+        new_offset - max
+    };
+
+    // Resistance: damping / (damping + overscroll)
+    // Use integer math: effective = delta * damping / (damping + overscroll)
+    let resistance_denom = DAMPING + overscroll;
+    if resistance_denom == 0 {
+        return 0;
+    }
+    delta * DAMPING / resistance_denom
+}
 fn is_at_boundary(world: &World, entity: Entity, delta_x: i32, delta_y: i32) -> bool {
     let Some(scroll) = world.get::<ScrollOffset>(entity) else {
         return false;
