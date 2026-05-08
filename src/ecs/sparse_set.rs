@@ -87,4 +87,8 @@ impl<T> SparseSet<T> {
     pub fn iter(&self) -> impl Iterator<Item = (Entity, &T)> {
         self.dense.iter().copied().zip(self.data.iter())
     }
+
+    pub fn entities(&self) -> &[Entity] {
+        &self.dense
+    }
 }

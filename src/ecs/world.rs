@@ -9,6 +9,7 @@ trait ComponentStorage: Any {
     fn as_any(&self) -> &dyn Any;
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn remove_entity(&mut self, entity: Entity);
+    fn contains_entity(&self, entity: Entity) -> bool;
 }
 
 impl<T: 'static> ComponentStorage for SparseSet<T> {
@@ -20,6 +21,9 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
     }
     fn remove_entity(&mut self, entity: Entity) {
         self.remove(entity);
+    }
+    fn contains_entity(&self, entity: Entity) -> bool {
+        self.contains(entity)
     }
 }
 
@@ -83,7 +87,22 @@ impl World {
         self.storage_mut::<T>().get_mut(entity)
     }
 
-    fn storage<T: 'static>(&self) -> Option<&SparseSet<T>> {
+    pub fn has<T: 'static>(&self, entity: Entity) -> bool {
+        self.storage::<T>().is_some_and(|s| s.contains(entity))
+    }
+
+    pub fn has_type(&self, entity: Entity, type_id: TypeId) -> bool {
+        self.storages
+            .iter()
+            .find(|(id, _)| *id == type_id)
+            .is_some_and(|(_, s)| s.contains_entity(entity))
+    }
+
+    pub fn query<T: 'static>(&self) -> super::query::QueryBuilder<'_, T> {
+        super::query::QueryBuilder::new(self)
+    }
+
+    pub(crate) fn storage<T: 'static>(&self) -> Option<&SparseSet<T>> {
         let type_id = TypeId::of::<T>();
         self.storages
             .iter()
