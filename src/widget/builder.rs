@@ -55,6 +55,11 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
+    pub fn image(self, img: crate::components::image::Image) -> Self {
+        self.world.insert(self.entity, img);
+        self
+    }
+
     pub fn text_color(self, color: Color) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
             style.text_color = Some(color);
