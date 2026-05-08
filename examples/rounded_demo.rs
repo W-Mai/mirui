@@ -1,7 +1,7 @@
 use mirui::app::App;
 use mirui::backend::sdl::SdlBackend;
 use mirui::layout::*;
-use mirui::types::Color;
+use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
 
 fn main() {
@@ -14,8 +14,8 @@ fn main() {
         .border(Color::rgb(255, 255, 255), 2)
         .border_radius(12)
         .layout(LayoutStyle {
-            width: Some(120),
-            height: Some(80),
+            width: Dimension::px(120),
+            height: Dimension::px(80),
             ..Default::default()
         })
         .id();
@@ -25,8 +25,8 @@ fn main() {
         .border(Color::rgb(30, 30, 46), 3)
         .border_radius(20)
         .layout(LayoutStyle {
-            width: Some(120),
-            height: Some(80),
+            width: Dimension::px(120),
+            height: Dimension::px(80),
             ..Default::default()
         })
         .id();
@@ -35,8 +35,8 @@ fn main() {
         .bg_color(Color::rgb(248, 81, 73))
         .border_radius(40) // pill shape
         .layout(LayoutStyle {
-            width: Some(120),
-            height: Some(80),
+            width: Dimension::px(120),
+            height: Dimension::px(80),
             ..Default::default()
         })
         .id();
@@ -46,8 +46,8 @@ fn main() {
         .border(Color::rgb(210, 168, 255), 3)
         .border_radius(8)
         .layout(LayoutStyle {
-            width: Some(120),
-            height: Some(80),
+            width: Dimension::px(120),
+            height: Dimension::px(80),
             ..Default::default()
         })
         .id();
@@ -58,8 +58,8 @@ fn main() {
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
-            width: Some(480),
-            height: Some(320),
+            width: Dimension::px(480),
+            height: Dimension::px(320),
             ..Default::default()
         })
         .child(card1)

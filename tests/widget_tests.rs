@@ -3,7 +3,7 @@ mod tests {
     use mirui::draw::{DrawCommand, Renderer};
     use mirui::ecs::World;
     use mirui::layout::*;
-    use mirui::types::{Color, Rect};
+    use mirui::types::{Color, Dimension, Fixed, Rect};
     use mirui::widget::builder::WidgetBuilder;
     use mirui::widget::render_system;
 
@@ -35,8 +35,8 @@ mod tests {
         let child = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
             .layout(LayoutStyle {
-                width: Some(50),
-                height: Some(50),
+                width: Dimension::px(50),
+                height: Dimension::px(50),
                 ..Default::default()
             })
             .id();
@@ -45,8 +45,8 @@ mod tests {
             .bg_color(Color::rgb(0, 0, 0))
             .layout(LayoutStyle {
                 direction: FlexDirection::Row,
-                width: Some(200),
-                height: Some(100),
+                width: Dimension::px(200),
+                height: Dimension::px(100),
                 ..Default::default()
             })
             .child(child)
@@ -90,8 +90,8 @@ mod tests {
         let c1 = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
             .layout(LayoutStyle {
-                grow: 1.0,
-                height: Some(100),
+                grow: Fixed::from_f32(1.0),
+                height: Dimension::px(100),
                 ..Default::default()
             })
             .id();
@@ -99,8 +99,8 @@ mod tests {
         let c2 = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(0, 255, 0))
             .layout(LayoutStyle {
-                grow: 1.0,
-                height: Some(100),
+                grow: Fixed::from_f32(1.0),
+                height: Dimension::px(100),
                 ..Default::default()
             })
             .id();
@@ -108,8 +108,8 @@ mod tests {
         let root = WidgetBuilder::new(&mut world)
             .layout(LayoutStyle {
                 direction: FlexDirection::Row,
-                width: Some(200),
-                height: Some(100),
+                width: Dimension::px(200),
+                height: Dimension::px(100),
                 ..Default::default()
             })
             .child(c1)

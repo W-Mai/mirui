@@ -1,13 +1,14 @@
 use super::Fixed;
 
 /// Dimension specification for layout properties.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Dimension {
     /// Fixed pixel value
     Px(Fixed),
     /// Percentage of parent size (0-100 stored as Fixed)
     Percent(Fixed),
     /// Determined by layout algorithm
+    #[default]
     Auto,
     /// Sized to fit content
     Content,
@@ -26,11 +27,17 @@ impl Dimension {
             Self::Auto | Self::Content => None,
         }
     }
-}
 
-impl Default for Dimension {
-    fn default() -> Self {
-        Self::Auto
+    /// Shorthand: `Dimension::px(100)` == `Dimension::Px(Fixed::from_int(100))`
+    #[inline]
+    pub const fn px(v: i32) -> Self {
+        Self::Px(Fixed::from_int(v))
+    }
+
+    /// Shorthand: `Dimension::percent(50)` == `Dimension::Percent(Fixed::from_int(50))`
+    #[inline]
+    pub const fn percent(v: i32) -> Self {
+        Self::Percent(Fixed::from_int(v))
     }
 }
 

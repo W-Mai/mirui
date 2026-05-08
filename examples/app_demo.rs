@@ -1,7 +1,7 @@
 use mirui::app::App;
 use mirui::backend::sdl::SdlBackend;
 use mirui::layout::*;
-use mirui::types::Color;
+use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
 
 fn main() {
@@ -12,8 +12,8 @@ fn main() {
     let c1 = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(88, 166, 255))
         .layout(LayoutStyle {
-            width: Some(120),
-            height: Some(80),
+            width: Dimension::px(120),
+            height: Dimension::px(80),
             ..Default::default()
         })
         .id();
@@ -21,8 +21,8 @@ fn main() {
     let c2 = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(63, 185, 80))
         .layout(LayoutStyle {
-            grow: 1.0,
-            height: Some(80),
+            grow: Fixed::from_f32(1.0),
+            height: Dimension::px(80),
             ..Default::default()
         })
         .id();
@@ -30,8 +30,8 @@ fn main() {
     let c3 = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(248, 81, 73))
         .layout(LayoutStyle {
-            width: Some(120),
-            height: Some(80),
+            width: Dimension::px(120),
+            height: Dimension::px(80),
             ..Default::default()
         })
         .id();
@@ -42,13 +42,13 @@ fn main() {
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
-            width: Some(480),
-            height: Some(320),
+            width: Dimension::px(480),
+            height: Dimension::px(320),
             padding: Padding {
-                top: 20,
-                right: 20,
-                bottom: 20,
-                left: 20,
+                top: 20.into(),
+                right: 20.into(),
+                bottom: 20.into(),
+                left: 20.into(),
             },
             ..Default::default()
         })

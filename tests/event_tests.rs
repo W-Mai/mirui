@@ -5,7 +5,7 @@ mod tests {
     use mirui::event::EventHandler;
     use mirui::event::dispatch::dispatch;
     use mirui::layout::*;
-    use mirui::types::Color;
+    use mirui::types::{Color, Dimension};
     use mirui::widget::builder::WidgetBuilder;
 
     use std::sync::{Arc, Mutex};
@@ -19,8 +19,8 @@ mod tests {
         let child = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
             .layout(LayoutStyle {
-                width: Some(100),
-                height: Some(100),
+                width: Dimension::px(100),
+                height: Dimension::px(100),
                 ..Default::default()
             })
             .id();
@@ -34,8 +34,8 @@ mod tests {
         let root = WidgetBuilder::new(&mut world)
             .layout(LayoutStyle {
                 direction: FlexDirection::Row,
-                width: Some(200),
-                height: Some(200),
+                width: Dimension::px(200),
+                height: Dimension::px(200),
                 ..Default::default()
             })
             .child(child)
@@ -62,8 +62,8 @@ mod tests {
         let child = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
             .layout(LayoutStyle {
-                width: Some(50),
-                height: Some(50),
+                width: Dimension::px(50),
+                height: Dimension::px(50),
                 ..Default::default()
             })
             .id();
@@ -77,8 +77,8 @@ mod tests {
         let root = WidgetBuilder::new(&mut world)
             .layout(LayoutStyle {
                 direction: FlexDirection::Row,
-                width: Some(200),
-                height: Some(200),
+                width: Dimension::px(200),
+                height: Dimension::px(200),
                 ..Default::default()
             })
             .child(child)
@@ -104,8 +104,8 @@ mod tests {
         let inner = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(0, 255, 0))
             .layout(LayoutStyle {
-                width: Some(50),
-                height: Some(50),
+                width: Dimension::px(50),
+                height: Dimension::px(50),
                 ..Default::default()
             })
             .id();
@@ -119,8 +119,8 @@ mod tests {
         let outer = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
             .layout(LayoutStyle {
-                width: Some(100),
-                height: Some(100),
+                width: Dimension::px(100),
+                height: Dimension::px(100),
                 ..Default::default()
             })
             .child(inner)
@@ -128,8 +128,8 @@ mod tests {
 
         let root = WidgetBuilder::new(&mut world)
             .layout(LayoutStyle {
-                width: Some(200),
-                height: Some(200),
+                width: Dimension::px(200),
+                height: Dimension::px(200),
                 ..Default::default()
             })
             .child(outer)

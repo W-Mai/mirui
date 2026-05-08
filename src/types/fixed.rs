@@ -50,11 +50,7 @@ impl Fixed {
 
     #[inline]
     pub const fn abs(self) -> Self {
-        if self.0 < 0 {
-            Self(-self.0)
-        } else {
-            self
-        }
+        if self.0 < 0 { Self(-self.0) } else { self }
     }
 
     #[inline]
@@ -102,8 +98,10 @@ impl Mul for Fixed {
     type Output = Self;
     #[inline]
     fn mul(self, rhs: Self) -> Self {
-        // (a * b) >> 8, use i64 to avoid overflow
-        Self(((self.0 as i64 * rhs.0 as i64) >> FRAC_BITS) as i32)
+        // Split to avoid i64: a * b = a * b_int + (a * b_frac) >> 8
+        let b_int = rhs.0 >> FRAC_BITS;
+        let b_frac = rhs.0 & (SCALE - 1);
+        Self(self.0 * b_int + ((self.0 * b_frac) >> FRAC_BITS))
     }
 }
 
@@ -111,8 +109,8 @@ impl Div for Fixed {
     type Output = Self;
     #[inline]
     fn div(self, rhs: Self) -> Self {
-        // (a << 8) / b
-        Self(((self.0 as i64) << FRAC_BITS) as i32 / rhs.0)
+        // (a << 8) / b — safe for UI range (≤8192px)
+        Self((self.0 << FRAC_BITS) / rhs.0)
     }
 }
 

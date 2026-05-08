@@ -4,7 +4,7 @@ use mirui::backend::sdl::SdlBackend;
 use mirui::components::assets::*;
 use mirui::components::image::Image;
 use mirui::layout::*;
-use mirui::types::Color;
+use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
 
 extern crate alloc;
@@ -17,8 +17,8 @@ fn main() {
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Some(480),
-            height: Some(320),
+            width: Dimension::px(480),
+            height: Dimension::px(320),
             ..Default::default()
         })
         .id();
@@ -28,7 +28,7 @@ fn main() {
         .bg_color(Color::rgb(88, 166, 255))
         .text("Absolute Position Demo")
         .layout(LayoutStyle {
-            height: Some(40),
+            height: Dimension::px(40),
             ..Default::default()
         })
         .id();
@@ -36,7 +36,7 @@ fn main() {
     let _body = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(40, 40, 60))
         .layout(LayoutStyle {
-            grow: 1.0,
+            grow: Fixed::from_f32(1.0),
             ..Default::default()
         })
         .id();
@@ -47,10 +47,10 @@ fn main() {
         .border_radius(8)
         .layout(LayoutStyle {
             position: Position::Absolute,
-            left: Some(50),
-            top: Some(80),
-            width: Some(60),
-            height: Some(60),
+            left: Dimension::px(50),
+            top: Dimension::px(80),
+            width: Dimension::px(60),
+            height: Dimension::px(60),
             ..Default::default()
         })
         .id();
@@ -60,10 +60,10 @@ fn main() {
         .border_radius(8)
         .layout(LayoutStyle {
             position: Position::Absolute,
-            left: Some(200),
-            top: Some(120),
-            width: Some(80),
-            height: Some(40),
+            left: Dimension::px(200),
+            top: Dimension::px(120),
+            width: Dimension::px(80),
+            height: Dimension::px(40),
             ..Default::default()
         })
         .id();
@@ -71,10 +71,10 @@ fn main() {
     let _img = WidgetBuilder::new(&mut app.world)
         .layout(LayoutStyle {
             position: Position::Absolute,
-            left: Some(350),
-            top: Some(60),
-            width: Some(IMG_THUMBS_UP_WIDTH),
-            height: Some(IMG_THUMBS_UP_HEIGHT),
+            left: Dimension::px(350),
+            top: Dimension::px(60),
+            width: Dimension::px(IMG_THUMBS_UP_WIDTH as i32),
+            height: Dimension::px(IMG_THUMBS_UP_HEIGHT as i32),
             ..Default::default()
         })
         .id();
@@ -93,10 +93,10 @@ fn main() {
         .border_radius(12)
         .layout(LayoutStyle {
             position: Position::Absolute,
-            left: Some(100),
-            top: Some(200),
-            width: Some(120),
-            height: Some(50),
+            left: Dimension::px(100),
+            top: Dimension::px(200),
+            width: Dimension::px(120),
+            height: Dimension::px(50),
             ..Default::default()
         })
         .id();

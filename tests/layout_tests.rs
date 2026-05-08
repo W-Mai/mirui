@@ -1,24 +1,24 @@
 #[cfg(test)]
 mod tests {
     use mirui::layout::*;
-    use mirui::types::Rect;
+    use mirui::types::{Dimension, Fixed, Rect};
 
     #[test]
     fn row_fixed_sizes() {
         let mut root = LayoutNode::new(LayoutStyle {
             direction: FlexDirection::Row,
-            width: Some(300),
-            height: Some(100),
+            width: Dimension::px(300),
+            height: Dimension::px(100),
             ..Default::default()
         });
         root.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(100),
-            height: Some(50),
+            width: Dimension::px(100),
+            height: Dimension::px(50),
             ..Default::default()
         }));
         root.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(100),
-            height: Some(50),
+            width: Dimension::px(100),
+            height: Dimension::px(50),
             ..Default::default()
         }));
 
@@ -48,18 +48,18 @@ mod tests {
     fn column_fixed_sizes() {
         let mut root = LayoutNode::new(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Some(100),
-            height: Some(200),
+            width: Dimension::px(100),
+            height: Dimension::px(200),
             ..Default::default()
         });
         root.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(80),
-            height: Some(60),
+            width: Dimension::px(80),
+            height: Dimension::px(60),
             ..Default::default()
         }));
         root.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(80),
-            height: Some(60),
+            width: Dimension::px(80),
+            height: Dimension::px(60),
             ..Default::default()
         }));
 
@@ -90,23 +90,23 @@ mod tests {
         let mut root = LayoutNode::new(LayoutStyle {
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceBetween,
-            width: Some(300),
-            height: Some(100),
+            width: Dimension::px(300),
+            height: Dimension::px(100),
             ..Default::default()
         });
         root.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(50),
-            height: Some(50),
+            width: Dimension::px(50),
+            height: Dimension::px(50),
             ..Default::default()
         }));
         root.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(50),
-            height: Some(50),
+            width: Dimension::px(50),
+            height: Dimension::px(50),
             ..Default::default()
         }));
         root.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(50),
-            height: Some(50),
+            width: Dimension::px(50),
+            height: Dimension::px(50),
             ..Default::default()
         }));
 
@@ -122,18 +122,18 @@ mod tests {
     fn row_grow() {
         let mut root = LayoutNode::new(LayoutStyle {
             direction: FlexDirection::Row,
-            width: Some(300),
-            height: Some(100),
+            width: Dimension::px(300),
+            height: Dimension::px(100),
             ..Default::default()
         });
         root.add_child(LayoutNode::new(LayoutStyle {
-            grow: 1.0,
-            height: Some(100),
+            grow: Fixed::from_f32(1.0),
+            height: Dimension::px(100),
             ..Default::default()
         }));
         root.add_child(LayoutNode::new(LayoutStyle {
-            grow: 2.0,
-            height: Some(100),
+            grow: Fixed::from_f32(2.0),
+            height: Dimension::px(100),
             ..Default::default()
         }));
 
@@ -148,13 +148,13 @@ mod tests {
         let mut root = LayoutNode::new(LayoutStyle {
             direction: FlexDirection::Row,
             align: AlignItems::Center,
-            width: Some(200),
-            height: Some(100),
+            width: Dimension::px(200),
+            height: Dimension::px(100),
             ..Default::default()
         });
         root.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(50),
-            height: Some(30),
+            width: Dimension::px(50),
+            height: Dimension::px(30),
             ..Default::default()
         }));
 
@@ -168,19 +168,19 @@ mod tests {
     fn padding() {
         let mut root = LayoutNode::new(LayoutStyle {
             direction: FlexDirection::Row,
-            width: Some(200),
-            height: Some(100),
+            width: Dimension::px(200),
+            height: Dimension::px(100),
             padding: Padding {
-                top: 10,
-                right: 10,
-                bottom: 10,
-                left: 10,
+                top: 10.into(),
+                right: 10.into(),
+                bottom: 10.into(),
+                left: 10.into(),
             },
             ..Default::default()
         });
         root.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(50),
-            height: Some(50),
+            width: Dimension::px(50),
+            height: Dimension::px(50),
             ..Default::default()
         }));
 

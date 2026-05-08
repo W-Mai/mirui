@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::types::Rect;
+use crate::types::{Dimension, Fixed, Rect};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum FlexDirection {
@@ -42,24 +42,25 @@ pub struct LayoutStyle {
     pub justify: JustifyContent,
     pub align: AlignItems,
     pub padding: Padding,
-    pub width: Option<u16>,
-    pub height: Option<u16>,
-    pub grow: f32,
+    pub width: Dimension,
+    pub height: Dimension,
+    pub grow: Fixed,
     pub position: Position,
-    pub left: Option<i32>,
-    pub top: Option<i32>,
+    pub left: Dimension,
+    pub top: Dimension,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Padding {
-    pub top: u16,
-    pub right: u16,
-    pub bottom: u16,
-    pub left: u16,
+    pub top: Dimension,
+    pub right: Dimension,
+    pub bottom: Dimension,
+    pub left: Dimension,
 }
 
 impl Padding {
-    pub fn all(v: u16) -> Self {
+    pub fn all(v: impl Into<Dimension>) -> Self {
+        let v = v.into();
         Self {
             top: v,
             right: v,

@@ -35,14 +35,34 @@ pub struct ComputedRect(pub crate::types::Rect);
 
 /// Move a widget to a new absolute position, automatically tracking dirty state.
 pub fn set_position(world: &mut crate::ecs::World, entity: crate::ecs::Entity, x: i32, y: i32) {
-    use crate::types::Rect;
+    use crate::types::{Dimension, Fixed, Rect};
     use dirty::{Dirty, PrevRect};
 
     if let Some(style) = world.get::<Style>(entity) {
-        let old_left = style.layout.left.unwrap_or(0);
-        let old_top = style.layout.top.unwrap_or(0);
-        let old_w = style.layout.width.unwrap_or(0);
-        let old_h = style.layout.height.unwrap_or(0);
+        let old_left = style
+            .layout
+            .left
+            .resolve(Fixed::ZERO)
+            .unwrap_or(Fixed::ZERO)
+            .to_int();
+        let old_top = style
+            .layout
+            .top
+            .resolve(Fixed::ZERO)
+            .unwrap_or(Fixed::ZERO)
+            .to_int();
+        let old_w = style
+            .layout
+            .width
+            .resolve(Fixed::ZERO)
+            .unwrap_or(Fixed::ZERO)
+            .to_int() as u16;
+        let old_h = style
+            .layout
+            .height
+            .resolve(Fixed::ZERO)
+            .unwrap_or(Fixed::ZERO)
+            .to_int() as u16;
         if old_left != x || old_top != y {
             world.insert(
                 entity,
@@ -56,8 +76,8 @@ pub fn set_position(world: &mut crate::ecs::World, entity: crate::ecs::Entity, x
         }
     }
     if let Some(style) = world.get_mut::<Style>(entity) {
-        style.layout.left = Some(x);
-        style.layout.top = Some(y);
+        style.layout.left = Dimension::Px(Fixed::from_int(x));
+        style.layout.top = Dimension::Px(Fixed::from_int(y));
     }
     world.insert(entity, Dirty);
 }

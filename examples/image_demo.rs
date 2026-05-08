@@ -4,7 +4,7 @@ use mirui::backend::sdl::SdlBackend;
 use mirui::components::assets::*;
 use mirui::components::image::Image;
 use mirui::layout::*;
-use mirui::types::Color;
+use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
 
 extern crate alloc;
@@ -17,8 +17,8 @@ fn main() {
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Some(480),
-            height: Some(320),
+            width: Dimension::px(480),
+            height: Dimension::px(320),
             justify: JustifyContent::Center,
             align: AlignItems::Center,
             ..Default::default()
@@ -27,8 +27,8 @@ fn main() {
 
     let img_widget = WidgetBuilder::new(&mut app.world)
         .layout(LayoutStyle {
-            width: Some(IMG_THUMBS_UP_WIDTH),
-            height: Some(IMG_THUMBS_UP_HEIGHT),
+            width: Dimension::px(IMG_THUMBS_UP_WIDTH as i32),
+            height: Dimension::px(IMG_THUMBS_UP_HEIGHT as i32),
             ..Default::default()
         })
         .id();

@@ -2,7 +2,7 @@ use mirui::app::App;
 use mirui::backend::sdl::SdlBackend;
 use mirui::components::scroll::{ScrollConfig, ScrollOffset};
 use mirui::layout::*;
-use mirui::types::Color;
+use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::ui;
 
@@ -14,8 +14,8 @@ fn main() {
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Some(480),
-            height: Some(320),
+            width: Dimension::px(480),
+            height: Dimension::px(320),
             ..Default::default()
         })
         .id();

@@ -1,7 +1,7 @@
 use mirui::app::App;
 use mirui::backend::sdl::SdlBackend;
 use mirui::layout::*;
-use mirui::types::Color;
+use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
 
 fn main() {
@@ -14,8 +14,8 @@ fn main() {
         .text("Hello, mirui!")
         .text_color(Color::rgb(255, 255, 255))
         .layout(LayoutStyle {
-            width: Some(140),
-            height: Some(40),
+            width: Dimension::px(140),
+            height: Dimension::px(40),
             ..Default::default()
         })
         .id();
@@ -25,8 +25,8 @@ fn main() {
         .border_radius(8)
         .text("ECS + Flexbox")
         .layout(LayoutStyle {
-            width: Some(140),
-            height: Some(40),
+            width: Dimension::px(140),
+            height: Dimension::px(40),
             ..Default::default()
         })
         .id();
@@ -37,8 +37,8 @@ fn main() {
         .border_radius(12)
         .text("no_std :)")
         .layout(LayoutStyle {
-            width: Some(140),
-            height: Some(40),
+            width: Dimension::px(140),
+            height: Dimension::px(40),
             ..Default::default()
         })
         .id();
@@ -49,8 +49,8 @@ fn main() {
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
-            width: Some(480),
-            height: Some(320),
+            width: Dimension::px(480),
+            height: Dimension::px(320),
             ..Default::default()
         })
         .child(label1)

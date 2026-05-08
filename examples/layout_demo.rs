@@ -1,6 +1,6 @@
 use mirui::draw::{DrawCommand, Renderer, SwRenderer};
 use mirui::layout::*;
-use mirui::types::{Color, Rect};
+use mirui::types::{Color, Dimension, Fixed, Rect};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
@@ -65,13 +65,13 @@ fn main() {
         direction: FlexDirection::Column,
         justify: JustifyContent::SpaceBetween,
         padding: Padding {
-            top: 20,
-            right: 20,
-            bottom: 20,
-            left: 20,
+            top: 20.into(),
+            right: 20.into(),
+            bottom: 20.into(),
+            left: 20.into(),
         },
-        width: Some(W as u16),
-        height: Some(H as u16),
+        width: Dimension::px(W as i32),
+        height: Dimension::px(H as i32),
         ..Default::default()
     });
 
@@ -79,13 +79,13 @@ fn main() {
     let mut top_row = LayoutNode::new(LayoutStyle {
         direction: FlexDirection::Row,
         justify: JustifyContent::SpaceBetween,
-        height: Some(80),
+        height: Dimension::px(80),
         ..Default::default()
     });
     for _ in 0..3 {
         top_row.add_child(LayoutNode::new(LayoutStyle {
-            width: Some(130),
-            height: Some(80),
+            width: Dimension::px(130),
+            height: Dimension::px(80),
             ..Default::default()
         }));
     }
@@ -94,17 +94,17 @@ fn main() {
     let mut bottom_row = LayoutNode::new(LayoutStyle {
         direction: FlexDirection::Row,
         justify: JustifyContent::FlexStart,
-        height: Some(160),
+        height: Dimension::px(160),
         ..Default::default()
     });
     bottom_row.add_child(LayoutNode::new(LayoutStyle {
-        grow: 1.0,
-        height: Some(160),
+        grow: Fixed::from_f32(1.0),
+        height: Dimension::px(160),
         ..Default::default()
     }));
     bottom_row.add_child(LayoutNode::new(LayoutStyle {
-        grow: 2.0,
-        height: Some(160),
+        grow: Fixed::from_f32(2.0),
+        height: Dimension::px(160),
         ..Default::default()
     }));
 

@@ -8,7 +8,7 @@ use mirui::components::image::Image;
 use mirui::components::progress_bar::ProgressBar;
 use mirui::ecs::{Entity, World};
 use mirui::layout::*;
-use mirui::types::Color;
+use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::ui;
 
@@ -19,8 +19,8 @@ fn build_ui(world: &mut World) -> Entity {
         .bg_color(Color::rgb(24, 24, 37))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Some(480),
-            height: Some(320),
+            width: Dimension::px(480),
+            height: Dimension::px(320),
             padding: Padding::all(8),
             ..Default::default()
         })
@@ -49,8 +49,8 @@ fn build_ui(world: &mut World) -> Entity {
     // Attach thumbs-up image to badge
     let badge_img = WidgetBuilder::new(world)
         .layout(LayoutStyle {
-            width: Some(IMG_THUMBS_UP_WIDTH),
-            height: Some(IMG_THUMBS_UP_HEIGHT),
+            width: Dimension::Px(Fixed::from_int(IMG_THUMBS_UP_WIDTH as i32)),
+            height: Dimension::Px(Fixed::from_int(IMG_THUMBS_UP_HEIGHT as i32)),
             ..Default::default()
         })
         .id();
@@ -74,8 +74,8 @@ fn build_ui(world: &mut World) -> Entity {
         .text("OK")
         .border_radius(6)
         .layout(LayoutStyle {
-            grow: 1.0,
-            height: Some(36),
+            grow: Fixed::from_f32(1.0),
+            height: Dimension::px(36),
             ..Default::default()
         })
         .id();
@@ -88,8 +88,8 @@ fn build_ui(world: &mut World) -> Entity {
         .text("Cancel")
         .border_radius(6)
         .layout(LayoutStyle {
-            grow: 1.0,
-            height: Some(36),
+            grow: Fixed::from_f32(1.0),
+            height: Dimension::px(36),
             ..Default::default()
         })
         .id();
@@ -101,7 +101,7 @@ fn build_ui(world: &mut World) -> Entity {
     let btn_row = WidgetBuilder::new(world)
         .layout(LayoutStyle {
             direction: FlexDirection::Row,
-            height: Some(36),
+            height: Dimension::px(36),
             ..Default::default()
         })
         .child(btn_ok)
@@ -116,7 +116,7 @@ fn build_ui(world: &mut World) -> Entity {
     let pb1 = WidgetBuilder::new(world)
         .border_radius(4)
         .layout(LayoutStyle {
-            height: Some(12),
+            height: Dimension::px(12),
             ..Default::default()
         })
         .id();
@@ -131,7 +131,7 @@ fn build_ui(world: &mut World) -> Entity {
     let pb2 = WidgetBuilder::new(world)
         .border_radius(4)
         .layout(LayoutStyle {
-            height: Some(12),
+            height: Dimension::px(12),
             ..Default::default()
         })
         .id();
@@ -146,7 +146,7 @@ fn build_ui(world: &mut World) -> Entity {
     let pb3 = WidgetBuilder::new(world)
         .border_radius(4)
         .layout(LayoutStyle {
-            height: Some(12),
+            height: Dimension::px(12),
             ..Default::default()
         })
         .id();
@@ -161,7 +161,7 @@ fn build_ui(world: &mut World) -> Entity {
     let pb_col = WidgetBuilder::new(world)
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            height: Some(50),
+            height: Dimension::px(50),
             justify: JustifyContent::SpaceBetween,
             ..Default::default()
         })
@@ -178,8 +178,8 @@ fn build_ui(world: &mut World) -> Entity {
     let cb1 = WidgetBuilder::new(world)
         .border_radius(4)
         .layout(LayoutStyle {
-            width: Some(24),
-            height: Some(24),
+            width: Dimension::px(24),
+            height: Dimension::px(24),
             ..Default::default()
         })
         .id();
@@ -194,8 +194,8 @@ fn build_ui(world: &mut World) -> Entity {
     let cb2 = WidgetBuilder::new(world)
         .border_radius(4)
         .layout(LayoutStyle {
-            width: Some(24),
-            height: Some(24),
+            width: Dimension::px(24),
+            height: Dimension::px(24),
             ..Default::default()
         })
         .id();
@@ -207,8 +207,8 @@ fn build_ui(world: &mut World) -> Entity {
     let cb3 = WidgetBuilder::new(world)
         .border_radius(4)
         .layout(LayoutStyle {
-            width: Some(24),
-            height: Some(24),
+            width: Dimension::px(24),
+            height: Dimension::px(24),
             ..Default::default()
         })
         .id();
@@ -223,7 +223,7 @@ fn build_ui(world: &mut World) -> Entity {
     let cb_row = WidgetBuilder::new(world)
         .layout(LayoutStyle {
             direction: FlexDirection::Row,
-            height: Some(30),
+            height: Dimension::px(30),
             align: AlignItems::Center,
             ..Default::default()
         })

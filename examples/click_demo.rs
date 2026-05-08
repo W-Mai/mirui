@@ -6,7 +6,7 @@ use mirui::backend::sdl::SdlBackend;
 use mirui::ecs::Entity;
 use mirui::event::{EventHandler, WidgetEvent};
 use mirui::layout::*;
-use mirui::types::Color;
+use mirui::types::{Color, Dimension};
 use mirui::widget::Style;
 use mirui::widget::builder::WidgetBuilder;
 
@@ -29,8 +29,8 @@ fn main() {
         let child = WidgetBuilder::new(&mut app.world)
             .bg_color(color)
             .layout(LayoutStyle {
-                width: Some(120),
-                height: Some(80),
+                width: Dimension::px(120),
+                height: Dimension::px(80),
                 ..Default::default()
             })
             .id();
@@ -56,13 +56,13 @@ fn main() {
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
-            width: Some(480),
-            height: Some(320),
+            width: Dimension::px(480),
+            height: Dimension::px(320),
             padding: Padding {
-                top: 20,
-                right: 20,
-                bottom: 20,
-                left: 20,
+                top: 20.into(),
+                right: 20.into(),
+                bottom: 20.into(),
+                left: 20.into(),
             },
             ..Default::default()
         })
