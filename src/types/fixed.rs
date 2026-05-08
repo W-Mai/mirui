@@ -66,6 +66,11 @@ impl Fixed {
         if self.0 < 0 { Self(-self.0) } else { self }
     }
 
+    #[inline]
+    pub const fn is_integer(self) -> bool {
+        self.0 & (SCALE - 1) == 0
+    }
+
     /// Square root
     pub fn sqrt(self) -> Self {
         if self.0 <= 0 {

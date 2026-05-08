@@ -101,11 +101,7 @@ impl<'a> SwRenderer<'a> {
         let r = radius.min(area.w / 2).min(area.h / 2);
 
         // Fast path: integer-aligned rect with no rounded corners
-        let is_aligned = area.x.raw() & 0xFF == 0
-            && area.y.raw() & 0xFF == 0
-            && area.w.raw() & 0xFF == 0
-            && area.h.raw() & 0xFF == 0
-            && r == Fixed::ZERO;
+        let is_aligned = area.is_aligned() && r == Fixed::ZERO;
 
         let px_x0 = draw_area.x.to_int();
         let px_y0 = draw_area.y.to_int();

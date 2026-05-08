@@ -43,6 +43,10 @@ impl Rect {
         }
     }
 
+    pub fn is_aligned(&self) -> bool {
+        self.x.is_integer() && self.y.is_integer() && self.w.is_integer() && self.h.is_integer()
+    }
+
     /// Convert to integer pixel rect (for rendering)
     pub fn to_px(&self) -> (i32, i32, u16, u16) {
         (
