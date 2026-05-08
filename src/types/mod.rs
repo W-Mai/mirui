@@ -1,5 +1,7 @@
+pub mod dimension;
 pub mod fixed;
 
+pub use dimension::Dimension;
 pub use fixed::Fixed;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
