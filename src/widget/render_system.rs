@@ -177,7 +177,11 @@ fn draw_tree(
                 w: (cx2 - cx).max(0) as u16,
                 h: (cy2 - cy).max(0) as u16,
             };
-            (new_clip, scroll.x, scroll.y)
+            let s = world
+                .resource::<crate::backend::DisplayInfo>()
+                .map(|d| d.scale as i32)
+                .unwrap_or(1);
+            (new_clip, scroll.x * s, scroll.y * s)
         } else {
             (*clip, 0, 0)
         };
@@ -338,8 +342,18 @@ fn draw_tree_offset(
                     w: (cx2 - cx).max(0) as u16,
                     h: (cy2 - cy).max(0) as u16,
                 },
-                offset_x + scroll.x,
-                offset_y + scroll.y,
+                offset_x
+                    + scroll.x
+                        * world
+                            .resource::<crate::backend::DisplayInfo>()
+                            .map(|d| d.scale as i32)
+                            .unwrap_or(1),
+                offset_y
+                    + scroll.y
+                        * world
+                            .resource::<crate::backend::DisplayInfo>()
+                            .map(|d| d.scale as i32)
+                            .unwrap_or(1),
             )
         } else {
             (*clip, offset_x, offset_y)

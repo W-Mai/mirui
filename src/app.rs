@@ -1,5 +1,6 @@
 use crate::backend::{Backend, InputEvent};
 use crate::components::button_system::button_system;
+use crate::components::scroll_system::{ScrollDragState, scroll_system};
 use crate::draw::SwRenderer;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
@@ -19,6 +20,9 @@ impl<B: Backend> App<B> {
         let mut world = World::new();
         world.insert_resource(DeltaTime(0.0));
         world.insert_resource(ElapsedTime(0.0));
+        world.insert_resource(ScrollDragState::default());
+        let info = backend.display_info();
+        world.insert_resource(info);
         Self {
             world,
             backend,
@@ -82,19 +86,26 @@ impl<B: Backend> App<B> {
         loop {
             self.systems.run_all(&mut self.world);
 
-            match self.poll_event() {
-                Some(InputEvent::Quit) => break,
-                Some(event) => {
-                    if let Some(root) = self.root {
-                        let info = self.backend.display_info();
-                        button_system(&mut self.world, root, &event, info.width, info.height);
-                        dispatch(&self.world, root, &event, info.width, info.height);
+            // Drain all pending events
+            loop {
+                match self.poll_event() {
+                    Some(InputEvent::Quit) => return,
+                    Some(event) => {
+                        if let Some(root) = self.root {
+                            let info = self.backend.display_info();
+                            let scale = if info.scale == 0 { 1 } else { info.scale };
+                            let lw = info.width / scale;
+                            let lh = info.height / scale;
+                            button_system(&mut self.world, root, &event, lw, lh);
+                            scroll_system(&mut self.world, root, &event, lw, lh);
+                            dispatch(&self.world, root, &event, lw, lh);
+                        }
                     }
+                    None => break,
                 }
-                None => {}
             }
 
-            self.render_dirty();
+            self.render();
         }
     }
 

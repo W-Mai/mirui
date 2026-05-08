@@ -15,6 +15,7 @@ pub struct DisplayInfo {
 #[derive(Clone, Debug)]
 pub enum InputEvent {
     Touch { x: i32, y: i32 },
+    TouchMove { x: i32, y: i32 },
     Release { x: i32, y: i32 },
     Key { code: u32, pressed: bool },
     Quit,

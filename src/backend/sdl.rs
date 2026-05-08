@@ -31,7 +31,11 @@ impl SdlBackend {
             .allow_highdpi()
             .build()
             .expect("SDL2 window creation failed");
-        let canvas = window.into_canvas().build().expect("SDL2 canvas failed");
+        let canvas = window
+            .into_canvas()
+            .present_vsync()
+            .build()
+            .expect("SDL2 canvas failed");
         let texture_creator = canvas.texture_creator();
         let event_pump = sdl.event_pump().expect("SDL2 event pump failed");
 
@@ -103,6 +107,13 @@ impl Backend for SdlBackend {
                 }
                 Event::MouseButtonUp { x, y, .. } => {
                     return Some(InputEvent::Release { x, y });
+                }
+                Event::MouseMotion {
+                    x, y, mousestate, ..
+                } => {
+                    if mousestate.left() {
+                        return Some(InputEvent::TouchMove { x, y });
+                    }
                 }
                 _ => {}
             }
