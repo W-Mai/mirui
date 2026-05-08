@@ -81,8 +81,8 @@ fn get_entity_rect(
         &mut tree,
         Fixed::ZERO,
         Fixed::ZERO,
-        Fixed::from_int(screen_w as i32),
-        Fixed::from_int(screen_h as i32),
+        screen_w.into(),
+        screen_h.into(),
     );
     let mut entities = alloc::vec::Vec::new();
     collect_preorder(world, root, &mut entities);

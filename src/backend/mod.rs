@@ -2,7 +2,7 @@ pub mod framebuf;
 #[cfg(feature = "sdl")]
 pub mod sdl;
 
-use crate::types::{Fixed, Rect};
+use crate::types::Rect;
 
 /// Display information
 pub struct DisplayInfo {
@@ -38,11 +38,6 @@ pub trait Backend {
     /// Full screen rect helper
     fn screen_rect(&self) -> Rect {
         let info = self.display_info();
-        Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: Fixed::from_int(info.width as i32),
-            h: Fixed::from_int(info.height as i32),
-        }
+        Rect::new(0, 0, info.width, info.height)
     }
 }

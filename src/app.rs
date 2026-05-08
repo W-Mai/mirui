@@ -4,7 +4,7 @@ use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, s
 use crate::draw::SwRenderer;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
-use crate::types::{Fixed, Rect};
+use crate::types::Rect;
 use crate::widget::render_system;
 
 /// Main application entry point — ties World + Backend together
@@ -58,12 +58,8 @@ impl<B: Backend> App<B> {
             info.scale,
             &mut renderer,
         );
-        self.backend.flush(&Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: Fixed::from_int(info.width as i32),
-            h: Fixed::from_int(info.height as i32),
-        });
+        self.backend
+            .flush(&Rect::new(0, 0, info.width, info.height));
     }
 
     /// Get the dirty region (physical pixels) after event processing, clearing dirty flags.

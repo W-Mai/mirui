@@ -403,8 +403,8 @@ pub fn render(
         &mut layout_tree,
         Fixed::ZERO,
         Fixed::ZERO,
-        Fixed::from_int(logical_w as i32),
-        Fixed::from_int(logical_h as i32),
+        logical_w.into(),
+        logical_h.into(),
     );
 
     // Scale all rects to physical pixels
@@ -413,8 +413,8 @@ pub fn render(
     let clip = Rect {
         x: Fixed::ZERO,
         y: Fixed::ZERO,
-        w: Fixed::from_int(screen_w as i32),
-        h: Fixed::from_int(screen_h as i32),
+        w: screen_w.into(),
+        h: screen_h.into(),
     };
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
@@ -436,8 +436,8 @@ pub fn update_layout(world: &mut World, root: Entity, screen_w: u16, screen_h: u
         &mut layout_tree,
         Fixed::ZERO,
         Fixed::ZERO,
-        Fixed::from_int(logical_w as i32),
-        Fixed::from_int(logical_h as i32),
+        logical_w.into(),
+        logical_h.into(),
     );
 
     let mut entities = Vec::new();
@@ -484,8 +484,8 @@ pub fn render_region(
         &mut layout_tree,
         Fixed::ZERO,
         Fixed::ZERO,
-        Fixed::from_int(logical_w as i32),
-        Fixed::from_int(logical_h as i32),
+        logical_w.into(),
+        logical_h.into(),
     );
     scale_rects(&mut layout_tree, scale);
 
@@ -523,8 +523,8 @@ pub fn collect_dirty_region(
         &mut layout_tree,
         Fixed::ZERO,
         Fixed::ZERO,
-        Fixed::from_int(logical_w as i32),
-        Fixed::from_int(logical_h as i32),
+        logical_w.into(),
+        logical_h.into(),
     );
     scale_rects(&mut layout_tree, scale);
 
@@ -584,12 +584,7 @@ pub fn collect_dirty_region(
     if max_x < 0 {
         None
     } else {
-        Some(Rect {
-            x: Fixed::from_int(min_x),
-            y: Fixed::from_int(min_y),
-            w: Fixed::from_int(max_x - min_x),
-            h: Fixed::from_int(max_y - min_y),
-        })
+        Some(Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
     }
 }
 

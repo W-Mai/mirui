@@ -1,4 +1,4 @@
-use crate::types::{Fixed, Rect};
+use crate::types::Rect;
 use alloc::vec::Vec;
 
 /// Dirty flag component — marks an entity as needing redraw
@@ -57,11 +57,6 @@ impl DirtyRegions {
                 max_y = ry + rh;
             }
         }
-        Some(Rect {
-            x: Fixed::from_int(min_x),
-            y: Fixed::from_int(min_y),
-            w: Fixed::from_int(max_x - min_x),
-            h: Fixed::from_int(max_y - min_y),
-        })
+        Some(Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))
     }
 }

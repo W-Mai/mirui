@@ -90,8 +90,8 @@ pub fn hit_test(
         &mut root_node,
         Fixed::ZERO,
         Fixed::ZERO,
-        Fixed::from_int(screen_w as i32),
-        Fixed::from_int(screen_h as i32),
+        screen_w.into(),
+        screen_h.into(),
     );
 
     let mut rects = Vec::new();

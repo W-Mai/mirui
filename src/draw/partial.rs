@@ -1,4 +1,4 @@
-use crate::types::{Fixed, Rect};
+use crate::types::Rect;
 
 /// Compare two framebuffers and return the minimal bounding rect of changed pixels.
 /// Returns None if no change.
@@ -38,12 +38,12 @@ pub fn dirty_rect(prev: &[u8], curr: &[u8], width: u16, height: u16) -> Option<R
     if max_x < 0 {
         None
     } else {
-        Some(Rect {
-            x: Fixed::from_int(min_x),
-            y: Fixed::from_int(min_y),
-            w: Fixed::from_int(max_x - min_x + 1),
-            h: Fixed::from_int(max_y - min_y + 1),
-        })
+        Some(Rect::new(
+            min_x,
+            min_y,
+            max_x - min_x + 1,
+            max_y - min_y + 1,
+        ))
     }
 }
 

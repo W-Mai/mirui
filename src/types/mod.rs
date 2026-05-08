@@ -52,6 +52,21 @@ impl Rect {
             self.h.to_int() as u16,
         )
     }
+
+    /// Construct from integer values
+    pub fn new(
+        x: impl Into<Fixed>,
+        y: impl Into<Fixed>,
+        w: impl Into<Fixed>,
+        h: impl Into<Fixed>,
+    ) -> Self {
+        Self {
+            x: x.into(),
+            y: y.into(),
+            w: w.into(),
+            h: h.into(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

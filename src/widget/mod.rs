@@ -69,8 +69,8 @@ pub fn set_position(world: &mut crate::ecs::World, entity: crate::ecs::Entity, x
                 PrevRect(Rect {
                     x: Fixed::from_int(old_left),
                     y: Fixed::from_int(old_top),
-                    w: Fixed::from_int(old_w as i32),
-                    h: Fixed::from_int(old_h as i32),
+                    w: old_w.into(),
+                    h: old_h.into(),
                 }),
             );
         }

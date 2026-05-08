@@ -1,4 +1,4 @@
-use crate::types::{Color, Fixed, Point, Rect};
+use crate::types::{Color, Point, Rect};
 
 use super::command::DrawCommand;
 use super::renderer::Renderer;
@@ -80,12 +80,7 @@ impl<'a> SwRenderer<'a> {
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, opa: u8, radius: u16) {
-        let screen = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: Fixed::from_int(self.width as i32),
-            h: Fixed::from_int(self.height as i32),
-        };
+        let screen = Rect::new(0, 0, self.width, self.height);
         let Some(draw_area) = area.intersect(clip) else {
             return;
         };
@@ -127,12 +122,7 @@ impl<'a> SwRenderer<'a> {
         radius: u16,
         opa: u8,
     ) {
-        let screen = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: Fixed::from_int(self.width as i32),
-            h: Fixed::from_int(self.height as i32),
-        };
+        let screen = Rect::new(0, 0, self.width, self.height);
         let Some(draw_area) = area.intersect(clip) else {
             return;
         };

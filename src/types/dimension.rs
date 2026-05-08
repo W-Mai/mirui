@@ -51,7 +51,7 @@ impl From<i32> for Dimension {
 impl From<u16> for Dimension {
     #[inline]
     fn from(v: u16) -> Self {
-        Self::Px(Fixed::from_int(v as i32))
+        Self::Px(v.into())
     }
 }
 

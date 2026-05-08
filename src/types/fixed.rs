@@ -142,6 +142,13 @@ impl From<u16> for Fixed {
     }
 }
 
+impl From<u32> for Fixed {
+    #[inline]
+    fn from(v: u32) -> Self {
+        Self::from_int(v as i32)
+    }
+}
+
 impl From<f32> for Fixed {
     #[inline]
     fn from(v: f32) -> Self {
