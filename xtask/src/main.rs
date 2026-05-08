@@ -56,6 +56,7 @@ fn cmd_test() -> Result {
 
 fn cmd_lint() -> Result {
     cargo(&[
+        "+stable",
         "clippy",
         "--workspace",
         "--all-features",
@@ -63,7 +64,7 @@ fn cmd_lint() -> Result {
         "-D",
         "warnings",
     ])?;
-    cargo(&["fmt", "--all", "--check"])
+    cargo(&["+stable", "fmt", "--all", "--check"])
 }
 
 fn cmd_examples() -> Result {

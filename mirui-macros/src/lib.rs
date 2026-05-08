@@ -92,7 +92,7 @@ impl MiruiRune {
                 "top" => layout_fields.push(quote! { top: Some(#value) }),
                 "image" => builder_calls.push(quote! { .image(#value) }),
                 unknown => {
-                    let msg = format!("unknown widget attribute `{}`", unknown);
+                    let msg = format!("unknown widget attribute `{unknown}`");
                     errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
                 }
             }
