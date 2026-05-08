@@ -149,30 +149,30 @@ pub fn scroll_system(
             let config = world.get::<ScrollConfig>(target);
             let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
             let computed = world.get::<crate::widget::ComputedRect>(target);
-            let container_h = computed.map(|c| c.0.h.to_int()).unwrap_or(0);
-            let container_w = computed.map(|c| c.0.w.to_int()).unwrap_or(0);
-            let content_h = config
-                .map(|c| c.content_height as i32)
+            let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
+            let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
+            let content_h: Fixed = config
+                .map(|c| c.content_height.into())
                 .unwrap_or(container_h);
-            let content_w = config
-                .map(|c| c.content_width as i32)
+            let content_w: Fixed = config
+                .map(|c| c.content_width.into())
                 .unwrap_or(container_w);
-            let max_y = (content_h - container_h).max(0);
-            let max_x = (content_w - container_w).max(0);
+            let max_y = (content_h - container_h).max(Fixed::ZERO);
+            let max_x = (content_w - container_w).max(Fixed::ZERO);
 
             if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
                 match dir {
                     ScrollAxis::Vertical => {
-                        let eff_dy = elastic_resist(scroll.y, -dy, Fixed::from_int(max_y));
+                        let eff_dy = elastic_resist(scroll.y, -dy, max_y);
                         scroll.y += eff_dy;
                     }
                     ScrollAxis::Horizontal => {
-                        let eff_dx = elastic_resist(scroll.x, -dx, Fixed::from_int(max_x));
+                        let eff_dx = elastic_resist(scroll.x, -dx, max_x);
                         scroll.x += eff_dx;
                     }
                     ScrollAxis::Both => {
-                        let eff_dx = elastic_resist(scroll.x, -dx, Fixed::from_int(max_x));
-                        let eff_dy = elastic_resist(scroll.y, -dy, Fixed::from_int(max_y));
+                        let eff_dx = elastic_resist(scroll.x, -dx, max_x);
+                        let eff_dy = elastic_resist(scroll.y, -dy, max_y);
                         scroll.x += eff_dx;
                         scroll.y += eff_dy;
                     }
@@ -238,26 +238,19 @@ pub fn scroll_inertia_system(world: &mut World) {
         };
         let config = world.get::<crate::components::scroll::ScrollConfig>(target);
         let computed = world.get::<crate::widget::ComputedRect>(target);
-        let container_h = computed.map(|c| c.0.h.to_int()).unwrap_or(0);
-        let container_w = computed.map(|c| c.0.w.to_int()).unwrap_or(0);
-        let content_h = config
-            .map(|c| c.content_height as i32)
+        let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
+        let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
+        let content_h: Fixed = config
+            .map(|c| c.content_height.into())
             .unwrap_or(container_h);
-        let content_w = config
-            .map(|c| c.content_width as i32)
+        let content_w: Fixed = config
+            .map(|c| c.content_width.into())
             .unwrap_or(container_w);
-        let max_y = (content_h - container_h).max(0);
-        let max_x = (content_w - container_w).max(0);
+        let max_y = (content_h - container_h).max(Fixed::ZERO);
+        let max_x = (content_w - container_w).max(Fixed::ZERO);
         let elastic = config.map(|c| c.elastic).unwrap_or(true);
         let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
-        (
-            scroll.x.to_int(),
-            scroll.y.to_int(),
-            max_x,
-            max_y,
-            elastic,
-            dir,
-        )
+        (scroll.x, scroll.y, max_x, max_y, elastic, dir)
     };
 
     let mut new_vel_x = vel_x;
@@ -268,8 +261,8 @@ pub fn scroll_inertia_system(world: &mut World) {
     if elastic {
         match dir {
             ScrollAxis::Vertical | ScrollAxis::Both => {
-                if offset_y < 0 {
-                    let diff = Fixed::from_int(-offset_y);
+                if offset_y < Fixed::ZERO {
+                    let diff = -offset_y;
                     new_vel_y = if diff.abs() <= Fixed::from_int(3) {
                         diff
                     } else {
@@ -277,7 +270,7 @@ pub fn scroll_inertia_system(world: &mut World) {
                     };
                     bouncing = true;
                 } else if offset_y > max_y {
-                    let diff = Fixed::from_int(max_y - offset_y);
+                    let diff = max_y - offset_y;
                     new_vel_y = if diff.abs() <= Fixed::from_int(3) {
                         diff
                     } else {
@@ -290,8 +283,8 @@ pub fn scroll_inertia_system(world: &mut World) {
         }
         match dir {
             ScrollAxis::Horizontal | ScrollAxis::Both => {
-                if offset_x < 0 {
-                    let diff = Fixed::from_int(-offset_x);
+                if offset_x < Fixed::ZERO {
+                    let diff = -offset_x;
                     new_vel_x = if diff.abs() <= Fixed::from_int(3) {
                         diff
                     } else {
@@ -299,7 +292,7 @@ pub fn scroll_inertia_system(world: &mut World) {
                     };
                     bouncing = true;
                 } else if offset_x > max_x {
-                    let diff = Fixed::from_int(max_x - offset_x);
+                    let diff = max_x - offset_x;
                     new_vel_x = if diff.abs() <= Fixed::from_int(3) {
                         diff
                     } else {

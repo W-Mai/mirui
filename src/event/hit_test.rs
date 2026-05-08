@@ -37,18 +37,18 @@ fn collect_rects(node: &LayoutNode, rects: &mut Vec<Rect>) {
 
 /// Compute the accumulated scroll offset for each entity.
 /// For each entity, this is the sum of all ancestor ScrollOffsets.
-fn compute_scroll_offsets(world: &World, root: Entity, entities: &[Entity]) -> Vec<(i32, i32)> {
-    let mut offsets = vec![(0i32, 0i32); entities.len()];
-    compute_scroll_recursive(world, root, 0, 0, &mut offsets, &mut 0);
+fn compute_scroll_offsets(world: &World, root: Entity, entities: &[Entity]) -> Vec<(Fixed, Fixed)> {
+    let mut offsets = vec![(Fixed::ZERO, Fixed::ZERO); entities.len()];
+    compute_scroll_recursive(world, root, Fixed::ZERO, Fixed::ZERO, &mut offsets, &mut 0);
     offsets
 }
 
 fn compute_scroll_recursive(
     world: &World,
     entity: Entity,
-    acc_x: i32,
-    acc_y: i32,
-    offsets: &mut [(i32, i32)],
+    acc_x: Fixed,
+    acc_y: Fixed,
+    offsets: &mut [(Fixed, Fixed)],
     idx: &mut usize,
 ) {
     if *idx < offsets.len() {
@@ -58,7 +58,7 @@ fn compute_scroll_recursive(
 
     // If this entity has ScrollOffset, add it for children
     let (child_acc_x, child_acc_y) = if let Some(scroll) = world.get::<ScrollOffset>(entity) {
-        (acc_x + scroll.x.to_int(), acc_y + scroll.y.to_int())
+        (acc_x + scroll.x, acc_y + scroll.y)
     } else {
         (acc_x, acc_y)
     };
@@ -105,8 +105,8 @@ pub fn hit_test(
     for (i, rect) in rects.iter().enumerate() {
         let (sx, sy) = scroll_offsets[i];
         // Widget's visual position = layout position - scroll offset
-        let vx = rect.x - Fixed::from_int(sx);
-        let vy = rect.y - Fixed::from_int(sy);
+        let vx = rect.x - sx;
+        let vy = rect.y - sy;
         let rw = rect.w;
         let rh = rect.h;
         if x >= vx && x < vx + rw && y >= vy && y < vy + rh {
