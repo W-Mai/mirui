@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2026-05-09
+
+### 🎉 The Subpixel Release
+
+mirui now renders with **24.8 fixed-point precision** across the entire pipeline — from layout to rendering to event handling. Every coordinate, every rect, every scroll offset lives in subpixel space. Anti-aliased edges come for free. And somehow, the binary got **11% smaller**.
+
+### Added
+
+- **`Fixed` type** — 24.8 fixed-point arithmetic with `Add`/`Sub`/`Mul`/`Div`/`Neg`, `ceil()`/`floor()`/`round()`/`sqrt()`/`abs()`, `From<i32>`/`From<u16>`/`From<u32>`/`From<f32>`
+- **`Dimension` enum** — `Px(Fixed)` / `Percent(Fixed)` / `Auto` / `Content` with `resolve(parent_size)` and arithmetic ops
+- **Subpixel anti-aliased rendering** — rect edges and rounded corners use coverage-based alpha blending
+- **`rounded_rect_coverage()`** — replaces boolean hit test with smooth 1px falloff
+- **Fast path** — integer-aligned rects with no radius skip coverage calculation entirely (zero overhead)
+- **`Rect::new(x, y, w, h)`** — accepts `impl Into<Fixed>`, write `Rect::new(0, 0, 480, 320)` directly
+- **`Fixed::is_integer()`** / **`Rect::is_aligned()`** — query alignment without touching raw bits
+- **`Dimension::px()`** / **`Dimension::percent()`** — const constructors
+- **`set_position(world, entity, x, y)`** — now accepts `impl Into<Fixed>`, pass integers or Fixed seamlessly
+- **xrune-fmt CI integration** — `cargo xtask ci` checks DSL formatting
+
+### Changed (⚠️ Breaking)
+
+- `Rect` fields: `i32`/`u16` → `Fixed`
+- `Point` fields: `i32` → `Fixed`
+- `LayoutStyle.width/height/left/top`: `Option<u16>`/`Option<i32>` → `Dimension`
+- `LayoutStyle.grow`: `f32` → `Fixed`
+- `LayoutStyle.padding`: `u16` → `Dimension`
+- `InputEvent::Touch/TouchMove/Release` coordinates: `i32` → `Fixed`
+- `ScrollOffset` fields: `i32` → `Fixed`
+- `DisplayInfo.scale`: `u16` → `Fixed` (now supports fractional scales like 1.5x)
+- `Style.border_width/border_radius`: `u16` → `Fixed`
+- `ScrollConfig.content_height/content_width`: `u16` → `Fixed`
+- `compute_layout()` signature: all params now `Fixed`
+- `app.run()` now uses `render_dirty()` instead of full `render()` per frame
+
+### Performance
+
+- ESP32-C3 binary size: **42,740B → 37,976B (-11%)** — eliminated soft-float `__mulsf3`/`__divsf3`
+- Zero-cost for integer-aligned widgets (fast path bypasses coverage math)
+- RISC-V disassembly confirms: `Dimension::resolve()` fully inlined, Fixed mul = single `mul` instruction
+
 ## [0.1.6] - 2026-05-08
 
 ### Added
