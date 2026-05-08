@@ -42,19 +42,19 @@ impl DirtyRegions {
         for r in &self.rects {
             let rx = r.x.to_int();
             let ry = r.y.to_int();
-            let rw = r.w.to_int();
-            let rh = r.h.to_int();
+            let rx2 = (r.x + r.w).to_int_ceil();
+            let ry2 = (r.y + r.h).to_int_ceil();
             if rx < min_x {
                 min_x = rx;
             }
             if ry < min_y {
                 min_y = ry;
             }
-            if rx + rw > max_x {
-                max_x = rx + rw;
+            if rx2 > max_x {
+                max_x = rx2;
             }
-            if ry + rh > max_y {
-                max_y = ry + rh;
+            if ry2 > max_y {
+                max_y = ry2;
             }
         }
         Some(Rect::new(min_x, min_y, max_x - min_x, max_y - min_y))

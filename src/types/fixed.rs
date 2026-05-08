@@ -33,6 +33,12 @@ impl Fixed {
         (self.0 + (SCALE >> 1)) >> FRAC_BITS
     }
 
+    /// Round up to next integer (ceiling)
+    #[inline]
+    pub const fn to_int_ceil(self) -> i32 {
+        (self.0 + SCALE - 1) >> FRAC_BITS
+    }
+
     #[inline]
     pub fn from_f32(v: f32) -> Self {
         Self((v * SCALE as f32) as i32)

@@ -541,19 +541,19 @@ pub fn collect_dirty_region(
             if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
                 let rx = rect.x.to_int();
                 let ry = rect.y.to_int();
-                let rw = rect.w.to_int();
-                let rh = rect.h.to_int();
+                let rx2 = (rect.x + rect.w).to_int_ceil();
+                let ry2 = (rect.y + rect.h).to_int_ceil();
                 if rx < min_x {
                     min_x = rx;
                 }
                 if ry < min_y {
                     min_y = ry;
                 }
-                if rx + rw > max_x {
-                    max_x = rx + rw;
+                if rx2 > max_x {
+                    max_x = rx2;
                 }
-                if ry + rh > max_y {
-                    max_y = ry + rh;
+                if ry2 > max_y {
+                    max_y = ry2;
                 }
             }
             // Include previous rect (old position) if present
