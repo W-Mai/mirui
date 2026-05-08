@@ -110,7 +110,7 @@ impl<B: Backend> App<B> {
             }
 
             scroll_inertia_system(&mut self.world);
-            self.render();
+            self.render_dirty();
         }
     }
 

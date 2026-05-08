@@ -19,7 +19,7 @@ impl Dimension {
     /// - Px: returns the value directly
     /// - Percent: parent_size * percent / 100
     /// - Auto/Content: returns None (caller must handle)
-    #[inline]
+    #[inline(always)]
     pub fn resolve(self, parent_size: Fixed) -> Option<Fixed> {
         match self {
             Self::Px(v) => Some(v),
