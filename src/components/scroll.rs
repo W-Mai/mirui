@@ -17,6 +17,10 @@ pub struct ScrollOffset {
 pub struct ScrollConfig {
     pub direction: ScrollAxis,
     pub elastic: bool,
+    pub content_height: u16,
+    pub content_width: u16,
+    pub viewport_height: u16,
+    pub viewport_width: u16,
 }
 
 impl Default for ScrollConfig {
@@ -24,6 +28,10 @@ impl Default for ScrollConfig {
         Self {
             direction: ScrollAxis::Vertical,
             elastic: true,
+            content_height: 0,
+            content_width: 0,
+            viewport_height: 0,
+            viewport_width: 0,
         }
     }
 }

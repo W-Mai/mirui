@@ -90,27 +90,79 @@ pub fn scroll_inertia_system(world: &mut World) {
         (state.active, state.target, state.vel_x, state.vel_y)
     };
 
-    if active || (vel_x == 0 && vel_y == 0) {
+    if active {
+        return;
+    }
+
+    // Get scroll bounds for elastic
+    let (offset_x, offset_y, max_x, max_y, elastic) = {
+        let Some(scroll) = world.get::<ScrollOffset>(target) else {
+            return;
+        };
+        let config = world.get::<crate::components::scroll::ScrollConfig>(target);
+        let container_h = config.map(|c| c.viewport_height as i32).unwrap_or(0);
+        let container_w = config.map(|c| c.viewport_width as i32).unwrap_or(0);
+        let content_h = config.map(|c| c.content_height as i32).unwrap_or(0);
+        let content_w = config.map(|c| c.content_width as i32).unwrap_or(0);
+        let max_y = (content_h - container_h).max(0);
+        let max_x = (content_w - container_w).max(0);
+        let elastic = config.map(|c| c.elastic).unwrap_or(true);
+        (scroll.x, scroll.y, max_x, max_y, elastic)
+    };
+
+    let mut new_vel_x = vel_x;
+    let mut new_vel_y = vel_y;
+
+    // Elastic bounce — if out of bounds, ignore inertia, lerp back to boundary
+    let mut bouncing = false;
+    if elastic {
+        if offset_y < 0 {
+            let diff = 0 - offset_y;
+            new_vel_y = if diff.abs() <= 3 { diff } else { diff / 3 };
+            new_vel_x = 0;
+            bouncing = true;
+        } else if offset_y > max_y {
+            let diff = max_y - offset_y;
+            new_vel_y = if diff.abs() <= 3 { diff } else { diff / 3 };
+            new_vel_x = 0;
+            bouncing = true;
+        }
+        if offset_x < 0 {
+            let diff = 0 - offset_x;
+            new_vel_x = if diff.abs() <= 3 { diff } else { diff / 3 };
+            bouncing = true;
+        } else if offset_x > max_x {
+            let diff = max_x - offset_x;
+            new_vel_x = if diff.abs() <= 3 { diff } else { diff / 3 };
+            bouncing = true;
+        }
+    }
+
+    if new_vel_x == 0 && new_vel_y == 0 {
         return;
     }
 
     // Apply velocity
     if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
-        scroll.x += vel_x;
-        scroll.y += vel_y;
+        scroll.x += new_vel_x;
+        scroll.y += new_vel_y;
     }
     world.insert(target, crate::widget::dirty::Dirty);
 
-    // Decay velocity (friction)
+    // Decay velocity (only when not bouncing)
     if let Some(state) = world.resource_mut::<ScrollDragState>() {
-        state.vel_x = state.vel_x * 9 / 10;
-        state.vel_y = state.vel_y * 9 / 10;
-        // Stop when slow enough
-        if state.vel_x.abs() < 1 {
+        if bouncing {
             state.vel_x = 0;
-        }
-        if state.vel_y.abs() < 1 {
             state.vel_y = 0;
+        } else {
+            state.vel_x = new_vel_x * 9 / 10;
+            state.vel_y = new_vel_y * 9 / 10;
+            if state.vel_x.abs() < 1 {
+                state.vel_x = 0;
+            }
+            if state.vel_y.abs() < 1 {
+                state.vel_y = 0;
+            }
         }
     }
 }
