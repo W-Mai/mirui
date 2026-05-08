@@ -155,8 +155,198 @@ fn draw_tree(
     }
     *idx += 1;
 
+    // Check if this widget has ScrollOffset — clip children + offset
+    let entity = if *idx > 0 && (*idx - 1) < entities.len() {
+        entities[*idx - 1]
+    } else {
+        Entity {
+            id: u32::MAX,
+            generation: 0,
+        }
+    };
+
+    let (child_clip, scroll_x, scroll_y) =
+        if let Some(scroll) = world.get::<crate::components::scroll::ScrollOffset>(entity) {
+            let cx = clip.x.max(node.rect.x);
+            let cy = clip.y.max(node.rect.y);
+            let cx2 = (clip.x + clip.w as i32).min(node.rect.x + node.rect.w as i32);
+            let cy2 = (clip.y + clip.h as i32).min(node.rect.y + node.rect.h as i32);
+            let new_clip = Rect {
+                x: cx,
+                y: cy,
+                w: (cx2 - cx).max(0) as u16,
+                h: (cy2 - cy).max(0) as u16,
+            };
+            (new_clip, scroll.x, scroll.y)
+        } else {
+            (*clip, 0, 0)
+        };
+
     for child in &node.children {
-        draw_tree(child, world, entities, idx, renderer, clip);
+        draw_tree_offset(
+            child,
+            world,
+            entities,
+            idx,
+            renderer,
+            &child_clip,
+            scroll_x,
+            scroll_y,
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_tree_offset(
+    node: &LayoutNode,
+    world: &World,
+    entities: &[Entity],
+    idx: &mut usize,
+    renderer: &mut dyn Renderer,
+    clip: &Rect,
+    offset_x: i32,
+    offset_y: i32,
+) {
+    let shifted_rect = Rect {
+        x: node.rect.x - offset_x,
+        y: node.rect.y - offset_y,
+        w: node.rect.w,
+        h: node.rect.h,
+    };
+
+    if !rects_intersect(&shifted_rect, clip) {
+        *idx += count_nodes(node);
+        return;
+    }
+
+    if *idx < entities.len() {
+        let entity = entities[*idx];
+        if let Some(style) = world.get::<Style>(entity) {
+            let bg = if let Some(btn) = world.get::<Button>(entity) {
+                Some(btn.current_color())
+            } else if let Some(cb) = world.get::<Checkbox>(entity) {
+                Some(cb.current_color())
+            } else {
+                style.bg_color
+            };
+
+            if let Some(color) = bg {
+                renderer.draw(
+                    &DrawCommand::Fill {
+                        area: shifted_rect,
+                        color,
+                        radius: style.border_radius,
+                        opa: 255,
+                    },
+                    clip,
+                );
+            }
+            if let Some(border_color) = style.border_color {
+                if style.border_width > 0 {
+                    renderer.draw(
+                        &DrawCommand::Border {
+                            area: shifted_rect,
+                            color: border_color,
+                            width: style.border_width,
+                            radius: style.border_radius,
+                            opa: 255,
+                        },
+                        clip,
+                    );
+                }
+            }
+            if let Some(pb) = world.get::<ProgressBar>(entity) {
+                renderer.draw(
+                    &DrawCommand::Fill {
+                        area: shifted_rect,
+                        color: pb.track_color,
+                        radius: style.border_radius,
+                        opa: 255,
+                    },
+                    clip,
+                );
+                let fill_w = ((shifted_rect.w as f32) * pb.value.clamp(0.0, 1.0)) as u16;
+                if fill_w > 0 {
+                    renderer.draw(
+                        &DrawCommand::Fill {
+                            area: Rect {
+                                x: shifted_rect.x,
+                                y: shifted_rect.y,
+                                w: fill_w,
+                                h: shifted_rect.h,
+                            },
+                            color: pb.fill_color,
+                            radius: style.border_radius,
+                            opa: 255,
+                        },
+                        clip,
+                    );
+                }
+            }
+            if let Some(img) = world.get::<Image>(entity) {
+                renderer.draw(
+                    &DrawCommand::Blit {
+                        pos: Point {
+                            x: shifted_rect.x,
+                            y: shifted_rect.y,
+                        },
+                        data: &img.data,
+                        width: img.width,
+                        height: img.height,
+                    },
+                    clip,
+                );
+            }
+            if let Some(text) = world.get::<Text>(entity) {
+                let color = style.text_color.unwrap_or(Color::rgb(255, 255, 255));
+                renderer.draw(
+                    &DrawCommand::Label {
+                        pos: Point {
+                            x: shifted_rect.x + 2,
+                            y: shifted_rect.y + 2,
+                        },
+                        text: &text.0,
+                        color,
+                        opa: 255,
+                    },
+                    clip,
+                );
+            }
+        }
+    }
+    *idx += 1;
+
+    // Recurse — nested scroll containers stack offsets
+    let cur_entity = if *idx > 0 && (*idx - 1) < entities.len() {
+        entities[*idx - 1]
+    } else {
+        Entity {
+            id: u32::MAX,
+            generation: 0,
+        }
+    };
+    let (child_clip, sx, sy) =
+        if let Some(scroll) = world.get::<crate::components::scroll::ScrollOffset>(cur_entity) {
+            let cx = clip.x.max(shifted_rect.x);
+            let cy = clip.y.max(shifted_rect.y);
+            let cx2 = (clip.x + clip.w as i32).min(shifted_rect.x + shifted_rect.w as i32);
+            let cy2 = (clip.y + clip.h as i32).min(shifted_rect.y + shifted_rect.h as i32);
+            (
+                Rect {
+                    x: cx,
+                    y: cy,
+                    w: (cx2 - cx).max(0) as u16,
+                    h: (cy2 - cy).max(0) as u16,
+                },
+                offset_x + scroll.x,
+                offset_y + scroll.y,
+            )
+        } else {
+            (*clip, offset_x, offset_y)
+        };
+
+    for child in &node.children {
+        draw_tree_offset(child, world, entities, idx, renderer, &child_clip, sx, sy);
     }
 }
 

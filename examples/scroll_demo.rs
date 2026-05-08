@@ -1,0 +1,51 @@
+use mirui::app::App;
+use mirui::backend::sdl::SdlBackend;
+use mirui::components::scroll::ScrollOffset;
+use mirui::layout::*;
+use mirui::types::Color;
+use mirui::widget::builder::WidgetBuilder;
+use mirui_macros::ui;
+
+fn main() {
+    let backend = SdlBackend::new("mirui - scroll demo", 480, 320);
+    let mut app = App::new(backend);
+
+    let root = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgb(30, 30, 46))
+        .layout(LayoutStyle {
+            direction: FlexDirection::Column,
+            width: Some(480),
+            height: Some(320),
+            ..Default::default()
+        })
+        .id();
+
+    let colors = [
+        ("Item 0", Color::rgb(88, 166, 255)),
+        ("Item 1", Color::rgb(63, 185, 80)),
+        ("Item 2", Color::rgb(248, 81, 73)),
+        ("Item 3", Color::rgb(210, 168, 255)),
+        ("Item 4", Color::rgb(255, 200, 50)),
+        ("Item 5", Color::rgb(150, 100, 200)),
+        ("Item 6", Color::rgb(100, 200, 150)),
+        ("Item 7", Color::rgb(200, 100, 100)),
+    ];
+
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
+
+        scroll (direction: FlexDirection::Column, bg_color: Color::rgb(40, 40, 60), grow: 1.0) [
+            ScrollOffset { x: 0, y: 30 }
+        ] {
+            walk colors.iter() with item {
+                row (bg_color: item.1, height: 60, border_radius: 4, text: item.0) {}
+            }
+        }
+    };
+
+    app.set_root(root);
+    app.run();
+}
