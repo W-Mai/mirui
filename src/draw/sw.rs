@@ -97,8 +97,8 @@ impl<'a> SwRenderer<'a> {
         // Integer pixel bounds — use ceil for right/bottom to include partial edge pixels
         let px_x0 = draw_area.x.to_int();
         let px_y0 = draw_area.y.to_int();
-        let px_x1 = (draw_area.x + draw_area.w).to_int_ceil();
-        let px_y1 = (draw_area.y + draw_area.h).to_int_ceil();
+        let px_x1 = (draw_area.x + draw_area.w).ceil().to_int();
+        let px_y1 = (draw_area.y + draw_area.h).ceil().to_int();
 
         for py in px_y0..px_y1 {
             // Vertical coverage: how much of this pixel row is inside area?

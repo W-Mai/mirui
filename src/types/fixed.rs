@@ -28,15 +28,22 @@ impl Fixed {
         self.0 >> FRAC_BITS
     }
 
+    /// Round to nearest integer, returning Fixed
     #[inline]
-    pub const fn to_int_round(self) -> i32 {
-        (self.0 + (SCALE >> 1)) >> FRAC_BITS
+    pub const fn round(self) -> Self {
+        Self((self.0 + (SCALE >> 1)) & !(SCALE - 1))
     }
 
-    /// Round up to next integer (ceiling)
+    /// Round up (ceiling), returning Fixed
     #[inline]
-    pub const fn to_int_ceil(self) -> i32 {
-        (self.0 + SCALE - 1) >> FRAC_BITS
+    pub const fn ceil(self) -> Self {
+        Self((self.0 + SCALE - 1) & !(SCALE - 1))
+    }
+
+    /// Round down (floor), returning Fixed
+    #[inline]
+    pub const fn floor(self) -> Self {
+        Self(self.0 & !(SCALE - 1))
     }
 
     #[inline]
@@ -199,7 +206,7 @@ mod tests {
         let f = Fixed::from_f32(1.5);
         assert_eq!(f.0, 384); // 1.5 * 256
         assert_eq!(f.to_int(), 1);
-        assert_eq!(f.to_int_round(), 2);
+        assert_eq!(f.round().to_int(), 2);
     }
 
     #[test]
@@ -230,7 +237,7 @@ mod tests {
     fn mul_int() {
         let a = Fixed::from_f32(1.5);
         assert_eq!((a * 3).to_int(), 4); // 1.5 * 3 = 4.5 → 4
-        assert_eq!((a * 3).to_int_round(), 5); // rounds to 5
+        assert_eq!((a * 3).round().to_int(), 5); // rounds to 5
     }
 
     #[test]

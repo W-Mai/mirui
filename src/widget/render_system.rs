@@ -541,8 +541,8 @@ pub fn collect_dirty_region(
             if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
                 let rx = rect.x.to_int();
                 let ry = rect.y.to_int();
-                let rx2 = (rect.x + rect.w).to_int_ceil();
-                let ry2 = (rect.y + rect.h).to_int_ceil();
+                let rx2 = (rect.x + rect.w).ceil().to_int();
+                let ry2 = (rect.y + rect.h).ceil().to_int();
                 if rx < min_x {
                     min_x = rx;
                 }

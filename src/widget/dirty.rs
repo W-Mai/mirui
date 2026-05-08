@@ -42,8 +42,8 @@ impl DirtyRegions {
         for r in &self.rects {
             let rx = r.x.to_int();
             let ry = r.y.to_int();
-            let rx2 = (r.x + r.w).to_int_ceil();
-            let ry2 = (r.y + r.h).to_int_ceil();
+            let rx2 = (r.x + r.w).ceil().to_int();
+            let ry2 = (r.y + r.h).ceil().to_int();
             if rx < min_x {
                 min_x = rx;
             }
