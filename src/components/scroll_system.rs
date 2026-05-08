@@ -109,7 +109,16 @@ pub fn scroll_system(
                 };
 
                 // Find scroll target matching this direction
-                let found = find_scroll_target_for_direction(world, hit_entity, gesture_dir);
+                // delta sign: positive = user dragging content up (wants to scroll down)
+                let scroll_dx = -(*x - start_x);
+                let scroll_dy = -(*y - start_y);
+                let found = find_scroll_target_for_direction(
+                    world,
+                    hit_entity,
+                    gesture_dir,
+                    scroll_dx,
+                    scroll_dy,
+                );
 
                 if let Some(state) = world.resource_mut::<ScrollDragState>() {
                     state.resolved = true;
@@ -123,7 +132,8 @@ pub fn scroll_system(
                 }
             }
 
-            // Apply scroll delta
+            // Apply scroll delta — no mid-drag chaining (iOS behavior)
+            // Chain decision was made at resolve time. During drag, always apply to target.
             let (target,) = {
                 let Some(state) = world.resource::<ScrollDragState>() else {
                     return;
@@ -134,7 +144,6 @@ pub fn scroll_system(
             let dx = *x - last_x;
             let dy = *y - last_y;
 
-            // Only apply delta in the scroll direction
             let config = world.get::<ScrollConfig>(target);
             let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
 
@@ -150,6 +159,10 @@ pub fn scroll_system(
             }
             world.insert(target, crate::widget::dirty::Dirty);
 
+            let dir = world
+                .get::<ScrollConfig>(target)
+                .map(|c| c.direction)
+                .unwrap_or(ScrollAxis::Vertical);
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 match dir {
                     ScrollAxis::Vertical => {
@@ -284,14 +297,15 @@ pub fn scroll_inertia_system(world: &mut World) {
     }
 }
 
-/// Find a scroll target that matches the gesture direction.
-/// Walks up from `start` entity through parents.
 fn find_scroll_target_for_direction(
     world: &World,
     start: Entity,
     gesture_dir: ScrollAxis,
+    delta_x: i32,
+    delta_y: i32,
 ) -> Option<Entity> {
     let mut current = start;
+    let mut last_matching: Option<Entity> = None;
     loop {
         if world.get::<ScrollOffset>(current).is_some() {
             let config = world.get::<ScrollConfig>(current);
@@ -305,9 +319,12 @@ fn find_scroll_target_for_direction(
             );
 
             if dir_matches {
-                return Some(current);
+                last_matching = Some(current);
+                let at_boundary = is_at_boundary(world, current, delta_x, delta_y);
+                if !at_boundary {
+                    return Some(current);
+                }
             }
-            // Direction doesn't match — continue up
         }
         if let Some(parent) = world.get::<crate::widget::Parent>(current) {
             current = parent.0;
@@ -315,5 +332,37 @@ fn find_scroll_target_for_direction(
             break;
         }
     }
-    None
+    // All matching scrolls are at boundary — return outermost for elastic
+    last_matching
+}
+
+fn is_at_boundary(world: &World, entity: Entity, delta_x: i32, delta_y: i32) -> bool {
+    let Some(scroll) = world.get::<ScrollOffset>(entity) else {
+        return false;
+    };
+    let config = world.get::<ScrollConfig>(entity);
+    let computed = world.get::<crate::widget::ComputedRect>(entity);
+    let container_h = computed.map(|c| c.0.h as i32).unwrap_or(0);
+    let container_w = computed.map(|c| c.0.w as i32).unwrap_or(0);
+    let content_h = config
+        .map(|c| c.content_height as i32)
+        .unwrap_or(container_h);
+    let content_w = config
+        .map(|c| c.content_width as i32)
+        .unwrap_or(container_w);
+    let max_y = (content_h - container_h).max(0);
+    let max_x = (content_w - container_w).max(0);
+
+    // delta > 0 means user dragging content up (scroll down), offset increases
+    // At top boundary: offset <= 0 and dragging up (delta < 0)
+    // At bottom boundary: offset >= max and dragging down (delta > 0)
+    let at_y = (scroll.y <= 0 && delta_y < 0) || (scroll.y >= max_y && delta_y > 0);
+    let at_x = (scroll.x <= 0 && delta_x < 0) || (scroll.x >= max_x && delta_x > 0);
+
+    let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
+    match dir {
+        ScrollAxis::Vertical => at_y,
+        ScrollAxis::Horizontal => at_x,
+        ScrollAxis::Both => at_y || at_x,
+    }
 }

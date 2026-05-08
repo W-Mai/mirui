@@ -46,18 +46,30 @@ fn main() {
 
         outer_scroll (direction: FlexDirection::Column, grow: 1.0, bg_color: Color::rgb(30, 30, 50)) [
             ScrollOffset { x: 0, y: 0 },
-            ScrollConfig { direction: mirui::components::scroll::ScrollAxis::Vertical, elastic: true, content_height: 1000, content_width: 0 }
+            ScrollConfig { direction: mirui::components::scroll::ScrollAxis::Vertical, elastic: true, content_height: 1200, content_width: 0 }
         ] {
             walk colors_outer.iter().enumerate() with item {
                 section (direction: FlexDirection::Column, height: 200, bg_color: *item.1, border_radius: 6) {
                     label (height: 30, text: "Section", bg_color: Color::rgb(40, 40, 60)) {}
-                    inner_scroll (direction: FlexDirection::Row, grow: 1.0) [
+                    inner_scroll_h (direction: FlexDirection::Row, grow: 1.0) [
                         ScrollOffset { x: 0, y: 0 },
                         ScrollConfig { direction: mirui::components::scroll::ScrollAxis::Horizontal, elastic: true, content_height: 0, content_width: 600 }
                     ] {
                         walk colors_inner.iter() with color {
                             card (width: 100, height: 150, bg_color: *color, border_radius: 8) {}
                         }
+                    }
+                }
+            }
+
+            nested_v_section (direction: FlexDirection::Column, height: 300, bg_color: Color::rgb(50, 40, 70), border_radius: 6) {
+                nested_label (height: 30, text: "Nested V-Scroll", bg_color: Color::rgb(60, 30, 80)) {}
+                inner_scroll_v (direction: FlexDirection::Column, grow: 1.0, bg_color: Color::rgb(40, 35, 60)) [
+                    ScrollOffset { x: 0, y: 0 },
+                    ScrollConfig { direction: mirui::components::scroll::ScrollAxis::Vertical, elastic: true, content_height: 500, content_width: 0 }
+                ] {
+                    walk colors_inner.iter().enumerate() with item {
+                        vcard (height: 80, bg_color: *item.1, border_radius: 6, text: "V-Item") {}
                     }
                 }
             }
