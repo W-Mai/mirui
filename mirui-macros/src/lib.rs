@@ -20,6 +20,7 @@ struct WidgetCmd {
     attrs: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
     errors: Vec<proc_macro2::TokenStream>,
+    enchants: Vec<proc_macro2::TokenStream>,
     children: Vec<Cmd>,
 }
 
@@ -63,10 +64,12 @@ impl MiruiRune {
         Vec<proc_macro2::TokenStream>,
         Vec<proc_macro2::TokenStream>,
         Vec<proc_macro2::TokenStream>,
+        Vec<proc_macro2::TokenStream>,
     ) {
         let mut builder_calls = Vec::new();
         let mut layout_fields = Vec::new();
         let mut errors = Vec::new();
+        let component_inserts = Vec::new();
 
         for attr in attrs {
             let name = attr.name.to_string();
@@ -87,13 +90,14 @@ impl MiruiRune {
                 "position" => layout_fields.push(quote! { position: #value }),
                 "left" => layout_fields.push(quote! { left: Some(#value) }),
                 "top" => layout_fields.push(quote! { top: Some(#value) }),
+                "image" => builder_calls.push(quote! { .image(#value) }),
                 unknown => {
                     let msg = format!("unknown widget attribute `{}`", unknown);
                     errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
                 }
             }
         }
-        (builder_calls, layout_fields, errors)
+        (builder_calls, layout_fields, errors, component_inserts)
     }
 
     /// Emit a Cmd, returning generated tokens.
@@ -156,6 +160,14 @@ impl MiruiRune {
                 #(#child_calls)*
                 .id();
         });
+
+        // Emit enchants — insert components
+        let enchants = &cmd.enchants;
+        for enchant in enchants {
+            tokens.extend(quote! {
+                (#world).insert(#var, #enchant);
+            });
+        }
 
         // Now emit iter children — they attach dynamically to this widget
         for iter_cmd in deferred_iters {
@@ -234,9 +246,17 @@ impl MiruiRune {
 impl DsRune for MiruiRune {
     fn inscribe_root(&mut self, _parent_expr: &syn::Expr) {}
 
-    fn inscribe_widget(&mut self, _name: &syn::Ident, attrs: &[DsAttr], children: &[DsTreeRef]) {
+    fn inscribe_widget(
+        &mut self,
+        _name: &syn::Ident,
+        attrs: &[DsAttr],
+        enchants: &[syn::Expr],
+        children: &[DsTreeRef],
+    ) {
         let var = self.next_var();
-        let (builder_calls, layout_fields, errors) = Self::parse_attrs(attrs);
+        let (builder_calls, layout_fields, errors, component_inserts) = Self::parse_attrs(attrs);
+        let mut enchant_tokens: Vec<proc_macro2::TokenStream> = component_inserts;
+        enchant_tokens.extend(enchants.iter().map(|e| quote! { #e }));
 
         self.stack.push(Vec::new());
         for child in children {
@@ -249,6 +269,7 @@ impl DsRune for MiruiRune {
             attrs: builder_calls,
             layout_fields,
             errors,
+            enchants: enchant_tokens,
             children: my_children,
         });
 

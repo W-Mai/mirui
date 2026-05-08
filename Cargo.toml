@@ -62,6 +62,10 @@ name = "absolute_demo"
 required-features = ["sdl"]
 
 [[example]]
+name = "enchants_demo"
+required-features = ["sdl"]
+
+[[example]]
 name = "components_demo"
 required-features = ["sdl"]
 
