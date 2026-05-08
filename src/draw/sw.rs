@@ -100,11 +100,26 @@ impl<'a> SwRenderer<'a> {
 
         let r = radius.min(area.w / 2).min(area.h / 2);
 
-        // Integer pixel bounds — use ceil for right/bottom to include partial edge pixels
+        // Fast path: integer-aligned rect with no rounded corners
+        let is_aligned = area.x.raw() & 0xFF == 0
+            && area.y.raw() & 0xFF == 0
+            && area.w.raw() & 0xFF == 0
+            && area.h.raw() & 0xFF == 0
+            && r == Fixed::ZERO;
+
         let px_x0 = draw_area.x.to_int();
         let px_y0 = draw_area.y.to_int();
         let px_x1 = (draw_area.x + draw_area.w).ceil().to_int();
         let px_y1 = (draw_area.y + draw_area.h).ceil().to_int();
+
+        if is_aligned {
+            for py in px_y0..px_y1 {
+                for px in px_x0..px_x1 {
+                    self.put_pixel(px, py, color, opa);
+                }
+            }
+            return;
+        }
 
         for py in px_y0..px_y1 {
             let pixel_top = Fixed::from_int(py);
