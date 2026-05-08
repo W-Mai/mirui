@@ -64,7 +64,20 @@ fn cmd_lint() -> Result {
         "-D",
         "warnings",
     ])?;
-    cargo(&["+stable", "fmt", "--all", "--check"])
+    cargo(&["+stable", "fmt", "--all", "--check"])?;
+    println!("  → xrune-fmt --check examples/*.rs");
+    for entry in std::fs::read_dir("examples")? {
+        let path = entry?.path();
+        if path.extension().is_some_and(|e| e == "rs") {
+            let status = std::process::Command::new("xrune-fmt")
+                .args([path.to_str().unwrap(), "--check"])
+                .status()?;
+            if !status.success() {
+                return Err(format!("xrune-fmt check failed: {}", path.display()).into());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn cmd_examples() -> Result {

@@ -39,7 +39,12 @@ fn main() {
 
         scroll (direction: FlexDirection::Column, bg_color: Color::rgb(40, 40, 60), grow: 1.0) [
             ScrollOffset { x: 0, y: 0 },
-            ScrollConfig { direction: mirui::components::scroll::ScrollAxis::Vertical, elastic: true, content_height: 480, content_width: 0 }
+            ScrollConfig {
+                direction: mirui::components::scroll::ScrollAxis::Vertical,
+                elastic: true,
+                content_height: 480,
+                content_width: 0,
+            },
         ] {
             walk colors.iter() with item {
                 row (bg_color: item.1, height: 60, border_radius: 4, text: item.0) {}
