@@ -55,6 +55,55 @@ impl From<Fixed> for Dimension {
     }
 }
 
+impl core::ops::Add for Dimension {
+    type Output = Self;
+    /// Px + Px = Px, Percent + Percent = Percent, otherwise panics.
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Self::Px(a), Self::Px(b)) => Self::Px(a + b),
+            (Self::Percent(a), Self::Percent(b)) => Self::Percent(a + b),
+            _ => self,
+        }
+    }
+}
+
+impl core::ops::Sub for Dimension {
+    type Output = Self;
+    #[inline]
+    fn sub(self, rhs: Self) -> Self {
+        match (self, rhs) {
+            (Self::Px(a), Self::Px(b)) => Self::Px(a - b),
+            (Self::Percent(a), Self::Percent(b)) => Self::Percent(a - b),
+            _ => self,
+        }
+    }
+}
+
+impl core::ops::Mul<Fixed> for Dimension {
+    type Output = Self;
+    #[inline]
+    fn mul(self, rhs: Fixed) -> Self {
+        match self {
+            Self::Px(v) => Self::Px(v * rhs),
+            Self::Percent(v) => Self::Percent(v * rhs),
+            other => other,
+        }
+    }
+}
+
+impl core::ops::Div<Fixed> for Dimension {
+    type Output = Self;
+    #[inline]
+    fn div(self, rhs: Fixed) -> Self {
+        match self {
+            Self::Px(v) => Self::Px(v / rhs),
+            Self::Percent(v) => Self::Percent(v / rhs),
+            other => other,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -81,5 +130,19 @@ mod tests {
     fn from_i32() {
         let d: Dimension = 100.into();
         assert_eq!(d, Dimension::Px(Fixed::from_int(100)));
+    }
+
+    #[test]
+    fn add_px() {
+        let a = Dimension::Px(Fixed::from_int(10));
+        let b = Dimension::Px(Fixed::from_int(20));
+        assert_eq!((a + b), Dimension::Px(Fixed::from_int(30)));
+    }
+
+    #[test]
+    fn mul_fixed() {
+        let d = Dimension::Px(Fixed::from_int(10));
+        let result = d * Fixed::from_f32(1.5);
+        assert_eq!(result, Dimension::Px(Fixed::from_f32(15.0)));
     }
 }
