@@ -11,6 +11,11 @@ pub struct Point {
 }
 
 impl Point {
+    pub const ZERO: Self = Self {
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+    };
+
     pub fn floor(&self) -> (i32, i32) {
         (self.x.to_int(), self.y.to_int())
     }

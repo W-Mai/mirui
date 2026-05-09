@@ -12,6 +12,9 @@ const SCALE: i32 = 1 << FRAC_BITS; // 256
 impl Fixed {
     pub const ZERO: Self = Self(0);
     pub const ONE: Self = Self(SCALE);
+    pub const MAX: Self = Self(i32::MAX);
+    pub const MIN: Self = Self(i32::MIN);
+    pub const PI: Self = Self(804); // round(π * 256) = 804, error ≈ 0.001
 
     #[inline]
     pub const fn from_raw(raw: i32) -> Self {
@@ -105,6 +108,62 @@ impl Fixed {
         }
         Self(x as i32)
     }
+
+    #[allow(dead_code)] // Consumed by Path::arc in upcoming commit
+    pub(crate) fn sin_deg(angle_deg: Self) -> Self {
+        let rad = angle_deg * Self::PI / Self::from_int(180);
+        sin_rad(rad)
+    }
+
+    #[allow(dead_code)] // Consumed by Path::arc in upcoming commit
+    pub(crate) fn cos_deg(angle_deg: Self) -> Self {
+        Self::sin_deg(Self::from_int(90) - angle_deg)
+    }
+}
+
+#[allow(dead_code)] // Consumed by Path::arc in upcoming commit
+fn sin_rad(x: Fixed) -> Fixed {
+    let two_pi = Fixed::PI * 2;
+    let mut a = x;
+    while a < Fixed::ZERO {
+        a += two_pi;
+    }
+    while a >= two_pi {
+        a -= two_pi;
+    }
+
+    let half_pi = Fixed::PI / 2;
+    let (mut a, sign) = if a < half_pi {
+        (a, 1)
+    } else if a < Fixed::PI {
+        (Fixed::PI - a, 1)
+    } else if a < half_pi * 3 {
+        (a - Fixed::PI, -1)
+    } else {
+        (two_pi - a, -1)
+    };
+
+    let quarter_pi = Fixed::PI / 4;
+    let use_cos = a > quarter_pi;
+    if use_cos {
+        a = half_pi - a;
+    }
+
+    // Taylor: sin(x) = x - x³/6 + x⁵/120 - x⁷/5040 + ...
+    //         cos(x) = 1 - x²/2 + x⁴/24 - x⁶/720 + ...
+    let x2 = a * a;
+    let result = if use_cos {
+        let x4 = x2 * x2;
+        let x6 = x4 * x2;
+        Fixed::ONE - x2 / 2 + x4 / 24 - x6 / 720
+    } else {
+        let x3 = a * x2;
+        let x5 = x3 * x2;
+        let x7 = x5 * x2;
+        a - x3 / 6 + x5 / 120 - x7 / 5040
+    };
+
+    if sign < 0 { -result } else { result }
 }
 
 impl Add for Fixed {
@@ -300,5 +359,64 @@ mod tests {
         assert_eq!(alloc::format!("{a}"), "42");
         let b = Fixed::from_f32(1.5);
         assert_eq!(alloc::format!("{b}"), "1.50");
+    }
+
+    #[test]
+    fn consts() {
+        assert_eq!(Fixed::MAX.to_f32(), i32::MAX as f32 / 256.0);
+        assert_eq!(Fixed::MIN.to_f32(), i32::MIN as f32 / 256.0);
+        // PI: 3.14159 → Fixed raw 804 → 3.140625, error ~0.001
+        assert!((Fixed::PI.to_f32() - core::f32::consts::PI).abs() < 0.002);
+    }
+
+    #[test]
+    fn sin_deg_known_values() {
+        let cases = [
+            (0, 0.0f32),
+            (30, 0.5),
+            (45, 0.7071),
+            (60, 0.8660),
+            (90, 1.0),
+            (180, 0.0),
+            (270, -1.0),
+            (360, 0.0),
+        ];
+        for (deg, expected) in cases {
+            let got = Fixed::sin_deg(Fixed::from_int(deg)).to_f32();
+            assert!(
+                (got - expected).abs() < 0.01,
+                "sin({deg}°) = {got}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn sin_deg_negative_and_large() {
+        let a = Fixed::sin_deg(Fixed::from_int(-30)).to_f32();
+        assert!((a - -0.5).abs() < 0.01);
+        let b = Fixed::sin_deg(Fixed::from_int(390)).to_f32();
+        assert!((b - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn cos_deg_known_values() {
+        let cases = [(0, 1.0f32), (60, 0.5), (90, 0.0), (180, -1.0), (270, 0.0)];
+        for (deg, expected) in cases {
+            let got = Fixed::cos_deg(Fixed::from_int(deg)).to_f32();
+            assert!(
+                (got - expected).abs() < 0.01,
+                "cos({deg}°) = {got}, expected {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn sin_cos_pythagorean() {
+        for deg in (0..360).step_by(15) {
+            let s = Fixed::sin_deg(Fixed::from_int(deg));
+            let c = Fixed::cos_deg(Fixed::from_int(deg));
+            let sum = (s * s + c * c).to_f32();
+            assert!((sum - 1.0).abs() < 0.03, "sin²+cos² at {deg}° = {sum}");
+        }
     }
 }
