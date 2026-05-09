@@ -576,19 +576,19 @@ pub fn collect_dirty_region(
                 let pr = prev.0;
                 let px = pr.x * scale;
                 let py = pr.y * scale;
-                let pw = pr.w * scale;
-                let ph = pr.h * scale;
+                let px2 = ((pr.x + pr.w) * scale).ceil();
+                let py2 = ((pr.y + pr.h) * scale).ceil();
                 if px < min_x {
                     min_x = px;
                 }
                 if py < min_y {
                     min_y = py;
                 }
-                if px + pw > max_x {
-                    max_x = px + pw;
+                if px2 > max_x {
+                    max_x = px2;
                 }
-                if py + ph > max_y {
-                    max_y = py + ph;
+                if py2 > max_y {
+                    max_y = py2;
                 }
             }
             world.remove::<Dirty>(entity);
