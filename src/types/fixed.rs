@@ -95,16 +95,19 @@ impl Fixed {
         self * to.into()
     }
 
-    /// Square root
+    /// Square root. For Fixed value v = raw/256, result is sqrt(v) in Fixed.
+    /// Algebra: sqrt(raw/256) = sqrt(raw)/16 → as raw, we need sqrt(raw << 8).
+    /// Use u64 for the shifted value to avoid overflow at raw > i32::MAX >> 8.
     pub fn sqrt(self) -> Self {
         if self.0 <= 0 {
             return Self::ZERO;
         }
-        let mut x = self.0 as u32;
+        let n = (self.0 as u64) << FRAC_BITS;
+        let mut x = n;
         let mut y = x.div_ceil(2);
         while y < x {
             x = y;
-            y = (x + self.0 as u32 / x) / 2;
+            y = (x + n / x) / 2;
         }
         Self(x as i32)
     }
@@ -356,6 +359,16 @@ mod tests {
         assert_eq!(alloc::format!("{a}"), "42");
         let b = Fixed::from_f32(1.5);
         assert_eq!(alloc::format!("{b}"), "1.50");
+    }
+
+    #[test]
+    fn sqrt_returns_value_in_fixed_space() {
+        // sqrt(25) must equal 5 in Fixed semantics, not 5/256 ≈ 0.02.
+        assert_eq!(Fixed::from_int(25).sqrt().to_int(), 5);
+        assert_eq!(Fixed::from_int(100).sqrt().to_int(), 10);
+        // Non-square: sqrt(2) ≈ 1.414, expect within 1/256.
+        let s = Fixed::from_int(2).sqrt().to_f32();
+        assert!((s - core::f32::consts::SQRT_2).abs() < 0.01);
     }
 
     #[test]
