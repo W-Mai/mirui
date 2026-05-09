@@ -130,6 +130,25 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
                             }
                         }
                     }
+                    super::texture::ColorFormat::RGB565
+                    | super::texture::ColorFormat::RGB565Swapped => {
+                        let px16 = ((color.r as u16 >> 3) << 11)
+                            | ((color.g as u16 >> 2) << 5)
+                            | (color.b as u16 >> 3);
+                        let pixel =
+                            if self.target.format == super::texture::ColorFormat::RGB565Swapped {
+                                [(px16 >> 8) as u8, px16 as u8]
+                            } else {
+                                [px16 as u8, (px16 >> 8) as u8]
+                            };
+                        for py in px_y0..px_y1 {
+                            let row_start = py as usize * stride + px_x0 as usize * bpp;
+                            for px in 0..(px_x1 - px_x0) as usize {
+                                let i = row_start + px * 2;
+                                buf[i..i + 2].copy_from_slice(&pixel);
+                            }
+                        }
+                    }
                     _ => {
                         for py in px_y0..px_y1 {
                             for px in px_x0..px_x1 {
