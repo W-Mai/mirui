@@ -1,4 +1,5 @@
 use crate::types::{Color, Fixed, NormColor};
+use alloc::vec::Vec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ColorFormat {
@@ -18,8 +19,38 @@ impl ColorFormat {
     }
 }
 
+pub enum TexBuf<'a> {
+    Ref(&'a [u8]),
+    Mut(&'a mut [u8]),
+    Owned(Vec<u8>),
+}
+
+impl TexBuf<'_> {
+    fn as_slice(&self) -> &[u8] {
+        match self {
+            Self::Ref(s) => s,
+            Self::Mut(s) => s,
+            Self::Owned(v) => v,
+        }
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        match self {
+            Self::Ref(data) => {
+                *self = Self::Owned(data.to_vec());
+                match self {
+                    Self::Owned(v) => v,
+                    _ => unreachable!(),
+                }
+            }
+            Self::Mut(s) => s,
+            Self::Owned(v) => v,
+        }
+    }
+}
+
 pub struct Texture<'a> {
-    pub buf: &'a mut [u8],
+    pub buf: TexBuf<'a>,
     pub width: u16,
     pub height: u16,
     pub format: ColorFormat,
@@ -30,7 +61,30 @@ impl<'a> Texture<'a> {
     pub fn new(buf: &'a mut [u8], width: u16, height: u16, format: ColorFormat) -> Self {
         let stride = width as usize * format.bytes_per_pixel();
         Self {
-            buf,
+            buf: TexBuf::Mut(buf),
+            width,
+            height,
+            format,
+            stride,
+        }
+    }
+
+    pub fn from_ref(buf: &'a [u8], width: u16, height: u16, format: ColorFormat) -> Self {
+        let stride = width as usize * format.bytes_per_pixel();
+        Self {
+            buf: TexBuf::Ref(buf),
+            width,
+            height,
+            format,
+            stride,
+        }
+    }
+
+    pub fn owned(width: u16, height: u16, format: ColorFormat) -> Self {
+        let stride = width as usize * format.bytes_per_pixel();
+        let buf = alloc::vec![0u8; stride * height as usize];
+        Self {
+            buf: TexBuf::Owned(buf),
             width,
             height,
             format,
@@ -49,17 +103,13 @@ impl<'a> Texture<'a> {
         let Some(i) = self.offset(x, y) else {
             return Color::rgb(0, 0, 0);
         };
+        let buf = self.buf.as_slice();
         match self.format {
-            ColorFormat::ARGB8888 => Color::rgba(
-                self.buf[i],
-                self.buf[i + 1],
-                self.buf[i + 2],
-                self.buf[i + 3],
-            ),
-            ColorFormat::RGB888 => Color::rgb(self.buf[i], self.buf[i + 1], self.buf[i + 2]),
+            ColorFormat::ARGB8888 => Color::rgba(buf[i], buf[i + 1], buf[i + 2], buf[i + 3]),
+            ColorFormat::RGB888 => Color::rgb(buf[i], buf[i + 1], buf[i + 2]),
             ColorFormat::RGB565 => {
-                let lo = self.buf[i] as u16;
-                let hi = self.buf[i + 1] as u16;
+                let lo = buf[i] as u16;
+                let hi = buf[i + 1] as u16;
                 let px = lo | (hi << 8);
                 Color::rgb(
                     ((px >> 11) as u8) << 3,
@@ -68,8 +118,8 @@ impl<'a> Texture<'a> {
                 )
             }
             ColorFormat::RGB565Swapped => {
-                let hi = self.buf[i] as u16;
-                let lo = self.buf[i + 1] as u16;
+                let hi = buf[i] as u16;
+                let lo = buf[i + 1] as u16;
                 let px = lo | (hi << 8);
                 Color::rgb(
                     ((px >> 11) as u8) << 3,
@@ -82,17 +132,18 @@ impl<'a> Texture<'a> {
 
     pub fn set_pixel(&mut self, x: i32, y: i32, color: &Color) {
         let Some(i) = self.offset(x, y) else { return };
+        let buf = self.buf.as_mut_slice();
         match self.format {
             ColorFormat::ARGB8888 => {
-                self.buf[i] = color.r;
-                self.buf[i + 1] = color.g;
-                self.buf[i + 2] = color.b;
-                self.buf[i + 3] = color.a;
+                buf[i] = color.r;
+                buf[i + 1] = color.g;
+                buf[i + 2] = color.b;
+                buf[i + 3] = color.a;
             }
             ColorFormat::RGB888 => {
-                self.buf[i] = color.r;
-                self.buf[i + 1] = color.g;
-                self.buf[i + 2] = color.b;
+                buf[i] = color.r;
+                buf[i + 1] = color.g;
+                buf[i + 2] = color.b;
             }
             ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
                 let px = ((color.r as u16 >> 3) << 11)
@@ -103,8 +154,8 @@ impl<'a> Texture<'a> {
                 } else {
                     ((px >> 8) as u8, px as u8)
                 };
-                self.buf[i] = b0;
-                self.buf[i + 1] = b1;
+                buf[i] = b0;
+                buf[i + 1] = b1;
             }
         }
     }
