@@ -1,3 +1,4 @@
+use crate::draw::texture::Texture;
 use crate::types::{Color, Fixed, Opa, Point, Rect};
 
 pub enum DrawCommand<'a> {
@@ -38,8 +39,6 @@ pub enum DrawCommand<'a> {
     },
     Blit {
         pos: Point,
-        data: &'a [u8], // RGBA
-        width: u16,
-        height: u16,
+        texture: &'a Texture<'a>,
     },
 }

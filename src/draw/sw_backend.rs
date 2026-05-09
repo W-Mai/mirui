@@ -272,22 +272,9 @@ impl Renderer for SwDrawBackend<'_> {
             } => {
                 self.stroke_rect(area, clip, *width, color, *radius, *opa);
             }
-            DrawCommand::Blit {
-                pos,
-                data,
-                width,
-                height,
-            } => {
-                let src_rect = Rect::new(0, 0, *width, *height);
-                let mut src_tex_buf = alloc::vec![0u8; *width as usize * *height as usize * 4];
-                src_tex_buf.copy_from_slice(&data[..*width as usize * *height as usize * 4]);
-                let src_tex = Texture::new(
-                    &mut src_tex_buf,
-                    *width,
-                    *height,
-                    super::texture::ColorFormat::ARGB8888,
-                );
-                self.blit(&src_tex, &src_rect, *pos, clip);
+            DrawCommand::Blit { pos, texture } => {
+                let src_rect = Rect::new(0, 0, texture.width, texture.height);
+                self.blit(texture, &src_rect, *pos, clip);
             }
             DrawCommand::Label {
                 pos,

@@ -125,9 +125,7 @@ fn draw_tree(
                             x: node.rect.x,
                             y: node.rect.y,
                         },
-                        data: &img.data,
-                        width: img.width,
-                        height: img.height,
+                        texture: img.texture,
                     },
                     clip,
                 );
@@ -291,9 +289,7 @@ fn draw_tree_offset(
                             x: shifted_rect.x,
                             y: shifted_rect.y,
                         },
-                        data: &img.data,
-                        width: img.width,
-                        height: img.height,
+                        texture: img.texture,
                     },
                     clip,
                 );

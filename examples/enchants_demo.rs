@@ -39,11 +39,7 @@ fn main() {
                 top: 150,
                 width: 16,
                 height: 16,
-                image: Image::new(
-                    Vec::from(IMG_THUMBS_UP),
-                    IMG_THUMBS_UP_WIDTH,
-                    IMG_THUMBS_UP_HEIGHT,
-                )
+                image: Image::new(&IMG_THUMBS_UP)
             ) {}
         }
     };

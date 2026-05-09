@@ -26,7 +26,7 @@ pub enum TexBuf<'a> {
 }
 
 impl TexBuf<'_> {
-    fn as_slice(&self) -> &[u8] {
+    pub fn as_slice(&self) -> &[u8] {
         match self {
             Self::Ref(s) => s,
             Self::Mut(s) => s,
@@ -34,7 +34,7 @@ impl TexBuf<'_> {
         }
     }
 
-    fn as_mut_slice(&mut self) -> &mut [u8] {
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
         match self {
             Self::Ref(data) => {
                 *self = Self::Owned(data.to_vec());

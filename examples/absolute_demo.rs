@@ -73,19 +73,12 @@ fn main() {
             position: Position::Absolute,
             left: Dimension::px(350),
             top: Dimension::px(60),
-            width: Dimension::px(IMG_THUMBS_UP_WIDTH as i32),
-            height: Dimension::px(IMG_THUMBS_UP_HEIGHT as i32),
+            width: Dimension::px(IMG_THUMBS_UP.width as i32),
+            height: Dimension::px(IMG_THUMBS_UP.height as i32),
             ..Default::default()
         })
         .id();
-    app.world.insert(
-        _img,
-        Image::new(
-            Vec::from(IMG_THUMBS_UP),
-            IMG_THUMBS_UP_WIDTH,
-            IMG_THUMBS_UP_HEIGHT,
-        ),
-    );
+    app.world.insert(_img, Image::new(&IMG_THUMBS_UP));
 
     let _box3 = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(210, 168, 255))

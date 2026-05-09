@@ -321,13 +321,14 @@ impl Renderer for SwRenderer<'_> {
             } => {
                 self.draw_label(pos, text, clip, color, *opa);
             }
-            DrawCommand::Blit {
-                pos,
-                data,
-                width,
-                height,
-            } => {
-                self.blit_rgba(pos, data, *width, *height, clip);
+            DrawCommand::Blit { pos, texture } => {
+                self.blit_rgba(
+                    pos,
+                    texture.buf.as_slice(),
+                    texture.width,
+                    texture.height,
+                    clip,
+                );
             }
             _ => {}
         }

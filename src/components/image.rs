@@ -1,18 +1,12 @@
-use alloc::vec::Vec;
+use crate::draw::texture::Texture;
 
-/// Image component — raw RGBA pixel data
+/// Image component — references a Texture
 pub struct Image {
-    pub data: Vec<u8>, // RGBA
-    pub width: u16,
-    pub height: u16,
+    pub texture: &'static Texture<'static>,
 }
 
 impl Image {
-    pub fn new(data: Vec<u8>, width: u16, height: u16) -> Self {
-        Self {
-            data,
-            width,
-            height,
-        }
+    pub fn new(texture: &'static Texture<'static>) -> Self {
+        Self { texture }
     }
 }

@@ -49,19 +49,12 @@ fn build_ui(world: &mut World) -> Entity {
     // Attach thumbs-up image to badge
     let badge_img = WidgetBuilder::new(world)
         .layout(LayoutStyle {
-            width: Dimension::Px(Fixed::from_int(IMG_THUMBS_UP_WIDTH as i32)),
-            height: Dimension::Px(Fixed::from_int(IMG_THUMBS_UP_HEIGHT as i32)),
+            width: Dimension::Px(Fixed::from_int(IMG_THUMBS_UP.width as i32)),
+            height: Dimension::Px(Fixed::from_int(IMG_THUMBS_UP.height as i32)),
             ..Default::default()
         })
         .id();
-    world.insert(
-        badge_img,
-        Image::new(
-            Vec::from(IMG_THUMBS_UP),
-            IMG_THUMBS_UP_WIDTH,
-            IMG_THUMBS_UP_HEIGHT,
-        ),
-    );
+    world.insert(badge_img, Image::new(&IMG_THUMBS_UP));
     // Add to root as standalone element
     use mirui::widget::{Children, Parent};
     world.insert(badge_img, Parent(root));

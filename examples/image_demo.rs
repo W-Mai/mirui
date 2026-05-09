@@ -27,19 +27,12 @@ fn main() {
 
     let img_widget = WidgetBuilder::new(&mut app.world)
         .layout(LayoutStyle {
-            width: Dimension::px(IMG_THUMBS_UP_WIDTH as i32),
-            height: Dimension::px(IMG_THUMBS_UP_HEIGHT as i32),
+            width: Dimension::px(IMG_THUMBS_UP.width as i32),
+            height: Dimension::px(IMG_THUMBS_UP.height as i32),
             ..Default::default()
         })
         .id();
-    app.world.insert(
-        img_widget,
-        Image::new(
-            Vec::from(IMG_THUMBS_UP),
-            IMG_THUMBS_UP_WIDTH,
-            IMG_THUMBS_UP_HEIGHT,
-        ),
-    );
+    app.world.insert(img_widget, Image::new(&IMG_THUMBS_UP));
 
     // Add as child of root
     use mirui::widget::{Children, Parent};
