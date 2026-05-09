@@ -397,7 +397,10 @@ pub(crate) fn offset_polygon(path: &Path, width: Fixed) -> Path {
         let n = compute_normals(&sub.segs, half);
         if sub.closed {
             let left = build_ring(&sub.segs, &n, half, /*left=*/ true);
-            let right = build_ring(&sub.segs, &n, half, /*left=*/ false);
+            let mut right = build_ring(&sub.segs, &n, half, /*left=*/ false);
+            // Flip winding on the right ring so even-odd carves
+            // (outer_area ∖ inner_area) instead of cancelling both regions.
+            right.reverse();
             append_closed_polyline(&mut out, &left);
             append_closed_polyline(&mut out, &right);
         } else {
