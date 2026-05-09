@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Fixed::{MAX, MIN, PI}`** constants + **`Point::ZERO`** constant
 - **`fill_path`** on `SwDrawBackend` — even-odd ray casting + per-pixel 1px-distance anti-aliasing
 - **`stroke_path`** on `SwDrawBackend` — offset polygon with miter join (miter_limit = 4, bevel fallback), butt caps for open paths
+- **`DrawBackend::draw_line`** / **`draw_arc`** — trait default implementations routing through `stroke_path`
+- `DrawCommand::Line` / `Arc` are now handled by `Renderer::draw` (previously silently dropped)
 - Visual snapshot tests under `tests/visual_fill_path.rs` (`#[ignore]`-gated, manual run)
 
 ### Fixed
@@ -24,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed (⚠️ Breaking)
 
 - **`DrawBackend` trait** gained `draw_label(&mut self, pos, text, clip, color, opa)` as a required method. Previously `draw_label` was only defined on `SwDrawBackend` directly. External implementers of `DrawBackend` must now provide a `draw_label` implementation; there is no default
+- **`DrawCommand::Line` / `Arc`** fields migrated from `u16` to `Fixed` (`width`, `radius`, `start_angle`, `end_angle`), aligning with the rest of the pipeline. No known external emitters
 
 ## [0.2.0] - 2026-05-09
 

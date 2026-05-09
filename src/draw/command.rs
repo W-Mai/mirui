@@ -25,16 +25,17 @@ pub enum DrawCommand<'a> {
         p1: Point,
         p2: Point,
         color: Color,
-        width: u16,
+        width: Fixed,
         opa: Opa,
     },
+    /// Stroked arc on a circle (center, radius). Angles in degrees, CCW.
     Arc {
         center: Point,
-        radius: u16,
-        start_angle: u16,
-        end_angle: u16,
+        radius: Fixed,
+        start_angle: Fixed,
+        end_angle: Fixed,
         color: Color,
-        width: u16,
+        width: Fixed,
         opa: Opa,
     },
     Blit {

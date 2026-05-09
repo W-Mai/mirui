@@ -453,7 +453,49 @@ impl Renderer for SwDrawBackend<'_> {
                     p.count_label += 1;
                 }
             }
-            _ => {}
+            DrawCommand::Line {
+                p1,
+                p2,
+                color,
+                width,
+                opa,
+            } => {
+                #[cfg(feature = "perf")]
+                let t0 = self.perf.as_ref().map(|p| (p.clock)());
+                self.draw_line(*p1, *p2, clip, *width, color, *opa);
+                #[cfg(feature = "perf")]
+                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+                    p.stroke += (p.clock)() - t0;
+                    p.count_stroke += 1;
+                }
+            }
+            DrawCommand::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+                color,
+                width,
+                opa,
+            } => {
+                #[cfg(feature = "perf")]
+                let t0 = self.perf.as_ref().map(|p| (p.clock)());
+                self.draw_arc(
+                    *center,
+                    *radius,
+                    *start_angle,
+                    *end_angle,
+                    clip,
+                    *width,
+                    color,
+                    *opa,
+                );
+                #[cfg(feature = "perf")]
+                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+                    p.stroke += (p.clock)() - t0;
+                    p.count_stroke += 1;
+                }
+            }
         }
     }
 
@@ -646,6 +688,58 @@ mod tests {
         assert!(backend.target.get_pixel(8, 8).r > 0);
         assert_eq!(backend.target.get_pixel(8, 0).r, 0);
         assert_eq!(backend.target.get_pixel(8, 15).r, 0);
+    }
+
+    #[test]
+    fn renderer_dispatches_line_command() {
+        use crate::draw::renderer::Renderer;
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let cmd = DrawCommand::Line {
+            p1: Point {
+                x: Fixed::from_int(2),
+                y: Fixed::from_int(8),
+            },
+            p2: Point {
+                x: Fixed::from_int(14),
+                y: Fixed::from_int(8),
+            },
+            color: Color::rgb(255, 0, 0),
+            width: Fixed::from_int(2),
+            opa: 255,
+        };
+        let clip = Rect::new(0, 0, 16, 16);
+        Renderer::draw(&mut backend, &cmd, &clip);
+
+        assert!(backend.target.get_pixel(8, 8).r > 0);
+    }
+
+    #[test]
+    fn renderer_dispatches_arc_command() {
+        use crate::draw::renderer::Renderer;
+        let mut buf = vec![0u8; 32 * 32 * 4];
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let cmd = DrawCommand::Arc {
+            center: Point {
+                x: Fixed::from_int(16),
+                y: Fixed::from_int(16),
+            },
+            radius: Fixed::from_int(10),
+            start_angle: Fixed::from_int(0),
+            end_angle: Fixed::from_int(90),
+            color: Color::rgb(0, 255, 0),
+            width: Fixed::from_int(2),
+            opa: 255,
+        };
+        let clip = Rect::new(0, 0, 32, 32);
+        Renderer::draw(&mut backend, &cmd, &clip);
+
+        let hit = backend.target.get_pixel(26, 16).g > 0 || backend.target.get_pixel(25, 16).g > 0;
+        assert!(hit);
     }
 
     #[test]
