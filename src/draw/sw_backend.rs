@@ -139,8 +139,12 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
         }
     }
 
-    fn stroke_path(&mut self, _path: &Path, _clip: &Rect, _width: Fixed, _color: &Color, _opa: u8) {
-        // TODO: general stroke for arbitrary paths
+    fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
+        if opa == 0 || width <= Fixed::ZERO {
+            return;
+        }
+        let outline = super::raster::offset_polygon(path, width);
+        self.fill_path(&outline, clip, color, opa);
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
@@ -583,6 +587,64 @@ mod tests {
 
         assert_eq!(backend.target.get_pixel(2, 2).g, 200);
         assert_eq!(backend.target.get_pixel(8, 8).g, 0);
+    }
+
+    #[test]
+    fn stroke_path_line_colors_interior_and_skips_far_pixels() {
+        // Horizontal line from (2,8) to (14,8), width=2. Interior pixels
+        // around y=8 should be colored; pixels several rows away must not.
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let mut path = super::super::path::Path::new();
+        path.move_to(Point {
+            x: Fixed::from_int(2),
+            y: Fixed::from_int(8),
+        })
+        .line_to(Point {
+            x: Fixed::from_int(14),
+            y: Fixed::from_int(8),
+        });
+
+        let clip = Rect::new(0, 0, 16, 16);
+        backend.stroke_path(
+            &path,
+            &clip,
+            Fixed::from_int(2),
+            &Color::rgb(255, 0, 0),
+            255,
+        );
+
+        assert!(backend.target.get_pixel(8, 8).r > 0);
+        assert_eq!(backend.target.get_pixel(8, 0).r, 0);
+        assert_eq!(backend.target.get_pixel(8, 15).r, 0);
+    }
+
+    #[test]
+    fn stroke_path_zero_width_is_noop() {
+        let mut buf = vec![0u8; 8 * 8 * 4];
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let mut path = super::super::path::Path::new();
+        path.move_to(Point {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+        })
+        .line_to(Point {
+            x: Fixed::from_int(8),
+            y: Fixed::ZERO,
+        });
+
+        let clip = Rect::new(0, 0, 8, 8);
+        backend.stroke_path(&path, &clip, Fixed::ZERO, &Color::rgb(255, 0, 0), 255);
+
+        for y in 0..8 {
+            for x in 0..8 {
+                assert_eq!(backend.target.get_pixel(x, y).r, 0);
+            }
+        }
     }
 
     #[test]

@@ -11,6 +11,14 @@ pub(crate) struct LineSeg {
     pub p2: Point,
 }
 
+/// One contiguous subpath produced by flatten_subpaths().
+/// `closed` is true when the subpath ended with a Close command.
+#[derive(Clone, Debug)]
+pub(crate) struct SubPath {
+    pub segs: Vec<LineSeg>,
+    pub closed: bool,
+}
+
 /// Subdivision step counts. Chosen to keep a single control-point radius
 /// visually smooth on 128×128 screens; larger paths may show facets but UI
 /// radii are small.
@@ -75,6 +83,90 @@ pub(crate) fn flatten(path: &Path) -> Vec<LineSeg> {
     out
 }
 
+/// Flatten path into per-subpath groups, tracking whether each ended with
+/// Close. stroke_path needs this to decide between offset-ring (closed) and
+/// butt-capped strip (open) handling.
+pub(crate) fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
+    let mut out: Vec<SubPath> = Vec::new();
+    let mut subpath_start = Point::ZERO;
+    let mut current = Point::ZERO;
+    let mut current_segs: Vec<LineSeg> = Vec::new();
+    let mut has_moveto = false;
+
+    let flush = |segs: &mut Vec<LineSeg>, out: &mut Vec<SubPath>, closed: bool| {
+        if !segs.is_empty() {
+            out.push(SubPath {
+                segs: core::mem::take(segs),
+                closed,
+            });
+        }
+    };
+
+    for cmd in &path.cmds {
+        match cmd {
+            PathCmd::MoveTo(p) => {
+                flush(&mut current_segs, &mut out, false);
+                subpath_start = *p;
+                current = *p;
+                has_moveto = true;
+            }
+            PathCmd::LineTo(p) => {
+                if !has_moveto {
+                    continue;
+                }
+                current_segs.push(LineSeg {
+                    p1: current,
+                    p2: *p,
+                });
+                current = *p;
+            }
+            PathCmd::QuadTo { ctrl, end } => {
+                if !has_moveto {
+                    continue;
+                }
+                let p0 = current;
+                for i in 1..=QUAD_STEPS {
+                    let t = Fixed::from_int(i) / Fixed::from_int(QUAD_STEPS);
+                    let next = quad_at(p0, *ctrl, *end, t);
+                    current_segs.push(LineSeg {
+                        p1: current,
+                        p2: next,
+                    });
+                    current = next;
+                }
+            }
+            PathCmd::CubicTo { ctrl1, ctrl2, end } => {
+                if !has_moveto {
+                    continue;
+                }
+                let p0 = current;
+                for i in 1..=CUBIC_STEPS {
+                    let t = Fixed::from_int(i) / Fixed::from_int(CUBIC_STEPS);
+                    let next = cubic_at(p0, *ctrl1, *ctrl2, *end, t);
+                    current_segs.push(LineSeg {
+                        p1: current,
+                        p2: next,
+                    });
+                    current = next;
+                }
+            }
+            PathCmd::Close => {
+                if current != subpath_start {
+                    current_segs.push(LineSeg {
+                        p1: current,
+                        p2: subpath_start,
+                    });
+                }
+                current = subpath_start;
+                flush(&mut current_segs, &mut out, true);
+                has_moveto = false;
+            }
+        }
+    }
+    flush(&mut current_segs, &mut out, false);
+    out
+}
+
 /// Point-in-polygon test via +X ray casting with even-odd rule.
 /// Uses the half-open convention [y_min, y_max) to avoid double-counting at
 /// shared vertices.
@@ -114,6 +206,233 @@ pub(crate) fn min_dist_to_segments(pt: Point, segs: &[LineSeg]) -> Fixed {
         }
     }
     best
+}
+
+/// Miter limit ratio (Fixed). If the miter extension exceeds this multiple of
+/// half_width the join degrades to bevel. 4 is the SVG default.
+const MITER_LIMIT: Fixed = Fixed::from_int(4);
+
+/// Build a closed-ring offset polygon around `path` as a new Path.
+/// Each subpath becomes one (open) or two (closed) sub-polygons in the output,
+/// which `fill_path` evaluates with the even-odd rule to produce the stroke.
+pub(crate) fn offset_polygon(path: &Path, width: Fixed) -> Path {
+    let mut out = Path::new();
+    if width <= Fixed::ZERO {
+        return out;
+    }
+    let half = width / 2;
+
+    for sub in flatten_subpaths(path) {
+        if sub.segs.is_empty() {
+            continue;
+        }
+
+        let n = compute_normals(&sub.segs, half);
+        if sub.closed {
+            let left = build_ring(&sub.segs, &n, half, /*left=*/ true);
+            let right = build_ring(&sub.segs, &n, half, /*left=*/ false);
+            append_closed_polyline(&mut out, &left);
+            append_closed_polyline(&mut out, &right);
+        } else {
+            let left = build_open_rail(&sub.segs, &n, half, /*left=*/ true);
+            let right = build_open_rail(&sub.segs, &n, half, /*left=*/ false);
+            append_open_ribbon(&mut out, &left, &right);
+        }
+    }
+    out
+}
+
+/// Per-segment outward unit normal scaled by `half`. `n[i]` corresponds to
+/// `segs[i]`; it's the "left" normal when walking p1→p2 (perp rotated -90°).
+fn compute_normals(segs: &[LineSeg], half: Fixed) -> Vec<Point> {
+    let mut out = Vec::with_capacity(segs.len());
+    for s in segs {
+        let dx = s.p2.x - s.p1.x;
+        let dy = s.p2.y - s.p1.y;
+        let len_sq = dx * dx + dy * dy;
+        if len_sq == Fixed::ZERO {
+            out.push(Point::ZERO);
+            continue;
+        }
+        let len = len_sq.sqrt();
+        let nx = -dy / len * half;
+        let ny = dx / len * half;
+        out.push(Point { x: nx, y: ny });
+    }
+    out
+}
+
+/// Walk the subpath generating one offset rail. For a closed subpath the rail
+/// is itself closed (first point equals last point). `left=true` uses +normal,
+/// false uses -normal. Joins use miter with bevel fallback beyond MITER_LIMIT.
+fn build_ring(segs: &[LineSeg], n: &[Point], half: Fixed, left: bool) -> Vec<Point> {
+    let sign = if left { Fixed::ONE } else { -Fixed::ONE };
+    let count = segs.len();
+    let mut out = Vec::with_capacity(count + 1);
+
+    for i in 0..count {
+        let prev = if i == 0 { count - 1 } else { i - 1 };
+        let p_prev = segs[prev];
+        let p_curr = segs[i];
+        let n_prev = scaled(n[prev], sign);
+        let n_curr = scaled(n[i], sign);
+
+        let joint = compute_join(
+            p_prev.p2, p_prev.p1, n_prev, p_curr.p1, p_curr.p2, n_curr, half,
+        );
+        out.push(joint);
+    }
+    if let Some(&first) = out.first() {
+        out.push(first);
+    }
+    out
+}
+
+/// For open subpath: per-segment offset with joins between adjacent pairs, but
+/// endpoints keep the raw p1+/-n and p2+/-n (no join, since there's no partner).
+fn build_open_rail(segs: &[LineSeg], n: &[Point], half: Fixed, left: bool) -> Vec<Point> {
+    let sign = if left { Fixed::ONE } else { -Fixed::ONE };
+    let count = segs.len();
+    let mut out = Vec::with_capacity(count + 1);
+
+    // Starting endpoint: no join
+    let n0 = scaled(n[0], sign);
+    out.push(offset(segs[0].p1, n0));
+
+    for i in 1..count {
+        let p_prev = segs[i - 1];
+        let p_curr = segs[i];
+        let n_prev = scaled(n[i - 1], sign);
+        let n_curr = scaled(n[i], sign);
+
+        let joint = compute_join(
+            p_prev.p2, p_prev.p1, n_prev, p_curr.p1, p_curr.p2, n_curr, half,
+        );
+        out.push(joint);
+    }
+
+    // Trailing endpoint: no join
+    let n_last = scaled(n[count - 1], sign);
+    out.push(offset(segs[count - 1].p2, n_last));
+
+    out
+}
+
+/// Miter join: intersect the two offset lines. If the intersection is beyond
+/// MITER_LIMIT * half from the shared corner, fall back to bevel (average of
+/// the two offset corner points).
+fn compute_join(
+    // a->b is the incoming segment, c->d is the outgoing. b and c are the
+    // shared corner in original path space (normally b == c but kept separate
+    // for generality).
+    _a: Point,
+    b: Point,
+    n_prev: Point,
+    c: Point,
+    _d: Point,
+    n_curr: Point,
+    half: Fixed,
+) -> Point {
+    let p_in = offset(b, n_prev);
+    let p_out = offset(c, n_curr);
+
+    // If adjacent offset points nearly coincide, no real corner — use one.
+    if approx_eq(p_in, p_out) {
+        return p_in;
+    }
+
+    // Miter = intersection of line(p_in, direction of incoming) with
+    // line(p_out, direction of outgoing). Build direction from original segs.
+    let dir_prev = Point {
+        x: b.x - _a.x,
+        y: b.y - _a.y,
+    };
+    let dir_curr = Point {
+        x: _d.x - c.x,
+        y: _d.y - c.y,
+    };
+
+    if let Some(miter) = line_intersect(p_in, dir_prev, p_out, dir_curr) {
+        let corner = Point {
+            x: (b.x + c.x) / 2,
+            y: (b.y + c.y) / 2,
+        };
+        let dx = miter.x - corner.x;
+        let dy = miter.y - corner.y;
+        let dist_sq = dx * dx + dy * dy;
+        let limit = half * MITER_LIMIT;
+        if dist_sq <= limit * limit {
+            return miter;
+        }
+    }
+    // Bevel fallback: midpoint of the two offset corner points.
+    Point {
+        x: (p_in.x + p_out.x) / 2,
+        y: (p_in.y + p_out.y) / 2,
+    }
+}
+
+/// Solve p1 + t*d1 = p2 + s*d2 for t. Returns the intersection point, or None
+/// when the directions are parallel.
+fn line_intersect(p1: Point, d1: Point, p2: Point, d2: Point) -> Option<Point> {
+    let denom = d1.x * d2.y - d1.y * d2.x;
+    if denom == Fixed::ZERO {
+        return None;
+    }
+    let dx = p2.x - p1.x;
+    let dy = p2.y - p1.y;
+    let t = (dx * d2.y - dy * d2.x) / denom;
+    Some(Point {
+        x: p1.x + d1.x * t,
+        y: p1.y + d1.y * t,
+    })
+}
+
+fn append_closed_polyline(out: &mut Path, pts: &[Point]) {
+    if pts.len() < 2 {
+        return;
+    }
+    out.move_to(pts[0]);
+    for p in &pts[1..] {
+        out.line_to(*p);
+    }
+    out.close();
+}
+
+fn append_open_ribbon(out: &mut Path, left: &[Point], right: &[Point]) {
+    if left.is_empty() || right.is_empty() {
+        return;
+    }
+    out.move_to(left[0]);
+    for p in &left[1..] {
+        out.line_to(*p);
+    }
+    // Walk right side in reverse so the ribbon stays a simple closed polygon.
+    for p in right.iter().rev() {
+        out.line_to(*p);
+    }
+    out.close();
+}
+
+fn scaled(p: Point, s: Fixed) -> Point {
+    Point {
+        x: p.x * s,
+        y: p.y * s,
+    }
+}
+
+fn offset(p: Point, n: Point) -> Point {
+    Point {
+        x: p.x + n.x,
+        y: p.y + n.y,
+    }
+}
+
+fn approx_eq(a: Point, b: Point) -> bool {
+    let dx = a.x - b.x;
+    let dy = a.y - b.y;
+    // Within ~1/256 pixel in Manhattan distance.
+    dx.abs() + dy.abs() < Fixed::ONE / 128
 }
 
 fn dist_point_to_segment(p: Point, a: Point, b: Point) -> Fixed {
@@ -323,6 +642,62 @@ mod tests {
         }];
         let d = min_dist_to_segments(pt(0, 0), &segs).to_f32();
         assert!((d - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn flatten_subpaths_marks_closed_and_open() {
+        // subpath A ends with Close (closed), subpath B is a dangling LineTo (open).
+        let mut p = Path::new();
+        p.move_to(pt(0, 0))
+            .line_to(pt(10, 0))
+            .line_to(pt(0, 10))
+            .close();
+        p.move_to(pt(50, 50)).line_to(pt(60, 50));
+        let subs = flatten_subpaths(&p);
+        assert_eq!(subs.len(), 2);
+        assert!(subs[0].closed);
+        assert!(!subs[1].closed);
+    }
+
+    #[test]
+    fn offset_polygon_rectangle_closed_produces_two_rings() {
+        // 10×10 rectangle stroked with width=2. The outline path should have
+        // exactly 2 subpaths: outer ring + inner ring.
+        let path = Path::rect(
+            Fixed::from_int(0),
+            Fixed::from_int(0),
+            Fixed::from_int(10),
+            Fixed::from_int(10),
+        );
+        let outline = offset_polygon(&path, Fixed::from_int(2));
+        let closes = outline
+            .cmds
+            .iter()
+            .filter(|c| matches!(c, PathCmd::Close))
+            .count();
+        assert_eq!(closes, 2);
+    }
+
+    #[test]
+    fn offset_polygon_open_line_makes_one_ribbon() {
+        // A single open LineTo should yield a single closed ribbon (butt caps).
+        let mut path = Path::new();
+        path.move_to(pt(0, 0)).line_to(pt(10, 0));
+        let outline = offset_polygon(&path, Fixed::from_int(2));
+        let closes = outline
+            .cmds
+            .iter()
+            .filter(|c| matches!(c, PathCmd::Close))
+            .count();
+        assert_eq!(closes, 1);
+    }
+
+    #[test]
+    fn offset_polygon_zero_width_is_empty() {
+        let mut path = Path::new();
+        path.move_to(pt(0, 0)).line_to(pt(10, 0));
+        let outline = offset_polygon(&path, Fixed::ZERO);
+        assert!(outline.cmds.is_empty());
     }
 
     #[test]
