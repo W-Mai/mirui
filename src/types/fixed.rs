@@ -71,6 +71,27 @@ impl Fixed {
         self.0 & (SCALE - 1) == 0
     }
 
+    #[inline]
+    pub const fn fract(self) -> Self {
+        Self(self.0 & (SCALE - 1))
+    }
+
+    pub fn map_range(
+        self,
+        from: (impl Into<Self>, impl Into<Self>),
+        to: (impl Into<Self>, impl Into<Self>),
+    ) -> Self {
+        let (from_min, from_max) = (from.0.into(), from.1.into());
+        let (to_min, to_max) = (to.0.into(), to.1.into());
+        let t = (self - from_min) / (from_max - from_min);
+        to_min + t * (to_max - to_min)
+    }
+
+    /// Map from [0..ONE] to [0..to]
+    pub fn map01(self, to: impl Into<Self>) -> Self {
+        self * to.into()
+    }
+
     /// Square root
     pub fn sqrt(self) -> Self {
         if self.0 <= 0 {

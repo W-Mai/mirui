@@ -112,3 +112,41 @@ impl Color {
 }
 
 pub type Opa = u8;
+
+#[derive(Clone, Copy, Debug)]
+pub struct NormColor {
+    pub r: Fixed,
+    pub g: Fixed,
+    pub b: Fixed,
+    pub a: Fixed,
+}
+
+const F255: Fixed = Fixed::from_int(255);
+
+impl From<Color> for NormColor {
+    fn from(c: Color) -> Self {
+        Self {
+            r: Fixed::from_int(c.r as i32) / F255,
+            g: Fixed::from_int(c.g as i32) / F255,
+            b: Fixed::from_int(c.b as i32) / F255,
+            a: Fixed::from_int(c.a as i32) / F255,
+        }
+    }
+}
+
+impl From<NormColor> for Color {
+    fn from(nc: NormColor) -> Self {
+        Self {
+            r: nc.r.map01(F255).to_int() as u8,
+            g: nc.g.map01(F255).to_int() as u8,
+            b: nc.b.map01(F255).to_int() as u8,
+            a: nc.a.map01(F255).to_int() as u8,
+        }
+    }
+}
+
+impl Color {
+    pub fn normalized(&self) -> NormColor {
+        NormColor::from(*self)
+    }
+}
