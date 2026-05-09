@@ -4,33 +4,35 @@
 [![docs.rs](https://docs.rs/mirui/badge.svg)](https://docs.rs/mirui)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A lightweight, `no_std` ECS-driven UI framework for embedded, desktop, and WebAssembly.
+A lightweight, `no_std` ECS-driven UI framework for embedded, desktop, and WebAssembly. Renders with 24.8 fixed-point subpixel precision on a software rasterizer designed for MCUs without an FPU.
 
 ## Features
 
 - **ECS architecture** — entities, components, systems, resources, queries
 - **`no_std` + `alloc`** — runs on bare-metal MCUs (ESP32-C3, STM32) with a global allocator
+- **Subpixel rasterizer** — 24.8 fixed-point throughout the pipeline (layout, rendering, events). Scanline coverage anti-aliasing on any `Path`
+- **Vector drawing API** — `fill_path` / `stroke_path` / `draw_line` / `draw_arc` on `DrawBackend`, cubic Bezier accurate circles
 - **Declarative DSL** — `ui!` macro powered by [xrune](https://github.com/W-Mai/xrune)
-- **Flexbox + absolute positioning** — familiar layout model
-- **HiDPI support** — automatic scale factor handling
-- **Dirty-flag partial refresh** — only re-renders changed regions (160fps on ESP32-C3)
+- **Flexbox + absolute positioning** — familiar layout model with `Dimension::{Px, Percent, Auto, Content}`
+- **HiDPI** — automatic scale factor propagation
+- **Dirty-flag partial refresh** — only re-renders changed regions
 - **ScrollView** — inertia, elastic bounce, scroll chaining, spring resistance
-- **Components** — Button, Checkbox, ProgressBar, Image, ScrollView
-- **Pluggable backends** — SDL2 (desktop), FramebufBackend (embedded)
+- **Widgets** — Button, Checkbox, ProgressBar, Image, ScrollView
+- **Pluggable backends** — SDL2 (desktop), FramebufBackend (embedded RGB565 / ARGB8888 / RGB888 / RGB565Swapped)
 
 ## Quick Start
 
 ```toml
 [dependencies]
-mirui = "0.1"
-mirui-macros = "0.1"
+mirui = "0.3"
+mirui-macros = "0.3"
 ```
 
 ```rust
 use mirui::app::App;
 use mirui::backend::sdl::SdlBackend;
 use mirui::layout::*;
-use mirui::types::Color;
+use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::ui;
 
@@ -42,8 +44,8 @@ fn main() {
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Some(480),
-            height: Some(320),
+            width: Dimension::px(480),
+            height: Dimension::px(320),
             ..Default::default()
         })
         .id();
@@ -55,7 +57,7 @@ fn main() {
         :)
 
         content (direction: FlexDirection::Column, grow: 1.0) {
-            header (bg_color: Color::rgb(88, 166, 255), height: 40, text: "Hello mirui!") {}
+            header (bg_color: Color::rgb(88, 166, 255), height: 40, text: "Hello mirui!", border_radius: 8) {}
             body (grow: 1.0, bg_color: Color::rgb(40, 40, 60)) {}
             footer (bg_color: Color::rgb(210, 168, 255), height: 30, text: "ECS + DSL") {}
         }
@@ -70,7 +72,6 @@ fn main() {
 
 ```rust
 ui! {
-    // Context: parent entity + world reference
     :(
         parent: root
         world: &mut world
@@ -82,10 +83,10 @@ ui! {
         child2 (attr: value) {}
     }
 
-    // Enchants: attach arbitrary components
-    img (width: 16, height: 16, image: Image::new(data, 16, 16)) [
-        PhysicsBody { x: 0, y: 0 },
-        Velocity { vx: 1, vy: 0 },
+    // Enchants: attach arbitrary ECS components to the spawned entity
+    img (width: 16, height: 16, image: Image::new(&IMG_THUMBS_UP)) [
+        PhysicsBody { x: Fixed::ZERO, y: Fixed::ZERO },
+        Velocity { vx: Fixed::from_int(1), vy: Fixed::ZERO },
     ] {}
 
     // Iteration
@@ -107,17 +108,66 @@ ui! {
 | `bg_color` | `Color` | Background color |
 | `text` | `&str` | Text content |
 | `text_color` | `Color` | Text color |
-| `border_radius` | `u16` | Corner radius |
+| `border_radius` | `Fixed` | Corner radius (subpixel) |
 | `border_color` | `Color` | Border color |
-| `width` / `height` | `u16` | Fixed size |
+| `width` / `height` | `Dimension` | Px / Percent / Auto / Content |
 | `grow` | `f32` | Flex grow factor |
 | `direction` | `FlexDirection` | Row / Column |
 | `justify` | `JustifyContent` | Main axis alignment |
 | `align` | `AlignItems` | Cross axis alignment |
 | `padding` | `Padding` | Inner padding |
 | `position` | `Position` | Flex / Absolute |
-| `left` / `top` | `i32` | Absolute position |
+| `left` / `top` | `Dimension` | Absolute position |
 | `image` | `Image` | Image component |
+
+Integer literals passed in the DSL (e.g. `height: 40`, `border_radius: 8`) are coerced to `Fixed` or `Dimension` via `Into`.
+
+## Vector Drawing (0.3+)
+
+`DrawBackend` is a full 2D rendering surface. Every primitive — solid rects, borders, text, blits, arbitrary paths — goes through it.
+
+```rust
+use mirui::draw::backend::DrawBackend;
+use mirui::draw::path::Path;
+use mirui::types::{Color, Fixed, Point, Rect};
+
+// Inside any code holding a `&mut impl DrawBackend`:
+
+// Stroked line
+backend.draw_line(
+    Point { x: Fixed::from_int(10), y: Fixed::from_int(10) },
+    Point { x: Fixed::from_int(100), y: Fixed::from_int(80) },
+    &clip,
+    Fixed::from_int(2),         // width
+    &Color::rgb(255, 180, 80),
+    255,
+);
+
+// Stroked arc (degrees, counter-clockwise from +X axis)
+backend.draw_arc(
+    Point { x: Fixed::from_int(64), y: Fixed::from_int(64) },
+    Fixed::from_int(40),        // radius
+    Fixed::from_int(0),
+    Fixed::from_int(360),
+    &clip,
+    Fixed::from_int(3),
+    &Color::rgb(80, 180, 220),
+    255,
+);
+
+// Filled custom path
+let mut path = Path::new();
+path.move_to(Point { x: Fixed::from_int(20), y: Fixed::from_int(20) });
+path.cubic_to(
+    Point { x: Fixed::from_int(60), y: Fixed::ZERO },
+    Point { x: Fixed::from_int(100), y: Fixed::from_int(60) },
+    Point { x: Fixed::from_int(80), y: Fixed::from_int(100) },
+);
+path.close();
+backend.fill_path(&path, &clip, &Color::rgb(200, 90, 160), 230);
+```
+
+Paths are flattened via De Casteljau (8 segments per quadratic, 16 per cubic) then rasterized with a 4-sub-scanline coverage integration into the target texture. No allocation per pixel; per-edge sqrt only for strokes falling inside the AA ramp.
 
 ## ECS
 
@@ -130,11 +180,11 @@ world.insert(e, MyComponent { ... });
 let mut buf = Vec::new();
 world.query::<PhysicsBody>().and::<Velocity>().without::<Disabled>().collect_into(&mut buf);
 for e in &buf {
-    world.get_mut::<Velocity>(*e).unwrap().vx += 1;
+    world.get_mut::<Velocity>(*e).unwrap().vx += Fixed::from_int(1);
 }
 
 // Resources (global singletons)
-world.insert_resource(DeltaTime(0.016));
+world.insert_resource(DeltaTime(Fixed::from_f32(0.016)));
 let dt = world.resource::<DeltaTime>().unwrap().0;
 
 // Systems
@@ -152,8 +202,13 @@ ui! {
     :)
 
     scroll_container (direction: FlexDirection::Column, grow: 1.0) [
-        ScrollOffset { x: 0, y: 0 },
-        ScrollConfig { direction: ScrollAxis::Vertical, elastic: true, content_height: 800, content_width: 0 }
+        ScrollOffset { x: Fixed::ZERO, y: Fixed::ZERO },
+        ScrollConfig {
+            direction: ScrollAxis::Vertical,
+            elastic: true,
+            content_height: Fixed::from_int(800),
+            content_width: Fixed::ZERO,
+        }
     ] {
         walk items.iter() with item {
             row (height: 60, bg_color: item.color, text: item.label) {}
@@ -162,21 +217,31 @@ ui! {
 };
 ```
 
-Features: drag scrolling, inertia, elastic bounce with spring resistance, scroll chaining for nested scroll views.
+Features: drag scrolling, inertia, elastic bounce with spring resistance, iOS-style scroll chaining across nested scroll views.
 
 ## Performance
 
-Tested on ESP32-C3 (RISC-V 160MHz, no FPU) + ST7735S 128×128 SPI display:
+ESP32-C3 (RISC-V 160 MHz, no FPU) + ST7735S 128×128 SPI display, RGB565:
 
-| Mode | FPS | Notes |
+| Demo | FPS | Notes |
 |------|-----|-------|
-| Full-screen refresh | 60 | SPI 26MHz bottleneck |
-| Partial refresh (dirty rect) | 160 | Only changed regions transmitted |
-| Binary size (.text) | ~36KB | mirui + app + esp-hal |
+| Three-body (widgets + dirty rect) | 160 | `border_radius: 3` anti-aliasing enabled |
+| Shapes (clock face, raw `DrawBackend`) | 32-35 | 1 circle + 12 tick lines + sweeping hand per frame |
+| Butterfly (vector, raw `DrawBackend`) | 30-32 | 8 `fill_path` + 3 `draw_line` per frame; Lissajous flight + yaw rotation |
+
+Binary size: `mirui` + a typical ESP32 app + esp-hal around 120 KB `.text` for the vector demos.
 
 ## Hardware Examples
 
-See [mirui-examples](https://github.com/W-Mai/mirui-examples) for ESP32-C3 demos including three-body physics simulation with partial refresh.
+[mirui-examples](https://github.com/W-Mai/mirui-examples) has the ESP32-C3 demos above:
+
+- `demo-threebody` (default) — three gravitating bodies rendered with widgets + dirty rect refresh
+- `demo-particles` — pulse rings, bouncing bars, floating particles
+- `demo-subpixel` — two bars moving by 1 px vs 0.1 px, showcasing subpixel AA
+- `demo-shapes` — clock face drawn via `draw_line` / `draw_arc`
+- `demo-butterfly` — flapping, flying, yaw-rotating vector butterfly
+
+Flash with `cargo run --release --features demo-butterfly --no-default-features` (or any other `demo-*` feature).
 
 ## License
 
