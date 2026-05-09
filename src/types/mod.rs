@@ -10,6 +10,20 @@ pub struct Point {
     pub y: Fixed,
 }
 
+impl Point {
+    pub fn floor(&self) -> (i32, i32) {
+        (self.x.to_int(), self.y.to_int())
+    }
+
+    pub fn ceil(&self) -> (i32, i32) {
+        (self.x.ceil().to_int(), self.y.ceil().to_int())
+    }
+
+    pub fn round(&self) -> (i32, i32) {
+        (self.x.round().to_int(), self.y.round().to_int())
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Rect {
     pub x: Fixed,
@@ -47,14 +61,20 @@ impl Rect {
         self.x.is_integer() && self.y.is_integer() && self.w.is_integer() && self.h.is_integer()
     }
 
-    /// Convert to integer pixel rect (for rendering)
-    pub fn to_px(&self) -> (i32, i32, u16, u16) {
+    /// Pixel bounds: (x0, y0, x1, y1) — floor for top-left, ceil for bottom-right
+    pub fn pixel_bounds(&self) -> (i32, i32, i32, i32) {
         (
             self.x.to_int(),
             self.y.to_int(),
-            self.w.to_int() as u16,
-            self.h.to_int() as u16,
+            (self.x + self.w).ceil().to_int(),
+            (self.y + self.h).ceil().to_int(),
         )
+    }
+
+    /// Convert to integer pixel rect that fully contains this rect
+    pub fn to_px(&self) -> (i32, i32, u16, u16) {
+        let (x0, y0, x1, y1) = self.pixel_bounds();
+        (x0, y0, (x1 - x0) as u16, (y1 - y0) as u16)
     }
 
     /// Construct from integer values

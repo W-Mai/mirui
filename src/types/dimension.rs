@@ -28,6 +28,11 @@ impl Dimension {
         }
     }
 
+    #[inline]
+    pub fn resolve_or(self, parent_size: Fixed, default: Fixed) -> Fixed {
+        self.resolve(parent_size).unwrap_or(default)
+    }
+
     /// Shorthand: `Dimension::px(100)` == `Dimension::Px(Fixed::from_int(100))`
     #[inline]
     pub const fn px(v: i32) -> Self {

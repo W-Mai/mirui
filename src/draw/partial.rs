@@ -50,10 +50,11 @@ pub fn dirty_rect(prev: &[u8], curr: &[u8], width: u16, height: u16) -> Option<R
 /// Extract a sub-region from an RGBA framebuffer into a contiguous buffer.
 pub fn extract_region(buf: &[u8], width: u16, rect: &Rect, out: &mut [u8]) {
     let stride = width as usize * 4;
-    let rw = rect.w.to_int() as usize * 4;
-    for row in 0..rect.h.to_int() as usize {
-        let src_y = (rect.y.to_int() as usize + row) * stride + rect.x.to_int() as usize * 4;
-        let dst_y = row * rw;
-        out[dst_y..dst_y + rw].copy_from_slice(&buf[src_y..src_y + rw]);
+    let (x0, y0, x1, y1) = rect.pixel_bounds();
+    let rw = (x1 - x0) as usize * 4;
+    for row in 0..(y1 - y0) as usize {
+        let src = (y0 as usize + row) * stride + x0 as usize * 4;
+        let dst = row * rw;
+        out[dst..dst + rw].copy_from_slice(&buf[src..src + rw]);
     }
 }

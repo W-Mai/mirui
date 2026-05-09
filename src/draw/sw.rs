@@ -103,10 +103,7 @@ impl<'a> SwRenderer<'a> {
         // Fast path: integer-aligned rect with no rounded corners
         let is_aligned = area.is_aligned() && r == Fixed::ZERO;
 
-        let px_x0 = draw_area.x.to_int();
-        let px_y0 = draw_area.y.to_int();
-        let px_x1 = (draw_area.x + draw_area.w).ceil().to_int();
-        let px_y1 = (draw_area.y + draw_area.h).ceil().to_int();
+        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
 
         if is_aligned {
             for py in px_y0..px_y1 {
@@ -172,10 +169,7 @@ impl<'a> SwRenderer<'a> {
         let r = radius.min(area.w / 2).min(area.h / 2);
         let bw = width;
 
-        let px_x0 = draw_area.x.to_int();
-        let px_y0 = draw_area.y.to_int();
-        let px_x1 = (draw_area.x + draw_area.w).ceil().to_int();
-        let px_y1 = (draw_area.y + draw_area.h).ceil().to_int();
+        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
 
         let inner_r = (r - bw).max(Fixed::ZERO);
         let inner_w = (area.w - bw * 2).max(Fixed::ZERO);
@@ -225,12 +219,8 @@ impl<'a> SwRenderer<'a> {
     ) {
         use super::font::{CHAR_H, CHAR_W, glyph};
         let s = self.scale.to_int();
-        let clip_x = clip.x.to_int();
-        let clip_y = clip.y.to_int();
-        let clip_x2 = clip_x + clip.w.to_int();
-        let clip_y2 = clip_y + clip.h.to_int();
-        let mut cx = pos.x.to_int();
-        let cy = pos.y.to_int();
+        let (clip_x, clip_y, clip_x2, clip_y2) = clip.pixel_bounds();
+        let (mut cx, cy) = pos.floor();
         for &ch in text {
             let bitmap = glyph(ch);
             for row in 0..CHAR_H as i32 {
@@ -255,10 +245,8 @@ impl<'a> SwRenderer<'a> {
 
     fn blit_rgba(&mut self, pos: &Point, data: &[u8], width: u16, height: u16, clip: &Rect) {
         let s = self.scale.to_int();
-        let clip_x = clip.x.to_int();
-        let clip_y = clip.y.to_int();
-        let clip_x2 = clip_x + clip.w.to_int();
-        let clip_y2 = clip_y + clip.h.to_int();
+        let (clip_x, clip_y, clip_x2, clip_y2) = clip.pixel_bounds();
+        let (base_x, base_y) = pos.floor();
         for row in 0..height as i32 {
             for col in 0..width as i32 {
                 let src_idx = ((row * width as i32 + col) * 4) as usize;
@@ -271,8 +259,8 @@ impl<'a> SwRenderer<'a> {
                 }
                 for dy in 0..s {
                     for dx in 0..s {
-                        let px = pos.x.to_int() + col * s + dx;
-                        let py = pos.y.to_int() + row * s + dy;
+                        let px = base_x + col * s + dx;
+                        let py = base_y + row * s + dy;
                         if px < clip_x || px >= clip_x2 || py < clip_y || py >= clip_y2 {
                             continue;
                         }

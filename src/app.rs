@@ -98,9 +98,8 @@ impl<B: Backend> App<B> {
                             } else {
                                 info.scale
                             };
-                            let scale_int = scale.to_int() as u16;
-                            let lw = info.width / scale_int;
-                            let lh = info.height / scale_int;
+                            let lw = (Fixed::from(info.width) / scale).to_int() as u16;
+                            let lh = (Fixed::from(info.height) / scale).to_int() as u16;
                             button_system(&mut self.world, root, &event, lw, lh);
                             scroll_system(&mut self.world, root, &event, lw, lh);
                             dispatch(&self.world, root, &event, lw, lh);

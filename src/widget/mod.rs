@@ -48,32 +48,20 @@ pub fn set_position(
     let y = y.into();
 
     if let Some(style) = world.get::<Style>(entity) {
-        let old_x = style
-            .layout
-            .left
-            .resolve(Fixed::ZERO)
-            .unwrap_or(Fixed::ZERO);
-        let old_y = style.layout.top.resolve(Fixed::ZERO).unwrap_or(Fixed::ZERO);
-        let old_w = style
-            .layout
-            .width
-            .resolve(Fixed::ZERO)
-            .unwrap_or(Fixed::ZERO);
-        let old_h = style
-            .layout
-            .height
-            .resolve(Fixed::ZERO)
-            .unwrap_or(Fixed::ZERO);
+        let l = &style.layout;
+        let old_x = l.left.resolve_or(Fixed::ZERO, Fixed::ZERO);
+        let old_y = l.top.resolve_or(Fixed::ZERO, Fixed::ZERO);
+        let old_w = l.width.resolve_or(Fixed::ZERO, Fixed::ZERO);
+        let old_h = l.height.resolve_or(Fixed::ZERO, Fixed::ZERO);
         if old_x != x || old_y != y {
-            world.insert(
-                entity,
-                PrevRect(Rect {
-                    x: old_x,
-                    y: old_y,
-                    w: old_w,
-                    h: old_h,
-                }),
-            );
+            let old_rect = Rect {
+                x: old_x,
+                y: old_y,
+                w: old_w,
+                h: old_h,
+            };
+            let (px, py, pw, ph) = old_rect.to_px();
+            world.insert(entity, PrevRect(Rect::new(px, py, pw, ph)));
         }
     }
     if let Some(style) = world.get_mut::<Style>(entity) {

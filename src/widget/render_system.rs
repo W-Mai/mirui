@@ -391,9 +391,8 @@ pub fn render(
     } else {
         scale
     };
-    let scale_int = scale.to_int();
-    let logical_w = screen_w / scale_int as u16;
-    let logical_h = screen_h / scale_int as u16;
+    let logical_w = (Fixed::from(screen_w) / scale).to_int() as u16;
+    let logical_h = (Fixed::from(screen_h) / scale).to_int() as u16;
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -430,9 +429,8 @@ pub fn update_layout(world: &mut World, root: Entity, screen_w: u16, screen_h: u
     } else {
         scale
     };
-    let scale_int = scale.to_int();
-    let logical_w = screen_w / scale_int as u16;
-    let logical_h = screen_h / scale_int as u16;
+    let logical_w = (Fixed::from(screen_w) / scale).to_int() as u16;
+    let logical_h = (Fixed::from(screen_h) / scale).to_int() as u16;
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -482,9 +480,8 @@ pub fn render_region(
     } else {
         scale
     };
-    let scale_int = scale.to_int();
-    let logical_w = screen_w / scale_int as u16;
-    let logical_h = screen_h / scale_int as u16;
+    let logical_w = (Fixed::from(screen_w) / scale).to_int() as u16;
+    let logical_h = (Fixed::from(screen_h) / scale).to_int() as u16;
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -529,9 +526,8 @@ pub fn collect_dirty_region(
     } else {
         scale
     };
-    let scale_int = scale.to_int();
-    let logical_w = screen_w / scale_int as u16;
-    let logical_h = screen_h / scale_int as u16;
+    let logical_w = (Fixed::from(screen_w) / scale).to_int() as u16;
+    let logical_h = (Fixed::from(screen_h) / scale).to_int() as u16;
 
     let mut layout_tree = build_layout_tree(world, root)?;
     compute_layout(
