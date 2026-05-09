@@ -34,4 +34,37 @@ pub trait DrawBackend {
         );
         self.stroke_path(&path, clip, width, color, opa);
     }
+
+    fn draw_line(
+        &mut self,
+        p1: Point,
+        p2: Point,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+    ) {
+        let mut path = Path::new();
+        path.move_to(p1).line_to(p2);
+        self.stroke_path(&path, clip, width, color, opa);
+    }
+
+    /// Draw a stroked circular arc. Angles in degrees, CCW from +X axis.
+    // Signature locked by design.md §8 (user-confirmed):
+    // (center, radius, start_angle, end_angle) + standard stroke params.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_arc(
+        &mut self,
+        center: Point,
+        radius: Fixed,
+        start_angle: Fixed,
+        end_angle: Fixed,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+    ) {
+        let path = Path::arc(center, radius, start_angle, end_angle);
+        self.stroke_path(&path, clip, width, color, opa);
+    }
 }

@@ -649,6 +649,61 @@ mod tests {
     }
 
     #[test]
+    fn draw_line_default_impl_strokes_pixels() {
+        // Exercises DrawBackend::draw_line's default trait impl → stroke_path.
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let p1 = Point {
+            x: Fixed::from_int(2),
+            y: Fixed::from_int(8),
+        };
+        let p2 = Point {
+            x: Fixed::from_int(14),
+            y: Fixed::from_int(8),
+        };
+        let clip = Rect::new(0, 0, 16, 16);
+        backend.draw_line(
+            p1,
+            p2,
+            &clip,
+            Fixed::from_int(2),
+            &Color::rgb(255, 0, 0),
+            255,
+        );
+
+        assert!(backend.target.get_pixel(8, 8).r > 0);
+    }
+
+    #[test]
+    fn draw_arc_default_impl_strokes_pixels() {
+        let mut buf = vec![0u8; 32 * 32 * 4];
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let center = Point {
+            x: Fixed::from_int(16),
+            y: Fixed::from_int(16),
+        };
+        let clip = Rect::new(0, 0, 32, 32);
+        backend.draw_arc(
+            center,
+            Fixed::from_int(10),
+            Fixed::from_int(0),
+            Fixed::from_int(90),
+            &clip,
+            Fixed::from_int(2),
+            &Color::rgb(0, 255, 0),
+            255,
+        );
+
+        // The 0°→90° arc runs from (+radius, 0) to (0, +radius) relative to
+        // center. Sample a point on the arc and verify green is present.
+        assert!(backend.target.get_pixel(26, 16).g > 0 || backend.target.get_pixel(25, 16).g > 0);
+    }
+
+    #[test]
     fn stroke_path_zero_width_is_noop() {
         let mut buf = vec![0u8; 8 * 8 * 4];
         let tex = Texture::new(&mut buf, 8, 8, ColorFormat::ARGB8888);
