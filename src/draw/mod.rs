@@ -1,6 +1,9 @@
+pub mod backend;
 pub mod command;
 pub mod font;
+pub mod painter;
 pub mod partial;
+pub mod path;
 pub mod renderer;
 pub mod sw;
 pub mod texture;
