@@ -21,6 +21,7 @@ members = [".", "xtask", "mirui-macros"]
 [features]
 default = []
 sdl = ["dep:sdl2"]
+perf = []
 
 [dependencies.sdl2]
 version = "0.37"

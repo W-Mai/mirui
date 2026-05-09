@@ -12,4 +12,6 @@ pub mod texture;
 pub use command::DrawCommand;
 pub use renderer::Renderer;
 pub use sw::SwRenderer;
+#[cfg(feature = "perf")]
+pub use sw_backend::PerfCtx;
 pub use sw_backend::SwDrawBackend;

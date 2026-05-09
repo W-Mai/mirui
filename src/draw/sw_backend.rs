@@ -6,9 +6,52 @@ use super::path::Path;
 use super::renderer::Renderer;
 use super::texture::Texture;
 
+#[cfg(feature = "perf")]
+pub struct PerfCtx {
+    pub clock: fn() -> u64,
+    pub fill: u64,
+    pub stroke: u64,
+    pub blit: u64,
+    pub label: u64,
+    pub count_fill: u32,
+    pub count_stroke: u32,
+    pub count_blit: u32,
+    pub count_label: u32,
+}
+
+#[cfg(feature = "perf")]
+impl PerfCtx {
+    pub fn new(clock: fn() -> u64) -> Self {
+        Self {
+            clock,
+            fill: 0,
+            stroke: 0,
+            blit: 0,
+            label: 0,
+            count_fill: 0,
+            count_stroke: 0,
+            count_blit: 0,
+            count_label: 0,
+        }
+    }
+
+    pub fn reset(&mut self) {
+        self.fill = 0;
+        self.stroke = 0;
+        self.blit = 0;
+        self.label = 0;
+        self.count_fill = 0;
+        self.count_stroke = 0;
+        self.count_blit = 0;
+        self.count_label = 0;
+    }
+}
+
 pub struct SwDrawBackend<'a> {
     pub target: Texture<'a>,
     pub scale: Fixed,
+    #[cfg(feature = "perf")]
+    pub perf: Option<PerfCtx>,
 }
 
 impl<'a> SwDrawBackend<'a> {
@@ -16,6 +59,8 @@ impl<'a> SwDrawBackend<'a> {
         Self {
             target,
             scale: Fixed::ONE,
+            #[cfg(feature = "perf")]
+            perf: None,
         }
     }
 
@@ -261,7 +306,14 @@ impl Renderer for SwDrawBackend<'_> {
                 radius,
                 opa,
             } => {
+                #[cfg(feature = "perf")]
+                let t0 = self.perf.as_ref().map(|p| (p.clock)());
                 self.fill_rect(area, clip, color, *radius, *opa);
+                #[cfg(feature = "perf")]
+                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+                    p.fill += (p.clock)() - t0;
+                    p.count_fill += 1;
+                }
             }
             DrawCommand::Border {
                 area,
@@ -270,11 +322,25 @@ impl Renderer for SwDrawBackend<'_> {
                 radius,
                 opa,
             } => {
+                #[cfg(feature = "perf")]
+                let t0 = self.perf.as_ref().map(|p| (p.clock)());
                 self.stroke_rect(area, clip, *width, color, *radius, *opa);
+                #[cfg(feature = "perf")]
+                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+                    p.stroke += (p.clock)() - t0;
+                    p.count_stroke += 1;
+                }
             }
             DrawCommand::Blit { pos, texture } => {
+                #[cfg(feature = "perf")]
+                let t0 = self.perf.as_ref().map(|p| (p.clock)());
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 self.blit(texture, &src_rect, *pos, clip);
+                #[cfg(feature = "perf")]
+                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+                    p.blit += (p.clock)() - t0;
+                    p.count_blit += 1;
+                }
             }
             DrawCommand::Label {
                 pos,
@@ -282,7 +348,14 @@ impl Renderer for SwDrawBackend<'_> {
                 color,
                 opa,
             } => {
+                #[cfg(feature = "perf")]
+                let t0 = self.perf.as_ref().map(|p| (p.clock)());
                 self.draw_label(pos, text, clip, color, *opa);
+                #[cfg(feature = "perf")]
+                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+                    p.label += (p.clock)() - t0;
+                    p.count_label += 1;
+                }
             }
             _ => {}
         }

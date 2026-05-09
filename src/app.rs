@@ -14,6 +14,8 @@ pub struct App<B: Backend> {
     pub backend: B,
     pub root: Option<Entity>,
     pub systems: SystemScheduler,
+    #[cfg(feature = "perf")]
+    pub perf: Option<crate::draw::PerfCtx>,
 }
 
 impl<B: Backend> App<B> {
@@ -29,6 +31,8 @@ impl<B: Backend> App<B> {
             backend,
             root: None,
             systems: SystemScheduler::new(),
+            #[cfg(feature = "perf")]
+            perf: None,
         }
     }
 
@@ -148,6 +152,10 @@ impl<B: Backend> App<B> {
                 ColorFormat::ARGB8888,
             ));
             renderer.scale = scale;
+            #[cfg(feature = "perf")]
+            {
+                renderer.perf = self.perf.take();
+            }
             render_system::render_region(
                 &self.world,
                 root,
@@ -157,6 +165,10 @@ impl<B: Backend> App<B> {
                 &area,
                 &mut renderer,
             );
+            #[cfg(feature = "perf")]
+            {
+                self.perf = renderer.perf.take();
+            }
             self.backend.flush(&area);
         }
     }
