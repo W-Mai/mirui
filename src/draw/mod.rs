@@ -4,6 +4,7 @@ pub mod font;
 pub mod painter;
 pub mod partial;
 pub mod path;
+pub(crate) mod raster;
 pub mod renderer;
 pub mod sw_backend;
 pub mod texture;
