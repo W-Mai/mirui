@@ -141,14 +141,34 @@ fn cmd_publish(dry_run: bool) -> Result {
         return Err("working tree not clean".into());
     }
 
-    let mut args = vec!["publish", "-p", "mirui", "--no-verify"];
-    if dry_run {
-        args.push("--dry-run");
+    for package in ["mirui-macros", "mirui"] {
+        let mut args = vec!["publish", "-p", package, "--no-verify"];
+        if dry_run {
+            args.push("--dry-run");
+        }
+        match cargo_capture(&args) {
+            Ok(()) => {
+                let verb = if dry_run { "dry-run" } else { "published" };
+                println!("  ✅ {verb} {package}");
+            }
+            // Re-running after a mid-release failure shouldn't crash here.
+            Err(e) if e.to_string().contains("already uploaded") => {
+                println!("  ⏭  {package} already on crates.io, skipping");
+            }
+            Err(e) => return Err(e),
+        }
     }
-    cargo(&args)?;
-    let verb = if dry_run { "dry-run" } else { "published" };
-    println!("  ✅ {verb} mirui");
     Ok(())
+}
+
+fn cargo_capture(args: &[&str]) -> Result {
+    let output = Command::new("cargo").args(args).output()?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    eprint!("{stderr}");
+    Err(stderr.into_owned().into())
 }
 
 fn cmd_release() -> Result {
