@@ -109,19 +109,16 @@ impl Fixed {
         Self(x as i32)
     }
 
-    #[allow(dead_code)] // Consumed by Path::arc in upcoming commit
     pub(crate) fn sin_deg(angle_deg: Self) -> Self {
         let rad = angle_deg * Self::PI / Self::from_int(180);
         sin_rad(rad)
     }
 
-    #[allow(dead_code)] // Consumed by Path::arc in upcoming commit
     pub(crate) fn cos_deg(angle_deg: Self) -> Self {
         Self::sin_deg(Self::from_int(90) - angle_deg)
     }
 }
 
-#[allow(dead_code)] // Consumed by Path::arc in upcoming commit
 fn sin_rad(x: Fixed) -> Fixed {
     let two_pi = Fixed::PI * 2;
     let mut a = x;
