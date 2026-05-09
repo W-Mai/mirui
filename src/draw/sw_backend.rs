@@ -93,8 +93,50 @@ impl<'a> SwDrawBackend<'a> {
 }
 
 impl<'a> DrawBackend for SwDrawBackend<'a> {
-    fn fill_path(&mut self, _path: &Path, _clip: &Rect, _color: &Color, _opa: u8) {
-        // TODO: general scanline fill for arbitrary paths
+    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
+        if opa == 0 {
+            return;
+        }
+        let segs = super::raster::flatten(path);
+        if segs.is_empty() {
+            return;
+        }
+        let Some(bbox) = path.bbox() else { return };
+        let screen = Rect::new(0, 0, self.target.width, self.target.height);
+        let Some(draw_area) = bbox.intersect(clip).and_then(|r| r.intersect(&screen)) else {
+            return;
+        };
+
+        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
+        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        let color_a_norm =
+            Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        let combined_alpha = opa_norm * color_a_norm;
+        let half = Fixed::ONE / 2;
+
+        for py in px_y0..px_y1 {
+            for px in px_x0..px_x1 {
+                let center = Point {
+                    x: Fixed::from_int(px) + half,
+                    y: Fixed::from_int(py) + half,
+                };
+                let inside = super::raster::point_in_segments(center, &segs);
+                let dist = super::raster::min_dist_to_segments(center, &segs);
+                // Pixel coverage: solid interior = 1, solid exterior = 0, and a
+                // 1px wide ramp centered on the edge for AA.
+                let cov = if dist >= half {
+                    if inside { Fixed::ONE } else { Fixed::ZERO }
+                } else if inside {
+                    half + dist
+                } else {
+                    half - dist
+                };
+                let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+                if final_alpha > 0 {
+                    self.target.blend_pixel_int(px, py, color, final_alpha);
+                }
+            }
+        }
     }
 
     fn stroke_path(&mut self, _path: &Path, _clip: &Rect, _width: Fixed, _color: &Color, _opa: u8) {
@@ -453,6 +495,94 @@ mod tests {
         assert_eq!(c.r, 50);
         assert_eq!(c.g, 100);
         assert_eq!(c.b, 150);
+    }
+
+    #[test]
+    fn fill_path_rect_matches_fill_rect() {
+        // A rectangular Path should produce the same interior pixels as fill_rect.
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let path = super::super::path::Path::rect(
+            Fixed::from_int(2),
+            Fixed::from_int(2),
+            Fixed::from_int(8),
+            Fixed::from_int(8),
+        );
+        let clip = Rect::new(0, 0, 16, 16);
+        backend.fill_path(&path, &clip, &Color::rgb(0, 0, 255), 255);
+
+        let c = backend.target.get_pixel(5, 5);
+        assert_eq!(c.b, 255);
+        assert_eq!(c.r, 0);
+        let c = backend.target.get_pixel(0, 0);
+        assert_eq!(c.b, 0);
+    }
+
+    #[test]
+    fn fill_path_empty_is_noop() {
+        let mut buf = vec![0u8; 4 * 4 * 4];
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let path = super::super::path::Path::new();
+        let clip = Rect::new(0, 0, 4, 4);
+        backend.fill_path(&path, &clip, &Color::rgb(255, 255, 255), 255);
+
+        for y in 0..4 {
+            for x in 0..4 {
+                assert_eq!(backend.target.get_pixel(x, y).r, 0);
+            }
+        }
+    }
+
+    #[test]
+    fn fill_path_zero_opa_is_noop() {
+        let mut buf = vec![0u8; 4 * 4 * 4];
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let path = super::super::path::Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(4),
+            Fixed::from_int(4),
+        );
+        let clip = Rect::new(0, 0, 4, 4);
+        backend.fill_path(&path, &clip, &Color::rgb(255, 0, 0), 0);
+
+        assert_eq!(backend.target.get_pixel(2, 2).r, 0);
+    }
+
+    #[test]
+    fn fill_path_triangle_interior_vs_exterior() {
+        // Right triangle with vertices (0,0), (10,0), (0,10). Probe interior
+        // point (2,2) vs exterior point (8,8).
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let mut path = super::super::path::Path::new();
+        path.move_to(Point {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+        })
+        .line_to(Point {
+            x: Fixed::from_int(10),
+            y: Fixed::ZERO,
+        })
+        .line_to(Point {
+            x: Fixed::ZERO,
+            y: Fixed::from_int(10),
+        })
+        .close();
+
+        let clip = Rect::new(0, 0, 16, 16);
+        backend.fill_path(&path, &clip, &Color::rgb(0, 200, 0), 255);
+
+        assert_eq!(backend.target.get_pixel(2, 2).g, 200);
+        assert_eq!(backend.target.get_pixel(8, 8).g, 0);
     }
 
     #[test]
