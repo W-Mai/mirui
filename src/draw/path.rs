@@ -67,35 +67,58 @@ impl Path {
             return Self::rect(x, y, w, h);
         }
         let r = r.min(w / 2).min(h / 2);
+        // k = 4/3 · tan(22.5°) ≈ 0.5523 — cubic-bezier control offset that
+        // approximates a 90° circular arc to within ~0.03% of the true radius.
+        // Much rounder than the old quad approximation (which was off by ~27%).
+        let k = r * Fixed::from_f32(0.552_284_8);
         let mut p = Self::new();
 
-        // Start at top-left after corner
-        p.move_to(Point { x: x + r, y });
-        // Top edge
-        p.line_to(Point { x: x + w - r, y });
-        // Top-right corner
-        p.quad_to(Point { x: x + w, y }, Point { x: x + w, y: y + r });
-        // Right edge
-        p.line_to(Point {
-            x: x + w,
-            y: y + h - r,
-        });
-        // Bottom-right corner
-        p.quad_to(
-            Point { x: x + w, y: y + h },
+        let x1 = x + r;
+        let x2 = x + w - r;
+        let y1 = y + r;
+        let y2 = y + h - r;
+
+        p.move_to(Point { x: x1, y });
+        p.line_to(Point { x: x2, y });
+        // Top-right corner: tangents +X at start, +Y at end.
+        p.cubic_to(
+            Point { x: x2 + k, y },
             Point {
-                x: x + w - r,
+                x: x + w,
+                y: y1 - k,
+            },
+            Point { x: x + w, y: y1 },
+        );
+        p.line_to(Point { x: x + w, y: y2 });
+        // Bottom-right corner: tangents +Y at start, -X at end.
+        p.cubic_to(
+            Point {
+                x: x + w,
+                y: y2 + k,
+            },
+            Point {
+                x: x2 + k,
                 y: y + h,
             },
+            Point { x: x2, y: y + h },
         );
-        // Bottom edge
-        p.line_to(Point { x: x + r, y: y + h });
-        // Bottom-left corner
-        p.quad_to(Point { x, y: y + h }, Point { x, y: y + h - r });
-        // Left edge
-        p.line_to(Point { x, y: y + r });
-        // Top-left corner
-        p.quad_to(Point { x, y }, Point { x: x + r, y });
+        p.line_to(Point { x: x1, y: y + h });
+        // Bottom-left corner: tangents -X at start, -Y at end.
+        p.cubic_to(
+            Point {
+                x: x1 - k,
+                y: y + h,
+            },
+            Point { x, y: y2 + k },
+            Point { x, y: y2 },
+        );
+        p.line_to(Point { x, y: y1 });
+        // Top-left corner: tangents -Y at start, +X at end.
+        p.cubic_to(
+            Point { x, y: y1 - k },
+            Point { x: x1 - k, y },
+            Point { x: x1, y },
+        );
         p.close();
 
         p
