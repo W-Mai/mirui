@@ -92,6 +92,7 @@ impl<'a> Texture<'a> {
         }
     }
 
+    #[inline(always)]
     fn offset(&self, x: i32, y: i32) -> Option<usize> {
         if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
             return None;
@@ -99,6 +100,7 @@ impl<'a> Texture<'a> {
         Some(y as usize * self.stride + x as usize * self.format.bytes_per_pixel())
     }
 
+    #[inline(always)]
     pub fn get_pixel(&self, x: i32, y: i32) -> Color {
         let Some(i) = self.offset(x, y) else {
             return Color::rgb(0, 0, 0);
@@ -130,6 +132,7 @@ impl<'a> Texture<'a> {
         }
     }
 
+    #[inline(always)]
     pub fn set_pixel(&mut self, x: i32, y: i32, color: &Color) {
         let Some(i) = self.offset(x, y) else { return };
         let buf = self.buf.as_mut_slice();
@@ -160,6 +163,7 @@ impl<'a> Texture<'a> {
         }
     }
 
+    #[inline(always)]
     pub fn blend_pixel(&mut self, x: Fixed, y: Fixed, color: &Color, opa: u8) {
         if opa == 0 {
             return;
@@ -171,6 +175,12 @@ impl<'a> Texture<'a> {
             return;
         }
 
+        self.blend_pixel_subpixel(x, y, color, opa);
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn blend_pixel_subpixel(&mut self, x: Fixed, y: Fixed, color: &Color, opa: u8) {
         let ix = x.to_int();
         let iy = y.to_int();
         let fx = x.fract();
@@ -189,7 +199,8 @@ impl<'a> Texture<'a> {
         self.blend_pixel_int(ix + 1, iy + 1, color, to_alpha(fx * fy));
     }
 
-    fn blend_pixel_int(&mut self, x: i32, y: i32, color: &Color, a: u8) {
+    #[inline(always)]
+    pub fn blend_pixel_int(&mut self, x: i32, y: i32, color: &Color, a: u8) {
         if a == 0 {
             return;
         }

@@ -115,10 +115,34 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
         let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
 
         if area.is_aligned() && r == Fixed::ZERO {
-            for py in px_y0..px_y1 {
-                for px in px_x0..px_x1 {
-                    self.target
-                        .blend_pixel(Fixed::from_int(px), Fixed::from_int(py), color, opa);
+            if opa == 255 {
+                let bpp = self.target.format.bytes_per_pixel();
+                let buf = self.target.buf.as_mut_slice();
+                let stride = self.target.stride;
+                match self.target.format {
+                    super::texture::ColorFormat::ARGB8888 => {
+                        let pixel = [color.r, color.g, color.b, color.a];
+                        for py in px_y0..px_y1 {
+                            let row_start = py as usize * stride + px_x0 as usize * bpp;
+                            for px in 0..(px_x1 - px_x0) as usize {
+                                let i = row_start + px * 4;
+                                buf[i..i + 4].copy_from_slice(&pixel);
+                            }
+                        }
+                    }
+                    _ => {
+                        for py in px_y0..px_y1 {
+                            for px in px_x0..px_x1 {
+                                self.target.set_pixel(px, py, color);
+                            }
+                        }
+                    }
+                }
+            } else {
+                for py in px_y0..px_y1 {
+                    for px in px_x0..px_x1 {
+                        self.target.blend_pixel_int(px, py, color, opa);
+                    }
                 }
             }
             return;
@@ -228,21 +252,28 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
     fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, clip: &Rect) {
         let (sx0, sy0, sw, sh) = src_rect.to_px();
         let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.pixel_bounds();
+        let dx0 = dst.x.to_int();
+        let dy0 = dst.y.to_int();
 
         for row in 0..sh as i32 {
+            let iy = dy0 + row;
+            if iy < clip_y0 || iy >= clip_y1 {
+                continue;
+            }
             for col in 0..sw as i32 {
+                let ix = dx0 + col;
+                if ix < clip_x0 || ix >= clip_x1 {
+                    continue;
+                }
                 let src_color = src.get_pixel(sx0 + col, sy0 + row);
                 if src_color.a == 0 {
                     continue;
                 }
-                let dx = dst.x + Fixed::from_int(col);
-                let dy = dst.y + Fixed::from_int(row);
-                let ix = dx.to_int();
-                let iy = dy.to_int();
-                if ix < clip_x0 || ix >= clip_x1 || iy < clip_y0 || iy >= clip_y1 {
-                    continue;
+                if src_color.a == 255 {
+                    self.target.set_pixel(ix, iy, &src_color);
+                } else {
+                    self.target.blend_pixel_int(ix, iy, &src_color, src_color.a);
                 }
-                self.target.blend_pixel(dx, dy, &src_color, src_color.a);
             }
         }
     }
