@@ -63,33 +63,6 @@ impl<'a> SwDrawBackend<'a> {
             perf: None,
         }
     }
-
-    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
-        use super::font::{CHAR_H, CHAR_W, glyph};
-        let (clip_x, clip_y, clip_x2, clip_y2) = clip.pixel_bounds();
-        let (mut cx, cy) = pos.floor();
-        for &ch in text {
-            let bitmap = glyph(ch);
-            for row in 0..CHAR_H as i32 {
-                let byte = bitmap[row as usize];
-                for col in 0..CHAR_W as i32 {
-                    if byte & (0x80 >> col) != 0 {
-                        let px = cx + col;
-                        let py = cy + row;
-                        if px >= clip_x && px < clip_x2 && py >= clip_y && py < clip_y2 {
-                            self.target.blend_pixel(
-                                Fixed::from_int(px),
-                                Fixed::from_int(py),
-                                color,
-                                opa,
-                            );
-                        }
-                    }
-                }
-            }
-            cx += CHAR_W as i32;
-        }
-    }
 }
 
 impl<'a> DrawBackend for SwDrawBackend<'a> {
@@ -356,6 +329,33 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
         }
     }
 
+    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
+        use super::font::{CHAR_H, CHAR_W, glyph};
+        let (clip_x, clip_y, clip_x2, clip_y2) = clip.pixel_bounds();
+        let (mut cx, cy) = pos.floor();
+        for &ch in text {
+            let bitmap = glyph(ch);
+            for row in 0..CHAR_H as i32 {
+                let byte = bitmap[row as usize];
+                for col in 0..CHAR_W as i32 {
+                    if byte & (0x80 >> col) != 0 {
+                        let px = cx + col;
+                        let py = cy + row;
+                        if px >= clip_x && px < clip_x2 && py >= clip_y && py < clip_y2 {
+                            self.target.blend_pixel(
+                                Fixed::from_int(px),
+                                Fixed::from_int(py),
+                                color,
+                                opa,
+                            );
+                        }
+                    }
+                }
+            }
+            cx += CHAR_W as i32;
+        }
+    }
+
     fn flush(&mut self) {}
 }
 
@@ -587,6 +587,33 @@ mod tests {
 
         assert_eq!(backend.target.get_pixel(2, 2).g, 200);
         assert_eq!(backend.target.get_pixel(8, 8).g, 0);
+    }
+
+    #[test]
+    fn draw_label_is_reachable_via_trait() {
+        // Exercises the trait dispatch path rather than the glyph pixels —
+        // just verifies the method exists on DrawBackend and writes something.
+        let mut buf = vec![0u8; 32 * 16 * 4];
+        let tex = Texture::new(&mut buf, 32, 16, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+
+        let pos = Point {
+            x: Fixed::from_int(1),
+            y: Fixed::from_int(1),
+        };
+        let clip = Rect::new(0, 0, 32, 16);
+        DrawBackend::draw_label(&mut backend, &pos, b"A", &clip, &Color::rgb(255, 0, 0), 255);
+
+        let mut found = false;
+        for y in 0..16 {
+            for x in 0..32 {
+                if backend.target.get_pixel(x, y).r > 0 {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        assert!(found, "expected at least one red pixel from glyph");
     }
 
     #[test]

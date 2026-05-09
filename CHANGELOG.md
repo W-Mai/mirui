@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`Path::bbox()`** — conservative bounding box including Bezier control points
+- **`Path::arc(center, radius, start, end)`** — builds an arc path using cubic Bezier segments (≤90° each, `k = 4/3 · tan(θ/4)`). Angles in degrees, CCW
+- **`Fixed::sin_deg` / `Fixed::cos_deg`** (`pub(crate)`) — Taylor 6-term approximation, error < 0.01
+- **`Fixed::{MAX, MIN, PI}`** constants + **`Point::ZERO`** constant
+- **`fill_path`** on `SwDrawBackend` — even-odd ray casting + per-pixel 1px-distance anti-aliasing
+- **`stroke_path`** on `SwDrawBackend` — offset polygon with miter join (miter_limit = 4, bevel fallback), butt caps for open paths
+- Visual snapshot tests under `tests/visual_fill_path.rs` (`#[ignore]`-gated, manual run)
+
+### Fixed
+
+- **`Fixed::sqrt`** — previously returned `sqrt(raw)` instead of `sqrt(raw << 8)`, off by a factor of 16 in Fixed space. `rounded_rect_coverage` was accidentally masking it because the buggy `dist - r` value always exceeded 1 and took the "no AA" branch. Corner anti-aliasing now actually functions
+
+### Changed (⚠️ Breaking)
+
+- **`DrawBackend` trait** gained `draw_label(&mut self, pos, text, clip, color, opa)` as a required method. Previously `draw_label` was only defined on `SwDrawBackend` directly. External implementers of `DrawBackend` must now provide a `draw_label` implementation; there is no default
+
 ## [0.2.0] - 2026-05-09
 
 ### 🎉 The Subpixel Release
