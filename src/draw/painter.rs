@@ -1,7 +1,6 @@
 use crate::types::{Color, Fixed, Point, Rect};
 
 use super::backend::DrawBackend;
-use super::path::Path;
 use super::texture::Texture;
 
 pub struct Painter<'a, B: DrawBackend> {
@@ -14,8 +13,7 @@ impl<'a, B: DrawBackend> Painter<'a, B> {
     }
 
     pub fn fill_rect(&mut self, rect: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
-        let path = Path::rounded_rect(rect.x, rect.y, rect.w, rect.h, radius);
-        self.backend.fill_path(&path, clip, color, opa);
+        self.backend.fill_rect(rect, clip, color, radius, opa);
     }
 
     pub fn draw_border(
@@ -27,14 +25,8 @@ impl<'a, B: DrawBackend> Painter<'a, B> {
         radius: Fixed,
         opa: u8,
     ) {
-        let path = Path::rounded_rect(
-            rect.x + width / 2,
-            rect.y + width / 2,
-            rect.w - width,
-            rect.h - width,
-            (radius - width / 2).max(Fixed::ZERO),
-        );
-        self.backend.stroke_path(&path, clip, width, color, opa);
+        self.backend
+            .stroke_rect(rect, clip, width, color, radius, opa);
     }
 
     pub fn draw_image(&mut self, src: &Texture, src_rect: &Rect, dst: Point, clip: &Rect) {

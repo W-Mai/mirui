@@ -6,6 +6,7 @@ pub mod partial;
 pub mod path;
 pub mod renderer;
 pub mod sw;
+pub mod sw_backend;
 pub mod texture;
 
 pub use command::DrawCommand;
