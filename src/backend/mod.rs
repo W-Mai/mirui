@@ -9,6 +9,7 @@ pub struct DisplayInfo {
     pub width: u16,
     pub height: u16,
     pub scale: Fixed,
+    pub format: crate::draw::texture::ColorFormat,
 }
 
 /// Input event from the platform

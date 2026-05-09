@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 
 use super::{Backend, DisplayInfo, InputEvent};
+use crate::draw::texture::ColorFormat;
 use crate::types::{Fixed, Rect};
 
 /// A simple framebuffer backend that owns a buffer and calls a user-provided flush callback.
@@ -8,6 +9,7 @@ pub struct FramebufBackend<F: FnMut(&[u8], &Rect)> {
     buf: Vec<u8>,
     width: u16,
     height: u16,
+    format: ColorFormat,
     flush_cb: F,
 }
 
@@ -18,6 +20,18 @@ impl<F: FnMut(&[u8], &Rect)> FramebufBackend<F> {
             buf,
             width,
             height,
+            format: ColorFormat::ARGB8888,
+            flush_cb,
+        }
+    }
+
+    pub fn with_format(width: u16, height: u16, format: ColorFormat, flush_cb: F) -> Self {
+        let buf = alloc::vec![0u8; width as usize * height as usize * format.bytes_per_pixel()];
+        Self {
+            buf,
+            width,
+            height,
+            format,
             flush_cb,
         }
     }
@@ -29,6 +43,7 @@ impl<F: FnMut(&[u8], &Rect)> Backend for FramebufBackend<F> {
             width: self.width,
             height: self.height,
             scale: Fixed::ONE,
+            format: self.format,
         }
     }
 

@@ -71,6 +71,7 @@ impl Backend for SdlBackend {
             width: self.width,
             height: self.height,
             scale: self.scale,
+            format: crate::draw::texture::ColorFormat::ARGB8888,
         }
     }
 

@@ -2,7 +2,7 @@ use crate::backend::{Backend, InputEvent};
 use crate::components::button_system::button_system;
 use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, scroll_system};
 use crate::draw::SwDrawBackend;
-use crate::draw::texture::{ColorFormat, Texture};
+use crate::draw::texture::Texture;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::types::{Fixed, Rect};
@@ -53,12 +53,8 @@ impl<B: Backend> App<B> {
         render_system::update_layout(&mut self.world, root, info.width, info.height, info.scale);
 
         let buf = self.backend.framebuffer();
-        let mut renderer = SwDrawBackend::new(Texture::new(
-            buf,
-            info.width,
-            info.height,
-            ColorFormat::ARGB8888,
-        ));
+        let mut renderer =
+            SwDrawBackend::new(Texture::new(buf, info.width, info.height, info.format));
         renderer.scale = info.scale;
         render_system::render(
             &self.world,
@@ -145,12 +141,8 @@ impl<B: Backend> App<B> {
 
         if let Some(area) = dirty {
             let buf = self.backend.framebuffer();
-            let mut renderer = SwDrawBackend::new(Texture::new(
-                buf,
-                info.width,
-                info.height,
-                ColorFormat::ARGB8888,
-            ));
+            let mut renderer =
+                SwDrawBackend::new(Texture::new(buf, info.width, info.height, info.format));
             renderer.scale = scale;
             #[cfg(feature = "perf")]
             {
