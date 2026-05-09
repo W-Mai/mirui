@@ -167,9 +167,119 @@ pub(crate) fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
     out
 }
 
+/// Vertical supersampling count per pixel row. 4 sub-scanlines gives 5-level
+/// (0/4, 1/4, 2/4, 3/4, 4/4) coverage — enough to hide the worst jaggies
+/// without making the rasterizer too heavy on ESP32.
+const SUB_SCANLINES: i32 = 4;
+
+/// Coverage-based fill rasterizer using sub-scanline × horizontal even-odd
+/// accumulation. For each pixel (px, py) emits `cov ∈ [0, 1]` as the fraction
+/// of the pixel covered by the polygon.
+///
+/// Algorithm:
+///   for each pixel row py ∈ [py0, py1):
+///     for each sub-scanline (4 per pixel):
+///       find x-intersections of all segs with this horizontal line,
+///       pair them up (even-odd), and accumulate 1/4 per covered pixel
+///       interval. Partial edge pixels get a fractional contribution.
+pub(crate) fn scanline_fill(
+    segs: &[LineSeg],
+    px_x0: i32,
+    py_y0: i32,
+    px_x1: i32,
+    py_y1: i32,
+    mut emit: impl FnMut(i32, i32, Fixed),
+) {
+    if segs.is_empty() || px_x1 <= px_x0 || py_y1 <= py_y0 {
+        return;
+    }
+    let row_w = (px_x1 - px_x0) as usize;
+    let mut acc: Vec<Fixed> = alloc::vec![Fixed::ZERO; row_w];
+    let mut crossings: Vec<Fixed> = Vec::with_capacity(segs.len());
+    let sub_weight = Fixed::ONE / SUB_SCANLINES;
+
+    for py in py_y0..py_y1 {
+        for a in acc.iter_mut() {
+            *a = Fixed::ZERO;
+        }
+
+        for sub in 0..SUB_SCANLINES {
+            // Sample line at y = py + (sub + 0.5) / SUB_SCANLINES
+            let y_sample =
+                Fixed::from_int(py) + (Fixed::from_int(sub) + Fixed::ONE / 2) / SUB_SCANLINES;
+
+            crossings.clear();
+            for s in segs {
+                let (y_lo, y_hi) = if s.p1.y <= s.p2.y {
+                    (s.p1.y, s.p2.y)
+                } else {
+                    (s.p2.y, s.p1.y)
+                };
+                if y_sample < y_lo || y_sample >= y_hi {
+                    continue;
+                }
+                let dy = s.p2.y - s.p1.y;
+                if dy == Fixed::ZERO {
+                    continue;
+                }
+                let t = (y_sample - s.p1.y) / dy;
+                let x_cross = s.p1.x + (s.p2.x - s.p1.x) * t;
+                crossings.push(x_cross);
+            }
+
+            crossings.sort();
+
+            // even-odd pair: (0,1), (2,3), ...
+            let mut i = 0;
+            while i + 1 < crossings.len() {
+                let xa = crossings[i];
+                let xb = crossings[i + 1];
+                accumulate_interval(&mut acc, px_x0, px_x1, xa, xb, sub_weight);
+                i += 2;
+            }
+        }
+
+        for (i, cov) in acc.iter().enumerate() {
+            if *cov > Fixed::ZERO {
+                emit(px_x0 + i as i32, py, *cov);
+            }
+        }
+    }
+}
+
+/// Add `weight` × (fraction of each pixel covered by [xa, xb]) into `acc`.
+fn accumulate_interval(
+    acc: &mut [Fixed],
+    px_x0: i32,
+    px_x1: i32,
+    xa: Fixed,
+    xb: Fixed,
+    weight: Fixed,
+) {
+    let (xlo, xhi) = if xa <= xb { (xa, xb) } else { (xb, xa) };
+    if xhi <= Fixed::from_int(px_x0) || xlo >= Fixed::from_int(px_x1) {
+        return;
+    }
+
+    let lo_int = xlo.to_int().max(px_x0);
+    let hi_int = xhi.ceil().to_int().min(px_x1);
+
+    for px in lo_int..hi_int {
+        let pixel_left = Fixed::from_int(px);
+        let pixel_right = Fixed::from_int(px + 1);
+        let left = xlo.max(pixel_left);
+        let right = xhi.min(pixel_right);
+        let frac = right - left;
+        if frac > Fixed::ZERO {
+            acc[(px - px_x0) as usize] += frac * weight;
+        }
+    }
+}
+
 /// Point-in-polygon test via +X ray casting with even-odd rule.
 /// Uses the half-open convention [y_min, y_max) to avoid double-counting at
 /// shared vertices.
+#[allow(dead_code)] // Retained for hit-test use-cases and future rasterizers
 pub(crate) fn point_in_segments(pt: Point, segs: &[LineSeg]) -> bool {
     let mut crossings = 0u32;
     for s in segs {
@@ -201,6 +311,7 @@ pub(crate) fn point_in_segments(pt: Point, segs: &[LineSeg]) -> bool {
 ///
 /// `cap` is compared in **Fixed space** (not squared) to avoid `Fixed * Fixed`
 /// overflow when callers pass `Fixed::MAX` or similar large bounds.
+#[allow(dead_code)] // Retained for stroke width hit-testing and future use
 pub(crate) fn min_dist_to_segments_capped(pt: Point, segs: &[LineSeg], cap: Fixed) -> Fixed {
     let mut best = cap;
     let mut found = false;

@@ -85,32 +85,13 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
         let color_a_norm =
             Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let combined_alpha = opa_norm * color_a_norm;
-        let half = Fixed::ONE / 2;
 
-        for py in px_y0..px_y1 {
-            for px in px_x0..px_x1 {
-                let center = Point {
-                    x: Fixed::from_int(px) + half,
-                    y: Fixed::from_int(py) + half,
-                };
-                // AA ramp width is 1px centred on the edge, so only segments
-                // within `half` of the pixel affect coverage. Cap the search so
-                // far-off pixels short-circuit with AABB math, no sqrt per edge.
-                let dist = super::raster::min_dist_to_segments_capped(center, &segs, half);
-                let inside = super::raster::point_in_segments(center, &segs);
-                let cov = if dist >= half {
-                    if inside { Fixed::ONE } else { Fixed::ZERO }
-                } else if inside {
-                    half + dist
-                } else {
-                    half - dist
-                };
-                let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
-                if final_alpha > 0 {
-                    self.target.blend_pixel_int(px, py, color, final_alpha);
-                }
+        super::raster::scanline_fill(&segs, px_x0, px_y0, px_x1, px_y1, |px, py, cov| {
+            let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+            if final_alpha > 0 {
+                self.target.blend_pixel_int(px, py, color, final_alpha);
             }
-        }
+        });
     }
 
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
