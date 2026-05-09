@@ -93,10 +93,11 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
                     x: Fixed::from_int(px) + half,
                     y: Fixed::from_int(py) + half,
                 };
+                // AA ramp width is 1px centred on the edge, so only segments
+                // within `half` of the pixel affect coverage. Cap the search so
+                // far-off pixels short-circuit with AABB math, no sqrt per edge.
+                let dist = super::raster::min_dist_to_segments_capped(center, &segs, half);
                 let inside = super::raster::point_in_segments(center, &segs);
-                let dist = super::raster::min_dist_to_segments(center, &segs);
-                // Pixel coverage: solid interior = 1, solid exterior = 0, and a
-                // 1px wide ramp centered on the edge for AA.
                 let cov = if dist >= half {
                     if inside { Fixed::ONE } else { Fixed::ZERO }
                 } else if inside {

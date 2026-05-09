@@ -112,12 +112,12 @@ impl Fixed {
         Self(x as i32)
     }
 
-    pub(crate) fn sin_deg(angle_deg: Self) -> Self {
+    pub fn sin_deg(angle_deg: Self) -> Self {
         let rad = angle_deg * Self::PI / Self::from_int(180);
         sin_rad(rad)
     }
 
-    pub(crate) fn cos_deg(angle_deg: Self) -> Self {
+    pub fn cos_deg(angle_deg: Self) -> Self {
         Self::sin_deg(Self::from_int(90) - angle_deg)
     }
 }

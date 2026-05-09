@@ -195,17 +195,73 @@ pub(crate) fn point_in_segments(pt: Point, segs: &[LineSeg]) -> bool {
     crossings & 1 == 1
 }
 
-/// Minimum unsigned distance from `pt` to any segment in `segs`. Empty returns
-/// Fixed::MAX so callers treat it as "infinitely far".
-pub(crate) fn min_dist_to_segments(pt: Point, segs: &[LineSeg]) -> Fixed {
-    let mut best = Fixed::MAX;
+/// Minimum unsigned distance from `pt` to any segment in `segs`, capped at
+/// `cap`. Segments whose AABB is farther than `cap` from `pt` are skipped
+/// without any sqrt. Returns `cap` when nothing is within range.
+///
+/// `cap` is compared in **Fixed space** (not squared) to avoid `Fixed * Fixed`
+/// overflow when callers pass `Fixed::MAX` or similar large bounds.
+pub(crate) fn min_dist_to_segments_capped(pt: Point, segs: &[LineSeg], cap: Fixed) -> Fixed {
+    let mut best = cap;
+    let mut found = false;
     for s in segs {
-        let d = dist_point_to_segment(pt, s.p1, s.p2);
+        let (xlo, xhi) = if s.p1.x <= s.p2.x {
+            (s.p1.x, s.p2.x)
+        } else {
+            (s.p2.x, s.p1.x)
+        };
+        let (ylo, yhi) = if s.p1.y <= s.p2.y {
+            (s.p1.y, s.p2.y)
+        } else {
+            (s.p2.y, s.p1.y)
+        };
+        // Quick Chebyshev reject: if the segment's bbox is strictly farther
+        // than `best` on either axis, the true distance is ≥ best too.
+        let dx_box = if pt.x < xlo {
+            xlo - pt.x
+        } else if pt.x > xhi {
+            pt.x - xhi
+        } else {
+            Fixed::ZERO
+        };
+        let dy_box = if pt.y < ylo {
+            ylo - pt.y
+        } else if pt.y > yhi {
+            pt.y - yhi
+        } else {
+            Fixed::ZERO
+        };
+        if dx_box >= best || dy_box >= best {
+            continue;
+        }
+        let d = dist_sq_point_to_segment(pt, s.p1, s.p2).sqrt();
         if d < best {
             best = d;
+            found = true;
         }
     }
-    best
+    if found { best } else { cap }
+}
+
+/// Squared distance from point `p` to segment `ab`. Caller decides when to sqrt.
+fn dist_sq_point_to_segment(p: Point, a: Point, b: Point) -> Fixed {
+    let abx = b.x - a.x;
+    let aby = b.y - a.y;
+    let len_sq = abx * abx + aby * aby;
+    if len_sq == Fixed::ZERO {
+        let dx = p.x - a.x;
+        let dy = p.y - a.y;
+        return dx * dx + dy * dy;
+    }
+    let apx = p.x - a.x;
+    let apy = p.y - a.y;
+    let t_raw = (apx * abx + apy * aby) / len_sq;
+    let t = t_raw.max(Fixed::ZERO).min(Fixed::ONE);
+    let cx = a.x + abx * t;
+    let cy = a.y + aby * t;
+    let dx = p.x - cx;
+    let dy = p.y - cy;
+    dx * dx + dy * dy
 }
 
 /// Miter limit ratio (Fixed). If the miter extension exceeds this multiple of
@@ -435,27 +491,6 @@ fn approx_eq(a: Point, b: Point) -> bool {
     dx.abs() + dy.abs() < Fixed::ONE / 128
 }
 
-fn dist_point_to_segment(p: Point, a: Point, b: Point) -> Fixed {
-    let abx = b.x - a.x;
-    let aby = b.y - a.y;
-    let len_sq = abx * abx + aby * aby;
-    if len_sq == Fixed::ZERO {
-        // Degenerate segment — distance to the single point a.
-        let dx = p.x - a.x;
-        let dy = p.y - a.y;
-        return (dx * dx + dy * dy).sqrt();
-    }
-    let apx = p.x - a.x;
-    let apy = p.y - a.y;
-    let t_raw = (apx * abx + apy * aby) / len_sq;
-    let t = t_raw.max(Fixed::ZERO).min(Fixed::ONE);
-    let cx = a.x + abx * t;
-    let cy = a.y + aby * t;
-    let dx = p.x - cx;
-    let dy = p.y - cy;
-    (dx * dx + dy * dy).sqrt()
-}
-
 fn lerp(a: Point, b: Point, t: Fixed) -> Point {
     Point {
         x: a.x + (b.x - a.x) * t,
@@ -608,29 +643,33 @@ mod tests {
         assert!(!point_in_segments(pt(5, 10), &square_segs()));
     }
 
+    fn big_cap() -> Fixed {
+        // Large enough to not affect any test case, small enough that
+        // dx_box/dy_box comparisons stay well within i32 Fixed range.
+        Fixed::from_int(1000)
+    }
+
     #[test]
     fn dist_on_segment_is_zero() {
         let segs = square_segs();
-        let d = min_dist_to_segments(pt(5, 0), &segs);
+        let d = min_dist_to_segments_capped(pt(5, 0), &segs, big_cap());
         assert_eq!(d, Fixed::ZERO);
     }
 
     #[test]
     fn dist_center_to_square_is_half_width() {
         let segs = square_segs();
-        let d = min_dist_to_segments(pt(5, 5), &segs).to_f32();
+        let d = min_dist_to_segments_capped(pt(5, 5), &segs, big_cap()).to_f32();
         assert!((d - 5.0).abs() < 0.01, "d = {d}");
     }
 
     #[test]
     fn dist_beyond_endpoint_uses_endpoint() {
-        // Single segment from (0,0) to (10,0). Query (15, 0) — past end.
-        // Closest point must be (10, 0), distance = 5.
         let segs = vec![LineSeg {
             p1: pt(0, 0),
             p2: pt(10, 0),
         }];
-        let d = min_dist_to_segments(pt(15, 0), &segs).to_f32();
+        let d = min_dist_to_segments_capped(pt(15, 0), &segs, big_cap()).to_f32();
         assert!((d - 5.0).abs() < 0.01);
     }
 
@@ -640,8 +679,19 @@ mod tests {
             p1: pt(3, 4),
             p2: pt(3, 4),
         }];
-        let d = min_dist_to_segments(pt(0, 0), &segs).to_f32();
+        let d = min_dist_to_segments_capped(pt(0, 0), &segs, big_cap()).to_f32();
         assert!((d - 5.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn dist_capped_returns_cap_when_far() {
+        let segs = vec![LineSeg {
+            p1: pt(100, 100),
+            p2: pt(110, 100),
+        }];
+        let cap = Fixed::from_int(5);
+        let d = min_dist_to_segments_capped(pt(0, 0), &segs, cap);
+        assert_eq!(d, cap);
     }
 
     #[test]
