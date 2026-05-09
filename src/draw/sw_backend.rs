@@ -825,4 +825,98 @@ mod tests {
         assert_eq!(c.g, 255);
         assert_eq!(c.b, 0);
     }
+
+    #[test]
+    fn painter_forwards_path_and_stroke_methods() {
+        use crate::draw::painter::Painter;
+        use crate::draw::path::Path;
+
+        let mut buf = vec![0u8; 32 * 32 * 4];
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+        let clip = Rect::new(0, 0, 32, 32);
+
+        {
+            let mut painter = Painter::new(&mut backend);
+            let path = Path::rect(
+                Fixed::from_int(4),
+                Fixed::from_int(4),
+                Fixed::from_int(10),
+                Fixed::from_int(10),
+            );
+            painter.fill_path(&path, &clip, &Color::rgb(255, 0, 0), 255);
+
+            painter.draw_line(
+                Point {
+                    x: Fixed::from_int(20),
+                    y: Fixed::from_int(20),
+                },
+                Point {
+                    x: Fixed::from_int(28),
+                    y: Fixed::from_int(28),
+                },
+                &clip,
+                Fixed::from_int(2),
+                &Color::rgb(0, 255, 0),
+                255,
+            );
+
+            painter.draw_arc(
+                Point {
+                    x: Fixed::from_int(24),
+                    y: Fixed::from_int(8),
+                },
+                Fixed::from_int(4),
+                Fixed::from_int(0),
+                Fixed::from_int(90),
+                &clip,
+                Fixed::from_int(2),
+                &Color::rgb(0, 0, 255),
+                255,
+            );
+        }
+
+        assert_eq!(backend.target.get_pixel(8, 8).r, 255);
+        assert!(backend.target.get_pixel(24, 24).g > 0);
+        assert!(
+            backend.target.get_pixel(28, 8).b > 0
+                || backend.target.get_pixel(27, 8).b > 0
+                || backend.target.get_pixel(28, 9).b > 0,
+        );
+    }
+
+    #[test]
+    fn painter_draw_text_forwards_to_backend() {
+        use crate::draw::painter::Painter;
+
+        let mut buf = vec![0u8; 32 * 16 * 4];
+        let tex = Texture::new(&mut buf, 32, 16, ColorFormat::ARGB8888);
+        let mut backend = SwDrawBackend::new(tex);
+        let clip = Rect::new(0, 0, 32, 16);
+
+        {
+            let mut painter = Painter::new(&mut backend);
+            painter.draw_text(
+                &Point {
+                    x: Fixed::from_int(1),
+                    y: Fixed::from_int(1),
+                },
+                b"B",
+                &clip,
+                &Color::rgb(200, 100, 50),
+                255,
+            );
+        }
+
+        let mut found = false;
+        for y in 0..16 {
+            for x in 0..32 {
+                if backend.target.get_pixel(x, y).r > 0 {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        assert!(found);
+    }
 }
