@@ -12,3 +12,4 @@ pub mod texture;
 pub use command::DrawCommand;
 pub use renderer::Renderer;
 pub use sw::SwRenderer;
+pub use sw_backend::SwDrawBackend;

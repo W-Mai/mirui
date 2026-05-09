@@ -1,16 +1,49 @@
 use crate::types::{Color, Fixed, Point, Rect};
 
 use super::backend::DrawBackend;
+use super::command::DrawCommand;
 use super::path::Path;
+use super::renderer::Renderer;
 use super::texture::Texture;
 
 pub struct SwDrawBackend<'a> {
     pub target: Texture<'a>,
+    pub scale: Fixed,
 }
 
 impl<'a> SwDrawBackend<'a> {
     pub fn new(target: Texture<'a>) -> Self {
-        Self { target }
+        Self {
+            target,
+            scale: Fixed::ONE,
+        }
+    }
+
+    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
+        use super::font::{CHAR_H, CHAR_W, glyph};
+        let (clip_x, clip_y, clip_x2, clip_y2) = clip.pixel_bounds();
+        let (mut cx, cy) = pos.floor();
+        for &ch in text {
+            let bitmap = glyph(ch);
+            for row in 0..CHAR_H as i32 {
+                let byte = bitmap[row as usize];
+                for col in 0..CHAR_W as i32 {
+                    if byte & (0x80 >> col) != 0 {
+                        let px = cx + col;
+                        let py = cy + row;
+                        if px >= clip_x && px < clip_x2 && py >= clip_y && py < clip_y2 {
+                            self.target.blend_pixel(
+                                Fixed::from_int(px),
+                                Fixed::from_int(py),
+                                color,
+                                opa,
+                            );
+                        }
+                    }
+                }
+            }
+            cx += CHAR_W as i32;
+        }
     }
 }
 
@@ -216,6 +249,60 @@ fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> 
         } else {
             Fixed::ONE - overshoot
         }
+    }
+}
+
+impl Renderer for SwDrawBackend<'_> {
+    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+        match cmd {
+            DrawCommand::Fill {
+                area,
+                color,
+                radius,
+                opa,
+            } => {
+                self.fill_rect(area, clip, color, *radius, *opa);
+            }
+            DrawCommand::Border {
+                area,
+                color,
+                width,
+                radius,
+                opa,
+            } => {
+                self.stroke_rect(area, clip, *width, color, *radius, *opa);
+            }
+            DrawCommand::Blit {
+                pos,
+                data,
+                width,
+                height,
+            } => {
+                let src_rect = Rect::new(0, 0, *width, *height);
+                let mut src_tex_buf = alloc::vec![0u8; *width as usize * *height as usize * 4];
+                src_tex_buf.copy_from_slice(&data[..*width as usize * *height as usize * 4]);
+                let src_tex = Texture::new(
+                    &mut src_tex_buf,
+                    *width,
+                    *height,
+                    super::texture::ColorFormat::ARGB8888,
+                );
+                self.blit(&src_tex, &src_rect, *pos, clip);
+            }
+            DrawCommand::Label {
+                pos,
+                text,
+                color,
+                opa,
+            } => {
+                self.draw_label(pos, text, clip, color, *opa);
+            }
+            _ => {}
+        }
+    }
+
+    fn flush(&mut self) {
+        DrawBackend::flush(self);
     }
 }
 
