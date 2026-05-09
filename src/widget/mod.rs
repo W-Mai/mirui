@@ -49,17 +49,20 @@ pub fn set_position(
 
     if let Some(style) = world.get::<Style>(entity) {
         let l = &style.layout;
-        let old_x = l.left.resolve_or(Fixed::ZERO, Fixed::ZERO);
-        let old_y = l.top.resolve_or(Fixed::ZERO, Fixed::ZERO);
-        let old_w = l.width.resolve_or(Fixed::ZERO, Fixed::ZERO);
-        let old_h = l.height.resolve_or(Fixed::ZERO, Fixed::ZERO);
-        if old_x != x || old_y != y {
-            let old_rect = Rect {
-                x: old_x,
-                y: old_y,
-                w: old_w,
-                h: old_h,
-            };
+        let old_rect = Rect {
+            x: l.left.resolve_or(Fixed::ZERO, Fixed::ZERO),
+            y: l.top.resolve_or(Fixed::ZERO, Fixed::ZERO),
+            w: l.width.resolve_or(Fixed::ZERO, Fixed::ZERO),
+            h: l.height.resolve_or(Fixed::ZERO, Fixed::ZERO),
+        };
+        let new_rect = Rect {
+            x,
+            y,
+            w: old_rect.w,
+            h: old_rect.h,
+        };
+        // Compare pixel footprints — only store PrevRect if actual pixels changed
+        if old_rect.to_px() != new_rect.to_px() {
             let (px, py, pw, ph) = old_rect.to_px();
             world.insert(entity, PrevRect(Rect::new(px, py, pw, ph)));
         }
