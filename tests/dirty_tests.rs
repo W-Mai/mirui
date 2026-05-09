@@ -283,7 +283,8 @@ mod tests {
 
     #[test]
     fn fuzz_multi_frame_movement_no_residue() {
-        use mirui::draw::sw::SwRenderer;
+        use mirui::draw::SwDrawBackend;
+        use mirui::draw::texture::{ColorFormat, Texture};
         use mirui::widget::render_system;
 
         // Simulate multiple frames of movement, then compare with full render.
@@ -335,7 +336,12 @@ mod tests {
             // Initial full render
             let mut buf = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwRenderer::new(&mut buf, W as u32, H as u32);
+                let mut renderer = SwDrawBackend::new(Texture::new(
+                    &mut buf,
+                    W as u16,
+                    H as u16,
+                    ColorFormat::ARGB8888,
+                ));
                 render_system::render(&world, root, W, H, Fixed::ONE, &mut renderer);
             }
 
@@ -361,7 +367,12 @@ mod tests {
 
                 let dirty = render_system::collect_dirty_region(&mut world, root, W, H, Fixed::ONE);
                 if let Some(area) = dirty {
-                    let mut renderer = SwRenderer::new(&mut buf, W as u32, H as u32);
+                    let mut renderer = SwDrawBackend::new(Texture::new(
+                        &mut buf,
+                        W as u16,
+                        H as u16,
+                        ColorFormat::ARGB8888,
+                    ));
                     render_system::render_region(
                         &world,
                         root,
@@ -377,7 +388,12 @@ mod tests {
             // Full re-render (reference)
             let mut buf_ref = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwRenderer::new(&mut buf_ref, W as u32, H as u32);
+                let mut renderer = SwDrawBackend::new(Texture::new(
+                    &mut buf_ref,
+                    W as u16,
+                    H as u16,
+                    ColorFormat::ARGB8888,
+                ));
                 render_system::render(&world, root, W, H, Fixed::ONE, &mut renderer);
             }
 
@@ -398,7 +414,8 @@ mod tests {
 
     #[test]
     fn fuzz_multi_widget_multi_frame_no_residue() {
-        use mirui::draw::sw::SwRenderer;
+        use mirui::draw::SwDrawBackend;
+        use mirui::draw::texture::{ColorFormat, Texture};
         use mirui::widget::render_system;
 
         let mut rng_state: u32 = 0xF00D_CAFE;
@@ -464,7 +481,12 @@ mod tests {
 
             let mut buf = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwRenderer::new(&mut buf, W as u32, H as u32);
+                let mut renderer = SwDrawBackend::new(Texture::new(
+                    &mut buf,
+                    W as u16,
+                    H as u16,
+                    ColorFormat::ARGB8888,
+                ));
                 render_system::render(&world, root, W, H, Fixed::ONE, &mut renderer);
             }
 
@@ -485,7 +507,12 @@ mod tests {
 
                 let dirty = render_system::collect_dirty_region(&mut world, root, W, H, Fixed::ONE);
                 if let Some(area) = dirty {
-                    let mut renderer = SwRenderer::new(&mut buf, W as u32, H as u32);
+                    let mut renderer = SwDrawBackend::new(Texture::new(
+                        &mut buf,
+                        W as u16,
+                        H as u16,
+                        ColorFormat::ARGB8888,
+                    ));
                     render_system::render_region(
                         &world,
                         root,
@@ -500,7 +527,12 @@ mod tests {
 
             let mut buf_ref = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwRenderer::new(&mut buf_ref, W as u32, H as u32);
+                let mut renderer = SwDrawBackend::new(Texture::new(
+                    &mut buf_ref,
+                    W as u16,
+                    H as u16,
+                    ColorFormat::ARGB8888,
+                ));
                 render_system::render(&world, root, W, H, Fixed::ONE, &mut renderer);
             }
 

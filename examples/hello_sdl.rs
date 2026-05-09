@@ -1,4 +1,5 @@
-use mirui::draw::{DrawCommand, Renderer, SwRenderer};
+use mirui::draw::texture::{ColorFormat, Texture};
+use mirui::draw::{DrawCommand, Renderer, SwDrawBackend};
 use mirui::types::{Color, Fixed, Rect};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -29,8 +30,13 @@ fn main() {
         h: Fixed::from_int(H as i32),
     };
 
-    // Draw with mirui's SwRenderer
-    let mut renderer = SwRenderer::new(&mut buf, W, H);
+    // Draw with mirui's SwDrawBackend
+    let mut renderer = SwDrawBackend::new(Texture::new(
+        &mut buf,
+        W as u16,
+        H as u16,
+        ColorFormat::ARGB8888,
+    ));
 
     // Background
     renderer.draw(
