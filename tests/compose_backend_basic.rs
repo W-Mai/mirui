@@ -185,3 +185,80 @@ fn unrouted_default_impl_methods_fall_through_to_trait_default() {
     assert_eq!(h.sw.counts.draw_line.get(), 0);
     assert_eq!(h.sw.counts.draw_arc.get(), 0);
 }
+
+/// A backend that borrows a pixel buffer, giving it a real lifetime parameter
+/// so we can prove the macro handles `BorrowedDummy<'fb>` as a generic type
+/// argument without needing the Hybrid struct itself to declare `'fb`.
+struct BorrowedDummy<'fb> {
+    buf: &'fb mut [u8],
+    fills: Cell<u32>,
+}
+
+impl<'fb> BorrowedDummy<'fb> {
+    fn new(buf: &'fb mut [u8]) -> Self {
+        Self {
+            buf,
+            fills: Cell::new(0),
+        }
+    }
+}
+
+impl<'fb> DrawBackend for BorrowedDummy<'fb> {
+    fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {
+        // Touch the borrowed buffer so the lifetime actually matters at the
+        // call site — otherwise `'fb` could be optimised away and the test
+        // would be vacuous.
+        if !self.buf.is_empty() {
+            self.buf[0] = self.buf[0].wrapping_add(1);
+        }
+        self.fills.set(self.fills.get() + 1);
+    }
+    fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
+    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: &Rect) {}
+    fn clear(&mut self, _: &Rect, _: &Color) {}
+    fn draw_label(&mut self, _: &Point, _: &[u8], _: &Rect, _: &Color, _: u8) {}
+    fn flush(&mut self) {}
+}
+
+struct PlainDummy;
+impl DrawBackend for PlainDummy {
+    fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {}
+    fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
+    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: &Rect) {}
+    fn clear(&mut self, _: &Rect, _: &Color) {}
+    fn draw_label(&mut self, _: &Point, _: &[u8], _: &Rect, _: &Color, _: u8) {}
+    fn flush(&mut self) {}
+}
+
+compose_backend! {
+    pub struct HybridWithLifetime {
+        borrowed: BorrowedDummy,
+        plain: PlainDummy,
+    }
+    route {
+        default => borrowed,
+        blit => plain,
+    }
+}
+
+#[test]
+fn hybrid_accepts_backend_with_lifetime_parameter() {
+    let mut buf = [0u8; 8];
+    let borrowed = BorrowedDummy::new(&mut buf);
+    let plain = PlainDummy;
+
+    // The hybrid type itself takes two generic parameters — no lifetime on
+    // Hybrid, the borrow in BorrowedDummy<'_> gets threaded through the
+    // generic slot.
+    let mut h: HybridWithLifetime<BorrowedDummy<'_>, PlainDummy> =
+        HybridWithLifetime { borrowed, plain };
+
+    let rect = Rect::new(0, 0, 4, 4);
+    let path = Path::new();
+    h.fill_path(&path, &rect, &Color::rgb(0, 0, 0), 255);
+
+    assert_eq!(h.borrowed.fills.get(), 1);
+    // Side effect through the borrowed slice proves the lifetime really is
+    // being honoured end-to-end.
+    assert_eq!(h.borrowed.buf[0], 1);
+}
