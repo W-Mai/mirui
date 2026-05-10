@@ -242,6 +242,32 @@ compose_backend! {
 }
 
 #[test]
+fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
+    // Verifies the Renderer impl the macro emits alongside DrawBackend.
+    // Sending a DrawCommand::Blit should reach the field that owns `blit`
+    // in the route table.
+    use mirui::draw::DrawCommand;
+    use mirui::draw::renderer::Renderer;
+
+    let mut h = fresh_hybrid();
+    let mut buf = dummy_texture_buf();
+    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::ARGB8888);
+    let rect = zero_rect();
+
+    Renderer::draw(
+        &mut h,
+        &DrawCommand::Blit {
+            pos: Point::ZERO,
+            texture: &tex,
+        },
+        &rect,
+    );
+
+    assert_eq!(h.gpu.counts.blit.get(), 1);
+    assert_eq!(h.sw.counts.blit.get(), 0);
+}
+
+#[test]
 fn hybrid_accepts_backend_with_lifetime_parameter() {
     let mut buf = [0u8; 8];
     let borrowed = BorrowedDummy::new(&mut buf);

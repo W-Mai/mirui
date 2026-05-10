@@ -269,6 +269,42 @@ impl ComposeInput {
             {
                 #(#method_impls)*
             }
+
+            impl<#(#generic_params),*> ::mirui::draw::renderer::Renderer for #name<#(#generic_params),*>
+            where
+                #(#generic_params: ::mirui::draw::backend::DrawBackend,)*
+            {
+                fn draw(&mut self, cmd: &::mirui::draw::DrawCommand, clip: &::mirui::types::Rect) {
+                    use ::mirui::draw::backend::DrawBackend;
+                    match cmd {
+                        ::mirui::draw::DrawCommand::Fill { area, color, radius, opa } => {
+                            self.fill_rect(area, clip, color, *radius, *opa);
+                        }
+                        ::mirui::draw::DrawCommand::Border { area, color, width, radius, opa } => {
+                            self.stroke_rect(area, clip, *width, color, *radius, *opa);
+                        }
+                        ::mirui::draw::DrawCommand::Blit { pos, texture } => {
+                            let src_rect = ::mirui::types::Rect::new(0, 0, texture.width, texture.height);
+                            self.blit(texture, &src_rect, *pos, clip);
+                        }
+                        ::mirui::draw::DrawCommand::Label { pos, text, color, opa } => {
+                            self.draw_label(pos, text, clip, color, *opa);
+                        }
+                        ::mirui::draw::DrawCommand::Line { p1, p2, color, width, opa } => {
+                            self.draw_line(*p1, *p2, clip, *width, color, *opa);
+                        }
+                        ::mirui::draw::DrawCommand::Arc {
+                            center, radius, start_angle, end_angle, color, width, opa,
+                        } => {
+                            self.draw_arc(*center, *radius, *start_angle, *end_angle, clip, *width, color, *opa);
+                        }
+                    }
+                }
+
+                fn flush(&mut self) {
+                    ::mirui::draw::backend::DrawBackend::flush(self);
+                }
+            }
         }
     }
 
