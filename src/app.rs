@@ -1,3 +1,6 @@
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+
 use crate::backend::{Backend, InputEvent};
 use crate::components::button_system::button_system;
 use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, scroll_system};
@@ -7,8 +10,15 @@ use crate::draw::renderer::Renderer;
 use crate::draw::texture::Texture;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
+use crate::plugin::Plugin;
 use crate::types::{Fixed, Rect};
 use crate::widget::render_system;
+
+/// Monotonic clock the App uses to measure per-frame render time. Plugins can
+/// swap it (e.g. StdInstantClockPlugin on std, ESP systimer on embedded). The
+/// default returns 0, which makes `post_render` hooks see 0 and skip their
+/// timing logic.
+pub type ClockFn = Box<dyn FnMut() -> u64>;
 
 /// Builds a Renderer each frame from a borrowed framebuffer Texture.
 /// `App` asks its factory for a fresh Renderer per render call so custom
@@ -40,6 +50,8 @@ pub struct App<B: Backend, F: RendererFactory = SwDrawBackendFactory> {
     pub factory: F,
     pub root: Option<Entity>,
     pub systems: SystemScheduler,
+    pub clock: ClockFn,
+    plugins: Vec<Box<dyn Plugin<B, F>>>,
     #[cfg(feature = "perf")]
     pub perf: Option<crate::draw::PerfCtx>,
 }
@@ -64,13 +76,25 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
             factory,
             root: None,
             systems: SystemScheduler::new(),
+            clock: Box::new(|| 0),
+            plugins: Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
         }
     }
 
-    pub fn add_system(&mut self, system: System) {
+    pub fn add_system(&mut self, system: System) -> &mut Self {
         self.systems.add(system);
+        self
+    }
+
+    /// Register a plugin. Runs `plugin.build(self)` immediately, then stores
+    /// the instance so later lifecycle hooks (pre/post_render, on_event,
+    /// on_quit) can be dispatched to it.
+    pub fn add_plugin<P: Plugin<B, F> + 'static>(&mut self, mut plugin: P) -> &mut Self {
+        plugin.build(self);
+        self.plugins.push(Box::new(plugin));
+        self
     }
 
     pub fn set_root(&mut self, root: Entity) {
@@ -81,6 +105,12 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
     pub fn render(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
+
+        for p in &mut self.plugins {
+            p.pre_render(&mut self.world);
+        }
+
+        let start_ns = (self.clock)();
 
         // Update layout → write ComputedRect to entities
         render_system::update_layout(&mut self.world, root, info.width, info.height, info.scale);
@@ -100,6 +130,11 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
         }
         self.backend
             .flush(&Rect::new(0, 0, info.width, info.height));
+
+        let elapsed = (self.clock)().saturating_sub(start_ns);
+        for p in &mut self.plugins {
+            p.post_render(&mut self.world, elapsed);
+        }
     }
 
     /// Get the dirty region (physical pixels) after event processing, clearing dirty flags.
@@ -127,10 +162,24 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
             self.systems.run_all(&mut self.world);
 
             // Drain all pending events
+            let mut quit = false;
             loop {
                 match self.poll_event() {
-                    Some(InputEvent::Quit) => return,
+                    Some(InputEvent::Quit) => {
+                        quit = true;
+                        break;
+                    }
                     Some(event) => {
+                        let mut consumed = false;
+                        for p in &mut self.plugins {
+                            if p.on_event(&mut self.world, &event) {
+                                consumed = true;
+                                break;
+                            }
+                        }
+                        if consumed {
+                            continue;
+                        }
                         if let Some(root) = self.root {
                             let info = self.backend.display_info();
                             let scale = if info.scale == Fixed::ZERO {
@@ -148,6 +197,12 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
                     None => break,
                 }
             }
+            if quit {
+                for p in &mut self.plugins {
+                    p.on_quit(&mut self.world);
+                }
+                return;
+            }
 
             scroll_inertia_system(&mut self.world);
             self.render_dirty();
@@ -163,6 +218,12 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
         } else {
             info.scale
         };
+
+        for p in &mut self.plugins {
+            p.pre_render(&mut self.world);
+        }
+
+        let start_ns = (self.clock)();
 
         // Collect dirty region
         let dirty = render_system::collect_dirty_region(
@@ -189,6 +250,11 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
                 );
             }
             self.backend.flush(&area);
+        }
+
+        let elapsed = (self.clock)().saturating_sub(start_ns);
+        for p in &mut self.plugins {
+            p.post_render(&mut self.world, elapsed);
         }
     }
 }
