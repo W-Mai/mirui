@@ -22,9 +22,14 @@ members = [".", "xtask", "mirui-macros"]
 default = []
 std = []
 sdl = ["dep:sdl2", "std"]
+sdl-gpu = ["sdl", "dep:sdl2-sys"]
 perf = []
 
 [dependencies.sdl2]
+version = "0.37"
+optional = true
+
+[dependencies.sdl2-sys]
 version = "0.37"
 optional = true
 
@@ -87,6 +92,10 @@ required-features = ["sdl"]
 [[example]]
 name = "compose_backend_dsl"
 required-features = ["sdl"]
+
+[[example]]
+name = "sdl_gpu_demo"
+required-features = ["sdl-gpu"]
 
 [profile.release]
 opt-level = "z"

@@ -1,6 +1,8 @@
 pub mod framebuf;
 #[cfg(feature = "sdl")]
 pub mod sdl;
+#[cfg(feature = "sdl-gpu")]
+pub mod sdl_gpu;
 
 use crate::draw::texture::Texture;
 use crate::types::{CoordTransform, Fixed, Rect};
