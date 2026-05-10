@@ -1,13 +1,12 @@
-//! compose_backend! DSL variant. Widgets are built with the `ui!` macro,
-//! a system moves an Image entity across the screen each frame, and the
-//! Hybrid backend (sw for paths + Logging for blits/clears) feeds
-//! render_system directly. Every Image visible ends up as a DrawCommand::Blit,
-//! which routes through Logging and bumps the counter — stderr shows how
-//! many blits per second actually took the 'gpu' path.
+//! compose_backend! DSL variant. Scene built entirely through the `ui!` macro,
+//! drift_system updates Style.layout each frame, and App runs everything —
+//! no manual render loop. A custom RendererFactory plugs Hybrid (sw +
+//! Logging) into App's render pipeline where SwDrawBackend used to be.
 
 use std::cell::RefCell;
+use std::rc::Rc;
 
-use mirui::backend::Backend;
+use mirui::app::{App, RendererFactory};
 use mirui::backend::sdl::SdlBackend;
 use mirui::components::assets::*;
 use mirui::components::image::Image;
@@ -18,26 +17,18 @@ use mirui::draw::texture::Texture;
 use mirui::ecs::World;
 use mirui::layout::*;
 use mirui::types::{Color, Dimension, Fixed, Point, Rect};
-use mirui::widget::Style;
 use mirui::widget::builder::WidgetBuilder;
-use mirui::widget::render_system;
 use mirui_macros::{compose_backend, ui};
 
 const W: u16 = 480;
 const H: u16 = 320;
 
+/// Wraps any DrawBackend and counts every method call. Counter is shared
+/// through Rc<RefCell<..>> so the main loop can read it even while App
+/// owns the Hybrid mutably via the factory.
 struct Logging<B: DrawBackend> {
     inner: B,
-    calls: RefCell<u32>,
-}
-
-impl<B: DrawBackend> Logging<B> {
-    fn new(inner: B) -> Self {
-        Self {
-            inner,
-            calls: RefCell::new(0),
-        }
-    }
+    calls: Rc<RefCell<u32>>,
 }
 
 impl<B: DrawBackend> DrawBackend for Logging<B> {
@@ -75,6 +66,49 @@ compose_backend! {
     }
 }
 
+/// Factory that builds a fresh Hybrid each frame. Holds a Vec for the gpu
+/// side's framebuffer + the shared counter Rc.
+struct HybridFactory {
+    gpu_fb: Vec<u8>,
+    width: u16,
+    height: u16,
+    calls: Rc<RefCell<u32>>,
+}
+
+impl HybridFactory {
+    fn new(width: u16, height: u16, calls: Rc<RefCell<u32>>) -> Self {
+        Self {
+            gpu_fb: vec![0u8; width as usize * height as usize * 4],
+            width,
+            height,
+            calls,
+        }
+    }
+}
+
+impl RendererFactory for HybridFactory {
+    type Renderer<'a> = Hybrid<SwDrawBackend<'a>, Logging<SwDrawBackend<'a>>>;
+
+    fn make<'a>(&'a mut self, tex: Texture<'a>, scale: Fixed) -> Self::Renderer<'a> {
+        let mut sw = SwDrawBackend::new(tex);
+        sw.scale = scale;
+        let gpu_tex = Texture::new(&mut self.gpu_fb, self.width, self.height, tex_format(&sw));
+        let mut gpu_inner = SwDrawBackend::new(gpu_tex);
+        gpu_inner.scale = scale;
+        let gpu = Logging {
+            inner: gpu_inner,
+            calls: Rc::clone(&self.calls),
+        };
+        Hybrid { sw, gpu }
+    }
+}
+
+/// Read the ColorFormat from an already-constructed SwDrawBackend so the gpu
+/// side framebuffer matches the sw side byte layout without hard-coding.
+fn tex_format(sw: &SwDrawBackend<'_>) -> mirui::draw::texture::ColorFormat {
+    sw.target.format
+}
+
 struct Drift {
     t: f32,
     start_x: Fixed,
@@ -84,33 +118,37 @@ struct Drift {
 }
 
 fn drift_system(world: &mut World) {
-    let mut buf = alloc::vec::Vec::new();
+    let mut buf = Vec::new();
     world.query::<Drift>().collect_into(&mut buf);
     for e in buf {
-        let (start_x, start_y, offset_x, offset_y) = {
+        let (new_x, new_y) = {
             let Some(d) = world.get_mut::<Drift>(e) else {
                 continue;
             };
             d.t += 0.016;
-            let offset_x = Fixed::from_f32((d.t * d.speed).sin()) * d.amplitude;
-            let offset_y =
+            let ox = Fixed::from_f32((d.t * d.speed).sin()) * d.amplitude;
+            let oy =
                 Fixed::from_f32((d.t * d.speed * 0.7).cos()) * d.amplitude * Fixed::from_f32(0.5);
-            (d.start_x, d.start_y, offset_x, offset_y)
+            (d.start_x + ox, d.start_y + oy)
         };
-        if let Some(style) = world.get_mut::<Style>(e) {
-            style.layout.left = Dimension::Px(start_x + offset_x);
-            style.layout.top = Dimension::Px(start_y + offset_y);
-        }
+        mirui::widget::set_position(world, e, new_x, new_y);
     }
 }
 
-extern crate alloc;
-
 fn main() {
-    let mut backend = SdlBackend::new("mirui - compose_backend DSL demo", W, H);
+    let backend = SdlBackend::new("mirui - compose_backend DSL demo", W, H);
 
-    let mut world = World::new();
-    let root = WidgetBuilder::new(&mut world)
+    let calls = Rc::new(RefCell::new(0u32));
+    let factory = HybridFactory::new(
+        backend.scale_factor().to_int() as u16 * W,
+        backend.scale_factor().to_int() as u16 * H,
+        Rc::clone(&calls),
+    );
+
+    let mut app = App::with_factory(backend, factory);
+    app.add_system(drift_system);
+
+    let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -120,9 +158,6 @@ fn main() {
         })
         .id();
 
-    // 8 drifters in a 4×2 grid, each with its own sine speed. The whole tree
-    // is built through ui! — banner widget plus a walk over drifters. Each
-    // drifter attaches a Drift enchant so drift_system can move it.
     let iw = IMG_THUMBS_UP.width as i32;
     let ih = IMG_THUMBS_UP.height as i32;
     let drifters: [(i32, i32, f32); 8] = [
@@ -139,7 +174,7 @@ fn main() {
     ui! {
         :(
             parent: root
-            world: &mut world
+            world: &mut app.world
         :)
 
         scene (grow: 1.0) {
@@ -170,68 +205,41 @@ fn main() {
         }
     };
 
-    let info = backend.display_info();
-    let mut gpu_fb = alloc::vec![0u8; (info.width as usize) * (info.height as usize) * 4];
+    app.set_root(root);
 
+    // Manual run loop so we can print per-frame timing alongside a 1-second
+    // routing summary. Render time is measured around render_dirty to isolate
+    // compose_backend + rasterizer cost from SDL vsync wait.
+    use mirui::backend::InputEvent;
+    app.render();
     let mut last_summary = std::time::Instant::now();
     let mut frame: u64 = 0;
-
-    loop {
-        drift_system(&mut world);
-
-        let info = backend.display_info();
-        let fb_slice = backend.framebuffer();
-        let sw_tex = Texture::new(fb_slice, info.width, info.height, info.format);
-        let sw = SwDrawBackend::new(sw_tex);
-        let gpu_tex = Texture::new(&mut gpu_fb, info.width, info.height, info.format);
-        let gpu = Logging::new(SwDrawBackend::new(gpu_tex));
-        let mut hybrid = Hybrid { sw, gpu };
-
-        hybrid.clear(
-            &Rect::new(0, 0, info.width, info.height),
-            &Color::rgb(30, 30, 46),
-        );
-
-        render_system::update_layout(&mut world, root, info.width, info.height, info.scale);
-        render_system::render(
-            &world,
-            root,
-            info.width,
-            info.height,
-            info.scale,
-            &mut hybrid,
-        );
-
-        let blits_this_frame = *hybrid.gpu.calls.borrow();
-        drop(hybrid);
-
-        backend.flush(&Rect::new(0, 0, info.width, info.height));
-
-        if let Some(event) = poll_sdl_event(&mut backend) {
-            match event {
-                SdlPoll::Quit => break,
+    let mut render_ns_total: u128 = 0;
+    'running: loop {
+        app.systems.run_all(&mut app.world);
+        loop {
+            match app.poll_event() {
+                Some(InputEvent::Quit) => break 'running,
+                Some(_) => {}
+                None => break,
             }
         }
 
+        let render_start = std::time::Instant::now();
+        app.render_dirty();
+        render_ns_total += render_start.elapsed().as_nanos();
+
         frame += 1;
         if last_summary.elapsed().as_secs_f32() >= 1.0 {
+            let avg_us = (render_ns_total / frame as u128) as f64 / 1000.0;
             eprintln!(
-                "[summary] frame {frame}, Logging (blit+clear) this frame: {blits_this_frame}"
+                "[summary] frame {frame}, Logging routed: {}, avg render_dirty: {:.1} µs",
+                calls.borrow(),
+                avg_us,
             );
             last_summary = std::time::Instant::now();
+            render_ns_total = 0;
+            frame = 0;
         }
-    }
-}
-
-enum SdlPoll {
-    Quit,
-}
-
-fn poll_sdl_event(backend: &mut SdlBackend) -> Option<SdlPoll> {
-    // SdlBackend::poll_event returns InputEvent; translate Quit to our tag.
-    use mirui::backend::InputEvent;
-    match backend.poll_event() {
-        Some(InputEvent::Quit) => Some(SdlPoll::Quit),
-        _ => None,
     }
 }
