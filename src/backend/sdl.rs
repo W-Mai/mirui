@@ -130,6 +130,11 @@ impl Backend for SdlBackend {
 
 impl FramebufferAccess for SdlBackend {
     fn framebuffer(&mut self) -> Texture<'_> {
-        Texture::new(&mut self.buf, self.width, self.height, ColorFormat::ARGB8888)
+        Texture::new(
+            &mut self.buf,
+            self.width,
+            self.height,
+            ColorFormat::ARGB8888,
+        )
     }
 }

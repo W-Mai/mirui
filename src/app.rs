@@ -32,11 +32,8 @@ pub trait RendererFactory<B: Backend> {
     where
         Self: 'a,
         B: 'a;
-    fn make<'a>(
-        &'a mut self,
-        backend: &'a mut B,
-        transform: &CoordTransform,
-    ) -> Self::Renderer<'a>;
+    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &CoordTransform)
+    -> Self::Renderer<'a>;
 }
 
 /// Default factory that produces plain `SwDrawBackend<'a>` on top of any
@@ -49,11 +46,7 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwDrawBackendFactory {
     where
         Self: 'a,
         B: 'a;
-    fn make<'a>(
-        &'a mut self,
-        backend: &'a mut B,
-        transform: &CoordTransform,
-    ) -> SwDrawBackend<'a> {
+    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &CoordTransform) -> SwDrawBackend<'a> {
         let tex = backend.framebuffer();
         let mut r = SwDrawBackend::new(tex);
         r.scale = transform.scale();
