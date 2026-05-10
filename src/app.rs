@@ -2,24 +2,56 @@ use crate::backend::{Backend, InputEvent};
 use crate::components::button_system::button_system;
 use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, scroll_system};
 use crate::draw::SwDrawBackend;
+use crate::draw::backend::DrawBackend;
+use crate::draw::renderer::Renderer;
 use crate::draw::texture::Texture;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::types::{Fixed, Rect};
 use crate::widget::render_system;
 
-/// Main application entry point — ties World + Backend together
-pub struct App<B: Backend> {
+/// Builds a Renderer each frame from a borrowed framebuffer Texture.
+/// `App` asks its factory for a fresh Renderer per render call so custom
+/// renderers (e.g. `compose_backend!` outputs) can plug in where the
+/// default `SwDrawBackend` used to be hard-coded.
+pub trait RendererFactory {
+    type Renderer<'a>: Renderer + DrawBackend
+    where
+        Self: 'a;
+    fn make<'a>(&'a mut self, tex: Texture<'a>, scale: Fixed) -> Self::Renderer<'a>;
+}
+
+/// Default factory that produces plain `SwDrawBackend<'a>`.
+pub struct SwDrawBackendFactory;
+
+impl RendererFactory for SwDrawBackendFactory {
+    type Renderer<'a> = SwDrawBackend<'a>;
+    fn make<'a>(&'a mut self, tex: Texture<'a>, scale: Fixed) -> SwDrawBackend<'a> {
+        let mut r = SwDrawBackend::new(tex);
+        r.scale = scale;
+        r
+    }
+}
+
+/// Main application entry point — ties World + Backend + Renderer factory together
+pub struct App<B: Backend, F: RendererFactory = SwDrawBackendFactory> {
     pub world: World,
     pub backend: B,
+    pub factory: F,
     pub root: Option<Entity>,
     pub systems: SystemScheduler,
     #[cfg(feature = "perf")]
     pub perf: Option<crate::draw::PerfCtx>,
 }
 
-impl<B: Backend> App<B> {
+impl<B: Backend> App<B, SwDrawBackendFactory> {
     pub fn new(backend: B) -> Self {
+        Self::with_factory(backend, SwDrawBackendFactory)
+    }
+}
+
+impl<B: Backend, F: RendererFactory> App<B, F> {
+    pub fn with_factory(backend: B, factory: F) -> Self {
         let mut world = World::new();
         world.insert_resource(DeltaTime(0.0));
         world.insert_resource(ElapsedTime(0.0));
@@ -29,6 +61,7 @@ impl<B: Backend> App<B> {
         Self {
             world,
             backend,
+            factory,
             root: None,
             systems: SystemScheduler::new(),
             #[cfg(feature = "perf")]
@@ -52,18 +85,19 @@ impl<B: Backend> App<B> {
         // Update layout → write ComputedRect to entities
         render_system::update_layout(&mut self.world, root, info.width, info.height, info.scale);
 
-        let buf = self.backend.framebuffer();
-        let mut renderer =
-            SwDrawBackend::new(Texture::new(buf, info.width, info.height, info.format));
-        renderer.scale = info.scale;
-        render_system::render(
-            &self.world,
-            root,
-            info.width,
-            info.height,
-            info.scale,
-            &mut renderer,
-        );
+        {
+            let buf = self.backend.framebuffer();
+            let tex = Texture::new(buf, info.width, info.height, info.format);
+            let mut renderer = self.factory.make(tex, info.scale);
+            render_system::render(
+                &self.world,
+                root,
+                info.width,
+                info.height,
+                info.scale,
+                &mut renderer,
+            );
+        }
         self.backend
             .flush(&Rect::new(0, 0, info.width, info.height));
     }
@@ -140,26 +174,19 @@ impl<B: Backend> App<B> {
         );
 
         if let Some(area) = dirty {
-            let buf = self.backend.framebuffer();
-            let mut renderer =
-                SwDrawBackend::new(Texture::new(buf, info.width, info.height, info.format));
-            renderer.scale = scale;
-            #[cfg(feature = "perf")]
             {
-                renderer.perf = self.perf.take();
-            }
-            render_system::render_region(
-                &self.world,
-                root,
-                info.width,
-                info.height,
-                scale,
-                &area,
-                &mut renderer,
-            );
-            #[cfg(feature = "perf")]
-            {
-                self.perf = renderer.perf.take();
+                let buf = self.backend.framebuffer();
+                let tex = Texture::new(buf, info.width, info.height, info.format);
+                let mut renderer = self.factory.make(tex, scale);
+                render_system::render_region(
+                    &self.world,
+                    root,
+                    info.width,
+                    info.height,
+                    scale,
+                    &area,
+                    &mut renderer,
+                );
             }
             self.backend.flush(&area);
         }
