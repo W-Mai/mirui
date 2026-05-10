@@ -2,6 +2,7 @@ pub mod framebuf;
 #[cfg(feature = "sdl")]
 pub mod sdl;
 
+use crate::draw::texture::Texture;
 use crate::types::{CoordTransform, Fixed, Rect};
 
 /// Display information
@@ -29,23 +30,33 @@ pub enum InputEvent {
     Quit,
 }
 
-/// Platform backend trait — abstracts display + input
+/// Platform backend trait — abstracts display + input.
+///
+/// Does **not** assume the backend has a CPU-accessible framebuffer;
+/// GPU-only backends (SDL GPU, wgpu, VG-Lite, …) implement this trait
+/// without `FramebufferAccess`. CPU raster backends additionally
+/// implement [`FramebufferAccess`] to expose their framebuffer to
+/// `SwDrawBackendFactory`.
 pub trait Backend {
-    /// Get display info
     fn display_info(&self) -> DisplayInfo;
 
-    /// Get a mutable reference to the framebuffer (RGBA8888)
-    fn framebuffer(&mut self) -> &mut [u8];
-
-    /// Flush a region of the framebuffer to the display
+    /// Present a region of the backing display after rendering.
     fn flush(&mut self, area: &Rect);
 
-    /// Poll for input events (non-blocking, returns None when no events)
     fn poll_event(&mut self) -> Option<InputEvent>;
 
-    /// Full screen rect helper
     fn screen_rect(&self) -> Rect {
         let info = self.display_info();
         Rect::new(0, 0, info.width, info.height)
     }
+}
+
+/// A [`Backend`] that exposes a CPU-accessible framebuffer as a [`Texture`].
+///
+/// `SwDrawBackendFactory` blanket-implements `RendererFactory` for any
+/// backend satisfying this trait. GPU backends should not implement it —
+/// their factories access GPU resources through backend-specific
+/// methods instead.
+pub trait FramebufferAccess: Backend {
+    fn framebuffer(&mut self) -> Texture<'_>;
 }

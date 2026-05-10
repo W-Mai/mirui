@@ -28,7 +28,7 @@ struct CountPlugin {
 impl<B, F> Plugin<B, F> for CountPlugin
 where
     B: Backend,
-    F: RendererFactory,
+    F: RendererFactory<B>,
 {
     fn build(&mut self, _app: &mut App<B, F>) {
         self.counts.build.set(self.counts.build.get() + 1);

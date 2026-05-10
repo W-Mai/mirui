@@ -1,13 +1,12 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use crate::backend::{Backend, InputEvent};
+use crate::backend::{Backend, FramebufferAccess, InputEvent};
 use crate::components::button_system::button_system;
 use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, scroll_system};
 use crate::draw::SwDrawBackend;
 use crate::draw::backend::DrawBackend;
 use crate::draw::renderer::Renderer;
-use crate::draw::texture::Texture;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::plugin::Plugin;
@@ -20,31 +19,42 @@ use crate::widget::render_system;
 /// timing logic.
 pub type ClockFn = Box<dyn FnMut() -> u64>;
 
-/// Builds a Renderer each frame from a borrowed framebuffer Texture.
-/// `App` asks its factory for a fresh Renderer per render call so custom
-/// renderers (e.g. `compose_backend!` outputs) can plug in where the
-/// default `SwDrawBackend` used to be hard-coded.
-pub trait RendererFactory {
+/// Builds a Renderer each frame, given mutable access to the backend and
+/// the current logical/physical coord transform.
+///
+/// The factory is parameterised over the backend type so each GPU backend
+/// can bind to its own concrete `B` and reach into backend-specific
+/// resources (SDL canvas, wgpu device, VG-Lite context). CPU-raster
+/// factories (like [`SwDrawBackendFactory`]) use the [`FramebufferAccess`]
+/// sub-trait bound to obtain a `Texture<'_>` from any compatible backend.
+pub trait RendererFactory<B: Backend> {
     type Renderer<'a>: Renderer + DrawBackend
     where
-        Self: 'a;
+        Self: 'a,
+        B: 'a;
     fn make<'a>(
         &'a mut self,
-        tex: Texture<'a>,
+        backend: &'a mut B,
         transform: &CoordTransform,
     ) -> Self::Renderer<'a>;
 }
 
-/// Default factory that produces plain `SwDrawBackend<'a>`.
+/// Default factory that produces plain `SwDrawBackend<'a>` on top of any
+/// backend exposing a CPU framebuffer.
 pub struct SwDrawBackendFactory;
 
-impl RendererFactory for SwDrawBackendFactory {
-    type Renderer<'a> = SwDrawBackend<'a>;
+impl<B: FramebufferAccess> RendererFactory<B> for SwDrawBackendFactory {
+    type Renderer<'a>
+        = SwDrawBackend<'a>
+    where
+        Self: 'a,
+        B: 'a;
     fn make<'a>(
         &'a mut self,
-        tex: Texture<'a>,
+        backend: &'a mut B,
         transform: &CoordTransform,
     ) -> SwDrawBackend<'a> {
+        let tex = backend.framebuffer();
         let mut r = SwDrawBackend::new(tex);
         r.scale = transform.scale();
         r
@@ -52,7 +62,7 @@ impl RendererFactory for SwDrawBackendFactory {
 }
 
 /// Main application entry point — ties World + Backend + Renderer factory together
-pub struct App<B: Backend, F: RendererFactory = SwDrawBackendFactory> {
+pub struct App<B: Backend, F: RendererFactory<B> = SwDrawBackendFactory> {
     pub world: World,
     pub backend: B,
     pub factory: F,
@@ -64,13 +74,13 @@ pub struct App<B: Backend, F: RendererFactory = SwDrawBackendFactory> {
     pub perf: Option<crate::draw::PerfCtx>,
 }
 
-impl<B: Backend> App<B, SwDrawBackendFactory> {
+impl<B: FramebufferAccess> App<B, SwDrawBackendFactory> {
     pub fn new(backend: B) -> Self {
         Self::with_factory(backend, SwDrawBackendFactory)
     }
 }
 
-impl<B: Backend, F: RendererFactory> App<B, F> {
+impl<B: Backend, F: RendererFactory<B>> App<B, F> {
     pub fn with_factory(backend: B, factory: F) -> Self {
         let mut world = World::new();
         world.insert_resource(DeltaTime(0.0));
@@ -124,9 +134,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
         render_system::update_layout(&mut self.world, root, &transform);
 
         {
-            let buf = self.backend.framebuffer();
-            let tex = Texture::new(buf, info.width, info.height, info.format);
-            let mut renderer = self.factory.make(tex, &transform);
+            let mut renderer = self.factory.make(&mut self.backend, &transform);
             render_system::render(&self.world, root, &transform, &mut renderer);
         }
         self.backend
@@ -219,9 +227,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
 
         if let Some(area) = dirty {
             {
-                let buf = self.backend.framebuffer();
-                let tex = Texture::new(buf, info.width, info.height, info.format);
-                let mut renderer = self.factory.make(tex, &transform);
+                let mut renderer = self.factory.make(&mut self.backend, &transform);
                 render_system::render_region(&self.world, root, &transform, &area, &mut renderer);
             }
             self.backend.flush(&area);

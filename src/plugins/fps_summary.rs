@@ -39,7 +39,7 @@ impl Default for FpsSummaryPlugin {
 impl<B, F> Plugin<B, F> for FpsSummaryPlugin
 where
     B: Backend,
-    F: RendererFactory,
+    F: RendererFactory<B>,
 {
     fn build(&mut self, _app: &mut App<B, F>) {}
 

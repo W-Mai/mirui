@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-05-10
+
+### 🧱 Trait Architecture Refactor (GPU-Ready Prep)
+
+Groundwork for v0.6.0's SDL GPU backend — `Backend` no longer assumes a CPU framebuffer, and `RendererFactory` is parameterised over the backend type so GPU backends can reach into backend-specific resources (Canvas / device / context). CPU backends implement a new `FramebufferAccess` sub-trait. ESP32-C3 three-body holds at ~5.5-6.0 ms/frame — no regression.
+
+### Added
+
+- **`FramebufferAccess: Backend`** sub-trait (`mirui::backend`) — CPU-raster backends implement it and return `Texture<'_>` (metadata + buffer bundled). Consumed by `SwDrawBackendFactory` via blanket impl. GPU-only backends (future SDL GPU / wgpu / VG-Lite) skip it.
+
+### Changed (⚠️ Breaking)
+
+- **`Backend::framebuffer() -> &mut [u8]` removed**. CPU backends now implement `FramebufferAccess::framebuffer() -> Texture<'_>` instead. The bundled `SdlBackend` and `FramebufBackend` have migrated. Custom CPU backends need to split `impl Backend + impl FramebufferAccess`.
+- **`RendererFactory` gains a `<B: Backend>` generic parameter**: `fn make(&mut self, backend: &mut B, transform: &CoordTransform)`. `SwDrawBackendFactory` now provides a `impl<B: FramebufferAccess> RendererFactory<B>` blanket, so any CPU backend "just works" with the default factory. GPU factories bind to their concrete `B` (e.g. `impl RendererFactory<SdlGpuBackend> for SdlGpuFactory`).
+- **`Plugin<B, F>` bound tightened** to `F: RendererFactory<B>`. Custom plugin impls need one extra where clause: `where B: Backend, F: RendererFactory<B>`.
+- **`App::new(backend)` requires `B: FramebufferAccess`** (only the default `SwDrawBackendFactory` needs CPU buffer access). `App::with_factory` remains open to any `B: Backend` + `F: RendererFactory<B>`.
+- Generic demo fns on `mirui-examples` that used `App<impl Backend>` need to switch to `App<impl FramebufferAccess>` (same change any downstream CPU app will face).
+
 ## [0.5.1] - 2026-05-10
 
 ### 🧹 CoordTransform Follow-up

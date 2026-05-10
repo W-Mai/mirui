@@ -13,7 +13,7 @@ pub struct StdInstantClockPlugin;
 impl<B, F> Plugin<B, F> for StdInstantClockPlugin
 where
     B: Backend,
-    F: RendererFactory,
+    F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>) {
         let start = std::time::Instant::now();

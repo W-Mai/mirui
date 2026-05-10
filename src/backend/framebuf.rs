@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
-use super::{Backend, DisplayInfo, InputEvent};
-use crate::draw::texture::ColorFormat;
+use super::{Backend, DisplayInfo, FramebufferAccess, InputEvent};
+use crate::draw::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Rect};
 
 /// A simple framebuffer backend that owns a buffer and calls a user-provided flush callback.
@@ -47,15 +47,17 @@ impl<F: FnMut(&[u8], &Rect)> Backend for FramebufBackend<F> {
         }
     }
 
-    fn framebuffer(&mut self) -> &mut [u8] {
-        &mut self.buf
-    }
-
     fn flush(&mut self, area: &Rect) {
         (self.flush_cb)(&self.buf, area);
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
         None
+    }
+}
+
+impl<F: FnMut(&[u8], &Rect)> FramebufferAccess for FramebufBackend<F> {
+    fn framebuffer(&mut self) -> Texture<'_> {
+        Texture::new(&mut self.buf, self.width, self.height, self.format)
     }
 }

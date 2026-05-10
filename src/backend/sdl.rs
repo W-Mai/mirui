@@ -8,7 +8,8 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
-use super::{Backend, DisplayInfo, InputEvent};
+use super::{Backend, DisplayInfo, FramebufferAccess, InputEvent};
+use crate::draw::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Rect};
 
 pub struct SdlBackend {
@@ -71,12 +72,8 @@ impl Backend for SdlBackend {
             width: self.width,
             height: self.height,
             scale: self.scale,
-            format: crate::draw::texture::ColorFormat::ARGB8888,
+            format: ColorFormat::ARGB8888,
         }
-    }
-
-    fn framebuffer(&mut self) -> &mut [u8] {
-        &mut self.buf
     }
 
     fn flush(&mut self, _area: &Rect) {
@@ -128,5 +125,11 @@ impl Backend for SdlBackend {
             }
         }
         None
+    }
+}
+
+impl FramebufferAccess for SdlBackend {
+    fn framebuffer(&mut self) -> Texture<'_> {
+        Texture::new(&mut self.buf, self.width, self.height, ColorFormat::ARGB8888)
     }
 }

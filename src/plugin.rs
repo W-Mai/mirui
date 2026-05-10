@@ -9,7 +9,7 @@ use crate::ecs::World;
 pub trait Plugin<B, F>
 where
     B: Backend,
-    F: RendererFactory,
+    F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>);
 
@@ -38,7 +38,7 @@ where
 impl<B, F, G> Plugin<B, F> for G
 where
     B: Backend,
-    F: RendererFactory,
+    F: RendererFactory<B>,
     G: FnMut(&mut App<B, F>) + 'static,
 {
     fn build(&mut self, app: &mut App<B, F>) {

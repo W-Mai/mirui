@@ -90,14 +90,19 @@ impl HybridFactory {
     }
 }
 
-impl RendererFactory for HybridFactory {
-    type Renderer<'a> = Hybrid<SwDrawBackend<'a>, Logging<SwDrawBackend<'a>>>;
+impl<B: mirui::backend::FramebufferAccess> RendererFactory<B> for HybridFactory {
+    type Renderer<'a>
+        = Hybrid<SwDrawBackend<'a>, Logging<SwDrawBackend<'a>>>
+    where
+        Self: 'a,
+        B: 'a;
 
     fn make<'a>(
         &'a mut self,
-        tex: Texture<'a>,
+        backend: &'a mut B,
         transform: &CoordTransform,
     ) -> Self::Renderer<'a> {
+        let tex = backend.framebuffer();
         let mut sw = SwDrawBackend::new(tex);
         sw.scale = transform.scale();
         let gpu_tex = Texture::new(&mut self.gpu_fb, self.width, self.height, tex_format(&sw));
