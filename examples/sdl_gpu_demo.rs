@@ -41,9 +41,19 @@ fn main() {
         })
         .id();
 
+    let rounded = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgba(240, 120, 60, 200))
+        .border(Color::rgba(255, 255, 255, 255), 4)
+        .border_radius(20)
+        .layout(LayoutStyle {
+            width: Dimension::px(200),
+            height: Dimension::px(80),
+            ..Default::default()
+        })
+        .id();
+
     let translucent = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgba(240, 120, 60, 128))
-        .border(Color::rgba(255, 255, 255, 255), 1)
+        .bg_color(Color::rgba(80, 240, 160, 128))
         .layout(LayoutStyle {
             width: Dimension::px(200),
             height: Dimension::px(80),
@@ -60,7 +70,7 @@ fn main() {
         .id();
     app.world.insert(img, Image::new(&IMG_THUMBS_UP));
 
-    for child in [solid, translucent, img] {
+    for child in [solid, rounded, translucent, img] {
         app.world.insert(child, Parent(root));
         if let Some(children) = app.world.get_mut::<Children>(root) {
             children.0.push(child);

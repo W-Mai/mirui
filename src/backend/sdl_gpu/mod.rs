@@ -6,12 +6,15 @@
 //! `SDL_RenderGeometry` (unsafe FFI) for tessellated paths. No CPU
 //! framebuffer, no `FramebufferAccess` impl.
 
+mod tessellation;
+
 use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
+use self::tessellation::TessellationCache;
 use crate::app::RendererFactory;
 use crate::draw::backend::DrawBackend;
 use crate::draw::command::DrawCommand;
@@ -26,6 +29,7 @@ pub struct SdlGpuBackend {
     canvas: Canvas<Window>,
     texture_creator: TextureCreator<WindowContext>,
     event_pump: EventPump,
+    tessellator: TessellationCache,
     width: u16,
     height: u16,
     scale: Fixed,
@@ -62,14 +66,25 @@ impl SdlGpuBackend {
             canvas,
             texture_creator,
             event_pump,
+            tessellator: TessellationCache::new(),
             width: phys_w,
             height: phys_h,
             scale,
         }
     }
 
-    pub(crate) fn parts_mut(&mut self) -> (&mut Canvas<Window>, &TextureCreator<WindowContext>) {
-        (&mut self.canvas, &self.texture_creator)
+    pub(crate) fn parts_mut(
+        &mut self,
+    ) -> (
+        &mut Canvas<Window>,
+        &TextureCreator<WindowContext>,
+        &mut TessellationCache,
+    ) {
+        (
+            &mut self.canvas,
+            &self.texture_creator,
+            &mut self.tessellator,
+        )
     }
 }
 
@@ -150,10 +165,11 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
         transform: &CoordTransform,
     ) -> SdlGpuRenderer<'a> {
         let scale = transform.scale();
-        let (canvas, texture_creator) = backend.parts_mut();
+        let (canvas, texture_creator, tessellator) = backend.parts_mut();
         SdlGpuRenderer {
             canvas,
             texture_creator,
+            tessellator,
             scale,
         }
     }
@@ -162,7 +178,43 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
 pub struct SdlGpuRenderer<'a> {
     canvas: &'a mut Canvas<Window>,
     texture_creator: &'a TextureCreator<WindowContext>,
+    tessellator: &'a mut TessellationCache,
     scale: Fixed,
+}
+
+impl SdlGpuRenderer<'_> {
+    fn submit_geometry(&mut self, clip: &Rect, needs_blend: bool) {
+        if self.tessellator.indices.is_empty() {
+            return;
+        }
+        let (cx0, cy0, cx1, cy1) = physical_clip_rect(clip, clip, self.scale);
+        let cw = (cx1 - cx0).max(0) as u32;
+        let ch = (cy1 - cy0).max(0) as u32;
+        if cw == 0 || ch == 0 {
+            return;
+        }
+        self.canvas
+            .set_clip_rect(sdl2::rect::Rect::new(cx0, cy0, cw, ch));
+        self.canvas.set_blend_mode(if needs_blend {
+            sdl2::render::BlendMode::Blend
+        } else {
+            sdl2::render::BlendMode::None
+        });
+
+        let verts = &self.tessellator.verts;
+        let indices = &self.tessellator.indices;
+        unsafe {
+            sdl2_sys::SDL_RenderGeometry(
+                self.canvas.raw(),
+                core::ptr::null_mut(),
+                verts.as_ptr(),
+                verts.len() as _,
+                indices.as_ptr(),
+                indices.len() as _,
+            );
+        }
+        self.canvas.set_clip_rect(None);
+    }
 }
 
 impl Renderer for SdlGpuRenderer<'_> {
@@ -192,7 +244,25 @@ impl Renderer for SdlGpuRenderer<'_> {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 self.blit(texture, &src_rect, *pos, clip);
             }
-            DrawCommand::Arc { .. } | DrawCommand::Label { .. } => {}
+            DrawCommand::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+                color,
+                width,
+                opa,
+            } => self.draw_arc(
+                *center,
+                *radius,
+                *start_angle,
+                *end_angle,
+                clip,
+                *width,
+                color,
+                *opa,
+            ),
+            DrawCommand::Label { .. } => {}
         }
     }
 
@@ -316,12 +386,16 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         self.stroke_path(&path, clip, width, color, opa);
     }
 
-    fn fill_path(&mut self, _path: &Path, _clip: &Rect, _color: &Color, _opa: u8) {
-        todo!("fill_path needs tessellation + SDL_RenderGeometry")
+    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
+        self.tessellator.fill(path, self.scale, color, opa);
+        self.submit_geometry(clip, opa != 255 || color.a != 255);
     }
 
-    fn stroke_path(&mut self, _path: &Path, _clip: &Rect, _width: Fixed, _color: &Color, _opa: u8) {
-        todo!("stroke_path needs tessellation + SDL_RenderGeometry")
+    fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
+        let physical_width = (width * self.scale).to_f32().max(1.0);
+        self.tessellator
+            .stroke(path, self.scale, physical_width, color, opa);
+        self.submit_geometry(clip, opa != 255 || color.a != 255);
     }
 
     fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, clip: &Rect) {
