@@ -1,30 +1,73 @@
-//! Smallest SDL GPU backend demo: drives the full
-//! `App + Backend + RendererFactory<B>` pipeline on `SdlGpuBackend`, with
-//! a single full-screen background widget so exactly one `DrawCommand`
-//! flows through. The GPU path for `Fill { radius: 0 }` needs to land for
-//! this to paint — see `SdlGpuRenderer` for the actual work.
+//! SDL GPU backend demo: drives the full `App + Backend + RendererFactory<B>`
+//! pipeline against `SdlGpuBackend`. Exercises the GPU fast-paths
+//! currently implemented — solid fills, 1-pixel borders, 1-pixel lines,
+//! texture blits. Tessellated paths (rounded corners, thick strokes,
+//! arcs, labels) are still `todo!()` so the scene sticks to these
+//! primitives.
 
 use mirui::app::App;
 use mirui::backend::sdl_gpu::{SdlGpuBackend, SdlGpuFactory};
-use mirui::layout::LayoutStyle;
+use mirui::components::assets::*;
+use mirui::components::image::Image;
+use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
+use mirui::widget::{Children, Parent};
 
 fn main() {
-    let backend = SdlGpuBackend::new("mirui SDL GPU — hello clear", 640, 480);
+    let backend = SdlGpuBackend::new("mirui SDL GPU — primitives demo", 640, 480);
     let mut app = App::with_factory(backend, SdlGpuFactory::new());
 
     let root = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgba(30, 30, 46, 255))
         .layout(LayoutStyle {
+            direction: FlexDirection::Column,
             width: Dimension::Percent(100.0.into()),
             height: Dimension::Percent(100.0.into()),
+            justify: JustifyContent::Center,
+            align: AlignItems::Center,
             ..Default::default()
         })
-        .bg_color(Color::rgba(32, 96, 192, 255))
         .id();
-    app.set_root(root);
 
+    let solid = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgba(32, 160, 240, 255))
+        .border(Color::rgba(240, 240, 255, 255), 1)
+        .layout(LayoutStyle {
+            width: Dimension::px(200),
+            height: Dimension::px(80),
+            ..Default::default()
+        })
+        .id();
+
+    let translucent = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgba(240, 120, 60, 128))
+        .border(Color::rgba(255, 255, 255, 255), 1)
+        .layout(LayoutStyle {
+            width: Dimension::px(200),
+            height: Dimension::px(80),
+            ..Default::default()
+        })
+        .id();
+
+    let img = WidgetBuilder::new(&mut app.world)
+        .layout(LayoutStyle {
+            width: Dimension::px(IMG_THUMBS_UP.width as i32),
+            height: Dimension::px(IMG_THUMBS_UP.height as i32),
+            ..Default::default()
+        })
+        .id();
+    app.world.insert(img, Image::new(&IMG_THUMBS_UP));
+
+    for child in [solid, translucent, img] {
+        app.world.insert(child, Parent(root));
+        if let Some(children) = app.world.get_mut::<Children>(root) {
+            children.0.push(child);
+        }
+    }
+
+    app.set_root(root);
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
     app.run();

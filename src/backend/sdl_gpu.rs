@@ -24,7 +24,6 @@ use super::{Backend, DisplayInfo, InputEvent};
 
 pub struct SdlGpuBackend {
     canvas: Canvas<Window>,
-    #[allow(dead_code)] // held for future label-cache texture uploads
     texture_creator: TextureCreator<WindowContext>,
     event_pump: EventPump,
     width: u16,
@@ -69,8 +68,8 @@ impl SdlGpuBackend {
         }
     }
 
-    pub(crate) fn canvas_mut(&mut self) -> &mut Canvas<Window> {
-        &mut self.canvas
+    pub(crate) fn parts_mut(&mut self) -> (&mut Canvas<Window>, &TextureCreator<WindowContext>) {
+        (&mut self.canvas, &self.texture_creator)
     }
 }
 
@@ -151,8 +150,10 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
         transform: &CoordTransform,
     ) -> SdlGpuRenderer<'a> {
         let scale = transform.scale();
+        let (canvas, texture_creator) = backend.parts_mut();
         SdlGpuRenderer {
-            canvas: backend.canvas_mut(),
+            canvas,
+            texture_creator,
             scale,
         }
     }
@@ -160,20 +161,38 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
 
 pub struct SdlGpuRenderer<'a> {
     canvas: &'a mut Canvas<Window>,
-    #[allow(dead_code)] // used by physical-pixel math once non-rect primitives land
+    texture_creator: &'a TextureCreator<WindowContext>,
     scale: Fixed,
 }
 
 impl Renderer for SdlGpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
-        if let DrawCommand::Fill {
-            area,
-            color,
-            radius,
-            opa,
-        } = cmd
-        {
-            self.fill_rect(area, clip, color, *radius, *opa);
+        match cmd {
+            DrawCommand::Fill {
+                area,
+                color,
+                radius,
+                opa,
+            } => self.fill_rect(area, clip, color, *radius, *opa),
+            DrawCommand::Border {
+                area,
+                color,
+                width,
+                radius,
+                opa,
+            } => self.stroke_rect(area, clip, *width, color, *radius, *opa),
+            DrawCommand::Line {
+                p1,
+                p2,
+                color,
+                width,
+                opa,
+            } => self.draw_line(*p1, *p2, clip, *width, color, *opa),
+            DrawCommand::Blit { pos, texture } => {
+                let src_rect = Rect::new(0, 0, texture.width, texture.height);
+                self.blit(texture, &src_rect, *pos, clip);
+            }
+            DrawCommand::Arc { .. } | DrawCommand::Label { .. } => {}
         }
     }
 
@@ -218,6 +237,85 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         self.fill_path(&path, clip, color, opa);
     }
 
+    fn stroke_rect(
+        &mut self,
+        area: &Rect,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        radius: Fixed,
+        opa: u8,
+    ) {
+        let one = Fixed::ONE;
+        if radius == Fixed::ZERO && width == one {
+            let (x0, y0, x1, y1) = physical_clip_rect(area, clip, self.scale);
+            if x1 <= x0 || y1 <= y0 {
+                return;
+            }
+            let sdl_rect = sdl2::rect::Rect::new(x0, y0, (x1 - x0) as u32, (y1 - y0) as u32);
+            let a = ((color.a as u16) * (opa as u16) / 255) as u8;
+            self.canvas.set_blend_mode(if a == 255 {
+                sdl2::render::BlendMode::None
+            } else {
+                sdl2::render::BlendMode::Blend
+            });
+            self.canvas
+                .set_draw_color(sdl2::pixels::Color::RGBA(color.r, color.g, color.b, a));
+            let _ = self.canvas.draw_rect(sdl_rect);
+            return;
+        }
+        let path = Path::rounded_rect(
+            area.x + width / 2,
+            area.y + width / 2,
+            area.w - width,
+            area.h - width,
+            (radius - width / 2).max(Fixed::ZERO),
+        );
+        self.stroke_path(&path, clip, width, color, opa);
+    }
+
+    fn draw_line(
+        &mut self,
+        p1: Point,
+        p2: Point,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+    ) {
+        if width == Fixed::ONE {
+            let scale = self.scale;
+            let x0 = (p1.x * scale).to_int();
+            let y0 = (p1.y * scale).to_int();
+            let x1 = (p2.x * scale).to_int();
+            let y1 = (p2.y * scale).to_int();
+            let (cx0, cy0, cx1, cy1) = physical_clip_rect(clip, clip, scale);
+            self.canvas.set_clip_rect(sdl2::rect::Rect::new(
+                cx0,
+                cy0,
+                (cx1 - cx0).max(0) as u32,
+                (cy1 - cy0).max(0) as u32,
+            ));
+            let a = ((color.a as u16) * (opa as u16) / 255) as u8;
+            self.canvas.set_blend_mode(if a == 255 {
+                sdl2::render::BlendMode::None
+            } else {
+                sdl2::render::BlendMode::Blend
+            });
+            self.canvas
+                .set_draw_color(sdl2::pixels::Color::RGBA(color.r, color.g, color.b, a));
+            let _ = self.canvas.draw_line(
+                sdl2::rect::Point::new(x0, y0),
+                sdl2::rect::Point::new(x1, y1),
+            );
+            self.canvas.set_clip_rect(None);
+            return;
+        }
+        let mut path = Path::new();
+        path.move_to(p1).line_to(p2);
+        self.stroke_path(&path, clip, width, color, opa);
+    }
+
     fn fill_path(&mut self, _path: &Path, _clip: &Rect, _color: &Color, _opa: u8) {
         todo!("fill_path needs tessellation + SDL_RenderGeometry")
     }
@@ -226,8 +324,61 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         todo!("stroke_path needs tessellation + SDL_RenderGeometry")
     }
 
-    fn blit(&mut self, _src: &Texture, _src_rect: &Rect, _dst: Point, _clip: &Rect) {
-        todo!("blit needs SdlTexture upload + canvas.copy")
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, clip: &Rect) {
+        let scale = self.scale;
+
+        let dx = (dst.x * scale).to_int();
+        let dy = (dst.y * scale).to_int();
+        let dw = (src_rect.w * scale).to_int() as u32;
+        let dh = (src_rect.h * scale).to_int() as u32;
+        if dw == 0 || dh == 0 {
+            return;
+        }
+
+        let sdl_fmt = match src.format {
+            ColorFormat::ARGB8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
+            ColorFormat::RGB888 => sdl2::pixels::PixelFormatEnum::RGB24,
+            ColorFormat::RGB565 => sdl2::pixels::PixelFormatEnum::RGB565,
+            ColorFormat::RGB565Swapped => {
+                // SDL has no BGR565 variant; round-trip via RGB565 would swap
+                // channels. Punt until we need it in practice.
+                return;
+            }
+        };
+
+        let src_slice = src.buf.as_slice();
+        let stride = src.stride;
+
+        let mut tex = match self.texture_creator.create_texture_streaming(
+            sdl_fmt,
+            src.width as u32,
+            src.height as u32,
+        ) {
+            Ok(t) => t,
+            Err(_) => return,
+        };
+        if tex.update(None, src_slice, stride).is_err() {
+            return;
+        }
+        tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+
+        let sx = (src_rect.x * scale).to_int().max(0);
+        let sy = (src_rect.y * scale).to_int().max(0);
+        let sw = (src_rect.w * scale).to_int() as u32;
+        let sh = (src_rect.h * scale).to_int() as u32;
+        let src_sdl = sdl2::rect::Rect::new(sx, sy, sw, sh);
+        let dst_sdl = sdl2::rect::Rect::new(dx, dy, dw, dh);
+
+        let (cx0, cy0, cx1, cy1) = physical_clip_rect(clip, clip, scale);
+        self.canvas.set_clip_rect(sdl2::rect::Rect::new(
+            cx0,
+            cy0,
+            (cx1 - cx0).max(0) as u32,
+            (cy1 - cy0).max(0) as u32,
+        ));
+
+        let _ = self.canvas.copy(&tex, Some(src_sdl), Some(dst_sdl));
+        self.canvas.set_clip_rect(None);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
