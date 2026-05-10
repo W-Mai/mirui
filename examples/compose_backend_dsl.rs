@@ -1,7 +1,10 @@
-//! compose_backend! DSL variant. Scene built entirely through the `ui!` macro,
-//! drift_system updates Style.layout each frame, and App runs everything —
-//! no manual render loop. A custom RendererFactory plugs Hybrid (sw +
-//! Logging) into App's render pipeline where SwDrawBackend used to be.
+//! End-to-end wiring of compose_backend!, App generics, and plugins:
+//!
+//! - the scene (banner + 8 drifting Images) is declared with `ui!`
+//! - `HybridFactory` routes blit/clear through a Logging wrapper via
+//!   `compose_backend!`, everything else through SwDrawBackend
+//! - `drift_system` moves each Image along a sine path
+//! - `StdInstantClockPlugin` + `FpsSummaryPlugin` print render timing
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -16,6 +19,7 @@ use mirui::draw::sw_backend::SwDrawBackend;
 use mirui::draw::texture::Texture;
 use mirui::ecs::World;
 use mirui::layout::*;
+use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::types::{Color, Dimension, Fixed, Point, Rect};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::{compose_backend, ui};
@@ -23,9 +27,9 @@ use mirui_macros::{compose_backend, ui};
 const W: u16 = 480;
 const H: u16 = 320;
 
-/// Wraps any DrawBackend and counts every method call. Counter is shared
-/// through Rc<RefCell<..>> so the main loop can read it even while App
-/// owns the Hybrid mutably via the factory.
+/// Wraps any DrawBackend and counts every method call on a shared
+/// Rc<RefCell<u32>>, so the counter stays readable after App takes
+/// ownership of this instance.
 struct Logging<B: DrawBackend> {
     inner: B,
     calls: Rc<RefCell<u32>>,
@@ -207,39 +211,16 @@ fn main() {
 
     app.set_root(root);
 
-    // Manual run loop so we can print per-frame timing alongside a 1-second
-    // routing summary. Render time is measured around render_dirty to isolate
-    // compose_backend + rasterizer cost from SDL vsync wait.
-    use mirui::backend::InputEvent;
-    app.render();
-    let mut last_summary = std::time::Instant::now();
-    let mut frame: u64 = 0;
-    let mut render_ns_total: u128 = 0;
-    'running: loop {
-        app.systems.run_all(&mut app.world);
-        loop {
-            match app.poll_event() {
-                Some(InputEvent::Quit) => break 'running,
-                Some(_) => {}
-                None => break,
-            }
-        }
+    // StdInstantClockPlugin feeds the post_render hook real ns via
+    // std::Instant; FpsSummaryPlugin consumes those ns and prints avg
+    // render cost every 60 frames.
+    app.add_plugin(StdInstantClockPlugin::default())
+        .add_plugin(FpsSummaryPlugin::default());
 
-        let render_start = std::time::Instant::now();
-        app.render_dirty();
-        render_ns_total += render_start.elapsed().as_nanos();
+    app.run();
 
-        frame += 1;
-        if last_summary.elapsed().as_secs_f32() >= 1.0 {
-            let avg_us = (render_ns_total / frame as u128) as f64 / 1000.0;
-            eprintln!(
-                "[summary] frame {frame}, Logging routed: {}, avg render_dirty: {:.1} µs",
-                calls.borrow(),
-                avg_us,
-            );
-            last_summary = std::time::Instant::now();
-            render_ns_total = 0;
-            frame = 0;
-        }
-    }
+    eprintln!(
+        "[final] Logging (blit+clear) routed over full session: {}",
+        calls.borrow()
+    );
 }
