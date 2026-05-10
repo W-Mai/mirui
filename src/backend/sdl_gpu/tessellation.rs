@@ -49,7 +49,7 @@ impl TessellationCache {
         let lyon_path = to_lyon_path(path, scale);
         let _ = self.fill_tess.tessellate_path(
             &lyon_path,
-            &FillOptions::tolerance(0.25),
+            &FillOptions::tolerance(1.0),
             &mut BuffersBuilder::new(&mut self.lyon_verts, |v: FillVertex<'_>| v.position()),
         );
         self.bake(color, opa);
@@ -68,7 +68,7 @@ impl TessellationCache {
         self.lyon_verts.vertices.clear();
         self.lyon_verts.indices.clear();
         let lyon_path = to_lyon_path(path, scale);
-        let options = StrokeOptions::tolerance(0.25).with_line_width(physical_width);
+        let options = StrokeOptions::tolerance(0.5).with_line_width(physical_width);
         let _ = self.stroke_tess.tessellate_path(
             &lyon_path,
             &options,

@@ -39,6 +39,10 @@ pub struct SdlGpuBackend {
 
 impl SdlGpuBackend {
     pub fn new(title: &str, width: u16, height: u16) -> Self {
+        Self::new_with_vsync(title, width, height, true)
+    }
+
+    pub fn new_with_vsync(title: &str, width: u16, height: u16, vsync: bool) -> Self {
         let sdl = sdl2::init().expect("SDL2 init failed");
         let video = sdl.video().expect("SDL2 video init failed");
         let window = video
@@ -47,12 +51,11 @@ impl SdlGpuBackend {
             .allow_highdpi()
             .build()
             .expect("SDL2 window creation failed");
-        let canvas = window
-            .into_canvas()
-            .accelerated()
-            .present_vsync()
-            .build()
-            .expect("SDL2 canvas failed");
+        let mut canvas_builder = window.into_canvas().accelerated();
+        if vsync {
+            canvas_builder = canvas_builder.present_vsync();
+        }
+        let canvas = canvas_builder.build().expect("SDL2 canvas failed");
         let texture_creator = canvas.texture_creator();
         let event_pump = sdl.event_pump().expect("SDL2 event pump failed");
 
