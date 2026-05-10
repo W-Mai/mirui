@@ -24,8 +24,8 @@ A lightweight, `no_std` ECS-driven UI framework for embedded, desktop, and WebAs
 
 ```toml
 [dependencies]
-mirui = "0.3"
-mirui-macros = "0.3"
+mirui = "0.3.1"
+mirui-macros = "0.3.1"
 ```
 
 ```rust
@@ -168,6 +168,65 @@ backend.fill_path(&path, &clip, &Color::rgb(200, 90, 160), 230);
 ```
 
 Paths are flattened via De Casteljau (8 segments per quadratic, 16 per cubic) then rasterized with a 4-sub-scanline coverage integration into the target texture. No allocation per pixel; per-edge sqrt only for strokes falling inside the AA ramp.
+
+## Hybrid Backends — `compose_backend!` (0.3.1+)
+
+Want the path rasterizer on software but blit and clear on a GPU fast path? Declare a hybrid struct and a route table; the `compose_backend!` proc-macro emits the full `DrawBackend` + `Renderer` impls statically — no runtime dispatch.
+
+```rust
+use mirui_macros::compose_backend;
+
+compose_backend! {
+    pub struct Hybrid {
+        sw: SwDrawBackend,
+        gpu: MyGpuBackend,
+    }
+    route {
+        default => sw,       // everything unrouted goes here
+        blit => gpu,
+        clear => gpu,
+    }
+}
+```
+
+Generated:
+
+```rust
+pub struct Hybrid<__B0, __B1> {
+    pub sw: __B0,
+    pub gpu: __B1,
+}
+impl<__B0: DrawBackend, __B1: DrawBackend> DrawBackend for Hybrid<__B0, __B1> {
+    fn blit(&mut self, ...) { self.gpu.blit(...) }
+    fn clear(&mut self, ...) { self.gpu.clear(...) }
+    fn fill_path(&mut self, ...) { self.sw.fill_path(...) }
+    // ...and the rest, routed to `default` when unspecified
+}
+```
+
+`Hybrid` is generic over one type parameter per field, so backends carrying lifetimes (`SwDrawBackend<'fb>`) flow through without needing the struct itself to declare any.
+
+### Plugging into `App`
+
+`App` takes a second generic `F: RendererFactory` that defaults to `SwDrawBackendFactory` (so every existing `App::new(backend)` call keeps working). To use a hybrid backend in the normal run loop:
+
+```rust
+struct HybridFactory { /* your per-frame setup */ }
+
+impl RendererFactory for HybridFactory {
+    type Renderer<'a> = Hybrid<SwDrawBackend<'a>, MyGpuBackend>;
+    fn make<'a>(&'a mut self, tex: Texture<'a>, scale: Fixed) -> Self::Renderer<'a> {
+        // build the fields each frame
+    }
+}
+
+let mut app = App::with_factory(backend, HybridFactory { ... });
+app.run();
+```
+
+Error messages are reasonable — unknown method names and unknown field names in `route { ... }` come with Levenshtein "did you mean" suggestions.
+
+See `examples/compose_backend_demo.rs` (direct API) and `examples/compose_backend_dsl.rs` (ECS + `ui!` + `App::with_factory`).
 
 ## ECS
 
