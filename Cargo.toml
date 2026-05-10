@@ -79,6 +79,10 @@ required-features = ["sdl"]
 name = "components_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "compose_backend_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true
