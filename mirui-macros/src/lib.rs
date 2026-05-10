@@ -1,5 +1,7 @@
 extern crate proc_macro;
 
+mod compose;
+
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse_macro_input;
@@ -371,4 +373,9 @@ pub fn ui(input: TokenStream) -> TokenStream {
     let content = root.get_content();
     decipher(&content, &mut rune);
     TokenStream::from(rune.seal())
+}
+
+#[proc_macro]
+pub fn compose_backend(input: TokenStream) -> TokenStream {
+    compose::expand(input.into()).into()
 }
