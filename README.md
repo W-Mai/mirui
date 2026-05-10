@@ -24,8 +24,8 @@ A lightweight, `no_std` ECS-driven UI framework for embedded, desktop, and WebAs
 
 ```toml
 [dependencies]
-mirui = "0.3.1"
-mirui-macros = "0.3.1"
+mirui = "0.4"
+mirui-macros = "0.4"
 ```
 
 ```rust
@@ -227,6 +227,57 @@ app.run();
 Error messages are reasonable — unknown method names and unknown field names in `route { ... }` come with Levenshtein "did you mean" suggestions.
 
 See `examples/compose_backend_demo.rs` (direct API) and `examples/compose_backend_dsl.rs` (ECS + `ui!` + `App::with_factory`).
+
+## Plugins (0.4+)
+
+Bundle cross-cutting behaviour — monotonic clock, FPS summary, logging, hotkeys — into objects `App` drives through five lifecycle hooks:
+
+```rust
+use mirui::plugin::Plugin;
+use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+
+app.add_plugin(StdInstantClockPlugin::default())
+   .add_plugin(FpsSummaryPlugin::default())
+   .add_system(my_system);
+
+app.run();
+```
+
+`Plugin` trait has one required method (`build`) and four optional hooks:
+
+| Hook | When |
+|---|---|
+| `build(&mut self, app)` | Once at `add_plugin` — register systems, insert resources, swap `app.clock` |
+| `pre_render(world)` | Before each `render` / `render_dirty` |
+| `post_render(world, render_nanos)` | After each render, with the measured duration |
+| `on_event(world, event) -> bool` | For every input event before widget dispatch; `true` consumes it |
+| `on_quit(world)` | Right before `App::run` returns |
+
+Any `FnMut(&mut App<B, F>)` is a plugin via a blanket impl, so simple setup can be a closure:
+
+```rust
+app.add_plugin(|app: &mut App<_, _>| {
+    app.world.insert_resource(GameSeed(42));
+    app.add_system(spawn_entities);
+});
+```
+
+### Built-in plugins
+
+- **`StdInstantClockPlugin`** (`feature = "std"`) — swaps `app.clock` to a `std::time::Instant`-backed monotonic clock. Without a clock plugin installed, `post_render` sees `0` every frame and timing-oriented plugins no-op.
+- **`FpsSummaryPlugin`** — accumulates `render_nanos` over a configurable frame bucket and prints an average. Use `FpsSummaryPlugin::new(count).with_sink(my_sink)` to route the output somewhere other than stderr (an LCD overlay, a UART log).
+
+On bare metal an application normally writes its own clock plugin (e.g. an `esp_hal` systimer reader) and points the existing `FpsSummaryPlugin` at `esp_println` through `with_sink`.
+
+### Event consumption
+
+`on_event` returning `true` stops further widget dispatch for that event — use it for global hotkeys:
+
+```rust
+fn on_event(&mut self, _world: &mut World, event: &InputEvent) -> bool {
+    matches!(event, InputEvent::Key { code: KEY_ESCAPE, pressed: true })
+}
+```
 
 ## ECS
 

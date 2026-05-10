@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-05-10
+
+### 🧩 The Plugin Release
+
+`App` now accepts **plugins** — self-contained bundles of systems, resources, and lifecycle hooks. The previous contract of "subclass the run loop to get per-frame timing" is dead: `app.add_plugin(StdInstantClockPlugin).add_plugin(FpsSummaryPlugin).run()` is the whole story. The ESP32-C3 three-body demo still holds ~160 fps through the new path.
+
+### Added
+
+- **`Plugin<B, F>` trait** in `mirui::plugin`, with five methods:
+  - `build(&mut self, app: &mut App<B, F>)` — one-shot registration
+  - `pre_render(&mut self, world)` / `post_render(&mut self, world, render_nanos)` — per-frame hooks
+  - `on_event(&mut self, world, event) -> bool` — intercept input, `true` consumes
+  - `on_quit(&mut self, world)` — cleanup before `App::run` returns
+  - blanket impl for `FnMut(&mut App<B, F>)` so a closure is already a plugin
+- **`App::add_plugin<P>(p) -> &mut Self`** — registers a plugin, runs its `build`, stores the instance for later hooks. Chains with `add_system`.
+- **`App::clock: ClockFn`** — monotonic clock providing the nanoseconds passed to `post_render`. Default `|| 0`; plugins swap it in `build`.
+- **`mirui::plugins` module** with two built-ins:
+  - `StdInstantClockPlugin` (gated on the new `std` feature) — `std::time::Instant`-backed clock
+  - `FpsSummaryPlugin` — accumulates `render_nanos` over a frame bucket (default 60) and emits an "avg render" line; `with_sink` lets the sink be overridden for bare-metal targets
+- **`std` feature flag** (implied by `sdl`). `no_std` + `alloc` remains the default build; anything in `mirui::plugins::std_clock` or other std-only items sits behind this feature.
+
+### Changed
+
+- **`App` gains a generic + field for plugin storage**: the run loop now dispatches `pre_render` / `post_render` / `on_event` / `on_quit` around the existing rendering and event code. Apps that never call `add_plugin` see empty vector iteration — identical to the previous behaviour in practice.
+- `add_system` now returns `&mut Self` to chain with `add_plugin`.
+
 ## [0.3.1] - 2026-05-10
 
 ### Added
