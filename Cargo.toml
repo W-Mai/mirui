@@ -20,7 +20,8 @@ members = [".", "xtask", "mirui-macros"]
 
 [features]
 default = []
-sdl = ["dep:sdl2"]
+std = []
+sdl = ["dep:sdl2", "std"]
 perf = []
 
 [dependencies.sdl2]

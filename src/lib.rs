@@ -1,4 +1,4 @@
-#![no_std]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
@@ -10,5 +10,6 @@ pub mod ecs;
 pub mod event;
 pub mod layout;
 pub mod plugin;
+pub mod plugins;
 pub mod types;
 pub mod widget;
