@@ -6,14 +6,16 @@
 //! `SDL_RenderGeometry` (unsafe FFI) for tessellated paths. No CPU
 //! framebuffer, no `FramebufferAccess` impl.
 
+mod label_cache;
 mod tessellation;
 
 use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::render::{Canvas, TextureCreator};
-use sdl2::video::{Window, WindowContext};
+use sdl2::render::Canvas;
+use sdl2::video::Window;
 
+use self::label_cache::LabelCache;
 use self::tessellation::TessellationCache;
 use crate::app::RendererFactory;
 use crate::draw::backend::DrawBackend;
@@ -27,7 +29,7 @@ use super::{Backend, DisplayInfo, InputEvent};
 
 pub struct SdlGpuBackend {
     canvas: Canvas<Window>,
-    texture_creator: TextureCreator<WindowContext>,
+    label_cache: LabelCache,
     event_pump: EventPump,
     tessellator: TessellationCache,
     width: u16,
@@ -64,7 +66,7 @@ impl SdlGpuBackend {
 
         Self {
             canvas,
-            texture_creator,
+            label_cache: LabelCache::new(texture_creator),
             event_pump,
             tessellator: TessellationCache::new(),
             width: phys_w,
@@ -75,14 +77,10 @@ impl SdlGpuBackend {
 
     pub(crate) fn parts_mut(
         &mut self,
-    ) -> (
-        &mut Canvas<Window>,
-        &TextureCreator<WindowContext>,
-        &mut TessellationCache,
-    ) {
+    ) -> (&mut Canvas<Window>, &mut LabelCache, &mut TessellationCache) {
         (
             &mut self.canvas,
-            &self.texture_creator,
+            &mut self.label_cache,
             &mut self.tessellator,
         )
     }
@@ -165,10 +163,10 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
         transform: &CoordTransform,
     ) -> SdlGpuRenderer<'a> {
         let scale = transform.scale();
-        let (canvas, texture_creator, tessellator) = backend.parts_mut();
+        let (canvas, label_cache, tessellator) = backend.parts_mut();
         SdlGpuRenderer {
             canvas,
-            texture_creator,
+            label_cache,
             tessellator,
             scale,
         }
@@ -177,7 +175,7 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
 
 pub struct SdlGpuRenderer<'a> {
     canvas: &'a mut Canvas<Window>,
-    texture_creator: &'a TextureCreator<WindowContext>,
+    label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
     scale: Fixed,
 }
@@ -262,7 +260,12 @@ impl Renderer for SdlGpuRenderer<'_> {
                 color,
                 *opa,
             ),
-            DrawCommand::Label { .. } => {}
+            DrawCommand::Label {
+                pos,
+                text,
+                color,
+                opa,
+            } => self.draw_label(pos, text, clip, color, *opa),
         }
     }
 
@@ -422,19 +425,8 @@ impl DrawBackend for SdlGpuRenderer<'_> {
 
         let src_slice = src.buf.as_slice();
         let stride = src.stride;
-
-        let mut tex = match self.texture_creator.create_texture_streaming(
-            sdl_fmt,
-            src.width as u32,
-            src.height as u32,
-        ) {
-            Ok(t) => t,
-            Err(_) => return,
-        };
-        if tex.update(None, src_slice, stride).is_err() {
-            return;
-        }
-        tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+        let src_width = src.width as u32;
+        let src_height = src.height as u32;
 
         let sx = (src_rect.x * scale).to_int().max(0);
         let sy = (src_rect.y * scale).to_int().max(0);
@@ -444,15 +436,28 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         let dst_sdl = sdl2::rect::Rect::new(dx, dy, dw, dh);
 
         let (cx0, cy0, cx1, cy1) = physical_clip_rect(clip, clip, scale);
-        self.canvas.set_clip_rect(sdl2::rect::Rect::new(
+        let sdl_clip = sdl2::rect::Rect::new(
             cx0,
             cy0,
             (cx1 - cx0).max(0) as u32,
             (cy1 - cy0).max(0) as u32,
-        ));
+        );
 
-        let _ = self.canvas.copy(&tex, Some(src_sdl), Some(dst_sdl));
-        self.canvas.set_clip_rect(None);
+        let canvas = &mut *self.canvas;
+        self.label_cache.with_creator(|creator| {
+            let mut tex = match creator.create_texture_streaming(sdl_fmt, src_width, src_height) {
+                Ok(t) => t,
+                Err(_) => return,
+            };
+            if tex.update(None, src_slice, stride).is_err() {
+                return;
+            }
+            tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+
+            canvas.set_clip_rect(sdl_clip);
+            let _ = canvas.copy(&tex, Some(src_sdl), Some(dst_sdl));
+            canvas.set_clip_rect(None);
+        });
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
@@ -468,8 +473,9 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         self.fill_rect(area, area, color, Fixed::ZERO, 255);
     }
 
-    fn draw_label(&mut self, _pos: &Point, _text: &[u8], _clip: &Rect, _color: &Color, _opa: u8) {
-        todo!("draw_label needs CPU raster + texture cache")
+    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
+        self.label_cache
+            .draw(self.canvas, pos, text, clip, color, opa, self.scale);
     }
 
     fn flush(&mut self) {}

@@ -22,7 +22,7 @@ members = [".", "xtask", "mirui-macros"]
 default = []
 std = []
 sdl = ["dep:sdl2", "std"]
-sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
+sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon", "dep:lru"]
 perf = []
 
 [dependencies.sdl2]
@@ -36,6 +36,11 @@ optional = true
 [dependencies.lyon]
 version = "1.0"
 optional = true
+
+[dependencies.lru]
+version = "0.12"
+optional = true
+default-features = false
 
 [dev-dependencies]
 sdl2 = "0.37"

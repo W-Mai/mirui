@@ -61,6 +61,16 @@ fn main() {
         })
         .id();
 
+    let label = WidgetBuilder::new(&mut app.world)
+        .text("SDL GPU BACKEND")
+        .text_color(Color::rgba(255, 255, 255, 255))
+        .layout(LayoutStyle {
+            width: Dimension::px(200),
+            height: Dimension::px(20),
+            ..Default::default()
+        })
+        .id();
+
     let img = WidgetBuilder::new(&mut app.world)
         .layout(LayoutStyle {
             width: Dimension::px(IMG_THUMBS_UP.width as i32),
@@ -70,7 +80,7 @@ fn main() {
         .id();
     app.world.insert(img, Image::new(&IMG_THUMBS_UP));
 
-    for child in [solid, rounded, translucent, img] {
+    for child in [solid, rounded, translucent, label, img] {
         app.world.insert(child, Parent(root));
         if let Some(children) = app.world.get_mut::<Children>(root) {
             children.0.push(child);
