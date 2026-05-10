@@ -1,0 +1,5 @@
+error: compose_backend! requires a `default => <field>` route
+  --> tests/compose_backend_fail/missing_default.rs:18:16
+   |
+18 |     pub struct Broken {
+   |                ^^^^^^

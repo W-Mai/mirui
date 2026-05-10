@@ -1,0 +1,5 @@
+error: unknown DrawBackend method `fil_path` — did you mean `fill_path`?
+  --> tests/compose_backend_fail/unknown_method.rs:23:9
+   |
+23 |         fil_path => sw,
+   |         ^^^^^^^^

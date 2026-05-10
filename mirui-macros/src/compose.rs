@@ -86,6 +86,47 @@ struct Route {
     field: Ident,
 }
 
+/// Best-match hint for an unknown method name. Returns `Some(name)` only
+/// when the Levenshtein distance is ≤ 2, to avoid suggesting random methods.
+fn closest_known_method(query: &str) -> Option<&'static str> {
+    let mut best: Option<(usize, &'static str)> = None;
+    for (name, _, _) in METHODS {
+        let d = levenshtein(query, name);
+        if d <= 2 && best.is_none_or(|(bd, _)| d < bd) {
+            best = Some((d, name));
+        }
+    }
+    best.map(|(_, n)| n)
+}
+
+fn closest_field(query: &str, fields: &[FieldDecl]) -> Option<String> {
+    let mut best: Option<(usize, String)> = None;
+    for f in fields {
+        let name = f.name.to_string();
+        let d = levenshtein(query, &name);
+        if d <= 2 && best.as_ref().is_none_or(|(bd, _)| d < *bd) {
+            best = Some((d, name));
+        }
+    }
+    best.map(|(_, n)| n)
+}
+
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut curr = vec![0usize; b.len() + 1];
+    for i in 1..=a.len() {
+        curr[0] = i;
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        core::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b.len()]
+}
+
 /// Build one `fn name(&mut self, <params>) { self.<field>.name(<args>) }`.
 /// `params_src` is a raw parameter list like `"x: i32, y: i32"` (or empty).
 /// Parameter names are extracted via syn::parse so we don't hand-roll parsing.
@@ -249,11 +290,27 @@ impl ComposeInput {
             }
         }
         for r in &self.routes {
+            if r.method != "default" && !METHODS.iter().any(|(n, _, _)| r.method == *n) {
+                let suggestion = closest_known_method(&r.method.to_string());
+                let msg = match suggestion {
+                    Some(name) => format!(
+                        "unknown DrawBackend method `{}` — did you mean `{name}`?",
+                        r.method
+                    ),
+                    None => format!("unknown DrawBackend method `{}`", r.method),
+                };
+                return Err(syn::Error::new(r.method.span(), msg));
+            }
             if !self.fields.iter().any(|f| f.name == r.field) {
-                return Err(syn::Error::new(
-                    r.field.span(),
-                    format!("field `{}` not declared in struct body", r.field),
-                ));
+                let suggestion = closest_field(&r.field.to_string(), &self.fields);
+                let msg = match suggestion {
+                    Some(name) => format!(
+                        "field `{}` not declared in struct body — did you mean `{name}`?",
+                        r.field
+                    ),
+                    None => format!("field `{}` not declared in struct body", r.field),
+                };
+                return Err(syn::Error::new(r.field.span(), msg));
             }
         }
         for (i, r) in self.routes.iter().enumerate() {

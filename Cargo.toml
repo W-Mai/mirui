@@ -29,6 +29,7 @@ optional = true
 
 [dev-dependencies]
 sdl2 = "0.37"
+trybuild = "1"
 
 [[example]]
 name = "app_demo"
