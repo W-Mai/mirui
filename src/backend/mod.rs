@@ -2,7 +2,7 @@ pub mod framebuf;
 #[cfg(feature = "sdl")]
 pub mod sdl;
 
-use crate::types::{Fixed, Rect};
+use crate::types::{CoordTransform, Fixed, Rect};
 
 /// Display information
 pub struct DisplayInfo {
@@ -10,6 +10,12 @@ pub struct DisplayInfo {
     pub height: u16,
     pub scale: Fixed,
     pub format: crate::draw::texture::ColorFormat,
+}
+
+impl DisplayInfo {
+    pub fn transform(&self) -> CoordTransform {
+        CoordTransform::new(self.width, self.height, self.scale)
+    }
 }
 
 /// Input event from the platform

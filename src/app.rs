@@ -11,7 +11,7 @@ use crate::draw::texture::Texture;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::plugin::Plugin;
-use crate::types::{CoordTransform, Fixed, Rect};
+use crate::types::{Fixed, Rect};
 use crate::widget::render_system;
 
 /// Monotonic clock the App uses to measure per-frame render time. Plugins can
@@ -105,7 +105,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
     pub fn render(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
-        let transform = CoordTransform::new(info.width, info.height, info.scale);
+        let transform = info.transform();
 
         for p in &mut self.plugins {
             p.pre_render(&mut self.world);
@@ -134,7 +134,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
     pub fn dirty_region(&mut self) -> Option<Rect> {
         let root = self.root?;
         let info = self.backend.display_info();
-        let transform = CoordTransform::new(info.width, info.height, info.scale);
+        let transform = info.transform();
         render_system::collect_dirty_region(&mut self.world, root, &transform)
     }
 
@@ -170,8 +170,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
                         }
                         if let Some(root) = self.root {
                             let info = self.backend.display_info();
-                            let transform =
-                                CoordTransform::new(info.width, info.height, info.scale);
+                            let transform = info.transform();
                             let (lw, lh) = transform.logical_size();
                             button_system(&mut self.world, root, &event, lw, lh);
                             scroll_system(&mut self.world, root, &event, lw, lh);
@@ -197,7 +196,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
     pub fn render_dirty(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
-        let transform = CoordTransform::new(info.width, info.height, info.scale);
+        let transform = info.transform();
 
         for p in &mut self.plugins {
             p.pre_render(&mut self.world);
