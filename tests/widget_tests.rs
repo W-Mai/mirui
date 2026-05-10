@@ -3,7 +3,7 @@ mod tests {
     use mirui::draw::{DrawCommand, Renderer};
     use mirui::ecs::World;
     use mirui::layout::*;
-    use mirui::types::{Color, Dimension, Fixed, Rect};
+    use mirui::types::{Color, CoordTransform, Dimension, Fixed, Rect};
     use mirui::widget::builder::WidgetBuilder;
     use mirui::widget::render_system;
 
@@ -53,7 +53,8 @@ mod tests {
             .id();
 
         let mut recorder = RecordingRenderer::new();
-        render_system::render(&world, root, 200, 100, Fixed::ONE, &mut recorder);
+        let transform = CoordTransform::new(200, 100, Fixed::ONE);
+        render_system::render(&world, root, &transform, &mut recorder);
 
         // Should have 2 draw commands: root bg + child bg
         assert_eq!(recorder.commands.len(), 2);
@@ -117,7 +118,8 @@ mod tests {
             .id();
 
         let mut recorder = RecordingRenderer::new();
-        render_system::render(&world, root, 200, 100, Fixed::ONE, &mut recorder);
+        let transform = CoordTransform::new(200, 100, Fixed::ONE);
+        render_system::render(&world, root, &transform, &mut recorder);
 
         // Root has no bg_color, so only 2 commands for children
         assert_eq!(recorder.commands.len(), 2);

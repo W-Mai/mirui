@@ -11,7 +11,7 @@ use crate::draw::texture::Texture;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::plugin::Plugin;
-use crate::types::{Fixed, Rect};
+use crate::types::{CoordTransform, Fixed, Rect};
 use crate::widget::render_system;
 
 /// Monotonic clock the App uses to measure per-frame render time. Plugins can
@@ -105,6 +105,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
     pub fn render(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
+        let transform = CoordTransform::new(info.width, info.height, info.scale);
 
         for p in &mut self.plugins {
             p.pre_render(&mut self.world);
@@ -112,21 +113,13 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
 
         let start_ns = (self.clock)();
 
-        // Update layout → write ComputedRect to entities
-        render_system::update_layout(&mut self.world, root, info.width, info.height, info.scale);
+        render_system::update_layout(&mut self.world, root, &transform);
 
         {
             let buf = self.backend.framebuffer();
             let tex = Texture::new(buf, info.width, info.height, info.format);
-            let mut renderer = self.factory.make(tex, info.scale);
-            render_system::render(
-                &self.world,
-                root,
-                info.width,
-                info.height,
-                info.scale,
-                &mut renderer,
-            );
+            let mut renderer = self.factory.make(tex, transform.scale());
+            render_system::render(&self.world, root, &transform, &mut renderer);
         }
         self.backend
             .flush(&Rect::new(0, 0, info.width, info.height));
@@ -141,13 +134,8 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
     pub fn dirty_region(&mut self) -> Option<Rect> {
         let root = self.root?;
         let info = self.backend.display_info();
-        render_system::collect_dirty_region(
-            &mut self.world,
-            root,
-            info.width,
-            info.height,
-            info.scale,
-        )
+        let transform = CoordTransform::new(info.width, info.height, info.scale);
+        render_system::collect_dirty_region(&mut self.world, root, &transform)
     }
 
     /// Poll one event
@@ -182,13 +170,9 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
                         }
                         if let Some(root) = self.root {
                             let info = self.backend.display_info();
-                            let scale = if info.scale == Fixed::ZERO {
-                                Fixed::ONE
-                            } else {
-                                info.scale
-                            };
-                            let lw = (Fixed::from(info.width) / scale).to_int() as u16;
-                            let lh = (Fixed::from(info.height) / scale).to_int() as u16;
+                            let transform =
+                                CoordTransform::new(info.width, info.height, info.scale);
+                            let (lw, lh) = transform.logical_size();
                             button_system(&mut self.world, root, &event, lw, lh);
                             scroll_system(&mut self.world, root, &event, lw, lh);
                             dispatch(&self.world, root, &event, lw, lh);
@@ -213,11 +197,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
     pub fn render_dirty(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
-        let scale = if info.scale == Fixed::ZERO {
-            Fixed::ONE
-        } else {
-            info.scale
-        };
+        let transform = CoordTransform::new(info.width, info.height, info.scale);
 
         for p in &mut self.plugins {
             p.pre_render(&mut self.world);
@@ -225,29 +205,14 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
 
         let start_ns = (self.clock)();
 
-        // Collect dirty region
-        let dirty = render_system::collect_dirty_region(
-            &mut self.world,
-            root,
-            info.width,
-            info.height,
-            scale,
-        );
+        let dirty = render_system::collect_dirty_region(&mut self.world, root, &transform);
 
         if let Some(area) = dirty {
             {
                 let buf = self.backend.framebuffer();
                 let tex = Texture::new(buf, info.width, info.height, info.format);
-                let mut renderer = self.factory.make(tex, scale);
-                render_system::render_region(
-                    &self.world,
-                    root,
-                    info.width,
-                    info.height,
-                    scale,
-                    &area,
-                    &mut renderer,
-                );
+                let mut renderer = self.factory.make(tex, transform.scale());
+                render_system::render_region(&self.world, root, &transform, &area, &mut renderer);
             }
             self.backend.flush(&area);
         }

@@ -8,7 +8,7 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::{Color, Fixed, Point, Rect};
+use crate::types::{Color, CoordTransform, Fixed, Point, Rect};
 
 use super::{Children, Style, Text, Widget};
 
@@ -351,13 +351,10 @@ fn draw_tree_offset(
     }
 }
 
-fn scale_rects(node: &mut LayoutNode, scale: Fixed) {
-    node.rect.x = node.rect.x * scale;
-    node.rect.y = node.rect.y * scale;
-    node.rect.w = node.rect.w * scale;
-    node.rect.h = node.rect.h * scale;
+fn scale_rects(node: &mut LayoutNode, transform: &CoordTransform) {
+    node.rect = transform.rect_to_physical(node.rect);
     for child in &mut node.children {
-        scale_rects(child, scale);
+        scale_rects(child, transform);
     }
 }
 
@@ -371,24 +368,17 @@ fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity
     }
 }
 
-/// Run the render system: build layout → compute → draw
-/// `screen_w`/`screen_h` are physical pixels, `scale` is the HiDPI factor.
-/// Layout is computed in logical pixels (physical / scale), then scaled up for rendering.
+/// Run the render system: build layout → compute → draw.
+/// Layout is computed in logical pixels; `transform` maps the result up to
+/// physical pixels before draw.
 pub fn render(
     world: &World,
     root: Entity,
-    screen_w: u16,
-    screen_h: u16,
-    scale: Fixed,
+    transform: &CoordTransform,
     renderer: &mut dyn Renderer,
 ) {
-    let scale = if scale == Fixed::ZERO {
-        Fixed::ONE
-    } else {
-        scale
-    };
-    let logical_w = (Fixed::from(screen_w) / scale).to_int() as u16;
-    let logical_h = (Fixed::from(screen_h) / scale).to_int() as u16;
+    let (logical_w, logical_h) = transform.logical_size();
+    let (physical_w, physical_h) = transform.physical_size();
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -402,14 +392,13 @@ pub fn render(
         logical_h.into(),
     );
 
-    // Scale all rects to physical pixels
-    scale_rects(&mut layout_tree, scale);
+    scale_rects(&mut layout_tree, transform);
 
     let clip = Rect {
         x: Fixed::ZERO,
         y: Fixed::ZERO,
-        w: screen_w.into(),
-        h: screen_h.into(),
+        w: physical_w.into(),
+        h: physical_h.into(),
     };
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
@@ -419,14 +408,8 @@ pub fn render(
 }
 
 /// Compute layout and write ComputedRect to each entity (logical pixels).
-pub fn update_layout(world: &mut World, root: Entity, screen_w: u16, screen_h: u16, scale: Fixed) {
-    let scale = if scale == Fixed::ZERO {
-        Fixed::ONE
-    } else {
-        scale
-    };
-    let logical_w = (Fixed::from(screen_w) / scale).to_int() as u16;
-    let logical_h = (Fixed::from(screen_h) / scale).to_int() as u16;
+pub fn update_layout(world: &mut World, root: Entity, transform: &CoordTransform) {
+    let (logical_w, logical_h) = transform.logical_size();
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -465,19 +448,11 @@ fn write_computed_rects(
 pub fn render_region(
     world: &World,
     root: Entity,
-    screen_w: u16,
-    screen_h: u16,
-    scale: Fixed,
+    transform: &CoordTransform,
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
 ) {
-    let scale = if scale == Fixed::ZERO {
-        Fixed::ONE
-    } else {
-        scale
-    };
-    let logical_w = (Fixed::from(screen_w) / scale).to_int() as u16;
-    let logical_h = (Fixed::from(screen_h) / scale).to_int() as u16;
+    let (logical_w, logical_h) = transform.logical_size();
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -490,7 +465,7 @@ pub fn render_region(
         logical_w.into(),
         logical_h.into(),
     );
-    scale_rects(&mut layout_tree, scale);
+    scale_rects(&mut layout_tree, transform);
 
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
@@ -511,19 +486,12 @@ pub fn render_region(
 pub fn collect_dirty_region(
     world: &mut World,
     root: Entity,
-    screen_w: u16,
-    screen_h: u16,
-    scale: Fixed,
+    transform: &CoordTransform,
 ) -> Option<Rect> {
     use super::dirty::Dirty;
 
-    let scale = if scale == Fixed::ZERO {
-        Fixed::ONE
-    } else {
-        scale
-    };
-    let logical_w = (Fixed::from(screen_w) / scale).to_int() as u16;
-    let logical_h = (Fixed::from(screen_h) / scale).to_int() as u16;
+    let (logical_w, logical_h) = transform.logical_size();
+    let (physical_w, physical_h) = transform.physical_size();
 
     let mut layout_tree = build_layout_tree(world, root)?;
     compute_layout(
@@ -533,13 +501,13 @@ pub fn collect_dirty_region(
         logical_w.into(),
         logical_h.into(),
     );
-    scale_rects(&mut layout_tree, scale);
+    scale_rects(&mut layout_tree, transform);
 
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
 
-    let mut min_x: Fixed = Fixed::from(screen_w);
-    let mut min_y: Fixed = Fixed::from(screen_h);
+    let mut min_x: Fixed = Fixed::from(physical_w);
+    let mut min_y: Fixed = Fixed::from(physical_h);
     let mut max_x: Fixed = Fixed::from_int(-1);
     let mut max_y: Fixed = Fixed::from_int(-1);
 
@@ -565,11 +533,11 @@ pub fn collect_dirty_region(
             }
             // Include previous rect (old position) if present
             if let Some(prev) = world.remove::<super::dirty::PrevRect>(entity) {
-                let pr = prev.0;
-                let px = pr.x * scale;
-                let py = pr.y * scale;
-                let px2 = ((pr.x + pr.w) * scale).ceil();
-                let py2 = ((pr.y + pr.h) * scale).ceil();
+                let (px0, py0, px1, py1) = transform.rect_to_physical_pixel_bounds(prev.0);
+                let px = Fixed::from_int(px0);
+                let py = Fixed::from_int(py0);
+                let px2 = Fixed::from_int(px1);
+                let py2 = Fixed::from_int(py1);
                 if px < min_x {
                     min_x = px;
                 }

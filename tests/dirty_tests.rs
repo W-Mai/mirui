@@ -2,7 +2,7 @@
 mod tests {
     use mirui::ecs::World;
     use mirui::layout::*;
-    use mirui::types::{Dimension, Fixed, Rect};
+    use mirui::types::{CoordTransform, Dimension, Fixed, Rect};
     use mirui::widget::builder::WidgetBuilder;
     use mirui::widget::dirty::{Dirty, PrevRect};
     use mirui::widget::{Children, Style};
@@ -111,13 +111,9 @@ mod tests {
         assert!(world.get::<Dirty>(child).is_some());
 
         // Collect dirty region
-        let dirty = mirui::widget::render_system::collect_dirty_region(
-            &mut world,
-            root,
-            128,
-            128,
-            Fixed::ONE,
-        );
+        let transform = CoordTransform::new(128, 128, Fixed::ONE);
+        let dirty =
+            mirui::widget::render_system::collect_dirty_region(&mut world, root, &transform);
 
         let area = dirty.expect("should have dirty region");
         let (dx, dy, dw, dh) = area.to_px();
@@ -147,13 +143,9 @@ mod tests {
             Fixed::from_raw(40 * 256 + 100), // 40.39
         );
 
-        let dirty = mirui::widget::render_system::collect_dirty_region(
-            &mut world,
-            root,
-            128,
-            128,
-            Fixed::ONE,
-        );
+        let transform = CoordTransform::new(128, 128, Fixed::ONE);
+        let dirty =
+            mirui::widget::render_system::collect_dirty_region(&mut world, root, &transform);
 
         let area = dirty.expect("should have dirty region");
         let (dx, dy, dw, dh) = area.to_px();
@@ -222,13 +214,9 @@ mod tests {
                 continue;
             }
 
-            let dirty = mirui::widget::render_system::collect_dirty_region(
-                &mut world,
-                root,
-                128,
-                128,
-                Fixed::ONE,
-            );
+            let transform = CoordTransform::new(128, 128, Fixed::ONE);
+            let dirty =
+                mirui::widget::render_system::collect_dirty_region(&mut world, root, &transform);
 
             let Some(area) = dirty else { continue };
             let (dx, dy, dw, dh) = area.to_px();
@@ -335,6 +323,7 @@ mod tests {
 
             // Initial full render
             let mut buf = vec![0u8; BUF_SIZE];
+            let transform = CoordTransform::new(W, H, Fixed::ONE);
             {
                 let mut renderer = SwDrawBackend::new(Texture::new(
                     &mut buf,
@@ -342,7 +331,7 @@ mod tests {
                     H as u16,
                     ColorFormat::ARGB8888,
                 ));
-                render_system::render(&world, root, W, H, Fixed::ONE, &mut renderer);
+                render_system::render(&world, root, &transform, &mut renderer);
             }
 
             // Simulate 10-30 frames of movement
@@ -365,7 +354,7 @@ mod tests {
 
                 mirui::widget::set_position(&mut world, child, pos_x, pos_y);
 
-                let dirty = render_system::collect_dirty_region(&mut world, root, W, H, Fixed::ONE);
+                let dirty = render_system::collect_dirty_region(&mut world, root, &transform);
                 if let Some(area) = dirty {
                     let mut renderer = SwDrawBackend::new(Texture::new(
                         &mut buf,
@@ -373,15 +362,7 @@ mod tests {
                         H as u16,
                         ColorFormat::ARGB8888,
                     ));
-                    render_system::render_region(
-                        &world,
-                        root,
-                        W,
-                        H,
-                        Fixed::ONE,
-                        &area,
-                        &mut renderer,
-                    );
+                    render_system::render_region(&world, root, &transform, &area, &mut renderer);
                 }
             }
 
@@ -394,7 +375,7 @@ mod tests {
                     H as u16,
                     ColorFormat::ARGB8888,
                 ));
-                render_system::render(&world, root, W, H, Fixed::ONE, &mut renderer);
+                render_system::render(&world, root, &transform, &mut renderer);
             }
 
             // Compare entire framebuffer — no residue anywhere
@@ -479,6 +460,7 @@ mod tests {
                 ));
             }
 
+            let transform = CoordTransform::new(W, H, Fixed::ONE);
             let mut buf = vec![0u8; BUF_SIZE];
             {
                 let mut renderer = SwDrawBackend::new(Texture::new(
@@ -487,7 +469,7 @@ mod tests {
                     H as u16,
                     ColorFormat::ARGB8888,
                 ));
-                render_system::render(&world, root, W, H, Fixed::ONE, &mut renderer);
+                render_system::render(&world, root, &transform, &mut renderer);
             }
 
             let num_frames = 10 + (rng() % 20) as usize;
@@ -505,7 +487,7 @@ mod tests {
                     );
                 }
 
-                let dirty = render_system::collect_dirty_region(&mut world, root, W, H, Fixed::ONE);
+                let dirty = render_system::collect_dirty_region(&mut world, root, &transform);
                 if let Some(area) = dirty {
                     let mut renderer = SwDrawBackend::new(Texture::new(
                         &mut buf,
@@ -513,15 +495,7 @@ mod tests {
                         H as u16,
                         ColorFormat::ARGB8888,
                     ));
-                    render_system::render_region(
-                        &world,
-                        root,
-                        W,
-                        H,
-                        Fixed::ONE,
-                        &area,
-                        &mut renderer,
-                    );
+                    render_system::render_region(&world, root, &transform, &area, &mut renderer);
                 }
             }
 
@@ -533,7 +507,7 @@ mod tests {
                     H as u16,
                     ColorFormat::ARGB8888,
                 ));
-                render_system::render(&world, root, W, H, Fixed::ONE, &mut renderer);
+                render_system::render(&world, root, &transform, &mut renderer);
             }
 
             for i in 0..BUF_SIZE {
