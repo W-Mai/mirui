@@ -1,7 +1,63 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::parse::{Parse, ParseStream};
+use syn::parse::{Parse, ParseStream, Parser};
 use syn::{Ident, Result, Token, Visibility, braced};
+
+/// DrawBackend method table. Each entry = `(name, param_list, is_default_impl)`.
+/// `is_default_impl = true` means the trait has a default impl, so the macro
+/// only emits a forwarder when the user explicitly routes it.
+///
+/// Signatures must stay in sync with `src/draw/backend.rs` — the integration
+/// test `compose_backend_dispatch` covers every entry, so a mismatch shows up
+/// as a test failure rather than silent drift.
+const METHODS: &[(&str, &str, bool)] = &[
+    (
+        "fill_path",
+        "path: &::mirui::draw::path::Path, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
+        false,
+    ),
+    (
+        "stroke_path",
+        "path: &::mirui::draw::path::Path, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, color: &::mirui::types::Color, opa: u8",
+        false,
+    ),
+    (
+        "blit",
+        "src: &::mirui::draw::texture::Texture, src_rect: &::mirui::types::Rect, dst: ::mirui::types::Point, clip: &::mirui::types::Rect",
+        false,
+    ),
+    (
+        "clear",
+        "area: &::mirui::types::Rect, color: &::mirui::types::Color",
+        false,
+    ),
+    (
+        "draw_label",
+        "pos: &::mirui::types::Point, text: &[u8], clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
+        false,
+    ),
+    ("flush", "", false),
+    (
+        "fill_rect",
+        "area: &::mirui::types::Rect, clip: &::mirui::types::Rect, color: &::mirui::types::Color, radius: ::mirui::types::Fixed, opa: u8",
+        true,
+    ),
+    (
+        "stroke_rect",
+        "area: &::mirui::types::Rect, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, color: &::mirui::types::Color, radius: ::mirui::types::Fixed, opa: u8",
+        true,
+    ),
+    (
+        "draw_line",
+        "p1: ::mirui::types::Point, p2: ::mirui::types::Point, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, color: &::mirui::types::Color, opa: u8",
+        true,
+    ),
+    (
+        "draw_arc",
+        "center: ::mirui::types::Point, radius: ::mirui::types::Fixed, start_angle: ::mirui::types::Fixed, end_angle: ::mirui::types::Fixed, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, color: &::mirui::types::Color, opa: u8",
+        true,
+    ),
+];
 
 pub(crate) fn expand(input: TokenStream) -> TokenStream {
     match syn::parse2::<ComposeInput>(input) {
@@ -28,6 +84,50 @@ struct Route {
     /// `default` or a method name from DrawBackend.
     method: Ident,
     field: Ident,
+}
+
+/// Build one `fn name(&mut self, <params>) { self.<field>.name(<args>) }`.
+/// `params_src` is a raw parameter list like `"x: i32, y: i32"` (or empty).
+/// Parameter names are extracted via syn::parse so we don't hand-roll parsing.
+fn gen_forwarder(method: &str, params_src: &str, field: &Ident) -> TokenStream {
+    let method_ident = format_ident!("{method}");
+    let params_ts: TokenStream = params_src
+        .parse()
+        .expect("hard-coded METHODS entry must parse");
+
+    let arg_names: Vec<Ident> = if params_src.is_empty() {
+        Vec::new()
+    } else {
+        let parser = syn::punctuated::Punctuated::<syn::FnArg, Token![,]>::parse_terminated;
+        let parsed = parser
+            .parse2(params_ts.clone())
+            .expect("METHODS entry must parse as FnArg list");
+        parsed
+            .into_iter()
+            .map(|arg| match arg {
+                syn::FnArg::Typed(pt) => match *pt.pat {
+                    syn::Pat::Ident(pi) => pi.ident,
+                    _ => panic!("METHODS params must use simple `name: type` patterns"),
+                },
+                syn::FnArg::Receiver(_) => unreachable!("METHODS entries have no self"),
+            })
+            .collect()
+    };
+
+    if params_src.is_empty() {
+        quote! {
+            fn #method_ident(&mut self) {
+                self.#field.#method_ident()
+            }
+        }
+    } else {
+        quote! {
+            #[allow(clippy::too_many_arguments)]
+            fn #method_ident(&mut self, #params_ts) {
+                self.#field.#method_ident(#(#arg_names),*)
+            }
+        }
+    }
 }
 
 impl Parse for ComposeInput {
@@ -97,9 +197,36 @@ impl ComposeInput {
         let vis = &self.vis;
         let name = &self.name;
 
+        let default_field = self
+            .routes
+            .iter()
+            .find(|r| r.method == "default")
+            .map(|r| &r.field)
+            .expect("validate() guarantees a default route");
+
+        let method_impls = METHODS
+            .iter()
+            .filter_map(|(mname, params, is_default_impl)| {
+                let explicit = self.routes.iter().find(|r| r.method == *mname);
+                let target_field: &Ident = match (explicit, is_default_impl) {
+                    (Some(r), _) => &r.field,
+                    (None, false) => default_field,
+                    // Unrouted default-impl method → skip, trait default handles it.
+                    (None, true) => return None,
+                };
+                Some(gen_forwarder(mname, params, target_field))
+            });
+
         quote! {
             #vis struct #name<#(#generic_params),*> {
                 #(#struct_fields,)*
+            }
+
+            impl<#(#generic_params),*> ::mirui::draw::backend::DrawBackend for #name<#(#generic_params),*>
+            where
+                #(#generic_params: ::mirui::draw::backend::DrawBackend,)*
+            {
+                #(#method_impls)*
             }
         }
     }
