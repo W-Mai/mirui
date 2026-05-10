@@ -13,6 +13,7 @@ pub struct DisplayInfo {
 }
 
 impl DisplayInfo {
+    #[inline]
     pub fn transform(&self) -> CoordTransform {
         CoordTransform::new(self.width, self.height, self.scale)
     }

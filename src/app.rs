@@ -11,7 +11,7 @@ use crate::draw::texture::Texture;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::plugin::Plugin;
-use crate::types::{Fixed, Rect};
+use crate::types::{CoordTransform, Rect};
 use crate::widget::render_system;
 
 /// Monotonic clock the App uses to measure per-frame render time. Plugins can
@@ -28,7 +28,11 @@ pub trait RendererFactory {
     type Renderer<'a>: Renderer + DrawBackend
     where
         Self: 'a;
-    fn make<'a>(&'a mut self, tex: Texture<'a>, scale: Fixed) -> Self::Renderer<'a>;
+    fn make<'a>(
+        &'a mut self,
+        tex: Texture<'a>,
+        transform: &CoordTransform,
+    ) -> Self::Renderer<'a>;
 }
 
 /// Default factory that produces plain `SwDrawBackend<'a>`.
@@ -36,9 +40,13 @@ pub struct SwDrawBackendFactory;
 
 impl RendererFactory for SwDrawBackendFactory {
     type Renderer<'a> = SwDrawBackend<'a>;
-    fn make<'a>(&'a mut self, tex: Texture<'a>, scale: Fixed) -> SwDrawBackend<'a> {
+    fn make<'a>(
+        &'a mut self,
+        tex: Texture<'a>,
+        transform: &CoordTransform,
+    ) -> SwDrawBackend<'a> {
         let mut r = SwDrawBackend::new(tex);
-        r.scale = scale;
+        r.scale = transform.scale();
         r
     }
 }
@@ -118,7 +126,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
         {
             let buf = self.backend.framebuffer();
             let tex = Texture::new(buf, info.width, info.height, info.format);
-            let mut renderer = self.factory.make(tex, transform.scale());
+            let mut renderer = self.factory.make(tex, &transform);
             render_system::render(&self.world, root, &transform, &mut renderer);
         }
         self.backend
@@ -149,7 +157,10 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
         loop {
             self.systems.run_all(&mut self.world);
 
-            // Drain all pending events
+            // Snapshot once per iteration so every event in this drain sees
+            // the same logical-size, and we stop reconstructing transform per
+            // event.
+            let mut logical: Option<(u16, u16)> = None;
             let mut quit = false;
             loop {
                 match self.poll_event() {
@@ -169,9 +180,9 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
                             continue;
                         }
                         if let Some(root) = self.root {
-                            let info = self.backend.display_info();
-                            let transform = info.transform();
-                            let (lw, lh) = transform.logical_size();
+                            let (lw, lh) = *logical.get_or_insert_with(|| {
+                                self.backend.display_info().transform().logical_size()
+                            });
                             button_system(&mut self.world, root, &event, lw, lh);
                             scroll_system(&mut self.world, root, &event, lw, lh);
                             dispatch(&self.world, root, &event, lw, lh);
@@ -210,7 +221,7 @@ impl<B: Backend, F: RendererFactory> App<B, F> {
             {
                 let buf = self.backend.framebuffer();
                 let tex = Texture::new(buf, info.width, info.height, info.format);
-                let mut renderer = self.factory.make(tex, transform.scale());
+                let mut renderer = self.factory.make(tex, &transform);
                 render_system::render_region(&self.world, root, &transform, &area, &mut renderer);
             }
             self.backend.flush(&area);

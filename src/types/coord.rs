@@ -16,6 +16,7 @@ pub struct CoordTransform {
 impl CoordTransform {
     /// Construct. `scale <= 0` is normalized to 1 so downstream consumers
     /// never have to guard against a zero scale.
+    #[inline]
     pub fn new(physical_w: u16, physical_h: u16, scale: Fixed) -> Self {
         let scale = if scale <= Fixed::ZERO {
             Fixed::ONE
@@ -29,20 +30,24 @@ impl CoordTransform {
         }
     }
 
+    #[inline]
     pub fn scale(&self) -> Fixed {
         self.scale
     }
 
+    #[inline]
     pub fn physical_size(&self) -> (u16, u16) {
         (self.physical_w, self.physical_h)
     }
 
+    #[inline]
     pub fn logical_size(&self) -> (u16, u16) {
         let w = (Fixed::from(self.physical_w) / self.scale).to_int() as u16;
         let h = (Fixed::from(self.physical_h) / self.scale).to_int() as u16;
         (w, h)
     }
 
+    #[inline]
     pub fn point_to_physical(&self, p: Point) -> Point {
         Point {
             x: p.x * self.scale,
@@ -50,6 +55,7 @@ impl CoordTransform {
         }
     }
 
+    #[inline]
     pub fn rect_to_physical(&self, r: Rect) -> Rect {
         Rect {
             x: r.x * self.scale,
@@ -62,6 +68,7 @@ impl CoordTransform {
     /// Convert a logical-pixel Rect to an integer physical-pixel bound
     /// `(x0, y0, x1, y1)`. Top-left floors, bottom-right ceils so the
     /// returned region fully contains the source.
+    #[inline]
     pub fn rect_to_physical_pixel_bounds(&self, r: Rect) -> (i32, i32, i32, i32) {
         let x0 = (r.x * self.scale).to_int();
         let y0 = (r.y * self.scale).to_int();
@@ -70,6 +77,7 @@ impl CoordTransform {
         (x0, y0, x1, y1)
     }
 
+    #[inline]
     pub fn point_to_logical(&self, p: Point) -> Point {
         Point {
             x: p.x / self.scale,
