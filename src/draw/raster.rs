@@ -204,7 +204,6 @@ pub(crate) fn scanline_fill(
         }
 
         for sub in 0..SUB_SCANLINES {
-            // Sample line at y = py + (sub + 0.5) / SUB_SCANLINES
             let y_sample =
                 Fixed::from_int(py) + (Fixed::from_int(sub) + Fixed::ONE / 2) / SUB_SCANLINES;
 
@@ -229,7 +228,6 @@ pub(crate) fn scanline_fill(
 
             crossings.sort();
 
-            // even-odd pair: (0,1), (2,3), ...
             let mut i = 0;
             while i + 1 < crossings.len() {
                 let xa = crossings[i];
