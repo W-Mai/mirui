@@ -9,5 +9,6 @@ pub mod draw;
 pub mod ecs;
 pub mod event;
 pub mod layout;
+pub mod plugin;
 pub mod types;
 pub mod widget;
