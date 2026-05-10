@@ -1,6 +1,8 @@
+pub mod coord;
 pub mod dimension;
 pub mod fixed;
 
+pub use coord::CoordTransform;
 pub use dimension::Dimension;
 pub use fixed::Fixed;
 
