@@ -1,6 +1,7 @@
+use crate::components::transform::WidgetTransform;
 use crate::ecs::{Entity, World};
 use crate::layout::LayoutStyle;
-use crate::types::Color;
+use crate::types::{Color, Fixed, Transform};
 
 use super::{Children, Parent, Style, Widget};
 
@@ -73,6 +74,37 @@ impl<'a> WidgetBuilder<'a> {
             children.0.push(child);
         }
         self
+    }
+
+    /// Replace the entity's transform wholesale.
+    pub fn transform(self, t: Transform) -> Self {
+        self.world.insert(self.entity, WidgetTransform(t));
+        self
+    }
+
+    /// Compose an additional transform on top of the existing one.
+    /// Right-to-left order: later chain calls apply first.
+    pub fn apply_transform(self, t: Transform) -> Self {
+        let current = self
+            .world
+            .get::<WidgetTransform>(self.entity)
+            .map(|wt| wt.0)
+            .unwrap_or(Transform::IDENTITY);
+        self.world
+            .insert(self.entity, WidgetTransform(current.compose(&t)));
+        self
+    }
+
+    pub fn rotate(self, deg: impl Into<Fixed>) -> Self {
+        self.apply_transform(Transform::rotate_deg(deg.into()))
+    }
+
+    pub fn translate(self, tx: impl Into<Fixed>, ty: impl Into<Fixed>) -> Self {
+        self.apply_transform(Transform::translate(tx.into(), ty.into()))
+    }
+
+    pub fn scale_xy(self, sx: impl Into<Fixed>, sy: impl Into<Fixed>) -> Self {
+        self.apply_transform(Transform::scale(sx.into(), sy.into()))
     }
 
     pub fn id(self) -> Entity {
