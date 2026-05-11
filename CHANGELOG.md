@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-05-11
+
+### ⚡ Faster `Blit` on CPU Backends
+
+Addresses the HiDPI blit regression noted in the v0.7.0 CHANGELOG (scale = 2 costs ~3.6× more frame time because the dst pixel count is 4×). `SwDrawBackend::blit` gains three layered fast paths:
+
+- **1× integer scale** (`dw == sw` and `dh == sh`) — dispatched per `(src.format, dst.format)` to a byte-level copy / format-convert that bypasses `get_pixel` / `set_pixel` bookkeeping. `RGB565Swapped → RGB565Swapped` is a `copy_from_slice` per row and is the main hot path for ESP32 builds that preload assets in framebuffer format.
+- **2× integer scale** (`dw == 2*sw` and `dh == 2*sh`) — each src pixel splats its color to a 2×2 dst block; src is read once per block instead of four times. Same four format pairs specialized. Clip partially covering the dst rect on odd boundaries falls back to the DDA path.
+- **Arbitrary non-integer scale** — replaces the per-pixel `(drow * sh) / dh` and `(dcol * sw) / dw` divides with a Q16.16 DDA accumulator. Two divides up front, zero in the inner loop. Dramatically helps any backend without hardware divide (RV32IMC).
+
+Correctness is pinned down by three byte-for-byte comparison tests (`blit_dda_matches_generic_slow`, `blit_1to1_matches_generic_for_*`, `blit_2to2_565sw_matches_dda`) that run the new fast paths and the legacy slow path on identical inputs and compare dst buffers.
+
+### Performance
+
+ESP32-C3 three-body demo, 128×128 RGB565Swapped:
+
+| config | v0.7.0 | v0.7.1 | speedup |
+|---|---|---|---|
+| scale=1 (3-body) | 5.9-6.5 ms | 4.9-5.3 ms | ~18% |
+| scale=2 (3-body) | ~17 ms | 10.6-11.5 ms | ~35% |
+| scale=0.5 (6-body) | 6.2-6.5 ms | 6.2-6.6 ms | flat |
+
+scale=0.5 is dominated by SPI flush bandwidth, not blit sampling, so the DDA improvement there is invisible on this demo. scale=2 is the win that v0.7.0 regressed on.
+
+### Added
+
+- `mirui-examples` gains a `demo-hidpi-upscale` feature (commit `cc90089`) that runs the three-body demo at scale=2 — physical 128×128, logical 64×64 — for benchmarking the 2× fast path on hardware.
+
+### Internal
+
+- `SwDrawBackend::blit` now delegates to one of three free functions:
+  - `blit_1to1_fast` — format-specialized 1× integer scale.
+  - `blit_2to2_fast` — format-specialized 2× integer scale.
+  - `blit_dda` — Q16.16 DDA for arbitrary non-integer scale.
+- `blit_generic_slow` is kept as the `_` arm in the format-specialization matches (fallback for unsupported `(src, dst)` combinations like `RGB888 → RGB565`).
+- No public API change. `DrawBackend::blit` signature identical to v0.7.0.
+
 ## [0.7.0] - 2026-05-11
 
 ### 🎯 The Logical-Coordinate Release
