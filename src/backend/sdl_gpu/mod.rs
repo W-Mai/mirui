@@ -462,7 +462,7 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, _dst_size: Point, clip: &Rect) {
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
         let sdl_fmt = match src.format {
             ColorFormat::ARGB8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
             ColorFormat::RGB888 => sdl2::pixels::PixelFormatEnum::RGB24,
@@ -475,11 +475,12 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         };
 
         let phys_dst = self.viewport.point_to_physical(dst);
+        let phys_dst_size = self.viewport.point_to_physical(dst_size);
         let phys_clip = self.viewport.rect_to_physical(*clip);
         let dx = phys_dst.x.to_int();
         let dy = phys_dst.y.to_int();
-        let dw = src_rect.w.to_int() as u32;
-        let dh = src_rect.h.to_int() as u32;
+        let dw = phys_dst_size.x.to_int().max(0) as u32;
+        let dh = phys_dst_size.y.to_int().max(0) as u32;
         if dw == 0 || dh == 0 {
             return;
         }

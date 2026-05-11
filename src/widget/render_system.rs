@@ -130,8 +130,8 @@ fn draw_tree(
                             y: node.rect.y,
                         },
                         size: Point {
-                            x: Fixed::from(img.texture.width),
-                            y: Fixed::from(img.texture.height),
+                            x: node.rect.w,
+                            y: node.rect.h,
                         },
                         transform: Transform::IDENTITY,
                         texture: img.texture,
@@ -300,8 +300,8 @@ fn draw_tree_offset(
                             y: shifted_rect.y,
                         },
                         size: Point {
-                            x: Fixed::from(img.texture.width),
-                            y: Fixed::from(img.texture.height),
+                            x: shifted_rect.w,
+                            y: shifted_rect.h,
                         },
                         transform: Transform::IDENTITY,
                         texture: img.texture,

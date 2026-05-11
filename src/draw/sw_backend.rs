@@ -369,25 +369,33 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
         }
     }
 
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, _dst_size: Point, clip: &Rect) {
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
         let phys_dst = self.viewport.point_to_physical(dst);
+        let phys_dst_size = self.viewport.point_to_physical(dst_size);
         let phys_clip = self.viewport.rect_to_physical(*clip);
         let (sx0, sy0, sw, sh) = src_rect.to_px();
         let (clip_x0, clip_y0, clip_x1, clip_y1) = phys_clip.pixel_bounds();
         let dx0 = phys_dst.x.to_int();
         let dy0 = phys_dst.y.to_int();
+        let dw = phys_dst_size.x.to_int();
+        let dh = phys_dst_size.y.to_int();
+        if dw <= 0 || dh <= 0 || sw == 0 || sh == 0 {
+            return;
+        }
 
-        for row in 0..sh as i32 {
-            let iy = dy0 + row;
+        for drow in 0..dh {
+            let iy = dy0 + drow;
             if iy < clip_y0 || iy >= clip_y1 {
                 continue;
             }
-            for col in 0..sw as i32 {
-                let ix = dx0 + col;
+            let sy = sy0 + (drow * sh as i32) / dh;
+            for dcol in 0..dw {
+                let ix = dx0 + dcol;
                 if ix < clip_x0 || ix >= clip_x1 {
                     continue;
                 }
-                let src_color = src.get_pixel(sx0 + col, sy0 + row);
+                let sx = sx0 + (dcol * sw as i32) / dw;
+                let src_color = src.get_pixel(sx, sy);
                 if src_color.a == 0 {
                     continue;
                 }
