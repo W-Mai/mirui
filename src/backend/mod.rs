@@ -60,7 +60,10 @@ pub enum BackbufferPersistence {
 pub trait Backend {
     fn display_info(&self) -> DisplayInfo;
 
-    /// Present the given **logical-pixel** region of the backing display.
+    /// Present the given **physical-pixel** region of the backing surface.
+    /// `App` is responsible for converting a logical dirty rect to physical
+    /// before calling this; driver-side code treats `area` as raw device
+    /// coordinates / buffer offsets.
     fn flush(&mut self, area: &Rect);
 
     fn poll_event(&mut self) -> Option<InputEvent>;

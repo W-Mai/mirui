@@ -129,8 +129,8 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
             let mut renderer = self.factory.make(&mut self.backend, &transform);
             render_system::render(&self.world, root, &transform, &mut renderer);
         }
-        self.backend
-            .flush(&Rect::new(0, 0, info.width, info.height));
+        let (pw, ph) = self.backend.physical_size();
+        self.backend.flush(&Rect::new(0, 0, pw as u16, ph as u16));
 
         let elapsed = (self.clock)().saturating_sub(start_ns);
         for p in &mut self.plugins {
@@ -138,7 +138,9 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
         }
     }
 
-    /// Get the dirty region (physical pixels) after event processing, clearing dirty flags.
+    /// Get the dirty region in **logical pixels** after event processing,
+    /// clearing dirty flags in the process. Multiply by `display_info().scale`
+    /// (or use `Viewport::rect_to_physical`) for physical coordinates.
     pub fn dirty_region(&mut self) -> Option<Rect> {
         let root = self.root?;
         let info = self.backend.display_info();
@@ -229,7 +231,8 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
                 let mut renderer = self.factory.make(&mut self.backend, &transform);
                 render_system::render_region(&self.world, root, &transform, &area, &mut renderer);
             }
-            self.backend.flush(&area);
+            let phys_area = transform.rect_to_physical(area);
+            self.backend.flush(&phys_area);
         }
 
         let elapsed = (self.clock)().saturating_sub(start_ns);
