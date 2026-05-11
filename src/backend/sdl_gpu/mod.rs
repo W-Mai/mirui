@@ -25,7 +25,7 @@ use crate::draw::renderer::Renderer;
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
-use super::{Backend, DisplayInfo, InputEvent};
+use super::{Backend, DisplayInfo, InputEvent, logical_from_physical};
 
 pub struct SdlGpuBackend {
     canvas: Canvas<Window>,
@@ -93,12 +93,17 @@ impl SdlGpuBackend {
 
 impl Backend for SdlGpuBackend {
     fn display_info(&self) -> DisplayInfo {
+        let (lw, lh) = logical_from_physical(self.width, self.height, self.scale);
         DisplayInfo {
-            width: self.width,
-            height: self.height,
+            width: lw,
+            height: lh,
             scale: self.scale,
             format: ColorFormat::ARGB8888,
         }
+    }
+
+    fn physical_size(&self) -> (u32, u32) {
+        (self.width as u32, self.height as u32)
     }
 
     fn flush(&mut self, _area: &Rect) {

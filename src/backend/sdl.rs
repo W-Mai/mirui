@@ -8,7 +8,7 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
-use super::{Backend, DisplayInfo, FramebufferAccess, InputEvent};
+use super::{Backend, DisplayInfo, FramebufferAccess, InputEvent, logical_from_physical};
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Rect};
 
@@ -72,12 +72,17 @@ impl SdlBackend {
 
 impl Backend for SdlBackend {
     fn display_info(&self) -> DisplayInfo {
+        let (lw, lh) = logical_from_physical(self.width, self.height, self.scale);
         DisplayInfo {
-            width: self.width,
-            height: self.height,
+            width: lw,
+            height: lh,
             scale: self.scale,
             format: ColorFormat::ARGB8888,
         }
+    }
+
+    fn physical_size(&self) -> (u32, u32) {
+        (self.width as u32, self.height as u32)
     }
 
     fn flush(&mut self, _area: &Rect) {

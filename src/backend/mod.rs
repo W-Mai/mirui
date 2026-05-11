@@ -7,7 +7,9 @@ pub mod sdl_gpu;
 use crate::draw::texture::Texture;
 use crate::types::{Fixed, Rect, Viewport};
 
-/// Display information
+/// Display information reported by a backend. `width` / `height` are in
+/// **logical pixels** — the units user code writes `Dimension::px(…)` in.
+/// Physical framebuffer size is `Backend::physical_size()`.
 pub struct DisplayInfo {
     pub width: u16,
     pub height: u16,
@@ -18,7 +20,9 @@ pub struct DisplayInfo {
 impl DisplayInfo {
     #[inline]
     pub fn viewport(&self) -> Viewport {
-        Viewport::new(self.width, self.height, self.scale)
+        let phys_w = (Fixed::from(self.width) * self.scale).to_int().max(0) as u16;
+        let phys_h = (Fixed::from(self.height) * self.scale).to_int().max(0) as u16;
+        Viewport::new(phys_w, phys_h, self.scale)
     }
 }
 
@@ -56,14 +60,25 @@ pub enum BackbufferPersistence {
 pub trait Backend {
     fn display_info(&self) -> DisplayInfo;
 
-    /// Present a region of the backing display after rendering.
+    /// Present the given **logical-pixel** region of the backing display.
     fn flush(&mut self, area: &Rect);
 
     fn poll_event(&mut self) -> Option<InputEvent>;
 
+    /// Full logical-pixel screen rect.
     fn screen_rect(&self) -> Rect {
         let info = self.display_info();
         Rect::new(0, 0, info.width, info.height)
+    }
+
+    /// Physical pixel dimensions of the backing surface. Default derives
+    /// from `display_info()`; backends that store physical dims directly
+    /// should override to skip the multiply-and-round.
+    fn physical_size(&self) -> (u32, u32) {
+        let info = self.display_info();
+        let pw = (Fixed::from(info.width) * info.scale).to_int().max(0) as u32;
+        let ph = (Fixed::from(info.height) * info.scale).to_int().max(0) as u32;
+        (pw, ph)
     }
 
     /// Defaults to [`BackbufferPersistence::Persistent`]; swap-chain
@@ -71,6 +86,19 @@ pub trait Backend {
     fn persistence(&self) -> BackbufferPersistence {
         BackbufferPersistence::Persistent
     }
+}
+
+/// Convert a backend-private physical pixel size to logical via `scale`.
+/// Used by the bundled backends' `display_info()` to publish logical
+/// dims without touching internal buffers sized in physical pixels.
+#[inline]
+pub(crate) fn logical_from_physical(phys_w: u16, phys_h: u16, scale: Fixed) -> (u16, u16) {
+    if scale <= Fixed::ZERO {
+        return (phys_w, phys_h);
+    }
+    let lw = (Fixed::from(phys_w) / scale).to_int().max(0) as u16;
+    let lh = (Fixed::from(phys_h) / scale).to_int().max(0) as u16;
+    (lw, lh)
 }
 
 /// A [`Backend`] that exposes a CPU-accessible framebuffer as a [`Texture`].
