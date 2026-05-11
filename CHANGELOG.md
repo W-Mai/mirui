@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-05-11
+
+### Fixed
+
+- **`Dimension::Percent` overflow on windows wider than ~328 px**. `Fixed::div` now promotes through `i64`, so `parent_size * pct / 100` stays correct at any UI size. ESP32-C3 three-body baseline unchanged (~172 fps).
+- **`SdlGpuBackend` + `App::run` black screen from the second frame.** `Backend` now reports its backbuffer behaviour via `persistence()`; `App::run` full-redraws every frame on `Transient` backends (swap-chain GPU) and keeps the `render_dirty` fast path on `Persistent` (CPU). Default is `Persistent`, so every existing CPU backend keeps working unchanged.
+- **Labels and image blits no longer blur under HiDPI upscale.** `SdlGpuBackend` sets `SDL_RENDER_SCALE_QUALITY=0` at init — textures use nearest-neighbour filtering, which suits mirui's bitmap font and pixel-art assets.
+
+### Added
+
+- **`mirui::backend::BackbufferPersistence`** (`Persistent` / `Transient`) and a `Backend::persistence()` hook (default `Persistent`), used by `App::run` to pick render strategy per backend.
+- `examples/sdl_gpu_demo.rs` gets a `DragPlugin` that moves an absolute-positioned box with the mouse — exercises the full `App::run` + plugin + `on_event` path on the GPU backend. The example also prints per-second wall-clock FPS with p50 / p99 / max frame time.
+
 ## [0.6.0] - 2026-05-11
 
 ### 🚀 The GPU Backend Release
