@@ -4,7 +4,7 @@ use super::backend::DrawBackend;
 use super::command::DrawCommand;
 use super::path::Path;
 use super::renderer::Renderer;
-use super::texture::Texture;
+use super::texture::{ColorFormat, Texture};
 
 #[cfg(feature = "perf")]
 pub struct PerfCtx {
@@ -385,12 +385,12 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
 
         let sw_i = sw as i32;
         let sh_i = sh as i32;
-        // Runtime dispatch: 1× / 2× / arbitrary. All three branches
-        // currently resolve to the same slow path; follow-up commits
-        // swap each in for a specialized implementation.
+        // Runtime dispatch: 1× / 2× / arbitrary. 1× goes to the
+        // format-specialized fast variant; arbitrary goes to DDA;
+        // 2× still on the old slow path until the next commit.
         #[allow(clippy::if_same_then_else)]
         if dw == sw_i && dh == sh_i {
-            blit_generic_slow(
+            blit_1to1_fast(
                 &mut self.target,
                 src,
                 sx0,
@@ -399,8 +399,6 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
                 sh,
                 dx0,
                 dy0,
-                dw,
-                dh,
                 clip_x0,
                 clip_y0,
                 clip_x1,
@@ -530,6 +528,247 @@ fn blit_generic_slow(
             } else {
                 dst.blend_pixel_int(ix, iy, &src_color, src_color.a);
             }
+        }
+    }
+}
+
+/// 1× integer-scale blit: dst rect exactly matches src rect size.
+/// Specialized per (src_format, dst_format) so the inner loop is a
+/// tight byte copy / format convert with no `get_pixel` / `set_pixel`
+/// bookkeeping. Caller must ensure (dst_x, dst_y, dst_x+sw, dst_y+sh)
+/// sits entirely inside clip — S1 dispatch verifies this before
+/// calling us; anything else falls back to `blit_dda`.
+#[allow(clippy::too_many_arguments)]
+fn blit_1to1_fast(
+    dst: &mut Texture,
+    src: &Texture,
+    sx0: i32,
+    sy0: i32,
+    sw: u16,
+    sh: u16,
+    dx0: i32,
+    dy0: i32,
+    clip_x0: i32,
+    clip_y0: i32,
+    clip_x1: i32,
+    clip_y1: i32,
+) {
+    // Restrict to the visible dst subrect (dst ∩ clip). Everything
+    // inside is guaranteed to land within the dst texture since the
+    // entry in blit() already intersected with screen + dst bounds.
+    let vx0 = dx0.max(clip_x0);
+    let vy0 = dy0.max(clip_y0);
+    let vx1 = (dx0 + sw as i32).min(clip_x1);
+    let vy1 = (dy0 + sh as i32).min(clip_y1);
+    if vx1 <= vx0 || vy1 <= vy0 {
+        return;
+    }
+    let src_x0 = sx0 + (vx0 - dx0);
+    let src_y0 = sy0 + (vy0 - dy0);
+    let run_w = (vx1 - vx0) as usize;
+    let run_h = (vy1 - vy0) as usize;
+
+    match (src.format, dst.format) {
+        (ColorFormat::ARGB8888, ColorFormat::ARGB8888) => {
+            blit_1to1_argb_to_argb(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
+        }
+        (ColorFormat::ARGB8888, ColorFormat::RGB565Swapped) => {
+            blit_1to1_argb_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
+        }
+        (ColorFormat::RGB565Swapped, ColorFormat::RGB565Swapped) => {
+            blit_1to1_565sw_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
+        }
+        (ColorFormat::ARGB8888, ColorFormat::RGB565) => {
+            blit_1to1_argb_to_565(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
+        }
+        _ => blit_generic_slow(
+            dst,
+            src,
+            src_x0,
+            src_y0,
+            run_w as u16,
+            run_h as u16,
+            vx0,
+            vy0,
+            run_w as i32,
+            run_h as i32,
+            clip_x0,
+            clip_y0,
+            clip_x1,
+            clip_y1,
+        ),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blit_1to1_argb_to_argb(
+    dst: &mut Texture,
+    src: &Texture,
+    sx0: i32,
+    sy0: i32,
+    dx0: i32,
+    dy0: i32,
+    run_w: usize,
+    run_h: usize,
+) {
+    let src_stride = src.stride;
+    let dst_stride = dst.stride;
+    let src_buf = src.buf.as_slice();
+    let dst_buf = dst.buf.as_mut_slice();
+    for row in 0..run_h {
+        let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 4;
+        let dst_row_off = (dy0 as usize + row) * dst_stride + dx0 as usize * 4;
+        for col in 0..run_w {
+            let si = src_row_off + col * 4;
+            let di = dst_row_off + col * 4;
+            let a = src_buf[si + 3];
+            if a == 0 {
+                continue;
+            }
+            if a == 255 {
+                dst_buf[di] = src_buf[si];
+                dst_buf[di + 1] = src_buf[si + 1];
+                dst_buf[di + 2] = src_buf[si + 2];
+                dst_buf[di + 3] = 255;
+            } else {
+                // Blend: out = src * a + dst * (255 - a), via integer.
+                let inv = 255 - a as u16;
+                let sa = a as u16;
+                dst_buf[di] = ((src_buf[si] as u16 * sa + dst_buf[di] as u16 * inv) / 255) as u8;
+                dst_buf[di + 1] =
+                    ((src_buf[si + 1] as u16 * sa + dst_buf[di + 1] as u16 * inv) / 255) as u8;
+                dst_buf[di + 2] =
+                    ((src_buf[si + 2] as u16 * sa + dst_buf[di + 2] as u16 * inv) / 255) as u8;
+                dst_buf[di + 3] = 255;
+            }
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blit_1to1_argb_to_565sw(
+    dst: &mut Texture,
+    src: &Texture,
+    sx0: i32,
+    sy0: i32,
+    dx0: i32,
+    dy0: i32,
+    run_w: usize,
+    run_h: usize,
+) {
+    let src_stride = src.stride;
+    let dst_stride = dst.stride;
+    let src_buf = src.buf.as_slice();
+    let dst_buf = dst.buf.as_mut_slice();
+    for row in 0..run_h {
+        let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 4;
+        let dst_row_off = (dy0 as usize + row) * dst_stride + dx0 as usize * 2;
+        for col in 0..run_w {
+            let si = src_row_off + col * 4;
+            let di = dst_row_off + col * 2;
+            let a = src_buf[si + 3];
+            if a == 0 {
+                continue;
+            }
+            let (r, g, b) = if a == 255 {
+                (src_buf[si], src_buf[si + 1], src_buf[si + 2])
+            } else {
+                // Decode existing dst 565 → RGB888, blend, re-encode.
+                let hi = dst_buf[di] as u16;
+                let lo = dst_buf[di + 1] as u16;
+                let px = lo | (hi << 8);
+                let dr = ((px >> 11) as u8) << 3;
+                let dg = (((px >> 5) & 0x3F) as u8) << 2;
+                let db = ((px & 0x1F) as u8) << 3;
+                let inv = 255 - a as u16;
+                let sa = a as u16;
+                (
+                    ((src_buf[si] as u16 * sa + dr as u16 * inv) / 255) as u8,
+                    ((src_buf[si + 1] as u16 * sa + dg as u16 * inv) / 255) as u8,
+                    ((src_buf[si + 2] as u16 * sa + db as u16 * inv) / 255) as u8,
+                )
+            };
+            let px = ((r as u16 >> 3) << 11) | ((g as u16 >> 2) << 5) | (b as u16 >> 3);
+            dst_buf[di] = (px >> 8) as u8;
+            dst_buf[di + 1] = px as u8;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blit_1to1_565sw_to_565sw(
+    dst: &mut Texture,
+    src: &Texture,
+    sx0: i32,
+    sy0: i32,
+    dx0: i32,
+    dy0: i32,
+    run_w: usize,
+    run_h: usize,
+) {
+    // 565 has no alpha channel — always fully opaque copy. Use
+    // copy_from_slice per row for the best chance of memcpy in
+    // release builds.
+    let src_stride = src.stride;
+    let dst_stride = dst.stride;
+    let src_buf = src.buf.as_slice();
+    let dst_buf = dst.buf.as_mut_slice();
+    for row in 0..run_h {
+        let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 2;
+        let dst_row_off = (dy0 as usize + row) * dst_stride + dx0 as usize * 2;
+        dst_buf[dst_row_off..dst_row_off + run_w * 2]
+            .copy_from_slice(&src_buf[src_row_off..src_row_off + run_w * 2]);
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn blit_1to1_argb_to_565(
+    dst: &mut Texture,
+    src: &Texture,
+    sx0: i32,
+    sy0: i32,
+    dx0: i32,
+    dy0: i32,
+    run_w: usize,
+    run_h: usize,
+) {
+    // Identical logic to 565sw variant except low/high byte order is
+    // swapped on encode. Separate functions so the format is a
+    // compile-time constant within each.
+    let src_stride = src.stride;
+    let dst_stride = dst.stride;
+    let src_buf = src.buf.as_slice();
+    let dst_buf = dst.buf.as_mut_slice();
+    for row in 0..run_h {
+        let src_row_off = (sy0 as usize + row) * src_stride + sx0 as usize * 4;
+        let dst_row_off = (dy0 as usize + row) * dst_stride + dx0 as usize * 2;
+        for col in 0..run_w {
+            let si = src_row_off + col * 4;
+            let di = dst_row_off + col * 2;
+            let a = src_buf[si + 3];
+            if a == 0 {
+                continue;
+            }
+            let (r, g, b) = if a == 255 {
+                (src_buf[si], src_buf[si + 1], src_buf[si + 2])
+            } else {
+                let lo = dst_buf[di] as u16;
+                let hi = dst_buf[di + 1] as u16;
+                let px = lo | (hi << 8);
+                let dr = ((px >> 11) as u8) << 3;
+                let dg = (((px >> 5) & 0x3F) as u8) << 2;
+                let db = ((px & 0x1F) as u8) << 3;
+                let inv = 255 - a as u16;
+                let sa = a as u16;
+                (
+                    ((src_buf[si] as u16 * sa + dr as u16 * inv) / 255) as u8,
+                    ((src_buf[si + 1] as u16 * sa + dg as u16 * inv) / 255) as u8,
+                    ((src_buf[si + 2] as u16 * sa + db as u16 * inv) / 255) as u8,
+                )
+            };
+            let px = ((r as u16 >> 3) << 11) | ((g as u16 >> 2) << 5) | (b as u16 >> 3);
+            dst_buf[di] = px as u8;
+            dst_buf[di + 1] = (px >> 8) as u8;
         }
     }
 }
@@ -1219,6 +1458,103 @@ mod tests {
         }
 
         assert_eq!(dst_a, dst_b, "dda sampling diverged from divide path");
+    }
+
+    /// 1× fast path should match the slow path exactly on α==0 and
+    /// α==255 pixels, and within ±1 per channel on partial-α blends
+    /// (slow path uses Fixed map_range, fast path uses integer
+    /// `(src * a + dst * (255 - a)) / 255` — the two differ by at
+    /// most one LSB per channel).
+    #[test]
+    fn blit_1to1_matches_generic_for_argb_to_argb() {
+        let mut src_buf = vec![0u8; 4 * 4 * 4];
+        for i in 0..16 {
+            src_buf[i * 4] = 30 + i as u8;
+            src_buf[i * 4 + 1] = 60 + i as u8;
+            src_buf[i * 4 + 2] = 90 + i as u8;
+            src_buf[i * 4 + 3] = match i {
+                0 => 0,
+                3 | 7 => 128,
+                _ => 255,
+            };
+        }
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+
+        let mut dst_a = vec![0u8; 6 * 6 * 4];
+        for (i, byte) in dst_a.iter_mut().enumerate() {
+            *byte = (i * 3) as u8;
+        }
+        let mut dst_b = dst_a.clone();
+
+        {
+            let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::ARGB8888);
+            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6);
+        }
+        {
+            let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::ARGB8888);
+            blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 0, 0, 6, 6);
+        }
+        for (i, (&a, &b)) in dst_a.iter().zip(dst_b.iter()).enumerate() {
+            assert!(
+                (a as i32 - b as i32).abs() <= 1,
+                "byte {} diverged by more than 1: slow={} fast={}",
+                i,
+                a,
+                b
+            );
+        }
+    }
+
+    #[test]
+    fn blit_1to1_matches_generic_for_argb_to_565sw() {
+        let mut src_buf = vec![0u8; 4 * 4 * 4];
+        for i in 0..16 {
+            src_buf[i * 4] = 30 + i as u8 * 5;
+            src_buf[i * 4 + 1] = 40 + i as u8 * 3;
+            src_buf[i * 4 + 2] = 50 + i as u8 * 7;
+            src_buf[i * 4 + 3] = if i == 0 { 0 } else { 255 };
+        }
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+
+        let mut dst_a = vec![0u8; 6 * 6 * 2];
+        for i in 0..dst_a.len() {
+            dst_a[i] = (i * 5) as u8;
+        }
+        let mut dst_b = dst_a.clone();
+
+        {
+            let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::RGB565Swapped);
+            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6);
+        }
+        {
+            let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::RGB565Swapped);
+            blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 0, 0, 6, 6);
+        }
+        assert_eq!(dst_a, dst_b);
+    }
+
+    #[test]
+    fn blit_1to1_with_clip_restricted() {
+        let mut src_buf = vec![0u8; 4 * 4 * 4];
+        for i in 0..16 {
+            src_buf[i * 4] = 100 + i as u8;
+            src_buf[i * 4 + 3] = 255;
+        }
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+
+        let mut dst_a = vec![0u8; 8 * 8 * 4];
+        let mut dst_b = vec![0u8; 8 * 8 * 4];
+
+        // Clip covers only the right half of the blit rect.
+        {
+            let mut tex = Texture::new(&mut dst_a, 8, 8, ColorFormat::ARGB8888);
+            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 3, 0, 8, 8);
+        }
+        {
+            let mut tex = Texture::new(&mut dst_b, 8, 8, ColorFormat::ARGB8888);
+            blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 3, 0, 8, 8);
+        }
+        assert_eq!(dst_a, dst_b);
     }
 
     /// Clip partially covering the dst rect must still produce the
