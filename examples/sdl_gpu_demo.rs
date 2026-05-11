@@ -22,7 +22,7 @@ const DRAG_W: i32 = 160;
 const DRAG_H: i32 = 60;
 
 fn main() {
-    let backend = SdlGpuBackend::new_with_vsync("mirui SDL GPU — drag me", 640, 480, false);
+    let backend = SdlGpuBackend::new("mirui SDL GPU — drag me", 640, 480);
     let mut app = App::with_factory(backend, SdlGpuFactory::new());
 
     let root = WidgetBuilder::new(&mut app.world)
@@ -108,6 +108,8 @@ fn main() {
 
     let mut wall_start = std::time::Instant::now();
     let mut frames_since_report: u32 = 0;
+    let mut frame_times_us: alloc::vec::Vec<u32> = alloc::vec::Vec::with_capacity(300);
+    let mut last_frame = std::time::Instant::now();
 
     loop {
         let mut quit = false;
@@ -140,20 +142,29 @@ fn main() {
             break;
         }
         app.render();
+        let frame_us = last_frame.elapsed().as_micros() as u32;
+        last_frame = std::time::Instant::now();
+        frame_times_us.push(frame_us);
         frames_since_report += 1;
         let elapsed = wall_start.elapsed();
         if elapsed.as_secs_f64() >= 1.0 {
+            frame_times_us.sort_unstable();
+            let n = frame_times_us.len();
+            let p50 = frame_times_us[n / 2];
+            let p99 = frame_times_us[n * 99 / 100];
+            let max = *frame_times_us.last().unwrap();
+            let fps = frames_since_report as f64 / elapsed.as_secs_f64();
             eprintln!(
-                "[wall] {} frames in {:.3}s → {:.0} fps",
-                frames_since_report,
-                elapsed.as_secs_f64(),
-                frames_since_report as f64 / elapsed.as_secs_f64()
+                "[wall] {frames_since_report} frames  fps={fps:.0}  p50={p50}µs  p99={p99}µs  max={max}µs",
             );
             frames_since_report = 0;
+            frame_times_us.clear();
             wall_start = std::time::Instant::now();
         }
     }
 }
+
+extern crate alloc;
 
 fn hit(x: Fixed, y: Fixed, dx: Fixed, dy: Fixed) -> bool {
     let w = Fixed::from_int(DRAG_W);
