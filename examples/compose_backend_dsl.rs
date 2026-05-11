@@ -20,7 +20,7 @@ use mirui::draw::texture::Texture;
 use mirui::ecs::World;
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
-use mirui::types::{Color, Dimension, DisplayScale, Fixed, Point, Rect};
+use mirui::types::{Color, Dimension, Fixed, Point, Rect, Viewport};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::{compose_backend, ui};
 
@@ -97,13 +97,13 @@ impl<B: mirui::backend::FramebufferAccess> RendererFactory<B> for HybridFactory 
         Self: 'a,
         B: 'a;
 
-    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &DisplayScale) -> Self::Renderer<'a> {
+    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> Self::Renderer<'a> {
         let tex = backend.framebuffer();
         let mut sw = SwDrawBackend::new(tex);
-        sw.scale = transform.scale();
+        sw.viewport = *transform;
         let gpu_tex = Texture::new(&mut self.gpu_fb, self.width, self.height, tex_format(&sw));
         let mut gpu_inner = SwDrawBackend::new(gpu_tex);
-        gpu_inner.scale = transform.scale();
+        gpu_inner.viewport = *transform;
         let gpu = Logging {
             inner: gpu_inner,
             calls: Rc::clone(&self.calls),

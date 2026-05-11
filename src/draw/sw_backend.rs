@@ -1,4 +1,4 @@
-use crate::types::{Color, Fixed, Point, Rect};
+use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
 use super::backend::DrawBackend;
 use super::command::DrawCommand;
@@ -49,16 +49,18 @@ impl PerfCtx {
 
 pub struct SwDrawBackend<'a> {
     pub target: Texture<'a>,
-    pub scale: Fixed,
+    pub viewport: Viewport,
     #[cfg(feature = "perf")]
     pub perf: Option<PerfCtx>,
 }
 
 impl<'a> SwDrawBackend<'a> {
     pub fn new(target: Texture<'a>) -> Self {
+        let w = target.width;
+        let h = target.height;
         Self {
             target,
-            scale: Fixed::ONE,
+            viewport: Viewport::new(w, h, Fixed::ONE),
             #[cfg(feature = "perf")]
             perf: None,
         }

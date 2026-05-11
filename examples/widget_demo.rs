@@ -2,7 +2,7 @@ use mirui::draw::texture::{ColorFormat, Texture};
 use mirui::draw::{Renderer, SwDrawBackend};
 use mirui::ecs::World;
 use mirui::layout::*;
-use mirui::types::{Color, Dimension, DisplayScale, Fixed};
+use mirui::types::{Color, Dimension, Fixed, Viewport};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::render_system;
 use sdl2::event::Event;
@@ -73,7 +73,7 @@ fn main() {
         H as u16,
         ColorFormat::ARGB8888,
     ));
-    let transform = DisplayScale::new(W as u16, H as u16, Fixed::ONE);
+    let transform = Viewport::new(W as u16, H as u16, Fixed::ONE);
     render_system::render(&world, root, &transform, &mut renderer);
     renderer.flush();
 

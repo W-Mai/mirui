@@ -8,7 +8,7 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::{Color, DisplayScale, Fixed, Point, Rect, Transform};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
 use super::{Children, Style, Text, Widget};
 
@@ -371,7 +371,7 @@ fn draw_tree_offset(
     }
 }
 
-fn scale_rects(node: &mut LayoutNode, transform: &DisplayScale) {
+fn scale_rects(node: &mut LayoutNode, transform: &Viewport) {
     node.rect = transform.rect_to_physical(node.rect);
     for child in &mut node.children {
         scale_rects(child, transform);
@@ -391,7 +391,7 @@ fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity
 /// Run the render system: build layout → compute → draw.
 /// Layout is computed in logical pixels; `transform` maps the result up to
 /// physical pixels before draw.
-pub fn render(world: &World, root: Entity, transform: &DisplayScale, renderer: &mut dyn Renderer) {
+pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut dyn Renderer) {
     let (logical_w, logical_h) = transform.logical_size();
     let (physical_w, physical_h) = transform.physical_size();
 
@@ -423,7 +423,7 @@ pub fn render(world: &World, root: Entity, transform: &DisplayScale, renderer: &
 }
 
 /// Compute layout and write ComputedRect to each entity (logical pixels).
-pub fn update_layout(world: &mut World, root: Entity, transform: &DisplayScale) {
+pub fn update_layout(world: &mut World, root: Entity, transform: &Viewport) {
     let (logical_w, logical_h) = transform.logical_size();
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
@@ -463,7 +463,7 @@ fn write_computed_rects(
 pub fn render_region(
     world: &World,
     root: Entity,
-    transform: &DisplayScale,
+    transform: &Viewport,
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
 ) {
@@ -498,11 +498,7 @@ pub fn render_region(
 
 /// Collect the physical-pixel rects of all dirty entities, then remove Dirty flags.
 /// Returns the bounding rect of all dirty regions, or None if nothing dirty.
-pub fn collect_dirty_region(
-    world: &mut World,
-    root: Entity,
-    transform: &DisplayScale,
-) -> Option<Rect> {
+pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewport) -> Option<Rect> {
     use super::dirty::Dirty;
 
     let (logical_w, logical_h) = transform.logical_size();

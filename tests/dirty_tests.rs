@@ -2,7 +2,7 @@
 mod tests {
     use mirui::ecs::World;
     use mirui::layout::*;
-    use mirui::types::{Dimension, DisplayScale, Fixed, Rect};
+    use mirui::types::{Dimension, Fixed, Rect, Viewport};
     use mirui::widget::builder::WidgetBuilder;
     use mirui::widget::dirty::{Dirty, PrevRect};
     use mirui::widget::{Children, Style};
@@ -111,7 +111,7 @@ mod tests {
         assert!(world.get::<Dirty>(child).is_some());
 
         // Collect dirty region
-        let transform = DisplayScale::new(128, 128, Fixed::ONE);
+        let transform = Viewport::new(128, 128, Fixed::ONE);
         let dirty =
             mirui::widget::render_system::collect_dirty_region(&mut world, root, &transform);
 
@@ -143,7 +143,7 @@ mod tests {
             Fixed::from_raw(40 * 256 + 100), // 40.39
         );
 
-        let transform = DisplayScale::new(128, 128, Fixed::ONE);
+        let transform = Viewport::new(128, 128, Fixed::ONE);
         let dirty =
             mirui::widget::render_system::collect_dirty_region(&mut world, root, &transform);
 
@@ -214,7 +214,7 @@ mod tests {
                 continue;
             }
 
-            let transform = DisplayScale::new(128, 128, Fixed::ONE);
+            let transform = Viewport::new(128, 128, Fixed::ONE);
             let dirty =
                 mirui::widget::render_system::collect_dirty_region(&mut world, root, &transform);
 
@@ -323,7 +323,7 @@ mod tests {
 
             // Initial full render
             let mut buf = vec![0u8; BUF_SIZE];
-            let transform = DisplayScale::new(W, H, Fixed::ONE);
+            let transform = Viewport::new(W, H, Fixed::ONE);
             {
                 let mut renderer = SwDrawBackend::new(Texture::new(
                     &mut buf,
@@ -460,7 +460,7 @@ mod tests {
                 ));
             }
 
-            let transform = DisplayScale::new(W, H, Fixed::ONE);
+            let transform = Viewport::new(W, H, Fixed::ONE);
             let mut buf = vec![0u8; BUF_SIZE];
             {
                 let mut renderer = SwDrawBackend::new(Texture::new(

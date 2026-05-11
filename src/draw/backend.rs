@@ -6,7 +6,7 @@ use super::texture::Texture;
 /// Rasterization interface. All coordinate parameters (`area`, `clip`,
 /// `pos`, path points, widths, radii, `dst`, `dst_size`) are in
 /// **logical pixels**; implementations convert to physical internally
-/// (typically by holding a `DisplayScale` field).
+/// (typically by holding a `Viewport` field).
 pub trait DrawBackend {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8);
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8);

@@ -5,7 +5,7 @@ pub mod sdl;
 pub mod sdl_gpu;
 
 use crate::draw::texture::Texture;
-use crate::types::{DisplayScale, Fixed, Rect};
+use crate::types::{Fixed, Rect, Viewport};
 
 /// Display information
 pub struct DisplayInfo {
@@ -17,8 +17,8 @@ pub struct DisplayInfo {
 
 impl DisplayInfo {
     #[inline]
-    pub fn display_scale(&self) -> DisplayScale {
-        DisplayScale::new(self.width, self.height, self.scale)
+    pub fn viewport(&self) -> Viewport {
+        Viewport::new(self.width, self.height, self.scale)
     }
 }
 

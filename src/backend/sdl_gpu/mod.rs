@@ -23,7 +23,7 @@ use crate::draw::command::DrawCommand;
 use crate::draw::path::Path;
 use crate::draw::renderer::Renderer;
 use crate::draw::texture::{ColorFormat, Texture};
-use crate::types::{Color, DisplayScale, Fixed, Point, Rect};
+use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
 use super::{Backend, DisplayInfo, InputEvent};
 
@@ -169,7 +169,7 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
     fn make<'a>(
         &'a mut self,
         backend: &'a mut SdlGpuBackend,
-        transform: &DisplayScale,
+        transform: &Viewport,
     ) -> SdlGpuRenderer<'a> {
         let scale = transform.scale();
         let (canvas, label_cache, tessellator) = backend.parts_mut();
