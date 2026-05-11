@@ -1,19 +1,18 @@
 use super::{Fixed, Point, Rect};
 
-/// Maps between logical pixels (what `LayoutStyle` is written in) and
-/// physical pixels (what the framebuffer holds).
+/// Screen DPI scale: logical↔physical pixel conversion.
 ///
-/// All `screen_w / screen_h / scale` triples in the render pipeline collapse
-/// into a single value of this type. `scale = 1` means 1 logical pixel ==
-/// 1 physical pixel; `scale = 2` is a typical HiDPI desktop ratio.
+/// `scale = 1` means 1 logical pixel == 1 physical pixel; `scale = 2` is
+/// a typical HiDPI desktop ratio. Widget-level 2D affine transforms are
+/// a separate concern — see [`super::Transform`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct CoordTransform {
+pub struct DisplayScale {
     physical_w: u16,
     physical_h: u16,
     scale: Fixed,
 }
 
-impl CoordTransform {
+impl DisplayScale {
     /// Construct. `scale <= 0` is normalized to 1 so downstream consumers
     /// never have to guard against a zero scale.
     #[inline]
@@ -92,20 +91,20 @@ mod tests {
 
     #[test]
     fn zero_scale_is_normalized_to_one() {
-        let t = CoordTransform::new(100, 50, Fixed::ZERO);
+        let t = DisplayScale::new(100, 50, Fixed::ZERO);
         assert_eq!(t.scale(), Fixed::ONE);
         assert_eq!(t.logical_size(), (100, 50));
     }
 
     #[test]
     fn logical_size_divides_physical() {
-        let t = CoordTransform::new(200, 100, Fixed::from_int(2));
+        let t = DisplayScale::new(200, 100, Fixed::from_int(2));
         assert_eq!(t.logical_size(), (100, 50));
     }
 
     #[test]
     fn point_roundtrip_within_fixed_precision() {
-        let t = CoordTransform::new(200, 100, Fixed::from_int(2));
+        let t = DisplayScale::new(200, 100, Fixed::from_int(2));
         let p = Point {
             x: Fixed::from_int(10),
             y: Fixed::from_int(20),
@@ -119,7 +118,7 @@ mod tests {
 
     #[test]
     fn rect_bounds_ceil_bottom_right() {
-        let t = CoordTransform::new(200, 100, Fixed::from_f32(1.5));
+        let t = DisplayScale::new(200, 100, Fixed::from_f32(1.5));
         let r = Rect {
             x: Fixed::ZERO,
             y: Fixed::ZERO,

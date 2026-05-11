@@ -8,7 +8,7 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::{Color, CoordTransform, Fixed, Point, Rect};
+use crate::types::{Color, DisplayScale, Fixed, Point, Rect};
 
 use super::{Children, Style, Text, Widget};
 
@@ -351,7 +351,7 @@ fn draw_tree_offset(
     }
 }
 
-fn scale_rects(node: &mut LayoutNode, transform: &CoordTransform) {
+fn scale_rects(node: &mut LayoutNode, transform: &DisplayScale) {
     node.rect = transform.rect_to_physical(node.rect);
     for child in &mut node.children {
         scale_rects(child, transform);
@@ -371,12 +371,7 @@ fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity
 /// Run the render system: build layout → compute → draw.
 /// Layout is computed in logical pixels; `transform` maps the result up to
 /// physical pixels before draw.
-pub fn render(
-    world: &World,
-    root: Entity,
-    transform: &CoordTransform,
-    renderer: &mut dyn Renderer,
-) {
+pub fn render(world: &World, root: Entity, transform: &DisplayScale, renderer: &mut dyn Renderer) {
     let (logical_w, logical_h) = transform.logical_size();
     let (physical_w, physical_h) = transform.physical_size();
 
@@ -408,7 +403,7 @@ pub fn render(
 }
 
 /// Compute layout and write ComputedRect to each entity (logical pixels).
-pub fn update_layout(world: &mut World, root: Entity, transform: &CoordTransform) {
+pub fn update_layout(world: &mut World, root: Entity, transform: &DisplayScale) {
     let (logical_w, logical_h) = transform.logical_size();
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
@@ -448,7 +443,7 @@ fn write_computed_rects(
 pub fn render_region(
     world: &World,
     root: Entity,
-    transform: &CoordTransform,
+    transform: &DisplayScale,
     dirty_rect: &Rect,
     renderer: &mut dyn Renderer,
 ) {
@@ -486,7 +481,7 @@ pub fn render_region(
 pub fn collect_dirty_region(
     world: &mut World,
     root: Entity,
-    transform: &CoordTransform,
+    transform: &DisplayScale,
 ) -> Option<Rect> {
     use super::dirty::Dirty;
 

@@ -1,10 +1,12 @@
-pub mod coord;
 pub mod dimension;
 pub mod fixed;
+pub mod scale;
+pub mod transform;
 
-pub use coord::CoordTransform;
 pub use dimension::Dimension;
 pub use fixed::Fixed;
+pub use scale::DisplayScale;
+pub use transform::Transform;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Point {

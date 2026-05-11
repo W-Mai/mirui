@@ -10,7 +10,7 @@ use crate::draw::renderer::Renderer;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::plugin::Plugin;
-use crate::types::{CoordTransform, Rect};
+use crate::types::{DisplayScale, Rect};
 use crate::widget::render_system;
 
 /// Monotonic clock the App uses to measure per-frame render time. Plugins can
@@ -32,8 +32,7 @@ pub trait RendererFactory<B: Backend> {
     where
         Self: 'a,
         B: 'a;
-    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &CoordTransform)
-    -> Self::Renderer<'a>;
+    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &DisplayScale) -> Self::Renderer<'a>;
 }
 
 /// Default factory that produces plain `SwDrawBackend<'a>` on top of any
@@ -46,7 +45,7 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwDrawBackendFactory {
     where
         Self: 'a,
         B: 'a;
-    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &CoordTransform) -> SwDrawBackend<'a> {
+    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &DisplayScale) -> SwDrawBackend<'a> {
         let tex = backend.framebuffer();
         let mut r = SwDrawBackend::new(tex);
         r.scale = transform.scale();
@@ -116,7 +115,7 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
     pub fn render(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
-        let transform = info.transform();
+        let transform = info.display_scale();
 
         for p in &mut self.plugins {
             p.pre_render(&mut self.world);
@@ -143,7 +142,7 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
     pub fn dirty_region(&mut self) -> Option<Rect> {
         let root = self.root?;
         let info = self.backend.display_info();
-        let transform = info.transform();
+        let transform = info.display_scale();
         render_system::collect_dirty_region(&mut self.world, root, &transform)
     }
 
@@ -185,7 +184,7 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
                         }
                         if let Some(root) = self.root {
                             let (lw, lh) = *logical.get_or_insert_with(|| {
-                                self.backend.display_info().transform().logical_size()
+                                self.backend.display_info().display_scale().logical_size()
                             });
                             button_system(&mut self.world, root, &event, lw, lh);
                             scroll_system(&mut self.world, root, &event, lw, lh);
@@ -215,7 +214,7 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
     pub fn render_dirty(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
-        let transform = info.transform();
+        let transform = info.display_scale();
 
         for p in &mut self.plugins {
             p.pre_render(&mut self.world);
