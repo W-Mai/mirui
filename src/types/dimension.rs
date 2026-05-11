@@ -135,12 +135,11 @@ mod tests {
 
     #[test]
     fn resolve_percent_large_parent() {
-        // Regression: pre-fix, any parent > ~328 px overflowed the Fixed
-        // mul/div pipeline and Percent(100) produced a negative Fixed.
-        let cases = [640, 1280, 1920, 4096, 8192];
-        for parent in cases {
-            let d = Dimension::percent(100);
-            let got = d.resolve(Fixed::from_int(parent)).unwrap();
+        // Pre-i64-div, these parents all overflowed to negative Fixed.
+        for parent in [640, 1280, 1920, 4096, 8192] {
+            let got = Dimension::percent(100)
+                .resolve(Fixed::from_int(parent))
+                .unwrap();
             assert_eq!(got.to_int(), parent, "Percent(100) on parent={parent}");
         }
     }

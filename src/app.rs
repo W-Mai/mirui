@@ -152,12 +152,8 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
         self.backend.poll_event()
     }
 
-    /// Simple run loop: systems + render + poll until quit.
-    ///
-    /// Render strategy follows `Backend::persistence()`: CPU backends
-    /// (Persistent backbuffer) take the `render_dirty` fast path; GPU
-    /// backends whose swap chain throws away the back buffer after
-    /// `flush()` (Transient) get a full `render()` every frame.
+    /// Systems + render + poll until quit. Persistent backends take the
+    /// `render_dirty` fast path; Transient backends render every frame.
     pub fn run(&mut self) {
         let transient =
             self.backend.persistence() == crate::backend::BackbufferPersistence::Transient;

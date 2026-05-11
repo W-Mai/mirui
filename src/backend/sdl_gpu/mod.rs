@@ -43,6 +43,8 @@ impl SdlGpuBackend {
     }
 
     pub fn new_with_vsync(title: &str, width: u16, height: u16, vsync: bool) -> Self {
+        sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "0");
+
         let sdl = sdl2::init().expect("SDL2 init failed");
         let video = sdl.video().expect("SDL2 video init failed");
         let window = video

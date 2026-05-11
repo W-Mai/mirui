@@ -32,27 +32,17 @@ pub enum InputEvent {
     Quit,
 }
 
-/// Does the backbuffer retain the previous frame's content at the start
-/// of the next render?
+/// Does the backbuffer survive `flush()`?
 ///
-/// CPU raster backends own their framebuffer bytes and are naturally
-/// [`Persistent`]. GPU backends whose presentation goes through a swap
-/// chain (SDL accelerated / wgpu surface / Web canvas without
-/// `preserveDrawingBuffer`) default to [`Transient`] — the back buffer
-/// after `flush()` is undefined until the next full frame rewrites it.
-///
-/// `App::run` reads this once at startup and picks full-frame render
-/// vs. dirty-only render accordingly, without backends having to
-/// implement their own offscreen-composite dance.
+/// CPU raster backends are [`Persistent`]; swap-chain GPU backends
+/// (SDL accelerated / wgpu / Web canvas) are [`Transient`]. `App::run`
+/// picks dirty-only vs. full-frame rendering based on this.
 ///
 /// [`Persistent`]: Self::Persistent
 /// [`Transient`]: Self::Transient
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackbufferPersistence {
-    /// Backbuffer survives `flush()` — App::run can do dirty-only redraws.
     Persistent,
-    /// Backbuffer is undefined after `flush()` — App::run must redraw
-    /// every frame.
     Transient,
 }
 
@@ -76,12 +66,8 @@ pub trait Backend {
         Rect::new(0, 0, info.width, info.height)
     }
 
-    /// Backbuffer behaviour across `flush()` calls. Defaults to
-    /// [`Persistent`] so every existing CPU backend stays correct without
-    /// any code change. GPU backends override to [`Transient`].
-    ///
-    /// [`Persistent`]: BackbufferPersistence::Persistent
-    /// [`Transient`]: BackbufferPersistence::Transient
+    /// Defaults to [`BackbufferPersistence::Persistent`]; swap-chain
+    /// GPU backends override to [`BackbufferPersistence::Transient`].
     fn persistence(&self) -> BackbufferPersistence {
         BackbufferPersistence::Persistent
     }
