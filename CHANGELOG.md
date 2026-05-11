@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-05-12
+
+### 🌀 Widget-level 2D Transforms
+
+The `Transform` stub reserved in v0.7.0 is now live. Widgets can carry an arbitrary 2D affine — translate, rotate, scale, skew, or any composition — and the render tree accumulates them per-branch so ancestor transforms compose into descendant paint. Layout is untouched; the transform applies in the paint stage only, matching CSS and Flutter semantics.
+
+Rotation pivots on the widget's centre by default (transform-origin = center), so `.rotate(30)` does what users expect without first translating.
+
+### Added
+
+- **`Transform::{translate, scale, rotate_deg, skew_deg, compose, apply_point, apply_rect_bbox, determinant, inverse, classify}`** — the full 2D affine API. `classify` returns a `TransformClass` (Identity / Translate / AxisAlignedScale / Rotate90 / General) so backends can fast-path common cases.
+- **`WidgetTransform(pub Transform)`** component. Attach to any entity; absent means identity, pays zero cost.
+- **`WidgetBuilder` chain API**: `.transform(t)`, `.apply_transform(t)`, `.rotate(deg)`, `.translate(tx, ty)`, `.scale_xy(sx, sy)`. `apply_transform` composes on top of the existing value so `.rotate(30).translate(10, 0)` reads left-to-right and applies right-first (CSS order).
+- **`Viewport::as_transform`** — returns the scale-only `Transform` corresponding to the viewport's logical→physical mapping. Backends compose `viewport × widget_tf` once at entry and inverse-sample with the combined matrix.
+- **`examples/transform_demo.rs`** — two spinning widgets (solid box + rotating icon) driven by a per-frame angle step.
+
+### Changed
+
+- `render_system`'s `draw_tree` / `draw_tree_offset` accumulate transforms top-down. Identity-only scenes (no `WidgetTransform` anywhere) hit the same fast paths as v0.7.1; the accumulation branch short-circuits on `is_identity`.
+- `SwDrawBackend::draw` and `SdlGpuRenderer::draw` replace the previous `assert!(is_identity)` with a classify-and-dispatch step. Identity and Translate route through the existing raster paths with a pre-offset rect/point; anything else on SwDrawBackend lands on a general inverse-sampling rasterizer for `Fill` (radius=0) and `Blit`.
+- `event::hit_test` walks the tree once to accumulate each entity's effective transform, then inverse-transforms the probe point before rect containment test. Rotated or scaled widgets hit correctly; singular matrices (scale 0) are unclickable.
+
+### Known Limitations
+
+Until a v0.8.x follow-up spec:
+
+- **`SdlGpuRenderer` only supports Identity + Translate.** `unimplemented!()` on AxisAlignedScale / Rotate90 / General. Use `SwDrawBackend` for transform-heavy scenes.
+- **`Fill` with `radius > 0`, `Border`, `Label`, `Line`, `Arc`** all `unimplemented!` under non-axis-aligned transforms on the SW backend. `Fill` with `radius=0` and `Blit` do work.
+- **No fast path for AxisAlignedScale or Rotate90.** They both route through the general per-pixel inverse-sampling path — correct but slower than the dedicated paths v0.7.1 has for untransformed scale blits. Scheduled for `widget-transform-fast-path` in v0.8.x.
+
+### Performance
+
+ESP32-C3 three-body, identity transform (no WidgetTransform attached): 5.0-5.7 ms / ~180 fps — matches v0.7.1's 5.1-5.3 ms within the noise band. Opt-in cost only: widgets without `WidgetTransform` don't pay the tree-accumulation math, and the classify step folds to a single equality against the IDENTITY constant.
+
 ## [0.7.1] - 2026-05-11
 
 ### ⚡ Faster `Blit` on CPU Backends
