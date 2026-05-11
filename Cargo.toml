@@ -110,6 +110,10 @@ required-features = ["sdl-gpu"]
 name = "perf_bench"
 required-features = ["sdl"]
 
+[[example]]
+name = "transform_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true
