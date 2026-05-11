@@ -1,4 +1,4 @@
-use crate::types::{Color, Fixed, Point, Rect, Viewport};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
 use super::backend::DrawBackend;
 use super::command::DrawCommand;
@@ -148,6 +148,52 @@ impl<'a> SwDrawBackend<'a> {
                 self.target.blend_pixel_int(px, py, color, final_alpha);
             }
         });
+    }
+
+    fn draw_transformed(&mut self, cmd: &DrawCommand, clip: &Rect, tf: &Transform) {
+        let vp = self.viewport.as_transform();
+        let phys_tf = vp.compose(tf);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        match cmd {
+            DrawCommand::Fill {
+                area, color, opa, ..
+            } => {
+                let phys_area = self.viewport.rect_to_physical(*area);
+                fill_rect_transformed(
+                    &mut self.target,
+                    phys_area,
+                    phys_clip,
+                    &phys_tf,
+                    color,
+                    *opa,
+                );
+            }
+            DrawCommand::Blit {
+                pos, size, texture, ..
+            } => {
+                let phys_pos = self.viewport.point_to_physical(*pos);
+                let phys_size = self.viewport.point_to_physical(*size);
+                let src_rect = Rect::new(0, 0, texture.width, texture.height);
+                let phys_dst = Rect {
+                    x: phys_pos.x,
+                    y: phys_pos.y,
+                    w: phys_size.x,
+                    h: phys_size.y,
+                };
+                blit_transformed(
+                    &mut self.target,
+                    texture,
+                    &src_rect,
+                    phys_dst,
+                    phys_clip,
+                    &phys_tf,
+                );
+            }
+            _ => unimplemented!(
+                "sw backend: {:?} under non-axis-aligned transform not yet supported",
+                core::mem::discriminant(cmd)
+            ),
+        }
     }
 }
 
@@ -483,6 +529,110 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
     }
 
     fn flush(&mut self) {}
+}
+
+/// Rasterize a solid-colour rect under an arbitrary transform by
+/// inverse-sampling every pixel in the transformed bbox. Caller is
+/// responsible for supplying the physical-space transform and clip.
+fn fill_rect_transformed(
+    dst: &mut Texture,
+    phys_rect: Rect,
+    phys_clip: Rect,
+    tf: &Transform,
+    color: &Color,
+    opa: u8,
+) {
+    let Some(inv) = tf.inverse() else { return };
+    let bbox = tf.apply_rect_bbox(phys_rect);
+    let Some(draw_area) = bbox.intersect(&phys_clip) else {
+        return;
+    };
+    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let Some(draw_area) = draw_area.intersect(&screen) else {
+        return;
+    };
+    let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
+    let rx0 = phys_rect.x;
+    let ry0 = phys_rect.y;
+    let rx1 = phys_rect.x + phys_rect.w;
+    let ry1 = phys_rect.y + phys_rect.h;
+    for py in px_y0..px_y1 {
+        for px in px_x0..px_x1 {
+            let sample = inv.apply_point(Point {
+                x: Fixed::from_int(px) + Fixed::from_raw(128),
+                y: Fixed::from_int(py) + Fixed::from_raw(128),
+            });
+            if sample.x < rx0 || sample.x >= rx1 || sample.y < ry0 || sample.y >= ry1 {
+                continue;
+            }
+            if opa == 255 {
+                dst.set_pixel(px, py, color);
+            } else {
+                dst.blend_pixel_int(px, py, color, opa);
+            }
+        }
+    }
+}
+
+/// Texture blit under an arbitrary transform. Uses nearest-neighbour
+/// inverse sampling; matches the existing identity blit sampling
+/// semantics so rotating a sprite 0° degenerates to the old output.
+#[allow(clippy::too_many_arguments)]
+fn blit_transformed(
+    dst: &mut Texture,
+    src: &Texture,
+    src_rect: &Rect,
+    phys_dst_rect: Rect,
+    phys_clip: Rect,
+    tf: &Transform,
+) {
+    let Some(inv) = tf.inverse() else { return };
+    let bbox = tf.apply_rect_bbox(phys_dst_rect);
+    let Some(draw_area) = bbox.intersect(&phys_clip) else {
+        return;
+    };
+    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let Some(draw_area) = draw_area.intersect(&screen) else {
+        return;
+    };
+    let (dx0, dy0, dx1, dy1) = draw_area.pixel_bounds();
+
+    let (sx0, sy0, sw, sh) = src_rect.to_px();
+    let dst_x0 = phys_dst_rect.x;
+    let dst_y0 = phys_dst_rect.y;
+    let dst_w = phys_dst_rect.w;
+    let dst_h = phys_dst_rect.h;
+    if dst_w <= Fixed::ZERO || dst_h <= Fixed::ZERO || sw == 0 || sh == 0 {
+        return;
+    }
+
+    for py in dy0..dy1 {
+        for px in dx0..dx1 {
+            let dp = inv.apply_point(Point {
+                x: Fixed::from_int(px) + Fixed::from_raw(128),
+                y: Fixed::from_int(py) + Fixed::from_raw(128),
+            });
+            let u = dp.x - dst_x0;
+            let v = dp.y - dst_y0;
+            if u < Fixed::ZERO || v < Fixed::ZERO || u >= dst_w || v >= dst_h {
+                continue;
+            }
+            let sx = sx0 + (u * Fixed::from_int(sw as i32) / dst_w).to_int();
+            let sy = sy0 + (v * Fixed::from_int(sh as i32) / dst_h).to_int();
+            if sx < sx0 || sx >= sx0 + sw as i32 || sy < sy0 || sy >= sy0 + sh as i32 {
+                continue;
+            }
+            let c = src.get_pixel(sx, sy);
+            if c.a == 0 {
+                continue;
+            }
+            if c.a == 255 {
+                dst.set_pixel(px, py, &c);
+            } else {
+                dst.blend_pixel_int(px, py, &c, c.a);
+            }
+        }
+    }
 }
 
 #[inline]
@@ -1226,13 +1376,15 @@ impl Renderer for SwDrawBackend<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
         let tf = cmd.transform();
-        let (tx, ty) = match tf.classify() {
+        let class = tf.classify();
+        if !matches!(class, TransformClass::Identity | TransformClass::Translate) {
+            self.draw_transformed(cmd, clip, &tf);
+            return;
+        }
+        let (tx, ty) = match class {
             TransformClass::Identity => (Fixed::ZERO, Fixed::ZERO),
             TransformClass::Translate => (tf.tx, tf.ty),
-            _ => unimplemented!(
-                "sw backend: transform class {:?} not yet handled",
-                tf.classify()
-            ),
+            _ => unreachable!(),
         };
         match cmd {
             DrawCommand::Fill {
@@ -1941,6 +2093,34 @@ mod tests {
         assert_eq!(dst[0], 0);
         assert_eq!(dst[1], 0);
         assert_ne!(dst[2], 0);
+    }
+
+    #[test]
+    fn fill_rect_transformed_90deg_rotation() {
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let mut dst = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let rect = Rect::new(6, 6, 4, 4);
+        let cx = rect.x + rect.w / Fixed::from_int(2);
+        let cy = rect.y + rect.h / Fixed::from_int(2);
+        let tf = Transform::translate(cx, cy)
+            .compose(&Transform::rotate_deg(Fixed::from_int(90)))
+            .compose(&Transform::translate(Fixed::ZERO - cx, Fixed::ZERO - cy));
+        let red = Color::rgb(255, 0, 0);
+        fill_rect_transformed(&mut dst, rect, Rect::new(0, 0, 16, 16), &tf, &red, 255);
+
+        let mut painted = 0;
+        for y in 0..16 {
+            for x in 0..16 {
+                if dst.get_pixel(x, y).r == 255 {
+                    painted += 1;
+                }
+            }
+        }
+        assert!(
+            (12..=20).contains(&painted),
+            "expected ~16 painted pixels, got {}",
+            painted
+        );
     }
 
     #[test]

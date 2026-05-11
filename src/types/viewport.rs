@@ -1,4 +1,4 @@
-use super::{Fixed, Point, Rect};
+use super::{Fixed, Point, Rect, Transform};
 
 /// Mapping from a widget's logical coordinate space to the physical
 /// pixels of the backing surface — DPI scale today, with rotation and
@@ -84,6 +84,11 @@ impl Viewport {
             x: p.x / self.scale,
             y: p.y / self.scale,
         }
+    }
+
+    #[inline]
+    pub fn as_transform(&self) -> Transform {
+        Transform::scale(self.scale, self.scale)
     }
 }
 
