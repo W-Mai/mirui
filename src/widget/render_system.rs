@@ -4,6 +4,7 @@ use crate::components::button::Button;
 use crate::components::checkbox::Checkbox;
 use crate::components::image::Image;
 use crate::components::progress_bar::ProgressBar;
+use crate::components::transform::WidgetTransform;
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
@@ -11,6 +12,24 @@ use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
 use super::{Children, Style, Text, Widget};
+
+/// Compose `parent` with the entity's local transform (if any),
+/// wrapped so rotation/scale pivot on the widget's centre instead
+/// of its top-left corner.
+fn effective_transform(parent: &Transform, world: &World, entity: Entity, rect: Rect) -> Transform {
+    let local = match world.get::<WidgetTransform>(entity) {
+        Some(t) if !t.0.is_identity() => t.0,
+        _ => return *parent,
+    };
+    let cx = rect.x + rect.w / Fixed::from_int(2);
+    let cy = rect.y + rect.h / Fixed::from_int(2);
+    let to_origin = Transform::translate(Fixed::ZERO - cx, Fixed::ZERO - cy);
+    let from_origin = Transform::translate(cx, cy);
+    parent
+        .compose(&from_origin)
+        .compose(&local)
+        .compose(&to_origin)
+}
 
 /// Recursively build a LayoutNode tree from ECS entities
 fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
@@ -44,17 +63,25 @@ fn draw_tree(
     idx: &mut usize,
     renderer: &mut dyn Renderer,
     clip: &Rect,
+    parent_transform: &Transform,
 ) {
-    // Skip entire subtree if node doesn't intersect clip
     if !rects_intersect(&node.rect, clip) {
         *idx += count_nodes(node);
         return;
     }
 
+    let entity = if *idx < entities.len() {
+        entities[*idx]
+    } else {
+        Entity {
+            id: u32::MAX,
+            generation: 0,
+        }
+    };
+    let tf = effective_transform(parent_transform, world, entity, node.rect);
+
     if *idx < entities.len() {
-        let entity = entities[*idx];
         if let Some(style) = world.get::<Style>(entity) {
-            // Button overrides bg_color with pressed state
             let bg = if let Some(btn) = world.get::<Button>(entity) {
                 Some(btn.current_color())
             } else if let Some(cb) = world.get::<Checkbox>(entity) {
@@ -67,7 +94,7 @@ fn draw_tree(
                 renderer.draw(
                     &DrawCommand::Fill {
                         area: node.rect,
-                        transform: Transform::IDENTITY,
+                        transform: tf,
                         color,
                         radius: style.border_radius,
                         opa: 255,
@@ -80,7 +107,7 @@ fn draw_tree(
                     renderer.draw(
                         &DrawCommand::Border {
                             area: node.rect,
-                            transform: Transform::IDENTITY,
+                            transform: tf,
                             color: border_color,
                             width: style.border_width,
                             radius: style.border_radius,
@@ -90,12 +117,11 @@ fn draw_tree(
                     );
                 }
             }
-            // ProgressBar: draw track + fill
             if let Some(pb) = world.get::<ProgressBar>(entity) {
                 renderer.draw(
                     &DrawCommand::Fill {
                         area: node.rect,
-                        transform: Transform::IDENTITY,
+                        transform: tf,
                         color: pb.track_color,
                         radius: style.border_radius,
                         opa: 255,
@@ -112,7 +138,7 @@ fn draw_tree(
                                 w: fill_w,
                                 h: node.rect.h,
                             },
-                            transform: Transform::IDENTITY,
+                            transform: tf,
                             color: pb.fill_color,
                             radius: style.border_radius,
                             opa: 255,
@@ -121,7 +147,6 @@ fn draw_tree(
                     );
                 }
             }
-            // Image: blit pixels
             if let Some(img) = world.get::<Image>(entity) {
                 renderer.draw(
                     &DrawCommand::Blit {
@@ -133,13 +158,12 @@ fn draw_tree(
                             x: node.rect.w,
                             y: node.rect.h,
                         },
-                        transform: Transform::IDENTITY,
+                        transform: tf,
                         texture: img.texture,
                     },
                     clip,
                 );
             }
-            // Draw text if present
             if let Some(text) = world.get::<Text>(entity) {
                 let color = style.text_color.unwrap_or(Color::rgb(255, 255, 255));
                 renderer.draw(
@@ -148,7 +172,7 @@ fn draw_tree(
                             x: node.rect.x + Fixed::from_int(2),
                             y: node.rect.y + Fixed::from_int(2),
                         },
-                        transform: Transform::IDENTITY,
+                        transform: tf,
                         text: &text.0,
                         color,
                         opa: 255,
@@ -159,16 +183,6 @@ fn draw_tree(
         }
     }
     *idx += 1;
-
-    // Check if this widget has ScrollOffset — clip children + offset
-    let entity = if *idx > 0 && (*idx - 1) < entities.len() {
-        entities[*idx - 1]
-    } else {
-        Entity {
-            id: u32::MAX,
-            generation: 0,
-        }
-    };
 
     let (child_clip, scroll_x, scroll_y) =
         if let Some(scroll) = world.get::<crate::components::scroll::ScrollOffset>(entity) {
@@ -197,6 +211,7 @@ fn draw_tree(
             &child_clip,
             scroll_x,
             scroll_y,
+            &tf,
         );
     }
 }
@@ -211,6 +226,7 @@ fn draw_tree_offset(
     clip: &Rect,
     offset_x: Fixed,
     offset_y: Fixed,
+    parent_transform: &Transform,
 ) {
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
@@ -224,8 +240,17 @@ fn draw_tree_offset(
         return;
     }
 
+    let entity = if *idx < entities.len() {
+        entities[*idx]
+    } else {
+        Entity {
+            id: u32::MAX,
+            generation: 0,
+        }
+    };
+    let tf = effective_transform(parent_transform, world, entity, shifted_rect);
+
     if *idx < entities.len() {
-        let entity = entities[*idx];
         if let Some(style) = world.get::<Style>(entity) {
             let bg = if let Some(btn) = world.get::<Button>(entity) {
                 Some(btn.current_color())
@@ -239,7 +264,7 @@ fn draw_tree_offset(
                 renderer.draw(
                     &DrawCommand::Fill {
                         area: shifted_rect,
-                        transform: Transform::IDENTITY,
+                        transform: tf,
                         color,
                         radius: style.border_radius,
                         opa: 255,
@@ -252,7 +277,7 @@ fn draw_tree_offset(
                     renderer.draw(
                         &DrawCommand::Border {
                             area: shifted_rect,
-                            transform: Transform::IDENTITY,
+                            transform: tf,
                             color: border_color,
                             width: style.border_width,
                             radius: style.border_radius,
@@ -266,7 +291,7 @@ fn draw_tree_offset(
                 renderer.draw(
                     &DrawCommand::Fill {
                         area: shifted_rect,
-                        transform: Transform::IDENTITY,
+                        transform: tf,
                         color: pb.track_color,
                         radius: style.border_radius,
                         opa: 255,
@@ -283,7 +308,7 @@ fn draw_tree_offset(
                                 w: fill_w,
                                 h: shifted_rect.h,
                             },
-                            transform: Transform::IDENTITY,
+                            transform: tf,
                             color: pb.fill_color,
                             radius: style.border_radius,
                             opa: 255,
@@ -303,7 +328,7 @@ fn draw_tree_offset(
                             x: shifted_rect.w,
                             y: shifted_rect.h,
                         },
-                        transform: Transform::IDENTITY,
+                        transform: tf,
                         texture: img.texture,
                     },
                     clip,
@@ -317,7 +342,7 @@ fn draw_tree_offset(
                             x: shifted_rect.x + Fixed::from_int(2),
                             y: shifted_rect.y + Fixed::from_int(2),
                         },
-                        transform: Transform::IDENTITY,
+                        transform: tf,
                         text: &text.0,
                         color,
                         opa: 255,
@@ -329,17 +354,8 @@ fn draw_tree_offset(
     }
     *idx += 1;
 
-    // Recurse — nested scroll containers stack offsets
-    let cur_entity = if *idx > 0 && (*idx - 1) < entities.len() {
-        entities[*idx - 1]
-    } else {
-        Entity {
-            id: u32::MAX,
-            generation: 0,
-        }
-    };
     let (child_clip, sx, sy) =
-        if let Some(scroll) = world.get::<crate::components::scroll::ScrollOffset>(cur_entity) {
+        if let Some(scroll) = world.get::<crate::components::scroll::ScrollOffset>(entity) {
             let cx = clip.x.max(shifted_rect.x);
             let cy = clip.y.max(shifted_rect.y);
             let cx2 = (clip.x + clip.w).min(shifted_rect.x + shifted_rect.w);
@@ -359,7 +375,17 @@ fn draw_tree_offset(
         };
 
     for child in &node.children {
-        draw_tree_offset(child, world, entities, idx, renderer, &child_clip, sx, sy);
+        draw_tree_offset(
+            child,
+            world,
+            entities,
+            idx,
+            renderer,
+            &child_clip,
+            sx,
+            sy,
+            &tf,
+        );
     }
 }
 
@@ -400,7 +426,15 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
     collect_entities_preorder(world, root, &mut entities);
 
     let mut idx = 0;
-    draw_tree(&layout_tree, world, &entities, &mut idx, renderer, &clip);
+    draw_tree(
+        &layout_tree,
+        world,
+        &entities,
+        &mut idx,
+        renderer,
+        &clip,
+        &Transform::IDENTITY,
+    );
 }
 
 /// Compute layout and write ComputedRect to each entity (logical pixels).
@@ -473,6 +507,7 @@ pub fn render_region(
         &mut idx,
         renderer,
         dirty_rect,
+        &Transform::IDENTITY,
     );
 }
 
