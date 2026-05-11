@@ -42,9 +42,9 @@ impl<B: DrawBackend> DrawBackend for Logging<B> {
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
         self.inner.stroke_path(path, clip, width, color, opa);
     }
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, clip: &Rect) {
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
         *self.calls.borrow_mut() += 1;
-        self.inner.blit(src, src_rect, dst, clip);
+        self.inner.blit(src, src_rect, dst, dst_size, clip);
     }
     fn clear(&mut self, area: &Rect, color: &Color) {
         *self.calls.borrow_mut() += 1;

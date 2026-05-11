@@ -1,7 +1,7 @@
 use mirui::draw::texture::{ColorFormat, Texture};
 use mirui::draw::{DrawCommand, Renderer, SwDrawBackend};
 use mirui::layout::*;
-use mirui::types::{Color, Dimension, Fixed, Rect};
+use mirui::types::{Color, Dimension, Fixed, Rect, Transform};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
@@ -48,6 +48,7 @@ fn draw_node(renderer: &mut SwDrawBackend, node: &LayoutNode, clip: &Rect, depth
         renderer.draw(
             &DrawCommand::Fill {
                 area: node.rect,
+                transform: Transform::IDENTITY,
                 color,
                 radius: Fixed::ZERO,
                 opa: 220,
@@ -139,6 +140,7 @@ fn main() {
     renderer.draw(
         &DrawCommand::Fill {
             area: clip,
+            transform: Transform::IDENTITY,
             color: Color::rgb(30, 30, 46),
             radius: Fixed::ZERO,
             opa: 255,

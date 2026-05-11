@@ -47,9 +47,9 @@ impl<B: DrawBackend> DrawBackend for Logging<B> {
         self.log("stroke_path");
         self.inner.stroke_path(path, clip, width, color, opa);
     }
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, clip: &Rect) {
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
         self.log("blit");
-        self.inner.blit(src, src_rect, dst, clip);
+        self.inner.blit(src, src_rect, dst, dst_size, clip);
     }
     fn clear(&mut self, area: &Rect, color: &Color) {
         self.log("clear");
@@ -183,6 +183,10 @@ fn main() {
                 Point {
                     x: Fixed::from_int(dx),
                     y: Fixed::from_int(260),
+                },
+                Point {
+                    x: Fixed::from(sprite.width),
+                    y: Fixed::from(sprite.height),
                 },
                 &clip,
             );

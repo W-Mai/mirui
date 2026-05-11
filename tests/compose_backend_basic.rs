@@ -9,7 +9,7 @@ use std::cell::Cell;
 use mirui::draw::backend::DrawBackend;
 use mirui::draw::path::Path;
 use mirui::draw::texture::{ColorFormat, Texture};
-use mirui::types::{Color, Fixed, Point, Rect};
+use mirui::types::{Color, Fixed, Point, Rect, Transform};
 use mirui_macros::compose_backend;
 
 #[derive(Default)]
@@ -47,7 +47,7 @@ impl DrawBackend for Dummy {
             .stroke_path
             .set(self.counts.stroke_path.get() + 1);
     }
-    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: &Rect) {
+    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect) {
         self.counts.blit.set(self.counts.blit.get() + 1);
     }
     fn clear(&mut self, _: &Rect, _: &Color) {
@@ -142,7 +142,7 @@ fn explicit_routes_go_to_gpu() {
     let rect = zero_rect();
     let color = Color::rgb(0, 0, 0);
 
-    h.blit(&tex, &rect, Point::ZERO, &rect);
+    h.blit(&tex, &rect, Point::ZERO, Point::ZERO, &rect);
     h.clear(&rect, &color);
     h.fill_rect(&rect, &rect, &color, Fixed::ZERO, 255);
 
@@ -214,7 +214,7 @@ impl<'fb> DrawBackend for BorrowedDummy<'fb> {
         self.fills.set(self.fills.get() + 1);
     }
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
-    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: &Rect) {}
+    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect) {}
     fn clear(&mut self, _: &Rect, _: &Color) {}
     fn draw_label(&mut self, _: &Point, _: &[u8], _: &Rect, _: &Color, _: u8) {}
     fn flush(&mut self) {}
@@ -224,7 +224,7 @@ struct PlainDummy;
 impl DrawBackend for PlainDummy {
     fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {}
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
-    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: &Rect) {}
+    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect) {}
     fn clear(&mut self, _: &Rect, _: &Color) {}
     fn draw_label(&mut self, _: &Point, _: &[u8], _: &Rect, _: &Color, _: u8) {}
     fn flush(&mut self) {}
@@ -258,6 +258,8 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
         &mut h,
         &DrawCommand::Blit {
             pos: Point::ZERO,
+            size: Point::ZERO,
+            transform: Transform::IDENTITY,
             texture: &tex,
         },
         &rect,

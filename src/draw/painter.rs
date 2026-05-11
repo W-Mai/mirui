@@ -30,8 +30,15 @@ impl<'a, B: DrawBackend> Painter<'a, B> {
             .stroke_rect(rect, clip, width, color, radius, opa);
     }
 
-    pub fn draw_image(&mut self, src: &Texture, src_rect: &Rect, dst: Point, clip: &Rect) {
-        self.backend.blit(src, src_rect, dst, clip);
+    pub fn draw_image(
+        &mut self,
+        src: &Texture,
+        src_rect: &Rect,
+        dst: Point,
+        dst_size: Point,
+        clip: &Rect,
+    ) {
+        self.backend.blit(src, src_rect, dst, dst_size, clip);
     }
 
     pub fn draw_text(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {

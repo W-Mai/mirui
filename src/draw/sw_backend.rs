@@ -269,7 +269,7 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
         }
     }
 
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, clip: &Rect) {
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, _dst_size: Point, clip: &Rect) {
         let (sx0, sy0, sw, sh) = src_rect.to_px();
         let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.pixel_bounds();
         let dx0 = dst.x.to_int();
@@ -377,12 +377,17 @@ fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> 
 
 impl Renderer for SwDrawBackend<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+        assert!(
+            cmd.transform().is_identity(),
+            "widget transform not yet supported — tracked in widget-transform spec"
+        );
         match cmd {
             DrawCommand::Fill {
                 area,
                 color,
                 radius,
                 opa,
+                ..
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
@@ -399,6 +404,7 @@ impl Renderer for SwDrawBackend<'_> {
                 width,
                 radius,
                 opa,
+                ..
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
@@ -409,11 +415,13 @@ impl Renderer for SwDrawBackend<'_> {
                     p.count_stroke += 1;
                 }
             }
-            DrawCommand::Blit { pos, texture } => {
+            DrawCommand::Blit {
+                pos, size, texture, ..
+            } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                self.blit(texture, &src_rect, *pos, clip);
+                self.blit(texture, &src_rect, *pos, *size, clip);
                 #[cfg(feature = "perf")]
                 if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
                     p.blit += (p.clock)() - t0;
@@ -425,6 +433,7 @@ impl Renderer for SwDrawBackend<'_> {
                 text,
                 color,
                 opa,
+                ..
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
@@ -441,6 +450,7 @@ impl Renderer for SwDrawBackend<'_> {
                 color,
                 width,
                 opa,
+                ..
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
@@ -459,6 +469,7 @@ impl Renderer for SwDrawBackend<'_> {
                 color,
                 width,
                 opa,
+                ..
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
@@ -688,6 +699,7 @@ mod tests {
                 x: Fixed::from_int(14),
                 y: Fixed::from_int(8),
             },
+            transform: crate::types::Transform::IDENTITY,
             color: Color::rgb(255, 0, 0),
             width: Fixed::from_int(2),
             opa: 255,
@@ -710,6 +722,7 @@ mod tests {
                 x: Fixed::from_int(16),
                 y: Fixed::from_int(16),
             },
+            transform: crate::types::Transform::IDENTITY,
             radius: Fixed::from_int(10),
             start_angle: Fixed::from_int(0),
             end_angle: Fixed::from_int(90),

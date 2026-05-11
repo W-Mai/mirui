@@ -23,7 +23,7 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
     (
         "blit",
-        "src: &::mirui::draw::texture::Texture, src_rect: &::mirui::types::Rect, dst: ::mirui::types::Point, clip: &::mirui::types::Rect",
+        "src: &::mirui::draw::texture::Texture, src_rect: &::mirui::types::Rect, dst: ::mirui::types::Point, dst_size: ::mirui::types::Point, clip: &::mirui::types::Rect",
         false,
     ),
     (
@@ -276,25 +276,29 @@ impl ComposeInput {
             {
                 fn draw(&mut self, cmd: &::mirui::draw::DrawCommand, clip: &::mirui::types::Rect) {
                     use ::mirui::draw::backend::DrawBackend;
+                    assert!(
+                        cmd.transform().is_identity(),
+                        "widget transform not yet supported"
+                    );
                     match cmd {
-                        ::mirui::draw::DrawCommand::Fill { area, color, radius, opa } => {
+                        ::mirui::draw::DrawCommand::Fill { area, color, radius, opa, .. } => {
                             self.fill_rect(area, clip, color, *radius, *opa);
                         }
-                        ::mirui::draw::DrawCommand::Border { area, color, width, radius, opa } => {
+                        ::mirui::draw::DrawCommand::Border { area, color, width, radius, opa, .. } => {
                             self.stroke_rect(area, clip, *width, color, *radius, *opa);
                         }
-                        ::mirui::draw::DrawCommand::Blit { pos, texture } => {
+                        ::mirui::draw::DrawCommand::Blit { pos, size, texture, .. } => {
                             let src_rect = ::mirui::types::Rect::new(0, 0, texture.width, texture.height);
-                            self.blit(texture, &src_rect, *pos, clip);
+                            self.blit(texture, &src_rect, *pos, *size, clip);
                         }
-                        ::mirui::draw::DrawCommand::Label { pos, text, color, opa } => {
+                        ::mirui::draw::DrawCommand::Label { pos, text, color, opa, .. } => {
                             self.draw_label(pos, text, clip, color, *opa);
                         }
-                        ::mirui::draw::DrawCommand::Line { p1, p2, color, width, opa } => {
+                        ::mirui::draw::DrawCommand::Line { p1, p2, color, width, opa, .. } => {
                             self.draw_line(*p1, *p2, clip, *width, color, *opa);
                         }
                         ::mirui::draw::DrawCommand::Arc {
-                            center, radius, start_angle, end_angle, color, width, opa,
+                            center, radius, start_angle, end_angle, color, width, opa, ..
                         } => {
                             self.draw_arc(*center, *radius, *start_angle, *end_angle, clip, *width, color, *opa);
                         }

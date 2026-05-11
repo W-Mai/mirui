@@ -2,7 +2,7 @@
 mod tests {
     use mirui::draw::texture::{ColorFormat, Texture};
     use mirui::draw::{DrawCommand, Renderer, SwDrawBackend};
-    use mirui::types::{Color, Fixed, Rect};
+    use mirui::types::{Color, Fixed, Rect, Transform};
 
     #[test]
     fn fill_rect_opaque() {
@@ -20,6 +20,7 @@ mod tests {
                 w: Fixed::from_int(3),
                 h: Fixed::from_int(3),
             },
+            transform: Transform::IDENTITY,
             color: Color::rgb(255, 0, 0),
             radius: Fixed::ZERO,
             opa: 255,
@@ -62,6 +63,7 @@ mod tests {
                 w: Fixed::from_int(10),
                 h: Fixed::from_int(10),
             },
+            transform: Transform::IDENTITY,
             color: Color::rgb(0, 255, 0),
             radius: Fixed::ZERO,
             opa: 255,
@@ -109,6 +111,7 @@ mod tests {
                 w: Fixed::from_int(4),
                 h: Fixed::from_int(4),
             },
+            transform: Transform::IDENTITY,
             color: Color::rgb(0, 0, 0),
             radius: Fixed::ZERO,
             opa: 128, // ~50% opacity

@@ -1,6 +1,6 @@
 use mirui::draw::texture::{ColorFormat, Texture};
 use mirui::draw::{DrawCommand, Renderer, SwDrawBackend};
-use mirui::types::{Color, Fixed, Rect};
+use mirui::types::{Color, Fixed, Rect, Transform};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
@@ -47,6 +47,7 @@ fn main() {
                 w: Fixed::from_int(W as i32),
                 h: Fixed::from_int(H as i32),
             },
+            transform: Transform::IDENTITY,
             color: Color::rgb(30, 30, 46),
             radius: Fixed::ZERO,
             opa: 255,
@@ -63,6 +64,7 @@ fn main() {
                 w: Fixed::from_int(200),
                 h: Fixed::from_int(120),
             },
+            transform: Transform::IDENTITY,
             color: Color::rgb(88, 166, 255),
             radius: Fixed::ZERO,
             opa: 255,
@@ -79,6 +81,7 @@ fn main() {
                 w: Fixed::from_int(200),
                 h: Fixed::from_int(120),
             },
+            transform: Transform::IDENTITY,
             color: Color::rgb(63, 185, 80),
             radius: Fixed::ZERO,
             opa: 200,
@@ -95,6 +98,7 @@ fn main() {
                 w: Fixed::from_int(200),
                 h: Fixed::from_int(120),
             },
+            transform: Transform::IDENTITY,
             color: Color::rgb(248, 81, 73),
             radius: Fixed::ZERO,
             opa: 180,

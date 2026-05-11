@@ -222,12 +222,17 @@ impl SdlGpuRenderer<'_> {
 
 impl Renderer for SdlGpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
+        assert!(
+            cmd.transform().is_identity(),
+            "widget transform not yet supported — tracked in widget-transform spec"
+        );
         match cmd {
             DrawCommand::Fill {
                 area,
                 color,
                 radius,
                 opa,
+                ..
             } => self.fill_rect(area, clip, color, *radius, *opa),
             DrawCommand::Border {
                 area,
@@ -235,6 +240,7 @@ impl Renderer for SdlGpuRenderer<'_> {
                 width,
                 radius,
                 opa,
+                ..
             } => self.stroke_rect(area, clip, *width, color, *radius, *opa),
             DrawCommand::Line {
                 p1,
@@ -242,10 +248,13 @@ impl Renderer for SdlGpuRenderer<'_> {
                 color,
                 width,
                 opa,
+                ..
             } => self.draw_line(*p1, *p2, clip, *width, color, *opa),
-            DrawCommand::Blit { pos, texture } => {
+            DrawCommand::Blit {
+                pos, size, texture, ..
+            } => {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                self.blit(texture, &src_rect, *pos, clip);
+                self.blit(texture, &src_rect, *pos, *size, clip);
             }
             DrawCommand::Arc {
                 center,
@@ -255,6 +264,7 @@ impl Renderer for SdlGpuRenderer<'_> {
                 color,
                 width,
                 opa,
+                ..
             } => self.draw_arc(
                 *center,
                 *radius,
@@ -270,6 +280,7 @@ impl Renderer for SdlGpuRenderer<'_> {
                 text,
                 color,
                 opa,
+                ..
             } => self.draw_label(pos, text, clip, color, *opa),
         }
     }
@@ -385,7 +396,7 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         self.submit_geometry(clip, opa != 255 || color.a != 255);
     }
 
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, clip: &Rect) {
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, _dst_size: Point, clip: &Rect) {
         let sdl_fmt = match src.format {
             ColorFormat::ARGB8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
             ColorFormat::RGB888 => sdl2::pixels::PixelFormatEnum::RGB24,

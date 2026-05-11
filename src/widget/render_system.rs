@@ -8,7 +8,7 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::{Color, DisplayScale, Fixed, Point, Rect};
+use crate::types::{Color, DisplayScale, Fixed, Point, Rect, Transform};
 
 use super::{Children, Style, Text, Widget};
 
@@ -67,6 +67,7 @@ fn draw_tree(
                 renderer.draw(
                     &DrawCommand::Fill {
                         area: node.rect,
+                        transform: Transform::IDENTITY,
                         color,
                         radius: style.border_radius,
                         opa: 255,
@@ -79,6 +80,7 @@ fn draw_tree(
                     renderer.draw(
                         &DrawCommand::Border {
                             area: node.rect,
+                            transform: Transform::IDENTITY,
                             color: border_color,
                             width: style.border_width,
                             radius: style.border_radius,
@@ -93,6 +95,7 @@ fn draw_tree(
                 renderer.draw(
                     &DrawCommand::Fill {
                         area: node.rect,
+                        transform: Transform::IDENTITY,
                         color: pb.track_color,
                         radius: style.border_radius,
                         opa: 255,
@@ -109,6 +112,7 @@ fn draw_tree(
                                 w: fill_w,
                                 h: node.rect.h,
                             },
+                            transform: Transform::IDENTITY,
                             color: pb.fill_color,
                             radius: style.border_radius,
                             opa: 255,
@@ -125,6 +129,11 @@ fn draw_tree(
                             x: node.rect.x,
                             y: node.rect.y,
                         },
+                        size: Point {
+                            x: Fixed::from(img.texture.width),
+                            y: Fixed::from(img.texture.height),
+                        },
+                        transform: Transform::IDENTITY,
                         texture: img.texture,
                     },
                     clip,
@@ -139,6 +148,7 @@ fn draw_tree(
                             x: node.rect.x + Fixed::from_int(2),
                             y: node.rect.y + Fixed::from_int(2),
                         },
+                        transform: Transform::IDENTITY,
                         text: &text.0,
                         color,
                         opa: 255,
@@ -233,6 +243,7 @@ fn draw_tree_offset(
                 renderer.draw(
                     &DrawCommand::Fill {
                         area: shifted_rect,
+                        transform: Transform::IDENTITY,
                         color,
                         radius: style.border_radius,
                         opa: 255,
@@ -245,6 +256,7 @@ fn draw_tree_offset(
                     renderer.draw(
                         &DrawCommand::Border {
                             area: shifted_rect,
+                            transform: Transform::IDENTITY,
                             color: border_color,
                             width: style.border_width,
                             radius: style.border_radius,
@@ -258,6 +270,7 @@ fn draw_tree_offset(
                 renderer.draw(
                     &DrawCommand::Fill {
                         area: shifted_rect,
+                        transform: Transform::IDENTITY,
                         color: pb.track_color,
                         radius: style.border_radius,
                         opa: 255,
@@ -274,6 +287,7 @@ fn draw_tree_offset(
                                 w: fill_w,
                                 h: shifted_rect.h,
                             },
+                            transform: Transform::IDENTITY,
                             color: pb.fill_color,
                             radius: style.border_radius,
                             opa: 255,
@@ -289,6 +303,11 @@ fn draw_tree_offset(
                             x: shifted_rect.x,
                             y: shifted_rect.y,
                         },
+                        size: Point {
+                            x: Fixed::from(img.texture.width),
+                            y: Fixed::from(img.texture.height),
+                        },
+                        transform: Transform::IDENTITY,
                         texture: img.texture,
                     },
                     clip,
@@ -302,6 +321,7 @@ fn draw_tree_offset(
                             x: shifted_rect.x + Fixed::from_int(2),
                             y: shifted_rect.y + Fixed::from_int(2),
                         },
+                        transform: Transform::IDENTITY,
                         text: &text.0,
                         color,
                         opa: 255,
