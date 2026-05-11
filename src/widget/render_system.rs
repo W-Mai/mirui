@@ -182,11 +182,7 @@ fn draw_tree(
                 w: if cx2 > cx { cx2 - cx } else { Fixed::ZERO },
                 h: if cy2 > cy { cy2 - cy } else { Fixed::ZERO },
             };
-            let s = world
-                .resource::<crate::backend::DisplayInfo>()
-                .map(|d| d.scale)
-                .unwrap_or(Fixed::ONE);
-            (new_clip, scroll.x * s, scroll.y * s)
+            (new_clip, scroll.x, scroll.y)
         } else {
             (*clip, Fixed::ZERO, Fixed::ZERO)
         };
@@ -348,10 +344,6 @@ fn draw_tree_offset(
             let cy = clip.y.max(shifted_rect.y);
             let cx2 = (clip.x + clip.w).min(shifted_rect.x + shifted_rect.w);
             let cy2 = (clip.y + clip.h).min(shifted_rect.y + shifted_rect.h);
-            let s = world
-                .resource::<crate::backend::DisplayInfo>()
-                .map(|d| d.scale)
-                .unwrap_or(Fixed::ONE);
             (
                 Rect {
                     x: cx,
@@ -359,8 +351,8 @@ fn draw_tree_offset(
                     w: if cx2 > cx { cx2 - cx } else { Fixed::ZERO },
                     h: if cy2 > cy { cy2 - cy } else { Fixed::ZERO },
                 },
-                offset_x + scroll.x * s,
-                offset_y + scroll.y * s,
+                offset_x + scroll.x,
+                offset_y + scroll.y,
             )
         } else {
             (*clip, offset_x, offset_y)
@@ -368,13 +360,6 @@ fn draw_tree_offset(
 
     for child in &node.children {
         draw_tree_offset(child, world, entities, idx, renderer, &child_clip, sx, sy);
-    }
-}
-
-fn scale_rects(node: &mut LayoutNode, transform: &Viewport) {
-    node.rect = transform.rect_to_physical(node.rect);
-    for child in &mut node.children {
-        scale_rects(child, transform);
     }
 }
 
@@ -388,12 +373,10 @@ fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity
     }
 }
 
-/// Run the render system: build layout → compute → draw.
-/// Layout is computed in logical pixels; `transform` maps the result up to
-/// physical pixels before draw.
+/// Run the render system: build layout → compute → emit logical-coord
+/// DrawCommands. Backends convert to physical at draw time.
 pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut dyn Renderer) {
     let (logical_w, logical_h) = transform.logical_size();
-    let (physical_w, physical_h) = transform.physical_size();
 
     let Some(mut layout_tree) = build_layout_tree(world, root) else {
         return;
@@ -407,13 +390,11 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
         logical_h.into(),
     );
 
-    scale_rects(&mut layout_tree, transform);
-
     let clip = Rect {
         x: Fixed::ZERO,
         y: Fixed::ZERO,
-        w: physical_w.into(),
-        h: physical_h.into(),
+        w: logical_w.into(),
+        h: logical_h.into(),
     };
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
@@ -480,7 +461,6 @@ pub fn render_region(
         logical_w.into(),
         logical_h.into(),
     );
-    scale_rects(&mut layout_tree, transform);
 
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
@@ -496,13 +476,12 @@ pub fn render_region(
     );
 }
 
-/// Collect the physical-pixel rects of all dirty entities, then remove Dirty flags.
+/// Collect the logical-pixel rects of all dirty entities, then remove Dirty flags.
 /// Returns the bounding rect of all dirty regions, or None if nothing dirty.
 pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewport) -> Option<Rect> {
     use super::dirty::Dirty;
 
     let (logical_w, logical_h) = transform.logical_size();
-    let (physical_w, physical_h) = transform.physical_size();
 
     let mut layout_tree = build_layout_tree(world, root)?;
     compute_layout(
@@ -512,13 +491,12 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
         logical_w.into(),
         logical_h.into(),
     );
-    scale_rects(&mut layout_tree, transform);
 
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
 
-    let mut min_x: Fixed = Fixed::from(physical_w);
-    let mut min_y: Fixed = Fixed::from(physical_h);
+    let mut min_x: Fixed = Fixed::from(logical_w);
+    let mut min_y: Fixed = Fixed::from(logical_h);
     let mut max_x: Fixed = Fixed::from_int(-1);
     let mut max_y: Fixed = Fixed::from_int(-1);
 
@@ -544,11 +522,10 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
             }
             // Include previous rect (old position) if present
             if let Some(prev) = world.remove::<super::dirty::PrevRect>(entity) {
-                let (px0, py0, px1, py1) = transform.rect_to_physical_pixel_bounds(prev.0);
-                let px = Fixed::from_int(px0);
-                let py = Fixed::from_int(py0);
-                let px2 = Fixed::from_int(px1);
-                let py2 = Fixed::from_int(py1);
+                let px = prev.0.x;
+                let py = prev.0.y;
+                let px2 = (prev.0.x + prev.0.w).ceil();
+                let py2 = (prev.0.y + prev.0.h).ceil();
                 if px < min_x {
                     min_x = px;
                 }

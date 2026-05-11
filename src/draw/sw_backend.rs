@@ -67,18 +67,107 @@ impl<'a> SwDrawBackend<'a> {
     }
 }
 
+impl<'a> SwDrawBackend<'a> {
+    /// Scale every Point inside `path` into physical pixels so the
+    /// rasterizer (which works in physical pixels) sees them directly.
+    fn scale_path(&self, path: &Path) -> Path {
+        let s = self.viewport.scale();
+        let cmds = path
+            .cmds
+            .iter()
+            .map(|c| match c {
+                super::path::PathCmd::MoveTo(p) => super::path::PathCmd::MoveTo(Point {
+                    x: p.x * s,
+                    y: p.y * s,
+                }),
+                super::path::PathCmd::LineTo(p) => super::path::PathCmd::LineTo(Point {
+                    x: p.x * s,
+                    y: p.y * s,
+                }),
+                super::path::PathCmd::QuadTo { ctrl, end } => super::path::PathCmd::QuadTo {
+                    ctrl: Point {
+                        x: ctrl.x * s,
+                        y: ctrl.y * s,
+                    },
+                    end: Point {
+                        x: end.x * s,
+                        y: end.y * s,
+                    },
+                },
+                super::path::PathCmd::CubicTo { ctrl1, ctrl2, end } => {
+                    super::path::PathCmd::CubicTo {
+                        ctrl1: Point {
+                            x: ctrl1.x * s,
+                            y: ctrl1.y * s,
+                        },
+                        ctrl2: Point {
+                            x: ctrl2.x * s,
+                            y: ctrl2.y * s,
+                        },
+                        end: Point {
+                            x: end.x * s,
+                            y: end.y * s,
+                        },
+                    }
+                }
+                super::path::PathCmd::Close => super::path::PathCmd::Close,
+            })
+            .collect();
+        Path { cmds }
+    }
+
+    /// Rasterize an already-physical-coord path; used by stroke_path to
+    /// avoid re-scaling the offset outline it already produced.
+    fn fill_physical_path(&mut self, phys_path: &Path, clip: &Rect, color: &Color, opa: u8) {
+        if opa == 0 {
+            return;
+        }
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let segs = super::raster::flatten(phys_path);
+        if segs.is_empty() {
+            return;
+        }
+        let Some(bbox) = phys_path.bbox() else { return };
+        let screen = Rect::new(0, 0, self.target.width, self.target.height);
+        let Some(draw_area) = bbox
+            .intersect(&phys_clip)
+            .and_then(|r| r.intersect(&screen))
+        else {
+            return;
+        };
+
+        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
+        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        let color_a_norm =
+            Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        let combined_alpha = opa_norm * color_a_norm;
+
+        super::raster::scanline_fill(&segs, px_x0, px_y0, px_x1, px_y1, |px, py, cov| {
+            let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+            if final_alpha > 0 {
+                self.target.blend_pixel_int(px, py, color, final_alpha);
+            }
+        });
+    }
+}
+
 impl<'a> DrawBackend for SwDrawBackend<'a> {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
         if opa == 0 {
             return;
         }
-        let segs = super::raster::flatten(path);
+        let phys_path = self.scale_path(path);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let segs = super::raster::flatten(&phys_path);
         if segs.is_empty() {
             return;
         }
-        let Some(bbox) = path.bbox() else { return };
+        let Some(bbox) = phys_path.bbox() else { return };
         let screen = Rect::new(0, 0, self.target.width, self.target.height);
-        let Some(draw_area) = bbox.intersect(clip).and_then(|r| r.intersect(&screen)) else {
+        let Some(draw_area) = bbox
+            .intersect(&phys_clip)
+            .and_then(|r| r.intersect(&screen))
+        else {
             return;
         };
 
@@ -100,11 +189,20 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
         if opa == 0 || width <= Fixed::ZERO {
             return;
         }
-        let outline = super::raster::offset_polygon(path, width);
-        self.fill_path(&outline, clip, color, opa);
+        let phys_path = self.scale_path(path);
+        let phys_width = width * self.viewport.scale();
+        let outline = super::raster::offset_polygon(&phys_path, phys_width);
+        // Outline is already physical — skip the usual fill_path scale step.
+        self.fill_physical_path(&outline, clip, color, opa);
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
+        let phys_area = self.viewport.rect_to_physical(*area);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let radius = radius * self.viewport.scale();
+        let area = &phys_area;
+        let clip = &phys_clip;
+
         let screen = Rect::new(0, 0, self.target.width, self.target.height);
         let Some(draw_area) = area.intersect(clip) else {
             return;
@@ -272,10 +370,12 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
     }
 
     fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, _dst_size: Point, clip: &Rect) {
+        let phys_dst = self.viewport.point_to_physical(dst);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
         let (sx0, sy0, sw, sh) = src_rect.to_px();
-        let (clip_x0, clip_y0, clip_x1, clip_y1) = clip.pixel_bounds();
-        let dx0 = dst.x.to_int();
-        let dy0 = dst.y.to_int();
+        let (clip_x0, clip_y0, clip_x1, clip_y1) = phys_clip.pixel_bounds();
+        let dx0 = phys_dst.x.to_int();
+        let dy0 = phys_dst.y.to_int();
 
         for row in 0..sh as i32 {
             let iy = dy0 + row;
@@ -301,8 +401,9 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
+        let phys_area = self.viewport.rect_to_physical(*area);
         let screen = Rect::new(0, 0, self.target.width, self.target.height);
-        let Some(draw_area) = area.intersect(&screen) else {
+        let Some(draw_area) = phys_area.intersect(&screen) else {
             return;
         };
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
@@ -315,8 +416,10 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
 
     fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
         use super::font::{CHAR_H, CHAR_W, glyph};
-        let (clip_x, clip_y, clip_x2, clip_y2) = clip.pixel_bounds();
-        let (mut cx, cy) = pos.floor();
+        let phys_pos = self.viewport.point_to_physical(*pos);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let (clip_x, clip_y, clip_x2, clip_y2) = phys_clip.pixel_bounds();
+        let (mut cx, cy) = phys_pos.floor();
         for &ch in text {
             let bitmap = glyph(ch);
             for row in 0..CHAR_H as i32 {

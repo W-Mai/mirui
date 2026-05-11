@@ -171,13 +171,13 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
         backend: &'a mut SdlGpuBackend,
         transform: &Viewport,
     ) -> SdlGpuRenderer<'a> {
-        let scale = transform.scale();
+        let viewport = *transform;
         let (canvas, label_cache, tessellator) = backend.parts_mut();
         SdlGpuRenderer {
             canvas,
             label_cache,
             tessellator,
-            scale,
+            viewport,
         }
     }
 }
@@ -186,15 +186,15 @@ pub struct SdlGpuRenderer<'a> {
     canvas: &'a mut Canvas<Window>,
     label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
-    scale: Fixed,
+    viewport: Viewport,
 }
 
 impl SdlGpuRenderer<'_> {
-    fn submit_geometry(&mut self, clip: &Rect, needs_blend: bool) {
+    fn submit_geometry(&mut self, phys_clip: &Rect, needs_blend: bool) {
         if self.tessellator.indices.is_empty() {
             return;
         }
-        let Some(clip_rect) = sdl_pixel_rect(clip, clip) else {
+        let Some(clip_rect) = sdl_pixel_rect(phys_clip, phys_clip) else {
             return;
         };
         self.canvas.set_clip_rect(clip_rect);
@@ -217,6 +217,60 @@ impl SdlGpuRenderer<'_> {
             );
         }
         self.canvas.set_clip_rect(None);
+    }
+
+    /// Path-scale helper to feed the tessellator (which produces physical
+    /// vertex positions) the path already in physical coords.
+    fn scale_path(&self, path: &Path) -> Path {
+        let s = self.viewport.scale();
+        let cmds = path
+            .cmds
+            .iter()
+            .map(|c| match c {
+                crate::draw::path::PathCmd::MoveTo(p) => {
+                    crate::draw::path::PathCmd::MoveTo(Point {
+                        x: p.x * s,
+                        y: p.y * s,
+                    })
+                }
+                crate::draw::path::PathCmd::LineTo(p) => {
+                    crate::draw::path::PathCmd::LineTo(Point {
+                        x: p.x * s,
+                        y: p.y * s,
+                    })
+                }
+                crate::draw::path::PathCmd::QuadTo { ctrl, end } => {
+                    crate::draw::path::PathCmd::QuadTo {
+                        ctrl: Point {
+                            x: ctrl.x * s,
+                            y: ctrl.y * s,
+                        },
+                        end: Point {
+                            x: end.x * s,
+                            y: end.y * s,
+                        },
+                    }
+                }
+                crate::draw::path::PathCmd::CubicTo { ctrl1, ctrl2, end } => {
+                    crate::draw::path::PathCmd::CubicTo {
+                        ctrl1: Point {
+                            x: ctrl1.x * s,
+                            y: ctrl1.y * s,
+                        },
+                        ctrl2: Point {
+                            x: ctrl2.x * s,
+                            y: ctrl2.y * s,
+                        },
+                        end: Point {
+                            x: end.x * s,
+                            y: end.y * s,
+                        },
+                    }
+                }
+                crate::draw::path::PathCmd::Close => crate::draw::path::PathCmd::Close,
+            })
+            .collect();
+        Path { cmds }
     }
 }
 
@@ -321,8 +375,10 @@ fn apply_solid_color(canvas: &mut Canvas<Window>, color: &Color, opa: u8) {
 
 impl DrawBackend for SdlGpuRenderer<'_> {
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
+        let phys_area = self.viewport.rect_to_physical(*area);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
         if radius == Fixed::ZERO {
-            if let Some(sdl_rect) = sdl_pixel_rect(area, clip) {
+            if let Some(sdl_rect) = sdl_pixel_rect(&phys_area, &phys_clip) {
                 apply_solid_color(self.canvas, color, opa);
                 let _ = self.canvas.fill_rect(sdl_rect);
             }
@@ -342,7 +398,9 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         opa: u8,
     ) {
         if radius == Fixed::ZERO && width == Fixed::ONE {
-            if let Some(sdl_rect) = sdl_pixel_rect(area, clip) {
+            let phys_area = self.viewport.rect_to_physical(*area);
+            let phys_clip = self.viewport.rect_to_physical(*clip);
+            if let Some(sdl_rect) = sdl_pixel_rect(&phys_area, &phys_clip) {
                 apply_solid_color(self.canvas, color, opa);
                 let _ = self.canvas.draw_rect(sdl_rect);
             }
@@ -368,14 +426,17 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         opa: u8,
     ) {
         if width == Fixed::ONE {
-            let Some(clip_rect) = sdl_pixel_rect(clip, clip) else {
+            let phys_clip = self.viewport.rect_to_physical(*clip);
+            let phys_p1 = self.viewport.point_to_physical(p1);
+            let phys_p2 = self.viewport.point_to_physical(p2);
+            let Some(clip_rect) = sdl_pixel_rect(&phys_clip, &phys_clip) else {
                 return;
             };
             self.canvas.set_clip_rect(clip_rect);
             apply_solid_color(self.canvas, color, opa);
             let _ = self.canvas.draw_line(
-                sdl2::rect::Point::new(p1.x.to_int(), p1.y.to_int()),
-                sdl2::rect::Point::new(p2.x.to_int(), p2.y.to_int()),
+                sdl2::rect::Point::new(phys_p1.x.to_int(), phys_p1.y.to_int()),
+                sdl2::rect::Point::new(phys_p2.x.to_int(), phys_p2.y.to_int()),
             );
             self.canvas.set_clip_rect(None);
             return;
@@ -386,14 +447,19 @@ impl DrawBackend for SdlGpuRenderer<'_> {
     }
 
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
-        self.tessellator.fill(path, color, opa);
-        self.submit_geometry(clip, opa != 255 || color.a != 255);
+        let phys_path = self.scale_path(path);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        self.tessellator.fill(&phys_path, color, opa);
+        self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
-        let physical_width = width.to_f32().max(1.0);
-        self.tessellator.stroke(path, physical_width, color, opa);
-        self.submit_geometry(clip, opa != 255 || color.a != 255);
+        let phys_path = self.scale_path(path);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let physical_width = (width * self.viewport.scale()).to_f32().max(1.0);
+        self.tessellator
+            .stroke(&phys_path, physical_width, color, opa);
+        self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
     fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, _dst_size: Point, clip: &Rect) {
@@ -408,8 +474,10 @@ impl DrawBackend for SdlGpuRenderer<'_> {
             }
         };
 
-        let dx = dst.x.to_int();
-        let dy = dst.y.to_int();
+        let phys_dst = self.viewport.point_to_physical(dst);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let dx = phys_dst.x.to_int();
+        let dy = phys_dst.y.to_int();
         let dw = src_rect.w.to_int() as u32;
         let dh = src_rect.h.to_int() as u32;
         if dw == 0 || dh == 0 {
@@ -424,7 +492,7 @@ impl DrawBackend for SdlGpuRenderer<'_> {
         );
         let dst_sdl = sdl2::rect::Rect::new(dx, dy, dw, dh);
 
-        let Some(sdl_clip) = sdl_pixel_rect(clip, clip) else {
+        let Some(sdl_clip) = sdl_pixel_rect(&phys_clip, &phys_clip) else {
             return;
         };
 
@@ -455,8 +523,17 @@ impl DrawBackend for SdlGpuRenderer<'_> {
     }
 
     fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
-        self.label_cache
-            .draw(self.canvas, pos, text, clip, color, opa, self.scale);
+        let phys_pos = self.viewport.point_to_physical(*pos);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        self.label_cache.draw(
+            self.canvas,
+            &phys_pos,
+            text,
+            &phys_clip,
+            color,
+            opa,
+            self.viewport.scale(),
+        );
     }
 
     fn flush(&mut self) {}
