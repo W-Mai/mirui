@@ -211,8 +211,11 @@ impl Div for Fixed {
     type Output = Self;
     #[inline]
     fn div(self, rhs: Self) -> Self {
-        // (a << 8) / b — safe for UI range (≤8192px)
-        Self((self.0 << FRAC_BITS) / rhs.0)
+        // Promote through i64 so `self.0 << FRAC_BITS` stays representable
+        // for any UI-scale dividend. A pure-i32 version overflows once
+        // |self.0| > 2^23, which Dimension::Percent hits on windows
+        // wider than ~328 px.
+        Self((((self.0 as i64) << FRAC_BITS) / (rhs.0 as i64)) as i32)
     }
 }
 
@@ -428,5 +431,27 @@ mod tests {
             let sum = (s * s + c * c).to_f32();
             assert!((sum - 1.0).abs() < 0.03, "sin²+cos² at {deg}° = {sum}");
         }
+    }
+
+    #[test]
+    fn div_does_not_overflow_for_large_dividend() {
+        // Pre-fix this bombed: `Fixed::from_int(64000) / Fixed::from_int(100)`
+        // routed through `(raw << 8) / rhs.0`, and 64000 << 8 == 16_384_000
+        // which after the following multiply-div pipeline (Dimension::Percent)
+        // would saturate i32. Raw Fixed division alone needs `(raw << 8)` to
+        // fit i64, which post-fix it does.
+        let a = Fixed::from_int(64000);
+        let b = Fixed::from_int(100);
+        let q = (a / b).to_int();
+        assert_eq!(q, 640);
+    }
+
+    #[test]
+    fn div_precision_near_limit() {
+        // ±2^23 was the pre-fix ceiling; verify correctness well past it.
+        let a = Fixed::from_int(1_000_000);
+        let b = Fixed::from_int(7);
+        let q = (a / b).to_f32();
+        assert!((q - 142857.142857).abs() < 1.0);
     }
 }

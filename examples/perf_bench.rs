@@ -41,8 +41,8 @@ fn main() {
         .bg_color(Color::rgba(18, 18, 28, 255))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Dimension::px(W as i32),
-            height: Dimension::px(H as i32),
+            width: Dimension::percent(100),
+            height: Dimension::percent(100),
             ..Default::default()
         })
         .id();

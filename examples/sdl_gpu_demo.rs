@@ -23,8 +23,8 @@ fn main() {
         .bg_color(Color::rgba(30, 30, 46, 255))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Dimension::px(640),
-            height: Dimension::px(480),
+            width: Dimension::percent(100),
+            height: Dimension::percent(100),
             justify: JustifyContent::Center,
             align: AlignItems::Center,
             ..Default::default()
