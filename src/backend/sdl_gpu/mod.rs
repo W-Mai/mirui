@@ -281,10 +281,16 @@ impl SdlGpuRenderer<'_> {
 
 impl Renderer for SdlGpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
-        assert!(
-            cmd.transform().is_identity(),
-            "widget transform not yet supported — tracked in widget-transform spec"
-        );
+        use crate::types::TransformClass;
+        let tf = cmd.transform();
+        let (tx, ty) = match tf.classify() {
+            TransformClass::Identity => (Fixed::ZERO, Fixed::ZERO),
+            TransformClass::Translate => (tf.tx, tf.ty),
+            _ => unimplemented!(
+                "sdl_gpu backend: transform class {:?} not yet handled",
+                tf.classify()
+            ),
+        };
         match cmd {
             DrawCommand::Fill {
                 area,
@@ -292,7 +298,10 @@ impl Renderer for SdlGpuRenderer<'_> {
                 radius,
                 opa,
                 ..
-            } => self.fill_rect(area, clip, color, *radius, *opa),
+            } => {
+                let area = offset_rect(area, tx, ty);
+                self.fill_rect(&area, clip, color, *radius, *opa)
+            }
             DrawCommand::Border {
                 area,
                 color,
@@ -300,7 +309,10 @@ impl Renderer for SdlGpuRenderer<'_> {
                 radius,
                 opa,
                 ..
-            } => self.stroke_rect(area, clip, *width, color, *radius, *opa),
+            } => {
+                let area = offset_rect(area, tx, ty);
+                self.stroke_rect(&area, clip, *width, color, *radius, *opa)
+            }
             DrawCommand::Line {
                 p1,
                 p2,
@@ -308,12 +320,17 @@ impl Renderer for SdlGpuRenderer<'_> {
                 width,
                 opa,
                 ..
-            } => self.draw_line(*p1, *p2, clip, *width, color, *opa),
+            } => {
+                let p1 = offset_point(p1, tx, ty);
+                let p2 = offset_point(p2, tx, ty);
+                self.draw_line(p1, p2, clip, *width, color, *opa)
+            }
             DrawCommand::Blit {
                 pos, size, texture, ..
             } => {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                self.blit(texture, &src_rect, *pos, *size, clip);
+                let pos = offset_point(pos, tx, ty);
+                self.blit(texture, &src_rect, pos, *size, clip);
             }
             DrawCommand::Arc {
                 center,
@@ -324,27 +341,54 @@ impl Renderer for SdlGpuRenderer<'_> {
                 width,
                 opa,
                 ..
-            } => self.draw_arc(
-                *center,
-                *radius,
-                *start_angle,
-                *end_angle,
-                clip,
-                *width,
-                color,
-                *opa,
-            ),
+            } => {
+                let center = offset_point(center, tx, ty);
+                self.draw_arc(
+                    center,
+                    *radius,
+                    *start_angle,
+                    *end_angle,
+                    clip,
+                    *width,
+                    color,
+                    *opa,
+                )
+            }
             DrawCommand::Label {
                 pos,
                 text,
                 color,
                 opa,
                 ..
-            } => self.draw_label(pos, text, clip, color, *opa),
+            } => {
+                let pos = offset_point(pos, tx, ty);
+                self.draw_label(&pos, text, clip, color, *opa)
+            }
         }
     }
 
     fn flush(&mut self) {}
+}
+
+#[inline]
+fn offset_rect(r: &Rect, tx: Fixed, ty: Fixed) -> Rect {
+    if tx == Fixed::ZERO && ty == Fixed::ZERO {
+        return *r;
+    }
+    Rect {
+        x: r.x + tx,
+        y: r.y + ty,
+        w: r.w,
+        h: r.h,
+    }
+}
+
+#[inline]
+fn offset_point(p: &crate::types::Point, tx: Fixed, ty: Fixed) -> crate::types::Point {
+    crate::types::Point {
+        x: p.x + tx,
+        y: p.y + ty,
+    }
 }
 
 /// Intersect `area` with `clip` and convert to an integer-pixel

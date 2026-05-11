@@ -5,7 +5,7 @@ pub mod viewport;
 
 pub use dimension::Dimension;
 pub use fixed::Fixed;
-pub use transform::Transform;
+pub use transform::{Transform, TransformClass};
 pub use viewport::Viewport;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

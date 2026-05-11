@@ -485,6 +485,27 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
     fn flush(&mut self) {}
 }
 
+#[inline]
+fn offset_rect(r: &Rect, tx: Fixed, ty: Fixed) -> Rect {
+    if tx == Fixed::ZERO && ty == Fixed::ZERO {
+        return *r;
+    }
+    Rect {
+        x: r.x + tx,
+        y: r.y + ty,
+        w: r.w,
+        h: r.h,
+    }
+}
+
+#[inline]
+fn offset_point(p: &Point, tx: Fixed, ty: Fixed) -> Point {
+    Point {
+        x: p.x + tx,
+        y: p.y + ty,
+    }
+}
+
 /// Generic nearest-neighbour blit kept as an out-of-line fallback.
 /// Uses the original per-pixel divide; superseded by `blit_dda`
 /// everywhere except places that intentionally want this shape.
@@ -1203,10 +1224,16 @@ fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> 
 
 impl Renderer for SwDrawBackend<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
-        assert!(
-            cmd.transform().is_identity(),
-            "widget transform not yet supported — tracked in widget-transform spec"
-        );
+        use crate::types::TransformClass;
+        let tf = cmd.transform();
+        let (tx, ty) = match tf.classify() {
+            TransformClass::Identity => (Fixed::ZERO, Fixed::ZERO),
+            TransformClass::Translate => (tf.tx, tf.ty),
+            _ => unimplemented!(
+                "sw backend: transform class {:?} not yet handled",
+                tf.classify()
+            ),
+        };
         match cmd {
             DrawCommand::Fill {
                 area,
@@ -1217,7 +1244,8 @@ impl Renderer for SwDrawBackend<'_> {
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                self.fill_rect(area, clip, color, *radius, *opa);
+                let area = offset_rect(area, tx, ty);
+                self.fill_rect(&area, clip, color, *radius, *opa);
                 #[cfg(feature = "perf")]
                 if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
                     p.fill += (p.clock)() - t0;
@@ -1234,7 +1262,8 @@ impl Renderer for SwDrawBackend<'_> {
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                self.stroke_rect(area, clip, *width, color, *radius, *opa);
+                let area = offset_rect(area, tx, ty);
+                self.stroke_rect(&area, clip, *width, color, *radius, *opa);
                 #[cfg(feature = "perf")]
                 if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
                     p.stroke += (p.clock)() - t0;
@@ -1247,7 +1276,8 @@ impl Renderer for SwDrawBackend<'_> {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                self.blit(texture, &src_rect, *pos, *size, clip);
+                let pos = offset_point(pos, tx, ty);
+                self.blit(texture, &src_rect, pos, *size, clip);
                 #[cfg(feature = "perf")]
                 if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
                     p.blit += (p.clock)() - t0;
@@ -1263,7 +1293,8 @@ impl Renderer for SwDrawBackend<'_> {
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                self.draw_label(pos, text, clip, color, *opa);
+                let pos = offset_point(pos, tx, ty);
+                self.draw_label(&pos, text, clip, color, *opa);
                 #[cfg(feature = "perf")]
                 if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
                     p.label += (p.clock)() - t0;
@@ -1280,7 +1311,9 @@ impl Renderer for SwDrawBackend<'_> {
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                self.draw_line(*p1, *p2, clip, *width, color, *opa);
+                let p1 = offset_point(p1, tx, ty);
+                let p2 = offset_point(p2, tx, ty);
+                self.draw_line(p1, p2, clip, *width, color, *opa);
                 #[cfg(feature = "perf")]
                 if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
                     p.stroke += (p.clock)() - t0;
@@ -1299,8 +1332,9 @@ impl Renderer for SwDrawBackend<'_> {
             } => {
                 #[cfg(feature = "perf")]
                 let t0 = self.perf.as_ref().map(|p| (p.clock)());
+                let center = offset_point(center, tx, ty);
                 self.draw_arc(
-                    *center,
+                    center,
                     *radius,
                     *start_angle,
                     *end_angle,
