@@ -383,28 +383,63 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
             return;
         }
 
-        for drow in 0..dh {
-            let iy = dy0 + drow;
-            if iy < clip_y0 || iy >= clip_y1 {
-                continue;
-            }
-            let sy = sy0 + (drow * sh as i32) / dh;
-            for dcol in 0..dw {
-                let ix = dx0 + dcol;
-                if ix < clip_x0 || ix >= clip_x1 {
-                    continue;
-                }
-                let sx = sx0 + (dcol * sw as i32) / dw;
-                let src_color = src.get_pixel(sx, sy);
-                if src_color.a == 0 {
-                    continue;
-                }
-                if src_color.a == 255 {
-                    self.target.set_pixel(ix, iy, &src_color);
-                } else {
-                    self.target.blend_pixel_int(ix, iy, &src_color, src_color.a);
-                }
-            }
+        let sw_i = sw as i32;
+        let sh_i = sh as i32;
+        // Runtime dispatch: 1× / 2× / arbitrary. All three branches
+        // currently resolve to the same slow path; follow-up commits
+        // swap each in for a specialized implementation.
+        #[allow(clippy::if_same_then_else)]
+        if dw == sw_i && dh == sh_i {
+            blit_generic_slow(
+                &mut self.target,
+                src,
+                sx0,
+                sy0,
+                sw,
+                sh,
+                dx0,
+                dy0,
+                dw,
+                dh,
+                clip_x0,
+                clip_y0,
+                clip_x1,
+                clip_y1,
+            );
+        } else if dw == sw_i * 2 && dh == sh_i * 2 {
+            blit_generic_slow(
+                &mut self.target,
+                src,
+                sx0,
+                sy0,
+                sw,
+                sh,
+                dx0,
+                dy0,
+                dw,
+                dh,
+                clip_x0,
+                clip_y0,
+                clip_x1,
+                clip_y1,
+            );
+        } else {
+            blit_generic_slow(
+                &mut self.target,
+                src,
+                sx0,
+                sy0,
+                sw,
+                sh,
+                dx0,
+                dy0,
+                dw,
+                dh,
+                clip_x0,
+                clip_y0,
+                clip_x1,
+                clip_y1,
+            );
         }
     }
 
@@ -452,6 +487,51 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
     }
 
     fn flush(&mut self) {}
+}
+
+/// Generic nearest-neighbour blit. Currently the sole implementation;
+/// follow-up commits add 1× / 2× integer-scale + format-specialized
+/// variants and route the hot paths here only as fallback.
+#[allow(clippy::too_many_arguments)]
+fn blit_generic_slow(
+    dst: &mut Texture,
+    src: &Texture,
+    sx0: i32,
+    sy0: i32,
+    sw: u16,
+    sh: u16,
+    dx0: i32,
+    dy0: i32,
+    dw: i32,
+    dh: i32,
+    clip_x0: i32,
+    clip_y0: i32,
+    clip_x1: i32,
+    clip_y1: i32,
+) {
+    for drow in 0..dh {
+        let iy = dy0 + drow;
+        if iy < clip_y0 || iy >= clip_y1 {
+            continue;
+        }
+        let sy = sy0 + (drow * sh as i32) / dh;
+        for dcol in 0..dw {
+            let ix = dx0 + dcol;
+            if ix < clip_x0 || ix >= clip_x1 {
+                continue;
+            }
+            let sx = sx0 + (dcol * sw as i32) / dw;
+            let src_color = src.get_pixel(sx, sy);
+            if src_color.a == 0 {
+                continue;
+            }
+            if src_color.a == 255 {
+                dst.set_pixel(ix, iy, &src_color);
+            } else {
+                dst.blend_pixel_int(ix, iy, &src_color, src_color.a);
+            }
+        }
+    }
 }
 
 fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> Fixed {
