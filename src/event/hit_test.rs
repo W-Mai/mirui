@@ -2,9 +2,10 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::components::scroll::ScrollOffset;
+use crate::components::transform::WidgetTransform;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::{Fixed, Rect};
+use crate::types::{Fixed, Point, Rect, Transform};
 use crate::widget::{Children, Style, Widget};
 
 fn build_rects(
@@ -56,7 +57,6 @@ fn compute_scroll_recursive(
     }
     *idx += 1;
 
-    // If this entity has ScrollOffset, add it for children
     let (child_acc_x, child_acc_y) = if let Some(scroll) = world.get::<ScrollOffset>(entity) {
         (acc_x + scroll.x, acc_y + scroll.y)
     } else {
@@ -67,6 +67,55 @@ fn compute_scroll_recursive(
         for &child in &children.0 {
             if world.get::<Widget>(child).is_some() {
                 compute_scroll_recursive(world, child, child_acc_x, child_acc_y, offsets, idx);
+            }
+        }
+    }
+}
+
+fn compute_transforms(
+    world: &World,
+    root: Entity,
+    entities: &[Entity],
+    rects: &[Rect],
+) -> Vec<Transform> {
+    let mut out = vec![Transform::IDENTITY; entities.len()];
+    compute_transforms_recursive(world, root, &Transform::IDENTITY, rects, &mut out, &mut 0);
+    out
+}
+
+fn compute_transforms_recursive(
+    world: &World,
+    entity: Entity,
+    parent: &Transform,
+    rects: &[Rect],
+    out: &mut [Transform],
+    idx: &mut usize,
+) {
+    let my_idx = *idx;
+    let rect = rects.get(my_idx).copied().unwrap_or(Rect::ZERO);
+    let local = world
+        .get::<WidgetTransform>(entity)
+        .map(|t| t.0)
+        .unwrap_or(Transform::IDENTITY);
+    let effective = if local.is_identity() {
+        *parent
+    } else {
+        let cx = rect.x + rect.w / Fixed::from_int(2);
+        let cy = rect.y + rect.h / Fixed::from_int(2);
+        parent
+            .compose(&Transform::translate(cx, cy))
+            .compose(&local)
+            .compose(&Transform::translate(Fixed::ZERO - cx, Fixed::ZERO - cy))
+    };
+    if my_idx < out.len() {
+        out[my_idx] = effective;
+    }
+    *idx += 1;
+
+    if let Some(children) = world.get::<Children>(entity) {
+        for &child in &children.0 {
+            if world.get::<Widget>(child).is_some() {
+                compute_transforms_recursive(world, child, &effective, rects, out, idx);
             }
         }
     }
@@ -97,19 +146,25 @@ pub fn hit_test(
     let mut rects = Vec::new();
     collect_rects(&root_node, &mut rects);
 
-    // Compute accumulated scroll offsets
     let scroll_offsets = compute_scroll_offsets(world, root, &entities);
+    let transforms = compute_transforms(world, root, &entities, &rects);
 
-    // Find deepest widget that contains the point (accounting for scroll)
     let mut hit = None;
     for (i, rect) in rects.iter().enumerate() {
         let (sx, sy) = scroll_offsets[i];
-        // Widget's visual position = layout position - scroll offset
         let vx = rect.x - sx;
         let vy = rect.y - sy;
-        let rw = rect.w;
-        let rh = rect.h;
-        if x >= vx && x < vx + rw && y >= vy && y < vy + rh {
+
+        let probe = if transforms[i].is_identity() {
+            Point { x, y }
+        } else {
+            match transforms[i].inverse() {
+                Some(inv) => inv.apply_point(Point { x, y }),
+                None => continue,
+            }
+        };
+
+        if probe.x >= vx && probe.x < vx + rect.w && probe.y >= vy && probe.y < vy + rect.h {
             hit = Some(entities[i]);
         }
     }
