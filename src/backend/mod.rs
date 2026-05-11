@@ -32,6 +32,30 @@ pub enum InputEvent {
     Quit,
 }
 
+/// Does the backbuffer retain the previous frame's content at the start
+/// of the next render?
+///
+/// CPU raster backends own their framebuffer bytes and are naturally
+/// [`Persistent`]. GPU backends whose presentation goes through a swap
+/// chain (SDL accelerated / wgpu surface / Web canvas without
+/// `preserveDrawingBuffer`) default to [`Transient`] — the back buffer
+/// after `flush()` is undefined until the next full frame rewrites it.
+///
+/// `App::run` reads this once at startup and picks full-frame render
+/// vs. dirty-only render accordingly, without backends having to
+/// implement their own offscreen-composite dance.
+///
+/// [`Persistent`]: Self::Persistent
+/// [`Transient`]: Self::Transient
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BackbufferPersistence {
+    /// Backbuffer survives `flush()` — App::run can do dirty-only redraws.
+    Persistent,
+    /// Backbuffer is undefined after `flush()` — App::run must redraw
+    /// every frame.
+    Transient,
+}
+
 /// Platform backend trait — abstracts display + input.
 ///
 /// Does **not** assume the backend has a CPU-accessible framebuffer;
@@ -51,6 +75,16 @@ pub trait Backend {
         let info = self.display_info();
         Rect::new(0, 0, info.width, info.height)
     }
+
+    /// Backbuffer behaviour across `flush()` calls. Defaults to
+    /// [`Persistent`] so every existing CPU backend stays correct without
+    /// any code change. GPU backends override to [`Transient`].
+    ///
+    /// [`Persistent`]: BackbufferPersistence::Persistent
+    /// [`Transient`]: BackbufferPersistence::Transient
+    fn persistence(&self) -> BackbufferPersistence {
+        BackbufferPersistence::Persistent
+    }
 }
 
 /// A [`Backend`] that exposes a CPU-accessible framebuffer as a [`Texture`].
@@ -61,4 +95,31 @@ pub trait Backend {
 /// methods instead.
 pub trait FramebufferAccess: Backend {
     fn framebuffer(&mut self) -> Texture<'_>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct NoOpBackend;
+    impl Backend for NoOpBackend {
+        fn display_info(&self) -> DisplayInfo {
+            DisplayInfo {
+                width: 1,
+                height: 1,
+                scale: Fixed::ONE,
+                format: crate::draw::texture::ColorFormat::ARGB8888,
+            }
+        }
+        fn flush(&mut self, _area: &Rect) {}
+        fn poll_event(&mut self) -> Option<InputEvent> {
+            None
+        }
+    }
+
+    #[test]
+    fn default_persistence_is_persistent() {
+        let b = NoOpBackend;
+        assert_eq!(b.persistence(), BackbufferPersistence::Persistent);
+    }
 }

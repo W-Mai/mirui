@@ -152,8 +152,15 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
         self.backend.poll_event()
     }
 
-    /// Simple run loop: systems + render + poll until quit
+    /// Simple run loop: systems + render + poll until quit.
+    ///
+    /// Render strategy follows `Backend::persistence()`: CPU backends
+    /// (Persistent backbuffer) take the `render_dirty` fast path; GPU
+    /// backends whose swap chain throws away the back buffer after
+    /// `flush()` (Transient) get a full `render()` every frame.
     pub fn run(&mut self) {
+        let transient =
+            self.backend.persistence() == crate::backend::BackbufferPersistence::Transient;
         self.render();
         loop {
             self.systems.run_all(&mut self.world);
@@ -200,7 +207,11 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
             }
 
             scroll_inertia_system(&mut self.world);
-            self.render_dirty();
+            if transient {
+                self.render();
+            } else {
+                self.render_dirty();
+            }
         }
     }
 

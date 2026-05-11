@@ -1,18 +1,21 @@
 //! SDL GPU backend demo — hardware-accelerated rendering with a
-//! drag-to-move widget. The flex-laid children (solid, rounded, blit,
-//! label) stack vertically centred; the orange "DRAG ME" box is
+//! drag-to-move widget. The flex-laid children (solid, rounded, label,
+//! blit) stack vertically centred; the orange "DRAG ME" box is
 //! `Position::Absolute` and follows the mouse while the left button is
 //! held.
 //!
-//! Vsync is off so the fps summary reflects the real per-frame cost of
-//! the GPU path.
+//! Runs through `App::run`. The SDL GPU backend reports its backbuffer
+//! as `Transient`, so the run loop redraws every frame automatically —
+//! no manual loop here.
 
-use mirui::app::App;
+use mirui::app::{App, RendererFactory};
 use mirui::backend::sdl_gpu::{SdlGpuBackend, SdlGpuFactory};
 use mirui::backend::{Backend, InputEvent};
 use mirui::components::assets::*;
 use mirui::components::image::Image;
+use mirui::ecs::{Entity, World};
 use mirui::layout::*;
+use mirui::plugin::Plugin;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
@@ -100,74 +103,60 @@ fn main() {
 
     app.set_root(root);
     app.add_plugin(StdInstantClockPlugin)
-        .add_plugin(FpsSummaryPlugin::default());
-
-    let mut drag_state: Option<(Fixed, Fixed)> = None;
-    let mut drag_x = Fixed::from_int(240);
-    let mut drag_y = Fixed::from_int(30);
-
-    let mut wall_start = std::time::Instant::now();
-    let mut frames_since_report: u32 = 0;
-    let mut frame_times_us: alloc::vec::Vec<u32> = alloc::vec::Vec::with_capacity(300);
-    let mut last_frame = std::time::Instant::now();
-
-    loop {
-        let mut quit = false;
-        loop {
-            match app.backend.poll_event() {
-                Some(InputEvent::Quit) => {
-                    quit = true;
-                    break;
-                }
-                Some(InputEvent::Touch { x, y }) => {
-                    if hit(x, y, drag_x, drag_y) {
-                        drag_state = Some((x - drag_x, y - drag_y));
-                    }
-                }
-                Some(InputEvent::TouchMove { x, y }) => {
-                    if let Some((ox, oy)) = drag_state {
-                        drag_x = x - ox;
-                        drag_y = y - oy;
-                        mirui::widget::set_position(&mut app.world, drag, drag_x, drag_y);
-                    }
-                }
-                Some(InputEvent::Release { .. }) => {
-                    drag_state = None;
-                }
-                Some(_) => {}
-                None => break,
-            }
-        }
-        if quit {
-            break;
-        }
-        app.render();
-        let frame_us = last_frame.elapsed().as_micros() as u32;
-        last_frame = std::time::Instant::now();
-        frame_times_us.push(frame_us);
-        frames_since_report += 1;
-        let elapsed = wall_start.elapsed();
-        if elapsed.as_secs_f64() >= 1.0 {
-            frame_times_us.sort_unstable();
-            let n = frame_times_us.len();
-            let p50 = frame_times_us[n / 2];
-            let p99 = frame_times_us[n * 99 / 100];
-            let max = *frame_times_us.last().unwrap();
-            let fps = frames_since_report as f64 / elapsed.as_secs_f64();
-            eprintln!(
-                "[wall] {frames_since_report} frames  fps={fps:.0}  p50={p50}µs  p99={p99}µs  max={max}µs",
-            );
-            frames_since_report = 0;
-            frame_times_us.clear();
-            wall_start = std::time::Instant::now();
-        }
-    }
+        .add_plugin(FpsSummaryPlugin::default())
+        .add_plugin(DragPlugin {
+            target: drag,
+            pos: (Fixed::from_int(240), Fixed::from_int(30)),
+            offset: None,
+        });
+    app.run();
 }
 
-extern crate alloc;
+/// Drag `target` around by its top-left corner while the mouse button is
+/// held. Runs entirely off `on_event`; consumes Touch / TouchMove /
+/// Release to keep them out of the widget dispatch path.
+struct DragPlugin {
+    target: Entity,
+    pos: (Fixed, Fixed),
+    offset: Option<(Fixed, Fixed)>,
+}
 
-fn hit(x: Fixed, y: Fixed, dx: Fixed, dy: Fixed) -> bool {
-    let w = Fixed::from_int(DRAG_W);
-    let h = Fixed::from_int(DRAG_H);
-    x >= dx && x < dx + w && y >= dy && y < dy + h
+impl<B, F> Plugin<B, F> for DragPlugin
+where
+    B: Backend,
+    F: RendererFactory<B>,
+{
+    fn build(&mut self, _app: &mut App<B, F>) {}
+
+    fn on_event(&mut self, world: &mut World, event: &InputEvent) -> bool {
+        let w = Fixed::from_int(DRAG_W);
+        let h = Fixed::from_int(DRAG_H);
+        match *event {
+            InputEvent::Touch { x, y } => {
+                let (dx, dy) = self.pos;
+                if x >= dx && x < dx + w && y >= dy && y < dy + h {
+                    self.offset = Some((x - dx, y - dy));
+                    return true;
+                }
+                false
+            }
+            InputEvent::TouchMove { x, y } => {
+                if let Some((ox, oy)) = self.offset {
+                    let nx = x - ox;
+                    let ny = y - oy;
+                    self.pos = (nx, ny);
+                    mirui::widget::set_position(world, self.target, nx, ny);
+                    return true;
+                }
+                false
+            }
+            InputEvent::Release { .. } => {
+                if self.offset.take().is_some() {
+                    return true;
+                }
+                false
+            }
+            _ => false,
+        }
+    }
 }

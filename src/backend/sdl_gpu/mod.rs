@@ -136,6 +136,10 @@ impl Backend for SdlGpuBackend {
         }
         None
     }
+
+    fn persistence(&self) -> super::BackbufferPersistence {
+        super::BackbufferPersistence::Transient
+    }
 }
 
 // NOTE: no `impl FramebufferAccess for SdlGpuBackend` — by design.
