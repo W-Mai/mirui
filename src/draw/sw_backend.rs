@@ -424,7 +424,7 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
                 clip_y1,
             );
         } else {
-            blit_generic_slow(
+            blit_dda(
                 &mut self.target,
                 src,
                 sx0,
@@ -489,9 +489,9 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
     fn flush(&mut self) {}
 }
 
-/// Generic nearest-neighbour blit. Currently the sole implementation;
-/// follow-up commits add 1× / 2× integer-scale + format-specialized
-/// variants and route the hot paths here only as fallback.
+/// Generic nearest-neighbour blit kept as an out-of-line fallback.
+/// Uses the original per-pixel divide; superseded by `blit_dda`
+/// everywhere except places that intentionally want this shape.
 #[allow(clippy::too_many_arguments)]
 fn blit_generic_slow(
     dst: &mut Texture,
@@ -521,6 +521,68 @@ fn blit_generic_slow(
                 continue;
             }
             let sx = sx0 + (dcol * sw as i32) / dw;
+            let src_color = src.get_pixel(sx, sy);
+            if src_color.a == 0 {
+                continue;
+            }
+            if src_color.a == 255 {
+                dst.set_pixel(ix, iy, &src_color);
+            } else {
+                dst.blend_pixel_int(ix, iy, &src_color, src_color.a);
+            }
+        }
+    }
+}
+
+/// DDA (digital differential analyzer) blit: one divide per axis at
+/// the top of the function, then each row/column just adds the step.
+/// Step is stored in Q16.16 so the high word lands on an integer src
+/// sample index and the low word carries the fractional error across
+/// iterations — identical sampling result to `(drow * sh) / dh` but
+/// without RV32's software divide in the inner loop.
+#[allow(clippy::too_many_arguments)]
+fn blit_dda(
+    dst: &mut Texture,
+    src: &Texture,
+    sx0: i32,
+    sy0: i32,
+    sw: u16,
+    sh: u16,
+    dx0: i32,
+    dy0: i32,
+    dw: i32,
+    dh: i32,
+    clip_x0: i32,
+    clip_y0: i32,
+    clip_x1: i32,
+    clip_y1: i32,
+) {
+    // Step values in Q16.16 fixed-point. `(sw << 16) / dw` lands the
+    // integer portion in the high 16 bits; adding step each iteration
+    // is exact modular arithmetic on a u32.
+    let sx_step = ((sw as u32) << 16) / dw as u32;
+    let sy_step = ((sh as u32) << 16) / dh as u32;
+
+    let mut sy_acc: u32 = 0;
+    for drow in 0..dh {
+        let iy = dy0 + drow;
+        if iy < clip_y0 || iy >= clip_y1 {
+            sy_acc = sy_acc.wrapping_add(sy_step);
+            continue;
+        }
+        let sy = sy0 + (sy_acc >> 16) as i32;
+        sy_acc = sy_acc.wrapping_add(sy_step);
+
+        let mut sx_acc: u32 = 0;
+        for dcol in 0..dw {
+            let ix = dx0 + dcol;
+            if ix < clip_x0 || ix >= clip_x1 {
+                sx_acc = sx_acc.wrapping_add(sx_step);
+                continue;
+            }
+            let sx = sx0 + (sx_acc >> 16) as i32;
+            sx_acc = sx_acc.wrapping_add(sx_step);
+
             let src_color = src.get_pixel(sx, sy);
             if src_color.a == 0 {
                 continue;
@@ -1124,5 +1186,64 @@ mod tests {
             }
         }
         assert!(found);
+    }
+
+    /// DDA and the divide-based slow path must land on the same src
+    /// sample for every dst pixel. Drive both on the same 4×4 → 7×5
+    /// non-integer scale and compare dst byte-for-byte.
+    #[test]
+    fn blit_dda_matches_generic_slow() {
+        // Src: 4×4 ARGB with a distinct per-pixel red value so we can
+        // tell which src pixel each dst pixel sampled.
+        let mut src_buf = vec![0u8; 4 * 4 * 4];
+        for y in 0..4 {
+            for x in 0..4 {
+                let i = (y * 4 + x) * 4;
+                src_buf[i] = (y * 4 + x) as u8 * 16 + 1;
+                src_buf[i + 3] = 255;
+            }
+        }
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+
+        // Dst: 8×6, draw 7×5 blit at (0,0). Two identical dst buffers.
+        let mut dst_a = vec![0u8; 8 * 6 * 4];
+        let mut dst_b = vec![0u8; 8 * 6 * 4];
+
+        {
+            let mut tex_a = Texture::new(&mut dst_a, 8, 6, ColorFormat::ARGB8888);
+            blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6);
+        }
+        {
+            let mut tex_b = Texture::new(&mut dst_b, 8, 6, ColorFormat::ARGB8888);
+            blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6);
+        }
+
+        assert_eq!(dst_a, dst_b, "dda sampling diverged from divide path");
+    }
+
+    /// Clip partially covering the dst rect must still produce the
+    /// same output as the divide-based slow path (every pixel outside
+    /// the clip untouched, every pixel inside matching src sampling).
+    #[test]
+    fn blit_dda_with_partial_clip() {
+        let mut src_buf = vec![0u8; 4 * 4 * 4];
+        for i in 0..16 {
+            src_buf[i * 4] = (i * 16 + 1) as u8;
+            src_buf[i * 4 + 3] = 255;
+        }
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+
+        let mut dst_a = vec![0u8; 10 * 10 * 4];
+        let mut dst_b = vec![0u8; 10 * 10 * 4];
+        // Clip covers columns 2..7 only.
+        {
+            let mut tex_a = Texture::new(&mut dst_a, 10, 10, ColorFormat::ARGB8888);
+            blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10);
+        }
+        {
+            let mut tex_b = Texture::new(&mut dst_b, 10, 10, ColorFormat::ARGB8888);
+            blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10);
+        }
+        assert_eq!(dst_a, dst_b);
     }
 }
