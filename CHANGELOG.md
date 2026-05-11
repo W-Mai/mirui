@@ -31,6 +31,12 @@ On a standard 10 s benchmark scene (30 solid rects + 5 rounded rects with thick 
 
 - Lyon fill/stroke tolerance is 1.0 (previous SDL-GPU internal draft used 0.25). Sub-pixel accuracy isn't visible on UI elements; 1.0 buys ~40% tessellation time back.
 
+### Known Issues
+
+- **`SdlGpuBackend` is not compatible with `App::run`** for static scenes. `App::run` drives a dirty-only render after the first frame; SDL's accelerated renderer treats the back buffer as undefined after `present()`, so subsequent frames that draw nothing leave the window blank. Workaround: drive the event loop manually with `app.render()` every frame (see `examples/sdl_gpu_demo.rs`). Planned fix for v0.6.1 is a persistent off-screen target via `with_texture_canvas`.
+- **Label text looks soft on HiDPI displays.** Labels are CPU-rasterised at logical size and then GPU-upscaled to physical size for the blit. Readable but not crisp on Retina (scale=2). Planned fix for v0.6.1 is to rasterise labels directly at physical size and cache at that resolution.
+- **`Dimension::Percent` is buggy at large parent sizes.** `parent_size * pct / 100` overflows the `Fixed` 24.8 pipeline once the physical width goes above ~500 px; the resulting widget rect is nonsensical (negative w/h) and everything clips away. All the bundled examples use `Dimension::px(...)` to sidestep this. Planned fix is a proper `Fixed::mul_div` that promotes to i64 internally; targeted for v0.6.1.
+
 ## [0.5.2] - 2026-05-10
 
 ### 🧱 Trait Architecture Refactor (GPU-Ready Prep)
