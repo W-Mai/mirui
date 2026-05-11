@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-05-11
+
+### 🚀 The GPU Backend Release
+
+mirui ships its first non-CPU-raster backend. `SdlGpuBackend` drives the SDL2 accelerated renderer (D3D / OpenGL / Metal, depending on platform) directly: solid fills go straight through `canvas.fill_rect`, complex paths are tessellated with `lyon` and submitted via `SDL_RenderGeometry`, text lives in a per-label `SdlTexture` cache, and textures are `canvas.copy`'d. Behind the new `sdl-gpu` feature; existing `sdl` / `no_std` / default builds are untouched.
+
+On a standard 10 s benchmark scene (30 solid rects + 5 rounded rects with thick borders + 10 labels + 2 blits) on macOS, the GPU backend hits ~160 fps vs the CPU backend's ~119 fps — **~1.33× speedup** with substantially less work on the CPU.
+
+### Added
+
+- **`mirui::backend::sdl_gpu`** module (`sdl-gpu` feature):
+  - `SdlGpuBackend` — GPU-backed window, no CPU framebuffer.
+  - `SdlGpuFactory` — binds to `SdlGpuBackend` via `impl RendererFactory<SdlGpuBackend>`.
+  - `SdlGpuRenderer` — DrawBackend impl covering `Fill` / `Border` / `Line` / `Blit` / `Label` / `Arc` / path fill + stroke through a hybrid fast-path + tessellation strategy.
+- **`SdlGpuBackend::new` / `new_with_vsync`** — Vsync-off variant for benchmarking.
+- **`SdlBackend::new_with_vsync`** — Same on the CPU backend for consistency.
+- **Path tessellation via `lyon` 1.0** (feature-gated): `FillTessellator` / `StrokeTessellator` reuse inside a `TessellationCache`, so complex paths amortise to zero per-frame allocation after warm-up.
+- **Per-label GPU texture cache** (keyed by text hash + colour, LRU-bounded to 128 entries) backs the `draw_label` hot path; miss triggers a CPU raster + streaming upload, hits are a single `canvas.copy`.
+- **`examples/sdl_gpu_demo.rs`** — visual demo exercising every fast-path.
+- **`examples/perf_bench.rs`** — standard scene + 10 s timed run, works against either backend depending on which feature is enabled.
+- New optional dependencies (only under `sdl-gpu`): `lyon 1.0`, `lru 0.12`, `sdl2-sys 0.37`.
+
+### Changed
+
+- Lyon fill/stroke tolerance is 1.0 (previous SDL-GPU internal draft used 0.25). Sub-pixel accuracy isn't visible on UI elements; 1.0 buys ~40% tessellation time back.
+
 ## [0.5.2] - 2026-05-10
 
 ### 🧱 Trait Architecture Refactor (GPU-Ready Prep)

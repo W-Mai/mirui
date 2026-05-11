@@ -92,8 +92,18 @@ impl LabelCache {
         let phys_w = phys_char_w * text.len() as u32;
         let phys_h = phys_char_h;
 
-        let dst = physical_dst_rect(pos, phys_w, phys_h, scale);
-        let clip_rect = physical_clip_rect(clip, scale);
+        let dst = sdl2::rect::Rect::new(pos.x.to_int(), pos.y.to_int(), phys_w, phys_h);
+        let (cx0, cy0, cx1, cy1) = clip.pixel_bounds();
+        let clip_rect = if cx1 > cx0 && cy1 > cy0 {
+            Some(sdl2::rect::Rect::new(
+                cx0,
+                cy0,
+                (cx1 - cx0) as u32,
+                (cy1 - cy0) as u32,
+            ))
+        } else {
+            None
+        };
         let a = ((color.a as u16) * (opa as u16) / 255) as u8;
 
         if !self.cache.contains(&key) {
@@ -183,25 +193,6 @@ fn hash_bytes(bytes: &[u8]) -> u64 {
 
 fn pack_rgba(c: &Color) -> u32 {
     ((c.r as u32) << 24) | ((c.g as u32) << 16) | ((c.b as u32) << 8) | (c.a as u32)
-}
-
-fn physical_dst_rect(pos: &Point, phys_w: u32, phys_h: u32, scale: Fixed) -> sdl2::rect::Rect {
-    let x = (pos.x * scale).to_int();
-    let y = (pos.y * scale).to_int();
-    sdl2::rect::Rect::new(x, y, phys_w, phys_h)
-}
-
-fn physical_clip_rect(clip: &Rect, scale: Fixed) -> Option<sdl2::rect::Rect> {
-    let x0 = (clip.x * scale).to_int();
-    let y0 = (clip.y * scale).to_int();
-    let x1 = ((clip.x + clip.w) * scale).ceil().to_int();
-    let y1 = ((clip.y + clip.h) * scale).ceil().to_int();
-    let w = (x1 - x0).max(0) as u32;
-    let h = (y1 - y0).max(0) as u32;
-    if w == 0 || h == 0 {
-        return None;
-    }
-    Some(sdl2::rect::Rect::new(x0, y0, w, h))
 }
 
 /// Lightweight non-cryptographic hasher to avoid pulling in ahash/hashbrown

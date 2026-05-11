@@ -23,8 +23,8 @@ fn main() {
         .bg_color(Color::rgba(30, 30, 46, 255))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Dimension::Percent(100.0.into()),
-            height: Dimension::Percent(100.0.into()),
+            width: Dimension::px(640),
+            height: Dimension::px(480),
             justify: JustifyContent::Center,
             align: AlignItems::Center,
             ..Default::default()
@@ -90,5 +90,23 @@ fn main() {
     app.set_root(root);
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    app.run();
+
+    use mirui::backend::{Backend, InputEvent};
+    loop {
+        let mut quit = false;
+        loop {
+            match app.backend.poll_event() {
+                Some(InputEvent::Quit) => {
+                    quit = true;
+                    break;
+                }
+                Some(_) => {}
+                None => break,
+            }
+        }
+        if quit {
+            break;
+        }
+        app.render();
+    }
 }

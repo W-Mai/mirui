@@ -18,7 +18,7 @@ use lyon::tessellation::{
 use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_Vertex};
 
 use crate::draw::path::{Path, PathCmd};
-use crate::types::{Color, Fixed};
+use crate::types::Color;
 
 /// Holds reusable tessellators and output buffers so path commands don't
 /// re-allocate every frame. One cache per `SdlGpuBackend`.
@@ -41,12 +41,12 @@ impl TessellationCache {
         }
     }
 
-    /// Tessellate `path` as a fill, writing `SDL_Vertex` + i32 indices
-    /// into the cached buffers with the per-vertex colour baked in.
-    pub fn fill(&mut self, path: &Path, scale: Fixed, color: &Color, opa: u8) {
+    /// Tessellate `path` (already in physical pixels) as a fill, writing
+    /// `SDL_Vertex` + i32 indices into the cached buffers.
+    pub fn fill(&mut self, path: &Path, color: &Color, opa: u8) {
         self.lyon_verts.vertices.clear();
         self.lyon_verts.indices.clear();
-        let lyon_path = to_lyon_path(path, scale);
+        let lyon_path = to_lyon_path(path);
         let _ = self.fill_tess.tessellate_path(
             &lyon_path,
             &FillOptions::tolerance(1.0),
@@ -55,19 +55,12 @@ impl TessellationCache {
         self.bake(color, opa);
     }
 
-    /// Same but for a stroke of the given width (in logical pixels,
-    /// already multiplied by `scale` before calling).
-    pub fn stroke(
-        &mut self,
-        path: &Path,
-        scale: Fixed,
-        physical_width: f32,
-        color: &Color,
-        opa: u8,
-    ) {
+    /// Same but for a stroke. `physical_width` is the line width in
+    /// physical pixels.
+    pub fn stroke(&mut self, path: &Path, physical_width: f32, color: &Color, opa: u8) {
         self.lyon_verts.vertices.clear();
         self.lyon_verts.indices.clear();
-        let lyon_path = to_lyon_path(path, scale);
+        let lyon_path = to_lyon_path(path);
         let options = StrokeOptions::tolerance(0.5).with_line_width(physical_width);
         let _ = self.stroke_tess.tessellate_path(
             &lyon_path,
@@ -108,13 +101,11 @@ impl Default for TessellationCache {
     }
 }
 
-fn to_lyon_path(path: &Path, scale: Fixed) -> LyonPath {
-    let s = scale.to_f32();
+fn to_lyon_path(path: &Path) -> LyonPath {
     let mut builder = LyonPath::builder();
     let mut subpath_open = false;
 
-    let p =
-        |pt: crate::types::Point| -> LyonPoint { lyon_point(pt.x.to_f32() * s, pt.y.to_f32() * s) };
+    let p = |pt: crate::types::Point| -> LyonPoint { lyon_point(pt.x.to_f32(), pt.y.to_f32()) };
 
     for cmd in &path.cmds {
         match cmd {
