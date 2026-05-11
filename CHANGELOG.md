@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-05-11
+
+### 🎯 The Logical-Coordinate Release
+
+The render pipeline now flows end-to-end in **logical pixels**. Widgets, `Dimension::px`, layout trees, `DrawCommand`s and `DrawBackend` methods all speak logical. Each `DrawBackend` impl translates to physical on the way out. This lets HiDPI / subpixel downscale / any future `scale != 1` happen transparently — user code writes `Dimension::px(16)` and the backend rasters 16 logical × `scale` physical without the user knowing.
+
+Every breaking change is trait-surface or struct-layout; end-user layout code (`WidgetBuilder`, `ui!`, `add_plugin`, `App::run`) is unchanged. `mirui-macros::compose_backend!` picks up the new `Blit` signature automatically.
+
+### Breaking
+
+- **`DrawCommand::Blit` gains `size: Point`** — the dst rect size is now explicit, and `SwDrawBackend::blit` / `SdlGpuRenderer::blit` scale the source texture to fit. Previously `Blit` always painted at the source's native dimensions, which meant a 16×16 icon widget at HiDPI scale=2 only occupied half its slot. Callers of `DrawBackend::blit` now receive a `dst_size: Point` argument.
+- **Every `DrawCommand` variant carries a `transform: Transform`** — currently always `Transform::IDENTITY`, reserved for the upcoming widget-level 2D affine transform (rotate / scale / skew). Backend `Renderer::draw` entry-points `assert!(cmd.transform().is_identity())`; custom backends that match on `DrawCommand` exhaustively need to bind the new field.
+- **`CoordTransform` → `Viewport`** — renamed to leave `Transform` free for the Layer-2 widget transform. Methods (`rect_to_physical`, `point_to_physical`, `logical_size`, `physical_size`, `scale`) keep the same shape.
+- **`DisplayInfo.width` / `.height` now report logical pixels**, not physical. `Backend::physical_size() -> (u32, u32)` (new trait method, default impl computes from `display_info × scale`) gives drivers the physical buffer dims they need. Bundled backends override to return their internal dims directly.
+- **`Backend::flush(area: &Rect)` is documented and enforced as physical-pixel coordinates.** `App::render` / `render_dirty` convert logical rects to physical via `Backend::physical_size()` and `Viewport::rect_to_physical` before calling `flush`, so drivers (ESP32 SPI, framebuffer) can treat `area` as raw device coordinates.
+- `Backend::screen_rect()` default returns logical.
+- `App::dirty_region()` returns logical pixels now (doc was incorrect before; implementation already was logical since v0.6.x).
+
+### Added
+
+- **`Transform` type** (currently identity-only stub) on `DrawCommand` — every draw op carries per-op transform metadata, backends assert identity at entry. Ready for Layer 2 widget transforms in a future release.
+- **`Backend::physical_size() -> (u32, u32)`** trait method with a default derivation from `display_info()`. Bundled backends (`SdlBackend`, `SdlGpuBackend`, `FramebufBackend`) override to return their internal physical-size fields directly.
+- **`FramebufBackend::with_scale(phys_w, phys_h, scale, cb)`** and `with_scale_and_format(..., scale, format, cb)` — opt-in HiDPI construction for embedded drivers. Lets the driver declare a `(physical, logical)` pair up front; user layout code continues to write `Dimension::px(logical_value)`.
+- **`Viewport` is now a first-class public type**. `SwDrawBackend` and `SdlGpuRenderer` each hold one as a field; every method translates logical arguments internally.
+
+### Fixed
+
+- **Image widgets at HiDPI (scale > 1) now fill their slot.** Prior versions emitted `Blit` at the source texture's native dims, so a 16×16 icon at scale=2 painted 16 physical pixels (half of its 32-physical widget slot). Both SW and GPU paths now receive the widget size and nearest-sample / `canvas.copy`-stretch the source accordingly.
+- **`border_width`, `radius`, scroll offsets, label padding scale once at HiDPI.** `widget::render_system::scale_rects` and the `scroll.x * scale` / `scroll.y * scale` workarounds in the scroll system are gone. Every `DrawCommand` is emitted in logical coordinates; the single `viewport.rect_to_physical` inside each backend method is the only scaling step.
+- **HiDPI driver backends (`FramebufBackend`) now refresh the full physical surface each frame.** `App::render` / `render_dirty` previously flushed a logical-sized rect, which CPU framebuffer drivers interpreted as physical buffer offsets — at scale=2 only the top-left logical quadrant updated. Fixed by driving `Backend::flush` with physical coordinates throughout.
+
+### Performance
+
+- ESP32-C3 three-body demo: 5.7-6.5 ms/frame (~170 fps), matching v0.6.1 baseline within ~3% noise.
+- HiDPI scale=2 on the same demo paints 4× more physical pixels per `Blit`; that translates to ~3.6× frame time, which is the expected HiDPI raster cost (same `fill_rect` speed via `copy_from_slice`; only `blit` gets expensive because of per-dst-pixel nearest sampling). The upcoming `sw-blit-fast-path` spec (v0.8 candidate) will recover most of this.
+- Scale < 1 (e.g. scale=0.5 with logical 256×256 / physical 128×128 for a thumbnail-preview UI) is faster than scale=1 because `Blit` dst pixel count drops to 0.25×. No assumption of `scale ≥ 1` anywhere.
+
 ## [0.6.1] - 2026-05-11
 
 ### Fixed
