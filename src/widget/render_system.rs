@@ -5,11 +5,12 @@ use crate::components::checkbox::Checkbox;
 use crate::components::image::Image;
 use crate::components::progress_bar::ProgressBar;
 use crate::components::transform::WidgetTransform;
+use crate::components::transform_3d::WidgetTransform3D;
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
 use super::{Children, Style, Text, Widget};
 
@@ -29,6 +30,35 @@ fn effective_transform(parent: &Transform, world: &World, entity: Entity, rect: 
         .compose(&from_origin)
         .compose(&local)
         .compose(&to_origin)
+}
+
+fn effective_transform_3d(
+    parent: &Transform3D,
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+) -> Transform3D {
+    let local = match world.get::<WidgetTransform3D>(entity) {
+        Some(t) if !t.0.is_identity() => t.0,
+        _ => return *parent,
+    };
+    let cx = rect.x + rect.w / Fixed::from_int(2);
+    let cy = rect.y + rect.h / Fixed::from_int(2);
+    let to_origin = Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy);
+    let from_origin = Transform3D::translate(cx, cy);
+    parent
+        .compose(&from_origin)
+        .compose(&local)
+        .compose(&to_origin)
+}
+
+fn quad_for(world: &World, entity: Entity, rect: Rect) -> Option<[Point; 4]> {
+    let wt3d = world.get::<WidgetTransform3D>(entity)?;
+    if wt3d.0.is_identity() {
+        return None;
+    }
+    let tf = effective_transform_3d(&Transform3D::IDENTITY, world, entity, rect);
+    tf.apply_rect(rect)
 }
 
 /// Recursively build a LayoutNode tree from ECS entities
@@ -79,6 +109,7 @@ fn draw_tree(
         }
     };
     let tf = effective_transform(parent_transform, world, entity, node.rect);
+    let quad = quad_for(world, entity, node.rect);
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
@@ -95,7 +126,7 @@ fn draw_tree(
                     &DrawCommand::Fill {
                         area: node.rect,
                         transform: tf,
-                        quad: None,
+                        quad,
                         color,
                         radius: style.border_radius,
                         opa: 255,
@@ -123,7 +154,7 @@ fn draw_tree(
                     &DrawCommand::Fill {
                         area: node.rect,
                         transform: tf,
-                        quad: None,
+                        quad,
                         color: pb.track_color,
                         radius: style.border_radius,
                         opa: 255,
@@ -141,7 +172,7 @@ fn draw_tree(
                                 h: node.rect.h,
                             },
                             transform: tf,
-                            quad: None,
+                            quad,
                             color: pb.fill_color,
                             radius: style.border_radius,
                             opa: 255,
@@ -162,7 +193,7 @@ fn draw_tree(
                             y: node.rect.h,
                         },
                         transform: tf,
-                        quad: None,
+                        quad,
                         texture: img.texture,
                     },
                     clip,
@@ -253,6 +284,7 @@ fn draw_tree_offset(
         }
     };
     let tf = effective_transform(parent_transform, world, entity, shifted_rect);
+    let quad = quad_for(world, entity, shifted_rect);
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
@@ -269,7 +301,7 @@ fn draw_tree_offset(
                     &DrawCommand::Fill {
                         area: shifted_rect,
                         transform: tf,
-                        quad: None,
+                        quad,
                         color,
                         radius: style.border_radius,
                         opa: 255,
@@ -297,7 +329,7 @@ fn draw_tree_offset(
                     &DrawCommand::Fill {
                         area: shifted_rect,
                         transform: tf,
-                        quad: None,
+                        quad,
                         color: pb.track_color,
                         radius: style.border_radius,
                         opa: 255,
@@ -315,7 +347,7 @@ fn draw_tree_offset(
                                 h: shifted_rect.h,
                             },
                             transform: tf,
-                            quad: None,
+                            quad,
                             color: pb.fill_color,
                             radius: style.border_radius,
                             opa: 255,
@@ -336,7 +368,7 @@ fn draw_tree_offset(
                             y: shifted_rect.h,
                         },
                         transform: tf,
-                        quad: None,
+                        quad,
                         texture: img.texture,
                     },
                     clip,
