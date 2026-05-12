@@ -47,6 +47,54 @@ impl PerfCtx {
     }
 }
 
+/// Global perf counters for quad-path drawing. Not thread-safe (plain
+/// `static mut`), which matches the single-threaded embedded targets mirui
+/// runs on. Off-by-default: zero cost when `perf` feature is off.
+#[cfg(feature = "perf")]
+pub mod quad_perf {
+    pub static mut FILL: u64 = 0;
+    pub static mut BLIT: u64 = 0;
+    pub static mut FILL_COUNT: u32 = 0;
+    pub static mut BLIT_COUNT: u32 = 0;
+    /// User supplies a clock reading monotonic ticks. Demo points it at
+    /// e.g. ESP systimer (cycles) or std Instant (ns) — caller decides
+    /// units and interprets the output accordingly.
+    pub static mut CLOCK: fn() -> u64 = || 0;
+
+    /// Snapshot-and-reset counters. Returns (fill, fill_count, blit, blit_count).
+    pub fn take() -> (u64, u32, u64, u32) {
+        unsafe {
+            let out = (FILL, FILL_COUNT, BLIT, BLIT_COUNT);
+            FILL = 0;
+            BLIT = 0;
+            FILL_COUNT = 0;
+            BLIT_COUNT = 0;
+            out
+        }
+    }
+
+    #[inline]
+    pub fn now() -> u64 {
+        unsafe { CLOCK() }
+    }
+
+    #[inline]
+    pub fn add_fill(dt: u64) {
+        unsafe {
+            FILL += dt;
+            FILL_COUNT += 1;
+        }
+    }
+
+    #[inline]
+    pub fn add_blit(dt: u64) {
+        unsafe {
+            BLIT += dt;
+            BLIT_COUNT += 1;
+        }
+    }
+}
+
 pub struct SwDrawBackend<'a> {
     pub target: Texture<'a>,
     pub viewport: Viewport,
@@ -1588,6 +1636,8 @@ impl Renderer for SwDrawBackend<'_> {
             ..
         } = cmd
         {
+            #[cfg(feature = "perf")]
+            let t0 = quad_perf::now();
             let phys_clip = self.viewport.rect_to_physical(*clip);
             let phys_q = [
                 self.viewport.point_to_physical(q[0]),
@@ -1608,6 +1658,8 @@ impl Renderer for SwDrawBackend<'_> {
                 phys_h,
                 *opa,
             );
+            #[cfg(feature = "perf")]
+            quad_perf::add_fill(quad_perf::now().wrapping_sub(t0));
             return;
         }
         if let DrawCommand::Blit {
@@ -1616,6 +1668,8 @@ impl Renderer for SwDrawBackend<'_> {
             ..
         } = cmd
         {
+            #[cfg(feature = "perf")]
+            let t0 = quad_perf::now();
             let phys_clip = self.viewport.rect_to_physical(*clip);
             let phys_q = [
                 self.viewport.point_to_physical(q[0]),
@@ -1624,6 +1678,8 @@ impl Renderer for SwDrawBackend<'_> {
                 self.viewport.point_to_physical(q[3]),
             ];
             blit_quad(&mut self.target, texture, &phys_q, phys_clip);
+            #[cfg(feature = "perf")]
+            quad_perf::add_blit(quad_perf::now().wrapping_sub(t0));
             return;
         }
 
