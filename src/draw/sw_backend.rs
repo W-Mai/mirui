@@ -56,19 +56,59 @@ pub mod quad_perf {
     pub static mut BLIT: u64 = 0;
     pub static mut FILL_COUNT: u32 = 0;
     pub static mut BLIT_COUNT: u32 = 0;
+
+    /// Per-pixel breakdown for fill_rect_quad bbox scan.
+    pub static mut FILL_PIXELS_SCANNED: u64 = 0;
+    pub static mut FILL_PIXELS_DRAWN: u64 = 0;
+    pub static mut FILL_PIXELS_INSET_HIT: u64 = 0;
+    pub static mut FILL_PIXELS_SLOW_HIT: u64 = 0;
+
+    /// Per-pixel breakdown for blit_quad.
+    pub static mut BLIT_PIXELS_SCANNED: u64 = 0;
+    pub static mut BLIT_PIXELS_DRAWN: u64 = 0;
+
     /// User supplies a clock reading monotonic ticks. Demo points it at
     /// e.g. ESP systimer (cycles) or std Instant (ns) — caller decides
     /// units and interprets the output accordingly.
     pub static mut CLOCK: fn() -> u64 = || 0;
 
-    /// Snapshot-and-reset counters. Returns (fill, fill_count, blit, blit_count).
-    pub fn take() -> (u64, u32, u64, u32) {
+    pub struct Snapshot {
+        pub fill_ticks: u64,
+        pub fill_count: u32,
+        pub blit_ticks: u64,
+        pub blit_count: u32,
+        pub fill_scanned: u64,
+        pub fill_drawn: u64,
+        pub fill_inset_hit: u64,
+        pub fill_slow_hit: u64,
+        pub blit_scanned: u64,
+        pub blit_drawn: u64,
+    }
+
+    pub fn take() -> Snapshot {
         unsafe {
-            let out = (FILL, FILL_COUNT, BLIT, BLIT_COUNT);
+            let out = Snapshot {
+                fill_ticks: FILL,
+                fill_count: FILL_COUNT,
+                blit_ticks: BLIT,
+                blit_count: BLIT_COUNT,
+                fill_scanned: FILL_PIXELS_SCANNED,
+                fill_drawn: FILL_PIXELS_DRAWN,
+                fill_inset_hit: FILL_PIXELS_INSET_HIT,
+                fill_slow_hit: FILL_PIXELS_SLOW_HIT,
+                blit_scanned: BLIT_PIXELS_SCANNED,
+                blit_drawn: BLIT_PIXELS_DRAWN,
+            };
             FILL = 0;
             BLIT = 0;
             FILL_COUNT = 0;
             BLIT_COUNT = 0;
+            FILL_PIXELS_SCANNED = 0;
+            FILL_PIXELS_DRAWN = 0;
+            FILL_PIXELS_INSET_HIT = 0;
+            FILL_PIXELS_SLOW_HIT = 0;
+            BLIT_PIXELS_SCANNED = 0;
+            BLIT_PIXELS_DRAWN = 0;
             out
         }
     }
@@ -632,6 +672,10 @@ fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) 
     let sh = src.height as i32;
     for py in px_y0..px_y1 {
         for px in px_x0..px_x1 {
+            #[cfg(feature = "perf")]
+            unsafe {
+                quad_perf::BLIT_PIXELS_SCANNED += 1;
+            }
             let p = Point {
                 x: Fixed::from_int(px) + Fixed::from_raw(128),
                 y: Fixed::from_int(py) + Fixed::from_raw(128),
@@ -650,6 +694,10 @@ fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) 
             let c = src.get_pixel(sx, sy);
             if c.a == 0 {
                 continue;
+            }
+            #[cfg(feature = "perf")]
+            unsafe {
+                quad_perf::BLIT_PIXELS_DRAWN += 1;
             }
             if c.a == 255 {
                 dst.set_pixel(px, py, &c);
@@ -707,12 +755,20 @@ fn fill_rect_quad(
     let r_sq = radius * radius;
     for py in px_y0..px_y1 {
         for px in px_x0..px_x1 {
+            #[cfg(feature = "perf")]
+            unsafe {
+                quad_perf::FILL_PIXELS_SCANNED += 1;
+            }
             let p = Point {
                 x: Fixed::from_int(px) + Fixed::from_raw(128),
                 y: Fixed::from_int(py) + Fixed::from_raw(128),
             };
             if !point_in_rounded_inset(&inset, p, r_sq) {
                 continue;
+            }
+            #[cfg(feature = "perf")]
+            unsafe {
+                quad_perf::FILL_PIXELS_DRAWN += 1;
             }
             if opa == 255 {
                 dst.set_pixel(px, py, color);
@@ -723,9 +779,14 @@ fn fill_rect_quad(
     }
 }
 
+#[inline]
 fn point_in_rounded_inset(inset: &[Point; 4], p: Point, r_sq: Fixed) -> bool {
     use crate::types::transform_3d::point_in_quad;
     if point_in_quad(inset, p) {
+        #[cfg(feature = "perf")]
+        unsafe {
+            quad_perf::FILL_PIXELS_INSET_HIT += 1;
+        }
         return true;
     }
     for i in 0..4 {
@@ -746,6 +807,10 @@ fn point_in_rounded_inset(inset: &[Point; 4], p: Point, r_sq: Fixed) -> bool {
         let bx = wx - ex * t;
         let by = wy - ey * t;
         if bx * bx + by * by <= r_sq {
+            #[cfg(feature = "perf")]
+            unsafe {
+                quad_perf::FILL_PIXELS_SLOW_HIT += 1;
+            }
             return true;
         }
     }
