@@ -1,105 +1,80 @@
-use super::{Fixed, Point, Rect};
+use super::{Fixed, Fixed64, Point, Rect};
 
-/// 3×3 homography for 2.5D widget warping. Internal storage is Q16.16
-/// (i64 raw with 16 fractional bits) because Q8.8 can't represent the
-/// small values in the bottom row — e.g. `1/800 ≈ 0.00125` rounds to
-/// zero in Q8.8.
+/// 3×3 homography for 2.5D widget warping. Uses [`Fixed64`] (Q48.16)
+/// instead of [`Fixed`] (Q24.8) because Q24.8 can't represent the small
+/// values in the bottom row — e.g. `1/800 ≈ 0.00125` rounds to zero.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Transform3D {
-    pub m00: i64,
-    pub m01: i64,
-    pub m02: i64,
-    pub m10: i64,
-    pub m11: i64,
-    pub m12: i64,
-    pub m20: i64,
-    pub m21: i64,
-    pub m22: i64,
-}
-
-const FRAC_BITS: i64 = 16;
-const ONE_Q16: i64 = 1 << FRAC_BITS;
-
-#[inline]
-fn from_fixed(f: Fixed) -> i64 {
-    (f.raw() as i64) << 8 // Q8.8 → Q16.16 is left-shift 8
+    pub m00: Fixed64,
+    pub m01: Fixed64,
+    pub m02: Fixed64,
+    pub m10: Fixed64,
+    pub m11: Fixed64,
+    pub m12: Fixed64,
+    pub m20: Fixed64,
+    pub m21: Fixed64,
+    pub m22: Fixed64,
 }
 
 #[inline]
-fn to_fixed(q: i64) -> Fixed {
-    let shifted = q >> 8;
-    let clamped = shifted.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
-    Fixed::from_raw(clamped)
-}
-
-#[inline]
-fn q_mul(a: i64, b: i64) -> i64 {
-    (a * b) >> FRAC_BITS
-}
-
-#[inline]
-fn q_div(a: i64, b: i64) -> Option<i64> {
-    if b == 0 {
-        None
-    } else {
-        Some((a << FRAC_BITS) / b)
-    }
+fn try_div(a: Fixed64, b: Fixed64) -> Option<Fixed64> {
+    if b.raw() == 0 { None } else { Some(a / b) }
 }
 
 impl Transform3D {
     pub const IDENTITY: Self = Self {
-        m00: ONE_Q16,
-        m01: 0,
-        m02: 0,
-        m10: 0,
-        m11: ONE_Q16,
-        m12: 0,
-        m20: 0,
-        m21: 0,
-        m22: ONE_Q16,
+        m00: Fixed64::ONE,
+        m01: Fixed64::ZERO,
+        m02: Fixed64::ZERO,
+        m10: Fixed64::ZERO,
+        m11: Fixed64::ONE,
+        m12: Fixed64::ZERO,
+        m20: Fixed64::ZERO,
+        m21: Fixed64::ZERO,
+        m22: Fixed64::ONE,
     };
 
     pub fn translate(tx: Fixed, ty: Fixed) -> Self {
         Self {
-            m00: ONE_Q16,
-            m01: 0,
-            m02: from_fixed(tx),
-            m10: 0,
-            m11: ONE_Q16,
-            m12: from_fixed(ty),
-            m20: 0,
-            m21: 0,
-            m22: ONE_Q16,
+            m00: Fixed64::ONE,
+            m01: Fixed64::ZERO,
+            m02: Fixed64::from_fixed(tx),
+            m10: Fixed64::ZERO,
+            m11: Fixed64::ONE,
+            m12: Fixed64::from_fixed(ty),
+            m20: Fixed64::ZERO,
+            m21: Fixed64::ZERO,
+            m22: Fixed64::ONE,
         }
     }
 
     pub fn scale(sx: Fixed, sy: Fixed) -> Self {
         Self {
-            m00: from_fixed(sx),
-            m01: 0,
-            m02: 0,
-            m10: 0,
-            m11: from_fixed(sy),
-            m12: 0,
-            m20: 0,
-            m21: 0,
-            m22: ONE_Q16,
+            m00: Fixed64::from_fixed(sx),
+            m01: Fixed64::ZERO,
+            m02: Fixed64::ZERO,
+            m10: Fixed64::ZERO,
+            m11: Fixed64::from_fixed(sy),
+            m12: Fixed64::ZERO,
+            m20: Fixed64::ZERO,
+            m21: Fixed64::ZERO,
+            m22: Fixed64::ONE,
         }
     }
 
     pub fn rotate_deg(angle: Fixed) -> Self {
-        let c = from_fixed(Fixed::cos_deg(angle));
-        let s = from_fixed(Fixed::sin_deg(angle));
+        let c = Fixed64::from_fixed(Fixed::cos_deg(angle));
+        let s = Fixed64::from_fixed(Fixed::sin_deg(angle));
         Self {
             m00: c,
             m01: -s,
-            m02: 0,
+            m02: Fixed64::ZERO,
             m10: s,
             m11: c,
-            m12: 0,
-            m20: 0,
-            m21: 0,
-            m22: ONE_Q16,
+            m12: Fixed64::ZERO,
+            m20: Fixed64::ZERO,
+            m21: Fixed64::ZERO,
+            m22: Fixed64::ONE,
         }
     }
 
@@ -118,33 +93,33 @@ impl Transform3D {
     }
 
     fn rotate_axis_perspective(angle: Fixed, distance: Fixed, y_axis: bool) -> Self {
-        let c = from_fixed(Fixed::cos_deg(angle));
-        let s = from_fixed(Fixed::sin_deg(angle));
-        let d = from_fixed(distance);
-        let s_over_d = q_div(s, d).unwrap_or(0);
+        let c = Fixed64::from_fixed(Fixed::cos_deg(angle));
+        let s = Fixed64::from_fixed(Fixed::sin_deg(angle));
+        let d = Fixed64::from_fixed(distance);
+        let s_over_d = try_div(s, d).unwrap_or(Fixed64::ZERO);
         if y_axis {
             Self {
                 m00: c,
-                m01: 0,
-                m02: 0,
-                m10: 0,
-                m11: ONE_Q16,
-                m12: 0,
+                m01: Fixed64::ZERO,
+                m02: Fixed64::ZERO,
+                m10: Fixed64::ZERO,
+                m11: Fixed64::ONE,
+                m12: Fixed64::ZERO,
                 m20: s_over_d,
-                m21: 0,
-                m22: ONE_Q16,
+                m21: Fixed64::ZERO,
+                m22: Fixed64::ONE,
             }
         } else {
             Self {
-                m00: ONE_Q16,
-                m01: 0,
-                m02: 0,
-                m10: 0,
+                m00: Fixed64::ONE,
+                m01: Fixed64::ZERO,
+                m02: Fixed64::ZERO,
+                m10: Fixed64::ZERO,
                 m11: c,
-                m12: 0,
-                m20: 0,
+                m12: Fixed64::ZERO,
+                m20: Fixed64::ZERO,
                 m21: s_over_d,
-                m22: ONE_Q16,
+                m22: Fixed64::ONE,
             }
         }
     }
@@ -153,32 +128,32 @@ impl Transform3D {
     /// No perspective effect; combine with `perspective_xy` via
     /// `rotate_y_perspective` instead if you want CSS-style cover flow.
     pub fn rotate_y_deg(angle: Fixed) -> Self {
-        let c = from_fixed(Fixed::cos_deg(angle));
+        let c = Fixed64::from_fixed(Fixed::cos_deg(angle));
         Self {
             m00: c,
-            m01: 0,
-            m02: 0,
-            m10: 0,
-            m11: ONE_Q16,
-            m12: 0,
-            m20: 0,
-            m21: 0,
-            m22: ONE_Q16,
+            m01: Fixed64::ZERO,
+            m02: Fixed64::ZERO,
+            m10: Fixed64::ZERO,
+            m11: Fixed64::ONE,
+            m12: Fixed64::ZERO,
+            m20: Fixed64::ZERO,
+            m21: Fixed64::ZERO,
+            m22: Fixed64::ONE,
         }
     }
 
     pub fn rotate_x_deg(angle: Fixed) -> Self {
-        let c = from_fixed(Fixed::cos_deg(angle));
+        let c = Fixed64::from_fixed(Fixed::cos_deg(angle));
         Self {
-            m00: ONE_Q16,
-            m01: 0,
-            m02: 0,
-            m10: 0,
+            m00: Fixed64::ONE,
+            m01: Fixed64::ZERO,
+            m02: Fixed64::ZERO,
+            m10: Fixed64::ZERO,
             m11: c,
-            m12: 0,
-            m20: 0,
-            m21: 0,
-            m22: ONE_Q16,
+            m12: Fixed64::ZERO,
+            m20: Fixed64::ZERO,
+            m21: Fixed64::ZERO,
+            m22: Fixed64::ONE,
         }
     }
 
@@ -191,32 +166,32 @@ impl Transform3D {
     }
 
     pub fn perspective_xy(dx: Fixed, dy: Fixed) -> Self {
-        let mx = q_div(-ONE_Q16, from_fixed(dx)).unwrap_or(0);
-        let my = q_div(-ONE_Q16, from_fixed(dy)).unwrap_or(0);
+        let mx = try_div(-Fixed64::ONE, Fixed64::from_fixed(dx)).unwrap_or(Fixed64::ZERO);
+        let my = try_div(-Fixed64::ONE, Fixed64::from_fixed(dy)).unwrap_or(Fixed64::ZERO);
         Self {
-            m00: ONE_Q16,
-            m01: 0,
-            m02: 0,
-            m10: 0,
-            m11: ONE_Q16,
-            m12: 0,
+            m00: Fixed64::ONE,
+            m01: Fixed64::ZERO,
+            m02: Fixed64::ZERO,
+            m10: Fixed64::ZERO,
+            m11: Fixed64::ONE,
+            m12: Fixed64::ZERO,
             m20: mx,
             m21: my,
-            m22: ONE_Q16,
+            m22: Fixed64::ONE,
         }
     }
 
     pub fn from_affine(t: super::Transform) -> Self {
         Self {
-            m00: from_fixed(t.m00),
-            m01: from_fixed(t.m01),
-            m02: from_fixed(t.tx),
-            m10: from_fixed(t.m10),
-            m11: from_fixed(t.m11),
-            m12: from_fixed(t.ty),
-            m20: 0,
-            m21: 0,
-            m22: ONE_Q16,
+            m00: Fixed64::from_fixed(t.m00),
+            m01: Fixed64::from_fixed(t.m01),
+            m02: Fixed64::from_fixed(t.tx),
+            m10: Fixed64::from_fixed(t.m10),
+            m11: Fixed64::from_fixed(t.m11),
+            m12: Fixed64::from_fixed(t.ty),
+            m20: Fixed64::ZERO,
+            m21: Fixed64::ZERO,
+            m22: Fixed64::ONE,
         }
     }
 
@@ -226,52 +201,34 @@ impl Transform3D {
 
     pub fn compose(&self, other: &Self) -> Self {
         Self {
-            m00: q_mul(self.m00, other.m00)
-                + q_mul(self.m01, other.m10)
-                + q_mul(self.m02, other.m20),
-            m01: q_mul(self.m00, other.m01)
-                + q_mul(self.m01, other.m11)
-                + q_mul(self.m02, other.m21),
-            m02: q_mul(self.m00, other.m02)
-                + q_mul(self.m01, other.m12)
-                + q_mul(self.m02, other.m22),
-            m10: q_mul(self.m10, other.m00)
-                + q_mul(self.m11, other.m10)
-                + q_mul(self.m12, other.m20),
-            m11: q_mul(self.m10, other.m01)
-                + q_mul(self.m11, other.m11)
-                + q_mul(self.m12, other.m21),
-            m12: q_mul(self.m10, other.m02)
-                + q_mul(self.m11, other.m12)
-                + q_mul(self.m12, other.m22),
-            m20: q_mul(self.m20, other.m00)
-                + q_mul(self.m21, other.m10)
-                + q_mul(self.m22, other.m20),
-            m21: q_mul(self.m20, other.m01)
-                + q_mul(self.m21, other.m11)
-                + q_mul(self.m22, other.m21),
-            m22: q_mul(self.m20, other.m02)
-                + q_mul(self.m21, other.m12)
-                + q_mul(self.m22, other.m22),
+            m00: self.m00 * other.m00 + self.m01 * other.m10 + self.m02 * other.m20,
+            m01: self.m00 * other.m01 + self.m01 * other.m11 + self.m02 * other.m21,
+            m02: self.m00 * other.m02 + self.m01 * other.m12 + self.m02 * other.m22,
+            m10: self.m10 * other.m00 + self.m11 * other.m10 + self.m12 * other.m20,
+            m11: self.m10 * other.m01 + self.m11 * other.m11 + self.m12 * other.m21,
+            m12: self.m10 * other.m02 + self.m11 * other.m12 + self.m12 * other.m22,
+            m20: self.m20 * other.m00 + self.m21 * other.m10 + self.m22 * other.m20,
+            m21: self.m20 * other.m01 + self.m21 * other.m11 + self.m22 * other.m21,
+            m22: self.m20 * other.m02 + self.m21 * other.m12 + self.m22 * other.m22,
         }
     }
 
     /// Returns `None` when the projected `w' <= 0` (point behind the
     /// camera after a strong perspective).
     pub fn apply_point(&self, p: Point) -> Option<Point> {
-        let x = from_fixed(p.x);
-        let y = from_fixed(p.y);
-        let xp = q_mul(self.m00, x) + q_mul(self.m01, y) + self.m02;
-        let yp = q_mul(self.m10, x) + q_mul(self.m11, y) + self.m12;
-        let w = q_mul(self.m20, x) + q_mul(self.m21, y) + self.m22;
-        if w <= 0 {
+        let x = Fixed64::from_fixed(p.x);
+        let y = Fixed64::from_fixed(p.y);
+        let xp = self.m00 * x + self.m01 * y + self.m02;
+        let yp = self.m10 * x + self.m11 * y + self.m12;
+        let w = self.m20 * x + self.m21 * y + self.m22;
+        if w.raw() <= 0 {
             return None;
         }
-        let sx = q_div(xp, w)?;
-        let sy = q_div(yp, w)?;
+        let sx = try_div(xp, w)?;
+        let sy = try_div(yp, w)?;
         Some(Point {
-            x: to_fixed(sx),
-            y: to_fixed(sy),
+            x: sx.to_fixed(),
+            y: sy.to_fixed(),
         })
     }
 
@@ -295,20 +252,20 @@ impl Transform3D {
     /// Closed-form per Paul Heckbert, "Fundamentals of Texture Mapping
     /// and Image Warping" (1989), §A.
     pub fn from_quad(src_rect: Rect, dst_quad: &[Point; 4]) -> Option<Self> {
-        let ux = from_fixed(src_rect.w);
-        let uy = from_fixed(src_rect.h);
-        if ux == 0 || uy == 0 {
+        let ux = Fixed64::from_fixed(src_rect.w);
+        let uy = Fixed64::from_fixed(src_rect.h);
+        if ux.raw() == 0 || uy.raw() == 0 {
             return None;
         }
 
-        let q0x = from_fixed(dst_quad[0].x);
-        let q0y = from_fixed(dst_quad[0].y);
-        let q1x = from_fixed(dst_quad[1].x);
-        let q1y = from_fixed(dst_quad[1].y);
-        let q2x = from_fixed(dst_quad[2].x);
-        let q2y = from_fixed(dst_quad[2].y);
-        let q3x = from_fixed(dst_quad[3].x);
-        let q3y = from_fixed(dst_quad[3].y);
+        let q0x = Fixed64::from_fixed(dst_quad[0].x);
+        let q0y = Fixed64::from_fixed(dst_quad[0].y);
+        let q1x = Fixed64::from_fixed(dst_quad[1].x);
+        let q1y = Fixed64::from_fixed(dst_quad[1].y);
+        let q2x = Fixed64::from_fixed(dst_quad[2].x);
+        let q2y = Fixed64::from_fixed(dst_quad[2].y);
+        let q3x = Fixed64::from_fixed(dst_quad[3].x);
+        let q3y = Fixed64::from_fixed(dst_quad[3].y);
 
         let dx1 = q1x - q2x;
         let dy1 = q1y - q2y;
@@ -317,22 +274,22 @@ impl Transform3D {
         let sx = q0x - q1x + q2x - q3x;
         let sy = q0y - q1y + q2y - q3y;
 
-        let denom = q_mul(dx1, dy2) - q_mul(dy1, dx2);
-        if denom == 0 {
+        let denom = dx1 * dy2 - dy1 * dx2;
+        if denom.raw() == 0 {
             return None;
         }
 
-        let g_num = q_mul(sx, dy2) - q_mul(sy, dx2);
-        let h_num = q_mul(dx1, sy) - q_mul(dy1, sx);
-        let g = q_div(q_div(g_num, denom)?, ux)?;
-        let h = q_div(q_div(h_num, denom)?, uy)?;
+        let g_num = sx * dy2 - sy * dx2;
+        let h_num = dx1 * sy - dy1 * sx;
+        let g = try_div(try_div(g_num, denom)?, ux)?;
+        let h = try_div(try_div(h_num, denom)?, uy)?;
 
-        let a = q_div(q1x - q0x, ux)? + q_mul(g, q1x);
-        let b = q_div(q3x - q0x, uy)? + q_mul(h, q3x);
+        let a = try_div(q1x - q0x, ux)? + g * q1x;
+        let b = try_div(q3x - q0x, uy)? + h * q3x;
         let c = q0x;
 
-        let d = q_div(q1y - q0y, ux)? + q_mul(g, q1y);
-        let e = q_div(q3y - q0y, uy)? + q_mul(h, q3y);
+        let d = try_div(q1y - q0y, ux)? + g * q1y;
+        let e = try_div(q3y - q0y, uy)? + h * q3y;
         let f = q0y;
 
         Some(Self {
@@ -344,31 +301,27 @@ impl Transform3D {
             m12: f,
             m20: g,
             m21: h,
-            m22: ONE_Q16,
+            m22: Fixed64::ONE,
         })
     }
 
     pub fn inverse(&self) -> Option<Self> {
-        // Adjugate cells: each is two Q16.16 multiplies then a
-        // subtract, so the raw result is Q32.32. Shift back to Q16.16
-        // before using them as a normal matrix.
-        let a = (self.m11 * self.m22 - self.m12 * self.m21) >> FRAC_BITS;
-        let b = (self.m02 * self.m21 - self.m01 * self.m22) >> FRAC_BITS;
-        let c = (self.m01 * self.m12 - self.m02 * self.m11) >> FRAC_BITS;
-        let d = (self.m12 * self.m20 - self.m10 * self.m22) >> FRAC_BITS;
-        let e = (self.m00 * self.m22 - self.m02 * self.m20) >> FRAC_BITS;
-        let f = (self.m02 * self.m10 - self.m00 * self.m12) >> FRAC_BITS;
-        let g = (self.m10 * self.m21 - self.m11 * self.m20) >> FRAC_BITS;
-        let h = (self.m01 * self.m20 - self.m00 * self.m21) >> FRAC_BITS;
-        let i = (self.m00 * self.m11 - self.m01 * self.m10) >> FRAC_BITS;
+        let a = self.m11 * self.m22 - self.m12 * self.m21;
+        let b = self.m02 * self.m21 - self.m01 * self.m22;
+        let c = self.m01 * self.m12 - self.m02 * self.m11;
+        let d = self.m12 * self.m20 - self.m10 * self.m22;
+        let e = self.m00 * self.m22 - self.m02 * self.m20;
+        let f = self.m02 * self.m10 - self.m00 * self.m12;
+        let g = self.m10 * self.m21 - self.m11 * self.m20;
+        let h = self.m01 * self.m20 - self.m00 * self.m21;
+        let i = self.m00 * self.m11 - self.m01 * self.m10;
 
-        // det via first-row expansion; again shift back to Q16.16.
-        let det = q_mul(self.m00, a) + q_mul(self.m01, d) + q_mul(self.m02, g);
-        if det == 0 {
+        let det = self.m00 * a + self.m01 * d + self.m02 * g;
+        if det.raw() == 0 {
             return None;
         }
 
-        let inv = |v: i64| q_div(v, det);
+        let inv = |v: Fixed64| try_div(v, det);
         Some(Self {
             m00: inv(a)?,
             m01: inv(b)?,

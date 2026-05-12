@@ -5,7 +5,7 @@ pub mod transform_3d;
 pub mod viewport;
 
 pub use dimension::Dimension;
-pub use fixed::Fixed;
+pub use fixed::{Fixed, Fixed64};
 pub use transform::{Transform, TransformClass};
 pub use transform_3d::Transform3D;
 pub use viewport::Viewport;

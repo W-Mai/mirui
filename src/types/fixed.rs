@@ -275,6 +275,196 @@ impl fmt::Debug for Fixed {
     }
 }
 
+/// Q48.16 fixed-point (i64 raw, 16 fractional bits). Used for intermediate
+/// values that need more precision or range than [`Fixed`] can provide —
+/// e.g. 3×3 homography matrix elements, distance-squared in quad rasterization.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+#[repr(transparent)]
+pub struct Fixed64(pub i64);
+
+const FRAC_BITS_64: i64 = 16;
+const SCALE_64: i64 = 1 << FRAC_BITS_64;
+
+impl Fixed64 {
+    pub const ZERO: Self = Self(0);
+    pub const ONE: Self = Self(SCALE_64);
+
+    #[inline]
+    pub const fn from_raw(raw: i64) -> Self {
+        Self(raw)
+    }
+
+    #[inline]
+    pub const fn from_int(v: i64) -> Self {
+        Self(v << FRAC_BITS_64)
+    }
+
+    #[inline]
+    pub const fn to_int(self) -> i64 {
+        self.0 >> FRAC_BITS_64
+    }
+
+    #[inline]
+    pub const fn raw(self) -> i64 {
+        self.0
+    }
+
+    #[inline]
+    pub const fn abs(self) -> Self {
+        if self.0 < 0 { Self(-self.0) } else { self }
+    }
+
+    /// Lift a Q24.8 Fixed to Q48.16 Fixed64 (shift left by 8).
+    #[inline]
+    pub const fn from_fixed(f: Fixed) -> Self {
+        Self((f.0 as i64) << 8)
+    }
+
+    /// Narrow back to Q24.8 Fixed, saturating on overflow.
+    #[inline]
+    pub fn to_fixed(self) -> Fixed {
+        let shifted = self.0 >> 8;
+        let clamped = shifted.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+        Fixed(clamped)
+    }
+
+    #[inline]
+    pub fn from_f32(v: f32) -> Self {
+        Self((v * SCALE_64 as f32) as i64)
+    }
+
+    #[inline]
+    pub fn to_f32(self) -> f32 {
+        self.0 as f32 / SCALE_64 as f32
+    }
+
+    pub fn sqrt(self) -> Self {
+        if self.0 <= 0 {
+            return Self::ZERO;
+        }
+        let n = (self.0 as u128) << FRAC_BITS_64;
+        let mut x = n;
+        let mut y = x.div_ceil(2);
+        while y < x {
+            x = y;
+            y = (x + n / x) / 2;
+        }
+        Self(x as i64)
+    }
+}
+
+impl Add for Fixed64 {
+    type Output = Self;
+    #[inline]
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl AddAssign for Fixed64 {
+    #[inline]
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0;
+    }
+}
+
+impl Sub for Fixed64 {
+    type Output = Self;
+    #[inline]
+    fn sub(self, rhs: Self) -> Self {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl SubAssign for Fixed64 {
+    #[inline]
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 -= rhs.0;
+    }
+}
+
+impl Mul for Fixed64 {
+    type Output = Self;
+    #[inline]
+    fn mul(self, rhs: Self) -> Self {
+        // Plain i64 multiply, matching the pre-Fixed64 `q_mul`. Two Q48.16
+        // raws squared fit i64 as long as each side stays under ±2^31,
+        // which covers screen-scale matrices; callers that need the wider
+        // margin use `mul_wide`.
+        Self((self.0 * rhs.0) >> FRAC_BITS_64)
+    }
+}
+
+impl Fixed64 {
+    /// Q48.16 multiply with i128 intermediate. Pays the software-i128 cost
+    /// on 32-bit targets but survives values past ±2^31.
+    #[inline]
+    pub fn mul_wide(self, rhs: Self) -> Self {
+        Self((((self.0 as i128) * (rhs.0 as i128)) >> FRAC_BITS_64) as i64)
+    }
+
+    /// Q48.16 divide with i128 intermediate, matching `mul_wide`.
+    #[inline]
+    pub fn div_wide(self, rhs: Self) -> Self {
+        Self((((self.0 as i128) << FRAC_BITS_64) / (rhs.0 as i128)) as i64)
+    }
+}
+
+impl Div for Fixed64 {
+    type Output = Self;
+    #[inline]
+    fn div(self, rhs: Self) -> Self {
+        // i64 intermediate same as Fixed::Div: `(self.0 << 16) / rhs.0`
+        // overflows when |self.0| > 2^47, well past typical screen values.
+        // Use `div_wide` if you hit the ceiling.
+        Self((self.0 << FRAC_BITS_64) / rhs.0)
+    }
+}
+
+impl Neg for Fixed64 {
+    type Output = Self;
+    #[inline]
+    fn neg(self) -> Self {
+        Self(-self.0)
+    }
+}
+
+impl Mul<i64> for Fixed64 {
+    type Output = Self;
+    #[inline]
+    fn mul(self, rhs: i64) -> Self {
+        Self(self.0 * rhs)
+    }
+}
+
+impl Div<i64> for Fixed64 {
+    type Output = Self;
+    #[inline]
+    fn div(self, rhs: i64) -> Self {
+        Self(self.0 / rhs)
+    }
+}
+
+impl From<Fixed> for Fixed64 {
+    #[inline]
+    fn from(f: Fixed) -> Self {
+        Self::from_fixed(f)
+    }
+}
+
+impl From<Fixed64> for Fixed {
+    #[inline]
+    fn from(f: Fixed64) -> Self {
+        f.to_fixed()
+    }
+}
+
+impl fmt::Debug for Fixed64 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Fixed64({})", self.to_f32())
+    }
+}
+
 impl fmt::Display for Fixed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Show as decimal: integer.fraction
@@ -443,5 +633,56 @@ mod tests {
     fn div_precision_past_old_ceiling() {
         let q = (Fixed::from_int(1_000_000) / Fixed::from_int(7)).to_f32();
         assert!((q - 142857.142857).abs() < 1.0);
+    }
+
+    #[test]
+    fn fixed64_from_to_int() {
+        assert_eq!(Fixed64::from_int(42).to_int(), 42);
+        assert_eq!(Fixed64::from_int(-7).to_int(), -7);
+    }
+
+    #[test]
+    fn fixed64_arithmetic() {
+        let a = Fixed64::from_int(10);
+        let b = Fixed64::from_int(3);
+        assert_eq!((a + b).to_int(), 13);
+        assert_eq!((a - b).to_int(), 7);
+        assert_eq!((a * b).to_int(), 30);
+        let div = (a / b).to_f32();
+        assert!((div - 10.0 / 3.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn fixed64_mul_preserves_small_values() {
+        // 0.00125 · 800 = 1. Q24.8 (Fixed) rounds 0.00125 to 0, so the
+        // product collapses; Q48.16 (Fixed64) keeps 82 raw (≈0.00125).
+        let small = Fixed64::from_f32(0.00125);
+        let big = Fixed64::from_int(800);
+        assert!((small * big).to_f32() > 0.9);
+    }
+
+    #[test]
+    fn fixed64_fixed_roundtrip() {
+        let f = Fixed::from_f32(123.45);
+        let wide = Fixed64::from_fixed(f);
+        assert_eq!(wide.to_fixed(), f);
+    }
+
+    #[test]
+    fn fixed64_mul_wide_avoids_i64_overflow() {
+        // Plain Mul uses i64 intermediates and would wrap here; mul_wide
+        // upcasts to i128 so 1_000_000² survives.
+        let a = Fixed64::from_f32(1_000_000.0);
+        let b = Fixed64::from_f32(1_000_000.0);
+        let c = a.mul_wide(b);
+        assert!((c.to_f32() - 1e12).abs() / 1e12 < 1e-3);
+    }
+
+    #[test]
+    fn fixed64_sqrt_matches_fixed_within_tolerance() {
+        let v = Fixed::from_int(169);
+        let r_narrow = v.sqrt();
+        let r_wide = Fixed64::from_fixed(v).sqrt().to_fixed();
+        assert!((r_narrow - r_wide).abs().raw() < 4);
     }
 }
