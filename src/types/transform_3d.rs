@@ -287,6 +287,67 @@ impl Transform3D {
         Some([p0, p1, p2, p3])
     }
 
+    /// Homography from an axis-aligned source rect to a destination
+    /// quadrilateral (in `[top-left, top-right, bottom-right, bottom-left]`
+    /// order, matching `apply_rect`'s output). Returns `None` when the
+    /// quad is degenerate (three collinear points).
+    ///
+    /// Closed-form per Paul Heckbert, "Fundamentals of Texture Mapping
+    /// and Image Warping" (1989), §A.
+    pub fn from_quad(src_rect: Rect, dst_quad: &[Point; 4]) -> Option<Self> {
+        let ux = from_fixed(src_rect.w);
+        let uy = from_fixed(src_rect.h);
+        if ux == 0 || uy == 0 {
+            return None;
+        }
+
+        let q0x = from_fixed(dst_quad[0].x);
+        let q0y = from_fixed(dst_quad[0].y);
+        let q1x = from_fixed(dst_quad[1].x);
+        let q1y = from_fixed(dst_quad[1].y);
+        let q2x = from_fixed(dst_quad[2].x);
+        let q2y = from_fixed(dst_quad[2].y);
+        let q3x = from_fixed(dst_quad[3].x);
+        let q3y = from_fixed(dst_quad[3].y);
+
+        let dx1 = q1x - q2x;
+        let dy1 = q1y - q2y;
+        let dx2 = q3x - q2x;
+        let dy2 = q3y - q2y;
+        let sx = q0x - q1x + q2x - q3x;
+        let sy = q0y - q1y + q2y - q3y;
+
+        let denom = q_mul(dx1, dy2) - q_mul(dy1, dx2);
+        if denom == 0 {
+            return None;
+        }
+
+        let g_num = q_mul(sx, dy2) - q_mul(sy, dx2);
+        let h_num = q_mul(dx1, sy) - q_mul(dy1, sx);
+        let g = q_div(q_div(g_num, denom)?, ux)?;
+        let h = q_div(q_div(h_num, denom)?, uy)?;
+
+        let a = q_div(q1x - q0x, ux)? + q_mul(g, q1x);
+        let b = q_div(q3x - q0x, uy)? + q_mul(h, q3x);
+        let c = q0x;
+
+        let d = q_div(q1y - q0y, ux)? + q_mul(g, q1y);
+        let e = q_div(q3y - q0y, uy)? + q_mul(h, q3y);
+        let f = q0y;
+
+        Some(Self {
+            m00: a,
+            m01: b,
+            m02: c,
+            m10: d,
+            m11: e,
+            m12: f,
+            m20: g,
+            m21: h,
+            m22: ONE_Q16,
+        })
+    }
+
     pub fn inverse(&self) -> Option<Self> {
         // Adjugate cells: each is two Q16.16 multiplies then a
         // subtract, so the raw result is Q32.32. Shift back to Q16.16
@@ -466,6 +527,67 @@ mod tests {
         assert_eq!(q[0].y.to_int(), 20);
         assert_eq!(q[2].x.to_int(), 40);
         assert_eq!(q[2].y.to_int(), 60);
+    }
+
+    #[test]
+    fn from_quad_maps_src_corners_to_dst() {
+        let src = Rect::new(0, 0, 100, 80);
+        let dst = [
+            Point {
+                x: Fixed::from_int(10),
+                y: Fixed::from_int(20),
+            },
+            Point {
+                x: Fixed::from_int(110),
+                y: Fixed::from_int(15),
+            },
+            Point {
+                x: Fixed::from_int(120),
+                y: Fixed::from_int(100),
+            },
+            Point {
+                x: Fixed::from_int(5),
+                y: Fixed::from_int(95),
+            },
+        ];
+        let h = Transform3D::from_quad(src, &dst).expect("non-degenerate");
+        let corners = [
+            Point {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+            Point {
+                x: Fixed::from_int(100),
+                y: Fixed::ZERO,
+            },
+            Point {
+                x: Fixed::from_int(100),
+                y: Fixed::from_int(80),
+            },
+            Point {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(80),
+            },
+        ];
+        // Q8.8 storage of Q16.16 matrix accumulates up to ~0.3 of
+        // rounding across the solve; tolerance ≈ 1 pixel.
+        for (i, c) in corners.iter().enumerate() {
+            let out = h.apply_point(*c).expect("projects");
+            assert!(
+                (out.x - dst[i].x).abs().raw() < 256,
+                "corner {} x: got {} want {}",
+                i,
+                out.x.to_f32(),
+                dst[i].x.to_f32()
+            );
+            assert!(
+                (out.y - dst[i].y).abs().raw() < 256,
+                "corner {} y: got {} want {}",
+                i,
+                out.y.to_f32(),
+                dst[i].y.to_f32()
+            );
+        }
     }
 
     #[test]

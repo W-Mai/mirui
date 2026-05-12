@@ -578,10 +578,32 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
     for (i, &entity) in entities.iter().enumerate() {
         if world.get::<Dirty>(entity).is_some() {
             if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
-                let rx = rect.x;
-                let ry = rect.y;
-                let rx2 = (rect.x + rect.w).ceil();
-                let ry2 = (rect.y + rect.h).ceil();
+                let effective_rect = if let Some(q) = quad_for(world, entity, rect) {
+                    let min = |a: Fixed, b: Fixed| if a < b { a } else { b };
+                    let max = |a: Fixed, b: Fixed| if a > b { a } else { b };
+                    let mut qx_min = q[0].x;
+                    let mut qx_max = q[0].x;
+                    let mut qy_min = q[0].y;
+                    let mut qy_max = q[0].y;
+                    for p in &q[1..] {
+                        qx_min = min(qx_min, p.x);
+                        qx_max = max(qx_max, p.x);
+                        qy_min = min(qy_min, p.y);
+                        qy_max = max(qy_max, p.y);
+                    }
+                    Rect {
+                        x: qx_min,
+                        y: qy_min,
+                        w: qx_max - qx_min,
+                        h: qy_max - qy_min,
+                    }
+                } else {
+                    rect
+                };
+                let rx = effective_rect.x;
+                let ry = effective_rect.y;
+                let rx2 = (effective_rect.x + effective_rect.w).ceil();
+                let ry2 = (effective_rect.y + effective_rect.h).ceil();
                 if rx < min_x {
                     min_x = rx;
                 }

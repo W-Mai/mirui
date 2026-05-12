@@ -5,6 +5,7 @@ use mirui::ecs::World;
 use mirui::layout::*;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
 use mirui::widget::builder::WidgetBuilder;
+use mirui::widget::dirty::Dirty;
 use mirui::widget::{Children, Parent, Style};
 
 extern crate alloc;
@@ -14,27 +15,26 @@ struct FlipCard {
     speed_deg: Fixed,
     front_color: Color,
     back_color: Color,
+    root: mirui::ecs::Entity,
 }
 
 fn flip_system(world: &mut World) {
     let mut cards = alloc::vec::Vec::new();
     world.query::<FlipCard>().collect_into(&mut cards);
     for e in cards {
-        let (angle, speed, front, back) = if let Some(c) = world.get_mut::<FlipCard>(e) {
+        let (angle, front, back, root) = if let Some(c) = world.get_mut::<FlipCard>(e) {
             c.angle_deg += c.speed_deg;
             if c.angle_deg >= Fixed::from_int(360) {
                 c.angle_deg -= Fixed::from_int(360);
             }
-            (c.angle_deg, c.speed_deg, c.front_color, c.back_color)
+            (c.angle_deg, c.front_color, c.back_color, c.root)
         } else {
             continue;
         };
-        let _ = speed;
 
-        let shown_angle = angle;
         let halfway = Fixed::from_int(90);
         let three_quarters = Fixed::from_int(270);
-        let color = if shown_angle < halfway || shown_angle >= three_quarters {
+        let color = if angle < halfway || angle >= three_quarters {
             front
         } else {
             back
@@ -46,10 +46,11 @@ fn flip_system(world: &mut World) {
         world.insert(
             e,
             WidgetTransform3D(Transform3D::rotate_y_perspective(
-                shown_angle,
+                angle,
                 Fixed::from_int(400),
             )),
         );
+        world.insert(root, Dirty);
     }
 }
 
@@ -87,6 +88,7 @@ fn main() {
             speed_deg: Fixed::ONE,
             front_color: Color::rgb(88, 166, 255),
             back_color: Color::rgb(248, 81, 73),
+            root,
         },
     );
 

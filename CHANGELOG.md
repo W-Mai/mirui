@@ -17,13 +17,14 @@ The `Transform` stub from v0.7.0 got filled in for 2D in v0.8.0 — now v0.8.1 a
 - **`WidgetTransform3D(Transform3D)`** component. Takes priority over `WidgetTransform` when both are attached.
 - **`WidgetBuilder` chain methods**: `transform_3d`, `apply_transform_3d`, `rotate_x`, `rotate_y`, `rotate_x_perspective`, `rotate_y_perspective`, `perspective`.
 - **`DrawCommand::Fill` / `DrawCommand::Blit`** gain `quad: Option<[Point; 4]>` — when `Some(q)`, the backend paints a quadrilateral instead of an axis-aligned rect. Direct-construction call sites (internal demos / tests) need to supply the field; the `None` path keeps existing behaviour.
-- **`SwDrawBackend`** gains `fill_rect_quad` — iterates the quad's bbox, keeps pixels on one side of all four edges, writes the solid colour. No divides in the hot inner loop.
+- **`SwDrawBackend`** gains `fill_rect_quad` — iterates the quad's bbox, keeps pixels on one side of all four edges, writes the solid colour — plus `blit_quad` which solves a 4-point homography (Heckbert 1989) from the quad to the source rect and inverse-samples the texture per pixel. No divides in the hot inner loop for fill; blit only divides at the per-pixel `apply_point`.
+- **`Transform3D::from_quad(src_rect, dst_quad)`** — recover a homography from four source-rect corners ↔ four destination-quad corners. Returns `None` on degenerate (collinear) quads.
 - **`hit_test`** recognises `WidgetTransform3D` and tests the probe point against the projected quad.
 - **`examples/flip_card_demo.rs`** — a solid-colour card rotating around the Y axis with perspective, swapping its bg colour when it crosses the 90°/270° plane so front and back stand out.
+- **`examples/image_flip_demo.rs`** — same idea but with an `Image` widget, exercising the textured `blit_quad` path.
 
 ### Known Limitations
 
-- **Blit under a 3D transform panics** (`unimplemented!`). Textured cover flow needs a homography-based texture sampler, landing in a later spec.
 - **Fill with `radius > 0` under a 3D transform** asserts out.
 - **`Border` / `Line` / `Arc` / `Label` under 3D** — no `quad` field, so they emit under the 2D path; a rotating widget that has a border will show the border in 2D rect shape. First release ships with solid-colour Fill only.
 - **`SdlGpuRenderer`** bails on any quad command. Use `SwDrawBackend` for 3D scenes.

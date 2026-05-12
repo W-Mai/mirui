@@ -118,6 +118,10 @@ required-features = ["sdl"]
 name = "flip_card_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "image_flip_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true

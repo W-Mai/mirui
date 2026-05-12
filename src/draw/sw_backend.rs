@@ -561,6 +561,57 @@ fn quad_bbox(q: &[Point; 4]) -> Rect {
     }
 }
 
+fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) {
+    use crate::types::Transform3D;
+    use crate::types::transform_3d::point_in_quad;
+    let src_rect = Rect::new(0, 0, src.width, src.height);
+    let Some(forward) = Transform3D::from_quad(src_rect, q) else {
+        return;
+    };
+    let Some(inverse) = forward.inverse() else {
+        return;
+    };
+    let bbox = quad_bbox(q);
+    let Some(area) = bbox.intersect(&phys_clip) else {
+        return;
+    };
+    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let Some(area) = area.intersect(&screen) else {
+        return;
+    };
+    let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
+    let sw = src.width as i32;
+    let sh = src.height as i32;
+    for py in px_y0..px_y1 {
+        for px in px_x0..px_x1 {
+            let p = Point {
+                x: Fixed::from_int(px) + Fixed::from_raw(128),
+                y: Fixed::from_int(py) + Fixed::from_raw(128),
+            };
+            if !point_in_quad(q, p) {
+                continue;
+            }
+            let Some(uv) = inverse.apply_point(p) else {
+                continue;
+            };
+            let sx = uv.x.to_int();
+            let sy = uv.y.to_int();
+            if sx < 0 || sx >= sw || sy < 0 || sy >= sh {
+                continue;
+            }
+            let c = src.get_pixel(sx, sy);
+            if c.a == 0 {
+                continue;
+            }
+            if c.a == 255 {
+                dst.set_pixel(px, py, &c);
+            } else {
+                dst.blend_pixel_int(px, py, &c, c.a);
+            }
+        }
+    }
+}
+
 fn fill_rect_quad(dst: &mut Texture, q: &[Point; 4], phys_clip: Rect, color: &Color, opa: u8) {
     use crate::types::transform_3d::point_in_quad;
     let bbox = quad_bbox(q);
@@ -1454,8 +1505,21 @@ impl Renderer for SwDrawBackend<'_> {
             fill_rect_quad(&mut self.target, &phys_q, phys_clip, color, *opa);
             return;
         }
-        if let DrawCommand::Blit { quad: Some(_), .. } = cmd {
-            unimplemented!("Blit under 3D quad not yet supported (spec v0.9+)");
+        if let DrawCommand::Blit {
+            quad: Some(q),
+            texture,
+            ..
+        } = cmd
+        {
+            let phys_clip = self.viewport.rect_to_physical(*clip);
+            let phys_q = [
+                self.viewport.point_to_physical(q[0]),
+                self.viewport.point_to_physical(q[1]),
+                self.viewport.point_to_physical(q[2]),
+                self.viewport.point_to_physical(q[3]),
+            ];
+            blit_quad(&mut self.target, texture, &phys_q, phys_clip);
+            return;
         }
 
         let tf = cmd.transform();
