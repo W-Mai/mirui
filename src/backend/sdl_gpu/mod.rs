@@ -282,6 +282,14 @@ impl SdlGpuRenderer<'_> {
 impl Renderer for SdlGpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
+
+        if matches!(
+            cmd,
+            DrawCommand::Fill { quad: Some(_), .. } | DrawCommand::Blit { quad: Some(_), .. }
+        ) {
+            unimplemented!("sdl_gpu: 3D quad rendering not yet supported");
+        }
+
         let tf = cmd.transform();
         let (tx, ty) = match tf.classify() {
             TransformClass::Identity => (Fixed::ZERO, Fixed::ZERO),

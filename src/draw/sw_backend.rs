@@ -534,6 +534,76 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
 /// Rasterize a solid-colour rect under an arbitrary transform by
 /// inverse-sampling every pixel in the transformed bbox. Caller is
 /// responsible for supplying the physical-space transform and clip.
+fn quad_bbox(q: &[Point; 4]) -> Rect {
+    let mut min_x = q[0].x;
+    let mut max_x = q[0].x;
+    let mut min_y = q[0].y;
+    let mut max_y = q[0].y;
+    for p in &q[1..] {
+        if p.x < min_x {
+            min_x = p.x;
+        }
+        if p.x > max_x {
+            max_x = p.x;
+        }
+        if p.y < min_y {
+            min_y = p.y;
+        }
+        if p.y > max_y {
+            max_y = p.y;
+        }
+    }
+    Rect {
+        x: min_x,
+        y: min_y,
+        w: max_x - min_x,
+        h: max_y - min_y,
+    }
+}
+
+#[inline]
+fn edge_sign(a: Point, b: Point, p: Point) -> Fixed {
+    (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)
+}
+
+fn point_in_quad(q: &[Point; 4], p: Point) -> bool {
+    let s0 = edge_sign(q[0], q[1], p);
+    let s1 = edge_sign(q[1], q[2], p);
+    let s2 = edge_sign(q[2], q[3], p);
+    let s3 = edge_sign(q[3], q[0], p);
+    let all_pos = s0 >= Fixed::ZERO && s1 >= Fixed::ZERO && s2 >= Fixed::ZERO && s3 >= Fixed::ZERO;
+    let all_neg = s0 <= Fixed::ZERO && s1 <= Fixed::ZERO && s2 <= Fixed::ZERO && s3 <= Fixed::ZERO;
+    all_pos || all_neg
+}
+
+fn fill_rect_quad(dst: &mut Texture, q: &[Point; 4], phys_clip: Rect, color: &Color, opa: u8) {
+    let bbox = quad_bbox(q);
+    let Some(area) = bbox.intersect(&phys_clip) else {
+        return;
+    };
+    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let Some(area) = area.intersect(&screen) else {
+        return;
+    };
+    let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
+    for py in px_y0..px_y1 {
+        for px in px_x0..px_x1 {
+            let p = Point {
+                x: Fixed::from_int(px) + Fixed::from_raw(128),
+                y: Fixed::from_int(py) + Fixed::from_raw(128),
+            };
+            if !point_in_quad(q, p) {
+                continue;
+            }
+            if opa == 255 {
+                dst.set_pixel(px, py, color);
+            } else {
+                dst.blend_pixel_int(px, py, color, opa);
+            }
+        }
+    }
+}
+
 fn fill_rect_transformed(
     dst: &mut Texture,
     phys_rect: Rect,
@@ -1375,6 +1445,33 @@ fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> 
 impl Renderer for SwDrawBackend<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
+
+        if let DrawCommand::Fill {
+            quad: Some(q),
+            color,
+            opa,
+            radius,
+            ..
+        } = cmd
+        {
+            assert!(
+                *radius == Fixed::ZERO,
+                "Fill with radius under 3D quad not yet supported"
+            );
+            let phys_clip = self.viewport.rect_to_physical(*clip);
+            let phys_q = [
+                self.viewport.point_to_physical(q[0]),
+                self.viewport.point_to_physical(q[1]),
+                self.viewport.point_to_physical(q[2]),
+                self.viewport.point_to_physical(q[3]),
+            ];
+            fill_rect_quad(&mut self.target, &phys_q, phys_clip, color, *opa);
+            return;
+        }
+        if let DrawCommand::Blit { quad: Some(_), .. } = cmd {
+            unimplemented!("Blit under 3D quad not yet supported (spec v0.9+)");
+        }
+
         let tf = cmd.transform();
         let class = tf.classify();
         if !matches!(class, TransformClass::Identity | TransformClass::Translate) {
