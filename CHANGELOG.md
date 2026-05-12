@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-05-12
+
+### 🎠 Nested 2.5D
+
+`WidgetTransform3D` now composes along the tree. A parent widget's 3D transform propagates into every descendant's render path, with 2D `WidgetTransform` descendants automatically lifted via `from_affine` so they inherit the parent's perspective. Covers cover-flow, card carousels, and any other "container tilts + children warp with it" effect in one go.
+
+### Added
+
+- `render_system::draw_tree` / `draw_tree_offset` / `collect_dirty_region` / `seed_prev_rects` thread a `parent_transform_3d` down the widget tree. The new `accumulate_3d` helper picks the right lift strategy at each level.
+- `event::hit_test` walks a dedicated 3D chain via `compute_transforms_3d`, so rotated or perspective-warped nested widgets respond to touch in their transformed location.
+- `examples/cover_flow_demo.rs` — horizontal carousel of five cards rendered with `rotate_y_perspective`, driven by `ScrollOffset` on the container (drag + inertia + elastic edges for free). Odd cards carry a nested `Image` widget to exercise the parent-child 3D path.
+
 ## [0.8.1] - 2026-05-12
 
 ### 🃏 2.5D Widget Warp
