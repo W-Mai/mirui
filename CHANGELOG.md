@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-05-12
+
+### Rounded corners under 3D
+
+`Fill` with `border_radius > 0` inside a 3D-transformed widget no longer panics; the quad path now renders the rounded-rect shape in screen space, so the corners stay round under perspective and the arcs line up with the straight edges even at steep tilts.
+
+### Added
+
+- Screen-space rounded-rect fill: `fill_rect_quad` insets the quad by `radius`, then checks each pixel against the inset polygon plus its four corner discs. Implementation follows Inigo Quilez's 2D SDF primitives (`sdPolygon` / `opRound`), reworked to short-circuit on inset membership so the per-pixel cost stays close to the v0.8.2 sharp-edge path.
+- `examples/snapshot_cover_flow.rs` — headless renderer that sweeps `ScrollOffset` in 1/16-pixel steps and dumps per-step PPMs plus a pixel-level diff report. Used to chase sub-pixel flicker without asking a human to stare at the screen.
+
+### Fixed
+
+- `point_in_quad` now uses i64 cross products on raw `Fixed` values. The previous Q8.8 multiplication silently overflowed for widgets wider than ~180 px, flipping the cross-product sign and misclassifying points.
+
+### Changed
+
+- `cover_flow_demo` exercises a composite 3D transform (rotate_y + rotate_x + perspective) with rounded cards, so the demo actually stresses v0.8.3's rounded-corner quad path.
+
 ## [0.8.2] - 2026-05-12
 
 ### 🎠 Nested 2.5D
