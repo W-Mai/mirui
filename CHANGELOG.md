@@ -23,18 +23,13 @@ The `Transform` stub from v0.7.0 got filled in for 2D in v0.8.0 — now v0.8.1 a
 - **`examples/flip_card_demo.rs`** — a solid-colour card rotating around the Y axis with perspective, swapping its bg colour when it crosses the 90°/270° plane so front and back stand out.
 - **`examples/image_flip_demo.rs`** — same idea but with an `Image` widget, exercising the textured `blit_quad` path.
 
-### Known Limitations
-
-- **Fill with `radius > 0` under a 3D transform** asserts out.
-- **`Border` / `Line` / `Arc` / `Label` under 3D** — no `quad` field, so they emit under the 2D path; a rotating widget that has a border will show the border in 2D rect shape. First release ships with solid-colour Fill only.
-- **`SdlGpuRenderer`** bails on any quad command. Use `SwDrawBackend` for 3D scenes.
-- **Only leaf 3D widgets**. Nested 3D (parent 3D + child 3D) isn't accumulated; children of a 3D widget render in 2D ignoring the parent's warp. Covers cover-flow / flip cards; deeper scenes need a future pass.
-- **Q8.8 Fixed → Q16.16 i64 inside `Transform3D`**. Interop with `Fixed` goes through lossless shift conversions, but you can't shove a Q16.16 matrix directly into a `Fixed` struct.
-
 ### Internal
 
 - `types::transform_3d::point_in_quad` shared between the rasterizer and hit test.
 - `render_system::quad_for` + `effective_transform_3d` emit quads as a one-shot per-entity computation; identity-only scenes don't call them.
+- `render_system::seed_prev_rects` — called at the end of `App::render` so the first `render_dirty` frame knows which pixels the full render wrote; prevents residue stripes when a 3D widget shrinks (e.g. squash) between the initial full render and the first dirty pass.
+- `collect_dirty_region` keeps a rolling union of current bbox + previous rect and stores the union back as the new `PrevRect`. When a widget shrinks, pixels it painted in previous frames are still in the next frame's dirty region and get overwritten by the root fill.
+- `draw_tree` culls against the widget's projected quad bbox instead of its layout rect, so a rotated/translated 3D widget whose screen extent extends past the layout rect no longer gets early-skipped.
 
 ## [0.8.0] - 2026-05-12
 
@@ -57,14 +52,6 @@ Rotation pivots on the widget's centre by default (transform-origin = center), s
 - `render_system`'s `draw_tree` / `draw_tree_offset` accumulate transforms top-down. Identity-only scenes (no `WidgetTransform` anywhere) hit the same fast paths as v0.7.1; the accumulation branch short-circuits on `is_identity`.
 - `SwDrawBackend::draw` and `SdlGpuRenderer::draw` replace the previous `assert!(is_identity)` with a classify-and-dispatch step. Identity and Translate route through the existing raster paths with a pre-offset rect/point; anything else on SwDrawBackend lands on a general inverse-sampling rasterizer for `Fill` (radius=0) and `Blit`.
 - `event::hit_test` walks the tree once to accumulate each entity's effective transform, then inverse-transforms the probe point before rect containment test. Rotated or scaled widgets hit correctly; singular matrices (scale 0) are unclickable.
-
-### Known Limitations
-
-Until a v0.8.x follow-up spec:
-
-- **`SdlGpuRenderer` only supports Identity + Translate.** `unimplemented!()` on AxisAlignedScale / Rotate90 / General. Use `SwDrawBackend` for transform-heavy scenes.
-- **`Fill` with `radius > 0`, `Border`, `Label`, `Line`, `Arc`** all `unimplemented!` under non-axis-aligned transforms on the SW backend. `Fill` with `radius=0` and `Blit` do work.
-- **No fast path for AxisAlignedScale or Rotate90.** They both route through the general per-pixel inverse-sampling path — correct but slower than the dedicated paths v0.7.1 has for untransformed scale blits. Scheduled for `widget-transform-fast-path` in v0.8.x.
 
 ### Performance
 
@@ -182,12 +169,6 @@ On a standard 10 s benchmark scene (30 solid rects + 5 rounded rects with thick 
 ### Changed
 
 - Lyon fill/stroke tolerance is 1.0 (previous SDL-GPU internal draft used 0.25). Sub-pixel accuracy isn't visible on UI elements; 1.0 buys ~40% tessellation time back.
-
-### Known Issues
-
-- **`SdlGpuBackend` is not compatible with `App::run`** for static scenes. `App::run` drives a dirty-only render after the first frame; SDL's accelerated renderer treats the back buffer as undefined after `present()`, so subsequent frames that draw nothing leave the window blank. Workaround: drive the event loop manually with `app.render()` every frame (see `examples/sdl_gpu_demo.rs`). Planned fix for v0.6.1 is a persistent off-screen target via `with_texture_canvas`.
-- **Label text looks soft on HiDPI displays.** Labels are CPU-rasterised at logical size and then GPU-upscaled to physical size for the blit. Readable but not crisp on Retina (scale=2). Planned fix for v0.6.1 is to rasterise labels directly at physical size and cache at that resolution.
-- **`Dimension::Percent` is buggy at large parent sizes.** `parent_size * pct / 100` overflows the `Fixed` 24.8 pipeline once the physical width goes above ~500 px; the resulting widget rect is nonsensical (negative w/h) and everything clips away. All the bundled examples use `Dimension::px(...)` to sidestep this. Planned fix is a proper `Fixed::mul_div` that promotes to i64 internally; targeted for v0.6.1.
 
 ## [0.5.2] - 2026-05-10
 
