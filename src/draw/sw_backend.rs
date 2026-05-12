@@ -655,15 +655,15 @@ fn fill_rect_quad(
     }
 
     let _ = (local_w, local_h);
-    let poly = build_inset_quad(q, radius);
+    let inset = build_inset_quad(q, radius);
+    let r_sq = radius * radius;
     for py in px_y0..px_y1 {
         for px in px_x0..px_x1 {
             let p = Point {
                 x: Fixed::from_int(px) + Fixed::from_raw(128),
                 y: Fixed::from_int(py) + Fixed::from_raw(128),
             };
-            let d = sd_polygon(&poly, p) - radius;
-            if d > Fixed::ZERO {
+            if !point_in_rounded_inset(&inset, p, r_sq) {
                 continue;
             }
             if opa == 255 {
@@ -673,6 +673,35 @@ fn fill_rect_quad(
             }
         }
     }
+}
+
+fn point_in_rounded_inset(inset: &[Point; 4], p: Point, r_sq: Fixed) -> bool {
+    use crate::types::transform_3d::point_in_quad;
+    if point_in_quad(inset, p) {
+        return true;
+    }
+    for i in 0..4 {
+        let a = inset[i];
+        let b = inset[(i + 1) % 4];
+        let ex = b.x - a.x;
+        let ey = b.y - a.y;
+        let wx = p.x - a.x;
+        let wy = p.y - a.y;
+        let e_dot = ex * ex + ey * ey;
+        let t = if e_dot > Fixed::ZERO {
+            ((wx * ex + wy * ey) / e_dot)
+                .max(Fixed::ZERO)
+                .min(Fixed::ONE)
+        } else {
+            Fixed::ZERO
+        };
+        let bx = wx - ex * t;
+        let by = wy - ey * t;
+        if bx * bx + by * by <= r_sq {
+            return true;
+        }
+    }
+    false
 }
 
 fn build_inset_quad(q: &[Point; 4], r: Fixed) -> [Point; 4] {
@@ -706,43 +735,6 @@ fn build_inset_quad(q: &[Point; 4], r: Fixed) -> [Point; 4] {
         };
     }
     out
-}
-
-fn sd_polygon(v: &[Point; 4], p: Point) -> Fixed {
-    let mut d_sq = {
-        let dx = p.x - v[0].x;
-        let dy = p.y - v[0].y;
-        dx * dx + dy * dy
-    };
-    let mut sign = Fixed::ONE;
-    for i in 0..4 {
-        let j = (i + 3) % 4;
-        let ex = v[j].x - v[i].x;
-        let ey = v[j].y - v[i].y;
-        let wx = p.x - v[i].x;
-        let wy = p.y - v[i].y;
-        let e_dot = ex * ex + ey * ey;
-        let t = if e_dot > Fixed::ZERO {
-            ((wx * ex + wy * ey) / e_dot)
-                .max(Fixed::ZERO)
-                .min(Fixed::ONE)
-        } else {
-            Fixed::ZERO
-        };
-        let bx = wx - ex * t;
-        let by = wy - ey * t;
-        let b_sq = bx * bx + by * by;
-        if b_sq < d_sq {
-            d_sq = b_sq;
-        }
-        let cond_a = p.y >= v[i].y;
-        let cond_b = p.y < v[j].y;
-        let cond_c = ex * wy > ey * wx;
-        if (cond_a && cond_b && cond_c) || (!cond_a && !cond_b && !cond_c) {
-            sign = Fixed::ZERO - sign;
-        }
-    }
-    d_sq.sqrt() * sign
 }
 
 fn fill_rect_transformed(
