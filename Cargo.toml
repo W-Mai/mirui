@@ -1,6 +1,6 @@
 [package]
 name = "mirui"
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 authors = ["Benign X <1341398182@qq.com>"]
 license = "MIT"
@@ -112,6 +112,10 @@ required-features = ["sdl"]
 
 [[example]]
 name = "transform_demo"
+required-features = ["sdl"]
+
+[[example]]
+name = "flip_card_demo"
 required-features = ["sdl"]
 
 [profile.release]

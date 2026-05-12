@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-05-12
+
+### 🃏 2.5D Widget Warp
+
+The `Transform` stub from v0.7.0 got filled in for 2D in v0.8.0 — now v0.8.1 adds the 3×3 homography path for 2.5D effects (card flip, iOS cover flow style tilt). The 2D path is unchanged; 3D widgets pay only for what they use.
+
+### Added
+
+- **`Transform3D`** (Q16.16 internal storage, 9 cells). Constructors: `IDENTITY`, `translate`, `scale`, `rotate_deg` (around the z-axis), `rotate_x_deg` / `rotate_y_deg` (parallel-projection variants), `perspective(d)` / `perspective_xy(dx, dy)`, and the combined `rotate_x_perspective` / `rotate_y_perspective` which produce the CSS-style "far edge shrinks into the distance" homography in one step (composing independent rotate + perspective doesn't match CSS, because the 2D matrix drops the z component — hence the combined constructor).
+- **`WidgetTransform3D(Transform3D)`** component. Takes priority over `WidgetTransform` when both are attached.
+- **`WidgetBuilder` chain methods**: `transform_3d`, `apply_transform_3d`, `rotate_x`, `rotate_y`, `rotate_x_perspective`, `rotate_y_perspective`, `perspective`.
+- **`DrawCommand::Fill` / `DrawCommand::Blit`** gain `quad: Option<[Point; 4]>` — when `Some(q)`, the backend paints a quadrilateral instead of an axis-aligned rect. Direct-construction call sites (internal demos / tests) need to supply the field; the `None` path keeps existing behaviour.
+- **`SwDrawBackend`** gains `fill_rect_quad` — iterates the quad's bbox, keeps pixels on one side of all four edges, writes the solid colour. No divides in the hot inner loop.
+- **`hit_test`** recognises `WidgetTransform3D` and tests the probe point against the projected quad.
+- **`examples/flip_card_demo.rs`** — a solid-colour card rotating around the Y axis with perspective, swapping its bg colour when it crosses the 90°/270° plane so front and back stand out.
+
+### Known Limitations
+
+- **Blit under a 3D transform panics** (`unimplemented!`). Textured cover flow needs a homography-based texture sampler, landing in a later spec.
+- **Fill with `radius > 0` under a 3D transform** asserts out.
+- **`Border` / `Line` / `Arc` / `Label` under 3D** — no `quad` field, so they emit under the 2D path; a rotating widget that has a border will show the border in 2D rect shape. First release ships with solid-colour Fill only.
+- **`SdlGpuRenderer`** bails on any quad command. Use `SwDrawBackend` for 3D scenes.
+- **Only leaf 3D widgets**. Nested 3D (parent 3D + child 3D) isn't accumulated; children of a 3D widget render in 2D ignoring the parent's warp. Covers cover-flow / flip cards; deeper scenes need a future pass.
+- **Q8.8 Fixed → Q16.16 i64 inside `Transform3D`**. Interop with `Fixed` goes through lossless shift conversions, but you can't shove a Q16.16 matrix directly into a `Fixed` struct.
+
+### Internal
+
+- `types::transform_3d::point_in_quad` shared between the rasterizer and hit test.
+- `render_system::quad_for` + `effective_transform_3d` emit quads as a one-shot per-entity computation; identity-only scenes don't call them.
+
 ## [0.8.0] - 2026-05-12
 
 ### 🌀 Widget-level 2D Transforms
