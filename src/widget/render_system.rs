@@ -52,6 +52,70 @@ fn effective_transform_3d(
         .compose(&to_origin)
 }
 
+fn quad_bbox(q: [Point; 4]) -> Rect {
+    let mut min_x = q[0].x;
+    let mut max_x = q[0].x;
+    let mut min_y = q[0].y;
+    let mut max_y = q[0].y;
+    for p in &q[1..] {
+        if p.x < min_x {
+            min_x = p.x;
+        }
+        if p.x > max_x {
+            max_x = p.x;
+        }
+        if p.y < min_y {
+            min_y = p.y;
+        }
+        if p.y > max_y {
+            max_y = p.y;
+        }
+    }
+    Rect {
+        x: min_x,
+        y: min_y,
+        w: max_x - min_x,
+        h: max_y - min_y,
+    }
+}
+
+/// After a full-screen render, stash each widget's effective bbox so
+/// the next dirty pass knows the pixels just written and can include
+/// them in its union (erasing any residue when widgets move/shrink).
+pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
+    let (logical_w, logical_h) = transform.logical_size();
+    let Some(mut layout_tree) = build_layout_tree(world, root) else {
+        return;
+    };
+    compute_layout(
+        &mut layout_tree,
+        Fixed::ZERO,
+        Fixed::ZERO,
+        logical_w.into(),
+        logical_h.into(),
+    );
+    let mut entities = Vec::new();
+    collect_entities_preorder(world, root, &mut entities);
+    for (i, &entity) in entities.iter().enumerate() {
+        if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
+            let effective_rect = quad_for(world, entity, rect).map(quad_bbox).unwrap_or(rect);
+            let x0 = effective_rect.x.floor();
+            let y0 = effective_rect.y.floor();
+            let x1 = (effective_rect.x + effective_rect.w).ceil();
+            let y1 = (effective_rect.y + effective_rect.h).ceil();
+            world.insert(
+                entity,
+                super::dirty::PrevRect(Rect {
+                    x: x0,
+                    y: y0,
+                    w: x1 - x0,
+                    h: y1 - y0,
+                }),
+            );
+        }
+    }
+}
+
 fn quad_for(world: &World, entity: Entity, rect: Rect) -> Option<[Point; 4]> {
     let wt3d = world.get::<WidgetTransform3D>(entity)?;
     if wt3d.0.is_identity() {
@@ -95,11 +159,6 @@ fn draw_tree(
     clip: &Rect,
     parent_transform: &Transform,
 ) {
-    if !rects_intersect(&node.rect, clip) {
-        *idx += count_nodes(node);
-        return;
-    }
-
     let entity = if *idx < entities.len() {
         entities[*idx]
     } else {
@@ -110,6 +169,12 @@ fn draw_tree(
     };
     let tf = effective_transform(parent_transform, world, entity, node.rect);
     let quad = quad_for(world, entity, node.rect);
+
+    let cull_rect = quad.map(quad_bbox).unwrap_or(node.rect);
+    if !rects_intersect(&cull_rect, clip) {
+        *idx += count_nodes(node);
+        return;
+    }
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
@@ -270,11 +335,6 @@ fn draw_tree_offset(
         h: node.rect.h,
     };
 
-    if !rects_intersect(&shifted_rect, clip) {
-        *idx += count_nodes(node);
-        return;
-    }
-
     let entity = if *idx < entities.len() {
         entities[*idx]
     } else {
@@ -285,6 +345,12 @@ fn draw_tree_offset(
     };
     let tf = effective_transform(parent_transform, world, entity, shifted_rect);
     let quad = quad_for(world, entity, shifted_rect);
+
+    let cull_rect = quad.map(quad_bbox).unwrap_or(shifted_rect);
+    if !rects_intersect(&cull_rect, clip) {
+        *idx += count_nodes(node);
+        return;
+    }
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
@@ -577,64 +643,62 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
 
     for (i, &entity) in entities.iter().enumerate() {
         if world.get::<Dirty>(entity).is_some() {
+            let mut union_x0: Option<Fixed> = None;
+            let mut union_y0: Option<Fixed> = None;
+            let mut union_x1: Option<Fixed> = None;
+            let mut union_y1: Option<Fixed> = None;
+            let mut extend = |x: Fixed, y: Fixed, x1: Fixed, y1: Fixed| {
+                union_x0 = Some(union_x0.map_or(x, |v| if x < v { x } else { v }));
+                union_y0 = Some(union_y0.map_or(y, |v| if y < v { y } else { v }));
+                union_x1 = Some(union_x1.map_or(x1, |v| if x1 > v { x1 } else { v }));
+                union_y1 = Some(union_y1.map_or(y1, |v| if y1 > v { y1 } else { v }));
+            };
+
             if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
-                let effective_rect = if let Some(q) = quad_for(world, entity, rect) {
-                    let min = |a: Fixed, b: Fixed| if a < b { a } else { b };
-                    let max = |a: Fixed, b: Fixed| if a > b { a } else { b };
-                    let mut qx_min = q[0].x;
-                    let mut qx_max = q[0].x;
-                    let mut qy_min = q[0].y;
-                    let mut qy_max = q[0].y;
-                    for p in &q[1..] {
-                        qx_min = min(qx_min, p.x);
-                        qx_max = max(qx_max, p.x);
-                        qy_min = min(qy_min, p.y);
-                        qy_max = max(qy_max, p.y);
-                    }
-                    Rect {
-                        x: qx_min,
-                        y: qy_min,
-                        w: qx_max - qx_min,
-                        h: qy_max - qy_min,
-                    }
-                } else {
-                    rect
-                };
-                let rx = effective_rect.x;
-                let ry = effective_rect.y;
-                let rx2 = (effective_rect.x + effective_rect.w).ceil();
-                let ry2 = (effective_rect.y + effective_rect.h).ceil();
-                if rx < min_x {
-                    min_x = rx;
-                }
-                if ry < min_y {
-                    min_y = ry;
-                }
-                if rx2 > max_x {
-                    max_x = rx2;
-                }
-                if ry2 > max_y {
-                    max_y = ry2;
-                }
+                let effective_rect = quad_for(world, entity, rect).map(quad_bbox).unwrap_or(rect);
+                extend(
+                    effective_rect.x.floor(),
+                    effective_rect.y.floor(),
+                    (effective_rect.x + effective_rect.w).ceil(),
+                    (effective_rect.y + effective_rect.h).ceil(),
+                );
             }
-            // Include previous rect (old position) if present
             if let Some(prev) = world.remove::<super::dirty::PrevRect>(entity) {
-                let px = prev.0.x;
-                let py = prev.0.y;
-                let px2 = (prev.0.x + prev.0.w).ceil();
-                let py2 = (prev.0.y + prev.0.h).ceil();
-                if px < min_x {
-                    min_x = px;
+                extend(
+                    prev.0.x,
+                    prev.0.y,
+                    (prev.0.x + prev.0.w).ceil(),
+                    (prev.0.y + prev.0.h).ceil(),
+                );
+            }
+
+            if let (Some(x0), Some(y0), Some(x1), Some(y1)) =
+                (union_x0, union_y0, union_x1, union_y1)
+            {
+                if x0 < min_x {
+                    min_x = x0;
                 }
-                if py < min_y {
-                    min_y = py;
+                if y0 < min_y {
+                    min_y = y0;
                 }
-                if px2 > max_x {
-                    max_x = px2;
+                if x1 > max_x {
+                    max_x = x1;
                 }
-                if py2 > max_y {
-                    max_y = py2;
+                if y1 > max_y {
+                    max_y = y1;
                 }
+                // Persist the full union so the next frame's dirty
+                // region still covers any "widening" pixels the
+                // current frame's shrunken quad didn't repaint over.
+                world.insert(
+                    entity,
+                    super::dirty::PrevRect(Rect {
+                        x: x0,
+                        y: y0,
+                        w: x1 - x0,
+                        h: y1 - y0,
+                    }),
+                );
             }
             world.remove::<Dirty>(entity);
         }

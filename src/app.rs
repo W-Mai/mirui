@@ -132,6 +132,12 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
         let (pw, ph) = self.backend.physical_size();
         self.backend.flush(&Rect::new(0, 0, pw as u16, ph as u16));
 
+        // Seed PrevRect so the next render_dirty frame's dirty union
+        // covers pixels this full render actually wrote — otherwise
+        // any widget that shrinks or moves between the full render
+        // and the first dirty render leaves residue.
+        render_system::seed_prev_rects(&mut self.world, root, &transform);
+
         let elapsed = (self.clock)().saturating_sub(start_ns);
         for p in &mut self.plugins {
             p.post_render(&mut self.world, elapsed);
