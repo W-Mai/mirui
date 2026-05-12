@@ -95,6 +95,7 @@ fn draw_tree(
                     &DrawCommand::Fill {
                         area: node.rect,
                         transform: tf,
+                        quad: None,
                         color,
                         radius: style.border_radius,
                         opa: 255,
@@ -122,6 +123,7 @@ fn draw_tree(
                     &DrawCommand::Fill {
                         area: node.rect,
                         transform: tf,
+                        quad: None,
                         color: pb.track_color,
                         radius: style.border_radius,
                         opa: 255,
@@ -139,6 +141,7 @@ fn draw_tree(
                                 h: node.rect.h,
                             },
                             transform: tf,
+                            quad: None,
                             color: pb.fill_color,
                             radius: style.border_radius,
                             opa: 255,
@@ -159,6 +162,7 @@ fn draw_tree(
                             y: node.rect.h,
                         },
                         transform: tf,
+                        quad: None,
                         texture: img.texture,
                     },
                     clip,
@@ -265,6 +269,7 @@ fn draw_tree_offset(
                     &DrawCommand::Fill {
                         area: shifted_rect,
                         transform: tf,
+                        quad: None,
                         color,
                         radius: style.border_radius,
                         opa: 255,
@@ -292,6 +297,7 @@ fn draw_tree_offset(
                     &DrawCommand::Fill {
                         area: shifted_rect,
                         transform: tf,
+                        quad: None,
                         color: pb.track_color,
                         radius: style.border_radius,
                         opa: 255,
@@ -309,6 +315,7 @@ fn draw_tree_offset(
                                 h: shifted_rect.h,
                             },
                             transform: tf,
+                            quad: None,
                             color: pb.fill_color,
                             radius: style.border_radius,
                             opa: 255,
@@ -329,6 +336,7 @@ fn draw_tree_offset(
                             y: shifted_rect.h,
                         },
                         transform: tf,
+                        quad: None,
                         texture: img.texture,
                     },
                     clip,

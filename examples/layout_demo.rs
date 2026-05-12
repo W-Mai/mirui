@@ -49,6 +49,7 @@ fn draw_node(renderer: &mut SwDrawBackend, node: &LayoutNode, clip: &Rect, depth
             &DrawCommand::Fill {
                 area: node.rect,
                 transform: Transform::IDENTITY,
+                quad: None,
                 color,
                 radius: Fixed::ZERO,
                 opa: 220,
@@ -141,6 +142,7 @@ fn main() {
         &DrawCommand::Fill {
             area: clip,
             transform: Transform::IDENTITY,
+            quad: None,
             color: Color::rgb(30, 30, 46),
             radius: Fixed::ZERO,
             opa: 255,

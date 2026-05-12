@@ -12,6 +12,7 @@ pub enum DrawCommand<'a> {
     Fill {
         area: Rect,
         transform: Transform,
+        quad: Option<[Point; 4]>,
         color: Color,
         radius: Fixed,
         opa: Opa,
@@ -55,6 +56,7 @@ pub enum DrawCommand<'a> {
         pos: Point,
         size: Point,
         transform: Transform,
+        quad: Option<[Point; 4]>,
         texture: &'a Texture<'a>,
     },
 }

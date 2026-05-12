@@ -21,6 +21,7 @@ mod tests {
                 h: Fixed::from_int(3),
             },
             transform: Transform::IDENTITY,
+            quad: None,
             color: Color::rgb(255, 0, 0),
             radius: Fixed::ZERO,
             opa: 255,
@@ -64,6 +65,7 @@ mod tests {
                 h: Fixed::from_int(10),
             },
             transform: Transform::IDENTITY,
+            quad: None,
             color: Color::rgb(0, 255, 0),
             radius: Fixed::ZERO,
             opa: 255,
@@ -112,6 +114,7 @@ mod tests {
                 h: Fixed::from_int(4),
             },
             transform: Transform::IDENTITY,
+            quad: None,
             color: Color::rgb(0, 0, 0),
             radius: Fixed::ZERO,
             opa: 128, // ~50% opacity

@@ -260,6 +260,7 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
             pos: Point::ZERO,
             size: Point::ZERO,
             transform: Transform::IDENTITY,
+            quad: None,
             texture: &tex,
         },
         &rect,
