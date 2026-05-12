@@ -122,6 +122,10 @@ required-features = ["sdl"]
 name = "image_flip_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "cover_flow_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true
