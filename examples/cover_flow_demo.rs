@@ -17,7 +17,7 @@ const WINDOW_H: i32 = 360;
 const CARD_W: i32 = 140;
 const CARD_H: i32 = 180;
 const CARD_GAP: i32 = 80;
-const PERSPECTIVE: i32 = 500;
+const PERSPECTIVE: i32 = 250;
 const CARD_COUNT: i32 = 5;
 
 struct CarouselCard {
@@ -58,14 +58,12 @@ fn layout_system(world: &mut World) {
         mirui::widget::set_position(world, e, tx, ty);
 
         let relative = Fixed::from_int(idx) - offset / slot_stride;
-        let tilt = Fixed::ZERO - relative * Fixed::from_int(22);
-        world.insert(
-            e,
-            WidgetTransform3D(Transform3D::rotate_y_perspective(
-                tilt,
-                Fixed::from_int(PERSPECTIVE),
-            )),
-        );
+        let tilt_y = Fixed::ZERO - relative * Fixed::from_int(45);
+        let tilt_x = relative.abs() * Fixed::from_int(20) - Fixed::from_int(15);
+        let distance = Fixed::from_int(PERSPECTIVE);
+        let ty = Transform3D::rotate_y_perspective(tilt_y, distance);
+        let tx3d = Transform3D::rotate_x_perspective(tilt_x, distance);
+        world.insert(e, WidgetTransform3D(ty.compose(&tx3d)));
         world.insert(e, Dirty);
     }
     world.insert(carousel, Dirty);
@@ -135,7 +133,8 @@ fn main() {
                     top: 0,
                     width: CARD_W,
                     height: CARD_H,
-                    bg_color: *item.1
+                    bg_color: *item.1,
+                    border_radius: 16
                 ) [
                     CarouselCard { index: item.0 },
                 ] {
