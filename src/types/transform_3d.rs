@@ -328,6 +328,20 @@ impl Default for Transform3D {
     }
 }
 
+/// Test whether `p` lies inside the quadrilateral `q` (given in
+/// either winding order). Uses signed-edge cross products; on the
+/// boundary counts as inside.
+pub fn point_in_quad(q: &[Point; 4], p: Point) -> bool {
+    let edge = |a: Point, b: Point| (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    let s0 = edge(q[0], q[1]);
+    let s1 = edge(q[1], q[2]);
+    let s2 = edge(q[2], q[3]);
+    let s3 = edge(q[3], q[0]);
+    let all_pos = s0 >= Fixed::ZERO && s1 >= Fixed::ZERO && s2 >= Fixed::ZERO && s3 >= Fixed::ZERO;
+    let all_neg = s0 <= Fixed::ZERO && s1 <= Fixed::ZERO && s2 <= Fixed::ZERO && s3 <= Fixed::ZERO;
+    all_pos || all_neg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -3,9 +3,10 @@ use alloc::vec::Vec;
 
 use crate::components::scroll::ScrollOffset;
 use crate::components::transform::WidgetTransform;
+use crate::components::transform_3d::WidgetTransform3D;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::{Fixed, Point, Rect, Transform};
+use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
 use crate::widget::{Children, Style, Widget};
 
 fn build_rects(
@@ -152,8 +153,28 @@ pub fn hit_test(
     let mut hit = None;
     for (i, rect) in rects.iter().enumerate() {
         let (sx, sy) = scroll_offsets[i];
-        let vx = rect.x - sx;
-        let vy = rect.y - sy;
+        let shifted = Rect {
+            x: rect.x - sx,
+            y: rect.y - sy,
+            w: rect.w,
+            h: rect.h,
+        };
+
+        if let Some(wt3d) = world.get::<WidgetTransform3D>(entities[i]) {
+            if !wt3d.0.is_identity() {
+                let cx = shifted.x + shifted.w / Fixed::from_int(2);
+                let cy = shifted.y + shifted.h / Fixed::from_int(2);
+                let wrapped = Transform3D::translate(cx, cy)
+                    .compose(&wt3d.0)
+                    .compose(&Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy));
+                if let Some(q) = wrapped.apply_rect(shifted) {
+                    if crate::types::transform_3d::point_in_quad(&q, Point { x, y }) {
+                        hit = Some(entities[i]);
+                    }
+                }
+                continue;
+            }
+        }
 
         let probe = if transforms[i].is_identity() {
             Point { x, y }
@@ -164,7 +185,11 @@ pub fn hit_test(
             }
         };
 
-        if probe.x >= vx && probe.x < vx + rect.w && probe.y >= vy && probe.y < vy + rect.h {
+        if probe.x >= shifted.x
+            && probe.x < shifted.x + shifted.w
+            && probe.y >= shifted.y
+            && probe.y < shifted.y + shifted.h
+        {
             hit = Some(entities[i]);
         }
     }
