@@ -1,11 +1,13 @@
 pub mod dimension;
 pub mod fixed;
 pub mod transform;
+pub mod transform_3d;
 pub mod viewport;
 
 pub use dimension::Dimension;
 pub use fixed::Fixed;
 pub use transform::{Transform, TransformClass};
+pub use transform_3d::Transform3D;
 pub use viewport::Viewport;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
