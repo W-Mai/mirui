@@ -1,7 +1,8 @@
 use crate::components::transform::WidgetTransform;
+use crate::components::transform_3d::WidgetTransform3D;
 use crate::ecs::{Entity, World};
 use crate::layout::LayoutStyle;
-use crate::types::{Color, Fixed, Transform};
+use crate::types::{Color, Fixed, Transform, Transform3D};
 
 use super::{Children, Parent, Style, Widget};
 
@@ -105,6 +106,48 @@ impl<'a> WidgetBuilder<'a> {
 
     pub fn scale_xy(self, sx: impl Into<Fixed>, sy: impl Into<Fixed>) -> Self {
         self.apply_transform(Transform::scale(sx.into(), sy.into()))
+    }
+
+    pub fn transform_3d(self, t: Transform3D) -> Self {
+        self.world.insert(self.entity, WidgetTransform3D(t));
+        self
+    }
+
+    pub fn apply_transform_3d(self, t: Transform3D) -> Self {
+        let current = self
+            .world
+            .get::<WidgetTransform3D>(self.entity)
+            .map(|wt| wt.0)
+            .unwrap_or(Transform3D::IDENTITY);
+        self.world
+            .insert(self.entity, WidgetTransform3D(current.compose(&t)));
+        self
+    }
+
+    pub fn rotate_y(self, deg: impl Into<Fixed>) -> Self {
+        self.apply_transform_3d(Transform3D::rotate_y_deg(deg.into()))
+    }
+
+    pub fn rotate_x(self, deg: impl Into<Fixed>) -> Self {
+        self.apply_transform_3d(Transform3D::rotate_x_deg(deg.into()))
+    }
+
+    pub fn rotate_y_perspective(self, deg: impl Into<Fixed>, distance: impl Into<Fixed>) -> Self {
+        self.apply_transform_3d(Transform3D::rotate_y_perspective(
+            deg.into(),
+            distance.into(),
+        ))
+    }
+
+    pub fn rotate_x_perspective(self, deg: impl Into<Fixed>, distance: impl Into<Fixed>) -> Self {
+        self.apply_transform_3d(Transform3D::rotate_x_perspective(
+            deg.into(),
+            distance.into(),
+        ))
+    }
+
+    pub fn perspective(self, distance: impl Into<Fixed>) -> Self {
+        self.apply_transform_3d(Transform3D::perspective(distance.into()))
     }
 
     pub fn id(self) -> Entity {
