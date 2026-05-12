@@ -52,6 +52,38 @@ fn effective_transform_3d(
         .compose(&to_origin)
 }
 
+/// Once any ancestor declares a 3D transform, the whole subtree
+/// renders through the 3D quad path. Descendants without a
+/// `WidgetTransform3D` either lift their 2D `WidgetTransform` to
+/// homogeneous coordinates or pass the parent through unchanged.
+fn accumulate_3d(
+    parent_3d: &Transform3D,
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+) -> Transform3D {
+    if let Some(t3d) = world.get::<WidgetTransform3D>(entity) {
+        if !t3d.0.is_identity() {
+            return effective_transform_3d(parent_3d, world, entity, rect);
+        }
+    }
+    if !parent_3d.is_identity() {
+        if let Some(t2d) = world.get::<WidgetTransform>(entity) {
+            if !t2d.0.is_identity() {
+                let cx = rect.x + rect.w / Fixed::from_int(2);
+                let cy = rect.y + rect.h / Fixed::from_int(2);
+                let to_origin = Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy);
+                let from_origin = Transform3D::translate(cx, cy);
+                return parent_3d
+                    .compose(&from_origin)
+                    .compose(&Transform3D::from_affine(t2d.0))
+                    .compose(&to_origin);
+            }
+        }
+    }
+    *parent_3d
+}
+
 fn quad_bbox(q: [Point; 4]) -> Rect {
     let mut min_x = q[0].x;
     let mut max_x = q[0].x;
@@ -79,6 +111,40 @@ fn quad_bbox(q: [Point; 4]) -> Rect {
     }
 }
 
+fn seed_prev_rect_walk(
+    node: &LayoutNode,
+    world: &mut World,
+    entities: &[Entity],
+    idx: &mut usize,
+    parent_3d: &Transform3D,
+) {
+    if *idx >= entities.len() {
+        return;
+    }
+    let entity = entities[*idx];
+    let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
+    let effective_rect = quad_for(world, entity, node.rect, parent_3d)
+        .map(quad_bbox)
+        .unwrap_or(node.rect);
+    let x0 = effective_rect.x.floor();
+    let y0 = effective_rect.y.floor();
+    let x1 = (effective_rect.x + effective_rect.w).ceil();
+    let y1 = (effective_rect.y + effective_rect.h).ceil();
+    world.insert(
+        entity,
+        super::dirty::PrevRect(Rect {
+            x: x0,
+            y: y0,
+            w: x1 - x0,
+            h: y1 - y0,
+        }),
+    );
+    *idx += 1;
+    for child in &node.children {
+        seed_prev_rect_walk(child, world, entities, idx, &tf_3d);
+    }
+}
+
 /// After a full-screen render, stash each widget's effective bbox so
 /// the next dirty pass knows the pixels just written and can include
 /// them in its union (erasing any residue when widgets move/shrink).
@@ -96,32 +162,30 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
     );
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
-    for (i, &entity) in entities.iter().enumerate() {
-        if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
-            let effective_rect = quad_for(world, entity, rect).map(quad_bbox).unwrap_or(rect);
-            let x0 = effective_rect.x.floor();
-            let y0 = effective_rect.y.floor();
-            let x1 = (effective_rect.x + effective_rect.w).ceil();
-            let y1 = (effective_rect.y + effective_rect.h).ceil();
-            world.insert(
-                entity,
-                super::dirty::PrevRect(Rect {
-                    x: x0,
-                    y: y0,
-                    w: x1 - x0,
-                    h: y1 - y0,
-                }),
-            );
-        }
-    }
+    let mut idx = 0;
+    seed_prev_rect_walk(
+        &layout_tree,
+        world,
+        &entities,
+        &mut idx,
+        &Transform3D::IDENTITY,
+    );
 }
 
-fn quad_for(world: &World, entity: Entity, rect: Rect) -> Option<[Point; 4]> {
-    let wt3d = world.get::<WidgetTransform3D>(entity)?;
-    if wt3d.0.is_identity() {
+fn quad_for(
+    world: &World,
+    entity: Entity,
+    rect: Rect,
+    parent_3d: &Transform3D,
+) -> Option<[Point; 4]> {
+    let has_local_3d = world
+        .get::<WidgetTransform3D>(entity)
+        .map(|t| !t.0.is_identity())
+        .unwrap_or(false);
+    if parent_3d.is_identity() && !has_local_3d {
         return None;
     }
-    let tf = effective_transform_3d(&Transform3D::IDENTITY, world, entity, rect);
+    let tf = accumulate_3d(parent_3d, world, entity, rect);
     tf.apply_rect(rect)
 }
 
@@ -150,6 +214,7 @@ fn count_nodes(node: &LayoutNode) -> usize {
 }
 
 /// Recursively emit draw commands from the computed layout tree
+#[allow(clippy::too_many_arguments)]
 fn draw_tree(
     node: &LayoutNode,
     world: &World,
@@ -158,6 +223,7 @@ fn draw_tree(
     renderer: &mut dyn Renderer,
     clip: &Rect,
     parent_transform: &Transform,
+    parent_transform_3d: &Transform3D,
 ) {
     let entity = if *idx < entities.len() {
         entities[*idx]
@@ -168,7 +234,8 @@ fn draw_tree(
         }
     };
     let tf = effective_transform(parent_transform, world, entity, node.rect);
-    let quad = quad_for(world, entity, node.rect);
+    let tf_3d = accumulate_3d(parent_transform_3d, world, entity, node.rect);
+    let quad = quad_for(world, entity, node.rect, parent_transform_3d);
 
     let cull_rect = quad.map(quad_bbox).unwrap_or(node.rect);
     if !rects_intersect(&cull_rect, clip) {
@@ -312,6 +379,7 @@ fn draw_tree(
             scroll_x,
             scroll_y,
             &tf,
+            &tf_3d,
         );
     }
 }
@@ -327,6 +395,7 @@ fn draw_tree_offset(
     offset_x: Fixed,
     offset_y: Fixed,
     parent_transform: &Transform,
+    parent_transform_3d: &Transform3D,
 ) {
     let shifted_rect = Rect {
         x: node.rect.x - offset_x,
@@ -344,7 +413,8 @@ fn draw_tree_offset(
         }
     };
     let tf = effective_transform(parent_transform, world, entity, shifted_rect);
-    let quad = quad_for(world, entity, shifted_rect);
+    let tf_3d = accumulate_3d(parent_transform_3d, world, entity, shifted_rect);
+    let quad = quad_for(world, entity, shifted_rect, parent_transform_3d);
 
     let cull_rect = quad.map(quad_bbox).unwrap_or(shifted_rect);
     if !rects_intersect(&cull_rect, clip) {
@@ -491,6 +561,7 @@ fn draw_tree_offset(
             sx,
             sy,
             &tf,
+            &tf_3d,
         );
     }
 }
@@ -540,6 +611,7 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
         renderer,
         &clip,
         &Transform::IDENTITY,
+        &Transform3D::IDENTITY,
     );
 }
 
@@ -614,14 +686,91 @@ pub fn render_region(
         renderer,
         dirty_rect,
         &Transform::IDENTITY,
+        &Transform3D::IDENTITY,
     );
+}
+
+struct DirtyBounds {
+    min_x: Fixed,
+    min_y: Fixed,
+    max_x: Fixed,
+    max_y: Fixed,
+}
+
+fn collect_dirty_walk(
+    node: &LayoutNode,
+    world: &mut World,
+    entities: &[Entity],
+    idx: &mut usize,
+    parent_3d: &Transform3D,
+    bounds: &mut DirtyBounds,
+) {
+    use super::dirty::Dirty;
+    if *idx >= entities.len() {
+        return;
+    }
+    let entity = entities[*idx];
+    let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
+
+    if world.get::<Dirty>(entity).is_some() {
+        let effective_rect = quad_for(world, entity, node.rect, parent_3d)
+            .map(quad_bbox)
+            .unwrap_or(node.rect);
+        let mut x0 = effective_rect.x.floor();
+        let mut y0 = effective_rect.y.floor();
+        let mut x1 = (effective_rect.x + effective_rect.w).ceil();
+        let mut y1 = (effective_rect.y + effective_rect.h).ceil();
+
+        if let Some(prev) = world.remove::<super::dirty::PrevRect>(entity) {
+            let p_x1 = (prev.0.x + prev.0.w).ceil();
+            let p_y1 = (prev.0.y + prev.0.h).ceil();
+            if prev.0.x < x0 {
+                x0 = prev.0.x;
+            }
+            if prev.0.y < y0 {
+                y0 = prev.0.y;
+            }
+            if p_x1 > x1 {
+                x1 = p_x1;
+            }
+            if p_y1 > y1 {
+                y1 = p_y1;
+            }
+        }
+
+        if x0 < bounds.min_x {
+            bounds.min_x = x0;
+        }
+        if y0 < bounds.min_y {
+            bounds.min_y = y0;
+        }
+        if x1 > bounds.max_x {
+            bounds.max_x = x1;
+        }
+        if y1 > bounds.max_y {
+            bounds.max_y = y1;
+        }
+        world.insert(
+            entity,
+            super::dirty::PrevRect(Rect {
+                x: x0,
+                y: y0,
+                w: x1 - x0,
+                h: y1 - y0,
+            }),
+        );
+        world.remove::<Dirty>(entity);
+    }
+
+    *idx += 1;
+    for child in &node.children {
+        collect_dirty_walk(child, world, entities, idx, &tf_3d, bounds);
+    }
 }
 
 /// Collect the logical-pixel rects of all dirty entities, then remove Dirty flags.
 /// Returns the bounding rect of all dirty regions, or None if nothing dirty.
 pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewport) -> Option<Rect> {
-    use super::dirty::Dirty;
-
     let (logical_w, logical_h) = transform.logical_size();
 
     let mut layout_tree = build_layout_tree(world, root)?;
@@ -636,73 +785,24 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
 
-    let mut min_x: Fixed = Fixed::from(logical_w);
-    let mut min_y: Fixed = Fixed::from(logical_h);
-    let mut max_x: Fixed = Fixed::from_int(-1);
-    let mut max_y: Fixed = Fixed::from_int(-1);
+    let mut bounds = DirtyBounds {
+        min_x: Fixed::from(logical_w),
+        min_y: Fixed::from(logical_h),
+        max_x: Fixed::from_int(-1),
+        max_y: Fixed::from_int(-1),
+    };
 
-    for (i, &entity) in entities.iter().enumerate() {
-        if world.get::<Dirty>(entity).is_some() {
-            let mut union_x0: Option<Fixed> = None;
-            let mut union_y0: Option<Fixed> = None;
-            let mut union_x1: Option<Fixed> = None;
-            let mut union_y1: Option<Fixed> = None;
-            let mut extend = |x: Fixed, y: Fixed, x1: Fixed, y1: Fixed| {
-                union_x0 = Some(union_x0.map_or(x, |v| if x < v { x } else { v }));
-                union_y0 = Some(union_y0.map_or(y, |v| if y < v { y } else { v }));
-                union_x1 = Some(union_x1.map_or(x1, |v| if x1 > v { x1 } else { v }));
-                union_y1 = Some(union_y1.map_or(y1, |v| if y1 > v { y1 } else { v }));
-            };
+    let mut idx = 0;
+    collect_dirty_walk(
+        &layout_tree,
+        world,
+        &entities,
+        &mut idx,
+        &Transform3D::IDENTITY,
+        &mut bounds,
+    );
 
-            if let Some(rect) = find_rect_at_index(&layout_tree, i, &mut 0) {
-                let effective_rect = quad_for(world, entity, rect).map(quad_bbox).unwrap_or(rect);
-                extend(
-                    effective_rect.x.floor(),
-                    effective_rect.y.floor(),
-                    (effective_rect.x + effective_rect.w).ceil(),
-                    (effective_rect.y + effective_rect.h).ceil(),
-                );
-            }
-            if let Some(prev) = world.remove::<super::dirty::PrevRect>(entity) {
-                extend(
-                    prev.0.x,
-                    prev.0.y,
-                    (prev.0.x + prev.0.w).ceil(),
-                    (prev.0.y + prev.0.h).ceil(),
-                );
-            }
-
-            if let (Some(x0), Some(y0), Some(x1), Some(y1)) =
-                (union_x0, union_y0, union_x1, union_y1)
-            {
-                if x0 < min_x {
-                    min_x = x0;
-                }
-                if y0 < min_y {
-                    min_y = y0;
-                }
-                if x1 > max_x {
-                    max_x = x1;
-                }
-                if y1 > max_y {
-                    max_y = y1;
-                }
-                // Persist the full union so the next frame's dirty
-                // region still covers any "widening" pixels the
-                // current frame's shrunken quad didn't repaint over.
-                world.insert(
-                    entity,
-                    super::dirty::PrevRect(Rect {
-                        x: x0,
-                        y: y0,
-                        w: x1 - x0,
-                        h: y1 - y0,
-                    }),
-                );
-            }
-            world.remove::<Dirty>(entity);
-        }
-    }
+    let (min_x, min_y, max_x, max_y) = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
 
     if max_x < Fixed::ZERO {
         None
@@ -714,17 +814,4 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
             h: max_y - min_y,
         })
     }
-}
-
-fn find_rect_at_index(node: &LayoutNode, target: usize, idx: &mut usize) -> Option<Rect> {
-    if *idx == target {
-        return Some(node.rect);
-    }
-    *idx += 1;
-    for child in &node.children {
-        if let Some(r) = find_rect_at_index(child, target, idx) {
-            return Some(r);
-        }
-    }
-    None
 }

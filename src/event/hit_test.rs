@@ -122,6 +122,67 @@ fn compute_transforms_recursive(
     }
 }
 
+fn compute_transforms_3d(
+    world: &World,
+    root: Entity,
+    entities: &[Entity],
+    rects: &[Rect],
+) -> Vec<Option<Transform3D>> {
+    let mut out = vec![None; entities.len()];
+    compute_transforms_3d_recursive(world, root, &Transform3D::IDENTITY, rects, &mut out, &mut 0);
+    out
+}
+
+fn compute_transforms_3d_recursive(
+    world: &World,
+    entity: Entity,
+    parent: &Transform3D,
+    rects: &[Rect],
+    out: &mut [Option<Transform3D>],
+    idx: &mut usize,
+) {
+    let my_idx = *idx;
+    let rect = rects.get(my_idx).copied().unwrap_or(Rect::ZERO);
+
+    let local_3d = world
+        .get::<WidgetTransform3D>(entity)
+        .map(|t| t.0)
+        .filter(|t| !t.is_identity());
+    let local_2d_lift = if local_3d.is_none() && !parent.is_identity() {
+        world
+            .get::<WidgetTransform>(entity)
+            .map(|t| t.0)
+            .filter(|t| !t.is_identity())
+            .map(Transform3D::from_affine)
+    } else {
+        None
+    };
+
+    let effective = if let Some(t3) = local_3d.or(local_2d_lift) {
+        let cx = rect.x + rect.w / Fixed::from_int(2);
+        let cy = rect.y + rect.h / Fixed::from_int(2);
+        parent
+            .compose(&Transform3D::translate(cx, cy))
+            .compose(&t3)
+            .compose(&Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy))
+    } else {
+        *parent
+    };
+
+    if my_idx < out.len() && !effective.is_identity() {
+        out[my_idx] = Some(effective);
+    }
+    *idx += 1;
+
+    if let Some(children) = world.get::<Children>(entity) {
+        for &child in &children.0 {
+            if world.get::<Widget>(child).is_some() {
+                compute_transforms_3d_recursive(world, child, &effective, rects, out, idx);
+            }
+        }
+    }
+}
+
 /// Hit test: given a coordinate, find the deepest widget entity that contains it.
 /// Accounts for scroll offsets.
 pub fn hit_test(
@@ -149,6 +210,7 @@ pub fn hit_test(
 
     let scroll_offsets = compute_scroll_offsets(world, root, &entities);
     let transforms = compute_transforms(world, root, &entities, &rects);
+    let transforms_3d = compute_transforms_3d(world, root, &entities, &rects);
 
     let mut hit = None;
     for (i, rect) in rects.iter().enumerate() {
@@ -160,20 +222,13 @@ pub fn hit_test(
             h: rect.h,
         };
 
-        if let Some(wt3d) = world.get::<WidgetTransform3D>(entities[i]) {
-            if !wt3d.0.is_identity() {
-                let cx = shifted.x + shifted.w / Fixed::from_int(2);
-                let cy = shifted.y + shifted.h / Fixed::from_int(2);
-                let wrapped = Transform3D::translate(cx, cy)
-                    .compose(&wt3d.0)
-                    .compose(&Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy));
-                if let Some(q) = wrapped.apply_rect(shifted) {
-                    if crate::types::transform_3d::point_in_quad(&q, Point { x, y }) {
-                        hit = Some(entities[i]);
-                    }
+        if let Some(tf3d) = transforms_3d[i] {
+            if let Some(q) = tf3d.apply_rect(shifted) {
+                if crate::types::transform_3d::point_in_quad(&q, Point { x, y }) {
+                    hit = Some(entities[i]);
                 }
-                continue;
             }
+            continue;
         }
 
         let probe = if transforms[i].is_identity() {
