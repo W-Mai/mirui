@@ -393,13 +393,20 @@ impl Default for Transform3D {
 /// either winding order). Uses signed-edge cross products; on the
 /// boundary counts as inside.
 pub fn point_in_quad(q: &[Point; 4], p: Point) -> bool {
-    let edge = |a: Point, b: Point| (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+    // i64 cross: Q8.8 raw squared overflows i32 past ~180 px wide.
+    let edge = |a: Point, b: Point| -> i64 {
+        let dx = (b.x.raw() as i64) - (a.x.raw() as i64);
+        let dy = (b.y.raw() as i64) - (a.y.raw() as i64);
+        let px = (p.x.raw() as i64) - (a.x.raw() as i64);
+        let py = (p.y.raw() as i64) - (a.y.raw() as i64);
+        dx * py - dy * px
+    };
     let s0 = edge(q[0], q[1]);
     let s1 = edge(q[1], q[2]);
     let s2 = edge(q[2], q[3]);
     let s3 = edge(q[3], q[0]);
-    let all_pos = s0 >= Fixed::ZERO && s1 >= Fixed::ZERO && s2 >= Fixed::ZERO && s3 >= Fixed::ZERO;
-    let all_neg = s0 <= Fixed::ZERO && s1 <= Fixed::ZERO && s2 <= Fixed::ZERO && s3 <= Fixed::ZERO;
+    let all_pos = s0 >= 0 && s1 >= 0 && s2 >= 0 && s3 >= 0;
+    let all_neg = s0 <= 0 && s1 <= 0 && s2 <= 0 && s3 <= 0;
     all_pos || all_neg
 }
 
@@ -604,5 +611,41 @@ mod tests {
         let p3 = t3d.apply_point(p).unwrap();
         assert!((p2.x - p3.x).abs().raw() < 20);
         assert!((p2.y - p3.y).abs().raw() < 20);
+    }
+
+    #[test]
+    fn point_in_quad_handles_large_widget() {
+        let q = [
+            Point {
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(0),
+            },
+            Point {
+                x: Fixed::from_int(800),
+                y: Fixed::from_int(0),
+            },
+            Point {
+                x: Fixed::from_int(800),
+                y: Fixed::from_int(800),
+            },
+            Point {
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(800),
+            },
+        ];
+        assert!(point_in_quad(
+            &q,
+            Point {
+                x: Fixed::from_int(400),
+                y: Fixed::from_int(400),
+            }
+        ));
+        assert!(!point_in_quad(
+            &q,
+            Point {
+                x: Fixed::from_int(900),
+                y: Fixed::from_int(400),
+            }
+        ));
     }
 }
