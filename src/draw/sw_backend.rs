@@ -612,7 +612,17 @@ fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) 
     }
 }
 
-fn fill_rect_quad(dst: &mut Texture, q: &[Point; 4], phys_clip: Rect, color: &Color, opa: u8) {
+#[allow(clippy::too_many_arguments)]
+fn fill_rect_quad(
+    dst: &mut Texture,
+    q: &[Point; 4],
+    phys_clip: Rect,
+    color: &Color,
+    radius: Fixed,
+    local_w: Fixed,
+    local_h: Fixed,
+    opa: u8,
+) {
     use crate::types::transform_3d::point_in_quad;
     let bbox = quad_bbox(q);
     let Some(area) = bbox.intersect(&phys_clip) else {
@@ -623,13 +633,37 @@ fn fill_rect_quad(dst: &mut Texture, q: &[Point; 4], phys_clip: Rect, color: &Co
         return;
     };
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
+
+    if radius == Fixed::ZERO {
+        for py in px_y0..px_y1 {
+            for px in px_x0..px_x1 {
+                let p = Point {
+                    x: Fixed::from_int(px) + Fixed::from_raw(128),
+                    y: Fixed::from_int(py) + Fixed::from_raw(128),
+                };
+                if !point_in_quad(q, p) {
+                    continue;
+                }
+                if opa == 255 {
+                    dst.set_pixel(px, py, color);
+                } else {
+                    dst.blend_pixel_int(px, py, color, opa);
+                }
+            }
+        }
+        return;
+    }
+
+    let _ = (local_w, local_h);
+    let poly = build_inset_quad(q, radius);
     for py in px_y0..px_y1 {
         for px in px_x0..px_x1 {
             let p = Point {
                 x: Fixed::from_int(px) + Fixed::from_raw(128),
                 y: Fixed::from_int(py) + Fixed::from_raw(128),
             };
-            if !point_in_quad(q, p) {
+            let d = sd_polygon(&poly, p) - radius;
+            if d > Fixed::ZERO {
                 continue;
             }
             if opa == 255 {
@@ -639,6 +673,76 @@ fn fill_rect_quad(dst: &mut Texture, q: &[Point; 4], phys_clip: Rect, color: &Co
             }
         }
     }
+}
+
+fn build_inset_quad(q: &[Point; 4], r: Fixed) -> [Point; 4] {
+    let mut out = [Point {
+        x: Fixed::ZERO,
+        y: Fixed::ZERO,
+    }; 4];
+    for i in 0..4 {
+        let vertex = q[i];
+        let next = q[(i + 1) % 4];
+        let prev = q[(i + 3) % 4];
+        let e1x = next.x - vertex.x;
+        let e1y = next.y - vertex.y;
+        let l1 = (e1x * e1x + e1y * e1y).sqrt();
+        let e2x = prev.x - vertex.x;
+        let e2y = prev.y - vertex.y;
+        let l2 = (e2x * e2x + e2y * e2y).sqrt();
+        let (ux, uy) = if l1 > Fixed::ZERO {
+            (e1x / l1, e1y / l1)
+        } else {
+            (Fixed::ZERO, Fixed::ZERO)
+        };
+        let (vx, vy) = if l2 > Fixed::ZERO {
+            (e2x / l2, e2y / l2)
+        } else {
+            (Fixed::ZERO, Fixed::ZERO)
+        };
+        out[i] = Point {
+            x: vertex.x + ux * r + vx * r,
+            y: vertex.y + uy * r + vy * r,
+        };
+    }
+    out
+}
+
+fn sd_polygon(v: &[Point; 4], p: Point) -> Fixed {
+    let mut d_sq = {
+        let dx = p.x - v[0].x;
+        let dy = p.y - v[0].y;
+        dx * dx + dy * dy
+    };
+    let mut sign = Fixed::ONE;
+    for i in 0..4 {
+        let j = (i + 3) % 4;
+        let ex = v[j].x - v[i].x;
+        let ey = v[j].y - v[i].y;
+        let wx = p.x - v[i].x;
+        let wy = p.y - v[i].y;
+        let e_dot = ex * ex + ey * ey;
+        let t = if e_dot > Fixed::ZERO {
+            ((wx * ex + wy * ey) / e_dot)
+                .max(Fixed::ZERO)
+                .min(Fixed::ONE)
+        } else {
+            Fixed::ZERO
+        };
+        let bx = wx - ex * t;
+        let by = wy - ey * t;
+        let b_sq = bx * bx + by * by;
+        if b_sq < d_sq {
+            d_sq = b_sq;
+        }
+        let cond_a = p.y >= v[i].y;
+        let cond_b = p.y < v[j].y;
+        let cond_c = ex * wy > ey * wx;
+        if (cond_a && cond_b && cond_c) || (!cond_a && !cond_b && !cond_c) {
+            sign = Fixed::ZERO - sign;
+        }
+    }
+    d_sq.sqrt() * sign
 }
 
 fn fill_rect_transformed(
@@ -1484,6 +1588,7 @@ impl Renderer for SwDrawBackend<'_> {
         use crate::types::TransformClass;
 
         if let DrawCommand::Fill {
+            area,
             quad: Some(q),
             color,
             opa,
@@ -1491,10 +1596,6 @@ impl Renderer for SwDrawBackend<'_> {
             ..
         } = cmd
         {
-            assert!(
-                *radius == Fixed::ZERO,
-                "Fill with radius under 3D quad not yet supported"
-            );
             let phys_clip = self.viewport.rect_to_physical(*clip);
             let phys_q = [
                 self.viewport.point_to_physical(q[0]),
@@ -1502,7 +1603,19 @@ impl Renderer for SwDrawBackend<'_> {
                 self.viewport.point_to_physical(q[2]),
                 self.viewport.point_to_physical(q[3]),
             ];
-            fill_rect_quad(&mut self.target, &phys_q, phys_clip, color, *opa);
+            let phys_w = area.w * self.viewport.scale();
+            let phys_h = area.h * self.viewport.scale();
+            let phys_radius = *radius * self.viewport.scale();
+            fill_rect_quad(
+                &mut self.target,
+                &phys_q,
+                phys_clip,
+                color,
+                phys_radius,
+                phys_w,
+                phys_h,
+                *opa,
+            );
             return;
         }
         if let DrawCommand::Blit {
