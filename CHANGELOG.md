@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-05-13
+
+New `quad-aa` Cargo feature, on by default.
+
+v0.10.1 left MCU targets with a 2×2 supersample that costs ~7 ms/frame vs the v0.9.2 binary fill on ESP32-C3 cover-flow (33 fps → 27 fps). That's the right trade-off for most MCU UIs, but not all — memory-tight builds, ultra-low-power modes, and anything that cares about raw frame rate more than edge quality now has an opt-out:
+
+```toml
+# Cargo.toml — keep binary fill, skip AA entirely
+mirui = { version = "0.10.2", default-features = false, features = ["perf"] }
+```
+
+Without `quad-aa`, `fill_rect_quad` / `stroke_rect_quad` / `blit_quad` run the same hard-edge point-in-quad test as v0.9.x — corners still respect their disk, but edges are binary. ESP32-C3 cover-flow benchmark:
+
+| config | ms/frame | fps |
+|---|---|---|
+| v0.9.2 baseline (no AA) | 23.5 | 42 |
+| v0.10.1 / v0.10.2 with `quad-aa` (supersample) | 37 | 27 |
+| **v0.10.2 without `quad-aa`** (binary) | **30** | **33** |
+
+`std` builds with `quad-aa` still use the Fixed64 SDF for smooth coverage.
+
 ## [0.10.1] - 2026-05-13
 
 Hotfix for the v0.10.0 quad AA regression on MCU targets. The shared Fixed64 signed-distance implementation that cover-flow edges rely on took ~2700 cycles per pixel on ESP32-C3 — cover-flow dropped from 42 fps (v0.9.2) to 10 fps. Unacceptable on any embedded target.
