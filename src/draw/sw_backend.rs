@@ -651,7 +651,6 @@ fn quad_bbox(q: &[Point; 4]) -> Rect {
 
 fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) {
     use crate::types::Transform3D;
-    use crate::types::transform_3d::point_in_quad;
     let src_rect = Rect::new(0, 0, src.width, src.height);
     let Some(forward) = Transform3D::from_quad(src_rect, q) else {
         return;
@@ -670,40 +669,51 @@ fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) 
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
     let sw = src.width as i32;
     let sh = src.height as i32;
+    let half = Fixed64::from_raw(Fixed64::ONE.raw() >> 1);
     for py in px_y0..px_y1 {
-        for px in px_x0..px_x1 {
-            #[cfg(feature = "perf")]
-            unsafe {
-                quad_perf::BLIT_PIXELS_SCANNED += 1;
+        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
+            continue;
+        };
+        let x_l_px = x_l.to_int().max(px_x0);
+        let x_r_px = x_r.ceil().to_int().min(px_x1);
+        if x_r_px <= x_l_px {
+            continue;
+        }
+        // DDA starting point at (x_l_px + 0.5, py_f).
+        let x0_f = Fixed64::from_fixed(Fixed::from_int(x_l_px)) + half;
+        let y0_f = Fixed64::from_fixed(py_f);
+        let mut big_x = inverse.m00 * x0_f + inverse.m01 * y0_f + inverse.m02;
+        let mut big_y = inverse.m10 * x0_f + inverse.m11 * y0_f + inverse.m12;
+        let mut w = inverse.m20 * x0_f + inverse.m21 * y0_f + inverse.m22;
+        #[cfg(feature = "perf")]
+        unsafe {
+            quad_perf::BLIT_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
+        }
+        for px in x_l_px..x_r_px {
+            if w.raw() > 0 {
+                let u = (big_x / w).to_fixed();
+                let v = (big_y / w).to_fixed();
+                let sx = u.to_int();
+                let sy = v.to_int();
+                if sx >= 0 && sx < sw && sy >= 0 && sy < sh {
+                    let c = src.get_pixel(sx, sy);
+                    if c.a != 0 {
+                        #[cfg(feature = "perf")]
+                        unsafe {
+                            quad_perf::BLIT_PIXELS_DRAWN += 1;
+                        }
+                        if c.a == 255 {
+                            dst.set_pixel(px, py, &c);
+                        } else {
+                            dst.blend_pixel_int(px, py, &c, c.a);
+                        }
+                    }
+                }
             }
-            let p = Point {
-                x: Fixed::from_int(px) + Fixed::from_raw(128),
-                y: Fixed::from_int(py) + Fixed::from_raw(128),
-            };
-            if !point_in_quad(q, p) {
-                continue;
-            }
-            let Some(uv) = inverse.apply_point(p) else {
-                continue;
-            };
-            let sx = uv.x.to_int();
-            let sy = uv.y.to_int();
-            if sx < 0 || sx >= sw || sy < 0 || sy >= sh {
-                continue;
-            }
-            let c = src.get_pixel(sx, sy);
-            if c.a == 0 {
-                continue;
-            }
-            #[cfg(feature = "perf")]
-            unsafe {
-                quad_perf::BLIT_PIXELS_DRAWN += 1;
-            }
-            if c.a == 255 {
-                dst.set_pixel(px, py, &c);
-            } else {
-                dst.blend_pixel_int(px, py, &c, c.a);
-            }
+            big_x += inverse.m00;
+            big_y += inverse.m10;
+            w += inverse.m20;
         }
     }
 }
