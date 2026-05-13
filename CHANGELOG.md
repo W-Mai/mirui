@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-05-13
+
+Pure refactor of the `Canvas` implementations. No behaviour change, no user-facing API change. Both software and SDL_GPU renderers now follow the same file layout; adding a new renderer (wgpu / VG-Lite / ...) is now a predictable exercise.
+
+### Changed
+
+- **Software renderer** (`src/draw/sw/`) split further: `sw/mod.rs` shrank from 1564 to 1144 lines. Each `Canvas` method body moved into a dedicated submodule (`rect_fill.rs`, `rect_stroke.rs`, `blit_dispatch.rs`, `label.rs`, `path.rs`) as an inherent-impl `*_inner` method; the trait impl now holds one-line wrappers. `SwRenderer::draw` itself (20 KiB) was split into nine per-variant `dispatch_*` methods. The axis-aligned fast path in `fill_rect` extracted into its own helper. Also pulled `transformed.rs` (2D transformed fill/blit), deduped `build_inner_quad` against `build_corner_info`, and moved `encode_pixel` onto `ColorFormat::pack`.
+- **SDL_GPU renderer** (`src/draw/sdl_gpu/`) mirrored the same split: `mod.rs` shrank from 602 to 439 lines; `rect_fill.rs`, `rect_stroke.rs`, `line.rs`, `blit.rs`, `path.rs`, `label.rs` each hold one method body.
+- **`CornerInfo` refactor** (`src/draw/sw/quad.rs`): factored out `CornerShape { vertex, ua, ub }` so the inner quad's corners (which share the outer quad's unit vectors by construction) can be inset three times from a single shape computation instead of recomputing normalization per call. Renamed the internal `centre` field to `center` for consistency with the rest of the codebase. Inward-vector tuples become `Point` to match the vertex field.
+
+### Internal
+
+Tests unchanged (120 pass). ESP32-C3 cover-flow demo ROM footprint stays within ±400B of v0.9.0 (`mirui` crate `.text` ≈ 73.8 KiB). The refactor is motivated by source-reading ergonomics, not binary size.
+
 ## [0.9.0] - 2026-05-13
 
 ### ⚠️ Breaking: three renames to clarify the architecture
