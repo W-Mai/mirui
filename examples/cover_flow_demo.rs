@@ -134,7 +134,9 @@ fn main() {
                     width: CARD_W,
                     height: CARD_H,
                     bg_color: *item.1,
-                    border_radius: 16
+                    border_radius: 8,
+                    border_color: Color::rgb(0, 0, 0),
+                    border_width: 5
                 ) [
                     CarouselCard { index: item.0 },
                 ] {
