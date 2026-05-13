@@ -11,10 +11,14 @@ pub mod perf;
 #[cfg(feature = "perf")]
 pub use perf::{PerfCtx, quad_perf};
 
+mod blit_dispatch;
 mod blit_fast;
+mod label;
+mod path;
 mod quad;
+mod rect_fill;
+mod rect_stroke;
 mod transformed;
-use blit_fast::{blit_1to1_fast, blit_2to2_fast, blit_dda};
 use quad::{blit_quad, fill_rect_quad, stroke_rect_quad};
 use transformed::{blit_transformed, fill_rect_transformed, offset_point, offset_rect};
 
@@ -39,88 +43,6 @@ impl<'a> SwRenderer<'a> {
 }
 
 impl<'a> SwRenderer<'a> {
-    /// Scale every Point inside `path` into physical pixels so the
-    /// rasterizer (which works in physical pixels) sees them directly.
-    fn scale_path(&self, path: &Path) -> Path {
-        let s = self.viewport.scale();
-        let cmds = path
-            .cmds
-            .iter()
-            .map(|c| match c {
-                super::path::PathCmd::MoveTo(p) => super::path::PathCmd::MoveTo(Point {
-                    x: p.x * s,
-                    y: p.y * s,
-                }),
-                super::path::PathCmd::LineTo(p) => super::path::PathCmd::LineTo(Point {
-                    x: p.x * s,
-                    y: p.y * s,
-                }),
-                super::path::PathCmd::QuadTo { ctrl, end } => super::path::PathCmd::QuadTo {
-                    ctrl: Point {
-                        x: ctrl.x * s,
-                        y: ctrl.y * s,
-                    },
-                    end: Point {
-                        x: end.x * s,
-                        y: end.y * s,
-                    },
-                },
-                super::path::PathCmd::CubicTo { ctrl1, ctrl2, end } => {
-                    super::path::PathCmd::CubicTo {
-                        ctrl1: Point {
-                            x: ctrl1.x * s,
-                            y: ctrl1.y * s,
-                        },
-                        ctrl2: Point {
-                            x: ctrl2.x * s,
-                            y: ctrl2.y * s,
-                        },
-                        end: Point {
-                            x: end.x * s,
-                            y: end.y * s,
-                        },
-                    }
-                }
-                super::path::PathCmd::Close => super::path::PathCmd::Close,
-            })
-            .collect();
-        Path { cmds }
-    }
-
-    /// Rasterize an already-physical-coord path; used by stroke_path to
-    /// avoid re-scaling the offset outline it already produced.
-    fn fill_physical_path(&mut self, phys_path: &Path, clip: &Rect, color: &Color, opa: u8) {
-        if opa == 0 {
-            return;
-        }
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        let segs = super::raster::flatten(phys_path);
-        if segs.is_empty() {
-            return;
-        }
-        let Some(bbox) = phys_path.bbox() else { return };
-        let screen = Rect::new(0, 0, self.target.width, self.target.height);
-        let Some(draw_area) = bbox
-            .intersect(&phys_clip)
-            .and_then(|r| r.intersect(&screen))
-        else {
-            return;
-        };
-
-        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
-        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let color_a_norm =
-            Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let combined_alpha = opa_norm * color_a_norm;
-
-        super::raster::scanline_fill(&segs, px_x0, px_y0, px_x1, px_y1, |px, py, cov| {
-            let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
-            if final_alpha > 0 {
-                self.target.blend_pixel_int(px, py, color, final_alpha);
-            }
-        });
-    }
-
     fn draw_transformed(&mut self, cmd: &DrawCommand, clip: &Rect, tf: &Transform) {
         let vp = self.viewport.as_transform();
         let phys_tf = vp.compose(tf);
@@ -170,158 +92,15 @@ impl<'a> SwRenderer<'a> {
 
 impl<'a> Canvas for SwRenderer<'a> {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
-        if opa == 0 {
-            return;
-        }
-        let phys_path = self.scale_path(path);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        let segs = super::raster::flatten(&phys_path);
-        if segs.is_empty() {
-            return;
-        }
-        let Some(bbox) = phys_path.bbox() else { return };
-        let screen = Rect::new(0, 0, self.target.width, self.target.height);
-        let Some(draw_area) = bbox
-            .intersect(&phys_clip)
-            .and_then(|r| r.intersect(&screen))
-        else {
-            return;
-        };
-
-        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
-        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let color_a_norm =
-            Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let combined_alpha = opa_norm * color_a_norm;
-
-        super::raster::scanline_fill(&segs, px_x0, px_y0, px_x1, px_y1, |px, py, cov| {
-            let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
-            if final_alpha > 0 {
-                self.target.blend_pixel_int(px, py, color, final_alpha);
-            }
-        });
+        self.fill_path_inner(path, clip, color, opa);
     }
 
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
-        if opa == 0 || width <= Fixed::ZERO {
-            return;
-        }
-        let phys_path = self.scale_path(path);
-        let phys_width = width * self.viewport.scale();
-        let outline = super::raster::offset_polygon(&phys_path, phys_width);
-        // Outline is already physical — skip the usual fill_path scale step.
-        self.fill_physical_path(&outline, clip, color, opa);
+        self.stroke_path_inner(path, clip, width, color, opa);
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
-        let phys_area = self.viewport.rect_to_physical(*area);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        let radius = radius * self.viewport.scale();
-        let area = &phys_area;
-        let clip = &phys_clip;
-
-        let screen = Rect::new(0, 0, self.target.width, self.target.height);
-        let Some(draw_area) = area.intersect(clip) else {
-            return;
-        };
-        let Some(draw_area) = draw_area.intersect(&screen) else {
-            return;
-        };
-
-        let r = radius.min(area.w / 2).min(area.h / 2);
-        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
-        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-
-        if area.is_aligned() && r == Fixed::ZERO {
-            if opa == 255 {
-                let bpp = self.target.format.bytes_per_pixel();
-                let buf = self.target.buf.as_mut_slice();
-                let stride = self.target.stride;
-                match self.target.format {
-                    super::texture::ColorFormat::ARGB8888 => {
-                        let pixel = [color.r, color.g, color.b, color.a];
-                        for py in px_y0..px_y1 {
-                            let row_start = py as usize * stride + px_x0 as usize * bpp;
-                            for px in 0..(px_x1 - px_x0) as usize {
-                                let i = row_start + px * 4;
-                                buf[i..i + 4].copy_from_slice(&pixel);
-                            }
-                        }
-                    }
-                    super::texture::ColorFormat::RGB565
-                    | super::texture::ColorFormat::RGB565Swapped => {
-                        let px16 = ((color.r as u16 >> 3) << 11)
-                            | ((color.g as u16 >> 2) << 5)
-                            | (color.b as u16 >> 3);
-                        let pixel =
-                            if self.target.format == super::texture::ColorFormat::RGB565Swapped {
-                                [(px16 >> 8) as u8, px16 as u8]
-                            } else {
-                                [px16 as u8, (px16 >> 8) as u8]
-                            };
-                        for py in px_y0..px_y1 {
-                            let row_start = py as usize * stride + px_x0 as usize * bpp;
-                            for px in 0..(px_x1 - px_x0) as usize {
-                                let i = row_start + px * 2;
-                                buf[i..i + 2].copy_from_slice(&pixel);
-                            }
-                        }
-                    }
-                    _ => {
-                        for py in px_y0..px_y1 {
-                            for px in px_x0..px_x1 {
-                                self.target.set_pixel(px, py, color);
-                            }
-                        }
-                    }
-                }
-            } else {
-                for py in px_y0..px_y1 {
-                    for px in px_x0..px_x1 {
-                        self.target.blend_pixel_int(px, py, color, opa);
-                    }
-                }
-            }
-            return;
-        }
-
-        for py in px_y0..px_y1 {
-            let pixel_top = Fixed::from_int(py);
-            let pixel_bot = Fixed::from_int(py + 1);
-            let cov_y = (pixel_bot.min(area.y + area.h) - pixel_top.max(area.y))
-                .max(Fixed::ZERO)
-                .min(Fixed::ONE);
-
-            for px in px_x0..px_x1 {
-                let pixel_left = Fixed::from_int(px);
-                let pixel_right = Fixed::from_int(px + 1);
-                let cov_x = (pixel_right.min(area.x + area.w) - pixel_left.max(area.x))
-                    .max(Fixed::ZERO)
-                    .min(Fixed::ONE);
-
-                let corner_cov = if r > Fixed::ZERO {
-                    rounded_rect_coverage(
-                        Fixed::from_int(px) - area.x,
-                        Fixed::from_int(py) - area.y,
-                        area.w,
-                        area.h,
-                        r,
-                    )
-                } else {
-                    Fixed::ONE
-                };
-
-                let final_opa = (cov_x * cov_y * corner_cov * opa_norm).map01(255).to_int() as u8;
-                if final_opa > 0 {
-                    self.target.blend_pixel(
-                        Fixed::from_int(px),
-                        Fixed::from_int(py),
-                        color,
-                        final_opa,
-                    );
-                }
-            }
-        }
+        self.fill_rect_inner(area, clip, color, radius, opa);
     }
 
     fn stroke_rect(
@@ -333,134 +112,11 @@ impl<'a> Canvas for SwRenderer<'a> {
         radius: Fixed,
         opa: u8,
     ) {
-        let phys_area = self.viewport.rect_to_physical(*area);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        let width = width * self.viewport.scale();
-        let radius = radius * self.viewport.scale();
-        let area = &phys_area;
-        let clip = &phys_clip;
-
-        let screen = Rect::new(0, 0, self.target.width, self.target.height);
-        let Some(draw_area) = area.intersect(clip) else {
-            return;
-        };
-        let Some(draw_area) = draw_area.intersect(&screen) else {
-            return;
-        };
-
-        let r = radius.min(area.w / 2).min(area.h / 2);
-        let bw = width;
-        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
-        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-
-        let inner_r = (r - bw).max(Fixed::ZERO);
-        let inner_w = (area.w - bw * 2).max(Fixed::ZERO);
-        let inner_h = (area.h - bw * 2).max(Fixed::ZERO);
-
-        for py in px_y0..px_y1 {
-            for px in px_x0..px_x1 {
-                let rel_x = Fixed::from_int(px) - area.x;
-                let rel_y = Fixed::from_int(py) - area.y;
-
-                let outer_cov = rounded_rect_coverage(rel_x, rel_y, area.w, area.h, r);
-                if outer_cov == Fixed::ZERO {
-                    continue;
-                }
-
-                let inner_rel_x = rel_x - bw;
-                let inner_rel_y = rel_y - bw;
-                let inner_cov = if inner_rel_x >= Fixed::ZERO
-                    && inner_rel_y >= Fixed::ZERO
-                    && inner_rel_x < inner_w
-                    && inner_rel_y < inner_h
-                {
-                    rounded_rect_coverage(inner_rel_x, inner_rel_y, inner_w, inner_h, inner_r)
-                } else {
-                    Fixed::ZERO
-                };
-
-                let border_cov = (outer_cov - inner_cov).max(Fixed::ZERO);
-                let final_opa = (border_cov * opa_norm).map01(255).to_int() as u8;
-                if final_opa > 0 {
-                    self.target.blend_pixel(
-                        Fixed::from_int(px),
-                        Fixed::from_int(py),
-                        color,
-                        final_opa,
-                    );
-                }
-            }
-        }
+        self.stroke_rect_inner(area, clip, width, color, radius, opa);
     }
 
     fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
-        let phys_dst = self.viewport.point_to_physical(dst);
-        let phys_dst_size = self.viewport.point_to_physical(dst_size);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        let (sx0, sy0, sw, sh) = src_rect.to_px();
-        let (clip_x0, clip_y0, clip_x1, clip_y1) = phys_clip.pixel_bounds();
-        let dx0 = phys_dst.x.to_int();
-        let dy0 = phys_dst.y.to_int();
-        let dw = phys_dst_size.x.to_int();
-        let dh = phys_dst_size.y.to_int();
-        if dw <= 0 || dh <= 0 || sw == 0 || sh == 0 {
-            return;
-        }
-
-        let sw_i = sw as i32;
-        let sh_i = sh as i32;
-        // Runtime dispatch: 1× / 2× / arbitrary. 1× goes to the
-        // format-specialized fast variant; arbitrary goes to DDA;
-        // 2× still on the old slow path until the next commit.
-        #[allow(clippy::if_same_then_else)]
-        if dw == sw_i && dh == sh_i {
-            blit_1to1_fast(
-                &mut self.target,
-                src,
-                sx0,
-                sy0,
-                sw,
-                sh,
-                dx0,
-                dy0,
-                clip_x0,
-                clip_y0,
-                clip_x1,
-                clip_y1,
-            );
-        } else if dw == sw_i * 2 && dh == sh_i * 2 {
-            blit_2to2_fast(
-                &mut self.target,
-                src,
-                sx0,
-                sy0,
-                sw,
-                sh,
-                dx0,
-                dy0,
-                clip_x0,
-                clip_y0,
-                clip_x1,
-                clip_y1,
-            );
-        } else {
-            blit_dda(
-                &mut self.target,
-                src,
-                sx0,
-                sy0,
-                sw,
-                sh,
-                dx0,
-                dy0,
-                dw,
-                dh,
-                clip_x0,
-                clip_y0,
-                clip_x1,
-                clip_y1,
-            );
-        }
+        self.blit_inner(src, src_rect, dst, dst_size, clip);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
@@ -478,80 +134,10 @@ impl<'a> Canvas for SwRenderer<'a> {
     }
 
     fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
-        use super::font::{CHAR_H, CHAR_W, glyph};
-        let phys_pos = self.viewport.point_to_physical(*pos);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        let scale = self.viewport.scale().to_int().max(1);
-        let (clip_x, clip_y, clip_x2, clip_y2) = phys_clip.pixel_bounds();
-        let (mut cx, cy) = phys_pos.floor();
-        let advance = CHAR_W as i32 * scale;
-        for &ch in text {
-            let bitmap = glyph(ch);
-            for row in 0..CHAR_H as i32 {
-                let byte = bitmap[row as usize];
-                for col in 0..CHAR_W as i32 {
-                    if byte & (0x80 >> col) == 0 {
-                        continue;
-                    }
-                    for sy in 0..scale {
-                        for sx in 0..scale {
-                            let px = cx + col * scale + sx;
-                            let py = cy + row * scale + sy;
-                            if px >= clip_x && px < clip_x2 && py >= clip_y && py < clip_y2 {
-                                self.target.blend_pixel(
-                                    Fixed::from_int(px),
-                                    Fixed::from_int(py),
-                                    color,
-                                    opa,
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-            cx += advance;
-        }
+        self.draw_label_inner(pos, text, clip, color, opa);
     }
 
     fn flush(&mut self) {}
-}
-
-/// Generic nearest-neighbour blit kept as an out-of-line fallback.
-/// Uses the original per-pixel divide; superseded by `blit_dda`
-/// everywhere except places that intentionally want this shape.
-#[allow(clippy::too_many_arguments)]
-fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> Fixed {
-    if r == Fixed::ZERO {
-        return Fixed::ONE;
-    }
-
-    let (cx, cy) = if px < r && py < r {
-        (r, r)
-    } else if px >= w - r && py < r {
-        (w - r, r)
-    } else if px < r && py >= h - r {
-        (r, h - r)
-    } else if px >= w - r && py >= h - r {
-        (w - r, h - r)
-    } else {
-        return Fixed::ONE;
-    };
-
-    let dx = px - cx + Fixed::ONE / 2;
-    let dy = py - cy + Fixed::ONE / 2;
-    let dist_sq = dx * dx + dy * dy;
-
-    if dist_sq <= r * r {
-        Fixed::ONE
-    } else {
-        let dist = dist_sq.sqrt();
-        let overshoot = dist - r;
-        if overshoot >= Fixed::ONE {
-            Fixed::ZERO
-        } else {
-            Fixed::ONE - overshoot
-        }
-    }
 }
 
 impl SwRenderer<'_> {
@@ -893,7 +479,7 @@ impl Renderer for SwRenderer<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::blit_fast::blit_generic_slow;
+    use super::blit_fast::{blit_1to1_fast, blit_2to2_fast, blit_dda, blit_generic_slow};
     use super::*;
     use crate::draw::texture::ColorFormat;
     use alloc::vec;
