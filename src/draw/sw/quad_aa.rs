@@ -12,6 +12,44 @@
 
 use crate::types::{Fixed, Point};
 
+/// Coverage of pixel `(px, py)` inside quad `q[0..4]` (any winding).
+/// Returns `cov ∈ [0, 1]`. Works by clipping the pixel box against each
+/// of the 4 edges and starting from full coverage; orientation is
+/// detected once (shoelace sign) so each edge gets the right sign.
+#[allow(dead_code)]
+pub(super) fn quad_pixel_coverage(q: &[Point; 4], px: i32, py: i32) -> Fixed {
+    // Shoelace sign picks orientation: positive under screen (y-down)
+    // conventions ⟹ clockwise, which is the wind order we treat as
+    // canonical ("inside" sits on the edge's left-hand normal). A
+    // counter-clockwise quad is flipped by reversing the edge direction
+    // before each clip.
+    let cw = shoelace_is_cw(q);
+    let mut clipped = Fixed::ZERO;
+    for i in 0..4 {
+        let (a, b) = if cw {
+            (q[i], q[(i + 1) & 3])
+        } else {
+            (q[(i + 1) & 3], q[i])
+        };
+        clipped += edge_clip_area(px, py, a, b);
+    }
+    let cov = Fixed::ONE - clipped;
+    cov.max(Fixed::ZERO).min(Fixed::ONE)
+}
+
+/// Positive shoelace = clockwise in screen (y-down) coordinates.
+#[inline]
+#[allow(dead_code)]
+fn shoelace_is_cw(q: &[Point; 4]) -> bool {
+    let mut sum = Fixed::ZERO;
+    for i in 0..4 {
+        let a = q[i];
+        let b = q[(i + 1) & 3];
+        sum += a.x * b.y - b.x * a.y;
+    }
+    sum > Fixed::ZERO
+}
+
 /// Signed distance of `c` from edge (a → b) along the left-hand normal.
 /// Positive = `c` is on the half-plane to the edge's left (in the usual
 /// screen convention where y grows downward, that's the "inside" of a
@@ -253,6 +291,47 @@ mod tests {
             "horizontal half clip = {:?}, want 0.5",
             clip.to_f32()
         );
+    }
+
+    fn square_quad_cw() -> [Point; 4] {
+        // Screen y-down: (0,0) top-left → (10,0) top-right → (10,10) BR → (0,10) BL.
+        // This traces clockwise on screen, positive shoelace.
+        [pt(0.0, 0.0), pt(10.0, 0.0), pt(10.0, 10.0), pt(0.0, 10.0)]
+    }
+
+    #[test]
+    fn pixel_coverage_center_is_full() {
+        // Pixel (5, 5) fully inside the 10×10 square at origin.
+        let q = square_quad_cw();
+        let cov = quad_pixel_coverage(&q, 5, 5);
+        assert_eq!(cov, Fixed::ONE);
+    }
+
+    #[test]
+    fn pixel_coverage_outside_is_zero() {
+        let q = square_quad_cw();
+        let cov = quad_pixel_coverage(&q, 20, 20);
+        assert_eq!(cov, Fixed::ZERO);
+    }
+
+    #[test]
+    fn pixel_coverage_ccw_quad_still_works() {
+        // Same geometry, vertices given counter-clockwise.
+        let q = [pt(0.0, 0.0), pt(0.0, 10.0), pt(10.0, 10.0), pt(10.0, 0.0)];
+        let cov = quad_pixel_coverage(&q, 5, 5);
+        assert_eq!(cov, Fixed::ONE);
+    }
+
+    #[test]
+    fn pixel_coverage_on_edge_half() {
+        // Quad edge passes through pixel (9, 5): pixel box spans x ∈ [9, 10],
+        // edge at x = 10 cuts nothing (quad reaches x = 10), pixel fully
+        // inside → cov = 1. Shift quad right edge to x = 9.5 to halve.
+        let q = [pt(0.0, 0.0), pt(9.5, 0.0), pt(9.5, 10.0), pt(0.0, 10.0)];
+        let cov = quad_pixel_coverage(&q, 9, 5);
+        // Pixel [9, 10] × [5, 6], right edge of quad at x = 9.5 cuts
+        // the pixel in half.
+        assert!((cov.to_f32() - 0.5).abs() < 0.01, "cov = {}", cov.to_f32());
     }
 
     #[test]
