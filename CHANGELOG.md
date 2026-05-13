@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-05-13
+
+3D transforms finally look sharp. Two independent tracks landed together:
+
+### Anti-aliasing for quad rasterization (software backend)
+
+`DrawCommand.{Fill,Border,Blit}.quad` used to hard-clip pixel coverage — anything touching the quad edge became a binary in-or-out decision, so cover-flow cards and book-flip pages showed visible aliasing along the tilt. The software renderer now computes per-pixel coverage from a signed distance field:
+
+- Each pixel's distance to the four quad edges is computed in Fixed64 (the Q24.8 precision that killed an earlier subpixel-AA attempt is gone), rounded corners are folded into the same SDF via each corner's wedge test, and the result is mapped linearly to a ±0.5 pixel coverage band.
+- `fill_rect_quad`, `stroke_rect_quad` and `blit_quad` all route through the new sampler.
+- `blend_pixel_int` was rewritten in plain u8 space to avoid the NormColor round-trip (eight Fixed divisions per call), and per-row pixel sweeps step `cx` by `Fixed::ONE` instead of rebuilding from `i32` each iteration.
+
+Desktop cover-flow demo: 10 ms → 17.5 ms per frame, ~1.75× slower than the baseline but no more shimmering edges. ESP32-C3 measurement pending a board reconnect; the Fixed64 normalisation is the only per-pixel divide and may need further attention there.
+
+### Real 3D quad rendering on the SDL GPU backend
+
+The GPU backend used to `unimplemented!()` the moment render_system produced a pre-projected `DrawCommand.quad`, and silently mis-draw `Border.quad` by falling through to axis-aligned stroke. It now handles all three via `SDL_RenderGeometry`:
+
+- `Path::rounded_quad(q, r)` — new constructor that builds a rounded polygon from any 4-vertex quad. Re-used by both backends' rounded-quad paths and friendly for Canvas-widget scenarios down the road.
+- Fill and stroke tessellate the rounded quad path through the existing lyon pipeline and submit as a triangle mesh.
+- Blit maps the source texture's UV corners to the quad's four vertices and lets `SDL_RenderGeometry` interpolate. Interpolation is affine — expect some foreshortening under very hard perspective tilt; the cover-flow range looks fine.
+- 4× MSAA is requested on the GL context (with `SDL_RENDER_DRIVER=opengl` to force the driver on macOS where the Metal default would ignore it), so triangle edges antialias in hardware. Frame cost stays around 8 ms on M1 even with MSAA on — GPU headroom is plenty.
+
+Desktop cover-flow demo on the SDL GPU backend: **122 fps** (vs 100 on the baseline software backend), and edges are sharp.
+
+### Examples
+
+- `cover_flow_demo` now picks the SDL GPU backend automatically when the `sdl-gpu` feature is enabled, falling back to SDL CPU otherwise. Run `cargo run --release --example cover_flow_demo --features sdl-gpu` to see the new GPU path.
+- `cover_flow_demo` gained the `FpsSummaryPlugin` wire-up so it prints render timings at runtime.
+
 ## [0.9.2] - 2026-05-13
 
 Documentation and example housekeeping after the v0.9 renames. No code changes, no API changes.
