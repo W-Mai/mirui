@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-05-13
+
+### ⚠️ Breaking: three renames to clarify the architecture
+
+mirui has always had three concepts that share the word "backend": the **platform bridge** (window / framebuffer / input), the **low-level 2D primitives** (fill_rect / stroke / blit / label / ...), and the **per-frame DrawCommand consumer** (the thing `render_system` pushes commands to). They now have distinct names:
+
+| role | old name | new name |
+|---|---|---|
+| platform bridge | `backend::Backend` trait, `SdlBackend`, `SdlGpuBackend`, `FramebufBackend` | `surface::Surface` trait, `SdlSurface`, `SdlGpuSurface`, `FramebufSurface` |
+| 2D primitive sink | `draw::backend::DrawBackend` trait | `draw::canvas::Canvas` trait |
+| frame renderer | `SwDrawBackend`, `SdlGpuRenderer` | `SwRenderer`, `SdlGpuRenderer` (unchanged) |
+
+The module layout follows:
+
+```
+mirui::backend::*        → mirui::surface::*
+mirui::draw::backend::*  → mirui::draw::canvas::*
+```
+
+The `compose_backend!` macro still exists under the old name (it composes _canvases_ now, but we're not renaming a macro just yet).
+
+### Migration
+
+Run this from your project root:
+
+```sh
+find src -name '*.rs' -exec perl -i -pe '
+  s/\bmirui::backend\b/mirui::surface/g;
+  s/\bdraw::backend\b/draw::canvas/g;
+  s/\bSdlGpuBackend\b/SdlGpuSurface/g;
+  s/\bSdlBackend\b/SdlSurface/g;
+  s/\bFramebufBackend\b/FramebufSurface/g;
+  s/\bSwDrawBackend\b/SwRenderer/g;
+  s/\bSwDrawBackendFactory\b/SwRendererFactory/g;
+  s/\bDrawBackend\b/Canvas/g;
+  s/\bBackend\b/Surface/g;
+' {} +
+```
+
+Double-check any hand-written `impl Backend for YourType` / `impl DrawBackend for YourType` — those pick up the new trait names, and `Canvas` in your own code is now shadowed by `mirui::draw::Canvas` if you re-exported it.
+
+### Changed
+
+- `sw_backend.rs` (2840 lines, since v0.8.1) split into `src/draw/sw/{mod,quad,blit_fast,perf}.rs`. mod.rs now holds the renderer struct + trait impls + tests; quad.rs the 3D scanline rasterizer; blit_fast.rs the per-format 1×/2× specializations; perf.rs the profiling counters. No behaviour change.
+- `src/backend/sdl_gpu/` moved to `src/draw/sdl_gpu/`. `mirui::surface::sdl_gpu` remains as a re-export shim so `SdlGpuSurface` still lives under `surface::`.
+
 ## [0.8.5] - 2026-05-13
 
 ### Border renders under 3D perspective
