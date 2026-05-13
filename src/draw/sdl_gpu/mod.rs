@@ -51,13 +51,28 @@ impl SdlGpuSurface {
 
     pub fn new_with_vsync(title: &str, width: u16, height: u16, vsync: bool) -> Self {
         sdl2::hint::set("SDL_RENDER_SCALE_QUALITY", "0");
+        // Ask SDL's renderer driver to use OpenGL so GL MSAA attributes
+        // take effect; on macOS the default would be Metal, which
+        // ignores those attributes and leaves triangle edges aliased.
+        sdl2::hint::set("SDL_RENDER_DRIVER", "opengl");
 
         let sdl = sdl2::init().expect("SDL2 init failed");
         let video = sdl.video().expect("SDL2 video init failed");
+
+        // Request 4× MSAA on the GL context before the window is built;
+        // the renderer's SDL_RenderGeometry calls then antialias triangle
+        // edges natively, matching the SW backend's SDF coverage.
+        {
+            let gl = video.gl_attr();
+            gl.set_multisample_buffers(1);
+            gl.set_multisample_samples(4);
+        }
+
         let window = video
             .window(title, width as u32, height as u32)
             .position_centered()
             .allow_highdpi()
+            .opengl()
             .build()
             .expect("SDL2 window creation failed");
         let mut canvas_builder = window.into_canvas().accelerated();

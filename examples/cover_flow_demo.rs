@@ -6,10 +6,10 @@ use mirui::components::transform_3d::WidgetTransform3D;
 use mirui::ecs::World;
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
-#[cfg(feature = "sdl-gpu")]
-use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
 #[cfg(all(feature = "sdl", not(feature = "sdl-gpu")))]
 use mirui::surface::sdl::SdlSurface;
+#[cfg(feature = "sdl-gpu")]
+use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
