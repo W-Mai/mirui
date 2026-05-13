@@ -110,7 +110,6 @@ pub fn fill_rect_quad(
     local_h: Fixed,
     opa: u8,
 ) {
-    use crate::types::transform_3d::point_in_quad;
     let bbox = quad_bbox(q);
     let Some(area) = bbox.intersect(&phys_clip) else {
         return;
@@ -122,22 +121,7 @@ pub fn fill_rect_quad(
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
 
     if radius == Fixed::ZERO {
-        for py in px_y0..px_y1 {
-            for px in px_x0..px_x1 {
-                let p = Point {
-                    x: Fixed::from_int(px) + Fixed::from_raw(128),
-                    y: Fixed::from_int(py) + Fixed::from_raw(128),
-                };
-                if !point_in_quad(q, p) {
-                    continue;
-                }
-                if opa == 255 {
-                    dst.set_pixel(px, py, color);
-                } else {
-                    dst.blend_pixel_int(px, py, color, opa);
-                }
-            }
-        }
+        fill_rect_quad_no_corner(dst, q, px_x0, px_y0, px_x1, px_y1, color, opa);
         return;
     }
 
@@ -395,6 +379,63 @@ fn pixel_clipped_by_corner(corners: &[CornerInfo; 4], p: Point, r_sq: Fixed) -> 
 
 /// Intersect horizontal line y=py with convex quad q; return leftmost and
 /// rightmost x of the two intersections. None if row is fully outside.
+/// Fill a quad with no rounded corners. Each pixel covered by the quad
+/// gets analytic coverage from the 4 edges (see `quad_aa`) so sub-pixel
+/// translation produces smoothly varying alpha, not step aliasing.
+///
+/// Hot path: rows entirely outside the quad return None from
+/// `quad_row_span` and skip; inside-a-row cost is one `quad_pixel_coverage`
+/// call per pixel (4 × `edge_clip_area`).
+#[allow(clippy::too_many_arguments)]
+fn fill_rect_quad_no_corner(
+    dst: &mut Texture,
+    q: &[Point; 4],
+    px_x0: i32,
+    px_y0: i32,
+    px_x1: i32,
+    px_y1: i32,
+    color: &Color,
+    opa: u8,
+) {
+    use super::quad_aa::quad_pixel_coverage;
+    for py in px_y0..px_y1 {
+        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
+            continue;
+        };
+        let xlo_px = x_l.to_int().max(px_x0);
+        let xhi_px = x_r.ceil().to_int().min(px_x1);
+        if xhi_px <= xlo_px {
+            continue;
+        }
+        #[cfg(feature = "perf")]
+        unsafe {
+            quad_perf::FILL_PIXELS_SCANNED += (xhi_px - xlo_px) as u64;
+        }
+        for px in xlo_px..xhi_px {
+            let cov = quad_pixel_coverage(q, px, py);
+            if cov == Fixed::ZERO {
+                continue;
+            }
+            let final_opa = if cov == Fixed::ONE {
+                opa
+            } else {
+                // cov is in [0, 1] Q24.8; map to 0..=255 and combine with opa.
+                let c = (cov * Fixed::from_int(opa as i32)).to_int() as u8;
+                if c == 0 {
+                    continue;
+                }
+                c
+            };
+            if final_opa == 255 {
+                dst.set_pixel(px, py, color);
+            } else {
+                dst.blend_pixel_int(px, py, color, final_opa);
+            }
+        }
+    }
+}
+
 fn quad_row_span(q: &[Point; 4], py: Fixed) -> Option<(Fixed, Fixed)> {
     let mut x_l = Fixed::MAX;
     let mut x_r = Fixed::MIN;
