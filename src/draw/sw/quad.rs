@@ -33,7 +33,7 @@ pub fn quad_bbox(q: &[Point; 4]) -> Rect {
 }
 
 pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) {
-    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf, shoelace_is_cw};
+    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf_inner, shoelace_is_cw};
     use crate::types::Transform3D;
     let cw = shoelace_is_cw(q);
     let edges = prepare_quad_edges(q, cw);
@@ -75,9 +75,13 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
         unsafe {
             quad_perf::BLIT_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
         }
+        let mut cx = Fixed::from_int(x_l_px) + Fixed::from_raw(128);
+        let one = Fixed::ONE;
         for px in x_l_px..x_r_px {
+            let edge_cx = cx;
+            cx += one;
             if w.raw() > 0 {
-                let edge_cov = quad_pixel_coverage_sdf(&edges, None, px, py);
+                let edge_cov = quad_pixel_coverage_sdf_inner(&edges, None, edge_cx, py_f);
                 if edge_cov != Fixed::ZERO {
                     let inv_w = Fixed64::ONE / w;
                     let sx = (big_x * inv_w).to_fixed().to_int();
@@ -139,10 +143,11 @@ pub fn fill_rect_quad(
     }
 
     let _ = (local_w, local_h);
-    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf, shoelace_is_cw};
+    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf_inner, shoelace_is_cw};
     let cw = shoelace_is_cw(q);
     let edges = prepare_quad_edges(q, cw);
     let corners = prepare_corners(q, radius);
+    let one = Fixed::ONE;
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
@@ -157,8 +162,10 @@ pub fn fill_rect_quad(
         unsafe {
             quad_perf::FILL_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
         }
+        let mut cx = Fixed::from_int(x_l_px) + Fixed::from_raw(128);
         for px in x_l_px..x_r_px {
-            let cov = quad_pixel_coverage_sdf(&edges, Some(&corners), px, py);
+            let cov = quad_pixel_coverage_sdf_inner(&edges, Some(&corners), cx, py_f);
+            cx += one;
             if cov == Fixed::ZERO {
                 continue;
             }
@@ -206,7 +213,7 @@ pub fn stroke_rect_quad(
     };
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
 
-    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf, shoelace_is_cw};
+    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf_inner, shoelace_is_cw};
     let cw_outer = shoelace_is_cw(q);
     let outer_edges = prepare_quad_edges(q, cw_outer);
     let inner_radius = (radius - width).max(Fixed::ZERO);
@@ -245,14 +252,18 @@ pub fn stroke_rect_quad(
         if xro_px <= xlo_px {
             continue;
         }
-        let _ = py_f;
+        let mut cx = Fixed::from_int(xlo_px) + Fixed::from_raw(128);
+        let one = Fixed::ONE;
         for px in xlo_px..xro_px {
-            let outer_cov = quad_pixel_coverage_sdf(&outer_edges, Some(&outer_corners), px, py);
+            let edge_cx = cx;
+            cx += one;
+            let outer_cov =
+                quad_pixel_coverage_sdf_inner(&outer_edges, Some(&outer_corners), edge_cx, py_f);
             if outer_cov == Fixed::ZERO {
                 continue;
             }
             let inner_cov = if let Some(ie) = &inner_edges {
-                quad_pixel_coverage_sdf(ie, Some(&inner_corners), px, py)
+                quad_pixel_coverage_sdf_inner(ie, Some(&inner_corners), edge_cx, py_f)
             } else {
                 Fixed::ZERO
             };
@@ -364,9 +375,10 @@ fn fill_rect_quad_no_corner(
     color: &Color,
     opa: u8,
 ) {
-    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf, shoelace_is_cw};
+    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf_inner, shoelace_is_cw};
     let cw = shoelace_is_cw(q);
     let edges = prepare_quad_edges(q, cw);
+    let one = Fixed::ONE;
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
@@ -381,8 +393,11 @@ fn fill_rect_quad_no_corner(
         unsafe {
             quad_perf::FILL_PIXELS_SCANNED += (xhi_px - xlo_px) as u64;
         }
+        let mut cx = Fixed::from_int(xlo_px) + Fixed::from_raw(128);
         for px in xlo_px..xhi_px {
-            let cov = quad_pixel_coverage_sdf(&edges, None, px, py);
+            let edge_cx = cx;
+            cx += one;
+            let cov = quad_pixel_coverage_sdf_inner(&edges, None, edge_cx, py_f);
             if cov == Fixed::ZERO {
                 continue;
             }

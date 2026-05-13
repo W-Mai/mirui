@@ -85,16 +85,17 @@ pub(super) struct PreparedCorner {
 /// ±0.5 of an edge or the corner arc get linear falloff.
 ///
 /// `corners = None` skips the rounding path entirely (straight quad).
-pub(super) fn quad_pixel_coverage_sdf(
+///
+/// Pixel center is passed in Fixed form so callers sweeping a row can
+/// increment `cx` by `Fixed::ONE` without recasting from integer; the
+/// per-row inner loop then avoids one sub + one cast per pixel.
+#[inline]
+pub(super) fn quad_pixel_coverage_sdf_inner(
     edges: &[PreparedEdge; 4],
     corners: Option<&[PreparedCorner; 4]>,
-    px: i32,
-    py: i32,
+    cx: Fixed,
+    cy: Fixed,
 ) -> Fixed {
-    // Pixel center.
-    let cx = Fixed::from_int(px) + HALF;
-    let cy = Fixed::from_int(py) + HALF;
-
     // For each edge compute sd = (dx·nx + dy·ny) / |n| in Fixed64 to
     // avoid Q24.8 overflow at screen scale. min over the 4 edges gives
     // the nearest straight-edge distance; positive = inside.
@@ -167,20 +168,24 @@ mod tests {
         [pt(0.0, 0.0), pt(10.0, 0.0), pt(10.0, 10.0), pt(0.0, 10.0)]
     }
 
+    fn cov_at(edges: &[PreparedEdge; 4], px: i32, py: i32) -> Fixed {
+        let cx = Fixed::from_int(px) + HALF;
+        let cy = Fixed::from_int(py) + HALF;
+        quad_pixel_coverage_sdf_inner(edges, None, cx, cy)
+    }
+
     #[test]
     fn straight_quad_center_cov_is_full() {
         let q = square_cw();
         let edges = prepare_quad_edges(&q, true);
-        let cov = quad_pixel_coverage_sdf(&edges, None, 5, 5);
-        assert_eq!(cov, Fixed::ONE);
+        assert_eq!(cov_at(&edges, 5, 5), Fixed::ONE);
     }
 
     #[test]
     fn straight_quad_outside_cov_is_zero() {
         let q = square_cw();
         let edges = prepare_quad_edges(&q, true);
-        let cov = quad_pixel_coverage_sdf(&edges, None, 20, 20);
-        assert_eq!(cov, Fixed::ZERO);
+        assert_eq!(cov_at(&edges, 20, 20), Fixed::ZERO);
     }
 
     #[test]
@@ -188,7 +193,7 @@ mod tests {
         // Shift right edge so it falls through pixel (9, 5) center.
         let q = [pt(0.0, 0.0), pt(9.5, 0.0), pt(9.5, 10.0), pt(0.0, 10.0)];
         let edges = prepare_quad_edges(&q, true);
-        let cov = quad_pixel_coverage_sdf(&edges, None, 9, 5);
+        let cov = cov_at(&edges, 9, 5);
         assert!((cov.to_f32() - 0.5).abs() < 0.05, "cov = {}", cov.to_f32());
     }
 
@@ -198,8 +203,7 @@ mod tests {
         let cw = shoelace_is_cw(&q);
         assert!(!cw);
         let edges = prepare_quad_edges(&q, cw);
-        let cov = quad_pixel_coverage_sdf(&edges, None, 5, 5);
-        assert_eq!(cov, Fixed::ONE);
+        assert_eq!(cov_at(&edges, 5, 5), Fixed::ONE);
     }
 
     #[test]
