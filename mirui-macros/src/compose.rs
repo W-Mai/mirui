@@ -75,7 +75,6 @@ struct ComposeInput {
 
 struct FieldDecl {
     name: Ident,
-    // Parsed but unused in S1; S2 will consult it for method signatures.
     #[allow(dead_code)]
     ty: syn::Type,
 }

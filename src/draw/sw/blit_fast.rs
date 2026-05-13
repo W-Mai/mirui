@@ -45,9 +45,9 @@ pub fn blit_generic_slow(
 /// 1× integer-scale blit: dst rect exactly matches src rect size.
 /// Specialized per (src_format, dst_format) so the inner loop is a
 /// tight byte copy / format convert with no `get_pixel` / `set_pixel`
-/// bookkeeping. Caller must ensure (dst_x, dst_y, dst_x+sw, dst_y+sh)
-/// sits entirely inside clip — S1 dispatch verifies this before
-/// calling us; anything else falls back to `blit_dda`.
+/// bookkeeping. Caller clips to `dst ∩ clip ∩ screen` before dispatch;
+/// anything that doesn't hit an integer-scale case falls back to
+/// `blit_dda`.
 #[allow(clippy::too_many_arguments)]
 pub fn blit_1to1_fast(
     dst: &mut Texture,

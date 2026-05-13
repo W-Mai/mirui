@@ -4,10 +4,13 @@ use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 /// Draw operation produced by `render_system` and consumed by `Renderer::draw`.
 ///
 /// All coordinate fields (`area`, `pos`, path points, `radius`, `width`) are
-/// in **logical pixels**. Each variant carries a [`Transform`] (Layer 2
-/// widget-affine) that for the v0.7 pipeline is always
-/// [`Transform::IDENTITY`]; backends must handle identity and may
-/// `unimplemented!()` on non-identity until the widget-transform spec lands.
+/// in **logical pixels**. Each variant carries a [`Transform`] (2D widget
+/// affine). Variants that can participate in a 3D warp also carry an
+/// optional pre-projected `quad: Option<[Point; 4]>`; when present, the
+/// renderer uses the quad directly and ignores `area + transform` for
+/// geometry. Renderers may `unimplemented!()` on transform classes they
+/// don't handle (see `SwRenderer::draw_transformed` for what the software
+/// backend covers today).
 pub enum DrawCommand<'a> {
     Fill {
         area: Rect,
