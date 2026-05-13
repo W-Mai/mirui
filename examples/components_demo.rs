@@ -1,4 +1,3 @@
-use alloc::vec::Vec;
 use mirui::app::App;
 use mirui::components::assets::*;
 use mirui::components::button::Button;

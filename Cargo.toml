@@ -130,6 +130,18 @@ required-features = ["sdl"]
 name = "book_flip_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "hello_sdl"
+required-features = ["sdl"]
+
+[[example]]
+name = "layout_demo"
+required-features = ["sdl"]
+
+[[example]]
+name = "widget_demo"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true
