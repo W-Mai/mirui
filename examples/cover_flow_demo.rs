@@ -6,6 +6,9 @@ use mirui::components::transform_3d::WidgetTransform3D;
 use mirui::ecs::World;
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+#[cfg(feature = "sdl-gpu")]
+use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
+#[cfg(all(feature = "sdl", not(feature = "sdl-gpu")))]
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
 use mirui::widget::builder::WidgetBuilder;
@@ -71,12 +74,24 @@ fn layout_system(world: &mut World) {
 }
 
 fn main() {
-    let backend = SdlSurface::new(
-        "mirui - cover flow (nested 2.5D + drag)",
-        WINDOW_W as u16,
-        WINDOW_H as u16,
-    );
-    let mut app = App::new(backend);
+    #[cfg(feature = "sdl-gpu")]
+    let mut app = {
+        let backend = SdlGpuSurface::new(
+            "mirui - cover flow (SDL GPU)",
+            WINDOW_W as u16,
+            WINDOW_H as u16,
+        );
+        App::with_factory(backend, SdlGpuFactory::new())
+    };
+    #[cfg(all(feature = "sdl", not(feature = "sdl-gpu")))]
+    let mut app = {
+        let backend = SdlSurface::new(
+            "mirui - cover flow (SDL CPU)",
+            WINDOW_W as u16,
+            WINDOW_H as u16,
+        );
+        App::new(backend)
+    };
 
     app.add_system(layout_system);
 
