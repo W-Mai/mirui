@@ -1,6 +1,6 @@
 use crate::types::{Color, Fixed, Fixed64, Point, Rect};
 
-use crate::draw::texture::{ColorFormat, Texture};
+use crate::draw::texture::Texture;
 
 #[cfg(feature = "perf")]
 use super::perf::quad_perf;
@@ -126,15 +126,8 @@ pub fn fill_rect_quad(
     }
 
     let _ = (local_w, local_h);
+    use super::quad_aa::{corner_pixel_coverage, quad_pixel_coverage};
     let corners = build_corner_info(q, radius);
-    let r_sq = radius * radius;
-    let packed = dst.format.pack(color);
-    let bpp = dst.format.bytes_per_pixel();
-    let fast = opa == 255
-        && matches!(
-            dst.format,
-            ColorFormat::RGB565 | ColorFormat::RGB565Swapped | ColorFormat::ARGB8888
-        );
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
@@ -149,55 +142,44 @@ pub fn fill_rect_quad(
         unsafe {
             quad_perf::FILL_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
         }
-        if fast {
-            let stride = dst.stride;
-            let buf = dst.buf.as_mut_slice();
-            let row_base = py as usize * stride;
-            for px in x_l_px..x_r_px {
-                let p = Point {
-                    x: Fixed::from_int(px) + Fixed::from_raw(128),
-                    y: py_f,
-                };
-                if pixel_clipped_by_corner(&corners, p, r_sq) {
-                    continue;
-                }
-                let i = row_base + px as usize * bpp;
-                match bpp {
-                    2 => {
-                        buf[i] = packed as u8;
-                        buf[i + 1] = (packed >> 8) as u8;
-                    }
-                    4 => {
-                        buf[i] = packed as u8;
-                        buf[i + 1] = (packed >> 8) as u8;
-                        buf[i + 2] = (packed >> 16) as u8;
-                        buf[i + 3] = (packed >> 24) as u8;
-                    }
-                    _ => unreachable!(),
-                }
-                #[cfg(feature = "perf")]
-                unsafe {
-                    quad_perf::FILL_PIXELS_DRAWN += 1;
-                }
+        for px in x_l_px..x_r_px {
+            let edge_cov = quad_pixel_coverage(q, px, py);
+            if edge_cov == Fixed::ZERO {
+                continue;
             }
-        } else {
-            for px in x_l_px..x_r_px {
+            // Corner disk only bites pixels sitting in one of the four
+            // outward wedges; the wedge test is cheap and lets the
+            // interior of the quad bypass the sqrt.
+            let cov = {
                 let p = Point {
                     x: Fixed::from_int(px) + Fixed::from_raw(128),
                     y: py_f,
                 };
-                if pixel_clipped_by_corner(&corners, p, r_sq) {
+                match pixel_in_corner_wedge(&corners, p) {
+                    Some(c) => edge_cov * corner_pixel_coverage(px, py, c.center, radius),
+                    None => edge_cov,
+                }
+            };
+            if cov == Fixed::ZERO {
+                continue;
+            }
+            let final_opa = if cov == Fixed::ONE {
+                opa
+            } else {
+                let c = (cov * Fixed::from_int(opa as i32)).to_int() as u8;
+                if c == 0 {
                     continue;
                 }
-                #[cfg(feature = "perf")]
-                unsafe {
-                    quad_perf::FILL_PIXELS_DRAWN += 1;
-                }
-                if opa == 255 {
-                    dst.set_pixel(px, py, color);
-                } else {
-                    dst.blend_pixel_int(px, py, color, opa);
-                }
+                c
+            };
+            #[cfg(feature = "perf")]
+            unsafe {
+                quad_perf::FILL_PIXELS_DRAWN += 1;
+            }
+            if final_opa == 255 {
+                dst.set_pixel(px, py, color);
+            } else {
+                dst.blend_pixel_int(px, py, color, final_opa);
             }
         }
     }
@@ -377,8 +359,22 @@ fn pixel_clipped_by_corner(corners: &[CornerInfo; 4], p: Point, r_sq: Fixed) -> 
     false
 }
 
-/// Intersect horizontal line y=py with convex quad q; return leftmost and
-/// rightmost x of the two intersections. None if row is fully outside.
+/// If pixel center `p` lies in some corner's outward wedge, return a
+/// reference to that corner (so the caller can do analytic disk cov).
+/// A pixel is in at most one wedge (wedges are disjoint by construction).
+fn pixel_in_corner_wedge(corners: &[CornerInfo; 4], p: Point) -> Option<&CornerInfo> {
+    for c in corners {
+        let dx = p.x - c.center.x;
+        let dy = p.y - c.center.y;
+        let proj_a = dx * c.ua.x + dy * c.ua.y;
+        let proj_b = dx * c.ub.x + dy * c.ub.y;
+        if proj_a < Fixed::ZERO && proj_b < Fixed::ZERO {
+            return Some(c);
+        }
+    }
+    None
+}
+
 /// Fill a quad with no rounded corners. Each pixel covered by the quad
 /// gets analytic coverage from the 4 edges (see `quad_aa`) so sub-pixel
 /// translation produces smoothly varying alpha, not step aliasing.
@@ -436,6 +432,8 @@ fn fill_rect_quad_no_corner(
     }
 }
 
+/// Intersect horizontal line y=py with convex quad q; return leftmost and
+/// rightmost x of the two intersections. None if row is fully outside.
 fn quad_row_span(q: &[Point; 4], py: Fixed) -> Option<(Fixed, Fixed)> {
     let mut x_l = Fixed::MAX;
     let mut x_r = Fixed::MIN;

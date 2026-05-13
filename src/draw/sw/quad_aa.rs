@@ -37,6 +37,35 @@ pub(super) fn quad_pixel_coverage(q: &[Point; 4], px: i32, py: i32) -> Fixed {
     cov.max(Fixed::ZERO).min(Fixed::ONE)
 }
 
+/// Coverage of pixel `(px, py)` against a corner disk of radius `r`
+/// centered at `c`. Returns 1 when the pixel center is well inside the
+/// disk, 0 when well outside, and a 1-pixel band of linear falloff on
+/// the boundary.
+///
+/// Not analytic area (that would need circle-box clip, several cases);
+/// the 1-pixel signed-distance band matches what `rounded_rect_coverage`
+/// does for axis-aligned rects and is visually indistinguishable.
+#[allow(dead_code)]
+pub(super) fn corner_pixel_coverage(px: i32, py: i32, c: Point, r: Fixed) -> Fixed {
+    let pcx = Fixed::from_int(px) + Fixed::from_raw(128);
+    let pcy = Fixed::from_int(py) + Fixed::from_raw(128);
+    let dx = pcx - c.x;
+    let dy = pcy - c.y;
+    let dist_sq = dx * dx + dy * dy;
+    let half = Fixed::ONE / 2;
+    let r_in = r - half;
+    let r_out = r + half;
+    if r_in > Fixed::ZERO && dist_sq <= r_in * r_in {
+        return Fixed::ONE;
+    }
+    if dist_sq >= r_out * r_out {
+        return Fixed::ZERO;
+    }
+    let dist = dist_sq.sqrt();
+    // Linear falloff on [r - 0.5, r + 0.5].
+    (r_out - dist).max(Fixed::ZERO).min(Fixed::ONE)
+}
+
 /// Positive shoelace = clockwise in screen (y-down) coordinates.
 #[inline]
 #[allow(dead_code)]
@@ -332,6 +361,38 @@ mod tests {
         // Pixel [9, 10] × [5, 6], right edge of quad at x = 9.5 cuts
         // the pixel in half.
         assert!((cov.to_f32() - 0.5).abs() < 0.01, "cov = {}", cov.to_f32());
+    }
+
+    #[test]
+    fn corner_coverage_inside_disk_full() {
+        // Pixel (5, 5) center = (5.5, 5.5), disk center (0, 0), r = 10.
+        // dist ≈ 7.78 < r - 0.5 → cov = 1.
+        let cov = corner_pixel_coverage(5, 5, pt(0.0, 0.0), Fixed::from_f32(10.0));
+        assert_eq!(cov, Fixed::ONE);
+    }
+
+    #[test]
+    fn corner_coverage_outside_disk_zero() {
+        // Pixel (10, 10) center = (10.5, 10.5), disk center (0, 0), r = 5.
+        // dist ≈ 14.85 > r + 0.5 → cov = 0.
+        let cov = corner_pixel_coverage(10, 10, pt(0.0, 0.0), Fixed::from_f32(5.0));
+        assert_eq!(cov, Fixed::ZERO);
+    }
+
+    #[test]
+    fn corner_coverage_on_boundary_half() {
+        // Disk center (0, 0), r = 7. Pixel center (5.5, 5.5) → dist =
+        // sqrt(60.5) ≈ 7.78 → overshoot 0.78 out of 1 → cov ≈ 0.22.
+        // More useful: place pixel so center lies exactly on disk.
+        // Disk r = 7.778 at (0, 0), pixel (5, 5) center (5.5, 5.5),
+        // dist = 7.778, boundary → t = 0.5.
+        let cov = corner_pixel_coverage(
+            5,
+            5,
+            pt(0.0, 0.0),
+            Fixed::from_f32((5.5_f32 * 5.5_f32 + 5.5_f32 * 5.5_f32).sqrt()),
+        );
+        assert!((cov.to_f32() - 0.5).abs() < 0.05, "cov = {}", cov.to_f32());
     }
 
     #[test]
