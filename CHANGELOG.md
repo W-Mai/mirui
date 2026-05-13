@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-05-13
+
+### Perspective raster rewritten scanline-based
+
+Quad fill and blit rasterizers used to be point-based: each pixel in the quad's bbox paid for a full `point_in_quad` check, and blit additionally did one `inverse.apply_point` per pixel. The new path finds the `[x_left, x_right]` span per scanline up front, then the inner loop writes pixels directly. ESP32-C3 cover_flow demo (5 perspective-tilted rounded cards + texture blit) goes from 46 ms/frame (22 fps) to 23 ms (43 fps), **2× speedup**.
+
+### Added
+
+- **`Fixed64`** — Q48.16 fixed-point built on `i64` raw. Sits next to `Fixed` (Q24.8) as the canonical higher-precision type for 3×3 homography matrix cells, pixel distance squared, and anywhere `Fixed` runs out of range or fractional resolution. `From<Fixed> for Fixed64` and `Fixed64::to_fixed()` handle lift/narrow.
+- `Fixed64::mul_wide` / `div_wide` — i128-intermediate variants for callers that need ±2^47 headroom. The default `*` / `/` stay on i64 intermediates, matching what `Fixed` does, so they stay free on 32-bit targets.
+- `draw::quad_perf` module — global counters for profiling the quad paths. `fill_ticks / blit_ticks` accumulate per-call timings, `fill_pixels_scanned / drawn` and `blit_pixels_scanned / drawn` track pixel-level work. Pointed at any monotonic clock via `quad_perf::CLOCK`. Off by default; enable with the `perf` crate feature.
+
+### Changed
+
+- `Transform3D` matrix cells are now `Fixed64` instead of raw `i64`. All constructors, `compose`, `apply_point`, `from_quad`, and `inverse` use `Fixed64` arithmetic. The previous file-local `q_mul` / `q_div` / `from_fixed` / `to_fixed` helpers are gone. No observable behaviour change, no size change on ESP32-C3.
+- `fill_rect_quad` with `radius > 0` now scanlines: `quad_row_span` intersects the quad edges with each `y=py` horizontal, producing `[x_left, x_right]`; rows inside a corner's outward wedge then get clipped by the corner circle. Roughly 4× fewer cycles per drawn pixel versus the v0.8.3 `sdPolygon − r` point test.
+- `blit_quad` uses scanline DDA: per-row setup precomputes the starting `(X, Y, W)`, then the inner loop does 3 Fixed64 adds to step along x and 1 divide + 2 multiplies to recover `(u, v)` (reciprocal-w trick). The old per-pixel `inverse.apply_point` (9 mul + 2 div) is gone.
+- Fill fast path for opaque colour + RGB565 / ARGB8888 target skips `set_pixel`'s format match and writes the packed pixel bytes directly.
+
 ## [0.8.3] - 2026-05-12
 
 ### Rounded corners under 3D
