@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-05-13
+
+Documentation and example housekeeping after the v0.9 renames. No code changes, no API changes.
+
+### Fixed
+
+- `DrawCommand` module doc still described the v0.7 "always `Transform::IDENTITY`" invariant, which v0.8 broke. Rewrote it to match what the software backend actually handles today (2D affine + optional pre-projected `quad: [Point; 4]`).
+- Broken rustdoc link in `src/draw/sdl_gpu/mod.rs`: `super::sdl::SdlSurface` still pointed at the pre-v0.9 layout where the module lived under `backend::`. Now points at `crate::surface::sdl::SdlSurface`.
+- `README.md` referenced old trait / type names (`DrawBackend`, `SwDrawBackend`, `SdlBackend`, `FramebufBackend`, `mirui::backend::*`) throughout the quickstart and hybrid-backend sections, and pinned the `[dependencies]` example at `mirui = "0.5"`. All names updated, version bumped to `"0.9"`.
+
+### Internal
+
+- Registered `hello_sdl`, `layout_demo`, `widget_demo` under `[[example]]` with `required-features = ["sdl"]` so they no longer build spuriously without the SDL feature enabled.
+- Removed four unused `use alloc::vec::Vec` imports from examples.
+- Cleaned up stale doc comments in `src/draw/sw/blit_fast.rs` and `mirui-macros/src/compose.rs` that referred to work-in-progress state from earlier development rounds.
+
 ## [0.9.1] - 2026-05-13
 
 Pure refactor of the `Canvas` implementations. No behaviour change, no user-facing API change. Both software and SDL_GPU renderers now follow the same file layout; adding a new renderer (wgpu / VG-Lite / ...) is now a predictable exercise.
