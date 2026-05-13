@@ -33,8 +33,9 @@ pub fn quad_bbox(q: &[Point; 4]) -> Rect {
 }
 
 pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) {
-    use super::quad_aa::quad_pixel_coverage;
+    use super::quad_aa::{quad_pixel_coverage, shoelace_is_cw};
     use crate::types::Transform3D;
+    let cw = shoelace_is_cw(q);
     let src_rect = Rect::new(0, 0, src.width, src.height);
     let Some(forward) = Transform3D::from_quad(src_rect, q) else {
         return;
@@ -75,7 +76,7 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
         }
         for px in x_l_px..x_r_px {
             if w.raw() > 0 {
-                let edge_cov = quad_pixel_coverage(q, px, py);
+                let edge_cov = quad_pixel_coverage(q, cw, px, py);
                 if edge_cov != Fixed::ZERO {
                     let inv_w = Fixed64::ONE / w;
                     let sx = (big_x * inv_w).to_fixed().to_int();
@@ -137,8 +138,9 @@ pub fn fill_rect_quad(
     }
 
     let _ = (local_w, local_h);
-    use super::quad_aa::{corner_pixel_coverage, quad_pixel_coverage};
+    use super::quad_aa::{corner_pixel_coverage, quad_pixel_coverage, shoelace_is_cw};
     let corners = build_corner_info(q, radius);
+    let cw = shoelace_is_cw(q);
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
@@ -154,7 +156,7 @@ pub fn fill_rect_quad(
             quad_perf::FILL_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
         }
         for px in x_l_px..x_r_px {
-            let edge_cov = quad_pixel_coverage(q, px, py);
+            let edge_cov = quad_pixel_coverage(q, cw, px, py);
             if edge_cov == Fixed::ZERO {
                 continue;
             }
@@ -218,7 +220,8 @@ pub fn stroke_rect_quad(
     };
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
 
-    use super::quad_aa::{corner_pixel_coverage, quad_pixel_coverage};
+    use super::quad_aa::{corner_pixel_coverage, quad_pixel_coverage, shoelace_is_cw};
+    let cw_outer = shoelace_is_cw(q);
     // Inner quad edges are parallel to outer edges (inset is a uniform
     // shift along incident edges), so both corner sets share the same
     // unit vectors — compute once, inset three times in one loop.
@@ -245,7 +248,7 @@ pub fn stroke_rect_quad(
             continue;
         }
         for px in xlo_px..xro_px {
-            let outer_edge_cov = quad_pixel_coverage(q, px, py);
+            let outer_edge_cov = quad_pixel_coverage(q, cw_outer, px, py);
             if outer_edge_cov == Fixed::ZERO {
                 continue;
             }
@@ -260,7 +263,7 @@ pub fn stroke_rect_quad(
             let inner_cov = if degenerate_inner {
                 Fixed::ZERO
             } else {
-                let inner_edge_cov = quad_pixel_coverage(&inner, px, py);
+                let inner_edge_cov = quad_pixel_coverage(&inner, cw_outer, px, py);
                 if inner_edge_cov == Fixed::ZERO {
                     Fixed::ZERO
                 } else {
@@ -404,7 +407,8 @@ fn fill_rect_quad_no_corner(
     color: &Color,
     opa: u8,
 ) {
-    use super::quad_aa::quad_pixel_coverage;
+    use super::quad_aa::{quad_pixel_coverage, shoelace_is_cw};
+    let cw = shoelace_is_cw(q);
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
@@ -420,7 +424,7 @@ fn fill_rect_quad_no_corner(
             quad_perf::FILL_PIXELS_SCANNED += (xhi_px - xlo_px) as u64;
         }
         for px in xlo_px..xhi_px {
-            let cov = quad_pixel_coverage(q, px, py);
+            let cov = quad_pixel_coverage(q, cw, px, py);
             if cov == Fixed::ZERO {
                 continue;
             }
