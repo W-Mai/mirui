@@ -5,7 +5,7 @@ use crate::components::checkbox::Checkbox;
 use crate::components::image::Image;
 use crate::components::progress_bar::ProgressBar;
 use crate::components::transform::WidgetTransform;
-use crate::components::transform_3d::WidgetTransform3D;
+use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
@@ -32,6 +32,14 @@ fn effective_transform(parent: &Transform, world: &World, entity: Entity, rect: 
         .compose(&to_origin)
 }
 
+fn origin_point(world: &World, entity: Entity, rect: Rect) -> (Fixed, Fixed) {
+    let o = world
+        .get::<TransformOrigin>(entity)
+        .copied()
+        .unwrap_or_default();
+    (rect.x + rect.w * o.x, rect.y + rect.h * o.y)
+}
+
 fn effective_transform_3d(
     parent: &Transform3D,
     world: &World,
@@ -42,8 +50,7 @@ fn effective_transform_3d(
         Some(t) if !t.0.is_identity() => t.0,
         _ => return *parent,
     };
-    let cx = rect.x + rect.w / Fixed::from_int(2);
-    let cy = rect.y + rect.h / Fixed::from_int(2);
+    let (cx, cy) = origin_point(world, entity, rect);
     let to_origin = Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy);
     let from_origin = Transform3D::translate(cx, cy);
     parent
@@ -70,8 +77,7 @@ fn accumulate_3d(
     if !parent_3d.is_identity() {
         if let Some(t2d) = world.get::<WidgetTransform>(entity) {
             if !t2d.0.is_identity() {
-                let cx = rect.x + rect.w / Fixed::from_int(2);
-                let cy = rect.y + rect.h / Fixed::from_int(2);
+                let (cx, cy) = origin_point(world, entity, rect);
                 let to_origin = Transform3D::translate(Fixed::ZERO - cx, Fixed::ZERO - cy);
                 let from_origin = Transform3D::translate(cx, cy);
                 return parent_3d

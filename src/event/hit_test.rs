@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use crate::components::scroll::ScrollOffset;
 use crate::components::transform::WidgetTransform;
-use crate::components::transform_3d::WidgetTransform3D;
+use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
@@ -159,8 +159,12 @@ fn compute_transforms_3d_recursive(
     };
 
     let effective = if let Some(t3) = local_3d.or(local_2d_lift) {
-        let cx = rect.x + rect.w / Fixed::from_int(2);
-        let cy = rect.y + rect.h / Fixed::from_int(2);
+        let origin = world
+            .get::<TransformOrigin>(entity)
+            .copied()
+            .unwrap_or_default();
+        let cx = rect.x + rect.w * origin.x;
+        let cy = rect.y + rect.h * origin.y;
         parent
             .compose(&Transform3D::translate(cx, cy))
             .compose(&t3)

@@ -1,5 +1,5 @@
 use crate::components::transform::WidgetTransform;
-use crate::components::transform_3d::WidgetTransform3D;
+use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::ecs::{Entity, World};
 use crate::layout::LayoutStyle;
 use crate::types::{Color, Fixed, Transform, Transform3D};
@@ -117,6 +117,11 @@ impl<'a> WidgetBuilder<'a> {
 
     pub fn transform_3d(self, t: Transform3D) -> Self {
         self.world.insert(self.entity, WidgetTransform3D(t));
+        self
+    }
+
+    pub fn transform_origin(self, x: impl Into<Fixed>, y: impl Into<Fixed>) -> Self {
+        self.world.insert(self.entity, TransformOrigin::new(x, y));
         self
     }
 
