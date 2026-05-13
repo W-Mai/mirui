@@ -33,6 +33,7 @@ pub fn quad_bbox(q: &[Point; 4]) -> Rect {
 }
 
 pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) {
+    use super::quad_aa::quad_pixel_coverage;
     use crate::types::Transform3D;
     let src_rect = Rect::new(0, 0, src.width, src.height);
     let Some(forward) = Transform3D::from_quad(src_rect, q) else {
@@ -74,20 +75,30 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
         }
         for px in x_l_px..x_r_px {
             if w.raw() > 0 {
-                let inv_w = Fixed64::ONE / w;
-                let sx = (big_x * inv_w).to_fixed().to_int();
-                let sy = (big_y * inv_w).to_fixed().to_int();
-                if sx >= 0 && sx < sw && sy >= 0 && sy < sh {
-                    let c = src.get_pixel(sx, sy);
-                    if c.a != 0 {
-                        #[cfg(feature = "perf")]
-                        unsafe {
-                            quad_perf::BLIT_PIXELS_DRAWN += 1;
-                        }
-                        if c.a == 255 {
-                            dst.set_pixel(px, py, &c);
-                        } else {
-                            dst.blend_pixel_int(px, py, &c, c.a);
+                let edge_cov = quad_pixel_coverage(q, px, py);
+                if edge_cov != Fixed::ZERO {
+                    let inv_w = Fixed64::ONE / w;
+                    let sx = (big_x * inv_w).to_fixed().to_int();
+                    let sy = (big_y * inv_w).to_fixed().to_int();
+                    if sx >= 0 && sx < sw && sy >= 0 && sy < sh {
+                        let c = src.get_pixel(sx, sy);
+                        if c.a != 0 {
+                            #[cfg(feature = "perf")]
+                            unsafe {
+                                quad_perf::BLIT_PIXELS_DRAWN += 1;
+                            }
+                            let src_alpha = if edge_cov == Fixed::ONE {
+                                c.a
+                            } else {
+                                (Fixed::from_int(c.a as i32) * edge_cov).to_int() as u8
+                            };
+                            if src_alpha > 0 {
+                                if src_alpha == 255 {
+                                    dst.set_pixel(px, py, &c);
+                                } else {
+                                    dst.blend_pixel_int(px, py, &c, src_alpha);
+                                }
+                            }
                         }
                     }
                 }
