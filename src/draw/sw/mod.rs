@@ -16,6 +16,7 @@ mod blit_fast;
 mod label;
 mod path;
 mod quad;
+mod quad_aa;
 mod rect_fill;
 mod rect_stroke;
 mod transformed;
