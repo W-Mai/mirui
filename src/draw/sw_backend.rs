@@ -692,10 +692,9 @@ fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) 
         }
         for px in x_l_px..x_r_px {
             if w.raw() > 0 {
-                let u = (big_x / w).to_fixed();
-                let v = (big_y / w).to_fixed();
-                let sx = u.to_int();
-                let sy = v.to_int();
+                let inv_w = Fixed64::ONE / w;
+                let sx = (big_x * inv_w).to_fixed().to_int();
+                let sy = (big_y * inv_w).to_fixed().to_int();
                 if sx >= 0 && sx < sw && sy >= 0 && sy < sh {
                     let c = src.get_pixel(sx, sy);
                     if c.a != 0 {
@@ -763,6 +762,13 @@ fn fill_rect_quad(
     let _ = (local_w, local_h);
     let corners = build_corner_info(q, radius);
     let r_sq = radius * radius;
+    let packed = encode_pixel(dst.format, color);
+    let bpp = dst.format.bytes_per_pixel();
+    let fast = opa == 255
+        && matches!(
+            dst.format,
+            ColorFormat::RGB565 | ColorFormat::RGB565Swapped | ColorFormat::ARGB8888
+        );
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
@@ -777,23 +783,84 @@ fn fill_rect_quad(
         unsafe {
             quad_perf::FILL_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
         }
-        for px in x_l_px..x_r_px {
-            let p = Point {
-                x: Fixed::from_int(px) + Fixed::from_raw(128),
-                y: py_f,
-            };
-            if pixel_clipped_by_corner(&corners, p, r_sq) {
-                continue;
+        if fast {
+            let stride = dst.stride;
+            let buf = dst.buf.as_mut_slice();
+            let row_base = py as usize * stride;
+            for px in x_l_px..x_r_px {
+                let p = Point {
+                    x: Fixed::from_int(px) + Fixed::from_raw(128),
+                    y: py_f,
+                };
+                if pixel_clipped_by_corner(&corners, p, r_sq) {
+                    continue;
+                }
+                let i = row_base + px as usize * bpp;
+                match bpp {
+                    2 => {
+                        buf[i] = packed as u8;
+                        buf[i + 1] = (packed >> 8) as u8;
+                    }
+                    4 => {
+                        buf[i] = packed as u8;
+                        buf[i + 1] = (packed >> 8) as u8;
+                        buf[i + 2] = (packed >> 16) as u8;
+                        buf[i + 3] = (packed >> 24) as u8;
+                    }
+                    _ => unreachable!(),
+                }
+                #[cfg(feature = "perf")]
+                unsafe {
+                    quad_perf::FILL_PIXELS_DRAWN += 1;
+                }
             }
-            #[cfg(feature = "perf")]
-            unsafe {
-                quad_perf::FILL_PIXELS_DRAWN += 1;
+        } else {
+            for px in x_l_px..x_r_px {
+                let p = Point {
+                    x: Fixed::from_int(px) + Fixed::from_raw(128),
+                    y: py_f,
+                };
+                if pixel_clipped_by_corner(&corners, p, r_sq) {
+                    continue;
+                }
+                #[cfg(feature = "perf")]
+                unsafe {
+                    quad_perf::FILL_PIXELS_DRAWN += 1;
+                }
+                if opa == 255 {
+                    dst.set_pixel(px, py, color);
+                } else {
+                    dst.blend_pixel_int(px, py, color, opa);
+                }
             }
-            if opa == 255 {
-                dst.set_pixel(px, py, color);
-            } else {
-                dst.blend_pixel_int(px, py, color, opa);
-            }
+        }
+    }
+}
+
+/// Pack a Color into the little-endian byte layout of `format`. Returns
+/// the packed bytes in a u32 (LSB-first for 2-byte formats).
+fn encode_pixel(format: ColorFormat, color: &Color) -> u32 {
+    match format {
+        ColorFormat::ARGB8888 => {
+            (color.r as u32)
+                | ((color.g as u32) << 8)
+                | ((color.b as u32) << 16)
+                | ((color.a as u32) << 24)
+        }
+        ColorFormat::RGB888 => {
+            (color.r as u32) | ((color.g as u32) << 8) | ((color.b as u32) << 16)
+        }
+        ColorFormat::RGB565 => {
+            let px = ((color.r as u16 >> 3) << 11)
+                | ((color.g as u16 >> 2) << 5)
+                | (color.b as u16 >> 3);
+            px as u32
+        }
+        ColorFormat::RGB565Swapped => {
+            let px = ((color.r as u16 >> 3) << 11)
+                | ((color.g as u16 >> 2) << 5)
+                | (color.b as u16 >> 3);
+            ((px >> 8) as u32) | (((px & 0xFF) as u32) << 8)
         }
     }
 }
