@@ -13,7 +13,7 @@ impl From<Transform3D> for WidgetTransform3D {
 
 /// Pivot for 2D / 3D transforms, expressed as fractions of the widget rect
 /// (`Fixed::ZERO` = top / left edge, `Fixed::ONE` = bottom / right edge).
-/// Absent defaults to centre `(0.5, 0.5)`.
+/// Absent defaults to center `(0.5, 0.5)`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TransformOrigin {
     pub x: Fixed,

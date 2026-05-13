@@ -241,10 +241,19 @@ pub fn stroke_rect_quad(
     };
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
 
-    let inner = build_inner_quad(q, width);
+    // Inner quad edges are parallel to outer edges (inset is a uniform
+    // shift along incident edges), so both corner sets share the same
+    // unit vectors — compute once, inset three times in one loop.
+    let shapes = build_corner_shapes(q);
     let inner_radius = (radius - width).max(Fixed::ZERO);
-    let outer_corners = build_corner_info(q, radius);
-    let inner_corners = build_corner_info(&inner, inner_radius);
+    let mut outer_corners = [CornerInfo::ZERO; 4];
+    let mut inner_corners = [CornerInfo::ZERO; 4];
+    let mut inner = [Point::ZERO; 4];
+    for i in 0..4 {
+        outer_corners[i] = shapes[i].inset(radius);
+        inner_corners[i] = shapes[i].inset(inner_radius);
+        inner[i] = shapes[i].inset(width).center;
+    }
     let outer_r_sq = radius * radius;
     let inner_r_sq = inner_radius * inner_radius;
     let degenerate_inner = inner_quad_is_degenerate(&inner);
@@ -289,19 +298,6 @@ pub fn stroke_rect_quad(
     }
 }
 
-fn build_inner_quad(q: &[Point; 4], width: Fixed) -> [Point; 4] {
-    // Inner quad = each vertex shifted toward the opposite vertex by
-    // `width` along both incident edges. build_corner_info already
-    // computes exactly that point as its .centre, for any given r.
-    let corners = build_corner_info(q, width);
-    [
-        corners[0].centre,
-        corners[1].centre,
-        corners[2].centre,
-        corners[3].centre,
-    ]
-}
-
 fn inner_quad_is_degenerate(inner: &[Point; 4]) -> bool {
     // Detect width >= half-extent: opposite inner vertices cross over,
     // collapsing both diagonals.
@@ -314,77 +310,79 @@ fn inner_quad_is_degenerate(inner: &[Point; 4]) -> bool {
     d1_sq < Fixed::from_raw(256) || d2_sq < Fixed::from_raw(256)
 }
 
-struct CornerInfo {
-    centre: Point,
-    // Inward unit vectors along the two incident edges.
-    inward_a: (Fixed, Fixed),
-    inward_b: (Fixed, Fixed),
+/// Shape of the quad's four corners: vertex + two inward unit vectors.
+/// Depends only on the quad geometry, not the inset radius, so can be
+/// reused to derive multiple CornerInfo sets (outer, inner, offset).
+struct CornerShape {
+    vertex: Point,
+    ua: Point,
+    ub: Point,
 }
 
-fn build_corner_info(q: &[Point; 4], r: Fixed) -> [CornerInfo; 4] {
-    let mut out = [
+#[derive(Clone, Copy)]
+struct CornerInfo {
+    center: Point,
+    ua: Point,
+    ub: Point,
+}
+
+impl CornerInfo {
+    const ZERO: Self = Self {
+        center: Point::ZERO,
+        ua: Point::ZERO,
+        ub: Point::ZERO,
+    };
+}
+
+impl CornerShape {
+    fn inset(&self, r: Fixed) -> CornerInfo {
         CornerInfo {
-            centre: Point::ZERO,
-            inward_a: (Fixed::ZERO, Fixed::ZERO),
-            inward_b: (Fixed::ZERO, Fixed::ZERO),
-        },
-        CornerInfo {
-            centre: Point::ZERO,
-            inward_a: (Fixed::ZERO, Fixed::ZERO),
-            inward_b: (Fixed::ZERO, Fixed::ZERO),
-        },
-        CornerInfo {
-            centre: Point::ZERO,
-            inward_a: (Fixed::ZERO, Fixed::ZERO),
-            inward_b: (Fixed::ZERO, Fixed::ZERO),
-        },
-        CornerInfo {
-            centre: Point::ZERO,
-            inward_a: (Fixed::ZERO, Fixed::ZERO),
-            inward_b: (Fixed::ZERO, Fixed::ZERO),
-        },
-    ];
-    for i in 0..4 {
+            center: Point {
+                x: self.vertex.x + self.ua.x * r + self.ub.x * r,
+                y: self.vertex.y + self.ua.y * r + self.ub.y * r,
+            },
+            ua: self.ua,
+            ub: self.ub,
+        }
+    }
+}
+
+fn build_corner_shapes(q: &[Point; 4]) -> [CornerShape; 4] {
+    core::array::from_fn(|i| {
         let vertex = q[i];
         let next = q[(i + 1) % 4];
         let prev = q[(i + 3) % 4];
-        let e1x = next.x - vertex.x;
-        let e1y = next.y - vertex.y;
-        let l1 = (e1x * e1x + e1y * e1y).sqrt();
-        let e2x = prev.x - vertex.x;
-        let e2y = prev.y - vertex.y;
-        let l2 = (e2x * e2x + e2y * e2y).sqrt();
-        let (ux, uy) = if l1 > Fixed::ZERO {
-            (e1x / l1, e1y / l1)
-        } else {
-            (Fixed::ZERO, Fixed::ZERO)
-        };
-        let (vx, vy) = if l2 > Fixed::ZERO {
-            (e2x / l2, e2y / l2)
-        } else {
-            (Fixed::ZERO, Fixed::ZERO)
-        };
-        out[i] = CornerInfo {
-            centre: Point {
-                x: vertex.x + ux * r + vx * r,
-                y: vertex.y + uy * r + vy * r,
-            },
-            inward_a: (ux, uy),
-            inward_b: (vx, vy),
-        };
+        let ua = unit_vec(next.x - vertex.x, next.y - vertex.y);
+        let ub = unit_vec(prev.x - vertex.x, prev.y - vertex.y);
+        CornerShape { vertex, ua, ub }
+    })
+}
+
+fn unit_vec(dx: Fixed, dy: Fixed) -> Point {
+    let len = (dx * dx + dy * dy).sqrt();
+    if len > Fixed::ZERO {
+        Point {
+            x: dx / len,
+            y: dy / len,
+        }
+    } else {
+        Point::ZERO
     }
-    out
+}
+
+fn build_corner_info(q: &[Point; 4], r: Fixed) -> [CornerInfo; 4] {
+    build_corner_shapes(q).map(|s| s.inset(r))
 }
 
 /// Pixel is clipped by a corner iff it is in that corner's outward wedge
 /// (both edge projections negative, i.e. past the corner vertex in both
-/// directions) AND farther than r from the corner centre.
+/// directions) AND farther than r from the corner center.
 fn pixel_clipped_by_corner(corners: &[CornerInfo; 4], p: Point, r_sq: Fixed) -> bool {
     for c in corners {
-        let dx = p.x - c.centre.x;
-        let dy = p.y - c.centre.y;
-        let proj_a = dx * c.inward_a.0 + dy * c.inward_a.1;
-        let proj_b = dx * c.inward_b.0 + dy * c.inward_b.1;
+        let dx = p.x - c.center.x;
+        let dy = p.y - c.center.y;
+        let proj_a = dx * c.ua.x + dy * c.ua.y;
+        let proj_b = dx * c.ub.x + dy * c.ub.y;
         if proj_a < Fixed::ZERO && proj_b < Fixed::ZERO {
             let dist_sq = dx * dx + dy * dy;
             if dist_sq > r_sq {

@@ -15,7 +15,7 @@ use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 use super::{Children, Style, Text, Widget};
 
 /// Compose `parent` with the entity's local transform (if any),
-/// wrapped so rotation/scale pivot on the widget's centre instead
+/// wrapped so rotation/scale pivot on the widget's center instead
 /// of its top-left corner.
 fn effective_transform(parent: &Transform, world: &World, entity: Entity, rect: Rect) -> Transform {
     let local = match world.get::<WidgetTransform>(entity) {
