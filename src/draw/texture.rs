@@ -17,6 +17,32 @@ impl ColorFormat {
             Self::ARGB8888 => 4,
         }
     }
+
+    /// Pack a [`Color`] into the little-endian byte layout of this format.
+    /// Returns the packed bytes in a u32 (LSB-first for 2-byte formats).
+    pub fn pack(self, color: &Color) -> u32 {
+        match self {
+            Self::ARGB8888 => {
+                (color.r as u32)
+                    | ((color.g as u32) << 8)
+                    | ((color.b as u32) << 16)
+                    | ((color.a as u32) << 24)
+            }
+            Self::RGB888 => (color.r as u32) | ((color.g as u32) << 8) | ((color.b as u32) << 16),
+            Self::RGB565 => {
+                let px = ((color.r as u16 >> 3) << 11)
+                    | ((color.g as u16 >> 2) << 5)
+                    | (color.b as u16 >> 3);
+                px as u32
+            }
+            Self::RGB565Swapped => {
+                let px = ((color.r as u16 >> 3) << 11)
+                    | ((color.g as u16 >> 2) << 5)
+                    | (color.b as u16 >> 3);
+                ((px >> 8) as u32) | (((px & 0xFF) as u32) << 8)
+            }
+        }
+    }
 }
 
 pub enum TexBuf<'a> {

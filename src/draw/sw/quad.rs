@@ -144,7 +144,7 @@ pub fn fill_rect_quad(
     let _ = (local_w, local_h);
     let corners = build_corner_info(q, radius);
     let r_sq = radius * radius;
-    let packed = encode_pixel(dst.format, color);
+    let packed = dst.format.pack(color);
     let bpp = dst.format.bytes_per_pixel();
     let fast = opa == 255
         && matches!(
@@ -290,33 +290,16 @@ pub fn stroke_rect_quad(
 }
 
 fn build_inner_quad(q: &[Point; 4], width: Fixed) -> [Point; 4] {
-    let mut out = [Point::ZERO; 4];
-    for i in 0..4 {
-        let vertex = q[i];
-        let next = q[(i + 1) % 4];
-        let prev = q[(i + 3) % 4];
-        let e1x = next.x - vertex.x;
-        let e1y = next.y - vertex.y;
-        let l1 = (e1x * e1x + e1y * e1y).sqrt();
-        let e2x = prev.x - vertex.x;
-        let e2y = prev.y - vertex.y;
-        let l2 = (e2x * e2x + e2y * e2y).sqrt();
-        let (ux, uy) = if l1 > Fixed::ZERO {
-            (e1x / l1, e1y / l1)
-        } else {
-            (Fixed::ZERO, Fixed::ZERO)
-        };
-        let (vx, vy) = if l2 > Fixed::ZERO {
-            (e2x / l2, e2y / l2)
-        } else {
-            (Fixed::ZERO, Fixed::ZERO)
-        };
-        out[i] = Point {
-            x: vertex.x + ux * width + vx * width,
-            y: vertex.y + uy * width + vy * width,
-        };
-    }
-    out
+    // Inner quad = each vertex shifted toward the opposite vertex by
+    // `width` along both incident edges. build_corner_info already
+    // computes exactly that point as its .centre, for any given r.
+    let corners = build_corner_info(q, width);
+    [
+        corners[0].centre,
+        corners[1].centre,
+        corners[2].centre,
+        corners[3].centre,
+    ]
 }
 
 fn inner_quad_is_degenerate(inner: &[Point; 4]) -> bool {
@@ -329,34 +312,6 @@ fn inner_quad_is_degenerate(inner: &[Point; 4]) -> bool {
     let d1_sq = d1x * d1x + d1y * d1y;
     let d2_sq = d2x * d2x + d2y * d2y;
     d1_sq < Fixed::from_raw(256) || d2_sq < Fixed::from_raw(256)
-}
-
-/// Pack a Color into the little-endian byte layout of `format`. Returns
-/// the packed bytes in a u32 (LSB-first for 2-byte formats).
-pub fn encode_pixel(format: ColorFormat, color: &Color) -> u32 {
-    match format {
-        ColorFormat::ARGB8888 => {
-            (color.r as u32)
-                | ((color.g as u32) << 8)
-                | ((color.b as u32) << 16)
-                | ((color.a as u32) << 24)
-        }
-        ColorFormat::RGB888 => {
-            (color.r as u32) | ((color.g as u32) << 8) | ((color.b as u32) << 16)
-        }
-        ColorFormat::RGB565 => {
-            let px = ((color.r as u16 >> 3) << 11)
-                | ((color.g as u16 >> 2) << 5)
-                | (color.b as u16 >> 3);
-            px as u32
-        }
-        ColorFormat::RGB565Swapped => {
-            let px = ((color.r as u16 >> 3) << 11)
-                | ((color.g as u16 >> 2) << 5)
-                | (color.b as u16 >> 3);
-            ((px >> 8) as u32) | (((px & 0xFF) as u32) << 8)
-        }
-    }
 }
 
 struct CornerInfo {
