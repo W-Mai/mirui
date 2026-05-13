@@ -1,6 +1,6 @@
 //! GPU-accelerated SDL backend.
 //!
-//! Where [`super::sdl::SdlSurface`] keeps a CPU byte buffer and uploads it
+//! Where [`crate::surface::sdl::SdlSurface`] keeps a CPU byte buffer and uploads it
 //! each frame, `SdlGpuSurface` drives the SDL2 accelerated renderer
 //! directly: `canvas.fill_rect`, `canvas.copy`, and ultimately
 //! `SDL_RenderGeometry` (unsafe FFI) for tessellated paths. No CPU
