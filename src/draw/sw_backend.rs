@@ -450,6 +450,13 @@ impl<'a> DrawBackend for SwDrawBackend<'a> {
         radius: Fixed,
         opa: u8,
     ) {
+        let phys_area = self.viewport.rect_to_physical(*area);
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let width = width * self.viewport.scale();
+        let radius = radius * self.viewport.scale();
+        let area = &phys_area;
+        let clip = &phys_clip;
+
         let screen = Rect::new(0, 0, self.target.width, self.target.height);
         let Some(draw_area) = area.intersect(clip) else {
             return;
