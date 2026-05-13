@@ -6,11 +6,11 @@ pub mod partial;
 pub mod path;
 pub(crate) mod raster;
 pub mod renderer;
-pub mod sw_backend;
+pub mod sw;
 pub mod texture;
 
 pub use command::DrawCommand;
 pub use renderer::Renderer;
-pub use sw_backend::SwDrawBackend;
+pub use sw::SwDrawBackend;
 #[cfg(feature = "perf")]
-pub use sw_backend::{PerfCtx, quad_perf};
+pub use sw::{PerfCtx, quad_perf};

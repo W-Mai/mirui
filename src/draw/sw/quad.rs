@@ -1,0 +1,476 @@
+use crate::types::{Color, Fixed, Fixed64, Point, Rect};
+
+use crate::draw::texture::{ColorFormat, Texture};
+
+#[cfg(feature = "perf")]
+use super::perf::quad_perf;
+
+pub fn quad_bbox(q: &[Point; 4]) -> Rect {
+    let mut min_x = q[0].x;
+    let mut max_x = q[0].x;
+    let mut min_y = q[0].y;
+    let mut max_y = q[0].y;
+    for p in &q[1..] {
+        if p.x < min_x {
+            min_x = p.x;
+        }
+        if p.x > max_x {
+            max_x = p.x;
+        }
+        if p.y < min_y {
+            min_y = p.y;
+        }
+        if p.y > max_y {
+            max_y = p.y;
+        }
+    }
+    Rect {
+        x: min_x,
+        y: min_y,
+        w: max_x - min_x,
+        h: max_y - min_y,
+    }
+}
+
+pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) {
+    use crate::types::Transform3D;
+    let src_rect = Rect::new(0, 0, src.width, src.height);
+    let Some(forward) = Transform3D::from_quad(src_rect, q) else {
+        return;
+    };
+    let Some(inverse) = forward.inverse() else {
+        return;
+    };
+    let bbox = quad_bbox(q);
+    let Some(area) = bbox.intersect(&phys_clip) else {
+        return;
+    };
+    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let Some(area) = area.intersect(&screen) else {
+        return;
+    };
+    let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
+    let sw = src.width as i32;
+    let sh = src.height as i32;
+    let half = Fixed64::from_raw(Fixed64::ONE.raw() >> 1);
+    for py in px_y0..px_y1 {
+        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
+            continue;
+        };
+        let x_l_px = x_l.to_int().max(px_x0);
+        let x_r_px = x_r.ceil().to_int().min(px_x1);
+        if x_r_px <= x_l_px {
+            continue;
+        }
+        let x0_f = Fixed64::from_fixed(Fixed::from_int(x_l_px)) + half;
+        let y0_f = Fixed64::from_fixed(py_f);
+        let mut big_x = inverse.m00 * x0_f + inverse.m01 * y0_f + inverse.m02;
+        let mut big_y = inverse.m10 * x0_f + inverse.m11 * y0_f + inverse.m12;
+        let mut w = inverse.m20 * x0_f + inverse.m21 * y0_f + inverse.m22;
+        #[cfg(feature = "perf")]
+        unsafe {
+            quad_perf::BLIT_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
+        }
+        for px in x_l_px..x_r_px {
+            if w.raw() > 0 {
+                let inv_w = Fixed64::ONE / w;
+                let sx = (big_x * inv_w).to_fixed().to_int();
+                let sy = (big_y * inv_w).to_fixed().to_int();
+                if sx >= 0 && sx < sw && sy >= 0 && sy < sh {
+                    let c = src.get_pixel(sx, sy);
+                    if c.a != 0 {
+                        #[cfg(feature = "perf")]
+                        unsafe {
+                            quad_perf::BLIT_PIXELS_DRAWN += 1;
+                        }
+                        if c.a == 255 {
+                            dst.set_pixel(px, py, &c);
+                        } else {
+                            dst.blend_pixel_int(px, py, &c, c.a);
+                        }
+                    }
+                }
+            }
+            big_x += inverse.m00;
+            big_y += inverse.m10;
+            w += inverse.m20;
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn fill_rect_quad(
+    dst: &mut Texture,
+    q: &[Point; 4],
+    phys_clip: Rect,
+    color: &Color,
+    radius: Fixed,
+    local_w: Fixed,
+    local_h: Fixed,
+    opa: u8,
+) {
+    use crate::types::transform_3d::point_in_quad;
+    let bbox = quad_bbox(q);
+    let Some(area) = bbox.intersect(&phys_clip) else {
+        return;
+    };
+    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let Some(area) = area.intersect(&screen) else {
+        return;
+    };
+    let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
+
+    if radius == Fixed::ZERO {
+        for py in px_y0..px_y1 {
+            for px in px_x0..px_x1 {
+                let p = Point {
+                    x: Fixed::from_int(px) + Fixed::from_raw(128),
+                    y: Fixed::from_int(py) + Fixed::from_raw(128),
+                };
+                if !point_in_quad(q, p) {
+                    continue;
+                }
+                if opa == 255 {
+                    dst.set_pixel(px, py, color);
+                } else {
+                    dst.blend_pixel_int(px, py, color, opa);
+                }
+            }
+        }
+        return;
+    }
+
+    let _ = (local_w, local_h);
+    let corners = build_corner_info(q, radius);
+    let r_sq = radius * radius;
+    let packed = encode_pixel(dst.format, color);
+    let bpp = dst.format.bytes_per_pixel();
+    let fast = opa == 255
+        && matches!(
+            dst.format,
+            ColorFormat::RGB565 | ColorFormat::RGB565Swapped | ColorFormat::ARGB8888
+        );
+    for py in px_y0..px_y1 {
+        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
+            continue;
+        };
+        let x_l_px = x_l.to_int().max(px_x0);
+        let x_r_px = x_r.ceil().to_int().min(px_x1);
+        if x_r_px <= x_l_px {
+            continue;
+        }
+        #[cfg(feature = "perf")]
+        unsafe {
+            quad_perf::FILL_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
+        }
+        if fast {
+            let stride = dst.stride;
+            let buf = dst.buf.as_mut_slice();
+            let row_base = py as usize * stride;
+            for px in x_l_px..x_r_px {
+                let p = Point {
+                    x: Fixed::from_int(px) + Fixed::from_raw(128),
+                    y: py_f,
+                };
+                if pixel_clipped_by_corner(&corners, p, r_sq) {
+                    continue;
+                }
+                let i = row_base + px as usize * bpp;
+                match bpp {
+                    2 => {
+                        buf[i] = packed as u8;
+                        buf[i + 1] = (packed >> 8) as u8;
+                    }
+                    4 => {
+                        buf[i] = packed as u8;
+                        buf[i + 1] = (packed >> 8) as u8;
+                        buf[i + 2] = (packed >> 16) as u8;
+                        buf[i + 3] = (packed >> 24) as u8;
+                    }
+                    _ => unreachable!(),
+                }
+                #[cfg(feature = "perf")]
+                unsafe {
+                    quad_perf::FILL_PIXELS_DRAWN += 1;
+                }
+            }
+        } else {
+            for px in x_l_px..x_r_px {
+                let p = Point {
+                    x: Fixed::from_int(px) + Fixed::from_raw(128),
+                    y: py_f,
+                };
+                if pixel_clipped_by_corner(&corners, p, r_sq) {
+                    continue;
+                }
+                #[cfg(feature = "perf")]
+                unsafe {
+                    quad_perf::FILL_PIXELS_DRAWN += 1;
+                }
+                if opa == 255 {
+                    dst.set_pixel(px, py, color);
+                } else {
+                    dst.blend_pixel_int(px, py, color, opa);
+                }
+            }
+        }
+    }
+}
+
+pub fn stroke_rect_quad(
+    dst: &mut Texture,
+    q: &[Point; 4],
+    phys_clip: Rect,
+    color: &Color,
+    width: Fixed,
+    radius: Fixed,
+    opa: u8,
+) {
+    if width <= Fixed::ZERO {
+        return;
+    }
+    let bbox = quad_bbox(q);
+    let Some(area) = bbox.intersect(&phys_clip) else {
+        return;
+    };
+    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let Some(area) = area.intersect(&screen) else {
+        return;
+    };
+    let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
+
+    let inner = build_inner_quad(q, width);
+    let inner_radius = (radius - width).max(Fixed::ZERO);
+    let outer_corners = build_corner_info(q, radius);
+    let inner_corners = build_corner_info(&inner, inner_radius);
+    let outer_r_sq = radius * radius;
+    let inner_r_sq = inner_radius * inner_radius;
+    let degenerate_inner = inner_quad_is_degenerate(&inner);
+
+    for py in px_y0..px_y1 {
+        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let Some((x_lo, x_ro)) = quad_row_span(q, py_f) else {
+            continue;
+        };
+        let xlo_px = x_lo.to_int().max(px_x0);
+        let xro_px = x_ro.ceil().to_int().min(px_x1);
+        if xro_px <= xlo_px {
+            continue;
+        }
+        let inner_span = if degenerate_inner {
+            None
+        } else {
+            quad_row_span(&inner, py_f)
+        };
+        for px in xlo_px..xro_px {
+            let p = Point {
+                x: Fixed::from_int(px) + Fixed::from_raw(128),
+                y: py_f,
+            };
+            if pixel_clipped_by_corner(&outer_corners, p, outer_r_sq) {
+                continue;
+            }
+            let in_inner = if let Some((x_li, x_ri)) = inner_span {
+                p.x >= x_li && p.x < x_ri && !pixel_clipped_by_corner(&inner_corners, p, inner_r_sq)
+            } else {
+                false
+            };
+            if in_inner {
+                continue;
+            }
+            if opa == 255 {
+                dst.set_pixel(px, py, color);
+            } else {
+                dst.blend_pixel_int(px, py, color, opa);
+            }
+        }
+    }
+}
+
+fn build_inner_quad(q: &[Point; 4], width: Fixed) -> [Point; 4] {
+    let mut out = [Point::ZERO; 4];
+    for i in 0..4 {
+        let vertex = q[i];
+        let next = q[(i + 1) % 4];
+        let prev = q[(i + 3) % 4];
+        let e1x = next.x - vertex.x;
+        let e1y = next.y - vertex.y;
+        let l1 = (e1x * e1x + e1y * e1y).sqrt();
+        let e2x = prev.x - vertex.x;
+        let e2y = prev.y - vertex.y;
+        let l2 = (e2x * e2x + e2y * e2y).sqrt();
+        let (ux, uy) = if l1 > Fixed::ZERO {
+            (e1x / l1, e1y / l1)
+        } else {
+            (Fixed::ZERO, Fixed::ZERO)
+        };
+        let (vx, vy) = if l2 > Fixed::ZERO {
+            (e2x / l2, e2y / l2)
+        } else {
+            (Fixed::ZERO, Fixed::ZERO)
+        };
+        out[i] = Point {
+            x: vertex.x + ux * width + vx * width,
+            y: vertex.y + uy * width + vy * width,
+        };
+    }
+    out
+}
+
+fn inner_quad_is_degenerate(inner: &[Point; 4]) -> bool {
+    // Detect width >= half-extent: opposite inner vertices cross over,
+    // collapsing both diagonals.
+    let d1x = inner[2].x - inner[0].x;
+    let d1y = inner[2].y - inner[0].y;
+    let d2x = inner[3].x - inner[1].x;
+    let d2y = inner[3].y - inner[1].y;
+    let d1_sq = d1x * d1x + d1y * d1y;
+    let d2_sq = d2x * d2x + d2y * d2y;
+    d1_sq < Fixed::from_raw(256) || d2_sq < Fixed::from_raw(256)
+}
+
+/// Pack a Color into the little-endian byte layout of `format`. Returns
+/// the packed bytes in a u32 (LSB-first for 2-byte formats).
+pub fn encode_pixel(format: ColorFormat, color: &Color) -> u32 {
+    match format {
+        ColorFormat::ARGB8888 => {
+            (color.r as u32)
+                | ((color.g as u32) << 8)
+                | ((color.b as u32) << 16)
+                | ((color.a as u32) << 24)
+        }
+        ColorFormat::RGB888 => {
+            (color.r as u32) | ((color.g as u32) << 8) | ((color.b as u32) << 16)
+        }
+        ColorFormat::RGB565 => {
+            let px = ((color.r as u16 >> 3) << 11)
+                | ((color.g as u16 >> 2) << 5)
+                | (color.b as u16 >> 3);
+            px as u32
+        }
+        ColorFormat::RGB565Swapped => {
+            let px = ((color.r as u16 >> 3) << 11)
+                | ((color.g as u16 >> 2) << 5)
+                | (color.b as u16 >> 3);
+            ((px >> 8) as u32) | (((px & 0xFF) as u32) << 8)
+        }
+    }
+}
+
+struct CornerInfo {
+    centre: Point,
+    // Inward unit vectors along the two incident edges.
+    inward_a: (Fixed, Fixed),
+    inward_b: (Fixed, Fixed),
+}
+
+fn build_corner_info(q: &[Point; 4], r: Fixed) -> [CornerInfo; 4] {
+    let mut out = [
+        CornerInfo {
+            centre: Point::ZERO,
+            inward_a: (Fixed::ZERO, Fixed::ZERO),
+            inward_b: (Fixed::ZERO, Fixed::ZERO),
+        },
+        CornerInfo {
+            centre: Point::ZERO,
+            inward_a: (Fixed::ZERO, Fixed::ZERO),
+            inward_b: (Fixed::ZERO, Fixed::ZERO),
+        },
+        CornerInfo {
+            centre: Point::ZERO,
+            inward_a: (Fixed::ZERO, Fixed::ZERO),
+            inward_b: (Fixed::ZERO, Fixed::ZERO),
+        },
+        CornerInfo {
+            centre: Point::ZERO,
+            inward_a: (Fixed::ZERO, Fixed::ZERO),
+            inward_b: (Fixed::ZERO, Fixed::ZERO),
+        },
+    ];
+    for i in 0..4 {
+        let vertex = q[i];
+        let next = q[(i + 1) % 4];
+        let prev = q[(i + 3) % 4];
+        let e1x = next.x - vertex.x;
+        let e1y = next.y - vertex.y;
+        let l1 = (e1x * e1x + e1y * e1y).sqrt();
+        let e2x = prev.x - vertex.x;
+        let e2y = prev.y - vertex.y;
+        let l2 = (e2x * e2x + e2y * e2y).sqrt();
+        let (ux, uy) = if l1 > Fixed::ZERO {
+            (e1x / l1, e1y / l1)
+        } else {
+            (Fixed::ZERO, Fixed::ZERO)
+        };
+        let (vx, vy) = if l2 > Fixed::ZERO {
+            (e2x / l2, e2y / l2)
+        } else {
+            (Fixed::ZERO, Fixed::ZERO)
+        };
+        out[i] = CornerInfo {
+            centre: Point {
+                x: vertex.x + ux * r + vx * r,
+                y: vertex.y + uy * r + vy * r,
+            },
+            inward_a: (ux, uy),
+            inward_b: (vx, vy),
+        };
+    }
+    out
+}
+
+/// Pixel is clipped by a corner iff it is in that corner's outward wedge
+/// (both edge projections negative, i.e. past the corner vertex in both
+/// directions) AND farther than r from the corner centre.
+fn pixel_clipped_by_corner(corners: &[CornerInfo; 4], p: Point, r_sq: Fixed) -> bool {
+    for c in corners {
+        let dx = p.x - c.centre.x;
+        let dy = p.y - c.centre.y;
+        let proj_a = dx * c.inward_a.0 + dy * c.inward_a.1;
+        let proj_b = dx * c.inward_b.0 + dy * c.inward_b.1;
+        if proj_a < Fixed::ZERO && proj_b < Fixed::ZERO {
+            let dist_sq = dx * dx + dy * dy;
+            if dist_sq > r_sq {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Intersect horizontal line y=py with convex quad q; return leftmost and
+/// rightmost x of the two intersections. None if row is fully outside.
+fn quad_row_span(q: &[Point; 4], py: Fixed) -> Option<(Fixed, Fixed)> {
+    let mut x_l = Fixed::MAX;
+    let mut x_r = Fixed::MIN;
+    let mut hit = false;
+    for i in 0..4 {
+        let a = q[i];
+        let b = q[(i + 1) % 4];
+        let dy = b.y - a.y;
+        if dy.raw() == 0 {
+            continue;
+        }
+        let (y0, y1) = if dy.raw() > 0 { (a.y, b.y) } else { (b.y, a.y) };
+        if py < y0 || py >= y1 {
+            continue;
+        }
+        // Linear interp: x = a.x + (py - a.y) / (b.y - a.y) * (b.x - a.x).
+        // Fixed64 intermediates avoid Q24.8 mul overflow on large widgets.
+        let dx = Fixed64::from_fixed(b.x - a.x);
+        let t_num = Fixed64::from_fixed(py - a.y);
+        let t_den = Fixed64::from_fixed(dy);
+        let x = Fixed64::from_fixed(a.x) + t_num * dx / t_den;
+        let x = x.to_fixed();
+        if x < x_l {
+            x_l = x;
+        }
+        if x > x_r {
+            x_r = x;
+        }
+        hit = true;
+    }
+    if hit { Some((x_l, x_r)) } else { None }
+}

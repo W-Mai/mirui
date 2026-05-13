@@ -8,7 +8,7 @@ use std::cell::RefCell;
 
 use mirui::draw::backend::DrawBackend;
 use mirui::draw::path::Path;
-use mirui::draw::sw_backend::SwDrawBackend;
+use mirui::draw::sw::SwDrawBackend;
 use mirui::draw::texture::{ColorFormat, Texture};
 use mirui::types::{Color, Fixed, Point, Rect};
 use mirui_macros::compose_backend;

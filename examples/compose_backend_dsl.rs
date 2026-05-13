@@ -15,7 +15,7 @@ use mirui::components::assets::*;
 use mirui::components::image::Image;
 use mirui::draw::backend::DrawBackend;
 use mirui::draw::path::Path;
-use mirui::draw::sw_backend::SwDrawBackend;
+use mirui::draw::sw::SwDrawBackend;
 use mirui::draw::texture::Texture;
 use mirui::ecs::World;
 use mirui::layout::*;
