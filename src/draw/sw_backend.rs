@@ -1,4 +1,4 @@
-use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
+use crate::types::{Color, Fixed, Fixed64, Point, Rect, Transform, Viewport};
 
 use super::backend::DrawBackend;
 use super::command::DrawCommand;
@@ -751,19 +751,28 @@ fn fill_rect_quad(
     }
 
     let _ = (local_w, local_h);
-    let inset = build_inset_quad(q, radius);
+    let corners = build_corner_info(q, radius);
     let r_sq = radius * radius;
     for py in px_y0..px_y1 {
-        for px in px_x0..px_x1 {
-            #[cfg(feature = "perf")]
-            unsafe {
-                quad_perf::FILL_PIXELS_SCANNED += 1;
-            }
+        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
+            continue;
+        };
+        let x_l_px = x_l.to_int().max(px_x0);
+        let x_r_px = x_r.ceil().to_int().min(px_x1);
+        if x_r_px <= x_l_px {
+            continue;
+        }
+        #[cfg(feature = "perf")]
+        unsafe {
+            quad_perf::FILL_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
+        }
+        for px in x_l_px..x_r_px {
             let p = Point {
                 x: Fixed::from_int(px) + Fixed::from_raw(128),
-                y: Fixed::from_int(py) + Fixed::from_raw(128),
+                y: py_f,
             };
-            if !point_in_rounded_inset(&inset, p, r_sq) {
+            if pixel_clipped_by_corner(&corners, p, r_sq) {
                 continue;
             }
             #[cfg(feature = "perf")]
@@ -779,49 +788,37 @@ fn fill_rect_quad(
     }
 }
 
-#[inline]
-fn point_in_rounded_inset(inset: &[Point; 4], p: Point, r_sq: Fixed) -> bool {
-    use crate::types::transform_3d::point_in_quad;
-    if point_in_quad(inset, p) {
-        #[cfg(feature = "perf")]
-        unsafe {
-            quad_perf::FILL_PIXELS_INSET_HIT += 1;
-        }
-        return true;
-    }
-    for i in 0..4 {
-        let a = inset[i];
-        let b = inset[(i + 1) % 4];
-        let ex = b.x - a.x;
-        let ey = b.y - a.y;
-        let wx = p.x - a.x;
-        let wy = p.y - a.y;
-        let e_dot = ex * ex + ey * ey;
-        let t = if e_dot > Fixed::ZERO {
-            ((wx * ex + wy * ey) / e_dot)
-                .max(Fixed::ZERO)
-                .min(Fixed::ONE)
-        } else {
-            Fixed::ZERO
-        };
-        let bx = wx - ex * t;
-        let by = wy - ey * t;
-        if bx * bx + by * by <= r_sq {
-            #[cfg(feature = "perf")]
-            unsafe {
-                quad_perf::FILL_PIXELS_SLOW_HIT += 1;
-            }
-            return true;
-        }
-    }
-    false
+struct CornerInfo {
+    centre: Point,
+    // Inward unit vectors along the two incident edges, scaled so that
+    // a projection >= 0 means "toward polygon interior along that edge".
+    inward_a: (Fixed, Fixed),
+    inward_b: (Fixed, Fixed),
 }
 
-fn build_inset_quad(q: &[Point; 4], r: Fixed) -> [Point; 4] {
-    let mut out = [Point {
-        x: Fixed::ZERO,
-        y: Fixed::ZERO,
-    }; 4];
+fn build_corner_info(q: &[Point; 4], r: Fixed) -> [CornerInfo; 4] {
+    let mut out = [
+        CornerInfo {
+            centre: Point::ZERO,
+            inward_a: (Fixed::ZERO, Fixed::ZERO),
+            inward_b: (Fixed::ZERO, Fixed::ZERO),
+        },
+        CornerInfo {
+            centre: Point::ZERO,
+            inward_a: (Fixed::ZERO, Fixed::ZERO),
+            inward_b: (Fixed::ZERO, Fixed::ZERO),
+        },
+        CornerInfo {
+            centre: Point::ZERO,
+            inward_a: (Fixed::ZERO, Fixed::ZERO),
+            inward_b: (Fixed::ZERO, Fixed::ZERO),
+        },
+        CornerInfo {
+            centre: Point::ZERO,
+            inward_a: (Fixed::ZERO, Fixed::ZERO),
+            inward_b: (Fixed::ZERO, Fixed::ZERO),
+        },
+    ];
     for i in 0..4 {
         let vertex = q[i];
         let next = q[(i + 1) % 4];
@@ -842,12 +839,74 @@ fn build_inset_quad(q: &[Point; 4], r: Fixed) -> [Point; 4] {
         } else {
             (Fixed::ZERO, Fixed::ZERO)
         };
-        out[i] = Point {
-            x: vertex.x + ux * r + vx * r,
-            y: vertex.y + uy * r + vy * r,
+        out[i] = CornerInfo {
+            centre: Point {
+                x: vertex.x + ux * r + vx * r,
+                y: vertex.y + uy * r + vy * r,
+            },
+            inward_a: (ux, uy),
+            inward_b: (vx, vy),
         };
     }
     out
+}
+
+/// Pixel is clipped by a corner iff it is in that corner's outward wedge
+/// (both edge projections negative, i.e. past the corner vertex in both
+/// directions) AND farther than r from the corner centre.
+fn pixel_clipped_by_corner(corners: &[CornerInfo; 4], p: Point, r_sq: Fixed) -> bool {
+    for c in corners {
+        let dx = p.x - c.centre.x;
+        let dy = p.y - c.centre.y;
+        // Project dx,dy onto the two inward directions. If BOTH projections
+        // are negative, pixel is in the outward wedge of this corner.
+        let proj_a = dx * c.inward_a.0 + dy * c.inward_a.1;
+        let proj_b = dx * c.inward_b.0 + dy * c.inward_b.1;
+        if proj_a < Fixed::ZERO && proj_b < Fixed::ZERO {
+            let dist_sq = dx * dx + dy * dy;
+            if dist_sq > r_sq {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Intersect horizontal line y=py with convex quad q; return leftmost and
+/// rightmost x of the two intersections. None if row is fully outside.
+fn quad_row_span(q: &[Point; 4], py: Fixed) -> Option<(Fixed, Fixed)> {
+    let mut x_l = Fixed::MAX;
+    let mut x_r = Fixed::MIN;
+    let mut hit = false;
+    for i in 0..4 {
+        let a = q[i];
+        let b = q[(i + 1) % 4];
+        let dy = b.y - a.y;
+        // Skip horizontal edges (no crossing or coincident).
+        if dy.raw() == 0 {
+            continue;
+        }
+        // Does y=py cross this edge? Need a.y <= py < b.y OR b.y <= py < a.y.
+        let (y0, y1) = if dy.raw() > 0 { (a.y, b.y) } else { (b.y, a.y) };
+        if py < y0 || py >= y1 {
+            continue;
+        }
+        // Linear interp: x = a.x + (py - a.y) / (b.y - a.y) * (b.x - a.x)
+        // Use Fixed64 to avoid Q24.8 mul overflow on large widgets.
+        let dx = Fixed64::from_fixed(b.x - a.x);
+        let t_num = Fixed64::from_fixed(py - a.y);
+        let t_den = Fixed64::from_fixed(dy);
+        let x = Fixed64::from_fixed(a.x) + t_num * dx / t_den;
+        let x = x.to_fixed();
+        if x < x_l {
+            x_l = x;
+        }
+        if x > x_r {
+            x_r = x;
+        }
+        hit = true;
+    }
+    if hit { Some((x_l, x_r)) } else { None }
 }
 
 fn fill_rect_transformed(
