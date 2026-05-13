@@ -554,10 +554,235 @@ fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> 
     }
 }
 
+impl SwRenderer<'_> {
+    fn dispatch_fill_quad(
+        &mut self,
+        q: &[Point; 4],
+        area: &Rect,
+        color: &Color,
+        radius: Fixed,
+        opa: u8,
+        clip: &Rect,
+    ) {
+        #[cfg(feature = "perf")]
+        let t0 = quad_perf::now();
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_q = [
+            self.viewport.point_to_physical(q[0]),
+            self.viewport.point_to_physical(q[1]),
+            self.viewport.point_to_physical(q[2]),
+            self.viewport.point_to_physical(q[3]),
+        ];
+        let s = self.viewport.scale();
+        fill_rect_quad(
+            &mut self.target,
+            &phys_q,
+            phys_clip,
+            color,
+            radius * s,
+            area.w * s,
+            area.h * s,
+            opa,
+        );
+        #[cfg(feature = "perf")]
+        quad_perf::add_fill(quad_perf::now().wrapping_sub(t0));
+    }
+
+    fn dispatch_blit_quad(&mut self, q: &[Point; 4], texture: &Texture, clip: &Rect) {
+        #[cfg(feature = "perf")]
+        let t0 = quad_perf::now();
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_q = [
+            self.viewport.point_to_physical(q[0]),
+            self.viewport.point_to_physical(q[1]),
+            self.viewport.point_to_physical(q[2]),
+            self.viewport.point_to_physical(q[3]),
+        ];
+        blit_quad(&mut self.target, texture, &phys_q, phys_clip);
+        #[cfg(feature = "perf")]
+        quad_perf::add_blit(quad_perf::now().wrapping_sub(t0));
+    }
+
+    fn dispatch_border_quad(
+        &mut self,
+        q: &[Point; 4],
+        color: &Color,
+        width: Fixed,
+        radius: Fixed,
+        opa: u8,
+        clip: &Rect,
+    ) {
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_q = [
+            self.viewport.point_to_physical(q[0]),
+            self.viewport.point_to_physical(q[1]),
+            self.viewport.point_to_physical(q[2]),
+            self.viewport.point_to_physical(q[3]),
+        ];
+        let s = self.viewport.scale();
+        stroke_rect_quad(
+            &mut self.target,
+            &phys_q,
+            phys_clip,
+            color,
+            width * s,
+            radius * s,
+            opa,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_fill(
+        &mut self,
+        area: &Rect,
+        color: &Color,
+        radius: Fixed,
+        opa: u8,
+        tx: Fixed,
+        ty: Fixed,
+        clip: &Rect,
+    ) {
+        #[cfg(feature = "perf")]
+        let t0 = self.perf.as_ref().map(|p| (p.clock)());
+        let area = offset_rect(area, tx, ty);
+        self.fill_rect(&area, clip, color, radius, opa);
+        #[cfg(feature = "perf")]
+        if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+            p.fill += (p.clock)() - t0;
+            p.count_fill += 1;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_border(
+        &mut self,
+        area: &Rect,
+        color: &Color,
+        width: Fixed,
+        radius: Fixed,
+        opa: u8,
+        tx: Fixed,
+        ty: Fixed,
+        clip: &Rect,
+    ) {
+        #[cfg(feature = "perf")]
+        let t0 = self.perf.as_ref().map(|p| (p.clock)());
+        let area = offset_rect(area, tx, ty);
+        self.stroke_rect(&area, clip, width, color, radius, opa);
+        #[cfg(feature = "perf")]
+        if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+            p.stroke += (p.clock)() - t0;
+            p.count_stroke += 1;
+        }
+    }
+
+    fn dispatch_blit(
+        &mut self,
+        pos: &Point,
+        size: Point,
+        texture: &Texture,
+        tx: Fixed,
+        ty: Fixed,
+        clip: &Rect,
+    ) {
+        #[cfg(feature = "perf")]
+        let t0 = self.perf.as_ref().map(|p| (p.clock)());
+        let src_rect = Rect::new(0, 0, texture.width, texture.height);
+        let pos = offset_point(pos, tx, ty);
+        self.blit(texture, &src_rect, pos, size, clip);
+        #[cfg(feature = "perf")]
+        if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+            p.blit += (p.clock)() - t0;
+            p.count_blit += 1;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_label(
+        &mut self,
+        pos: &Point,
+        text: &[u8],
+        color: &Color,
+        opa: u8,
+        tx: Fixed,
+        ty: Fixed,
+        clip: &Rect,
+    ) {
+        #[cfg(feature = "perf")]
+        let t0 = self.perf.as_ref().map(|p| (p.clock)());
+        let pos = offset_point(pos, tx, ty);
+        self.draw_label(&pos, text, clip, color, opa);
+        #[cfg(feature = "perf")]
+        if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+            p.label += (p.clock)() - t0;
+            p.count_label += 1;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_line(
+        &mut self,
+        p1: &Point,
+        p2: &Point,
+        color: &Color,
+        width: Fixed,
+        opa: u8,
+        tx: Fixed,
+        ty: Fixed,
+        clip: &Rect,
+    ) {
+        #[cfg(feature = "perf")]
+        let t0 = self.perf.as_ref().map(|p| (p.clock)());
+        let p1 = offset_point(p1, tx, ty);
+        let p2 = offset_point(p2, tx, ty);
+        self.draw_line(p1, p2, clip, width, color, opa);
+        #[cfg(feature = "perf")]
+        if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+            p.stroke += (p.clock)() - t0;
+            p.count_stroke += 1;
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn dispatch_arc(
+        &mut self,
+        center: &Point,
+        radius: Fixed,
+        start_angle: Fixed,
+        end_angle: Fixed,
+        color: &Color,
+        width: Fixed,
+        opa: u8,
+        tx: Fixed,
+        ty: Fixed,
+        clip: &Rect,
+    ) {
+        #[cfg(feature = "perf")]
+        let t0 = self.perf.as_ref().map(|p| (p.clock)());
+        let center = offset_point(center, tx, ty);
+        self.draw_arc(
+            center,
+            radius,
+            start_angle,
+            end_angle,
+            clip,
+            width,
+            color,
+            opa,
+        );
+        #[cfg(feature = "perf")]
+        if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
+            p.stroke += (p.clock)() - t0;
+            p.count_stroke += 1;
+        }
+    }
+}
+
 impl Renderer for SwRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
+        // Quad fast paths short-circuit before the translate/transform branch.
         if let DrawCommand::Fill {
             area,
             quad: Some(q),
@@ -567,30 +792,7 @@ impl Renderer for SwRenderer<'_> {
             ..
         } = cmd
         {
-            #[cfg(feature = "perf")]
-            let t0 = quad_perf::now();
-            let phys_clip = self.viewport.rect_to_physical(*clip);
-            let phys_q = [
-                self.viewport.point_to_physical(q[0]),
-                self.viewport.point_to_physical(q[1]),
-                self.viewport.point_to_physical(q[2]),
-                self.viewport.point_to_physical(q[3]),
-            ];
-            let phys_w = area.w * self.viewport.scale();
-            let phys_h = area.h * self.viewport.scale();
-            let phys_radius = *radius * self.viewport.scale();
-            fill_rect_quad(
-                &mut self.target,
-                &phys_q,
-                phys_clip,
-                color,
-                phys_radius,
-                phys_w,
-                phys_h,
-                *opa,
-            );
-            #[cfg(feature = "perf")]
-            quad_perf::add_fill(quad_perf::now().wrapping_sub(t0));
+            self.dispatch_fill_quad(q, area, color, *radius, *opa, clip);
             return;
         }
         if let DrawCommand::Blit {
@@ -599,18 +801,7 @@ impl Renderer for SwRenderer<'_> {
             ..
         } = cmd
         {
-            #[cfg(feature = "perf")]
-            let t0 = quad_perf::now();
-            let phys_clip = self.viewport.rect_to_physical(*clip);
-            let phys_q = [
-                self.viewport.point_to_physical(q[0]),
-                self.viewport.point_to_physical(q[1]),
-                self.viewport.point_to_physical(q[2]),
-                self.viewport.point_to_physical(q[3]),
-            ];
-            blit_quad(&mut self.target, texture, &phys_q, phys_clip);
-            #[cfg(feature = "perf")]
-            quad_perf::add_blit(quad_perf::now().wrapping_sub(t0));
+            self.dispatch_blit_quad(q, texture, clip);
             return;
         }
         if let DrawCommand::Border {
@@ -622,24 +813,7 @@ impl Renderer for SwRenderer<'_> {
             ..
         } = cmd
         {
-            let phys_clip = self.viewport.rect_to_physical(*clip);
-            let phys_q = [
-                self.viewport.point_to_physical(q[0]),
-                self.viewport.point_to_physical(q[1]),
-                self.viewport.point_to_physical(q[2]),
-                self.viewport.point_to_physical(q[3]),
-            ];
-            let phys_w = *width * self.viewport.scale();
-            let phys_r = *radius * self.viewport.scale();
-            stroke_rect_quad(
-                &mut self.target,
-                &phys_q,
-                phys_clip,
-                color,
-                phys_w,
-                phys_r,
-                *opa,
-            );
+            self.dispatch_border_quad(q, color, *width, *radius, *opa, clip);
             return;
         }
 
@@ -661,17 +835,7 @@ impl Renderer for SwRenderer<'_> {
                 radius,
                 opa,
                 ..
-            } => {
-                #[cfg(feature = "perf")]
-                let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                let area = offset_rect(area, tx, ty);
-                self.fill_rect(&area, clip, color, *radius, *opa);
-                #[cfg(feature = "perf")]
-                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
-                    p.fill += (p.clock)() - t0;
-                    p.count_fill += 1;
-                }
-            }
+            } => self.dispatch_fill(area, color, *radius, *opa, tx, ty, clip),
             DrawCommand::Border {
                 area,
                 color,
@@ -679,48 +843,17 @@ impl Renderer for SwRenderer<'_> {
                 radius,
                 opa,
                 ..
-            } => {
-                #[cfg(feature = "perf")]
-                let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                let area = offset_rect(area, tx, ty);
-                self.stroke_rect(&area, clip, *width, color, *radius, *opa);
-                #[cfg(feature = "perf")]
-                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
-                    p.stroke += (p.clock)() - t0;
-                    p.count_stroke += 1;
-                }
-            }
+            } => self.dispatch_border(area, color, *width, *radius, *opa, tx, ty, clip),
             DrawCommand::Blit {
                 pos, size, texture, ..
-            } => {
-                #[cfg(feature = "perf")]
-                let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                let pos = offset_point(pos, tx, ty);
-                self.blit(texture, &src_rect, pos, *size, clip);
-                #[cfg(feature = "perf")]
-                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
-                    p.blit += (p.clock)() - t0;
-                    p.count_blit += 1;
-                }
-            }
+            } => self.dispatch_blit(pos, *size, texture, tx, ty, clip),
             DrawCommand::Label {
                 pos,
                 text,
                 color,
                 opa,
                 ..
-            } => {
-                #[cfg(feature = "perf")]
-                let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                let pos = offset_point(pos, tx, ty);
-                self.draw_label(&pos, text, clip, color, *opa);
-                #[cfg(feature = "perf")]
-                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
-                    p.label += (p.clock)() - t0;
-                    p.count_label += 1;
-                }
-            }
+            } => self.dispatch_label(pos, text, color, *opa, tx, ty, clip),
             DrawCommand::Line {
                 p1,
                 p2,
@@ -728,18 +861,7 @@ impl Renderer for SwRenderer<'_> {
                 width,
                 opa,
                 ..
-            } => {
-                #[cfg(feature = "perf")]
-                let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                let p1 = offset_point(p1, tx, ty);
-                let p2 = offset_point(p2, tx, ty);
-                self.draw_line(p1, p2, clip, *width, color, *opa);
-                #[cfg(feature = "perf")]
-                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
-                    p.stroke += (p.clock)() - t0;
-                    p.count_stroke += 1;
-                }
-            }
+            } => self.dispatch_line(p1, p2, color, *width, *opa, tx, ty, clip),
             DrawCommand::Arc {
                 center,
                 radius,
@@ -749,26 +871,18 @@ impl Renderer for SwRenderer<'_> {
                 width,
                 opa,
                 ..
-            } => {
-                #[cfg(feature = "perf")]
-                let t0 = self.perf.as_ref().map(|p| (p.clock)());
-                let center = offset_point(center, tx, ty);
-                self.draw_arc(
-                    center,
-                    *radius,
-                    *start_angle,
-                    *end_angle,
-                    clip,
-                    *width,
-                    color,
-                    *opa,
-                );
-                #[cfg(feature = "perf")]
-                if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
-                    p.stroke += (p.clock)() - t0;
-                    p.count_stroke += 1;
-                }
-            }
+            } => self.dispatch_arc(
+                center,
+                *radius,
+                *start_angle,
+                *end_angle,
+                color,
+                *width,
+                *opa,
+                tx,
+                ty,
+                clip,
+            ),
         }
     }
 
