@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use mirui::backend::InputEvent;
     use mirui::ecs::World;
     use mirui::event::EventHandler;
     use mirui::event::dispatch::dispatch;
     use mirui::layout::*;
+    use mirui::surface::InputEvent;
     use mirui::types::{Color, Dimension};
     use mirui::widget::builder::WidgetBuilder;
 

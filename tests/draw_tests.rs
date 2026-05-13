@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests {
     use mirui::draw::texture::{ColorFormat, Texture};
-    use mirui::draw::{DrawCommand, Renderer, SwDrawBackend};
+    use mirui::draw::{DrawCommand, Renderer, SwRenderer};
     use mirui::types::{Color, Fixed, Rect, Transform};
 
     #[test]
     fn fill_rect_opaque() {
         let mut buf = vec![0u8; 10 * 10 * 4]; // 10x10 RGBA
-        let mut r = SwDrawBackend::new(Texture::new(
+        let mut r = SwRenderer::new(Texture::new(
             &mut buf,
             10 as u16,
             10 as u16,
@@ -51,7 +51,7 @@ mod tests {
     #[test]
     fn fill_rect_clipped() {
         let mut buf = vec![0u8; 10 * 10 * 4];
-        let mut r = SwDrawBackend::new(Texture::new(
+        let mut r = SwRenderer::new(Texture::new(
             &mut buf,
             10 as u16,
             10 as u16,
@@ -100,7 +100,7 @@ mod tests {
             chunk[2] = 255;
             chunk[3] = 255;
         }
-        let mut r = SwDrawBackend::new(Texture::new(
+        let mut r = SwRenderer::new(Texture::new(
             &mut buf,
             4 as u16,
             4 as u16,

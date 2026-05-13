@@ -1,6 +1,5 @@
 use alloc::vec::Vec;
 use mirui::app::App;
-use mirui::backend::sdl::SdlBackend;
 use mirui::components::assets::*;
 use mirui::components::button::Button;
 use mirui::components::checkbox::Checkbox;
@@ -8,6 +7,7 @@ use mirui::components::image::Image;
 use mirui::components::progress_bar::ProgressBar;
 use mirui::ecs::{Entity, World};
 use mirui::layout::*;
+use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::ui;
@@ -248,7 +248,7 @@ fn build_ui(world: &mut World) -> Entity {
 }
 
 fn main() {
-    let backend = SdlBackend::new("mirui - components demo", 480, 320);
+    let backend = SdlSurface::new("mirui - components demo", 480, 320);
     let mut app = App::new(backend);
 
     let root = build_ui(&mut app.world);

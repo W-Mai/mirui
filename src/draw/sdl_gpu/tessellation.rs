@@ -21,7 +21,7 @@ use crate::draw::path::{Path, PathCmd};
 use crate::types::Color;
 
 /// Holds reusable tessellators and output buffers so path commands don't
-/// re-allocate every frame. One cache per `SdlGpuBackend`.
+/// re-allocate every frame. One cache per `SdlGpuSurface`.
 pub struct TessellationCache {
     fill_tess: FillTessellator,
     stroke_tess: StrokeTessellator,

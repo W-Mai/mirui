@@ -7,7 +7,7 @@ use super::texture::Texture;
 /// `pos`, path points, widths, radii, `dst`, `dst_size`) are in
 /// **logical pixels**; implementations convert to physical internally
 /// (typically by holding a `Viewport` field).
-pub trait DrawBackend {
+pub trait Canvas {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8);
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8);
     fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect);

@@ -1,7 +1,7 @@
 use crate::app::{App, RendererFactory};
-use crate::backend::Backend;
 use crate::ecs::World;
 use crate::plugin::Plugin;
+use crate::surface::Surface;
 
 /// Accumulates render timings and prints (via `println!` on std) every N frames.
 /// With no clock plugin installed `render_nanos` is 0 and the average stays 0 —
@@ -38,7 +38,7 @@ impl Default for FpsSummaryPlugin {
 
 impl<B, F> Plugin<B, F> for FpsSummaryPlugin
 where
-    B: Backend,
+    B: Surface,
     F: RendererFactory<B>,
 {
     fn build(&mut self, _app: &mut App<B, F>) {}

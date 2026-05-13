@@ -10,13 +10,13 @@ use std::io::Write;
 use std::rc::Rc;
 
 use mirui::app::App;
-use mirui::backend::framebuf::FramebufBackend;
 use mirui::components::assets::IMG_THUMBS_UP;
 use mirui::components::image::Image;
 use mirui::components::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::components::transform_3d::WidgetTransform3D;
 use mirui::ecs::World;
 use mirui::layout::*;
+use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
@@ -100,7 +100,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
     let capture: Rc<RefCell<Vec<u8>>> = Rc::new(RefCell::new(Vec::new()));
     let cap_cb = capture.clone();
 
-    let backend = FramebufBackend::new(WINDOW_W as u16, WINDOW_H as u16, move |buf, _rect| {
+    let backend = FramebufSurface::new(WINDOW_W as u16, WINDOW_H as u16, move |buf, _rect| {
         *cap_cb.borrow_mut() = buf.to_vec();
     });
     let mut app = App::new(backend);

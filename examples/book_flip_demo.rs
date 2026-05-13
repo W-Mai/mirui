@@ -1,8 +1,8 @@
 use mirui::app::App;
-use mirui::backend::sdl::SdlBackend;
 use mirui::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use mirui::ecs::World;
 use mirui::layout::*;
+use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
@@ -42,7 +42,7 @@ fn flip_system(world: &mut World) {
 }
 
 fn main() {
-    let backend = SdlBackend::new("mirui - book flip (transform-origin)", 640, 360);
+    let backend = SdlSurface::new("mirui - book flip (transform-origin)", 640, 360);
     let mut app = App::new(backend);
     app.add_system(flip_system);
 

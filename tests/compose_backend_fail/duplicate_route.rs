@@ -1,11 +1,11 @@
-use mirui::draw::backend::DrawBackend;
+use mirui::draw::canvas::Canvas;
 use mirui::draw::path::Path;
 use mirui::draw::texture::Texture;
 use mirui::types::{Color, Fixed, Point, Rect};
 use mirui_macros::compose_backend;
 
 struct Dummy;
-impl DrawBackend for Dummy {
+impl Canvas for Dummy {
     fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {}
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect) {}

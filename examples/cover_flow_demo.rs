@@ -1,11 +1,11 @@
 use mirui::app::App;
-use mirui::backend::sdl::SdlBackend;
 use mirui::components::assets::IMG_THUMBS_UP;
 use mirui::components::image::Image;
 use mirui::components::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::components::transform_3d::WidgetTransform3D;
 use mirui::ecs::World;
 use mirui::layout::*;
+use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
@@ -70,7 +70,7 @@ fn layout_system(world: &mut World) {
 }
 
 fn main() {
-    let backend = SdlBackend::new(
+    let backend = SdlSurface::new(
         "mirui - cover flow (nested 2.5D + drag)",
         WINDOW_W as u16,
         WINDOW_H as u16,

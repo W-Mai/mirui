@@ -19,11 +19,11 @@ use core::num::NonZeroUsize;
 
 use lru::LruCache;
 use sdl2::pixels::PixelFormatEnum;
-use sdl2::render::{Canvas, Texture as SdlTexture, TextureCreator};
+use sdl2::render::{Canvas as SdlCanvas, Texture as SdlTexture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
-use crate::draw::SwDrawBackend;
-use crate::draw::backend::DrawBackend;
+use crate::draw::SwRenderer;
+use crate::draw::canvas::Canvas as _;
 use crate::draw::font::{CHAR_H, CHAR_W};
 use crate::draw::texture::{ColorFormat, Texture as MiruiTexture};
 use crate::types::{Color, Fixed, Point, Rect};
@@ -71,7 +71,7 @@ impl LabelCache {
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
-        canvas: &mut Canvas<Window>,
+        canvas: &mut SdlCanvas<Window>,
         pos: &Point,
         text: &[u8],
         clip: &Rect,
@@ -121,7 +121,7 @@ impl LabelCache {
                     logical_h as u16,
                     ColorFormat::ARGB8888,
                 );
-                let mut sw = SwDrawBackend::new(tex);
+                let mut sw = SwRenderer::new(tex);
                 let area = Rect::new(0, 0, logical_w as u16, logical_h as u16);
                 sw.draw_label(
                     &Point {

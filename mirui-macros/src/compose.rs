@@ -3,7 +3,7 @@ use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::{Ident, Result, Token, Visibility, braced};
 
-/// DrawBackend method table. Each entry = `(name, param_list, is_default_impl)`.
+/// Canvas method table. Each entry = `(name, param_list, is_default_impl)`.
 /// `is_default_impl = true` means the trait has a default impl, so the macro
 /// only emits a forwarder when the user explicitly routes it.
 ///
@@ -81,7 +81,7 @@ struct FieldDecl {
 }
 
 struct Route {
-    /// `default` or a method name from DrawBackend.
+    /// `default` or a method name from Canvas.
     method: Ident,
     field: Ident,
 }
@@ -263,19 +263,19 @@ impl ComposeInput {
                 #(#struct_fields,)*
             }
 
-            impl<#(#generic_params),*> ::mirui::draw::backend::DrawBackend for #name<#(#generic_params),*>
+            impl<#(#generic_params),*> ::mirui::draw::canvas::Canvas for #name<#(#generic_params),*>
             where
-                #(#generic_params: ::mirui::draw::backend::DrawBackend,)*
+                #(#generic_params: ::mirui::draw::canvas::Canvas,)*
             {
                 #(#method_impls)*
             }
 
             impl<#(#generic_params),*> ::mirui::draw::renderer::Renderer for #name<#(#generic_params),*>
             where
-                #(#generic_params: ::mirui::draw::backend::DrawBackend,)*
+                #(#generic_params: ::mirui::draw::canvas::Canvas,)*
             {
                 fn draw(&mut self, cmd: &::mirui::draw::DrawCommand, clip: &::mirui::types::Rect) {
-                    use ::mirui::draw::backend::DrawBackend;
+                    use ::mirui::draw::canvas::Canvas;
                     assert!(
                         cmd.transform().is_identity(),
                         "widget transform not yet supported"
@@ -306,7 +306,7 @@ impl ComposeInput {
                 }
 
                 fn flush(&mut self) {
-                    ::mirui::draw::backend::DrawBackend::flush(self);
+                    ::mirui::draw::canvas::Canvas::flush(self);
                 }
             }
         }
@@ -334,10 +334,10 @@ impl ComposeInput {
                 let suggestion = closest_known_method(&r.method.to_string());
                 let msg = match suggestion {
                     Some(name) => format!(
-                        "unknown DrawBackend method `{}` — did you mean `{name}`?",
+                        "unknown Canvas method `{}` — did you mean `{name}`?",
                         r.method
                     ),
-                    None => format!("unknown DrawBackend method `{}`", r.method),
+                    None => format!("unknown Canvas method `{}`", r.method),
                 };
                 return Err(syn::Error::new(r.method.span(), msg));
             }

@@ -25,15 +25,15 @@ const H: u16 = 600;
 fn main() {
     #[cfg(feature = "sdl-gpu")]
     let mut app = {
-        use mirui::backend::sdl_gpu::{SdlGpuBackend, SdlGpuFactory};
-        let backend = SdlGpuBackend::new_with_vsync("mirui perf_bench — SDL GPU", W, H, false);
+        use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
+        let backend = SdlGpuSurface::new_with_vsync("mirui perf_bench — SDL GPU", W, H, false);
         App::with_factory(backend, SdlGpuFactory::new())
     };
 
     #[cfg(all(feature = "sdl", not(feature = "sdl-gpu")))]
     let mut app = {
-        use mirui::backend::sdl::SdlBackend;
-        let backend = SdlBackend::new_with_vsync("mirui perf_bench — SDL CPU", W, H, false);
+        use mirui::surface::sdl::SdlSurface;
+        let backend = SdlSurface::new_with_vsync("mirui perf_bench — SDL CPU", W, H, false);
         App::new(backend)
     };
 
@@ -125,7 +125,7 @@ fn main() {
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
 
-    use mirui::backend::{Backend, InputEvent};
+    use mirui::surface::{InputEvent, Surface};
     let start = std::time::Instant::now();
     let duration = std::time::Duration::from_secs(10);
     let mut frames: u64 = 0;

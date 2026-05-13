@@ -6,7 +6,7 @@
 
 use std::cell::Cell;
 
-use mirui::draw::backend::DrawBackend;
+use mirui::draw::canvas::Canvas;
 use mirui::draw::path::Path;
 use mirui::draw::texture::{ColorFormat, Texture};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
@@ -38,7 +38,7 @@ impl Dummy {
     }
 }
 
-impl DrawBackend for Dummy {
+impl Canvas for Dummy {
     fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {
         self.counts.fill_path.set(self.counts.fill_path.get() + 1);
     }
@@ -157,7 +157,7 @@ fn explicit_routes_go_to_gpu() {
 #[test]
 fn unrouted_default_impl_methods_fall_through_to_trait_default() {
     // stroke_rect, draw_line, draw_arc were not routed. They should go
-    // through the DrawBackend trait default, which ultimately calls
+    // through the Canvas trait default, which ultimately calls
     // stroke_path on the default backend (sw).
     let mut h = fresh_hybrid();
     let rect = zero_rect();
@@ -203,7 +203,7 @@ impl<'fb> BorrowedDummy<'fb> {
     }
 }
 
-impl<'fb> DrawBackend for BorrowedDummy<'fb> {
+impl<'fb> Canvas for BorrowedDummy<'fb> {
     fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {
         // Touch the borrowed buffer so the lifetime actually matters at the
         // call site — otherwise `'fb` could be optimised away and the test
@@ -221,7 +221,7 @@ impl<'fb> DrawBackend for BorrowedDummy<'fb> {
 }
 
 struct PlainDummy;
-impl DrawBackend for PlainDummy {
+impl Canvas for PlainDummy {
     fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {}
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect) {}
@@ -243,7 +243,7 @@ compose_backend! {
 
 #[test]
 fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
-    // Verifies the Renderer impl the macro emits alongside DrawBackend.
+    // Verifies the Renderer impl the macro emits alongside Canvas.
     // Sending a DrawCommand::Blit should reach the field that owns `blit`
     // in the route table.
     use mirui::draw::DrawCommand;

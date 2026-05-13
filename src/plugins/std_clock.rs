@@ -1,8 +1,8 @@
 use alloc::boxed::Box;
 
 use crate::app::{App, RendererFactory};
-use crate::backend::Backend;
 use crate::plugin::Plugin;
+use crate::surface::Surface;
 
 /// Installs a monotonic clock based on `std::time::Instant`. Mutates
 /// `App::clock` during build so every subsequent `post_render` hook sees
@@ -12,7 +12,7 @@ pub struct StdInstantClockPlugin;
 
 impl<B, F> Plugin<B, F> for StdInstantClockPlugin
 where
-    B: Backend,
+    B: Surface,
     F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>) {

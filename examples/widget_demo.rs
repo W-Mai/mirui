@@ -1,5 +1,5 @@
 use mirui::draw::texture::{ColorFormat, Texture};
-use mirui::draw::{Renderer, SwDrawBackend};
+use mirui::draw::{Renderer, SwRenderer};
 use mirui::ecs::World;
 use mirui::layout::*;
 use mirui::types::{Color, Dimension, Fixed, Viewport};
@@ -67,7 +67,7 @@ fn main() {
 
     // Render via ECS
     let mut buf = vec![0u8; (W * H * 4) as usize];
-    let mut renderer = SwDrawBackend::new(Texture::new(
+    let mut renderer = SwRenderer::new(Texture::new(
         &mut buf,
         W as u16,
         H as u16,

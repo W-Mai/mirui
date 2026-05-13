@@ -1,14 +1,14 @@
 use crate::types::{Color, Fixed, Point, Rect};
 
-use super::backend::DrawBackend;
+use super::canvas::Canvas;
 use super::path::Path;
 use super::texture::Texture;
 
-pub struct Painter<'a, B: DrawBackend> {
+pub struct Painter<'a, B: Canvas> {
     pub backend: &'a mut B,
 }
 
-impl<'a, B: DrawBackend> Painter<'a, B> {
+impl<'a, B: Canvas> Painter<'a, B> {
     pub fn new(backend: &'a mut B) -> Self {
         Self { backend }
     }

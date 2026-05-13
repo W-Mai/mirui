@@ -1,5 +1,5 @@
-use crate::backend::InputEvent;
 use crate::ecs::{Entity, World};
+use crate::surface::InputEvent;
 
 use super::hit_test::hit_test;
 use super::{EventHandler, WidgetEvent};

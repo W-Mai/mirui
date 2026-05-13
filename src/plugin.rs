@@ -1,6 +1,6 @@
 use crate::app::{App, RendererFactory};
-use crate::backend::{Backend, InputEvent};
 use crate::ecs::World;
+use crate::surface::{InputEvent, Surface};
 
 /// Extend `App` with cross-cutting behaviour — stats, custom clock, logging,
 /// hotkeys — without forking the run loop. `build` runs once at registration;
@@ -8,7 +8,7 @@ use crate::ecs::World;
 /// schedule. Any `FnMut(&mut App<B, F>)` is also a plugin via the blanket impl.
 pub trait Plugin<B, F>
 where
-    B: Backend,
+    B: Surface,
     F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>);
@@ -37,7 +37,7 @@ where
 
 impl<B, F, G> Plugin<B, F> for G
 where
-    B: Backend,
+    B: Surface,
     F: RendererFactory<B>,
     G: FnMut(&mut App<B, F>) + 'static,
 {

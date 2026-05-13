@@ -1,7 +1,7 @@
-use crate::backend::InputEvent;
 use crate::components::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
+use crate::surface::InputEvent;
 use crate::types::Fixed;
 
 /// Scroll drag state resource

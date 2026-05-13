@@ -1,15 +1,15 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use crate::backend::{Backend, FramebufferAccess, InputEvent};
 use crate::components::button_system::button_system;
 use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, scroll_system};
-use crate::draw::SwDrawBackend;
-use crate::draw::backend::DrawBackend;
+use crate::draw::SwRenderer;
+use crate::draw::canvas::Canvas;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::dispatch::dispatch;
 use crate::plugin::Plugin;
+use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
 use crate::widget::render_system;
 
@@ -25,36 +25,36 @@ pub type ClockFn = Box<dyn FnMut() -> u64>;
 /// The factory is parameterised over the backend type so each GPU backend
 /// can bind to its own concrete `B` and reach into backend-specific
 /// resources (SDL canvas, wgpu device, VG-Lite context). CPU-raster
-/// factories (like [`SwDrawBackendFactory`]) use the [`FramebufferAccess`]
+/// factories (like [`SwRendererFactory`]) use the [`FramebufferAccess`]
 /// sub-trait bound to obtain a `Texture<'_>` from any compatible backend.
-pub trait RendererFactory<B: Backend> {
-    type Renderer<'a>: Renderer + DrawBackend
+pub trait RendererFactory<B: Surface> {
+    type Renderer<'a>: Renderer + Canvas
     where
         Self: 'a,
         B: 'a;
     fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> Self::Renderer<'a>;
 }
 
-/// Default factory that produces plain `SwDrawBackend<'a>` on top of any
+/// Default factory that produces plain `SwRenderer<'a>` on top of any
 /// backend exposing a CPU framebuffer.
-pub struct SwDrawBackendFactory;
+pub struct SwRendererFactory;
 
-impl<B: FramebufferAccess> RendererFactory<B> for SwDrawBackendFactory {
+impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
     type Renderer<'a>
-        = SwDrawBackend<'a>
+        = SwRenderer<'a>
     where
         Self: 'a,
         B: 'a;
-    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> SwDrawBackend<'a> {
+    fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> SwRenderer<'a> {
         let tex = backend.framebuffer();
-        let mut r = SwDrawBackend::new(tex);
+        let mut r = SwRenderer::new(tex);
         r.viewport = *transform;
         r
     }
 }
 
-/// Main application entry point — ties World + Backend + Renderer factory together
-pub struct App<B: Backend, F: RendererFactory<B> = SwDrawBackendFactory> {
+/// Main application entry point — ties World + Surface + Renderer factory together
+pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     pub world: World,
     pub backend: B,
     pub factory: F,
@@ -66,13 +66,13 @@ pub struct App<B: Backend, F: RendererFactory<B> = SwDrawBackendFactory> {
     pub perf: Option<crate::draw::PerfCtx>,
 }
 
-impl<B: FramebufferAccess> App<B, SwDrawBackendFactory> {
+impl<B: FramebufferAccess> App<B, SwRendererFactory> {
     pub fn new(backend: B) -> Self {
-        Self::with_factory(backend, SwDrawBackendFactory)
+        Self::with_factory(backend, SwRendererFactory)
     }
 }
 
-impl<B: Backend, F: RendererFactory<B>> App<B, F> {
+impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn with_factory(backend: B, factory: F) -> Self {
         let mut world = World::new();
         world.insert_resource(DeltaTime(0.0));
@@ -163,7 +163,7 @@ impl<B: Backend, F: RendererFactory<B>> App<B, F> {
     /// `render_dirty` fast path; Transient backends render every frame.
     pub fn run(&mut self) {
         let transient =
-            self.backend.persistence() == crate::backend::BackbufferPersistence::Transient;
+            self.backend.persistence() == crate::surface::BackbufferPersistence::Transient;
         self.render();
         loop {
             self.systems.run_all(&mut self.world);

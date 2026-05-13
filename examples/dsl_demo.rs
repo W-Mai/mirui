@@ -1,7 +1,7 @@
 use mirui::app::App;
-use mirui::backend::sdl::SdlBackend;
 use mirui::ecs::{Entity, World};
 use mirui::layout::*;
+use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::ui;
@@ -53,7 +53,7 @@ fn footer(world: &mut World, parent: Entity) -> Entity {
 }
 
 fn main() {
-    let backend = SdlBackend::new("mirui - DSL demo", 480, 320);
+    let backend = SdlSurface::new("mirui - DSL demo", 480, 320);
     let mut app = App::new(backend);
 
     let root = WidgetBuilder::new(&mut app.world)

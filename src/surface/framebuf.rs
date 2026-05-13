@@ -1,13 +1,13 @@
 use alloc::vec::Vec;
 
-use super::{Backend, DisplayInfo, FramebufferAccess, InputEvent, logical_from_physical};
+use super::{DisplayInfo, FramebufferAccess, InputEvent, Surface, logical_from_physical};
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Rect};
 
 /// Owns a physical-pixel-sized byte buffer and calls the user flush
 /// callback each frame. `width` / `height` are the **physical**
 /// framebuffer size; HiDPI is opt-in via `with_scale`.
-pub struct FramebufBackend<F: FnMut(&[u8], &Rect)> {
+pub struct FramebufSurface<F: FnMut(&[u8], &Rect)> {
     buf: Vec<u8>,
     width: u16,
     height: u16,
@@ -16,7 +16,7 @@ pub struct FramebufBackend<F: FnMut(&[u8], &Rect)> {
     flush_cb: F,
 }
 
-impl<F: FnMut(&[u8], &Rect)> FramebufBackend<F> {
+impl<F: FnMut(&[u8], &Rect)> FramebufSurface<F> {
     pub fn new(width: u16, height: u16, flush_cb: F) -> Self {
         Self::with_scale_and_format(width, height, Fixed::ONE, ColorFormat::ARGB8888, flush_cb)
     }
@@ -64,7 +64,7 @@ impl<F: FnMut(&[u8], &Rect)> FramebufBackend<F> {
     }
 }
 
-impl<F: FnMut(&[u8], &Rect)> Backend for FramebufBackend<F> {
+impl<F: FnMut(&[u8], &Rect)> Surface for FramebufSurface<F> {
     fn display_info(&self) -> DisplayInfo {
         let (lw, lh) = logical_from_physical(self.width, self.height, self.scale);
         DisplayInfo {
@@ -88,7 +88,7 @@ impl<F: FnMut(&[u8], &Rect)> Backend for FramebufBackend<F> {
     }
 }
 
-impl<F: FnMut(&[u8], &Rect)> FramebufferAccess for FramebufBackend<F> {
+impl<F: FnMut(&[u8], &Rect)> FramebufferAccess for FramebufSurface<F> {
     fn framebuffer(&mut self) -> Texture<'_> {
         Texture::new(&mut self.buf, self.width, self.height, self.format)
     }

@@ -1,17 +1,17 @@
 use std::sync::{Arc, Mutex};
 
 use mirui::app::App;
-use mirui::backend::Backend;
-use mirui::backend::sdl::SdlBackend;
 use mirui::ecs::Entity;
 use mirui::event::{EventHandler, WidgetEvent};
 use mirui::layout::*;
+use mirui::surface::Surface;
+use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension};
 use mirui::widget::Style;
 use mirui::widget::builder::WidgetBuilder;
 
 fn main() {
-    let backend = SdlBackend::new("mirui - click demo", 480, 320);
+    let backend = SdlSurface::new("mirui - click demo", 480, 320);
     let mut app = App::new(backend);
 
     let colors = [
@@ -77,7 +77,7 @@ fn main() {
     app.render();
     loop {
         match app.poll_event() {
-            Some(mirui::backend::InputEvent::Quit) => break,
+            Some(mirui::surface::InputEvent::Quit) => break,
             Some(event) => {
                 if let Some(root) = app.root {
                     let info = app.backend.display_info();

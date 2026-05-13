@@ -1,7 +1,7 @@
 //! GPU-accelerated SDL backend.
 //!
-//! Where [`super::sdl::SdlBackend`] keeps a CPU byte buffer and uploads it
-//! each frame, `SdlGpuBackend` drives the SDL2 accelerated renderer
+//! Where [`super::sdl::SdlSurface`] keeps a CPU byte buffer and uploads it
+//! each frame, `SdlGpuSurface` drives the SDL2 accelerated renderer
 //! directly: `canvas.fill_rect`, `canvas.copy`, and ultimately
 //! `SDL_RenderGeometry` (unsafe FFI) for tessellated paths. No CPU
 //! framebuffer, no `FramebufferAccess` impl.
@@ -12,23 +12,23 @@ mod tessellation;
 use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use sdl2::render::Canvas;
+use sdl2::render::Canvas as SdlCanvas;
 use sdl2::video::Window;
 
 use self::label_cache::LabelCache;
 use self::tessellation::TessellationCache;
 use crate::app::RendererFactory;
-use crate::draw::backend::DrawBackend;
+use crate::draw::canvas::Canvas;
 use crate::draw::command::DrawCommand;
 use crate::draw::path::Path;
 use crate::draw::renderer::Renderer;
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
-use super::{Backend, DisplayInfo, InputEvent, logical_from_physical};
+use crate::surface::{DisplayInfo, InputEvent, Surface, logical_from_physical};
 
-pub struct SdlGpuBackend {
-    canvas: Canvas<Window>,
+pub struct SdlGpuSurface {
+    canvas: SdlCanvas<Window>,
     label_cache: LabelCache,
     event_pump: EventPump,
     tessellator: TessellationCache,
@@ -37,7 +37,7 @@ pub struct SdlGpuBackend {
     scale: Fixed,
 }
 
-impl SdlGpuBackend {
+impl SdlGpuSurface {
     pub fn new(title: &str, width: u16, height: u16) -> Self {
         Self::new_with_vsync(title, width, height, true)
     }
@@ -82,7 +82,11 @@ impl SdlGpuBackend {
 
     pub(crate) fn parts_mut(
         &mut self,
-    ) -> (&mut Canvas<Window>, &mut LabelCache, &mut TessellationCache) {
+    ) -> (
+        &mut SdlCanvas<Window>,
+        &mut LabelCache,
+        &mut TessellationCache,
+    ) {
         (
             &mut self.canvas,
             &mut self.label_cache,
@@ -91,7 +95,7 @@ impl SdlGpuBackend {
     }
 }
 
-impl Backend for SdlGpuBackend {
+impl Surface for SdlGpuSurface {
     fn display_info(&self) -> DisplayInfo {
         let (lw, lh) = logical_from_physical(self.width, self.height, self.scale);
         DisplayInfo {
@@ -144,12 +148,12 @@ impl Backend for SdlGpuBackend {
         None
     }
 
-    fn persistence(&self) -> super::BackbufferPersistence {
-        super::BackbufferPersistence::Transient
+    fn persistence(&self) -> crate::surface::BackbufferPersistence {
+        crate::surface::BackbufferPersistence::Transient
     }
 }
 
-// NOTE: no `impl FramebufferAccess for SdlGpuBackend` — by design.
+// NOTE: no `impl FramebufferAccess for SdlGpuSurface` — by design.
 
 pub struct SdlGpuFactory;
 
@@ -165,7 +169,7 @@ impl Default for SdlGpuFactory {
     }
 }
 
-impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
+impl RendererFactory<SdlGpuSurface> for SdlGpuFactory {
     type Renderer<'a>
         = SdlGpuRenderer<'a>
     where
@@ -173,7 +177,7 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
 
     fn make<'a>(
         &'a mut self,
-        backend: &'a mut SdlGpuBackend,
+        backend: &'a mut SdlGpuSurface,
         transform: &Viewport,
     ) -> SdlGpuRenderer<'a> {
         let viewport = *transform;
@@ -188,7 +192,7 @@ impl RendererFactory<SdlGpuBackend> for SdlGpuFactory {
 }
 
 pub struct SdlGpuRenderer<'a> {
-    canvas: &'a mut Canvas<Window>,
+    canvas: &'a mut SdlCanvas<Window>,
     label_cache: &'a mut LabelCache,
     tessellator: &'a mut TessellationCache,
     viewport: Viewport,
@@ -420,7 +424,7 @@ fn sdl_pixel_rect(area: &Rect, clip: &Rect) -> Option<sdl2::rect::Rect> {
 /// Configure the canvas draw colour + blend mode for a solid primitive
 /// using `(color, opa)`. Blend off when fully opaque to skip the blend
 /// shader path.
-fn apply_solid_color(canvas: &mut Canvas<Window>, color: &Color, opa: u8) {
+fn apply_solid_color(canvas: &mut SdlCanvas<Window>, color: &Color, opa: u8) {
     let a = ((color.a as u16) * (opa as u16) / 255) as u8;
     canvas.set_blend_mode(if a == 255 {
         sdl2::render::BlendMode::None
@@ -430,7 +434,7 @@ fn apply_solid_color(canvas: &mut Canvas<Window>, color: &Color, opa: u8) {
     canvas.set_draw_color(sdl2::pixels::Color::RGBA(color.r, color.g, color.b, a));
 }
 
-impl DrawBackend for SdlGpuRenderer<'_> {
+impl Canvas for SdlGpuRenderer<'_> {
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         let phys_area = self.viewport.rect_to_physical(*area);
         let phys_clip = self.viewport.rect_to_physical(*clip);

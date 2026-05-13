@@ -1,11 +1,11 @@
 use mirui::app::App;
-use mirui::backend::sdl::SdlBackend;
 use mirui::layout::*;
+use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
 
 fn main() {
-    let backend = SdlBackend::new("mirui - rounded + border", 480, 320);
+    let backend = SdlSurface::new("mirui - rounded + border", 480, 320);
     let mut app = App::new(backend);
 
     // Rounded cards

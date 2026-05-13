@@ -1,14 +1,14 @@
 //! Verify every Plugin lifecycle hook fires the expected number of times
-//! against the real App run path. Uses FramebufBackend so no SDL dependency.
+//! against the real App run path. Uses FramebufSurface so no SDL dependency.
 
 use std::cell::Cell;
 use std::rc::Rc;
 
 use mirui::app::{App, RendererFactory};
-use mirui::backend::framebuf::FramebufBackend;
-use mirui::backend::{Backend, InputEvent};
 use mirui::ecs::World;
 use mirui::plugin::Plugin;
+use mirui::surface::framebuf::FramebufSurface;
+use mirui::surface::{InputEvent, Surface};
 use mirui::types::Rect;
 
 #[derive(Default)]
@@ -27,7 +27,7 @@ struct CountPlugin {
 
 impl<B, F> Plugin<B, F> for CountPlugin
 where
-    B: Backend,
+    B: Surface,
     F: RendererFactory<B>,
 {
     fn build(&mut self, _app: &mut App<B, F>) {
@@ -52,7 +52,7 @@ fn noop_flush(_: &[u8], _: &Rect) {}
 
 #[test]
 fn build_fires_once_on_add_plugin() {
-    let backend = FramebufBackend::new(64, 64, noop_flush);
+    let backend = FramebufSurface::new(64, 64, noop_flush);
     let mut app = App::new(backend);
     let counts = Rc::new(Counts::default());
     app.add_plugin(CountPlugin {
@@ -64,7 +64,7 @@ fn build_fires_once_on_add_plugin() {
 
 #[test]
 fn pre_and_post_render_fire_per_render_call() {
-    let backend = FramebufBackend::new(64, 64, noop_flush);
+    let backend = FramebufSurface::new(64, 64, noop_flush);
     let mut app = App::new(backend);
     let counts = Rc::new(Counts::default());
     app.add_plugin(CountPlugin {

@@ -1,10 +1,10 @@
 use mirui::app::App;
-use mirui::backend::sdl::SdlBackend;
 use mirui::components::assets::*;
 use mirui::components::image::Image;
 use mirui::components::transform_3d::WidgetTransform3D;
 use mirui::ecs::World;
 use mirui::layout::*;
+use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
@@ -57,7 +57,7 @@ fn spin_system(world: &mut World) {
 }
 
 fn main() {
-    let backend = SdlBackend::new("mirui - 2.5D image flip demo", 480, 320);
+    let backend = SdlSurface::new("mirui - 2.5D image flip demo", 480, 320);
     let mut app = App::new(backend);
 
     app.add_system(spin_system);

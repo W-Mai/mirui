@@ -1,4 +1,4 @@
-//! compose_backend! demo. A LoggingBackend wraps a second SwDrawBackend and
+//! compose_backend! demo. A LoggingBackend wraps a second SwRenderer and
 //! counts every method call. Hybrid routes blit + clear through Logging, and
 //! everything else (fill_path / stroke_path / draw_line / draw_arc) through
 //! the plain sw backend. Every second the counter is printed to stderr so the
@@ -6,9 +6,9 @@
 
 use std::cell::RefCell;
 
-use mirui::draw::backend::DrawBackend;
+use mirui::draw::canvas::Canvas;
 use mirui::draw::path::Path;
-use mirui::draw::sw::SwDrawBackend;
+use mirui::draw::sw::SwRenderer;
 use mirui::draw::texture::{ColorFormat, Texture};
 use mirui::types::{Color, Fixed, Point, Rect};
 use mirui_macros::compose_backend;
@@ -19,14 +19,14 @@ use sdl2::pixels::PixelFormatEnum;
 const W: u32 = 480;
 const H: u32 = 320;
 
-/// Any DrawBackend wrapped in log lines. Uses RefCell for the counter so the
+/// Any Canvas wrapped in log lines. Uses RefCell for the counter so the
 /// example doesn't need `&mut self` on the outer wrapper just to bump it.
-struct Logging<B: DrawBackend> {
+struct Logging<B: Canvas> {
     inner: B,
     calls: RefCell<u32>,
 }
 
-impl<B: DrawBackend> Logging<B> {
+impl<B: Canvas> Logging<B> {
     fn new(inner: B) -> Self {
         Self {
             inner,
@@ -38,7 +38,7 @@ impl<B: DrawBackend> Logging<B> {
     }
 }
 
-impl<B: DrawBackend> DrawBackend for Logging<B> {
+impl<B: Canvas> Canvas for Logging<B> {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
         self.log("fill_path");
         self.inner.fill_path(path, clip, color, opa);
@@ -67,7 +67,7 @@ impl<B: DrawBackend> DrawBackend for Logging<B> {
 
 compose_backend! {
     pub struct Hybrid {
-        sw: SwDrawBackend,
+        sw: SwRenderer,
         gpu: Logging,
     }
     route {
@@ -97,13 +97,13 @@ fn main() {
     let mut fb = vec![0u8; (W * H * 4) as usize];
     let mut gpu_fb = vec![0u8; (W * H * 4) as usize];
 
-    let sw = SwDrawBackend::new(Texture::new(
+    let sw = SwRenderer::new(Texture::new(
         &mut fb,
         W as u16,
         H as u16,
         ColorFormat::ARGB8888,
     ));
-    let gpu_inner = SwDrawBackend::new(Texture::new(
+    let gpu_inner = SwRenderer::new(Texture::new(
         &mut gpu_fb,
         W as u16,
         H as u16,

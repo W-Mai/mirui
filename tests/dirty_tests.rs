@@ -271,7 +271,7 @@ mod tests {
 
     #[test]
     fn fuzz_multi_frame_movement_no_residue() {
-        use mirui::draw::SwDrawBackend;
+        use mirui::draw::SwRenderer;
         use mirui::draw::texture::{ColorFormat, Texture};
         use mirui::widget::render_system;
 
@@ -325,7 +325,7 @@ mod tests {
             let mut buf = vec![0u8; BUF_SIZE];
             let transform = Viewport::new(W, H, Fixed::ONE);
             {
-                let mut renderer = SwDrawBackend::new(Texture::new(
+                let mut renderer = SwRenderer::new(Texture::new(
                     &mut buf,
                     W as u16,
                     H as u16,
@@ -356,7 +356,7 @@ mod tests {
 
                 let dirty = render_system::collect_dirty_region(&mut world, root, &transform);
                 if let Some(area) = dirty {
-                    let mut renderer = SwDrawBackend::new(Texture::new(
+                    let mut renderer = SwRenderer::new(Texture::new(
                         &mut buf,
                         W as u16,
                         H as u16,
@@ -369,7 +369,7 @@ mod tests {
             // Full re-render (reference)
             let mut buf_ref = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwDrawBackend::new(Texture::new(
+                let mut renderer = SwRenderer::new(Texture::new(
                     &mut buf_ref,
                     W as u16,
                     H as u16,
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn fuzz_multi_widget_multi_frame_no_residue() {
-        use mirui::draw::SwDrawBackend;
+        use mirui::draw::SwRenderer;
         use mirui::draw::texture::{ColorFormat, Texture};
         use mirui::widget::render_system;
 
@@ -463,7 +463,7 @@ mod tests {
             let transform = Viewport::new(W, H, Fixed::ONE);
             let mut buf = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwDrawBackend::new(Texture::new(
+                let mut renderer = SwRenderer::new(Texture::new(
                     &mut buf,
                     W as u16,
                     H as u16,
@@ -489,7 +489,7 @@ mod tests {
 
                 let dirty = render_system::collect_dirty_region(&mut world, root, &transform);
                 if let Some(area) = dirty {
-                    let mut renderer = SwDrawBackend::new(Texture::new(
+                    let mut renderer = SwRenderer::new(Texture::new(
                         &mut buf,
                         W as u16,
                         H as u16,
@@ -501,7 +501,7 @@ mod tests {
 
             let mut buf_ref = vec![0u8; BUF_SIZE];
             {
-                let mut renderer = SwDrawBackend::new(Texture::new(
+                let mut renderer = SwRenderer::new(Texture::new(
                     &mut buf_ref,
                     W as u16,
                     H as u16,

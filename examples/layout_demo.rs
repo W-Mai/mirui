@@ -1,5 +1,5 @@
 use mirui::draw::texture::{ColorFormat, Texture};
-use mirui::draw::{DrawCommand, Renderer, SwDrawBackend};
+use mirui::draw::{DrawCommand, Renderer, SwRenderer};
 use mirui::layout::*;
 use mirui::types::{Color, Dimension, Fixed, Rect, Transform};
 use sdl2::event::Event;
@@ -42,7 +42,7 @@ const COLORS: &[Color] = &[
     },
 ];
 
-fn draw_node(renderer: &mut SwDrawBackend, node: &LayoutNode, clip: &Rect, depth: usize) {
+fn draw_node(renderer: &mut SwRenderer, node: &LayoutNode, clip: &Rect, depth: usize) {
     if depth > 0 {
         let color = COLORS[(depth - 1) % COLORS.len()];
         renderer.draw(
@@ -130,7 +130,7 @@ fn main() {
         w: Fixed::from_int(W as i32),
         h: Fixed::from_int(H as i32),
     };
-    let mut renderer = SwDrawBackend::new(Texture::new(
+    let mut renderer = SwRenderer::new(Texture::new(
         &mut buf,
         W as u16,
         H as u16,

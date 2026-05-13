@@ -8,11 +8,11 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
-use super::{Backend, DisplayInfo, FramebufferAccess, InputEvent, logical_from_physical};
+use super::{DisplayInfo, FramebufferAccess, InputEvent, Surface, logical_from_physical};
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Rect};
 
-pub struct SdlBackend {
+pub struct SdlSurface {
     canvas: Canvas<Window>,
     texture_creator: TextureCreator<WindowContext>,
     event_pump: EventPump,
@@ -22,7 +22,7 @@ pub struct SdlBackend {
     scale: Fixed,
 }
 
-impl SdlBackend {
+impl SdlSurface {
     pub fn new(title: &str, width: u16, height: u16) -> Self {
         Self::new_with_vsync(title, width, height, true)
     }
@@ -70,7 +70,7 @@ impl SdlBackend {
     }
 }
 
-impl Backend for SdlBackend {
+impl Surface for SdlSurface {
     fn display_info(&self) -> DisplayInfo {
         let (lw, lh) = logical_from_physical(self.width, self.height, self.scale);
         DisplayInfo {
@@ -137,7 +137,7 @@ impl Backend for SdlBackend {
     }
 }
 
-impl FramebufferAccess for SdlBackend {
+impl FramebufferAccess for SdlSurface {
     fn framebuffer(&mut self) -> Texture<'_> {
         Texture::new(
             &mut self.buf,

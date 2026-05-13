@@ -9,7 +9,7 @@ use crate::types::{Fixed, Rect, Viewport};
 
 /// Display information reported by a backend. `width` / `height` are in
 /// **logical pixels** — the units user code writes `Dimension::px(…)` in.
-/// Physical framebuffer size is `Backend::physical_size()`.
+/// Physical framebuffer size is `Surface::physical_size()`.
 pub struct DisplayInfo {
     pub width: u16,
     pub height: u16,
@@ -56,8 +56,8 @@ pub enum BackbufferPersistence {
 /// GPU-only backends (SDL GPU, wgpu, VG-Lite, …) implement this trait
 /// without `FramebufferAccess`. CPU raster backends additionally
 /// implement [`FramebufferAccess`] to expose their framebuffer to
-/// `SwDrawBackendFactory`.
-pub trait Backend {
+/// `SwRendererFactory`.
+pub trait Surface {
     fn display_info(&self) -> DisplayInfo;
 
     /// Present the given **physical-pixel** region of the backing surface.
@@ -104,13 +104,13 @@ pub(crate) fn logical_from_physical(phys_w: u16, phys_h: u16, scale: Fixed) -> (
     (lw, lh)
 }
 
-/// A [`Backend`] that exposes a CPU-accessible framebuffer as a [`Texture`].
+/// A [`Surface`] that exposes a CPU-accessible framebuffer as a [`Texture`].
 ///
-/// `SwDrawBackendFactory` blanket-implements `RendererFactory` for any
+/// `SwRendererFactory` blanket-implements `RendererFactory` for any
 /// backend satisfying this trait. GPU backends should not implement it —
 /// their factories access GPU resources through backend-specific
 /// methods instead.
-pub trait FramebufferAccess: Backend {
+pub trait FramebufferAccess: Surface {
     fn framebuffer(&mut self) -> Texture<'_>;
 }
 
@@ -119,7 +119,7 @@ mod tests {
     use super::*;
 
     struct NoOpBackend;
-    impl Backend for NoOpBackend {
+    impl Surface for NoOpBackend {
         fn display_info(&self) -> DisplayInfo {
             DisplayInfo {
                 width: 1,

@@ -2,7 +2,7 @@
 //!
 //! - the scene (banner + 8 drifting Images) is declared with `ui!`
 //! - `HybridFactory` routes blit/clear through a Logging wrapper via
-//!   `compose_backend!`, everything else through SwDrawBackend
+//!   `compose_backend!`, everything else through SwRenderer
 //! - `drift_system` moves each Image along a sine path
 //! - `StdInstantClockPlugin` + `FpsSummaryPlugin` print render timing
 
@@ -10,16 +10,16 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use mirui::app::{App, RendererFactory};
-use mirui::backend::sdl::SdlBackend;
 use mirui::components::assets::*;
 use mirui::components::image::Image;
-use mirui::draw::backend::DrawBackend;
+use mirui::draw::canvas::Canvas;
 use mirui::draw::path::Path;
-use mirui::draw::sw::SwDrawBackend;
+use mirui::draw::sw::SwRenderer;
 use mirui::draw::texture::Texture;
 use mirui::ecs::World;
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Point, Rect, Viewport};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::{compose_backend, ui};
@@ -27,15 +27,15 @@ use mirui_macros::{compose_backend, ui};
 const W: u16 = 480;
 const H: u16 = 320;
 
-/// Wraps any DrawBackend and counts every method call on a shared
+/// Wraps any Canvas and counts every method call on a shared
 /// Rc<RefCell<u32>>, so the counter stays readable after App takes
 /// ownership of this instance.
-struct Logging<B: DrawBackend> {
+struct Logging<B: Canvas> {
     inner: B,
     calls: Rc<RefCell<u32>>,
 }
 
-impl<B: DrawBackend> DrawBackend for Logging<B> {
+impl<B: Canvas> Canvas for Logging<B> {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
         self.inner.fill_path(path, clip, color, opa);
     }
@@ -60,7 +60,7 @@ impl<B: DrawBackend> DrawBackend for Logging<B> {
 
 compose_backend! {
     pub struct Hybrid {
-        sw: SwDrawBackend,
+        sw: SwRenderer,
         gpu: Logging,
     }
     route {
@@ -90,19 +90,19 @@ impl HybridFactory {
     }
 }
 
-impl<B: mirui::backend::FramebufferAccess> RendererFactory<B> for HybridFactory {
+impl<B: mirui::surface::FramebufferAccess> RendererFactory<B> for HybridFactory {
     type Renderer<'a>
-        = Hybrid<SwDrawBackend<'a>, Logging<SwDrawBackend<'a>>>
+        = Hybrid<SwRenderer<'a>, Logging<SwRenderer<'a>>>
     where
         Self: 'a,
         B: 'a;
 
     fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> Self::Renderer<'a> {
         let tex = backend.framebuffer();
-        let mut sw = SwDrawBackend::new(tex);
+        let mut sw = SwRenderer::new(tex);
         sw.viewport = *transform;
         let gpu_tex = Texture::new(&mut self.gpu_fb, self.width, self.height, tex_format(&sw));
-        let mut gpu_inner = SwDrawBackend::new(gpu_tex);
+        let mut gpu_inner = SwRenderer::new(gpu_tex);
         gpu_inner.viewport = *transform;
         let gpu = Logging {
             inner: gpu_inner,
@@ -112,9 +112,9 @@ impl<B: mirui::backend::FramebufferAccess> RendererFactory<B> for HybridFactory 
     }
 }
 
-/// Read the ColorFormat from an already-constructed SwDrawBackend so the gpu
+/// Read the ColorFormat from an already-constructed SwRenderer so the gpu
 /// side framebuffer matches the sw side byte layout without hard-coding.
-fn tex_format(sw: &SwDrawBackend<'_>) -> mirui::draw::texture::ColorFormat {
+fn tex_format(sw: &SwRenderer<'_>) -> mirui::draw::texture::ColorFormat {
     sw.target.format
 }
 
@@ -145,7 +145,7 @@ fn drift_system(world: &mut World) {
 }
 
 fn main() {
-    let backend = SdlBackend::new("mirui - compose_backend DSL demo", W, H);
+    let backend = SdlSurface::new("mirui - compose_backend DSL demo", W, H);
 
     let calls = Rc::new(RefCell::new(0u32));
     let factory = HybridFactory::new(

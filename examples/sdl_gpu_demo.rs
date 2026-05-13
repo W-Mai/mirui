@@ -9,14 +9,14 @@
 //! no manual loop here.
 
 use mirui::app::{App, RendererFactory};
-use mirui::backend::sdl_gpu::{SdlGpuBackend, SdlGpuFactory};
-use mirui::backend::{Backend, InputEvent};
 use mirui::components::assets::*;
 use mirui::components::image::Image;
 use mirui::ecs::{Entity, World};
 use mirui::layout::*;
 use mirui::plugin::Plugin;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
+use mirui::surface::{InputEvent, Surface};
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::{Children, Parent};
@@ -25,7 +25,7 @@ const DRAG_W: i32 = 160;
 const DRAG_H: i32 = 60;
 
 fn main() {
-    let backend = SdlGpuBackend::new("mirui SDL GPU — drag me", 640, 480);
+    let backend = SdlGpuSurface::new("mirui SDL GPU — drag me", 640, 480);
     let mut app = App::with_factory(backend, SdlGpuFactory::new());
 
     let root = WidgetBuilder::new(&mut app.world)
@@ -123,7 +123,7 @@ struct DragPlugin {
 
 impl<B, F> Plugin<B, F> for DragPlugin
 where
-    B: Backend,
+    B: Surface,
     F: RendererFactory<B>,
 {
     fn build(&mut self, _app: &mut App<B, F>) {}

@@ -1,6 +1,6 @@
 use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
-use super::backend::DrawBackend;
+use super::canvas::Canvas;
 use super::command::DrawCommand;
 use super::path::Path;
 use super::renderer::Renderer;
@@ -16,14 +16,14 @@ mod quad;
 use blit_fast::{blit_1to1_fast, blit_2to2_fast, blit_dda};
 use quad::{blit_quad, fill_rect_quad, stroke_rect_quad};
 
-pub struct SwDrawBackend<'a> {
+pub struct SwRenderer<'a> {
     pub target: Texture<'a>,
     pub viewport: Viewport,
     #[cfg(feature = "perf")]
     pub perf: Option<PerfCtx>,
 }
 
-impl<'a> SwDrawBackend<'a> {
+impl<'a> SwRenderer<'a> {
     pub fn new(target: Texture<'a>) -> Self {
         let w = target.width;
         let h = target.height;
@@ -36,7 +36,7 @@ impl<'a> SwDrawBackend<'a> {
     }
 }
 
-impl<'a> SwDrawBackend<'a> {
+impl<'a> SwRenderer<'a> {
     /// Scale every Point inside `path` into physical pixels so the
     /// rasterizer (which works in physical pixels) sees them directly.
     fn scale_path(&self, path: &Path) -> Path {
@@ -166,7 +166,7 @@ impl<'a> SwDrawBackend<'a> {
     }
 }
 
-impl<'a> DrawBackend for SwDrawBackend<'a> {
+impl<'a> Canvas for SwRenderer<'a> {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
         if opa == 0 {
             return;
@@ -674,7 +674,7 @@ fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r: Fixed) -> 
     }
 }
 
-impl Renderer for SwDrawBackend<'_> {
+impl Renderer for SwRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
@@ -893,7 +893,7 @@ impl Renderer for SwDrawBackend<'_> {
     }
 
     fn flush(&mut self) {
-        DrawBackend::flush(self);
+        Canvas::flush(self);
     }
 }
 
@@ -908,7 +908,7 @@ mod tests {
     fn fill_rect_basic() {
         let mut buf = vec![0u8; 16 * 16 * 4];
         let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let rect = Rect::new(2, 2, 4, 4);
         let clip = Rect::new(0, 0, 16, 16);
@@ -927,7 +927,7 @@ mod tests {
     fn clear_fills_area() {
         let mut buf = vec![0u8; 8 * 8 * 4];
         let tex = Texture::new(&mut buf, 8, 8, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         backend.clear(&Rect::new(0, 0, 8, 8), &Color::rgb(50, 100, 150));
 
@@ -942,7 +942,7 @@ mod tests {
         // A rectangular Path should produce the same interior pixels as fill_rect.
         let mut buf = vec![0u8; 16 * 16 * 4];
         let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let path = super::super::path::Path::rect(
             Fixed::from_int(2),
@@ -964,7 +964,7 @@ mod tests {
     fn fill_path_empty_is_noop() {
         let mut buf = vec![0u8; 4 * 4 * 4];
         let tex = Texture::new(&mut buf, 4, 4, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let path = super::super::path::Path::new();
         let clip = Rect::new(0, 0, 4, 4);
@@ -981,7 +981,7 @@ mod tests {
     fn fill_path_zero_opa_is_noop() {
         let mut buf = vec![0u8; 4 * 4 * 4];
         let tex = Texture::new(&mut buf, 4, 4, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let path = super::super::path::Path::rect(
             Fixed::ZERO,
@@ -1001,7 +1001,7 @@ mod tests {
         // point (2,2) vs exterior point (8,8).
         let mut buf = vec![0u8; 16 * 16 * 4];
         let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let mut path = super::super::path::Path::new();
         path.move_to(Point {
@@ -1028,17 +1028,17 @@ mod tests {
     #[test]
     fn draw_label_is_reachable_via_trait() {
         // Exercises the trait dispatch path rather than the glyph pixels —
-        // just verifies the method exists on DrawBackend and writes something.
+        // just verifies the method exists on Canvas and writes something.
         let mut buf = vec![0u8; 32 * 16 * 4];
         let tex = Texture::new(&mut buf, 32, 16, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let pos = Point {
             x: Fixed::from_int(1),
             y: Fixed::from_int(1),
         };
         let clip = Rect::new(0, 0, 32, 16);
-        DrawBackend::draw_label(&mut backend, &pos, b"A", &clip, &Color::rgb(255, 0, 0), 255);
+        Canvas::draw_label(&mut backend, &pos, b"A", &clip, &Color::rgb(255, 0, 0), 255);
 
         let mut found = false;
         for y in 0..16 {
@@ -1058,7 +1058,7 @@ mod tests {
         // around y=8 should be colored; pixels several rows away must not.
         let mut buf = vec![0u8; 16 * 16 * 4];
         let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let mut path = super::super::path::Path::new();
         path.move_to(Point {
@@ -1089,7 +1089,7 @@ mod tests {
         use crate::draw::renderer::Renderer;
         let mut buf = vec![0u8; 16 * 16 * 4];
         let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let cmd = DrawCommand::Line {
             p1: Point {
@@ -1116,7 +1116,7 @@ mod tests {
         use crate::draw::renderer::Renderer;
         let mut buf = vec![0u8; 32 * 32 * 4];
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let cmd = DrawCommand::Arc {
             center: Point {
@@ -1140,10 +1140,10 @@ mod tests {
 
     #[test]
     fn draw_line_default_impl_strokes_pixels() {
-        // Exercises DrawBackend::draw_line's default trait impl → stroke_path.
+        // Exercises Canvas::draw_line's default trait impl → stroke_path.
         let mut buf = vec![0u8; 16 * 16 * 4];
         let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let p1 = Point {
             x: Fixed::from_int(2),
@@ -1170,7 +1170,7 @@ mod tests {
     fn draw_arc_default_impl_strokes_pixels() {
         let mut buf = vec![0u8; 32 * 32 * 4];
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let center = Point {
             x: Fixed::from_int(16),
@@ -1197,7 +1197,7 @@ mod tests {
     fn stroke_path_zero_width_is_noop() {
         let mut buf = vec![0u8; 8 * 8 * 4];
         let tex = Texture::new(&mut buf, 8, 8, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         let mut path = super::super::path::Path::new();
         path.move_to(Point {
@@ -1225,7 +1225,7 @@ mod tests {
 
         let mut buf = vec![0u8; 16 * 16 * 4];
         let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
 
         {
             let mut painter = Painter::new(&mut backend);
@@ -1247,7 +1247,7 @@ mod tests {
 
         let mut buf = vec![0u8; 32 * 32 * 4];
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
         let clip = Rect::new(0, 0, 32, 32);
 
         {
@@ -1305,7 +1305,7 @@ mod tests {
 
         let mut buf = vec![0u8; 32 * 16 * 4];
         let tex = Texture::new(&mut buf, 32, 16, ColorFormat::ARGB8888);
-        let mut backend = SwDrawBackend::new(tex);
+        let mut backend = SwRenderer::new(tex);
         let clip = Rect::new(0, 0, 32, 16);
 
         {

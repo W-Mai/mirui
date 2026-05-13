@@ -1,10 +1,10 @@
-use crate::backend::InputEvent;
 use crate::components::button::Button;
 use crate::components::checkbox::Checkbox;
 use crate::components::progress_bar::ProgressBar;
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
 use crate::layout::{LayoutNode, compute_layout};
+use crate::surface::InputEvent;
 use crate::types::{Fixed, Rect};
 use crate::widget::dirty::Dirty;
 use crate::widget::{Children, Style, Widget};
