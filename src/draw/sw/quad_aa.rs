@@ -95,24 +95,22 @@ pub(super) fn quad_pixel_coverage_sdf(
     let cx = Fixed::from_int(px) + HALF;
     let cy = Fixed::from_int(py) + HALF;
 
-    // Start with distance to the closest straight edge (min over 4 edges).
-    // Positive = inside, negative = outside.
-    let mut sdf = Fixed::MAX;
+    // For each edge compute sd = (dx·nx + dy·ny) / |n| in Fixed64 to
+    // avoid Q24.8 overflow at screen scale. min over the 4 edges gives
+    // the nearest straight-edge distance; positive = inside.
+    let mut min_sdf = Fixed::MAX;
     for e in edges {
         let dx = cx - e.base.x;
         let dy = cy - e.base.y;
-        // Raw dot = sd * |n|. Normalise so sd is in pixel units.
         let raw = Fixed64::from_fixed(dx) * Fixed64::from_fixed(e.nx)
             + Fixed64::from_fixed(dy) * Fixed64::from_fixed(e.ny);
         let d = (raw * e.inv_len).to_fixed();
-        if d < sdf {
-            sdf = d;
+        if d < min_sdf {
+            min_sdf = d;
         }
     }
 
-    // If rounded, corner circles bite into the interior: for any pixel
-    // sitting in a corner's outward wedge, its signed distance to the
-    // circle (= radius − |p − center|) overrides the two meeting edges.
+    // Corners: override edge SDF inside each outward wedge.
     if let Some(corner_arr) = corners {
         for c in corner_arr {
             let dx = cx - c.center.x;
@@ -124,8 +122,8 @@ pub(super) fn quad_pixel_coverage_sdf(
                     + Fixed64::from_fixed(dy) * Fixed64::from_fixed(dy);
                 let dist = dist_sq.sqrt().to_fixed();
                 let corner_sdf = c.radius - dist;
-                if corner_sdf < sdf {
-                    sdf = corner_sdf;
+                if corner_sdf < min_sdf {
+                    min_sdf = corner_sdf;
                 }
                 break; // wedges are disjoint
             }
@@ -133,12 +131,12 @@ pub(super) fn quad_pixel_coverage_sdf(
     }
 
     // Map SDF ∈ [−0.5, +0.5] → coverage ∈ [0, 1].
-    if sdf >= HALF {
+    if min_sdf >= HALF {
         Fixed::ONE
-    } else if sdf <= -HALF {
+    } else if min_sdf <= -HALF {
         Fixed::ZERO
     } else {
-        sdf + HALF
+        min_sdf + HALF
     }
 }
 

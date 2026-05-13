@@ -1,4 +1,4 @@
-use crate::types::{Color, Fixed, NormColor};
+use crate::types::{Color, Fixed};
 use alloc::vec::Vec;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -234,20 +234,23 @@ impl<'a> Texture<'a> {
             self.set_pixel(x, y, color);
             return;
         }
-        let src = color.normalized();
-        let dst = self.get_pixel(x, y).normalized();
-        let t = Fixed::from_int(a as i32).map_range(
-            (Fixed::ZERO, Fixed::from_int(255)),
-            (Fixed::ZERO, Fixed::ONE),
-        );
-        let inv = Fixed::ONE - t;
-        let blended = NormColor {
-            r: src.r * t + dst.r * inv,
-            g: src.g * t + dst.g * inv,
-            b: src.b * t + dst.b * inv,
-            a: Fixed::ONE,
+        // Alpha blend in plain u8 space: out = (src·a + dst·(255−a) + 127)/255.
+        // Avoids the NormColor round-trip (8 divisions per call) that the
+        // old implementation did; exact within ±1 over the full range.
+        let dst = self.get_pixel(x, y);
+        let ia = 255 - a as u32;
+        let a = a as u32;
+        let blend = |src: u8, dst: u8| -> u8 {
+            let sum = src as u32 * a + dst as u32 * ia + 127;
+            ((sum + (sum >> 8)) >> 8) as u8
         };
-        self.set_pixel(x, y, &Color::from(blended));
+        let out = Color {
+            r: blend(color.r, dst.r),
+            g: blend(color.g, dst.g),
+            b: blend(color.b, dst.b),
+            a: 255,
+        };
+        self.set_pixel(x, y, &out);
     }
 }
 
