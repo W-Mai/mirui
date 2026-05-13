@@ -11,33 +11,33 @@ A lightweight, `no_std` ECS-driven UI framework for embedded, desktop, and WebAs
 - **ECS architecture** — entities, components, systems, resources, queries
 - **`no_std` + `alloc`** — runs on bare-metal MCUs (ESP32-C3, STM32) with a global allocator
 - **Subpixel rasterizer** — 24.8 fixed-point throughout the pipeline (layout, rendering, events). Scanline coverage anti-aliasing on any `Path`
-- **Vector drawing API** — `fill_path` / `stroke_path` / `draw_line` / `draw_arc` on `DrawBackend`, cubic Bezier accurate circles
+- **Vector drawing API** — `fill_path` / `stroke_path` / `draw_line` / `draw_arc` on `Canvas`, cubic Bezier accurate circles
 - **Declarative DSL** — `ui!` macro powered by [xrune](https://github.com/W-Mai/xrune)
 - **Flexbox + absolute positioning** — familiar layout model with `Dimension::{Px, Percent, Auto, Content}`
 - **HiDPI** — automatic scale factor propagation
 - **Dirty-flag partial refresh** — only re-renders changed regions
 - **ScrollView** — inertia, elastic bounce, scroll chaining, spring resistance
 - **Widgets** — Button, Checkbox, ProgressBar, Image, ScrollView
-- **Pluggable backends** — SDL2 (desktop), FramebufBackend (embedded RGB565 / ARGB8888 / RGB888 / RGB565Swapped)
+- **Pluggable backends** — SDL2 (desktop), FramebufSurface (embedded RGB565 / ARGB8888 / RGB888 / RGB565Swapped)
 
 ## Quick Start
 
 ```toml
 [dependencies]
-mirui = "0.5"
-mirui-macros = "0.5"
+mirui = "0.9"
+mirui-macros = "0.9"
 ```
 
 ```rust
 use mirui::app::App;
-use mirui::backend::sdl::SdlBackend;
+use mirui::surface::sdl::SdlSurface;
 use mirui::layout::*;
 use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::ui;
 
 fn main() {
-    let backend = SdlBackend::new("hello mirui", 480, 320);
+    let backend = SdlSurface::new("hello mirui", 480, 320);
     let mut app = App::new(backend);
 
     let root = WidgetBuilder::new(&mut app.world)
@@ -124,14 +124,14 @@ Integer literals passed in the DSL (e.g. `height: 40`, `border_radius: 8`) are c
 
 ## Vector Drawing (0.3+)
 
-`DrawBackend` is a full 2D rendering surface. Every primitive — solid rects, borders, text, blits, arbitrary paths — goes through it.
+`Canvas` is a full 2D rendering surface. Every primitive — solid rects, borders, text, blits, arbitrary paths — goes through it.
 
 ```rust
-use mirui::draw::backend::DrawBackend;
+use mirui::draw::Canvas;
 use mirui::draw::path::Path;
 use mirui::types::{Color, Fixed, Point, Rect};
 
-// Inside any code holding a `&mut impl DrawBackend`:
+// Inside any code holding a `&mut impl Canvas`:
 
 // Stroked line
 backend.draw_line(
@@ -171,14 +171,14 @@ Paths are flattened via De Casteljau (8 segments per quadratic, 16 per cubic) th
 
 ## Hybrid Backends — `compose_backend!` (0.3.1+)
 
-Want the path rasterizer on software but blit and clear on a GPU fast path? Declare a hybrid struct and a route table; the `compose_backend!` proc-macro emits the full `DrawBackend` + `Renderer` impls statically — no runtime dispatch.
+Want the path rasterizer on software but blit and clear on a GPU fast path? Declare a hybrid struct and a route table; the `compose_backend!` proc-macro emits the full `Canvas` + `Renderer` impls statically — no runtime dispatch.
 
 ```rust
 use mirui_macros::compose_backend;
 
 compose_backend! {
     pub struct Hybrid {
-        sw: SwDrawBackend,
+        sw: SwRenderer,
         gpu: MyGpuBackend,
     }
     route {
@@ -196,7 +196,7 @@ pub struct Hybrid<__B0, __B1> {
     pub sw: __B0,
     pub gpu: __B1,
 }
-impl<__B0: DrawBackend, __B1: DrawBackend> DrawBackend for Hybrid<__B0, __B1> {
+impl<__B0: Canvas, __B1: Canvas> Canvas for Hybrid<__B0, __B1> {
     fn blit(&mut self, ...) { self.gpu.blit(...) }
     fn clear(&mut self, ...) { self.gpu.clear(...) }
     fn fill_path(&mut self, ...) { self.sw.fill_path(...) }
@@ -204,17 +204,17 @@ impl<__B0: DrawBackend, __B1: DrawBackend> DrawBackend for Hybrid<__B0, __B1> {
 }
 ```
 
-`Hybrid` is generic over one type parameter per field, so backends carrying lifetimes (`SwDrawBackend<'fb>`) flow through without needing the struct itself to declare any.
+`Hybrid` is generic over one type parameter per field, so backends carrying lifetimes (`SwRenderer<'fb>`) flow through without needing the struct itself to declare any.
 
 ### Plugging into `App`
 
-`App` takes a second generic `F: RendererFactory` that defaults to `SwDrawBackendFactory` (so every existing `App::new(backend)` call keeps working). To use a hybrid backend in the normal run loop:
+`App` takes a second generic `F: RendererFactory` that defaults to `SwRendererFactory` (so every existing `App::new(backend)` call keeps working). To use a hybrid backend in the normal run loop:
 
 ```rust
 struct HybridFactory { /* your per-frame setup */ }
 
 impl RendererFactory for HybridFactory {
-    type Renderer<'a> = Hybrid<SwDrawBackend<'a>, MyGpuBackend>;
+    type Renderer<'a> = Hybrid<SwRenderer<'a>, MyGpuBackend>;
     fn make<'a>(&'a mut self, tex: Texture<'a>, scale: Fixed) -> Self::Renderer<'a> {
         // build the fields each frame
     }
@@ -336,8 +336,8 @@ ESP32-C3 (RISC-V 160 MHz, no FPU) + ST7735S 128×128 SPI display, RGB565:
 | Demo | FPS | Notes |
 |------|-----|-------|
 | Three-body (widgets + dirty rect) | 160 | `border_radius: 3` anti-aliasing enabled |
-| Shapes (clock face, raw `DrawBackend`) | 32-35 | 1 circle + 12 tick lines + sweeping hand per frame |
-| Butterfly (vector, raw `DrawBackend`) | 30-32 | 8 `fill_path` + 3 `draw_line` per frame; Lissajous flight + yaw rotation |
+| Shapes (clock face, raw `Canvas`) | 32-35 | 1 circle + 12 tick lines + sweeping hand per frame |
+| Butterfly (vector, raw `Canvas`) | 30-32 | 8 `fill_path` + 3 `draw_line` per frame; Lissajous flight + yaw rotation |
 
 Binary size: `mirui` + a typical ESP32 app + esp-hal around 120 KB `.text` for the vector demos.
 
