@@ -272,6 +272,7 @@ fn draw_tree(
                         &DrawCommand::Border {
                             area: node.rect,
                             transform: tf,
+                            quad,
                             color: border_color,
                             width: style.border_width,
                             radius: style.border_radius,
@@ -451,6 +452,7 @@ fn draw_tree_offset(
                         &DrawCommand::Border {
                             area: shifted_rect,
                             transform: tf,
+                            quad,
                             color: border_color,
                             width: style.border_width,
                             radius: style.border_radius,

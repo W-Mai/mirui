@@ -837,6 +837,119 @@ fn fill_rect_quad(
     }
 }
 
+fn stroke_rect_quad(
+    dst: &mut Texture,
+    q: &[Point; 4],
+    phys_clip: Rect,
+    color: &Color,
+    width: Fixed,
+    radius: Fixed,
+    opa: u8,
+) {
+    if width <= Fixed::ZERO {
+        return;
+    }
+    let bbox = quad_bbox(q);
+    let Some(area) = bbox.intersect(&phys_clip) else {
+        return;
+    };
+    let screen = Rect::new(0, 0, dst.width, dst.height);
+    let Some(area) = area.intersect(&screen) else {
+        return;
+    };
+    let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
+
+    let inner = build_inner_quad(q, width);
+    let inner_radius = (radius - width).max(Fixed::ZERO);
+    let outer_corners = build_corner_info(q, radius);
+    let inner_corners = build_corner_info(&inner, inner_radius);
+    let outer_r_sq = radius * radius;
+    let inner_r_sq = inner_radius * inner_radius;
+    let degenerate_inner = inner_quad_is_degenerate(&inner);
+
+    for py in px_y0..px_y1 {
+        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let Some((x_lo, x_ro)) = quad_row_span(q, py_f) else {
+            continue;
+        };
+        let xlo_px = x_lo.to_int().max(px_x0);
+        let xro_px = x_ro.ceil().to_int().min(px_x1);
+        if xro_px <= xlo_px {
+            continue;
+        }
+        let inner_span = if degenerate_inner {
+            None
+        } else {
+            quad_row_span(&inner, py_f)
+        };
+        for px in xlo_px..xro_px {
+            let p = Point {
+                x: Fixed::from_int(px) + Fixed::from_raw(128),
+                y: py_f,
+            };
+            if pixel_clipped_by_corner(&outer_corners, p, outer_r_sq) {
+                continue;
+            }
+            let in_inner = if let Some((x_li, x_ri)) = inner_span {
+                p.x >= x_li && p.x < x_ri && !pixel_clipped_by_corner(&inner_corners, p, inner_r_sq)
+            } else {
+                false
+            };
+            if in_inner {
+                continue;
+            }
+            if opa == 255 {
+                dst.set_pixel(px, py, color);
+            } else {
+                dst.blend_pixel_int(px, py, color, opa);
+            }
+        }
+    }
+}
+
+fn build_inner_quad(q: &[Point; 4], width: Fixed) -> [Point; 4] {
+    let mut out = [Point::ZERO; 4];
+    for i in 0..4 {
+        let vertex = q[i];
+        let next = q[(i + 1) % 4];
+        let prev = q[(i + 3) % 4];
+        let e1x = next.x - vertex.x;
+        let e1y = next.y - vertex.y;
+        let l1 = (e1x * e1x + e1y * e1y).sqrt();
+        let e2x = prev.x - vertex.x;
+        let e2y = prev.y - vertex.y;
+        let l2 = (e2x * e2x + e2y * e2y).sqrt();
+        let (ux, uy) = if l1 > Fixed::ZERO {
+            (e1x / l1, e1y / l1)
+        } else {
+            (Fixed::ZERO, Fixed::ZERO)
+        };
+        let (vx, vy) = if l2 > Fixed::ZERO {
+            (e2x / l2, e2y / l2)
+        } else {
+            (Fixed::ZERO, Fixed::ZERO)
+        };
+        out[i] = Point {
+            x: vertex.x + ux * width + vx * width,
+            y: vertex.y + uy * width + vy * width,
+        };
+    }
+    out
+}
+
+fn inner_quad_is_degenerate(inner: &[Point; 4]) -> bool {
+    // Detect the width >= half-extent case where opposite inner vertices
+    // cross over. Sample diagonal lengths: if both diagonals are tiny,
+    // the inner quad collapsed.
+    let d1x = inner[2].x - inner[0].x;
+    let d1y = inner[2].y - inner[0].y;
+    let d2x = inner[3].x - inner[1].x;
+    let d2y = inner[3].y - inner[1].y;
+    let d1_sq = d1x * d1x + d1y * d1y;
+    let d2_sq = d2x * d2x + d2y * d2y;
+    d1_sq < Fixed::from_raw(256) || d2_sq < Fixed::from_raw(256)
+}
+
 /// Pack a Color into the little-endian byte layout of `format`. Returns
 /// the packed bytes in a u32 (LSB-first for 2-byte formats).
 fn encode_pixel(format: ColorFormat, color: &Color) -> u32 {
@@ -1881,6 +1994,35 @@ impl Renderer for SwDrawBackend<'_> {
             blit_quad(&mut self.target, texture, &phys_q, phys_clip);
             #[cfg(feature = "perf")]
             quad_perf::add_blit(quad_perf::now().wrapping_sub(t0));
+            return;
+        }
+        if let DrawCommand::Border {
+            quad: Some(q),
+            color,
+            width,
+            radius,
+            opa,
+            ..
+        } = cmd
+        {
+            let phys_clip = self.viewport.rect_to_physical(*clip);
+            let phys_q = [
+                self.viewport.point_to_physical(q[0]),
+                self.viewport.point_to_physical(q[1]),
+                self.viewport.point_to_physical(q[2]),
+                self.viewport.point_to_physical(q[3]),
+            ];
+            let phys_w = *width * self.viewport.scale();
+            let phys_r = *radius * self.viewport.scale();
+            stroke_rect_quad(
+                &mut self.target,
+                &phys_q,
+                phys_clip,
+                color,
+                phys_w,
+                phys_r,
+                *opa,
+            );
             return;
         }
 

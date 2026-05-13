@@ -20,6 +20,7 @@ pub enum DrawCommand<'a> {
     Border {
         area: Rect,
         transform: Transform,
+        quad: Option<[Point; 4]>,
         color: Color,
         width: Fixed,
         radius: Fixed,

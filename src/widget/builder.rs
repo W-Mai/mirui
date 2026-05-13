@@ -42,6 +42,13 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
+    pub fn border_width(self, width: impl Into<crate::types::Fixed>) -> Self {
+        if let Some(style) = self.world.get_mut::<Style>(self.entity) {
+            style.border_width = width.into();
+        }
+        self
+    }
+
     pub fn border_radius(self, radius: impl Into<crate::types::Fixed>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
             style.border_radius = radius.into();
