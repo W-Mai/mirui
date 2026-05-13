@@ -1,29 +1,32 @@
-//! Signed-distance pixel coverage for the quad rasterizer.
+//! Quad coverage with two complementary implementations.
 //!
-//! Each pixel's coverage is derived from its **signed distance to the
-//! nearest quad edge**, clamped to a ±0.5 pixel band and mapped linearly
-//! to `[0, 1]`. Rounded corners are expressed in the same SDF by taking
-//! the distance to the corner circle instead of to the meeting edges
-//! whenever the pixel sits in that corner's outward wedge.
+//! - **`std` builds** (desktop SDL / SDL GPU / anywhere CPU is cheap and
+//!   visual quality matters) use a full Fixed64 signed-distance field.
+//!   Each pixel gets smoothly varying coverage, no visible quantisation
+//!   at edges, good for large screens and rapid scroll.
+//! - **`no_std` builds** (MCU targets; ESP32-C3 is the driver) use a
+//!   2×2 supersample that quantises coverage to
+//!   `{0, 0.25, 0.5, 0.75, 1}`. An order of magnitude cheaper per
+//!   pixel: the sample test is four integer adds + sign check per edge,
+//!   no divide, no sqrt. On a 128×160 panel the 4-step quantisation is
+//!   not visible.
 //!
-//! Why signed distance rather than analytic area clip: the SDF stays
-//! continuous under sub-pixel translation of the quad, which is what
-//! keeps the edge from shimmering during scroll; using Fixed64 inside
-//! the normalisation removes the Q24.8 precision wobble that killed an
-//! earlier attempt to do the same trick.
-//!
-//! Caller is expected to cache `PreparedEdge` and `CornerShape` once
-//! per quad (shared across all pixels) so the inner loop stays light.
+//! Both paths share `PreparedEdge` and `EdgeRowState`; only the final
+//! per-pixel coverage function differs. Caller code uses
+//! `quad_pixel_coverage_row`, which is a cfg alias for the right one.
 //!
 //! Winding: `prepare_quad_edges` normalises to left-hand-inside so
-//! `signed_dist` returns positive on the inside regardless of input
-//! winding order.
+//! positive signed distance means inside regardless of the caller's
+//! vertex winding.
 
-use crate::types::{Fixed, Fixed64, Point};
+#[cfg(feature = "std")]
+use crate::types::Fixed64;
+use crate::types::{Fixed, Point};
 
 /// Half the pixel diagonal extent along any unit normal: √2/2 ≈ 0.707.
 /// AA band width is conservatively taken as one full pixel (±0.5) so any
 /// pixel straddling an edge gets a linear falloff rather than a step.
+#[cfg(any(feature = "std", test))]
 const HALF: Fixed = Fixed::from_raw(128); // 0.5
 
 #[derive(Clone, Copy)]
@@ -33,9 +36,23 @@ pub(super) struct PreparedEdge {
     /// Inward (left-hand) normal `rot90_ccw(edge)`. Length = edge length.
     pub nx: Fixed,
     pub ny: Fixed,
-    /// Precomputed `1 / |normal|` as Fixed64 so per-pixel work is a
-    /// cheap mul + cast, not a divide.
+    /// `1 / |normal|` as Fixed64, used by the std (SDF) path to turn
+    /// raw signed distance into pixel units.
+    #[cfg(feature = "std")]
     pub inv_len: Fixed64,
+    /// `(|n| / 2)²` as Fixed64 — the std (SDF) band cut-off. Raw²
+    /// compared against this tells the hot path whether to skip the
+    /// normalise.
+    #[cfg(feature = "std")]
+    pub half_len_sq: Fixed64,
+    /// Quarter-normal increments used by the no_std 2×2 supersample
+    /// path. A sample offset of ±0.25 along x or y shifts raw by
+    /// ±(nx / 4) and ±(ny / 4); caching both keeps the inner loop to
+    /// a single integer add + sign bit read per sample per edge.
+    #[cfg(not(feature = "std"))]
+    pub qx: Fixed,
+    #[cfg(not(feature = "std"))]
+    pub qy: Fixed,
 }
 
 /// Prepare the quad's edges into inside-on-the-left orientation. Input
@@ -49,20 +66,42 @@ pub(super) fn prepare_quad_edges(q: &[Point; 4], cw: bool) -> [PreparedEdge; 4] 
         };
         let edge_dx = b.x - a.x;
         let edge_dy = b.y - a.y;
-        // |n|² = |edge|² since rot90 preserves length.
-        let len_sq = Fixed64::from_fixed(edge_dx) * Fixed64::from_fixed(edge_dx)
-            + Fixed64::from_fixed(edge_dy) * Fixed64::from_fixed(edge_dy);
-        let len = len_sq.sqrt();
-        let inv_len = if len > Fixed64::ZERO {
-            Fixed64::ONE / len
-        } else {
-            Fixed64::ZERO
+        let nx = -edge_dy;
+        let ny = edge_dx;
+        #[cfg(feature = "std")]
+        let (inv_len, half_len_sq) = {
+            // |n|² = |edge|² since rot90 preserves length. Fixed64
+            // because the square of a screen-scale edge can overflow
+            // Fixed (Q24.8). Only paid once per quad, so no hot-path cost.
+            let len_sq = Fixed64::from_fixed(edge_dx) * Fixed64::from_fixed(edge_dx)
+                + Fixed64::from_fixed(edge_dy) * Fixed64::from_fixed(edge_dy);
+            let len = len_sq.sqrt();
+            let inv_len = if len > Fixed64::ZERO {
+                Fixed64::ONE / len
+            } else {
+                Fixed64::ZERO
+            };
+            (inv_len, Fixed64::from_raw(len_sq.raw() / 4))
+        };
+        #[cfg(not(feature = "std"))]
+        let (qx, qy) = {
+            // Sample offset ±0.25 pixel along either axis shifts raw by
+            // ±(n / 4). Precompute once per quad — the hot path reads
+            // these instead of scaling nx / ny each sample.
+            (Fixed::from_raw(nx.raw() / 4), Fixed::from_raw(ny.raw() / 4))
         };
         PreparedEdge {
             base: a,
-            nx: -edge_dy,
-            ny: edge_dx,
+            nx,
+            ny,
+            #[cfg(feature = "std")]
             inv_len,
+            #[cfg(feature = "std")]
+            half_len_sq,
+            #[cfg(not(feature = "std"))]
+            qx,
+            #[cfg(not(feature = "std"))]
+            qy,
         }
     })
 }
@@ -79,39 +118,165 @@ pub(super) struct PreparedCorner {
     pub radius: Fixed,
 }
 
-/// Pixel coverage for a (possibly rounded) quad.
-///
-/// Interior pixels return 1, exterior pixels return 0, and pixels within
-/// ±0.5 of an edge or the corner arc get linear falloff.
-///
-/// `corners = None` skips the rounding path entirely (straight quad).
-///
-/// Pixel center is passed in Fixed form so callers sweeping a row can
-/// increment `cx` by `Fixed::ONE` without recasting from integer; the
-/// per-row inner loop then avoids one sub + one cast per pixel.
+/// Per-row state for incremental SDF: `raw` at the first pixel of the
+/// row. Stepping right by one pixel is a single `raw += nx` add. One
+/// instance per edge, built once per row.
+pub(super) struct EdgeRowState {
+    pub raw: [Fixed; 4],
+}
+
+impl EdgeRowState {
+    pub(super) fn new(edges: &[PreparedEdge; 4], cx_start: Fixed, cy: Fixed) -> Self {
+        let mut raw = [Fixed::ZERO; 4];
+        for i in 0..4 {
+            let e = &edges[i];
+            let dx = cx_start - e.base.x;
+            let dy = cy - e.base.y;
+            raw[i] = dx * e.nx + dy * e.ny;
+        }
+        Self { raw }
+    }
+
+    #[inline]
+    pub(super) fn step(&mut self, edges: &[PreparedEdge; 4]) {
+        for (raw, e) in self.raw.iter_mut().zip(edges.iter()) {
+            *raw += e.nx;
+        }
+    }
+}
+
+/// Cfg alias: picks the SDF coverage on `std`, the supersample
+/// coverage on `no_std`. Callers never select directly.
+#[cfg(feature = "std")]
+pub(super) use quad_pixel_coverage_row_sdf as quad_pixel_coverage_row;
+#[cfg(not(feature = "std"))]
+pub(super) use quad_pixel_coverage_row_supersample as quad_pixel_coverage_row;
+
+/// 2×2 supersample coverage for the pixel whose row state is `row`.
+/// Returns a `Fixed` in `{0, 0.25, 0.5, 0.75, 1}`. Hot path is four
+/// add-and-sign-test per sample per edge, no divides — used on targets
+/// where Fixed64 multiply is a software i64 shim.
+#[cfg(not(feature = "std"))]
 #[inline]
-pub(super) fn quad_pixel_coverage_sdf_inner(
+pub(super) fn quad_pixel_coverage_row_supersample(
     edges: &[PreparedEdge; 4],
     corners: Option<&[PreparedCorner; 4]>,
     cx: Fixed,
     cy: Fixed,
+    row: &EdgeRowState,
 ) -> Fixed {
-    // For each edge compute sd = (dx·nx + dy·ny) / |n| in Fixed64 to
-    // avoid Q24.8 overflow at screen scale. min over the 4 edges gives
-    // the nearest straight-edge distance; positive = inside.
+    // Per sample, test all four edges (left-hand signed distance > 0
+    // means inside that edge; inside all four = inside the quad).
+    // Early-abort on the first edge that excludes the sample: most
+    // samples bail after one or two edge checks on the hot path.
+    let s00 = sample_inside(edges, row, -1, -1);
+    let s10 = sample_inside(edges, row, 1, -1);
+    let s01 = sample_inside(edges, row, -1, 1);
+    let s11 = sample_inside(edges, row, 1, 1);
+    let mut hit = s00 as u32 + s10 as u32 + s01 as u32 + s11 as u32;
+
+    // Rounded corners: inside the outward wedge, override with a disk
+    // hit test (sub-sample distance² < r²). `break` keeps the loop at
+    // O(1) — wedges don't overlap.
+    if let Some(corner_arr) = corners {
+        for c in corner_arr {
+            let dx = cx - c.center.x;
+            let dy = cy - c.center.y;
+            let proj_a = dx * c.ua.x + dy * c.ua.y;
+            let proj_b = dx * c.ub.x + dy * c.ub.y;
+            if proj_a < Fixed::ZERO && proj_b < Fixed::ZERO {
+                hit = corner_sample_hit(c, cx, cy);
+                break;
+            }
+        }
+    }
+
+    match hit {
+        0 => Fixed::ZERO,
+        1 => Fixed::from_raw(64),  // 0.25 in Q24.8
+        2 => Fixed::from_raw(128), // 0.5
+        3 => Fixed::from_raw(192), // 0.75
+        _ => Fixed::ONE,
+    }
+}
+
+/// Sample at offset (sx, sy) × 0.25 pixel from the row anchor. `sx` /
+/// `sy` are `-1` or `+1`. Returns `true` if the sample is inside all
+/// four edges.
+#[cfg(not(feature = "std"))]
+#[inline(always)]
+fn sample_inside(edges: &[PreparedEdge; 4], row: &EdgeRowState, sx: i32, sy: i32) -> bool {
+    for (e, raw_center) in edges.iter().zip(row.raw.iter()) {
+        let qx = Fixed::from_raw(sx * e.qx.raw());
+        let qy = Fixed::from_raw(sy * e.qy.raw());
+        let raw = *raw_center + qx + qy;
+        if raw.raw() < 0 {
+            return false;
+        }
+    }
+    true
+}
+
+/// Count how many of a corner's four sub-samples sit inside the disk.
+/// Used only for pixels that fall in the corner's outward wedge.
+#[cfg(not(feature = "std"))]
+#[inline]
+fn corner_sample_hit(c: &PreparedCorner, cx: Fixed, cy: Fixed) -> u32 {
+    let r = c.radius;
+    let r_sq_raw = r.raw() as i64 * r.raw() as i64;
+    let quarter = Fixed::from_raw(64); // 0.25
+    let offsets = [
+        (-quarter, -quarter),
+        (quarter, -quarter),
+        (-quarter, quarter),
+        (quarter, quarter),
+    ];
+    let mut hit = 0u32;
+    for (dx, dy) in offsets {
+        let sx = (cx + dx) - c.center.x;
+        let sy = (cy + dy) - c.center.y;
+        // |sample − center|² < r²: done as i64 to avoid Fixed overflow
+        // on big corners; each multiply is a single RV32M `mulh` pair,
+        // roughly the cost of a Fixed split multiply.
+        let sx_raw = sx.raw() as i64;
+        let sy_raw = sy.raw() as i64;
+        if sx_raw * sx_raw + sy_raw * sy_raw < r_sq_raw {
+            hit += 1;
+        }
+    }
+    hit
+}
+
+/// SDF coverage for the pixel whose row state is `row`. Returns a
+/// continuous `Fixed` in `[0, 1]`. Uses Fixed64 to normalise raw signed
+/// distance to pixel units, which gives smooth 256-step coverage but
+/// pays an i64 shim on RV32 targets — only enabled on `std` builds.
+#[cfg(feature = "std")]
+#[inline]
+pub(super) fn quad_pixel_coverage_row_sdf(
+    edges: &[PreparedEdge; 4],
+    corners: Option<&[PreparedCorner; 4]>,
+    cx: Fixed,
+    cy: Fixed,
+    row: &EdgeRowState,
+) -> Fixed {
     let mut min_sdf = Fixed::MAX;
-    for e in edges {
-        let dx = cx - e.base.x;
-        let dy = cy - e.base.y;
-        let raw = Fixed64::from_fixed(dx) * Fixed64::from_fixed(e.nx)
-            + Fixed64::from_fixed(dy) * Fixed64::from_fixed(e.ny);
+    for (e, raw_fixed) in edges.iter().zip(row.raw.iter()) {
+        let raw = Fixed64::from_fixed(*raw_fixed);
+        let raw_sq = raw * raw;
+        if raw_sq >= e.half_len_sq {
+            // Safely inside or outside the ±0.5 band.
+            if raw.raw() < 0 {
+                return Fixed::ZERO;
+            }
+            continue;
+        }
         let d = (raw * e.inv_len).to_fixed();
         if d < min_sdf {
             min_sdf = d;
         }
     }
 
-    // Corners: override edge SDF inside each outward wedge.
     if let Some(corner_arr) = corners {
         for c in corner_arr {
             let dx = cx - c.center.x;
@@ -126,12 +291,11 @@ pub(super) fn quad_pixel_coverage_sdf_inner(
                 if corner_sdf < min_sdf {
                     min_sdf = corner_sdf;
                 }
-                break; // wedges are disjoint
+                break;
             }
         }
     }
 
-    // Map SDF ∈ [−0.5, +0.5] → coverage ∈ [0, 1].
     if min_sdf >= HALF {
         Fixed::ONE
     } else if min_sdf <= -HALF {
@@ -171,7 +335,8 @@ mod tests {
     fn cov_at(edges: &[PreparedEdge; 4], px: i32, py: i32) -> Fixed {
         let cx = Fixed::from_int(px) + HALF;
         let cy = Fixed::from_int(py) + HALF;
-        quad_pixel_coverage_sdf_inner(edges, None, cx, cy)
+        let row = EdgeRowState::new(edges, cx, cy);
+        quad_pixel_coverage_row(edges, None, cx, cy, &row)
     }
 
     #[test]
