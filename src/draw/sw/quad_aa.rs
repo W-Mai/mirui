@@ -1,32 +1,30 @@
-//! Quad coverage with two complementary implementations.
+//! Quad coverage with three implementations selected by feature.
 //!
-//! - **`std` builds** (desktop SDL / SDL GPU / anywhere CPU is cheap and
-//!   visual quality matters) use a full Fixed64 signed-distance field.
-//!   Each pixel gets smoothly varying coverage, no visible quantisation
-//!   at edges, good for large screens and rapid scroll.
-//! - **`no_std` builds** (MCU targets; ESP32-C3 is the driver) use a
-//!   2×2 supersample that quantises coverage to
-//!   `{0, 0.25, 0.5, 0.75, 1}`. An order of magnitude cheaper per
-//!   pixel: the sample test is four integer adds + sign check per edge,
-//!   no divide, no sqrt. On a 128×160 panel the 4-step quantisation is
-//!   not visible.
+//! - **`quad-aa` + `std`** (desktop SDL / SDL GPU): Fixed64 signed-distance
+//!   field, smooth 256-step coverage.
+//! - **`quad-aa` without `std`** (MCU): 2×2 supersample, coverage
+//!   quantised to `{0, 0.25, 0.5, 0.75, 1}`. Each sample test is four
+//!   integer adds + sign check per edge, no divide / no sqrt.
+//! - **Neither** (`default-features = false` without `quad-aa`): binary
+//!   point-in-quad, the v0.9.x fill behaviour — hard-edged but cheapest.
+//!   Pick this when an MCU can't spare the supersample cycles.
 //!
-//! Both paths share `PreparedEdge` and `EdgeRowState`; only the final
-//! per-pixel coverage function differs. Caller code uses
-//! `quad_pixel_coverage_row`, which is a cfg alias for the right one.
+//! `PreparedEdge` / `EdgeRowState` are shared; only the per-pixel
+//! coverage function switches. Caller code uses
+//! `quad_pixel_coverage_row`, a cfg alias for the active implementation.
 //!
 //! Winding: `prepare_quad_edges` normalises to left-hand-inside so
 //! positive signed distance means inside regardless of the caller's
 //! vertex winding.
 
-#[cfg(feature = "std")]
+#[cfg(all(feature = "quad-aa", feature = "std"))]
 use crate::types::Fixed64;
 use crate::types::{Fixed, Point};
 
 /// Half the pixel diagonal extent along any unit normal: √2/2 ≈ 0.707.
 /// AA band width is conservatively taken as one full pixel (±0.5) so any
 /// pixel straddling an edge gets a linear falloff rather than a step.
-#[cfg(any(feature = "std", test))]
+#[cfg(any(all(feature = "quad-aa", feature = "std"), test))]
 const HALF: Fixed = Fixed::from_raw(128); // 0.5
 
 #[derive(Clone, Copy)]
@@ -38,20 +36,20 @@ pub(super) struct PreparedEdge {
     pub ny: Fixed,
     /// `1 / |normal|` as Fixed64, used by the std (SDF) path to turn
     /// raw signed distance into pixel units.
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "quad-aa", feature = "std"))]
     pub inv_len: Fixed64,
     /// `(|n| / 2)²` as Fixed64 — the std (SDF) band cut-off. Raw²
     /// compared against this tells the hot path whether to skip the
     /// normalise.
-    #[cfg(feature = "std")]
+    #[cfg(all(feature = "quad-aa", feature = "std"))]
     pub half_len_sq: Fixed64,
     /// Quarter-normal increments used by the no_std 2×2 supersample
     /// path. A sample offset of ±0.25 along x or y shifts raw by
     /// ±(nx / 4) and ±(ny / 4); caching both keeps the inner loop to
     /// a single integer add + sign bit read per sample per edge.
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(feature = "quad-aa", not(feature = "std")))]
     pub qx: Fixed,
-    #[cfg(not(feature = "std"))]
+    #[cfg(all(feature = "quad-aa", not(feature = "std")))]
     pub qy: Fixed,
 }
 
@@ -68,7 +66,7 @@ pub(super) fn prepare_quad_edges(q: &[Point; 4], cw: bool) -> [PreparedEdge; 4] 
         let edge_dy = b.y - a.y;
         let nx = -edge_dy;
         let ny = edge_dx;
-        #[cfg(feature = "std")]
+        #[cfg(all(feature = "quad-aa", feature = "std"))]
         let (inv_len, half_len_sq) = {
             // |n|² = |edge|² since rot90 preserves length. Fixed64
             // because the square of a screen-scale edge can overflow
@@ -83,7 +81,7 @@ pub(super) fn prepare_quad_edges(q: &[Point; 4], cw: bool) -> [PreparedEdge; 4] 
             };
             (inv_len, Fixed64::from_raw(len_sq.raw() / 4))
         };
-        #[cfg(not(feature = "std"))]
+        #[cfg(all(feature = "quad-aa", not(feature = "std")))]
         let (qx, qy) = {
             // Sample offset ±0.25 pixel along either axis shifts raw by
             // ±(n / 4). Precompute once per quad — the hot path reads
@@ -94,13 +92,13 @@ pub(super) fn prepare_quad_edges(q: &[Point; 4], cw: bool) -> [PreparedEdge; 4] 
             base: a,
             nx,
             ny,
-            #[cfg(feature = "std")]
+            #[cfg(all(feature = "quad-aa", feature = "std"))]
             inv_len,
-            #[cfg(feature = "std")]
+            #[cfg(all(feature = "quad-aa", feature = "std"))]
             half_len_sq,
-            #[cfg(not(feature = "std"))]
+            #[cfg(all(feature = "quad-aa", not(feature = "std")))]
             qx,
-            #[cfg(not(feature = "std"))]
+            #[cfg(all(feature = "quad-aa", not(feature = "std")))]
             qy,
         }
     })
@@ -145,18 +143,65 @@ impl EdgeRowState {
     }
 }
 
-/// Cfg alias: picks the SDF coverage on `std`, the supersample
-/// coverage on `no_std`. Callers never select directly.
-#[cfg(feature = "std")]
+#[cfg(not(feature = "quad-aa"))]
+pub(super) use quad_pixel_coverage_row_binary as quad_pixel_coverage_row;
+/// Cfg alias: picks the SDF coverage with `quad-aa + std`, the
+/// supersample coverage with `quad-aa` on `no_std`, or the binary
+/// point-in-quad test when `quad-aa` is disabled. Callers never select
+/// directly.
+#[cfg(all(feature = "quad-aa", feature = "std"))]
 pub(super) use quad_pixel_coverage_row_sdf as quad_pixel_coverage_row;
-#[cfg(not(feature = "std"))]
+#[cfg(all(feature = "quad-aa", not(feature = "std")))]
 pub(super) use quad_pixel_coverage_row_supersample as quad_pixel_coverage_row;
+
+/// Binary coverage — the v0.9.x hard-edge fill. Returns `Fixed::ONE` if
+/// the pixel center is inside all four edges, else `Fixed::ZERO`. No
+/// rounded-corner support here either; the corner disk still takes a
+/// sample, just a binary one.
+#[cfg(not(feature = "quad-aa"))]
+#[inline]
+pub(super) fn quad_pixel_coverage_row_binary(
+    _edges: &[PreparedEdge; 4],
+    corners: Option<&[PreparedCorner; 4]>,
+    cx: Fixed,
+    cy: Fixed,
+    row: &EdgeRowState,
+) -> Fixed {
+    // Any edge with a negative raw signed distance at the pixel center
+    // excludes this pixel.
+    for raw in row.raw.iter() {
+        if raw.raw() < 0 {
+            return Fixed::ZERO;
+        }
+    }
+    // Rounded corner: pixel center inside the outward wedge AND outside
+    // the disk means it's clipped off.
+    if let Some(corner_arr) = corners {
+        for c in corner_arr {
+            let dx = cx - c.center.x;
+            let dy = cy - c.center.y;
+            let proj_a = dx * c.ua.x + dy * c.ua.y;
+            let proj_b = dx * c.ub.x + dy * c.ub.y;
+            if proj_a < Fixed::ZERO && proj_b < Fixed::ZERO {
+                let dx_raw = dx.raw() as i64;
+                let dy_raw = dy.raw() as i64;
+                let dist_sq = dx_raw * dx_raw + dy_raw * dy_raw;
+                let r_raw = c.radius.raw() as i64;
+                if dist_sq > r_raw * r_raw {
+                    return Fixed::ZERO;
+                }
+                break;
+            }
+        }
+    }
+    Fixed::ONE
+}
 
 /// 2×2 supersample coverage for the pixel whose row state is `row`.
 /// Returns a `Fixed` in `{0, 0.25, 0.5, 0.75, 1}`. Hot path is four
 /// add-and-sign-test per sample per edge, no divides — used on targets
 /// where Fixed64 multiply is a software i64 shim.
-#[cfg(not(feature = "std"))]
+#[cfg(all(feature = "quad-aa", not(feature = "std")))]
 #[inline]
 pub(super) fn quad_pixel_coverage_row_supersample(
     edges: &[PreparedEdge; 4],
@@ -203,7 +248,7 @@ pub(super) fn quad_pixel_coverage_row_supersample(
 /// Sample at offset (sx, sy) × 0.25 pixel from the row anchor. `sx` /
 /// `sy` are `-1` or `+1`. Returns `true` if the sample is inside all
 /// four edges.
-#[cfg(not(feature = "std"))]
+#[cfg(all(feature = "quad-aa", not(feature = "std")))]
 #[inline(always)]
 fn sample_inside(edges: &[PreparedEdge; 4], row: &EdgeRowState, sx: i32, sy: i32) -> bool {
     for (e, raw_center) in edges.iter().zip(row.raw.iter()) {
@@ -219,7 +264,7 @@ fn sample_inside(edges: &[PreparedEdge; 4], row: &EdgeRowState, sx: i32, sy: i32
 
 /// Count how many of a corner's four sub-samples sit inside the disk.
 /// Used only for pixels that fall in the corner's outward wedge.
-#[cfg(not(feature = "std"))]
+#[cfg(all(feature = "quad-aa", not(feature = "std")))]
 #[inline]
 fn corner_sample_hit(c: &PreparedCorner, cx: Fixed, cy: Fixed) -> u32 {
     let r = c.radius;
@@ -251,7 +296,7 @@ fn corner_sample_hit(c: &PreparedCorner, cx: Fixed, cy: Fixed) -> u32 {
 /// continuous `Fixed` in `[0, 1]`. Uses Fixed64 to normalise raw signed
 /// distance to pixel units, which gives smooth 256-step coverage but
 /// pays an i64 shim on RV32 targets — only enabled on `std` builds.
-#[cfg(feature = "std")]
+#[cfg(all(feature = "quad-aa", feature = "std"))]
 #[inline]
 pub(super) fn quad_pixel_coverage_row_sdf(
     edges: &[PreparedEdge; 4],
@@ -353,6 +398,9 @@ mod tests {
         assert_eq!(cov_at(&edges, 20, 20), Fixed::ZERO);
     }
 
+    // Partial coverage only makes sense under `quad-aa`; the binary
+    // fallback returns 0 or 1, never anything in between.
+    #[cfg(feature = "quad-aa")]
     #[test]
     fn straight_quad_edge_half_cov() {
         // Shift right edge so it falls through pixel (9, 5) center.

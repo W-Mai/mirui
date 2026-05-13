@@ -19,11 +19,17 @@ members = [".", "xtask", "mirui-macros"]
 [dependencies]
 
 [features]
-default = []
+default = ["quad-aa"]
 std = []
 sdl = ["dep:sdl2", "std"]
 sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon", "dep:lru"]
 perf = []
+# Anti-aliasing for 3D-transformed quads. On `std` this uses a Fixed64
+# signed-distance field for smooth coverage; on `no_std` it degrades to
+# a 2×2 supersample (5 coverage steps). Disable to get the old v0.9.x
+# hard-edge binary fill back — embedded targets that can't spare the
+# cycles should `default-features = false`.
+quad-aa = []
 
 [dependencies.sdl2]
 version = "0.37"
