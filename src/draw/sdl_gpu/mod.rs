@@ -11,6 +11,7 @@ mod label;
 mod label_cache;
 mod line;
 mod path;
+mod quad;
 mod rect_fill;
 mod rect_stroke;
 mod tessellation;
@@ -239,11 +240,41 @@ impl Renderer for SdlGpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
-        if matches!(
-            cmd,
-            DrawCommand::Fill { quad: Some(_), .. } | DrawCommand::Blit { quad: Some(_), .. }
-        ) {
-            unimplemented!("sdl_gpu: 3D quad rendering not yet supported");
+        // Quad fast paths short-circuit before the axis-aligned
+        // translate/transform branch: the render_system has already
+        // pre-projected any 3D/2D affine into the 4 quad vertices, so
+        // the GPU just needs to tessellate / UV-map them.
+        match cmd {
+            DrawCommand::Fill {
+                quad: Some(q),
+                radius,
+                color,
+                opa,
+                ..
+            } => {
+                self.fill_quad_inner(q, *radius, color, *opa, clip);
+                return;
+            }
+            DrawCommand::Border {
+                quad: Some(q),
+                width,
+                radius,
+                color,
+                opa,
+                ..
+            } => {
+                self.stroke_quad_inner(q, *width, *radius, color, *opa, clip);
+                return;
+            }
+            DrawCommand::Blit {
+                quad: Some(q),
+                texture,
+                ..
+            } => {
+                self.blit_quad_inner(texture, q, clip);
+                return;
+            }
+            _ => {}
         }
 
         let tf = cmd.transform();
