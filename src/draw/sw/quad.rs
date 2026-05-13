@@ -207,6 +207,7 @@ pub fn stroke_rect_quad(
     };
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
 
+    use super::quad_aa::{corner_pixel_coverage, quad_pixel_coverage};
     // Inner quad edges are parallel to outer edges (inset is a uniform
     // shift along incident edges), so both corner sets share the same
     // unit vectors — compute once, inset three times in one loop.
@@ -220,8 +221,6 @@ pub fn stroke_rect_quad(
         inner_corners[i] = shapes[i].inset(inner_radius);
         inner[i] = shapes[i].inset(width).center;
     }
-    let outer_r_sq = radius * radius;
-    let inner_r_sq = inner_radius * inner_radius;
     let degenerate_inner = inner_quad_is_degenerate(&inner);
 
     for py in px_y0..px_y1 {
@@ -234,31 +233,51 @@ pub fn stroke_rect_quad(
         if xro_px <= xlo_px {
             continue;
         }
-        let inner_span = if degenerate_inner {
-            None
-        } else {
-            quad_row_span(&inner, py_f)
-        };
         for px in xlo_px..xro_px {
+            let outer_edge_cov = quad_pixel_coverage(q, px, py);
+            if outer_edge_cov == Fixed::ZERO {
+                continue;
+            }
             let p = Point {
                 x: Fixed::from_int(px) + Fixed::from_raw(128),
                 y: py_f,
             };
-            if pixel_clipped_by_corner(&outer_corners, p, outer_r_sq) {
-                continue;
-            }
-            let in_inner = if let Some((x_li, x_ri)) = inner_span {
-                p.x >= x_li && p.x < x_ri && !pixel_clipped_by_corner(&inner_corners, p, inner_r_sq)
-            } else {
-                false
+            let outer_cov = match pixel_in_corner_wedge(&outer_corners, p) {
+                Some(c) => outer_edge_cov * corner_pixel_coverage(px, py, c.center, radius),
+                None => outer_edge_cov,
             };
-            if in_inner {
+            let inner_cov = if degenerate_inner {
+                Fixed::ZERO
+            } else {
+                let inner_edge_cov = quad_pixel_coverage(&inner, px, py);
+                if inner_edge_cov == Fixed::ZERO {
+                    Fixed::ZERO
+                } else {
+                    match pixel_in_corner_wedge(&inner_corners, p) {
+                        Some(c) => {
+                            inner_edge_cov * corner_pixel_coverage(px, py, c.center, inner_radius)
+                        }
+                        None => inner_edge_cov,
+                    }
+                }
+            };
+            let stroke_cov = (outer_cov - inner_cov).max(Fixed::ZERO);
+            if stroke_cov == Fixed::ZERO {
                 continue;
             }
-            if opa == 255 {
+            let final_opa = if stroke_cov == Fixed::ONE {
+                opa
+            } else {
+                let c = (stroke_cov * Fixed::from_int(opa as i32)).to_int() as u8;
+                if c == 0 {
+                    continue;
+                }
+                c
+            };
+            if final_opa == 255 {
                 dst.set_pixel(px, py, color);
             } else {
-                dst.blend_pixel_int(px, py, color, opa);
+                dst.blend_pixel_int(px, py, color, final_opa);
             }
         }
     }
@@ -338,25 +357,6 @@ fn unit_vec(dx: Fixed, dy: Fixed) -> Point {
 
 fn build_corner_info(q: &[Point; 4], r: Fixed) -> [CornerInfo; 4] {
     build_corner_shapes(q).map(|s| s.inset(r))
-}
-
-/// Pixel is clipped by a corner iff it is in that corner's outward wedge
-/// (both edge projections negative, i.e. past the corner vertex in both
-/// directions) AND farther than r from the corner center.
-fn pixel_clipped_by_corner(corners: &[CornerInfo; 4], p: Point, r_sq: Fixed) -> bool {
-    for c in corners {
-        let dx = p.x - c.center.x;
-        let dy = p.y - c.center.y;
-        let proj_a = dx * c.ua.x + dy * c.ua.y;
-        let proj_b = dx * c.ub.x + dy * c.ub.y;
-        if proj_a < Fixed::ZERO && proj_b < Fixed::ZERO {
-            let dist_sq = dx * dx + dy * dy;
-            if dist_sq > r_sq {
-                return true;
-            }
-        }
-    }
-    false
 }
 
 /// If pixel center `p` lies in some corner's outward wedge, return a
