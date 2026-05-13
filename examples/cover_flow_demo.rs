@@ -5,6 +5,7 @@ use mirui::components::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::components::transform_3d::WidgetTransform3D;
 use mirui::ecs::World;
 use mirui::layout::*;
+use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
 use mirui::widget::builder::WidgetBuilder;
@@ -156,5 +157,7 @@ fn main() {
     };
 
     app.set_root(root);
+    app.add_plugin(StdInstantClockPlugin::default())
+        .add_plugin(FpsSummaryPlugin::default());
     app.run();
 }
