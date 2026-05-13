@@ -6,7 +6,13 @@
 //! `SDL_RenderGeometry` (unsafe FFI) for tessellated paths. No CPU
 //! framebuffer, no `FramebufferAccess` impl.
 
+mod blit;
+mod label;
 mod label_cache;
+mod line;
+mod path;
+mod rect_fill;
+mod rect_stroke;
 mod tessellation;
 
 use sdl2::EventPump;
@@ -199,7 +205,7 @@ pub struct SdlGpuRenderer<'a> {
 }
 
 impl SdlGpuRenderer<'_> {
-    fn submit_geometry(&mut self, phys_clip: &Rect, needs_blend: bool) {
+    pub(super) fn submit_geometry(&mut self, phys_clip: &Rect, needs_blend: bool) {
         if self.tessellator.indices.is_empty() {
             return;
         }
@@ -226,60 +232,6 @@ impl SdlGpuRenderer<'_> {
             );
         }
         self.canvas.set_clip_rect(None);
-    }
-
-    /// Path-scale helper to feed the tessellator (which produces physical
-    /// vertex positions) the path already in physical coords.
-    fn scale_path(&self, path: &Path) -> Path {
-        let s = self.viewport.scale();
-        let cmds = path
-            .cmds
-            .iter()
-            .map(|c| match c {
-                crate::draw::path::PathCmd::MoveTo(p) => {
-                    crate::draw::path::PathCmd::MoveTo(Point {
-                        x: p.x * s,
-                        y: p.y * s,
-                    })
-                }
-                crate::draw::path::PathCmd::LineTo(p) => {
-                    crate::draw::path::PathCmd::LineTo(Point {
-                        x: p.x * s,
-                        y: p.y * s,
-                    })
-                }
-                crate::draw::path::PathCmd::QuadTo { ctrl, end } => {
-                    crate::draw::path::PathCmd::QuadTo {
-                        ctrl: Point {
-                            x: ctrl.x * s,
-                            y: ctrl.y * s,
-                        },
-                        end: Point {
-                            x: end.x * s,
-                            y: end.y * s,
-                        },
-                    }
-                }
-                crate::draw::path::PathCmd::CubicTo { ctrl1, ctrl2, end } => {
-                    crate::draw::path::PathCmd::CubicTo {
-                        ctrl1: Point {
-                            x: ctrl1.x * s,
-                            y: ctrl1.y * s,
-                        },
-                        ctrl2: Point {
-                            x: ctrl2.x * s,
-                            y: ctrl2.y * s,
-                        },
-                        end: Point {
-                            x: end.x * s,
-                            y: end.y * s,
-                        },
-                    }
-                }
-                crate::draw::path::PathCmd::Close => crate::draw::path::PathCmd::Close,
-            })
-            .collect();
-        Path { cmds }
     }
 }
 
@@ -407,7 +359,7 @@ fn offset_point(p: &crate::types::Point, tx: Fixed, ty: Fixed) -> crate::types::
 /// `sdl2::rect::Rect`. Both inputs are assumed to be in physical pixels
 /// (render_system runs `scale_rects` before calling into the renderer).
 /// Returns `None` if the intersection is empty.
-fn sdl_pixel_rect(area: &Rect, clip: &Rect) -> Option<sdl2::rect::Rect> {
+pub(super) fn sdl_pixel_rect(area: &Rect, clip: &Rect) -> Option<sdl2::rect::Rect> {
     let inter = area.intersect(clip)?;
     let (x0, y0, x1, y1) = inter.pixel_bounds();
     if x1 <= x0 || y1 <= y0 {
@@ -424,7 +376,7 @@ fn sdl_pixel_rect(area: &Rect, clip: &Rect) -> Option<sdl2::rect::Rect> {
 /// Configure the canvas draw colour + blend mode for a solid primitive
 /// using `(color, opa)`. Blend off when fully opaque to skip the blend
 /// shader path.
-fn apply_solid_color(canvas: &mut SdlCanvas<Window>, color: &Color, opa: u8) {
+pub(super) fn apply_solid_color(canvas: &mut SdlCanvas<Window>, color: &Color, opa: u8) {
     let a = ((color.a as u16) * (opa as u16) / 255) as u8;
     canvas.set_blend_mode(if a == 255 {
         sdl2::render::BlendMode::None
@@ -436,17 +388,7 @@ fn apply_solid_color(canvas: &mut SdlCanvas<Window>, color: &Color, opa: u8) {
 
 impl Canvas for SdlGpuRenderer<'_> {
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
-        let phys_area = self.viewport.rect_to_physical(*area);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        if radius == Fixed::ZERO {
-            if let Some(sdl_rect) = sdl_pixel_rect(&phys_area, &phys_clip) {
-                apply_solid_color(self.canvas, color, opa);
-                let _ = self.canvas.fill_rect(sdl_rect);
-            }
-            return;
-        }
-        let path = Path::rounded_rect(area.x, area.y, area.w, area.h, radius);
-        self.fill_path(&path, clip, color, opa);
+        self.fill_rect_inner(area, clip, color, radius, opa);
     }
 
     fn stroke_rect(
@@ -458,23 +400,7 @@ impl Canvas for SdlGpuRenderer<'_> {
         radius: Fixed,
         opa: u8,
     ) {
-        if radius == Fixed::ZERO && width == Fixed::ONE {
-            let phys_area = self.viewport.rect_to_physical(*area);
-            let phys_clip = self.viewport.rect_to_physical(*clip);
-            if let Some(sdl_rect) = sdl_pixel_rect(&phys_area, &phys_clip) {
-                apply_solid_color(self.canvas, color, opa);
-                let _ = self.canvas.draw_rect(sdl_rect);
-            }
-            return;
-        }
-        let path = Path::rounded_rect(
-            area.x + width / 2,
-            area.y + width / 2,
-            area.w - width,
-            area.h - width,
-            (radius - width / 2).max(Fixed::ZERO),
-        );
-        self.stroke_path(&path, clip, width, color, opa);
+        self.stroke_rect_inner(area, clip, width, color, radius, opa);
     }
 
     fn draw_line(
@@ -486,116 +412,27 @@ impl Canvas for SdlGpuRenderer<'_> {
         color: &Color,
         opa: u8,
     ) {
-        if width == Fixed::ONE {
-            let phys_clip = self.viewport.rect_to_physical(*clip);
-            let phys_p1 = self.viewport.point_to_physical(p1);
-            let phys_p2 = self.viewport.point_to_physical(p2);
-            let Some(clip_rect) = sdl_pixel_rect(&phys_clip, &phys_clip) else {
-                return;
-            };
-            self.canvas.set_clip_rect(clip_rect);
-            apply_solid_color(self.canvas, color, opa);
-            let _ = self.canvas.draw_line(
-                sdl2::rect::Point::new(phys_p1.x.to_int(), phys_p1.y.to_int()),
-                sdl2::rect::Point::new(phys_p2.x.to_int(), phys_p2.y.to_int()),
-            );
-            self.canvas.set_clip_rect(None);
-            return;
-        }
-        let mut path = Path::new();
-        path.move_to(p1).line_to(p2);
-        self.stroke_path(&path, clip, width, color, opa);
+        self.draw_line_inner(p1, p2, clip, width, color, opa);
     }
 
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
-        let phys_path = self.scale_path(path);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        self.tessellator.fill(&phys_path, color, opa);
-        self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
+        self.fill_path_inner(path, clip, color, opa);
     }
 
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
-        let phys_path = self.scale_path(path);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        let physical_width = (width * self.viewport.scale()).to_f32().max(1.0);
-        self.tessellator
-            .stroke(&phys_path, physical_width, color, opa);
-        self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
+        self.stroke_path_inner(path, clip, width, color, opa);
     }
 
     fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
-        let sdl_fmt = match src.format {
-            ColorFormat::ARGB8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
-            ColorFormat::RGB888 => sdl2::pixels::PixelFormatEnum::RGB24,
-            ColorFormat::RGB565 => sdl2::pixels::PixelFormatEnum::RGB565,
-            ColorFormat::RGB565Swapped => {
-                // SDL has no BGR565 variant; round-trip via RGB565 would swap
-                // channels. Punt until we need it in practice.
-                return;
-            }
-        };
-
-        let phys_dst = self.viewport.point_to_physical(dst);
-        let phys_dst_size = self.viewport.point_to_physical(dst_size);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        let dx = phys_dst.x.to_int();
-        let dy = phys_dst.y.to_int();
-        let dw = phys_dst_size.x.to_int().max(0) as u32;
-        let dh = phys_dst_size.y.to_int().max(0) as u32;
-        if dw == 0 || dh == 0 {
-            return;
-        }
-        let (sx0, sy0, sx1, sy1) = src_rect.pixel_bounds();
-        let src_sdl = sdl2::rect::Rect::new(
-            sx0.max(0),
-            sy0.max(0),
-            (sx1 - sx0) as u32,
-            (sy1 - sy0) as u32,
-        );
-        let dst_sdl = sdl2::rect::Rect::new(dx, dy, dw, dh);
-
-        let Some(sdl_clip) = sdl_pixel_rect(&phys_clip, &phys_clip) else {
-            return;
-        };
-
-        let src_slice = src.buf.as_slice();
-        let stride = src.stride;
-        let src_width = src.width as u32;
-        let src_height = src.height as u32;
-
-        let canvas = &mut *self.canvas;
-        self.label_cache.with_creator(|creator| {
-            let mut tex = match creator.create_texture_streaming(sdl_fmt, src_width, src_height) {
-                Ok(t) => t,
-                Err(_) => return,
-            };
-            if tex.update(None, src_slice, stride).is_err() {
-                return;
-            }
-            tex.set_blend_mode(sdl2::render::BlendMode::Blend);
-
-            canvas.set_clip_rect(sdl_clip);
-            let _ = canvas.copy(&tex, Some(src_sdl), Some(dst_sdl));
-            canvas.set_clip_rect(None);
-        });
+        self.blit_inner(src, src_rect, dst, dst_size, clip);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
-        self.fill_rect(area, area, color, Fixed::ZERO, 255);
+        self.fill_rect_inner(area, area, color, Fixed::ZERO, 255);
     }
 
     fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
-        let phys_pos = self.viewport.point_to_physical(*pos);
-        let phys_clip = self.viewport.rect_to_physical(*clip);
-        self.label_cache.draw(
-            self.canvas,
-            &phys_pos,
-            text,
-            &phys_clip,
-            color,
-            opa,
-            self.viewport.scale(),
-        );
+        self.draw_label_inner(pos, text, clip, color, opa);
     }
 
     fn flush(&mut self) {}
