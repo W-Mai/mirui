@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-05-13
+
+### Border renders under 3D perspective
+
+`DrawCommand::Border` gained a `quad: Option<[Point; 4]>` field; when set, the software backend rasterizes the stroke as the difference of the outer rounded-rect scanline span and the inner one (outer quad shifted inward by `width`, inner radius `radius − width`). Covers framed cards in cover-flow-style layouts where the card is tilted.
+
+### Added
+
+- `TransformOrigin(x, y)` component — pivot for 2D / 3D transforms as fractions of the widget rect (`(0, 0)` = top-left, `(1, 1)` = bottom-right). Absent defaults to the widget centre, keeping the v0.8.x default. Book-flip effects (rotating around the spine) drop out of this.
+- `WidgetBuilder::transform_origin(x, y)` convenience method.
+- `examples/book_flip_demo.rs` — right page oscillates 0..120° around the spine with `TransformOrigin::new(0, 0.5)`.
+
+### Fixed
+
+- `stroke_rect` on the software backend applies the viewport scale like every other primitive does. Borders on retina / HiDPI (scale=2) setups previously drew at logical coordinates into the physical buffer, placing them at roughly the top-left quarter of where they should have been.
+- `draw_label` scales its 8×8 glyph bitmap by the viewport scale. Pre-fix labels on retina rendered at half the intended size because each glyph pixel wrote one physical pixel regardless of scale.
+
+### Changed
+
+- `ui!` DSL recognises `border_width` as a separate attribute (previously only `border_color` was, which forced width to 1 px).
+
 ## [0.8.4] - 2026-05-13
 
 ### Perspective raster rewritten scanline-based
