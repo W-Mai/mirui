@@ -62,6 +62,97 @@ impl Path {
         p
     }
 
+    /// Polygonal outline of an arbitrary quad `q[0..4]` with its four
+    /// corners rounded by radius `r`. Corners use the same cubic-bezier
+    /// approximation of a 90° arc as `rounded_rect` (k = 4/3 · tan(22.5°)).
+    ///
+    /// Vertices may be either winding; the produced path matches the
+    /// input order and the corners face "inward" geometrically (each
+    /// arc sits inside the polygon).
+    ///
+    /// If `r == 0` or an edge is shorter than `2r`, the path degrades
+    /// gracefully: the radius is clamped to half the shortest edge, so
+    /// adjacent arcs meet at the edge midpoint rather than overlapping.
+    pub fn rounded_quad(q: &[Point; 4], r: Fixed) -> Self {
+        // Clamp radius to half the shortest edge so rounded corners
+        // from adjacent edges never overlap.
+        let mut min_edge = Fixed::MAX;
+        let edges: [(Point, Point); 4] = [(q[0], q[1]), (q[1], q[2]), (q[2], q[3]), (q[3], q[0])];
+        let mut edge_lens = [Fixed::ZERO; 4];
+        let mut edge_dirs = [Point::ZERO; 4];
+        for i in 0..4 {
+            let (a, b) = edges[i];
+            let dx = b.x - a.x;
+            let dy = b.y - a.y;
+            let len = (dx * dx + dy * dy).sqrt();
+            edge_lens[i] = len;
+            if len > Fixed::ZERO {
+                edge_dirs[i] = Point {
+                    x: dx / len,
+                    y: dy / len,
+                };
+            }
+            if len < min_edge {
+                min_edge = len;
+            }
+        }
+        let r = r.min(min_edge / 2).max(Fixed::ZERO);
+
+        if r == Fixed::ZERO {
+            // Degenerate: plain quad polygon.
+            let mut p = Self::new();
+            p.move_to(q[0]);
+            p.line_to(q[1]);
+            p.line_to(q[2]);
+            p.line_to(q[3]);
+            p.close();
+            return p;
+        }
+
+        // k: bezier control offset for a 90° arc (~0.03% radius error).
+        let k = r * Fixed::from_f32(0.552_284_8);
+
+        // Per-edge start/end points, offset r from the corners.
+        let mut seg_start = [Point::ZERO; 4];
+        let mut seg_end = [Point::ZERO; 4];
+        for i in 0..4 {
+            let (a, b) = edges[i];
+            let ue = edge_dirs[i];
+            seg_start[i] = Point {
+                x: a.x + ue.x * r,
+                y: a.y + ue.y * r,
+            };
+            seg_end[i] = Point {
+                x: b.x - ue.x * r,
+                y: b.y - ue.y * r,
+            };
+        }
+
+        let mut p = Self::new();
+        p.move_to(seg_start[0]);
+        for i in 0..4 {
+            // Straight part of edge i.
+            p.line_to(seg_end[i]);
+            // Rounded corner at q[(i+1) % 4]: arc from edge i's end to
+            // edge (i+1)'s start. Control points extend along the
+            // incoming / outgoing edge tangents by k.
+            let ue_in = edge_dirs[i];
+            let j = (i + 1) & 3;
+            let ue_out = edge_dirs[j];
+            let c1 = Point {
+                x: seg_end[i].x + ue_in.x * k,
+                y: seg_end[i].y + ue_in.y * k,
+            };
+            let c2 = Point {
+                x: seg_start[j].x - ue_out.x * k,
+                y: seg_start[j].y - ue_out.y * k,
+            };
+            p.cubic_to(c1, c2, seg_start[j]);
+        }
+        p.close();
+        p
+    }
+
     pub fn rounded_rect(x: Fixed, y: Fixed, w: Fixed, h: Fixed, r: Fixed) -> Self {
         if r == Fixed::ZERO {
             return Self::rect(x, y, w, h);
@@ -378,5 +469,98 @@ mod tests {
         let eps = Fixed::from_f32(0.1);
         assert!(end.x.abs() <= eps);
         assert!((end.y - Fixed::from_int(-10)).abs() <= eps);
+    }
+
+    #[test]
+    fn rounded_quad_zero_radius_is_plain_polygon() {
+        let q = [
+            Point {
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(0),
+            },
+            Point {
+                x: Fixed::from_int(10),
+                y: Fixed::from_int(0),
+            },
+            Point {
+                x: Fixed::from_int(10),
+                y: Fixed::from_int(10),
+            },
+            Point {
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(10),
+            },
+        ];
+        let p = Path::rounded_quad(&q, Fixed::ZERO);
+        // Expect MoveTo + 3 × LineTo + Close. No CubicTo.
+        let mut has_cubic = false;
+        for c in &p.cmds {
+            if matches!(c, PathCmd::CubicTo { .. }) {
+                has_cubic = true;
+            }
+        }
+        assert!(!has_cubic);
+    }
+
+    #[test]
+    fn rounded_quad_axis_aligned_matches_rounded_rect_bbox() {
+        // When the quad is axis-aligned, its bbox after rounding must
+        // equal the input rect (control points of the bezier arcs sit
+        // on the rect corners, so bbox doesn't expand).
+        let q = [
+            Point {
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(0),
+            },
+            Point {
+                x: Fixed::from_int(20),
+                y: Fixed::from_int(0),
+            },
+            Point {
+                x: Fixed::from_int(20),
+                y: Fixed::from_int(20),
+            },
+            Point {
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(20),
+            },
+        ];
+        let p = Path::rounded_quad(&q, Fixed::from_int(4));
+        let bb = p.bbox().unwrap();
+        assert_eq!(bb.x.to_int(), 0);
+        assert_eq!(bb.y.to_int(), 0);
+        assert_eq!(bb.w.to_int(), 20);
+        assert_eq!(bb.h.to_int(), 20);
+    }
+
+    #[test]
+    fn rounded_quad_tilted_still_convex_bbox() {
+        // Tilted quad (kite shape). Just check the path builds without
+        // panicking and produces 4 arcs.
+        let q = [
+            Point {
+                x: Fixed::from_int(10),
+                y: Fixed::from_int(0),
+            },
+            Point {
+                x: Fixed::from_int(20),
+                y: Fixed::from_int(10),
+            },
+            Point {
+                x: Fixed::from_int(10),
+                y: Fixed::from_int(20),
+            },
+            Point {
+                x: Fixed::from_int(0),
+                y: Fixed::from_int(10),
+            },
+        ];
+        let p = Path::rounded_quad(&q, Fixed::from_int(2));
+        let cubic_count = p
+            .cmds
+            .iter()
+            .filter(|c| matches!(c, PathCmd::CubicTo { .. }))
+            .count();
+        assert_eq!(cubic_count, 4);
     }
 }
