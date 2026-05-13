@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-05-13
+
+Hotfix for the v0.10.0 quad AA regression on MCU targets. The shared Fixed64 signed-distance implementation that cover-flow edges rely on took ~2700 cycles per pixel on ESP32-C3 — cover-flow dropped from 42 fps (v0.9.2) to 10 fps. Unacceptable on any embedded target.
+
+The fix splits the per-pixel coverage function by cfg:
+
+- **`std` builds** keep the Fixed64 signed-distance field for smooth 256-step coverage. Desktop cover-flow stays at ~18 ms/frame (≈55 fps).
+- **`no_std` builds** use a 2×2 supersample instead. Coverage quantises to `{0, 0.25, 0.5, 0.75, 1}`, but each sample test reduces to four integer adds plus a sign bit read per edge — no divides, no Fixed64 shim. ESP32-C3 cover-flow: back up to 26 fps (from the 10 fps regression), vs the 42 fps baseline of v0.9.2.
+
+`PreparedEdge` now carries both sets of per-edge scratch (SDF path uses `inv_len` + `half_len_sq`, supersample path uses `qx` + `qy`) under cfg; the per-pixel entry point `quad_pixel_coverage_row` is a cfg alias that picks the right implementation. `EdgeRowState` is shared between both.
+
+No API changes at the public surface — this is a behaviour fix.
+
 ## [0.10.0] - 2026-05-13
 
 3D transforms finally look sharp. Two independent tracks landed together:
