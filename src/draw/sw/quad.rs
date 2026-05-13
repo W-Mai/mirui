@@ -33,9 +33,10 @@ pub fn quad_bbox(q: &[Point; 4]) -> Rect {
 }
 
 pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) {
-    use super::quad_aa::{quad_pixel_coverage, shoelace_is_cw};
+    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf, shoelace_is_cw};
     use crate::types::Transform3D;
     let cw = shoelace_is_cw(q);
+    let edges = prepare_quad_edges(q, cw);
     let src_rect = Rect::new(0, 0, src.width, src.height);
     let Some(forward) = Transform3D::from_quad(src_rect, q) else {
         return;
@@ -76,7 +77,7 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
         }
         for px in x_l_px..x_r_px {
             if w.raw() > 0 {
-                let edge_cov = quad_pixel_coverage(q, cw, px, py);
+                let edge_cov = quad_pixel_coverage_sdf(&edges, None, px, py);
                 if edge_cov != Fixed::ZERO {
                     let inv_w = Fixed64::ONE / w;
                     let sx = (big_x * inv_w).to_fixed().to_int();
@@ -138,9 +139,10 @@ pub fn fill_rect_quad(
     }
 
     let _ = (local_w, local_h);
-    use super::quad_aa::{corner_pixel_coverage, quad_pixel_coverage, shoelace_is_cw};
-    let corners = build_corner_info(q, radius);
+    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf, shoelace_is_cw};
     let cw = shoelace_is_cw(q);
+    let edges = prepare_quad_edges(q, cw);
+    let corners = prepare_corners(q, radius);
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
@@ -156,23 +158,7 @@ pub fn fill_rect_quad(
             quad_perf::FILL_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
         }
         for px in x_l_px..x_r_px {
-            let edge_cov = quad_pixel_coverage(q, cw, px, py);
-            if edge_cov == Fixed::ZERO {
-                continue;
-            }
-            // Corner disk only bites pixels sitting in one of the four
-            // outward wedges; the wedge test is cheap and lets the
-            // interior of the quad bypass the sqrt.
-            let cov = {
-                let p = Point {
-                    x: Fixed::from_int(px) + Fixed::from_raw(128),
-                    y: py_f,
-                };
-                match pixel_in_corner_wedge(&corners, p) {
-                    Some(c) => edge_cov * corner_pixel_coverage(px, py, c.center, radius),
-                    None => edge_cov,
-                }
-            };
+            let cov = quad_pixel_coverage_sdf(&edges, Some(&corners), px, py);
             if cov == Fixed::ZERO {
                 continue;
             }
@@ -220,22 +206,34 @@ pub fn stroke_rect_quad(
     };
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
 
-    use super::quad_aa::{corner_pixel_coverage, quad_pixel_coverage, shoelace_is_cw};
+    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf, shoelace_is_cw};
     let cw_outer = shoelace_is_cw(q);
-    // Inner quad edges are parallel to outer edges (inset is a uniform
-    // shift along incident edges), so both corner sets share the same
-    // unit vectors — compute once, inset three times in one loop.
-    let shapes = build_corner_shapes(q);
+    let outer_edges = prepare_quad_edges(q, cw_outer);
     let inner_radius = (radius - width).max(Fixed::ZERO);
-    let mut outer_corners = [CornerInfo::ZERO; 4];
-    let mut inner_corners = [CornerInfo::ZERO; 4];
+    let shapes = build_corner_shapes(q);
     let mut inner = [Point::ZERO; 4];
-    for i in 0..4 {
-        outer_corners[i] = shapes[i].inset(radius);
-        inner_corners[i] = shapes[i].inset(inner_radius);
-        inner[i] = shapes[i].inset(width).center;
-    }
+    let outer_corners: [super::quad_aa::PreparedCorner; 4] =
+        core::array::from_fn(|i| super::quad_aa::PreparedCorner {
+            center: shapes[i].inset_center(radius),
+            ua: shapes[i].ua,
+            ub: shapes[i].ub,
+            radius,
+        });
+    let inner_corners: [super::quad_aa::PreparedCorner; 4] = core::array::from_fn(|i| {
+        inner[i] = shapes[i].inset_center(width);
+        super::quad_aa::PreparedCorner {
+            center: shapes[i].inset_center(inner_radius),
+            ua: shapes[i].ua,
+            ub: shapes[i].ub,
+            radius: inner_radius,
+        }
+    });
     let degenerate_inner = inner_quad_is_degenerate(&inner);
+    let inner_edges = if degenerate_inner {
+        None
+    } else {
+        Some(prepare_quad_edges(&inner, cw_outer))
+    };
 
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
@@ -247,33 +245,16 @@ pub fn stroke_rect_quad(
         if xro_px <= xlo_px {
             continue;
         }
+        let _ = py_f;
         for px in xlo_px..xro_px {
-            let outer_edge_cov = quad_pixel_coverage(q, cw_outer, px, py);
-            if outer_edge_cov == Fixed::ZERO {
+            let outer_cov = quad_pixel_coverage_sdf(&outer_edges, Some(&outer_corners), px, py);
+            if outer_cov == Fixed::ZERO {
                 continue;
             }
-            let p = Point {
-                x: Fixed::from_int(px) + Fixed::from_raw(128),
-                y: py_f,
-            };
-            let outer_cov = match pixel_in_corner_wedge(&outer_corners, p) {
-                Some(c) => outer_edge_cov * corner_pixel_coverage(px, py, c.center, radius),
-                None => outer_edge_cov,
-            };
-            let inner_cov = if degenerate_inner {
-                Fixed::ZERO
+            let inner_cov = if let Some(ie) = &inner_edges {
+                quad_pixel_coverage_sdf(ie, Some(&inner_corners), px, py)
             } else {
-                let inner_edge_cov = quad_pixel_coverage(&inner, cw_outer, px, py);
-                if inner_edge_cov == Fixed::ZERO {
-                    Fixed::ZERO
-                } else {
-                    match pixel_in_corner_wedge(&inner_corners, p) {
-                        Some(c) => {
-                            inner_edge_cov * corner_pixel_coverage(px, py, c.center, inner_radius)
-                        }
-                        None => inner_edge_cov,
-                    }
-                }
+                Fixed::ZERO
             };
             let stroke_cov = (outer_cov - inner_cov).max(Fixed::ZERO);
             if stroke_cov == Fixed::ZERO {
@@ -318,30 +299,13 @@ struct CornerShape {
     ub: Point,
 }
 
-#[derive(Clone, Copy)]
-struct CornerInfo {
-    center: Point,
-    ua: Point,
-    ub: Point,
-}
-
-impl CornerInfo {
-    const ZERO: Self = Self {
-        center: Point::ZERO,
-        ua: Point::ZERO,
-        ub: Point::ZERO,
-    };
-}
-
 impl CornerShape {
-    fn inset(&self, r: Fixed) -> CornerInfo {
-        CornerInfo {
-            center: Point {
-                x: self.vertex.x + self.ua.x * r + self.ub.x * r,
-                y: self.vertex.y + self.ua.y * r + self.ub.y * r,
-            },
-            ua: self.ua,
-            ub: self.ub,
+    /// Inset center: where a rounded corner of radius `r` has its
+    /// circle center, measured as `vertex + r·ua + r·ub`.
+    fn inset_center(&self, r: Fixed) -> Point {
+        Point {
+            x: self.vertex.x + self.ua.x * r + self.ub.x * r,
+            y: self.vertex.y + self.ua.y * r + self.ub.y * r,
         }
     }
 }
@@ -369,24 +333,17 @@ fn unit_vec(dx: Fixed, dy: Fixed) -> Point {
     }
 }
 
-fn build_corner_info(q: &[Point; 4], r: Fixed) -> [CornerInfo; 4] {
-    build_corner_shapes(q).map(|s| s.inset(r))
-}
-
-/// If pixel center `p` lies in some corner's outward wedge, return a
-/// reference to that corner (so the caller can do analytic disk cov).
-/// A pixel is in at most one wedge (wedges are disjoint by construction).
-fn pixel_in_corner_wedge(corners: &[CornerInfo; 4], p: Point) -> Option<&CornerInfo> {
-    for c in corners {
-        let dx = p.x - c.center.x;
-        let dy = p.y - c.center.y;
-        let proj_a = dx * c.ua.x + dy * c.ua.y;
-        let proj_b = dx * c.ub.x + dy * c.ub.y;
-        if proj_a < Fixed::ZERO && proj_b < Fixed::ZERO {
-            return Some(c);
-        }
-    }
-    None
+/// Bundle each corner's shape + radius into the form
+/// `quad_pixel_coverage_sdf` expects. If `radius <= 0` the corners don't
+/// carve anything; callers should skip this and pass `None` instead.
+fn prepare_corners(q: &[Point; 4], radius: Fixed) -> [super::quad_aa::PreparedCorner; 4] {
+    let shapes = build_corner_shapes(q);
+    core::array::from_fn(|i| super::quad_aa::PreparedCorner {
+        center: shapes[i].inset_center(radius),
+        ua: shapes[i].ua,
+        ub: shapes[i].ub,
+        radius,
+    })
 }
 
 /// Fill a quad with no rounded corners. Each pixel covered by the quad
@@ -407,8 +364,9 @@ fn fill_rect_quad_no_corner(
     color: &Color,
     opa: u8,
 ) {
-    use super::quad_aa::{quad_pixel_coverage, shoelace_is_cw};
+    use super::quad_aa::{prepare_quad_edges, quad_pixel_coverage_sdf, shoelace_is_cw};
     let cw = shoelace_is_cw(q);
+    let edges = prepare_quad_edges(q, cw);
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
@@ -424,7 +382,7 @@ fn fill_rect_quad_no_corner(
             quad_perf::FILL_PIXELS_SCANNED += (xhi_px - xlo_px) as u64;
         }
         for px in xlo_px..xhi_px {
-            let cov = quad_pixel_coverage(q, cw, px, py);
+            let cov = quad_pixel_coverage_sdf(&edges, None, px, py);
             if cov == Fixed::ZERO {
                 continue;
             }
