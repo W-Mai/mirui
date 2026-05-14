@@ -132,7 +132,7 @@ where
         let w = Fixed::from_int(DRAG_W);
         let h = Fixed::from_int(DRAG_H);
         match *event {
-            InputEvent::Touch { x, y } => {
+            InputEvent::PointerDown { x, y, .. } => {
                 let (dx, dy) = self.pos;
                 if x >= dx && x < dx + w && y >= dy && y < dy + h {
                     self.offset = Some((x - dx, y - dy));
@@ -140,7 +140,7 @@ where
                 }
                 false
             }
-            InputEvent::TouchMove { x, y } => {
+            InputEvent::PointerMove { x, y, .. } => {
                 if let Some((ox, oy)) = self.offset {
                     let nx = x - ox;
                     let ny = y - oy;
@@ -150,7 +150,7 @@ where
                 }
                 false
             }
-            InputEvent::Release { .. } => {
+            InputEvent::PointerUp { .. } => {
                 if self.offset.take().is_some() {
                     return true;
                 }

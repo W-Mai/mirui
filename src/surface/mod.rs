@@ -26,13 +26,19 @@ impl DisplayInfo {
     }
 }
 
+/// Well-known key codes for hardware buttons
+pub const KEY_ROTARY_PRESS: u32 = 0x0100;
+pub const KEY_HW_BUTTON_0: u32 = 0x0200;
+
 /// Input event from the platform
 #[derive(Clone, Debug)]
 pub enum InputEvent {
-    Touch { x: Fixed, y: Fixed },
-    TouchMove { x: Fixed, y: Fixed },
-    Release { x: Fixed, y: Fixed },
+    PointerDown { id: u8, x: Fixed, y: Fixed },
+    PointerMove { id: u8, x: Fixed, y: Fixed },
+    PointerUp { id: u8, x: Fixed, y: Fixed },
+    Rotary { id: u8, delta: i16 },
     Key { code: u32, pressed: bool },
+    CharInput { ch: char },
     Quit,
 }
 

@@ -45,7 +45,8 @@ mod tests {
         dispatch(
             &world,
             root,
-            &InputEvent::Release {
+            &InputEvent::PointerUp {
+                id: 0,
                 x: 50.into(),
                 y: 50.into(),
             },
@@ -91,7 +92,8 @@ mod tests {
         dispatch(
             &world,
             root,
-            &InputEvent::Release {
+            &InputEvent::PointerUp {
+                id: 0,
                 x: 150.into(),
                 y: 150.into(),
             },
@@ -145,7 +147,8 @@ mod tests {
         dispatch(
             &world,
             root,
-            &InputEvent::Release {
+            &InputEvent::PointerUp {
+                id: 0,
                 x: 25.into(),
                 y: 25.into(),
             },

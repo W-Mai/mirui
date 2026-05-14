@@ -7,7 +7,11 @@ use crate::draw::SwRenderer;
 use crate::draw::canvas::Canvas;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
+use crate::event::bubble_dispatch;
 use crate::event::dispatch::dispatch;
+use crate::event::focus::{FocusState, focus_on_tap, key_dispatch};
+use crate::event::gesture::GestureSystem;
+use crate::event::hit_test::hit_test;
 use crate::plugin::Plugin;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
@@ -78,6 +82,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(DeltaTime(0.0));
         world.insert_resource(ElapsedTime(0.0));
         world.insert_resource(ScrollDragState::default());
+        world.insert_resource(GestureSystem::default());
+        world.insert_resource(FocusState::default());
         let info = backend.display_info();
         world.insert_resource(info);
         Self {
@@ -168,9 +174,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         loop {
             self.systems.run_all(&mut self.world);
 
-            // Snapshot once per iteration so every event in this drain sees
-            // the same logical-size, and we stop reconstructing transform per
-            // event.
+            if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
+                gs.events.clear();
+            }
+
             let mut logical: Option<(u16, u16)> = None;
             let mut quit = false;
             loop {
@@ -197,11 +204,55 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                             button_system(&mut self.world, root, &event, lw, lh);
                             scroll_system(&mut self.world, root, &event, lw, lh);
                             dispatch(&self.world, root, &event, lw, lh);
+
+                            let hit = match &event {
+                                InputEvent::PointerDown { x, y, .. } => {
+                                    hit_test(&self.world, root, *x, *y, lw, lh)
+                                }
+                                _ => None,
+                            };
+                            let elapsed_ms = self
+                                .world
+                                .resource::<ElapsedTime>()
+                                .map(|e| (e.0 * 1000.0) as u32)
+                                .unwrap_or(0);
+                            let scroll_claimed = self
+                                .world
+                                .resource::<ScrollDragState>()
+                                .is_some_and(|s| s.active && s.resolved);
+                            if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
+                                gs.recognizer.scroll_claimed = scroll_claimed;
+                                gs.recognizer
+                                    .update(&event, elapsed_ms, hit, &mut gs.events);
+                            }
+
+                            key_dispatch(&mut self.world, &event);
                         }
                     }
                     None => break,
                 }
             }
+            {
+                let elapsed_ms = self
+                    .world
+                    .resource::<ElapsedTime>()
+                    .map(|e| (e.0 * 1000.0) as u32)
+                    .unwrap_or(0);
+                if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
+                    gs.recognizer.check_long_press(elapsed_ms, &mut gs.events);
+                }
+            }
+
+            let pending: Vec<_> = self
+                .world
+                .resource_mut::<GestureSystem>()
+                .map(|gs| gs.events.drain().collect())
+                .unwrap_or_default();
+            for gesture in &pending {
+                focus_on_tap(&mut self.world, gesture);
+                bubble_dispatch(&mut self.world, gesture);
+            }
+
             if quit {
                 for p in &mut self.plugins {
                     p.on_quit(&mut self.world);

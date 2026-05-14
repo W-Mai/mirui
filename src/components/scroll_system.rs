@@ -49,7 +49,7 @@ pub fn scroll_system(
     screen_h: u16,
 ) {
     match event {
-        InputEvent::Touch { x, y } => {
+        InputEvent::PointerDown { x, y, .. } => {
             // Record start, don't resolve target yet
             let hit = hit_test(world, root, *x, *y, screen_w, screen_h);
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
@@ -67,7 +67,7 @@ pub fn scroll_system(
                 state.vel_y = Fixed::ZERO;
             }
         }
-        InputEvent::TouchMove { x, y } => {
+        InputEvent::PointerMove { x, y, .. } => {
             let (active, resolved, _target, hit_entity, last_x, last_y, start_x, start_y) = {
                 let Some(state) = world.resource::<ScrollDragState>() else {
                     return;
@@ -199,7 +199,7 @@ pub fn scroll_system(
                 state.last_y = *y;
             }
         }
-        InputEvent::Release { .. } => {
+        InputEvent::PointerUp { .. } => {
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 state.active = false;
             }

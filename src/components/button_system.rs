@@ -17,7 +17,7 @@ pub fn button_system(
     screen_h: u16,
 ) {
     match event {
-        InputEvent::Touch { x, y } => {
+        InputEvent::PointerDown { x, y, .. } => {
             if let Some(target) = hit_test(world, root, *x, *y, screen_w, screen_h) {
                 if world.get::<Button>(target).is_some() {
                     if let Some(btn) = world.get_mut::<Button>(target) {
@@ -39,7 +39,7 @@ pub fn button_system(
                 }
             }
         }
-        InputEvent::Release { x, y } => {
+        InputEvent::PointerUp { x, y, .. } => {
             if let Some(target) = hit_test(world, root, *x, *y, screen_w, screen_h) {
                 if world.get::<Checkbox>(target).is_some() {
                     if let Some(cb) = world.get_mut::<Checkbox>(target) {

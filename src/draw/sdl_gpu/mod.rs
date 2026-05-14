@@ -145,13 +145,15 @@ impl Surface for SdlGpuSurface {
                     ..
                 } => return Some(InputEvent::Quit),
                 Event::MouseButtonDown { x, y, .. } => {
-                    return Some(InputEvent::Touch {
+                    return Some(InputEvent::PointerDown {
+                        id: 0,
                         x: x.into(),
                         y: y.into(),
                     });
                 }
                 Event::MouseButtonUp { x, y, .. } => {
-                    return Some(InputEvent::Release {
+                    return Some(InputEvent::PointerUp {
+                        id: 0,
                         x: x.into(),
                         y: y.into(),
                     });
@@ -159,10 +161,16 @@ impl Surface for SdlGpuSurface {
                 Event::MouseMotion {
                     x, y, mousestate, ..
                 } if mousestate.left() => {
-                    return Some(InputEvent::TouchMove {
+                    return Some(InputEvent::PointerMove {
+                        id: 0,
                         x: x.into(),
                         y: y.into(),
                     });
+                }
+                Event::TextInput { text, .. } => {
+                    if let Some(ch) = text.chars().next() {
+                        return Some(InputEvent::CharInput { ch });
+                    }
                 }
                 _ => {}
             }
