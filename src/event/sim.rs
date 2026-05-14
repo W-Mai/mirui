@@ -87,9 +87,7 @@ fn resolve_timings(commands: &[SimCommand]) -> Vec<u32> {
 }
 
 pub fn sim_input_system(world: &mut World) {
-    let clock_fn = world
-        .resource::<crate::anim::FrameClock>()
-        .map(|fc| fc.clock);
+    let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
 
     let (commands_to_fire, root, screen_w, screen_h) = {
@@ -241,9 +239,7 @@ impl SimTimeline {
 }
 
 pub fn sim_timeline_system(world: &mut World) {
-    let clock_fn = world
-        .resource::<crate::anim::FrameClock>()
-        .map(|fc| fc.clock);
+    let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
 
     let (lw, lh) = world

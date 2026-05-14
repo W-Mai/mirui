@@ -73,25 +73,10 @@ pub trait AnimationComponent {
     fn animation_mut(&mut self) -> &mut Animation;
 }
 
-/// Frame clock resource. Insert before registering `sync_delta_time_ms`.
-/// `clock` is a fn pointer returning monotonic nanoseconds.
-pub struct FrameClock {
-    pub clock: fn() -> u64,
-    pub last_ns: u64,
-}
-
-impl FrameClock {
-    pub fn new(clock: fn() -> u64) -> Self {
-        let now = clock();
-        Self {
-            clock,
-            last_ns: now,
-        }
-    }
-}
+use crate::ecs::MonoClock;
 
 pub fn sync_delta_time_ms(world: &mut World) {
-    let ms = match world.resource_mut::<FrameClock>() {
+    let ms = match world.resource_mut::<MonoClock>() {
         Some(fc) => {
             let now = (fc.clock)();
             let dt_ns = now.saturating_sub(fc.last_ns);

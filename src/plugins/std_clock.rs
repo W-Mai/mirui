@@ -1,5 +1,5 @@
-use crate::anim::FrameClock;
 use crate::app::{App, RendererFactory};
+use crate::ecs::MonoClock;
 use crate::plugin::Plugin;
 use crate::surface::Surface;
 
@@ -22,6 +22,6 @@ where
 {
     fn build(&mut self, app: &mut App<B, F>) {
         CLOCK_START.get_or_init(Instant::now);
-        app.world.insert_resource(FrameClock::new(std_clock_ns));
+        app.world.insert_resource(MonoClock::new(std_clock_ns));
     }
 }

@@ -7,3 +7,33 @@ pub struct DeltaTimeMs(pub u16);
 
 /// Total elapsed time since app start (seconds)
 pub struct ElapsedTime(pub f32);
+
+/// Global monotonic clock resource. Single time source for the entire
+/// App — animation, gesture recognition, simulated input, render
+/// timing all read from this.
+///
+/// `clock` is a fn pointer returning nanoseconds since an arbitrary
+/// epoch (typically app init). Plugins set it: `StdInstantClockPlugin`
+/// on desktop, `SystimerClockPlugin` on ESP.
+pub struct MonoClock {
+    pub clock: fn() -> u64,
+    pub last_ns: u64,
+}
+
+impl MonoClock {
+    pub fn new(clock: fn() -> u64) -> Self {
+        let now = clock();
+        Self {
+            clock,
+            last_ns: now,
+        }
+    }
+
+    pub fn now_ns(&self) -> u64 {
+        (self.clock)()
+    }
+
+    pub fn now_ms(&self) -> u32 {
+        (self.now_ns() / 1_000_000) as u32
+    }
+}

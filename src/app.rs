@@ -105,7 +105,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     fn clock_ns(&self) -> u64 {
         self.world
-            .resource::<crate::anim::FrameClock>()
+            .resource::<crate::ecs::MonoClock>()
             .map(|fc| (fc.clock)())
             .unwrap_or(0)
     }
