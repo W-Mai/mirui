@@ -28,13 +28,12 @@ fn slider_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
                 .get::<SliderTrackWidth>(entity)
                 .map(|t| t.0)
                 .unwrap_or(Fixed::from_int(200));
-            if let Some(style) = world.get::<mirui::widget::Style>(entity) {
-                let left = style.layout.left;
-                let local_x = *x
-                    - match left {
-                        Dimension::Px(p) => p,
-                        _ => Fixed::ZERO,
-                    };
+            let track_x = world
+                .get::<mirui::widget::dirty::PrevRect>(entity)
+                .map(|r| r.0.x)
+                .unwrap_or(Fixed::ZERO);
+            {
+                let local_x = *x - track_x;
                 let ratio = local_x / track_w;
                 if let Some(slider) = world.get_mut::<Slider>(entity) {
                     slider.set_ratio(ratio);
