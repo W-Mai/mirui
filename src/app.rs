@@ -2,7 +2,6 @@ use alloc::boxed::Box;
 use alloc::vec::Vec;
 
 use crate::components::button_system::button_system;
-use crate::components::scroll_system::{ScrollDragState, scroll_inertia_system, scroll_system};
 use crate::draw::SwRenderer;
 use crate::draw::canvas::Canvas;
 use crate::draw::renderer::Renderer;
@@ -12,6 +11,7 @@ use crate::event::dispatch::dispatch;
 use crate::event::focus::{FocusState, focus_on_tap, key_dispatch};
 use crate::event::gesture::GestureSystem;
 use crate::event::hit_test::hit_test;
+use crate::event::scroll::{ScrollDragState, scroll_inertia_system, scroll_system};
 use crate::plugin::Plugin;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};

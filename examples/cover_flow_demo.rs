@@ -1,9 +1,9 @@
 use mirui::app::App;
 use mirui::components::assets::IMG_THUMBS_UP;
 use mirui::components::image::Image;
-use mirui::components::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::components::transform_3d::WidgetTransform3D;
 use mirui::ecs::World;
+use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 #[cfg(all(feature = "sdl", not(feature = "sdl-gpu")))]

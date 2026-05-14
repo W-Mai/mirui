@@ -2,6 +2,8 @@ pub mod dispatch;
 pub mod focus;
 pub mod gesture;
 pub mod hit_test;
+pub mod input;
+pub mod scroll;
 
 use alloc::boxed::Box;
 

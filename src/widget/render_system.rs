@@ -336,7 +336,7 @@ fn draw_tree(
     *idx += 1;
 
     let (child_clip, scroll_x, scroll_y) =
-        if let Some(scroll) = world.get::<crate::components::scroll::ScrollOffset>(entity) {
+        if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity) {
             let cx = clip.x.max(node.rect.x);
             let cy = clip.y.max(node.rect.y);
             let cx2 = (clip.x + clip.w).min(node.rect.x + node.rect.w);
@@ -516,7 +516,7 @@ fn draw_tree_offset(
     *idx += 1;
 
     let (child_clip, sx, sy) =
-        if let Some(scroll) = world.get::<crate::components::scroll::ScrollOffset>(entity) {
+        if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity) {
             let cx = clip.x.max(shifted_rect.x);
             let cy = clip.y.max(shifted_rect.y);
             let cx2 = (clip.x + clip.w).min(shifted_rect.x + shifted_rect.w);

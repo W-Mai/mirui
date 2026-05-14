@@ -1,5 +1,5 @@
 use mirui::app::App;
-use mirui::components::scroll::{ScrollConfig, ScrollOffset};
+use mirui::event::scroll::{ScrollConfig, ScrollOffset};
 use mirui::layout::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed};
@@ -54,7 +54,7 @@ fn main() {
                 y: Fixed::ZERO,
             },
             ScrollConfig {
-                direction: mirui::components::scroll::ScrollAxis::Vertical,
+                direction: mirui::event::scroll::ScrollAxis::Vertical,
                 elastic: true,
                 content_height: Fixed::from_int(1200),
                 content_width: Fixed::ZERO,
@@ -74,7 +74,7 @@ fn main() {
                             y: Fixed::ZERO,
                         },
                         ScrollConfig {
-                            direction: mirui::components::scroll::ScrollAxis::Horizontal,
+                            direction: mirui::event::scroll::ScrollAxis::Horizontal,
                             elastic: true,
                             content_height: Fixed::ZERO,
                             content_width: Fixed::from_int(600),
@@ -107,7 +107,7 @@ fn main() {
                         y: Fixed::ZERO,
                     },
                     ScrollConfig {
-                        direction: mirui::components::scroll::ScrollAxis::Vertical,
+                        direction: mirui::event::scroll::ScrollAxis::Vertical,
                         elastic: true,
                         content_height: Fixed::from_int(500),
                         content_width: Fixed::ZERO,

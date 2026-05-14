@@ -1,7 +1,7 @@
-use crate::components::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use super::components::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
-use crate::surface::InputEvent;
+use crate::event::input::InputEvent;
 use crate::types::Fixed;
 
 /// Scroll drag state resource
@@ -256,7 +256,7 @@ pub fn scroll_inertia_system(world: &mut World) {
         let Some(scroll) = world.get::<ScrollOffset>(target) else {
             return;
         };
-        let config = world.get::<crate::components::scroll::ScrollConfig>(target);
+        let config = world.get::<ScrollConfig>(target);
         let computed = world.get::<crate::widget::ComputedRect>(target);
         let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
         let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
