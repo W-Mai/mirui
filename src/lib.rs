@@ -2,6 +2,7 @@
 
 extern crate alloc;
 
+pub mod anim;
 pub mod app;
 pub mod components;
 pub mod draw;
