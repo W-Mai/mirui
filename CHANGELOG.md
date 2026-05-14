@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-05-14
+
+### Fixed
+
+- Dirty-region residue when widgets rotate and move on the same frame. `set_position` was overwriting the transform-aware `PrevRect` with a narrower axis-aligned rect; rotated corners leaked between frames. Now `set_position` unions over the existing `PrevRect` so the wider bbox survives.
+- `collect_dirty_walk` stored `prev + curr` union back into `PrevRect`, causing the recorded bbox to grow without bound on moving widgets. It now stores curr-only; growth is bounded to one frame's delta.
+
+### Added
+
+- `Fixed::HALF` constant (replaces 18 occurrences of `Fixed::from_raw(128)`).
+- `Rect::bounding_quad(&[Point; 4])` — deduplicates `quad_bbox` that was implemented twice (sw/quad.rs + render_system.rs).
+- `Rect::union(&self, &Rect) -> Rect` — smallest containing rect of two inputs.
+- Cha code-quality plugin (`api-misuse`) integrated into `cargo xtask ci`:
+  - Upgraded to cha SDK v1.14.0 with tree-sitter AST query, file-role, and parsed comments.
+  - Rules: `magic-fixed-half`, `magic-fixed-one`, `spec-id-leak` (error), `stale-naming`, `spelling-us`, `fixed64-hot-path`, `unimplemented-residue`, `viewport-scale-missing`, `chinese-comment`.
+  - CI installs cha v1.14.0 via the official installer script.
+
 ## [0.10.2] - 2026-05-13
 
 New `quad-aa` Cargo feature, on by default.
