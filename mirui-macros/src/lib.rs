@@ -380,3 +380,75 @@ pub fn ui(input: TokenStream) -> TokenStream {
 pub fn compose_backend(input: TokenStream) -> TokenStream {
     compose::expand(input.into()).into()
 }
+
+/// Define an animation component + its tick/apply system in one shot.
+///
+/// ```rust,ignore
+/// animation!(AnimateX, |world, entity, value| {
+///     mirui::widget::set_position(world, entity, value, Fixed::from_int(2));
+/// });
+///
+/// // Generated:
+/// // - struct AnimateX(pub mirui::anim::Animation)
+/// // - impl AnimationComponent for AnimateX
+/// // - AnimateX::system() -> fn(&mut World)
+/// //
+/// // Usage:
+/// //   app.add_system(AnimateX::system());
+/// //   world.insert(e, AnimateX(Animation::ease_to(from, to, 250)));
+/// ```
+#[proc_macro]
+pub fn animation(input: TokenStream) -> TokenStream {
+    animation_impl::expand(input.into()).into()
+}
+
+mod animation_impl {
+    use proc_macro2::TokenStream;
+    use quote::quote;
+    use syn::parse::{Parse, ParseStream};
+    use syn::{ExprClosure, Ident, Token, parse2};
+
+    struct AnimationInput {
+        name: Ident,
+        closure: ExprClosure,
+    }
+
+    impl Parse for AnimationInput {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            let name: Ident = input.parse()?;
+            input.parse::<Token![,]>()?;
+            let closure: ExprClosure = input.parse()?;
+            Ok(Self { name, closure })
+        }
+    }
+
+    pub fn expand(input: TokenStream) -> TokenStream {
+        let parsed = match parse2::<AnimationInput>(input) {
+            Ok(v) => v,
+            Err(e) => return e.to_compile_error(),
+        };
+
+        let name = &parsed.name;
+        let closure = &parsed.closure;
+
+        // Extract closure params for documentation clarity; the closure
+        // itself is embedded directly into the generated system fn body.
+        quote! {
+            pub struct #name(pub mirui::anim::Animation);
+
+            impl mirui::anim::AnimationComponent for #name {
+                fn animation(&self) -> &mirui::anim::Animation { &self.0 }
+                fn animation_mut(&mut self) -> &mut mirui::anim::Animation { &mut self.0 }
+            }
+
+            impl #name {
+                pub fn system() -> fn(&mut mirui::ecs::World) {
+                    fn __sys(world: &mut mirui::ecs::World) {
+                        mirui::anim::run_animation::<#name>(world, #closure);
+                    }
+                    __sys
+                }
+            }
+        }
+    }
+}
