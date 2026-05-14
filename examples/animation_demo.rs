@@ -1,0 +1,90 @@
+use mirui::anim::{Animation, FrameClock, PlayMode, ease};
+use mirui::app::App;
+use mirui::layout::*;
+use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::surface::sdl::SdlSurface;
+use mirui::types::{Color, Dimension, Fixed};
+use mirui::widget::builder::WidgetBuilder;
+use mirui_macros::ui;
+
+extern crate alloc;
+
+mirui_macros::animation!(AnimateX, |world, entity, value| {
+    mirui::widget::set_position(world, entity, value, Fixed::from_int(60));
+});
+
+mirui_macros::animation!(AnimateColor, |world, entity, value| {
+    let r = (value * Fixed::from_int(255)).to_int().clamp(0, 255) as u8;
+    if let Some(style) = world.get_mut::<mirui::widget::Style>(entity) {
+        style.bg_color = Some(Color::rgb(r, 50, 255 - r));
+    }
+    world.insert(entity, mirui::widget::dirty::Dirty);
+});
+
+fn main() {
+    let backend = SdlSurface::new("mirui - animation demo", 320, 180);
+    let mut app = App::new(backend);
+
+    use std::sync::OnceLock;
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    START.get_or_init(std::time::Instant::now);
+    app.world.insert_resource(FrameClock::new(|| {
+        START.get().unwrap().elapsed().as_nanos() as u64
+    }));
+
+    app.add_system(mirui::anim::sync_delta_time_ms);
+    app.add_system(AnimateX::system());
+    app.add_system(AnimateColor::system());
+
+    let root = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgb(20, 20, 30))
+        .layout(LayoutStyle {
+            width: Dimension::px(320),
+            height: Dimension::px(180),
+            ..Default::default()
+        })
+        .id();
+
+    let ball = ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
+
+        ball (
+            bg_color: Color::rgb(255, 50, 100),
+            border_radius: 20,
+            position: Position::Absolute,
+            left: 10,
+            top: 60,
+            width: 40,
+            height: 40
+        ) {}
+    };
+
+    app.world.insert(
+        ball,
+        AnimateX(Animation::new(
+            Fixed::from_int(10),
+            Fixed::from_int(270),
+            1200,
+            ease::ease_in_out_cubic,
+            PlayMode::PingPong,
+        )),
+    );
+    app.world.insert(
+        ball,
+        AnimateColor(Animation::new(
+            Fixed::ZERO,
+            Fixed::ONE,
+            2400,
+            ease::ease_in_out_quad,
+            PlayMode::Loop,
+        )),
+    );
+
+    app.set_root(root);
+    app.add_plugin(StdInstantClockPlugin::default())
+        .add_plugin(FpsSummaryPlugin::default());
+    app.run();
+}

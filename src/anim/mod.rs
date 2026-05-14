@@ -1,6 +1,6 @@
 pub mod ease;
 
-use crate::ecs::{DeltaTime, DeltaTimeMs, World};
+use crate::ecs::{DeltaTimeMs, World};
 use crate::types::Fixed;
 
 pub use ease::EaseFn;
@@ -73,9 +73,33 @@ pub trait AnimationComponent {
     fn animation_mut(&mut self) -> &mut Animation;
 }
 
+/// Frame clock resource. Insert before registering `sync_delta_time_ms`.
+/// `clock` is a fn pointer returning monotonic nanoseconds.
+pub struct FrameClock {
+    pub clock: fn() -> u64,
+    pub last_ns: u64,
+}
+
+impl FrameClock {
+    pub fn new(clock: fn() -> u64) -> Self {
+        let now = clock();
+        Self {
+            clock,
+            last_ns: now,
+        }
+    }
+}
+
 pub fn sync_delta_time_ms(world: &mut World) {
-    let dt_s = world.resource::<DeltaTime>().map_or(0.016, |d| d.0);
-    let ms = (dt_s * 1000.0).min(65535.0) as u16;
+    let ms = match world.resource_mut::<FrameClock>() {
+        Some(fc) => {
+            let now = (fc.clock)();
+            let dt_ns = now.saturating_sub(fc.last_ns);
+            fc.last_ns = now;
+            (dt_ns / 1_000_000).clamp(1, 65535) as u16
+        }
+        None => 16,
+    };
     world.insert_resource(DeltaTimeMs(ms));
 }
 
