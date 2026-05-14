@@ -15,12 +15,6 @@ use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
 use crate::widget::render_system;
 
-/// Monotonic clock the App uses to measure per-frame render time. Plugins can
-/// swap it (e.g. StdInstantClockPlugin on std, ESP systimer on embedded). The
-/// default returns 0, which makes `post_render` hooks see 0 and skip their
-/// timing logic.
-pub type ClockFn = Box<dyn FnMut() -> u64>;
-
 /// Builds a Renderer each frame, given mutable access to the backend and
 /// the current logical/physical coord transform.
 ///
@@ -62,7 +56,6 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     pub factory: F,
     pub root: Option<Entity>,
     pub systems: SystemScheduler,
-    pub clock: ClockFn,
     plugins: Vec<Box<dyn Plugin<B, F>>>,
     #[cfg(feature = "perf")]
     pub perf: Option<crate::draw::PerfCtx>,
@@ -90,7 +83,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             factory,
             root: None,
             systems: SystemScheduler::new(),
-            clock: Box::new(|| 0),
             plugins: Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
@@ -111,6 +103,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
+    fn clock_ns(&self) -> u64 {
+        self.world
+            .resource::<crate::anim::FrameClock>()
+            .map(|fc| (fc.clock)())
+            .unwrap_or(0)
+    }
+
     pub fn set_root(&mut self, root: Entity) {
         self.root = Some(root);
         crate::event::widget_input::attach_widget_input_handlers(&mut self.world, root);
@@ -127,7 +126,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             p.pre_render(&mut self.world);
         }
 
-        let start_ns = (self.clock)();
+        let start_ns = self.clock_ns();
 
         render_system::update_layout(&mut self.world, root, &transform);
 
@@ -144,7 +143,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         // and the first dirty render leaves residue.
         render_system::seed_prev_rects(&mut self.world, root, &transform);
 
-        let elapsed = (self.clock)().saturating_sub(start_ns);
+        let elapsed = self.clock_ns().saturating_sub(start_ns);
         for p in &mut self.plugins {
             p.post_render(&mut self.world, elapsed);
         }
@@ -209,7 +208,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                                 }
                                 _ => None,
                             };
-                            let now_ms = ((self.clock)() / 1_000_000) as u32;
+                            let now_ms = (self.clock_ns() / 1_000_000) as u32;
                             let scroll_claimed = self
                                 .world
                                 .resource::<ScrollDragState>()
@@ -226,7 +225,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 }
             }
             {
-                let now_ms = ((self.clock)() / 1_000_000) as u32;
+                let now_ms = (self.clock_ns() / 1_000_000) as u32;
                 if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
                     gs.recognizer.check_long_press(now_ms, &mut gs.events);
                 }
@@ -268,7 +267,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             p.pre_render(&mut self.world);
         }
 
-        let start_ns = (self.clock)();
+        let start_ns = self.clock_ns();
 
         let dirty = render_system::collect_dirty_region(&mut self.world, root, &transform);
 
@@ -281,7 +280,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.backend.flush(&phys_area);
         }
 
-        let elapsed = (self.clock)().saturating_sub(start_ns);
+        let elapsed = self.clock_ns().saturating_sub(start_ns);
         for p in &mut self.plugins {
             p.post_render(&mut self.world, elapsed);
         }

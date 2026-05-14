@@ -1,12 +1,17 @@
-use alloc::boxed::Box;
-
+use crate::anim::FrameClock;
 use crate::app::{App, RendererFactory};
 use crate::plugin::Plugin;
 use crate::surface::Surface;
 
-/// Installs a monotonic clock based on `std::time::Instant`. Mutates
-/// `App::clock` during build so every subsequent `post_render` hook sees
-/// real nanoseconds since App start.
+use std::sync::OnceLock;
+use std::time::Instant;
+
+static CLOCK_START: OnceLock<Instant> = OnceLock::new();
+
+fn std_clock_ns() -> u64 {
+    CLOCK_START.get_or_init(Instant::now).elapsed().as_nanos() as u64
+}
+
 #[derive(Default)]
 pub struct StdInstantClockPlugin;
 
@@ -16,7 +21,7 @@ where
     F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>) {
-        let start = std::time::Instant::now();
-        app.clock = Box::new(move || start.elapsed().as_nanos() as u64);
+        CLOCK_START.get_or_init(Instant::now);
+        app.world.insert_resource(FrameClock::new(std_clock_ns));
     }
 }

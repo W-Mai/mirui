@@ -1,4 +1,4 @@
-use mirui::anim::{Animation, FrameClock, PlayMode, ease};
+use mirui::anim::{Animation, PlayMode, ease};
 use mirui::app::App;
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
@@ -24,13 +24,6 @@ mirui_macros::animation!(AnimateColor, |world, entity, value| {
 fn main() {
     let backend = SdlSurface::new("mirui - animation demo", 320, 180);
     let mut app = App::new(backend);
-
-    use std::sync::OnceLock;
-    static START: OnceLock<std::time::Instant> = OnceLock::new();
-    START.get_or_init(std::time::Instant::now);
-    app.world.insert_resource(FrameClock::new(|| {
-        START.get().unwrap().elapsed().as_nanos() as u64
-    }));
 
     app.add_system(mirui::anim::sync_delta_time_ms);
     app.add_system(AnimateX::system());

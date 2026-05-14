@@ -1,4 +1,4 @@
-use mirui::anim::{Animation, FrameClock, PlayMode, ease};
+use mirui::anim::{Animation, PlayMode, ease};
 use mirui::app::App;
 use mirui::components::slider::Slider;
 use mirui::components::switch::Switch;
@@ -118,13 +118,6 @@ fn switch_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
 fn main() {
     let backend = SdlSurface::new("mirui - slider & switch", 320, 200);
     let mut app = App::new(backend);
-
-    use std::sync::OnceLock;
-    static START: OnceLock<std::time::Instant> = OnceLock::new();
-    START.get_or_init(std::time::Instant::now);
-    app.world.insert_resource(FrameClock::new(|| {
-        START.get().unwrap().elapsed().as_nanos() as u64
-    }));
 
     app.add_system(mirui::anim::sync_delta_time_ms);
     app.add_system(AnimateThumbX::system());
