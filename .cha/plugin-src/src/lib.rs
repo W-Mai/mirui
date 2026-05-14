@@ -48,6 +48,7 @@ impl PluginImpl for ApiMisuse {
             "fixed64-hot-path".into(),
             "unimplemented-residue".into(),
             "viewport-scale-missing".into(),
+            "chinese-comment".into(),
         ]
     }
 
@@ -220,6 +221,30 @@ impl PluginImpl for ApiMisuse {
                     "unimplemented!() left in production code — will panic at runtime",
                     "Implement the missing path or replace with a graceful fallback",
                 ));
+            }
+        }
+
+        // --- Rule: chinese-comment (non-doc files shouldn't have Chinese in comments) ---
+        if input.role == FileRole::Source {
+            for comment in &input.comments {
+                if comment.text.as_bytes().iter().any(|&b| b > 0x7F) {
+                    let has_cjk = comment.text.chars().any(|c| {
+                        ('\u{4e00}'..='\u{9fff}').contains(&c)
+                            || ('\u{3400}'..='\u{4dbf}').contains(&c)
+                    });
+                    if has_cjk {
+                        findings.push(finding(
+                            "chinese-comment",
+                            Severity::Hint,
+                            &input.path,
+                            comment.line,
+                            0,
+                            "Chinese text in source comment; use English for public code",
+                            "Translate to English or move to internal docs",
+                        ));
+                        break;
+                    }
+                }
             }
         }
 
