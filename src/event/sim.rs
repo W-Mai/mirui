@@ -178,17 +178,14 @@ pub fn set_sim_root(world: &mut World, root: Entity) {
 
 // ─── High-level timeline API ───────────────────────────────────────────
 
+use crate::types::Point;
+
 #[derive(Clone, Copy)]
 pub enum SimAction {
-    Tap {
-        x: Fixed,
-        y: Fixed,
-    },
+    Tap(Point),
     Drag {
-        from_x: Fixed,
-        from_y: Fixed,
-        to_x: Fixed,
-        to_y: Fixed,
+        from: Point,
+        to: Point,
         duration_ms: u16,
         ease: EaseFn,
     },
@@ -221,7 +218,7 @@ impl SimTimeline {
                 start_ms: t,
             });
             t += match action {
-                SimAction::Tap { .. } => 100,
+                SimAction::Tap(_) => 100,
                 SimAction::Drag { duration_ms, .. } => *duration_ms as u32,
                 SimAction::Wait(ms) => *ms,
             };
@@ -288,17 +285,25 @@ pub fn sim_timeline_system(world: &mut World) {
     let action_elapsed = elapsed - entry.start_ms;
 
     match entry.action {
-        SimAction::Tap { x, y } => {
+        SimAction::Tap(pt) => {
             if !tl.action_started {
                 tl.action_started = true;
                 tl.action_elapsed_ms = 0;
-                let event = InputEvent::PointerDown { id: 0, x, y };
-                let hit = hit_test(world, root, x, y, lw, lh);
+                let event = InputEvent::PointerDown {
+                    id: 0,
+                    x: pt.x,
+                    y: pt.y,
+                };
+                let hit = hit_test(world, root, pt.x, pt.y, lw, lh);
                 if let Some(gs) = world.resource_mut::<GestureSystem>() {
                     gs.recognizer.update(&event, now_ms, hit, &mut gs.events);
                 }
             } else if action_elapsed >= 50 {
-                let event = InputEvent::PointerUp { id: 0, x, y };
+                let event = InputEvent::PointerUp {
+                    id: 0,
+                    x: pt.x,
+                    y: pt.y,
+                };
                 if let Some(gs) = world.resource_mut::<GestureSystem>() {
                     gs.recognizer.update(&event, now_ms, None, &mut gs.events);
                 }
@@ -309,10 +314,8 @@ pub fn sim_timeline_system(world: &mut World) {
             }
         }
         SimAction::Drag {
-            from_x,
-            from_y,
-            to_x,
-            to_y,
+            from,
+            to,
             duration_ms,
             ease,
         } => {
@@ -321,18 +324,18 @@ pub fn sim_timeline_system(world: &mut World) {
                 tl.action_elapsed_ms = 0;
                 let event = InputEvent::PointerDown {
                     id: 0,
-                    x: from_x,
-                    y: from_y,
+                    x: from.x,
+                    y: from.y,
                 };
-                let hit = hit_test(world, root, from_x, from_y, lw, lh);
+                let hit = hit_test(world, root, from.x, from.y, lw, lh);
                 if let Some(gs) = world.resource_mut::<GestureSystem>() {
                     gs.recognizer.update(&event, now_ms, hit, &mut gs.events);
                 }
             } else if action_elapsed >= duration_ms as u32 {
                 let event = InputEvent::PointerUp {
                     id: 0,
-                    x: to_x,
-                    y: to_y,
+                    x: to.x,
+                    y: to.y,
                 };
                 if let Some(gs) = world.resource_mut::<GestureSystem>() {
                     gs.recognizer.update(&event, now_ms, None, &mut gs.events);
@@ -346,8 +349,8 @@ pub fn sim_timeline_system(world: &mut World) {
                     (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
                 );
                 let eased = ease(t);
-                let x = from_x + eased * (to_x - from_x);
-                let y = from_y + eased * (to_y - from_y);
+                let x = from.x + eased * (to.x - from.x);
+                let y = from.y + eased * (to.y - from.y);
                 let event = InputEvent::PointerMove { id: 0, x, y };
                 if let Some(gs) = world.resource_mut::<GestureSystem>() {
                     gs.recognizer.update(&event, now_ms, None, &mut gs.events);

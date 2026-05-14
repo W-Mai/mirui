@@ -22,6 +22,13 @@ impl Point {
         y: Fixed::ZERO,
     };
 
+    pub fn new(x: impl Into<Fixed>, y: impl Into<Fixed>) -> Self {
+        Self {
+            x: x.into(),
+            y: y.into(),
+        }
+    }
+
     pub fn floor(&self) -> (i32, i32) {
         (self.x.to_int(), self.y.to_int())
     }

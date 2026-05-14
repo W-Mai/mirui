@@ -7,7 +7,7 @@ use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed};
+use mirui::types::{Color, Dimension, Fixed, Point};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
 use mirui_macros::ui;
@@ -133,38 +133,25 @@ fn main() {
 
     app.world.insert_resource(
         SimTimeline::new(vec![
-            SimAction::Tap {
-                x: Fixed::from_int(70),
-                y: Fixed::from_int(70),
-            },
+            SimAction::Tap(Point::new(70, 70)),
             SimAction::Wait(300),
-            SimAction::Tap {
-                x: Fixed::from_int(70),
-                y: Fixed::from_int(70),
-            },
+            SimAction::Tap(Point::new(70, 70)),
             SimAction::Wait(300),
             SimAction::Drag {
-                from_x: Fixed::from_int(170),
-                from_y: Fixed::from_int(120),
-                to_x: Fixed::from_int(260),
-                to_y: Fixed::from_int(60),
+                from: Point::new(170, 120),
+                to: Point::new(260, 60),
                 duration_ms: 600,
                 ease: ease::ease_in_out_cubic,
             },
             SimAction::Wait(200),
             SimAction::Drag {
-                from_x: Fixed::from_int(170),
-                from_y: Fixed::from_int(120),
-                to_x: Fixed::from_int(80),
-                to_y: Fixed::from_int(180),
+                from: Point::new(170, 120),
+                to: Point::new(80, 180),
                 duration_ms: 800,
                 ease: ease::ease_out_quad,
             },
             SimAction::Wait(500),
-            SimAction::Tap {
-                x: Fixed::from_int(70),
-                y: Fixed::from_int(70),
-            },
+            SimAction::Tap(Point::new(70, 70)),
             SimAction::Wait(500),
         ])
         .looping(true),
