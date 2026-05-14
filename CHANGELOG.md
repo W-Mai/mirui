@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-05-14
+
+### Added
+
+- **Animation framework** (`src/anim/`):
+  - `Animation` struct with `PlayMode` (Once / Loop / PingPong) and 6 easing curves.
+  - `animation!` proc macro — one-line animation component definition.
+  - `FrameClock` resource for `no_std`-compatible monotonic time.
+  - `run_animation<T>` helper: tick + apply + auto-remove on completion.
+- **Event system** (`src/event/`):
+  - `InputEvent` unified enum: `PointerDown/Move/Up` (multi-touch `id`), `Rotary` (encoder/crown), `CharInput`, `Key` (with hardware button codes).
+  - `GestureRecognizer` state machine producing `Tap`, `LongPress`, `DragStart/Move/End`.
+  - `GestureHandler` component (fn pointer, no heap) + `bubble_dispatch` via `Parent` walk.
+  - `FocusState` + `Focusable` + `KeyHandler` for keyboard/char routing to focused widgets.
+  - Scroll system handles `Rotary` events (20px/step on last-resolved scroll target).
+- **Interactive widget components** (`src/components/`):
+  - `Slider` — Fixed-point value range with track/fill/thumb.
+  - `Switch` — on/off toggle with animated thumb transition.
+- **`ComputedRect`** — layout-computed screen rect on every entity, decoupled from dirty tracking.
+
+### Changed
+
+- **`InputEvent` variants renamed**: `Touch` → `PointerDown`, `TouchMove` → `PointerMove`, `Release` → `PointerUp`. Added `id: u8` field for multi-touch.
+- **Event module reorganised**: `src/event/` now contains `input.rs`, `gesture/`, `scroll/`, `focus.rs`, `widget_input.rs`, `hit_test.rs`.
+- **`button_system` replaced** by per-widget `GestureHandler` components. `App::set_root` auto-attaches handlers for Button/Checkbox/ProgressBar.
+- **Legacy `EventHandler` (Box callback) + `WidgetEvent` + `dispatch.rs` removed**. Use `GestureHandler` with fn pointer instead.
+- Scroll components moved from `components/scroll*` to `event/scroll/`.
+
+### Fixed
+
+- Long press not firing on desktop — was reading stale `ElapsedTime(0.0)`, now uses `App::clock` directly.
+- Slider thumb offset — was reading declared `layout.left` instead of `ComputedRect` for screen position.
+
 ## [0.10.3] - 2026-05-14
 
 ### Fixed
