@@ -211,19 +211,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                                 }
                                 _ => None,
                             };
-                            let elapsed_ms = self
-                                .world
-                                .resource::<ElapsedTime>()
-                                .map(|e| (e.0 * 1000.0) as u32)
-                                .unwrap_or(0);
+                            let now_ms = ((self.clock)() / 1_000_000) as u32;
                             let scroll_claimed = self
                                 .world
                                 .resource::<ScrollDragState>()
                                 .is_some_and(|s| s.active && s.resolved);
                             if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
                                 gs.recognizer.scroll_claimed = scroll_claimed;
-                                gs.recognizer
-                                    .update(&event, elapsed_ms, hit, &mut gs.events);
+                                gs.recognizer.update(&event, now_ms, hit, &mut gs.events);
                             }
 
                             key_dispatch(&mut self.world, &event);
@@ -233,13 +228,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 }
             }
             {
-                let elapsed_ms = self
-                    .world
-                    .resource::<ElapsedTime>()
-                    .map(|e| (e.0 * 1000.0) as u32)
-                    .unwrap_or(0);
+                let now_ms = ((self.clock)() / 1_000_000) as u32;
                 if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
-                    gs.recognizer.check_long_press(elapsed_ms, &mut gs.events);
+                    gs.recognizer.check_long_press(now_ms, &mut gs.events);
                 }
             }
 
