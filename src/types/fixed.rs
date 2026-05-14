@@ -113,6 +113,20 @@ impl Fixed {
         Self(x as i32)
     }
 
+    /// Fast inverse square root: `1 / sqrt(self)`.
+    /// Uses `sqrt()` then division. For animation tick (~1 call/frame)
+    /// this is fast enough; avoids tuning magic numbers.
+    pub fn rsqrt(self) -> Self {
+        if self.0 <= 0 {
+            return Self::MAX;
+        }
+        let s = self.sqrt();
+        if s.0 == 0 {
+            return Self::MAX;
+        }
+        Self::ONE / s
+    }
+
     pub fn sin_deg(angle_deg: Self) -> Self {
         let rad = angle_deg * Self::PI / Self::from_int(180);
         sin_rad(rad)
@@ -352,6 +366,18 @@ impl Fixed64 {
         }
         Self(x as i64)
     }
+
+    /// Inverse square root: `1 / sqrt(self)`.
+    pub fn rsqrt(self) -> Self {
+        if self.0 <= 0 {
+            return Self(i64::MAX);
+        }
+        let s = self.sqrt();
+        if s.0 == 0 {
+            return Self(i64::MAX);
+        }
+        Self::ONE / s
+    }
 }
 
 impl Add for Fixed64 {
@@ -561,6 +587,38 @@ mod tests {
         // Non-square: sqrt(2) ≈ 1.414, expect within 1/256.
         let s = Fixed::from_int(2).sqrt().to_f32();
         assert!((s - core::f32::consts::SQRT_2).abs() < 0.01);
+    }
+
+    #[test]
+    fn rsqrt_accuracy() {
+        let cases: [(i32, f32); 5] = [
+            (1, 1.0),
+            (4, 0.5),
+            (2, 1.0 / 1.4142),
+            (9, 1.0 / 3.0),
+            (16, 0.25),
+        ];
+        for (input, expected) in cases {
+            let got = Fixed::from_int(input).rsqrt().to_f32();
+            let err = (got - expected).abs() / expected;
+            assert!(
+                err < 0.02,
+                "rsqrt({input}) = {got}, expected {expected}, err = {err:.3}"
+            );
+        }
+    }
+
+    #[test]
+    fn rsqrt_fixed64_accuracy() {
+        let cases: [(i32, f32); 4] = [(1, 1.0), (4, 0.5), (9, 1.0 / 3.0), (16, 0.25)];
+        for (input, expected) in cases {
+            let got = Fixed64::from_fixed(Fixed::from_int(input)).rsqrt().to_f32();
+            let err = (got - expected).abs() / expected;
+            assert!(
+                err < 0.02,
+                "Fixed64::rsqrt({input}) = {got}, expected {expected}, err = {err:.3}"
+            );
+        }
     }
 
     #[test]
