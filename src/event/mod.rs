@@ -3,6 +3,7 @@ pub mod gesture;
 pub mod hit_test;
 pub mod input;
 pub mod scroll;
+pub mod sim;
 pub mod widget_input;
 
 use crate::ecs::{Entity, World};

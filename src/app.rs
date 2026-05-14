@@ -114,6 +114,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn set_root(&mut self, root: Entity) {
         self.root = Some(root);
         crate::event::widget_input::attach_widget_input_handlers(&mut self.world, root);
+        crate::event::sim::set_sim_root(&mut self.world, root);
     }
 
     /// Render one frame
