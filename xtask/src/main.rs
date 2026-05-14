@@ -38,11 +38,31 @@ fn cmd_ci() -> Result {
         ("lint", cmd_lint),
         ("examples", cmd_examples),
         ("size", cmd_size),
+        ("cha", cmd_cha),
     ] {
         println!("\n=== xtask: {name} ===");
         step()?;
     }
     println!("\n✅ All CI checks passed.");
+    Ok(())
+}
+
+fn cmd_cha() -> Result {
+    if Command::new("cha").arg("--version").output().is_err() {
+        println!("  ⏭ cha not found, skipping");
+        return Ok(());
+    }
+    let output = Command::new("cha")
+        .args(["analyze", "src/", "--format", "json"])
+        .output()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let has_error = stdout.contains("\"severity\":\"error\"");
+    if has_error {
+        // Re-run in terminal mode so the developer sees human-readable output.
+        let _ = Command::new("cha").args(["analyze", "src/"]).status();
+        return Err("cha found error-level issues".into());
+    }
+    println!("  ✓ no error-level cha findings");
     Ok(())
 }
 
