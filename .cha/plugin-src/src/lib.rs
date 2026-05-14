@@ -46,6 +46,8 @@ impl PluginImpl for ApiMisuse {
             "stale-naming".into(),
             "spelling-us".into(),
             "fixed64-hot-path".into(),
+            "unimplemented-residue".into(),
+            "viewport-scale-missing".into(),
         ]
     }
 
@@ -181,7 +183,6 @@ impl PluginImpl for ApiMisuse {
         for m in &loop_matches {
             for capture in m {
                 if capture.capture_name == "body" {
-                    // Check if this loop body contains Fixed64 usage
                     let body_nodes = tree_query::nodes_in_range(
                         capture.start_line,
                         capture.end_line,
@@ -201,6 +202,56 @@ impl PluginImpl for ApiMisuse {
                         }
                     }
                 }
+            }
+        }
+
+        // --- Rule: unimplemented-residue (unimplemented!() left in non-test code) ---
+        let unimpl_matches = tree_query::run_query(
+            "(macro_invocation macro: (identifier) @name (#eq? @name \"unimplemented\")) @call"
+        );
+        for m in &unimpl_matches {
+            if let Some(call) = m.iter().find(|c| c.capture_name == "call") {
+                findings.push(finding(
+                    "unimplemented-residue",
+                    Severity::Warning,
+                    &input.path,
+                    call.start_line,
+                    call.start_col,
+                    "unimplemented!() left in production code — will panic at runtime",
+                    "Implement the missing path or replace with a graceful fallback",
+                ));
+            }
+        }
+
+        // --- Rule: viewport-scale-missing (Canvas impl fn without physical conversion) ---
+        // Detect functions inside `impl Canvas for ...` that don't call
+        // rect_to_physical / point_to_physical — likely a viewport scale bug.
+        // Exclude functions that delegate to other _inner methods (they do
+        // the conversion internally).
+        for func in &input.functions {
+            if input.path.contains("draw/")
+                && func.name.ends_with("_inner")
+                && func.line_count > 5
+                && !func.called_functions.iter().any(|f|
+                    f.contains("rect_to_physical")
+                        || f.contains("point_to_physical")
+                        || f.contains("scale_path")
+                        || f.contains("_inner")
+                        || f.contains("submit_geometry")
+                )
+            {
+                findings.push(finding(
+                    "viewport-scale-missing",
+                    Severity::Warning,
+                    &input.path,
+                    func.start_line,
+                    0,
+                    &format!(
+                        "Function `{}` in draw/ with _inner suffix doesn't call viewport physical conversion",
+                        func.name
+                    ),
+                    "Add self.viewport.rect_to_physical() or point_to_physical()",
+                ));
             }
         }
 
