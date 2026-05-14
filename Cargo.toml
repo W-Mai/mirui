@@ -141,6 +141,10 @@ name = "gesture_demo"
 required-features = ["sdl"]
 
 [[example]]
+name = "slider_switch_demo"
+required-features = ["sdl"]
+
+[[example]]
 name = "book_flip_demo"
 required-features = ["sdl"]
 
