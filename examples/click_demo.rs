@@ -8,6 +8,7 @@ use mirui::types::{Color, Dimension};
 use mirui::widget::Style;
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
+use mirui_macros::ui;
 
 struct Toggle {
     on: bool,
@@ -45,34 +46,6 @@ fn main() {
     ];
     let accent = Color::rgb(210, 168, 255);
 
-    let mut children: Vec<Entity> = Vec::new();
-    for &base in colors.iter() {
-        let child = WidgetBuilder::new(&mut app.world)
-            .bg_color(base)
-            .layout(LayoutStyle {
-                width: Dimension::px(120),
-                height: Dimension::px(80),
-                ..Default::default()
-            })
-            .id();
-
-        app.world.insert(
-            child,
-            Toggle {
-                on: false,
-                base,
-                accent,
-            },
-        );
-        app.world.insert(
-            child,
-            GestureHandler {
-                on_gesture: toggle_handler,
-            },
-        );
-        children.push(child);
-    }
-
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
@@ -89,10 +62,31 @@ fn main() {
             },
             ..Default::default()
         })
-        .child(children[0])
-        .child(children[1])
-        .child(children[2])
         .id();
+
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
+
+        walk colors.iter() with color {
+            Rect (
+                bg_color: *color,
+                width: 120,
+                height: 80
+            ) [
+                Toggle {
+                    on: false,
+                    base: *color,
+                    accent,
+                },
+                GestureHandler {
+                    on_gesture: toggle_handler,
+                },
+            ] {}
+        }
+    };
 
     app.set_root(root);
     app.run();
