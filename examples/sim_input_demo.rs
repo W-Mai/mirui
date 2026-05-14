@@ -1,10 +1,9 @@
-use mirui::anim::FrameClock;
+use mirui::anim::{FrameClock, ease};
 use mirui::app::App;
 use mirui::ecs::{Entity, World};
 use mirui::event::GestureHandler;
 use mirui::event::gesture::GestureEvent;
-use mirui::event::input::InputEvent;
-use mirui::event::sim::{SimCommand, SimulatedInput, sim_input_system};
+use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
@@ -74,7 +73,7 @@ fn main() {
     }));
 
     app.add_system(mirui::anim::sync_delta_time_ms);
-    app.add_system(sim_input_system);
+    app.add_system(sim_timeline_system);
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))
@@ -133,111 +132,40 @@ fn main() {
     );
 
     app.world.insert_resource(
-        SimulatedInput::new(vec![
-            SimCommand::at(
-                500,
-                InputEvent::PointerDown {
-                    id: 0,
-                    x: Fixed::from_int(70),
-                    y: Fixed::from_int(70),
-                },
-            ),
-            SimCommand::after(
-                50,
-                InputEvent::PointerUp {
-                    id: 0,
-                    x: Fixed::from_int(70),
-                    y: Fixed::from_int(70),
-                },
-            ),
-            SimCommand::after(
-                800,
-                InputEvent::PointerDown {
-                    id: 0,
-                    x: Fixed::from_int(70),
-                    y: Fixed::from_int(70),
-                },
-            ),
-            SimCommand::after(
-                50,
-                InputEvent::PointerUp {
-                    id: 0,
-                    x: Fixed::from_int(70),
-                    y: Fixed::from_int(70),
-                },
-            ),
-            SimCommand::after(
-                800,
-                InputEvent::PointerDown {
-                    id: 0,
-                    x: Fixed::from_int(170),
-                    y: Fixed::from_int(120),
-                },
-            ),
-            SimCommand::after(
-                50,
-                InputEvent::PointerMove {
-                    id: 0,
-                    x: Fixed::from_int(200),
-                    y: Fixed::from_int(120),
-                },
-            ),
-            SimCommand::after(
-                50,
-                InputEvent::PointerMove {
-                    id: 0,
-                    x: Fixed::from_int(230),
-                    y: Fixed::from_int(110),
-                },
-            ),
-            SimCommand::after(
-                50,
-                InputEvent::PointerMove {
-                    id: 0,
-                    x: Fixed::from_int(250),
-                    y: Fixed::from_int(100),
-                },
-            ),
-            SimCommand::after(
-                50,
-                InputEvent::PointerMove {
-                    id: 0,
-                    x: Fixed::from_int(260),
-                    y: Fixed::from_int(130),
-                },
-            ),
-            SimCommand::after(
-                50,
-                InputEvent::PointerMove {
-                    id: 0,
-                    x: Fixed::from_int(240),
-                    y: Fixed::from_int(150),
-                },
-            ),
-            SimCommand::after(
-                50,
-                InputEvent::PointerUp {
-                    id: 0,
-                    x: Fixed::from_int(240),
-                    y: Fixed::from_int(150),
-                },
-            ),
-            SimCommand::after(
-                500,
-                InputEvent::PointerDown {
-                    id: 0,
-                    x: Fixed::from_int(70),
-                    y: Fixed::from_int(70),
-                },
-            ),
-            SimCommand::after(
-                50,
-                InputEvent::PointerUp {
-                    id: 0,
-                    x: Fixed::from_int(70),
-                    y: Fixed::from_int(70),
-                },
-            ),
+        SimTimeline::new(vec![
+            SimAction::Tap {
+                x: Fixed::from_int(70),
+                y: Fixed::from_int(70),
+            },
+            SimAction::Wait(300),
+            SimAction::Tap {
+                x: Fixed::from_int(70),
+                y: Fixed::from_int(70),
+            },
+            SimAction::Wait(300),
+            SimAction::Drag {
+                from_x: Fixed::from_int(170),
+                from_y: Fixed::from_int(120),
+                to_x: Fixed::from_int(260),
+                to_y: Fixed::from_int(60),
+                duration_ms: 600,
+                ease: ease::ease_in_out_cubic,
+            },
+            SimAction::Wait(200),
+            SimAction::Drag {
+                from_x: Fixed::from_int(170),
+                from_y: Fixed::from_int(120),
+                to_x: Fixed::from_int(80),
+                to_y: Fixed::from_int(180),
+                duration_ms: 800,
+                ease: ease::ease_out_quad,
+            },
+            SimAction::Wait(500),
+            SimAction::Tap {
+                x: Fixed::from_int(70),
+                y: Fixed::from_int(70),
+            },
+            SimAction::Wait(500),
         ])
         .looping(true),
     );
