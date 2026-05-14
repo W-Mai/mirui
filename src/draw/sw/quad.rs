@@ -301,7 +301,7 @@ fn inner_quad_is_degenerate(inner: &[Point; 4]) -> bool {
     let d2y = inner[3].y - inner[1].y;
     let d1_sq = d1x * d1x + d1y * d1y;
     let d2_sq = d2x * d2x + d2y * d2y;
-    d1_sq < Fixed::from_raw(256) || d2_sq < Fixed::from_raw(256)
+    d1_sq < Fixed::ONE || d2_sq < Fixed::ONE
 }
 
 /// Shape of the quad's four corners: vertex + two inward unit vectors.

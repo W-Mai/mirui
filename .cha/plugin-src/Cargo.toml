@@ -9,5 +9,8 @@ edition = "2024"
 crate-type = ["cdylib"]
 
 [dependencies]
-cha-plugin-sdk = { git = "https://github.com/W-Mai/Cha" }
+cha-plugin-sdk = { git = "https://github.com/W-Mai/Cha", tag = "v1.14.0" }
 wit-bindgen = "0.55"
+
+[dev-dependencies]
+cha-plugin-sdk = { git = "https://github.com/W-Mai/Cha", tag = "v1.14.0", features = ["test-utils"] }
