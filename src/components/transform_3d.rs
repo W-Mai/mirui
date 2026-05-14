@@ -22,8 +22,8 @@ pub struct TransformOrigin {
 
 impl TransformOrigin {
     pub const CENTRE: Self = Self {
-        x: Fixed::from_raw(128),
-        y: Fixed::from_raw(128),
+        x: Fixed::HALF,
+        y: Fixed::HALF,
     };
     pub const TOP_LEFT: Self = Self {
         x: Fixed::ZERO,

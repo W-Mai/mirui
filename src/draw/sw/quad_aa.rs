@@ -24,8 +24,6 @@ use crate::types::{Fixed, Point};
 /// Half the pixel diagonal extent along any unit normal: √2/2 ≈ 0.707.
 /// AA band width is conservatively taken as one full pixel (±0.5) so any
 /// pixel straddling an edge gets a linear falloff rather than a step.
-#[cfg(any(all(feature = "quad-aa", feature = "std"), test))]
-const HALF: Fixed = Fixed::from_raw(128); // 0.5
 
 #[derive(Clone, Copy)]
 pub(super) struct PreparedEdge {
@@ -239,7 +237,7 @@ pub(super) fn quad_pixel_coverage_row_supersample(
     match hit {
         0 => Fixed::ZERO,
         1 => Fixed::from_raw(64),  // 0.25 in Q24.8
-        2 => Fixed::from_raw(128), // 0.5
+        2 => Fixed::HALF,          // 0.5
         3 => Fixed::from_raw(192), // 0.75
         _ => Fixed::ONE,
     }
@@ -341,12 +339,12 @@ pub(super) fn quad_pixel_coverage_row_sdf(
         }
     }
 
-    if min_sdf >= HALF {
+    if min_sdf >= Fixed::HALF {
         Fixed::ONE
-    } else if min_sdf <= -HALF {
+    } else if min_sdf <= -Fixed::HALF {
         Fixed::ZERO
     } else {
-        min_sdf + HALF
+        min_sdf + Fixed::HALF
     }
 }
 
@@ -378,8 +376,8 @@ mod tests {
     }
 
     fn cov_at(edges: &[PreparedEdge; 4], px: i32, py: i32) -> Fixed {
-        let cx = Fixed::from_int(px) + HALF;
-        let cy = Fixed::from_int(py) + HALF;
+        let cx = Fixed::from_int(px) + Fixed::HALF;
+        let cy = Fixed::from_int(py) + Fixed::HALF;
         let row = EdgeRowState::new(edges, cx, cy);
         quad_pixel_coverage_row(edges, None, cx, cy, &row)
     }

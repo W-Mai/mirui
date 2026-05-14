@@ -313,12 +313,7 @@ mod tests {
         tex.set_pixel(0, 1, &Color::rgb(0, 0, 0));
         tex.set_pixel(1, 1, &Color::rgb(0, 0, 0));
 
-        tex.blend_pixel(
-            Fixed::from_raw(128),
-            Fixed::from_raw(128),
-            &Color::rgb(255, 255, 255),
-            255,
-        );
+        tex.blend_pixel(Fixed::HALF, Fixed::HALF, &Color::rgb(255, 255, 255), 255);
 
         // Each pixel should get ~25% coverage
         let tl = tex.get_pixel(0, 0);

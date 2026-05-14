@@ -11,6 +11,7 @@ const SCALE: i32 = 1 << FRAC_BITS; // 256
 
 impl Fixed {
     pub const ZERO: Self = Self(0);
+    pub const HALF: Self = Self(SCALE / 2);
     pub const ONE: Self = Self(SCALE);
     pub const MAX: Self = Self(i32::MAX);
     pub const MIN: Self = Self(i32::MIN);

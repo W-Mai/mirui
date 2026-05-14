@@ -6,30 +6,7 @@ use crate::draw::texture::Texture;
 use super::perf::quad_perf;
 
 pub fn quad_bbox(q: &[Point; 4]) -> Rect {
-    let mut min_x = q[0].x;
-    let mut max_x = q[0].x;
-    let mut min_y = q[0].y;
-    let mut max_y = q[0].y;
-    for p in &q[1..] {
-        if p.x < min_x {
-            min_x = p.x;
-        }
-        if p.x > max_x {
-            max_x = p.x;
-        }
-        if p.y < min_y {
-            min_y = p.y;
-        }
-        if p.y > max_y {
-            max_y = p.y;
-        }
-    }
-    Rect {
-        x: min_x,
-        y: min_y,
-        w: max_x - min_x,
-        h: max_y - min_y,
-    }
+    Rect::bounding_quad(q)
 }
 
 pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Rect) {
@@ -59,7 +36,7 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
     let sh = src.height as i32;
     let half = Fixed64::from_raw(Fixed64::ONE.raw() >> 1);
     for py in px_y0..px_y1 {
-        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let py_f = Fixed::from_int(py) + Fixed::HALF;
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
             continue;
         };
@@ -77,7 +54,7 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
         unsafe {
             quad_perf::BLIT_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
         }
-        let mut cx = Fixed::from_int(x_l_px) + Fixed::from_raw(128);
+        let mut cx = Fixed::from_int(x_l_px) + Fixed::HALF;
         let one = Fixed::ONE;
         let mut row = EdgeRowState::new(&edges, cx, py_f);
         for px in x_l_px..x_r_px {
@@ -155,7 +132,7 @@ pub fn fill_rect_quad(
     let corners = prepare_corners(q, radius);
     let one = Fixed::ONE;
     for py in px_y0..px_y1 {
-        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let py_f = Fixed::from_int(py) + Fixed::HALF;
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
             continue;
         };
@@ -168,7 +145,7 @@ pub fn fill_rect_quad(
         unsafe {
             quad_perf::FILL_PIXELS_SCANNED += (x_r_px - x_l_px) as u64;
         }
-        let mut cx = Fixed::from_int(x_l_px) + Fixed::from_raw(128);
+        let mut cx = Fixed::from_int(x_l_px) + Fixed::HALF;
         let mut row = EdgeRowState::new(&edges, cx, py_f);
         for px in x_l_px..x_r_px {
             let cov = quad_pixel_coverage_row(&edges, Some(&corners), cx, py_f, &row);
@@ -253,7 +230,7 @@ pub fn stroke_rect_quad(
     };
 
     for py in px_y0..px_y1 {
-        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let py_f = Fixed::from_int(py) + Fixed::HALF;
         let Some((x_lo, x_ro)) = quad_row_span(q, py_f) else {
             continue;
         };
@@ -262,7 +239,7 @@ pub fn stroke_rect_quad(
         if xro_px <= xlo_px {
             continue;
         }
-        let mut cx = Fixed::from_int(xlo_px) + Fixed::from_raw(128);
+        let mut cx = Fixed::from_int(xlo_px) + Fixed::HALF;
         let one = Fixed::ONE;
         let mut outer_row = EdgeRowState::new(&outer_edges, cx, py_f);
         let mut inner_row = inner_edges
@@ -408,7 +385,7 @@ fn fill_rect_quad_no_corner(
     let edges = prepare_quad_edges(q, cw);
     let one = Fixed::ONE;
     for py in px_y0..px_y1 {
-        let py_f = Fixed::from_int(py) + Fixed::from_raw(128);
+        let py_f = Fixed::from_int(py) + Fixed::HALF;
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
             continue;
         };
@@ -421,7 +398,7 @@ fn fill_rect_quad_no_corner(
         unsafe {
             quad_perf::FILL_PIXELS_SCANNED += (xhi_px - xlo_px) as u64;
         }
-        let mut cx = Fixed::from_int(xlo_px) + Fixed::from_raw(128);
+        let mut cx = Fixed::from_int(xlo_px) + Fixed::HALF;
         let mut row = EdgeRowState::new(&edges, cx, py_f);
         for px in xlo_px..xhi_px {
             let edge_cx = cx;

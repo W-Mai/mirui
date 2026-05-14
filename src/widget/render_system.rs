@@ -91,30 +91,7 @@ fn accumulate_3d(
 }
 
 fn quad_bbox(q: [Point; 4]) -> Rect {
-    let mut min_x = q[0].x;
-    let mut max_x = q[0].x;
-    let mut min_y = q[0].y;
-    let mut max_y = q[0].y;
-    for p in &q[1..] {
-        if p.x < min_x {
-            min_x = p.x;
-        }
-        if p.x > max_x {
-            max_x = p.x;
-        }
-        if p.y < min_y {
-            min_y = p.y;
-        }
-        if p.y > max_y {
-            max_y = p.y;
-        }
-    }
-    Rect {
-        x: min_x,
-        y: min_y,
-        w: max_x - min_x,
-        h: max_y - min_y,
-    }
+    Rect::bounding_quad(&q)
 }
 
 fn seed_prev_rect_walk(

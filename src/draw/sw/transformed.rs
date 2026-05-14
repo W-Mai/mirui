@@ -26,8 +26,8 @@ pub fn fill_rect_transformed(
     for py in px_y0..px_y1 {
         for px in px_x0..px_x1 {
             let sample = inv.apply_point(Point {
-                x: Fixed::from_int(px) + Fixed::from_raw(128),
-                y: Fixed::from_int(py) + Fixed::from_raw(128),
+                x: Fixed::from_int(px) + Fixed::HALF,
+                y: Fixed::from_int(py) + Fixed::HALF,
             });
             if sample.x < rx0 || sample.x >= rx1 || sample.y < ry0 || sample.y >= ry1 {
                 continue;
@@ -76,8 +76,8 @@ pub fn blit_transformed(
     for py in dy0..dy1 {
         for px in dx0..dx1 {
             let dp = inv.apply_point(Point {
-                x: Fixed::from_int(px) + Fixed::from_raw(128),
-                y: Fixed::from_int(py) + Fixed::from_raw(128),
+                x: Fixed::from_int(px) + Fixed::HALF,
+                y: Fixed::from_int(py) + Fixed::HALF,
             });
             let u = dp.x - dst_x0;
             let v = dp.y - dst_y0;
