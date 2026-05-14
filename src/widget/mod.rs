@@ -34,7 +34,6 @@ pub struct Parent(pub crate::ecs::Entity);
 pub struct ComputedRect(pub crate::types::Rect);
 
 /// Move a widget to a new absolute position, automatically tracking dirty state.
-/// Move a widget to a new absolute position, automatically tracking dirty state.
 pub fn set_position(
     world: &mut crate::ecs::World,
     entity: crate::ecs::Entity,
@@ -61,10 +60,14 @@ pub fn set_position(
             w: old_rect.w,
             h: old_rect.h,
         };
-        // Compare pixel footprints — only store PrevRect if actual pixels changed
         if old_rect.to_px() != new_rect.to_px() {
             let (px, py, pw, ph) = old_rect.to_px();
-            world.insert(entity, PrevRect(Rect::new(px, py, pw, ph)));
+            let axis_old = Rect::new(px, py, pw, ph);
+            let merged = match world.get::<PrevRect>(entity) {
+                Some(p) => p.0.union(&axis_old),
+                None => axis_old,
+            };
+            world.insert(entity, PrevRect(merged));
         }
     }
     if let Some(style) = world.get_mut::<Style>(entity) {

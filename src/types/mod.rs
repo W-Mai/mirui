@@ -68,6 +68,23 @@ impl Rect {
         }
     }
 
+    pub fn union(&self, other: &Rect) -> Rect {
+        let ax1 = self.x + self.w;
+        let ay1 = self.y + self.h;
+        let bx1 = other.x + other.w;
+        let by1 = other.y + other.h;
+        let x0 = if self.x < other.x { self.x } else { other.x };
+        let y0 = if self.y < other.y { self.y } else { other.y };
+        let x1 = if ax1 > bx1 { ax1 } else { bx1 };
+        let y1 = if ay1 > by1 { ay1 } else { by1 };
+        Rect {
+            x: x0,
+            y: y0,
+            w: x1 - x0,
+            h: y1 - y0,
+        }
+    }
+
     pub fn is_aligned(&self) -> bool {
         self.x.is_integer() && self.y.is_integer() && self.w.is_integer() && self.h.is_integer()
     }

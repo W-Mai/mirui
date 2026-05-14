@@ -721,31 +721,20 @@ fn collect_dirty_walk(
     let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
 
     if world.get::<Dirty>(entity).is_some() {
-        let effective_rect = quad_for(world, entity, node.rect, parent_3d)
+        let curr = quad_for(world, entity, node.rect, parent_3d)
             .map(quad_bbox)
             .unwrap_or(node.rect);
-        let mut x0 = effective_rect.x.floor();
-        let mut y0 = effective_rect.y.floor();
-        let mut x1 = (effective_rect.x + effective_rect.w).ceil();
-        let mut y1 = (effective_rect.y + effective_rect.h).ceil();
 
-        if let Some(prev) = world.remove::<super::dirty::PrevRect>(entity) {
-            let p_x1 = (prev.0.x + prev.0.w).ceil();
-            let p_y1 = (prev.0.y + prev.0.h).ceil();
-            if prev.0.x < x0 {
-                x0 = prev.0.x;
-            }
-            if prev.0.y < y0 {
-                y0 = prev.0.y;
-            }
-            if p_x1 > x1 {
-                x1 = p_x1;
-            }
-            if p_y1 > y1 {
-                y1 = p_y1;
-            }
-        }
+        let union_rect = match world.get::<super::dirty::PrevRect>(entity) {
+            Some(prev) => curr.union(&prev.0),
+            None => curr,
+        };
+        let (ux0, uy0, ux1, uy1) = union_rect.pixel_bounds();
 
+        let x0 = Fixed::from_int(ux0);
+        let y0 = Fixed::from_int(uy0);
+        let x1 = Fixed::from_int(ux1);
+        let y1 = Fixed::from_int(uy1);
         if x0 < bounds.min_x {
             bounds.min_x = x0;
         }
@@ -758,14 +747,13 @@ fn collect_dirty_walk(
         if y1 > bounds.max_y {
             bounds.max_y = y1;
         }
+
+        // Stash this-frame bbox only — accumulating a union here grows
+        // PrevRect without bound when widgets keep moving.
+        let (cx0, cy0, cx1, cy1) = curr.pixel_bounds();
         world.insert(
             entity,
-            super::dirty::PrevRect(Rect {
-                x: x0,
-                y: y0,
-                w: x1 - x0,
-                h: y1 - y0,
-            }),
+            super::dirty::PrevRect(Rect::new(cx0, cy0, cx1 - cx0, cy1 - cy0)),
         );
         world.remove::<Dirty>(entity);
     }
