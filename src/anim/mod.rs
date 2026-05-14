@@ -20,14 +20,13 @@ pub struct Animation {
     pub elapsed_ms: u16,
     pub ease: EaseFn,
     pub mode: PlayMode,
-    spatial: Option<SpatialState>,
+    pub spatial: Option<SpatialState>,
 }
 
 #[derive(Clone, Copy)]
-struct SpatialState {
-    t: Fixed,
-    curve: EaseCurve,
-    ds: Fixed,
+pub struct SpatialState {
+    pub step: Fixed,
+    pub last_output: Fixed,
 }
 
 impl Animation {
@@ -43,24 +42,34 @@ impl Animation {
         }
     }
 
+    /// Spatial-uniform mode: output advances in fixed pixel steps.
+    /// `steps` is the number of equal increments over the full range.
+    /// Ease shape is preserved (fast sections update more frequently,
+    /// slow sections update less frequently).
     pub fn spatial(
         from: Fixed,
         to: Fixed,
         duration_ms: u16,
-        curve: EaseCurve,
+        ease: EaseFn,
         mode: PlayMode,
+        steps: u16,
     ) -> Self {
+        let range = to - from;
+        let step = if steps > 0 {
+            range / Fixed::from_int(steps as i32)
+        } else {
+            Fixed::ONE
+        };
         Self {
             from,
             to,
             duration_ms: duration_ms.max(1),
             elapsed_ms: 0,
-            ease: curve.eval,
+            ease,
             mode,
             spatial: Some(SpatialState {
-                t: Fixed::ZERO,
-                curve,
-                ds: Fixed::ZERO,
+                step,
+                last_output: from,
             }),
         }
     }
@@ -73,56 +82,52 @@ impl Animation {
         if self.is_finished() {
             return;
         }
+        self.elapsed_ms = self.elapsed_ms.saturating_add(dt_ms);
+        if self.elapsed_ms >= self.duration_ms {
+            match self.mode {
+                PlayMode::Once => self.elapsed_ms = self.duration_ms,
+                PlayMode::Loop => {
+                    self.elapsed_ms %= self.duration_ms;
+                    if let Some(ref mut sp) = self.spatial {
+                        sp.last_output = self.from;
+                    }
+                }
+                PlayMode::PingPong => {
+                    self.elapsed_ms %= self.duration_ms;
+                    core::mem::swap(&mut self.from, &mut self.to);
+                    if let Some(ref mut sp) = self.spatial {
+                        sp.step = Fixed::ZERO - sp.step;
+                        sp.last_output = self.from;
+                    }
+                }
+            }
+        }
+
         if let Some(ref mut sp) = self.spatial {
-            if sp.ds == Fixed::ZERO {
-                sp.ds = sp.curve.arc_length * Fixed::from_raw(dt_ms as i32)
-                    / Fixed::from_raw(self.duration_ms as i32);
-            }
-            let deriv = (sp.curve.derivative)(sp.t);
-            let norm_sq = Fixed::ONE + deriv * deriv;
-            let inv_norm = norm_sq.rsqrt();
-            let delta_t = sp.ds * inv_norm;
-            sp.t += delta_t;
-            if sp.t >= Fixed::ONE {
-                match self.mode {
-                    PlayMode::Once => {
-                        sp.t = Fixed::ONE;
-                        self.elapsed_ms = self.duration_ms;
-                    }
-                    PlayMode::Loop => {
-                        sp.t -= Fixed::ONE;
-                    }
-                    PlayMode::PingPong => {
-                        sp.t = Fixed::ONE - (sp.t - Fixed::ONE);
-                        core::mem::swap(&mut self.from, &mut self.to);
-                    }
-                }
-            } else {
-                self.elapsed_ms = (sp.t * Fixed::from_raw(self.duration_ms as i32)).to_int() as u16;
-            }
-        } else {
-            self.elapsed_ms = self.elapsed_ms.saturating_add(dt_ms);
-            if self.elapsed_ms >= self.duration_ms {
-                match self.mode {
-                    PlayMode::Once => self.elapsed_ms = self.duration_ms,
-                    PlayMode::Loop => self.elapsed_ms %= self.duration_ms,
-                    PlayMode::PingPong => {
-                        self.elapsed_ms %= self.duration_ms;
-                        core::mem::swap(&mut self.from, &mut self.to);
-                    }
-                }
+            let t = Fixed::from_raw(
+                (self.elapsed_ms as i32) * Fixed::ONE.raw() / (self.duration_ms as i32),
+            );
+            let eased = (self.ease)(t);
+            let raw_value = self.from + eased * (self.to - self.from);
+            let diff = raw_value - sp.last_output;
+            let abs_step = sp.step.abs();
+            if abs_step.raw() > 0 && diff.abs() >= abs_step {
+                let n = diff.raw() / sp.step.raw();
+                sp.last_output += Fixed::from_raw(n * sp.step.raw());
             }
         }
     }
 
     pub fn current_value(&self) -> Fixed {
-        let t = if let Some(ref sp) = self.spatial {
-            sp.t
+        if let Some(ref sp) = self.spatial {
+            sp.last_output
         } else {
-            Fixed::from_raw((self.elapsed_ms as i32) * Fixed::ONE.raw() / (self.duration_ms as i32))
-        };
-        let eased = (self.ease)(t);
-        self.from + eased * (self.to - self.from)
+            let t = Fixed::from_raw(
+                (self.elapsed_ms as i32) * Fixed::ONE.raw() / (self.duration_ms as i32),
+            );
+            let eased = (self.ease)(t);
+            self.from + eased * (self.to - self.from)
+        }
     }
 
     pub fn is_finished(&self) -> bool {
@@ -211,8 +216,9 @@ mod tests {
             Fixed::ZERO,
             Fixed::from_int(100),
             1000,
-            ease::IN_OUT_CUBIC,
+            ease::ease_in_out_cubic,
             PlayMode::Once,
+            20,
         );
         for _ in 0..100 {
             a.tick(16);
@@ -222,41 +228,66 @@ mod tests {
     }
 
     #[test]
-    fn spatial_uniform_arc_steps() {
+    fn spatial_same_duration_as_temporal() {
+        let mut temporal = Animation::new(
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            1000,
+            ease::ease_in_out_cubic,
+            PlayMode::Once,
+        );
+        let mut spatial = Animation::spatial(
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            1000,
+            ease::ease_in_out_cubic,
+            PlayMode::Once,
+            20,
+        );
+
+        let mut tf = 0u32;
+        while !temporal.is_finished() && tf < 200 {
+            temporal.tick(16);
+            tf += 1;
+        }
+        let mut sf = 0u32;
+        while !spatial.is_finished() && sf < 200 {
+            spatial.tick(16);
+            sf += 1;
+        }
+        assert_eq!(tf, sf);
+    }
+
+    #[test]
+    fn spatial_all_steps_equal() {
         let mut a = Animation::spatial(
             Fixed::ZERO,
             Fixed::from_int(100),
             500,
-            ease::IN_OUT_CUBIC,
+            ease::ease_in_out_cubic,
             PlayMode::Once,
+            20,
         );
 
-        let mut prev_t = Fixed::ZERO;
         let mut prev_val = Fixed::ZERO;
-        let mut arc_lengths = alloc::vec::Vec::new();
+        let mut deltas = alloc::vec::Vec::new();
 
-        for _ in 0..25 {
+        for _ in 0..40 {
             a.tick(16);
-            let sp = a.spatial.unwrap();
-            let t = sp.t;
             let val = a.current_value();
-            let dt = (t - prev_t).to_f32();
-            let dv = (val - prev_val).to_f32() / 100.0;
-            let arc = (dt * dt + dv * dv).sqrt();
-            if arc > 0.0001 {
-                arc_lengths.push(arc);
+            let d = val - prev_val;
+            if d.raw() != 0 {
+                deltas.push(d.raw());
             }
-            prev_t = t;
             prev_val = val;
         }
 
-        if arc_lengths.len() >= 5 {
-            let max = arc_lengths.iter().copied().fold(0.0f32, f32::max);
-            let min = arc_lengths.iter().copied().fold(f32::MAX, f32::min);
-            let ratio = max / min;
-            assert!(
-                ratio < 4.0,
-                "arc steps should be roughly uniform, got ratio={ratio:.2} (max={max:.4}, min={min:.4})"
+        let expected_step = Fixed::from_int(100).raw() / 20; // 5px in raw = 1280
+        for &d in &deltas {
+            assert_eq!(
+                d % expected_step,
+                0,
+                "every step should be a multiple of {expected_step} raw, got {d}"
             );
         }
     }

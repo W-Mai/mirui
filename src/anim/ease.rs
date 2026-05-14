@@ -9,14 +9,21 @@ pub struct EaseCurve {
     pub eval: EaseFn,
     pub derivative: EaseDerivFn,
     pub arc_length: Fixed,
+    pub time_scale: Fixed,
 }
 
 impl EaseCurve {
-    pub const fn new(eval: EaseFn, derivative: EaseDerivFn, arc_length: Fixed) -> Self {
+    pub const fn new(
+        eval: EaseFn,
+        derivative: EaseDerivFn,
+        arc_length: Fixed,
+        time_scale: Fixed,
+    ) -> Self {
         Self {
             eval,
             derivative,
             arc_length,
+            time_scale,
         }
     }
 }
@@ -106,18 +113,44 @@ pub fn ease_in_out_cubic_d(t: Fixed) -> Fixed {
 //   L = ∫₀¹ sqrt(1 + f'(t)²) dt  (32-step Simpson)
 // These are Fixed Q24.8 raw values.
 
-pub const LINEAR: EaseCurve = EaseCurve::new(linear, linear_d, Fixed::from_raw(362));
-pub const IN_QUAD: EaseCurve = EaseCurve::new(ease_in_quad, ease_in_quad_d, Fixed::from_raw(379));
-pub const OUT_QUAD: EaseCurve =
-    EaseCurve::new(ease_out_quad, ease_out_quad_d, Fixed::from_raw(379));
-pub const IN_OUT_QUAD: EaseCurve =
-    EaseCurve::new(ease_in_out_quad, ease_in_out_quad_d, Fixed::from_raw(379));
-pub const IN_CUBIC: EaseCurve =
-    EaseCurve::new(ease_in_cubic, ease_in_cubic_d, Fixed::from_raw(396));
-pub const OUT_CUBIC: EaseCurve =
-    EaseCurve::new(ease_out_cubic, ease_out_cubic_d, Fixed::from_raw(396));
-pub const IN_OUT_CUBIC: EaseCurve =
-    EaseCurve::new(ease_in_out_cubic, ease_in_out_cubic_d, Fixed::from_raw(512));
+pub const LINEAR: EaseCurve =
+    EaseCurve::new(linear, linear_d, Fixed::from_raw(362), Fixed::from_raw(362));
+pub const IN_QUAD: EaseCurve = EaseCurve::new(
+    ease_in_quad,
+    ease_in_quad_d,
+    Fixed::from_raw(379),
+    Fixed::from_raw(355),
+);
+pub const OUT_QUAD: EaseCurve = EaseCurve::new(
+    ease_out_quad,
+    ease_out_quad_d,
+    Fixed::from_raw(379),
+    Fixed::from_raw(355),
+);
+pub const IN_OUT_QUAD: EaseCurve = EaseCurve::new(
+    ease_in_out_quad,
+    ease_in_out_quad_d,
+    Fixed::from_raw(379),
+    Fixed::from_raw(355),
+);
+pub const IN_CUBIC: EaseCurve = EaseCurve::new(
+    ease_in_cubic,
+    ease_in_cubic_d,
+    Fixed::from_raw(396),
+    Fixed::from_raw(346),
+);
+pub const OUT_CUBIC: EaseCurve = EaseCurve::new(
+    ease_out_cubic,
+    ease_out_cubic_d,
+    Fixed::from_raw(396),
+    Fixed::from_raw(346),
+);
+pub const IN_OUT_CUBIC: EaseCurve = EaseCurve::new(
+    ease_in_out_cubic,
+    ease_in_out_cubic_d,
+    Fixed::from_raw(512),
+    Fixed::from_raw(507),
+);
 
 #[cfg(test)]
 mod tests {

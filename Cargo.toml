@@ -145,6 +145,10 @@ name = "sim_input_demo"
 required-features = ["sdl"]
 
 [[example]]
+name = "spatial_anim_demo"
+required-features = ["sdl"]
+
+[[example]]
 name = "slider_switch_demo"
 required-features = ["sdl"]
 
