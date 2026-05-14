@@ -6,7 +6,6 @@ use crate::draw::canvas::Canvas;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
 use crate::event::bubble_dispatch;
-use crate::event::dispatch::dispatch;
 use crate::event::focus::{FocusState, focus_on_tap, key_dispatch};
 use crate::event::gesture::GestureSystem;
 use crate::event::hit_test::hit_test;
@@ -202,7 +201,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                                 self.backend.display_info().viewport().logical_size()
                             });
                             scroll_system(&mut self.world, root, &event, lw, lh);
-                            dispatch(&self.world, root, &event, lw, lh);
 
                             let hit = match &event {
                                 InputEvent::PointerDown { x, y, .. } => {

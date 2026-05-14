@@ -1,4 +1,3 @@
-pub mod dispatch;
 pub mod focus;
 pub mod gesture;
 pub mod hit_test;
@@ -6,38 +5,12 @@ pub mod input;
 pub mod scroll;
 pub mod widget_input;
 
-use alloc::boxed::Box;
-
 use crate::ecs::{Entity, World};
-use crate::types::Fixed;
 use crate::widget::Parent;
 
 use gesture::GestureEvent;
 
-/// Events that widgets can receive (legacy — scheduled for removal)
-#[derive(Clone, Debug)]
-pub enum WidgetEvent {
-    Click { x: Fixed, y: Fixed },
-    TouchDown { x: Fixed, y: Fixed },
-    TouchUp { x: Fixed, y: Fixed },
-}
-
-type EventCallback = Box<dyn Fn(Entity, &WidgetEvent) + Send>;
-
-/// Component: attach an event handler to a widget entity (legacy — scheduled for removal)
-pub struct EventHandler {
-    pub on_event: EventCallback,
-}
-
-impl EventHandler {
-    pub fn new(f: impl Fn(Entity, &WidgetEvent) + Send + 'static) -> Self {
-        Self {
-            on_event: Box::new(f),
-        }
-    }
-}
-
-/// New gesture handler component — a plain fn pointer, no heap allocation.
+/// Gesture handler component — a plain fn pointer, no heap allocation.
 /// Returns `true` to stop propagation (event consumed).
 pub struct GestureHandler {
     pub on_gesture: fn(&mut World, Entity, &GestureEvent) -> bool,

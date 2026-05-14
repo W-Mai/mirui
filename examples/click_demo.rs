@@ -1,14 +1,38 @@
-use std::sync::{Arc, Mutex};
-
 use mirui::app::App;
-use mirui::ecs::Entity;
-use mirui::event::{EventHandler, WidgetEvent};
+use mirui::ecs::{Entity, World};
+use mirui::event::GestureHandler;
+use mirui::event::gesture::GestureEvent;
 use mirui::layout::*;
-use mirui::surface::Surface;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension};
 use mirui::widget::Style;
 use mirui::widget::builder::WidgetBuilder;
+use mirui::widget::dirty::Dirty;
+
+struct Toggle {
+    on: bool,
+    base: Color,
+    accent: Color,
+}
+
+fn toggle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+    if let GestureEvent::Tap { .. } = event {
+        let new_color = {
+            let Some(t) = world.get_mut::<Toggle>(entity) else {
+                return false;
+            };
+            t.on = !t.on;
+            if t.on { t.accent } else { t.base }
+        };
+        if let Some(style) = world.get_mut::<Style>(entity) {
+            style.bg_color = Some(new_color);
+        }
+        world.insert(entity, Dirty);
+        true
+    } else {
+        false
+    }
+}
 
 fn main() {
     let backend = SdlSurface::new("mirui - click demo", 480, 320);
@@ -19,15 +43,12 @@ fn main() {
         Color::rgb(63, 185, 80),
         Color::rgb(248, 81, 73),
     ];
-
-    // Shared state for toggling colors
-    let toggle_states: Arc<Mutex<[bool; 3]>> = Arc::new(Mutex::new([false; 3]));
+    let accent = Color::rgb(210, 168, 255);
 
     let mut children: Vec<Entity> = Vec::new();
-    for (i, &color) in colors.iter().enumerate() {
-        let toggle = toggle_states.clone();
+    for &base in colors.iter() {
         let child = WidgetBuilder::new(&mut app.world)
-            .bg_color(color)
+            .bg_color(base)
             .layout(LayoutStyle {
                 width: Dimension::px(120),
                 height: Dimension::px(80),
@@ -37,15 +58,17 @@ fn main() {
 
         app.world.insert(
             child,
-            EventHandler::new(move |entity, event| {
-                if let WidgetEvent::Click { .. } = event {
-                    let mut states = toggle.lock().unwrap();
-                    states[i] = !states[i];
-                    // We can't mutate world here directly, but we print to show it works
-                    let state = if states[i] { "ON" } else { "OFF" };
-                    println!("Widget {entity:?} clicked! State: {state}");
-                }
-            }),
+            Toggle {
+                on: false,
+                base,
+                accent,
+            },
+        );
+        app.world.insert(
+            child,
+            GestureHandler {
+                on_gesture: toggle_handler,
+            },
         );
         children.push(child);
     }
@@ -72,42 +95,5 @@ fn main() {
         .id();
 
     app.set_root(root);
-
-    // Custom run loop to update colors based on toggle state
-    app.render();
-    loop {
-        match app.poll_event() {
-            Some(mirui::surface::InputEvent::Quit) => break,
-            Some(event) => {
-                if let Some(root) = app.root {
-                    let info = app.backend.display_info();
-                    mirui::event::dispatch::dispatch(
-                        &app.world,
-                        root,
-                        &event,
-                        info.width,
-                        info.height,
-                    );
-                }
-
-                // Update colors based on toggle state
-                let states = toggle_states.lock().unwrap();
-                for (i, &child) in children.iter().enumerate() {
-                    if let Some(style) = app.world.get_mut::<Style>(child) {
-                        style.bg_color = Some(if states[i] {
-                            Color::rgb(210, 168, 255) // toggled = purple
-                        } else {
-                            colors[i]
-                        });
-                    }
-                }
-                drop(states);
-
-                app.render();
-            }
-            None => {
-                std::thread::sleep(std::time::Duration::from_millis(16));
-            }
-        }
-    }
+    app.run();
 }

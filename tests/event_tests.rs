@@ -1,21 +1,79 @@
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::World;
-    use mirui::event::EventHandler;
-    use mirui::event::dispatch::dispatch;
+    use mirui::ecs::{Entity, World};
+    use mirui::event::gesture::{GestureEvent, GestureEvents, GestureRecognizer};
+    use mirui::event::hit_test::hit_test;
+    use mirui::event::input::InputEvent;
+    use mirui::event::{GestureHandler, bubble_dispatch};
     use mirui::layout::*;
-    use mirui::surface::InputEvent;
-    use mirui::types::{Color, Dimension};
+    use mirui::types::{Color, Dimension, Fixed};
     use mirui::widget::builder::WidgetBuilder;
 
-    use std::sync::{Arc, Mutex};
+    /// Per-entity tap counter so tests don't share static state.
+    struct TapHits(u32);
+
+    fn count_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+        if matches!(event, GestureEvent::Tap { .. }) {
+            if let Some(c) = world.get_mut::<TapHits>(entity) {
+                c.0 += 1;
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    fn attach_counter(world: &mut World, entity: Entity) {
+        world.insert(entity, TapHits(0));
+        world.insert(
+            entity,
+            GestureHandler {
+                on_gesture: count_handler,
+            },
+        );
+    }
+
+    fn hits(world: &World, entity: Entity) -> u32 {
+        world.get::<TapHits>(entity).map(|c| c.0).unwrap_or(0)
+    }
+
+    /// Drive a Tap gesture on (x, y) through hit_test + recognizer + bubble_dispatch.
+    /// Mirrors what App::run does for one event pair.
+    fn tap_at(world: &mut World, root: Entity, x: i32, y: i32, screen: u16) {
+        let xf = Fixed::from_int(x);
+        let yf = Fixed::from_int(y);
+        let hit = hit_test(world, root, xf, yf, screen, screen);
+
+        let mut rec = GestureRecognizer::new();
+        let mut events = GestureEvents::new();
+        rec.update(
+            &InputEvent::PointerDown {
+                id: 0,
+                x: xf,
+                y: yf,
+            },
+            0,
+            hit,
+            &mut events,
+        );
+        rec.update(
+            &InputEvent::PointerUp {
+                id: 0,
+                x: xf,
+                y: yf,
+            },
+            50,
+            None,
+            &mut events,
+        );
+        for ev in events.buffer.drain(..) {
+            bubble_dispatch(world, &ev);
+        }
+    }
 
     #[test]
     fn hit_test_finds_child() {
         let mut world = World::new();
-        let clicked = Arc::new(Mutex::new(Vec::new()));
-
-        let clicked_clone = clicked.clone();
         let child = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
             .layout(LayoutStyle {
@@ -24,12 +82,7 @@ mod tests {
                 ..Default::default()
             })
             .id();
-        world.insert(
-            child,
-            EventHandler::new(move |entity, _event| {
-                clicked_clone.lock().unwrap().push(entity);
-            }),
-        );
+        attach_counter(&mut world, child);
 
         let root = WidgetBuilder::new(&mut world)
             .layout(LayoutStyle {
@@ -41,28 +94,13 @@ mod tests {
             .child(child)
             .id();
 
-        // Click inside child (50, 50)
-        dispatch(
-            &world,
-            root,
-            &InputEvent::PointerUp {
-                id: 0,
-                x: 50.into(),
-                y: 50.into(),
-            },
-            200,
-            200,
-        );
-        assert_eq!(clicked.lock().unwrap().len(), 1);
-        assert_eq!(clicked.lock().unwrap()[0], child);
+        tap_at(&mut world, root, 50, 50, 200);
+        assert_eq!(hits(&world, child), 1);
     }
 
     #[test]
     fn hit_test_misses_outside() {
         let mut world = World::new();
-        let clicked = Arc::new(Mutex::new(false));
-
-        let clicked_clone = clicked.clone();
         let child = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
             .layout(LayoutStyle {
@@ -71,12 +109,7 @@ mod tests {
                 ..Default::default()
             })
             .id();
-        world.insert(
-            child,
-            EventHandler::new(move |_entity, _event| {
-                *clicked_clone.lock().unwrap() = true;
-            }),
-        );
+        attach_counter(&mut world, child);
 
         let root = WidgetBuilder::new(&mut world)
             .layout(LayoutStyle {
@@ -88,27 +121,13 @@ mod tests {
             .child(child)
             .id();
 
-        // Click outside child (150, 150)
-        dispatch(
-            &world,
-            root,
-            &InputEvent::PointerUp {
-                id: 0,
-                x: 150.into(),
-                y: 150.into(),
-            },
-            200,
-            200,
-        );
-        assert!(!*clicked.lock().unwrap());
+        tap_at(&mut world, root, 150, 150, 200);
+        assert_eq!(hits(&world, child), 0);
     }
 
     #[test]
     fn hit_test_deepest_wins() {
         let mut world = World::new();
-        let hit_entity = Arc::new(Mutex::new(None));
-
-        let hit_clone = hit_entity.clone();
         let inner = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(0, 255, 0))
             .layout(LayoutStyle {
@@ -117,12 +136,7 @@ mod tests {
                 ..Default::default()
             })
             .id();
-        world.insert(
-            inner,
-            EventHandler::new(move |entity, _| {
-                *hit_clone.lock().unwrap() = Some(entity);
-            }),
-        );
+        attach_counter(&mut world, inner);
 
         let outer = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
@@ -133,6 +147,7 @@ mod tests {
             })
             .child(inner)
             .id();
+        attach_counter(&mut world, outer);
 
         let root = WidgetBuilder::new(&mut world)
             .layout(LayoutStyle {
@@ -143,18 +158,9 @@ mod tests {
             .child(outer)
             .id();
 
-        // Click at (25, 25) — inside inner
-        dispatch(
-            &world,
-            root,
-            &InputEvent::PointerUp {
-                id: 0,
-                x: 25.into(),
-                y: 25.into(),
-            },
-            200,
-            200,
-        );
-        assert_eq!(*hit_entity.lock().unwrap(), Some(inner));
+        tap_at(&mut world, root, 25, 25, 200);
+        // Deepest entity wins; inner's handler returns true so bubble stops there.
+        assert_eq!(hits(&world, inner), 1);
+        assert_eq!(hits(&world, outer), 0);
     }
 }
