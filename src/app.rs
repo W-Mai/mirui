@@ -1,7 +1,6 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use crate::components::button_system::button_system;
 use crate::draw::SwRenderer;
 use crate::draw::canvas::Canvas;
 use crate::draw::renderer::Renderer;
@@ -115,6 +114,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     pub fn set_root(&mut self, root: Entity) {
         self.root = Some(root);
+        crate::event::widget_input::attach_widget_input_handlers(&mut self.world, root);
     }
 
     /// Render one frame
@@ -201,7 +201,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                             let (lw, lh) = *logical.get_or_insert_with(|| {
                                 self.backend.display_info().viewport().logical_size()
                             });
-                            button_system(&mut self.world, root, &event, lw, lh);
                             scroll_system(&mut self.world, root, &event, lw, lh);
                             dispatch(&self.world, root, &event, lw, lh);
 
