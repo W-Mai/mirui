@@ -1,0 +1,71 @@
+# Cha configuration — https://github.com/W-Mai/Cha
+# All plugins are enabled by default. Set enabled = false to disable.
+
+[plugins.length]
+max_function_lines = 50
+max_class_lines = 200
+
+[plugins.complexity]
+warn_threshold = 10
+error_threshold = 20
+
+[plugins.coupling]
+max_imports = 15
+
+[plugins.long_parameter_list]
+max_params = 5
+
+[plugins.switch_statement]
+max_arms = 8
+
+[plugins.message_chain]
+max_depth = 3
+
+# [plugins.layer_violation]
+# layers = "domain:0,service:1,controller:2"
+
+# [plugins.comments]
+# max_comment_ratio = 0.3
+# min_lines = 10
+
+# [plugins.lazy_class]
+# max_methods = 1
+# max_lines = 10
+
+# [plugins.data_class]
+# min_fields = 2
+
+# [plugins.temporary_field]
+# min_methods = 3
+# max_usage_ratio = 0.3
+
+# [plugins.refused_bequest]
+# min_override_ratio = 0.5
+# min_methods = 3
+
+# [plugins.shotgun_surgery]
+# min_co_changes = 5
+# max_commits = 100
+
+# [plugins.divergent_change]
+# min_distinct_reasons = 4
+# max_commits = 50
+
+# [plugins.design_pattern]
+# enabled = true
+
+# [plugins.hardcoded_secret]
+# enabled = true
+
+# Strictness: relaxed (2x thresholds), default (1x), strict (0.5x), or custom float
+# strictness = "default"
+
+# Per-language plugin overrides (only write differences from global)
+# C has a builtin profile that disables: naming, lazy_class, data_class,
+# builder_pattern, null_object_pattern, strategy_pattern.
+# You can re-enable them:
+# [languages.c.plugins.naming]
+# enabled = true
+
+[plugins.api-misuse]
+enabled = true

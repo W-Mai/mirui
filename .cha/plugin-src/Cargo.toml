@@ -1,0 +1,13 @@
+[workspace]
+
+[package]
+name = "api-misuse"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+cha-plugin-sdk = { git = "https://github.com/W-Mai/Cha" }
+wit-bindgen = "0.55"
