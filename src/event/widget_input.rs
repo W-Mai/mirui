@@ -3,7 +3,7 @@ use crate::components::checkbox::Checkbox;
 use crate::components::progress_bar::ProgressBar;
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
-use crate::widget::dirty::{Dirty, PrevRect};
+use crate::widget::dirty::Dirty;
 
 use super::GestureHandler;
 use super::gesture::GestureEvent;
@@ -49,7 +49,10 @@ fn progress_bar_handler(world: &mut World, entity: Entity, event: &GestureEvent)
         GestureEvent::Tap { x, .. } | GestureEvent::DragMove { x, .. } => *x,
         _ => return false,
     };
-    let Some(rect) = world.get::<PrevRect>(entity).map(|p| p.0) else {
+    let Some(rect) = world
+        .get::<crate::widget::ComputedRect>(entity)
+        .map(|c| c.0)
+    else {
         return false;
     };
     if rect.w <= Fixed::ZERO {

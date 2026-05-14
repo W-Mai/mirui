@@ -29,7 +29,7 @@ fn slider_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
                 .map(|t| t.0)
                 .unwrap_or(Fixed::from_int(200));
             let track_x = world
-                .get::<mirui::widget::dirty::PrevRect>(entity)
+                .get::<mirui::widget::ComputedRect>(entity)
                 .map(|r| r.0.x)
                 .unwrap_or(Fixed::ZERO);
             {
