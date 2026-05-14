@@ -16,6 +16,7 @@ pub struct ScrollDragState {
     pub last_y: Fixed,
     pub vel_x: Fixed,
     pub vel_y: Fixed,
+    pub last_resolved_target: Option<Entity>,
 }
 
 impl Default for ScrollDragState {
@@ -35,6 +36,7 @@ impl Default for ScrollDragState {
             last_y: Fixed::ZERO,
             vel_x: Fixed::ZERO,
             vel_y: Fixed::ZERO,
+            last_resolved_target: None,
         }
     }
 }
@@ -125,6 +127,7 @@ pub fn scroll_system(
                     state.resolved = true;
                     if let Some(t) = found {
                         state.target = t;
+                        state.last_resolved_target = Some(t);
                     } else {
                         // No matching scroll target — deactivate
                         state.active = false;
@@ -202,6 +205,27 @@ pub fn scroll_system(
         InputEvent::PointerUp { .. } => {
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 state.active = false;
+            }
+        }
+        InputEvent::Rotary { delta, .. } => {
+            let target = world
+                .resource::<ScrollDragState>()
+                .and_then(|s| s.last_resolved_target);
+            if let Some(target) = target {
+                let step = Fixed::from_int(20);
+                let offset = Fixed::from(*delta as i32) * step;
+                let axis = world
+                    .get::<ScrollConfig>(target)
+                    .map(|c| c.direction)
+                    .unwrap_or(ScrollAxis::Vertical);
+                if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
+                    match axis {
+                        ScrollAxis::Vertical => scroll.y -= offset,
+                        ScrollAxis::Horizontal => scroll.x -= offset,
+                        ScrollAxis::Both => scroll.y -= offset,
+                    }
+                }
+                world.insert(target, crate::widget::dirty::Dirty);
             }
         }
         _ => {}
