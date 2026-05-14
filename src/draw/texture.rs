@@ -84,6 +84,17 @@ pub struct Texture<'a> {
 }
 
 impl<'a> Texture<'a> {
+    pub const fn from_static(buf: &'a [u8], width: u16, height: u16, format: ColorFormat) -> Self {
+        let stride = width as usize * format.bytes_per_pixel();
+        Self {
+            buf: TexBuf::Ref(buf),
+            width,
+            height,
+            format,
+            stride,
+        }
+    }
+
     pub fn new(buf: &'a mut [u8], width: u16, height: u16, format: ColorFormat) -> Self {
         let stride = width as usize * format.bytes_per_pixel();
         Self {

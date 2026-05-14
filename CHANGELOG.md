@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-05-15
+
+### Added
+
+- `Texture::from_static` const constructor for compile-time texture data.
+- `Point::new(impl Into<Fixed>, impl Into<Fixed>)` convenience constructor.
+- `MonoClock::now_ns()` / `now_ms()` helper methods.
+- Simulated input framework: `SimulatedInput` (low-level event replay) and `SimTimeline` (high-level eased actions: `Tap`, `Drag`, `Wait`).
+
+### Changed
+
+- **Unified time source**: removed `App::clock` field and `ClockFn` type. All timing now reads from the single `MonoClock` resource (written by `StdInstantClockPlugin` / `SystimerClockPlugin`).
+- **Renamed `FrameClock` → `MonoClock`**, moved from `anim` to `ecs::time`. Breaking change for code referencing `mirui::anim::FrameClock`.
+- `SimAction` uses `Point` instead of separate x/y fields.
+- Examples no longer manually register `FrameClock`; the clock plugin handles it.
+
+### Removed
+
+- `App::clock` field (replaced by `MonoClock` resource).
+- `ClockFn` type alias.
+
 ## [0.11.0] - 2026-05-14
 
 ### Added
