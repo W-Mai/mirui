@@ -2,6 +2,7 @@ pub mod assets;
 pub mod button;
 pub mod checkbox;
 pub mod image;
+pub mod lazy_list;
 pub mod progress_bar;
 pub mod slider;
 pub mod switch;

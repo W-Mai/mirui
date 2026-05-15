@@ -1,0 +1,101 @@
+extern crate alloc;
+
+use mirui::app::App;
+use mirui::components::lazy_list::{LazyList, LazyListBinder, LazyListPool, lazy_list_system};
+use mirui::ecs::{Entity, World};
+use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use mirui::layout::*;
+use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::surface::sdl::SdlSurface;
+use mirui::types::{Color, Dimension, Fixed};
+use mirui::widget::Text;
+use mirui::widget::builder::WidgetBuilder;
+
+const ROW_H: i32 = 32;
+const POOL_SIZE: usize = 12; // visible (10) + 2 buffer
+const ITEM_COUNT: u32 = 200;
+
+fn row_binder(world: &mut World, entity: Entity, index: u32) {
+    let label = alloc::format!("Row {index}");
+    if let Some(t) = world.get_mut::<Text>(entity) {
+        t.0 = label.into_bytes();
+    } else {
+        world.insert(entity, Text(label.into_bytes()));
+    }
+}
+
+fn main() {
+    let backend = SdlSurface::new("LazyList Demo", 320, 320);
+    let mut app = App::new(backend);
+
+    app.add_system(lazy_list_system);
+
+    let root = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgb(20, 20, 30))
+        .layout(LayoutStyle {
+            direction: FlexDirection::Column,
+            width: Dimension::px(320),
+            height: Dimension::px(320),
+            ..Default::default()
+        })
+        .id();
+
+    let list = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgb(28, 28, 40))
+        .layout(LayoutStyle {
+            width: Dimension::px(320),
+            height: Dimension::px(320),
+            ..Default::default()
+        })
+        .id();
+    app.world.insert(list, mirui::widget::Parent(root));
+    app.world
+        .insert(root, mirui::widget::Children(alloc::vec![list]));
+
+    let mut pool: alloc::vec::Vec<Entity> = alloc::vec::Vec::with_capacity(POOL_SIZE);
+    for _ in 0..POOL_SIZE {
+        let e = WidgetBuilder::new(&mut app.world)
+            .bg_color(Color::rgb(40, 40, 56))
+            .text_color(Color::rgb(220, 220, 230))
+            .layout(LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::ZERO),
+                top: Dimension::Px(Fixed::ZERO),
+                width: Dimension::px(320),
+                height: Dimension::px(ROW_H),
+                ..Default::default()
+            })
+            .id();
+        app.world.insert(e, mirui::widget::Parent(list));
+        pool.push(e);
+    }
+    app.world
+        .insert(list, mirui::widget::Children(pool.clone()));
+
+    app.world
+        .insert(list, LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8));
+    app.world.insert(list, LazyListPool::new(pool));
+    app.world.insert(list, LazyListBinder { bind: row_binder });
+
+    app.world.insert(
+        list,
+        ScrollOffset {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+        },
+    );
+    app.world.insert(
+        list,
+        ScrollConfig {
+            direction: ScrollAxis::Vertical,
+            elastic: true,
+            content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
+            content_width: Fixed::ZERO,
+        },
+    );
+
+    app.set_root(root);
+    app.add_plugin(StdInstantClockPlugin::default())
+        .add_plugin(FpsSummaryPlugin::default());
+    app.run();
+}

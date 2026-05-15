@@ -184,6 +184,14 @@ required-features = ["sdl"]
 name = "text_input_snapshot"
 required-features = ["sdl"]
 
+[[example]]
+name = "lazy_list_demo"
+required-features = ["sdl"]
+
+[[example]]
+name = "lazy_list_snapshot"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true
