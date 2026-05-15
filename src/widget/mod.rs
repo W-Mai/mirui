@@ -19,6 +19,11 @@ pub struct Style {
     pub border_radius: Fixed,
     pub text_color: Option<Color>,
     pub layout: LayoutStyle,
+    /// When true, descendants are clipped to this widget's own rect.
+    /// Use to build "overflow: hidden" wrappers (e.g. a slider fill mask
+    /// where the inner fill keeps its full pill shape but only a portion
+    /// is visible).
+    pub clip_children: bool,
 }
 
 /// Text content component

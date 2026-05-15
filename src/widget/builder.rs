@@ -56,6 +56,13 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
+    pub fn clip_children(self, clip: bool) -> Self {
+        if let Some(style) = self.world.get_mut::<Style>(self.entity) {
+            style.clip_children = clip;
+        }
+        self
+    }
+
     pub fn text(self, t: &str) -> Self {
         self.world.insert(
             self.entity,

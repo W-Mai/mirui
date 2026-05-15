@@ -81,6 +81,7 @@ impl MiruiRune {
                 "text" => builder_calls.push(quote! { .text(#value) }),
                 "text_color" => builder_calls.push(quote! { .text_color(#value) }),
                 "border_radius" => builder_calls.push(quote! { .border_radius(#value) }),
+                "clip_children" => builder_calls.push(quote! { .clip_children(#value) }),
                 "border_color" => builder_calls.push(quote! { .border(#value, 1) }),
                 "border_width" => builder_calls.push(quote! { .border_width(#value) }),
                 "width" => layout_fields.push(quote! { width: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value as i32)) }),

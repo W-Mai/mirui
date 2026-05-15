@@ -337,17 +337,17 @@ fn draw_tree(
 
     let (child_clip, scroll_x, scroll_y) =
         if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity) {
-            let cx = clip.x.max(node.rect.x);
-            let cy = clip.y.max(node.rect.y);
-            let cx2 = (clip.x + clip.w).min(node.rect.x + node.rect.w);
-            let cy2 = (clip.y + clip.h).min(node.rect.y + node.rect.h);
-            let new_clip = Rect {
-                x: cx,
-                y: cy,
-                w: if cx2 > cx { cx2 - cx } else { Fixed::ZERO },
-                h: if cy2 > cy { cy2 - cy } else { Fixed::ZERO },
-            };
-            (new_clip, scroll.x, scroll.y)
+            (intersect_with_self(clip, &node.rect), scroll.x, scroll.y)
+        } else if world
+            .get::<Style>(entity)
+            .map(|s| s.clip_children)
+            .unwrap_or(false)
+        {
+            (
+                intersect_with_self(clip, &node.rect),
+                Fixed::ZERO,
+                Fixed::ZERO,
+            )
         } else {
             (*clip, Fixed::ZERO, Fixed::ZERO)
         };
@@ -365,6 +365,19 @@ fn draw_tree(
             &tf,
             &tf_3d,
         );
+    }
+}
+
+fn intersect_with_self(clip: &Rect, rect: &Rect) -> Rect {
+    let cx = clip.x.max(rect.x);
+    let cy = clip.y.max(rect.y);
+    let cx2 = (clip.x + clip.w).min(rect.x + rect.w);
+    let cy2 = (clip.y + clip.h).min(rect.y + rect.h);
+    Rect {
+        x: cx,
+        y: cy,
+        w: if cx2 > cx { cx2 - cx } else { Fixed::ZERO },
+        h: if cy2 > cy { cy2 - cy } else { Fixed::ZERO },
     }
 }
 
@@ -517,20 +530,17 @@ fn draw_tree_offset(
 
     let (child_clip, sx, sy) =
         if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity) {
-            let cx = clip.x.max(shifted_rect.x);
-            let cy = clip.y.max(shifted_rect.y);
-            let cx2 = (clip.x + clip.w).min(shifted_rect.x + shifted_rect.w);
-            let cy2 = (clip.y + clip.h).min(shifted_rect.y + shifted_rect.h);
             (
-                Rect {
-                    x: cx,
-                    y: cy,
-                    w: if cx2 > cx { cx2 - cx } else { Fixed::ZERO },
-                    h: if cy2 > cy { cy2 - cy } else { Fixed::ZERO },
-                },
+                intersect_with_self(clip, &shifted_rect),
                 offset_x + scroll.x,
                 offset_y + scroll.y,
             )
+        } else if world
+            .get::<Style>(entity)
+            .map(|s| s.clip_children)
+            .unwrap_or(false)
+        {
+            (intersect_with_self(clip, &shifted_rect), offset_x, offset_y)
         } else {
             (*clip, offset_x, offset_y)
         };
@@ -799,5 +809,229 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
             w: max_x - min_x,
             h: max_y - min_y,
         })
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod clip_children_check {
+    extern crate std;
+    use super::*;
+    use crate::draw::sw::SwRenderer;
+    use crate::draw::texture::{ColorFormat, Texture};
+    use crate::layout::{LayoutStyle, Position};
+    use crate::types::{Color, Dimension, Viewport};
+    use crate::widget::{Children, Parent, Style, Widget};
+
+    fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
+        let e = world.spawn();
+        world.insert(e, Widget);
+        world.insert(e, style);
+        if let Some(p) = parent {
+            world.insert(e, Parent(p));
+            if let Some(children) = world.get_mut::<Children>(p) {
+                children.0.push(e);
+            } else {
+                world.insert(p, Children(std::vec![e]));
+            }
+        }
+        e
+    }
+
+    fn vp() -> Viewport {
+        Viewport::new(64, 64, Fixed::ONE)
+    }
+
+    #[test]
+    fn clip_children_clips_oversize_inner_rect() {
+        // 8-px-wide mask with clip_children=true holding a 64-px-wide inner
+        // child: the right 56 px must show only root bg, not the child.
+        let mut world = World::default();
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 0)),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let mask = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                clip_children: true,
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(8)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        spawn_widget(
+            &mut world,
+            Some(mask),
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0)),
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(0)),
+                    top: Dimension::Px(Fixed::from_int(0)),
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        let mut buf = std::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::ARGB8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = vp();
+        super::render(&world, root, &viewport, &mut renderer);
+
+        for x in 0..8 {
+            let c = renderer.target.get_pixel(x, 32);
+            assert_eq!(
+                c.r, 255,
+                "x={x} should be red (inside mask), got rgb({}, {}, {})",
+                c.r, c.g, c.b
+            );
+        }
+        for x in 8..64 {
+            let c = renderer.target.get_pixel(x, 32);
+            assert_eq!(
+                c.r, 0,
+                "x={x} should be black (clipped), got rgb({}, {}, {})",
+                c.r, c.g, c.b
+            );
+        }
+    }
+
+    #[test]
+    fn no_clip_children_lets_inner_overflow() {
+        // Default (clip_children=false): inner paints across full 64 px.
+        let mut world = World::default();
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 0)),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let mask = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(8)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        spawn_widget(
+            &mut world,
+            Some(mask),
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0)),
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(0)),
+                    top: Dimension::Px(Fixed::from_int(0)),
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        let mut buf = std::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::ARGB8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = vp();
+        super::render(&world, root, &viewport, &mut renderer);
+
+        for x in 0..64 {
+            let c = renderer.target.get_pixel(x, 32);
+            assert_eq!(c.r, 255, "x={x} should be red (no clip), got r={}", c.r);
+        }
+    }
+
+    #[test]
+    fn clip_children_zero_width_hides_inner() {
+        // Repro for the slider-at-ratio=0 bug: a clip_children mask with
+        // width=0 should hide the inner entirely, not leak any pixel.
+        let mut world = World::default();
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 0)),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let mask = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                clip_children: true,
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::ZERO),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        spawn_widget(
+            &mut world,
+            Some(mask),
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0)),
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(0)),
+                    top: Dimension::Px(Fixed::from_int(0)),
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        let mut buf = std::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::ARGB8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = vp();
+        super::render(&world, root, &viewport, &mut renderer);
+
+        for x in 0..64 {
+            let c = renderer.target.get_pixel(x, 32);
+            assert_eq!(
+                c.r, 0,
+                "x={x} leaked red ({}), mask width=0 must hide it",
+                c.r
+            );
+        }
     }
 }

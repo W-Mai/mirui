@@ -1,4 +1,4 @@
-use mirui::anim::{PlayMode, SMOOTH, Spring, Tween, ease};
+use mirui::anim::Spring;
 use mirui::app::App;
 use mirui::components::slider::Slider;
 use mirui::components::switch::Switch;
@@ -42,14 +42,27 @@ fn slider_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
                     if let Some(children) = world.get::<mirui::widget::Children>(entity) {
                         let children_copy: alloc::vec::Vec<Entity> = children.0.clone();
                         if children_copy.len() >= 2 {
-                            let fill_entity = children_copy[0];
+                            let fill_mask = children_copy[0];
                             let thumb_entity = children_copy[1];
-                            if let Some(style) = world.get_mut::<mirui::widget::Style>(fill_entity)
-                            {
+                            if let Some(style) = world.get_mut::<mirui::widget::Style>(fill_mask) {
                                 style.layout.width = Dimension::Px(fill_w);
-                                style.bg_color = Some(fill_color);
                             }
-                            world.insert(fill_entity, Dirty);
+                            // Update the inner pill's color (in case
+                            // example wants live recolor) — the inner is
+                            // the only child of fill_mask.
+                            if let Some(mask_children) =
+                                world.get::<mirui::widget::Children>(fill_mask)
+                            {
+                                if let Some(&fill_inner) = mask_children.0.first() {
+                                    if let Some(style) =
+                                        world.get_mut::<mirui::widget::Style>(fill_inner)
+                                    {
+                                        style.bg_color = Some(fill_color);
+                                    }
+                                    world.insert(fill_inner, Dirty);
+                                }
+                            }
+                            world.insert(fill_mask, Dirty);
                             let thumb_x = fill_w - Fixed::from_int(8);
                             mirui::widget::set_position(
                                 world,
@@ -85,8 +98,10 @@ fn switch_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
 
             if let Some(children) = world.get::<mirui::widget::Children>(entity) {
                 if let Some(&thumb) = children.0.first() {
+                    // track 50 wide, thumb 20 wide, 3 px inset on each side ⇒
+                    // off=3, on=50-20-3=27 keeps both ends symmetric.
                     let target_x = if is_on {
-                        Fixed::from_int(26)
+                        Fixed::from_int(27)
                     } else {
                         Fixed::from_int(3)
                     };
@@ -145,12 +160,21 @@ fn main() {
             height: 16,
             border_radius: 8
         ) {
-            fill (
-                bg_color: Color::rgb(88, 166, 255),
+            fill_mask (
                 width: 100,
                 height: 16,
-                border_radius: 8
-            ) {}
+                clip_children: true
+            ) {
+                fill_inner (
+                    bg_color: Color::rgb(88, 166, 255),
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: 200,
+                    height: 16,
+                    border_radius: 8
+                ) {}
+            }
             thumb (
                 bg_color: Color::rgb(255, 255, 255),
                 position: Position::Absolute,
