@@ -1,6 +1,6 @@
 use mirui::anim::{self, BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
 use mirui::app::App;
-use mirui::ecs::{DeltaTimeMs, Entity, World};
+use mirui::ecs::{DeltaTimeMs, World};
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
