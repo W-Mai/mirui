@@ -688,6 +688,7 @@ fn collect_dirty_walk(
     entities: &[Entity],
     idx: &mut usize,
     parent_3d: &Transform3D,
+    scroll_offset: (Fixed, Fixed),
     bounds: &mut DirtyBounds,
 ) {
     use super::dirty::Dirty;
@@ -698,9 +699,15 @@ fn collect_dirty_walk(
     let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
 
     if world.get::<Dirty>(entity).is_some() {
-        let curr = quad_for(world, entity, node.rect, parent_3d)
+        let curr_layout = quad_for(world, entity, node.rect, parent_3d)
             .map(quad_bbox)
             .unwrap_or(node.rect);
+        let curr = Rect {
+            x: curr_layout.x - scroll_offset.0,
+            y: curr_layout.y - scroll_offset.1,
+            w: curr_layout.w,
+            h: curr_layout.h,
+        };
 
         let union_rect = match world.get::<super::dirty::PrevRect>(entity) {
             Some(prev) => curr.union(&prev.0),
@@ -725,8 +732,6 @@ fn collect_dirty_walk(
             bounds.max_y = y1;
         }
 
-        // Stash this-frame bbox only — accumulating a union here grows
-        // PrevRect without bound when widgets keep moving.
         let (cx0, cy0, cx1, cy1) = curr.pixel_bounds();
         world.insert(
             entity,
@@ -735,9 +740,16 @@ fn collect_dirty_walk(
         world.remove::<Dirty>(entity);
     }
 
+    let child_scroll = if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity)
+    {
+        (scroll_offset.0 + scroll.x, scroll_offset.1 + scroll.y)
+    } else {
+        scroll_offset
+    };
+
     *idx += 1;
     for child in &node.children {
-        collect_dirty_walk(child, world, entities, idx, &tf_3d, bounds);
+        collect_dirty_walk(child, world, entities, idx, &tf_3d, child_scroll, bounds);
     }
 }
 
@@ -772,6 +784,7 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
         &entities,
         &mut idx,
         &Transform3D::IDENTITY,
+        (Fixed::ZERO, Fixed::ZERO),
         &mut bounds,
     );
 

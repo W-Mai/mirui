@@ -438,7 +438,6 @@ fn find_scroll_target_for_direction(
             break;
         }
     }
-    // All matching scrolls are at boundary — return outermost for elastic
     last_matching
 }
 
