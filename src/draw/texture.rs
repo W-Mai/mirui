@@ -6,7 +6,7 @@ pub enum ColorFormat {
     RGB565,
     RGB565Swapped,
     RGB888,
-    ARGB8888,
+    RGBA8888,
 }
 
 impl ColorFormat {
@@ -14,7 +14,7 @@ impl ColorFormat {
         match self {
             Self::RGB565 | Self::RGB565Swapped => 2,
             Self::RGB888 => 3,
-            Self::ARGB8888 => 4,
+            Self::RGBA8888 => 4,
         }
     }
 
@@ -22,7 +22,7 @@ impl ColorFormat {
     /// Returns the packed bytes in a u32 (LSB-first for 2-byte formats).
     pub fn pack(self, color: &Color) -> u32 {
         match self {
-            Self::ARGB8888 => {
+            Self::RGBA8888 => {
                 (color.r as u32)
                     | ((color.g as u32) << 8)
                     | ((color.b as u32) << 16)
@@ -144,7 +144,7 @@ impl<'a> Texture<'a> {
         };
         let buf = self.buf.as_slice();
         match self.format {
-            ColorFormat::ARGB8888 => Color::rgba(buf[i], buf[i + 1], buf[i + 2], buf[i + 3]),
+            ColorFormat::RGBA8888 => Color::rgba(buf[i], buf[i + 1], buf[i + 2], buf[i + 3]),
             ColorFormat::RGB888 => Color::rgb(buf[i], buf[i + 1], buf[i + 2]),
             ColorFormat::RGB565 => {
                 let lo = buf[i] as u16;
@@ -174,7 +174,7 @@ impl<'a> Texture<'a> {
         let Some(i) = self.offset(x, y) else { return };
         let buf = self.buf.as_mut_slice();
         match self.format {
-            ColorFormat::ARGB8888 => {
+            ColorFormat::RGBA8888 => {
                 buf[i] = color.r;
                 buf[i + 1] = color.g;
                 buf[i + 2] = color.b;
@@ -272,7 +272,7 @@ mod tests {
     #[test]
     fn argb8888_roundtrip() {
         let mut buf = [0u8; 4];
-        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::ARGB8888);
+        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
         let c = Color::rgba(100, 200, 50, 255);
         tex.set_pixel(0, 0, &c);
         assert_eq!(tex.get_pixel(0, 0), c);
@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn blend_50_percent() {
         let mut buf = [0u8; 4];
-        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::ARGB8888);
+        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::RGBA8888);
         tex.set_pixel(0, 0, &Color::rgb(0, 0, 0));
         tex.blend_pixel(Fixed::ZERO, Fixed::ZERO, &Color::rgb(200, 100, 50), 128);
         let got = tex.get_pixel(0, 0);
@@ -317,8 +317,8 @@ mod tests {
     #[test]
     fn blend_subpixel_spreads_to_neighbors() {
         // A point at (0.5, 0.5) should spread to all 4 pixels
-        let mut buf = [0u8; 4 * 4]; // 2x2 ARGB8888
-        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::ARGB8888);
+        let mut buf = [0u8; 4 * 4]; // 2x2 RGBA8888
+        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
         tex.set_pixel(0, 0, &Color::rgb(0, 0, 0));
         tex.set_pixel(1, 0, &Color::rgb(0, 0, 0));
         tex.set_pixel(0, 1, &Color::rgb(0, 0, 0));

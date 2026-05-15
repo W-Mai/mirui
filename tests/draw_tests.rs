@@ -11,7 +11,7 @@ mod tests {
             &mut buf,
             10 as u16,
             10 as u16,
-            ColorFormat::ARGB8888,
+            ColorFormat::RGBA8888,
         ));
         let cmd = DrawCommand::Fill {
             area: Rect {
@@ -55,7 +55,7 @@ mod tests {
             &mut buf,
             10 as u16,
             10 as u16,
-            ColorFormat::ARGB8888,
+            ColorFormat::RGBA8888,
         ));
         let cmd = DrawCommand::Fill {
             area: Rect {
@@ -104,7 +104,7 @@ mod tests {
             &mut buf,
             4 as u16,
             4 as u16,
-            ColorFormat::ARGB8888,
+            ColorFormat::RGBA8888,
         ));
         let cmd = DrawCommand::Fill {
             area: Rect {

@@ -117,7 +117,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 scale: Fixed::ONE,
-                format: crate::draw::texture::ColorFormat::ARGB8888,
+                format: crate::draw::texture::ColorFormat::RGBA8888,
             }
         }
         fn flush(&mut self, _area: &Rect) {}

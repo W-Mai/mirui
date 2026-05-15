@@ -138,7 +138,7 @@ fn default_methods_route_to_sw() {
 fn explicit_routes_go_to_gpu() {
     let mut h = fresh_hybrid();
     let mut buf = dummy_texture_buf();
-    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::ARGB8888);
+    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
     let rect = zero_rect();
     let color = Color::rgb(0, 0, 0);
 
@@ -251,7 +251,7 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
 
     let mut h = fresh_hybrid();
     let mut buf = dummy_texture_buf();
-    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::ARGB8888);
+    let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
     let rect = zero_rect();
 
     Renderer::draw(

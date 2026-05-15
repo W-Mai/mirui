@@ -79,16 +79,16 @@ pub fn blit_1to1_fast(
     let run_h = (vy1 - vy0) as usize;
 
     match (src.format, dst.format) {
-        (ColorFormat::ARGB8888, ColorFormat::ARGB8888) => {
+        (ColorFormat::RGBA8888, ColorFormat::RGBA8888) => {
             blit_1to1_argb_to_argb(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
         }
-        (ColorFormat::ARGB8888, ColorFormat::RGB565Swapped) => {
+        (ColorFormat::RGBA8888, ColorFormat::RGB565Swapped) => {
             blit_1to1_argb_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
         }
         (ColorFormat::RGB565Swapped, ColorFormat::RGB565Swapped) => {
             blit_1to1_565sw_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
         }
-        (ColorFormat::ARGB8888, ColorFormat::RGB565) => {
+        (ColorFormat::RGBA8888, ColorFormat::RGB565) => {
             blit_1to1_argb_to_565(dst, src, src_x0, src_y0, vx0, vy0, run_w, run_h)
         }
         _ => blit_generic_slow(
@@ -344,16 +344,16 @@ pub fn blit_2to2_fast(
     let block_h = (vy1 - vy0) as usize / 2;
 
     match (src.format, dst.format) {
-        (ColorFormat::ARGB8888, ColorFormat::ARGB8888) => {
+        (ColorFormat::RGBA8888, ColorFormat::RGBA8888) => {
             blit_2to2_argb_to_argb(dst, src, src_x0, src_y0, vx0, vy0, block_w, block_h)
         }
-        (ColorFormat::ARGB8888, ColorFormat::RGB565Swapped) => {
+        (ColorFormat::RGBA8888, ColorFormat::RGB565Swapped) => {
             blit_2to2_argb_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, block_w, block_h)
         }
         (ColorFormat::RGB565Swapped, ColorFormat::RGB565Swapped) => {
             blit_2to2_565sw_to_565sw(dst, src, src_x0, src_y0, vx0, vy0, block_w, block_h)
         }
-        (ColorFormat::ARGB8888, ColorFormat::RGB565) => {
+        (ColorFormat::RGBA8888, ColorFormat::RGB565) => {
             blit_2to2_argb_to_565(dst, src, src_x0, src_y0, vx0, vy0, block_w, block_h)
         }
         _ => blit_dda(

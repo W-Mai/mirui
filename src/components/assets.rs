@@ -58,6 +58,6 @@ pub static IMG_THUMBS_UP: Texture<'static> = Texture {
     buf: TexBuf::Ref(IMG_THUMBS_UP_DATA),
     width: 16,
     height: 16,
-    format: ColorFormat::ARGB8888,
+    format: ColorFormat::RGBA8888,
     stride: 64,
 };

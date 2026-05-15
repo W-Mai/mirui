@@ -83,7 +83,7 @@ fn layout_system(world: &mut World) {
 }
 
 fn write_ppm(path: &str, buf: &[u8], w: u32, h: u32) -> std::io::Result<()> {
-    // buf is ARGB8888 little-endian → byte order [B, G, R, A]
+    // buf is RGBA8888 → byte order [R, G, B, A]
     let mut f = File::create(path)?;
     writeln!(f, "P6\n{} {}\n255", w, h)?;
     let mut rgb = Vec::with_capacity((w * h * 3) as usize);

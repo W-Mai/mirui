@@ -77,7 +77,7 @@ impl Surface for SdlSurface {
             width: lw,
             height: lh,
             scale: self.scale,
-            format: ColorFormat::ARGB8888,
+            format: ColorFormat::RGBA8888,
         }
     }
 
@@ -167,7 +167,7 @@ impl FramebufferAccess for SdlSurface {
             &mut self.buf,
             self.width,
             self.height,
-            ColorFormat::ARGB8888,
+            ColorFormat::RGBA8888,
         )
     }
 }

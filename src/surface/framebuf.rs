@@ -18,7 +18,7 @@ pub struct FramebufSurface<F: FnMut(&[u8], &Rect)> {
 
 impl<F: FnMut(&[u8], &Rect)> FramebufSurface<F> {
     pub fn new(width: u16, height: u16, flush_cb: F) -> Self {
-        Self::with_scale_and_format(width, height, Fixed::ONE, ColorFormat::ARGB8888, flush_cb)
+        Self::with_scale_and_format(width, height, Fixed::ONE, ColorFormat::RGBA8888, flush_cb)
     }
 
     pub fn with_format(width: u16, height: u16, format: ColorFormat, flush_cb: F) -> Self {
@@ -34,7 +34,7 @@ impl<F: FnMut(&[u8], &Rect)> FramebufSurface<F> {
             physical_w,
             physical_h,
             scale,
-            ColorFormat::ARGB8888,
+            ColorFormat::RGBA8888,
             flush_cb,
         )
     }

@@ -54,7 +54,7 @@ fn main() {
 
     let width: u16 = 320;
     let height: u16 = 60;
-    let backend = FramebufSurface::with_format(width, height, ColorFormat::ARGB8888, |_, _| {});
+    let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
 
     let mut ti = TextInput::new();

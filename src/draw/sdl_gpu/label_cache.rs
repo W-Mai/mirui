@@ -119,7 +119,7 @@ impl LabelCache {
                     &mut self.raster_buf,
                     logical_w as u16,
                     logical_h as u16,
-                    ColorFormat::ARGB8888,
+                    ColorFormat::RGBA8888,
                 );
                 let mut sw = SwRenderer::new(tex);
                 let area = Rect::new(0, 0, logical_w as u16, logical_h as u16);

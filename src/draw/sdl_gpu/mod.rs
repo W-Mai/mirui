@@ -124,7 +124,7 @@ impl Surface for SdlGpuSurface {
             width: lw,
             height: lh,
             scale: self.scale,
-            format: ColorFormat::ARGB8888,
+            format: ColorFormat::RGBA8888,
         }
     }
 

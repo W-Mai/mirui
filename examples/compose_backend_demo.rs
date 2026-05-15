@@ -101,13 +101,13 @@ fn main() {
         &mut fb,
         W as u16,
         H as u16,
-        ColorFormat::ARGB8888,
+        ColorFormat::RGBA8888,
     ));
     let gpu_inner = SwRenderer::new(Texture::new(
         &mut gpu_fb,
         W as u16,
         H as u16,
-        ColorFormat::ARGB8888,
+        ColorFormat::RGBA8888,
     ));
     let gpu = Logging::new(gpu_inner);
 
@@ -124,7 +124,7 @@ fn main() {
         px[2] = 80;
         px[3] = 255;
     }
-    let sprite = Texture::from_ref(&sprite_buf, 16, 16, ColorFormat::ARGB8888);
+    let sprite = Texture::from_ref(&sprite_buf, 16, 16, ColorFormat::RGBA8888);
     let sprite_rect = Rect::new(0, 0, 16, 16);
 
     let mut event_pump = sdl.event_pump().unwrap();

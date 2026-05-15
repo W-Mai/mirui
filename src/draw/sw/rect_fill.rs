@@ -88,7 +88,7 @@ fn fill_axis_aligned(
         let stride = target.stride;
         let buf = target.buf.as_mut_slice();
         match target.format {
-            ColorFormat::ARGB8888 => {
+            ColorFormat::RGBA8888 => {
                 let pixel = [color.r, color.g, color.b, color.a];
                 for py in px_y0..px_y1 {
                     let row_start = py as usize * stride + px_x0 as usize * bpp;
@@ -196,7 +196,7 @@ mod corner_check {
 
     fn render_circle(w: i32, h: i32, r: i32) -> Vec<Vec<u8>> {
         let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];
-        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
         let rect = Rect::new(0, 0, w, h);
         let clip = Rect::new(0, 0, w, h);
@@ -266,7 +266,7 @@ mod corner_check {
         // every pixel; healthy is ~50 µs/frame on a desktop release build.
         use std::time::Instant;
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
         let rect = Rect::new(0, 0, 64, 64);
         let clip = Rect::new(0, 0, 64, 64);

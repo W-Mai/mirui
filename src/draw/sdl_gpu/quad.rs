@@ -66,7 +66,7 @@ impl SdlGpuRenderer<'_> {
 
     pub(super) fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect) {
         let sdl_fmt = match src.format {
-            ColorFormat::ARGB8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
+            ColorFormat::RGBA8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
             ColorFormat::RGB888 => sdl2::pixels::PixelFormatEnum::RGB24,
             ColorFormat::RGB565 => sdl2::pixels::PixelFormatEnum::RGB565,
             ColorFormat::RGB565Swapped => return,

@@ -134,7 +134,7 @@ fn main() {
         &mut buf,
         W as u16,
         H as u16,
-        ColorFormat::ARGB8888,
+        ColorFormat::RGBA8888,
     ));
 
     // Background

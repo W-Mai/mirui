@@ -44,7 +44,7 @@ fn main() {
 
     let width: u16 = 480;
     let height: u16 = 80;
-    let backend = FramebufSurface::with_format(width, height, ColorFormat::ARGB8888, |_, _| {});
+    let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
 
     app.add_system(mirui::anim::sync_delta_time_ms);
@@ -137,7 +137,7 @@ fn main() {
         let mut w = BufWriter::new(f);
         use std::io::Write;
         write!(w, "P6\n{width} {height}\n255\n").expect("ppm header");
-        // ColorFormat::ARGB8888 stores R G B A in byte order despite
+        // ColorFormat::RGBA8888 stores R G B A in byte order despite
         // the name (see src/draw/sw/rect_fill.rs `[color.r, color.g,
         // color.b, color.a]` write).
         for y in 0..(height as usize) {

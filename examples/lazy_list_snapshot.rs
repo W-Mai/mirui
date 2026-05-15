@@ -78,7 +78,7 @@ fn main() {
     std::fs::create_dir_all(&out).ok();
     out.push(format!("lazylist-{scenario}.png"));
 
-    let backend = FramebufSurface::with_format(W, H, ColorFormat::ARGB8888, |_, _| {});
+    let backend = FramebufSurface::with_format(W, H, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
     app.add_system(lazy_list_system);
 

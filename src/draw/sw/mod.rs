@@ -488,7 +488,7 @@ mod tests {
     #[test]
     fn fill_rect_basic() {
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let rect = Rect::new(2, 2, 4, 4);
@@ -507,7 +507,7 @@ mod tests {
     #[test]
     fn clear_fills_area() {
         let mut buf = vec![0u8; 8 * 8 * 4];
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         backend.clear(&Rect::new(0, 0, 8, 8), &Color::rgb(50, 100, 150));
@@ -522,7 +522,7 @@ mod tests {
     fn fill_path_rect_matches_fill_rect() {
         // A rectangular Path should produce the same interior pixels as fill_rect.
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let path = super::super::path::Path::rect(
@@ -544,7 +544,7 @@ mod tests {
     #[test]
     fn fill_path_empty_is_noop() {
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let path = super::super::path::Path::new();
@@ -561,7 +561,7 @@ mod tests {
     #[test]
     fn fill_path_zero_opa_is_noop() {
         let mut buf = vec![0u8; 4 * 4 * 4];
-        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let path = super::super::path::Path::rect(
@@ -581,7 +581,7 @@ mod tests {
         // Right triangle with vertices (0,0), (10,0), (0,10). Probe interior
         // point (2,2) vs exterior point (8,8).
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let mut path = super::super::path::Path::new();
@@ -611,7 +611,7 @@ mod tests {
         // Exercises the trait dispatch path rather than the glyph pixels —
         // just verifies the method exists on Canvas and writes something.
         let mut buf = vec![0u8; 32 * 16 * 4];
-        let tex = Texture::new(&mut buf, 32, 16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 32, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let pos = Point {
@@ -638,7 +638,7 @@ mod tests {
         // Horizontal line from (2,8) to (14,8), width=2. Interior pixels
         // around y=8 should be colored; pixels several rows away must not.
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let mut path = super::super::path::Path::new();
@@ -669,7 +669,7 @@ mod tests {
     fn renderer_dispatches_line_command() {
         use crate::draw::renderer::Renderer;
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let cmd = DrawCommand::Line {
@@ -696,7 +696,7 @@ mod tests {
     fn renderer_dispatches_arc_command() {
         use crate::draw::renderer::Renderer;
         let mut buf = vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let cmd = DrawCommand::Arc {
@@ -723,7 +723,7 @@ mod tests {
     fn draw_line_default_impl_strokes_pixels() {
         // Exercises Canvas::draw_line's default trait impl → stroke_path.
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let p1 = Point {
@@ -750,7 +750,7 @@ mod tests {
     #[test]
     fn draw_arc_default_impl_strokes_pixels() {
         let mut buf = vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let center = Point {
@@ -777,7 +777,7 @@ mod tests {
     #[test]
     fn stroke_path_zero_width_is_noop() {
         let mut buf = vec![0u8; 8 * 8 * 4];
-        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         let mut path = super::super::path::Path::new();
@@ -805,7 +805,7 @@ mod tests {
         use crate::draw::painter::Painter;
 
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
 
         {
@@ -827,7 +827,7 @@ mod tests {
         use crate::draw::path::Path;
 
         let mut buf = vec![0u8; 32 * 32 * 4];
-        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
         let clip = Rect::new(0, 0, 32, 32);
 
@@ -885,7 +885,7 @@ mod tests {
         use crate::draw::painter::Painter;
 
         let mut buf = vec![0u8; 32 * 16 * 4];
-        let tex = Texture::new(&mut buf, 32, 16, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 32, 16, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
         let clip = Rect::new(0, 0, 32, 16);
 
@@ -930,18 +930,18 @@ mod tests {
                 src_buf[i + 3] = 255;
             }
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
 
         // Dst: 8×6, draw 7×5 blit at (0,0). Two identical dst buffers.
         let mut dst_a = vec![0u8; 8 * 6 * 4];
         let mut dst_b = vec![0u8; 8 * 6 * 4];
 
         {
-            let mut tex_a = Texture::new(&mut dst_a, 8, 6, ColorFormat::ARGB8888);
+            let mut tex_a = Texture::new(&mut dst_a, 8, 6, ColorFormat::RGBA8888);
             blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6);
         }
         {
-            let mut tex_b = Texture::new(&mut dst_b, 8, 6, ColorFormat::ARGB8888);
+            let mut tex_b = Texture::new(&mut dst_b, 8, 6, ColorFormat::RGBA8888);
             blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6);
         }
 
@@ -966,7 +966,7 @@ mod tests {
                 _ => 255,
             };
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
 
         let mut dst_a = vec![0u8; 6 * 6 * 4];
         for (i, byte) in dst_a.iter_mut().enumerate() {
@@ -975,11 +975,11 @@ mod tests {
         let mut dst_b = dst_a.clone();
 
         {
-            let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::ARGB8888);
+            let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::RGBA8888);
             blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6);
         }
         {
-            let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::ARGB8888);
+            let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::RGBA8888);
             blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 0, 0, 6, 6);
         }
         for (i, (&a, &b)) in dst_a.iter().zip(dst_b.iter()).enumerate() {
@@ -1002,7 +1002,7 @@ mod tests {
             src_buf[i * 4 + 2] = 50 + i as u8 * 7;
             src_buf[i * 4 + 3] = if i == 0 { 0 } else { 255 };
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
 
         let mut dst_a = vec![0u8; 6 * 6 * 2];
         for i in 0..dst_a.len() {
@@ -1068,7 +1068,7 @@ mod tests {
     #[test]
     fn fill_rect_transformed_90deg_rotation() {
         let mut buf = vec![0u8; 16 * 16 * 4];
-        let mut dst = Texture::new(&mut buf, 16, 16, ColorFormat::ARGB8888);
+        let mut dst = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
         let rect = Rect::new(6, 6, 4, 4);
         let cx = rect.x + rect.w / Fixed::from_int(2);
         let cy = rect.y + rect.h / Fixed::from_int(2);
@@ -1100,18 +1100,18 @@ mod tests {
             src_buf[i * 4] = 100 + i as u8;
             src_buf[i * 4 + 3] = 255;
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
 
         let mut dst_a = vec![0u8; 8 * 8 * 4];
         let mut dst_b = vec![0u8; 8 * 8 * 4];
 
         // Clip covers only the right half of the blit rect.
         {
-            let mut tex = Texture::new(&mut dst_a, 8, 8, ColorFormat::ARGB8888);
+            let mut tex = Texture::new(&mut dst_a, 8, 8, ColorFormat::RGBA8888);
             blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 3, 0, 8, 8);
         }
         {
-            let mut tex = Texture::new(&mut dst_b, 8, 8, ColorFormat::ARGB8888);
+            let mut tex = Texture::new(&mut dst_b, 8, 8, ColorFormat::RGBA8888);
             blit_1to1_fast(&mut tex, &src, 0, 0, 4, 4, 1, 1, 3, 0, 8, 8);
         }
         assert_eq!(dst_a, dst_b);
@@ -1127,17 +1127,17 @@ mod tests {
             src_buf[i * 4] = (i * 16 + 1) as u8;
             src_buf[i * 4 + 3] = 255;
         }
-        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::ARGB8888);
+        let src = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
 
         let mut dst_a = vec![0u8; 10 * 10 * 4];
         let mut dst_b = vec![0u8; 10 * 10 * 4];
         // Clip covers columns 2..7 only.
         {
-            let mut tex_a = Texture::new(&mut dst_a, 10, 10, ColorFormat::ARGB8888);
+            let mut tex_a = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGBA8888);
             blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10);
         }
         {
-            let mut tex_b = Texture::new(&mut dst_b, 10, 10, ColorFormat::ARGB8888);
+            let mut tex_b = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGBA8888);
             blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10);
         }
         assert_eq!(dst_a, dst_b);

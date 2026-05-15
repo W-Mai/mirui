@@ -1036,7 +1036,7 @@ mod clip_children_check {
         );
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = vp();
         super::render(&world, root, &viewport, &mut renderer);
@@ -1106,7 +1106,7 @@ mod clip_children_check {
         );
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = vp();
         super::render(&world, root, &viewport, &mut renderer);
@@ -1166,7 +1166,7 @@ mod clip_children_check {
         );
 
         let mut buf = std::vec![0u8; 64 * 64 * 4];
-        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::ARGB8888);
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
         let mut renderer = SwRenderer::new(tex);
         let viewport = vp();
         super::render(&world, root, &viewport, &mut renderer);

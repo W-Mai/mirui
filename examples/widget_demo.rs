@@ -71,7 +71,7 @@ fn main() {
         &mut buf,
         W as u16,
         H as u16,
-        ColorFormat::ARGB8888,
+        ColorFormat::RGBA8888,
     ));
     let transform = Viewport::new(W as u16, H as u16, Fixed::ONE);
     render_system::render(&world, root, &transform, &mut renderer);

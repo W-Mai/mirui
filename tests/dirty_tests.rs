@@ -329,7 +329,7 @@ mod tests {
                     &mut buf,
                     W as u16,
                     H as u16,
-                    ColorFormat::ARGB8888,
+                    ColorFormat::RGBA8888,
                 ));
                 render_system::render(&world, root, &transform, &mut renderer);
             }
@@ -360,7 +360,7 @@ mod tests {
                         &mut buf,
                         W as u16,
                         H as u16,
-                        ColorFormat::ARGB8888,
+                        ColorFormat::RGBA8888,
                     ));
                     render_system::render_region(&world, root, &transform, &area, &mut renderer);
                 }
@@ -373,7 +373,7 @@ mod tests {
                     &mut buf_ref,
                     W as u16,
                     H as u16,
-                    ColorFormat::ARGB8888,
+                    ColorFormat::RGBA8888,
                 ));
                 render_system::render(&world, root, &transform, &mut renderer);
             }
@@ -467,7 +467,7 @@ mod tests {
                     &mut buf,
                     W as u16,
                     H as u16,
-                    ColorFormat::ARGB8888,
+                    ColorFormat::RGBA8888,
                 ));
                 render_system::render(&world, root, &transform, &mut renderer);
             }
@@ -493,7 +493,7 @@ mod tests {
                         &mut buf,
                         W as u16,
                         H as u16,
-                        ColorFormat::ARGB8888,
+                        ColorFormat::RGBA8888,
                     ));
                     render_system::render_region(&world, root, &transform, &area, &mut renderer);
                 }
@@ -505,7 +505,7 @@ mod tests {
                     &mut buf_ref,
                     W as u16,
                     H as u16,
-                    ColorFormat::ARGB8888,
+                    ColorFormat::RGBA8888,
                 ));
                 render_system::render(&world, root, &transform, &mut renderer);
             }
