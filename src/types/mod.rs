@@ -171,6 +171,23 @@ impl Color {
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
+
+    /// Linear interpolation in 8-bit channel space. `t` is clamped to
+    /// [0, 1]; t=0 returns `a`, t=1 returns `b`.
+    pub fn lerp(a: Color, b: Color, t: Fixed) -> Color {
+        let t = t.clamp(Fixed::ZERO, Fixed::ONE);
+        let one_minus_t = Fixed::ONE - t;
+        let mix = |ca: u8, cb: u8| -> u8 {
+            let v = Fixed::from_int(ca as i32) * one_minus_t + Fixed::from_int(cb as i32) * t;
+            v.to_int().clamp(0, 255) as u8
+        };
+        Color {
+            r: mix(a.r, b.r),
+            g: mix(a.g, b.g),
+            b: mix(a.b, b.b),
+            a: mix(a.a, b.a),
+        }
+    }
 }
 
 pub type Opa = u8;
@@ -210,5 +227,36 @@ impl From<NormColor> for Color {
 impl Color {
     pub fn normalized(&self) -> NormColor {
         NormColor::from(*self)
+    }
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::*;
+
+    #[test]
+    fn lerp_endpoints() {
+        let a = Color::rgb(0, 100, 200);
+        let b = Color::rgb(200, 50, 100);
+        assert_eq!(Color::lerp(a, b, Fixed::ZERO), a);
+        assert_eq!(Color::lerp(a, b, Fixed::ONE), b);
+    }
+
+    #[test]
+    fn lerp_midpoint() {
+        let a = Color::rgb(0, 0, 0);
+        let b = Color::rgb(200, 100, 60);
+        let mid = Color::lerp(a, b, Fixed::ONE / 2);
+        assert!((mid.r as i32 - 100).abs() <= 1);
+        assert!((mid.g as i32 - 50).abs() <= 1);
+        assert!((mid.b as i32 - 30).abs() <= 1);
+    }
+
+    #[test]
+    fn lerp_clamps_oob_t() {
+        let a = Color::rgb(50, 50, 50);
+        let b = Color::rgb(200, 200, 200);
+        assert_eq!(Color::lerp(a, b, Fixed::from_int(-5)), a);
+        assert_eq!(Color::lerp(a, b, Fixed::from_int(5)), b);
     }
 }
