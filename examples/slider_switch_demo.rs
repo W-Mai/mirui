@@ -1,4 +1,4 @@
-use mirui::anim::{Spring, Tween};
+use mirui::anim::Spring;
 use mirui::app::App;
 use mirui::components::slider::Slider;
 use mirui::components::switch::Switch;
@@ -115,12 +115,9 @@ fn switch_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
                 .map(|t| t.0)
                 .unwrap_or_else(|| if is_on { Fixed::ZERO } else { Fixed::ONE });
             world.insert(entity, SwitchBgT(target_t));
-            // Spring's settle threshold is in pixel units (dist<1 && v<50)
-            // and would treat the entire 0..1 range as "already settled",
-            // so the bg fade uses a Tween instead.
             world.insert(
                 entity,
-                AnimateSwitchBgT(Tween::ease_to(current_t, target_t, 250).into()),
+                AnimateSwitchBgT(Spring::new(current_t, target_t, 250, Fixed::ZERO).into()),
             );
             world.insert(entity, Dirty);
 

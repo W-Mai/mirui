@@ -161,6 +161,7 @@ impl Spring {
     }
 
     pub fn retarget(&mut self, target: Fixed, config: Option<SpringConfig>) {
+        self.origin = self.position;
         self.target = target;
         if let Some(c) = config {
             let (s, d) = config_to_params(c);
@@ -209,9 +210,12 @@ impl Spring {
     }
 
     pub fn is_settled(&self) -> bool {
-        let dist = (self.target - self.position).abs();
-        let speed = self.velocity.abs();
-        dist < Fixed::ONE && speed < Fixed::from_int(50)
+        // 1.0 floor: from==to needs nonzero eps; unit amplitude reproduces
+        // the old absolute-pixel behaviour.
+        let span = (self.target - self.origin).abs().max(Fixed::ONE);
+        let dist_eps = span / Fixed::from_int(200);
+        let speed_eps = span * Fixed::from_int(2);
+        (self.target - self.position).abs() < dist_eps && self.velocity.abs() < speed_eps
     }
 
     pub fn perceptual_duration(&self) -> u16 {
@@ -428,8 +432,8 @@ mod tests {
             elapsed += 16;
         }
         assert!(
-            elapsed < 250,
-            "200ms spring should settle in < 250ms, took {elapsed}ms"
+            elapsed < 350,
+            "200ms spring should settle in < 350ms, took {elapsed}ms"
         );
     }
 
@@ -477,5 +481,52 @@ mod tween_zero_one_check {
             (samples.last().unwrap() - 1.0).abs() < 0.05,
             "should end near 1"
         );
+    }
+}
+
+#[cfg(test)]
+mod settle_threshold_check {
+    use super::*;
+
+    #[test]
+    fn spring_on_normalized_range_produces_intermediate_frames() {
+        let mut s = Spring::new(Fixed::ZERO, Fixed::ONE, 250, Fixed::ZERO);
+        let mut samples = alloc::vec::Vec::new();
+        for _ in 0..30 {
+            samples.push(s.value().to_f32());
+            s.tick(16);
+        }
+        let unique: alloc::collections::BTreeSet<_> =
+            samples.iter().map(|f| (f * 1000.0) as i32).collect();
+        assert!(
+            unique.len() >= 8,
+            "expected >=8 distinct frames, got {}: {:?}",
+            unique.len(),
+            samples
+        );
+    }
+
+    #[test]
+    fn spring_zero_amplitude_settles_immediately() {
+        let s = Spring::new(Fixed::from_int(50), Fixed::from_int(50), 250, Fixed::ZERO);
+        assert!(s.is_settled());
+        assert_eq!(s.value(), Fixed::from_int(50));
+    }
+
+    #[test]
+    fn retarget_resets_origin_to_current_position() {
+        let mut s = Spring::new(Fixed::ZERO, Fixed::from_int(100), 300, Fixed::ZERO);
+        for _ in 0..6 {
+            s.tick(16);
+        }
+        let mid = s.position;
+        assert!(mid > Fixed::ZERO && mid < Fixed::from_int(100));
+        s.retarget(Fixed::from_int(20), None);
+        assert_eq!(s.origin, mid);
+        for _ in 0..200 {
+            s.tick(16);
+        }
+        assert!(s.is_settled());
+        assert!((s.position - Fixed::from_int(20)).abs() < Fixed::ONE);
     }
 }
