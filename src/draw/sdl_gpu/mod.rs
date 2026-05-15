@@ -139,11 +139,27 @@ impl Surface for SdlGpuSurface {
     fn poll_event(&mut self) -> Option<InputEvent> {
         for event in self.event_pump.poll_iter() {
             match event {
-                Event::Quit { .. }
-                | Event::KeyDown {
-                    keycode: Some(Keycode::Escape),
-                    ..
-                } => return Some(InputEvent::Quit),
+                Event::Quit { .. } => return Some(InputEvent::Quit),
+                Event::KeyDown {
+                    keycode: Some(kc), ..
+                } => {
+                    use crate::event::input::*;
+                    let code = match kc {
+                        Keycode::Backspace => KEY_BACKSPACE,
+                        Keycode::Delete => KEY_DELETE,
+                        Keycode::Left => KEY_LEFT,
+                        Keycode::Right => KEY_RIGHT,
+                        Keycode::Home => KEY_HOME,
+                        Keycode::End => KEY_END,
+                        Keycode::Return => KEY_RETURN,
+                        Keycode::Escape => return Some(InputEvent::Quit),
+                        _ => continue,
+                    };
+                    return Some(InputEvent::Key {
+                        code,
+                        pressed: true,
+                    });
+                }
                 Event::MouseButtonDown { x, y, .. } => {
                     return Some(InputEvent::PointerDown {
                         id: 0,
