@@ -1,4 +1,4 @@
-use mirui::anim::Spring;
+use mirui::anim::{Spring, Tween};
 use mirui::app::App;
 use mirui::components::slider::Slider;
 use mirui::components::switch::Switch;
@@ -19,8 +19,6 @@ mirui_macros::animate!(AnimateThumbX, |world, entity, value| {
     mirui::widget::set_position(world, entity, value, Fixed::from_int(3));
 });
 
-// Spring-driven 0..1 → off_color..on_color crossfade so toggling reads
-// as a transition, not a frame-snapped color flip.
 mirui_macros::animate!(AnimateSwitchBgT, |world, entity, value| {
     let Some(sw) = world.get::<Switch>(entity) else {
         return;
@@ -117,9 +115,12 @@ fn switch_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
                 .map(|t| t.0)
                 .unwrap_or_else(|| if is_on { Fixed::ZERO } else { Fixed::ONE });
             world.insert(entity, SwitchBgT(target_t));
+            // Spring's settle threshold is in pixel units (dist<1 && v<50)
+            // and would treat the entire 0..1 range as "already settled",
+            // so the bg fade uses a Tween instead.
             world.insert(
                 entity,
-                AnimateSwitchBgT(Spring::new(current_t, target_t, 250, Fixed::ZERO).into()),
+                AnimateSwitchBgT(Tween::ease_to(current_t, target_t, 250).into()),
             );
             world.insert(entity, Dirty);
 

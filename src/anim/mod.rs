@@ -451,3 +451,31 @@ mod tests {
         assert!((m.value().to_int() - 80).abs() <= 1);
     }
 }
+
+#[cfg(test)]
+mod tween_zero_one_check {
+    use super::*;
+
+    #[test]
+    fn tween_0_to_1_yields_intermediate_values() {
+        let mut t = Tween::ease_to(Fixed::ZERO, Fixed::ONE, 250);
+        let mut samples = alloc::vec::Vec::new();
+        for _ in 0..16 {
+            samples.push(t.value().to_f32());
+            t.tick(16);
+        }
+        let unique: alloc::collections::BTreeSet<_> =
+            samples.iter().map(|f| (f * 1000.0) as i32).collect();
+        assert!(
+            unique.len() >= 8,
+            "expected >=8 unique frames, got {} samples: {:?}",
+            unique.len(),
+            samples
+        );
+        assert!(samples.first().unwrap().abs() < 0.05, "should start near 0");
+        assert!(
+            (samples.last().unwrap() - 1.0).abs() < 0.05,
+            "should end near 1"
+        );
+    }
+}
