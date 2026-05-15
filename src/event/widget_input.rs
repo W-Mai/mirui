@@ -215,10 +215,70 @@ fn progress_bar_handler(world: &mut World, entity: Entity, event: &GestureEvent)
     true
 }
 
-/// Attach the appropriate GestureHandler to any Button/Checkbox/
-/// ProgressBar entity that doesn't already have one. Call once after
-/// building the widget tree (idempotent — handlers are skipped if
-/// present so user-supplied overrides win).
+/// Pick the right input handler for a single entity. Idempotent:
+/// returns early if the entity already has a `GestureHandler` so
+/// user-supplied overrides win. Each branch checks one component
+/// type and installs the corresponding handler(s).
+fn attach_handlers_for(world: &mut World, entity: Entity) {
+    if world.get::<GestureHandler>(entity).is_some() {
+        return;
+    }
+    if world.get::<Button>(entity).is_some() {
+        world.insert(
+            entity,
+            GestureHandler {
+                on_gesture: button_handler,
+            },
+        );
+        return;
+    }
+    if world.get::<Checkbox>(entity).is_some() {
+        world.insert(
+            entity,
+            GestureHandler {
+                on_gesture: checkbox_handler,
+            },
+        );
+        return;
+    }
+    if world.get::<ProgressBar>(entity).is_some() {
+        world.insert(
+            entity,
+            GestureHandler {
+                on_gesture: progress_bar_handler,
+            },
+        );
+        return;
+    }
+    if world.get::<TabBar>(entity).is_some() {
+        world.insert(
+            entity,
+            GestureHandler {
+                on_gesture: tabbar_handler,
+            },
+        );
+        return;
+    }
+    if world.get::<TextInput>(entity).is_some() {
+        world.insert(
+            entity,
+            GestureHandler {
+                on_gesture: textinput_gesture_handler,
+            },
+        );
+        world.insert(entity, Focusable);
+        world.insert(
+            entity,
+            KeyHandler {
+                on_key: textinput_key_handler,
+            },
+        );
+    }
+}
+
+/// Walk the widget tree from `root` and auto-install gesture/key
+/// handlers on built-in widgets that don't already have one. Call once
+/// after building the tree.
 pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
     let mut stack = alloc::vec::Vec::with_capacity(16);
     stack.push(root);
@@ -228,53 +288,7 @@ pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
                 stack.push(child);
             }
         }
-
-        if world.get::<GestureHandler>(entity).is_some() {
-            continue;
-        }
-        if world.get::<Button>(entity).is_some() {
-            world.insert(
-                entity,
-                GestureHandler {
-                    on_gesture: button_handler,
-                },
-            );
-        } else if world.get::<Checkbox>(entity).is_some() {
-            world.insert(
-                entity,
-                GestureHandler {
-                    on_gesture: checkbox_handler,
-                },
-            );
-        } else if world.get::<ProgressBar>(entity).is_some() {
-            world.insert(
-                entity,
-                GestureHandler {
-                    on_gesture: progress_bar_handler,
-                },
-            );
-        } else if world.get::<TabBar>(entity).is_some() {
-            world.insert(
-                entity,
-                GestureHandler {
-                    on_gesture: tabbar_handler,
-                },
-            );
-        } else if world.get::<TextInput>(entity).is_some() {
-            world.insert(
-                entity,
-                GestureHandler {
-                    on_gesture: textinput_gesture_handler,
-                },
-            );
-            world.insert(entity, Focusable);
-            world.insert(
-                entity,
-                KeyHandler {
-                    on_key: textinput_key_handler,
-                },
-            );
-        }
+        attach_handlers_for(world, entity);
     }
 }
 

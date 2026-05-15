@@ -145,7 +145,6 @@ fn main() {
 
     app.set_root(root);
 
-    // Run lazy_list_system once, then layout + render.
     use mirui::draw::sw::SwRenderer;
     use mirui::surface::FramebufferAccess;
     use mirui::types::Viewport;

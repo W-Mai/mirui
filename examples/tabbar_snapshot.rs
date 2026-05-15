@@ -151,7 +151,6 @@ fn main() {
         }
     }
 
-    // Convert PPM → PNG via Python/PIL.
     let status = std::process::Command::new("python3")
         .args([
             "-c",
