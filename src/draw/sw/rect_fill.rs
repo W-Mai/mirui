@@ -149,19 +149,191 @@ pub(super) fn rounded_rect_coverage(px: Fixed, py: Fixed, w: Fixed, h: Fixed, r:
         return Fixed::ONE;
     };
 
-    let dx = px - cx + Fixed::ONE / 2;
-    let dy = py - cy + Fixed::ONE / 2;
-    let dist_sq = dx * dx + dy * dy;
-
-    if dist_sq <= r * r {
-        Fixed::ONE
-    } else {
-        let dist = dist_sq.sqrt();
-        let overshoot = dist - r;
-        if overshoot >= Fixed::ONE {
-            Fixed::ZERO
-        } else {
-            Fixed::ONE - overshoot
+    // 4×4 supersample on the AA boundary; single-sample looks flat-topped
+    // because all the curvature collapses into one pixel row. Inside r-1
+    // and outside r+1 short-circuit so only the ~2-px ring pays the 16
+    // samples.
+    let dx_pc = px - cx + Fixed::ONE / 2;
+    let dy_pc = py - cy + Fixed::ONE / 2;
+    let dist_sq = dx_pc * dx_pc + dy_pc * dy_pc;
+    let r_sq = r * r;
+    let r_inner = r - Fixed::ONE;
+    if r_inner > Fixed::ZERO {
+        let r_inner_sq = r_inner * r_inner;
+        if dist_sq <= r_inner_sq {
+            return Fixed::ONE;
         }
+    }
+    let r_outer = r + Fixed::ONE;
+    let r_outer_sq = r_outer * r_outer;
+    if dist_sq >= r_outer_sq {
+        return Fixed::ZERO;
+    }
+    let mut hits: i32 = 0;
+    let step = Fixed::ONE / 4;
+    let half_step = step / 2;
+    let base_x = px - cx + half_step;
+    let base_y = py - cy + half_step;
+    for sy in 0..4 {
+        let dy = base_y + step * Fixed::from_int(sy);
+        for sx in 0..4 {
+            let dx = base_x + step * Fixed::from_int(sx);
+            if dx * dx + dy * dy <= r_sq {
+                hits += 1;
+            }
+        }
+    }
+    Fixed::from_int(hits) / 16
+}
+
+#[cfg(all(test, feature = "std"))]
+mod corner_check {
+    extern crate std;
+    use super::*;
+    use crate::draw::canvas::Canvas;
+    use std::string::String;
+    use std::vec::Vec;
+
+    fn render_circle(w: i32, h: i32, r: i32) -> Vec<Vec<u8>> {
+        let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::ARGB8888);
+        let mut backend = SwRenderer::new(tex);
+        let rect = Rect::new(0, 0, w, h);
+        let clip = Rect::new(0, 0, w, h);
+        backend.fill_rect(
+            &rect,
+            &clip,
+            &Color::rgb(255, 255, 255),
+            Fixed::from_int(r),
+            255,
+        );
+        let mut out = std::vec![std::vec![0u8; w as usize]; h as usize];
+        for py in 0..h {
+            for px in 0..w {
+                out[py as usize][px as usize] = backend.target.get_pixel(px, py).r;
+            }
+        }
+        out
+    }
+
+    fn ascii(grid: &[Vec<u8>]) -> String {
+        let mut s = String::from("\n");
+        for row in grid {
+            for &a in row {
+                s.push_str(if a > 200 {
+                    "##"
+                } else if a > 100 {
+                    ".."
+                } else if a > 0 {
+                    "::"
+                } else {
+                    "  "
+                });
+            }
+            s.push('\n');
+        }
+        s
+    }
+
+    #[test]
+    fn dump_32x32_r16() {
+        let g = render_circle(32, 32, 16);
+        std::eprintln!("{}", ascii(&g));
+    }
+
+    #[test]
+    fn dump_14x14_r7() {
+        let g = render_circle(14, 14, 7);
+        std::eprintln!("{}", ascii(&g));
+    }
+
+    #[test]
+    fn dump_50x50_r25() {
+        let g = render_circle(50, 50, 25);
+        std::eprintln!("{}", ascii(&g));
+    }
+
+    #[test]
+    fn dump_8x8_r4() {
+        let g = render_circle(8, 8, 4);
+        std::eprintln!("{}", ascii(&g));
+    }
+
+    #[test]
+    fn perf_64x64_r32() {
+        // Render-time sanity: 64×64 r=32 takes a stable upper bound across
+        // 1000 reps. Catches the >100× regression we hit when sqrt was on
+        // every pixel; healthy is ~50 µs/frame on a desktop release build.
+        use std::time::Instant;
+        let mut buf = std::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::ARGB8888);
+        let mut backend = SwRenderer::new(tex);
+        let rect = Rect::new(0, 0, 64, 64);
+        let clip = Rect::new(0, 0, 64, 64);
+        let t0 = Instant::now();
+        for _ in 0..1000 {
+            backend.fill_rect(
+                &rect,
+                &clip,
+                &Color::rgb(255, 255, 255),
+                Fixed::from_int(32),
+                255,
+            );
+        }
+        let elapsed = t0.elapsed();
+        let per_frame_us = elapsed.as_secs_f64() * 1e6 / 1000.0;
+        std::eprintln!("64x64 r=32: {per_frame_us:.2} µs/frame");
+        assert!(
+            per_frame_us < 5000.0,
+            "corner render too slow: {per_frame_us:.2} µs/frame"
+        );
+    }
+
+    #[test]
+    fn shape_symmetric_horizontal() {
+        let g = render_circle(32, 32, 16);
+        for (y, row) in g.iter().enumerate() {
+            for x in 0..16 {
+                let l = row[x];
+                let r = row[31 - x];
+                assert!(l.abs_diff(r) <= 2, "row {y} x={x}: left {l} vs right {r}",);
+            }
+        }
+    }
+
+    #[test]
+    fn shape_symmetric_vertical() {
+        let g = render_circle(32, 32, 16);
+        for y in 0..16 {
+            for x in 0..32 {
+                let t = g[y][x];
+                let b = g[31 - y][x];
+                assert!(t.abs_diff(b) <= 2, "col {x} y={y}: top {t} vs bot {b}",);
+            }
+        }
+    }
+
+    fn count_full_in_row(row: &[u8]) -> usize {
+        row.iter().filter(|&&a| a > 200).count()
+    }
+
+    #[test]
+    fn shape_top_row_narrower_than_middle() {
+        // Catches the "circle looks like a flat-top pill" regression: the
+        // top row of a 32×32 r=16 circle must be visually narrower than
+        // the body, by enough that the curvature is perceivable (≥4 px
+        // on each side).
+        let g = render_circle(32, 32, 16);
+        let top = count_full_in_row(&g[0]);
+        let mid = count_full_in_row(&g[16]);
+        assert!(
+            top < mid,
+            "top={top} mid={mid} — top row wider/equal to middle"
+        );
+        assert!(
+            mid >= top + 8,
+            "top={top} mid={mid} — corner curvature too flat (mid-top={})",
+            mid - top
+        );
     }
 }
