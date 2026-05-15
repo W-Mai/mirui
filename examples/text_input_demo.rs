@@ -1,0 +1,59 @@
+extern crate alloc;
+
+use mirui::app::App;
+use mirui::components::text_input::{Placeholder, TextInput};
+use mirui::layout::*;
+use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::surface::sdl::SdlSurface;
+use mirui::types::{Color, Dimension};
+use mirui::widget::builder::WidgetBuilder;
+
+fn main() {
+    let backend = SdlSurface::new("TextInput Demo", 480, 200);
+    let mut app = App::new(backend);
+
+    app.add_system(mirui::anim::sync_delta_time_ms);
+    app.add_system(mirui::event::widget_input::cursor_blink_system);
+
+    let root = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgb(20, 20, 30))
+        .layout(LayoutStyle {
+            direction: FlexDirection::Column,
+            width: Dimension::px(480),
+            height: Dimension::px(200),
+            padding: Padding {
+                top: Dimension::px(40),
+                left: Dimension::px(40),
+                right: Dimension::px(40),
+                bottom: Dimension::px(40),
+            },
+            ..Default::default()
+        })
+        .id();
+
+    let input = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgb(40, 40, 56))
+        .border(Color::rgb(80, 80, 100), 1)
+        .border_radius(4)
+        .layout(LayoutStyle {
+            width: Dimension::px(400),
+            height: Dimension::px(28),
+            ..Default::default()
+        })
+        .id();
+    app.world.insert(input, mirui::widget::Parent(root));
+    if let Some(c) = app.world.get_mut::<mirui::widget::Children>(root) {
+        c.0.push(input);
+    } else {
+        app.world
+            .insert(root, mirui::widget::Children(alloc::vec![input]));
+    }
+
+    app.world.insert(input, TextInput::new());
+    app.world.insert(input, Placeholder("type something..."));
+
+    app.set_root(root);
+    app.add_plugin(StdInstantClockPlugin::default())
+        .add_plugin(FpsSummaryPlugin::default());
+    app.run();
+}

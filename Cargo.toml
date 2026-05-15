@@ -176,6 +176,14 @@ required-features = ["sdl"]
 name = "tabbar_snapshot"
 required-features = ["sdl"]
 
+[[example]]
+name = "text_input_demo"
+required-features = ["sdl"]
+
+[[example]]
+name = "text_input_snapshot"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true

@@ -2,12 +2,50 @@ use crate::components::button::Button;
 use crate::components::checkbox::Checkbox;
 use crate::components::progress_bar::ProgressBar;
 use crate::components::tabbar::TabBar;
+use crate::components::text_input::TextInput;
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 use crate::widget::dirty::Dirty;
 
 use super::GestureHandler;
+use super::focus::{Focusable, KeyHandler};
 use super::gesture::GestureEvent;
+use super::input::{InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT};
+
+/// Resource toggled by `cursor_blink_system` every ~500 ms; renderers
+/// query this to decide whether to draw the TextInput cursor.
+#[derive(Default, Clone, Copy)]
+pub struct CursorBlinkPhase(pub bool);
+
+/// Reads the global MonoClock, flips `CursorBlinkPhase` every 500 ms,
+/// and marks every focused TextInput as Dirty so it repaints. Idle
+/// cost when no TextInput is present: one resource read + one
+/// arithmetic check.
+pub fn cursor_blink_system(world: &mut World) {
+    let now_ms = match world.resource::<crate::ecs::MonoClock>() {
+        Some(c) => (c.clock)() / 1_000_000,
+        None => return,
+    };
+    let new_phase = (now_ms / 500) % 2 == 0;
+    let prev_phase = world
+        .resource::<CursorBlinkPhase>()
+        .map(|p| p.0)
+        .unwrap_or(!new_phase);
+    if new_phase == prev_phase {
+        return;
+    }
+    world.insert_resource(CursorBlinkPhase(new_phase));
+    let entities: alloc::vec::Vec<_> = world.query::<TextInput>().collect();
+    for e in entities {
+        if world
+            .get::<TextInput>(e)
+            .map(|t| t.focused)
+            .unwrap_or(false)
+        {
+            world.insert(e, Dirty);
+        }
+    }
+}
 
 /// Press feedback on Button: highlight while the gesture is in flight,
 /// release on Tap / DragEnd. Without DragStart we'd never see a "held"
@@ -73,6 +111,83 @@ fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
         tb.indicator_offset = Fixed::from_int(idx as i32);
     }
     world.insert(entity, Dirty);
+    true
+}
+
+/// TextInput's gesture handler is a no-op pass-through; focus is set
+/// by the focus_on_tap helper in App::run when the Tap target's
+/// ancestors carry `Focusable`. We mirror the resulting focus state
+/// onto TextInput.focused so the renderer can read it without going
+/// through FocusState.
+fn textinput_gesture_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+    if let GestureEvent::Tap { .. } = event {
+        sync_textinput_focus(world);
+        world.insert(entity, Dirty);
+        return true;
+    }
+    false
+}
+
+/// Walk every TextInput in the world and update `focused` from the
+/// shared `FocusState`. Called from the gesture handler (focus changes
+/// only on Tap) and after backspace/insert (Dirty already).
+fn sync_textinput_focus(world: &mut World) {
+    let focused = world
+        .resource::<crate::event::focus::FocusState>()
+        .and_then(|fs| fs.focused);
+    let entities: alloc::vec::Vec<_> = world.query::<TextInput>().collect();
+    for e in entities {
+        let want = Some(e) == focused;
+        let current = world
+            .get::<TextInput>(e)
+            .map(|t| t.focused)
+            .unwrap_or(false);
+        if want != current {
+            if let Some(ti) = world.get_mut::<TextInput>(e) {
+                ti.focused = want;
+            }
+            world.insert(e, Dirty);
+        }
+    }
+}
+
+fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) -> bool {
+    let Some(ti) = world.get_mut::<TextInput>(entity) else {
+        return false;
+    };
+    let mut changed = false;
+    match event {
+        InputEvent::CharInput { ch } => {
+            if (*ch as u32) < 128 {
+                changed |= ti.insert(*ch as u8);
+            }
+        }
+        InputEvent::Key { code, pressed } if *pressed => match *code {
+            KEY_BACKSPACE => changed |= ti.backspace(),
+            KEY_DELETE => changed |= ti.delete_forward(),
+            KEY_LEFT => {
+                ti.move_left();
+                changed = true;
+            }
+            KEY_RIGHT => {
+                ti.move_right();
+                changed = true;
+            }
+            KEY_HOME => {
+                ti.move_home();
+                changed = true;
+            }
+            KEY_END => {
+                ti.move_end();
+                changed = true;
+            }
+            _ => return false,
+        },
+        _ => return false,
+    }
+    if changed {
+        world.insert(entity, Dirty);
+    }
     true
 }
 
@@ -143,6 +258,20 @@ pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
                 entity,
                 GestureHandler {
                     on_gesture: tabbar_handler,
+                },
+            );
+        } else if world.get::<TextInput>(entity).is_some() {
+            world.insert(
+                entity,
+                GestureHandler {
+                    on_gesture: textinput_gesture_handler,
+                },
+            );
+            world.insert(entity, Focusable);
+            world.insert(
+                entity,
+                KeyHandler {
+                    on_key: textinput_key_handler,
                 },
             );
         }

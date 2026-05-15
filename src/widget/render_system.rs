@@ -5,6 +5,7 @@ use crate::components::checkbox::Checkbox;
 use crate::components::image::Image;
 use crate::components::progress_bar::ProgressBar;
 use crate::components::tabbar::TabBar;
+use crate::components::text_input::{Placeholder, TextInput};
 use crate::components::transform::WidgetTransform;
 use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::draw::command::DrawCommand;
@@ -173,6 +174,98 @@ fn quad_for(
     tf.apply_rect(rect)
 }
 
+/// Render a TextInput's text/placeholder/cursor + focus border. Called
+/// from both draw_tree (rect) and draw_tree_offset (shifted_rect).
+#[allow(clippy::too_many_arguments)]
+fn draw_text_input(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    entity: Entity,
+    ti: &TextInput,
+    rect: &Rect,
+    tf: &Transform,
+    quad: Option<[Point; 4]>,
+    clip: &Rect,
+) {
+    // Focus border override (only when focused — non-focused uses the
+    // standard Style border which `draw_tree` already drew).
+    if ti.focused {
+        renderer.draw(
+            &DrawCommand::Border {
+                area: *rect,
+                transform: *tf,
+                quad,
+                color: ti.focus_border_color,
+                width: Fixed::ONE,
+                radius: Fixed::ZERO,
+                opa: 255,
+            },
+            clip,
+        );
+    }
+
+    let text_x = rect.x + Fixed::from_int(2);
+    let text_y = rect.y + Fixed::from_int(2);
+    if ti.len == 0 {
+        if let Some(ph) = world.get::<Placeholder>(entity) {
+            renderer.draw(
+                &DrawCommand::Label {
+                    pos: Point {
+                        x: text_x,
+                        y: text_y,
+                    },
+                    transform: *tf,
+                    text: ph.0.as_bytes(),
+                    color: ti.placeholder_color,
+                    opa: 255,
+                },
+                clip,
+            );
+        }
+    } else {
+        renderer.draw(
+            &DrawCommand::Label {
+                pos: Point {
+                    x: text_x,
+                    y: text_y,
+                },
+                transform: *tf,
+                text: &ti.buffer[..ti.len as usize],
+                color: ti.text_color,
+                opa: 255,
+            },
+            clip,
+        );
+    }
+
+    if ti.focused {
+        let blink_on = world
+            .resource::<crate::event::widget_input::CursorBlinkPhase>()
+            .map(|p| p.0)
+            .unwrap_or(true);
+        if blink_on {
+            // 8×8 fixed font: each glyph advances exactly CHAR_W.
+            let cursor_x = text_x + Fixed::from_int(ti.cursor as i32 * 8);
+            renderer.draw(
+                &DrawCommand::Fill {
+                    area: Rect {
+                        x: cursor_x,
+                        y: text_y,
+                        w: Fixed::ONE,
+                        h: Fixed::from_int(8),
+                    },
+                    transform: *tf,
+                    quad,
+                    color: ti.cursor_color,
+                    radius: Fixed::ZERO,
+                    opa: 255,
+                },
+                clip,
+            );
+        }
+    }
+}
+
 /// Recursively build a LayoutNode tree from ECS entities
 fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     world.get::<Widget>(entity)?;
@@ -320,6 +413,9 @@ fn draw_tree(
                         clip,
                     );
                 }
+            }
+            if let Some(ti) = world.get::<TextInput>(entity) {
+                draw_text_input(renderer, world, entity, ti, &node.rect, &tf, quad, clip);
             }
             if let Some(img) = world.get::<Image>(entity) {
                 renderer.draw(
@@ -536,6 +632,9 @@ fn draw_tree_offset(
                         clip,
                     );
                 }
+            }
+            if let Some(ti) = world.get::<TextInput>(entity) {
+                draw_text_input(renderer, world, entity, ti, &shifted_rect, &tf, quad, clip);
             }
             if let Some(img) = world.get::<Image>(entity) {
                 renderer.draw(
