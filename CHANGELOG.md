@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.4] - 2026-05-16
+
+### Changed
+
+- **`Spring::is_settled` is now amplitude-aware**: threshold scales with the spring's own travel (`span/200` for distance, `2·span/sec` for velocity), with `Fixed::ONE` as the floor. The old absolute pixel thresholds (`dist < 1 && v < 50`) treated any normalized 0..1 spring as already-settled, which is why the slider example's switch bg fade had to use `Tween` as a workaround. Both desktop and ESP demos are back on `Spring`; ESP traces now show continuous `t` (e.g. `0.008 → 0.039 → … → 0.92`).
+- **`Spring::retarget` re-anchors the spanScale origin** to the live position, so subsequent retargets pick up the new amplitude rather than the original `from → target` span.
+- **`ColorFormat::ARGB8888` renamed to `ColorFormat::RGBA8888`** to match the actual `[r, g, b, a]` byte order. **Breaking change**: every caller of the old variant name needs to swap. ESP demos already use `RGB565Swapped` and are unaffected.
+- **v0.11.3 widget demos rewritten with `ui!` + enchant blocks**: `text_input_demo`, `text_input_snapshot`, `lazy_list_demo`, `lazy_list_snapshot` were hand-rolling `WidgetBuilder + Parent + Children::insert`; they now use the DSL the way `slider_switch_demo` and `demo_widgets` do. `LazyList`'s pool entities go through `walk` and the `Children` list is read back to populate `LazyListPool`.
+
+### Removed
+
+- `DeltaTime(f32)` and `ElapsedTime(f32)` resources. They were registered in `App::with_factory` but never written or read by any system or example. `DeltaTimeMs(u16)` is the only delta-time resource the animation pipeline uses.
+
 ## [0.11.3] - 2026-05-15
 
 ### Added
