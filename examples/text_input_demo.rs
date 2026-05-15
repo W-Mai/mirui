@@ -7,6 +7,7 @@ use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension};
 use mirui::widget::builder::WidgetBuilder;
+use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("TextInput Demo", 480, 200);
@@ -31,26 +32,23 @@ fn main() {
         })
         .id();
 
-    let input = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(40, 40, 56))
-        .border(Color::rgb(80, 80, 100), 1)
-        .border_radius(4)
-        .layout(LayoutStyle {
-            width: Dimension::px(400),
-            height: Dimension::px(28),
-            ..Default::default()
-        })
-        .id();
-    app.world.insert(input, mirui::widget::Parent(root));
-    if let Some(c) = app.world.get_mut::<mirui::widget::Children>(root) {
-        c.0.push(input);
-    } else {
-        app.world
-            .insert(root, mirui::widget::Children(alloc::vec![input]));
-    }
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
 
-    app.world.insert(input, TextInput::new());
-    app.world.insert(input, Placeholder("type something..."));
+        input (
+            bg_color: Color::rgb(40, 40, 56),
+            border_color: Color::rgb(80, 80, 100),
+            border_radius: 4,
+            width: 400,
+            height: 28
+        ) [
+            TextInput::new(),
+            Placeholder("type something..."),
+        ] {}
+    };
 
     app.set_root(root);
     app.add_plugin(StdInstantClockPlugin::default())

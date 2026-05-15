@@ -16,6 +16,7 @@ use mirui::layout::*;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
+use mirui_macros::ui;
 
 fn write_png(out_path: &std::path::Path, pixels: &[u8], width: u16, height: u16, stride: usize) {
     let ppm_path = out_path.with_extension("ppm");
@@ -56,45 +57,10 @@ fn main() {
     let backend = FramebufSurface::with_format(width, height, ColorFormat::ARGB8888, |_, _| {});
     let mut app = App::new(backend);
 
-    let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(20, 20, 30))
-        .layout(LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(width as i32),
-            height: Dimension::px(height as i32),
-            padding: Padding {
-                top: Dimension::px(16),
-                left: Dimension::px(16),
-                right: Dimension::px(16),
-                bottom: Dimension::px(16),
-            },
-            ..Default::default()
-        })
-        .id();
-
-    let input = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(40, 40, 56))
-        .border(Color::rgb(80, 80, 100), 1)
-        .layout(LayoutStyle {
-            width: Dimension::px(288),
-            height: Dimension::px(28),
-            ..Default::default()
-        })
-        .id();
-    app.world.insert(input, mirui::widget::Parent(root));
-    app.world
-        .insert(root, mirui::widget::Children(alloc::vec![input]));
-
     let mut ti = TextInput::new();
-    let placeholder_text = "type something...";
-
     match scenario.as_str() {
-        "empty" => {
-            ti.focused = false;
-        }
-        "focused-empty" => {
-            ti.focused = true;
-        }
+        "empty" => ti.focused = false,
+        "focused-empty" => ti.focused = true,
         "typed" => {
             for ch in b"hello world".iter() {
                 ti.insert(*ch);
@@ -111,9 +77,42 @@ fn main() {
         }
         _ => panic!("unknown scenario: {scenario}"),
     }
-    app.world.insert(input, ti);
-    app.world.insert(input, Placeholder(placeholder_text));
-    // Force cursor blink phase ON so the snapshot is deterministic.
+
+    let root = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgb(20, 20, 30))
+        .layout(LayoutStyle {
+            direction: FlexDirection::Column,
+            width: Dimension::px(width as i32),
+            height: Dimension::px(height as i32),
+            padding: Padding {
+                top: Dimension::px(16),
+                left: Dimension::px(16),
+                right: Dimension::px(16),
+                bottom: Dimension::px(16),
+            },
+            ..Default::default()
+        })
+        .id();
+
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
+
+        input (
+            bg_color: Color::rgb(40, 40, 56),
+            border_color: Color::rgb(80, 80, 100),
+            width: 288,
+            height: 28
+        ) [
+            ti,
+            Placeholder("type something..."),
+        ] {}
+    };
+
+    // Deterministic cursor: pin the blink phase ON so the snapshot
+    // doesn't flicker by wall-clock timing.
     app.world
         .insert_resource(mirui::event::widget_input::CursorBlinkPhase(true));
 

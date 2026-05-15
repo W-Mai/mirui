@@ -10,9 +10,10 @@ use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::Text;
 use mirui::widget::builder::WidgetBuilder;
+use mirui_macros::ui;
 
 const ROW_H: i32 = 32;
-const POOL_SIZE: usize = 12; // visible (10) + 2 buffer
+const POOL_SIZE: usize = 12;
 const ITEM_COUNT: u32 = 200;
 
 fn row_binder(world: &mut World, entity: Entity, index: u32) {
@@ -40,59 +41,53 @@ fn main() {
         })
         .id();
 
-    let list = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(28, 28, 40))
-        .layout(LayoutStyle {
-            width: Dimension::px(320),
-            height: Dimension::px(320),
-            ..Default::default()
-        })
-        .id();
-    app.world.insert(list, mirui::widget::Parent(root));
-    app.world
-        .insert(root, mirui::widget::Children(alloc::vec![list]));
+    let list = ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
 
-    let mut pool: alloc::vec::Vec<Entity> = alloc::vec::Vec::with_capacity(POOL_SIZE);
-    for _ in 0..POOL_SIZE {
-        let e = WidgetBuilder::new(&mut app.world)
-            .bg_color(Color::rgb(40, 40, 56))
-            .text_color(Color::rgb(220, 220, 230))
-            .layout(LayoutStyle {
-                position: Position::Absolute,
-                left: Dimension::Px(Fixed::ZERO),
-                top: Dimension::Px(Fixed::ZERO),
-                width: Dimension::px(320),
-                height: Dimension::px(ROW_H),
-                ..Default::default()
-            })
-            .id();
-        app.world.insert(e, mirui::widget::Parent(list));
-        pool.push(e);
-    }
-    app.world
-        .insert(list, mirui::widget::Children(pool.clone()));
+        list (
+            bg_color: Color::rgb(28, 28, 40),
+            width: 320,
+            height: 320
+        ) [
+            LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
+            LazyListBinder { bind: row_binder },
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+            ScrollConfig {
+                direction: ScrollAxis::Vertical,
+                elastic: true,
+                content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
+                content_width: Fixed::ZERO,
+            },
+        ] {
+            walk 0..POOL_SIZE with _i {
+                row (
+                    bg_color: Color::rgb(40, 40, 56),
+                    text_color: Color::rgb(220, 220, 230),
+                    position: Position::Absolute,
+                    left: 0,
+                    top: 0,
+                    width: 320,
+                    height: ROW_H
+                ) {}
+            }
+        }
+    };
 
-    app.world
-        .insert(list, LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8));
+    // The pool's per-slot identity is whatever ECS assigned; pull the
+    // child list off the freshly-built tree so LazyListBinder knows
+    // which entities to bind into.
+    let pool: alloc::vec::Vec<Entity> = app
+        .world
+        .get::<mirui::widget::Children>(list)
+        .map(|c| c.0.clone())
+        .unwrap_or_default();
     app.world.insert(list, LazyListPool::new(pool));
-    app.world.insert(list, LazyListBinder { bind: row_binder });
-
-    app.world.insert(
-        list,
-        ScrollOffset {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-        },
-    );
-    app.world.insert(
-        list,
-        ScrollConfig {
-            direction: ScrollAxis::Vertical,
-            elastic: true,
-            content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
-            content_width: Fixed::ZERO,
-        },
-    );
 
     app.set_root(root);
     app.add_plugin(StdInstantClockPlugin::default())
