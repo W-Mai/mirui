@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-05-15
+
+### Added
+
+- **Spring animation system**: Apple WWDC23-style physical spring (`Spring::new(from, to, duration_ms, bounce)`) with `retarget(target, config)`, velocity inheritance, and presets `SMOOTH` / `SNAPPY` / `BOUNCY` / `INTERACTIVE`. `SpringMode::Once` and `Repeat`.
+- **`Tween`** (renamed from `Animation`) — deterministic duration + ease curve animation.
+- **`Motion` enum** unifying `Tween` and `Spring` behind a single `tick`/`value`/`is_done` interface.
+- **`animate!` proc macro** (replaces `animation!`): generates a wrapper struct around `Motion`, callers attach a `Tween` or `Spring` via `.into()`.
+- **`MotionComponent` trait** + `run_motion<T>` system helper.
+- **`GestureEvent::DragEnd { vx, vy }`** carries pointer velocity (px/s) for natural gesture-to-spring handoffs.
+- **Scroll inertia and elastic now use `Spring` physics** instead of velocity decay (`vel *= 9/10`). Scroll target stays inside bounds via `BOUNCY` retarget; only marks `Dirty` when the scroll position changes by ≥ 1 px.
+- **`Style::clip_children: bool`** — when set, descendants are clipped to the widget's own rect (CSS `overflow: hidden` semantics). Buildable via `ui!`'s `clip_children: true` attribute.
+- **`Color::lerp(a, b, t)`** — 8-bit channel-space linear interpolation, clamped to `[0, 1]`.
+- **ESP framebuffer capture tooling** (in `mirui-examples/examples/esp32c3-animation`): periodic base64 dump over UART with a host-side decoder script.
+
+### Changed
+
+- **`Spring::tick` integration**: substep semi-implicit Euler with stability bound `ω₀·dt < 2`, capped at 32 substeps per frame; intermediate state in `Fixed64` (Q48.16) for sub-millisecond `sub_dt` precision.
+- **`config_to_params` rewritten** in `Fixed64` arithmetic with `Fixed::PI`, removing hand-rolled raw integer math.
+
+### Fixed
+
+- **Nested scroll dirty regions**: `collect_dirty_walk` now accumulates ancestor `ScrollOffset` so widgets inside a scrolled container repaint at the right screen position. Without this fix, repaints of inner scrolls landed at the wrong rect after the outer scrolled.
+- **Rounded corners read as flat-topped**: the 1-px AA boundary collapsed circular curvature into a single pixel row, so `r=16` corners looked like flat pills. The boundary now does 4×4 supersampling within a 2-px ring; inside `r-1` and outside `r+1` short-circuit. ~50 µs / frame on a 64×64 r=32 release benchmark.
+- **`Spring` damping was 2× too large**: `config_to_params` used `4 * two_pi_raw` (= 8π) instead of 4π, so every spring landed at ζ=2 (overdamped). 200 ms toggles now settle in ~144 ms with proper critical damping.
+- **`ScrollSpring` not cleared on `PointerDown`**: a still-running inertia spring could fight the new gesture's scroll resolution. Now cleared the moment the pointer goes down.
+
+### Removed
+
+- `Animation` struct, `animation!` macro, `AnimationComponent` trait, `run_animation` (replaced by `Tween` / `animate!` / `MotionComponent` / `run_motion`).
+- `EaseCurve` struct and per-ease derivative functions (used only by the short-lived spatial-uniform animation mode).
+- Spatial-uniform animation mode (its problem domain is better solved by `Spring`'s amplitude-aware physics).
+
 ## [0.11.1] - 2026-05-15
 
 ### Added
