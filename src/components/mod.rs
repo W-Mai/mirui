@@ -5,5 +5,6 @@ pub mod image;
 pub mod progress_bar;
 pub mod slider;
 pub mod switch;
+pub mod tabbar;
 pub mod transform;
 pub mod transform_3d;

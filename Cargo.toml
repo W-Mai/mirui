@@ -168,6 +168,14 @@ required-features = ["sdl"]
 name = "widget_demo"
 required-features = ["sdl"]
 
+[[example]]
+name = "tabbar_demo"
+required-features = ["sdl"]
+
+[[example]]
+name = "tabbar_snapshot"
+required-features = ["sdl"]
+
 [profile.release]
 opt-level = "z"
 lto = true
