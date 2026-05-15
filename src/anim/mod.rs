@@ -1,11 +1,9 @@
 pub mod ease;
 
-use crate::ecs::{DeltaTimeMs, World};
-use crate::types::Fixed;
+use crate::ecs::{DeltaTimeMs, MonoClock, World};
+use crate::types::{Fixed, Fixed64};
 
 pub use ease::EaseFn;
-
-// ─── Tween (deterministic duration + ease curve) ───────────────────────
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PlayMode {
@@ -58,9 +56,7 @@ impl Tween {
     }
 
     pub fn value(&self) -> Fixed {
-        let t = Fixed::from_raw(
-            (self.elapsed_ms as i32) * Fixed::ONE.raw() / (self.duration_ms as i32),
-        );
+        let t = Fixed::from_int(self.elapsed_ms as i32) / Fixed::from_int(self.duration_ms as i32);
         let eased = (self.ease)(t);
         self.from + eased * (self.to - self.from)
     }
@@ -69,8 +65,6 @@ impl Tween {
         self.mode == PlayMode::Once && self.elapsed_ms >= self.duration_ms
     }
 }
-
-// ─── Spring (physical spring, Apple-style duration/bounce) ─────────────
 
 #[derive(Clone, Copy)]
 pub struct SpringConfig {
@@ -115,10 +109,17 @@ pub struct Spring {
 
 impl Spring {
     pub fn new(from: Fixed, to: Fixed, duration_ms: u16, bounce: Fixed) -> Self {
-        let config = SpringConfig {
-            duration_ms,
-            bounce,
-        };
+        Self::preset(
+            from,
+            to,
+            SpringConfig {
+                duration_ms,
+                bounce,
+            },
+        )
+    }
+
+    pub fn preset(from: Fixed, to: Fixed, config: SpringConfig) -> Self {
         let (stiffness, damping) = config_to_params(config);
         Self {
             stiffness,
@@ -128,12 +129,8 @@ impl Spring {
             target: to,
             origin: from,
             mode: SpringMode::Once,
-            duration_hint_ms: duration_ms,
+            duration_hint_ms: config.duration_ms,
         }
-    }
-
-    pub fn preset(from: Fixed, to: Fixed, config: SpringConfig) -> Self {
-        Self::new(from, to, config.duration_ms, config.bounce)
     }
 
     pub fn with_params(from: Fixed, to: Fixed, stiffness: Fixed, damping: Fixed) -> Self {
@@ -174,36 +171,47 @@ impl Spring {
     }
 
     pub fn tick(&mut self, dt_ms: u16) {
-        let dt = Fixed::from_raw((dt_ms as i32) * 256 / 1000);
-        let displacement = self.target - self.position;
-        let accel_raw = {
-            let sf = (displacement.raw() as i64 * self.stiffness.raw() as i64) >> 8;
-            let df = (self.velocity.raw() as i64 * self.damping.raw() as i64) >> 8;
-            (sf - df).clamp(i32::MIN as i64, i32::MAX as i64) as i32
-        };
-        let accel = Fixed::from_raw(accel_raw);
-        self.velocity += accel * dt;
-        self.position += self.velocity * dt;
+        // Stability bound for semi-implicit Euler: ω₀·dt < 2 (ω₀ = √stiffness).
+        // Pick N substeps so each sub_dt × ω₀ stays well below 1.
+        let omega = self.stiffness.sqrt();
+        let substep_count = ((dt_ms as u32 * omega.to_int().max(1) as u32) / 80).clamp(1, 32);
+
+        let dt_total = Fixed64::from_fixed(Fixed::from_int(dt_ms as i32))
+            / Fixed64::from_fixed(Fixed::from_int(1000));
+        let sub_dt = dt_total / Fixed64::from_fixed(Fixed::from_int(substep_count as i32));
+
+        let stiff = Fixed64::from_fixed(self.stiffness);
+        let damp = Fixed64::from_fixed(self.damping);
+        let target = Fixed64::from_fixed(self.target);
+        let mut pos = Fixed64::from_fixed(self.position);
+        let mut vel = Fixed64::from_fixed(self.velocity);
+
+        for _ in 0..substep_count {
+            let accel = (target - pos) * stiff - vel * damp;
+            vel += accel * sub_dt;
+            pos += vel * sub_dt;
+        }
+
+        self.position = pos.to_fixed();
+        self.velocity = vel.to_fixed();
 
         if self.mode == SpringMode::Repeat && self.is_settled() {
-            let new_target = if self.target == self.origin {
-                self.origin + (self.origin - self.target)
-            } else {
-                self.origin
-            };
             core::mem::swap(&mut self.origin, &mut self.target);
-            self.target = new_target;
         }
     }
 
     pub fn value(&self) -> Fixed {
-        self.position
+        if self.is_settled() {
+            self.target
+        } else {
+            self.position
+        }
     }
 
     pub fn is_settled(&self) -> bool {
         let dist = (self.target - self.position).abs();
         let speed = self.velocity.abs();
-        dist < Fixed::ONE && speed < Fixed::from_int(2)
+        dist < Fixed::ONE && speed < Fixed::from_int(50)
     }
 
     pub fn perceptual_duration(&self) -> u16 {
@@ -211,25 +219,29 @@ impl Spring {
     }
 }
 
+/// WWDC23 formulas (mass = 1):
+///   stiffness = (2π / duration_s)²
+///   damping (bounce ≥ 0) = 4π · (1 - bounce) / duration_s
+///   damping (bounce < 0) = 4π / (duration_s + 4π · |bounce|)
 fn config_to_params(config: SpringConfig) -> (Fixed, Fixed) {
-    let dur_ms = config.duration_ms.max(1) as i64;
-    let two_pi = 1608i64; // 2π in Q24.8 raw
-    let stiffness_raw = (two_pi * two_pi * 1000 * 1000) / (dur_ms * dur_ms * 256);
-    let damping_raw = if config.bounce.raw() >= 0 {
-        let one_minus_bounce = 256i64 - config.bounce.raw() as i64;
-        (4 * two_pi * one_minus_bounce) / (dur_ms * 256 / 1000)
-    } else {
-        let bounce_abs = (-config.bounce.raw()) as i64;
-        let denom = dur_ms * 256 / 1000 + 4 * two_pi * bounce_abs / 256;
-        (4 * two_pi * 256) / denom.max(1)
-    };
-    (
-        Fixed::from_raw(stiffness_raw.clamp(1, i32::MAX as i64) as i32),
-        Fixed::from_raw(damping_raw.clamp(1, i32::MAX as i64) as i32),
-    )
-}
+    let dur_s = Fixed64::from_fixed(Fixed::from_int(config.duration_ms.max(1) as i32))
+        / Fixed64::from_fixed(Fixed::from_int(1000));
+    let two_pi = Fixed64::from_fixed(Fixed::PI) * Fixed64::from_int(2);
+    let four_pi = two_pi + two_pi;
+    let bounce = Fixed64::from_fixed(config.bounce);
 
-// ─── Motion enum (unified interface) ───────────────────────────────────
+    let omega = two_pi / dur_s;
+    let stiffness = omega * omega;
+
+    let damping = if config.bounce >= Fixed::ZERO {
+        four_pi * (Fixed64::ONE - bounce) / dur_s
+    } else {
+        let abs_bounce = Fixed64::ZERO - bounce;
+        four_pi / (dur_s + four_pi * abs_bounce)
+    };
+
+    (stiffness.to_fixed(), damping.to_fixed())
+}
 
 #[derive(Clone, Copy)]
 pub enum Motion {
@@ -272,10 +284,6 @@ impl From<Spring> for Motion {
     }
 }
 
-// ─── System support ────────────────────────────────────────────────────
-
-use crate::ecs::MonoClock;
-
 pub fn sync_delta_time_ms(world: &mut World) {
     let ms = match world.resource_mut::<MonoClock>() {
         Some(fc) => {
@@ -317,8 +325,6 @@ pub fn run_motion<T: MotionComponent + 'static>(
         }
     }
 }
-
-// ─── Tests ─────────────────────────────────────────────────────────────
 
 #[cfg(test)]
 mod tests {
@@ -410,6 +416,20 @@ mod tests {
             max_pos.to_int() > 100,
             "bouncy spring should overshoot: max={}",
             max_pos.to_int()
+        );
+    }
+
+    #[test]
+    fn spring_200ms_settles_quickly() {
+        let mut s = Spring::new(Fixed::ZERO, Fixed::from_int(14), 200, Fixed::ZERO);
+        let mut elapsed = 0u32;
+        while !s.is_settled() && elapsed < 1000 {
+            s.tick(16);
+            elapsed += 16;
+        }
+        assert!(
+            elapsed < 250,
+            "200ms spring should settle in < 250ms, took {elapsed}ms"
         );
     }
 
