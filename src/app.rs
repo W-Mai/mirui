@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::draw::SwRenderer;
 use crate::draw::canvas::Canvas;
 use crate::draw::renderer::Renderer;
-use crate::ecs::{DeltaTime, ElapsedTime, Entity, System, SystemScheduler, World};
+use crate::ecs::{Entity, System, SystemScheduler, World};
 use crate::event::bubble_dispatch;
 use crate::event::focus::{FocusState, focus_on_tap, key_dispatch};
 use crate::event::gesture::GestureSystem;
@@ -70,8 +70,6 @@ impl<B: FramebufferAccess> App<B, SwRendererFactory> {
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn with_factory(backend: B, factory: F) -> Self {
         let mut world = World::new();
-        world.insert_resource(DeltaTime(0.0));
-        world.insert_resource(ElapsedTime(0.0));
         world.insert_resource(ScrollDragState::default());
         world.insert_resource(ScrollSpring::default());
         world.insert_resource(GestureSystem::default());
