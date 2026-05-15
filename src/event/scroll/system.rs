@@ -60,7 +60,6 @@ pub fn scroll_system(
 ) {
     match event {
         InputEvent::PointerDown { x, y, .. } => {
-            // Record start, don't resolve target yet
             let hit = hit_test(world, root, *x, *y, screen_w, screen_h);
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 state.active = true;
@@ -75,6 +74,11 @@ pub fn scroll_system(
                 state.last_y = *y;
                 state.vel_x = Fixed::ZERO;
                 state.vel_y = Fixed::ZERO;
+            }
+            if let Some(ss) = world.resource_mut::<ScrollSpring>() {
+                ss.x = None;
+                ss.y = None;
+                ss.target_entity = None;
             }
         }
         InputEvent::PointerMove { x, y, .. } => {
