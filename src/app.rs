@@ -9,7 +9,7 @@ use crate::event::bubble_dispatch;
 use crate::event::focus::{FocusState, focus_on_tap, key_dispatch};
 use crate::event::gesture::GestureSystem;
 use crate::event::hit_test::hit_test;
-use crate::event::scroll::{ScrollDragState, scroll_inertia_system, scroll_system};
+use crate::event::scroll::{ScrollDragState, ScrollSpring, scroll_inertia_system, scroll_system};
 use crate::plugin::Plugin;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
@@ -73,6 +73,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(DeltaTime(0.0));
         world.insert_resource(ElapsedTime(0.0));
         world.insert_resource(ScrollDragState::default());
+        world.insert_resource(ScrollSpring::default());
         world.insert_resource(GestureSystem::default());
         world.insert_resource(FocusState::default());
         let info = backend.display_info();

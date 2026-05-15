@@ -1,4 +1,5 @@
 use super::components::{ScrollAxis, ScrollConfig, ScrollOffset};
+use crate::anim::{BOUNCY, SMOOTH, Spring};
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
 use crate::event::input::InputEvent;
@@ -17,6 +18,13 @@ pub struct ScrollDragState {
     pub vel_x: Fixed,
     pub vel_y: Fixed,
     pub last_resolved_target: Option<Entity>,
+}
+
+#[derive(Default)]
+pub struct ScrollSpring {
+    pub x: Option<Spring>,
+    pub y: Option<Spring>,
+    pub target_entity: Option<Entity>,
 }
 
 impl Default for ScrollDragState {
@@ -203,6 +211,50 @@ pub fn scroll_system(
             }
         }
         InputEvent::PointerUp { .. } => {
+            let (vel_x, vel_y, target_entity, dir) = {
+                let Some(state) = world.resource::<ScrollDragState>() else {
+                    return;
+                };
+                if !state.resolved {
+                    if let Some(state) = world.resource_mut::<ScrollDragState>() {
+                        state.active = false;
+                    }
+                    return;
+                }
+                let t = state.target;
+                let dir = world
+                    .get::<ScrollConfig>(t)
+                    .map(|c| c.direction)
+                    .unwrap_or(ScrollAxis::Vertical);
+                (state.vel_x, state.vel_y, t, dir)
+            };
+
+            let (offset_x, offset_y) = world
+                .get::<ScrollOffset>(target_entity)
+                .map(|s| (s.x, s.y))
+                .unwrap_or((Fixed::ZERO, Fixed::ZERO));
+
+            let spring_x = match dir {
+                ScrollAxis::Horizontal | ScrollAxis::Both => {
+                    let projected = offset_x + vel_x * Fixed::from_int(20);
+                    Some(Spring::preset(offset_x, projected, SMOOTH).with_velocity(vel_x))
+                }
+                _ => None,
+            };
+            let spring_y = match dir {
+                ScrollAxis::Vertical | ScrollAxis::Both => {
+                    let projected = offset_y + vel_y * Fixed::from_int(20);
+                    Some(Spring::preset(offset_y, projected, SMOOTH).with_velocity(vel_y))
+                }
+                _ => None,
+            };
+
+            if let Some(ss) = world.resource_mut::<ScrollSpring>() {
+                ss.x = spring_x;
+                ss.y = spring_y;
+                ss.target_entity = Some(target_entity);
+            }
+
             if let Some(state) = world.resource_mut::<ScrollDragState>() {
                 state.active = false;
             }
@@ -234,118 +286,115 @@ pub fn scroll_system(
 
 /// Inertia system — call every frame to decelerate scroll after release
 pub fn scroll_inertia_system(world: &mut World) {
-    let (active, resolved, target, vel_x, vel_y) = {
+    let active = {
         let Some(state) = world.resource::<ScrollDragState>() else {
             return;
         };
-        (
-            state.active,
-            state.resolved,
-            state.target,
-            state.vel_x,
-            state.vel_y,
-        )
+        state.active
     };
 
-    if active || !resolved {
+    if active {
         return;
     }
 
-    // Get scroll bounds for elastic
-    let (offset_x, offset_y, max_x, max_y, elastic, dir) = {
-        let Some(scroll) = world.get::<ScrollOffset>(target) else {
+    let (has_spring, target_entity) = {
+        let Some(ss) = world.resource::<ScrollSpring>() else {
             return;
         };
+        (ss.x.is_some() || ss.y.is_some(), ss.target_entity)
+    };
+
+    if !has_spring {
+        return;
+    }
+
+    let Some(target) = target_entity else {
+        return;
+    };
+
+    let dt = world
+        .resource::<crate::ecs::DeltaTimeMs>()
+        .map_or(16, |r| r.0);
+
+    let (max_x, max_y, elastic) = {
         let config = world.get::<ScrollConfig>(target);
         let computed = world.get::<crate::widget::ComputedRect>(target);
         let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
         let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
-        let content_h: Fixed = config.map(|c| c.content_height).unwrap_or(container_h);
-        let content_w: Fixed = config.map(|c| c.content_width).unwrap_or(container_w);
+        let content_h = config.map(|c| c.content_height).unwrap_or(container_h);
+        let content_w = config.map(|c| c.content_width).unwrap_or(container_w);
         let max_y = (content_h - container_h).max(Fixed::ZERO);
         let max_x = (content_w - container_w).max(Fixed::ZERO);
         let elastic = config.map(|c| c.elastic).unwrap_or(true);
-        let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
-        (scroll.x, scroll.y, max_x, max_y, elastic, dir)
+        (max_x, max_y, elastic)
     };
 
-    let mut new_vel_x = vel_x;
-    let mut new_vel_y = vel_y;
+    let (new_x, new_y, done) = {
+        let Some(ss) = world.resource_mut::<ScrollSpring>() else {
+            return;
+        };
 
-    // Elastic bounce
-    let mut bouncing = false;
-    if elastic {
-        match dir {
-            ScrollAxis::Vertical | ScrollAxis::Both => {
-                if offset_y < Fixed::ZERO {
-                    let diff = -offset_y;
-                    new_vel_y = if diff.abs() <= Fixed::from_int(3) {
-                        diff
-                    } else {
-                        diff / 3
-                    };
-                    bouncing = true;
-                } else if offset_y > max_y {
-                    let diff = max_y - offset_y;
-                    new_vel_y = if diff.abs() <= Fixed::from_int(3) {
-                        diff
-                    } else {
-                        diff / 3
-                    };
-                    bouncing = true;
+        let mut done = true;
+
+        if let Some(ref mut sx) = ss.x {
+            sx.tick(dt);
+            let pos = sx.value();
+            if elastic {
+                if pos < Fixed::ZERO {
+                    sx.retarget(Fixed::ZERO, Some(BOUNCY));
+                } else if pos > max_x {
+                    sx.retarget(max_x, Some(BOUNCY));
                 }
             }
-            _ => {}
+            if !sx.is_settled() {
+                done = false;
+            }
         }
-        match dir {
-            ScrollAxis::Horizontal | ScrollAxis::Both => {
-                if offset_x < Fixed::ZERO {
-                    let diff = -offset_x;
-                    new_vel_x = if diff.abs() <= Fixed::from_int(3) {
-                        diff
-                    } else {
-                        diff / 3
-                    };
-                    bouncing = true;
-                } else if offset_x > max_x {
-                    let diff = max_x - offset_x;
-                    new_vel_x = if diff.abs() <= Fixed::from_int(3) {
-                        diff
-                    } else {
-                        diff / 3
-                    };
-                    bouncing = true;
+
+        if let Some(ref mut sy) = ss.y {
+            sy.tick(dt);
+            let pos = sy.value();
+            if elastic {
+                if pos < Fixed::ZERO {
+                    sy.retarget(Fixed::ZERO, Some(BOUNCY));
+                } else if pos > max_y {
+                    sy.retarget(max_y, Some(BOUNCY));
                 }
             }
-            _ => {}
+            if !sy.is_settled() {
+                done = false;
+            }
         }
-    }
 
-    if new_vel_x == Fixed::ZERO && new_vel_y == Fixed::ZERO {
-        return;
-    }
+        let nx = ss.x.as_ref().map(|s| s.value());
+        let ny = ss.y.as_ref().map(|s| s.value());
+        (nx, ny, done)
+    };
 
-    // Apply velocity
+    let mut changed = false;
     if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
-        scroll.x += new_vel_x;
-        scroll.y += new_vel_y;
+        if let Some(nx) = new_x {
+            if (nx - scroll.x).abs() >= Fixed::ONE {
+                changed = true;
+            }
+            scroll.x = nx;
+        }
+        if let Some(ny) = new_y {
+            if (ny - scroll.y).abs() >= Fixed::ONE {
+                changed = true;
+            }
+            scroll.y = ny;
+        }
     }
-    world.insert(target, crate::widget::dirty::Dirty);
+    if changed {
+        world.insert(target, crate::widget::dirty::Dirty);
+    }
 
-    // Decay velocity
-    if let Some(state) = world.resource_mut::<ScrollDragState>() {
-        if bouncing {
-            state.vel_x = Fixed::ZERO;
-            state.vel_y = Fixed::ZERO;
-        } else {
-            state.vel_x = new_vel_x * 9 / 10;
-            state.vel_y = new_vel_y * 9 / 10;
-            if state.vel_x.abs() < Fixed::ONE {
-                state.vel_x = Fixed::ZERO;
-            }
-            if state.vel_y.abs() < Fixed::ONE {
-                state.vel_y = Fixed::ZERO;
-            }
+    if done {
+        if let Some(ss) = world.resource_mut::<ScrollSpring>() {
+            ss.x = None;
+            ss.y = None;
+            ss.target_entity = None;
         }
     }
 }
