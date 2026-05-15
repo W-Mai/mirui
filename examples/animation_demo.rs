@@ -1,4 +1,4 @@
-use mirui::anim::{Animation, PlayMode, ease};
+use mirui::anim::{PlayMode, Tween, ease};
 use mirui::app::App;
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
@@ -9,11 +9,11 @@ use mirui_macros::ui;
 
 extern crate alloc;
 
-mirui_macros::animation!(AnimateX, |world, entity, value| {
+mirui_macros::animate!(AnimateX, |world, entity, value| {
     mirui::widget::set_position(world, entity, value, Fixed::from_int(60));
 });
 
-mirui_macros::animation!(AnimateColor, |world, entity, value| {
+mirui_macros::animate!(AnimateColor, |world, entity, value| {
     let r = (value * Fixed::from_int(255)).to_int().clamp(0, 255) as u8;
     if let Some(style) = world.get_mut::<mirui::widget::Style>(entity) {
         style.bg_color = Some(Color::rgb(r, 50, 255 - r));
@@ -57,23 +57,29 @@ fn main() {
 
     app.world.insert(
         ball,
-        AnimateX(Animation::new(
-            Fixed::from_int(10),
-            Fixed::from_int(270),
-            1200,
-            ease::ease_in_out_cubic,
-            PlayMode::PingPong,
-        )),
+        AnimateX(
+            Tween::new(
+                Fixed::from_int(10),
+                Fixed::from_int(270),
+                1200,
+                ease::ease_in_out_cubic,
+                PlayMode::PingPong,
+            )
+            .into(),
+        ),
     );
     app.world.insert(
         ball,
-        AnimateColor(Animation::new(
-            Fixed::ZERO,
-            Fixed::ONE,
-            2400,
-            ease::ease_in_out_quad,
-            PlayMode::Loop,
-        )),
+        AnimateColor(
+            Tween::new(
+                Fixed::ZERO,
+                Fixed::ONE,
+                2400,
+                ease::ease_in_out_quad,
+                PlayMode::Loop,
+            )
+            .into(),
+        ),
     );
 
     app.set_root(root);

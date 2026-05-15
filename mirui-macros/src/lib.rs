@@ -381,39 +381,40 @@ pub fn compose_backend(input: TokenStream) -> TokenStream {
     compose::expand(input.into()).into()
 }
 
-/// Define an animation component + its tick/apply system in one shot.
+/// Define a motion component (Tween or Spring) + its tick/apply system.
 ///
 /// ```rust,ignore
-/// animation!(AnimateX, |world, entity, value| {
+/// animate!(AnimateX, |world, entity, value| {
 ///     mirui::widget::set_position(world, entity, value, Fixed::from_int(2));
 /// });
 ///
 /// // Generated:
-/// // - struct AnimateX(pub mirui::anim::Animation)
-/// // - impl AnimationComponent for AnimateX
+/// // - struct AnimateX(pub mirui::anim::Motion)
+/// // - impl MotionComponent for AnimateX
 /// // - AnimateX::system() -> fn(&mut World)
 /// //
 /// // Usage:
 /// //   app.add_system(AnimateX::system());
-/// //   world.insert(e, AnimateX(Animation::ease_to(from, to, 250)));
+/// //   world.insert(e, AnimateX(Tween::ease_to(from, to, 250).into()));
+/// //   world.insert(e, AnimateX(Spring::preset(from, to, SMOOTH).into()));
 /// ```
 #[proc_macro]
-pub fn animation(input: TokenStream) -> TokenStream {
-    animation_impl::expand(input.into()).into()
+pub fn animate(input: TokenStream) -> TokenStream {
+    animate_impl::expand(input.into()).into()
 }
 
-mod animation_impl {
+mod animate_impl {
     use proc_macro2::TokenStream;
     use quote::quote;
     use syn::parse::{Parse, ParseStream};
     use syn::{ExprClosure, Ident, Token, parse2};
 
-    struct AnimationInput {
+    struct AnimateInput {
         name: Ident,
         closure: ExprClosure,
     }
 
-    impl Parse for AnimationInput {
+    impl Parse for AnimateInput {
         fn parse(input: ParseStream) -> syn::Result<Self> {
             let name: Ident = input.parse()?;
             input.parse::<Token![,]>()?;
@@ -423,7 +424,7 @@ mod animation_impl {
     }
 
     pub fn expand(input: TokenStream) -> TokenStream {
-        let parsed = match parse2::<AnimationInput>(input) {
+        let parsed = match parse2::<AnimateInput>(input) {
             Ok(v) => v,
             Err(e) => return e.to_compile_error(),
         };
@@ -431,20 +432,18 @@ mod animation_impl {
         let name = &parsed.name;
         let closure = &parsed.closure;
 
-        // Extract closure params for documentation clarity; the closure
-        // itself is embedded directly into the generated system fn body.
         quote! {
-            pub struct #name(pub mirui::anim::Animation);
+            pub struct #name(pub mirui::anim::Motion);
 
-            impl mirui::anim::AnimationComponent for #name {
-                fn animation(&self) -> &mirui::anim::Animation { &self.0 }
-                fn animation_mut(&mut self) -> &mut mirui::anim::Animation { &mut self.0 }
+            impl mirui::anim::MotionComponent for #name {
+                fn motion(&self) -> &mirui::anim::Motion { &self.0 }
+                fn motion_mut(&mut self) -> &mut mirui::anim::Motion { &mut self.0 }
             }
 
             impl #name {
                 pub fn system() -> fn(&mut mirui::ecs::World) {
                     fn __sys(world: &mut mirui::ecs::World) {
-                        mirui::anim::run_animation::<#name>(world, #closure);
+                        mirui::anim::run_motion::<#name>(world, #closure);
                     }
                     __sys
                 }

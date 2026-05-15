@@ -1,4 +1,4 @@
-use mirui::anim::{Animation, PlayMode, ease};
+use mirui::anim::{PlayMode, SMOOTH, Spring, Tween, ease};
 use mirui::app::App;
 use mirui::components::slider::Slider;
 use mirui::components::switch::Switch;
@@ -15,7 +15,7 @@ use mirui_macros::ui;
 
 extern crate alloc;
 
-mirui_macros::animation!(AnimateThumbX, |world, entity, value| {
+mirui_macros::animate!(AnimateThumbX, |world, entity, value| {
     mirui::widget::set_position(world, entity, value, Fixed::from_int(3));
 });
 
@@ -99,13 +99,7 @@ fn switch_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
                         .unwrap_or(Fixed::from_int(3));
                     world.insert(
                         thumb,
-                        AnimateThumbX(Animation::new(
-                            current_x,
-                            target_x,
-                            200,
-                            ease::ease_out_cubic,
-                            PlayMode::Once,
-                        )),
+                        AnimateThumbX(Spring::new(current_x, target_x, 200, Fixed::ZERO).into()),
                     );
                 }
             }
