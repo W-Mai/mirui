@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - 2026-05-15
+
+### Added
+
+- **`TabBar` component**: discrete-index horizontal tab strip with an animatable indicator. Tap snaps `selected` and `indicator_offset`; smooth slide is opt-in via an `animate!` component writing `indicator_offset`. Auto-attached gesture handler maps a tap inside the bar to the tab index.
+- **`TextInput` component**: single-line ASCII text widget with a fixed 32-byte inline buffer (no heap, no `heapless` dep). Carries its own colors. Auto-attaches `Focusable`, a `KeyHandler` for Backspace / Delete / Left / Right / Home / End, and reads `CharInput` for printable ASCII insertion. Optional `Placeholder(&'static str)` companion component renders dimmed text when the buffer is empty. Cursor is a 1-px stripe rendered at `text_x + cursor * 8` (the bitmap font is fixed-width 8).
+- **`CursorBlinkPhase` resource + `cursor_blink_system`**: flips a global bool every 500 ms, marks every focused TextInput as Dirty when the phase flips. Idle UI pays nothing.
+- **`LazyList` virtual scroll**: equal-height vertical list backed by a fixed-size entity pool (`LazyListPool`) and a user-supplied `ItemBinder` fn. `lazy_list_system` rebinds pool slots whose mapped row index changed and repositions them at `index * item_height`; ScrollOffset / ScrollConfig drive the visible window.
+- **`KEY_*` constants** for editing keys: `KEY_BACKSPACE`, `KEY_DELETE`, `KEY_LEFT`, `KEY_RIGHT`, `KEY_HOME`, `KEY_END`, `KEY_RETURN`, `KEY_ESCAPE`. SDL and sdl-gpu backends translate `Event::KeyDown` into `InputEvent::Key { code, pressed: true }` for these.
+
+### Changed
+
+- SDL and sdl-gpu backends emit non-text key presses (Backspace / arrows / Home / End / Return / Delete) as `InputEvent::Key`. Previously only `CharInput` reached the app.
+
 ## [0.11.2] - 2026-05-15
 
 ### Added
