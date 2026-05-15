@@ -25,6 +25,9 @@ pub struct GestureRecognizer {
     start_y: Fixed,
     current_x: Fixed,
     current_y: Fixed,
+    prev_x: Fixed,
+    prev_y: Fixed,
+    prev_ms: u32,
     down_elapsed_ms: u32,
     target: Option<Entity>,
     pub scroll_claimed: bool,
@@ -67,6 +70,9 @@ impl GestureRecognizer {
                 if *id != self.pointer_id {
                     return;
                 }
+                self.prev_x = self.current_x;
+                self.prev_y = self.current_y;
+                self.prev_ms = elapsed_ms;
                 self.current_x = *x;
                 self.current_y = *y;
 
@@ -115,9 +121,16 @@ impl GestureRecognizer {
                     }
                     GestureState::Dragging => {
                         if let Some(target) = self.target {
+                            let dt_ms = elapsed_ms.wrapping_sub(self.prev_ms).max(1);
+                            let vx = (*x - self.prev_x) * Fixed::from_int(1000)
+                                / Fixed::from_int(dt_ms as i32);
+                            let vy = (*y - self.prev_y) * Fixed::from_int(1000)
+                                / Fixed::from_int(dt_ms as i32);
                             events_out.push(GestureEvent::DragEnd {
                                 x: *x,
                                 y: *y,
+                                vx,
+                                vy,
                                 target,
                             });
                         }

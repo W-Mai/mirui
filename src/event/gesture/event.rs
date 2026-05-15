@@ -28,6 +28,8 @@ pub enum GestureEvent {
     DragEnd {
         x: Fixed,
         y: Fixed,
+        vx: Fixed,
+        vy: Fixed,
         target: Entity,
     },
 }
