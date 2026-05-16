@@ -73,6 +73,7 @@ pub fn install_default_registry(world: &mut World) {
     reg.register(super::style_view::view());
     reg.register(crate::components::button::view());
     reg.register(crate::components::checkbox::view());
+    reg.register(crate::components::progress_bar::view());
     reg.sort_by_priority();
     world.insert_resource(reg);
 }

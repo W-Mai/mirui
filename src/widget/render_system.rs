@@ -1,7 +1,6 @@
 use alloc::vec::Vec;
 
 use crate::components::image::Image;
-use crate::components::progress_bar::ProgressBar;
 use crate::components::tabbar::TabBar;
 use crate::components::text_input::{Placeholder, TextInput};
 use crate::components::transform::WidgetTransform;
@@ -337,38 +336,6 @@ fn draw_tree(
                 }
             }
 
-            if let Some(pb) = world.get::<ProgressBar>(entity) {
-                renderer.draw(
-                    &DrawCommand::Fill {
-                        area: node.rect,
-                        transform: tf,
-                        quad,
-                        color: pb.track_color,
-                        radius: style.border_radius,
-                        opa: 255,
-                    },
-                    clip,
-                );
-                let fill_w = Fixed::from_f32(node.rect.w.to_f32() * pb.value.clamp(0.0, 1.0));
-                if fill_w > Fixed::ZERO {
-                    renderer.draw(
-                        &DrawCommand::Fill {
-                            area: Rect {
-                                x: node.rect.x,
-                                y: node.rect.y,
-                                w: fill_w,
-                                h: node.rect.h,
-                            },
-                            transform: tf,
-                            quad,
-                            color: pb.fill_color,
-                            radius: style.border_radius,
-                            opa: 255,
-                        },
-                        clip,
-                    );
-                }
-            }
             if let Some(tb) = world.get::<TabBar>(entity) {
                 if tb.count > 0 {
                     let tab_w = node.rect.w / Fixed::from_int(tb.count as i32);
@@ -532,38 +499,6 @@ fn draw_tree_offset(
                 }
             }
 
-            if let Some(pb) = world.get::<ProgressBar>(entity) {
-                renderer.draw(
-                    &DrawCommand::Fill {
-                        area: shifted_rect,
-                        transform: tf,
-                        quad,
-                        color: pb.track_color,
-                        radius: style.border_radius,
-                        opa: 255,
-                    },
-                    clip,
-                );
-                let fill_w = Fixed::from_f32(shifted_rect.w.to_f32() * pb.value.clamp(0.0, 1.0));
-                if fill_w > Fixed::ZERO {
-                    renderer.draw(
-                        &DrawCommand::Fill {
-                            area: Rect {
-                                x: shifted_rect.x,
-                                y: shifted_rect.y,
-                                w: fill_w,
-                                h: shifted_rect.h,
-                            },
-                            transform: tf,
-                            quad,
-                            color: pb.fill_color,
-                            radius: style.border_radius,
-                            opa: 255,
-                        },
-                        clip,
-                    );
-                }
-            }
             if let Some(tb) = world.get::<TabBar>(entity) {
                 if tb.count > 0 {
                     let tab_w = shifted_rect.w / Fixed::from_int(tb.count as i32);

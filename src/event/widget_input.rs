@@ -193,7 +193,11 @@ fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) 
 
 /// ProgressBar reads the last rendered rect (PrevRect) so it can map
 /// the pointer x to a 0..1 ratio without a layout re-walk.
-fn progress_bar_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+pub(crate) fn progress_bar_handler(
+    world: &mut World,
+    entity: Entity,
+    event: &GestureEvent,
+) -> bool {
     let x = match event {
         GestureEvent::Tap { x, .. } | GestureEvent::DragMove { x, .. } => *x,
         _ => return false,
@@ -242,15 +246,6 @@ fn attach_handlers_for(world: &mut World, entity: Entity) {
     run_registry_attach(world, entity);
 
     if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    if world.get::<ProgressBar>(entity).is_some() {
-        world.insert(
-            entity,
-            GestureHandler {
-                on_gesture: progress_bar_handler,
-            },
-        );
         return;
     }
     if world.get::<TabBar>(entity).is_some() {
@@ -377,6 +372,31 @@ mod tests {
         assert!(
             core::ptr::eq(installed, expected),
             "user-supplied handler must not be overwritten"
+        );
+    }
+
+    #[test]
+    fn registry_attach_installs_progress_bar_gesture_handler() {
+        use crate::types::Color;
+        use crate::widget::view::ViewRegistry;
+
+        let mut world = World::default();
+        let mut reg = ViewRegistry::default();
+        reg.register(crate::components::progress_bar::view());
+        reg.sort_by_priority();
+        world.insert_resource(reg);
+
+        let e = world.spawn();
+        world.insert(
+            e,
+            ProgressBar::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)),
+        );
+
+        attach_handlers_for(&mut world, e);
+
+        assert!(
+            world.get::<GestureHandler>(e).is_some(),
+            "registry-driven attach must install a GestureHandler on ProgressBar entities"
         );
     }
 
