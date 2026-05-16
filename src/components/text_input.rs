@@ -1,4 +1,13 @@
-use crate::types::Color;
+use crate::draw::command::DrawCommand;
+use crate::draw::renderer::Renderer;
+use crate::ecs::{Entity, World};
+use crate::event::GestureHandler;
+use crate::event::focus::{Focusable, KeyHandler};
+use crate::event::widget_input::{
+    CursorBlinkPhase, textinput_gesture_handler, textinput_key_handler,
+};
+use crate::types::{Color, Fixed, Point, Rect};
+use crate::widget::view::{View, ViewCtx};
 
 pub const TEXT_INPUT_CAP: usize = 32;
 
@@ -128,6 +137,125 @@ impl Default for TextInput {
 /// as a separate component so the common case (no placeholder) doesn't
 /// pay 32 extra bytes inside `TextInput`.
 pub struct Placeholder(pub &'static str);
+
+fn text_input_render(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    entity: Entity,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    let Some(ti) = world.get::<TextInput>(entity) else {
+        return;
+    };
+
+    if ti.focused {
+        renderer.draw(
+            &DrawCommand::Border {
+                area: *rect,
+                transform: ctx.transform,
+                quad: ctx.quad,
+                color: ti.focus_border_color,
+                width: Fixed::ONE,
+                radius: Fixed::ZERO,
+                opa: 255,
+            },
+            ctx.clip,
+        );
+    }
+
+    let text_x = rect.x + Fixed::from_int(2);
+    let text_y = rect.y + Fixed::from_int(2);
+    if ti.len == 0 {
+        if let Some(ph) = world.get::<Placeholder>(entity) {
+            renderer.draw(
+                &DrawCommand::Label {
+                    pos: Point {
+                        x: text_x,
+                        y: text_y,
+                    },
+                    transform: ctx.transform,
+                    text: ph.0.as_bytes(),
+                    color: ti.placeholder_color,
+                    opa: 255,
+                },
+                ctx.clip,
+            );
+        }
+    } else {
+        renderer.draw(
+            &DrawCommand::Label {
+                pos: Point {
+                    x: text_x,
+                    y: text_y,
+                },
+                transform: ctx.transform,
+                text: &ti.buffer[..ti.len as usize],
+                color: ti.text_color,
+                opa: 255,
+            },
+            ctx.clip,
+        );
+    }
+
+    if ti.focused {
+        let blink_on = world
+            .resource::<CursorBlinkPhase>()
+            .map(|p| p.0)
+            .unwrap_or(true);
+        if blink_on {
+            // 8×8 fixed bitmap font: each glyph advances 8 px.
+            let cursor_x = text_x + Fixed::from_int(ti.cursor as i32 * 8);
+            renderer.draw(
+                &DrawCommand::Fill {
+                    area: Rect {
+                        x: cursor_x,
+                        y: text_y,
+                        w: Fixed::ONE,
+                        h: Fixed::from_int(8),
+                    },
+                    transform: ctx.transform,
+                    quad: ctx.quad,
+                    color: ti.cursor_color,
+                    radius: Fixed::ZERO,
+                    opa: 255,
+                },
+                ctx.clip,
+            );
+        }
+    }
+}
+
+fn text_input_attach(world: &mut World, entity: Entity) {
+    if world.get::<TextInput>(entity).is_none() {
+        return;
+    }
+    if world.get::<GestureHandler>(entity).is_some() {
+        return;
+    }
+    world.insert(
+        entity,
+        GestureHandler {
+            on_gesture: textinput_gesture_handler,
+        },
+    );
+    world.insert(entity, Focusable);
+    world.insert(
+        entity,
+        KeyHandler {
+            on_key: textinput_key_handler,
+        },
+    );
+}
+
+pub fn view() -> View {
+    View {
+        name: "TextInput",
+        priority: 70,
+        render: text_input_render,
+        auto_attach: Some(text_input_attach),
+    }
+}
 
 #[cfg(test)]
 mod tests {

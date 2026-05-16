@@ -7,8 +7,6 @@ use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 use crate::widget::dirty::Dirty;
 
-use super::GestureHandler;
-use super::focus::{Focusable, KeyHandler};
 use super::gesture::GestureEvent;
 use super::input::{InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT};
 
@@ -119,7 +117,11 @@ pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureE
 /// ancestors carry `Focusable`. We mirror the resulting focus state
 /// onto TextInput.focused so the renderer can read it without going
 /// through FocusState.
-fn textinput_gesture_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+pub(crate) fn textinput_gesture_handler(
+    world: &mut World,
+    entity: Entity,
+    event: &GestureEvent,
+) -> bool {
     if let GestureEvent::Tap { .. } = event {
         sync_textinput_focus(world);
         world.insert(entity, Dirty);
@@ -151,7 +153,7 @@ fn sync_textinput_focus(world: &mut World) {
     }
 }
 
-fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) -> bool {
+pub(crate) fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) -> bool {
     let Some(ti) = world.get_mut::<TextInput>(entity) else {
         return false;
     };
@@ -222,7 +224,7 @@ pub(crate) fn progress_bar_handler(
 // Snapshot ViewAttach fn pointers so the borrow on ViewRegistry
 // drops before each fn gets &mut World. The mut-borrow conflict
 // is the reason for the two-step copy instead of streaming.
-fn run_registry_attach(world: &mut World, entity: Entity) {
+fn attach_handlers_for(world: &mut World, entity: Entity) {
     let mut pending: alloc::vec::Vec<crate::widget::view::ViewAttach> = alloc::vec::Vec::new();
     if let Some(reg) = world.resource::<crate::widget::view::ViewRegistry>() {
         for v in reg.iter() {
@@ -233,35 +235,6 @@ fn run_registry_attach(world: &mut World, entity: Entity) {
     }
     for f in pending {
         f(world, entity);
-    }
-}
-
-/// Pick the right input handler for a single entity. Idempotent:
-/// returns early if the entity already has a `GestureHandler` so
-/// user-supplied overrides win. Each branch checks one component
-/// type and installs the corresponding handler(s).
-fn attach_handlers_for(world: &mut World, entity: Entity) {
-    // Registry-driven attach runs first; per-view fns guard against
-    // double-install when GestureHandler is already on the entity.
-    run_registry_attach(world, entity);
-
-    if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    if world.get::<TextInput>(entity).is_some() {
-        world.insert(
-            entity,
-            GestureHandler {
-                on_gesture: textinput_gesture_handler,
-            },
-        );
-        world.insert(entity, Focusable);
-        world.insert(
-            entity,
-            KeyHandler {
-                on_key: textinput_key_handler,
-            },
-        );
     }
 }
 
@@ -284,6 +257,7 @@ pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::event::GestureHandler;
     use crate::types::Rect;
     use crate::widget::ComputedRect;
 
@@ -364,6 +338,27 @@ mod tests {
             core::ptr::eq(installed, expected),
             "user-supplied handler must not be overwritten"
         );
+    }
+
+    #[test]
+    fn registry_attach_installs_text_input_handlers_and_focusable() {
+        use crate::event::focus::{Focusable, KeyHandler};
+        use crate::widget::view::ViewRegistry;
+
+        let mut world = World::default();
+        let mut reg = ViewRegistry::default();
+        reg.register(crate::components::text_input::view());
+        reg.sort_by_priority();
+        world.insert_resource(reg);
+
+        let e = world.spawn();
+        world.insert(e, TextInput::new());
+
+        attach_handlers_for(&mut world, e);
+
+        assert!(world.get::<GestureHandler>(e).is_some());
+        assert!(world.get::<Focusable>(e).is_some());
+        assert!(world.get::<KeyHandler>(e).is_some());
     }
 
     #[test]
