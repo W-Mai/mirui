@@ -1,4 +1,3 @@
-use crate::components::button::Button;
 use crate::components::checkbox::Checkbox;
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
@@ -6,9 +5,9 @@ use crate::ecs::{Entity, World};
 use crate::types::{Fixed, Rect};
 
 use super::Style;
-use super::view::ViewCtx;
+use super::view::{View, ViewCtx};
 
-pub(crate) fn style_render(
+fn style_render(
     renderer: &mut dyn Renderer,
     world: &World,
     entity: Entity,
@@ -19,29 +18,30 @@ pub(crate) fn style_render(
         return;
     };
 
-    // Temporary: Button/Checkbox own their bg via cascade here.
-    // Will move into per-widget render fns when those land.
-    let bg = if let Some(btn) = world.get::<Button>(entity) {
-        Some(btn.current_color())
-    } else if let Some(cb) = world.get::<Checkbox>(entity) {
-        Some(cb.current_color())
-    } else {
-        style.bg_color
-    };
-
-    if let Some(color) = bg {
-        renderer.draw(
-            &DrawCommand::Fill {
-                area: *rect,
-                transform: ctx.transform,
-                quad: ctx.quad,
-                color,
-                radius: style.border_radius,
-                opa: 255,
-            },
-            ctx.clip,
-        );
+    if !ctx.bg_handled {
+        // Temporary: Checkbox owns its bg via cascade here. Will move
+        // into checkbox_render when that view lands.
+        let bg = if let Some(cb) = world.get::<Checkbox>(entity) {
+            Some(cb.current_color())
+        } else {
+            style.bg_color
+        };
+        if let Some(color) = bg {
+            renderer.draw(
+                &DrawCommand::Fill {
+                    area: *rect,
+                    transform: ctx.transform,
+                    quad: ctx.quad,
+                    color,
+                    radius: style.border_radius,
+                    opa: 255,
+                },
+                ctx.clip,
+            );
+            ctx.bg_handled = true;
+        }
     }
+
     if let Some(border_color) = style.border_color {
         if style.border_width > Fixed::ZERO {
             renderer.draw(
@@ -57,5 +57,14 @@ pub(crate) fn style_render(
                 ctx.clip,
             );
         }
+    }
+}
+
+pub fn view() -> View {
+    View {
+        name: "Style",
+        priority: 50,
+        render: style_render,
+        auto_attach: None,
     }
 }

@@ -31,6 +31,7 @@ mod tests {
     #[test]
     fn render_system_produces_draw_commands() {
         let mut world = World::new();
+        mirui::widget::view::install_default_registry(&mut world);
 
         let child = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
@@ -87,6 +88,7 @@ mod tests {
     #[test]
     fn render_system_respects_layout() {
         let mut world = World::new();
+        mirui::widget::view::install_default_registry(&mut world);
 
         let c1 = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))

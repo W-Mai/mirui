@@ -66,6 +66,16 @@ impl ViewRegistry {
     }
 }
 
+/// `App::with_factory` runs this; tests building a `World`
+/// without `App` call it to opt into the rendering pipeline.
+pub fn install_default_registry(world: &mut World) {
+    let mut reg = ViewRegistry::default();
+    reg.register(super::style_view::view());
+    reg.register(crate::components::button::view());
+    reg.sort_by_priority();
+    world.insert_resource(reg);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

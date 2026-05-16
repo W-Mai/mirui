@@ -75,7 +75,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(ScrollSpring::default());
         world.insert_resource(GestureSystem::default());
         world.insert_resource(FocusState::default());
-        world.insert_resource(ViewRegistry::default());
         let info = backend.display_info();
         world.insert_resource(info);
         let mut systems = SystemScheduler::new();
@@ -104,7 +103,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    fn default_views(&mut self) {}
+    fn default_views(&mut self) {
+        crate::widget::view::install_default_registry(&mut self.world);
+    }
 
     pub fn add_system(&mut self, system: System) -> &mut Self {
         self.systems.add(system);

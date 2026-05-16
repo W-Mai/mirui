@@ -12,8 +12,8 @@ use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
-use super::view::ViewCtx;
-use super::{Children, Hidden, Style, Text, Widget, style_view};
+use super::view::{ViewCtx, ViewRegistry};
+use super::{Children, Hidden, Style, Text, Widget};
 
 /// Compose `parent` with the entity's local transform (if any),
 /// wrapped so rotation/scale pivot on the widget's center instead
@@ -324,14 +324,18 @@ fn draw_tree(
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
-            let mut style_ctx = ViewCtx {
+            let mut ctx = ViewCtx {
                 style,
                 transform: tf,
                 quad,
                 clip,
                 bg_handled: false,
             };
-            style_view::style_render(renderer, world, entity, &node.rect, &mut style_ctx);
+            if let Some(registry) = world.resource::<ViewRegistry>() {
+                for view in registry.iter() {
+                    (view.render)(renderer, world, entity, &node.rect, &mut ctx);
+                }
+            }
 
             if let Some(pb) = world.get::<ProgressBar>(entity) {
                 renderer.draw(
@@ -515,14 +519,18 @@ fn draw_tree_offset(
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
-            let mut style_ctx = ViewCtx {
+            let mut ctx = ViewCtx {
                 style,
                 transform: tf,
                 quad,
                 clip,
                 bg_handled: false,
             };
-            style_view::style_render(renderer, world, entity, &shifted_rect, &mut style_ctx);
+            if let Some(registry) = world.resource::<ViewRegistry>() {
+                for view in registry.iter() {
+                    (view.render)(renderer, world, entity, &shifted_rect, &mut ctx);
+                }
+            }
 
             if let Some(pb) = world.get::<ProgressBar>(entity) {
                 renderer.draw(
@@ -932,6 +940,12 @@ mod clip_children_check {
         e
     }
 
+    fn make_world() -> World {
+        let mut w = World::default();
+        crate::widget::view::install_default_registry(&mut w);
+        w
+    }
+
     fn vp() -> Viewport {
         Viewport::new(64, 64, Fixed::ONE)
     }
@@ -940,7 +954,7 @@ mod clip_children_check {
     fn clip_children_clips_oversize_inner_rect() {
         // 8-px-wide mask with clip_children=true holding a 64-px-wide inner
         // child: the right 56 px must show only root bg, not the child.
-        let mut world = World::default();
+        let mut world = make_world();
         let root = spawn_widget(
             &mut world,
             None,
@@ -1011,7 +1025,7 @@ mod clip_children_check {
     #[test]
     fn no_clip_children_lets_inner_overflow() {
         // Default (clip_children=false): inner paints across full 64 px.
-        let mut world = World::default();
+        let mut world = make_world();
         let root = spawn_widget(
             &mut world,
             None,
@@ -1070,7 +1084,7 @@ mod clip_children_check {
     fn clip_children_zero_width_hides_inner() {
         // Repro for the slider-at-ratio=0 bug: a clip_children mask with
         // width=0 should hide the inner entirely, not leak any pixel.
-        let mut world = World::default();
+        let mut world = make_world();
         let root = spawn_widget(
             &mut world,
             None,
@@ -1156,9 +1170,15 @@ mod hidden_check {
         e
     }
 
+    fn make_world() -> World {
+        let mut w = World::default();
+        crate::widget::view::install_default_registry(&mut w);
+        w
+    }
+
     #[test]
     fn hidden_widget_does_not_paint() {
-        let mut world = World::default();
+        let mut world = make_world();
         let root = spawn(
             &mut world,
             None,

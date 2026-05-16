@@ -50,7 +50,7 @@ pub fn cursor_blink_system(world: &mut World) {
 /// Press feedback on Button: highlight while the gesture is in flight,
 /// release on Tap / DragEnd. Without DragStart we'd never see a "held"
 /// state because Tap is press+release in one event.
-fn button_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+pub(crate) fn button_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     match event {
         GestureEvent::DragStart { .. } => {
             if let Some(btn) = world.get_mut::<Button>(entity) {
@@ -215,21 +215,33 @@ fn progress_bar_handler(world: &mut World, entity: Entity, event: &GestureEvent)
     true
 }
 
+// Snapshot ViewAttach fn pointers so the borrow on ViewRegistry
+// drops before each fn gets &mut World. The mut-borrow conflict
+// is the reason for the two-step copy instead of streaming.
+fn run_registry_attach(world: &mut World, entity: Entity) {
+    let mut pending: alloc::vec::Vec<crate::widget::view::ViewAttach> = alloc::vec::Vec::new();
+    if let Some(reg) = world.resource::<crate::widget::view::ViewRegistry>() {
+        for v in reg.iter() {
+            if let Some(f) = v.auto_attach {
+                pending.push(f);
+            }
+        }
+    }
+    for f in pending {
+        f(world, entity);
+    }
+}
+
 /// Pick the right input handler for a single entity. Idempotent:
 /// returns early if the entity already has a `GestureHandler` so
 /// user-supplied overrides win. Each branch checks one component
 /// type and installs the corresponding handler(s).
 fn attach_handlers_for(world: &mut World, entity: Entity) {
+    // Registry-driven attach runs first; per-view fns guard against
+    // double-install when GestureHandler is already on the entity.
+    run_registry_attach(world, entity);
+
     if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    if world.get::<Button>(entity).is_some() {
-        world.insert(
-            entity,
-            GestureHandler {
-                on_gesture: button_handler,
-            },
-        );
         return;
     }
     if world.get::<Checkbox>(entity).is_some() {
@@ -319,6 +331,62 @@ mod tests {
             assert_eq!(tb.selected, expected, "x={x} → expected {expected}");
             assert_eq!(tb.indicator_offset, Fixed::from_int(expected as i32));
         }
+    }
+
+    #[test]
+    fn registry_attach_installs_button_gesture_handler() {
+        use crate::types::Color;
+        use crate::widget::view::ViewRegistry;
+
+        let mut world = World::default();
+        let mut reg = ViewRegistry::default();
+        reg.register(crate::components::button::view());
+        reg.sort_by_priority();
+        world.insert_resource(reg);
+
+        let e = world.spawn();
+        world.insert(e, Button::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)));
+
+        attach_handlers_for(&mut world, e);
+
+        assert!(
+            world.get::<GestureHandler>(e).is_some(),
+            "registry-driven attach must install a GestureHandler on Button entities"
+        );
+    }
+
+    #[test]
+    fn registry_attach_skips_when_handler_already_present() {
+        use crate::types::Color;
+        use crate::widget::view::ViewRegistry;
+
+        let mut world = World::default();
+        let mut reg = ViewRegistry::default();
+        reg.register(crate::components::button::view());
+        reg.sort_by_priority();
+        world.insert_resource(reg);
+
+        let e = world.spawn();
+        world.insert(e, Button::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)));
+        fn user_handler(_: &mut World, _: Entity, _: &GestureEvent) -> bool {
+            false
+        }
+        world.insert(
+            e,
+            GestureHandler {
+                on_gesture: user_handler,
+            },
+        );
+
+        attach_handlers_for(&mut world, e);
+
+        let h = world.get::<GestureHandler>(e).expect("handler present");
+        let installed: *const () = h.on_gesture as *const ();
+        let expected: *const () = user_handler as *const ();
+        assert!(
+            core::ptr::eq(installed, expected),
+            "user-supplied handler must not be overwritten"
+        );
     }
 
     #[test]
