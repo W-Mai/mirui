@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`mirui::components::tab_view` module renamed to `mirui::components::tab_pages`**, and `tab_view_system` renamed to `tab_pages_system`. **Breaking change**: any user code importing `mirui::components::tab_view::TabContent` (or the system fn) needs to swap the module path. The `TabContent` struct itself is unchanged. The rename frees the `View` noun for the upcoming view-registry refactor (a `WidgetClass`-style abstraction is named `View` to avoid the already-overloaded `Widget*` namespace; reusing `tab_view` for "View as UI instance" would clash with the new "View as widget kind definition" reading).
+
 ## [0.11.5] - 2026-05-16
 
 ### Added

@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use mirui::app::App;
-use mirui::components::tab_view::TabContent;
+use mirui::components::tab_pages::TabContent;
 use mirui::components::tabbar::TabBar;
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};

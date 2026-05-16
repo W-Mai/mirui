@@ -6,7 +6,7 @@ use crate::widget::Hidden;
 use crate::widget::dirty::Dirty;
 use alloc::vec::Vec;
 
-/// Marker placed on each tab's content widget. The `tab_view_system`
+/// Marker placed on each tab's content widget. The `tab_pages_system`
 /// keeps `Hidden` synced: only the entity whose `index` matches the
 /// referenced `TabBar`'s `selected` is rendered.
 pub struct TabContent {
@@ -24,7 +24,7 @@ struct TabIndicatorTween {
 
 const INDICATOR_TWEEN_MS: u16 = 220;
 
-pub fn tab_view_system(world: &mut World) {
+pub fn tab_pages_system(world: &mut World) {
     drive_indicator_tweens(world);
     detect_selection_changes(world);
     apply_visibility(world);
@@ -141,7 +141,7 @@ mod tests {
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 2;
         }
-        tab_view_system(&mut world);
+        tab_pages_system(&mut world);
         let tb = world.get::<TabBar>(bar).unwrap();
         assert_eq!(tb.indicator_offset, Fixed::from_int(2));
         assert!(world.get::<TabIndicatorTween>(bar).is_none());
@@ -151,11 +151,11 @@ mod tests {
     fn selection_change_starts_tween() {
         let mut world = World::default();
         let bar = make_bar(&mut world, 3);
-        tab_view_system(&mut world);
+        tab_pages_system(&mut world);
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 1;
         }
-        tab_view_system(&mut world);
+        tab_pages_system(&mut world);
         assert!(world.get::<TabIndicatorTween>(bar).is_some());
     }
 
@@ -167,7 +167,7 @@ mod tests {
         let p1 = make_content(&mut world, bar, 1);
         let p2 = make_content(&mut world, bar, 2);
 
-        tab_view_system(&mut world);
+        tab_pages_system(&mut world);
         assert!(
             world.get::<Hidden>(p0).is_none(),
             "selected=0 should show p0"
@@ -178,7 +178,7 @@ mod tests {
         if let Some(tb) = world.get_mut::<TabBar>(bar) {
             tb.selected = 2;
         }
-        tab_view_system(&mut world);
+        tab_pages_system(&mut world);
         assert!(world.get::<Hidden>(p0).is_some());
         assert!(world.get::<Hidden>(p1).is_some());
         assert!(world.get::<Hidden>(p2).is_none());

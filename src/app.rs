@@ -77,7 +77,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let info = backend.display_info();
         world.insert_resource(info);
         let mut systems = SystemScheduler::new();
-        systems.add(crate::components::tab_view::tab_view_system);
+        systems.add(crate::components::tab_pages::tab_pages_system);
         Self {
             world,
             backend,
