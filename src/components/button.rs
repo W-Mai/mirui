@@ -1,6 +1,5 @@
 use crate::types::Color;
 
-/// Button state component
 pub struct Button {
     pub pressed: bool,
     pub normal_color: Color,

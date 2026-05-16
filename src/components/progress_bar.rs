@@ -1,4 +1,3 @@
-/// Progress bar component
 pub struct ProgressBar {
     pub value: f32, // 0.0 ~ 1.0
     pub track_color: crate::types::Color,

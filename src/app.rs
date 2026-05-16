@@ -14,6 +14,7 @@ use crate::plugin::Plugin;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
 use crate::widget::render_system;
+use crate::widget::view::{View, ViewRegistry};
 
 /// Builds a Renderer each frame, given mutable access to the backend and
 /// the current logical/physical coord transform.
@@ -74,11 +75,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(ScrollSpring::default());
         world.insert_resource(GestureSystem::default());
         world.insert_resource(FocusState::default());
+        world.insert_resource(ViewRegistry::default());
         let info = backend.display_info();
         world.insert_resource(info);
         let mut systems = SystemScheduler::new();
         systems.add(crate::components::tab_pages::tab_pages_system);
-        Self {
+        let mut app = Self {
             world,
             backend,
             factory,
@@ -87,8 +89,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             plugins: Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
-        }
+        };
+        app.default_views();
+        app
     }
+
+    /// Built-ins go through `default_views()`; user-defined kinds
+    /// call this directly.
+    pub fn register_view(&mut self, view: View) -> &mut Self {
+        if let Some(reg) = self.world.resource_mut::<ViewRegistry>() {
+            reg.register(view);
+            reg.sort_by_priority();
+        }
+        self
+    }
+
+    fn default_views(&mut self) {}
 
     pub fn add_system(&mut self, system: System) -> &mut Self {
         self.systems.add(system);

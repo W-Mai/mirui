@@ -1,6 +1,5 @@
 use crate::types::Color;
 
-/// Checkbox / toggle component
 pub struct Checkbox {
     pub checked: bool,
     pub checked_color: Color,

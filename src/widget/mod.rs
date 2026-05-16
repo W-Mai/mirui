@@ -1,8 +1,10 @@
 pub mod builder;
 pub mod dirty;
 pub mod render_system;
+pub mod view;
 pub mod visibility;
 
+pub use view::{View, ViewRegistry};
 pub use visibility::Hidden;
 
 use alloc::vec::Vec;
@@ -10,10 +12,8 @@ use alloc::vec::Vec;
 use crate::layout::LayoutStyle;
 use crate::types::{Color, Fixed};
 
-/// Marker: this entity is a widget
 pub struct Widget;
 
-/// Visual style of a widget
 #[derive(Clone, Debug, Default)]
 pub struct Style {
     pub bg_color: Option<Color>,
@@ -22,26 +22,19 @@ pub struct Style {
     pub border_radius: Fixed,
     pub text_color: Option<Color>,
     pub layout: LayoutStyle,
-    /// When true, descendants are clipped to this widget's own rect.
-    /// Use to build "overflow: hidden" wrappers (e.g. a slider fill mask
-    /// where the inner fill keeps its full pill shape but only a portion
-    /// is visible).
     pub clip_children: bool,
 }
 
-/// Text content component
 pub struct Text(pub alloc::vec::Vec<u8>);
 
-/// Parent-children relationship
 pub struct Children(pub Vec<crate::ecs::Entity>);
 
-/// Who is my parent
 pub struct Parent(pub crate::ecs::Entity);
 
-/// Computed screen rect after layout (logical pixels)
+/// Resolved post-layout rect (cf. `Style.layout` declarations).
 pub struct ComputedRect(pub crate::types::Rect);
 
-/// Move a widget to a new absolute position, automatically tracking dirty state.
+/// Marks the entity dirty alongside writing the new position.
 pub fn set_position(
     world: &mut crate::ecs::World,
     entity: crate::ecs::Entity,
