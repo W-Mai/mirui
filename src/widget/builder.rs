@@ -66,7 +66,7 @@ impl<'a> WidgetBuilder<'a> {
     pub fn text(self, t: &str) -> Self {
         self.world.insert(
             self.entity,
-            super::Text(alloc::vec::Vec::from(t.as_bytes())),
+            crate::components::text::Text(alloc::vec::Vec::from(t.as_bytes())),
         );
         self
     }

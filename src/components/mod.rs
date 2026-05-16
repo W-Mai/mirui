@@ -8,6 +8,7 @@ pub mod slider;
 pub mod switch;
 pub mod tab_pages;
 pub mod tabbar;
+pub mod text;
 pub mod text_input;
 pub mod transform;
 pub mod transform_3d;

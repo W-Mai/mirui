@@ -2,14 +2,13 @@ use alloc::vec::Vec;
 
 use crate::components::transform::WidgetTransform;
 use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
-use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
-use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
+use crate::types::{Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
 use super::view::{ViewCtx, ViewRegistry};
-use super::{Children, Hidden, Style, Text, Widget};
+use super::{Children, Hidden, Style, Widget};
 
 /// Compose `parent` with the entity's local transform (if any),
 /// wrapped so rotation/scale pivot on the widget's center instead
@@ -240,23 +239,6 @@ fn draw_tree(
                     (view.render)(renderer, world, entity, &node.rect, &mut ctx);
                 }
             }
-
-            if let Some(text) = world.get::<Text>(entity) {
-                let color = style.text_color.unwrap_or(Color::rgb(255, 255, 255));
-                renderer.draw(
-                    &DrawCommand::Label {
-                        pos: Point {
-                            x: node.rect.x + Fixed::from_int(2),
-                            y: node.rect.y + Fixed::from_int(2),
-                        },
-                        transform: tf,
-                        text: &text.0,
-                        color,
-                        opa: 255,
-                    },
-                    clip,
-                );
-            }
         }
     }
     *idx += 1;
@@ -358,23 +340,6 @@ fn draw_tree_offset(
                 for view in registry.iter() {
                     (view.render)(renderer, world, entity, &shifted_rect, &mut ctx);
                 }
-            }
-
-            if let Some(text) = world.get::<Text>(entity) {
-                let color = style.text_color.unwrap_or(Color::rgb(255, 255, 255));
-                renderer.draw(
-                    &DrawCommand::Label {
-                        pos: Point {
-                            x: shifted_rect.x + Fixed::from_int(2),
-                            y: shifted_rect.y + Fixed::from_int(2),
-                        },
-                        transform: tf,
-                        text: &text.0,
-                        color,
-                        opa: 255,
-                    },
-                    clip,
-                );
             }
         }
     }

@@ -26,8 +26,6 @@ pub struct Style {
     pub clip_children: bool,
 }
 
-pub struct Text(pub alloc::vec::Vec<u8>);
-
 pub struct Children(pub Vec<crate::ecs::Entity>);
 
 pub struct Parent(pub crate::ecs::Entity);
