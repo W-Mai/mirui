@@ -6,6 +6,7 @@ pub mod lazy_list;
 pub mod progress_bar;
 pub mod slider;
 pub mod switch;
+pub mod tab_view;
 pub mod tabbar;
 pub mod text_input;
 pub mod transform;

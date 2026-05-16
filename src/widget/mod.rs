@@ -1,6 +1,9 @@
 pub mod builder;
 pub mod dirty;
 pub mod render_system;
+pub mod visibility;
+
+pub use visibility::Hidden;
 
 use alloc::vec::Vec;
 

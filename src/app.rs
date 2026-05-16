@@ -76,12 +76,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(FocusState::default());
         let info = backend.display_info();
         world.insert_resource(info);
+        let mut systems = SystemScheduler::new();
+        systems.add(crate::components::tab_view::tab_view_system);
         Self {
             world,
             backend,
             factory,
             root: None,
-            systems: SystemScheduler::new(),
+            systems,
             plugins: Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,

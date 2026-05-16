@@ -7,7 +7,7 @@ use crate::ecs::{Entity, World};
 use crate::event::scroll::ScrollOffset;
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
-use crate::widget::{Children, Style, Widget};
+use crate::widget::{Children, Hidden, Style, Widget};
 
 fn build_rects(
     world: &World,
@@ -19,6 +19,9 @@ fn build_rects(
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
             if world.get::<Widget>(child).is_none() {
+                continue;
+            }
+            if world.get::<Hidden>(child).is_some() {
                 continue;
             }
             if let Some(style) = world.get::<Style>(child) {

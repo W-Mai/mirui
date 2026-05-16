@@ -14,7 +14,7 @@ use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
-use super::{Children, Style, Text, Widget};
+use super::{Children, Hidden, Style, Text, Widget};
 
 /// Compose `parent` with the entity's local transform (if any),
 /// wrapped so rotation/scale pivot on the widget's center instead
@@ -269,6 +269,9 @@ fn draw_text_input(
 /// Recursively build a LayoutNode tree from ECS entities
 fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     world.get::<Widget>(entity)?;
+    if world.get::<Hidden>(entity).is_some() {
+        return None;
+    }
     let style = world.get::<Style>(entity)?;
     let mut node = LayoutNode::new(style.layout);
 
@@ -708,6 +711,9 @@ fn draw_tree_offset(
 }
 
 fn collect_entities_preorder(world: &World, entity: Entity, out: &mut Vec<Entity>) {
+    if world.get::<Hidden>(entity).is_some() {
+        return;
+    }
     out.push(entity);
     if let Some(children) = world.get::<Children>(entity) {
         let child_ids: Vec<Entity> = children.0.clone();
@@ -1176,6 +1182,79 @@ mod clip_children_check {
             assert_eq!(
                 c.r, 0,
                 "x={x} leaked red ({}), mask width=0 must hide it",
+                c.r
+            );
+        }
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod hidden_check {
+    extern crate std;
+    use super::*;
+    use crate::draw::sw::SwRenderer;
+    use crate::draw::texture::{ColorFormat, Texture};
+    use crate::layout::LayoutStyle;
+    use crate::types::{Color, Dimension, Viewport};
+    use crate::widget::{Children, Hidden, Parent, Style, Widget};
+
+    fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
+        let e = world.spawn();
+        world.insert(e, Widget);
+        world.insert(e, style);
+        if let Some(p) = parent {
+            world.insert(e, Parent(p));
+            if let Some(c) = world.get_mut::<Children>(p) {
+                c.0.push(e);
+            } else {
+                world.insert(p, Children(std::vec![e]));
+            }
+        }
+        e
+    }
+
+    #[test]
+    fn hidden_widget_does_not_paint() {
+        let mut world = World::default();
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 0)),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(32)),
+                    height: Dimension::Px(Fixed::from_int(32)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let child = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0)),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(32)),
+                    height: Dimension::Px(Fixed::from_int(32)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(child, Hidden);
+
+        let mut buf = std::vec![0u8; 32 * 32 * 4];
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(32, 32, Fixed::ONE);
+        super::render(&world, root, &viewport, &mut renderer);
+
+        for x in 0..32 {
+            let c = renderer.target.get_pixel(x, 16);
+            assert_eq!(
+                c.r, 0,
+                "x={x} should be root bg (black), Hidden child leaked red ({})",
                 c.r
             );
         }
