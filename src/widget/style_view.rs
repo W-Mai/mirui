@@ -1,4 +1,3 @@
-use crate::components::checkbox::Checkbox;
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
@@ -19,14 +18,7 @@ fn style_render(
     };
 
     if !ctx.bg_handled {
-        // Temporary: Checkbox owns its bg via cascade here. Will move
-        // into checkbox_render when that view lands.
-        let bg = if let Some(cb) = world.get::<Checkbox>(entity) {
-            Some(cb.current_color())
-        } else {
-            style.bg_color
-        };
-        if let Some(color) = bg {
+        if let Some(color) = style.bg_color {
             renderer.draw(
                 &DrawCommand::Fill {
                     area: *rect,

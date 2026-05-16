@@ -1,4 +1,10 @@
-use crate::types::Color;
+use crate::draw::command::DrawCommand;
+use crate::draw::renderer::Renderer;
+use crate::ecs::{Entity, World};
+use crate::event::GestureHandler;
+use crate::event::widget_input::checkbox_handler;
+use crate::types::{Color, Rect};
+use crate::widget::view::{View, ViewCtx};
 
 pub struct Checkbox {
     pub checked: bool,
@@ -25,5 +31,53 @@ impl Checkbox {
         } else {
             self.unchecked_color
         }
+    }
+}
+
+fn checkbox_render(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    entity: Entity,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    let Some(cb) = world.get::<Checkbox>(entity) else {
+        return;
+    };
+    renderer.draw(
+        &DrawCommand::Fill {
+            area: *rect,
+            transform: ctx.transform,
+            quad: ctx.quad,
+            color: cb.current_color(),
+            radius: ctx.style.border_radius,
+            opa: 255,
+        },
+        ctx.clip,
+    );
+    ctx.bg_handled = true;
+}
+
+fn checkbox_attach(world: &mut World, entity: Entity) {
+    if world.get::<Checkbox>(entity).is_none() {
+        return;
+    }
+    if world.get::<GestureHandler>(entity).is_some() {
+        return;
+    }
+    world.insert(
+        entity,
+        GestureHandler {
+            on_gesture: checkbox_handler,
+        },
+    );
+}
+
+pub fn view() -> View {
+    View {
+        name: "Checkbox",
+        priority: 40,
+        render: checkbox_render,
+        auto_attach: Some(checkbox_attach),
     }
 }

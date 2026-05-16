@@ -70,7 +70,7 @@ pub(crate) fn button_handler(world: &mut World, entity: Entity, event: &GestureE
     }
 }
 
-fn checkbox_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+pub(crate) fn checkbox_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     if let GestureEvent::Tap { .. } = event {
         if let Some(cb) = world.get_mut::<Checkbox>(entity) {
             cb.toggle();
@@ -244,15 +244,6 @@ fn attach_handlers_for(world: &mut World, entity: Entity) {
     if world.get::<GestureHandler>(entity).is_some() {
         return;
     }
-    if world.get::<Checkbox>(entity).is_some() {
-        world.insert(
-            entity,
-            GestureHandler {
-                on_gesture: checkbox_handler,
-            },
-        );
-        return;
-    }
     if world.get::<ProgressBar>(entity).is_some() {
         world.insert(
             entity,
@@ -387,6 +378,56 @@ mod tests {
             core::ptr::eq(installed, expected),
             "user-supplied handler must not be overwritten"
         );
+    }
+
+    #[test]
+    fn registry_attach_installs_checkbox_gesture_handler() {
+        use crate::types::Color;
+        use crate::widget::view::ViewRegistry;
+
+        let mut world = World::default();
+        let mut reg = ViewRegistry::default();
+        reg.register(crate::components::checkbox::view());
+        reg.sort_by_priority();
+        world.insert_resource(reg);
+
+        let e = world.spawn();
+        world.insert(e, Checkbox::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)));
+
+        attach_handlers_for(&mut world, e);
+
+        assert!(
+            world.get::<GestureHandler>(e).is_some(),
+            "registry-driven attach must install a GestureHandler on Checkbox entities"
+        );
+    }
+
+    #[test]
+    fn checkbox_tap_toggles_checked() {
+        use crate::types::Color;
+        use crate::widget::view::ViewRegistry;
+
+        let mut world = World::default();
+        let mut reg = ViewRegistry::default();
+        reg.register(crate::components::checkbox::view());
+        reg.sort_by_priority();
+        world.insert_resource(reg);
+
+        let e = world.spawn();
+        world.insert(e, Checkbox::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)));
+        attach_handlers_for(&mut world, e);
+
+        let consumed = checkbox_handler(
+            &mut world,
+            e,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: e,
+            },
+        );
+        assert!(consumed);
+        assert!(world.get::<Checkbox>(e).unwrap().checked);
     }
 
     #[test]
