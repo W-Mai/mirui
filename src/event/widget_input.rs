@@ -85,7 +85,7 @@ pub(crate) fn checkbox_handler(world: &mut World, entity: Entity, event: &Gestur
 /// a smooth slide attach an animate! component on the same entity and
 /// drive `indicator_offset` from a Tween (same pattern Switch uses for
 /// its thumb position).
-fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     let x = match event {
         GestureEvent::Tap { x, .. } => *x,
         _ => return false,
@@ -246,15 +246,6 @@ fn attach_handlers_for(world: &mut World, entity: Entity) {
     run_registry_attach(world, entity);
 
     if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    if world.get::<TabBar>(entity).is_some() {
-        world.insert(
-            entity,
-            GestureHandler {
-                on_gesture: tabbar_handler,
-            },
-        );
         return;
     }
     if world.get::<TextInput>(entity).is_some() {

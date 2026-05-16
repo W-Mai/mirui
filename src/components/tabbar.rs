@@ -1,11 +1,14 @@
-use crate::types::{Color, Fixed};
+use crate::draw::command::DrawCommand;
+use crate::draw::renderer::Renderer;
+use crate::ecs::{Entity, World};
+use crate::event::GestureHandler;
+use crate::event::widget_input::tabbar_handler;
+use crate::types::{Color, Fixed, Rect};
+use crate::widget::view::{View, ViewCtx};
 
 /// Horizontal tab bar with N children laid out flex-row.
-///
 /// `selected` is the discrete tab index; `indicator_offset` is the
-/// continuously-animated position (0.0 .. count) used by the renderer
-/// to draw the indicator bar. A Tween writes `indicator_offset` from
-/// the previous selected value to the new one when the user taps.
+/// continuous (0.0 .. count) position the renderer reads.
 pub struct TabBar {
     pub selected: u8,
     pub count: u8,
@@ -29,6 +32,64 @@ impl TabBar {
         self.indicator_color = color;
         self.indicator_height = height.into();
         self
+    }
+}
+
+fn tab_bar_render(
+    renderer: &mut dyn Renderer,
+    world: &World,
+    entity: Entity,
+    rect: &Rect,
+    ctx: &mut ViewCtx,
+) {
+    let Some(tb) = world.get::<TabBar>(entity) else {
+        return;
+    };
+    if tb.count == 0 {
+        return;
+    }
+    let tab_w = rect.w / Fixed::from_int(tb.count as i32);
+    let indicator_x = rect.x + tb.indicator_offset * tab_w;
+    let indicator_y = rect.y + rect.h - tb.indicator_height;
+    renderer.draw(
+        &DrawCommand::Fill {
+            area: Rect {
+                x: indicator_x,
+                y: indicator_y,
+                w: tab_w,
+                h: tb.indicator_height,
+            },
+            transform: ctx.transform,
+            quad: ctx.quad,
+            color: tb.indicator_color,
+            radius: Fixed::ZERO,
+            opa: 255,
+        },
+        ctx.clip,
+    );
+}
+
+fn tab_bar_attach(world: &mut World, entity: Entity) {
+    if world.get::<TabBar>(entity).is_none() {
+        return;
+    }
+    if world.get::<GestureHandler>(entity).is_some() {
+        return;
+    }
+    world.insert(
+        entity,
+        GestureHandler {
+            on_gesture: tabbar_handler,
+        },
+    );
+}
+
+pub fn view() -> View {
+    View {
+        name: "TabBar",
+        priority: 60,
+        render: tab_bar_render,
+        auto_attach: Some(tab_bar_attach),
     }
 }
 

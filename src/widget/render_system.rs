@@ -1,7 +1,6 @@
 use alloc::vec::Vec;
 
 use crate::components::image::Image;
-use crate::components::tabbar::TabBar;
 use crate::components::text_input::{Placeholder, TextInput};
 use crate::components::transform::WidgetTransform;
 use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
@@ -336,29 +335,6 @@ fn draw_tree(
                 }
             }
 
-            if let Some(tb) = world.get::<TabBar>(entity) {
-                if tb.count > 0 {
-                    let tab_w = node.rect.w / Fixed::from_int(tb.count as i32);
-                    let indicator_x = node.rect.x + tb.indicator_offset * tab_w;
-                    let indicator_y = node.rect.y + node.rect.h - tb.indicator_height;
-                    renderer.draw(
-                        &DrawCommand::Fill {
-                            area: Rect {
-                                x: indicator_x,
-                                y: indicator_y,
-                                w: tab_w,
-                                h: tb.indicator_height,
-                            },
-                            transform: tf,
-                            quad,
-                            color: tb.indicator_color,
-                            radius: Fixed::ZERO,
-                            opa: 255,
-                        },
-                        clip,
-                    );
-                }
-            }
             if let Some(ti) = world.get::<TextInput>(entity) {
                 draw_text_input(renderer, world, entity, ti, &node.rect, &tf, quad, clip);
             }
@@ -499,29 +475,6 @@ fn draw_tree_offset(
                 }
             }
 
-            if let Some(tb) = world.get::<TabBar>(entity) {
-                if tb.count > 0 {
-                    let tab_w = shifted_rect.w / Fixed::from_int(tb.count as i32);
-                    let indicator_x = shifted_rect.x + tb.indicator_offset * tab_w;
-                    let indicator_y = shifted_rect.y + shifted_rect.h - tb.indicator_height;
-                    renderer.draw(
-                        &DrawCommand::Fill {
-                            area: Rect {
-                                x: indicator_x,
-                                y: indicator_y,
-                                w: tab_w,
-                                h: tb.indicator_height,
-                            },
-                            transform: tf,
-                            quad,
-                            color: tb.indicator_color,
-                            radius: Fixed::ZERO,
-                            opa: 255,
-                        },
-                        clip,
-                    );
-                }
-            }
             if let Some(ti) = world.get::<TextInput>(entity) {
                 draw_text_input(renderer, world, entity, ti, &shifted_rect, &tf, quad, clip);
             }
