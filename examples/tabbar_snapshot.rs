@@ -1,12 +1,3 @@
-//! Headless snapshot for the TabBar demo. Builds the same widget tree
-//! tabbar_demo.rs builds, drives the system schedule for a few frames
-//! (enough for the indicator tween to settle), then dumps the
-//! framebuffer as a PNG into .local/screenshots/.
-//!
-//! Run with `cargo run --example tabbar_snapshot --features sdl` (sdl
-//! pulls std and the layout types we need; the demo itself doesn't
-//! open a window).
-
 extern crate alloc;
 
 use std::env;
@@ -15,21 +6,14 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 
 use mirui::app::App;
+use mirui::components::tab_view::TabContent;
 use mirui::components::tabbar::TabBar;
 use mirui::draw::texture::ColorFormat;
 use mirui::layout::*;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
-use mirui::widget::dirty::Dirty;
 use mirui_macros::ui;
-
-mirui_macros::animate!(AnimateTabIndicator, |world, entity, value| {
-    if let Some(tb) = world.get_mut::<TabBar>(entity) {
-        tb.indicator_offset = value;
-    }
-    world.insert(entity, Dirty);
-});
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -43,12 +27,11 @@ fn main() {
     });
 
     let width: u16 = 480;
-    let height: u16 = 80;
+    let height: u16 = 200;
     let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
 
     app.add_system(mirui::anim::sync_delta_time_ms);
-    app.add_system(AnimateTabIndicator::system());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))
@@ -70,7 +53,9 @@ fn main() {
             bg_color: Color::rgb(40, 40, 56),
             width: 480,
             height: 40
-        ) {
+        ) [
+            TabBar::new(3).with_indicator(Color::rgb(88, 166, 255), 3),
+        ] {
             tab0 (
                 text: "Home",
                 text_color: Color::rgb(220, 220, 230),
@@ -95,37 +80,83 @@ fn main() {
         }
     };
 
-    let tb = TabBar::new(3).with_indicator(Color::rgb(88, 166, 255), 3);
-    app.world.insert(tabs, tb);
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
 
-    // Set selected directly + jump indicator_offset to make this a
-    // deterministic still-frame.
+        content_root (width: 480, height: 160) {
+            home_page (
+                bg_color: Color::rgb(63, 185, 80),
+                text: "Home page",
+                text_color: Color::rgb(255, 255, 255),
+                width: 480,
+                height: 160,
+                align: AlignItems::Center,
+                justify: JustifyContent::Center
+            ) [
+                TabContent {
+                    tab_bar: tabs,
+                    index: 0,
+                },
+            ] {}
+            search_page (
+                bg_color: Color::rgb(255, 165, 80),
+                text: "Search page",
+                text_color: Color::rgb(255, 255, 255),
+                width: 480,
+                height: 160,
+                align: AlignItems::Center,
+                justify: JustifyContent::Center
+            ) [
+                TabContent {
+                    tab_bar: tabs,
+                    index: 1,
+                },
+            ] {}
+            profile_page (
+                bg_color: Color::rgb(210, 168, 255),
+                text: "Profile page",
+                text_color: Color::rgb(40, 40, 56),
+                width: 480,
+                height: 160,
+                align: AlignItems::Center,
+                justify: JustifyContent::Center
+            ) [
+                TabContent {
+                    tab_bar: tabs,
+                    index: 2,
+                },
+            ] {}
+        }
+    };
+
     if let Some(tb) = app.world.get_mut::<TabBar>(tabs) {
         tb.selected = selected_arg.min(2);
-        tb.indicator_offset = Fixed::from_int(tb.selected as i32);
     }
 
     app.set_root(root);
 
-    // Run one frame manually: layout + render straight against the
-    // framebuffer. Avoids SDL.
     use mirui::draw::sw::SwRenderer;
     use mirui::types::Viewport;
     use mirui::widget::render_system;
 
+    // Tick once so tab_view_system applies the initial Hidden flags +
+    // seeds indicator_offset for the chosen selected tab.
+    let world = &mut app.world;
+    mirui::components::tab_view::tab_view_system(world);
+
     let viewport = Viewport::new(width, height, Fixed::ONE);
-    render_system::update_layout(&mut app.world, root, &viewport);
+    render_system::update_layout(world, root, &viewport);
     {
         use mirui::surface::FramebufferAccess;
         let tex = app.backend.framebuffer();
         let mut renderer = SwRenderer::new(tex);
         renderer.viewport = viewport;
-        render_system::render(&app.world, root, &viewport, &mut renderer);
+        render_system::render(world, root, &viewport, &mut renderer);
     }
 
-    // Pull pixels and write a binary PPM. Convert to PNG separately
-    // with PIL (Pillow) — bypasses the rabbit hole of writing a
-    // hand-rolled BMP/PNG encoder.
     use mirui::surface::FramebufferAccess;
     let tex = app.backend.framebuffer();
     let pixels = tex.buf.as_slice();
@@ -137,9 +168,6 @@ fn main() {
         let mut w = BufWriter::new(f);
         use std::io::Write;
         write!(w, "P6\n{width} {height}\n255\n").expect("ppm header");
-        // ColorFormat::RGBA8888 stores R G B A in byte order despite
-        // the name (see src/draw/sw/rect_fill.rs `[color.r, color.g,
-        // color.b, color.a]` write).
         for y in 0..(height as usize) {
             for x in 0..(width as usize) {
                 let i = y * stride + x * 4;
