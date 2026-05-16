@@ -1,159 +1,16 @@
-use mirui::anim::Spring;
 use mirui::app::App;
 use mirui::components::slider::Slider;
 use mirui::components::switch::Switch;
-use mirui::ecs::{Entity, World};
-use mirui::event::GestureHandler;
-use mirui::event::gesture::GestureEvent;
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
-use mirui::widget::dirty::Dirty;
 use mirui_macros::ui;
-
-extern crate alloc;
-
-mirui_macros::animate!(AnimateThumbX, |world, entity, value| {
-    mirui::widget::set_position(world, entity, value, Fixed::from_int(3));
-});
-
-mirui_macros::animate!(AnimateSwitchBgT, |world, entity, value| {
-    let Some(sw) = world.get::<Switch>(entity) else {
-        return;
-    };
-    let off = sw.off_color;
-    let on = sw.on_color;
-    let color = Color::lerp(off, on, value);
-    if let Some(style) = world.get_mut::<mirui::widget::Style>(entity) {
-        style.bg_color = Some(color);
-    }
-    world.insert(entity, Dirty);
-});
-
-struct SwitchBgT(Fixed);
-
-struct SliderTrackWidth(Fixed);
-
-fn slider_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    match event {
-        GestureEvent::DragMove { x, .. } | GestureEvent::Tap { x, .. } => {
-            let track_w = world
-                .get::<SliderTrackWidth>(entity)
-                .map(|t| t.0)
-                .unwrap_or(Fixed::from_int(200));
-            let track_x = world
-                .get::<mirui::widget::ComputedRect>(entity)
-                .map(|r| r.0.x)
-                .unwrap_or(Fixed::ZERO);
-            {
-                let local_x = *x - track_x;
-                let ratio = local_x / track_w;
-                let (clamped_ratio, fill_color) = {
-                    let Some(slider) = world.get_mut::<Slider>(entity) else {
-                        return false;
-                    };
-                    slider.set_ratio(ratio);
-                    (slider.ratio(), slider.fill_color)
-                };
-                let fill_w = clamped_ratio * track_w;
-                {
-                    if let Some(children) = world.get::<mirui::widget::Children>(entity) {
-                        let children_copy: alloc::vec::Vec<Entity> = children.0.clone();
-                        if children_copy.len() >= 2 {
-                            let fill_mask = children_copy[0];
-                            let thumb_entity = children_copy[1];
-                            if let Some(style) = world.get_mut::<mirui::widget::Style>(fill_mask) {
-                                style.layout.width = Dimension::Px(fill_w);
-                            }
-                            if let Some(mask_children) =
-                                world.get::<mirui::widget::Children>(fill_mask)
-                            {
-                                if let Some(&fill_inner) = mask_children.0.first() {
-                                    if let Some(style) =
-                                        world.get_mut::<mirui::widget::Style>(fill_inner)
-                                    {
-                                        style.bg_color = Some(fill_color);
-                                    }
-                                    world.insert(fill_inner, Dirty);
-                                }
-                            }
-                            world.insert(fill_mask, Dirty);
-                            let thumb_w = Fixed::from_int(16);
-                            let thumb_x = clamped_ratio * (track_w - thumb_w);
-                            mirui::widget::set_position(
-                                world,
-                                thumb_entity,
-                                thumb_x.max(Fixed::ZERO),
-                                Fixed::from_int(0),
-                            );
-                        }
-                    }
-                }
-            }
-            world.insert(entity, Dirty);
-            true
-        }
-        _ => false,
-    }
-}
-
-fn switch_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    match event {
-        GestureEvent::Tap { .. } => {
-            let is_on = {
-                let Some(sw) = world.get_mut::<Switch>(entity) else {
-                    return false;
-                };
-                sw.toggle();
-                sw.on
-            };
-            let target_t = if is_on { Fixed::ONE } else { Fixed::ZERO };
-            let current_t = world
-                .get::<SwitchBgT>(entity)
-                .map(|t| t.0)
-                .unwrap_or_else(|| if is_on { Fixed::ZERO } else { Fixed::ONE });
-            world.insert(entity, SwitchBgT(target_t));
-            world.insert(
-                entity,
-                AnimateSwitchBgT(Spring::new(current_t, target_t, 250, Fixed::ZERO).into()),
-            );
-            world.insert(entity, Dirty);
-
-            if let Some(children) = world.get::<mirui::widget::Children>(entity) {
-                if let Some(&thumb) = children.0.first() {
-                    let target_x = if is_on {
-                        Fixed::from_int(27)
-                    } else {
-                        Fixed::from_int(3)
-                    };
-                    let current_x = world
-                        .get::<mirui::widget::Style>(thumb)
-                        .and_then(|s| match s.layout.left {
-                            Dimension::Px(p) => Some(p),
-                            _ => None,
-                        })
-                        .unwrap_or(Fixed::from_int(3));
-                    world.insert(
-                        thumb,
-                        AnimateThumbX(Spring::new(current_x, target_x, 200, Fixed::ZERO).into()),
-                    );
-                }
-            }
-            true
-        }
-        _ => false,
-    }
-}
 
 fn main() {
     let backend = SdlSurface::new("mirui - slider & switch", 320, 200);
     let mut app = App::new(backend);
-
-    app.add_system(mirui::anim::sync_delta_time_ms);
-    app.add_system(AnimateThumbX::system());
-    app.add_system(AnimateSwitchBgT::system());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))
@@ -171,89 +28,30 @@ fn main() {
         })
         .id();
 
-    // --- Slider ---
-    let slider_track = ui! {
+    let slider = ui! {
         :(
             parent: root
             world: &mut app.world
         :)
 
-        slider_track (
-            bg_color: Color::rgb(60, 60, 80),
-            width: 200,
-            height: 16,
-            border_radius: 8
-        ) {
-            fill_mask (
-                width: 100,
-                height: 16,
-                clip_children: true
-            ) {
-                fill_inner (
-                    bg_color: Color::rgb(88, 166, 255),
-                    position: Position::Absolute,
-                    left: 0,
-                    top: 0,
-                    width: 200,
-                    height: 16,
-                    border_radius: 8
-                ) {}
-            }
-            thumb (
-                bg_color: Color::rgb(255, 255, 255),
-                position: Position::Absolute,
-                left: 92,
-                top: 0,
-                width: 16,
-                height: 16,
-                border_radius: 8
-            ) {}
-        }
+        slider (width: 200, height: 16) [
+            Slider::new(Fixed::ZERO, Fixed::from_int(100)),
+        ] {}
     };
+    if let Some(s) = app.world.get_mut::<Slider>(slider) {
+        s.value = Fixed::from_int(50);
+    }
 
-    app.world
-        .insert(slider_track, Slider::new(Fixed::ZERO, Fixed::from_int(100)));
-    app.world
-        .insert(slider_track, SliderTrackWidth(Fixed::from_int(200)));
-    app.world.insert(
-        slider_track,
-        GestureHandler {
-            on_gesture: slider_handler,
-        },
-    );
-
-    // --- Switch ---
-    let switch_track = ui! {
+    ui! {
         :(
             parent: root
             world: &mut app.world
         :)
 
-        switch_track (
-            bg_color: Color::rgb(80, 80, 100),
-            width: 50,
-            height: 26,
-            border_radius: 13
-        ) {
-            sw_thumb (
-                bg_color: Color::rgb(255, 255, 255),
-                position: Position::Absolute,
-                left: 3,
-                top: 3,
-                width: 20,
-                height: 20,
-                border_radius: 10
-            ) {}
-        }
+        switch (width: 50, height: 26) [
+            Switch::new(),
+        ] {}
     };
-
-    app.world.insert(switch_track, Switch::new());
-    app.world.insert(
-        switch_track,
-        GestureHandler {
-            on_gesture: switch_handler,
-        },
-    );
 
     app.set_root(root);
     app.add_plugin(StdInstantClockPlugin::default())

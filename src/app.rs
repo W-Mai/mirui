@@ -79,6 +79,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(info);
         let mut systems = SystemScheduler::new();
         systems.add(crate::components::tab_pages::tab_pages_system);
+        systems.add(crate::components::switch::animate_switch_bg_t_system);
+        systems.add(crate::components::switch::animate_thumb_x_system);
+        systems.add(crate::components::switch::switch_init_system);
         let mut app = Self {
             world,
             backend,
