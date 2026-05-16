@@ -1,6 +1,7 @@
 pub mod builder;
 pub mod dirty;
 pub mod render_system;
+pub(crate) mod style_view;
 pub mod view;
 pub mod visibility;
 

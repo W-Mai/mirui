@@ -1,7 +1,5 @@
 use alloc::vec::Vec;
 
-use crate::components::button::Button;
-use crate::components::checkbox::Checkbox;
 use crate::components::image::Image;
 use crate::components::progress_bar::ProgressBar;
 use crate::components::tabbar::TabBar;
@@ -14,7 +12,8 @@ use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Color, Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
-use super::{Children, Hidden, Style, Text, Widget};
+use super::view::ViewCtx;
+use super::{Children, Hidden, Style, Text, Widget, style_view};
 
 /// Compose `parent` with the entity's local transform (if any),
 /// wrapped so rotation/scale pivot on the widget's center instead
@@ -325,43 +324,15 @@ fn draw_tree(
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
-            let bg = if let Some(btn) = world.get::<Button>(entity) {
-                Some(btn.current_color())
-            } else if let Some(cb) = world.get::<Checkbox>(entity) {
-                Some(cb.current_color())
-            } else {
-                style.bg_color
+            let mut style_ctx = ViewCtx {
+                style,
+                transform: tf,
+                quad,
+                clip,
+                bg_handled: false,
             };
+            style_view::style_render(renderer, world, entity, &node.rect, &mut style_ctx);
 
-            if let Some(color) = bg {
-                renderer.draw(
-                    &DrawCommand::Fill {
-                        area: node.rect,
-                        transform: tf,
-                        quad,
-                        color,
-                        radius: style.border_radius,
-                        opa: 255,
-                    },
-                    clip,
-                );
-            }
-            if let Some(border_color) = style.border_color {
-                if style.border_width > Fixed::ZERO {
-                    renderer.draw(
-                        &DrawCommand::Border {
-                            area: node.rect,
-                            transform: tf,
-                            quad,
-                            color: border_color,
-                            width: style.border_width,
-                            radius: style.border_radius,
-                            opa: 255,
-                        },
-                        clip,
-                    );
-                }
-            }
             if let Some(pb) = world.get::<ProgressBar>(entity) {
                 renderer.draw(
                     &DrawCommand::Fill {
@@ -544,43 +515,15 @@ fn draw_tree_offset(
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
-            let bg = if let Some(btn) = world.get::<Button>(entity) {
-                Some(btn.current_color())
-            } else if let Some(cb) = world.get::<Checkbox>(entity) {
-                Some(cb.current_color())
-            } else {
-                style.bg_color
+            let mut style_ctx = ViewCtx {
+                style,
+                transform: tf,
+                quad,
+                clip,
+                bg_handled: false,
             };
+            style_view::style_render(renderer, world, entity, &shifted_rect, &mut style_ctx);
 
-            if let Some(color) = bg {
-                renderer.draw(
-                    &DrawCommand::Fill {
-                        area: shifted_rect,
-                        transform: tf,
-                        quad,
-                        color,
-                        radius: style.border_radius,
-                        opa: 255,
-                    },
-                    clip,
-                );
-            }
-            if let Some(border_color) = style.border_color {
-                if style.border_width > Fixed::ZERO {
-                    renderer.draw(
-                        &DrawCommand::Border {
-                            area: shifted_rect,
-                            transform: tf,
-                            quad,
-                            color: border_color,
-                            width: style.border_width,
-                            radius: style.border_radius,
-                            opa: 255,
-                        },
-                        clip,
-                    );
-                }
-            }
             if let Some(pb) = world.get::<ProgressBar>(entity) {
                 renderer.draw(
                     &DrawCommand::Fill {
