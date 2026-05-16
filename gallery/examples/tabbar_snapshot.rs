@@ -19,9 +19,9 @@ fn main() {
     let mut args = env::args().skip(1);
     let selected_arg: u8 = args.next().and_then(|a| a.parse().ok()).unwrap_or(1);
     let out_path: PathBuf = args.next().map(PathBuf::from).unwrap_or_else(|| {
-        let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("../.local/screenshots");
-        std::fs::create_dir_all(&p).ok();
+        let dir = std::env::var("MIRUI_SNAPSHOT_DIR").unwrap_or_else(|_| ".".into());
+        std::fs::create_dir_all(&dir).ok();
+        let mut p = PathBuf::from(dir);
         p.push(format!("tabbar-selected-{selected_arg}.png"));
         p
     });

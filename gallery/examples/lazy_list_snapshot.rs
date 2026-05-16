@@ -73,9 +73,9 @@ fn main() {
         _ => panic!("unknown: {scenario}"),
     };
 
-    let mut out = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    out.push("../.local/screenshots");
-    std::fs::create_dir_all(&out).ok();
+    let dir = std::env::var("MIRUI_SNAPSHOT_DIR").unwrap_or_else(|_| ".".into());
+    std::fs::create_dir_all(&dir).ok();
+    let mut out = PathBuf::from(dir);
     out.push(format!("lazylist-{scenario}.png"));
 
     let backend = FramebufSurface::with_format(W, H, ColorFormat::RGBA8888, |_, _| {});
