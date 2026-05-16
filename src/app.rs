@@ -6,10 +6,9 @@ use crate::draw::canvas::Canvas;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, System, SystemScheduler, World};
 use crate::event::bubble_dispatch;
-use crate::event::focus::{FocusState, focus_on_tap, key_dispatch};
+use crate::event::focus::{FocusState, focus_on_tap};
 use crate::event::gesture::GestureSystem;
-use crate::event::hit_test::hit_test;
-use crate::event::scroll::{ScrollDragState, ScrollSpring, scroll_inertia_system, scroll_system};
+use crate::event::scroll::{ScrollDragState, ScrollSpring, scroll_inertia_system};
 use crate::plugin::Plugin;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
@@ -221,25 +220,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                             let (lw, lh) = *logical.get_or_insert_with(|| {
                                 self.backend.display_info().viewport().logical_size()
                             });
-                            scroll_system(&mut self.world, root, &event, lw, lh);
-
-                            let hit = match &event {
-                                InputEvent::PointerDown { x, y, .. } => {
-                                    hit_test(&self.world, root, *x, *y, lw, lh)
-                                }
-                                _ => None,
-                            };
                             let now_ms = (self.clock_ns() / 1_000_000) as u32;
-                            let scroll_claimed = self
-                                .world
-                                .resource::<ScrollDragState>()
-                                .is_some_and(|s| s.active && s.resolved);
-                            if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
-                                gs.recognizer.scroll_claimed = scroll_claimed;
-                                gs.recognizer.update(&event, now_ms, hit, &mut gs.events);
-                            }
-
-                            key_dispatch(&mut self.world, &event);
+                            crate::event::dispatch_input(
+                                &mut self.world,
+                                root,
+                                &event,
+                                now_ms,
+                                lw,
+                                lh,
+                            );
                         }
                     }
                     None => break,

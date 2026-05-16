@@ -9,7 +9,45 @@ pub mod widget_input;
 use crate::ecs::{Entity, World};
 use crate::widget::Parent;
 
-use gesture::GestureEvent;
+use focus::key_dispatch;
+use gesture::{GestureEvent, GestureSystem};
+use hit_test::hit_test;
+use input::InputEvent;
+use scroll::{ScrollDragState, scroll_system};
+
+/// Single source of truth for the per-event side of the input
+/// pipeline. Both `App::run`'s real input loop and
+/// `sim_timeline_system` (which fakes pointer events) call this so
+/// that simulated inputs traverse the exact same scroll / hit-test /
+/// gesture-recognizer / key-dispatch path as real ones.
+///
+/// Does *not* drain `GestureSystem.events` — the caller decides when
+/// to dispatch (real input loop drains after the whole `poll_event`
+/// burst; sim drains every system tick).
+pub fn dispatch_input(
+    world: &mut World,
+    root: Entity,
+    event: &InputEvent,
+    now_ms: u32,
+    lw: u16,
+    lh: u16,
+) {
+    scroll_system(world, root, event, lw, lh);
+
+    let hit = match event {
+        InputEvent::PointerDown { x, y, .. } => hit_test(world, root, *x, *y, lw, lh),
+        _ => None,
+    };
+    let scroll_claimed = world
+        .resource::<ScrollDragState>()
+        .is_some_and(|s| s.active && s.resolved);
+    if let Some(gs) = world.resource_mut::<GestureSystem>() {
+        gs.recognizer.scroll_claimed = scroll_claimed;
+        gs.recognizer.update(event, now_ms, hit, &mut gs.events);
+    }
+
+    key_dispatch(world, event);
+}
 
 /// Gesture handler component — a plain fn pointer, no heap allocation.
 /// Returns `true` to stop propagation (event consumed).
