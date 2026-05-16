@@ -1,6 +1,5 @@
 use alloc::vec::Vec;
 
-use crate::components::image::Image;
 use crate::components::transform::WidgetTransform;
 use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::draw::command::DrawCommand;
@@ -242,24 +241,6 @@ fn draw_tree(
                 }
             }
 
-            if let Some(img) = world.get::<Image>(entity) {
-                renderer.draw(
-                    &DrawCommand::Blit {
-                        pos: Point {
-                            x: node.rect.x,
-                            y: node.rect.y,
-                        },
-                        size: Point {
-                            x: node.rect.w,
-                            y: node.rect.h,
-                        },
-                        transform: tf,
-                        quad,
-                        texture: img.texture,
-                    },
-                    clip,
-                );
-            }
             if let Some(text) = world.get::<Text>(entity) {
                 let color = style.text_color.unwrap_or(Color::rgb(255, 255, 255));
                 renderer.draw(
@@ -379,24 +360,6 @@ fn draw_tree_offset(
                 }
             }
 
-            if let Some(img) = world.get::<Image>(entity) {
-                renderer.draw(
-                    &DrawCommand::Blit {
-                        pos: Point {
-                            x: shifted_rect.x,
-                            y: shifted_rect.y,
-                        },
-                        size: Point {
-                            x: shifted_rect.w,
-                            y: shifted_rect.h,
-                        },
-                        transform: tf,
-                        quad,
-                        texture: img.texture,
-                    },
-                    clip,
-                );
-            }
             if let Some(text) = world.get::<Text>(entity) {
                 let color = style.text_color.unwrap_or(Color::rgb(255, 255, 255));
                 renderer.draw(
