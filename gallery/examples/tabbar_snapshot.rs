@@ -20,7 +20,7 @@ fn main() {
     let selected_arg: u8 = args.next().and_then(|a| a.parse().ok()).unwrap_or(1);
     let out_path: PathBuf = args.next().map(PathBuf::from).unwrap_or_else(|| {
         let mut p = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push(".local/screenshots");
+        p.push("../.local/screenshots");
         std::fs::create_dir_all(&p).ok();
         p.push(format!("tabbar-selected-{selected_arg}.png"));
         p

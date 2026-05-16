@@ -74,7 +74,7 @@ fn main() {
     };
 
     let mut out = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    out.push(".local/screenshots");
+    out.push("../.local/screenshots");
     std::fs::create_dir_all(&out).ok();
     out.push(format!("lazylist-{scenario}.png"));
 

@@ -85,8 +85,8 @@ fn cmd_lint() -> Result {
         "warnings",
     ])?;
     cargo(&["+stable", "fmt", "--all", "--check"])?;
-    println!("  → xrune-fmt --check examples/*.rs");
-    for entry in std::fs::read_dir("examples")? {
+    println!("  → xrune-fmt --check gallery/examples/*.rs");
+    for entry in std::fs::read_dir("gallery/examples")? {
         let path = entry?.path();
         if path.extension().is_some_and(|e| e == "rs") {
             let status = std::process::Command::new("xrune-fmt")
@@ -101,7 +101,7 @@ fn cmd_lint() -> Result {
 }
 
 fn cmd_examples() -> Result {
-    cargo(&["build", "--examples", "--all-features"])
+    cargo(&["build", "-p", "gallery", "--examples", "--all-features"])
 }
 
 fn cmd_size() -> Result {

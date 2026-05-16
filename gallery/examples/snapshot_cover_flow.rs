@@ -190,12 +190,14 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
 }
 
 fn main() {
+    let dir = std::env::var("MIRUI_SNAPSHOT_DIR").unwrap_or_else(|_| ".".into());
+    std::fs::create_dir_all(&dir).ok();
     let base_x = Fixed::from_int(440).raw();
     let mut prev: Option<Vec<u8>> = None;
     for step in 0..17 {
         let x_raw = base_x + step * 16;
         let buf = render_at(x_raw);
-        let name = alloc::format!("/tmp/cover_flow_{:02}.ppm", step);
+        let name = alloc::format!("{}/cover_flow_{:02}.ppm", dir, step);
         write_ppm(&name, &buf, WINDOW_W as u32, WINDOW_H as u32).expect("write ppm");
 
         if let Some(p) = &prev {

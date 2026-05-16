@@ -1,0 +1,19 @@
+[package]
+name = "gallery"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[features]
+default = ["sdl"]
+sdl = ["mirui/sdl"]
+sdl-gpu = ["mirui/sdl-gpu"]
+
+[dependencies]
+mirui = { path = "..", default-features = false, features = ["quad-aa"] }
+mirui-macros = { path = "../mirui-macros" }
+sdl2 = "0.37"
+
+[[example]]
+name = "sdl_gpu_demo"
+required-features = ["sdl-gpu"]

@@ -14,7 +14,7 @@ categories = ["gui", "embedded"]
 rust-version = "1.85"
 
 [workspace]
-members = [".", "xtask", "mirui-macros"]
+members = [".", "xtask", "mirui-macros", "gallery"]
 
 [dependencies]
 
@@ -49,148 +49,7 @@ optional = true
 default-features = false
 
 [dev-dependencies]
-sdl2 = "0.37"
 trybuild = "1"
-
-[[example]]
-name = "app_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "click_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "rounded_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "text_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "dsl_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "walk_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "image_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "absolute_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "enchants_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "scroll_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "nested_scroll_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "components_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "compose_backend_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "compose_backend_dsl"
-required-features = ["sdl"]
-
-[[example]]
-name = "sdl_gpu_demo"
-required-features = ["sdl-gpu"]
-
-[[example]]
-name = "perf_bench"
-required-features = ["sdl"]
-
-[[example]]
-name = "transform_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "flip_card_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "image_flip_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "cover_flow_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "animation_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "gesture_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "sim_input_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "spatial_anim_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "slider_switch_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "book_flip_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "hello_sdl"
-required-features = ["sdl"]
-
-[[example]]
-name = "layout_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "widget_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "tabbar_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "tabbar_snapshot"
-required-features = ["sdl"]
-
-[[example]]
-name = "text_input_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "text_input_snapshot"
-required-features = ["sdl"]
-
-[[example]]
-name = "lazy_list_demo"
-required-features = ["sdl"]
-
-[[example]]
-name = "lazy_list_snapshot"
-required-features = ["sdl"]
 
 [profile.release]
 opt-level = "z"

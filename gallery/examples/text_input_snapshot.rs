@@ -48,7 +48,7 @@ fn write_png(out_path: &std::path::Path, pixels: &[u8], width: u16, height: u16,
 fn main() {
     let scenario = env::args().nth(1).unwrap_or_else(|| "empty".into());
     let mut out_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    out_path.push(".local/screenshots");
+    out_path.push("../.local/screenshots");
     std::fs::create_dir_all(&out_path).ok();
     out_path.push(format!("textinput-{scenario}.png"));
 
