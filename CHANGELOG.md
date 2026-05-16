@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.5] - 2026-05-16
+
+### Added
+
+- **`Hidden` marker component** (`src/widget/visibility.rs`): toggling `Hidden` on an entity skips it and its entire subtree in layout, rendering, and hit-test (`display: none` semantics — siblings collapse up). Toggle by inserting or removing the marker; the existing dirty-region machinery handles the repaint on transition. Generic primitive — modal / accordion / conditional UI all build on it.
+- **`TabContent { tab_bar, index }` component** + **`tab_view_system`** (`src/components/tab_view.rs`): pair an entity with a `TabBar` and a tab index. The built-in system, registered by default in `App::with_factory`, drives a 220 ms `Tween` on every `TabBar` whose `selected` changed (writing `indicator_offset`) and flips `Hidden` on every `TabContent` so only the active page is visible. `TabContent` entities can live anywhere in the tree, not just under the `TabBar`.
+
+### Changed
+
+- **TabBar demos drop the user-side `AnimateTabIndicator` macro and `LastTab` observer**: every v0.11.3 TabBar demo was duplicating an `animate!`-defined indicator slider plus an observer system to detect `selected` changes. That pattern is now built in. Existing user code can delete the macro and the observer; just attach `TabContent { tab_bar, index }` to each page entity.
+- **Examples moved into a `gallery/` workspace member crate**. Root `Cargo.toml` no longer carries 35 `[[example]]` blocks; Cargo's `autoexamples` picks every `gallery/examples/*.rs`. Adding a new example is one new file in `gallery/examples/` and nothing else. Run with `cargo run -p gallery --example <name>`. `mirui`'s own `default-features` stay `["quad-aa"]` (no implicit `sdl` pull), so embedded consumers are unaffected. `sdl_gpu_demo` is the one example still requiring an explicit `[[example]]` block — it gates on the `sdl-gpu` feature inside `gallery/Cargo.toml`.
+- **Snapshot examples write to `MIRUI_SNAPSHOT_DIR`** (env var) when set, otherwise to the current working directory. No source-level hardcoded output paths.
+
 ## [0.11.4] - 2026-05-16
 
 ### Changed
