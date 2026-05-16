@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-05-16
+
+### Added
+
+- **Checkbox / ProgressBar / TabBar / TextInput / Image / Text now ship as registered `View`s** alongside v0.12.0's Button + Style. Each kind owns its render fn and (where applicable) auto_attach fn in `components/<name>.rs`; `App::default_views()` registers them all at startup. Built-ins:
+  - Button (priority 40), Checkbox (40)
+  - Style (50)
+  - ProgressBar (60), TabBar (60), TextInput (70), Image (70), Text (80)
+- `mirui::components::text::Text` is the new home for the `Text` component.
+
+### Changed
+
+- **`Text` component moved**: `mirui::widget::Text` → `mirui::components::text::Text`. **Breaking** for any user code importing the old path. Same `pub struct Text(pub Vec<u8>)` definition; only the path changed. The relocation aligns Text with every other widget kind (`components::<name>` is now the universal home for built-in widgets).
+- **`render_system.rs` walker no longer issues `DrawCommand`s directly** — every paint flows through a registered view. The two duplicated render walkers (`draw_tree` for absolute coords, `draw_tree_offset` for scrolled descendants) shrank from 1262 to 942 lines (-25.4%). The if-else cascade in `attach_widget_input_handlers` is gone too — `auto_attach` runs against the registry.
+- **`textinput_gesture_handler` / `textinput_key_handler` / `tabbar_handler` / `progress_bar_handler` / `checkbox_handler` / `button_handler`** are now `pub(crate)` instead of `fn`-private, so the per-kind `*_attach` fns in their respective `components/<name>.rs` files can install them. They're not part of the public API.
+
 ## [0.12.0] - 2026-05-16
 
 ### Added

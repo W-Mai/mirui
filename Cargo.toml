@@ -1,6 +1,6 @@
 [package]
 name = "mirui"
-version = "0.12.0"
+version = "0.12.1"
 edition = "2024"
 authors = ["Benign X <1341398182@qq.com>"]
 license = "MIT"
