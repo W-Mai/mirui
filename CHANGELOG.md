@@ -5,11 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.0] - 2026-05-16
+
+### Added
+
+- **`View` registry** — a per-kind dispatch entry (`render` fn pointer + optional `auto_attach` fn pointer + `priority: u8`) lifted out of the if-else chains in `render_system.rs` and `widget_input.rs`. Built-in widgets register through `App::default_views()`; user-defined kinds register via `App::register_view(my_kind::view())`. New `widget::view` module exports `View`, `ViewRegistry`, `ViewCtx`, `ViewRender`, `ViewAttach`, and `install_default_registry(&mut World)` (the last is for tests that build a `World` without `App`).
+- **`ViewCtx.bg_handled` mutable flag**: explicit-bg widgets (e.g. Button) emit their own background fill and set the flag; the generic Style stage sees it and skips its own bg fill while still emitting a border. Replaces the old Button/Checkbox-bg cascade hardcoded into `style_render`.
+- **Button now ships as a registered `View`** (priority 40). `components::button::view()` returns the entry; `button_render` emits its current-state fill, `button_attach` installs the gesture handler if user code hasn't.
+- **Style ships as a registered `View`** (priority 50, no `auto_attach`). `widget::style_view::view()` returns the entry; `style_render` reads `ctx.bg_handled` to decide whether to emit a bg fill.
 
 ### Changed
 
-- **`mirui::components::tab_view` module renamed to `mirui::components::tab_pages`**, and `tab_view_system` renamed to `tab_pages_system`. **Breaking change**: any user code importing `mirui::components::tab_view::TabContent` (or the system fn) needs to swap the module path. The `TabContent` struct itself is unchanged. The rename frees the `View` noun for the upcoming view-registry refactor (a `WidgetClass`-style abstraction is named `View` to avoid the already-overloaded `Widget*` namespace; reusing `tab_view` for "View as UI instance" would clash with the new "View as widget kind definition" reading).
+- **`mirui::components::tab_view` module renamed to `mirui::components::tab_pages`**, and `tab_view_system` renamed to `tab_pages_system`. **Breaking change**: user code importing `mirui::components::tab_view::TabContent` or the system fn needs to swap the module path. The `TabContent` struct itself is unchanged. The rename frees the `View` noun for the registry abstraction so "View as widget kind definition" doesn't clash with "View as UI instance" reading inherited from iOS-style `tab_view`.
+- **Render walkers (`draw_tree` / `draw_tree_offset`) now dispatch through the `ViewRegistry`** before falling back to the legacy hardcoded path for widget kinds that haven't migrated yet (`ProgressBar`, `TabBar`, `TextInput`, `Image`, `Text`). Snapshot output is pixel-equal across `tabbar_*`, `text_input_*`, `lazy_list_*`. ESP three-body baseline 5.45-6.16 ms (≤ 6.5 ms target, no regression).
+- **`attach_widget_input_handlers` runs registry-driven `auto_attach` first**, then falls back to its existing cascade for unmigrated kinds. The Button branch is now driven by `button::view().auto_attach`; user-supplied `GestureHandler` overrides still win in both paths.
+- **`style_view::style_render` no longer reads Button**; the bg cascade for Checkbox stays inline temporarily until Checkbox migrates.
 
 ## [0.11.5] - 2026-05-16
 
