@@ -3,18 +3,19 @@ use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
-use crate::types::{Color, Fixed, Rect};
+use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
+use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
 
 pub struct Slider {
     pub value: Fixed,
     pub min: Fixed,
     pub max: Fixed,
-    pub track_color: Option<Color>,
-    pub fill_color: Option<Color>,
-    pub thumb_color: Option<Color>,
+    pub track_color: ThemedColor,
+    pub fill_color: ThemedColor,
+    pub thumb_color: ThemedColor,
 }
 
 impl Slider {
@@ -23,24 +24,24 @@ impl Slider {
             value: min,
             min,
             max,
-            track_color: None,
-            fill_color: None,
-            thumb_color: None,
+            track_color: ThemedColor::Token(ColorToken::SurfaceVariant),
+            fill_color: ThemedColor::Token(ColorToken::Primary),
+            thumb_color: ThemedColor::Token(ColorToken::OnPrimary),
         }
     }
 
-    pub fn with_track_color(mut self, color: Color) -> Self {
-        self.track_color = Some(color);
+    pub fn with_track_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.track_color = color.into();
         self
     }
 
-    pub fn with_fill_color(mut self, color: Color) -> Self {
-        self.fill_color = Some(color);
+    pub fn with_fill_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.fill_color = color.into();
         self
     }
 
-    pub fn with_thumb_color(mut self, color: Color) -> Self {
-        self.thumb_color = Some(color);
+    pub fn with_thumb_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.thumb_color = color.into();
         self
     }
 
@@ -69,9 +70,9 @@ fn slider_render(
         return;
     };
     let theme = ctx.theme(world);
-    let track_color = s.track_color.unwrap_or(theme.surface_variant);
-    let fill_color = s.fill_color.unwrap_or(theme.primary);
-    let thumb_color = s.thumb_color.unwrap_or(theme.on_primary);
+    let track_color = s.track_color.resolve(theme);
+    let fill_color = s.fill_color.resolve(theme);
+    let thumb_color = s.thumb_color.resolve(theme);
     let ratio = s.ratio();
     let cap_radius = rect.h / Fixed::from_int(2);
 
