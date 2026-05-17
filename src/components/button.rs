@@ -7,27 +7,26 @@ use crate::types::{Color, Rect};
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
+#[derive(Default)]
 pub struct Button {
     pub pressed: bool,
-    pub normal_color: Color,
-    pub pressed_color: Color,
+    pub normal_color: Option<Color>,
+    pub pressed_color: Option<Color>,
 }
 
 impl Button {
-    pub fn new(normal: Color, pressed: Color) -> Self {
-        Self {
-            pressed: false,
-            normal_color: normal,
-            pressed_color: pressed,
-        }
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    pub fn current_color(&self) -> Color {
-        if self.pressed {
-            self.pressed_color
-        } else {
-            self.normal_color
-        }
+    pub fn with_normal_color(mut self, color: Color) -> Self {
+        self.normal_color = Some(color);
+        self
+    }
+
+    pub fn with_pressed_color(mut self, color: Color) -> Self {
+        self.pressed_color = Some(color);
+        self
     }
 }
 
@@ -41,12 +40,18 @@ fn button_render(
     let Some(btn) = world.get::<Button>(entity) else {
         return;
     };
+    let theme = ctx.theme(world);
+    let color = if btn.pressed {
+        btn.pressed_color.unwrap_or(theme.primary)
+    } else {
+        btn.normal_color.unwrap_or(theme.surface_variant)
+    };
     renderer.draw(
         &DrawCommand::Fill {
             area: *rect,
             transform: ctx.transform,
             quad: ctx.quad,
-            color: btn.current_color(),
+            color,
             radius: ctx.style.border_radius,
             opa: 255,
         },

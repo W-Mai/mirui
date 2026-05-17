@@ -81,7 +81,7 @@ mod tests {
         world.insert_resource(reg);
 
         let e = world.spawn();
-        world.insert(e, Button::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)));
+        world.insert(e, Button::new());
 
         attach_handlers_for(&mut world, e);
 
@@ -99,7 +99,7 @@ mod tests {
         world.insert_resource(reg);
 
         let e = world.spawn();
-        world.insert(e, Button::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)));
+        world.insert(e, Button::new());
         fn user_handler(_: &mut World, _: Entity, _: &GestureEvent) -> bool {
             false
         }

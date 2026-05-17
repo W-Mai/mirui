@@ -73,7 +73,9 @@ fn build_ui(world: &mut World) -> Entity {
         .id();
     world.insert(
         btn_ok,
-        Button::new(Color::rgb(63, 185, 80), Color::rgb(40, 140, 55)),
+        Button::new()
+            .with_normal_color(Color::rgb(63, 185, 80))
+            .with_pressed_color(Color::rgb(40, 140, 55)),
     );
 
     let btn_cancel = WidgetBuilder::new(world)
@@ -87,7 +89,9 @@ fn build_ui(world: &mut World) -> Entity {
         .id();
     world.insert(
         btn_cancel,
-        Button::new(Color::rgb(248, 81, 73), Color::rgb(200, 50, 45)),
+        Button::new()
+            .with_normal_color(Color::rgb(248, 81, 73))
+            .with_pressed_color(Color::rgb(200, 50, 45)),
     );
 
     let btn_row = WidgetBuilder::new(world)
