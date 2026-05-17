@@ -23,9 +23,7 @@ pub struct Style {
     pub border_color: Option<ThemedColor>,
     pub border_width: Fixed,
     pub border_radius: Fixed,
-    /// Always present. `None` would mean "no text"; transparent text
-    /// is more naturally expressed by setting alpha on the resolved
-    /// colour.
+    /// Always present; for transparent text set alpha on the resolved colour.
     pub text_color: ThemedColor,
     pub layout: LayoutStyle,
     pub clip_children: bool,
@@ -46,9 +44,6 @@ impl Default for Style {
 }
 
 impl Style {
-    /// Ergonomic setter that accepts both `Color` literals and
-    /// `ColorToken` values. Equivalent to
-    /// `style.bg_color = Some(color.into())`.
     pub fn set_bg_color(&mut self, color: impl Into<ThemedColor>) -> &mut Self {
         self.bg_color = Some(color.into());
         self

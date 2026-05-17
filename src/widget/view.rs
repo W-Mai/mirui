@@ -287,9 +287,7 @@ mod tests {
             bg_handled: false,
         };
         let theme = ctx.theme(&world);
-        // Compare via a representative token rather than struct
-        // equality — `Theme` doesn't derive `PartialEq` (it owns a
-        // `BTreeMap` of extras).
+        // Theme isn't PartialEq (BTreeMap of extras); compare via resolve.
         assert_eq!(
             theme.resolve(ColorToken::Surface),
             Theme::light().resolve(ColorToken::Surface),

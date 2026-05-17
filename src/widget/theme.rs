@@ -77,24 +77,20 @@ const MISSING_TOKEN_FALLBACK: Color = Color::rgb(255, 0, 255);
 /// - `Outline` / `Shadow`: borders / elevation
 #[derive(Clone, Debug)]
 pub struct Theme {
-    // Builtin fields are pub(crate) during the v0.14.0 migration so
-    // existing widget render paths keep compiling. After S3-S10
-    // every consumer goes through `resolve` and these become
-    // private — see IMPLEMENTATION.md.
-    pub(crate) primary: Color,
-    pub(crate) on_primary: Color,
-    pub(crate) secondary: Color,
-    pub(crate) on_secondary: Color,
-    pub(crate) tertiary: Color,
-    pub(crate) on_tertiary: Color,
-    pub(crate) surface: Color,
-    pub(crate) on_surface: Color,
-    pub(crate) surface_variant: Color,
-    pub(crate) on_surface_variant: Color,
-    pub(crate) success: Color,
-    pub(crate) error: Color,
-    pub(crate) outline: Color,
-    pub(crate) shadow: Color,
+    primary: Color,
+    on_primary: Color,
+    secondary: Color,
+    on_secondary: Color,
+    tertiary: Color,
+    on_tertiary: Color,
+    surface: Color,
+    on_surface: Color,
+    surface_variant: Color,
+    on_surface_variant: Color,
+    success: Color,
+    error: Color,
+    outline: Color,
+    shadow: Color,
     extras: BTreeMap<&'static str, Color>,
 }
 
@@ -164,8 +160,7 @@ impl Theme {
         }
     }
 
-    /// Replace one token's colour. Builtin variants write to a
-    /// struct field; `Custom` writes to the extras map.
+    /// Bind a colour to a token, builtin or custom.
     pub fn set(&mut self, token: ColorToken, color: Color) -> &mut Self {
         match token {
             ColorToken::Primary => self.primary = color,
