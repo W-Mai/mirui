@@ -3,9 +3,10 @@ use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
-use crate::types::{Color, Fixed, Rect};
+use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
+use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
 
 /// Horizontal tab bar with N children laid out flex-row.
@@ -15,7 +16,7 @@ pub struct TabBar {
     pub selected: u8,
     pub count: u8,
     pub indicator_offset: Fixed,
-    pub indicator_color: Option<Color>,
+    pub indicator_color: ThemedColor,
     pub indicator_height: Fixed,
 }
 
@@ -25,13 +26,13 @@ impl TabBar {
             selected: 0,
             count,
             indicator_offset: Fixed::ZERO,
-            indicator_color: None,
+            indicator_color: ThemedColor::Token(ColorToken::Primary),
             indicator_height: Fixed::from_int(2),
         }
     }
 
-    pub fn with_indicator_color(mut self, color: Color) -> Self {
-        self.indicator_color = Some(color);
+    pub fn with_indicator_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.indicator_color = color.into();
         self
     }
 
@@ -55,7 +56,7 @@ fn tab_bar_render(
         return;
     }
     let theme = ctx.theme(world);
-    let indicator_color = tb.indicator_color.unwrap_or(theme.primary);
+    let indicator_color = tb.indicator_color.resolve(theme);
     let tab_w = rect.w / Fixed::from_int(tb.count as i32);
     let indicator_x = rect.x + tb.indicator_offset * tab_w;
     let indicator_y = rect.y + rect.h - tb.indicator_height;
@@ -137,10 +138,17 @@ mod tests {
 
     #[test]
     fn with_indicator_overrides() {
+        use crate::types::Color;
         let tb = TabBar::new(3)
             .with_indicator_color(Color::rgb(255, 0, 0))
             .with_indicator_height(5);
-        assert_eq!(tb.indicator_color, Some(Color::rgb(255, 0, 0)));
+        assert_eq!(tb.indicator_color, ThemedColor::Raw(Color::rgb(255, 0, 0)));
         assert_eq!(tb.indicator_height, Fixed::from_int(5));
+    }
+
+    #[test]
+    fn with_indicator_token_via_into() {
+        let tb = TabBar::new(3).with_indicator_color(ColorToken::Success);
+        assert_eq!(tb.indicator_color, ThemedColor::Token(ColorToken::Success),);
     }
 }
