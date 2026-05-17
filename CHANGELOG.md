@@ -5,6 +5,62 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-05-17
+
+### Breaking
+
+Widget registry refactor — `App::new` no longer auto-installs every shipped widget, `View` is constructed through `View::new` + builder methods instead of struct literal, and the user-facing widget API condenses from four methods (`with_widget` / `with_default_widgets` / `register_view` / `register_default_widgets`) down to two.
+
+Migration:
+
+1. **`App::new(backend)` now returns an empty registry.** Recover the pre-v0.13 behaviour with `.with_default_widgets()`:
+   ```rust
+   // before
+   let mut app = App::new(backend);
+   // after
+   let mut app = App::new(backend).with_default_widgets();
+   ```
+   For a leaner binary, skip `with_default_widgets()` and chain only the widgets you actually need.
+
+2. **`App::register_view(view)` is now `App::with_widget(view)` (owned `self`).** Use it to add user-defined widgets next to the built-ins:
+   ```rust
+   let mut app = App::new(backend)
+       .with_default_widgets()
+       .with_widget(my_diamond::view());
+   ```
+
+3. **`View` struct fields are private; use `View::new` + builders.**
+   ```rust
+   // before
+   View {
+       name: "Diamond",
+       priority: 60,
+       render: diamond_render,
+       auto_attach: None,
+       systems: &[],
+   }
+   // after
+   View::new("Diamond", 60, diamond_render)
+       .with_attach(diamond_attach)   // optional
+       .with_systems(&[my_system])    // optional
+   ```
+   Marker widgets (no rendering, only systems) keep `View::systems_only(name, &[…])`.
+
+4. **`view.systems` slice no longer reachable from the App side.** `View::install` is the new install hook — App calls `view.install(&mut world, sink)` and `View` decides what to push into the scheduler. User code should never have read `view.systems` directly, but if you did, switch to `view.name()` for diagnostics or accept that the rest of the fields are no longer part of the public API.
+
+### Changed
+
+- **Per-widget gesture / key handlers and the cursor-blink resource live next to their renderers.** `button_handler`, `checkbox_handler`, `tabbar_handler`, `progress_bar_handler`, `textinput_gesture_handler`, `textinput_key_handler`, `cursor_blink_system`, and `CursorBlinkPhase` moved from `src/event/widget_input.rs` to the corresponding `src/components/<x>.rs` files. `CursorBlinkPhase` and `cursor_blink_system` are still re-exported from `event::widget_input` for backwards compatibility — the canonical path is now `mirui::components::text_input`.
+- **Widgets contribute their own per-frame systems through `View`.** Switch's three animation drivers and `tab_pages_system` are no longer hard-coded in `App::with_factory`; each widget's `view()` constructor declares the systems it needs and `App` drains them at registration time.
+- **`gallery/text_input_demo.rs`** no longer needs `app.add_system(cursor_blink_system)` — the `TextInput` view registers it automatically.
+
+### Removed
+
+- `App::register_view` / `App::register_default_widgets` (replaced by `with_widget` / `with_default_widgets`).
+- `crate::widget::view::default_registry` (use `ViewRegistry::with_builtins` for non-`App` test fixtures, `App::with_default_widgets` for production).
+- `ViewRegistry::register` / `ViewRegistry::sort_by_priority` (collapsed into `ViewRegistry::insert`, which keeps the vec sorted on each insertion).
+- `ViewRegistry::all_systems` (the App side calls `view.install` per view; nobody else needed the bulk view).
+
 ## [0.12.3] - 2026-05-17
 
 ### Changed
