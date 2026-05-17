@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-05-18
+
+### Added
+
+- **`Theme` resource** (`mirui::widget::Theme`) carrying twelve semantic colour tokens: `primary`, `on_primary`, `secondary`, `on_secondary`, `tertiary`, `on_tertiary`, `surface`, `on_surface`, `surface_variant`, `on_surface_variant`, `success`, `error`, `outline`, `shadow`. Eight cover the existing built-in widgets; four (`secondary` / `tertiary` / `outline` / `shadow`) are reserved up front so future widgets don't force another `Theme` shape change.
+- **`Theme::dark()`** (the default) and **`Theme::light()`** ship with the crate. `App::new` automatically inserts `Theme::default()` so render fns can rely on the resource being present.
+- **`App::with_theme(Theme)`** builder. Runtime swap via `world.insert_resource(...)` also works (callers should mark widgets `Dirty` themselves; automatic invalidation is a follow-up).
+- **`ViewCtx::theme(&self, world: &World) -> &Theme`** accessor for render fns. Render fns that don't read the theme don't pay the resource lookup.
+
+### Breaking
+
+Every built-in widget's colour fields are now `Option<Color>`. `None` means "fall through to the active `Theme`"; `Some(c)` is a per-instance override. Each widget's `::new()` constructor drops its colour arguments; per-colour builder methods cover overrides.
+
+```rust
+// before (v0.13.0)
+let s = Slider::new(Fixed::ZERO, Fixed::from_int(100));
+//   colour fields hardcoded to literal RGB inside ::new
+
+// after (v0.13.1)
+let s = Slider::new(Fixed::ZERO, Fixed::from_int(100));
+//   colour fields default to None; render falls through to theme.primary etc.
+
+// per-instance override
+let s = Slider::new(Fixed::ZERO, Fixed::from_int(100))
+    .with_fill_color(Color::rgb(255, 100, 100));
+```
+
+Migration table:
+
+| widget | before | after |
+|---|---|---|
+| `Button` | `Button::new(normal, pressed)` | `Button::new()` + `.with_normal_color` / `.with_pressed_color` |
+| `Checkbox` | `Checkbox::new(checked, unchecked)` | `Checkbox::new()` + `.with_checked_color` / `.with_unchecked_color` |
+| `ProgressBar` | `ProgressBar::new(fill, track)` | `ProgressBar::new()` + `.with_fill_color` / `.with_track_color` |
+| `Slider` | `Slider::new(min, max).with_colors(track, fill, thumb)` | `Slider::new(min, max)` + `.with_track_color` / `.with_fill_color` / `.with_thumb_color` |
+| `Switch` | `Switch::new().with_colors(on, off, thumb)` | `Switch::new()` + `.with_on_color` / `.with_off_color` / `.with_thumb_color` |
+| `TabBar` | `TabBar::new(n).with_indicator(color, height)` | `TabBar::new(n)` + `.with_indicator_color` / `.with_indicator_height` |
+| `TextInput` | `TextInput::new()` (literal defaults) | `TextInput::new()` + `.with_text_color` / `.with_placeholder_color` / `.with_cursor_color` / `.with_focus_border_color` |
+
+`Theme::dark()` reproduces the v0.13.0 hardcoded palette byte-equivalently — apps that didn't pass custom colours render pixel-identically across the upgrade. `Slider::with_colors(t, f, h)` and `Switch::with_colors(o, off, th)` and `TabBar::with_indicator(c, h)` three-arg helpers are gone; their two/three component builders cover the same need with one role per call.
+
+`Style.text_color` / `Style.bg_color` / `Style.border_color` are unchanged. They're entity-level overrides and don't fall through to `Theme`.
+
+### Examples
+
+- New `gallery/examples/theme_swap_demo.rs` — three picker buttons swap between dark / light / a custom palette at runtime; the showcase below (Slider, Switch, Checkbox, ProgressBar, TextInput, TabBar) repaints in the new palette on the next frame.
+
+### Internal
+
+- `View` constructor builders (`View::new`, `.with_attach`, `.with_systems`) carried over from v0.13.0 made every per-widget migration mechanical — no changes to `app.rs`, `render_system.rs`, or `widget_input.rs`.
+- All six gallery snapshots and three `text_input_snapshot` cases pixel-equal across the upgrade.
+- ESP `demo-widgets` binary unchanged at 504 KB.
+
 ## [0.13.0] - 2026-05-17
 
 ### Breaking
