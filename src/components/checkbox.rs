@@ -7,31 +7,30 @@ use crate::types::{Color, Rect};
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
+#[derive(Default)]
 pub struct Checkbox {
     pub checked: bool,
-    pub checked_color: Color,
-    pub unchecked_color: Color,
+    pub checked_color: Option<Color>,
+    pub unchecked_color: Option<Color>,
 }
 
 impl Checkbox {
-    pub fn new(checked_color: Color, unchecked_color: Color) -> Self {
-        Self {
-            checked: false,
-            checked_color,
-            unchecked_color,
-        }
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_checked_color(mut self, color: Color) -> Self {
+        self.checked_color = Some(color);
+        self
+    }
+
+    pub fn with_unchecked_color(mut self, color: Color) -> Self {
+        self.unchecked_color = Some(color);
+        self
     }
 
     pub fn toggle(&mut self) {
         self.checked = !self.checked;
-    }
-
-    pub fn current_color(&self) -> Color {
-        if self.checked {
-            self.checked_color
-        } else {
-            self.unchecked_color
-        }
     }
 }
 
@@ -45,12 +44,18 @@ fn checkbox_render(
     let Some(cb) = world.get::<Checkbox>(entity) else {
         return;
     };
+    let theme = ctx.theme(world);
+    let color = if cb.checked {
+        cb.checked_color.unwrap_or(theme.primary)
+    } else {
+        cb.unchecked_color.unwrap_or(theme.surface_variant)
+    };
     renderer.draw(
         &DrawCommand::Fill {
             area: *rect,
             transform: ctx.transform,
             quad: ctx.quad,
-            color: cb.current_color(),
+            color,
             radius: ctx.style.border_radius,
             opa: 255,
         },

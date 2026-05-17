@@ -181,7 +181,9 @@ fn build_ui(world: &mut World) -> Entity {
         .id();
     world.insert(
         cb1,
-        Checkbox::new(Color::rgb(88, 166, 255), Color::rgb(80, 80, 100)),
+        Checkbox::new()
+            .with_checked_color(Color::rgb(88, 166, 255))
+            .with_unchecked_color(Color::rgb(80, 80, 100)),
     );
     if let Some(cb) = world.get_mut::<Checkbox>(cb1) {
         cb.checked = true;
@@ -197,7 +199,9 @@ fn build_ui(world: &mut World) -> Entity {
         .id();
     world.insert(
         cb2,
-        Checkbox::new(Color::rgb(63, 185, 80), Color::rgb(80, 80, 100)),
+        Checkbox::new()
+            .with_checked_color(Color::rgb(63, 185, 80))
+            .with_unchecked_color(Color::rgb(80, 80, 100)),
     );
 
     let cb3 = WidgetBuilder::new(world)
@@ -210,7 +214,9 @@ fn build_ui(world: &mut World) -> Entity {
         .id();
     world.insert(
         cb3,
-        Checkbox::new(Color::rgb(248, 81, 73), Color::rgb(80, 80, 100)),
+        Checkbox::new()
+            .with_checked_color(Color::rgb(248, 81, 73))
+            .with_unchecked_color(Color::rgb(80, 80, 100)),
     );
     if let Some(cb) = world.get_mut::<Checkbox>(cb3) {
         cb.checked = true;

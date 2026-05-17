@@ -169,7 +169,7 @@ mod tests {
         world.insert_resource(reg);
 
         let e = world.spawn();
-        world.insert(e, Checkbox::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)));
+        world.insert(e, Checkbox::new());
 
         attach_handlers_for(&mut world, e);
 
@@ -187,7 +187,7 @@ mod tests {
         world.insert_resource(reg);
 
         let e = world.spawn();
-        world.insert(e, Checkbox::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)));
+        world.insert(e, Checkbox::new());
         attach_handlers_for(&mut world, e);
 
         let consumed = checkbox_handler(
