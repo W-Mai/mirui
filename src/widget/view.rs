@@ -271,6 +271,7 @@ mod tests {
     #[test]
     fn theme_accessor_returns_world_resource() {
         use crate::widget::Theme;
+        use crate::widget::theme::ColorToken;
         let mut world = World::new();
         world.insert_resource(Theme::light());
         let style = Style::default();
@@ -283,7 +284,13 @@ mod tests {
             bg_handled: false,
         };
         let theme = ctx.theme(&world);
-        assert_eq!(theme, &Theme::light());
+        // Compare via a representative token rather than struct
+        // equality — `Theme` doesn't derive `PartialEq` (it owns a
+        // `BTreeMap` of extras).
+        assert_eq!(
+            theme.resolve(ColorToken::Surface),
+            Theme::light().resolve(ColorToken::Surface),
+        );
     }
 
     #[test]

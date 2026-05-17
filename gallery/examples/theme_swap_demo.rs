@@ -40,15 +40,18 @@ struct ThemedSurface;
 struct ThemedOnSurface;
 
 fn theme_style_system(world: &mut World) {
-    let Some(theme) = world.resource::<Theme>().copied() else {
+    use mirui::widget::theme::ColorToken;
+    let Some(theme) = world.resource::<Theme>() else {
         return;
     };
+    let surface = theme.resolve(ColorToken::Surface);
+    let on_surface = theme.resolve(ColorToken::OnSurface);
 
     let surfaces: Vec<Entity> = world.query::<ThemedSurface>().collect();
     for e in surfaces {
         if let Some(style) = world.get_mut::<Style>(e) {
-            if style.bg_color != Some(theme.surface) {
-                style.bg_color = Some(theme.surface);
+            if style.bg_color != Some(surface) {
+                style.bg_color = Some(surface);
                 world.insert(e, Dirty);
             }
         }
@@ -57,8 +60,8 @@ fn theme_style_system(world: &mut World) {
     let on_surfaces: Vec<Entity> = world.query::<ThemedOnSurface>().collect();
     for e in on_surfaces {
         if let Some(style) = world.get_mut::<Style>(e) {
-            if style.text_color != Some(theme.on_surface) {
-                style.text_color = Some(theme.on_surface);
+            if style.text_color != Some(on_surface) {
+                style.text_color = Some(on_surface);
                 world.insert(e, Dirty);
             }
         }
@@ -66,14 +69,15 @@ fn theme_style_system(world: &mut World) {
 }
 
 fn custom_theme() -> Theme {
+    use mirui::widget::theme::ColorToken;
     let mut t = Theme::dark();
-    t.primary = Color::rgb(255, 105, 180);
-    t.on_primary = Color::rgb(20, 20, 30);
-    t.success = Color::rgb(255, 200, 60);
-    t.surface = Color::rgb(38, 28, 50);
-    t.surface_variant = Color::rgb(70, 50, 90);
-    t.on_surface = Color::rgb(245, 235, 255);
-    t.on_surface_variant = Color::rgb(180, 150, 200);
+    t.set(ColorToken::Primary, Color::rgb(255, 105, 180))
+        .set(ColorToken::OnPrimary, Color::rgb(20, 20, 30))
+        .set(ColorToken::Success, Color::rgb(255, 200, 60))
+        .set(ColorToken::Surface, Color::rgb(38, 28, 50))
+        .set(ColorToken::SurfaceVariant, Color::rgb(70, 50, 90))
+        .set(ColorToken::OnSurface, Color::rgb(245, 235, 255))
+        .set(ColorToken::OnSurfaceVariant, Color::rgb(180, 150, 200));
     t
 }
 
@@ -81,7 +85,7 @@ fn theme_swap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -
     if !matches!(event, GestureEvent::Tap { .. }) {
         return false;
     }
-    let Some(theme) = world.get::<ThemeChoice>(entity).map(|c| c.0) else {
+    let Some(theme) = world.get::<ThemeChoice>(entity).map(|c| c.0.clone()) else {
         return false;
     };
     world.insert_resource(theme);

@@ -6,7 +6,7 @@ pub mod theme;
 pub mod view;
 pub mod visibility;
 
-pub use theme::Theme;
+pub use theme::{ColorToken, Theme, ThemedColor};
 pub use view::{View, ViewRegistry};
 pub use visibility::Hidden;
 
