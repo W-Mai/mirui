@@ -15,7 +15,7 @@ pub struct TabBar {
     pub selected: u8,
     pub count: u8,
     pub indicator_offset: Fixed,
-    pub indicator_color: Color,
+    pub indicator_color: Option<Color>,
     pub indicator_height: Fixed,
 }
 
@@ -25,13 +25,17 @@ impl TabBar {
             selected: 0,
             count,
             indicator_offset: Fixed::ZERO,
-            indicator_color: Color::rgb(88, 166, 255),
+            indicator_color: None,
             indicator_height: Fixed::from_int(2),
         }
     }
 
-    pub fn with_indicator(mut self, color: Color, height: impl Into<Fixed>) -> Self {
-        self.indicator_color = color;
+    pub fn with_indicator_color(mut self, color: Color) -> Self {
+        self.indicator_color = Some(color);
+        self
+    }
+
+    pub fn with_indicator_height(mut self, height: impl Into<Fixed>) -> Self {
         self.indicator_height = height.into();
         self
     }
@@ -50,6 +54,8 @@ fn tab_bar_render(
     if tb.count == 0 {
         return;
     }
+    let theme = ctx.theme(world);
+    let indicator_color = tb.indicator_color.unwrap_or(theme.primary);
     let tab_w = rect.w / Fixed::from_int(tb.count as i32);
     let indicator_x = rect.x + tb.indicator_offset * tab_w;
     let indicator_y = rect.y + rect.h - tb.indicator_height;
@@ -63,7 +69,7 @@ fn tab_bar_render(
             },
             transform: ctx.transform,
             quad: ctx.quad,
-            color: tb.indicator_color,
+            color: indicator_color,
             radius: Fixed::ZERO,
             opa: 255,
         },
@@ -131,8 +137,10 @@ mod tests {
 
     #[test]
     fn with_indicator_overrides() {
-        let tb = TabBar::new(3).with_indicator(Color::rgb(255, 0, 0), 5);
-        assert_eq!(tb.indicator_color.r, 255);
+        let tb = TabBar::new(3)
+            .with_indicator_color(Color::rgb(255, 0, 0))
+            .with_indicator_height(5);
+        assert_eq!(tb.indicator_color, Some(Color::rgb(255, 0, 0)));
         assert_eq!(tb.indicator_height, Fixed::from_int(5));
     }
 }

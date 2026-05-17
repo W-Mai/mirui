@@ -37,7 +37,7 @@ fn main() {
             width: 480,
             height: 40
         ) [
-            TabBar::new(3).with_indicator(Color::rgb(88, 166, 255), 3),
+            TabBar::new(3).with_indicator_height(3),
         ] {
             tab0 (
                 text: "Home",
