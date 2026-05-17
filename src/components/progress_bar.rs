@@ -3,16 +3,26 @@ use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
-use crate::types::{Color, Fixed, Rect};
+use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
+use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
 
-#[derive(Default)]
 pub struct ProgressBar {
     pub value: f32, // 0.0 ~ 1.0
-    pub track_color: Option<Color>,
-    pub fill_color: Option<Color>,
+    pub track_color: ThemedColor,
+    pub fill_color: ThemedColor,
+}
+
+impl Default for ProgressBar {
+    fn default() -> Self {
+        Self {
+            value: 0.0,
+            track_color: ThemedColor::Token(ColorToken::SurfaceVariant),
+            fill_color: ThemedColor::Token(ColorToken::Primary),
+        }
+    }
 }
 
 impl ProgressBar {
@@ -20,13 +30,13 @@ impl ProgressBar {
         Self::default()
     }
 
-    pub fn with_track_color(mut self, color: Color) -> Self {
-        self.track_color = Some(color);
+    pub fn with_track_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.track_color = color.into();
         self
     }
 
-    pub fn with_fill_color(mut self, color: Color) -> Self {
-        self.fill_color = Some(color);
+    pub fn with_fill_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.fill_color = color.into();
         self
     }
 }
@@ -42,8 +52,8 @@ fn progress_bar_render(
         return;
     };
     let theme = ctx.theme(world);
-    let track_color = pb.track_color.unwrap_or(theme.surface_variant);
-    let fill_color = pb.fill_color.unwrap_or(theme.primary);
+    let track_color = pb.track_color.resolve(theme);
+    let fill_color = pb.fill_color.resolve(theme);
     renderer.draw(
         &DrawCommand::Fill {
             area: *rect,
