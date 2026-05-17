@@ -111,6 +111,10 @@ fn apply_visibility(world: &mut World) {
     }
 }
 
+pub fn view() -> crate::widget::view::View {
+    crate::widget::view::View::systems_only("TabPages", &[tab_pages_system])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

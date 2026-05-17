@@ -37,6 +37,29 @@ pub struct View {
     pub priority: u8,
     pub render: ViewRender,
     pub auto_attach: Option<ViewAttach>,
+    /// Per-frame systems this widget kind contributes.
+    pub systems: &'static [crate::ecs::System],
+}
+
+impl View {
+    /// Marker widget: only contributes systems, no rendering.
+    pub fn systems_only(name: &'static str, systems: &'static [crate::ecs::System]) -> Self {
+        fn noop_render(
+            _renderer: &mut dyn Renderer,
+            _world: &World,
+            _entity: Entity,
+            _rect: &Rect,
+            _ctx: &mut ViewCtx,
+        ) {
+        }
+        Self {
+            name,
+            priority: 100, // run after everything; no rendering anyway
+            render: noop_render,
+            auto_attach: None,
+            systems,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -57,6 +80,18 @@ impl ViewRegistry {
         self.views.iter()
     }
 
+    /// All systems contributed by registered views, in registration
+    /// order. `App::with_factory` calls this once after the default
+    /// registry is installed; `App::register_view` adds individual
+    /// view systems incrementally.
+    pub fn all_systems(&self) -> alloc::vec::Vec<crate::ecs::System> {
+        let mut out = alloc::vec::Vec::new();
+        for v in &self.views {
+            out.extend_from_slice(v.systems);
+        }
+        out
+    }
+
     pub fn len(&self) -> usize {
         self.views.len()
     }
@@ -66,9 +101,8 @@ impl ViewRegistry {
     }
 }
 
-/// `App::with_factory` runs this; tests building a `World`
-/// without `App` call it to opt into the rendering pipeline.
-pub fn install_default_registry(world: &mut World) {
+/// Built-in registry, sorted but not yet installed.
+pub fn default_registry() -> ViewRegistry {
     let mut reg = ViewRegistry::default();
     reg.register(super::style_view::view());
     reg.register(crate::components::button::view());
@@ -80,8 +114,15 @@ pub fn install_default_registry(world: &mut World) {
     reg.register(crate::components::text::view());
     reg.register(crate::components::slider::view());
     reg.register(crate::components::switch::view());
+    reg.register(crate::components::tab_pages::view());
     reg.sort_by_priority();
-    world.insert_resource(reg);
+    reg
+}
+
+/// Insert the built-in registry as a World resource. Tests building
+/// a `World` without `App` call this to opt into the render pipeline.
+pub fn install_default_registry(world: &mut World) {
+    world.insert_resource(default_registry());
 }
 
 #[cfg(test)]
@@ -105,6 +146,7 @@ mod tests {
             priority,
             render: dummy_render,
             auto_attach: None,
+            systems: &[],
         }
     }
 

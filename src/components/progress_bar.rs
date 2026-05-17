@@ -69,11 +69,7 @@ fn progress_bar_render(
 /// Map pointer x onto the bar's ComputedRect to drive `value` in
 /// [0, 1]. Both Tap and DragMove route here so dragging produces a
 /// continuous update.
-pub(crate) fn progress_bar_handler(
-    world: &mut World,
-    entity: Entity,
-    event: &GestureEvent,
-) -> bool {
+fn progress_bar_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     let x = match event {
         GestureEvent::Tap { x, .. } | GestureEvent::DragMove { x, .. } => *x,
         _ => return false,
@@ -113,5 +109,6 @@ pub fn view() -> View {
         priority: 60,
         render: progress_bar_render,
         auto_attach: Some(progress_bar_attach),
+        systems: &[],
     }
 }

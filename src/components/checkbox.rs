@@ -91,5 +91,6 @@ pub fn view() -> View {
         priority: 40,
         render: checkbox_render,
         auto_attach: Some(checkbox_attach),
+        systems: &[],
     }
 }

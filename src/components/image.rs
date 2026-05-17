@@ -49,5 +49,6 @@ pub fn view() -> View {
         priority: 70,
         render: image_render,
         auto_attach: None,
+        systems: &[],
     }
 }

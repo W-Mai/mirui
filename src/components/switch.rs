@@ -265,5 +265,10 @@ pub fn view() -> View {
         priority: 60,
         render: switch_render,
         auto_attach: Some(switch_attach),
+        systems: &[
+            switch_init_system,
+            animate_switch_bg_t_system,
+            animate_thumb_x_system,
+        ],
     }
 }

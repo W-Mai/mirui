@@ -76,12 +76,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(FocusState::default());
         let info = backend.display_info();
         world.insert_resource(info);
+        let registry = crate::widget::view::default_registry();
         let mut systems = SystemScheduler::new();
-        systems.add(crate::components::tab_pages::tab_pages_system);
-        systems.add(crate::components::switch::animate_switch_bg_t_system);
-        systems.add(crate::components::switch::animate_thumb_x_system);
-        systems.add(crate::components::switch::switch_init_system);
-        let mut app = Self {
+        for s in registry.all_systems() {
+            systems.add(s);
+        }
+        world.insert_resource(registry);
+        Self {
             world,
             backend,
             factory,
@@ -90,23 +91,23 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             plugins: Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
-        };
-        app.default_views();
-        app
+        }
     }
 
-    /// Built-ins go through `default_views()`; user-defined kinds
-    /// call this directly.
+    /// Register a user-defined `View`. Built-ins are installed in
+    /// `with_factory`; this is the user-side entry point. Any
+    /// `systems` the view declares are appended to the scheduler at
+    /// the same time.
     pub fn register_view(&mut self, view: View) -> &mut Self {
+        let view_systems: alloc::vec::Vec<crate::ecs::System> = view.systems.to_vec();
         if let Some(reg) = self.world.resource_mut::<ViewRegistry>() {
             reg.register(view);
             reg.sort_by_priority();
         }
+        for s in view_systems {
+            self.systems.add(s);
+        }
         self
-    }
-
-    fn default_views(&mut self) {
-        crate::widget::view::install_default_registry(&mut self.world);
     }
 
     pub fn add_system(&mut self, system: System) -> &mut Self {

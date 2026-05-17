@@ -161,5 +161,6 @@ pub fn view() -> View {
         priority: 60,
         render: slider_render,
         auto_attach: Some(slider_attach),
+        systems: &[],
     }
 }

@@ -58,7 +58,7 @@ fn button_render(
 /// Press feedback: highlight while gesture is in flight, release on
 /// Tap / DragEnd. DragStart is needed because Tap is press+release in
 /// one event — without it we'd never see the held state.
-pub(crate) fn button_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+fn button_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     match event {
         GestureEvent::DragStart { .. } => {
             if let Some(btn) = world.get_mut::<Button>(entity) {
@@ -99,5 +99,6 @@ pub fn view() -> View {
         priority: 40,
         render: button_render,
         auto_attach: Some(button_attach),
+        systems: &[],
     }
 }

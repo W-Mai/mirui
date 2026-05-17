@@ -75,6 +75,7 @@ pub fn diamond_view() -> View {
         priority: 60, // same band as built-in content widgets
         render: diamond_render,
         auto_attach: None,
+        systems: &[],
     }
 }
 

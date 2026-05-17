@@ -14,7 +14,6 @@ fn main() {
     let mut app = App::new(backend);
 
     app.add_system(mirui::anim::sync_delta_time_ms);
-    app.add_system(mirui::event::widget_input::cursor_blink_system);
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

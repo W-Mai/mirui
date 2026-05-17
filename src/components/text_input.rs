@@ -262,11 +262,7 @@ pub fn cursor_blink_system(world: &mut World) {
 /// Focus is actually set by `focus_on_tap` in `App::run`; this
 /// just mirrors `FocusState` onto `TextInput.focused` for the
 /// renderer's fast read.
-pub(crate) fn textinput_gesture_handler(
-    world: &mut World,
-    entity: Entity,
-    event: &GestureEvent,
-) -> bool {
+fn textinput_gesture_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     if let GestureEvent::Tap { .. } = event {
         sync_textinput_focus(world);
         world.insert(entity, Dirty);
@@ -294,7 +290,7 @@ fn sync_textinput_focus(world: &mut World) {
     }
 }
 
-pub(crate) fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) -> bool {
+fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) -> bool {
     let Some(ti) = world.get_mut::<TextInput>(entity) else {
         return false;
     };
@@ -358,6 +354,7 @@ fn text_input_attach(world: &mut World, entity: Entity) {
 
 pub fn view() -> View {
     View {
+        systems: &[cursor_blink_system],
         name: "TextInput",
         priority: 70,
         render: text_input_render,

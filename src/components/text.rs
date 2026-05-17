@@ -40,5 +40,6 @@ pub fn view() -> View {
         priority: 80,
         render: text_render,
         auto_attach: None,
+        systems: &[],
     }
 }
