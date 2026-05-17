@@ -2,8 +2,10 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::GestureHandler;
-use crate::event::widget_input::progress_bar_handler;
+use crate::event::gesture::GestureEvent;
 use crate::types::{Color, Fixed, Rect};
+use crate::widget::ComputedRect;
+use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
 pub struct ProgressBar {
@@ -62,6 +64,32 @@ fn progress_bar_render(
             ctx.clip,
         );
     }
+}
+
+/// Map pointer x onto the bar's ComputedRect to drive `value` in
+/// [0, 1]. Both Tap and DragMove route here so dragging produces a
+/// continuous update.
+pub(crate) fn progress_bar_handler(
+    world: &mut World,
+    entity: Entity,
+    event: &GestureEvent,
+) -> bool {
+    let x = match event {
+        GestureEvent::Tap { x, .. } | GestureEvent::DragMove { x, .. } => *x,
+        _ => return false,
+    };
+    let Some(rect) = world.get::<ComputedRect>(entity).map(|c| c.0) else {
+        return false;
+    };
+    if rect.w <= Fixed::ZERO {
+        return false;
+    }
+    let ratio = ((x - rect.x).to_f32() / rect.w.to_f32()).clamp(0.0, 1.0);
+    if let Some(pb) = world.get_mut::<ProgressBar>(entity) {
+        pb.value = ratio;
+    }
+    world.insert(entity, Dirty);
+    true
 }
 
 fn progress_bar_attach(world: &mut World, entity: Entity) {

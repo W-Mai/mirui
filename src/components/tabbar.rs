@@ -2,8 +2,10 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::GestureHandler;
-use crate::event::widget_input::tabbar_handler;
+use crate::event::gesture::GestureEvent;
 use crate::types::{Color, Fixed, Rect};
+use crate::widget::ComputedRect;
+use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
 /// Horizontal tab bar with N children laid out flex-row.
@@ -67,6 +69,33 @@ fn tab_bar_render(
         },
         ctx.clip,
     );
+}
+
+/// Snap selected and indicator_offset to the tapped tab.
+pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+    let x = match event {
+        GestureEvent::Tap { x, .. } => *x,
+        _ => return false,
+    };
+    let Some(rect) = world.get::<ComputedRect>(entity).map(|c| c.0) else {
+        return false;
+    };
+    if rect.w <= Fixed::ZERO {
+        return false;
+    }
+    let count = match world.get::<TabBar>(entity) {
+        Some(tb) if tb.count > 0 => tb.count,
+        _ => return false,
+    };
+    let local = (x - rect.x).max(Fixed::ZERO);
+    let tab_w = rect.w / Fixed::from_int(count as i32);
+    let idx = (local / tab_w).to_int().clamp(0, count as i32 - 1) as u8;
+    if let Some(tb) = world.get_mut::<TabBar>(entity) {
+        tb.selected = idx;
+        tb.indicator_offset = Fixed::from_int(idx as i32);
+    }
+    world.insert(entity, Dirty);
+    true
 }
 
 fn tab_bar_attach(world: &mut World, entity: Entity) {

@@ -2,12 +2,18 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::GestureHandler;
-use crate::event::focus::{Focusable, KeyHandler};
-use crate::event::widget_input::{
-    CursorBlinkPhase, textinput_gesture_handler, textinput_key_handler,
+use crate::event::focus::{FocusState, Focusable, KeyHandler};
+use crate::event::gesture::GestureEvent;
+use crate::event::input::{
+    InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT,
 };
 use crate::types::{Color, Fixed, Point, Rect};
+use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
+
+/// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
+#[derive(Default, Clone, Copy)]
+pub struct CursorBlinkPhase(pub bool);
 
 pub const TEXT_INPUT_CAP: usize = 32;
 
@@ -224,6 +230,108 @@ fn text_input_render(
             );
         }
     }
+}
+
+/// Flip `CursorBlinkPhase` every 500 ms and Dirty every focused TextInput.
+pub fn cursor_blink_system(world: &mut World) {
+    let now_ms = match world.resource::<crate::ecs::MonoClock>() {
+        Some(c) => (c.clock)() / 1_000_000,
+        None => return,
+    };
+    let new_phase = (now_ms / 500) % 2 == 0;
+    let prev_phase = world
+        .resource::<CursorBlinkPhase>()
+        .map(|p| p.0)
+        .unwrap_or(!new_phase);
+    if new_phase == prev_phase {
+        return;
+    }
+    world.insert_resource(CursorBlinkPhase(new_phase));
+    let entities: alloc::vec::Vec<_> = world.query::<TextInput>().collect();
+    for e in entities {
+        if world
+            .get::<TextInput>(e)
+            .map(|t| t.focused)
+            .unwrap_or(false)
+        {
+            world.insert(e, Dirty);
+        }
+    }
+}
+
+/// Focus is actually set by `focus_on_tap` in `App::run`; this
+/// just mirrors `FocusState` onto `TextInput.focused` for the
+/// renderer's fast read.
+pub(crate) fn textinput_gesture_handler(
+    world: &mut World,
+    entity: Entity,
+    event: &GestureEvent,
+) -> bool {
+    if let GestureEvent::Tap { .. } = event {
+        sync_textinput_focus(world);
+        world.insert(entity, Dirty);
+        return true;
+    }
+    false
+}
+
+/// Copy `FocusState.focused` onto each TextInput's `focused` field.
+fn sync_textinput_focus(world: &mut World) {
+    let focused = world.resource::<FocusState>().and_then(|fs| fs.focused);
+    let entities: alloc::vec::Vec<_> = world.query::<TextInput>().collect();
+    for e in entities {
+        let want = Some(e) == focused;
+        let current = world
+            .get::<TextInput>(e)
+            .map(|t| t.focused)
+            .unwrap_or(false);
+        if want != current {
+            if let Some(ti) = world.get_mut::<TextInput>(e) {
+                ti.focused = want;
+            }
+            world.insert(e, Dirty);
+        }
+    }
+}
+
+pub(crate) fn textinput_key_handler(world: &mut World, entity: Entity, event: &InputEvent) -> bool {
+    let Some(ti) = world.get_mut::<TextInput>(entity) else {
+        return false;
+    };
+    let mut changed = false;
+    match event {
+        InputEvent::CharInput { ch } => {
+            if (*ch as u32) < 128 {
+                changed |= ti.insert(*ch as u8);
+            }
+        }
+        InputEvent::Key { code, pressed } if *pressed => match *code {
+            KEY_BACKSPACE => changed |= ti.backspace(),
+            KEY_DELETE => changed |= ti.delete_forward(),
+            KEY_LEFT => {
+                ti.move_left();
+                changed = true;
+            }
+            KEY_RIGHT => {
+                ti.move_right();
+                changed = true;
+            }
+            KEY_HOME => {
+                ti.move_home();
+                changed = true;
+            }
+            KEY_END => {
+                ti.move_end();
+                changed = true;
+            }
+            _ => return false,
+        },
+        _ => return false,
+    }
+    if changed {
+        world.insert(entity, Dirty);
+    }
+    true
 }
 
 fn text_input_attach(world: &mut World, entity: Entity) {

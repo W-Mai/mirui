@@ -2,8 +2,9 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::GestureHandler;
-use crate::event::widget_input::checkbox_handler;
+use crate::event::gesture::GestureEvent;
 use crate::types::{Color, Rect};
+use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
 pub struct Checkbox {
@@ -56,6 +57,17 @@ fn checkbox_render(
         ctx.clip,
     );
     ctx.bg_handled = true;
+}
+
+pub(crate) fn checkbox_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+    if let GestureEvent::Tap { .. } = event {
+        if let Some(cb) = world.get_mut::<Checkbox>(entity) {
+            cb.toggle();
+        }
+        world.insert(entity, Dirty);
+        return true;
+    }
+    false
 }
 
 fn checkbox_attach(world: &mut World, entity: Entity) {
