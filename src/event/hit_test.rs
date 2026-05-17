@@ -9,6 +9,12 @@ use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
 use crate::widget::{Children, Hidden, Style, Widget};
 
+// INVARIANT: every recursive walker in this module — build_rects,
+// compute_scroll_offsets, compute_transforms, compute_transforms_3d —
+// must gate child recursion on the same triple (Widget && !Hidden &&
+// Style). They share an implicit per-entity index; any divergence
+// silently mis-aligns the rect/scroll/transform Vecs hit_test reads.
+
 fn build_rects(
     world: &World,
     entity: Entity,
@@ -69,9 +75,17 @@ fn compute_scroll_recursive(
 
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
-            if world.get::<Widget>(child).is_some() {
-                compute_scroll_recursive(world, child, child_acc_x, child_acc_y, offsets, idx);
+            // See module INVARIANT.
+            if world.get::<Widget>(child).is_none() {
+                continue;
             }
+            if world.get::<Hidden>(child).is_some() {
+                continue;
+            }
+            if world.get::<Style>(child).is_none() {
+                continue;
+            }
+            compute_scroll_recursive(world, child, child_acc_x, child_acc_y, offsets, idx);
         }
     }
 }
@@ -118,9 +132,17 @@ fn compute_transforms_recursive(
 
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
-            if world.get::<Widget>(child).is_some() {
-                compute_transforms_recursive(world, child, &effective, rects, out, idx);
+            // See module INVARIANT.
+            if world.get::<Widget>(child).is_none() {
+                continue;
             }
+            if world.get::<Hidden>(child).is_some() {
+                continue;
+            }
+            if world.get::<Style>(child).is_none() {
+                continue;
+            }
+            compute_transforms_recursive(world, child, &effective, rects, out, idx);
         }
     }
 }
@@ -183,9 +205,16 @@ fn compute_transforms_3d_recursive(
 
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
-            if world.get::<Widget>(child).is_some() {
-                compute_transforms_3d_recursive(world, child, &effective, rects, out, idx);
+            if world.get::<Widget>(child).is_none() {
+                continue;
             }
+            if world.get::<Hidden>(child).is_some() {
+                continue;
+            }
+            if world.get::<Style>(child).is_none() {
+                continue;
+            }
+            compute_transforms_3d_recursive(world, child, &effective, rects, out, idx);
         }
     }
 }

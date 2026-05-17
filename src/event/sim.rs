@@ -689,6 +689,77 @@ mod tests {
         );
     }
 
+    /// Pins the per-entity-Vec walk-alignment invariant. Tree:
+    ///
+    ///   root  (column, 60x90)
+    ///   ├── hidden  (Hidden, ScrollOffset.y=30)
+    ///   │   └── decoy
+    ///   ├── visible_a
+    ///   └── target
+    ///
+    /// entities (build_rects skips Hidden) = [root, visible_a, target].
+    /// Buggy compute_scroll walked into the Hidden subtree; when it
+    /// reached `decoy` the accumulator was (0, 30) and it wrote
+    /// that into offsets[2] — `target`'s slot. The fix gates the
+    /// scroll/transform walks on the same Widget+!Hidden+Style
+    /// triple build_rects uses, so offsets stay (0,0) and Tap at
+    /// target's centre hits target.
+    #[test]
+    fn hit_test_skips_hidden_subtree_scroll_offset() {
+        use crate::event::scroll::ScrollOffset;
+        use crate::widget::{Children, Hidden, Parent};
+        let mut world = World::new();
+        let mk = |w: &mut World, h: i32| {
+            WidgetBuilder::new(w)
+                .layout(LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(60),
+                    height: Dimension::px(h),
+                    ..Default::default()
+                })
+                .id()
+        };
+        let attach = |w: &mut World, parent: Entity, child: Entity| {
+            w.insert(child, Parent(parent));
+            if let Some(c) = w.get_mut::<Children>(parent) {
+                c.0.push(child);
+            }
+        };
+
+        let root = mk(&mut world, 90);
+        let hidden = mk(&mut world, 30);
+        let decoy = mk(&mut world, 30);
+        let visible_a = mk(&mut world, 30);
+        let target = mk(&mut world, 30);
+        attach(&mut world, hidden, decoy);
+        attach(&mut world, root, hidden);
+        attach(&mut world, root, visible_a);
+        attach(&mut world, root, target);
+        world.insert(hidden, Hidden);
+        world.insert(
+            hidden,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(30),
+            },
+        );
+
+        let hit = hit_test(
+            &world,
+            root,
+            Fixed::from_int(30),
+            Fixed::from_int(45),
+            60,
+            90,
+        );
+        assert_eq!(
+            hit,
+            Some(target),
+            "hit at target centre returned {hit:?}; index alignment \
+             between build_rects and compute_scroll_offsets is broken",
+        );
+    }
+
     /// Bug repro: a Tap event delivered through dispatch_input at
     /// the Switch's centre must run switch_handler and toggle on.
     #[test]
