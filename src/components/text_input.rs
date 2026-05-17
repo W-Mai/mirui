@@ -7,8 +7,9 @@ use crate::event::gesture::GestureEvent;
 use crate::event::input::{
     InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT,
 };
-use crate::types::{Color, Fixed, Point, Rect};
+use crate::types::{Fixed, Point, Rect};
 use crate::widget::dirty::Dirty;
+use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
 
 /// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
@@ -30,10 +31,10 @@ pub struct TextInput {
     pub len: u8,
     pub cursor: u8,
     pub focused: bool,
-    pub text_color: Option<Color>,
-    pub placeholder_color: Option<Color>,
-    pub cursor_color: Option<Color>,
-    pub focus_border_color: Option<Color>,
+    pub text_color: ThemedColor,
+    pub placeholder_color: ThemedColor,
+    pub cursor_color: ThemedColor,
+    pub focus_border_color: ThemedColor,
 }
 
 impl TextInput {
@@ -43,30 +44,30 @@ impl TextInput {
             len: 0,
             cursor: 0,
             focused: false,
-            text_color: None,
-            placeholder_color: None,
-            cursor_color: None,
-            focus_border_color: None,
+            text_color: ThemedColor::Token(ColorToken::OnSurface),
+            placeholder_color: ThemedColor::Token(ColorToken::OnSurfaceVariant),
+            cursor_color: ThemedColor::Token(ColorToken::OnSurface),
+            focus_border_color: ThemedColor::Token(ColorToken::Primary),
         }
     }
 
-    pub fn with_text_color(mut self, color: Color) -> Self {
-        self.text_color = Some(color);
+    pub fn with_text_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.text_color = color.into();
         self
     }
 
-    pub fn with_placeholder_color(mut self, color: Color) -> Self {
-        self.placeholder_color = Some(color);
+    pub fn with_placeholder_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.placeholder_color = color.into();
         self
     }
 
-    pub fn with_cursor_color(mut self, color: Color) -> Self {
-        self.cursor_color = Some(color);
+    pub fn with_cursor_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.cursor_color = color.into();
         self
     }
 
-    pub fn with_focus_border_color(mut self, color: Color) -> Self {
-        self.focus_border_color = Some(color);
+    pub fn with_focus_border_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.focus_border_color = color.into();
         self
     }
 
@@ -175,10 +176,10 @@ fn text_input_render(
         return;
     };
     let theme = ctx.theme(world);
-    let text_color = ti.text_color.unwrap_or(theme.on_surface);
-    let placeholder_color = ti.placeholder_color.unwrap_or(theme.on_surface_variant);
-    let cursor_color = ti.cursor_color.unwrap_or(theme.on_surface);
-    let focus_border_color = ti.focus_border_color.unwrap_or(theme.primary);
+    let text_color = ti.text_color.resolve(theme);
+    let placeholder_color = ti.placeholder_color.resolve(theme);
+    let cursor_color = ti.cursor_color.resolve(theme);
+    let focus_border_color = ti.focus_border_color.resolve(theme);
 
     if ti.focused {
         renderer.draw(
