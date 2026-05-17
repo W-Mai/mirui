@@ -5,6 +5,67 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-05-18
+
+### Added
+
+- **`ColorToken`** (`mirui::widget::theme::ColorToken`): an enum of fourteen builtin tokens (`Primary`, `OnPrimary`, `Secondary`, `OnSecondary`, `Tertiary`, `OnTertiary`, `Surface`, `OnSurface`, `SurfaceVariant`, `OnSurfaceVariant`, `Success`, `Error`, `Outline`, `Shadow`) plus `Custom(&'static str)` for user-defined tokens. `ColorToken::custom("name")` is a `const fn` so user code can declare module-level constants.
+- **`ThemedColor`** (`mirui::widget::ThemedColor`): an enum wrapping either a fixed `Color` (`Raw`) or a `ColorToken` reference (`Token`). Resolves to a concrete `Color` against a `Theme` at render time. Implements `From<Color>` and `From<ColorToken>`, so any builder method taking `impl Into<ThemedColor>` accepts both literal colours and token references.
+- **`Theme::set(token, color)`** / **`Theme::resolve(token) -> Color`** / **`Theme::unset(token)`**: uniform API for both builtin and custom tokens. Internally `Theme` stores builtins as struct fields (fast path) and custom tokens in a `BTreeMap`, but the public surface is the same regardless. `Theme::unset` is a no-op for builtins (which always have a value).
+- **`Style::set_bg_color`** / **`set_border_color`** / **`set_text_color`** / **`clear_bg_color`** / **`clear_border_color`**: ergonomic setters for runtime mutation that accept `impl Into<ThemedColor>`. Replace `style.bg_color = Some(c.into())` with `style.set_bg_color(c)`.
+
+### Breaking
+
+Every colour field across the public API switches from `Option<Color>` (or `Color`) to `ThemedColor` or `Option<ThemedColor>`. The default values point at semantic tokens, so widgets follow the active `Theme` automatically. Per-instance overrides now accept either a literal `Color` or a `ColorToken` through the `impl Into<ThemedColor>` builder signature.
+
+| widget / type | field | before (v0.13.1) | after (v0.14.0) default |
+|---|---|---|---|
+| Button | normal_color | `Option<Color>` (`None` → `theme.surface_variant`) | `ThemedColor::Token(SurfaceVariant)` |
+| Button | pressed_color | `Option<Color>` | `Token(Primary)` |
+| Checkbox | checked / unchecked_color | `Option<Color>` | `Token(Primary)` / `Token(SurfaceVariant)` |
+| ProgressBar | fill / track_color | `Option<Color>` | `Token(Primary)` / `Token(SurfaceVariant)` |
+| Slider | fill / track / thumb_color | `Option<Color>` | `Token(Primary)` / `Token(SurfaceVariant)` / `Token(OnPrimary)` |
+| Switch | on / off / thumb_color | `Option<Color>` | `Token(Success)` / `Token(SurfaceVariant)` / `Token(OnPrimary)` |
+| TabBar | indicator_color | `Option<Color>` | `Token(Primary)` |
+| TextInput | text / placeholder / cursor / focus_border_color | `Option<Color>` | `Token(OnSurface)` / `Token(OnSurfaceVariant)` / `Token(OnSurface)` / `Token(Primary)` |
+| Style | bg_color | `Option<Color>` | `Option<ThemedColor>` (default `None`) |
+| Style | border_color | `Option<Color>` | `Option<ThemedColor>` (default `None`) |
+| Style | text_color | `Option<Color>` (`None` → hardcoded `rgb(255,255,255)` in render) | `ThemedColor` (default `Token(OnSurface)`, always paints) |
+
+`Theme` itself loses its public field access. Code reading `theme.primary` directly migrates to `theme.resolve(ColorToken::Primary)`; code writing `theme.primary = c` migrates to `theme.set(ColorToken::Primary, c)`. The Theme builder methods (`Theme::dark`, `Theme::light`) keep working unchanged.
+
+Migration template:
+
+```rust
+// before
+let mut t = Theme::dark();
+t.primary = Color::rgb(255, 0, 0);
+
+// after
+let mut t = Theme::dark();
+t.set(ColorToken::Primary, Color::rgb(255, 0, 0));
+```
+
+```rust
+// before — colour pinned to the success token at construction
+let theme = world.resource::<Theme>().unwrap();
+let s = Slider::new(0, 100).with_fill_color(theme.success);
+//   ^^ frozen at construction; subsequent theme swaps do not update it.
+
+// after — slider's fill tracks success across theme swaps
+let s = Slider::new(0, 100).with_fill_color(ColorToken::Success);
+```
+
+### Examples
+
+- `gallery/examples/theme_swap_demo.rs` simplified: dropped the `ThemedSurface` / `ThemedOnSurface` marker components and the `theme_style_system` workaround that was needed in v0.13.1. Now `Style.bg_color` and `Style.text_color` are `ThemedColor` so binding them to a token is one line. Adds a `Custom("accent")` token bound by every preset theme; the demo's accent swatch reads `bg_color: ACCENT` directly.
+
+### Internal
+
+- `install_default_registry` (test-only helper) now seeds `Theme::default()` so render-system unit tests that build a `World` directly get the resource that `ViewCtx::theme` expects.
+- 197 unit tests + 4 integration tests + 9 gallery snapshots all pass; snapshots remain pixel-equal across the migration because every fixture sets `text_color` explicitly. The `Style.text_color` default change from a hardcoded white fallback to `Token(OnSurface)` only affects code that didn't set it explicitly.
+- ESP `demo-widgets` binary grows ~6 KB (504 KB → 510 KB) for the BTreeMap addition. Acceptable headroom on the 4 MB partition.
+
 ## [0.13.1] - 2026-05-18
 
 ### Added
