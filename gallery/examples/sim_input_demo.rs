@@ -33,7 +33,7 @@ fn tap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool 
             Color::rgb(255, 200, 50),
         ];
         if let Some(style) = world.get_mut::<mirui::widget::Style>(entity) {
-            style.bg_color = Some(colors[(count as usize) % colors.len()]);
+            style.set_bg_color(colors[(count as usize) % colors.len()]);
         }
         world.insert(entity, Dirty);
         true

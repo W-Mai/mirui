@@ -33,7 +33,7 @@ fn tap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool 
             ];
             let color = colors[(count as usize) % colors.len()];
             if let Some(style) = world.get_mut::<mirui::widget::Style>(entity) {
-                style.bg_color = Some(color);
+                style.set_bg_color(color);
             }
             world.insert(entity, Dirty);
             true
@@ -62,14 +62,14 @@ fn longpress_handler(world: &mut World, entity: Entity, event: &GestureEvent) ->
     match event {
         GestureEvent::LongPress { .. } => {
             if let Some(style) = world.get_mut::<mirui::widget::Style>(entity) {
-                style.bg_color = Some(Color::rgb(255, 50, 50));
+                style.set_bg_color(Color::rgb(255, 50, 50));
             }
             world.insert(entity, Dirty);
             true
         }
         GestureEvent::Tap { .. } => {
             if let Some(style) = world.get_mut::<mirui::widget::Style>(entity) {
-                style.bg_color = Some(Color::rgb(210, 168, 255));
+                style.set_bg_color(Color::rgb(210, 168, 255));
             }
             world.insert(entity, Dirty);
             true

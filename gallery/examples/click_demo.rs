@@ -26,7 +26,7 @@ fn toggle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
             if t.on { t.accent } else { t.base }
         };
         if let Some(style) = world.get_mut::<Style>(entity) {
-            style.bg_color = Some(new_color);
+            style.set_bg_color(new_color);
         }
         world.insert(entity, Dirty);
         true

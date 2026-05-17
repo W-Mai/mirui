@@ -50,8 +50,8 @@ fn theme_style_system(world: &mut World) {
     let surfaces: Vec<Entity> = world.query::<ThemedSurface>().collect();
     for e in surfaces {
         if let Some(style) = world.get_mut::<Style>(e) {
-            if style.bg_color != Some(surface) {
-                style.bg_color = Some(surface);
+            if style.bg_color != Some(surface.into()) {
+                style.set_bg_color(surface);
                 world.insert(e, Dirty);
             }
         }
@@ -60,8 +60,8 @@ fn theme_style_system(world: &mut World) {
     let on_surfaces: Vec<Entity> = world.query::<ThemedOnSurface>().collect();
     for e in on_surfaces {
         if let Some(style) = world.get_mut::<Style>(e) {
-            if style.text_color != Some(on_surface) {
-                style.text_color = Some(on_surface);
+            if style.text_color != on_surface.into() {
+                style.set_text_color(on_surface);
                 world.insert(e, Dirty);
             }
         }

@@ -174,8 +174,11 @@ pub fn builtin_views() -> [View; 11] {
 }
 
 /// Test-only shortcut; production code uses `App::with_default_widgets`.
+/// Also seeds the default `Theme` so render fns calling
+/// `ctx.theme(world)` don't trip the missing-resource expectation.
 pub fn install_default_registry(world: &mut World) {
     world.insert_resource(ViewRegistry::with_builtins());
+    world.insert_resource(crate::widget::theme::Theme::default());
 }
 
 #[cfg(test)]

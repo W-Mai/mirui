@@ -2,7 +2,7 @@ use crate::components::transform::WidgetTransform;
 use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::ecs::{Entity, World};
 use crate::layout::LayoutStyle;
-use crate::types::{Color, Fixed, Transform, Transform3D};
+use crate::types::{Fixed, Transform, Transform3D};
 
 use super::{Children, Parent, Style, Widget};
 
@@ -20,9 +20,9 @@ impl<'a> WidgetBuilder<'a> {
         Self { world, entity }
     }
 
-    pub fn bg_color(self, color: Color) -> Self {
+    pub fn bg_color(self, color: impl Into<crate::widget::theme::ThemedColor>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
-            style.bg_color = Some(color);
+            style.bg_color = Some(color.into());
         }
         self
     }
@@ -34,9 +34,13 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
-    pub fn border(self, color: Color, width: impl Into<crate::types::Fixed>) -> Self {
+    pub fn border(
+        self,
+        color: impl Into<crate::widget::theme::ThemedColor>,
+        width: impl Into<crate::types::Fixed>,
+    ) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
-            style.border_color = Some(color);
+            style.border_color = Some(color.into());
             style.border_width = width.into();
         }
         self
@@ -76,9 +80,9 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
-    pub fn text_color(self, color: Color) -> Self {
+    pub fn text_color(self, color: impl Into<crate::widget::theme::ThemedColor>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
-            style.text_color = Some(color);
+            style.text_color = color.into();
         }
         self
     }

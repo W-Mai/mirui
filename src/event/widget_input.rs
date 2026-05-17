@@ -46,7 +46,7 @@ mod tests {
     use crate::components::text_input::TextInput;
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
-    use crate::types::{Color, Fixed, Rect};
+    use crate::types::{Fixed, Rect};
     use crate::widget::ComputedRect;
     use crate::widget::view::ViewRegistry;
 

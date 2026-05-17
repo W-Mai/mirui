@@ -13,19 +13,102 @@ pub use visibility::Hidden;
 use alloc::vec::Vec;
 
 use crate::layout::LayoutStyle;
-use crate::types::{Color, Fixed};
+use crate::types::Fixed;
 
 pub struct Widget;
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Style {
-    pub bg_color: Option<Color>,
-    pub border_color: Option<Color>,
+    pub bg_color: Option<ThemedColor>,
+    pub border_color: Option<ThemedColor>,
     pub border_width: Fixed,
     pub border_radius: Fixed,
-    pub text_color: Option<Color>,
+    /// Always present. `None` would mean "no text"; transparent text
+    /// is more naturally expressed by setting alpha on the resolved
+    /// colour.
+    pub text_color: ThemedColor,
     pub layout: LayoutStyle,
     pub clip_children: bool,
+}
+
+impl Default for Style {
+    fn default() -> Self {
+        Self {
+            bg_color: None,
+            border_color: None,
+            border_width: Fixed::ZERO,
+            border_radius: Fixed::ZERO,
+            text_color: ThemedColor::Token(ColorToken::OnSurface),
+            layout: LayoutStyle::default(),
+            clip_children: false,
+        }
+    }
+}
+
+impl Style {
+    /// Ergonomic setter that accepts both `Color` literals and
+    /// `ColorToken` values. Equivalent to
+    /// `style.bg_color = Some(color.into())`.
+    pub fn set_bg_color(&mut self, color: impl Into<ThemedColor>) -> &mut Self {
+        self.bg_color = Some(color.into());
+        self
+    }
+
+    pub fn clear_bg_color(&mut self) -> &mut Self {
+        self.bg_color = None;
+        self
+    }
+
+    pub fn set_border_color(&mut self, color: impl Into<ThemedColor>) -> &mut Self {
+        self.border_color = Some(color.into());
+        self
+    }
+
+    pub fn clear_border_color(&mut self) -> &mut Self {
+        self.border_color = None;
+        self
+    }
+
+    pub fn set_text_color(&mut self, color: impl Into<ThemedColor>) -> &mut Self {
+        self.text_color = color.into();
+        self
+    }
+}
+
+#[cfg(test)]
+mod style_tests {
+    use super::*;
+    use crate::types::Color;
+
+    #[test]
+    fn default_text_color_tracks_on_surface() {
+        let s = Style::default();
+        assert_eq!(s.text_color, ThemedColor::Token(ColorToken::OnSurface));
+    }
+
+    #[test]
+    fn default_bg_and_border_are_none() {
+        let s = Style::default();
+        assert!(s.bg_color.is_none());
+        assert!(s.border_color.is_none());
+    }
+
+    #[test]
+    fn set_bg_color_accepts_raw_and_token() {
+        let mut s = Style::default();
+        s.set_bg_color(Color::rgb(1, 2, 3));
+        assert_eq!(s.bg_color, Some(ThemedColor::Raw(Color::rgb(1, 2, 3))));
+        s.set_bg_color(ColorToken::Surface);
+        assert_eq!(s.bg_color, Some(ThemedColor::Token(ColorToken::Surface)));
+    }
+
+    #[test]
+    fn clear_bg_color_resets_to_none() {
+        let mut s = Style::default();
+        s.set_bg_color(Color::rgb(1, 2, 3));
+        s.clear_bg_color();
+        assert!(s.bg_color.is_none());
+    }
 }
 
 pub struct Children(pub Vec<crate::ecs::Entity>);

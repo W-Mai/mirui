@@ -601,7 +601,7 @@ mod clip_children_check {
             &mut world,
             None,
             Style {
-                bg_color: Some(Color::rgb(0, 0, 0)),
+                bg_color: Some(Color::rgb(0, 0, 0).into()),
                 layout: LayoutStyle {
                     width: Dimension::Px(Fixed::from_int(64)),
                     height: Dimension::Px(Fixed::from_int(64)),
@@ -627,7 +627,7 @@ mod clip_children_check {
             &mut world,
             Some(mask),
             Style {
-                bg_color: Some(Color::rgb(255, 0, 0)),
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(0)),
@@ -672,7 +672,7 @@ mod clip_children_check {
             &mut world,
             None,
             Style {
-                bg_color: Some(Color::rgb(0, 0, 0)),
+                bg_color: Some(Color::rgb(0, 0, 0).into()),
                 layout: LayoutStyle {
                     width: Dimension::Px(Fixed::from_int(64)),
                     height: Dimension::Px(Fixed::from_int(64)),
@@ -697,7 +697,7 @@ mod clip_children_check {
             &mut world,
             Some(mask),
             Style {
-                bg_color: Some(Color::rgb(255, 0, 0)),
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(0)),
@@ -731,7 +731,7 @@ mod clip_children_check {
             &mut world,
             None,
             Style {
-                bg_color: Some(Color::rgb(0, 0, 0)),
+                bg_color: Some(Color::rgb(0, 0, 0).into()),
                 layout: LayoutStyle {
                     width: Dimension::Px(Fixed::from_int(64)),
                     height: Dimension::Px(Fixed::from_int(64)),
@@ -757,7 +757,7 @@ mod clip_children_check {
             &mut world,
             Some(mask),
             Style {
-                bg_color: Some(Color::rgb(255, 0, 0)),
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(0)),
@@ -825,7 +825,7 @@ mod hidden_check {
             &mut world,
             None,
             Style {
-                bg_color: Some(Color::rgb(0, 0, 0)),
+                bg_color: Some(Color::rgb(0, 0, 0).into()),
                 layout: LayoutStyle {
                     width: Dimension::Px(Fixed::from_int(32)),
                     height: Dimension::Px(Fixed::from_int(32)),
@@ -838,7 +838,7 @@ mod hidden_check {
             &mut world,
             Some(root),
             Style {
-                bg_color: Some(Color::rgb(255, 0, 0)),
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
                 layout: LayoutStyle {
                     width: Dimension::Px(Fixed::from_int(32)),
                     height: Dimension::Px(Fixed::from_int(32)),

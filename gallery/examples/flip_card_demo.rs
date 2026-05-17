@@ -40,7 +40,7 @@ fn flip_system(world: &mut World) {
             back
         };
         if let Some(style) = world.get_mut::<Style>(e) {
-            style.bg_color = Some(color);
+            style.set_bg_color(color);
         }
 
         world.insert(
