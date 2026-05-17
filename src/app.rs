@@ -12,6 +12,7 @@ use crate::event::scroll::{ScrollDragState, ScrollSpring, scroll_inertia_system}
 use crate::plugin::Plugin;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
+use crate::widget::Theme;
 use crate::widget::render_system;
 use crate::widget::view::{View, ViewRegistry, builtin_views};
 
@@ -77,6 +78,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let info = backend.display_info();
         world.insert_resource(info);
         world.insert_resource(ViewRegistry::default());
+        world.insert_resource(Theme::default());
         Self {
             world,
             backend,
@@ -87,6 +89,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             #[cfg(feature = "perf")]
             perf: None,
         }
+    }
+
+    /// Replace the active [`Theme`]. Defaults to [`Theme::dark`].
+    pub fn with_theme(mut self, theme: Theme) -> Self {
+        self.world.insert_resource(theme);
+        self
     }
 
     /// Register one widget kind (built-in or user-defined).

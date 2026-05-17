@@ -2,9 +2,11 @@ pub mod builder;
 pub mod dirty;
 pub mod render_system;
 pub mod style_view;
+pub mod theme;
 pub mod view;
 pub mod visibility;
 
+pub use theme::Theme;
 pub use view::{View, ViewRegistry};
 pub use visibility::Hidden;
 
