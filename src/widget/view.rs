@@ -24,6 +24,17 @@ pub struct ViewCtx<'a> {
     pub bg_handled: bool,
 }
 
+impl ViewCtx<'_> {
+    /// Active [`crate::widget::Theme`]. Lazy lookup so render fns
+    /// that don't need fallback colors pay nothing. `App::new`
+    /// guarantees the resource is present.
+    pub fn theme<'w>(&self, world: &'w World) -> &'w crate::widget::Theme {
+        world
+            .resource::<crate::widget::Theme>()
+            .expect("App::new must insert Theme; missing means a test fixture skipped App")
+    }
+}
+
 pub type ViewRender =
     fn(renderer: &mut dyn Renderer, world: &World, entity: Entity, rect: &Rect, ctx: &mut ViewCtx);
 
@@ -255,5 +266,39 @@ mod tests {
         // breaks user-code views.
         let _: ViewRender = flip_bg_when_styled;
         let _ = Fixed::ZERO;
+    }
+
+    #[test]
+    fn theme_accessor_returns_world_resource() {
+        use crate::widget::Theme;
+        let mut world = World::new();
+        world.insert_resource(Theme::light());
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 0, 0);
+        let ctx = ViewCtx {
+            style: &style,
+            transform: Transform::default(),
+            quad: None,
+            clip: &rect,
+            bg_handled: false,
+        };
+        let theme = ctx.theme(&world);
+        assert_eq!(theme, &Theme::light());
+    }
+
+    #[test]
+    #[should_panic(expected = "App::new must insert Theme")]
+    fn theme_accessor_panics_when_resource_missing() {
+        let world = World::new();
+        let style = Style::default();
+        let rect = Rect::new(0, 0, 0, 0);
+        let ctx = ViewCtx {
+            style: &style,
+            transform: Transform::default(),
+            quad: None,
+            clip: &rect,
+            bg_handled: false,
+        };
+        let _ = ctx.theme(&world);
     }
 }
