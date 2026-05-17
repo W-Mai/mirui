@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-05-17
+
+### Fixed
+
+- **`hit_test` mis-routed pointer events when a Hidden subtree carried a non-zero `ScrollOffset`.** `build_rects` skipped Hidden subtrees but `compute_scroll_offsets`, `compute_transforms`, and `compute_transforms_3d` did not. They share the same per-entity Vec indexed by walk order, so any Hidden subtree's scroll/transform leaked into a visible cousin's slot. Symptom in v0.12.1's ESP `demo_widgets`: the Switch toggle in tab 2 worked the first time and silently dropped on later cycles after the LazyList in tab 0 had been scrolled. Fix: gate every recursive walker on the same `Widget && !Hidden && Style` triple `build_rects` uses, and document the per-entity-Vec walk-alignment invariant at the top of `event::hit_test`.
+
+### Tests
+
+- New unit and integration tests for systems whose regressions tend to be invisible until ESP runtime:
+  - `hit_test_skips_hidden_subtree_scroll_offset` — minimal 5-entity tree that pins the walk-alignment invariant the v0.12.2 fix introduced.
+  - `spring_settle_stress_1000` — 1000 randomised `(from, to, duration, bounce)` combinations must converge within `3 × duration` (excluding the documented unstable `bounce ≥ 0.8` region). Catches integration blow-ups and stiffness/damping table regressions.
+  - `switch_n_tap_toggles_n_times` — 100 sequential Tap events must produce exactly 100 toggles.
+  - `slider_handler_clamps_ratio_at_boundaries` — 7 probe positions (±1 px around the rect edges, plus far outside) all keep `ratio` in `[0, 1]`.
+  - `tests/sim_demo_widgets.rs` — a host-only end-to-end smoke test that assembles TabBar + Slider + Switch through the public API and drives synthetic Taps through the same `dispatch_input` + `bubble_dispatch` path `App::run` uses. Build breaks if any of `Slider`, `Switch`, `TabBar`, `dispatch_input`, `bubble_dispatch`, `attach_widget_input_handlers`, `install_default_registry`, or `render_system::update_layout` becomes inaccessible to a third-party crate.
+
 ## [0.12.1] - 2026-05-16
 
 ### Added
