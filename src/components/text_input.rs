@@ -30,10 +30,10 @@ pub struct TextInput {
     pub len: u8,
     pub cursor: u8,
     pub focused: bool,
-    pub text_color: Color,
-    pub placeholder_color: Color,
-    pub cursor_color: Color,
-    pub focus_border_color: Color,
+    pub text_color: Option<Color>,
+    pub placeholder_color: Option<Color>,
+    pub cursor_color: Option<Color>,
+    pub focus_border_color: Option<Color>,
 }
 
 impl TextInput {
@@ -43,11 +43,31 @@ impl TextInput {
             len: 0,
             cursor: 0,
             focused: false,
-            text_color: Color::rgb(220, 220, 230),
-            placeholder_color: Color::rgb(120, 120, 140),
-            cursor_color: Color::rgb(220, 220, 230),
-            focus_border_color: Color::rgb(88, 166, 255),
+            text_color: None,
+            placeholder_color: None,
+            cursor_color: None,
+            focus_border_color: None,
         }
+    }
+
+    pub fn with_text_color(mut self, color: Color) -> Self {
+        self.text_color = Some(color);
+        self
+    }
+
+    pub fn with_placeholder_color(mut self, color: Color) -> Self {
+        self.placeholder_color = Some(color);
+        self
+    }
+
+    pub fn with_cursor_color(mut self, color: Color) -> Self {
+        self.cursor_color = Some(color);
+        self
+    }
+
+    pub fn with_focus_border_color(mut self, color: Color) -> Self {
+        self.focus_border_color = Some(color);
+        self
     }
 
     pub fn as_str(&self) -> &str {
@@ -154,6 +174,11 @@ fn text_input_render(
     let Some(ti) = world.get::<TextInput>(entity) else {
         return;
     };
+    let theme = ctx.theme(world);
+    let text_color = ti.text_color.unwrap_or(theme.on_surface);
+    let placeholder_color = ti.placeholder_color.unwrap_or(theme.on_surface_variant);
+    let cursor_color = ti.cursor_color.unwrap_or(theme.on_surface);
+    let focus_border_color = ti.focus_border_color.unwrap_or(theme.primary);
 
     if ti.focused {
         renderer.draw(
@@ -161,7 +186,7 @@ fn text_input_render(
                 area: *rect,
                 transform: ctx.transform,
                 quad: ctx.quad,
-                color: ti.focus_border_color,
+                color: focus_border_color,
                 width: Fixed::ONE,
                 radius: Fixed::ZERO,
                 opa: 255,
@@ -182,7 +207,7 @@ fn text_input_render(
                     },
                     transform: ctx.transform,
                     text: ph.0.as_bytes(),
-                    color: ti.placeholder_color,
+                    color: placeholder_color,
                     opa: 255,
                 },
                 ctx.clip,
@@ -197,7 +222,7 @@ fn text_input_render(
                 },
                 transform: ctx.transform,
                 text: &ti.buffer[..ti.len as usize],
-                color: ti.text_color,
+                color: text_color,
                 opa: 255,
             },
             ctx.clip,
@@ -222,7 +247,7 @@ fn text_input_render(
                     },
                     transform: ctx.transform,
                     quad: ctx.quad,
-                    color: ti.cursor_color,
+                    color: cursor_color,
                     radius: Fixed::ZERO,
                     opa: 255,
                 },
