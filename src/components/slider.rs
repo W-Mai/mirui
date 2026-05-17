@@ -12,9 +12,9 @@ pub struct Slider {
     pub value: Fixed,
     pub min: Fixed,
     pub max: Fixed,
-    pub track_color: Color,
-    pub fill_color: Color,
-    pub thumb_color: Color,
+    pub track_color: Option<Color>,
+    pub fill_color: Option<Color>,
+    pub thumb_color: Option<Color>,
 }
 
 impl Slider {
@@ -23,16 +23,24 @@ impl Slider {
             value: min,
             min,
             max,
-            track_color: Color::rgb(60, 60, 80),
-            fill_color: Color::rgb(88, 166, 255),
-            thumb_color: Color::rgb(255, 255, 255),
+            track_color: None,
+            fill_color: None,
+            thumb_color: None,
         }
     }
 
-    pub fn with_colors(mut self, track: Color, fill: Color, thumb: Color) -> Self {
-        self.track_color = track;
-        self.fill_color = fill;
-        self.thumb_color = thumb;
+    pub fn with_track_color(mut self, color: Color) -> Self {
+        self.track_color = Some(color);
+        self
+    }
+
+    pub fn with_fill_color(mut self, color: Color) -> Self {
+        self.fill_color = Some(color);
+        self
+    }
+
+    pub fn with_thumb_color(mut self, color: Color) -> Self {
+        self.thumb_color = Some(color);
         self
     }
 
@@ -60,6 +68,10 @@ fn slider_render(
     let Some(s) = world.get::<Slider>(entity) else {
         return;
     };
+    let theme = ctx.theme(world);
+    let track_color = s.track_color.unwrap_or(theme.surface_variant);
+    let fill_color = s.fill_color.unwrap_or(theme.primary);
+    let thumb_color = s.thumb_color.unwrap_or(theme.on_primary);
     let ratio = s.ratio();
     let cap_radius = rect.h / Fixed::from_int(2);
 
@@ -68,7 +80,7 @@ fn slider_render(
             area: *rect,
             transform: ctx.transform,
             quad: ctx.quad,
-            color: s.track_color,
+            color: track_color,
             radius: cap_radius,
             opa: 255,
         },
@@ -91,7 +103,7 @@ fn slider_render(
                     area: *rect,
                     transform: ctx.transform,
                     quad: ctx.quad,
-                    color: s.fill_color,
+                    color: fill_color,
                     radius: cap_radius,
                     opa: 255,
                 },
@@ -112,7 +124,7 @@ fn slider_render(
             },
             transform: ctx.transform,
             quad: ctx.quad,
-            color: s.thumb_color,
+            color: thumb_color,
             radius: thumb_size / Fixed::from_int(2),
             opa: 255,
         },
