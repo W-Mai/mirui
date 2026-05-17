@@ -353,13 +353,9 @@ fn text_input_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View {
-        systems: &[cursor_blink_system],
-        name: "TextInput",
-        priority: 70,
-        render: text_input_render,
-        auto_attach: Some(text_input_attach),
-    }
+    View::new("TextInput", 70, text_input_render)
+        .with_attach(text_input_attach)
+        .with_systems(&[cursor_blink_system])
 }
 
 #[cfg(test)]

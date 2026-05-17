@@ -259,7 +259,7 @@ fn draw_tree_offset(
             };
             if let Some(registry) = world.resource::<ViewRegistry>() {
                 for view in registry.iter() {
-                    (view.render)(renderer, world, entity, &shifted_rect, &mut ctx);
+                    (view.render())(renderer, world, entity, &shifted_rect, &mut ctx);
                 }
             }
         }

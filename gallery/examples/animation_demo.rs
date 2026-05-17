@@ -23,7 +23,7 @@ mirui_macros::animate!(AnimateColor, |world, entity, value| {
 
 fn main() {
     let backend = SdlSurface::new("mirui - animation demo", 320, 180);
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     app.add_system(mirui::anim::sync_delta_time_ms);
     app.add_system(AnimateX::system());

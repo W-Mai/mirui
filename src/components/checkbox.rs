@@ -86,11 +86,5 @@ fn checkbox_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View {
-        name: "Checkbox",
-        priority: 40,
-        render: checkbox_render,
-        auto_attach: Some(checkbox_attach),
-        systems: &[],
-    }
+    View::new("Checkbox", 40, checkbox_render).with_attach(checkbox_attach)
 }

@@ -13,7 +13,7 @@ use crate::plugin::Plugin;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
 use crate::widget::render_system;
-use crate::widget::view::{View, ViewRegistry};
+use crate::widget::view::{View, ViewRegistry, builtin_views};
 
 /// Builds a Renderer each frame, given mutable access to the backend and
 /// the current logical/physical coord transform.
@@ -76,36 +76,33 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(FocusState::default());
         let info = backend.display_info();
         world.insert_resource(info);
-        let registry = crate::widget::view::default_registry();
-        let mut systems = SystemScheduler::new();
-        for s in registry.all_systems() {
-            systems.add(s);
-        }
-        world.insert_resource(registry);
+        world.insert_resource(ViewRegistry::default());
         Self {
             world,
             backend,
             factory,
             root: None,
-            systems,
+            systems: SystemScheduler::new(),
             plugins: Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
         }
     }
 
-    /// Register a user-defined `View`. Built-ins are installed in
-    /// `with_factory`; this is the user-side entry point. Any
-    /// `systems` the view declares are appended to the scheduler at
-    /// the same time.
-    pub fn register_view(&mut self, view: View) -> &mut Self {
-        let view_systems: alloc::vec::Vec<crate::ecs::System> = view.systems.to_vec();
+    /// Register one widget kind (built-in or user-defined).
+    pub fn with_widget(mut self, view: View) -> Self {
+        let systems = &mut self.systems;
+        view.install(&mut self.world, |s| systems.add(s));
         if let Some(reg) = self.world.resource_mut::<ViewRegistry>() {
-            reg.register(view);
-            reg.sort_by_priority();
+            reg.insert(view);
         }
-        for s in view_systems {
-            self.systems.add(s);
+        self
+    }
+
+    /// Register all built-in mirui widgets in priority order.
+    pub fn with_default_widgets(mut self) -> Self {
+        for view in builtin_views() {
+            self = self.with_widget(view);
         }
         self
     }

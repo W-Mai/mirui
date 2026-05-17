@@ -35,11 +35,5 @@ fn text_render(
 }
 
 pub fn view() -> View {
-    View {
-        name: "Text",
-        priority: 80,
-        render: text_render,
-        auto_attach: None,
-        systems: &[],
-    }
+    View::new("Text", 80, text_render)
 }

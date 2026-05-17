@@ -68,15 +68,9 @@ fn diamond_render(
     }
 }
 
-/// Constructor the user passes to `App::register_view`.
+/// Constructor the user passes to `App::with_widget`.
 pub fn diamond_view() -> View {
-    View {
-        name: "Diamond",
-        priority: 60, // same band as built-in content widgets
-        render: diamond_render,
-        auto_attach: None,
-        systems: &[],
-    }
+    View::new("Diamond", 60, diamond_render)
 }
 
 /// Tap handler — cycle through three colours and mark Dirty.
@@ -100,12 +94,9 @@ fn cycle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
 
 fn main() {
     let backend = SdlSurface::new("custom_view_demo", 480, 200);
-    let mut app = App::new(backend);
-
-    // Register the user widget kind once at startup. After this
-    // every entity that has a `Diamond` component renders through
-    // diamond_render, no extra plumbing required.
-    app.register_view(diamond_view());
+    let mut app = App::new(backend)
+        .with_default_widgets()
+        .with_widget(diamond_view());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(28, 28, 36))

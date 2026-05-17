@@ -10,7 +10,7 @@ fn attach_handlers_for(world: &mut World, entity: Entity) {
     let mut pending: alloc::vec::Vec<crate::widget::view::ViewAttach> = alloc::vec::Vec::new();
     if let Some(reg) = world.resource::<crate::widget::view::ViewRegistry>() {
         for v in reg.iter() {
-            if let Some(f) = v.auto_attach {
+            if let Some(f) = v.auto_attach() {
                 pending.push(f);
             }
         }
@@ -77,8 +77,7 @@ mod tests {
     fn registry_attach_installs_button_gesture_handler() {
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
-        reg.register(crate::components::button::view());
-        reg.sort_by_priority();
+        reg.insert(crate::components::button::view());
         world.insert_resource(reg);
 
         let e = world.spawn();
@@ -96,8 +95,7 @@ mod tests {
     fn registry_attach_skips_when_handler_already_present() {
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
-        reg.register(crate::components::button::view());
-        reg.sort_by_priority();
+        reg.insert(crate::components::button::view());
         world.insert_resource(reg);
 
         let e = world.spawn();
@@ -129,8 +127,7 @@ mod tests {
 
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
-        reg.register(crate::components::text_input::view());
-        reg.sort_by_priority();
+        reg.insert(crate::components::text_input::view());
         world.insert_resource(reg);
 
         let e = world.spawn();
@@ -147,8 +144,7 @@ mod tests {
     fn registry_attach_installs_progress_bar_gesture_handler() {
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
-        reg.register(crate::components::progress_bar::view());
-        reg.sort_by_priority();
+        reg.insert(crate::components::progress_bar::view());
         world.insert_resource(reg);
 
         let e = world.spawn();
@@ -169,8 +165,7 @@ mod tests {
     fn registry_attach_installs_checkbox_gesture_handler() {
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
-        reg.register(crate::components::checkbox::view());
-        reg.sort_by_priority();
+        reg.insert(crate::components::checkbox::view());
         world.insert_resource(reg);
 
         let e = world.spawn();
@@ -188,8 +183,7 @@ mod tests {
     fn checkbox_tap_toggles_checked() {
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
-        reg.register(crate::components::checkbox::view());
-        reg.sort_by_priority();
+        reg.insert(crate::components::checkbox::view());
         world.insert_resource(reg);
 
         let e = world.spawn();

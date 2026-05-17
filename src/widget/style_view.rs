@@ -53,11 +53,5 @@ fn style_render(
 }
 
 pub fn view() -> View {
-    View {
-        systems: &[],
-        name: "Style",
-        priority: 50,
-        render: style_render,
-        auto_attach: None,
-    }
+    View::new("Style", 50, style_render)
 }

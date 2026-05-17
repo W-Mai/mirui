@@ -27,7 +27,7 @@ fn row_binder(world: &mut World, entity: Entity, index: u32) {
 
 fn main() {
     let backend = SdlSurface::new("LazyList Demo", 320, 320);
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     app.add_system(lazy_list_system);
 

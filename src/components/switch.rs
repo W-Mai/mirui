@@ -260,15 +260,11 @@ fn switch_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View {
-        name: "Switch",
-        priority: 60,
-        render: switch_render,
-        auto_attach: Some(switch_attach),
-        systems: &[
+    View::new("Switch", 60, switch_render)
+        .with_attach(switch_attach)
+        .with_systems(&[
             switch_init_system,
             animate_switch_bg_t_system,
             animate_thumb_x_system,
-        ],
-    }
+        ])
 }

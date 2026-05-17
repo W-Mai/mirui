@@ -248,7 +248,7 @@ fn build_ui(world: &mut World) -> Entity {
 
 fn main() {
     let backend = SdlSurface::new("mirui - components demo", 480, 320);
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     let root = build_ui(&mut app.world);
     app.set_root(root);

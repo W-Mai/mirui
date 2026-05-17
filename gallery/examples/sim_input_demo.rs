@@ -63,7 +63,7 @@ fn drag_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool
 
 fn main() {
     let backend = SdlSurface::new("mirui - simulated input demo", 320, 240);
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     app.add_system(mirui::anim::sync_delta_time_ms);
     app.add_system(sim_timeline_system);

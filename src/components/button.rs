@@ -94,11 +94,5 @@ fn button_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View {
-        name: "Button",
-        priority: 40,
-        render: button_render,
-        auto_attach: Some(button_attach),
-        systems: &[],
-    }
+    View::new("Button", 40, button_render).with_attach(button_attach)
 }

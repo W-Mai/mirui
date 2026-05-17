@@ -11,7 +11,7 @@ use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("TextInput Demo", 480, 200);
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     app.add_system(mirui::anim::sync_delta_time_ms);
 

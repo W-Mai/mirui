@@ -10,7 +10,7 @@ extern crate alloc;
 
 fn main() {
     let backend = SdlSurface::new("mirui - absolute position demo", 480, 320);
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

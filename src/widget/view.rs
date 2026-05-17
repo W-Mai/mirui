@@ -30,20 +30,39 @@ pub type ViewRender =
 pub type ViewAttach = fn(world: &mut World, entity: Entity);
 
 pub struct View {
-    pub name: &'static str,
+    name: &'static str,
     /// Lower runs earlier. Slot reservation: 0..30 pre-bg,
     /// 30..50 explicit-bg widgets, 50 generic Style, 60..80 content
     /// widgets, 80..100 overlays.
-    pub priority: u8,
-    pub render: ViewRender,
-    pub auto_attach: Option<ViewAttach>,
-    /// Per-frame systems this widget kind contributes.
-    pub systems: &'static [crate::ecs::System],
+    priority: u8,
+    render: ViewRender,
+    auto_attach: Option<ViewAttach>,
+    systems: &'static [crate::ecs::System],
 }
 
 impl View {
+    pub const fn new(name: &'static str, priority: u8, render: ViewRender) -> Self {
+        Self {
+            name,
+            priority,
+            render,
+            auto_attach: None,
+            systems: &[],
+        }
+    }
+
+    pub const fn with_attach(mut self, attach: ViewAttach) -> Self {
+        self.auto_attach = Some(attach);
+        self
+    }
+
+    pub const fn with_systems(mut self, systems: &'static [crate::ecs::System]) -> Self {
+        self.systems = systems;
+        self
+    }
+
     /// Marker widget: only contributes systems, no rendering.
-    pub fn systems_only(name: &'static str, systems: &'static [crate::ecs::System]) -> Self {
+    pub const fn systems_only(name: &'static str, systems: &'static [crate::ecs::System]) -> Self {
         fn noop_render(
             _renderer: &mut dyn Renderer,
             _world: &World,
@@ -54,10 +73,32 @@ impl View {
         }
         Self {
             name,
-            priority: 100, // run after everything; no rendering anyway
+            priority: 100,
             render: noop_render,
             auto_attach: None,
             systems,
+        }
+    }
+
+    pub fn name(&self) -> &'static str {
+        self.name
+    }
+    pub(crate) fn priority(&self) -> u8 {
+        self.priority
+    }
+    pub(crate) fn render(&self) -> ViewRender {
+        self.render
+    }
+    pub(crate) fn auto_attach(&self) -> Option<ViewAttach> {
+        self.auto_attach
+    }
+
+    /// Hand each contributed `System` to `sink`. Called by `App` at
+    /// view-registration time; `View` owns when and how its systems
+    /// surface — callers don't read `self.systems` directly.
+    pub(crate) fn install(&self, _world: &mut World, mut sink: impl FnMut(crate::ecs::System)) {
+        for &s in self.systems {
+            sink(s);
         }
     }
 }
@@ -68,28 +109,31 @@ pub struct ViewRegistry {
 }
 
 impl ViewRegistry {
-    pub fn register(&mut self, view: View) {
-        self.views.push(view);
+    /// Pre-populated registry containing every built-in widget.
+    pub fn with_builtins() -> Self {
+        let mut reg = Self::default();
+        reg.insert(super::style_view::view());
+        reg.insert(crate::components::button::view());
+        reg.insert(crate::components::checkbox::view());
+        reg.insert(crate::components::progress_bar::view());
+        reg.insert(crate::components::tabbar::view());
+        reg.insert(crate::components::text_input::view());
+        reg.insert(crate::components::image::view());
+        reg.insert(crate::components::text::view());
+        reg.insert(crate::components::slider::view());
+        reg.insert(crate::components::switch::view());
+        reg.insert(crate::components::tab_pages::view());
+        reg
     }
 
-    pub fn sort_by_priority(&mut self) {
-        self.views.sort_by_key(|v| v.priority);
+    /// Add a view, keeping the internal vec sorted by priority.
+    pub fn insert(&mut self, view: View) {
+        self.views.push(view);
+        self.views.sort_by_key(|v| v.priority());
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &View> {
         self.views.iter()
-    }
-
-    /// All systems contributed by registered views, in registration
-    /// order. `App::with_factory` calls this once after the default
-    /// registry is installed; `App::register_view` adds individual
-    /// view systems incrementally.
-    pub fn all_systems(&self) -> alloc::vec::Vec<crate::ecs::System> {
-        let mut out = alloc::vec::Vec::new();
-        for v in &self.views {
-            out.extend_from_slice(v.systems);
-        }
-        out
     }
 
     pub fn len(&self) -> usize {
@@ -101,28 +145,26 @@ impl ViewRegistry {
     }
 }
 
-/// Built-in registry, sorted but not yet installed.
-pub fn default_registry() -> ViewRegistry {
-    let mut reg = ViewRegistry::default();
-    reg.register(super::style_view::view());
-    reg.register(crate::components::button::view());
-    reg.register(crate::components::checkbox::view());
-    reg.register(crate::components::progress_bar::view());
-    reg.register(crate::components::tabbar::view());
-    reg.register(crate::components::text_input::view());
-    reg.register(crate::components::image::view());
-    reg.register(crate::components::text::view());
-    reg.register(crate::components::slider::view());
-    reg.register(crate::components::switch::view());
-    reg.register(crate::components::tab_pages::view());
-    reg.sort_by_priority();
-    reg
+/// Built-in views in priority order.
+pub fn builtin_views() -> [View; 11] {
+    [
+        super::style_view::view(),
+        crate::components::button::view(),
+        crate::components::checkbox::view(),
+        crate::components::progress_bar::view(),
+        crate::components::tabbar::view(),
+        crate::components::text_input::view(),
+        crate::components::image::view(),
+        crate::components::text::view(),
+        crate::components::slider::view(),
+        crate::components::switch::view(),
+        crate::components::tab_pages::view(),
+    ]
 }
 
-/// Insert the built-in registry as a World resource. Tests building
-/// a `World` without `App` call this to opt into the render pipeline.
+/// Test-only shortcut; production code uses `App::with_default_widgets`.
 pub fn install_default_registry(world: &mut World) {
-    world.insert_resource(default_registry());
+    world.insert_resource(ViewRegistry::with_builtins());
 }
 
 #[cfg(test)]
@@ -141,34 +183,26 @@ mod tests {
     }
 
     fn make_view(name: &'static str, priority: u8) -> View {
-        View {
-            name,
-            priority,
-            render: dummy_render,
-            auto_attach: None,
-            systems: &[],
-        }
+        View::new(name, priority, dummy_render)
     }
 
     #[test]
-    fn sort_by_priority_orders_lower_first() {
+    fn insert_keeps_priority_order() {
         let mut reg = ViewRegistry::default();
-        reg.register(make_view("c", 80));
-        reg.register(make_view("a", 40));
-        reg.register(make_view("b", 50));
-        reg.sort_by_priority();
-        let names: Vec<&str> = reg.iter().map(|v| v.name).collect();
+        reg.insert(make_view("c", 80));
+        reg.insert(make_view("a", 40));
+        reg.insert(make_view("b", 50));
+        let names: Vec<&str> = reg.iter().map(|v| v.name()).collect();
         assert_eq!(names, ["a", "b", "c"]);
     }
 
     #[test]
-    fn sort_is_stable_within_same_priority() {
+    fn insert_is_stable_within_same_priority() {
         let mut reg = ViewRegistry::default();
-        reg.register(make_view("first-50", 50));
-        reg.register(make_view("second-50", 50));
-        reg.register(make_view("third-50", 50));
-        reg.sort_by_priority();
-        let names: Vec<&str> = reg.iter().map(|v| v.name).collect();
+        reg.insert(make_view("first-50", 50));
+        reg.insert(make_view("second-50", 50));
+        reg.insert(make_view("third-50", 50));
+        let names: Vec<&str> = reg.iter().map(|v| v.name()).collect();
         assert_eq!(names, ["first-50", "second-50", "third-50"]);
     }
 

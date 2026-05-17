@@ -44,11 +44,5 @@ fn image_render(
 }
 
 pub fn view() -> View {
-    View {
-        name: "Image",
-        priority: 70,
-        render: image_render,
-        auto_attach: None,
-        systems: &[],
-    }
+    View::new("Image", 70, image_render)
 }

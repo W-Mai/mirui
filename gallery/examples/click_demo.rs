@@ -37,7 +37,7 @@ fn toggle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
 
 fn main() {
     let backend = SdlSurface::new("mirui - click demo", 480, 320);
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     let colors = [
         Color::rgb(88, 166, 255),

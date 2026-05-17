@@ -156,11 +156,5 @@ fn slider_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View {
-        name: "Slider",
-        priority: 60,
-        render: slider_render,
-        auto_attach: Some(slider_attach),
-        systems: &[],
-    }
+    View::new("Slider", 60, slider_render).with_attach(slider_attach)
 }

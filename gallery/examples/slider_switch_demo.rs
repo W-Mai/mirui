@@ -10,7 +10,7 @@ use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("mirui - slider & switch", 320, 200);
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

@@ -114,13 +114,7 @@ fn tab_bar_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View {
-        systems: &[],
-        name: "TabBar",
-        priority: 60,
-        render: tab_bar_render,
-        auto_attach: Some(tab_bar_attach),
-    }
+    View::new("TabBar", 60, tab_bar_render).with_attach(tab_bar_attach)
 }
 
 #[cfg(test)]

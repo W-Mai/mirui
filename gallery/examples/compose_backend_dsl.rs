@@ -154,7 +154,7 @@ fn main() {
         Rc::clone(&calls),
     );
 
-    let mut app = App::with_factory(backend, factory);
+    let mut app = App::with_factory(backend, factory).with_default_widgets();
     app.add_system(drift_system);
 
     let root = WidgetBuilder::new(&mut app.world)

@@ -103,7 +103,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
     let backend = FramebufSurface::new(WINDOW_W as u16, WINDOW_H as u16, move |buf, _rect| {
         *cap_cb.borrow_mut() = buf.to_vec();
     });
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     app.add_system(layout_system);
 

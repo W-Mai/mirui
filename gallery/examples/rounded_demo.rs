@@ -6,7 +6,7 @@ use mirui::widget::builder::WidgetBuilder;
 
 fn main() {
     let backend = SdlSurface::new("mirui - rounded + border", 480, 320);
-    let mut app = App::new(backend);
+    let mut app = App::new(backend).with_default_widgets();
 
     // Rounded cards
     let card1 = WidgetBuilder::new(&mut app.world)
