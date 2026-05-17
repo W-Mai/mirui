@@ -7,14 +7,25 @@ use crate::event::gesture::GestureEvent;
 use crate::types::{Color, Fixed, Rect};
 use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
+use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
 
-#[derive(Default)]
 pub struct Switch {
     pub on: bool,
-    pub on_color: Option<Color>,
-    pub off_color: Option<Color>,
-    pub thumb_color: Option<Color>,
+    pub on_color: ThemedColor,
+    pub off_color: ThemedColor,
+    pub thumb_color: ThemedColor,
+}
+
+impl Default for Switch {
+    fn default() -> Self {
+        Self {
+            on: false,
+            on_color: ThemedColor::Token(ColorToken::Success),
+            off_color: ThemedColor::Token(ColorToken::SurfaceVariant),
+            thumb_color: ThemedColor::Token(ColorToken::OnPrimary),
+        }
+    }
 }
 
 impl Switch {
@@ -22,18 +33,18 @@ impl Switch {
         Self::default()
     }
 
-    pub fn with_on_color(mut self, color: Color) -> Self {
-        self.on_color = Some(color);
+    pub fn with_on_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.on_color = color.into();
         self
     }
 
-    pub fn with_off_color(mut self, color: Color) -> Self {
-        self.off_color = Some(color);
+    pub fn with_off_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.off_color = color.into();
         self
     }
 
-    pub fn with_thumb_color(mut self, color: Color) -> Self {
-        self.thumb_color = Some(color);
+    pub fn with_thumb_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.thumb_color = color.into();
         self
     }
 
@@ -137,9 +148,9 @@ fn switch_render(
         return;
     };
     let theme = ctx.theme(world);
-    let on_color = s.on_color.unwrap_or(theme.success);
-    let off_color = s.off_color.unwrap_or(theme.surface_variant);
-    let thumb_color = s.thumb_color.unwrap_or(theme.on_primary);
+    let on_color = s.on_color.resolve(theme);
+    let off_color = s.off_color.resolve(theme);
+    let thumb_color = s.thumb_color.resolve(theme);
     let cap_radius = rect.h / Fixed::from_int(2);
 
     let t = world
