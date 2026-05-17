@@ -197,85 +197,6 @@ fn count_nodes(node: &LayoutNode) -> usize {
 
 /// Recursively emit draw commands from the computed layout tree
 #[allow(clippy::too_many_arguments)]
-fn draw_tree(
-    node: &LayoutNode,
-    world: &World,
-    entities: &[Entity],
-    idx: &mut usize,
-    renderer: &mut dyn Renderer,
-    clip: &Rect,
-    parent_transform: &Transform,
-    parent_transform_3d: &Transform3D,
-) {
-    let entity = if *idx < entities.len() {
-        entities[*idx]
-    } else {
-        Entity {
-            id: u32::MAX,
-            generation: 0,
-        }
-    };
-    let tf = effective_transform(parent_transform, world, entity, node.rect);
-    let tf_3d = accumulate_3d(parent_transform_3d, world, entity, node.rect);
-    let quad = quad_for(world, entity, node.rect, parent_transform_3d);
-
-    let cull_rect = quad.map(quad_bbox).unwrap_or(node.rect);
-    if !rects_intersect(&cull_rect, clip) {
-        *idx += count_nodes(node);
-        return;
-    }
-
-    if *idx < entities.len() {
-        if let Some(style) = world.get::<Style>(entity) {
-            let mut ctx = ViewCtx {
-                style,
-                transform: tf,
-                quad,
-                clip,
-                bg_handled: false,
-            };
-            if let Some(registry) = world.resource::<ViewRegistry>() {
-                for view in registry.iter() {
-                    (view.render)(renderer, world, entity, &node.rect, &mut ctx);
-                }
-            }
-        }
-    }
-    *idx += 1;
-
-    let (child_clip, scroll_x, scroll_y) =
-        if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity) {
-            (intersect_with_self(clip, &node.rect), scroll.x, scroll.y)
-        } else if world
-            .get::<Style>(entity)
-            .map(|s| s.clip_children)
-            .unwrap_or(false)
-        {
-            (
-                intersect_with_self(clip, &node.rect),
-                Fixed::ZERO,
-                Fixed::ZERO,
-            )
-        } else {
-            (*clip, Fixed::ZERO, Fixed::ZERO)
-        };
-
-    for child in &node.children {
-        draw_tree_offset(
-            child,
-            world,
-            entities,
-            idx,
-            renderer,
-            &child_clip,
-            scroll_x,
-            scroll_y,
-            &tf,
-            &tf_3d,
-        );
-    }
-}
-
 fn intersect_with_self(clip: &Rect, rect: &Rect) -> Rect {
     let cx = clip.x.max(rect.x);
     let cy = clip.y.max(rect.y);
@@ -418,13 +339,15 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
     collect_entities_preorder(world, root, &mut entities);
 
     let mut idx = 0;
-    draw_tree(
+    draw_tree_offset(
         &layout_tree,
         world,
         &entities,
         &mut idx,
         renderer,
         &clip,
+        Fixed::ZERO,
+        Fixed::ZERO,
         &Transform::IDENTITY,
         &Transform3D::IDENTITY,
     );
@@ -493,13 +416,15 @@ pub fn render_region(
     collect_entities_preorder(world, root, &mut entities);
 
     let mut idx = 0;
-    draw_tree(
+    draw_tree_offset(
         &layout_tree,
         world,
         &entities,
         &mut idx,
         renderer,
         dirty_rect,
+        Fixed::ZERO,
+        Fixed::ZERO,
         &Transform::IDENTITY,
         &Transform3D::IDENTITY,
     );
