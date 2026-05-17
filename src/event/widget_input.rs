@@ -148,10 +148,7 @@ mod tests {
         world.insert_resource(reg);
 
         let e = world.spawn();
-        world.insert(
-            e,
-            ProgressBar::new(Color::rgb(0, 0, 0), Color::rgb(0, 0, 0)),
-        );
+        world.insert(e, ProgressBar::new());
 
         attach_handlers_for(&mut world, e);
 

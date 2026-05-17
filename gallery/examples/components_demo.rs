@@ -116,10 +116,7 @@ fn build_ui(world: &mut World) -> Entity {
             ..Default::default()
         })
         .id();
-    world.insert(
-        pb1,
-        ProgressBar::new(Color::rgb(88, 166, 255), Color::rgb(60, 60, 80)),
-    );
+    world.insert(pb1, ProgressBar::new());
     if let Some(pb) = world.get_mut::<ProgressBar>(pb1) {
         pb.value = 0.7;
     }
@@ -133,7 +130,7 @@ fn build_ui(world: &mut World) -> Entity {
         .id();
     world.insert(
         pb2,
-        ProgressBar::new(Color::rgb(63, 185, 80), Color::rgb(60, 60, 80)),
+        ProgressBar::new().with_fill_color(Color::rgb(63, 185, 80)),
     );
     if let Some(pb) = world.get_mut::<ProgressBar>(pb2) {
         pb.value = 0.4;
@@ -148,7 +145,7 @@ fn build_ui(world: &mut World) -> Entity {
         .id();
     world.insert(
         pb3,
-        ProgressBar::new(Color::rgb(248, 81, 73), Color::rgb(60, 60, 80)),
+        ProgressBar::new().with_fill_color(Color::rgb(248, 81, 73)),
     );
     if let Some(pb) = world.get_mut::<ProgressBar>(pb3) {
         pb.value = 0.9;

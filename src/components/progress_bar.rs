@@ -8,19 +8,26 @@ use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
+#[derive(Default)]
 pub struct ProgressBar {
     pub value: f32, // 0.0 ~ 1.0
-    pub track_color: Color,
-    pub fill_color: Color,
+    pub track_color: Option<Color>,
+    pub fill_color: Option<Color>,
 }
 
 impl ProgressBar {
-    pub fn new(fill: Color, track: Color) -> Self {
-        Self {
-            value: 0.0,
-            track_color: track,
-            fill_color: fill,
-        }
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_track_color(mut self, color: Color) -> Self {
+        self.track_color = Some(color);
+        self
+    }
+
+    pub fn with_fill_color(mut self, color: Color) -> Self {
+        self.fill_color = Some(color);
+        self
     }
 }
 
@@ -34,12 +41,15 @@ fn progress_bar_render(
     let Some(pb) = world.get::<ProgressBar>(entity) else {
         return;
     };
+    let theme = ctx.theme(world);
+    let track_color = pb.track_color.unwrap_or(theme.surface_variant);
+    let fill_color = pb.fill_color.unwrap_or(theme.primary);
     renderer.draw(
         &DrawCommand::Fill {
             area: *rect,
             transform: ctx.transform,
             quad: ctx.quad,
-            color: pb.track_color,
+            color: track_color,
             radius: ctx.style.border_radius,
             opa: 255,
         },
@@ -57,7 +67,7 @@ fn progress_bar_render(
                 },
                 transform: ctx.transform,
                 quad: ctx.quad,
-                color: pb.fill_color,
+                color: fill_color,
                 radius: ctx.style.border_radius,
                 opa: 255,
             },
