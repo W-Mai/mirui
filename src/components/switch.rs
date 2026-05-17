@@ -9,46 +9,36 @@ use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
+#[derive(Default)]
 pub struct Switch {
     pub on: bool,
-    pub on_color: Color,
-    pub off_color: Color,
-    pub thumb_color: Color,
+    pub on_color: Option<Color>,
+    pub off_color: Option<Color>,
+    pub thumb_color: Option<Color>,
 }
 
 impl Switch {
     pub fn new() -> Self {
-        Self {
-            on: false,
-            on_color: Color::rgb(63, 185, 80),
-            off_color: Color::rgb(80, 80, 100),
-            thumb_color: Color::rgb(255, 255, 255),
-        }
+        Self::default()
     }
 
-    pub fn with_colors(mut self, on: Color, off: Color, thumb: Color) -> Self {
-        self.on_color = on;
-        self.off_color = off;
-        self.thumb_color = thumb;
+    pub fn with_on_color(mut self, color: Color) -> Self {
+        self.on_color = Some(color);
+        self
+    }
+
+    pub fn with_off_color(mut self, color: Color) -> Self {
+        self.off_color = Some(color);
+        self
+    }
+
+    pub fn with_thumb_color(mut self, color: Color) -> Self {
+        self.thumb_color = Some(color);
         self
     }
 
     pub fn toggle(&mut self) {
         self.on = !self.on;
-    }
-
-    pub fn track_color(&self) -> Color {
-        if self.on {
-            self.on_color
-        } else {
-            self.off_color
-        }
-    }
-}
-
-impl Default for Switch {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -146,13 +136,17 @@ fn switch_render(
     let Some(s) = world.get::<Switch>(entity) else {
         return;
     };
+    let theme = ctx.theme(world);
+    let on_color = s.on_color.unwrap_or(theme.success);
+    let off_color = s.off_color.unwrap_or(theme.surface_variant);
+    let thumb_color = s.thumb_color.unwrap_or(theme.on_primary);
     let cap_radius = rect.h / Fixed::from_int(2);
 
     let t = world
         .get::<SwitchBgT>(entity)
         .map(|x| x.0)
         .unwrap_or_else(|| if s.on { Fixed::ONE } else { Fixed::ZERO });
-    let track_color = Color::lerp(s.off_color, s.on_color, t);
+    let track_color = Color::lerp(off_color, on_color, t);
     renderer.draw(
         &DrawCommand::Fill {
             area: *rect,
@@ -182,7 +176,7 @@ fn switch_render(
             },
             transform: ctx.transform,
             quad: ctx.quad,
-            color: s.thumb_color,
+            color: thumb_color,
             radius: thumb_size / Fixed::from_int(2),
             opa: 255,
         },
