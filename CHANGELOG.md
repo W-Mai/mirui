@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] - 2026-05-17
+
+### Changed
+
+- **`render_system::draw_tree` collapsed into `draw_tree_offset`.** The two walkers were near-duplicates — `draw_tree` was just `draw_tree_offset` specialised to `(0, 0)` offsets, and recursion already passed through the offset variant after the first frame. The two render entry points now call `draw_tree_offset` with `Fixed::ZERO` offsets directly. Pixel-equal across all gallery snapshots; ESP three-body per-frame timing unchanged; binary shrinks by ~14 KB.
+
+### Examples
+
+- New `gallery/examples/custom_view_demo.rs` — a fully user-defined widget (`Diamond`, four stroked Lines) registered through `App::register_view`. Demonstrates parity with built-in views: zero core changes required to ship a new widget kind. Tap any diamond to cycle through three colours.
+
 ## [0.12.2] - 2026-05-17
 
 ### Fixed
