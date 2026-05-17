@@ -529,4 +529,65 @@ mod settle_threshold_check {
         assert!(s.is_settled());
         assert!((s.position - Fixed::from_int(20)).abs() < Fixed::ONE);
     }
+
+    /// Stress: 1000 randomised (from, to, duration, bounce) springs
+    /// must converge near the target within 3 × duration without
+    /// going NaN or oscillating unboundedly. Catches integration
+    /// blow-ups (sub-step too coarse for ω·dt < 2) and any future
+    /// stiffness/damping table regression. Only excludes the
+    /// documented unstable bounce ≥ 0.8 region.
+    ///
+    /// "Convergence" here is a physics check, not the is_settled()
+    /// API: |position − target| ≤ 5% of |target − origin| with at
+    /// least Fixed::ONE floor (so unit spans don't zero-out the
+    /// tolerance). Tighter than is_settled()'s velocity check on
+    /// purpose — we want to catch divergence, not API thresholds.
+    #[test]
+    fn spring_settle_stress_1000() {
+        let mut seed: u32 = 0x9e3779b9;
+        let mut rand = || {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            seed
+        };
+
+        let mut failures: alloc::vec::Vec<(usize, i32, i32, u16, i32, i32)> =
+            alloc::vec::Vec::new();
+        for i in 0..1000 {
+            let from = ((rand() as i32) % 1000) - 500;
+            let to = {
+                let mut t = ((rand() as i32) % 1000) - 500;
+                if t == from {
+                    t += 1;
+                }
+                t
+            };
+            let duration = 100u16 + ((rand() % 1901) as u16);
+            // bounce ∈ [0, 0.7] — bounce ≥ 0.8 known to ring forever.
+            let bounce_raw = (rand() % 180) as i32;
+            let bounce = Fixed::from_raw(bounce_raw);
+
+            let mut sp = Spring::new(Fixed::from_int(from), Fixed::from_int(to), duration, bounce);
+            let budget_ms = (duration as u32 * 3).max(500);
+            let mut elapsed = 0u32;
+            while elapsed < budget_ms {
+                sp.tick(16);
+                elapsed += 16;
+            }
+
+            let span = (to - from).abs().max(1);
+            let tol = (span / 20).max(1);
+            let err = (sp.position.to_int() - to).abs();
+            if err > tol {
+                failures.push((i, from, to, duration, bounce_raw, sp.position.to_int()));
+            }
+        }
+        assert!(
+            failures.is_empty(),
+            "{}/1000 springs diverged: first 5 = {:?}",
+            failures.len(),
+            &failures[..failures.len().min(5)],
+        );
+    }
 }

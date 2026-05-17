@@ -828,6 +828,144 @@ mod tests {
         );
     }
 
+    /// 100 sequential Tap events at the Switch's centre must flip
+    /// Switch.on exactly 100 times. Catches "stuck after N taps"
+    /// regressions: handler not idempotent on Down/Up pairing,
+    /// recognizer carrying stale state across taps, animation
+    /// systems blocking subsequent toggles.
+    #[test]
+    fn switch_n_tap_toggles_n_times() {
+        let _g = mock::lock();
+        mock::set_ms(0);
+        let (mut world, root, _slider, switch) = build_widget_world();
+        world.insert_resource(MonoClock::new(mock::clock_fn));
+
+        let bar = world
+            .query::<TabBar>()
+            .collect()
+            .first()
+            .copied()
+            .expect("TabBar");
+        if let Some(tb) = world.get_mut::<TabBar>(bar) {
+            tb.selected = 2;
+        }
+        tab_pages_system(&mut world);
+
+        let cx = Fixed::from_int(64);
+        let cy = Fixed::from_int(71);
+        let mut flips = 0u32;
+        let mut prev_on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
+
+        for _ in 0..100 {
+            let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
+            dispatch_input(
+                &mut world,
+                root,
+                &InputEvent::PointerDown {
+                    id: 0,
+                    x: cx,
+                    y: cy,
+                },
+                now_ms,
+                128,
+                128,
+            );
+            mock::advance_ms(50);
+            let now_ms = world.resource::<MonoClock>().unwrap().now_ms();
+            dispatch_input(
+                &mut world,
+                root,
+                &InputEvent::PointerUp {
+                    id: 0,
+                    x: cx,
+                    y: cy,
+                },
+                now_ms,
+                128,
+                128,
+            );
+            // Drain & bubble pending Tap events the same way
+            // sim_timeline_system does at the end of each sim tick.
+            let pending: Vec<crate::event::gesture::GestureEvent> = world
+                .resource_mut::<GestureSystem>()
+                .map(|gs| gs.events.drain().collect())
+                .unwrap_or_default();
+            for g in &pending {
+                crate::event::bubble_dispatch(&mut world, g);
+            }
+            // Gap between taps so the recognizer fully resets.
+            mock::advance_ms(150);
+
+            let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
+            if on != prev_on {
+                flips += 1;
+            }
+            prev_on = on;
+        }
+
+        assert_eq!(
+            flips, 100,
+            "100 Taps should produce 100 toggles, got {flips}",
+        );
+    }
+
+    /// slider_handler must clamp ratio to [0, 1] for any Tap x —
+    /// inside the rect, exactly on either edge, and one pixel past
+    /// either edge. Floor at left, ceiling at right, no overflow.
+    #[test]
+    fn slider_handler_clamps_ratio_at_boundaries() {
+        use crate::components::slider::{Slider, slider_handler};
+        use crate::event::gesture::GestureEvent;
+        use crate::types::Rect;
+        use crate::widget::ComputedRect;
+
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, Slider::new(Fixed::ZERO, Fixed::from_int(100)));
+        world.insert(
+            e,
+            ComputedRect(Rect {
+                x: Fixed::from_int(20),
+                y: Fixed::ZERO,
+                w: Fixed::from_int(100),
+                h: Fixed::from_int(20),
+            }),
+        );
+
+        let cases: &[(Fixed, i32)] = &[
+            (Fixed::from_int(19), 0),     // 1 px left of rect
+            (Fixed::from_int(20), 0),     // exact left edge
+            (Fixed::from_int(70), 500),   // centre
+            (Fixed::from_int(120), 1000), // exact right edge
+            (Fixed::from_int(121), 1000), // 1 px past right
+            (Fixed::from_int(-50), 0),
+            (Fixed::from_int(10_000), 1000),
+        ];
+        for &(x, want_promille) in cases {
+            let ev = GestureEvent::Tap {
+                x,
+                y: Fixed::from_int(10),
+                target: e,
+            };
+            assert!(slider_handler(&mut world, e, &ev), "handler accepts Tap");
+            let r = world.get::<Slider>(e).unwrap().ratio();
+            assert!(
+                r >= Fixed::ZERO && r <= Fixed::ONE,
+                "ratio out of [0,1] at x={}: {:?}",
+                x.to_int(),
+                r,
+            );
+            let got = (r * Fixed::from_int(1000)).to_int();
+            assert!(
+                (got - want_promille).abs() <= 5,
+                "x={}: got promille={}, want={}",
+                x.to_int(),
+                got,
+                want_promille,
+            );
+        }
+    }
+
     /// Bug repro for ESP cycle-2 toggle loss: after one full sim
     /// cycle the timeline must still fire toggles in cycle 2. Drives
     /// ~25 s of virtual time. Catches drift / state-leak regressions
