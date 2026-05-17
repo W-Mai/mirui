@@ -3,15 +3,25 @@ use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
-use crate::types::{Color, Rect};
+use crate::types::Rect;
 use crate::widget::dirty::Dirty;
+use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
 
-#[derive(Default)]
 pub struct Button {
     pub pressed: bool,
-    pub normal_color: Option<Color>,
-    pub pressed_color: Option<Color>,
+    pub normal_color: ThemedColor,
+    pub pressed_color: ThemedColor,
+}
+
+impl Default for Button {
+    fn default() -> Self {
+        Self {
+            pressed: false,
+            normal_color: ThemedColor::Token(ColorToken::SurfaceVariant),
+            pressed_color: ThemedColor::Token(ColorToken::Primary),
+        }
+    }
 }
 
 impl Button {
@@ -19,13 +29,13 @@ impl Button {
         Self::default()
     }
 
-    pub fn with_normal_color(mut self, color: Color) -> Self {
-        self.normal_color = Some(color);
+    pub fn with_normal_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.normal_color = color.into();
         self
     }
 
-    pub fn with_pressed_color(mut self, color: Color) -> Self {
-        self.pressed_color = Some(color);
+    pub fn with_pressed_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.pressed_color = color.into();
         self
     }
 }
@@ -42,9 +52,9 @@ fn button_render(
     };
     let theme = ctx.theme(world);
     let color = if btn.pressed {
-        btn.pressed_color.unwrap_or(theme.primary)
+        btn.pressed_color.resolve(theme)
     } else {
-        btn.normal_color.unwrap_or(theme.surface_variant)
+        btn.normal_color.resolve(theme)
     };
     renderer.draw(
         &DrawCommand::Fill {
