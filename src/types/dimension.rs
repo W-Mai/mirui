@@ -116,9 +116,85 @@ impl core::ops::Div<Fixed> for Dimension {
     }
 }
 
+/// 2D point in `Dimension` space — px / percent / auto. Resolves to a
+/// concrete `(Fixed, Fixed)` pair against a parent size at use time.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DimPoint {
+    pub x: Dimension,
+    pub y: Dimension,
+}
+
+impl From<crate::types::Point> for DimPoint {
+    fn from(p: crate::types::Point) -> Self {
+        Self {
+            x: Dimension::Px(p.x),
+            y: Dimension::Px(p.y),
+        }
+    }
+}
+
+impl<X: Into<Dimension>, Y: Into<Dimension>> From<(X, Y)> for DimPoint {
+    fn from((x, y): (X, Y)) -> Self {
+        Self {
+            x: x.into(),
+            y: y.into(),
+        }
+    }
+}
+
+impl DimPoint {
+    pub const ZERO: Self = Self {
+        x: Dimension::Px(Fixed::ZERO),
+        y: Dimension::Px(Fixed::ZERO),
+    };
+
+    /// `(50, 50)` percent → centre of any rect.
+    pub const CENTER: Self = Self {
+        x: Dimension::Percent(Fixed::from_int(50)),
+        y: Dimension::Percent(Fixed::from_int(50)),
+    };
+
+    pub const fn px(x: i32, y: i32) -> Self {
+        Self {
+            x: Dimension::px(x),
+            y: Dimension::px(y),
+        }
+    }
+
+    pub const fn percent(x: i32, y: i32) -> Self {
+        Self {
+            x: Dimension::percent(x),
+            y: Dimension::percent(y),
+        }
+    }
+
+    /// Resolve against a `(parent_w, parent_h)` rect. `Auto` / `Content`
+    /// fall back to zero — they're meaningless for a tap target.
+    pub fn resolve(self, parent_w: Fixed, parent_h: Fixed) -> (Fixed, Fixed) {
+        (
+            self.x.resolve_or(parent_w, Fixed::ZERO),
+            self.y.resolve_or(parent_h, Fixed::ZERO),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dim_point_centre_resolves_to_half_rect() {
+        let (x, y) = DimPoint::CENTER.resolve(Fixed::from_int(100), Fixed::from_int(40));
+        assert_eq!(x.to_int(), 50);
+        assert_eq!(y.to_int(), 20);
+    }
+
+    #[test]
+    fn dim_point_px_passthrough() {
+        let (x, y) = DimPoint::px(30, 10).resolve(Fixed::from_int(100), Fixed::from_int(100));
+        assert_eq!(x.to_int(), 30);
+        assert_eq!(y.to_int(), 10);
+    }
 
     #[test]
     fn resolve_px() {
