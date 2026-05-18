@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] - 2026-05-18
+
+### Added
+
+- **`Theme::with(token, color)`** / **`Theme::with_many(pairs)`**: owning chainable builders next to the existing borrow-mut `set`. Lets palette factories spell `Theme::dark().with(Token, color)…` or seed several tokens from any iterable in one call.
+- **`mirui::widget::theme::set_theme(world, theme)`**: free function that hot-swaps the active palette — replaces the World's `Theme` resource, finds the active root, and flags the live tree for repaint. Callable from gesture handlers and systems where an `App` reference isn't available.
+- **`App::set_theme(theme)`**: thin forwarder around the free function above, for the common `app.set_theme(...)` style in `main`.
+- **`widget::dirty::mark_subtree_dirty(world, root)`**: public helper that flags every entity in the subtree rooted at `root`. Exposed for any global property change (viewport resize, density swap) that needs to invalidate the whole scene.
+- **`widget::WidgetRoot`**: World resource cached by `App::set_root` so handlers and systems can reach the active root without an `App` reference.
+
+### Changed
+
+- `gallery/examples/theme_swap_demo` collapses its tap handler to a single `theme::set_theme(world, ...)` call (gone: in-demo recursive `mark_subtree_dirty`, manual `Children` query, hand-walked Dirty insertion). The three palette factories build through `Theme::with` / `with_many` instead of mut-borrow chains.
+
 ## [0.14.0] - 2026-05-18
 
 ### Added
