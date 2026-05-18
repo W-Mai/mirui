@@ -80,7 +80,11 @@ fn main() {
 
     let backend = FramebufSurface::with_format(W, H, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend).with_default_widgets();
-    app.add_system(lazy_list_system);
+    app.add_system(mirui::ecs::System::new(
+        "lazy_list",
+        mirui::ecs::run_order::LAZY_LIST,
+        lazy_list_system,
+    ));
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

@@ -1,4 +1,4 @@
-use mirui::anim::{self, BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
+use mirui::anim::{BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
 use mirui::app::App;
 use mirui::ecs::{DeltaTimeMs, World};
 use mirui::layout::*;
@@ -53,11 +53,20 @@ fn spring_system(world: &mut World) {
 
 fn main() {
     let backend = SdlSurface::new("mirui - Tween vs Spring vs Elastic", 400, 300);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend)
+        .with_default_widgets()
+        .with_default_systems();
 
-    app.add_system(anim::sync_delta_time_ms);
-    app.add_system(AnimateTweenY::system());
-    app.add_system(spring_system);
+    app.add_system(mirui::ecs::System::new(
+        "animate_tween_y",
+        mirui::ecs::run_order::ANIMATION,
+        AnimateTweenY::system(),
+    ));
+    app.add_system(mirui::ecs::System::new(
+        "spring",
+        mirui::ecs::run_order::ANIMATION,
+        spring_system,
+    ));
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

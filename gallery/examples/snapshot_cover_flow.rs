@@ -105,7 +105,11 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
     });
     let mut app = App::new(backend).with_default_widgets();
 
-    app.add_system(layout_system);
+    app.add_system(mirui::ecs::System::new(
+        "layout",
+        mirui::ecs::run_order::NORMAL,
+        layout_system,
+    ));
 
     let card_colors = [
         Color::rgb(255, 107, 107),

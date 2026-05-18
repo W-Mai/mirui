@@ -23,11 +23,20 @@ mirui_macros::animate!(AnimateColor, |world, entity, value| {
 
 fn main() {
     let backend = SdlSurface::new("mirui - animation demo", 320, 180);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend)
+        .with_default_widgets()
+        .with_default_systems();
 
-    app.add_system(mirui::anim::sync_delta_time_ms);
-    app.add_system(AnimateX::system());
-    app.add_system(AnimateColor::system());
+    app.add_system(mirui::ecs::System::new(
+        "animate_x",
+        mirui::ecs::run_order::ANIMATION,
+        AnimateX::system(),
+    ));
+    app.add_system(mirui::ecs::System::new(
+        "animate_color",
+        mirui::ecs::run_order::ANIMATION,
+        AnimateColor::system(),
+    ));
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

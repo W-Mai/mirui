@@ -155,7 +155,11 @@ fn main() {
     );
 
     let mut app = App::with_factory(backend, factory).with_default_widgets();
-    app.add_system(drift_system);
+    app.add_system(mirui::ecs::System::new(
+        "drift",
+        mirui::ecs::run_order::NORMAL,
+        drift_system,
+    ));
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

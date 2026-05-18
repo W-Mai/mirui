@@ -7,7 +7,7 @@ use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, DimPoint, Dimension, Fixed, Point};
+use mirui::types::{Color, DimPoint, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
 use mirui_macros::ui;
@@ -63,10 +63,15 @@ fn drag_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool
 
 fn main() {
     let backend = SdlSurface::new("mirui - simulated input demo", 320, 240);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend)
+        .with_default_widgets()
+        .with_default_systems();
 
-    app.add_system(mirui::anim::sync_delta_time_ms);
-    app.add_system(sim_timeline_system);
+    app.add_system(mirui::ecs::System::new(
+        "sim_timeline",
+        mirui::ecs::run_order::SIM_INPUT,
+        sim_timeline_system,
+    ));
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))
