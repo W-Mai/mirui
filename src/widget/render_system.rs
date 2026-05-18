@@ -525,6 +525,9 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
 
+    let mut idx = 0;
+    write_computed_rects(&layout_tree, world, &entities, &mut idx);
+
     let mut bounds = DirtyBounds {
         min_x: Fixed::from(logical_w),
         min_y: Fixed::from(logical_h),
@@ -532,7 +535,7 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
         max_y: Fixed::from_int(-1),
     };
 
-    let mut idx = 0;
+    idx = 0;
     collect_dirty_walk(
         &layout_tree,
         world,
