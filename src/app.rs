@@ -120,6 +120,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
+    pub fn with_default_systems(mut self) -> Self {
+        self.add_system(crate::anim::sync_delta_time_ms);
+        self.add_system(crate::timer::timer_system);
+        self
+    }
+
     pub fn add_system(&mut self, system: System) -> &mut Self {
         self.systems.add(system);
         self
