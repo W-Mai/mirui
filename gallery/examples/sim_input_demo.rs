@@ -7,7 +7,7 @@ use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed, Point};
+use mirui::types::{Color, DimPoint, Dimension, Fixed, Point};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
 use mirui_macros::ui;
@@ -126,26 +126,17 @@ fn main() {
 
     app.world.insert_resource(
         SimTimeline::new(vec![
-            SimAction::Tap(Point::new(70, 70)),
-            SimAction::Wait(300),
-            SimAction::Tap(Point::new(70, 70)),
-            SimAction::Wait(300),
-            SimAction::Drag {
-                from: Point::new(170, 120),
-                to: Point::new(260, 60),
-                duration_ms: 600,
-                ease: ease::ease_in_out_cubic,
-            },
-            SimAction::Wait(200),
-            SimAction::Drag {
-                from: Point::new(170, 120),
-                to: Point::new(80, 180),
-                duration_ms: 800,
-                ease: ease::ease_out_quad,
-            },
-            SimAction::Wait(500),
-            SimAction::Tap(Point::new(70, 70)),
-            SimAction::Wait(500),
+            SimAction::tap(DimPoint::CENTER).on(tap_box),
+            SimAction::wait(300),
+            SimAction::tap(DimPoint::CENTER).on(tap_box),
+            SimAction::wait(300),
+            SimAction::drag(DimPoint::CENTER, (120, -30), 600, ease::ease_in_out_cubic)
+                .on(drag_box),
+            SimAction::wait(200),
+            SimAction::drag(DimPoint::CENTER, (-60, 90), 800, ease::ease_out_quad).on(drag_box),
+            SimAction::wait(500),
+            SimAction::tap(DimPoint::CENTER).on(tap_box),
+            SimAction::wait(500),
         ])
         .looping(true),
     );

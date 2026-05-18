@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use crate::anim::EaseFn;
 use crate::ecs::{Entity, World};
-use crate::types::Fixed;
+use crate::types::{DimPoint, Fixed};
 
 use super::gesture::GestureSystem;
 use super::hit_test::hit_test;
@@ -10,16 +10,47 @@ use super::input::InputEvent;
 use crate::types::Point;
 use crate::widget::ComputedRect;
 
-/// `None` when the entity hasn't been laid out yet.
-fn entity_centre(world: &World, e: Entity) -> Option<Point> {
-    let rect = world.get::<ComputedRect>(e)?.0;
-    if rect.w == Fixed::ZERO || rect.h == Fixed::ZERO {
-        return None;
-    }
+/// `None` when the entity isn't in the live layout (Hidden, detached,
+/// not yet mounted). Caller treats this as "retry next frame".
+fn resolve_dim_point(world: &World, p: DimPoint, anchor: Option<Entity>) -> Option<Point> {
+    let (origin, parent_w, parent_h) = match anchor {
+        Some(e) => {
+            let rect = world.get::<ComputedRect>(e)?.0;
+            (
+                Point {
+                    x: rect.x,
+                    y: rect.y,
+                },
+                rect.w,
+                rect.h,
+            )
+        }
+        None => (
+            Point {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+            Fixed::ZERO,
+            Fixed::ZERO,
+        ),
+    };
+    let (lx, ly) = p.resolve(parent_w, parent_h);
     Some(Point {
-        x: rect.x + rect.w / Fixed::from_int(2),
-        y: rect.y + rect.h / Fixed::from_int(2),
+        x: origin.x + lx,
+        y: origin.y + ly,
     })
+}
+
+#[derive(Clone, Copy)]
+enum ResolvedAction {
+    Tap(Point),
+    Drag {
+        from: Point,
+        to: Point,
+        duration_ms: u16,
+        ease: EaseFn,
+    },
+    Wait(u32),
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -190,23 +221,67 @@ pub fn set_sim_root(world: &mut World, root: Entity) {
 
 // ─── High-level timeline API ───────────────────────────────────────────
 
+/// `point` is screen coords when `anchor` is `None`, entity-local when
+/// anchored. `Dimension::Percent` resolves against the entity's rect.
+#[derive(Clone, Copy)]
+pub struct TapAction {
+    pub point: DimPoint,
+    pub anchor: Option<Entity>,
+}
+
+#[derive(Clone, Copy)]
+pub struct DragAction {
+    pub from: DimPoint,
+    pub to: DimPoint,
+    pub duration_ms: u16,
+    pub ease: EaseFn,
+    pub anchor: Option<Entity>,
+}
+
 #[derive(Clone, Copy)]
 pub enum SimAction {
-    Tap(Point),
-    TapOn(Entity),
-    Drag {
-        from: Point,
-        to: Point,
-        duration_ms: u16,
-        ease: EaseFn,
-    },
-    DragOn {
-        entity: Entity,
-        delta: Point,
-        duration_ms: u16,
-        ease: EaseFn,
-    },
+    Tap(TapAction),
+    Drag(DragAction),
     Wait(u32),
+}
+
+impl SimAction {
+    pub fn tap(point: impl Into<DimPoint>) -> Self {
+        Self::Tap(TapAction {
+            point: point.into(),
+            anchor: None,
+        })
+    }
+
+    pub fn drag(
+        from: impl Into<DimPoint>,
+        to: impl Into<DimPoint>,
+        duration_ms: u16,
+        ease: EaseFn,
+    ) -> Self {
+        Self::Drag(DragAction {
+            from: from.into(),
+            to: to.into(),
+            duration_ms,
+            ease,
+            anchor: None,
+        })
+    }
+
+    pub fn wait(ms: u32) -> Self {
+        Self::Wait(ms)
+    }
+
+    /// Anchor the action's coordinates to an entity's `ComputedRect`.
+    /// No-op on `Wait`.
+    pub fn on(mut self, e: Entity) -> Self {
+        match &mut self {
+            Self::Tap(t) => t.anchor = Some(e),
+            Self::Drag(d) => d.anchor = Some(e),
+            Self::Wait(_) => {}
+        }
+        self
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -222,7 +297,6 @@ pub struct SimTimeline {
     action_started: bool,
     start_ms: Option<u32>,
     looping: bool,
-    rect_retry_frames: u8,
     pub total_ms: u32,
 }
 
@@ -236,10 +310,8 @@ impl SimTimeline {
                 start_ms: t,
             });
             t += match action {
-                SimAction::Tap(_) | SimAction::TapOn(_) => 100,
-                SimAction::Drag { duration_ms, .. } | SimAction::DragOn { duration_ms, .. } => {
-                    *duration_ms as u32
-                }
+                SimAction::Tap(_) => 100,
+                SimAction::Drag(d) => d.duration_ms as u32,
                 SimAction::Wait(ms) => *ms,
             };
         }
@@ -249,7 +321,6 @@ impl SimTimeline {
             action_elapsed_ms: 0,
             action_started: false,
             start_ms: None,
-            rect_retry_frames: 0,
             looping: false,
             total_ms: t,
         }
@@ -305,48 +376,36 @@ pub fn sim_timeline_system(world: &mut World) {
         (entry, elapsed - entry.start_ms, tl.action_started)
     };
 
-    let resolved = match entry.action {
-        SimAction::TapOn(e) => entity_centre(world, e).map(SimAction::Tap),
-        SimAction::DragOn {
-            entity,
-            delta,
-            duration_ms,
-            ease,
-        } => entity_centre(world, entity).map(|c| SimAction::Drag {
-            from: c,
-            to: Point {
-                x: c.x + delta.x,
-                y: c.y + delta.y,
-            },
-            duration_ms,
-            ease,
-        }),
-        other => Some(other),
+    // Each (point, anchor) pair resolves to a concrete screen Point.
+    // None means "wait for layout, retry next frame".
+    let resolved: Option<ResolvedAction> = match entry.action {
+        SimAction::Tap(t) => resolve_dim_point(world, t.point, t.anchor).map(ResolvedAction::Tap),
+        SimAction::Drag(d) => {
+            let from = resolve_dim_point(world, d.from, d.anchor);
+            let to = resolve_dim_point(world, d.to, d.anchor);
+            match (from, to) {
+                (Some(f), Some(t)) => Some(ResolvedAction::Drag {
+                    from: f,
+                    to: t,
+                    duration_ms: d.duration_ms,
+                    ease: d.ease,
+                }),
+                _ => None,
+            }
+        }
+        SimAction::Wait(ms) => Some(ResolvedAction::Wait(ms)),
     };
 
-    // Past the retry cap we drop the action so a permanent miss can't
-    // deadlock the timeline.
+    // ComputedRect missing — wait for layout instead of firing at (0, 0).
+    // Anchored entities frequently come from a still-Hidden tab subtree,
+    // so we keep waiting indefinitely; the timeline's own Wait actions
+    // remain the only way to budget time.
     let Some(action) = resolved else {
-        const MAX_RETRY: u8 = 3;
-        let Some(tl) = world.resource_mut::<SimTimeline>() else {
-            return;
-        };
-        if tl.rect_retry_frames < MAX_RETRY {
-            tl.rect_retry_frames += 1;
-        } else {
-            tl.rect_retry_frames = 0;
-            tl.cursor += 1;
-            tl.action_started = false;
-        }
         return;
     };
 
-    if let Some(tl) = world.resource_mut::<SimTimeline>() {
-        tl.rect_retry_frames = 0;
-    }
-
     match action {
-        SimAction::Tap(pt) => {
+        ResolvedAction::Tap(pt) => {
             if !action_started {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.action_started = true;
@@ -371,7 +430,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 }
             }
         }
-        SimAction::Drag {
+        ResolvedAction::Drag {
             from,
             to,
             duration_ms,
@@ -410,7 +469,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 super::dispatch_input(world, root, &event, now_ms, lw, lh);
             }
         }
-        SimAction::Wait(ms) => {
+        ResolvedAction::Wait(ms) => {
             if action_elapsed >= ms {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
@@ -418,7 +477,6 @@ pub fn sim_timeline_system(world: &mut World) {
                 }
             }
         }
-        SimAction::TapOn(_) | SimAction::DragOn { .. } => unreachable!(),
     }
 
     let pending: Vec<super::gesture::GestureEvent> = world
@@ -435,6 +493,7 @@ mod tests {
     use super::*;
     use crate::ecs::time::{MonoClock, mock};
     use crate::types::Point;
+    use crate::widget::ComputedRect;
 
     fn setup_world() -> World {
         let mut world = World::default();
@@ -563,11 +622,11 @@ mod tests {
         let mut world = setup_world();
         world.insert_resource(
             SimTimeline::new(alloc::vec![
-                SimAction::Wait(100),
-                SimAction::Tap(Point::new(10, 10)),
-                SimAction::Wait(800),
-                SimAction::Tap(Point::new(20, 20)),
-                SimAction::Wait(100),
+                SimAction::wait(100),
+                SimAction::tap((10, 10)),
+                SimAction::wait(800),
+                SimAction::tap((20, 20)),
+                SimAction::wait(100),
             ])
             .looping(true),
         );
@@ -612,23 +671,73 @@ mod tests {
         );
     }
 
+    fn spawn_widget(
+        world: &mut World,
+        parent: Option<Entity>,
+        style: crate::widget::Style,
+    ) -> Entity {
+        use crate::widget::{Children, Parent, Widget};
+        let e = world.spawn();
+        world.insert(e, Widget);
+        world.insert(e, style);
+        if let Some(p) = parent {
+            world.insert(e, Parent(p));
+            if let Some(children) = world.get_mut::<Children>(p) {
+                children.0.push(e);
+            } else {
+                world.insert(p, Children(alloc::vec![e]));
+            }
+        }
+        e
+    }
+
+    fn install_root(world: &mut World) -> Entity {
+        use crate::layout::LayoutStyle;
+        use crate::types::Dimension;
+        let root = spawn_widget(
+            world,
+            None,
+            crate::widget::Style {
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(128)),
+                    height: Dimension::Px(Fixed::from_int(128)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert_resource(SimRootFallback(root));
+        root
+    }
+
     #[test]
     fn tap_on_resolves_to_entity_centre() {
-        use crate::types::Rect;
+        use crate::layout::{LayoutStyle, Position};
+        use crate::types::{Dimension, Viewport};
         let _g = mock::lock();
         let mut world = setup_world();
-        let target = world.spawn();
-        world.insert(
-            target,
-            ComputedRect(Rect {
-                x: Fixed::from_int(40),
-                y: Fixed::from_int(20),
-                w: Fixed::from_int(60),
-                h: Fixed::from_int(30),
-            }),
+        let root = install_root(&mut world);
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            crate::widget::Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(40)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(60)),
+                    height: Dimension::Px(Fixed::from_int(30)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
         );
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::widget::render_system::update_layout(&mut world, root, &viewport);
 
-        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::TapOn(target)]));
+        world.insert_resource(SimTimeline::new(alloc::vec![
+            SimAction::tap(DimPoint::CENTER).on(target),
+        ]));
         for _ in 0..10 {
             sim_timeline_system(&mut world);
             mock::advance_ms(16);
@@ -639,61 +748,59 @@ mod tests {
     }
 
     #[test]
-    fn tap_on_retries_when_computed_rect_missing() {
+    fn tap_on_waits_indefinitely_for_computed_rect() {
         let _g = mock::lock();
         let mut world = setup_world();
         let target = world.spawn();
-        // Deliberately no ComputedRect: TapOn must wait, not fire at (0,0).
 
-        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::TapOn(target)]));
-        for _ in 0..3 {
+        world.insert_resource(SimTimeline::new(alloc::vec![
+            SimAction::tap(DimPoint::CENTER).on(target),
+        ]));
+        for _ in 0..50 {
             sim_timeline_system(&mut world);
             mock::advance_ms(16);
         }
         assert_eq!(
             world.resource::<SimTimeline>().unwrap().cursor,
             0,
-            "TapOn should wait for ComputedRect, not fire at default rect",
-        );
-
-        // Past MAX_RETRY (3 frames) the timeline drops the action so it
-        // can't deadlock on a permanently-missing entity.
-        for _ in 0..5 {
-            sim_timeline_system(&mut world);
-            mock::advance_ms(16);
-        }
-        assert_eq!(
-            world.resource::<SimTimeline>().unwrap().cursor,
-            1,
-            "TapOn should give up after MAX_RETRY frames",
+            "TapOn must wait indefinitely so a deferred-layout target still fires once visible",
         );
     }
 
     #[test]
     fn drag_on_anchors_endpoints_to_entity() {
-        use crate::types::Rect;
+        use crate::layout::{LayoutStyle, Position};
+        use crate::types::{Dimension, Viewport};
         let _g = mock::lock();
         let mut world = setup_world();
-        let target = world.spawn();
-        world.insert(
-            target,
-            ComputedRect(Rect {
-                x: Fixed::from_int(10),
-                y: Fixed::from_int(10),
-                w: Fixed::from_int(20),
-                h: Fixed::from_int(20),
-            }),
-        );
-
-        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::DragOn {
-            entity: target,
-            delta: Point {
-                x: Fixed::from_int(50),
-                y: Fixed::ZERO,
+        let root = install_root(&mut world);
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            crate::widget::Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(10)),
+                    top: Dimension::Px(Fixed::from_int(10)),
+                    width: Dimension::Px(Fixed::from_int(20)),
+                    height: Dimension::Px(Fixed::from_int(20)),
+                    ..Default::default()
+                },
+                ..Default::default()
             },
-            duration_ms: 100,
-            ease: crate::anim::ease::linear,
-        }]));
+        );
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+
+        world.insert_resource(SimTimeline::new(alloc::vec![
+            SimAction::drag(
+                DimPoint::CENTER,
+                DimPoint::px(60, 10),
+                100,
+                crate::anim::ease::linear,
+            )
+            .on(target),
+        ]));
 
         for _ in 0..15 {
             sim_timeline_system(&mut world);
@@ -1151,38 +1258,38 @@ mod tests {
 
         world.insert_resource(
             SimTimeline::new(alloc::vec![
-                SimAction::Wait(500),
-                SimAction::Tap(crate::types::Point::new(64, 7)),
-                SimAction::Wait(1500),
-                SimAction::Drag {
-                    from: crate::types::Point::new(14, 71),
-                    to: crate::types::Point::new(116, 71),
-                    duration_ms: 600,
-                    ease: crate::anim::ease::ease_in_out_cubic,
-                },
-                SimAction::Wait(800),
-                SimAction::Tap(crate::types::Point::new(108, 7)),
-                SimAction::Wait(1200),
-                SimAction::Tap(crate::types::Point::new(64, 71)),
-                SimAction::Wait(800),
-                SimAction::Tap(crate::types::Point::new(64, 71)),
-                SimAction::Wait(800),
-                SimAction::Tap(crate::types::Point::new(20, 7)),
-                SimAction::Wait(800),
-                SimAction::Drag {
-                    from: crate::types::Point::new(64, 100),
-                    to: crate::types::Point::new(64, 30),
-                    duration_ms: 700,
-                    ease: crate::anim::ease::ease_in_out_cubic,
-                },
-                SimAction::Wait(800),
-                SimAction::Drag {
-                    from: crate::types::Point::new(64, 30),
-                    to: crate::types::Point::new(64, 100),
-                    duration_ms: 700,
-                    ease: crate::anim::ease::ease_in_out_cubic,
-                },
-                SimAction::Wait(800),
+                SimAction::wait(500),
+                SimAction::tap((64, 7)),
+                SimAction::wait(1500),
+                SimAction::drag(
+                    (14, 71),
+                    (116, 71),
+                    600,
+                    crate::anim::ease::ease_in_out_cubic
+                ),
+                SimAction::wait(800),
+                SimAction::tap((108, 7)),
+                SimAction::wait(1200),
+                SimAction::tap((64, 71)),
+                SimAction::wait(800),
+                SimAction::tap((64, 71)),
+                SimAction::wait(800),
+                SimAction::tap((20, 7)),
+                SimAction::wait(800),
+                SimAction::drag(
+                    (64, 100),
+                    (64, 30),
+                    700,
+                    crate::anim::ease::ease_in_out_cubic
+                ),
+                SimAction::wait(800),
+                SimAction::drag(
+                    (64, 30),
+                    (64, 100),
+                    700,
+                    crate::anim::ease::ease_in_out_cubic
+                ),
+                SimAction::wait(800),
             ])
             .looping(true),
         );
