@@ -109,11 +109,7 @@ impl View {
     /// surface — callers don't read `self.systems` directly.
     pub(crate) fn install(&self, _world: &mut World, mut sink: impl FnMut(crate::ecs::System)) {
         for s in self.systems {
-            sink(crate::ecs::System {
-                name: s.name,
-                priority: s.priority,
-                run: s.run,
-            });
+            sink(crate::ecs::System::new(s.name, s.priority, s.run));
         }
     }
 }

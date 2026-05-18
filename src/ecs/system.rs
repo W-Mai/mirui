@@ -3,10 +3,18 @@ use alloc::vec::Vec;
 use super::World;
 
 /// Lower `priority` runs first; see [`run_order`] for named slots.
+///
+/// `last_us` / `total_us` / `call_count` are populated by
+/// `SystemScheduler::run_all` when a `MonoClock` resource is present.
+/// Without a clock all three stay zero and the scheduler doesn't pay
+/// the timing overhead.
 pub struct System {
     pub name: &'static str,
     pub priority: i32,
     pub run: fn(&mut World),
+    pub last_us: u32,
+    pub total_us: u64,
+    pub call_count: u32,
 }
 
 impl System {
@@ -15,6 +23,9 @@ impl System {
             name,
             priority,
             run,
+            last_us: 0,
+            total_us: 0,
+            call_count: 0,
         }
     }
 }
@@ -70,8 +81,25 @@ impl SystemScheduler {
     }
 
     pub fn run_all(&mut self, world: &mut World) {
-        for system in &self.systems {
+        let clock_fn = world.resource::<super::MonoClock>().map(|c| c.clock);
+        for system in &mut self.systems {
+            let start_ns = clock_fn.map(|f| f()).unwrap_or(0);
             (system.run)(world);
+            if let Some(f) = clock_fn {
+                let elapsed_ns = f().saturating_sub(start_ns);
+                let elapsed_us = (elapsed_ns / 1_000) as u32;
+                system.last_us = elapsed_us;
+                system.total_us = system.total_us.saturating_add(elapsed_us as u64);
+                system.call_count = system.call_count.saturating_add(1);
+            }
+        }
+    }
+
+    pub fn reset_perf(&mut self) {
+        for system in &mut self.systems {
+            system.last_us = 0;
+            system.total_us = 0;
+            system.call_count = 0;
         }
     }
 
