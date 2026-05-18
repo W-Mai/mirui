@@ -382,6 +382,136 @@ pub fn compose_backend(input: TokenStream) -> TokenStream {
     compose::expand(input.into()).into()
 }
 
+/// ```rust,ignore
+/// timer!(Cycle, every: 3_000, |world, entity| { /* ... */ });
+/// // schedule: after: ms | every: ms | repeat: N every: ms | until: D every: ms
+/// ```
+///
+/// Sugar over `Timer::after / every / repeat / until`; all four share
+/// the generic `timer_system`, so N invocations don't grow the binary.
+#[proc_macro]
+pub fn timer(input: TokenStream) -> TokenStream {
+    timer_impl::expand(input.into()).into()
+}
+
+mod timer_impl {
+    use proc_macro2::TokenStream;
+    use quote::quote;
+    use syn::parse::{Parse, ParseStream};
+    use syn::{ExprClosure, Ident, LitInt, Token, parse2};
+
+    enum Schedule {
+        After(LitInt),
+        Every(LitInt),
+        Repeat { times: LitInt, period: LitInt },
+        Until { deadline: LitInt, period: LitInt },
+    }
+
+    struct TimerInput {
+        name: Ident,
+        schedule: Schedule,
+        closure: ExprClosure,
+    }
+
+    impl Parse for Schedule {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            let kind: Ident = input.parse()?;
+            input.parse::<Token![:]>()?;
+            let first: LitInt = input.parse()?;
+            match kind.to_string().as_str() {
+                "after" => Ok(Schedule::After(first)),
+                "every" => Ok(Schedule::Every(first)),
+                "repeat" => {
+                    // `repeat: N every: M`
+                    let kw: Ident = input.parse()?;
+                    if kw != "every" {
+                        return Err(syn::Error::new(
+                            kw.span(),
+                            "expected `every` after `repeat: N`",
+                        ));
+                    }
+                    input.parse::<Token![:]>()?;
+                    let period: LitInt = input.parse()?;
+                    Ok(Schedule::Repeat {
+                        times: first,
+                        period,
+                    })
+                }
+                "until" => {
+                    // `until: deadline every: period`
+                    let kw: Ident = input.parse()?;
+                    if kw != "every" {
+                        return Err(syn::Error::new(
+                            kw.span(),
+                            "expected `every` after `until: D`",
+                        ));
+                    }
+                    input.parse::<Token![:]>()?;
+                    let period: LitInt = input.parse()?;
+                    Ok(Schedule::Until {
+                        deadline: first,
+                        period,
+                    })
+                }
+                other => Err(syn::Error::new(
+                    kind.span(),
+                    format!(
+                        "unknown schedule keyword `{other}`; expected after / every / repeat / until"
+                    ),
+                )),
+            }
+        }
+    }
+
+    impl Parse for TimerInput {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            let name: Ident = input.parse()?;
+            input.parse::<Token![,]>()?;
+            let schedule: Schedule = input.parse()?;
+            input.parse::<Token![,]>()?;
+            let closure: ExprClosure = input.parse()?;
+            Ok(Self {
+                name,
+                schedule,
+                closure,
+            })
+        }
+    }
+
+    pub fn expand(input: TokenStream) -> TokenStream {
+        let parsed = match parse2::<TimerInput>(input) {
+            Ok(v) => v,
+            Err(e) => return e.to_compile_error(),
+        };
+
+        let name = &parsed.name;
+        let closure = &parsed.closure;
+
+        let ctor = match &parsed.schedule {
+            Schedule::After(p) => quote! { mirui::timer::Timer::after(#p, __cb) },
+            Schedule::Every(p) => quote! { mirui::timer::Timer::every(#p, __cb) },
+            Schedule::Repeat { times, period } => {
+                quote! { mirui::timer::Timer::repeat(#times, #period, __cb) }
+            }
+            Schedule::Until { deadline, period } => {
+                quote! { mirui::timer::Timer::until(#deadline, #period, __cb) }
+            }
+        };
+
+        quote! {
+            pub struct #name;
+            impl #name {
+                pub fn install(world: &mut mirui::ecs::World) -> mirui::ecs::Entity {
+                    let __cb: fn(&mut mirui::ecs::World, mirui::ecs::Entity) = #closure;
+                    let e = world.spawn();
+                    world.insert(e, #ctor);
+                    e
+                }
+            }
+        }
+    }
+}
+
 /// Define a motion component (Tween or Spring) + its tick/apply system.
 ///
 /// ```rust,ignore

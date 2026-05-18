@@ -71,7 +71,8 @@ fn cmd_build() -> Result {
 }
 
 fn cmd_test() -> Result {
-    cargo(&["test", "--workspace"])
+    // mock-clock mutex is `cfg(feature = "std")`-gated.
+    cargo(&["test", "--workspace", "--features", "std"])
 }
 
 fn cmd_lint() -> Result {
