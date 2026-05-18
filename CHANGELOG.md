@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-05-19
+
+### Added
+
+- **`mirui::ecs::System` struct + `mirui::ecs::run_order` named slots**. `System` carries a name, a priority, and the `fn(&mut World)`. `run_order` exposes the standard frame phases — `SIM_INPUT` (50), `DELTA_TIME` (60), `ANIMATION` (150), `TIMER` (150), `SCROLL_INERTIA` (250), `LAZY_LIST` (350), `TAB_PAGES` (350), `NORMAL` (500). Lower runs earlier each frame; registration order breaks ties at the same priority. Pick a slot by role; the spacing leaves room for user systems between built-ins.
+- **`App::with_default_systems`** now bundles `delta_time` (dt sync), `timer` (declarative timers), and `scroll_inertia` (the inertia spring tick) at their respective `run_order` slots. Demos that previously hand-registered `mirui::anim::sync_delta_time_ms` can drop the call.
+
+### Fixed
+
+- **Inertia spring tail no longer leaves residue.** `scroll_inertia_system` previously gated its `Dirty` mark on `(new - old).abs() >= 1px`, which silently dropped sub-pixel writes during a settling spring even though `ScrollOffset` itself was still changing. Across a tail that adds up to several visible pixels, so the screen kept rendering the position from when the spring launched while ScrollOffset had already snapped to its target. Now any actual numeric change marks Dirty and lets the dirty pass repaint.
+- **`Spring::retarget` is idempotent on the same target.** Calling `retarget(0, ...)` every frame while the spring is rebounding past a boundary used to reset `origin = position` each call, collapsing the `is_settled` span toward zero so the spring stalled a pixel out of bounds forever. Same-target calls are now a no-op (the optional config still applies for mid-flight curve swaps), and the boundary rebound converges cleanly.
+- **LazyList no longer exposes blank strips during fast drags.** `lazy_list_system` ran in the `systems` phase, which used to execute *before* event/inertia mutated `ScrollOffset`. The same-frame render then saw the new scroll value but the old row positions, so rows entering the viewport hadn't been re-bound. Reordering `systems.run_all` to run after event dispatch and the inertia tick (driven by the new prioritised scheduler) lets `lazy_list_system` slot in at `run_order::LAZY_LIST` and observe the post-event state immediately.
+
+### Migration from v0.14.3
+
+**`add_system` signature changed.** Bare function pointers no longer work:
+
+```rust
+// before
+app.add_system(my_system);
+app.add_system(mirui::anim::sync_delta_time_ms);
+
+// after
+app.add_system(System::new("my_system", run_order::NORMAL, my_system));
+// dt sync is now part of with_default_systems(); drop the explicit add.
+let mut app = App::new(backend)
+    .with_default_widgets()
+    .with_default_systems();
+```
+
+`View::with_systems` likewise expects `&'static [System]` instead of `&'static [fn(&mut World)]`. Custom widgets that contributed systems (cursor blink, tab page visibility, switch animation) need to wrap their fns in `System::new`.
+
+The main `App::run` loop now executes `systems.run_all` *after* event/gesture dispatch (previously it ran before). User systems that observed `ScrollOffset`, `TabBar.selected`, or any other input-driven state will now see this frame's mutations same-frame; systems that produced events for downstream handlers should register at `run_order::SIM_INPUT` (50) so they still run early.
+
+`scroll_inertia_system` is no longer hard-called between event polling and render — it's a normal system at `run_order::SCROLL_INERTIA`, registered automatically by `with_default_systems`. Apps that opt out of `with_default_systems` must register it manually.
+
 ## [0.14.3] - 2026-05-18
 
 ### Added
