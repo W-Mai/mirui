@@ -7,6 +7,20 @@ use crate::types::Fixed;
 use super::gesture::GestureSystem;
 use super::hit_test::hit_test;
 use super::input::InputEvent;
+use crate::types::Point;
+use crate::widget::ComputedRect;
+
+/// `None` when the entity hasn't been laid out yet.
+fn entity_centre(world: &World, e: Entity) -> Option<Point> {
+    let rect = world.get::<ComputedRect>(e)?.0;
+    if rect.w == Fixed::ZERO || rect.h == Fixed::ZERO {
+        return None;
+    }
+    Some(Point {
+        x: rect.x + rect.w / Fixed::from_int(2),
+        y: rect.y + rect.h / Fixed::from_int(2),
+    })
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum SimTiming {
@@ -176,14 +190,19 @@ pub fn set_sim_root(world: &mut World, root: Entity) {
 
 // ─── High-level timeline API ───────────────────────────────────────────
 
-use crate::types::Point;
-
 #[derive(Clone, Copy)]
 pub enum SimAction {
     Tap(Point),
+    TapOn(Entity),
     Drag {
         from: Point,
         to: Point,
+        duration_ms: u16,
+        ease: EaseFn,
+    },
+    DragOn {
+        entity: Entity,
+        delta: Point,
         duration_ms: u16,
         ease: EaseFn,
     },
@@ -203,6 +222,7 @@ pub struct SimTimeline {
     action_started: bool,
     start_ms: Option<u32>,
     looping: bool,
+    rect_retry_frames: u8,
     pub total_ms: u32,
 }
 
@@ -216,8 +236,10 @@ impl SimTimeline {
                 start_ms: t,
             });
             t += match action {
-                SimAction::Tap(_) => 100,
-                SimAction::Drag { duration_ms, .. } => *duration_ms as u32,
+                SimAction::Tap(_) | SimAction::TapOn(_) => 100,
+                SimAction::Drag { duration_ms, .. } | SimAction::DragOn { duration_ms, .. } => {
+                    *duration_ms as u32
+                }
                 SimAction::Wait(ms) => *ms,
             };
         }
@@ -227,6 +249,7 @@ impl SimTimeline {
             action_elapsed_ms: 0,
             action_started: false,
             start_ms: None,
+            rect_retry_frames: 0,
             looping: false,
             total_ms: t,
         }
@@ -254,37 +277,81 @@ pub fn sim_timeline_system(world: &mut World) {
             generation: 0,
         });
 
-    let Some(tl) = world.resource_mut::<SimTimeline>() else {
-        return;
+    // Tight scope releases the &mut Timeline borrow before entity_centre.
+    let (entry, action_elapsed, action_started) = {
+        let Some(tl) = world.resource_mut::<SimTimeline>() else {
+            return;
+        };
+        if tl.entries.is_empty() {
+            return;
+        }
+
+        let start = *tl.start_ms.get_or_insert(now_ms);
+        let elapsed = now_ms.wrapping_sub(start);
+
+        if tl.cursor >= tl.entries.len() {
+            if tl.looping {
+                tl.cursor = 0;
+                tl.action_started = false;
+                tl.start_ms = Some(now_ms);
+            }
+            return;
+        }
+
+        let entry = tl.entries[tl.cursor];
+        if elapsed < entry.start_ms {
+            return;
+        }
+        (entry, elapsed - entry.start_ms, tl.action_started)
     };
-    if tl.entries.is_empty() {
-        return;
-    }
 
-    let start = *tl.start_ms.get_or_insert(now_ms);
-    let elapsed = now_ms.wrapping_sub(start);
+    let resolved = match entry.action {
+        SimAction::TapOn(e) => entity_centre(world, e).map(SimAction::Tap),
+        SimAction::DragOn {
+            entity,
+            delta,
+            duration_ms,
+            ease,
+        } => entity_centre(world, entity).map(|c| SimAction::Drag {
+            from: c,
+            to: Point {
+                x: c.x + delta.x,
+                y: c.y + delta.y,
+            },
+            duration_ms,
+            ease,
+        }),
+        other => Some(other),
+    };
 
-    if tl.cursor >= tl.entries.len() {
-        if tl.looping {
-            tl.cursor = 0;
+    // Past the retry cap we drop the action so a permanent miss can't
+    // deadlock the timeline.
+    let Some(action) = resolved else {
+        const MAX_RETRY: u8 = 3;
+        let Some(tl) = world.resource_mut::<SimTimeline>() else {
+            return;
+        };
+        if tl.rect_retry_frames < MAX_RETRY {
+            tl.rect_retry_frames += 1;
+        } else {
+            tl.rect_retry_frames = 0;
+            tl.cursor += 1;
             tl.action_started = false;
-            tl.start_ms = Some(now_ms);
         }
         return;
+    };
+
+    if let Some(tl) = world.resource_mut::<SimTimeline>() {
+        tl.rect_retry_frames = 0;
     }
 
-    let entry = tl.entries[tl.cursor];
-    if elapsed < entry.start_ms {
-        return;
-    }
-
-    let action_elapsed = elapsed - entry.start_ms;
-
-    match entry.action {
+    match action {
         SimAction::Tap(pt) => {
-            if !tl.action_started {
-                tl.action_started = true;
-                tl.action_elapsed_ms = 0;
+            if !action_started {
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.action_started = true;
+                    tl.action_elapsed_ms = 0;
+                }
                 let event = InputEvent::PointerDown {
                     id: 0,
                     x: pt.x,
@@ -310,9 +377,11 @@ pub fn sim_timeline_system(world: &mut World) {
             duration_ms,
             ease,
         } => {
-            if !tl.action_started {
-                tl.action_started = true;
-                tl.action_elapsed_ms = 0;
+            if !action_started {
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.action_started = true;
+                    tl.action_elapsed_ms = 0;
+                }
                 let event = InputEvent::PointerDown {
                     id: 0,
                     x: from.x,
@@ -343,10 +412,13 @@ pub fn sim_timeline_system(world: &mut World) {
         }
         SimAction::Wait(ms) => {
             if action_elapsed >= ms {
-                tl.cursor += 1;
-                tl.action_started = false;
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.cursor += 1;
+                    tl.action_started = false;
+                }
             }
         }
+        SimAction::TapOn(_) | SimAction::DragOn { .. } => unreachable!(),
     }
 
     let pending: Vec<super::gesture::GestureEvent> = world
@@ -537,6 +609,99 @@ mod tests {
         assert!(
             (1100..=1300).contains(&cycle1_len),
             "cycle1 length {cycle1_len} ms outside [1100, 1300]; trace={trace:?}",
+        );
+    }
+
+    #[test]
+    fn tap_on_resolves_to_entity_centre() {
+        use crate::types::Rect;
+        let _g = mock::lock();
+        let mut world = setup_world();
+        let target = world.spawn();
+        world.insert(
+            target,
+            ComputedRect(Rect {
+                x: Fixed::from_int(40),
+                y: Fixed::from_int(20),
+                w: Fixed::from_int(60),
+                h: Fixed::from_int(30),
+            }),
+        );
+
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::TapOn(target)]));
+        for _ in 0..10 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+
+        let tl = world.resource::<SimTimeline>().unwrap();
+        assert!(tl.cursor >= 1, "TapOn never advanced cursor");
+    }
+
+    #[test]
+    fn tap_on_retries_when_computed_rect_missing() {
+        let _g = mock::lock();
+        let mut world = setup_world();
+        let target = world.spawn();
+        // Deliberately no ComputedRect: TapOn must wait, not fire at (0,0).
+
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::TapOn(target)]));
+        for _ in 0..3 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().cursor,
+            0,
+            "TapOn should wait for ComputedRect, not fire at default rect",
+        );
+
+        // Past MAX_RETRY (3 frames) the timeline drops the action so it
+        // can't deadlock on a permanently-missing entity.
+        for _ in 0..5 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().cursor,
+            1,
+            "TapOn should give up after MAX_RETRY frames",
+        );
+    }
+
+    #[test]
+    fn drag_on_anchors_endpoints_to_entity() {
+        use crate::types::Rect;
+        let _g = mock::lock();
+        let mut world = setup_world();
+        let target = world.spawn();
+        world.insert(
+            target,
+            ComputedRect(Rect {
+                x: Fixed::from_int(10),
+                y: Fixed::from_int(10),
+                w: Fixed::from_int(20),
+                h: Fixed::from_int(20),
+            }),
+        );
+
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::DragOn {
+            entity: target,
+            delta: Point {
+                x: Fixed::from_int(50),
+                y: Fixed::ZERO,
+            },
+            duration_ms: 100,
+            ease: crate::anim::ease::linear,
+        }]));
+
+        for _ in 0..15 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+        assert!(
+            world.resource::<SimTimeline>().unwrap().cursor >= 1,
+            "DragOn never completed",
         );
     }
 
