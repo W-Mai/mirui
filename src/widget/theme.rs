@@ -191,6 +191,22 @@ impl Theme {
         }
         self
     }
+
+    /// Owning chainable variant of `set` — `Theme::dark().with(Token, color)…`.
+    pub fn with(mut self, token: ColorToken, color: Color) -> Self {
+        self.set(token, color);
+        self
+    }
+
+    pub fn with_many<I>(mut self, pairs: I) -> Self
+    where
+        I: IntoIterator<Item = (ColorToken, Color)>,
+    {
+        for (token, color) in pairs {
+            self.set(token, color);
+        }
+        self
+    }
 }
 
 impl Default for Theme {
@@ -289,5 +305,30 @@ mod tests {
         let before = t.resolve(ColorToken::Primary);
         t.unset(ColorToken::Primary);
         assert_eq!(t.resolve(ColorToken::Primary), before);
+    }
+
+    #[test]
+    fn with_chain_owning() {
+        const ACCENT: ColorToken = ColorToken::custom("accent");
+        let t = Theme::dark()
+            .with(ColorToken::Primary, Color::rgb(255, 0, 0))
+            .with(ACCENT, Color::rgb(0, 200, 0));
+        assert_eq!(t.resolve(ColorToken::Primary), Color::rgb(255, 0, 0));
+        assert_eq!(t.resolve(ACCENT), Color::rgb(0, 200, 0));
+        // untouched builtins keep their dark default
+        assert_eq!(t.resolve(ColorToken::Surface), Theme::dark().surface);
+    }
+
+    #[test]
+    fn with_many_iterates_all_pairs() {
+        let pairs = [
+            (ColorToken::Primary, Color::rgb(1, 1, 1)),
+            (ColorToken::Surface, Color::rgb(2, 2, 2)),
+            (ColorToken::custom("brand"), Color::rgb(3, 3, 3)),
+        ];
+        let t = Theme::dark().with_many(pairs);
+        assert_eq!(t.resolve(ColorToken::Primary), Color::rgb(1, 1, 1));
+        assert_eq!(t.resolve(ColorToken::Surface), Color::rgb(2, 2, 2));
+        assert_eq!(t.resolve(ColorToken::custom("brand")), Color::rgb(3, 3, 3));
     }
 }
