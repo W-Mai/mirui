@@ -3,6 +3,8 @@ pub mod framebuf;
 pub mod sdl;
 #[cfg(feature = "sdl-gpu")]
 pub mod sdl_gpu;
+#[cfg(feature = "std")]
+pub mod slow;
 
 use crate::draw::texture::Texture;
 use crate::types::{Fixed, Rect, Viewport};
