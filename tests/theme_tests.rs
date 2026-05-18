@@ -59,3 +59,54 @@ fn user_defined_token_round_trips_through_app() {
         Color::rgb(220, 60, 70),
     );
 }
+
+#[test]
+fn set_theme_swaps_resource_and_marks_tree_dirty() {
+    use mirui::widget::builder::WidgetBuilder;
+    use mirui::widget::dirty::Dirty;
+
+    let backend = FramebufSurface::new(64, 64, |_, _| {});
+    let mut app = App::new(backend).with_default_widgets();
+
+    let child_a = WidgetBuilder::new(&mut app.world).id();
+    let child_b = WidgetBuilder::new(&mut app.world).id();
+    let root = WidgetBuilder::new(&mut app.world)
+        .child(child_a)
+        .child(child_b)
+        .id();
+    app.set_root(root);
+
+    // Sanity: we cleared the freshly-spawned tree's Dirty so the swap signal is unambiguous.
+    app.world.remove::<Dirty>(root);
+    app.world.remove::<Dirty>(child_a);
+    app.world.remove::<Dirty>(child_b);
+    assert!(app.world.get::<Dirty>(root).is_none());
+
+    app.set_theme(Theme::light());
+
+    let theme = app.world.resource::<Theme>().unwrap();
+    assert_eq!(
+        theme.resolve(ColorToken::Surface),
+        Theme::light().resolve(ColorToken::Surface),
+    );
+
+    // Live repaint contract: every entity in the rooted tree carries Dirty
+    // after a theme swap, so the next render frame redraws unconditionally.
+    assert!(app.world.get::<Dirty>(root).is_some());
+    assert!(app.world.get::<Dirty>(child_a).is_some());
+    assert!(app.world.get::<Dirty>(child_b).is_some());
+}
+
+#[test]
+fn set_theme_without_root_only_swaps_resource() {
+    let backend = FramebufSurface::new(64, 64, |_, _| {});
+    let mut app = App::new(backend);
+    app.set_theme(Theme::light());
+    assert_eq!(
+        app.world
+            .resource::<Theme>()
+            .unwrap()
+            .resolve(ColorToken::Surface),
+        Theme::light().resolve(ColorToken::Surface),
+    );
+}
