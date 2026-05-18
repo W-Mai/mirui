@@ -172,7 +172,14 @@ fn cmd_publish(dry_run: bool) -> Result {
                 println!("  ✅ {verb} {package}");
             }
             // Re-running after a mid-release failure shouldn't crash here.
-            Err(e) if e.to_string().contains("already uploaded") => {
+            // cargo's wording also covers patch releases that don't bump
+            // mirui-macros: the unchanged version is already on the index.
+            Err(e)
+                if {
+                    let msg = e.to_string();
+                    msg.contains("already uploaded") || msg.contains("already exists")
+                } =>
+            {
                 println!("  ⏭  {package} already on crates.io, skipping");
             }
             Err(e) => return Err(e),
