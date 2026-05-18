@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.3] - 2026-05-18
+
+### Added
+
+- **`mirui::types::DimPoint`**: 2D point with each axis as a `Dimension` (px / percent / auto / content). Resolves against a parent rect into concrete pixel coordinates. `From<Point>` keeps existing fixed-pixel call sites working; `From<(X, Y)>` lets ergonomic literals like `(64, 7)` flow into APIs that take `impl Into<DimPoint>`.
+- **`mirui::event::PointerCursor`**: World resource holding the last screen-space pointer position seen by `dispatch_input`, with an `event_seq` counter that bumps on PointerDown / PointerUp (PointerMove leaves it). Single source of truth for "where is the cursor" across sim and real input.
+- **`SimAction::tap(point)` / `drag(from, to, dur, ease)` / `wait(ms)`** + **`.on(entity)`** chain: builder API replacing the v0.11.1 enum-variant style. Each ctor returns `SimAction` directly; `.on(entity)` shifts the point's coord system to the entity's local rect, so anchored taps and drags survive layout changes. Coordinate inputs accept `impl Into<DimPoint>` — `Point::new(64, 7)`, `(64, 7)`, `DimPoint::CENTER`, and `DimPoint::percent(10, 50)` all work.
+- **`SimAction::TapAction` / `DragAction`** structs (re-exported from `event::sim`): the wrapped values behind `tap(...)` / `drag(...)` for code that wants to inspect the configured action.
+
+### Fixed
+
+- **`render_dirty` path now refreshes ComputedRect** every frame. Previously `update_layout` only ran inside `App::render` (transient backends like SDL); persistent backends (ESP32, embedded LCDs) took the `render_dirty` path which never wrote ComputedRect back into ECS, so any consumer reading the component (sim TapOn, slider drag math, gesture fallbacks) saw stale coordinates from the single startup-frame full render. The fix piggybacks `write_computed_rects` onto the layout pass `collect_dirty_region` was already running — same data, no extra work.
+- **Scroll containers with `elastic: false` no longer drift past the content edge**. The drag handler always ran the elastic-resist dampener, which only slowed overscroll, never blocked it; the spring on PointerUp was gated on `elastic` so non-elastic configs left the offset stuck out of bounds, and the next drag would push it further until the list disappeared off-screen. Drag now hard-clamps to `[0, max]` when `elastic = false`.
+
+### Migration from v0.14.2
+
+`SimAction` enum changed from `Tap(Point) | Drag { from, to, ... } | Wait(u32)` to `Tap(TapAction) | Drag(DragAction) | Wait(u32)`. Existing tests and demos using the variants directly need to switch to the constructors:
+
+```rust
+// before
+SimAction::Tap(Point::new(64, 7))
+SimAction::Drag { from: Point::new(20, 80), to: Point::new(100, 80), duration_ms: 600, ease: ease::linear }
+SimAction::Wait(500)
+
+// after
+SimAction::tap((64, 7))
+SimAction::drag((20, 80), (100, 80), 600, ease::linear)
+SimAction::wait(500)
+
+// new ergonomic form
+SimAction::tap(DimPoint::CENTER).on(switch_entity)
+SimAction::drag(DimPoint::percent(10, 50), DimPoint::percent(90, 50), 600, ease::linear).on(slider_entity)
+```
+
+The internal `event_seq` field on `PointerCursor` is new; resources holding `PointerCursor` from prior versions don't exist (the resource itself is new).
+
 ## [0.14.2] - 2026-05-18
 
 ### Added
