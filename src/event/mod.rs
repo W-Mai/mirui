@@ -7,6 +7,7 @@ pub mod sim;
 pub mod widget_input;
 
 use crate::ecs::{Entity, World};
+use crate::types::Fixed;
 use crate::widget::Parent;
 
 use focus::key_dispatch;
@@ -14,6 +15,15 @@ use gesture::{GestureEvent, GestureSystem};
 use hit_test::hit_test;
 use input::InputEvent;
 use scroll::{ScrollDragState, scroll_system};
+
+#[derive(Clone, Copy, Default)]
+pub struct PointerCursor {
+    pub x: Fixed,
+    pub y: Fixed,
+    pub down: bool,
+    /// Bumps on every PointerDown / PointerUp; PointerMove leaves it.
+    pub event_seq: u32,
+}
 
 /// Single source of truth for the per-event side of the input
 /// pipeline. Both `App::run`'s real input loop and
@@ -32,6 +42,41 @@ pub fn dispatch_input(
     lw: u16,
     lh: u16,
 ) {
+    match event {
+        InputEvent::PointerDown { x, y, .. } => {
+            let mut next = world
+                .resource::<PointerCursor>()
+                .copied()
+                .unwrap_or_default();
+            next.x = *x;
+            next.y = *y;
+            next.down = true;
+            next.event_seq = next.event_seq.wrapping_add(1);
+            world.insert_resource(next);
+        }
+        InputEvent::PointerMove { x, y, .. } => {
+            let mut next = world
+                .resource::<PointerCursor>()
+                .copied()
+                .unwrap_or_default();
+            next.x = *x;
+            next.y = *y;
+            world.insert_resource(next);
+        }
+        InputEvent::PointerUp { x, y, .. } => {
+            let mut next = world
+                .resource::<PointerCursor>()
+                .copied()
+                .unwrap_or_default();
+            next.x = *x;
+            next.y = *y;
+            next.down = false;
+            next.event_seq = next.event_seq.wrapping_add(1);
+            world.insert_resource(next);
+        }
+        _ => {}
+    }
+
     scroll_system(world, root, event, lw, lh);
 
     let hit = match event {
