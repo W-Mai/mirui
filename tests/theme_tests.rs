@@ -98,6 +98,22 @@ fn set_theme_swaps_resource_and_marks_tree_dirty() {
 }
 
 #[test]
+fn set_root_publishes_widget_root_resource() {
+    use mirui::widget::WidgetRoot;
+    use mirui::widget::builder::WidgetBuilder;
+
+    let backend = FramebufSurface::new(64, 64, |_, _| {});
+    let mut app = App::new(backend).with_default_widgets();
+    let root = WidgetBuilder::new(&mut app.world).id();
+    app.set_root(root);
+
+    let cached = app.world.resource::<WidgetRoot>().expect(
+        "WidgetRoot must be published so handlers can reach the live root without an App ref",
+    );
+    assert_eq!(cached.0, root);
+}
+
+#[test]
 fn set_theme_without_root_only_swaps_resource() {
     let backend = FramebufSurface::new(64, 64, |_, _| {});
     let mut app = App::new(backend);

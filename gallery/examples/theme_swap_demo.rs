@@ -20,10 +20,9 @@ use mirui::event::gesture::GestureEvent;
 use mirui::layout::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed};
+use mirui::widget::Theme;
 use mirui::widget::builder::WidgetBuilder;
-use mirui::widget::dirty::Dirty;
-use mirui::widget::theme::ColorToken;
-use mirui::widget::{Children, Theme};
+use mirui::widget::theme::{self, ColorToken};
 use mirui_macros::ui;
 
 /// Per-button marker: tapping the entity carrying this swaps the
@@ -35,28 +34,24 @@ struct ThemeChoice(Theme);
 const ACCENT: ColorToken = ColorToken::custom("accent");
 
 fn dark_with_accent() -> Theme {
-    let mut t = Theme::dark();
-    t.set(ACCENT, Color::rgb(255, 200, 60));
-    t
+    Theme::dark().with(ACCENT, Color::rgb(255, 200, 60))
 }
 
 fn light_with_accent() -> Theme {
-    let mut t = Theme::light();
-    t.set(ACCENT, Color::rgb(220, 60, 90));
-    t
+    Theme::light().with(ACCENT, Color::rgb(220, 60, 90))
 }
 
 fn custom_theme() -> Theme {
-    let mut t = Theme::dark();
-    t.set(ColorToken::Primary, Color::rgb(255, 105, 180))
-        .set(ColorToken::OnPrimary, Color::rgb(20, 20, 30))
-        .set(ColorToken::Success, Color::rgb(255, 200, 60))
-        .set(ColorToken::Surface, Color::rgb(38, 28, 50))
-        .set(ColorToken::SurfaceVariant, Color::rgb(70, 50, 90))
-        .set(ColorToken::OnSurface, Color::rgb(245, 235, 255))
-        .set(ColorToken::OnSurfaceVariant, Color::rgb(180, 150, 200))
-        .set(ACCENT, Color::rgb(140, 200, 220));
-    t
+    Theme::dark().with_many([
+        (ColorToken::Primary, Color::rgb(255, 105, 180)),
+        (ColorToken::OnPrimary, Color::rgb(20, 20, 30)),
+        (ColorToken::Success, Color::rgb(255, 200, 60)),
+        (ColorToken::Surface, Color::rgb(38, 28, 50)),
+        (ColorToken::SurfaceVariant, Color::rgb(70, 50, 90)),
+        (ColorToken::OnSurface, Color::rgb(245, 235, 255)),
+        (ColorToken::OnSurfaceVariant, Color::rgb(180, 150, 200)),
+        (ACCENT, Color::rgb(140, 200, 220)),
+    ])
 }
 
 fn theme_swap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
@@ -66,23 +61,8 @@ fn theme_swap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -
     let Some(theme) = world.get::<ThemeChoice>(entity).map(|c| c.0.clone()) else {
         return false;
     };
-    world.insert_resource(theme);
-    let roots: Vec<Entity> = world.query::<Children>().collect();
-    for r in roots {
-        mark_subtree_dirty(world, r);
-    }
+    theme::set_theme(world, theme);
     true
-}
-
-fn mark_subtree_dirty(world: &mut World, entity: Entity) {
-    world.insert(entity, Dirty);
-    let children = world
-        .get::<Children>(entity)
-        .map(|c| c.0.clone())
-        .unwrap_or_default();
-    for c in children {
-        mark_subtree_dirty(world, c);
-    }
 }
 
 const W: u16 = 480;

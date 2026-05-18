@@ -1,5 +1,6 @@
 use alloc::collections::BTreeMap;
 
+use crate::ecs::World;
 use crate::types::Color;
 
 /// Token referring to a colour role inside a [`Theme`]. The 14
@@ -212,6 +213,15 @@ impl Theme {
 impl Default for Theme {
     fn default() -> Self {
         Self::dark()
+    }
+}
+
+/// Free-function counterpart to `App::set_theme`, for handlers and
+/// systems that don't have an `App` reference.
+pub fn set_theme(world: &mut World, theme: Theme) {
+    world.insert_resource(theme);
+    if let Some(super::WidgetRoot(root)) = world.resource::<super::WidgetRoot>().copied() {
+        super::dirty::mark_subtree_dirty(world, root);
     }
 }
 

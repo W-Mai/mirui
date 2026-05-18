@@ -99,10 +99,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Runtime counterpart to `with_theme`: also forces a full-tree repaint.
     pub fn set_theme(&mut self, theme: Theme) {
-        self.world.insert_resource(theme);
-        if let Some(root) = self.root {
-            crate::widget::dirty::mark_subtree_dirty(&mut self.world, root);
-        }
+        crate::widget::theme::set_theme(&mut self.world, theme);
     }
 
     /// Register one widget kind (built-in or user-defined).
@@ -146,6 +143,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     pub fn set_root(&mut self, root: Entity) {
         self.root = Some(root);
+        self.world.insert_resource(crate::widget::WidgetRoot(root));
         crate::event::widget_input::attach_widget_input_handlers(&mut self.world, root);
         crate::event::sim::set_sim_root(&mut self.world, root);
     }

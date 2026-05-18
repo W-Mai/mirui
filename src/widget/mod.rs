@@ -17,6 +17,11 @@ use crate::types::Fixed;
 
 pub struct Widget;
 
+/// World resource cached by `App::set_root` so handlers and systems can
+/// reach the active root without an `App` reference.
+#[derive(Clone, Copy)]
+pub struct WidgetRoot(pub crate::ecs::Entity);
+
 #[derive(Clone, Debug)]
 pub struct Style {
     pub bg_color: Option<ThemedColor>,
