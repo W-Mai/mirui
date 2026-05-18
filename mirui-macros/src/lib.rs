@@ -582,3 +582,82 @@ mod animate_impl {
         }
     }
 }
+
+/// Mints unique guard idents for `trace_span!` so multiple calls in
+/// the same scope don't shadow each other. Overflow at 2³² is
+/// theoretical only.
+static TRACE_SPAN_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+fn next_trace_span_id() -> u32 {
+    TRACE_SPAN_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+mod trace_span_input {
+    use syn::parse::{Parse, ParseStream};
+    use syn::{Block, LitStr, Token};
+
+    pub enum TraceSpanInput {
+        Statement(LitStr),
+        Expression(LitStr, Block),
+    }
+
+    impl Parse for TraceSpanInput {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            let name: LitStr = input.parse()?;
+            if input.is_empty() {
+                Ok(TraceSpanInput::Statement(name))
+            } else {
+                input.parse::<Token![,]>()?;
+                let body: Block = input.parse()?;
+                Ok(TraceSpanInput::Expression(name, body))
+            }
+        }
+    }
+}
+
+/// `trace_span!("name")` — RAII statement: guard lives until end of
+/// scope. Multiple calls in one scope each get a unique binding.
+///
+/// `trace_span!("name", { ... })` — block expression form,
+/// evaluates to the block's value.
+#[proc_macro]
+pub fn trace_span(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as trace_span_input::TraceSpanInput);
+    match parsed {
+        trace_span_input::TraceSpanInput::Statement(name) => {
+            let id = next_trace_span_id();
+            let ident = quote::format_ident!("__trace_span_guard_{}", id);
+            quote::quote! {
+                let #ident = mirui::perf::enter(#name);
+            }
+            .into()
+        }
+        trace_span_input::TraceSpanInput::Expression(name, body) => {
+            let id = next_trace_span_id();
+            let ident = quote::format_ident!("__trace_span_guard_{}", id);
+            quote::quote! {{
+                let #ident = mirui::perf::enter(#name);
+                let __trace_span_value = #body;
+                drop(#ident);
+                __trace_span_value
+            }}
+            .into()
+        }
+    }
+}
+
+/// `#[trace_fn("name")]` — equivalent to `trace_span!("name");` as
+/// the first statement of the fn body.
+#[proc_macro_attribute]
+pub fn trace_fn(args: TokenStream, item: TokenStream) -> TokenStream {
+    let name = parse_macro_input!(args as syn::LitStr);
+    let mut func = parse_macro_input!(item as syn::ItemFn);
+    let stmts = &func.block.stmts;
+    let id = next_trace_span_id();
+    let ident = quote::format_ident!("__trace_span_guard_{}", id);
+    *func.block = syn::parse_quote! {{
+        let #ident = mirui::perf::enter(#name);
+        #(#stmts)*
+    }};
+    quote::quote! { #func }.into()
+}
