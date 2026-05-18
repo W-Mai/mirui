@@ -221,7 +221,7 @@ pub fn scroll_system(
             }
         }
         InputEvent::PointerUp { .. } => {
-            let (vel_x, vel_y, target_entity, dir) = {
+            let (vel_x, vel_y, target_entity, dir, elastic) = {
                 let Some(state) = world.resource::<ScrollDragState>() else {
                     return;
                 };
@@ -232,11 +232,10 @@ pub fn scroll_system(
                     return;
                 }
                 let t = state.target;
-                let dir = world
-                    .get::<ScrollConfig>(t)
-                    .map(|c| c.direction)
-                    .unwrap_or(ScrollAxis::Vertical);
-                (state.vel_x, state.vel_y, t, dir)
+                let cfg = world.get::<ScrollConfig>(t);
+                let dir = cfg.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
+                let elastic = cfg.map(|c| c.elastic).unwrap_or(true);
+                (state.vel_x, state.vel_y, t, dir, elastic)
             };
 
             let (offset_x, offset_y) = world
@@ -244,16 +243,39 @@ pub fn scroll_system(
                 .map(|s| (s.x, s.y))
                 .unwrap_or((Fixed::ZERO, Fixed::ZERO));
 
+            let (max_x, max_y) = {
+                let cfg = world.get::<ScrollConfig>(target_entity);
+                let computed = world.get::<crate::widget::ComputedRect>(target_entity);
+                let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
+                let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
+                let content_h = cfg.map(|c| c.content_height).unwrap_or(container_h);
+                let content_w = cfg.map(|c| c.content_width).unwrap_or(container_w);
+                (
+                    (content_w - container_w).max(Fixed::ZERO),
+                    (content_h - container_h).max(Fixed::ZERO),
+                )
+            };
+
+            // elastic=false: clamp the inertia target so the spring can't
+            // push offset past the content edge.
+            let clamp_to_bounds = |projected: Fixed, max: Fixed| {
+                if elastic {
+                    projected
+                } else {
+                    projected.clamp(Fixed::ZERO, max)
+                }
+            };
+
             let spring_x = match dir {
                 ScrollAxis::Horizontal | ScrollAxis::Both => {
-                    let projected = offset_x + vel_x * Fixed::from_int(20);
+                    let projected = clamp_to_bounds(offset_x + vel_x * Fixed::from_int(20), max_x);
                     Some(Spring::preset(offset_x, projected, SMOOTH).with_velocity(vel_x))
                 }
                 _ => None,
             };
             let spring_y = match dir {
                 ScrollAxis::Vertical | ScrollAxis::Both => {
-                    let projected = offset_y + vel_y * Fixed::from_int(20);
+                    let projected = clamp_to_bounds(offset_y + vel_y * Fixed::from_int(20), max_y);
                     Some(Spring::preset(offset_y, projected, SMOOTH).with_velocity(vel_y))
                 }
                 _ => None,
@@ -346,15 +368,18 @@ pub fn scroll_inertia_system(world: &mut World) {
 
         let mut done = true;
 
+        // elastic=true bounces past the edge with a softer curve;
+        // elastic=false snaps to the edge with the same smooth preset
+        // the spring already uses, never letting the offset leave bounds.
+        let edge_curve = if elastic { Some(BOUNCY) } else { Some(SMOOTH) };
+
         if let Some(ref mut sx) = ss.x {
             sx.tick(dt);
             let pos = sx.value();
-            if elastic {
-                if pos < Fixed::ZERO {
-                    sx.retarget(Fixed::ZERO, Some(BOUNCY));
-                } else if pos > max_x {
-                    sx.retarget(max_x, Some(BOUNCY));
-                }
+            if pos < Fixed::ZERO {
+                sx.retarget(Fixed::ZERO, edge_curve);
+            } else if pos > max_x {
+                sx.retarget(max_x, edge_curve);
             }
             if !sx.is_settled() {
                 done = false;
@@ -364,12 +389,10 @@ pub fn scroll_inertia_system(world: &mut World) {
         if let Some(ref mut sy) = ss.y {
             sy.tick(dt);
             let pos = sy.value();
-            if elastic {
-                if pos < Fixed::ZERO {
-                    sy.retarget(Fixed::ZERO, Some(BOUNCY));
-                } else if pos > max_y {
-                    sy.retarget(max_y, Some(BOUNCY));
-                }
+            if pos < Fixed::ZERO {
+                sy.retarget(Fixed::ZERO, edge_curve);
+            } else if pos > max_y {
+                sy.retarget(max_y, edge_curve);
             }
             if !sy.is_settled() {
                 done = false;
@@ -450,6 +473,141 @@ fn find_scroll_target_for_direction(
 /// Apply elastic resistance when overscrolling.
 /// `offset`: current scroll offset, `delta`: requested change, `max`: max allowed offset.
 /// Returns the effective delta to apply (reduced when out of bounds).
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run_drag(elastic: bool, init_y: i32, dy_per_frame: i32, frames: usize) -> Fixed {
+        use crate::ecs::World;
+        use crate::event::input::InputEvent;
+        use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
+        use crate::widget::{ComputedRect, Widget};
+        let mut world = World::new();
+        world.insert_resource(ScrollDragState::default());
+        let target = world.spawn();
+        world.insert(target, Widget);
+        world.insert(
+            target,
+            ComputedRect(crate::types::Rect::new(0, 0, 128, 114)),
+        );
+        world.insert(
+            target,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(init_y),
+            },
+        );
+        world.insert(
+            target,
+            ScrollConfig {
+                direction: ScrollAxis::Vertical,
+                elastic,
+                content_height: Fixed::from_int(600),
+                content_width: Fixed::ZERO,
+            },
+        );
+        // Simulate PointerDown at (64, 50) hitting target.
+        if let Some(state) = world.resource_mut::<ScrollDragState>() {
+            state.active = true;
+            state.resolved = true;
+            state.target = target;
+            state.last_resolved_target = Some(target);
+            state.last_x = Fixed::from_int(64);
+            state.last_y = Fixed::from_int(50);
+            state.start_x = Fixed::from_int(64);
+            state.start_y = Fixed::from_int(50);
+        }
+        let mut y = 50;
+        for _ in 0..frames {
+            y += dy_per_frame;
+            let event = InputEvent::PointerMove {
+                id: 0,
+                x: Fixed::from_int(64),
+                y: Fixed::from_int(y),
+            };
+            scroll_system(&mut world, target, &event, 128, 128);
+        }
+        world
+            .get::<ScrollOffset>(target)
+            .map(|s| s.y)
+            .unwrap_or(Fixed::ZERO)
+    }
+
+    #[test]
+    fn elastic_false_at_top_drag_down_does_not_go_negative() {
+        // init at top (y=0), drag finger down +5 px each of 10 frames.
+        // Expected: scroll.y stays at 0, never goes negative.
+        let final_y = run_drag(false, 0, 5, 10);
+        assert!(
+            final_y >= Fixed::ZERO,
+            "scroll.y went negative: {:?}",
+            final_y
+        );
+    }
+
+    #[test]
+    fn elastic_false_pointer_up_clamps_inertia_projection() {
+        use crate::ecs::World;
+        use crate::event::input::InputEvent;
+        use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
+        use crate::widget::{ComputedRect, Widget};
+        let mut world = World::new();
+        world.insert_resource(ScrollDragState::default());
+        let target = world.spawn();
+        world.insert(target, Widget);
+        world.insert(
+            target,
+            ComputedRect(crate::types::Rect::new(0, 0, 128, 114)),
+        );
+        world.insert(
+            target,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        world.insert(
+            target,
+            ScrollConfig {
+                direction: ScrollAxis::Vertical,
+                elastic: false,
+                content_height: Fixed::from_int(600),
+                content_width: Fixed::ZERO,
+            },
+        );
+        // PointerUp at top with downward velocity (vel_y < 0 = pulling
+        // content down past the top edge).
+        if let Some(state) = world.resource_mut::<ScrollDragState>() {
+            state.active = true;
+            state.resolved = true;
+            state.target = target;
+            state.last_resolved_target = Some(target);
+            state.vel_x = Fixed::ZERO;
+            state.vel_y = -Fixed::from_int(2);
+        }
+        let event = InputEvent::PointerUp {
+            id: 0,
+            x: Fixed::from_int(64),
+            y: Fixed::from_int(50),
+        };
+        scroll_system(&mut world, target, &event, 128, 128);
+        // Tick the spring forward and assert offset never goes negative.
+        world.insert_resource(crate::ecs::DeltaTimeMs(16));
+        for _ in 0..30 {
+            scroll_inertia_system(&mut world);
+            let off = world
+                .get::<ScrollOffset>(target)
+                .map(|s| s.y)
+                .unwrap_or(Fixed::ZERO);
+            assert!(
+                off >= Fixed::ZERO,
+                "spring drove offset negative: {:?}",
+                off
+            );
+        }
+    }
+}
+
 fn elastic_resist(offset: Fixed, delta: Fixed, max: Fixed) -> Fixed {
     const DAMPING: i32 = 200;
 
