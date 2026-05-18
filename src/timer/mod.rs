@@ -180,6 +180,165 @@ mod tests {
         w
     }
 
+    fn anchor(world: &mut World, now_ms_init: u32) {
+        mock::set_ms(now_ms_init as u64);
+        timer_system(world);
+    }
+
+    #[test]
+    fn pause_freezes_then_resume_restores_remaining_period() {
+        let _g = mock::lock();
+        mock::set_ms(0);
+        reset_count();
+        let mut w = fresh_world();
+        let e = w.spawn();
+        w.insert(e, Timer::every(100, count_cb));
+
+        anchor(&mut w, 0);
+
+        // Pause halfway between anchor (next_at=100) and the first fire.
+        mock::set_ms(60);
+        let now = w.resource::<MonoClock>().unwrap().now_ms();
+        w.get_mut::<Timer>(e).unwrap().pause(now);
+
+        // Time keeps moving but the system must skip the timer.
+        for step in [100, 200, 300] {
+            mock::set_ms(step);
+            timer_system(&mut w);
+        }
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 0);
+
+        // Resume at 300: the timer was paused for 240 ms, so the next
+        // fire is original next_at (100) + 240 = 340.
+        let now = w.resource::<MonoClock>().unwrap().now_ms();
+        w.get_mut::<Timer>(e).unwrap().resume(now);
+        assert!(!w.get::<Timer>(e).unwrap().is_paused());
+
+        mock::set_ms(339);
+        timer_system(&mut w);
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 0);
+
+        mock::set_ms(340);
+        timer_system(&mut w);
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn pause_and_resume_are_idempotent() {
+        let _g = mock::lock();
+        mock::set_ms(0);
+        let mut w = fresh_world();
+        let e = w.spawn();
+        w.insert(e, Timer::every(100, count_cb));
+        anchor(&mut w, 0);
+
+        let t = w.get_mut::<Timer>(e).unwrap();
+        t.pause(50);
+        t.pause(70); // second pause must not overwrite paused_at_ms.
+        // Resume sees the original 50 anchor — slept = 200 - 50 = 150.
+        t.resume(200);
+        assert_eq!(t.next_at_ms, 100u32.wrapping_add(150));
+
+        // Double resume is a no-op (already running).
+        t.resume(300);
+        assert_eq!(t.next_at_ms, 100u32.wrapping_add(150));
+    }
+
+    #[test]
+    fn wrap_boundary_does_not_lose_a_fire() {
+        // 49.7-day boundary: u32 ms rolls from u32::MAX to 0 mid-period.
+        // The wrapping_sub due-check must still see the timer as due
+        // when next_at is just past the wrap and now is just before.
+        let _g = mock::lock();
+        let pre_wrap = u32::MAX - 50;
+        mock::set_ms(pre_wrap as u64);
+        reset_count();
+        let mut w = fresh_world();
+        let e = w.spawn();
+        w.insert(e, Timer::every(100, count_cb));
+
+        // Anchor at u32::MAX-50: next_at = (u32::MAX-50) + 100 wraps to 49.
+        timer_system(&mut w);
+        let stored = w.get::<Timer>(e).unwrap().next_at_ms;
+        assert_eq!(stored, 49u32);
+
+        mock::set_ms(48);
+        timer_system(&mut w);
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 0);
+
+        mock::set_ms(49);
+        timer_system(&mut w);
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn after_fires_once_then_self_removes() {
+        let _g = mock::lock();
+        mock::set_ms(0);
+        reset_count();
+        let mut w = fresh_world();
+        let e = w.spawn();
+        w.insert(e, Timer::after(50, count_cb));
+
+        anchor(&mut w, 0);
+        mock::set_ms(50);
+        timer_system(&mut w);
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
+        assert!(w.get::<Timer>(e).is_none(), "after-mode self-removes");
+
+        mock::set_ms(200);
+        timer_system(&mut w);
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn repeat_fires_n_times_then_self_removes() {
+        let _g = mock::lock();
+        mock::set_ms(0);
+        reset_count();
+        let mut w = fresh_world();
+        let e = w.spawn();
+        w.insert(e, Timer::repeat(3, 100, count_cb));
+
+        anchor(&mut w, 0);
+        for step in [100, 200, 300] {
+            mock::set_ms(step);
+            timer_system(&mut w);
+        }
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 3);
+        assert!(w.get::<Timer>(e).is_none());
+
+        mock::set_ms(400);
+        timer_system(&mut w);
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    #[should_panic(expected = "Timer::repeat needs times > 0")]
+    fn repeat_zero_panics() {
+        let _ = Timer::repeat(0, 100, count_cb);
+    }
+
+    #[test]
+    fn until_stops_once_next_step_would_pass_deadline() {
+        let _g = mock::lock();
+        mock::set_ms(0);
+        reset_count();
+        let mut w = fresh_world();
+        let e = w.spawn();
+        // deadline 250: fires at 100 and 200; the 300 step would cross
+        // 250 so the system removes the component instead.
+        w.insert(e, Timer::until(250, 100, count_cb));
+
+        anchor(&mut w, 0);
+        for step in [100, 200, 300] {
+            mock::set_ms(step);
+            timer_system(&mut w);
+        }
+        assert_eq!(FIRE_COUNT.load(Ordering::SeqCst), 2);
+        assert!(w.get::<Timer>(e).is_none(), "until-mode self-removes");
+    }
+
     #[test]
     fn every_fires_at_each_period_boundary() {
         let _g = mock::lock();
