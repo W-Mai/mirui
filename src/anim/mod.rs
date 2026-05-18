@@ -160,9 +160,15 @@ impl Spring {
         self.velocity = velocity;
     }
 
+    /// Idempotent on `target` — same value is a no-op so per-frame
+    /// callers (e.g. boundary rebound) don't collapse `is_settled`'s
+    /// span by resetting `origin = position` every tick. Config still
+    /// applies regardless.
     pub fn retarget(&mut self, target: Fixed, config: Option<SpringConfig>) {
-        self.origin = self.position;
-        self.target = target;
+        if self.target != target {
+            self.origin = self.position;
+            self.target = target;
+        }
         if let Some(c) = config {
             let (s, d) = config_to_params(c);
             self.stiffness = s;
@@ -528,6 +534,46 @@ mod settle_threshold_check {
         }
         assert!(s.is_settled());
         assert!((s.position - Fixed::from_int(20)).abs() < Fixed::ONE);
+    }
+
+    #[test]
+    fn retarget_with_same_target_is_idempotent() {
+        let mut s = Spring::new(Fixed::ZERO, Fixed::from_int(100), 300, Fixed::ZERO);
+        for _ in 0..6 {
+            s.tick(16);
+        }
+        let origin_before = s.origin;
+        let position_before = s.position;
+        let velocity_before = s.velocity;
+        s.retarget(Fixed::from_int(100), None);
+        assert_eq!(s.origin, origin_before);
+        assert_eq!(s.position, position_before);
+        assert_eq!(s.velocity, velocity_before);
+        assert_eq!(s.target, Fixed::from_int(100));
+    }
+
+    #[test]
+    fn boundary_rebound_settles_under_repeated_retarget() {
+        let mut s = Spring::preset(
+            Fixed::from_int(-10),
+            Fixed::from_int(-50),
+            crate::anim::SMOOTH,
+        )
+        .with_velocity(Fixed::from_int(-5));
+        let mut elapsed = 0u32;
+        while !s.is_settled() && elapsed < 5000 {
+            s.tick(16);
+            if s.position < Fixed::ZERO {
+                s.retarget(Fixed::ZERO, Some(crate::anim::SMOOTH));
+            }
+            elapsed += 16;
+        }
+        assert!(s.is_settled(), "spring stalled at position={}", s.position);
+        assert!(
+            (s.position - Fixed::ZERO).abs() < Fixed::from_int(2),
+            "settled too far from zero: position={}",
+            s.position
+        );
     }
 
     /// Stress: 1000 randomised (from, to, duration, bounce) springs
