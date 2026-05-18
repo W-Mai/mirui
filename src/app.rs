@@ -169,6 +169,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     /// Render one frame
+    #[mirui::trace_fn("frame.full")]
     pub fn render(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
@@ -180,14 +181,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         let start_ns = self.clock_ns();
 
-        render_system::update_layout(&mut self.world, root, &transform);
+        {
+            crate::trace_span!("frame.layout");
+            render_system::update_layout(&mut self.world, root, &transform);
+        }
 
         {
+            crate::trace_span!("frame.render");
             let mut renderer = self.factory.make(&mut self.backend, &transform);
             render_system::render(&self.world, root, &transform, &mut renderer);
         }
+
         let (pw, ph) = self.backend.physical_size();
-        self.backend.flush(&Rect::new(0, 0, pw as u16, ph as u16));
+        {
+            crate::trace_span!("frame.flush");
+            self.backend.flush(&Rect::new(0, 0, pw as u16, ph as u16));
+        }
 
         // Seed PrevRect so the next render_dirty frame's dirty union
         // covers pixels this full render actually wrote — otherwise
@@ -292,6 +301,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             // observing input-driven state (ScrollOffset, focus, ...)
             // sees the post-event values within the same frame.
             self.systems.run_all(&mut self.world);
+            self.snapshot_system_perf();
 
             if transient {
                 self.render();
@@ -301,7 +311,39 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
     }
 
+    fn snapshot_system_perf(&mut self) {
+        let want_reset = self
+            .world
+            .resource::<crate::plugins::perf_report::PerfResetFlag>()
+            .map(|f| f.0)
+            .unwrap_or(false);
+        if want_reset {
+            self.systems.reset_perf();
+            self.world
+                .insert_resource(crate::plugins::perf_report::PerfResetFlag(false));
+        }
+
+        let mut entries = alloc::vec::Vec::with_capacity(8);
+        for s in self.systems.iter() {
+            let avg = if s.call_count == 0 {
+                0
+            } else {
+                (s.total_us / s.call_count as u64) as u32
+            };
+            entries.push(crate::plugins::perf_report::SystemStat {
+                name: s.name,
+                priority: s.priority,
+                last_us: s.last_us,
+                avg_us: avg,
+                call_count: s.call_count,
+            });
+        }
+        self.world
+            .insert_resource(crate::plugins::perf_report::SystemPerfSnapshot { entries });
+    }
+
     /// Render only dirty regions. Falls back to full render if no dirty tracking.
+    #[mirui::trace_fn("frame.dirty")]
     pub fn render_dirty(&mut self) {
         let Some(root) = self.root else { return };
         let info = self.backend.display_info();
@@ -313,15 +355,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         let start_ns = self.clock_ns();
 
-        let dirty = render_system::collect_dirty_region(&mut self.world, root, &transform);
+        let dirty = crate::trace_span!("frame.collect_dirty", {
+            render_system::collect_dirty_region(&mut self.world, root, &transform)
+        });
 
         if let Some(area) = dirty {
             {
+                crate::trace_span!("frame.render_region");
                 let mut renderer = self.factory.make(&mut self.backend, &transform);
                 render_system::render_region(&self.world, root, &transform, &area, &mut renderer);
             }
+
             let phys_area = transform.rect_to_physical(area);
-            self.backend.flush(&phys_area);
+            {
+                crate::trace_span!("frame.flush");
+                self.backend.flush(&phys_area);
+            }
         }
 
         let elapsed = self.clock_ns().saturating_sub(start_ns);

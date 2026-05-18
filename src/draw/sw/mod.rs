@@ -379,6 +379,7 @@ impl Renderer for SwRenderer<'_> {
             ..
         } = cmd
         {
+            crate::trace_span!("sw.fill_quad");
             self.dispatch_fill_quad(q, area, color, *radius, *opa, clip);
             return;
         }
@@ -388,6 +389,7 @@ impl Renderer for SwRenderer<'_> {
             ..
         } = cmd
         {
+            crate::trace_span!("sw.blit_quad");
             self.dispatch_blit_quad(q, texture, clip);
             return;
         }
@@ -400,6 +402,7 @@ impl Renderer for SwRenderer<'_> {
             ..
         } = cmd
         {
+            crate::trace_span!("sw.border_quad");
             self.dispatch_border_quad(q, color, *width, *radius, *opa, clip);
             return;
         }
@@ -407,6 +410,7 @@ impl Renderer for SwRenderer<'_> {
         let tf = cmd.transform();
         let class = tf.classify();
         if !matches!(class, TransformClass::Identity | TransformClass::Translate) {
+            crate::trace_span!("sw.transformed");
             self.draw_transformed(cmd, clip, &tf);
             return;
         }
@@ -422,7 +426,10 @@ impl Renderer for SwRenderer<'_> {
                 radius,
                 opa,
                 ..
-            } => self.dispatch_fill(area, color, *radius, *opa, tx, ty, clip),
+            } => {
+                crate::trace_span!("sw.fill");
+                self.dispatch_fill(area, color, *radius, *opa, tx, ty, clip);
+            }
             DrawCommand::Border {
                 area,
                 color,
@@ -430,17 +437,26 @@ impl Renderer for SwRenderer<'_> {
                 radius,
                 opa,
                 ..
-            } => self.dispatch_border(area, color, *width, *radius, *opa, tx, ty, clip),
+            } => {
+                crate::trace_span!("sw.border");
+                self.dispatch_border(area, color, *width, *radius, *opa, tx, ty, clip);
+            }
             DrawCommand::Blit {
                 pos, size, texture, ..
-            } => self.dispatch_blit(pos, *size, texture, tx, ty, clip),
+            } => {
+                crate::trace_span!("sw.blit");
+                self.dispatch_blit(pos, *size, texture, tx, ty, clip);
+            }
             DrawCommand::Label {
                 pos,
                 text,
                 color,
                 opa,
                 ..
-            } => self.dispatch_label(pos, text, color, *opa, tx, ty, clip),
+            } => {
+                crate::trace_span!("sw.label");
+                self.dispatch_label(pos, text, color, *opa, tx, ty, clip);
+            }
             DrawCommand::Line {
                 p1,
                 p2,
@@ -448,7 +464,10 @@ impl Renderer for SwRenderer<'_> {
                 width,
                 opa,
                 ..
-            } => self.dispatch_line(p1, p2, color, *width, *opa, tx, ty, clip),
+            } => {
+                crate::trace_span!("sw.line");
+                self.dispatch_line(p1, p2, color, *width, *opa, tx, ty, clip);
+            }
             DrawCommand::Arc {
                 center,
                 radius,
@@ -458,18 +477,21 @@ impl Renderer for SwRenderer<'_> {
                 width,
                 opa,
                 ..
-            } => self.dispatch_arc(
-                center,
-                *radius,
-                *start_angle,
-                *end_angle,
-                color,
-                *width,
-                *opa,
-                tx,
-                ty,
-                clip,
-            ),
+            } => {
+                crate::trace_span!("sw.arc");
+                self.dispatch_arc(
+                    center,
+                    *radius,
+                    *start_angle,
+                    *end_angle,
+                    color,
+                    *width,
+                    *opa,
+                    tx,
+                    ty,
+                    clip,
+                );
+            }
         }
     }
 

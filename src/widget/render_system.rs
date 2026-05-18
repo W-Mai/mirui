@@ -211,6 +211,7 @@ fn intersect_with_self(clip: &Rect, rect: &Rect) -> Rect {
 }
 
 #[allow(clippy::too_many_arguments)]
+#[mirui::trace_fn("draw.entity")]
 fn draw_tree_offset(
     node: &LayoutNode,
     world: &World,
@@ -258,6 +259,7 @@ fn draw_tree_offset(
                 bg_handled: false,
             };
             if let Some(registry) = world.resource::<ViewRegistry>() {
+                crate::trace_span!("draw.view_dispatch");
                 for view in registry.iter() {
                     (view.render())(renderer, world, entity, &shifted_rect, &mut ctx);
                 }
@@ -400,34 +402,46 @@ pub fn render_region(
 ) {
     let (logical_w, logical_h) = transform.logical_size();
 
-    let Some(mut layout_tree) = build_layout_tree(world, root) else {
-        return;
-    };
+    let mut layout_tree = crate::trace_span!("render.build_tree", {
+        match build_layout_tree(world, root) {
+            Some(t) => t,
+            None => return,
+        }
+    });
 
-    compute_layout(
-        &mut layout_tree,
-        Fixed::ZERO,
-        Fixed::ZERO,
-        logical_w.into(),
-        logical_h.into(),
-    );
+    {
+        crate::trace_span!("render.compute_layout");
+        compute_layout(
+            &mut layout_tree,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            logical_w.into(),
+            logical_h.into(),
+        );
+    }
 
     let mut entities = Vec::new();
-    collect_entities_preorder(world, root, &mut entities);
+    {
+        crate::trace_span!("render.collect_entities");
+        collect_entities_preorder(world, root, &mut entities);
+    }
 
-    let mut idx = 0;
-    draw_tree_offset(
-        &layout_tree,
-        world,
-        &entities,
-        &mut idx,
-        renderer,
-        dirty_rect,
-        Fixed::ZERO,
-        Fixed::ZERO,
-        &Transform::IDENTITY,
-        &Transform3D::IDENTITY,
-    );
+    {
+        crate::trace_span!("render.draw_tree");
+        let mut idx = 0;
+        draw_tree_offset(
+            &layout_tree,
+            world,
+            &entities,
+            &mut idx,
+            renderer,
+            dirty_rect,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            &Transform::IDENTITY,
+            &Transform3D::IDENTITY,
+        );
+    }
 }
 
 struct DirtyBounds {
@@ -513,20 +527,31 @@ fn collect_dirty_walk(
 pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewport) -> Option<Rect> {
     let (logical_w, logical_h) = transform.logical_size();
 
-    let mut layout_tree = build_layout_tree(world, root)?;
-    compute_layout(
-        &mut layout_tree,
-        Fixed::ZERO,
-        Fixed::ZERO,
-        logical_w.into(),
-        logical_h.into(),
-    );
+    let mut layout_tree =
+        crate::trace_span!("dirty.build_tree", { build_layout_tree(world, root)? });
+
+    {
+        crate::trace_span!("dirty.compute_layout");
+        compute_layout(
+            &mut layout_tree,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            logical_w.into(),
+            logical_h.into(),
+        );
+    }
 
     let mut entities = Vec::new();
-    collect_entities_preorder(world, root, &mut entities);
+    {
+        crate::trace_span!("dirty.collect_entities");
+        collect_entities_preorder(world, root, &mut entities);
+    }
 
     let mut idx = 0;
-    write_computed_rects(&layout_tree, world, &entities, &mut idx);
+    {
+        crate::trace_span!("dirty.write_computed");
+        write_computed_rects(&layout_tree, world, &entities, &mut idx);
+    }
 
     let mut bounds = DirtyBounds {
         min_x: Fixed::from(logical_w),
@@ -535,16 +560,19 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
         max_y: Fixed::from_int(-1),
     };
 
-    idx = 0;
-    collect_dirty_walk(
-        &layout_tree,
-        world,
-        &entities,
-        &mut idx,
-        &Transform3D::IDENTITY,
-        (Fixed::ZERO, Fixed::ZERO),
-        &mut bounds,
-    );
+    {
+        crate::trace_span!("dirty.walk");
+        idx = 0;
+        collect_dirty_walk(
+            &layout_tree,
+            world,
+            &entities,
+            &mut idx,
+            &Transform3D::IDENTITY,
+            (Fixed::ZERO, Fixed::ZERO),
+            &mut bounds,
+        );
+    }
 
     let (min_x, min_y, max_x, max_y) = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
 
