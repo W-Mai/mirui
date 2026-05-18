@@ -5,7 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.14.1] - 2026-05-18
+## [0.14.2] - 2026-05-18
+
+### Added
+
+- **`mirui::timer`** module: `Timer` ECS component, `TimerMode` enum (`After` / `Every` / `Repeat { remaining }` / `Until { deadline_ms }`), and a generic `timer_system` that drives every timer in the World from one walker. Time source is `MonoClock::now_ms()` with `wrapping_sub` comparisons, so schedules survive the 49.7-day u32 epoch wrap as long as `period_ms < 2^31`.
+- **`Timer` ctors**: `Timer::after(ms, cb)` / `Timer::every(ms, cb)` / `Timer::repeat(times, ms, cb)` / `Timer::until(deadline_ms, period_ms, cb)`. Callbacks are bare `fn(&mut World, Entity)` — no closure capture; pair with marker components to thread state.
+- **`Timer::pause(now_ms)` / `resume(now_ms)`**: idempotent. Resume pushes `next_at_ms` forward by the paused duration so the timer effectively slept through the pause.
+- **`mirui_macros::timer!`** macro: declarative sugar over the four ctors. `timer!(Cycle, every: 3_000, |w, e| { ... })` expands to a unit struct with `Cycle::install(&mut World) -> Entity`. Schedule keywords: `after: ms`, `every: ms`, `repeat: N every: ms`, `until: D every: ms`. All four share the generic `timer_system`, so stamping out N invocations doesn't grow the binary.
+- **`App::with_default_systems()`**: registers `anim::sync_delta_time_ms` and `timer::timer_system` in one call. Mirrors `with_default_widgets`. Both inner systems no-op when their component / resource is absent, so this is safe to call even if the app uses neither.
+
+### Changed
+
+- `gallery/examples/animation_demo` and other anim consumers can drop their explicit `app.add_system(anim::sync_delta_time_ms)` once they switch to `.with_default_systems()`. The standalone function stays public for apps that prefer to compose their own system list.
+
+### Fixed
+
+- `cargo xtask release` no longer aborts when a patch leaves `mirui-macros` unchanged. The publish step's "already on crates.io" detection now matches both the `already uploaded` and `already exists` wordings cargo emits.
+
+
 
 ### Added
 
