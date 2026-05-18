@@ -12,5 +12,6 @@ pub mod layout;
 pub mod plugin;
 pub mod plugins;
 pub mod surface;
+pub mod timer;
 pub mod types;
 pub mod widget;
