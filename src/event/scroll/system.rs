@@ -407,13 +407,15 @@ pub fn scroll_inertia_system(world: &mut World) {
     let mut changed = false;
     if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
         if let Some(nx) = new_x {
-            if (nx - scroll.x).abs() >= Fixed::ONE {
+            // >=1px gate would skip spring-tail sub-pixel drift, leaving
+            // ScrollOffset and screen out of sync at settle.
+            if nx != scroll.x {
                 changed = true;
             }
             scroll.x = nx;
         }
         if let Some(ny) = new_y {
-            if (ny - scroll.y).abs() >= Fixed::ONE {
+            if ny != scroll.y {
                 changed = true;
             }
             scroll.y = ny;
