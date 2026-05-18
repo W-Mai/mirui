@@ -160,9 +160,9 @@ pub fn scroll_system(
             let dx = *x - last_x;
             let dy = *y - last_y;
 
-            // Read bounds for resistance calculation
             let config = world.get::<ScrollConfig>(target);
             let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
+            let elastic = config.map(|c| c.elastic).unwrap_or(true);
             let computed = world.get::<crate::widget::ComputedRect>(target);
             let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
             let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
@@ -171,21 +171,27 @@ pub fn scroll_system(
             let max_y = (content_h - container_h).max(Fixed::ZERO);
             let max_x = (content_w - container_w).max(Fixed::ZERO);
 
+            // elastic=true rubber-bands past the edges; elastic=false hard-clamps.
+            let bound = |offset: Fixed, delta: Fixed, max: Fixed| -> Fixed {
+                if elastic {
+                    elastic_resist(offset, delta, max)
+                } else {
+                    let target = (offset + delta).clamp(Fixed::ZERO, max);
+                    target - offset
+                }
+            };
+
             if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
                 match dir {
                     ScrollAxis::Vertical => {
-                        let eff_dy = elastic_resist(scroll.y, -dy, max_y);
-                        scroll.y += eff_dy;
+                        scroll.y += bound(scroll.y, -dy, max_y);
                     }
                     ScrollAxis::Horizontal => {
-                        let eff_dx = elastic_resist(scroll.x, -dx, max_x);
-                        scroll.x += eff_dx;
+                        scroll.x += bound(scroll.x, -dx, max_x);
                     }
                     ScrollAxis::Both => {
-                        let eff_dx = elastic_resist(scroll.x, -dx, max_x);
-                        let eff_dy = elastic_resist(scroll.y, -dy, max_y);
-                        scroll.x += eff_dx;
-                        scroll.y += eff_dy;
+                        scroll.x += bound(scroll.x, -dx, max_x);
+                        scroll.y += bound(scroll.y, -dy, max_y);
                     }
                 }
             }
