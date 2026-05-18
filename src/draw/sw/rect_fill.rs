@@ -30,10 +30,12 @@ impl SwRenderer<'_> {
         let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
 
         if area.is_aligned() && r == Fixed::ZERO {
+            crate::trace_span!("sw.fill_aligned");
             fill_axis_aligned(&mut self.target, px_x0, px_y0, px_x1, px_y1, color, opa);
             return;
         }
 
+        crate::trace_span!("sw.fill_aa_loop");
         for py in px_y0..px_y1 {
             let pixel_top = Fixed::from_int(py);
             let pixel_bot = Fixed::from_int(py + 1);
@@ -86,17 +88,20 @@ fn fill_axis_aligned(
     if opa == 255 {
         let bpp = target.format.bytes_per_pixel();
         let stride = target.stride;
+        let row_px = (px_x1 - px_x0) as usize;
+        let row_bytes = row_px * bpp;
         let buf = target.buf.as_mut_slice();
         match target.format {
             ColorFormat::RGBA8888 => {
-                let pixel = [color.r, color.g, color.b, color.a];
-                for py in px_y0..px_y1 {
-                    let row_start = py as usize * stride + px_x0 as usize * bpp;
-                    for px in 0..(px_x1 - px_x0) as usize {
-                        let i = row_start + px * 4;
-                        buf[i..i + 4].copy_from_slice(&pixel);
-                    }
-                }
+                fill_first_row_then_replicate::<4>(
+                    buf,
+                    stride,
+                    px_x0,
+                    px_y0,
+                    px_y1,
+                    row_bytes,
+                    [color.r, color.g, color.b, color.a],
+                );
             }
             ColorFormat::RGB565 | ColorFormat::RGB565Swapped => {
                 let px16 = ((color.r as u16 >> 3) << 11)
@@ -107,13 +112,9 @@ fn fill_axis_aligned(
                 } else {
                     [px16 as u8, (px16 >> 8) as u8]
                 };
-                for py in px_y0..px_y1 {
-                    let row_start = py as usize * stride + px_x0 as usize * bpp;
-                    for px in 0..(px_x1 - px_x0) as usize {
-                        let i = row_start + px * 2;
-                        buf[i..i + 2].copy_from_slice(&pixel);
-                    }
-                }
+                fill_first_row_then_replicate::<2>(
+                    buf, stride, px_x0, px_y0, px_y1, row_bytes, pixel,
+                );
             }
             _ => {
                 for py in px_y0..px_y1 {
@@ -129,6 +130,36 @@ fn fill_axis_aligned(
                 target.blend_pixel_int(px, py, color, opa);
             }
         }
+    }
+}
+
+/// Fast-path opaque solid fill: write one scanline, then memcpy
+/// it into each subsequent row. Avoids both per-pixel
+/// `copy_from_slice` bounds-check overhead and any heap alloc for a
+/// repeating-pattern buffer.
+#[inline]
+fn fill_first_row_then_replicate<const BPP: usize>(
+    buf: &mut [u8],
+    stride: usize,
+    px_x0: i32,
+    px_y0: i32,
+    px_y1: i32,
+    row_bytes: usize,
+    pixel: [u8; BPP],
+) {
+    if px_y0 >= px_y1 {
+        return;
+    }
+    let first_start = px_y0 as usize * stride + px_x0 as usize * BPP;
+    let first_row = &mut buf[first_start..first_start + row_bytes];
+    for chunk in first_row.chunks_exact_mut(BPP) {
+        chunk.copy_from_slice(&pixel);
+    }
+    for py in (px_y0 + 1)..px_y1 {
+        let dst_start = py as usize * stride + px_x0 as usize * BPP;
+        let (lo, hi) = buf.split_at_mut(dst_start);
+        let src = &lo[first_start..first_start + row_bytes];
+        hi[..row_bytes].copy_from_slice(src);
     }
 }
 
