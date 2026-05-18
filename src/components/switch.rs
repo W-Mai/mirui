@@ -264,12 +264,26 @@ fn switch_attach(world: &mut World, entity: Entity) {
     // ComputedRect exists.
 }
 
+const SYSTEMS: &[crate::ecs::System] = &[
+    crate::ecs::System::new(
+        "switch_init",
+        crate::ecs::run_order::ANIMATION,
+        switch_init_system,
+    ),
+    crate::ecs::System::new(
+        "animate_switch_bg_t",
+        crate::ecs::run_order::ANIMATION,
+        animate_switch_bg_t_system,
+    ),
+    crate::ecs::System::new(
+        "animate_thumb_x",
+        crate::ecs::run_order::ANIMATION,
+        animate_thumb_x_system,
+    ),
+];
+
 pub fn view() -> View {
     View::new("Switch", 60, switch_render)
         .with_attach(switch_attach)
-        .with_systems(&[
-            switch_init_system,
-            animate_switch_bg_t_system,
-            animate_thumb_x_system,
-        ])
+        .with_systems(SYSTEMS)
 }

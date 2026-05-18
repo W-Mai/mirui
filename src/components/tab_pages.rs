@@ -111,8 +111,14 @@ fn apply_visibility(world: &mut World) {
     }
 }
 
+const SYSTEMS: &[crate::ecs::System] = &[crate::ecs::System::new(
+    "tab_pages",
+    crate::ecs::run_order::TAB_PAGES,
+    tab_pages_system,
+)];
+
 pub fn view() -> crate::widget::view::View {
-    crate::widget::view::View::systems_only("TabPages", &[tab_pages_system])
+    crate::widget::view::View::systems_only("TabPages", SYSTEMS)
 }
 
 #[cfg(test)]

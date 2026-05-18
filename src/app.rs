@@ -8,7 +8,7 @@ use crate::ecs::{Entity, System, SystemScheduler, World};
 use crate::event::bubble_dispatch;
 use crate::event::focus::{FocusState, focus_on_tap};
 use crate::event::gesture::GestureSystem;
-use crate::event::scroll::{ScrollDragState, ScrollSpring, scroll_inertia_system};
+use crate::event::scroll::{ScrollDragState, ScrollSpring};
 use crate::plugin::Plugin;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
@@ -112,7 +112,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    /// Register all built-in mirui widgets in priority order.
+    /// Register all built-in mirui widgets in render-priority order.
     pub fn with_default_widgets(mut self) -> Self {
         for view in builtin_views() {
             self = self.with_widget(view);
@@ -121,8 +121,22 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     pub fn with_default_systems(mut self) -> Self {
-        self.add_system(crate::anim::sync_delta_time_ms);
-        self.add_system(crate::timer::timer_system);
+        use crate::ecs::run_order;
+        self.add_system(System::new(
+            "delta_time",
+            run_order::DELTA_TIME,
+            crate::anim::sync_delta_time_ms,
+        ));
+        self.add_system(System::new(
+            "timer",
+            run_order::TIMER,
+            crate::timer::timer_system,
+        ));
+        self.add_system(System::new(
+            "scroll_inertia",
+            run_order::SCROLL_INERTIA,
+            crate::event::scroll::scroll_inertia_system,
+        ));
         self
     }
 
@@ -209,8 +223,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.backend.persistence() == crate::surface::BackbufferPersistence::Transient;
         self.render();
         loop {
-            self.systems.run_all(&mut self.world);
-
             if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
                 gs.events.clear();
             }
@@ -276,7 +288,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 return;
             }
 
-            scroll_inertia_system(&mut self.world);
+            // Systems run after event/gesture dispatch so that anything
+            // observing input-driven state (ScrollOffset, focus, ...)
+            // sees the post-event values within the same frame.
+            self.systems.run_all(&mut self.world);
+
             if transient {
                 self.render();
             } else {

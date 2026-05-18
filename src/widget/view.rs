@@ -108,8 +108,12 @@ impl View {
     /// view-registration time; `View` owns when and how its systems
     /// surface — callers don't read `self.systems` directly.
     pub(crate) fn install(&self, _world: &mut World, mut sink: impl FnMut(crate::ecs::System)) {
-        for &s in self.systems {
-            sink(s);
+        for s in self.systems {
+            sink(crate::ecs::System {
+                name: s.name,
+                priority: s.priority,
+                run: s.run,
+            });
         }
     }
 }

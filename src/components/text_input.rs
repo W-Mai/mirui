@@ -378,10 +378,16 @@ fn text_input_attach(world: &mut World, entity: Entity) {
     );
 }
 
+const SYSTEMS: &[crate::ecs::System] = &[crate::ecs::System::new(
+    "cursor_blink",
+    crate::ecs::run_order::ANIMATION,
+    cursor_blink_system,
+)];
+
 pub fn view() -> View {
     View::new("TextInput", 70, text_input_render)
         .with_attach(text_input_attach)
-        .with_systems(&[cursor_blink_system])
+        .with_systems(SYSTEMS)
 }
 
 #[cfg(test)]
