@@ -125,15 +125,17 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    /// Register all built-in mirui widgets in render-priority order.
-    pub fn with_default_widgets(mut self) -> Self {
-        let reg = ViewRegistry::with_builtins();
-        let systems = &mut self.systems;
-        for view in reg.iter() {
-            view.install(&mut self.world, |s| systems.add(s));
+    /// Batch counterpart of `with_widget`; also accepts a `ViewRegistry`.
+    pub fn with_widgets(mut self, views: impl IntoIterator<Item = View>) -> Self {
+        for view in views {
+            self = self.with_widget(view);
         }
-        self.world.insert_resource(reg);
         self
+    }
+
+    /// Register all built-in mirui widgets in render-priority order.
+    pub fn with_default_widgets(self) -> Self {
+        self.with_widgets(ViewRegistry::with_builtins())
     }
 
     pub fn with_default_systems(mut self) -> Self {

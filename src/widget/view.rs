@@ -161,6 +161,15 @@ impl ViewRegistry {
     }
 }
 
+impl IntoIterator for ViewRegistry {
+    type Item = View;
+    type IntoIter = alloc::vec::IntoIter<View>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.views.into_iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
