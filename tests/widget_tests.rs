@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use mirui::draw::{DrawCommand, Renderer};
-    use mirui::ecs::World;
     use mirui::layout::*;
     use mirui::types::{Color, Dimension, Fixed, Rect, Viewport};
     use mirui::widget::builder::WidgetBuilder;
@@ -30,9 +29,9 @@ mod tests {
 
     #[test]
     fn render_system_produces_draw_commands() {
-        let mut world = World::new();
-        world.insert_resource(mirui::widget::view::ViewRegistry::with_builtins());
-        world.insert_resource(mirui::widget::Theme::default());
+        let mut world = mirui::app::App::headless(64, 64)
+            .with_default_widgets()
+            .world;
 
         let child = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
@@ -88,9 +87,9 @@ mod tests {
 
     #[test]
     fn render_system_respects_layout() {
-        let mut world = World::new();
-        world.insert_resource(mirui::widget::view::ViewRegistry::with_builtins());
-        world.insert_resource(mirui::widget::Theme::default());
+        let mut world = mirui::app::App::headless(64, 64)
+            .with_default_widgets()
+            .world;
 
         let c1 = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))

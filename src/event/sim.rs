@@ -832,26 +832,15 @@ mod tests {
     use crate::event::hit_test::hit_test;
     use crate::event::scroll::ScrollSpring;
     use crate::layout::{AlignItems, FlexDirection, JustifyContent, LayoutStyle};
-    use crate::surface::{DisplayInfo, InputEvent};
+    use crate::surface::InputEvent;
     use crate::types::Dimension;
     use crate::widget::builder::WidgetBuilder;
-    use crate::widget::view::ViewRegistry;
-    use crate::widget::{Children, Parent, Theme};
+    use crate::widget::{Children, Parent};
 
     fn build_widget_world() -> (World, Entity, Entity, Entity) {
-        let mut world = World::default();
-        world.insert_resource(ViewRegistry::with_builtins());
-        world.insert_resource(Theme::default());
-        world.insert_resource(crate::event::scroll::ScrollDragState::default());
-        world.insert_resource(ScrollSpring::default());
-        world.insert_resource(GestureSystem::default());
-        world.insert_resource(FocusState::default());
-        world.insert_resource(DisplayInfo {
-            width: 128,
-            height: 128,
-            scale: Fixed::ONE,
-            format: ColorFormat::RGBA8888,
-        });
+        let mut world = crate::app::App::headless(128, 128)
+            .with_default_widgets()
+            .world;
 
         let root = WidgetBuilder::new(&mut world)
             .layout(LayoutStyle {

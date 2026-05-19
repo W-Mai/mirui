@@ -615,10 +615,9 @@ mod clip_children_check {
     }
 
     fn make_world() -> World {
-        let mut w = World::default();
-        w.insert_resource(crate::widget::view::ViewRegistry::with_builtins());
-        w.insert_resource(crate::widget::Theme::default());
-        w
+        crate::app::App::headless(64, 64)
+            .with_default_widgets()
+            .world
     }
 
     fn vp() -> Viewport {
@@ -846,10 +845,9 @@ mod hidden_check {
     }
 
     fn make_world() -> World {
-        let mut w = World::default();
-        w.insert_resource(crate::widget::view::ViewRegistry::with_builtins());
-        w.insert_resource(crate::widget::Theme::default());
-        w
+        crate::app::App::headless(64, 64)
+            .with_default_widgets()
+            .world
     }
 
     #[test]

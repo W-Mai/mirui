@@ -68,6 +68,19 @@ impl<B: FramebufferAccess> App<B, SwRendererFactory> {
     }
 }
 
+type HeadlessFlush = fn(&[u8], &crate::types::Rect);
+
+impl App<crate::surface::framebuf::FramebufSurface<HeadlessFlush>, SwRendererFactory> {
+    /// In-memory `App` for tests and snapshots. No-op flush, no
+    /// event source.
+    pub fn headless(width: u16, height: u16) -> Self {
+        let cb: HeadlessFlush = |_buf, _area| {};
+        Self::new(crate::surface::framebuf::FramebufSurface::new(
+            width, height, cb,
+        ))
+    }
+}
+
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn with_factory(backend: B, factory: F) -> Self {
         let mut world = World::new();

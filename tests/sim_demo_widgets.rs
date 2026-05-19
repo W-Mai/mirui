@@ -23,8 +23,7 @@ use mirui::layout::{FlexDirection, LayoutStyle, Position};
 use mirui::types::{Dimension, Fixed, Viewport};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::render_system;
-use mirui::widget::view::ViewRegistry;
-use mirui::widget::{Children, Parent, Theme};
+use mirui::widget::{Children, Parent};
 
 const W: u16 = 128;
 const H: u16 = 128;
@@ -43,10 +42,7 @@ const SLIDER_Y: i32 = 47;
 /// root → TabBar + 3 TabContent pages, Slider on page 1, Switch on
 /// page 2. Returns (world, root, slider, switch, tab_bar).
 fn build() -> (World, Entity, Entity, Entity, Entity) {
-    let mut world = World::new();
-    world.insert_resource(ViewRegistry::with_builtins());
-    world.insert_resource(Theme::default());
-    world.insert_resource(GestureSystem::default());
+    let mut world = mirui::app::App::headless(W, H).with_default_widgets().world;
 
     let root = WidgetBuilder::new(&mut world)
         .layout(LayoutStyle {
