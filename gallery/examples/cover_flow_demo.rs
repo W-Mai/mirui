@@ -81,7 +81,9 @@ fn main() {
             WINDOW_W as u16,
             WINDOW_H as u16,
         );
-        App::with_factory(backend, SdlGpuFactory::new()).with_default_widgets()
+        App::with_factory(backend, SdlGpuFactory::new())
+            .with_default_widgets()
+            .with_default_systems()
     };
     #[cfg(all(feature = "sdl", not(feature = "sdl-gpu")))]
     let mut app = {
@@ -90,7 +92,9 @@ fn main() {
             WINDOW_W as u16,
             WINDOW_H as u16,
         );
-        App::new(backend).with_default_widgets()
+        App::new(backend)
+            .with_default_widgets()
+            .with_default_systems()
     };
 
     app.add_system(mirui::ecs::System::new(
