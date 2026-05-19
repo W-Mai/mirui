@@ -10,6 +10,8 @@ use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 use crate::widget::Parent;
 
+use crate::widget::Disabled;
+
 use focus::key_dispatch;
 use gesture::{GestureEvent, GestureSystem};
 use hit_test::hit_test;
@@ -77,6 +79,15 @@ pub fn dispatch_input(
         _ => {}
     }
 
+    if let InputEvent::PointerDown { x, y, .. } = event {
+        if let Some(target) = hit_test(world, root, *x, *y, lw, lh) {
+            if entity_or_ancestor_disabled(world, target) {
+                key_dispatch(world, event);
+                return;
+            }
+        }
+    }
+
     scroll_system(world, root, event, lw, lh);
 
     let hit = match event {
@@ -92,6 +103,17 @@ pub fn dispatch_input(
     }
 
     key_dispatch(world, event);
+}
+
+pub fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
+    let mut cur = Some(entity);
+    while let Some(e) = cur {
+        if world.get::<Disabled>(e).is_some() {
+            return true;
+        }
+        cur = world.get::<Parent>(e).map(|p| p.0);
+    }
+    false
 }
 
 /// Gesture handler component — a plain fn pointer, no heap allocation.
@@ -116,5 +138,38 @@ pub fn bubble_dispatch(world: &mut World, event: &GestureEvent) {
             Some(p) => current = p.0,
             None => return,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::Disabled;
+
+    #[test]
+    fn ancestor_disabled_propagates() {
+        let mut world = World::new();
+        let parent = world.spawn();
+        let child = world.spawn();
+        world.insert(child, Parent(parent));
+        world.insert(parent, Disabled);
+        assert!(entity_or_ancestor_disabled(&world, child));
+    }
+
+    #[test]
+    fn entity_self_disabled() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, Disabled);
+        assert!(entity_or_ancestor_disabled(&world, e));
+    }
+
+    #[test]
+    fn unrelated_entity_not_disabled() {
+        let mut world = World::new();
+        let a = world.spawn();
+        let b = world.spawn();
+        world.insert(a, Disabled);
+        assert!(!entity_or_ancestor_disabled(&world, b));
     }
 }

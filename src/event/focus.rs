@@ -33,13 +33,17 @@ pub fn focus_on_tap(world: &mut World, event: &GestureEvent) {
     }
 }
 
-fn find_focusable(world: &World, mut entity: Entity) -> Option<Entity> {
+fn find_focusable(world: &World, entity: Entity) -> Option<Entity> {
+    if super::entity_or_ancestor_disabled(world, entity) {
+        return None;
+    }
+    let mut cur = entity;
     loop {
-        if world.get::<Focusable>(entity).is_some() {
-            return Some(entity);
+        if world.get::<Focusable>(cur).is_some() {
+            return Some(cur);
         }
-        match world.get::<Parent>(entity) {
-            Some(p) => entity = p.0,
+        match world.get::<Parent>(cur) {
+            Some(p) => cur = p.0,
             None => return None,
         }
     }
@@ -60,8 +64,48 @@ pub fn key_dispatch(world: &mut World, event: &InputEvent) {
         _ => return,
     }
 
+    if super::entity_or_ancestor_disabled(world, target) {
+        return;
+    }
+
     let handler_fn = world.get::<KeyHandler>(target).map(|h| h.on_key);
     if let Some(f) = handler_fn {
         f(world, target, event);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::Disabled;
+
+    #[test]
+    fn focus_skips_disabled_subtree() {
+        let mut world = World::new();
+        let parent = world.spawn();
+        let child = world.spawn();
+        world.insert(child, Parent(parent));
+        world.insert(child, Focusable);
+        world.insert(parent, Disabled);
+        assert_eq!(find_focusable(&world, child), None);
+    }
+
+    #[test]
+    fn focus_ignores_disabled_self() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, Focusable);
+        world.insert(e, Disabled);
+        assert_eq!(find_focusable(&world, e), None);
+    }
+
+    #[test]
+    fn focus_walks_through_non_disabled() {
+        let mut world = World::new();
+        let parent = world.spawn();
+        let child = world.spawn();
+        world.insert(child, Parent(parent));
+        world.insert(parent, Focusable);
+        assert_eq!(find_focusable(&world, child), Some(parent));
     }
 }
