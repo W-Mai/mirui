@@ -14,6 +14,7 @@ struct Page {
     speed_deg: Fixed,
 }
 
+#[mirui::system(order = ANIMATION)]
 fn flip_system(world: &mut World) {
     let mut pages = alloc::vec::Vec::new();
     world.query::<Page>().collect_into(&mut pages);
@@ -44,11 +45,7 @@ fn flip_system(world: &mut World) {
 fn main() {
     let backend = SdlSurface::new("mirui - book flip (transform-origin)", 640, 360);
     let mut app = App::new(backend).with_default_widgets();
-    app.add_system(mirui::ecs::System::new(
-        "flip",
-        mirui::ecs::run_order::ANIMATION,
-        flip_system,
-    ));
+    app.add_system(flip_system::system());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(24, 26, 34))

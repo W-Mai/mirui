@@ -16,6 +16,7 @@ struct Spinner {
     speed: Fixed,
 }
 
+#[mirui::system(order = ANIMATION)]
 fn spin_system(world: &mut World) {
     let mut entities = alloc::vec::Vec::new();
     world.query::<Spinner>().collect_into(&mut entities);
@@ -34,11 +35,7 @@ fn main() {
     let backend = SdlSurface::new("mirui - transform demo", 480, 320);
     let mut app = App::new(backend).with_default_widgets();
 
-    app.add_system(mirui::ecs::System::new(
-        "spin",
-        mirui::ecs::run_order::ANIMATION,
-        spin_system,
-    ));
+    app.add_system(spin_system::system());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

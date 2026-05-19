@@ -18,6 +18,7 @@ struct FlipCard {
     root: mirui::ecs::Entity,
 }
 
+#[mirui::system(order = ANIMATION)]
 fn flip_system(world: &mut World) {
     let mut cards = alloc::vec::Vec::new();
     world.query::<FlipCard>().collect_into(&mut cards);
@@ -58,11 +59,7 @@ fn main() {
     let backend = SdlSurface::new("mirui - 2.5D flip card demo", 480, 320);
     let mut app = App::new(backend).with_default_widgets();
 
-    app.add_system(mirui::ecs::System::new(
-        "flip",
-        mirui::ecs::run_order::ANIMATION,
-        flip_system,
-    ));
+    app.add_system(flip_system::system());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

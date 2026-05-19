@@ -126,6 +126,7 @@ struct Drift {
     amplitude: Fixed,
 }
 
+#[mirui::system]
 fn drift_system(world: &mut World) {
     let mut buf = Vec::new();
     world.query::<Drift>().collect_into(&mut buf);

@@ -19,6 +19,7 @@ struct SpringBall {
     x: Fixed,
 }
 
+#[mirui::system(order = ANIMATION)]
 fn spring_system(world: &mut World) {
     let dt = world.resource::<DeltaTimeMs>().map_or(16, |r| r.0);
     let mut entities = alloc::vec::Vec::new();
@@ -62,11 +63,7 @@ fn main() {
         mirui::ecs::run_order::ANIMATION,
         AnimateTweenY::system(),
     ));
-    app.add_system(mirui::ecs::System::new(
-        "spring",
-        mirui::ecs::run_order::ANIMATION,
-        spring_system,
-    ));
+    app.add_system(spring_system::system());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

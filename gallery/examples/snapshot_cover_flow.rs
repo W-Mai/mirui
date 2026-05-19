@@ -37,6 +37,7 @@ struct CarouselCard {
 
 struct Carousel;
 
+#[mirui::system]
 fn layout_system(world: &mut World) {
     let mut carousels = alloc::vec::Vec::new();
     world.query::<Carousel>().collect_into(&mut carousels);
@@ -107,11 +108,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
         .with_default_widgets()
         .with_default_systems();
 
-    app.add_system(mirui::ecs::System::new(
-        "layout",
-        mirui::ecs::run_order::NORMAL,
-        layout_system,
-    ));
+    app.add_system(layout_system::system());
 
     let card_colors = [
         Color::rgb(255, 107, 107),
