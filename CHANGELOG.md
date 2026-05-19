@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-05-19
+
+### Added
+
+- **`#[mirui::system]` attribute macro** for ergonomic system registration. Annotating `fn(&mut World)` generates a sibling module sharing the fn ident with a `pub const fn system() -> System` constructor. Direct fn calls remain valid (value namespace) while `fn_name::system()` exposes the metadata builder (type namespace) and is `const`-callable for `with_systems` arrays. Defaults: `name` follows the fn ident; `order` falls back to `run_order::NORMAL`. Override either with `#[mirui::system(name = "...", order = ANIMATION)]`.
+- **LazyList view auto-registration.** `mirui::components::lazy_list::view()` joins the default registry as a `systems_only` view, matching tab_pages. Demos no longer need `app.add_system(lazy_list_system::system())` — `with_default_widgets()` is enough.
+- **`mirui::perf` span tracing infrastructure** with `trace_span!("name")` (RAII) / `trace_span!("name", { block })` / `#[trace_fn]`. On `std` builds spans land in a thread-local ring; `no_std` paths compile to no-ops. `SystemScheduler::run_all` records per-system call count and total wall-clock when a `MonoClock` is wired.
+- **`PerfReportPlugin`** prints a console summary on demand and can `with_perfetto_writer(W)` to dump Chrome trace ndjson (drag into ui.perfetto.dev). Exposes `SystemPerfSnapshot` and `PerfResetFlag` resources for in-app dashboards.
+- **`SlowSurface<S>` host harness** simulates SPI display latency on the desktop, so frame-budget regressions surface in SDL runs instead of waiting for ESP. Default `NS_PER_PIXEL_SPI_80MHZ_RGB565 = 200` matches a typical RGB565 panel.
+- **Software renderer fast path.** `fill_axis_aligned` writes the first scanline then row-replicates without any per-frame `Vec::with_capacity`, taking host fills from ~870 µs/call to ~6.7 µs/call (87× speed-up on the perf_collect scenario). The macro tooling (`#[trace_fn]`, `trace_span!`) is what surfaced this hotspot.
+
+### Changed
+
+- **System registration** across mirui internals (switch / text_input / tab_pages / timer / scroll_inertia / sim_input / sim_timeline / sync_delta_time_ms / lazy_list) now uses `#[crate::system(order = SLOT)]` and `with_systems(const { &[fn::system()] })` instead of explicit `System::new` calls and free-standing `const SYSTEMS` arrays. End-user demos pick up the same form: `app.add_system(my_system::system())`.
+- **`mirui-macros` is now a normal dependency** of `mirui` (was dev-only). Library code uses `trace_fn!`/`trace_span!`/`#[system]`, so users get the macros automatically with no opt-in.
+
+### Fixed
+
+- **Scroll demos lost throw animation after v0.15.0** because the new prioritised scheduler doesn't carry `scroll_inertia` unless `with_default_systems()` is called. nested_scroll, scroll, lazy_list, lazy_list_snapshot, snapshot_cover_flow, and cover_flow now wire it explicitly.
+
 ## [0.15.0] - 2026-05-19
 
 ### Added
