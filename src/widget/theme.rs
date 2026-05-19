@@ -3,7 +3,7 @@ use alloc::collections::BTreeMap;
 use crate::ecs::World;
 use crate::types::Color;
 
-/// Token referring to a colour role inside a [`Theme`]. The 14
+/// Token referring to a colour role inside a [`Theme`]. The 15
 /// builtin variants cover mirui's built-in widgets and Style;
 /// `Custom` lets user code add tokens without forking mirui.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -18,6 +18,7 @@ pub enum ColorToken {
     OnSurface,
     SurfaceVariant,
     OnSurfaceVariant,
+    OnSurfaceDisabled,
     Success,
     Error,
     Outline,
@@ -74,6 +75,7 @@ const MISSING_TOKEN_FALLBACK: Color = Color::rgb(255, 0, 255);
 /// - `Surface` / `OnSurface`: root background + primary text
 /// - `SurfaceVariant` / `OnSurfaceVariant`: dim panel + secondary
 ///   / placeholder text
+/// - `OnSurfaceDisabled`: muted text/icon for `Disabled` subtree
 /// - `Success` / `Error`: state feedback
 /// - `Outline` / `Shadow`: borders / elevation
 #[derive(Clone, Debug)]
@@ -88,6 +90,7 @@ pub struct Theme {
     on_surface: Color,
     surface_variant: Color,
     on_surface_variant: Color,
+    on_surface_disabled: Color,
     success: Color,
     error: Color,
     outline: Color,
@@ -109,6 +112,7 @@ impl Theme {
             on_surface: Color::rgb(220, 220, 230),
             surface_variant: Color::rgb(60, 60, 80),
             on_surface_variant: Color::rgb(120, 120, 140),
+            on_surface_disabled: Color::rgb(120, 120, 130),
             success: Color::rgb(63, 185, 80),
             error: Color::rgb(220, 80, 80),
             outline: Color::rgb(80, 80, 100),
@@ -129,6 +133,7 @@ impl Theme {
             on_surface: Color::rgb(20, 20, 30),
             surface_variant: Color::rgb(220, 220, 230),
             on_surface_variant: Color::rgb(120, 120, 140),
+            on_surface_disabled: Color::rgb(180, 180, 185),
             success: Color::rgb(40, 160, 70),
             error: Color::rgb(200, 60, 60),
             outline: Color::rgb(180, 180, 200),
@@ -149,6 +154,7 @@ impl Theme {
             ColorToken::OnSurface => self.on_surface,
             ColorToken::SurfaceVariant => self.surface_variant,
             ColorToken::OnSurfaceVariant => self.on_surface_variant,
+            ColorToken::OnSurfaceDisabled => self.on_surface_disabled,
             ColorToken::Success => self.success,
             ColorToken::Error => self.error,
             ColorToken::Outline => self.outline,
@@ -174,6 +180,7 @@ impl Theme {
             ColorToken::OnSurface => self.on_surface = color,
             ColorToken::SurfaceVariant => self.surface_variant = color,
             ColorToken::OnSurfaceVariant => self.on_surface_variant = color,
+            ColorToken::OnSurfaceDisabled => self.on_surface_disabled = color,
             ColorToken::Success => self.success = color,
             ColorToken::Error => self.error = color,
             ColorToken::Outline => self.outline = color,
