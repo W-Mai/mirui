@@ -14,7 +14,7 @@ use mirui_macros::ui;
 
 const ROW_H: i32 = 32;
 const POOL_SIZE: usize = 12;
-const ITEM_COUNT: u32 = 200;
+const ITEM_COUNT: u32 = 1 << 16;
 
 fn row_binder(world: &mut World, entity: Entity, index: u32) {
     let label = alloc::format!("Row {index}");
