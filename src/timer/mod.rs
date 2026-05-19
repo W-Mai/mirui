@@ -94,6 +94,7 @@ impl Timer {
 }
 
 /// No-op when MonoClock is missing.
+#[crate::system(order = TIMER)]
 pub fn timer_system(world: &mut World) {
     let Some(now) = world.resource::<MonoClock>().map(|c| c.now_ms()) else {
         return;

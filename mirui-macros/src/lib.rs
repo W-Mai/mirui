@@ -721,6 +721,7 @@ pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as system_attr::SystemArgs);
     let func = parse_macro_input!(item as syn::ItemFn);
     let fn_ident = &func.sig.ident;
+    let fn_vis = &func.vis;
     let name_lit = args
         .name
         .unwrap_or_else(|| syn::LitStr::new(&fn_ident.to_string(), fn_ident.span()));
@@ -732,10 +733,10 @@ pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
         #func
 
         #[allow(non_snake_case, non_camel_case_types)]
-        mod #fn_ident {
+        #fn_vis mod #fn_ident {
             #[allow(unused_imports)]
             use mirui::ecs::run_order::*;
-            pub fn system() -> mirui::ecs::System {
+            pub const fn system() -> mirui::ecs::System {
                 mirui::ecs::System::new(#name_lit, #order_expr, super::#fn_ident)
             }
         }

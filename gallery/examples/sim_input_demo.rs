@@ -67,11 +67,7 @@ fn main() {
         .with_default_widgets()
         .with_default_systems();
 
-    app.add_system(mirui::ecs::System::new(
-        "sim_timeline",
-        mirui::ecs::run_order::SIM_INPUT,
-        sim_timeline_system,
-    ));
+    app.add_system(sim_timeline_system::system());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

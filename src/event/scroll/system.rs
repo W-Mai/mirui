@@ -317,6 +317,7 @@ pub fn scroll_system(
 }
 
 /// Inertia system — call every frame to decelerate scroll after release
+#[crate::system(order = SCROLL_INERTIA)]
 pub fn scroll_inertia_system(world: &mut World) {
     let active = {
         let Some(state) = world.resource::<ScrollDragState>() else {

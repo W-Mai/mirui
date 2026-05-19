@@ -11,9 +11,9 @@
 
 use mirui::anim::ease;
 use mirui::app::App;
-use mirui::components::lazy_list::{LazyList, LazyListBinder, LazyListPool, lazy_list_system};
+use mirui::components::lazy_list::{LazyList, LazyListBinder, LazyListPool};
 use mirui::components::text::Text;
-use mirui::ecs::{Entity, System, World, run_order};
+use mirui::ecs::{Entity, World};
 use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::layout::*;
@@ -53,16 +53,7 @@ fn main() {
     app.add_plugin(StdInstantClockPlugin::default());
     app.add_plugin(PerfReportPlugin::new(60).with_perfetto_writer("/tmp/mirui-perf.ndjson"));
 
-    app.add_system(System::new(
-        "lazy_list",
-        run_order::LAZY_LIST,
-        lazy_list_system,
-    ));
-    app.add_system(System::new(
-        "sim_timeline",
-        run_order::SIM_INPUT,
-        sim_timeline_system,
-    ));
+    app.add_system(sim_timeline_system::system());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

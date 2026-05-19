@@ -143,6 +143,7 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
     any_changed
 }
 
+#[crate::system(order = LAZY_LIST)]
 pub fn lazy_list_system(world: &mut World) {
     let lists: Vec<Entity> = world.query::<LazyList>().collect();
     for entity in lists {
@@ -153,6 +154,10 @@ pub fn lazy_list_system(world: &mut World) {
             world.insert(entity, Dirty);
         }
     }
+}
+
+pub fn view() -> crate::widget::view::View {
+    crate::widget::view::View::systems_only("LazyList", const { &[lazy_list_system::system()] })
 }
 
 #[cfg(test)]

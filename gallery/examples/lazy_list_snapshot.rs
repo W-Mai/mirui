@@ -82,11 +82,6 @@ fn main() {
     let mut app = App::new(backend)
         .with_default_widgets()
         .with_default_systems();
-    app.add_system(mirui::ecs::System::new(
-        "lazy_list",
-        mirui::ecs::run_order::LAZY_LIST,
-        lazy_list_system,
-    ));
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

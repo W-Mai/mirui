@@ -294,6 +294,7 @@ impl From<Spring> for Motion {
     }
 }
 
+#[crate::system(order = DELTA_TIME)]
 pub fn sync_delta_time_ms(world: &mut World) {
     let ms = match world.resource_mut::<MonoClock>() {
         Some(fc) => {

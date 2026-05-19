@@ -134,6 +134,7 @@ impl ViewRegistry {
         reg.insert(crate::components::slider::view());
         reg.insert(crate::components::switch::view());
         reg.insert(crate::components::tab_pages::view());
+        reg.insert(crate::components::lazy_list::view());
         reg
     }
 

@@ -131,6 +131,7 @@ fn resolve_timings(commands: &[SimCommand]) -> Vec<u32> {
     resolved
 }
 
+#[crate::system(order = SIM_INPUT)]
 pub fn sim_input_system(world: &mut World) {
     let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);
@@ -332,6 +333,7 @@ impl SimTimeline {
     }
 }
 
+#[crate::system(order = SIM_INPUT)]
 pub fn sim_timeline_system(world: &mut World) {
     let clock_fn = world.resource::<crate::ecs::MonoClock>().map(|fc| fc.clock);
     let now_ms = clock_fn.map(|f| (f() / 1_000_000) as u32).unwrap_or(0);

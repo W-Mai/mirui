@@ -121,22 +121,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     pub fn with_default_systems(mut self) -> Self {
-        use crate::ecs::run_order;
-        self.add_system(System::new(
-            "delta_time",
-            run_order::DELTA_TIME,
-            crate::anim::sync_delta_time_ms,
-        ));
-        self.add_system(System::new(
-            "timer",
-            run_order::TIMER,
-            crate::timer::timer_system,
-        ));
-        self.add_system(System::new(
-            "scroll_inertia",
-            run_order::SCROLL_INERTIA,
-            crate::event::scroll::scroll_inertia_system,
-        ));
+        self.add_system(crate::anim::sync_delta_time_ms::system());
+        self.add_system(crate::timer::timer_system::system());
+        self.add_system(crate::event::scroll::system::scroll_inertia_system::system());
         self
     }
 
