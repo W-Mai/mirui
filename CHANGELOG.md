@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-05-19
+
+### Fixed
+
+- **`hover_system` / `press_system` short-circuit when `PointerCursor` is unchanged.** v0.16.0 ran a full `hit_test` tree walk twice per frame regardless of input activity; on the ESP32-C3 three-body demo (lots of entities, no pointer input) that dropped fps from ~165 to ~120. v0.16.1 caches the last `(x, y, down, event_seq)` per system and returns immediately when nothing changed. Three-body fps recovers to the v0.15.3 baseline.
+
+  Trade-off: a *static* cursor over *moving* widgets won't re-evaluate hover until the cursor itself moves. Demos that need that behaviour can bump `PointerCursor.event_seq` to invalidate.
+
+### Changed
+
+- **`interactive_states_demo` redesigned for visual clarity.** Each card now starts from its own dim base hue (green / red / blue) so the resting state already differentiates the three. State overlays sit on top: 8% / 12% on_surface for hover/press, 16% error tint for Errored, 38% surface blend for Disabled.
+
 ## [0.16.0] - 2026-05-19
 
 Theme: **Interaction Polish**. v0.15.3 left `WidgetState::Hovered` / `Pressed` / `Error` as enum placeholders that fell through to the base colour. v0.16.0 wires them end-to-end: state markers, scheduling slot, free-hover input, and overlay routing.
