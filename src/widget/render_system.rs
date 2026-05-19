@@ -902,3 +902,84 @@ mod hidden_check {
         }
     }
 }
+
+#[cfg(all(test, feature = "std"))]
+mod disabled_state_check {
+    extern crate std;
+    use super::*;
+    use crate::draw::sw::SwRenderer;
+    use crate::draw::texture::{ColorFormat, Texture};
+    use crate::layout::LayoutStyle;
+    use crate::types::{Color, Dimension, Viewport};
+    use crate::widget::theme::{Theme, WidgetState};
+    use crate::widget::{Children, Disabled, Parent, Style, Widget};
+
+    fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
+        let e = world.spawn();
+        world.insert(e, Widget);
+        world.insert(e, style);
+        if let Some(p) = parent {
+            world.insert(e, Parent(p));
+            if let Some(c) = world.get_mut::<Children>(p) {
+                c.0.push(e);
+            } else {
+                world.insert(p, Children(std::vec![e]));
+            }
+        }
+        e
+    }
+
+    fn make_world() -> World {
+        crate::app::App::headless(32, 32)
+            .with_default_widgets()
+            .world
+    }
+
+    #[test]
+    fn disabled_subtree_paints_blended_raw_bg() {
+        let mut world = make_world();
+        let theme = world
+            .resource::<Theme>()
+            .expect("Theme present after with_default_widgets")
+            .clone();
+        let red = Color::rgb(248, 81, 73);
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(red.into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(32)),
+                    height: Dimension::Px(Fixed::from_int(32)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(root, Disabled);
+
+        let mut buf = std::vec![0u8; 32 * 32 * 4];
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(32, 32, Fixed::ONE);
+        super::render(&world, root, &viewport, &mut renderer);
+
+        let expected = theme.blend_color_in(red, WidgetState::Disabled);
+        let actual = renderer.target.get_pixel(16, 16);
+        assert_eq!(
+            actual.r, expected.r,
+            "r mismatch: got {} want {}",
+            actual.r, expected.r
+        );
+        assert_eq!(
+            actual.g, expected.g,
+            "g mismatch: got {} want {}",
+            actual.g, expected.g
+        );
+        assert_eq!(
+            actual.b, expected.b,
+            "b mismatch: got {} want {}",
+            actual.b, expected.b
+        );
+    }
+}
