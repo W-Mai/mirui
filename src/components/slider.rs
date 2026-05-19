@@ -70,9 +70,9 @@ fn slider_render(
         return;
     };
     let theme = ctx.theme(world);
-    let track_color = s.track_color.resolve(theme);
-    let fill_color = s.fill_color.resolve(theme);
-    let thumb_color = s.thumb_color.resolve(theme);
+    let track_color = s.track_color.resolve_in(theme, ctx.state);
+    let fill_color = s.fill_color.resolve_in(theme, ctx.state);
+    let thumb_color = s.thumb_color.resolve_in(theme, ctx.state);
     let ratio = s.ratio();
     let cap_radius = rect.h / Fixed::from_int(2);
 

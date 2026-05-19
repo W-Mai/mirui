@@ -251,13 +251,18 @@ fn draw_tree_offset(
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
+            let state = if crate::event::entity_or_ancestor_disabled(world, entity) {
+                crate::widget::theme::WidgetState::Disabled
+            } else {
+                crate::widget::theme::WidgetState::Enabled
+            };
             let mut ctx = ViewCtx {
                 style,
                 transform: tf,
                 quad,
                 clip,
                 bg_handled: false,
-                disabled_alpha: style.disabled_alpha.unwrap_or(255),
+                state,
             };
             if let Some(registry) = world.resource::<ViewRegistry>() {
                 crate::trace_span!("draw.view_dispatch");

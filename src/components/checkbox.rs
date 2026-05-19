@@ -56,9 +56,9 @@ fn checkbox_render(
     };
     let theme = ctx.theme(world);
     let color = if cb.checked {
-        cb.checked_color.resolve(theme)
+        cb.checked_color.resolve_in(theme, ctx.state)
     } else {
-        cb.unchecked_color.resolve(theme)
+        cb.unchecked_color.resolve_in(theme, ctx.state)
     };
     renderer.draw(
         &DrawCommand::Fill {

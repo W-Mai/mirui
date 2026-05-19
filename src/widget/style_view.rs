@@ -17,6 +17,7 @@ fn style_render(
         return;
     };
 
+    let theme = ctx.theme(world);
     if !ctx.bg_handled {
         if let Some(color) = style.bg_color {
             renderer.draw(
@@ -24,9 +25,9 @@ fn style_render(
                     area: *rect,
                     transform: ctx.transform,
                     quad: ctx.quad,
-                    color: color.resolve(ctx.theme(world)),
+                    color: color.resolve_in(theme, ctx.state),
                     radius: style.border_radius,
-                    opa: ctx.disabled_alpha,
+                    opa: 255,
                 },
                 ctx.clip,
             );
@@ -41,10 +42,10 @@ fn style_render(
                     area: *rect,
                     transform: ctx.transform,
                     quad: ctx.quad,
-                    color: border_color.resolve(ctx.theme(world)),
+                    color: border_color.resolve_in(theme, ctx.state),
                     width: style.border_width,
                     radius: style.border_radius,
-                    opa: ctx.disabled_alpha,
+                    opa: 255,
                 },
                 ctx.clip,
             );

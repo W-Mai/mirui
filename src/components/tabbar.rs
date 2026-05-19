@@ -56,7 +56,7 @@ fn tab_bar_render(
         return;
     }
     let theme = ctx.theme(world);
-    let indicator_color = tb.indicator_color.resolve(theme);
+    let indicator_color = tb.indicator_color.resolve_in(theme, ctx.state);
     let tab_w = rect.w / Fixed::from_int(tb.count as i32);
     let indicator_x = rect.x + tb.indicator_offset * tab_w;
     let indicator_y = rect.y + rect.h - tb.indicator_height;

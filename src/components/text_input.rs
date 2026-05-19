@@ -176,10 +176,10 @@ fn text_input_render(
         return;
     };
     let theme = ctx.theme(world);
-    let text_color = ti.text_color.resolve(theme);
-    let placeholder_color = ti.placeholder_color.resolve(theme);
-    let cursor_color = ti.cursor_color.resolve(theme);
-    let focus_border_color = ti.focus_border_color.resolve(theme);
+    let text_color = ti.text_color.resolve_in(theme, ctx.state);
+    let placeholder_color = ti.placeholder_color.resolve_in(theme, ctx.state);
+    let cursor_color = ti.cursor_color.resolve_in(theme, ctx.state);
+    let focus_border_color = ti.focus_border_color.resolve_in(theme, ctx.state);
 
     if ti.focused {
         renderer.draw(

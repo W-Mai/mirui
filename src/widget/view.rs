@@ -11,6 +11,7 @@ use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::types::{Point, Rect, Transform};
 use crate::widget::Style;
+use crate::widget::theme::WidgetState;
 
 /// Boxed as a struct so adding fields later doesn't change the
 /// `ViewRender` fn-pointer signature (which would break user views).
@@ -22,7 +23,7 @@ pub struct ViewCtx<'a> {
     /// Set true by a view that emits its own background fill so the
     /// generic Style stage skips its bg fill but still emits border.
     pub bg_handled: bool,
-    pub disabled_alpha: crate::types::Opa,
+    pub state: WidgetState,
 }
 
 impl ViewCtx<'_> {
@@ -245,7 +246,7 @@ mod tests {
             quad: None,
             clip: &rect,
             bg_handled: false,
-            disabled_alpha: 255,
+            state: WidgetState::Enabled,
         };
         let mut renderer = StubRenderer;
 
@@ -275,7 +276,7 @@ mod tests {
             quad: None,
             clip: &rect,
             bg_handled: false,
-            disabled_alpha: 255,
+            state: WidgetState::Enabled,
         };
         let theme = ctx.theme(&world);
         // Theme isn't PartialEq (BTreeMap of extras); compare via resolve.
@@ -297,7 +298,7 @@ mod tests {
             quad: None,
             clip: &rect,
             bg_handled: false,
-            disabled_alpha: 255,
+            state: WidgetState::Enabled,
         };
         let _ = ctx.theme(&world);
     }

@@ -18,7 +18,7 @@ fn text_render(
     let Some(text) = world.get::<Text>(entity) else {
         return;
     };
-    let color = ctx.style.text_color.resolve(ctx.theme(world));
+    let color = ctx.style.text_color.resolve_in(ctx.theme(world), ctx.state);
     renderer.draw(
         &DrawCommand::Label {
             pos: Point {
@@ -28,7 +28,7 @@ fn text_render(
             transform: ctx.transform,
             text: &text.0,
             color,
-            opa: ctx.disabled_alpha,
+            opa: 255,
         },
         ctx.clip,
     );

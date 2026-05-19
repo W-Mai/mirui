@@ -151,9 +151,9 @@ fn switch_render(
         return;
     };
     let theme = ctx.theme(world);
-    let on_color = s.on_color.resolve(theme);
-    let off_color = s.off_color.resolve(theme);
-    let thumb_color = s.thumb_color.resolve(theme);
+    let on_color = s.on_color.resolve_in(theme, ctx.state);
+    let off_color = s.off_color.resolve_in(theme, ctx.state);
+    let thumb_color = s.thumb_color.resolve_in(theme, ctx.state);
     let cap_radius = rect.h / Fixed::from_int(2);
 
     let t = world

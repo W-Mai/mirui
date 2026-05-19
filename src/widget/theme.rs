@@ -177,7 +177,6 @@ impl Theme {
         }
     }
 
-    /// M3 disabled: text/icon @ 38% on Surface, container @ 12%.
     pub fn resolve_in(&self, token: ColorToken, state: WidgetState) -> Color {
         if state != WidgetState::Disabled {
             return self.resolve(token);
@@ -397,15 +396,24 @@ mod tests {
     fn resolve_in_disabled_text_blends_38() {
         let t = Theme::dark();
         let expected = t.surface.blend_with(t.on_surface, Fixed::from_f32(0.38));
-        assert_eq!(t.resolve_in(ColorToken::OnSurface, WidgetState::Disabled), expected);
+        assert_eq!(
+            t.resolve_in(ColorToken::OnSurface, WidgetState::Disabled),
+            expected
+        );
     }
 
     #[test]
     fn resolve_in_disabled_container_blends_12() {
         let t = Theme::dark();
         let expected = t.surface.blend_with(t.on_surface, Fixed::from_f32(0.12));
-        assert_eq!(t.resolve_in(ColorToken::Primary, WidgetState::Disabled), expected);
-        assert_eq!(t.resolve_in(ColorToken::SurfaceVariant, WidgetState::Disabled), expected);
+        assert_eq!(
+            t.resolve_in(ColorToken::Primary, WidgetState::Disabled),
+            expected
+        );
+        assert_eq!(
+            t.resolve_in(ColorToken::SurfaceVariant, WidgetState::Disabled),
+            expected
+        );
     }
 
     #[test]
@@ -421,7 +429,13 @@ mod tests {
     fn themed_color_raw_ignores_state() {
         let t = Theme::dark();
         let raw = ThemedColor::Raw(Color::rgb(7, 8, 9));
-        assert_eq!(raw.resolve_in(&t, WidgetState::Disabled), Color::rgb(7, 8, 9));
-        assert_eq!(raw.resolve_in(&t, WidgetState::Enabled), Color::rgb(7, 8, 9));
+        assert_eq!(
+            raw.resolve_in(&t, WidgetState::Disabled),
+            Color::rgb(7, 8, 9)
+        );
+        assert_eq!(
+            raw.resolve_in(&t, WidgetState::Enabled),
+            Color::rgb(7, 8, 9)
+        );
     }
 }

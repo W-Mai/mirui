@@ -52,9 +52,9 @@ fn button_render(
     };
     let theme = ctx.theme(world);
     let color = if btn.pressed {
-        btn.pressed_color.resolve(theme)
+        btn.pressed_color.resolve_in(theme, ctx.state)
     } else {
-        btn.normal_color.resolve(theme)
+        btn.normal_color.resolve_in(theme, ctx.state)
     };
     renderer.draw(
         &DrawCommand::Fill {

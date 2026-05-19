@@ -52,8 +52,8 @@ fn progress_bar_render(
         return;
     };
     let theme = ctx.theme(world);
-    let track_color = pb.track_color.resolve(theme);
-    let fill_color = pb.fill_color.resolve(theme);
+    let track_color = pb.track_color.resolve_in(theme, ctx.state);
+    let fill_color = pb.fill_color.resolve_in(theme, ctx.state);
     renderer.draw(
         &DrawCommand::Fill {
             area: *rect,
