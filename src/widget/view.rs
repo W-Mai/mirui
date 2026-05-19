@@ -121,7 +121,10 @@ pub struct ViewRegistry {
 }
 
 impl ViewRegistry {
-    /// Pre-populated registry containing every built-in widget.
+    /// Pre-populated registry containing every built-in widget kind.
+    /// `App::with_default_widgets` iterates this to wire each widget's
+    /// `View::systems` into the scheduler before storing the registry
+    /// as a `World` resource.
     pub fn with_builtins() -> Self {
         let mut reg = Self::default();
         reg.insert(super::style_view::view());
@@ -156,31 +159,6 @@ impl ViewRegistry {
     pub fn is_empty(&self) -> bool {
         self.views.is_empty()
     }
-}
-
-/// Built-in views in priority order.
-pub fn builtin_views() -> [View; 11] {
-    [
-        super::style_view::view(),
-        crate::components::button::view(),
-        crate::components::checkbox::view(),
-        crate::components::progress_bar::view(),
-        crate::components::tabbar::view(),
-        crate::components::text_input::view(),
-        crate::components::image::view(),
-        crate::components::text::view(),
-        crate::components::slider::view(),
-        crate::components::switch::view(),
-        crate::components::tab_pages::view(),
-    ]
-}
-
-/// Test-only shortcut; production code uses `App::with_default_widgets`.
-/// Also seeds the default `Theme` so render fns calling
-/// `ctx.theme(world)` don't trip the missing-resource expectation.
-pub fn install_default_registry(world: &mut World) {
-    world.insert_resource(ViewRegistry::with_builtins());
-    world.insert_resource(crate::widget::theme::Theme::default());
 }
 
 #[cfg(test)]

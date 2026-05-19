@@ -616,7 +616,8 @@ mod clip_children_check {
 
     fn make_world() -> World {
         let mut w = World::default();
-        crate::widget::view::install_default_registry(&mut w);
+        w.insert_resource(crate::widget::view::ViewRegistry::with_builtins());
+        w.insert_resource(crate::widget::Theme::default());
         w
     }
 
@@ -846,7 +847,8 @@ mod hidden_check {
 
     fn make_world() -> World {
         let mut w = World::default();
-        crate::widget::view::install_default_registry(&mut w);
+        w.insert_resource(crate::widget::view::ViewRegistry::with_builtins());
+        w.insert_resource(crate::widget::Theme::default());
         w
     }
 

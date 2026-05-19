@@ -14,7 +14,7 @@ use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
 use crate::widget::Theme;
 use crate::widget::render_system;
-use crate::widget::view::{View, ViewRegistry, builtin_views};
+use crate::widget::view::{View, ViewRegistry};
 
 /// Builds a Renderer each frame, given mutable access to the backend and
 /// the current logical/physical coord transform.
@@ -114,9 +114,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Register all built-in mirui widgets in render-priority order.
     pub fn with_default_widgets(mut self) -> Self {
-        for view in builtin_views() {
-            self = self.with_widget(view);
+        let reg = ViewRegistry::with_builtins();
+        let systems = &mut self.systems;
+        for view in reg.iter() {
+            view.install(&mut self.world, |s| systems.add(s));
         }
+        self.world.insert_resource(reg);
         self
     }
 

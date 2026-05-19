@@ -835,12 +835,13 @@ mod tests {
     use crate::surface::{DisplayInfo, InputEvent};
     use crate::types::Dimension;
     use crate::widget::builder::WidgetBuilder;
-    use crate::widget::view::install_default_registry;
-    use crate::widget::{Children, Parent};
+    use crate::widget::view::ViewRegistry;
+    use crate::widget::{Children, Parent, Theme};
 
     fn build_widget_world() -> (World, Entity, Entity, Entity) {
         let mut world = World::default();
-        install_default_registry(&mut world);
+        world.insert_resource(ViewRegistry::with_builtins());
+        world.insert_resource(Theme::default());
         world.insert_resource(crate::event::scroll::ScrollDragState::default());
         world.insert_resource(ScrollSpring::default());
         world.insert_resource(GestureSystem::default());

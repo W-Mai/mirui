@@ -6,7 +6,7 @@
 //! would observe.
 //!
 //! If any of Slider, Switch, TabBar, dispatch_input, bubble_dispatch,
-//! attach_widget_input_handlers, install_default_registry, or
+//! attach_widget_input_handlers, ViewRegistry::with_builtins, or
 //! render_system::update_layout stops being reachable from `tests/`,
 //! this build breaks — that's the point.
 
@@ -23,8 +23,8 @@ use mirui::layout::{FlexDirection, LayoutStyle, Position};
 use mirui::types::{Dimension, Fixed, Viewport};
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::render_system;
-use mirui::widget::view::install_default_registry;
-use mirui::widget::{Children, Parent};
+use mirui::widget::view::ViewRegistry;
+use mirui::widget::{Children, Parent, Theme};
 
 const W: u16 = 128;
 const H: u16 = 128;
@@ -44,7 +44,8 @@ const SLIDER_Y: i32 = 47;
 /// page 2. Returns (world, root, slider, switch, tab_bar).
 fn build() -> (World, Entity, Entity, Entity, Entity) {
     let mut world = World::new();
-    install_default_registry(&mut world);
+    world.insert_resource(ViewRegistry::with_builtins());
+    world.insert_resource(Theme::default());
     world.insert_resource(GestureSystem::default());
 
     let root = WidgetBuilder::new(&mut world)
