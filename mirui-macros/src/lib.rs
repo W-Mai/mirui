@@ -661,3 +661,84 @@ pub fn trace_fn(args: TokenStream, item: TokenStream) -> TokenStream {
     }};
     quote::quote! { #func }.into()
 }
+
+mod system_attr {
+    use syn::parse::{Parse, ParseStream};
+    use syn::{Expr, Ident, LitStr, Token};
+
+    pub struct SystemArgs {
+        pub name: Option<LitStr>,
+        pub order: Option<Expr>,
+    }
+
+    impl Parse for SystemArgs {
+        fn parse(input: ParseStream) -> syn::Result<Self> {
+            let mut name: Option<LitStr> = None;
+            let mut order: Option<Expr> = None;
+            while !input.is_empty() {
+                let key: Ident = input.parse()?;
+                input.parse::<Token![=]>()?;
+                match key.to_string().as_str() {
+                    "name" => name = Some(input.parse()?),
+                    "order" => order = Some(input.parse()?),
+                    other => {
+                        return Err(syn::Error::new(
+                            key.span(),
+                            format!("unknown #[system] arg `{other}`; expected `name` or `order`"),
+                        ));
+                    }
+                }
+                if input.is_empty() {
+                    break;
+                }
+                input.parse::<Token![,]>()?;
+            }
+            Ok(Self { name, order })
+        }
+    }
+}
+
+/// Attach perf-aware metadata to a `fn(&mut World)`.
+///
+/// Generates a sibling module sharing the fn's ident exposing
+/// `system()` returning a [`mirui::ecs::System`] with the configured
+/// name + run_order slot. The fn itself is left intact so direct
+/// calls (tests, manual invocation) still work.
+///
+/// ```ignore
+/// #[mirui::system(order = ANIMATION)]
+/// fn spin_system(world: &mut World) { /* ... */ }
+///
+/// spin_system(world);                     // direct call
+/// app.add_system(spin_system::system());  // scheduled
+/// ```
+///
+/// Defaults: `name` derives from the fn ident; `order` defaults to
+/// `run_order::NORMAL`. `order` accepts either a `run_order::*`
+/// constant or a literal `i32`.
+#[proc_macro_attribute]
+pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(args as system_attr::SystemArgs);
+    let func = parse_macro_input!(item as syn::ItemFn);
+    let fn_ident = &func.sig.ident;
+    let name_lit = args
+        .name
+        .unwrap_or_else(|| syn::LitStr::new(&fn_ident.to_string(), fn_ident.span()));
+    let order_expr: syn::Expr = match args.order {
+        Some(e) => e,
+        None => syn::parse_quote!(mirui::ecs::run_order::NORMAL),
+    };
+    quote::quote! {
+        #func
+
+        #[allow(non_snake_case, non_camel_case_types)]
+        mod #fn_ident {
+            #[allow(unused_imports)]
+            use mirui::ecs::run_order::*;
+            pub fn system() -> mirui::ecs::System {
+                mirui::ecs::System::new(#name_lit, #order_expr, super::#fn_ident)
+            }
+        }
+    }
+    .into()
+}

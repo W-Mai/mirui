@@ -21,4 +21,4 @@ pub mod timer;
 pub mod types;
 pub mod widget;
 
-pub use mirui_macros::{trace_fn, trace_span};
+pub use mirui_macros::{system, trace_fn, trace_span};
