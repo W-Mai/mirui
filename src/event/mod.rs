@@ -8,9 +8,7 @@ pub mod widget_input;
 
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
-use crate::widget::Parent;
-
-use crate::widget::Disabled;
+use crate::widget::{Parent, UserState};
 
 use focus::key_dispatch;
 use gesture::{GestureEvent, GestureSystem};
@@ -108,7 +106,7 @@ pub fn dispatch_input(
 pub fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
     let mut cur = Some(entity);
     while let Some(e) = cur {
-        if world.get::<Disabled>(e).is_some() {
+        if matches!(world.get::<UserState>(e), Some(UserState::Disabled)) {
             return true;
         }
         cur = world.get::<Parent>(e).map(|p| p.0);
@@ -144,7 +142,6 @@ pub fn bubble_dispatch(world: &mut World, event: &GestureEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Disabled;
 
     #[test]
     fn ancestor_disabled_propagates() {
@@ -152,7 +149,7 @@ mod tests {
         let parent = world.spawn();
         let child = world.spawn();
         world.insert(child, Parent(parent));
-        world.insert(parent, Disabled);
+        world.insert(parent, UserState::Disabled);
         assert!(entity_or_ancestor_disabled(&world, child));
     }
 
@@ -160,7 +157,7 @@ mod tests {
     fn entity_self_disabled() {
         let mut world = World::new();
         let e = world.spawn();
-        world.insert(e, Disabled);
+        world.insert(e, UserState::Disabled);
         assert!(entity_or_ancestor_disabled(&world, e));
     }
 
@@ -169,7 +166,15 @@ mod tests {
         let mut world = World::new();
         let a = world.spawn();
         let b = world.spawn();
-        world.insert(a, Disabled);
+        world.insert(a, UserState::Disabled);
         assert!(!entity_or_ancestor_disabled(&world, b));
+    }
+
+    #[test]
+    fn errored_does_not_propagate_via_disabled_walk() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, UserState::Errored);
+        assert!(!entity_or_ancestor_disabled(&world, e));
     }
 }

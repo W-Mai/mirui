@@ -5,7 +5,7 @@ use mirui::event::gesture::GestureEvent;
 use mirui::layout::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension};
-use mirui::widget::Disabled;
+use mirui::widget::UserState;
 use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
 use mirui_macros::ui;
@@ -20,10 +20,10 @@ fn toggle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
     }
     let target = world.get::<ToggleTarget>(entity).map(|t| t.0);
     let Some(target) = target else { return false };
-    if world.get::<Disabled>(target).is_some() {
-        world.remove::<Disabled>(target);
+    if matches!(world.get::<UserState>(target), Some(UserState::Disabled)) {
+        world.remove::<UserState>(target);
     } else {
-        world.insert(target, Disabled);
+        world.insert(target, UserState::Disabled);
     }
     world.insert(target, Dirty);
     true

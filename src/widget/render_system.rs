@@ -7,8 +7,29 @@ use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
+use super::state::{InteractionState, UserState};
+use super::theme::WidgetState;
 use super::view::{ViewCtx, ViewRegistry};
-use super::{Children, Hidden, Style, Widget};
+use super::{Children, Hidden, Parent, Style, Widget};
+
+/// Disabled (subtree) > Errored (self) > Pressed > Hovered > Enabled.
+fn resolve_widget_state(world: &World, entity: Entity) -> WidgetState {
+    let mut cur = Some(entity);
+    while let Some(e) = cur {
+        if matches!(world.get::<UserState>(e), Some(UserState::Disabled)) {
+            return WidgetState::Disabled;
+        }
+        cur = world.get::<Parent>(e).map(|p| p.0);
+    }
+    if matches!(world.get::<UserState>(entity), Some(UserState::Errored)) {
+        return WidgetState::Error;
+    }
+    match world.get::<InteractionState>(entity) {
+        Some(InteractionState::Pressed) => WidgetState::Pressed,
+        Some(InteractionState::Hovered) => WidgetState::Hovered,
+        None => WidgetState::Enabled,
+    }
+}
 
 /// Compose `parent` with the entity's local transform (if any),
 /// wrapped so rotation/scale pivot on the widget's center instead
@@ -251,11 +272,7 @@ fn draw_tree_offset(
 
     if *idx < entities.len() {
         if let Some(style) = world.get::<Style>(entity) {
-            let state = if crate::event::entity_or_ancestor_disabled(world, entity) {
-                crate::widget::theme::WidgetState::Disabled
-            } else {
-                crate::widget::theme::WidgetState::Enabled
-            };
+            let state = resolve_widget_state(world, entity);
             let mut ctx = ViewCtx {
                 style,
                 transform: tf,
@@ -912,7 +929,7 @@ mod disabled_state_check {
     use crate::layout::LayoutStyle;
     use crate::types::{Color, Dimension, Viewport};
     use crate::widget::theme::{Theme, WidgetState};
-    use crate::widget::{Children, Disabled, Parent, Style, Widget};
+    use crate::widget::{Children, Parent, Style, UserState, Widget};
 
     fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
         let e = world.spawn();
@@ -956,7 +973,7 @@ mod disabled_state_check {
                 ..Default::default()
             },
         );
-        world.insert(root, Disabled);
+        world.insert(root, UserState::Disabled);
 
         let mut buf = std::vec![0u8; 32 * 32 * 4];
         let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
@@ -981,5 +998,71 @@ mod disabled_state_check {
             "b mismatch: got {} want {}",
             actual.b, expected.b
         );
+    }
+}
+
+#[cfg(test)]
+mod state_resolve_check {
+    use super::*;
+
+    #[test]
+    fn enabled_when_no_state_components() {
+        let mut world = World::new();
+        let e = world.spawn();
+        assert_eq!(resolve_widget_state(&world, e), WidgetState::Enabled);
+    }
+
+    #[test]
+    fn disabled_user_state_self() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, UserState::Disabled);
+        assert_eq!(resolve_widget_state(&world, e), WidgetState::Disabled);
+    }
+
+    #[test]
+    fn disabled_propagates_via_parent() {
+        let mut world = World::new();
+        let parent = world.spawn();
+        let child = world.spawn();
+        world.insert(child, Parent(parent));
+        world.insert(parent, UserState::Disabled);
+        assert_eq!(resolve_widget_state(&world, child), WidgetState::Disabled);
+    }
+
+    #[test]
+    fn errored_self_only() {
+        let mut world = World::new();
+        let parent = world.spawn();
+        let child = world.spawn();
+        world.insert(child, Parent(parent));
+        world.insert(parent, UserState::Errored);
+        assert_eq!(resolve_widget_state(&world, child), WidgetState::Enabled);
+        assert_eq!(resolve_widget_state(&world, parent), WidgetState::Error);
+    }
+
+    #[test]
+    fn pressed_beats_hovered() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, InteractionState::Pressed);
+        assert_eq!(resolve_widget_state(&world, e), WidgetState::Pressed);
+    }
+
+    #[test]
+    fn hovered_when_only_hover() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, InteractionState::Hovered);
+        assert_eq!(resolve_widget_state(&world, e), WidgetState::Hovered);
+    }
+
+    #[test]
+    fn disabled_beats_pressed() {
+        let mut world = World::new();
+        let e = world.spawn();
+        world.insert(e, UserState::Disabled);
+        world.insert(e, InteractionState::Pressed);
+        assert_eq!(resolve_widget_state(&world, e), WidgetState::Disabled);
     }
 }

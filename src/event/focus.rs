@@ -77,7 +77,7 @@ pub fn key_dispatch(world: &mut World, event: &InputEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Disabled;
+    use crate::widget::UserState;
 
     #[test]
     fn focus_skips_disabled_subtree() {
@@ -86,7 +86,7 @@ mod tests {
         let child = world.spawn();
         world.insert(child, Parent(parent));
         world.insert(child, Focusable);
-        world.insert(parent, Disabled);
+        world.insert(parent, UserState::Disabled);
         assert_eq!(find_focusable(&world, child), None);
     }
 
@@ -95,7 +95,7 @@ mod tests {
         let mut world = World::new();
         let e = world.spawn();
         world.insert(e, Focusable);
-        world.insert(e, Disabled);
+        world.insert(e, UserState::Disabled);
         assert_eq!(find_focusable(&world, e), None);
     }
 
