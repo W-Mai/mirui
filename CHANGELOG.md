@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.3] - 2026-05-19
+
+### Removed (BREAKING)
+
+- **`ColorToken::OnSurfaceDisabled`** — disabled is a state modifier, not a colour role. Migrate `Token(OnSurfaceDisabled)` → `Token(OnSurface)` and add a `Disabled` marker on the entity.
+- **`Style.disabled_alpha`**, **`ViewCtx.disabled_alpha`**, and **`disabled_visual_system`** — `with_default_systems()` no longer registers the system; the field stops existing on `Style` and `ViewCtx`.
+
+### Added
+
+- **`WidgetState` enum** in `mirui::widget::theme` — `Enabled` / `Disabled` route today; `Hovered` / `Pressed` / `Error` are placeholders for follow-up minors and currently fall through to `Theme::resolve`.
+- **`Theme::resolve_in(token, state) -> Color`** and **`ThemedColor::resolve_in(theme, state) -> Color`** — Disabled state blends text/icon roles to 38% on Surface and container roles to 12%, computed via `Color::lerp`. Output is opaque RGB so the renderer fast path skips per-pixel alpha modulation.
+- **`Theme::blend_color_in(color, state) -> Color`** — applies the same Disabled blend (38% towards Surface) to a free-standing `Color`. `ThemedColor::Raw(c).resolve_in(theme, Disabled)` flows through it, so widgets carrying literal colours dim alongside token-routed ones.
+- **`Color::blend_with(self, other, t)`** — self-style alias for `Color::lerp(a, b, t)`. New code reads better with the chain form; existing `Color::lerp(a, b, t)` callers stay valid.
+- **`ViewCtx.state: WidgetState`** — `render_system` fills via parent walk for `Disabled`. Custom views read `ctx.state` and call `color.resolve_in(theme, ctx.state)`.
+
+### Changed
+
+- All built-in views — Style, Text, button / checkbox / progress_bar / slider / switch / tabbar / text_input — now resolve `ThemedColor` fields through `resolve_in(theme, ctx.state)`. Image stays at full opacity (the surrounding container conveys disabled state).
+- `DrawCommand::Fill` / `Border` / `Label` `opa` returns to `255` across the built-in widget set; disabled tinting is precomputed in the resolved RGB, not a runtime alpha multiplier.
+
+### Note
+
+v0.15.2 (released ~8 hours before v0.15.3) introduced `Style.disabled_alpha` driving per-pixel `opa` modulation. That's a renderer hot path — every fill / blit had to multiply by alpha — and Disabled is a token-state route, not a transparency property. The fix-up window is narrow enough that v0.15.3 is a clean BREAKING bump rather than a deprecation cycle.
+
 ## [0.15.2] - 2026-05-19
 
 ### Added
