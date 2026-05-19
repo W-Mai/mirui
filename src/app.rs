@@ -124,6 +124,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.add_system(crate::anim::sync_delta_time_ms::system());
         self.add_system(crate::timer::timer_system::system());
         self.add_system(crate::event::scroll::system::scroll_inertia_system::system());
+        self.add_system(crate::widget::disabled::disabled_visual_system::system());
         self
     }
 

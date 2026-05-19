@@ -28,7 +28,7 @@ fn text_render(
             transform: ctx.transform,
             text: &text.0,
             color,
-            opa: 255,
+            opa: ctx.disabled_alpha,
         },
         ctx.clip,
     );

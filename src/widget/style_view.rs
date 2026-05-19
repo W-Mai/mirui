@@ -26,7 +26,7 @@ fn style_render(
                     quad: ctx.quad,
                     color: color.resolve(ctx.theme(world)),
                     radius: style.border_radius,
-                    opa: 255,
+                    opa: ctx.disabled_alpha,
                 },
                 ctx.clip,
             );
@@ -44,7 +44,7 @@ fn style_render(
                     color: border_color.resolve(ctx.theme(world)),
                     width: style.border_width,
                     radius: style.border_radius,
-                    opa: 255,
+                    opa: ctx.disabled_alpha,
                 },
                 ctx.clip,
             );

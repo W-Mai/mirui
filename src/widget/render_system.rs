@@ -257,6 +257,7 @@ fn draw_tree_offset(
                 quad,
                 clip,
                 bg_handled: false,
+                disabled_alpha: style.disabled_alpha.unwrap_or(255),
             };
             if let Some(registry) = world.resource::<ViewRegistry>() {
                 crate::trace_span!("draw.view_dispatch");

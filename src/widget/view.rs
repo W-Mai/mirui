@@ -22,6 +22,7 @@ pub struct ViewCtx<'a> {
     /// Set true by a view that emits its own background fill so the
     /// generic Style stage skips its bg fill but still emits border.
     pub bg_handled: bool,
+    pub disabled_alpha: crate::types::Opa,
 }
 
 impl ViewCtx<'_> {
@@ -257,6 +258,7 @@ mod tests {
             quad: None,
             clip: &rect,
             bg_handled: false,
+            disabled_alpha: 255,
         };
         let mut renderer = StubRenderer;
 
@@ -286,6 +288,7 @@ mod tests {
             quad: None,
             clip: &rect,
             bg_handled: false,
+            disabled_alpha: 255,
         };
         let theme = ctx.theme(&world);
         // Theme isn't PartialEq (BTreeMap of extras); compare via resolve.
@@ -307,6 +310,7 @@ mod tests {
             quad: None,
             clip: &rect,
             bg_handled: false,
+            disabled_alpha: 255,
         };
         let _ = ctx.theme(&world);
     }

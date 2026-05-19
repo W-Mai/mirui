@@ -190,6 +190,7 @@ impl Color {
     }
 }
 
+/// 0 = fully transparent, 255 = fully opaque.
 pub type Opa = u8;
 
 #[derive(Clone, Copy, Debug)]

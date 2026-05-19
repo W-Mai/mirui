@@ -1,11 +1,13 @@
 pub mod builder;
 pub mod dirty;
+pub mod disabled;
 pub mod render_system;
 pub mod style_view;
 pub mod theme;
 pub mod view;
 pub mod visibility;
 
+pub use disabled::Disabled;
 pub use theme::{ColorToken, Theme, ThemedColor};
 pub use view::{View, ViewRegistry};
 pub use visibility::Hidden;
@@ -32,6 +34,8 @@ pub struct Style {
     pub text_color: ThemedColor,
     pub layout: LayoutStyle,
     pub clip_children: bool,
+    /// Written by `disabled_visual_system`; toggle [`Disabled`] instead.
+    pub disabled_alpha: Option<crate::types::Opa>,
 }
 
 impl Default for Style {
@@ -44,6 +48,7 @@ impl Default for Style {
             text_color: ThemedColor::Token(ColorToken::OnSurface),
             layout: LayoutStyle::default(),
             clip_children: false,
+            disabled_alpha: None,
         }
     }
 }
