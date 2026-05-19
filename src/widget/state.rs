@@ -1,8 +1,38 @@
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
 use crate::surface::DisplayInfo;
+use crate::types::Fixed;
 use crate::widget::WidgetRoot;
 use crate::widget::dirty::Dirty;
+
+/// Skip hover/press hit_test when PointerCursor hasn't moved since last
+/// frame. Without this, idle frames pay a full hit_test walk twice per
+/// frame for no result change.
+#[derive(Clone, Copy, Default, PartialEq)]
+struct PointerSnapshot {
+    x: Fixed,
+    y: Fixed,
+    down: bool,
+    seq: u32,
+}
+
+#[derive(Default)]
+struct HoverSnapshot(PointerSnapshot);
+#[derive(Default)]
+struct PressSnapshot(PointerSnapshot);
+
+fn cursor_snapshot(world: &World) -> PointerSnapshot {
+    let cursor = world
+        .resource::<crate::event::PointerCursor>()
+        .copied()
+        .unwrap_or_default();
+    PointerSnapshot {
+        x: cursor.x,
+        y: cursor.y,
+        down: cursor.down,
+        seq: cursor.event_seq,
+    }
+}
 
 /// User-set state. `Disabled` propagates to descendants; `Errored` is self-only.
 pub enum UserState {
@@ -18,14 +48,19 @@ pub enum InteractionState {
 
 #[crate::system(order = INTERACTION_STATE)]
 pub fn hover_system(world: &mut World) {
-    let cursor = world
-        .resource::<crate::event::PointerCursor>()
-        .copied()
+    let snap = cursor_snapshot(world);
+    let last = world
+        .resource::<HoverSnapshot>()
+        .map(|s| s.0)
         .unwrap_or_default();
-    let new_hover = if cursor.down {
+    if snap == last {
+        return;
+    }
+    world.insert_resource(HoverSnapshot(snap));
+    let new_hover = if snap.down {
         None
     } else {
-        compute_pointer_target(world, cursor.x, cursor.y)
+        compute_pointer_target(world, snap.x, snap.y)
     };
     swap_marker(
         world,
@@ -37,12 +72,17 @@ pub fn hover_system(world: &mut World) {
 
 #[crate::system(order = INTERACTION_STATE)]
 pub fn press_system(world: &mut World) {
-    let cursor = world
-        .resource::<crate::event::PointerCursor>()
-        .copied()
+    let snap = cursor_snapshot(world);
+    let last = world
+        .resource::<PressSnapshot>()
+        .map(|s| s.0)
         .unwrap_or_default();
-    let new_pressed = if cursor.down {
-        compute_pointer_target(world, cursor.x, cursor.y)
+    if snap == last {
+        return;
+    }
+    world.insert_resource(PressSnapshot(snap));
+    let new_pressed = if snap.down {
+        compute_pointer_target(world, snap.x, snap.y)
     } else {
         None
     };

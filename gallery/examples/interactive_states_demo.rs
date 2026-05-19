@@ -69,9 +69,7 @@ fn main() {
                 text: "WidgetState: Hover / Press / Errored / Disabled",
                 text_color: title_color
             ) {}
-
             spacer (height: 16) {}
-
             row (
                 direction: FlexDirection::Row,
                 grow: 1.0
@@ -86,9 +84,7 @@ fn main() {
                     text: "Hover me / Press me",
                     text_color: title_color
                 ) {}
-
                 spacer_l (width: 16) {}
-
                 errored_card (
                     bg_color: errored_bg,
                     border_color: card_border,
@@ -100,11 +96,11 @@ fn main() {
                     text_color: title_color
                 ) [
                     ToggleErrored,
-                    GestureHandler { on_gesture: toggle_errored_handler },
+                    GestureHandler {
+                        on_gesture: toggle_errored_handler,
+                    },
                 ] {}
-
                 spacer_r (width: 16) {}
-
                 disabled_card (
                     bg_color: disabled_bg,
                     border_color: card_border,
