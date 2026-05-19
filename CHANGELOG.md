@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.2] - 2026-05-19
+
+### Added
+
+- **`mirui::widget::Disabled` marker** disables interaction on the entity and its descendants. Layout and render still run, but pointer events are swallowed at `dispatch_input` entry, focus traversal skips, and visuals dim through `Style.disabled_alpha`. Walk semantics mirror `Hidden` — an ancestor carrying `Disabled` disables the whole subtree. Toggle by `world.insert(e, Disabled)` / `world.remove::<Disabled>(e)`.
+- **`ColorToken::OnSurfaceDisabled`** joins the builtin token list as the 15th variant. Default values: dark `rgb(120, 120, 130)`, light `rgb(180, 180, 185)`, tracking Material 3's disabled token role.
+- **`Style.disabled_alpha: Option<Opa>`** drives the runtime dim. `disabled_visual_system` (registered by `App::with_default_systems()`) walks every Style entity each frame and writes `Some(97)` (38% × 255, the M3 spec value) on Disabled subtrees, `None` elsewhere. Built-in `Style` background/border and the Text view multiply emitted command opa by this value; custom views opt in by reading `ViewCtx.disabled_alpha`.
+- **`mirui::types::Opa` type alias** now carries a doc explaining the 0..=255 convention, and `Style.disabled_alpha` plus `ViewCtx.disabled_alpha` use the alias instead of bare `u8`.
+- **`disabled_demo` gallery example** demonstrates toggling `Disabled` on a card, the visual dim effect, and the swallowed gesture path.
+
+### Changed (BREAKING)
+
+- **`ViewCtx` gains a `disabled_alpha: Opa` field.** Code that *constructs* `ViewCtx { ... }` directly (test fixtures, custom render dispatch) must add `disabled_alpha: 255` — `255` for normal entities. User views that just receive a `&mut ViewCtx` (the common case via `render_system`) keep building. New views should multiply emitted command `opa` by `ctx.disabled_alpha`.
+
+### Note
+
+v0.15.2 dims Style-derived colours (`bg_color` / `border_color` / `Text`). Built-in widgets that emit their own fill (Slider track, Switch thumb, ProgressBar bar, etc.) currently render at full alpha when their parent carries `Disabled` — only the surrounding Style fills dim. A future minor will thread `disabled_alpha` through every built-in widget's draw path.
+
 ## [0.15.1] - 2026-05-19
 
 ### Added
