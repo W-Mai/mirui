@@ -144,9 +144,14 @@ impl ViewRegistry {
     }
 
     /// Add a view, keeping the internal vec sorted by priority.
+    /// Stable on equal priority — insertion order breaks ties.
     pub fn insert(&mut self, view: View) {
-        self.views.push(view);
-        self.views.sort_by_key(|v| v.priority());
+        let pos = self
+            .views
+            .iter()
+            .position(|v| v.priority() > view.priority())
+            .unwrap_or(self.views.len());
+        self.views.insert(pos, view);
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &View> {
