@@ -18,6 +18,12 @@ fn main() {
             direction: FlexDirection::Column,
             width: Dimension::px(480),
             height: Dimension::px(400),
+            padding: Padding {
+                top: Dimension::px(20),
+                left: Dimension::px(20),
+                right: Dimension::px(20),
+                bottom: Dimension::px(20),
+            },
             ..Default::default()
         })
         .id();
@@ -102,7 +108,13 @@ fn main() {
                 inner_scroll_v (
                     direction: FlexDirection::Column,
                     grow: 1.0,
-                    bg_color: Color::rgb(40, 35, 60)
+                    bg_color: Color::rgb(40, 35, 60),
+                    padding: Padding {
+                        top: Dimension::px(8),
+                        left: Dimension::px(8),
+                        right: Dimension::px(8),
+                        bottom: Dimension::px(8),
+                    }
                 ) [
                     ScrollOffset {
                         x: Fixed::ZERO,
