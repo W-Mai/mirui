@@ -59,7 +59,7 @@ impl ThemedColor {
 
     pub fn resolve_in(self, theme: &Theme, state: WidgetState) -> Color {
         match self {
-            Self::Raw(c) => c,
+            Self::Raw(c) => theme.blend_color_in(c, state),
             Self::Token(t) => theme.resolve_in(t, state),
         }
     }
@@ -195,6 +195,14 @@ impl Theme {
                 .surface
                 .blend_with(self.on_surface, Fixed::from_f32(0.12)),
             _ => base,
+        }
+    }
+
+    pub fn blend_color_in(&self, color: Color, state: WidgetState) -> Color {
+        if state == WidgetState::Disabled {
+            self.surface.blend_with(color, Fixed::from_f32(0.38))
+        } else {
+            color
         }
     }
 
@@ -426,16 +434,23 @@ mod tests {
     }
 
     #[test]
-    fn themed_color_raw_ignores_state() {
+    fn themed_color_raw_passes_through_when_enabled() {
         let t = Theme::dark();
         let raw = ThemedColor::Raw(Color::rgb(7, 8, 9));
         assert_eq!(
-            raw.resolve_in(&t, WidgetState::Disabled),
-            Color::rgb(7, 8, 9)
-        );
-        assert_eq!(
             raw.resolve_in(&t, WidgetState::Enabled),
             Color::rgb(7, 8, 9)
+        );
+    }
+
+    #[test]
+    fn themed_color_raw_blends_38_when_disabled() {
+        let t = Theme::dark();
+        let raw_color = Color::rgb(248, 81, 73);
+        let expected = t.surface.blend_with(raw_color, Fixed::from_f32(0.38));
+        assert_eq!(
+            ThemedColor::Raw(raw_color).resolve_in(&t, WidgetState::Disabled),
+            expected,
         );
     }
 }
