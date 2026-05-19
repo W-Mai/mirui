@@ -26,18 +26,30 @@ fn toggle_errored_handler(world: &mut World, entity: Entity, event: &GestureEven
 }
 
 fn main() {
-    let backend = SdlSurface::new("mirui - interactive states demo", 480, 320);
+    let backend = SdlSurface::new("mirui — interactive states", 720, 420);
     let mut app = App::new(backend)
         .with_default_widgets()
         .with_default_systems();
 
+    let surface_bg = Color::rgb(13, 17, 23);
+    let hover_bg = Color::rgb(34, 74, 44);
+    let errored_bg = Color::rgb(82, 38, 38);
+    let disabled_bg = Color::rgb(34, 56, 86);
+    let card_border = Color::rgb(48, 54, 61);
+    let title_color = Color::rgb(201, 209, 217);
+
     let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(20, 20, 30))
+        .bg_color(surface_bg)
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            padding: Padding::all(24),
+            width: Dimension::px(720),
+            height: Dimension::px(420),
+            padding: Padding {
+                top: 28.into(),
+                left: 32.into(),
+                right: 32.into(),
+                bottom: 28.into(),
+            },
             ..Default::default()
         })
         .id();
@@ -48,38 +60,64 @@ fn main() {
             world: &mut app.world
         :)
 
-        row (
-            direction: FlexDirection::Row,
+        column (
+            direction: FlexDirection::Column,
             grow: 1.0
         ) {
-            enabled (
-                bg_color: Color::rgb(63, 185, 80),
-                grow: 1.0,
-                border_radius: 8,
-                padding: Padding::all(8),
-                text: "Hover / Press me"
+            title (
+                height: 36,
+                text: "WidgetState: Hover / Press / Errored / Disabled",
+                text_color: title_color
             ) {}
-            errored (
-                bg_color: Color::rgb(248, 81, 73),
-                grow: 1.0,
-                border_radius: 8,
-                padding: Padding::all(8),
-                text: "Tap to toggle Errored"
-            ) [
-                ToggleErrored,
-                GestureHandler {
-                    on_gesture: toggle_errored_handler,
-                },
-            ] {}
-            disabled (
-                bg_color: Color::rgb(88, 166, 255),
-                grow: 1.0,
-                border_radius: 8,
-                padding: Padding::all(8),
-                text: "Disabled"
-            ) [
-                UserState::Disabled,
-            ] {}
+
+            spacer (height: 16) {}
+
+            row (
+                direction: FlexDirection::Row,
+                grow: 1.0
+            ) {
+                hover_card (
+                    bg_color: hover_bg,
+                    border_color: card_border,
+                    border_width: 1,
+                    grow: 1.0,
+                    border_radius: 14,
+                    padding: Padding::all(20),
+                    text: "Hover me / Press me",
+                    text_color: title_color
+                ) {}
+
+                spacer_l (width: 16) {}
+
+                errored_card (
+                    bg_color: errored_bg,
+                    border_color: card_border,
+                    border_width: 1,
+                    grow: 1.0,
+                    border_radius: 14,
+                    padding: Padding::all(20),
+                    text: "Tap to toggle Errored",
+                    text_color: title_color
+                ) [
+                    ToggleErrored,
+                    GestureHandler { on_gesture: toggle_errored_handler },
+                ] {}
+
+                spacer_r (width: 16) {}
+
+                disabled_card (
+                    bg_color: disabled_bg,
+                    border_color: card_border,
+                    border_width: 1,
+                    grow: 1.0,
+                    border_radius: 14,
+                    padding: Padding::all(20),
+                    text: "Disabled (no events)",
+                    text_color: title_color
+                ) [
+                    UserState::Disabled,
+                ] {}
+            }
         }
     };
 
