@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-05-19
+
+Theme: **Interaction Polish**. v0.15.3 left `WidgetState::Hovered` / `Pressed` / `Error` as enum placeholders that fell through to the base colour. v0.16.0 wires them end-to-end: state markers, scheduling slot, free-hover input, and overlay routing.
+
+### Added
+
+- **`UserState` / `InteractionState` enum components** in `mirui::widget::state` (re-exported from `mirui::widget`). `UserState` is user-set (`Disabled` propagates to descendants, `Errored` is self-only). `InteractionState` is system-set (`Hovered`, `Pressed`).
+- **`hover_system` / `press_system`** maintain `InteractionState` from `PointerCursor`. Hover only when `cursor.down == false`, press only when `down == true`. `with_default_systems` registers both.
+- **`run_order::INTERACTION_STATE = 80`** slot between `DELTA_TIME` and `ANIMATION` for the new systems.
+- **`Theme::resolve_in` / `blend_color_in` overlays** for the remaining states: `Hovered` = base + on_surface @ 8%, `Pressed` = base + on_surface @ 12%, `Error` = base + error @ 16%. Disabled keeps the existing 38% / 12% blend.
+- **`gallery/examples/interactive_states_demo`** shows all four state transitions on one screen.
+
+### Changed
+
+- **SDL `MouseMotion` forwards `PointerMove` regardless of button state.** Previously only drag motions reached `PointerCursor`; that left `hover_system` permanently inert because the cursor never updated. `scroll_system` was already gated on `ScrollDragState.active`, so existing drag handling is unchanged.
+
+### Removed (BREAKING)
+
+- **`mirui::widget::Disabled` marker.** Migrate `world.insert(e, Disabled)` → `world.insert(e, UserState::Disabled)`, and `world.remove::<Disabled>(e)` → `world.remove::<UserState>(e)`. The `entity_or_ancestor_disabled` helper still exists and walks `UserState::Disabled` instead.
+
 ## [0.15.3] - 2026-05-19
 
 ### Removed (BREAKING)
