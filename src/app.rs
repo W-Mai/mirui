@@ -252,6 +252,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         break;
                     }
                     Some(event) => {
+                        // Active sim timelines own PointerCursor; real
+                        // input racing them corrupts the demo.
+                        let sim_running = self
+                            .world
+                            .resource::<crate::event::sim::SimTimeline>()
+                            .is_some_and(|t| t.is_running());
+                        if sim_running {
+                            continue;
+                        }
                         let mut consumed = false;
                         for p in &mut self.plugins {
                             if p.on_event(&mut self.world, &event) {

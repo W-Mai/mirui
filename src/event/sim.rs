@@ -50,6 +50,12 @@ enum ResolvedAction {
         duration_ms: u16,
         ease: EaseFn,
     },
+    MoveTo {
+        from: Point,
+        to: Point,
+        duration_ms: u16,
+        ease: EaseFn,
+    },
     Wait(u32),
 }
 
@@ -239,10 +245,22 @@ pub struct DragAction {
     pub anchor: Option<Entity>,
 }
 
+/// Animated cursor move without pressing — emits `PointerMove` along
+/// the path so `hover_system` flips `Hovered` markers between widgets.
+#[derive(Clone, Copy)]
+pub struct MoveAction {
+    pub from: DimPoint,
+    pub to: DimPoint,
+    pub duration_ms: u16,
+    pub ease: EaseFn,
+    pub anchor: Option<Entity>,
+}
+
 #[derive(Clone, Copy)]
 pub enum SimAction {
     Tap(TapAction),
     Drag(DragAction),
+    MoveTo(MoveAction),
     Wait(u32),
 }
 
@@ -269,6 +287,21 @@ impl SimAction {
         })
     }
 
+    pub fn move_to(
+        from: impl Into<DimPoint>,
+        to: impl Into<DimPoint>,
+        duration_ms: u16,
+        ease: EaseFn,
+    ) -> Self {
+        Self::MoveTo(MoveAction {
+            from: from.into(),
+            to: to.into(),
+            duration_ms,
+            ease,
+            anchor: None,
+        })
+    }
+
     pub fn wait(ms: u32) -> Self {
         Self::Wait(ms)
     }
@@ -279,6 +312,7 @@ impl SimAction {
         match &mut self {
             Self::Tap(t) => t.anchor = Some(e),
             Self::Drag(d) => d.anchor = Some(e),
+            Self::MoveTo(m) => m.anchor = Some(e),
             Self::Wait(_) => {}
         }
         self
@@ -313,6 +347,7 @@ impl SimTimeline {
             t += match action {
                 SimAction::Tap(_) => 100,
                 SimAction::Drag(d) => d.duration_ms as u32,
+                SimAction::MoveTo(m) => m.duration_ms as u32,
                 SimAction::Wait(ms) => *ms,
             };
         }
@@ -330,6 +365,11 @@ impl SimTimeline {
     pub fn looping(mut self, looping: bool) -> Self {
         self.looping = looping;
         self
+    }
+
+    /// `App::run` swallows real backend input while this is true.
+    pub fn is_running(&self) -> bool {
+        self.looping || self.cursor < self.entries.len()
     }
 }
 
@@ -391,6 +431,19 @@ pub fn sim_timeline_system(world: &mut World) {
                     to: t,
                     duration_ms: d.duration_ms,
                     ease: d.ease,
+                }),
+                _ => None,
+            }
+        }
+        SimAction::MoveTo(m) => {
+            let from = resolve_dim_point(world, m.from, m.anchor);
+            let to = resolve_dim_point(world, m.to, m.anchor);
+            match (from, to) {
+                (Some(f), Some(t)) => Some(ResolvedAction::MoveTo {
+                    from: f,
+                    to: t,
+                    duration_ms: m.duration_ms,
+                    ease: m.ease,
                 }),
                 _ => None,
             }
@@ -471,6 +524,45 @@ pub fn sim_timeline_system(world: &mut World) {
                 super::dispatch_input(world, root, &event, now_ms, lw, lh);
             }
         }
+        ResolvedAction::MoveTo {
+            from,
+            to,
+            duration_ms,
+            ease,
+        } => {
+            if !action_started {
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.action_started = true;
+                    tl.action_elapsed_ms = 0;
+                }
+                let event = InputEvent::PointerMove {
+                    id: 0,
+                    x: from.x,
+                    y: from.y,
+                };
+                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+            } else if action_elapsed >= duration_ms as u32 {
+                let event = InputEvent::PointerMove {
+                    id: 0,
+                    x: to.x,
+                    y: to.y,
+                };
+                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.cursor += 1;
+                    tl.action_started = false;
+                }
+            } else {
+                let t = Fixed::from_raw(
+                    (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
+                );
+                let eased = ease(t);
+                let x = from.x + eased * (to.x - from.x);
+                let y = from.y + eased * (to.y - from.y);
+                let event = InputEvent::PointerMove { id: 0, x, y };
+                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+            }
+        }
         ResolvedAction::Wait(ms) => {
             if action_elapsed >= ms {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
@@ -517,6 +609,100 @@ mod tests {
         mock::set_ns(0);
         world.insert_resource(MonoClock::new(mock::clock_fn));
         world
+    }
+
+    #[test]
+    fn move_to_emits_pointer_move_without_pressing() {
+        let _g = mock::lock();
+        let mut world = setup_world();
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::move_to(
+            Point {
+                x: Fixed::from_int(10),
+                y: Fixed::from_int(10),
+            },
+            Point {
+                x: Fixed::from_int(50),
+                y: Fixed::from_int(10),
+            },
+            200,
+            crate::anim::ease::linear,
+        )]));
+
+        sim_timeline_system(&mut world);
+        let cursor = world
+            .resource::<crate::event::PointerCursor>()
+            .copied()
+            .expect("cursor seeded by sim");
+        assert_eq!(cursor.x, Fixed::from_int(10));
+        assert!(!cursor.down, "MoveTo must keep cursor.down false");
+
+        for _ in 0..7 {
+            mock::advance_ms(16);
+            sim_timeline_system(&mut world);
+        }
+        let mid = world
+            .resource::<crate::event::PointerCursor>()
+            .copied()
+            .unwrap();
+        assert!(
+            mid.x > Fixed::from_int(10) && mid.x < Fixed::from_int(50),
+            "cursor must interpolate between endpoints, got {:?}",
+            mid.x,
+        );
+        assert!(!mid.down);
+
+        for _ in 0..20 {
+            mock::advance_ms(16);
+            sim_timeline_system(&mut world);
+        }
+        let end = world
+            .resource::<crate::event::PointerCursor>()
+            .copied()
+            .unwrap();
+        assert_eq!(end.x, Fixed::from_int(50));
+        assert!(!end.down);
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().cursor,
+            1,
+            "MoveTo timeline cursor must advance past completion",
+        );
+    }
+
+    #[test]
+    fn move_to_does_not_bump_event_seq() {
+        let _g = mock::lock();
+        let mut world = setup_world();
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::move_to(
+            Point {
+                x: Fixed::from_int(0),
+                y: Fixed::ZERO,
+            },
+            Point {
+                x: Fixed::from_int(40),
+                y: Fixed::ZERO,
+            },
+            100,
+            crate::anim::ease::linear,
+        )]));
+
+        sim_timeline_system(&mut world);
+        let initial_seq = world
+            .resource::<crate::event::PointerCursor>()
+            .map(|c| c.event_seq)
+            .unwrap_or(0);
+
+        for _ in 0..10 {
+            mock::advance_ms(16);
+            sim_timeline_system(&mut world);
+        }
+        let final_seq = world
+            .resource::<crate::event::PointerCursor>()
+            .map(|c| c.event_seq)
+            .unwrap_or(0);
+        assert_eq!(
+            initial_seq, final_seq,
+            "PointerMove must not bump event_seq; only Down/Up do",
+        );
     }
 
     #[test]
