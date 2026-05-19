@@ -172,6 +172,10 @@ impl Color {
         Self { r, g, b, a: 255 }
     }
 
+    pub fn blend_with(self, other: Color, t: Fixed) -> Color {
+        Color::lerp(self, other, t)
+    }
+
     /// Linear interpolation in 8-bit channel space. `t` is clamped to
     /// [0, 1]; t=0 returns `a`, t=1 returns `b`.
     pub fn lerp(a: Color, b: Color, t: Fixed) -> Color {

@@ -1,11 +1,10 @@
 use alloc::collections::BTreeMap;
 
 use crate::ecs::World;
-use crate::types::Color;
+use crate::types::{Color, Fixed};
 
-/// Token referring to a colour role inside a [`Theme`]. The 15
-/// builtin variants cover mirui's built-in widgets and Style;
-/// `Custom` lets user code add tokens without forking mirui.
+/// Token = role. State modifiers (Disabled / Hovered / …) belong on
+/// [`WidgetState`], not in this enum.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ColorToken {
     Primary,
@@ -18,12 +17,21 @@ pub enum ColorToken {
     OnSurface,
     SurfaceVariant,
     OnSurfaceVariant,
-    OnSurfaceDisabled,
     Success,
     Error,
     Outline,
     Shadow,
     Custom(&'static str),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum WidgetState {
+    #[default]
+    Enabled,
+    Disabled,
+    Hovered,
+    Pressed,
+    Error,
 }
 
 impl ColorToken {
@@ -46,6 +54,13 @@ impl ThemedColor {
         match self {
             Self::Raw(c) => c,
             Self::Token(t) => theme.resolve(t),
+        }
+    }
+
+    pub fn resolve_in(self, theme: &Theme, state: WidgetState) -> Color {
+        match self {
+            Self::Raw(c) => c,
+            Self::Token(t) => theme.resolve_in(t, state),
         }
     }
 }
@@ -75,7 +90,6 @@ const MISSING_TOKEN_FALLBACK: Color = Color::rgb(255, 0, 255);
 /// - `Surface` / `OnSurface`: root background + primary text
 /// - `SurfaceVariant` / `OnSurfaceVariant`: dim panel + secondary
 ///   / placeholder text
-/// - `OnSurfaceDisabled`: muted text/icon for `Disabled` subtree
 /// - `Success` / `Error`: state feedback
 /// - `Outline` / `Shadow`: borders / elevation
 #[derive(Clone, Debug)]
@@ -90,7 +104,6 @@ pub struct Theme {
     on_surface: Color,
     surface_variant: Color,
     on_surface_variant: Color,
-    on_surface_disabled: Color,
     success: Color,
     error: Color,
     outline: Color,
@@ -112,7 +125,6 @@ impl Theme {
             on_surface: Color::rgb(220, 220, 230),
             surface_variant: Color::rgb(60, 60, 80),
             on_surface_variant: Color::rgb(120, 120, 140),
-            on_surface_disabled: Color::rgb(120, 120, 130),
             success: Color::rgb(63, 185, 80),
             error: Color::rgb(220, 80, 80),
             outline: Color::rgb(80, 80, 100),
@@ -133,7 +145,6 @@ impl Theme {
             on_surface: Color::rgb(20, 20, 30),
             surface_variant: Color::rgb(220, 220, 230),
             on_surface_variant: Color::rgb(120, 120, 140),
-            on_surface_disabled: Color::rgb(180, 180, 185),
             success: Color::rgb(40, 160, 70),
             error: Color::rgb(200, 60, 60),
             outline: Color::rgb(180, 180, 200),
@@ -154,7 +165,6 @@ impl Theme {
             ColorToken::OnSurface => self.on_surface,
             ColorToken::SurfaceVariant => self.surface_variant,
             ColorToken::OnSurfaceVariant => self.on_surface_variant,
-            ColorToken::OnSurfaceDisabled => self.on_surface_disabled,
             ColorToken::Success => self.success,
             ColorToken::Error => self.error,
             ColorToken::Outline => self.outline,
@@ -164,6 +174,28 @@ impl Theme {
                 .get(name)
                 .copied()
                 .unwrap_or(MISSING_TOKEN_FALLBACK),
+        }
+    }
+
+    /// M3 disabled: text/icon @ 38% on Surface, container @ 12%.
+    pub fn resolve_in(&self, token: ColorToken, state: WidgetState) -> Color {
+        if state != WidgetState::Disabled {
+            return self.resolve(token);
+        }
+        let base = self.resolve(token);
+        match token {
+            ColorToken::OnSurface
+            | ColorToken::OnSurfaceVariant
+            | ColorToken::OnPrimary
+            | ColorToken::OnSecondary
+            | ColorToken::OnTertiary => self.surface.blend_with(base, Fixed::from_f32(0.38)),
+            ColorToken::Primary
+            | ColorToken::Secondary
+            | ColorToken::Tertiary
+            | ColorToken::SurfaceVariant => self
+                .surface
+                .blend_with(self.on_surface, Fixed::from_f32(0.12)),
+            _ => base,
         }
     }
 
@@ -180,7 +212,6 @@ impl Theme {
             ColorToken::OnSurface => self.on_surface = color,
             ColorToken::SurfaceVariant => self.surface_variant = color,
             ColorToken::OnSurfaceVariant => self.on_surface_variant = color,
-            ColorToken::OnSurfaceDisabled => self.on_surface_disabled = color,
             ColorToken::Success => self.success = color,
             ColorToken::Error => self.error = color,
             ColorToken::Outline => self.outline = color,
@@ -347,5 +378,50 @@ mod tests {
         assert_eq!(t.resolve(ColorToken::Primary), Color::rgb(1, 1, 1));
         assert_eq!(t.resolve(ColorToken::Surface), Color::rgb(2, 2, 2));
         assert_eq!(t.resolve(ColorToken::custom("brand")), Color::rgb(3, 3, 3));
+    }
+
+    #[test]
+    fn resolve_in_enabled_falls_through() {
+        let t = Theme::dark();
+        for tok in [
+            ColorToken::Primary,
+            ColorToken::OnSurface,
+            ColorToken::SurfaceVariant,
+            ColorToken::Outline,
+        ] {
+            assert_eq!(t.resolve_in(tok, WidgetState::Enabled), t.resolve(tok));
+        }
+    }
+
+    #[test]
+    fn resolve_in_disabled_text_blends_38() {
+        let t = Theme::dark();
+        let expected = t.surface.blend_with(t.on_surface, Fixed::from_f32(0.38));
+        assert_eq!(t.resolve_in(ColorToken::OnSurface, WidgetState::Disabled), expected);
+    }
+
+    #[test]
+    fn resolve_in_disabled_container_blends_12() {
+        let t = Theme::dark();
+        let expected = t.surface.blend_with(t.on_surface, Fixed::from_f32(0.12));
+        assert_eq!(t.resolve_in(ColorToken::Primary, WidgetState::Disabled), expected);
+        assert_eq!(t.resolve_in(ColorToken::SurfaceVariant, WidgetState::Disabled), expected);
+    }
+
+    #[test]
+    fn resolve_in_outline_unchanged_when_disabled() {
+        let t = Theme::dark();
+        assert_eq!(
+            t.resolve_in(ColorToken::Outline, WidgetState::Disabled),
+            t.resolve(ColorToken::Outline),
+        );
+    }
+
+    #[test]
+    fn themed_color_raw_ignores_state() {
+        let t = Theme::dark();
+        let raw = ThemedColor::Raw(Color::rgb(7, 8, 9));
+        assert_eq!(raw.resolve_in(&t, WidgetState::Disabled), Color::rgb(7, 8, 9));
+        assert_eq!(raw.resolve_in(&t, WidgetState::Enabled), Color::rgb(7, 8, 9));
     }
 }
