@@ -16,7 +16,7 @@ pub enum InteractionState {
     Pressed,
 }
 
-#[crate::system(order = SIM_INPUT)]
+#[crate::system(order = INTERACTION_STATE)]
 pub fn hover_system(world: &mut World) {
     let cursor = world
         .resource::<crate::event::PointerCursor>()
@@ -35,7 +35,7 @@ pub fn hover_system(world: &mut World) {
     );
 }
 
-#[crate::system(order = SIM_INPUT)]
+#[crate::system(order = INTERACTION_STATE)]
 pub fn press_system(world: &mut World) {
     let cursor = world
         .resource::<crate::event::PointerCursor>()
@@ -153,5 +153,88 @@ mod tests {
             || InteractionState::Hovered,
         );
         assert!(world.get::<crate::widget::dirty::Dirty>(e).is_none());
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod hover_press_e2e {
+    extern crate std;
+    use super::*;
+    use crate::event::PointerCursor;
+    use crate::layout::LayoutStyle;
+    use crate::types::{Dimension, Fixed};
+    use crate::widget::Style;
+    use crate::widget::Widget;
+
+    fn make_world_with_button() -> (World, Entity) {
+        let mut world = crate::app::App::headless(64, 64)
+            .with_default_widgets()
+            .world;
+        let root = world.spawn();
+        world.insert(root, Widget);
+        world.insert(
+            root,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert_resource(WidgetRoot(root));
+        crate::widget::render_system::update_layout(
+            &mut world,
+            root,
+            &crate::types::Viewport::new(64, 64, Fixed::ONE),
+        );
+        (world, root)
+    }
+
+    #[test]
+    fn hover_system_marks_pointer_target_when_not_down() {
+        let (mut world, root) = make_world_with_button();
+        world.insert_resource(PointerCursor {
+            x: Fixed::from_int(32),
+            y: Fixed::from_int(32),
+            down: false,
+            event_seq: 1,
+        });
+        hover_system(&mut world);
+        assert!(matches!(
+            world.get::<InteractionState>(root),
+            Some(InteractionState::Hovered)
+        ));
+    }
+
+    #[test]
+    fn hover_system_clears_when_down() {
+        let (mut world, root) = make_world_with_button();
+        world.insert(root, InteractionState::Hovered);
+        world.insert_resource(PointerCursor {
+            x: Fixed::from_int(32),
+            y: Fixed::from_int(32),
+            down: true,
+            event_seq: 1,
+        });
+        hover_system(&mut world);
+        assert!(world.get::<InteractionState>(root).is_none());
+    }
+
+    #[test]
+    fn press_system_marks_when_down() {
+        let (mut world, root) = make_world_with_button();
+        world.insert_resource(PointerCursor {
+            x: Fixed::from_int(32),
+            y: Fixed::from_int(32),
+            down: true,
+            event_seq: 1,
+        });
+        press_system(&mut world);
+        assert!(matches!(
+            world.get::<InteractionState>(root),
+            Some(InteractionState::Pressed)
+        ));
     }
 }

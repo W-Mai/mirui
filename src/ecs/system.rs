@@ -40,6 +40,10 @@ pub mod run_order {
     /// Clock / `DeltaTimeMs` sync. Anything reading `dt` runs after.
     pub const DELTA_TIME: i32 = 60;
 
+    /// hover_system / press_system — read PointerCursor + hit_test, write
+    /// InteractionState. After sim_input emitters but before animation.
+    pub const INTERACTION_STATE: i32 = 80;
+
     /// Animation tickers that consume `dt`.
     pub const ANIMATION: i32 = 150;
 

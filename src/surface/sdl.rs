@@ -140,9 +140,7 @@ impl Surface for SdlSurface {
                         y: y.into(),
                     });
                 }
-                Event::MouseMotion {
-                    x, y, mousestate, ..
-                } if mousestate.left() => {
+                Event::MouseMotion { x, y, .. } => {
                     return Some(InputEvent::PointerMove {
                         id: 0,
                         x: x.into(),

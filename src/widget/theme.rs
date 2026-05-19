@@ -178,34 +178,41 @@ impl Theme {
     }
 
     pub fn resolve_in(&self, token: ColorToken, state: WidgetState) -> Color {
-        if state != WidgetState::Disabled {
-            return self.resolve(token);
-        }
         let base = self.resolve(token);
-        match token {
-            ColorToken::OnSurface
-            | ColorToken::OnSurfaceVariant
-            | ColorToken::OnPrimary
-            | ColorToken::OnSecondary
-            | ColorToken::OnTertiary => self.surface.blend_with(base, Fixed::from_f32(0.38)),
-            ColorToken::Primary
-            | ColorToken::Secondary
-            | ColorToken::Tertiary
-            | ColorToken::SurfaceVariant => self
-                .surface
-                .blend_with(self.on_surface, Fixed::from_f32(0.12)),
-            _ => base,
+        match state {
+            WidgetState::Enabled => base,
+            WidgetState::Disabled => match token {
+                ColorToken::OnSurface
+                | ColorToken::OnSurfaceVariant
+                | ColorToken::OnPrimary
+                | ColorToken::OnSecondary
+                | ColorToken::OnTertiary => self.surface.blend_with(base, Fixed::from_f32(0.38)),
+                ColorToken::Primary
+                | ColorToken::Secondary
+                | ColorToken::Tertiary
+                | ColorToken::SurfaceVariant => self
+                    .surface
+                    .blend_with(self.on_surface, Fixed::from_f32(0.12)),
+                _ => base,
+            },
+            WidgetState::Hovered => base.blend_with(self.on_surface, Fixed::from_f32(0.08)),
+            WidgetState::Pressed => base.blend_with(self.on_surface, Fixed::from_f32(0.12)),
+            WidgetState::Error => base.blend_with(self.error, Fixed::from_f32(0.16)),
         }
     }
 
     pub fn blend_color_in(&self, color: Color, state: WidgetState) -> Color {
-        if state == WidgetState::Disabled {
-            self.surface.blend_with(color, Fixed::from_f32(0.38))
-        } else {
-            color
+        match state {
+            WidgetState::Enabled => color,
+            WidgetState::Disabled => self.surface.blend_with(color, Fixed::from_f32(0.38)),
+            WidgetState::Hovered => color.blend_with(self.on_surface, Fixed::from_f32(0.08)),
+            WidgetState::Pressed => color.blend_with(self.on_surface, Fixed::from_f32(0.12)),
+            WidgetState::Error => color.blend_with(self.error, Fixed::from_f32(0.16)),
         }
     }
+}
 
+impl Theme {
     /// Bind a colour to a token, builtin or custom.
     pub fn set(&mut self, token: ColorToken, color: Color) -> &mut Self {
         match token {
@@ -452,5 +459,50 @@ mod tests {
             ThemedColor::Raw(raw_color).resolve_in(&t, WidgetState::Disabled),
             expected,
         );
+    }
+
+    #[test]
+    fn resolve_in_hovered_overlays_8_percent() {
+        let t = Theme::dark();
+        let base = t.resolve(ColorToken::Primary);
+        let expected = base.blend_with(t.on_surface, Fixed::from_f32(0.08));
+        assert_eq!(
+            t.resolve_in(ColorToken::Primary, WidgetState::Hovered),
+            expected,
+        );
+    }
+
+    #[test]
+    fn resolve_in_pressed_overlays_12_percent() {
+        let t = Theme::dark();
+        let base = t.resolve(ColorToken::Primary);
+        let expected = base.blend_with(t.on_surface, Fixed::from_f32(0.12));
+        assert_eq!(
+            t.resolve_in(ColorToken::Primary, WidgetState::Pressed),
+            expected,
+        );
+    }
+
+    #[test]
+    fn resolve_in_error_overlays_error_token() {
+        let t = Theme::dark();
+        let base = t.resolve(ColorToken::Primary);
+        let expected = base.blend_with(t.error, Fixed::from_f32(0.16));
+        assert_eq!(
+            t.resolve_in(ColorToken::Primary, WidgetState::Error),
+            expected,
+        );
+    }
+
+    #[test]
+    fn raw_blends_in_hover_press_error() {
+        let t = Theme::dark();
+        let raw = Color::rgb(100, 200, 50);
+        let h = ThemedColor::Raw(raw).resolve_in(&t, WidgetState::Hovered);
+        assert_eq!(h, raw.blend_with(t.on_surface, Fixed::from_f32(0.08)));
+        let p = ThemedColor::Raw(raw).resolve_in(&t, WidgetState::Pressed);
+        assert_eq!(p, raw.blend_with(t.on_surface, Fixed::from_f32(0.12)));
+        let er = ThemedColor::Raw(raw).resolve_in(&t, WidgetState::Error);
+        assert_eq!(er, raw.blend_with(t.error, Fixed::from_f32(0.16)));
     }
 }
