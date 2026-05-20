@@ -144,6 +144,10 @@ impl Fixed {
         sin_rad(Self::PI / Self::from_int(2) - angle_rad)
     }
 
+    pub fn golden_ratio_conjugate() -> Self {
+        Self::from_int(2) / (Self::ONE + Self::from_int(5).sqrt())
+    }
+
     /// Two-argument arctangent — angle (in radians) of the vector
     /// `(x, y)`, in `(-π, π]`. Pure integer math, no FP fallback.
     pub fn atan2(y: Self, x: Self) -> Self {
@@ -852,5 +856,12 @@ mod tests {
     #[test]
     fn atan2_zero_at_origin() {
         assert_eq!(Fixed::atan2(Fixed::ZERO, Fixed::ZERO), Fixed::ZERO);
+    }
+
+    #[test]
+    fn golden_ratio_conjugate_is_near_expected_range() {
+        let v = Fixed::golden_ratio_conjugate();
+        assert!(v > Fixed::from_int(3) / Fixed::from_int(5));
+        assert!(v < Fixed::from_int(5) / Fixed::from_int(8));
     }
 }

@@ -36,6 +36,7 @@ pub struct CursorFeedback {
 pub struct RotaryFeedback {
     pub enabled: bool,
     pub progress: Fixed,
+    pub target: Fixed,
     pub velocity: Fixed,
     pub direction: i8,
     pub opacity: Fixed,
@@ -171,63 +172,62 @@ fn opa_from_fixed(v: Fixed) -> u8 {
     raw.clamp(0, 255) as u8
 }
 
-fn cubic(t: Fixed, x0: Fixed, x1: Fixed, x2: Fixed, x3: Fixed) -> Fixed {
-    let one_t = Fixed::ONE - t;
-    one_t * one_t * one_t * x0
-        + Fixed::from_int(3) * one_t * one_t * t * x1
-        + Fixed::from_int(3) * one_t * t * t * x2
-        + t * t * t * x3
+fn water_drop_height() -> Fixed {
+    Fixed::from_int(52)
+}
+
+fn water_drop_drawn_height() -> Fixed {
+    water_drop_height() - Fixed::ONE
+}
+
+fn water_drop_max_stretch() -> Fixed {
+    water_drop_drawn_height() * Fixed::golden_ratio_conjugate() / Fixed::from_int(2)
 }
 
 fn water_drop_path(edge_x: Fixed, mid_y: Fixed, pull: Fixed, dir: i8) -> Path {
-    let w = Fixed::from_int(34);
-    let h = Fixed::from_int(88);
-    let flatten = Fixed::from_int(22);
-    let sharpen = Fixed::from_int(18);
-    let progress = pull.abs().clamp(Fixed::from_int(2), w);
+    let w = water_drop_max_stretch() + Fixed::from_int(2);
+    let h = water_drop_height();
+    let flatten = Fixed::from_int(14);
+    let sharpen = Fixed::from_int(7);
+    let progress = pull.abs().clamp(Fixed::ONE, water_drop_max_stretch());
     let tall_ratio = progress / w;
-    let tall = progress;
-    let lean = Fixed::from_int(dir as i32);
+    let lean = Fixed::from_int(dir as i32) * Fixed::from_int(3) / Fixed::from_int(8);
     let top = mid_y - h / Fixed::from_int(2);
-    let attach_top = Point { x: edge_x, y: top };
-    let attach_bottom = Point {
-        x: edge_x,
-        y: top + h,
-    };
+    let tall = progress - Fixed::ONE;
+    let mid = h / Fixed::from_int(2);
+    let joint = mid + sharpen * lean;
+
     let mut path = Path::new();
-    path.move_to(attach_top);
-    for i in 0..=16 {
-        let t = Fixed::from_raw(i * Fixed::ONE.raw() / 16);
-        let row = cubic(
-            t,
-            Fixed::ZERO,
-            (Fixed::ONE + tall_ratio) * flatten,
-            h / Fixed::from_int(2) - flatten + sharpen * lean + tall_ratio * sharpen,
-            h / Fixed::from_int(2) + sharpen * lean,
-        );
-        let col = cubic(t, Fixed::ZERO, Fixed::ZERO, tall, tall);
-        path.line_to(Point {
-            x: edge_x - col,
-            y: top + row,
-        });
-    }
-    let rest = h / Fixed::from_int(2) + sharpen * lean;
-    for i in 0..=16 {
-        let t = Fixed::from_raw(i * Fixed::ONE.raw() / 16);
-        let row = cubic(
-            t,
-            rest,
-            h / Fixed::from_int(2) + flatten + sharpen * lean - tall_ratio * sharpen,
-            h - (Fixed::ONE + tall_ratio) * flatten,
-            h,
-        );
-        let col = cubic(t, tall, tall, Fixed::ZERO, Fixed::ZERO);
-        path.line_to(Point {
-            x: edge_x - col,
-            y: top + row,
-        });
-    }
-    path.line_to(attach_bottom).close();
+    path.move_to(Point { x: edge_x, y: top })
+        .cubic_to(
+            Point {
+                x: edge_x,
+                y: top + (Fixed::ONE + tall_ratio) * flatten,
+            },
+            Point {
+                x: edge_x - tall,
+                y: top + mid - flatten + sharpen * lean + tall_ratio * sharpen,
+            },
+            Point {
+                x: edge_x - tall,
+                y: top + joint,
+            },
+        )
+        .cubic_to(
+            Point {
+                x: edge_x - tall,
+                y: top + mid + flatten + sharpen * lean - tall_ratio * sharpen,
+            },
+            Point {
+                x: edge_x,
+                y: top + h - (Fixed::ONE + tall_ratio) * flatten - Fixed::ONE,
+            },
+            Point {
+                x: edge_x,
+                y: top + h - Fixed::ONE,
+            },
+        )
+        .close();
     path
 }
 
@@ -305,11 +305,11 @@ pub fn render_overlay(
             return;
         };
         let (lw, lh) = viewport.logical_size();
-        let stretch = feedback.rotary.progress.abs().min(Fixed::from_int(80));
+        let stretch = feedback.rotary.progress.abs().min(Fixed::from_int(64));
         let y_mid = Fixed::from(lh) / Fixed::from_int(2)
-            - Fixed::from(feedback.rotary.direction as i32) * stretch / Fixed::from_int(3);
-        let x = Fixed::from(lw) - Fixed::from_int(16);
-        let opa = opa_from_fixed(feedback.rotary.opacity.max(Fixed::from_raw(64)));
+            - Fixed::from(feedback.rotary.direction as i32) * stretch / Fixed::from_int(8);
+        let x = Fixed::from(lw);
+        let opa = opa_from_fixed(feedback.rotary.opacity.max(Fixed::ONE / Fixed::from_int(4)));
         let path = water_drop_path(x, y_mid, stretch, feedback.rotary.direction);
         renderer.fill_path(&path, clip, &primary, opa);
     }
@@ -332,6 +332,7 @@ impl Default for RotaryFeedback {
         Self {
             enabled: false,
             progress: Fixed::ZERO,
+            target: Fixed::ZERO,
             velocity: Fixed::ZERO,
             direction: 0,
             opacity: Fixed::ZERO,
@@ -385,7 +386,11 @@ pub fn rotary_feedback_system(world: &mut World) {
     if input.event_seq != feedback.rotary.last_input_seq {
         let impulse = Fixed::from_int(input.rotary_delta as i32) + input.wheel_delta_y;
         if impulse != Fixed::ZERO {
-            feedback.rotary.velocity += impulse * Fixed::from_int(4);
+            let max_stretch = water_drop_max_stretch();
+            let next_target = (feedback.rotary.target + impulse * Fixed::from_int(10))
+                .clamp(Fixed::ZERO - max_stretch, max_stretch);
+            feedback.rotary.velocity += (next_target - feedback.rotary.target) / Fixed::from_int(4);
+            feedback.rotary.target = next_target;
             feedback.rotary.direction = if impulse > Fixed::ZERO { 1 } else { -1 };
             feedback.rotary.opacity = Fixed::ONE;
         }
@@ -405,18 +410,28 @@ pub fn rotary_feedback_system(world: &mut World) {
         .map(|d| d.0.max(1))
         .unwrap_or(16);
     let dt_fixed = Fixed::from_int(dt as i32) / Fixed::from_int(16);
-    feedback.rotary.progress += feedback.rotary.velocity * dt_fixed / Fixed::from_int(8);
-    feedback.rotary.velocity -= feedback.rotary.progress * dt_fixed / Fixed::from_int(3);
-    feedback.rotary.velocity = feedback.rotary.velocity * Fixed::from_raw(220);
+    let spring =
+        (feedback.rotary.target - feedback.rotary.progress) * dt_fixed / Fixed::from_int(3);
+    feedback.rotary.velocity += spring;
+    feedback.rotary.progress += feedback.rotary.velocity * dt_fixed / Fixed::from_int(4);
+    feedback.rotary.progress = feedback.rotary.progress.clamp(
+        Fixed::ZERO - water_drop_max_stretch(),
+        water_drop_max_stretch(),
+    );
+    feedback.rotary.velocity = feedback.rotary.velocity * Fixed::from_int(21) / Fixed::from_int(25);
+    feedback.rotary.target = feedback.rotary.target * Fixed::from_int(7) / Fixed::from_int(8);
     feedback.rotary.opacity =
-        (feedback.rotary.opacity - Fixed::from_raw(10) * dt_fixed).max(Fixed::ZERO);
+        (feedback.rotary.opacity - dt_fixed / Fixed::from_int(25)).max(Fixed::ZERO);
     feedback.rotary.pulse =
-        (feedback.rotary.pulse - Fixed::from_raw(16) * dt_fixed).max(Fixed::ZERO);
-    if feedback.rotary.progress.abs() < Fixed::from_raw(2)
-        && feedback.rotary.velocity.abs() < Fixed::from_raw(2)
+        (feedback.rotary.pulse - dt_fixed / Fixed::from_int(16)).max(Fixed::ZERO);
+    let settle = Fixed::ONE / Fixed::from_int(128);
+    if feedback.rotary.progress.abs() < settle
+        && feedback.rotary.velocity.abs() < settle
+        && feedback.rotary.target.abs() < settle
     {
         feedback.rotary.progress = Fixed::ZERO;
         feedback.rotary.velocity = Fixed::ZERO;
+        feedback.rotary.target = Fixed::ZERO;
     }
     world.insert_resource(feedback);
 }
@@ -614,6 +629,31 @@ mod tests {
     }
 
     #[test]
+    fn rotary_feedback_has_bounded_stretch_under_fast_input() {
+        let mut world = World::new();
+        world.insert_resource(InputFeedback::enabled());
+        world.insert_resource(InputFeedbackInput {
+            rotary_delta: 0,
+            wheel_delta_y: Fixed::from_int(100),
+            click_pulse: false,
+            event_seq: 1,
+        });
+        world.insert_resource(crate::ecs::DeltaTimeMs(16));
+
+        rotary_feedback_system(&mut world);
+        let feedback = world.resource::<InputFeedback>().unwrap();
+        let max = water_drop_max_stretch();
+        assert!(feedback.rotary.target.abs() <= max);
+        assert!(feedback.rotary.progress.abs() <= max);
+
+        for _ in 0..19 {
+            rotary_feedback_system(&mut world);
+        }
+        let feedback = world.resource::<InputFeedback>().unwrap();
+        assert!(feedback.rotary.progress.abs() <= max);
+    }
+
+    #[test]
     fn render_overlay_draws_cursor_and_rotary_feedback() {
         let mut world = World::new();
         let mut feedback = InputFeedback::enabled();
@@ -636,7 +676,15 @@ mod tests {
         render_overlay(&world, &viewport, &Rect::new(0, 0, 64, 64), &mut renderer);
 
         assert_ne!(renderer.target.get_pixel(20, 20).a, 0);
-        assert_ne!(renderer.target.get_pixel(30, 24).a, 0);
+        let mut water_pixels = 0;
+        for y in 0..64 {
+            for x in 28..64 {
+                if renderer.target.get_pixel(x, y).a != 0 {
+                    water_pixels += 1;
+                }
+            }
+        }
+        assert!(water_pixels > 0, "expected water-drop pixels");
     }
 }
 
