@@ -318,8 +318,10 @@ pub fn scroll_system(
             };
             // Two-finger / wheel scroll feels right at "one tick = ~20 px"
             // — same step constant as Rotary above.
+            // SDL flips dx vs dy sign on macOS natural-scroll: dy is
+            // negated (drag down = scroll up), dx is not. Match that.
             let step = Fixed::from_int(20);
-            let delta_x = -*dx * step;
+            let delta_x = *dx * step;
             let delta_y = -*dy * step;
             let gesture_dir = if dy.to_int().abs() >= dx.to_int().abs() {
                 ScrollAxis::Vertical
