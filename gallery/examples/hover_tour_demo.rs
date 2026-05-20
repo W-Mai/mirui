@@ -2,6 +2,7 @@ use mirui::anim::ease;
 use mirui::app::App;
 use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::layout::*;
+use mirui::plugins::StdInstantClockPlugin;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Point};
 use mirui::widget::builder::WidgetBuilder;
@@ -106,6 +107,7 @@ fn main() {
 
     app.set_root(root);
     app.add_system(sim_timeline_system::system());
+    app.add_plugin(StdInstantClockPlugin::default());
     app.run();
 }
 
