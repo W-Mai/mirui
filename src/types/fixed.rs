@@ -136,6 +136,14 @@ impl Fixed {
         Self::sin_deg(Self::from_int(90) - angle_deg)
     }
 
+    pub fn sin_rad(angle_rad: Self) -> Self {
+        sin_rad(angle_rad)
+    }
+
+    pub fn cos_rad(angle_rad: Self) -> Self {
+        sin_rad(Self::PI / Self::from_int(2) - angle_rad)
+    }
+
     /// Two-argument arctangent — angle (in radians) of the vector
     /// `(x, y)`, in `(-π, π]`. Pure integer math, no FP fallback.
     pub fn atan2(y: Self, x: Self) -> Self {
