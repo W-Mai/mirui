@@ -1,6 +1,6 @@
 use crate::ecs::Entity;
 use crate::event::input::InputEvent;
-use crate::types::Fixed;
+use crate::types::{Fixed, Fixed64};
 
 use super::event::GestureEvent;
 use super::system::GestureEvents;
@@ -53,6 +53,7 @@ pub struct GestureRecognizer {
     // Multi-touch baseline captured when the second finger lands.
     initial_dist: Fixed,
     initial_angle: Fixed,
+    last_emit_dist: Fixed,
     last_emit_angle: Fixed,
     pinch_emitting: bool,
     rotate_emitting: bool,
@@ -259,6 +260,7 @@ impl GestureRecognizer {
         let dy = f1.current_y - f0.current_y;
         self.initial_dist = dist(dx, dy).max(Fixed::from_raw(1));
         self.initial_angle = Fixed::atan2(dy, dx);
+        self.last_emit_dist = self.initial_dist;
         self.last_emit_angle = self.initial_angle;
         self.pinch_emitting = false;
         self.rotate_emitting = false;
@@ -294,20 +296,23 @@ impl GestureRecognizer {
 
         if let Some(target) = self.target {
             if self.pinch_emitting {
+                let pinch_increment = Fixed64::from_fixed(cur_dist)
+                    / Fixed64::from_fixed(self.last_emit_dist.max(Fixed::from_raw(1)));
+                self.last_emit_dist = cur_dist;
                 events_out.push(GestureEvent::Pinch {
                     x: center_x,
                     y: center_y,
-                    scale,
+                    scale: pinch_increment,
                     target,
                 });
             }
             if self.rotate_emitting {
-                let incremental = wrap_pi(cur_angle - self.last_emit_angle);
+                let rotate_increment = wrap_pi(cur_angle - self.last_emit_angle);
                 self.last_emit_angle = cur_angle;
                 events_out.push(GestureEvent::Rotate {
                     x: center_x,
                     y: center_y,
-                    angle: incremental,
+                    angle: rotate_increment,
                     target,
                 });
             }

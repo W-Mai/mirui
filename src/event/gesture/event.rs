@@ -1,5 +1,5 @@
 use crate::ecs::Entity;
-use crate::types::Fixed;
+use crate::types::{Fixed, Fixed64};
 
 #[derive(Clone, Debug)]
 pub enum GestureEvent {
@@ -35,7 +35,7 @@ pub enum GestureEvent {
     Pinch {
         x: Fixed,
         y: Fixed,
-        scale: Fixed,
+        scale: Fixed64,
         target: Entity,
     },
     Rotate {
