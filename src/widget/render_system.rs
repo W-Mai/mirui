@@ -116,16 +116,18 @@ fn seed_prev_rect_walk(
     world: &mut World,
     entities: &[Entity],
     idx: &mut usize,
+    parent_transform: &Transform,
     parent_3d: &Transform3D,
 ) {
     if *idx >= entities.len() {
         return;
     }
     let entity = entities[*idx];
+    let tf = effective_transform(parent_transform, world, entity, node.rect);
     let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
     let effective_rect = quad_for(world, entity, node.rect, parent_3d)
         .map(quad_bbox)
-        .unwrap_or(node.rect);
+        .unwrap_or_else(|| tf.apply_rect_bbox(node.rect));
     let x0 = effective_rect.x.floor();
     let y0 = effective_rect.y.floor();
     let x1 = (effective_rect.x + effective_rect.w).ceil();
@@ -141,7 +143,7 @@ fn seed_prev_rect_walk(
     );
     *idx += 1;
     for child in &node.children {
-        seed_prev_rect_walk(child, world, entities, idx, &tf_3d);
+        seed_prev_rect_walk(child, world, entities, idx, &tf, &tf_3d);
     }
 }
 
@@ -168,6 +170,7 @@ pub fn seed_prev_rects(world: &mut World, root: Entity, transform: &Viewport) {
         world,
         &entities,
         &mut idx,
+        &Transform::IDENTITY,
         &Transform3D::IDENTITY,
     );
 }
@@ -262,9 +265,20 @@ fn draw_tree_offset(
     };
     let tf = effective_transform(parent_transform, world, entity, shifted_rect);
     let tf_3d = accumulate_3d(parent_transform_3d, world, entity, shifted_rect);
-    let quad = quad_for(world, entity, shifted_rect, parent_transform_3d);
+    let quad = quad_for(world, entity, shifted_rect, parent_transform_3d).or_else(|| {
+        if matches!(
+            tf.classify(),
+            crate::types::TransformClass::Identity | crate::types::TransformClass::Translate
+        ) {
+            None
+        } else {
+            Some(tf.apply_rect(shifted_rect))
+        }
+    });
 
-    let cull_rect = quad.map(quad_bbox).unwrap_or(shifted_rect);
+    let cull_rect = quad
+        .map(quad_bbox)
+        .unwrap_or_else(|| tf.apply_rect_bbox(shifted_rect));
     if !rects_intersect(&cull_rect, clip) {
         *idx += count_nodes(node);
         return;
@@ -474,11 +488,13 @@ struct DirtyBounds {
     max_y: Fixed,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_dirty_walk(
     node: &LayoutNode,
     world: &mut World,
     entities: &[Entity],
     idx: &mut usize,
+    parent_transform: &Transform,
     parent_3d: &Transform3D,
     scroll_offset: (Fixed, Fixed),
     bounds: &mut DirtyBounds,
@@ -488,12 +504,13 @@ fn collect_dirty_walk(
         return;
     }
     let entity = entities[*idx];
+    let tf = effective_transform(parent_transform, world, entity, node.rect);
     let tf_3d = accumulate_3d(parent_3d, world, entity, node.rect);
 
     if world.get::<Dirty>(entity).is_some() {
         let curr_layout = quad_for(world, entity, node.rect, parent_3d)
             .map(quad_bbox)
-            .unwrap_or(node.rect);
+            .unwrap_or_else(|| tf.apply_rect_bbox(node.rect));
         let curr = Rect {
             x: curr_layout.x - scroll_offset.0,
             y: curr_layout.y - scroll_offset.1,
@@ -541,7 +558,16 @@ fn collect_dirty_walk(
 
     *idx += 1;
     for child in &node.children {
-        collect_dirty_walk(child, world, entities, idx, &tf_3d, child_scroll, bounds);
+        collect_dirty_walk(
+            child,
+            world,
+            entities,
+            idx,
+            &tf,
+            &tf_3d,
+            child_scroll,
+            bounds,
+        );
     }
 }
 
@@ -591,6 +617,7 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
             world,
             &entities,
             &mut idx,
+            &Transform::IDENTITY,
             &Transform3D::IDENTITY,
             (Fixed::ZERO, Fixed::ZERO),
             &mut bounds,
@@ -837,6 +864,246 @@ mod clip_children_check {
                 "x={x} leaked red ({}), mask width=0 must hide it",
                 c.r
             );
+        }
+    }
+
+    #[test]
+    fn dirty_region_uses_2d_transform_bbox() {
+        use crate::components::transform::WidgetTransform;
+        use crate::types::Transform;
+        use crate::widget::dirty::Dirty;
+
+        let mut world = make_world();
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(20)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(10)),
+                    height: Dimension::Px(Fixed::from_int(10)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            target,
+            WidgetTransform(Transform::scale(Fixed::from_int(2), Fixed::from_int(2))),
+        );
+        world.insert(target, Dirty);
+
+        let dirty = collect_dirty_region(&mut world, root, &vp()).expect("dirty region");
+
+        assert_eq!(dirty.x, Fixed::from_int(15));
+        assert_eq!(dirty.y, Fixed::from_int(15));
+        assert_eq!(dirty.w, Fixed::from_int(20));
+        assert_eq!(dirty.h, Fixed::from_int(20));
+    }
+
+    #[test]
+    fn seeded_prev_rect_uses_2d_transform_bbox() {
+        use crate::components::transform::WidgetTransform;
+        use crate::types::Transform;
+        use crate::widget::dirty::Dirty;
+
+        let mut world = make_world();
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(20)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(10)),
+                    height: Dimension::Px(Fixed::from_int(10)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            target,
+            WidgetTransform(Transform::scale(Fixed::from_int(2), Fixed::from_int(2))),
+        );
+        seed_prev_rects(&mut world, root, &vp());
+
+        world.insert(target, WidgetTransform(Transform::IDENTITY));
+        world.insert(target, Dirty);
+        let dirty = collect_dirty_region(&mut world, root, &vp()).expect("dirty region");
+
+        assert_eq!(dirty.x, Fixed::from_int(15));
+        assert_eq!(dirty.y, Fixed::from_int(15));
+        assert_eq!(dirty.w, Fixed::from_int(20));
+        assert_eq!(dirty.h, Fixed::from_int(20));
+    }
+
+    #[test]
+    fn dirty_render_clears_pixels_from_previous_2d_transform() {
+        use crate::components::transform::WidgetTransform;
+        use crate::types::Transform;
+        use crate::widget::dirty::Dirty;
+
+        let mut world = make_world();
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 255).into()),
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(20)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(10)),
+                    height: Dimension::Px(Fixed::from_int(10)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        let viewport = vp();
+        world.insert(
+            target,
+            WidgetTransform(Transform::scale(Fixed::from_int(2), Fixed::from_int(2))),
+        );
+        let mut buf = std::vec![0u8; 64 * 64 * 4];
+        {
+            let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render(&world, root, &viewport, &mut renderer);
+            assert_eq!(renderer.target.get_pixel(16, 16).b, 255);
+        }
+        seed_prev_rects(&mut world, root, &viewport);
+
+        world.insert(
+            target,
+            WidgetTransform(Transform::scale(
+                Fixed::ONE / Fixed::from_int(2),
+                Fixed::ONE / Fixed::from_int(2),
+            )),
+        );
+        world.insert(target, Dirty);
+        let dirty = collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
+        {
+            let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render_region(&world, root, &viewport, &dirty, &mut renderer);
+            assert_eq!(renderer.target.get_pixel(16, 16).b, 0);
+            assert_eq!(renderer.target.get_pixel(25, 25).b, 255);
+        }
+    }
+
+    #[test]
+    fn dirty_region_covers_rotated_2d_transform_pixels() {
+        use crate::components::transform::WidgetTransform;
+        use crate::types::Transform;
+        use crate::widget::dirty::Dirty;
+
+        let mut world = make_world();
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 255).into()),
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(22)),
+                    top: Dimension::Px(Fixed::from_int(22)),
+                    width: Dimension::Px(Fixed::from_int(20)),
+                    height: Dimension::Px(Fixed::from_int(12)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            target,
+            WidgetTransform(Transform::rotate_deg(Fixed::from_int(45))),
+        );
+        world.insert(target, Dirty);
+
+        let viewport = vp();
+        let mut full = std::vec![0u8; 64 * 64 * 4];
+        {
+            let tex = Texture::new(&mut full, 64, 64, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render(&world, root, &viewport, &mut renderer);
+        }
+
+        let dirty = collect_dirty_region(&mut world, root, &viewport).expect("dirty region");
+        let mut region = std::vec![0u8; 64 * 64 * 4];
+        {
+            let tex = Texture::new(&mut region, 64, 64, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render_region(&world, root, &viewport, &dirty, &mut renderer);
+        }
+
+        let full_tex = Texture::new(&mut full, 64, 64, ColorFormat::RGBA8888);
+        let region_tex = Texture::new(&mut region, 64, 64, ColorFormat::RGBA8888);
+        for y in 0..64 {
+            for x in 0..64 {
+                let full_blue = full_tex.get_pixel(x, y).b == 255;
+                let region_blue = region_tex.get_pixel(x, y).b == 255;
+                assert_eq!(
+                    region_blue, full_blue,
+                    "dirty render mismatch at ({x},{y}), dirty={:?}",
+                    dirty,
+                );
+            }
         }
     }
 }

@@ -117,40 +117,20 @@ impl Transform {
     }
 
     pub fn apply_rect_bbox(&self, r: Rect) -> Rect {
+        Rect::bounding_quad(&self.apply_rect(r))
+    }
+
+    pub fn apply_rect(&self, r: Rect) -> [Point; 4] {
         let x0 = r.x;
         let y0 = r.y;
         let x1 = r.x + r.w;
         let y1 = r.y + r.h;
-        let p = [
+        [
             self.apply_point(Point { x: x0, y: y0 }),
             self.apply_point(Point { x: x1, y: y0 }),
-            self.apply_point(Point { x: x0, y: y1 }),
             self.apply_point(Point { x: x1, y: y1 }),
-        ];
-        let mut min_x = p[0].x;
-        let mut max_x = p[0].x;
-        let mut min_y = p[0].y;
-        let mut max_y = p[0].y;
-        for pt in &p[1..] {
-            if pt.x < min_x {
-                min_x = pt.x;
-            }
-            if pt.x > max_x {
-                max_x = pt.x;
-            }
-            if pt.y < min_y {
-                min_y = pt.y;
-            }
-            if pt.y > max_y {
-                max_y = pt.y;
-            }
-        }
-        Rect {
-            x: min_x,
-            y: min_y,
-            w: max_x - min_x,
-            h: max_y - min_y,
-        }
+            self.apply_point(Point { x: x0, y: y1 }),
+        ]
     }
 
     #[inline]

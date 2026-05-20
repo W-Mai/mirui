@@ -52,33 +52,23 @@ impl<'a> SwRenderer<'a> {
             DrawCommand::Fill {
                 area, color, opa, ..
             } => {
-                let phys_area = self.viewport.rect_to_physical(*area);
-                fill_rect_transformed(
-                    &mut self.target,
-                    phys_area,
-                    phys_clip,
-                    &phys_tf,
-                    color,
-                    *opa,
-                );
+                fill_rect_transformed(&mut self.target, *area, phys_clip, &phys_tf, color, *opa);
             }
             DrawCommand::Blit {
                 pos, size, texture, ..
             } => {
-                let phys_pos = self.viewport.point_to_physical(*pos);
-                let phys_size = self.viewport.point_to_physical(*size);
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                let phys_dst = Rect {
-                    x: phys_pos.x,
-                    y: phys_pos.y,
-                    w: phys_size.x,
-                    h: phys_size.y,
+                let dst = Rect {
+                    x: pos.x,
+                    y: pos.y,
+                    w: size.x,
+                    h: size.y,
                 };
                 blit_transformed(
                     &mut self.target,
                     texture,
                     &src_rect,
-                    phys_dst,
+                    dst,
                     phys_clip,
                     &phys_tf,
                 );
@@ -1113,6 +1103,30 @@ mod tests {
             "expected ~16 painted pixels, got {}",
             painted
         );
+    }
+
+    #[test]
+    fn renderer_transformed_fill_uses_logical_area_under_hidpi() {
+        let mut buf = vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        renderer.viewport = Viewport::new(32, 32, Fixed::from_int(2));
+
+        renderer.draw(
+            &DrawCommand::Fill {
+                area: Rect::new(4, 4, 8, 8),
+                transform: Transform::scale(Fixed::from_int(2), Fixed::from_int(2)),
+                quad: None,
+                color: Color::rgb(255, 0, 0),
+                radius: Fixed::ZERO,
+                opa: 255,
+            },
+            &Rect::new(0, 0, 32, 32),
+        );
+
+        assert_eq!(renderer.target.get_pixel(20, 20).r, 255);
+        assert_eq!(renderer.target.get_pixel(10, 10).r, 0);
+        assert_eq!(renderer.target.get_pixel(50, 50).r, 0);
     }
 
     #[test]
