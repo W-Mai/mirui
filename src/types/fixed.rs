@@ -135,6 +135,12 @@ impl Fixed {
     pub fn cos_deg(angle_deg: Self) -> Self {
         Self::sin_deg(Self::from_int(90) - angle_deg)
     }
+
+    /// Two-argument arctangent — angle (in radians) of the vector
+    /// `(x, y)`, in `(-π, π]`. Pure integer math, no FP fallback.
+    pub fn atan2(y: Self, x: Self) -> Self {
+        atan2_rad(y, x)
+    }
 }
 
 fn sin_rad(x: Fixed) -> Fixed {
@@ -179,6 +185,62 @@ fn sin_rad(x: Fixed) -> Fixed {
     };
 
     if sign < 0 { -result } else { result }
+}
+
+/// atan2 in radians, output in (-π, π].
+///
+/// Quadrant-fold to z = min(|y|,|x|)/max ∈ [0,1], then map any z>tan(π/8)
+/// through the half-angle identity atan(z)=π/4+atan((z-1)/(z+1)). The
+/// shifted argument lives in [-tan(π/8), 0], where the Maclaurin series
+/// `z - z³/3 + z⁵/5` is already <1 LSB at the Q24.8 scale; without the
+/// shift the series at z=1 leaves ~0.09 rad of error, larger than the
+/// downstream Pinch / Rotate threshold.
+fn atan2_rad(y: Fixed, x: Fixed) -> Fixed {
+    let zero = Fixed::ZERO;
+    let pi = Fixed::PI;
+    let half_pi = pi / 2;
+    let quarter_pi = pi / 4;
+
+    if x == zero && y == zero {
+        return zero;
+    }
+
+    let ax = x.abs();
+    let ay = y.abs();
+
+    // z = ay/ax in [0,1] when |y|<=|x|; swap branch tracks the
+    // "atan(1/z)+π/2" identity for the other half.
+    let (z, swap) = if ay <= ax {
+        (ay / ax.max(Fixed::from_raw(1)), false)
+    } else {
+        (ax / ay.max(Fixed::from_raw(1)), true)
+    };
+
+    // tan(π/8) ≈ 0.4142136 → 0.4142136 * 256 = 106.04
+    let tan_pi_8 = Fixed::from_raw(106);
+    let (zp, offset) = if z > tan_pi_8 {
+        ((z - Fixed::ONE) / (z + Fixed::ONE), quarter_pi)
+    } else {
+        (z, zero)
+    };
+
+    let zp2 = zp * zp;
+    let zp3 = zp * zp2;
+    let zp5 = zp3 * zp2;
+    let mut a = offset + zp - zp3 / Fixed::from_int(3) + zp5 / Fixed::from_int(5);
+
+    if swap {
+        a = half_pi - a;
+    }
+
+    let sx = x.0 >= 0;
+    let sy = y.0 >= 0;
+    match (sx, sy) {
+        (true, true) => a,
+        (true, false) => -a,
+        (false, true) => pi - a,
+        (false, false) => -(pi - a),
+    }
 }
 
 impl Add for Fixed {
@@ -743,5 +805,44 @@ mod tests {
         let r_narrow = v.sqrt();
         let r_wide = Fixed64::from_fixed(v).sqrt().to_fixed();
         assert!((r_narrow - r_wide).abs().raw() < 4);
+    }
+
+    #[test]
+    fn atan2_known_angles() {
+        let pi = Fixed::PI;
+        let half = pi / 2;
+        let quarter = pi / 4;
+        // Tolerance: 3 LSB ≈ 0.012 rad ≈ 0.7° — well below the
+        // ROTATE_THRESHOLD (0.1 rad) used downstream.
+        let tol = 3;
+
+        let cases = [
+            (Fixed::ZERO, Fixed::from_int(1), Fixed::ZERO), // +x
+            (Fixed::from_int(1), Fixed::from_int(1), quarter), // +x+y
+            (Fixed::from_int(1), Fixed::ZERO, half),        // +y
+            (Fixed::from_int(1), Fixed::from_int(-1), pi - quarter), // -x+y
+            (Fixed::ZERO, Fixed::from_int(-1), pi),         // -x
+            (Fixed::from_int(-1), Fixed::from_int(-1), -(pi - quarter)),
+            (Fixed::from_int(-1), Fixed::ZERO, -half), // -y
+            (Fixed::from_int(-1), Fixed::from_int(1), -quarter), // +x-y
+        ];
+        for (y, x, expect) in cases {
+            let got = Fixed::atan2(y, x);
+            let err = (got - expect).abs().raw();
+            assert!(
+                err <= tol,
+                "atan2({:?}, {:?}) = {:?}, want {:?}, err {} LSB",
+                y,
+                x,
+                got,
+                expect,
+                err,
+            );
+        }
+    }
+
+    #[test]
+    fn atan2_zero_at_origin() {
+        assert_eq!(Fixed::atan2(Fixed::ZERO, Fixed::ZERO), Fixed::ZERO);
     }
 }
