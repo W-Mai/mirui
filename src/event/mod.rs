@@ -90,6 +90,7 @@ pub fn dispatch_input(
 
     let hit = match event {
         InputEvent::PointerDown { x, y, .. } => hit_test(world, root, *x, *y, lw, lh),
+        InputEvent::MultiGesture { x, y, .. } => hit_test(world, root, *x, *y, lw, lh),
         _ => None,
     };
     let scroll_claimed = world

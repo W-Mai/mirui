@@ -312,6 +312,101 @@ pub fn scroll_system(
                 world.insert(target, crate::widget::dirty::Dirty);
             }
         }
+        InputEvent::Wheel { dx, dy, x, y } => {
+            let Some(hit) = hit_test(world, root, *x, *y, screen_w, screen_h) else {
+                return;
+            };
+            // Two-finger / wheel scroll feels right at "one tick = ~20 px"
+            // — same step constant as Rotary above.
+            let step = Fixed::from_int(20);
+            let delta_x = -*dx * step;
+            let delta_y = -*dy * step;
+            let gesture_dir = if dy.to_int().abs() >= dx.to_int().abs() {
+                ScrollAxis::Vertical
+            } else {
+                ScrollAxis::Horizontal
+            };
+            let Some(target) =
+                find_scroll_target_for_direction(world, hit, gesture_dir, delta_x, delta_y)
+            else {
+                return;
+            };
+
+            let (axis, max_x, max_y, elastic) = {
+                let cfg = world.get::<ScrollConfig>(target);
+                let computed = world.get::<crate::widget::ComputedRect>(target);
+                let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
+                let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
+                let content_h = cfg.map(|c| c.content_height).unwrap_or(container_h);
+                let content_w = cfg.map(|c| c.content_width).unwrap_or(container_w);
+                let dir = cfg.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
+                let elastic = cfg.map(|c| c.elastic).unwrap_or(true);
+                (
+                    dir,
+                    (content_w - container_w).max(Fixed::ZERO),
+                    (content_h - container_h).max(Fixed::ZERO),
+                    elastic,
+                )
+            };
+
+            // Push the spring's target, don't touch ScrollOffset directly —
+            // scroll_inertia_system writes the spring's value to the offset
+            // each frame, so the wheel inherits the same animated settle as
+            // drag-release inertia.
+            let want_x_target = |cur: Fixed| {
+                let projected = cur + delta_x;
+                if elastic {
+                    projected
+                } else {
+                    projected.clamp(Fixed::ZERO, max_x)
+                }
+            };
+            let want_y_target = |cur: Fixed| {
+                let projected = cur + delta_y;
+                if elastic {
+                    projected
+                } else {
+                    projected.clamp(Fixed::ZERO, max_y)
+                }
+            };
+
+            let (offset_x, offset_y) = world
+                .get::<ScrollOffset>(target)
+                .map(|s| (s.x, s.y))
+                .unwrap_or((Fixed::ZERO, Fixed::ZERO));
+
+            if let Some(ss) = world.resource_mut::<ScrollSpring>() {
+                if ss.target_entity != Some(target) {
+                    ss.x = None;
+                    ss.y = None;
+                    ss.target_entity = Some(target);
+                }
+                let needs_x = matches!(axis, ScrollAxis::Horizontal | ScrollAxis::Both)
+                    && delta_x != Fixed::ZERO;
+                let needs_y = matches!(axis, ScrollAxis::Vertical | ScrollAxis::Both)
+                    && delta_y != Fixed::ZERO;
+                if needs_x {
+                    let new_target = match ss.x.as_ref() {
+                        Some(s) => want_x_target(s.target),
+                        None => want_x_target(offset_x),
+                    };
+                    match ss.x.as_mut() {
+                        Some(s) => s.retarget(new_target, Some(SMOOTH)),
+                        None => ss.x = Some(Spring::preset(offset_x, new_target, SMOOTH)),
+                    }
+                }
+                if needs_y {
+                    let new_target = match ss.y.as_ref() {
+                        Some(s) => want_y_target(s.target),
+                        None => want_y_target(offset_y),
+                    };
+                    match ss.y.as_mut() {
+                        Some(s) => s.retarget(new_target, Some(SMOOTH)),
+                        None => ss.y = Some(Spring::preset(offset_y, new_target, SMOOTH)),
+                    }
+                }
+            }
+        }
         _ => {}
     }
 }
@@ -608,6 +703,49 @@ mod tests {
                 off
             );
         }
+    }
+
+    #[test]
+    fn find_scroll_target_walks_to_matching_axis() {
+        use crate::ecs::World;
+        use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
+        use crate::widget::{ComputedRect, Widget};
+        let mut world = World::new();
+        let target = world.spawn();
+        world.insert(target, Widget);
+        world.insert(
+            target,
+            ComputedRect(crate::types::Rect::new(0, 0, 128, 114)),
+        );
+        world.insert(
+            target,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(100),
+            },
+        );
+        world.insert(
+            target,
+            ScrollConfig {
+                direction: ScrollAxis::Vertical,
+                elastic: false,
+                content_height: Fixed::from_int(600),
+                content_width: Fixed::ZERO,
+            },
+        );
+
+        let found = find_scroll_target_for_direction(
+            &world,
+            target,
+            ScrollAxis::Vertical,
+            Fixed::ZERO,
+            Fixed::from_int(40),
+        );
+        assert_eq!(
+            found,
+            Some(target),
+            "wheel scroll target lookup must resolve a vertical scroller from the hit entity",
+        );
     }
 }
 

@@ -20,17 +20,50 @@ pub const KEY_ESCAPE: u32 = 0x001B;
 
 /// Raw input event produced by the platform layer (Surface).
 ///
-/// Pointer events carry an `id: u8` so multi-touch can be wired in
-/// later; `id == 0` is the single-pointer / mouse path. Rotary covers
-/// the encoder / Digital Crown family. Hardware buttons share the
-/// `Key` variant via well-known codes.
+/// `id == 0` is the single-pointer / mouse path; non-zero ids are
+/// reserved for multi-touch. `MultiGesture` carries the platform's
+/// already-aggregated multi-finger delta; the recognizer hit-tests
+/// it into `GestureEvent::Pinch` / `Rotate`.
 #[derive(Clone, Debug)]
 pub enum InputEvent {
-    PointerDown { id: u8, x: Fixed, y: Fixed },
-    PointerMove { id: u8, x: Fixed, y: Fixed },
-    PointerUp { id: u8, x: Fixed, y: Fixed },
-    Rotary { id: u8, delta: i16 },
-    Key { code: u32, pressed: bool },
-    CharInput { ch: char },
+    PointerDown {
+        id: u8,
+        x: Fixed,
+        y: Fixed,
+    },
+    PointerMove {
+        id: u8,
+        x: Fixed,
+        y: Fixed,
+    },
+    PointerUp {
+        id: u8,
+        x: Fixed,
+        y: Fixed,
+    },
+    Rotary {
+        id: u8,
+        delta: i16,
+    },
+    Wheel {
+        dx: Fixed,
+        dy: Fixed,
+        x: Fixed,
+        y: Fixed,
+    },
+    MultiGesture {
+        d_theta: Fixed,
+        d_dist: Fixed,
+        x: Fixed,
+        y: Fixed,
+        num_fingers: u8,
+    },
+    Key {
+        code: u32,
+        pressed: bool,
+    },
+    CharInput {
+        ch: char,
+    },
     Quit,
 }

@@ -32,6 +32,18 @@ pub enum GestureEvent {
         vy: Fixed,
         target: Entity,
     },
+    Pinch {
+        x: Fixed,
+        y: Fixed,
+        scale: Fixed,
+        target: Entity,
+    },
+    Rotate {
+        x: Fixed,
+        y: Fixed,
+        angle: Fixed,
+        target: Entity,
+    },
 }
 
 impl GestureEvent {
@@ -41,7 +53,9 @@ impl GestureEvent {
             | Self::LongPress { target, .. }
             | Self::DragStart { target, .. }
             | Self::DragMove { target, .. }
-            | Self::DragEnd { target, .. } => *target,
+            | Self::DragEnd { target, .. }
+            | Self::Pinch { target, .. }
+            | Self::Rotate { target, .. } => *target,
         }
     }
 }

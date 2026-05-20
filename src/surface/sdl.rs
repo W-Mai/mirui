@@ -20,6 +20,10 @@ pub struct SdlSurface {
     width: u16,
     height: u16,
     scale: Fixed,
+    /// SDL `MouseWheel` doesn't carry cursor coordinates — cache them
+    /// from `MouseMotion` so the forwarded `Wheel` has an anchor.
+    last_mouse_x: i32,
+    last_mouse_y: i32,
 }
 
 impl SdlSurface {
@@ -62,6 +66,8 @@ impl SdlSurface {
             width: phys_w,
             height: phys_h,
             scale,
+            last_mouse_x: 0,
+            last_mouse_y: 0,
         }
     }
 
@@ -141,10 +147,40 @@ impl Surface for SdlSurface {
                     });
                 }
                 Event::MouseMotion { x, y, .. } => {
+                    self.last_mouse_x = x;
+                    self.last_mouse_y = y;
                     return Some(InputEvent::PointerMove {
                         id: 0,
                         x: x.into(),
                         y: y.into(),
+                    });
+                }
+                Event::MouseWheel { x, y, .. } => {
+                    return Some(InputEvent::Wheel {
+                        dx: Fixed::from(x),
+                        dy: Fixed::from(y),
+                        x: Fixed::from(self.last_mouse_x),
+                        y: Fixed::from(self.last_mouse_y),
+                    });
+                }
+                Event::MultiGesture {
+                    d_theta,
+                    d_dist,
+                    x,
+                    y,
+                    num_fingers,
+                    ..
+                } => {
+                    let win_w = self.width as f32 / self.scale.to_f32();
+                    let win_h = self.height as f32 / self.scale.to_f32();
+                    let px = (x * win_w) as i32;
+                    let py = (y * win_h) as i32;
+                    return Some(InputEvent::MultiGesture {
+                        d_theta: Fixed::from_f32(d_theta),
+                        d_dist: Fixed::from_f32(d_dist),
+                        x: Fixed::from(px),
+                        y: Fixed::from(py),
+                        num_fingers: num_fingers as u8,
                     });
                 }
                 Event::TextInput { text, .. } => {
