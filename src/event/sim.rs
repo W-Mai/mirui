@@ -60,6 +60,21 @@ enum ResolvedAction {
         ticks: i16,
         step_ms: u16,
     },
+    Pinch {
+        center: Point,
+        from_dist: Fixed,
+        to_dist: Fixed,
+        duration_ms: u16,
+        ease: EaseFn,
+    },
+    RotateGesture {
+        center: Point,
+        radius: Fixed,
+        from_angle: Fixed,
+        to_angle: Fixed,
+        duration_ms: u16,
+        ease: EaseFn,
+    },
     RotaryClick,
     Wait(u32),
 }
@@ -271,11 +286,34 @@ pub struct RotateAction {
 }
 
 #[derive(Clone, Copy)]
+pub struct PinchAction {
+    pub center: DimPoint,
+    pub from_dist: Fixed,
+    pub to_dist: Fixed,
+    pub duration_ms: u16,
+    pub ease: EaseFn,
+    pub anchor: Option<Entity>,
+}
+
+#[derive(Clone, Copy)]
+pub struct RotateGestureAction {
+    pub center: DimPoint,
+    pub radius: Fixed,
+    pub from_angle: Fixed,
+    pub to_angle: Fixed,
+    pub duration_ms: u16,
+    pub ease: EaseFn,
+    pub anchor: Option<Entity>,
+}
+
+#[derive(Clone, Copy)]
 pub enum SimAction {
     Tap(TapAction),
     Drag(DragAction),
     MoveTo(MoveAction),
     Rotate(RotateAction),
+    Pinch(PinchAction),
+    RotateGesture(RotateGestureAction),
     RotaryClick,
     Wait(u32),
 }
@@ -322,6 +360,42 @@ impl SimAction {
         Self::Rotate(RotateAction { ticks, step_ms })
     }
 
+    pub fn pinch(
+        center: impl Into<DimPoint>,
+        from_dist: Fixed,
+        to_dist: Fixed,
+        duration_ms: u16,
+        ease: EaseFn,
+    ) -> Self {
+        Self::Pinch(PinchAction {
+            center: center.into(),
+            from_dist,
+            to_dist,
+            duration_ms,
+            ease,
+            anchor: None,
+        })
+    }
+
+    pub fn rotate_gesture(
+        center: impl Into<DimPoint>,
+        radius: Fixed,
+        from_angle: Fixed,
+        to_angle: Fixed,
+        duration_ms: u16,
+        ease: EaseFn,
+    ) -> Self {
+        Self::RotateGesture(RotateGestureAction {
+            center: center.into(),
+            radius,
+            from_angle,
+            to_angle,
+            duration_ms,
+            ease,
+            anchor: None,
+        })
+    }
+
     pub fn rotary_click() -> Self {
         Self::RotaryClick
     }
@@ -337,6 +411,8 @@ impl SimAction {
             Self::Tap(t) => t.anchor = Some(e),
             Self::Drag(d) => d.anchor = Some(e),
             Self::MoveTo(m) => m.anchor = Some(e),
+            Self::Pinch(p) => p.anchor = Some(e),
+            Self::RotateGesture(r) => r.anchor = Some(e),
             Self::Rotate(_) | Self::RotaryClick | Self::Wait(_) => {}
         }
         self
@@ -374,6 +450,8 @@ impl SimTimeline {
                 SimAction::Drag(d) => d.duration_ms as u32,
                 SimAction::MoveTo(m) => m.duration_ms as u32,
                 SimAction::Rotate(r) => (r.ticks.unsigned_abs() as u32) * (r.step_ms as u32),
+                SimAction::Pinch(p) => p.duration_ms as u32,
+                SimAction::RotateGesture(r) => r.duration_ms as u32,
                 SimAction::RotaryClick => 100,
                 SimAction::Wait(ms) => *ms,
             };
@@ -481,6 +559,25 @@ pub fn sim_timeline_system(world: &mut World) {
             ticks: r.ticks,
             step_ms: r.step_ms,
         }),
+        SimAction::Pinch(p) => {
+            resolve_dim_point(world, p.center, p.anchor).map(|c| ResolvedAction::Pinch {
+                center: c,
+                from_dist: p.from_dist,
+                to_dist: p.to_dist,
+                duration_ms: p.duration_ms,
+                ease: p.ease,
+            })
+        }
+        SimAction::RotateGesture(r) => {
+            resolve_dim_point(world, r.center, r.anchor).map(|c| ResolvedAction::RotateGesture {
+                center: c,
+                radius: r.radius,
+                from_angle: r.from_angle,
+                to_angle: r.to_angle,
+                duration_ms: r.duration_ms,
+                ease: r.ease,
+            })
+        }
         SimAction::RotaryClick => Some(ResolvedAction::RotaryClick),
         SimAction::Wait(ms) => Some(ResolvedAction::Wait(ms)),
     };
@@ -598,6 +695,236 @@ pub fn sim_timeline_system(world: &mut World) {
                 let y = from.y + eased * (to.y - from.y);
                 let event = InputEvent::PointerMove { id: 0, x, y };
                 super::dispatch_input(world, root, &event, now_ms, lw, lh);
+            }
+        }
+        ResolvedAction::Pinch {
+            center,
+            from_dist,
+            to_dist,
+            duration_ms,
+            ease,
+        } => {
+            let half = |d: Fixed| d / Fixed::from_int(2);
+            let two_fingers = |d: Fixed| {
+                (
+                    Point {
+                        x: center.x - half(d),
+                        y: center.y,
+                    },
+                    Point {
+                        x: center.x + half(d),
+                        y: center.y,
+                    },
+                )
+            };
+            if !action_started {
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.action_started = true;
+                    tl.action_elapsed_ms = 0;
+                }
+                let (a, b) = two_fingers(from_dist);
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerDown {
+                        id: 1,
+                        x: a.x,
+                        y: a.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerDown {
+                        id: 2,
+                        x: b.x,
+                        y: b.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+            } else if action_elapsed >= duration_ms as u32 {
+                let (a, b) = two_fingers(to_dist);
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerUp {
+                        id: 1,
+                        x: a.x,
+                        y: a.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerUp {
+                        id: 2,
+                        x: b.x,
+                        y: b.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.cursor += 1;
+                    tl.action_started = false;
+                    tl.rotate_emitted = 0;
+                }
+            } else {
+                let t = Fixed::from_raw(
+                    (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
+                );
+                let eased = ease(t);
+                let dist = from_dist + eased * (to_dist - from_dist);
+                let (a, b) = two_fingers(dist);
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerMove {
+                        id: 1,
+                        x: a.x,
+                        y: a.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerMove {
+                        id: 2,
+                        x: b.x,
+                        y: b.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+            }
+        }
+        ResolvedAction::RotateGesture {
+            center,
+            radius,
+            from_angle,
+            to_angle,
+            duration_ms,
+            ease,
+        } => {
+            let two_fingers = |angle: Fixed| {
+                let dx = radius * Fixed::cos_rad(angle);
+                let dy = radius * Fixed::sin_rad(angle);
+                (
+                    Point {
+                        x: center.x - dx,
+                        y: center.y - dy,
+                    },
+                    Point {
+                        x: center.x + dx,
+                        y: center.y + dy,
+                    },
+                )
+            };
+            if !action_started {
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.action_started = true;
+                    tl.action_elapsed_ms = 0;
+                }
+                let (a, b) = two_fingers(from_angle);
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerDown {
+                        id: 1,
+                        x: a.x,
+                        y: a.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerDown {
+                        id: 2,
+                        x: b.x,
+                        y: b.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+            } else if action_elapsed >= duration_ms as u32 {
+                let (a, b) = two_fingers(to_angle);
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerUp {
+                        id: 1,
+                        x: a.x,
+                        y: a.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerUp {
+                        id: 2,
+                        x: b.x,
+                        y: b.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.cursor += 1;
+                    tl.action_started = false;
+                    tl.rotate_emitted = 0;
+                }
+            } else {
+                let t = Fixed::from_raw(
+                    (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
+                );
+                let eased = ease(t);
+                let angle = from_angle + eased * (to_angle - from_angle);
+                let (a, b) = two_fingers(angle);
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerMove {
+                        id: 1,
+                        x: a.x,
+                        y: a.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
+                super::dispatch_input(
+                    world,
+                    root,
+                    &InputEvent::PointerMove {
+                        id: 2,
+                        x: b.x,
+                        y: b.y,
+                    },
+                    now_ms,
+                    lw,
+                    lh,
+                );
             }
         }
         ResolvedAction::Rotate { ticks, step_ms } => {
@@ -1665,6 +1992,319 @@ mod tests {
             "cycle 2 expected ≥ 2 toggles, got {cycle2_toggles} \
              (cycle1 saw {cycle1_toggles}). Same Switch entity, same \
              timeline — drift is the bug we want to catch.",
+        );
+    }
+
+    #[derive(Default)]
+    struct PinchProbe {
+        accum_scale: Fixed,
+        accum_scale64: crate::types::Fixed64,
+        per_frame: Vec<Fixed>,
+        deltas: Vec<crate::types::Fixed64>,
+        rotate_deltas: Vec<Fixed>,
+    }
+
+    fn pinch_probe_handler(
+        world: &mut World,
+        _entity: Entity,
+        event: &crate::event::gesture::GestureEvent,
+    ) -> bool {
+        if let crate::event::gesture::GestureEvent::Pinch { scale, .. } = event {
+            if let Some(p) = world.resource_mut::<PinchProbe>() {
+                if p.accum_scale == Fixed::ZERO {
+                    p.accum_scale = Fixed::ONE;
+                    p.accum_scale64 = crate::types::Fixed64::ONE;
+                }
+                p.deltas.push(*scale);
+                p.accum_scale64 = p.accum_scale64 * *scale;
+                p.accum_scale = p.accum_scale64.to_fixed();
+                p.per_frame.push(p.accum_scale);
+            }
+            return true;
+        }
+        if let crate::event::gesture::GestureEvent::Rotate { angle, .. } = event {
+            if let Some(p) = world.resource_mut::<PinchProbe>() {
+                p.rotate_deltas.push(*angle);
+            }
+            return true;
+        }
+        false
+    }
+
+    #[test]
+    fn pinch_two_rounds_handler_scale_is_continuous() {
+        use crate::layout::{LayoutStyle, Position};
+        use crate::types::{Dimension, Viewport};
+        let _g = mock::lock();
+        let mut world = setup_world();
+        let root = install_root(&mut world);
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            crate::widget::Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(20)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(88)),
+                    height: Dimension::Px(Fixed::from_int(88)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            target,
+            crate::event::GestureHandler {
+                on_gesture: pinch_probe_handler,
+            },
+        );
+        world.insert_resource(PinchProbe::default());
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+
+        let center = Point {
+            x: Fixed::from_int(64),
+            y: Fixed::from_int(64),
+        };
+        world.insert_resource(SimTimeline::new(alloc::vec![
+            SimAction::pinch(
+                center,
+                Fixed::from_int(20),
+                Fixed::from_int(70),
+                200,
+                crate::anim::ease::linear,
+            ),
+            SimAction::wait(100),
+            SimAction::pinch(
+                center,
+                Fixed::from_int(70),
+                Fixed::from_int(20),
+                200,
+                crate::anim::ease::linear,
+            ),
+        ]));
+
+        for _ in 0..40 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+
+        let probe = world.resource::<PinchProbe>().expect("probe present");
+        assert!(
+            probe.per_frame.len() >= 5,
+            "Pinch fired too few times ({}); expected at least 5 across two 200ms rounds",
+            probe.per_frame.len(),
+        );
+
+        let mut max_jump = Fixed::ZERO;
+        for w in probe.per_frame.windows(2) {
+            let prev = w[0];
+            let curr = w[1];
+            let ratio = if prev > curr {
+                prev / curr
+            } else {
+                curr / prev
+            };
+            let jump = ratio - Fixed::ONE;
+            if jump > max_jump {
+                max_jump = jump;
+            }
+        }
+        assert!(
+            max_jump < Fixed::ONE / Fixed::from_int(2),
+            "frame-to-frame scale jumped > 50%: max_jump = {:?}, frames = {:?}",
+            max_jump,
+            probe.per_frame,
+        );
+
+        let final_scale = *probe.per_frame.last().unwrap();
+        let drift = if final_scale > Fixed::ONE {
+            final_scale - Fixed::ONE
+        } else {
+            Fixed::ONE - final_scale
+        };
+        assert!(
+            drift < Fixed::ONE / Fixed::from_int(4),
+            "round-trip Pinch did not return to ~1.0×: final = {:?}",
+            final_scale,
+        );
+    }
+
+    #[test]
+    fn pinch_demo_timeline_emits_expand_and_shrink_deltas() {
+        use crate::layout::{LayoutStyle, Position};
+        use crate::types::{Dimension, Viewport};
+        let _g = mock::lock();
+        let mut world = setup_world();
+        let root = install_root(&mut world);
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            crate::widget::Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(20)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(88)),
+                    height: Dimension::Px(Fixed::from_int(88)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            target,
+            crate::event::GestureHandler {
+                on_gesture: pinch_probe_handler,
+            },
+        );
+        world.insert_resource(PinchProbe::default());
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+
+        let center = Point {
+            x: Fixed::from_int(64),
+            y: Fixed::from_int(64),
+        };
+        let small = Fixed::from_int(40);
+        let large = Fixed::from_int(80);
+        world.insert_resource(SimTimeline::new(alloc::vec![
+            SimAction::pinch(
+                center,
+                small,
+                large,
+                1500,
+                crate::anim::ease::ease_in_out_cubic,
+            ),
+            SimAction::wait(800),
+            SimAction::pinch(
+                center,
+                large,
+                small,
+                1500,
+                crate::anim::ease::ease_in_out_cubic,
+            ),
+        ]));
+
+        for _ in 0..260 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+
+        let probe = world.resource::<PinchProbe>().expect("probe present");
+        let has_expand = probe.deltas.iter().any(|d| *d > crate::types::Fixed64::ONE);
+        let has_shrink = probe.deltas.iter().any(|d| *d < crate::types::Fixed64::ONE);
+        assert!(has_expand, "no expand deltas: {:?}", probe.deltas);
+        assert!(has_shrink, "no shrink deltas: {:?}", probe.deltas);
+        let final_scale = probe.accum_scale;
+        let drift = if final_scale > Fixed::ONE {
+            final_scale - Fixed::ONE
+        } else {
+            Fixed::ONE - final_scale
+        };
+        assert!(
+            drift <= Fixed::from_raw(8),
+            "demo shrink/expand roundtrip should return near 1.0x, got {:?}, deltas={:?}",
+            final_scale,
+            probe.deltas,
+        );
+    }
+
+    #[test]
+    fn pinch_rotate_demo_loop_expands_shrinks_and_rotates() {
+        use crate::layout::{LayoutStyle, Position};
+        use crate::types::{Dimension, Viewport};
+        let _g = mock::lock();
+        let mut world = setup_world();
+        let root = install_root(&mut world);
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            crate::widget::Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(20)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(88)),
+                    height: Dimension::Px(Fixed::from_int(88)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            target,
+            crate::event::GestureHandler {
+                on_gesture: pinch_probe_handler,
+            },
+        );
+        world.insert_resource(PinchProbe::default());
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+
+        let center = Point {
+            x: Fixed::from_int(64),
+            y: Fixed::from_int(64),
+        };
+        let small = Fixed::from_int(40);
+        let large = Fixed::from_int(80);
+        let radius = Fixed::from_int(30);
+        world.insert_resource(
+            SimTimeline::new(alloc::vec![
+                SimAction::pinch(
+                    center,
+                    small,
+                    large,
+                    1500,
+                    crate::anim::ease::ease_in_out_cubic,
+                ),
+                SimAction::wait(800),
+                SimAction::pinch(
+                    center,
+                    large,
+                    small,
+                    1500,
+                    crate::anim::ease::ease_in_out_cubic,
+                ),
+                SimAction::wait(800),
+                SimAction::rotate_gesture(
+                    center,
+                    radius,
+                    Fixed::ZERO,
+                    Fixed::PI / Fixed::from_int(2),
+                    1500,
+                    crate::anim::ease::ease_in_out_cubic,
+                ),
+                SimAction::wait(800),
+                SimAction::rotate_gesture(
+                    center,
+                    radius,
+                    Fixed::PI / Fixed::from_int(2),
+                    Fixed::ZERO,
+                    1500,
+                    crate::anim::ease::ease_in_out_cubic,
+                ),
+                SimAction::wait(800),
+            ])
+            .looping(true),
+        );
+
+        for _ in 0..1100 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+
+        let probe = world.resource::<PinchProbe>().expect("probe present");
+        let has_expand = probe.deltas.iter().any(|d| *d > crate::types::Fixed64::ONE);
+        let has_shrink = probe.deltas.iter().any(|d| *d < crate::types::Fixed64::ONE);
+        let has_rotate = probe.rotate_deltas.iter().any(|d| *d != Fixed::ZERO);
+        assert!(has_expand, "loop has no expand deltas: {:?}", probe.deltas);
+        assert!(has_shrink, "loop has no shrink deltas: {:?}", probe.deltas);
+        assert!(
+            has_rotate,
+            "loop has no rotate deltas: {:?}",
+            probe.rotate_deltas
         );
     }
 }
