@@ -264,19 +264,33 @@ pub fn render_overlay(
     };
     let primary = Color::rgb(88, 166, 255);
     if feedback.cursor.enabled {
-        if let Some(target) = feedback.cursor.current.target_rect {
-            let area = expand_rect(target, Fixed::from_int(2));
-            renderer.fill_rect(&area, clip, &primary, Fixed::from_int(8), 48);
-            renderer.stroke_rect(&area, clip, Fixed::ONE, &primary, Fixed::from_int(8), 160);
-        } else {
-            let r = Fixed::from_int(if feedback.cursor.current.down { 5 } else { 4 });
-            let area = Rect {
-                x: feedback.cursor.current.x - r,
-                y: feedback.cursor.current.y - r,
-                w: r * Fixed::from_int(2),
-                h: r * Fixed::from_int(2),
-            };
-            renderer.fill_rect(&area, clip, &primary, r, 220);
+        match feedback.cursor.mode {
+            CursorFeedbackMode::Dot => {
+                let r = Fixed::from_int(if feedback.cursor.current.down { 5 } else { 4 });
+                let area = Rect {
+                    x: feedback.cursor.current.x - r,
+                    y: feedback.cursor.current.y - r,
+                    w: r * Fixed::from_int(2),
+                    h: r * Fixed::from_int(2),
+                };
+                renderer.fill_rect(&area, clip, &primary, r, 220);
+            }
+            CursorFeedbackMode::MagneticRect => {
+                if let Some(target) = feedback.cursor.current.target_rect {
+                    let area = expand_rect(target, Fixed::from_int(2));
+                    renderer.fill_rect(&area, clip, &primary, Fixed::from_int(8), 48);
+                    renderer.stroke_rect(&area, clip, Fixed::ONE, &primary, Fixed::from_int(8), 160);
+                } else {
+                    let r = Fixed::from_int(if feedback.cursor.current.down { 5 } else { 4 });
+                    let area = Rect {
+                        x: feedback.cursor.current.x - r,
+                        y: feedback.cursor.current.y - r,
+                        w: r * Fixed::from_int(2),
+                        h: r * Fixed::from_int(2),
+                    };
+                    renderer.fill_rect(&area, clip, &primary, r, 220);
+                }
+            }
         }
     }
     if feedback.rotary.enabled {
@@ -624,7 +638,7 @@ impl InputFeedback {
         Self {
             cursor: CursorFeedback {
                 enabled: true,
-                mode: CursorFeedbackMode::MagneticRect,
+                mode: CursorFeedbackMode::Dot,
                 ..CursorFeedback::default()
             },
             rotary: RotaryFeedback {
