@@ -57,7 +57,7 @@ enum ResolvedAction {
         ease: EaseFn,
     },
     Rotate {
-        delta: i16,
+        ticks: i16,
         step_ms: u16,
     },
     RotaryClick,
@@ -261,12 +261,12 @@ pub struct MoveAction {
     pub anchor: Option<Entity>,
 }
 
-/// Encoder / Digital Crown rotation. `delta` is total ticks; `step_ms`
-/// is the gap between successive `Rotary { delta: 1 or -1 }` events
-/// the timeline emits.
+/// Encoder / Digital Crown rotation. `ticks` is the signed total
+/// number of detents to dispatch; `step_ms` is the gap between
+/// successive `InputEvent::Rotary` events.
 #[derive(Clone, Copy)]
 pub struct RotateAction {
-    pub delta: i16,
+    pub ticks: i16,
     pub step_ms: u16,
 }
 
@@ -318,8 +318,8 @@ impl SimAction {
         })
     }
 
-    pub fn rotate(delta: i16, step_ms: u16) -> Self {
-        Self::Rotate(RotateAction { delta, step_ms })
+    pub fn rotate(ticks: i16, step_ms: u16) -> Self {
+        Self::Rotate(RotateAction { ticks, step_ms })
     }
 
     pub fn rotary_click() -> Self {
@@ -354,8 +354,6 @@ pub struct SimTimeline {
     cursor: usize,
     action_elapsed_ms: u32,
     action_started: bool,
-    /// Number of `Rotary { delta: ±1 }` ticks already emitted for the
-    /// current `Rotate` action.
     rotate_emitted: u16,
     start_ms: Option<u32>,
     looping: bool,
@@ -375,7 +373,7 @@ impl SimTimeline {
                 SimAction::Tap(_) => 100,
                 SimAction::Drag(d) => d.duration_ms as u32,
                 SimAction::MoveTo(m) => m.duration_ms as u32,
-                SimAction::Rotate(r) => (r.delta.unsigned_abs() as u32) * (r.step_ms as u32),
+                SimAction::Rotate(r) => (r.ticks.unsigned_abs() as u32) * (r.step_ms as u32),
                 SimAction::RotaryClick => 100,
                 SimAction::Wait(ms) => *ms,
             };
@@ -480,7 +478,7 @@ pub fn sim_timeline_system(world: &mut World) {
             }
         }
         SimAction::Rotate(r) => Some(ResolvedAction::Rotate {
-            delta: r.delta,
+            ticks: r.ticks,
             step_ms: r.step_ms,
         }),
         SimAction::RotaryClick => Some(ResolvedAction::RotaryClick),
@@ -602,8 +600,8 @@ pub fn sim_timeline_system(world: &mut World) {
                 super::dispatch_input(world, root, &event, now_ms, lw, lh);
             }
         }
-        ResolvedAction::Rotate { delta, step_ms } => {
-            let total = delta.unsigned_abs();
+        ResolvedAction::Rotate { ticks, step_ms } => {
+            let total = ticks.unsigned_abs();
             if total == 0 {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
@@ -617,7 +615,7 @@ pub fn sim_timeline_system(world: &mut World) {
                     .resource::<SimTimeline>()
                     .map(|t| t.rotate_emitted)
                     .unwrap_or(0);
-                let sign: i16 = if delta >= 0 { 1 } else { -1 };
+                let sign: i16 = if ticks >= 0 { 1 } else { -1 };
                 for _ in already..target {
                     let event = InputEvent::Rotary { id: 0, delta: sign };
                     super::dispatch_input(world, root, &event, now_ms, lw, lh);
