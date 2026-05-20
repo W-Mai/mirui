@@ -3,6 +3,7 @@ use crate::draw::path::Path;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
+use crate::event::input::{InputEvent, KEY_ROTARY_PRESS};
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 use crate::widget::{ComputedRect, WidgetRoot};
 
@@ -58,6 +59,32 @@ pub struct InputFeedbackInput {
     pub event_seq: u32,
 }
 
+pub fn record_input(world: &mut World, event: &InputEvent) {
+    if world.resource::<InputFeedback>().is_none() {
+        return;
+    }
+    let mut input = world
+        .resource::<InputFeedbackInput>()
+        .copied()
+        .unwrap_or_default();
+    match event {
+        InputEvent::Rotary { delta, .. } => {
+            input.rotary_delta = input.rotary_delta.saturating_add(*delta);
+            input.event_seq = input.event_seq.wrapping_add(1);
+        }
+        InputEvent::Wheel { dy, .. } => {
+            input.wheel_delta_y += *dy;
+            input.event_seq = input.event_seq.wrapping_add(1);
+        }
+        InputEvent::Key { code, pressed } if *code == KEY_ROTARY_PRESS && *pressed => {
+            input.click_pulse = true;
+            input.event_seq = input.event_seq.wrapping_add(1);
+        }
+        _ => return,
+    }
+    world.insert_resource(input);
+}
+
 fn expand_rect(r: Rect, pad: Fixed) -> Rect {
     Rect {
         x: r.x - pad,
@@ -71,8 +98,8 @@ fn cursor_bbox(cursor: &CursorFeedback) -> Option<Rect> {
     if !cursor.enabled {
         return None;
     }
-    cursor.current.target_rect.map_or_else(
-        || {
+    match cursor.mode {
+        CursorFeedbackMode::Dot => {
             let r = Fixed::from_int(if cursor.current.down { 5 } else { 4 });
             Some(Rect {
                 x: cursor.current.x - r,
@@ -80,9 +107,36 @@ fn cursor_bbox(cursor: &CursorFeedback) -> Option<Rect> {
                 w: r * Fixed::from_int(2),
                 h: r * Fixed::from_int(2),
             })
-        },
-        |target| Some(expand_rect(target, Fixed::from_int(3))),
-    )
+        }
+        CursorFeedbackMode::MagneticRect => cursor.current.target_rect.map_or_else(
+            || {
+                let r = Fixed::from_int(if cursor.current.down { 5 } else { 4 });
+                Some(Rect {
+                    x: cursor.current.x - r,
+                    y: cursor.current.y - r,
+                    w: r * Fixed::from_int(2),
+                    h: r * Fixed::from_int(2),
+                })
+            },
+            |target| Some(expand_rect(target, Fixed::from_int(3))),
+        ),
+    }
+}
+
+fn current_cursor_visual(world: &World, cursor: crate::event::PointerCursor) -> CursorVisual {
+    let target = world.resource::<WidgetRoot>().copied().and_then(|root| {
+        world
+            .resource::<crate::surface::DisplayInfo>()
+            .and_then(|info| hit_test(world, root.0, cursor.x, cursor.y, info.width, info.height))
+    });
+    let target_rect = target.and_then(|e| world.get::<ComputedRect>(e).map(|r| r.0));
+    CursorVisual {
+        x: cursor.x,
+        y: cursor.y,
+        down: cursor.down,
+        target,
+        target_rect,
+    }
 }
 
 fn rotary_bbox(rotary: &RotaryFeedback, viewport: &Viewport) -> Option<Rect> {
@@ -280,26 +334,17 @@ pub fn cursor_feedback_system(world: &mut World) {
         .resource::<crate::event::PointerCursor>()
         .copied()
         .unwrap_or_default();
+    let current = current_cursor_visual(world, cursor);
     if feedback.cursor.last_event_seq == cursor.event_seq
-        && feedback.cursor.current.x == cursor.x
-        && feedback.cursor.current.y == cursor.y
-        && feedback.cursor.current.down == cursor.down
+        && feedback.cursor.current.x == current.x
+        && feedback.cursor.current.y == current.y
+        && feedback.cursor.current.down == current.down
+        && feedback.cursor.current.target == current.target
+        && feedback.cursor.current.target_rect == current.target_rect
     {
         return;
     }
-    let target = world.resource::<WidgetRoot>().copied().and_then(|root| {
-        world
-            .resource::<crate::surface::DisplayInfo>()
-            .and_then(|info| hit_test(world, root.0, cursor.x, cursor.y, info.width, info.height))
-    });
-    let target_rect = target.and_then(|e| world.get::<ComputedRect>(e).map(|r| r.0));
-    feedback.cursor.current = CursorVisual {
-        x: cursor.x,
-        y: cursor.y,
-        down: cursor.down,
-        target,
-        target_rect,
-    };
+    feedback.cursor.current = current;
     feedback.cursor.last_event_seq = cursor.event_seq;
     world.insert_resource(feedback);
 }
@@ -328,6 +373,10 @@ pub fn rotary_feedback_system(world: &mut World) {
             feedback.rotary.opacity = Fixed::ONE;
         }
         feedback.rotary.last_input_seq = input.event_seq;
+        world.insert_resource(InputFeedbackInput {
+            event_seq: input.event_seq,
+            ..InputFeedbackInput::default()
+        });
     }
 
     let dt = world
@@ -433,6 +482,72 @@ mod tests {
     }
 
     #[test]
+    fn cursor_feedback_updates_when_target_rect_moves_without_cursor_event() {
+        let mut world = World::new();
+        world.insert_resource(DisplayInfo {
+            width: 128,
+            height: 128,
+            scale: Fixed::ONE,
+            format: ColorFormat::RGBA8888,
+        });
+        world.insert_resource(InputFeedback::enabled());
+        let root = spawn_widget(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(128),
+                    height: Dimension::px(128),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert_resource(WidgetRoot(root));
+        crate::widget::render_system::update_layout(
+            &mut world,
+            root,
+            &crate::types::Viewport::new(128, 128, Fixed::ONE),
+        );
+        world.insert_resource(PointerCursor {
+            x: Fixed::from_int(10),
+            y: Fixed::from_int(10),
+            down: false,
+            event_seq: 1,
+        });
+        cursor_feedback_system(&mut world);
+        let first = world
+            .resource::<InputFeedback>()
+            .unwrap()
+            .cursor
+            .current
+            .target_rect;
+
+        world.insert(target, ComputedRect(Rect::new(2, 3, 64, 64)));
+        cursor_feedback_system(&mut world);
+
+        let second = world
+            .resource::<InputFeedback>()
+            .unwrap()
+            .cursor
+            .current
+            .target_rect;
+        assert_ne!(first, second);
+    }
+
+    #[test]
     fn rotary_feedback_consumes_rotary_and_wheel_impulses() {
         let mut world = World::new();
         world.insert_resource(InputFeedback::enabled());
@@ -451,6 +566,30 @@ mod tests {
         assert_eq!(feedback.rotary.direction, 1);
         assert!(feedback.rotary.opacity > Fixed::ZERO);
         assert!(feedback.rotary.pulse > Fixed::ZERO);
+    }
+
+    #[test]
+    fn rotary_feedback_consumes_each_input_batch_once() {
+        let mut world = World::new();
+        world.insert_resource(InputFeedback::enabled());
+        world.insert_resource(InputFeedbackInput {
+            rotary_delta: 1,
+            wheel_delta_y: Fixed::ZERO,
+            click_pulse: false,
+            event_seq: 1,
+        });
+        world.insert_resource(crate::ecs::DeltaTimeMs(16));
+
+        rotary_feedback_system(&mut world);
+        let first_velocity = world.resource::<InputFeedback>().unwrap().rotary.velocity;
+        rotary_feedback_system(&mut world);
+        let second_velocity = world.resource::<InputFeedback>().unwrap().rotary.velocity;
+
+        assert!(second_velocity < first_velocity + Fixed::from_int(4));
+        let input = world.resource::<InputFeedbackInput>().unwrap();
+        assert_eq!(input.rotary_delta, 0);
+        assert_eq!(input.wheel_delta_y, Fixed::ZERO);
+        assert!(!input.click_pulse);
     }
 
     #[test]

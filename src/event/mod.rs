@@ -13,7 +13,7 @@ use crate::widget::{Parent, UserState};
 use focus::key_dispatch;
 use gesture::{GestureEvent, GestureSystem};
 use hit_test::hit_test;
-use input::{InputEvent, KEY_ROTARY_PRESS};
+use input::InputEvent;
 use scroll::{ScrollDragState, scroll_system};
 
 #[derive(Clone, Copy, Default)]
@@ -77,41 +77,7 @@ pub fn dispatch_input(
         _ => {}
     }
 
-    if world
-        .resource::<crate::input_feedback::InputFeedback>()
-        .is_some()
-    {
-        match event {
-            InputEvent::Rotary { delta, .. } => {
-                let mut input = world
-                    .resource::<crate::input_feedback::InputFeedbackInput>()
-                    .copied()
-                    .unwrap_or_default();
-                input.rotary_delta = input.rotary_delta.saturating_add(*delta);
-                input.event_seq = input.event_seq.wrapping_add(1);
-                world.insert_resource(input);
-            }
-            InputEvent::Wheel { dy, .. } => {
-                let mut input = world
-                    .resource::<crate::input_feedback::InputFeedbackInput>()
-                    .copied()
-                    .unwrap_or_default();
-                input.wheel_delta_y += *dy;
-                input.event_seq = input.event_seq.wrapping_add(1);
-                world.insert_resource(input);
-            }
-            InputEvent::Key { code, pressed } if *code == KEY_ROTARY_PRESS && *pressed => {
-                let mut input = world
-                    .resource::<crate::input_feedback::InputFeedbackInput>()
-                    .copied()
-                    .unwrap_or_default();
-                input.click_pulse = true;
-                input.event_seq = input.event_seq.wrapping_add(1);
-                world.insert_resource(input);
-            }
-            _ => {}
-        }
-    }
+    crate::input_feedback::record_input(world, event);
 
     if let InputEvent::PointerDown { x, y, .. } = event {
         if let Some(target) = hit_test(world, root, *x, *y, lw, lh) {
