@@ -163,26 +163,6 @@ impl Surface for SdlSurface {
                         y: Fixed::from(self.last_mouse_y),
                     });
                 }
-                Event::MultiGesture {
-                    d_theta,
-                    d_dist,
-                    x,
-                    y,
-                    num_fingers,
-                    ..
-                } => {
-                    let win_w = self.width as f32 / self.scale.to_f32();
-                    let win_h = self.height as f32 / self.scale.to_f32();
-                    let px = (x * win_w) as i32;
-                    let py = (y * win_h) as i32;
-                    return Some(InputEvent::MultiGesture {
-                        d_theta: Fixed::from_f32(d_theta),
-                        d_dist: Fixed::from_f32(d_dist),
-                        x: Fixed::from(px),
-                        y: Fixed::from(py),
-                        num_fingers: num_fingers as u8,
-                    });
-                }
                 Event::TextInput { text, .. } => {
                     if let Some(ch) = text.chars().next() {
                         return Some(InputEvent::CharInput { ch });

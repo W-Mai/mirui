@@ -20,10 +20,12 @@ pub const KEY_ESCAPE: u32 = 0x001B;
 
 /// Raw input event produced by the platform layer (Surface).
 ///
-/// `id == 0` is the single-pointer / mouse path; non-zero ids are
-/// reserved for multi-touch. `MultiGesture` carries the platform's
-/// already-aggregated multi-finger delta; the recognizer hit-tests
-/// it into `GestureEvent::Pinch` / `Rotate`.
+/// `id == 0` is the first finger / mouse pointer; non-zero ids are
+/// additional fingers. Multi-finger gestures (Pinch / Rotate) are
+/// recognized by `GestureRecognizer` from these primitives — backends
+/// that only expose platform-aggregated gestures (e.g. macOS trackpad
+/// `MultiGesture`) reverse-compute virtual finger positions inside
+/// the surface layer so the raw event vocabulary stays minimal.
 #[derive(Clone, Debug)]
 pub enum InputEvent {
     PointerDown {
@@ -50,13 +52,6 @@ pub enum InputEvent {
         dy: Fixed,
         x: Fixed,
         y: Fixed,
-    },
-    MultiGesture {
-        d_theta: Fixed,
-        d_dist: Fixed,
-        x: Fixed,
-        y: Fixed,
-        num_fingers: u8,
     },
     Key {
         code: u32,

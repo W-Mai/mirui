@@ -140,32 +140,6 @@ impl GestureRecognizer {
                 }
                 self.reset();
             }
-            InputEvent::MultiGesture {
-                d_theta,
-                d_dist,
-                x,
-                y,
-                ..
-            } => {
-                if let Some(target) = hit_target {
-                    if *d_dist != Fixed::ZERO {
-                        events_out.push(GestureEvent::Pinch {
-                            x: *x,
-                            y: *y,
-                            scale: Fixed::ONE + *d_dist,
-                            target,
-                        });
-                    }
-                    if *d_theta != Fixed::ZERO {
-                        events_out.push(GestureEvent::Rotate {
-                            x: *x,
-                            y: *y,
-                            angle: *d_theta,
-                            target,
-                        });
-                    }
-                }
-            }
             _ => {}
         }
     }
