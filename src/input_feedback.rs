@@ -279,7 +279,14 @@ pub fn render_overlay(
                 if let Some(target) = feedback.cursor.current.target_rect {
                     let area = expand_rect(target, Fixed::from_int(2));
                     renderer.fill_rect(&area, clip, &primary, Fixed::from_int(8), 48);
-                    renderer.stroke_rect(&area, clip, Fixed::ONE, &primary, Fixed::from_int(8), 160);
+                    renderer.stroke_rect(
+                        &area,
+                        clip,
+                        Fixed::ONE,
+                        &primary,
+                        Fixed::from_int(8),
+                        160,
+                    );
                 } else {
                     let r = Fixed::from_int(if feedback.cursor.current.down { 5 } else { 4 });
                     let area = Rect {
