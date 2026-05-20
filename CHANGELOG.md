@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.2] - 2026-05-20
+
+### Added
+
+- **Multi-touch recognizer events from raw pointer streams.** `GestureRecognizer` now emits `GestureEvent::Pinch { scale_delta, .. }` and `GestureEvent::Rotate { angle, .. }` from two-finger `PointerDown` / `PointerMove` / `PointerUp` sequences. `scale_delta` uses `Fixed64` so repeated incremental pinch updates do not drift under Q24.8 truncation.
+- **`SimAction::pinch` and `SimAction::rotate_gesture`.** Simulated input can now drive multi-touch gestures through the normal input pipeline, including anchored gestures that clamp their center / span / radius to the target `ComputedRect`.
+- **`gallery/examples/pinch_rotate_demo`.** Demonstrates simulated pinch + rotate, including live delta readout and visual `WidgetTransform` feedback.
+- **`Transform::apply_rect`.** 2D affine transforms can now return transformed rect corners directly; `apply_rect_bbox` is derived from that quad.
+
+### Fixed
+
+- **2D transformed widgets now render and dirty correctly.** Dirty collection, full-render `PrevRect` seeding, culling, and HiDPI transformed fill/blit now account for 2D `WidgetTransform` bounds. This fixes stale pixels, clipped rotations, and double-scaled transformed rects on HiDPI surfaces.
+- **2D transformed rect fills route through quad rendering.** Fill/border commands under non-translate 2D transforms now use the quad path instead of inverse-sampled rect fill, reducing visible edge jitter during rotation/scale.
+- **Anchored multi-touch simulation no longer silently misses targets.** Wide anchored pinch/rotate gestures clamp generated virtual fingers inside the target rect, and out-of-bounds local centers are re-centered to the target.
+
 ## [0.16.1] - 2026-05-19
 
 ### Fixed
