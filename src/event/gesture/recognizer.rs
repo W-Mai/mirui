@@ -302,7 +302,7 @@ impl GestureRecognizer {
                 events_out.push(GestureEvent::Pinch {
                     x: center_x,
                     y: center_y,
-                    scale: pinch_increment,
+                    scale_delta: pinch_increment,
                     target,
                 });
             }

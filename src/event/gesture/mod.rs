@@ -202,14 +202,16 @@ mod tests {
             .find(|e| matches!(e, GestureEvent::Pinch { .. }));
         assert!(pinch.is_some(), "expected Pinch, got {:?}", events.buffer);
         if let Some(GestureEvent::Pinch {
-            scale, target: t, ..
+            scale_delta,
+            target: t,
+            ..
         }) = pinch
         {
             // scale ≈ 2.0
             assert!(
-                scale.to_int() == 2 || scale.to_int() == 1,
+                scale_delta.to_int() == 2 || scale_delta.to_int() == 1,
                 "scale not ~2: {:?}",
-                scale
+                scale_delta
             );
             assert_eq!(*t, target);
         }

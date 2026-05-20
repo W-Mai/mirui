@@ -35,7 +35,7 @@ pub enum GestureEvent {
     Pinch {
         x: Fixed,
         y: Fixed,
-        scale: Fixed64,
+        scale_delta: Fixed64,
         target: Entity,
     },
     Rotate {

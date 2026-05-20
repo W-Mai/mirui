@@ -1,9 +1,3 @@
-// Pinch / Rotate verification — drives the recogniser via `SimTimeline`
-// since SDL2 macOS does not deliver trackpad gestures (issue #6137).
-// Stage 1 (this revision): pure text readout. Rect stays put; only the
-// status line updates. If text is wrong, the bug is in the handler /
-// sim path, not in transform / layout.
-
 use mirui::anim::ease;
 use mirui::app::App;
 use mirui::components::text::Text;
@@ -59,20 +53,16 @@ fn handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
             return false;
         };
         match event {
-            GestureEvent::Pinch { scale, .. } => {
-                t.last_pinch = *scale;
-                t.visual_scale64 = t.visual_scale64 * *scale;
-                t.visual_scale = t
-                    .visual_scale64
-                    .clamp(
-                        Fixed64::from_fixed(Fixed::ONE / Fixed::from_int(2)),
-                        Fixed64::from_fixed(Fixed::from_int(2)),
-                    )
-                    .to_fixed();
+            GestureEvent::Pinch { scale_delta, .. } => {
+                t.last_pinch = *scale_delta;
+                let lo = Fixed64::from_fixed(Fixed::ONE / Fixed::from_int(2));
+                let hi = Fixed64::from_fixed(Fixed::from_int(2));
+                t.visual_scale64 = (t.visual_scale64 * *scale_delta).clamp(lo, hi);
+                t.visual_scale = t.visual_scale64.to_fixed();
                 t.pinch_events += 1;
-                t.mode = if *scale > Fixed64::ONE {
+                t.mode = if *scale_delta > Fixed64::ONE {
                     "EXPAND"
-                } else if *scale < Fixed64::ONE {
+                } else if *scale_delta < Fixed64::ONE {
                     "SHRINK"
                 } else {
                     "PINCH"

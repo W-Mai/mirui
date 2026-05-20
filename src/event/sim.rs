@@ -41,6 +41,25 @@ fn resolve_dim_point(world: &World, p: DimPoint, anchor: Option<Entity>) -> Opti
     })
 }
 
+fn anchored_center(world: &World, anchor: Option<Entity>, center: Point) -> Point {
+    let Some(e) = anchor else { return center };
+    let Some(rect) = world.get::<ComputedRect>(e).map(|r| r.0) else {
+        return center;
+    };
+    let inside = center.x >= rect.x
+        && center.x < rect.x + rect.w
+        && center.y >= rect.y
+        && center.y < rect.y + rect.h;
+    if inside {
+        center
+    } else {
+        Point {
+            x: rect.x + rect.w / Fixed::from_int(2),
+            y: rect.y + rect.h / Fixed::from_int(2),
+        }
+    }
+}
+
 fn anchored_pinch_dist(world: &World, anchor: Option<Entity>, center: Point, dist: Fixed) -> Fixed {
     let Some(e) = anchor else { return dist };
     let Some(rect) = world.get::<ComputedRect>(e).map(|r| r.0) else {
@@ -593,25 +612,27 @@ pub fn sim_timeline_system(world: &mut World) {
             ticks: r.ticks,
             step_ms: r.step_ms,
         }),
-        SimAction::Pinch(p) => {
-            resolve_dim_point(world, p.center, p.anchor).map(|c| ResolvedAction::Pinch {
+        SimAction::Pinch(p) => resolve_dim_point(world, p.center, p.anchor).map(|c| {
+            let c = anchored_center(world, p.anchor, c);
+            ResolvedAction::Pinch {
                 center: c,
                 from_dist: anchored_pinch_dist(world, p.anchor, c, p.from_dist),
                 to_dist: anchored_pinch_dist(world, p.anchor, c, p.to_dist),
                 duration_ms: p.duration_ms,
                 ease: p.ease,
-            })
-        }
-        SimAction::RotateGesture(r) => {
-            resolve_dim_point(world, r.center, r.anchor).map(|c| ResolvedAction::RotateGesture {
+            }
+        }),
+        SimAction::RotateGesture(r) => resolve_dim_point(world, r.center, r.anchor).map(|c| {
+            let c = anchored_center(world, r.anchor, c);
+            ResolvedAction::RotateGesture {
                 center: c,
                 radius: anchored_rotate_radius(world, r.anchor, c, r.radius),
                 from_angle: r.from_angle,
                 to_angle: r.to_angle,
                 duration_ms: r.duration_ms,
                 ease: r.ease,
-            })
-        }
+            }
+        }),
         SimAction::RotaryClick => Some(ResolvedAction::RotaryClick),
         SimAction::Wait(ms) => Some(ResolvedAction::Wait(ms)),
     };
@@ -2043,14 +2064,14 @@ mod tests {
         _entity: Entity,
         event: &crate::event::gesture::GestureEvent,
     ) -> bool {
-        if let crate::event::gesture::GestureEvent::Pinch { scale, .. } = event {
+        if let crate::event::gesture::GestureEvent::Pinch { scale_delta, .. } = event {
             if let Some(p) = world.resource_mut::<PinchProbe>() {
                 if p.accum_scale == Fixed::ZERO {
                     p.accum_scale = Fixed::ONE;
                     p.accum_scale64 = crate::types::Fixed64::ONE;
                 }
-                p.deltas.push(*scale);
-                p.accum_scale64 = p.accum_scale64 * *scale;
+                p.deltas.push(*scale_delta);
+                p.accum_scale64 = p.accum_scale64 * *scale_delta;
                 p.accum_scale = p.accum_scale64.to_fixed();
                 p.per_frame.push(p.accum_scale);
             }
@@ -2297,6 +2318,62 @@ mod tests {
         assert!(
             probe.deltas.iter().any(|d| *d > crate::types::Fixed64::ONE),
             "wide anchored Pinch should still hit target after clamping, got {:?}",
+            probe.deltas,
+        );
+    }
+
+    #[test]
+    fn anchored_pinch_recenters_outside_local_center() {
+        use crate::layout::{LayoutStyle, Position};
+        use crate::types::{Dimension, Viewport};
+        let _g = mock::lock();
+        let mut world = setup_world();
+        let root = install_root(&mut world);
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            crate::widget::Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(20)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(88)),
+                    height: Dimension::Px(Fixed::from_int(88)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            target,
+            crate::event::GestureHandler {
+                on_gesture: pinch_probe_handler,
+            },
+        );
+        world.insert_resource(PinchProbe::default());
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+
+        world.insert_resource(SimTimeline::new(alloc::vec![
+            SimAction::pinch(
+                (Dimension::px(-100), Dimension::px(-100)),
+                Fixed::from_int(40),
+                Fixed::from_int(80),
+                400,
+                crate::anim::ease::linear,
+            )
+            .on(target),
+        ]));
+
+        for _ in 0..40 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+
+        let probe = world.resource::<PinchProbe>().expect("probe present");
+        assert!(
+            probe.deltas.iter().any(|d| *d > crate::types::Fixed64::ONE),
+            "anchored Pinch with outside local center should be recentered, got {:?}",
             probe.deltas,
         );
     }
