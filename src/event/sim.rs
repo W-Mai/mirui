@@ -41,6 +41,40 @@ fn resolve_dim_point(world: &World, p: DimPoint, anchor: Option<Entity>) -> Opti
     })
 }
 
+fn anchored_pinch_dist(world: &World, anchor: Option<Entity>, center: Point, dist: Fixed) -> Fixed {
+    let Some(e) = anchor else { return dist };
+    let Some(rect) = world.get::<ComputedRect>(e).map(|r| r.0) else {
+        return dist;
+    };
+    let left = center.x - rect.x;
+    let right = rect.x + rect.w - center.x;
+    let max_half = left.min(right).max(Fixed::ZERO);
+    let max_dist = max_half * Fixed::from_int(2);
+    if max_dist <= Fixed::ZERO {
+        Fixed::ZERO
+    } else {
+        dist.clamp(Fixed::ZERO, max_dist)
+    }
+}
+
+fn anchored_rotate_radius(
+    world: &World,
+    anchor: Option<Entity>,
+    center: Point,
+    radius: Fixed,
+) -> Fixed {
+    let Some(e) = anchor else { return radius };
+    let Some(rect) = world.get::<ComputedRect>(e).map(|r| r.0) else {
+        return radius;
+    };
+    let left = center.x - rect.x;
+    let right = rect.x + rect.w - center.x;
+    let top = center.y - rect.y;
+    let bottom = rect.y + rect.h - center.y;
+    let max_radius = left.min(right).min(top).min(bottom).max(Fixed::ZERO);
+    radius.clamp(Fixed::ZERO, max_radius)
+}
+
 #[derive(Clone, Copy)]
 enum ResolvedAction {
     Tap(Point),
@@ -562,8 +596,8 @@ pub fn sim_timeline_system(world: &mut World) {
         SimAction::Pinch(p) => {
             resolve_dim_point(world, p.center, p.anchor).map(|c| ResolvedAction::Pinch {
                 center: c,
-                from_dist: p.from_dist,
-                to_dist: p.to_dist,
+                from_dist: anchored_pinch_dist(world, p.anchor, c, p.from_dist),
+                to_dist: anchored_pinch_dist(world, p.anchor, c, p.to_dist),
                 duration_ms: p.duration_ms,
                 ease: p.ease,
             })
@@ -571,7 +605,7 @@ pub fn sim_timeline_system(world: &mut World) {
         SimAction::RotateGesture(r) => {
             resolve_dim_point(world, r.center, r.anchor).map(|c| ResolvedAction::RotateGesture {
                 center: c,
-                radius: r.radius,
+                radius: anchored_rotate_radius(world, r.anchor, c, r.radius),
                 from_angle: r.from_angle,
                 to_angle: r.to_angle,
                 duration_ms: r.duration_ms,
@@ -2208,6 +2242,119 @@ mod tests {
             "demo shrink/expand roundtrip should return near 1.0x, got {:?}, deltas={:?}",
             final_scale,
             probe.deltas,
+        );
+    }
+
+    #[test]
+    fn anchored_pinch_clamps_span_to_target_rect() {
+        use crate::layout::{LayoutStyle, Position};
+        use crate::types::{Dimension, Viewport};
+        let _g = mock::lock();
+        let mut world = setup_world();
+        let root = install_root(&mut world);
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            crate::widget::Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(20)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(88)),
+                    height: Dimension::Px(Fixed::from_int(88)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            target,
+            crate::event::GestureHandler {
+                on_gesture: pinch_probe_handler,
+            },
+        );
+        world.insert_resource(PinchProbe::default());
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+
+        world.insert_resource(SimTimeline::new(alloc::vec![
+            SimAction::pinch(
+                DimPoint::CENTER,
+                Fixed::from_int(40),
+                Fixed::from_int(160),
+                400,
+                crate::anim::ease::linear,
+            )
+            .on(target)
+        ]));
+
+        for _ in 0..40 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+
+        let probe = world.resource::<PinchProbe>().expect("probe present");
+        assert!(
+            probe.deltas.iter().any(|d| *d > crate::types::Fixed64::ONE),
+            "wide anchored Pinch should still hit target after clamping, got {:?}",
+            probe.deltas,
+        );
+    }
+
+    #[test]
+    fn anchored_rotate_gesture_clamps_radius_to_target_rect() {
+        use crate::layout::{LayoutStyle, Position};
+        use crate::types::{Dimension, Viewport};
+        let _g = mock::lock();
+        let mut world = setup_world();
+        let root = install_root(&mut world);
+        let target = spawn_widget(
+            &mut world,
+            Some(root),
+            crate::widget::Style {
+                layout: LayoutStyle {
+                    position: Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(20)),
+                    top: Dimension::Px(Fixed::from_int(20)),
+                    width: Dimension::Px(Fixed::from_int(88)),
+                    height: Dimension::Px(Fixed::from_int(88)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(
+            target,
+            crate::event::GestureHandler {
+                on_gesture: pinch_probe_handler,
+            },
+        );
+        world.insert_resource(PinchProbe::default());
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+
+        world.insert_resource(SimTimeline::new(alloc::vec![
+            SimAction::rotate_gesture(
+                DimPoint::CENTER,
+                Fixed::from_int(100),
+                Fixed::ZERO,
+                Fixed::PI / Fixed::from_int(2),
+                400,
+                crate::anim::ease::linear,
+            )
+            .on(target),
+        ]));
+
+        for _ in 0..40 {
+            sim_timeline_system(&mut world);
+            mock::advance_ms(16);
+        }
+
+        let probe = world.resource::<PinchProbe>().expect("probe present");
+        assert!(
+            probe.rotate_deltas.iter().any(|d| *d != Fixed::ZERO),
+            "wide anchored RotateGesture should still hit target after clamping, got {:?}",
+            probe.rotate_deltas,
         );
     }
 
