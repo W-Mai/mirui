@@ -1,10 +1,10 @@
+use crate::components::magnetic_membrane::{MagneticMembrane, MagneticMembraneState};
 use crate::draw::canvas::Canvas;
-use crate::draw::path::Path;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
 use crate::event::input::{InputEvent, KEY_ROTARY_PRESS};
-use crate::types::{Color, Fixed, Point, Rect, Viewport};
+use crate::types::{Color, Fixed, Rect, Viewport};
 use crate::widget::{ComputedRect, WidgetRoot};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -172,63 +172,14 @@ fn opa_from_fixed(v: Fixed) -> u8 {
     raw.clamp(0, 255) as u8
 }
 
-fn water_drop_height() -> Fixed {
-    Fixed::from_int(52)
-}
-
-fn water_drop_drawn_height() -> Fixed {
-    water_drop_height() - Fixed::ONE
-}
-
-fn water_drop_max_stretch() -> Fixed {
-    water_drop_drawn_height() * Fixed::golden_ratio_conjugate() / Fixed::from_int(2)
-}
-
-fn water_drop_path(edge_x: Fixed, mid_y: Fixed, pull: Fixed, dir: i8) -> Path {
-    let w = water_drop_max_stretch() + Fixed::from_int(2);
-    let h = water_drop_height();
-    let flatten = Fixed::from_int(14);
-    let sharpen = Fixed::from_int(7);
-    let progress = pull.abs().clamp(Fixed::ONE, water_drop_max_stretch());
-    let tall_ratio = progress / w;
-    let lean = Fixed::from_int(dir as i32) * Fixed::from_int(3) / Fixed::from_int(8);
-    let top = mid_y - h / Fixed::from_int(2);
-    let tall = progress - Fixed::ONE;
-    let mid = h / Fixed::from_int(2);
-    let joint = mid + sharpen * lean;
-
-    let mut path = Path::new();
-    path.move_to(Point { x: edge_x, y: top })
-        .cubic_to(
-            Point {
-                x: edge_x,
-                y: top + (Fixed::ONE + tall_ratio) * flatten,
-            },
-            Point {
-                x: edge_x - tall,
-                y: top + mid - flatten + sharpen * lean + tall_ratio * sharpen,
-            },
-            Point {
-                x: edge_x - tall,
-                y: top + joint,
-            },
-        )
-        .cubic_to(
-            Point {
-                x: edge_x - tall,
-                y: top + mid + flatten + sharpen * lean - tall_ratio * sharpen,
-            },
-            Point {
-                x: edge_x,
-                y: top + h - (Fixed::ONE + tall_ratio) * flatten - Fixed::ONE,
-            },
-            Point {
-                x: edge_x,
-                y: top + h - Fixed::ONE,
-            },
-        )
-        .close();
-    path
+fn rotary_membrane_state(
+    rotary: &RotaryFeedback,
+    membrane: &MagneticMembrane,
+) -> MagneticMembraneState {
+    MagneticMembraneState {
+        ball_offset: rotary.progress,
+        amp: membrane.max_amp,
+    }
 }
 
 pub fn overlay_dirty_region(world: &World, viewport: &Viewport) -> Option<Rect> {
@@ -305,12 +256,15 @@ pub fn render_overlay(
             return;
         };
         let (lw, lh) = viewport.logical_size();
-        let stretch = feedback.rotary.progress.abs().min(Fixed::from_int(64));
-        let y_mid = Fixed::from(lh) / Fixed::from_int(2)
-            - Fixed::from(feedback.rotary.direction as i32) * stretch / Fixed::from_int(8);
+        let max_span = Fixed::from(lh) / Fixed::from_int(2) - Fixed::from_int(18);
+        let mut membrane = MagneticMembrane::default();
+        membrane.visible_span = ((max_span.max(Fixed::ONE) / membrane.sigma) * Fixed::from_int(7)
+            / Fixed::from_int(10))
+        .max(Fixed::ONE);
+        let y_mid = Fixed::from(lh) / Fixed::from_int(2);
         let x = Fixed::from(lw);
         let opa = opa_from_fixed(feedback.rotary.opacity.max(Fixed::ONE / Fixed::from_int(4)));
-        let path = water_drop_path(x, y_mid, stretch, feedback.rotary.direction);
+        let path = membrane.path(x, y_mid, rotary_membrane_state(&feedback.rotary, &membrane));
         renderer.fill_path(&path, clip, &primary, opa);
     }
 }
@@ -384,9 +338,9 @@ pub fn rotary_feedback_system(world: &mut World) {
         .copied()
         .unwrap_or_default();
     if input.event_seq != feedback.rotary.last_input_seq {
-        let impulse = Fixed::from_int(input.rotary_delta as i32) + input.wheel_delta_y;
+        let impulse = Fixed::from_int(input.rotary_delta as i32) - input.wheel_delta_y;
         if impulse != Fixed::ZERO {
-            let max_stretch = water_drop_max_stretch();
+            let max_stretch = MagneticMembrane::default().max_pull();
             let next_target = (feedback.rotary.target + impulse * Fixed::from_int(10))
                 .clamp(Fixed::ZERO - max_stretch, max_stretch);
             feedback.rotary.velocity += (next_target - feedback.rotary.target) / Fixed::from_int(4);
@@ -415,8 +369,8 @@ pub fn rotary_feedback_system(world: &mut World) {
     feedback.rotary.velocity += spring;
     feedback.rotary.progress += feedback.rotary.velocity * dt_fixed / Fixed::from_int(4);
     feedback.rotary.progress = feedback.rotary.progress.clamp(
-        Fixed::ZERO - water_drop_max_stretch(),
-        water_drop_max_stretch(),
+        Fixed::ZERO - MagneticMembrane::default().max_pull(),
+        MagneticMembrane::default().max_pull(),
     );
     feedback.rotary.velocity = feedback.rotary.velocity * Fixed::from_int(21) / Fixed::from_int(25);
     feedback.rotary.target = feedback.rotary.target * Fixed::from_int(7) / Fixed::from_int(8);
@@ -642,15 +596,34 @@ mod tests {
 
         rotary_feedback_system(&mut world);
         let feedback = world.resource::<InputFeedback>().unwrap();
-        let max = water_drop_max_stretch();
+        let max = MagneticMembrane::default().max_pull();
         assert!(feedback.rotary.target.abs() <= max);
         assert!(feedback.rotary.progress.abs() <= max);
+        assert!(feedback.rotary.progress < Fixed::ZERO);
 
         for _ in 0..19 {
             rotary_feedback_system(&mut world);
         }
         let feedback = world.resource::<InputFeedback>().unwrap();
         assert!(feedback.rotary.progress.abs() <= max);
+    }
+
+    #[test]
+    fn rotary_membrane_state_preserves_progress_sign() {
+        let membrane = MagneticMembrane::default();
+        let up = RotaryFeedback {
+            progress: Fixed::from_int(12),
+            direction: 1,
+            ..RotaryFeedback::default()
+        };
+        let down = RotaryFeedback {
+            progress: Fixed::from_int(-12),
+            direction: -1,
+            ..RotaryFeedback::default()
+        };
+
+        assert!(rotary_membrane_state(&up, &membrane).ball_offset > Fixed::ZERO);
+        assert!(rotary_membrane_state(&down, &membrane).ball_offset < Fixed::ZERO);
     }
 
     #[test]
