@@ -1,7 +1,9 @@
+use alloc::collections::VecDeque;
 use alloc::vec;
 use alloc::vec::Vec;
-use sdl2::EventPump;
+use std::time::Instant;
 
+use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
@@ -11,6 +13,32 @@ use sdl2::video::{Window, WindowContext};
 use super::{DisplayInfo, FramebufferAccess, InputEvent, Surface, logical_from_physical};
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Rect};
+
+/// macOS trackpad pinch / rotate is delivered by SDL as `MultiGesture`,
+/// which has no "end" sentinel; if no `MultiGesture` arrives within
+/// this window we synthesize PointerUp for the two virtual fingers.
+/// 50ms ≈ 3 frames at 60Hz — long enough to bridge a frame skip,
+/// short enough that the gesture clearly ends when the user lifts.
+const MULTI_GESTURE_TIMEOUT_MS: u128 = 50;
+
+/// Half-distance between the two virtual fingers when the gesture
+/// starts. The recognizer only sees relative scale, so the absolute
+/// value doesn't matter for correctness — but a too-small initial
+/// puts both virtual fingers on the same pixel and the
+/// `initial_dist` clamp kicks in. 5% of min(w, h) is comfortably
+/// above any reasonable subpixel rounding.
+const INITIAL_DIST_FRAC: f32 = 0.05;
+
+const VIRT_FINGER_A: u8 = 1;
+const VIRT_FINGER_B: u8 = 2;
+
+#[derive(Default)]
+struct MultiGestureState {
+    active: bool,
+    f_a: (f32, f32),
+    f_b: (f32, f32),
+    last_event: Option<Instant>,
+}
 
 pub struct SdlSurface {
     canvas: Canvas<Window>,
@@ -24,6 +52,12 @@ pub struct SdlSurface {
     /// from `MouseMotion` so the forwarded `Wheel` has an anchor.
     last_mouse_x: i32,
     last_mouse_y: i32,
+    multi: MultiGestureState,
+    /// Each SDL event can expand into multiple mirui events
+    /// (MultiGesture → 2 PointerDowns / 2 PointerMoves; timeout → 2
+    /// PointerUps). Surface returns one per `poll_event` call, so
+    /// queue the rest.
+    pending: VecDeque<InputEvent>,
 }
 
 impl SdlSurface {
@@ -68,12 +102,112 @@ impl SdlSurface {
             scale,
             last_mouse_x: 0,
             last_mouse_y: 0,
+            multi: MultiGestureState::default(),
+            pending: VecDeque::new(),
         }
     }
 
     pub fn scale_factor(&self) -> Fixed {
         self.scale
     }
+
+    /// Returns the first event so the caller hands it off
+    /// immediately; the second is queued for the next `poll_event`.
+    fn handle_multi_gesture(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        d_theta: f32,
+        d_dist: f32,
+        win_w: f32,
+        win_h: f32,
+    ) -> Option<InputEvent> {
+        if !self.multi.active {
+            // Place the virtual fingers symmetrically on the horizontal
+            // axis through the gesture center. Absolute orientation is
+            // arbitrary — the recognizer only sees relative motion.
+            let half = INITIAL_DIST_FRAC * win_w.min(win_h) / 2.0;
+            self.multi.f_a = (cx - half, cy);
+            self.multi.f_b = (cx + half, cy);
+            self.multi.active = true;
+            self.multi.last_event = Some(Instant::now());
+
+            let (ax, ay) = self.multi.f_a;
+            let (bx, by) = self.multi.f_b;
+            self.pending.push_back(InputEvent::PointerDown {
+                id: VIRT_FINGER_B,
+                x: Fixed::from(bx as i32),
+                y: Fixed::from(by as i32),
+            });
+            return Some(InputEvent::PointerDown {
+                id: VIRT_FINGER_A,
+                x: Fixed::from(ax as i32),
+                y: Fixed::from(ay as i32),
+            });
+        }
+
+        rotate_scale_around(&mut self.multi.f_a, cx, cy, d_theta, 1.0 + d_dist);
+        rotate_scale_around(&mut self.multi.f_b, cx, cy, d_theta, 1.0 + d_dist);
+        // The recenter step keeps the midpoint consistent with the SDL
+        // event's (x, y), preventing slow drift when finger pairs walk
+        // across the trackpad.
+        let mid = (
+            (self.multi.f_a.0 + self.multi.f_b.0) / 2.0,
+            (self.multi.f_a.1 + self.multi.f_b.1) / 2.0,
+        );
+        let dx = cx - mid.0;
+        let dy = cy - mid.1;
+        self.multi.f_a.0 += dx;
+        self.multi.f_a.1 += dy;
+        self.multi.f_b.0 += dx;
+        self.multi.f_b.1 += dy;
+
+        self.multi.last_event = Some(Instant::now());
+
+        let (ax, ay) = self.multi.f_a;
+        let (bx, by) = self.multi.f_b;
+        self.pending.push_back(InputEvent::PointerMove {
+            id: VIRT_FINGER_B,
+            x: Fixed::from(bx as i32),
+            y: Fixed::from(by as i32),
+        });
+        Some(InputEvent::PointerMove {
+            id: VIRT_FINGER_A,
+            x: Fixed::from(ax as i32),
+            y: Fixed::from(ay as i32),
+        })
+    }
+
+    fn end_multi_gesture(&mut self) {
+        if !self.multi.active {
+            return;
+        }
+        let (ax, ay) = self.multi.f_a;
+        let (bx, by) = self.multi.f_b;
+        self.pending.push_back(InputEvent::PointerUp {
+            id: VIRT_FINGER_A,
+            x: Fixed::from(ax as i32),
+            y: Fixed::from(ay as i32),
+        });
+        self.pending.push_back(InputEvent::PointerUp {
+            id: VIRT_FINGER_B,
+            x: Fixed::from(bx as i32),
+            y: Fixed::from(by as i32),
+        });
+        self.multi.active = false;
+        self.multi.last_event = None;
+    }
+}
+
+fn rotate_scale_around(p: &mut (f32, f32), cx: f32, cy: f32, theta: f32, scale: f32) {
+    let dx = p.0 - cx;
+    let dy = p.1 - cy;
+    let s = theta.sin();
+    let c = theta.cos();
+    let rx = (dx * c - dy * s) * scale;
+    let ry = (dx * s + dy * c) * scale;
+    p.0 = cx + rx;
+    p.1 = cy + ry;
 }
 
 impl Surface for SdlSurface {
@@ -109,7 +243,22 @@ impl Surface for SdlSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
-        for event in self.event_pump.poll_iter() {
+        if let Some(e) = self.pending.pop_front() {
+            return Some(e);
+        }
+        if self.multi.active {
+            if let Some(t) = self.multi.last_event {
+                if t.elapsed().as_millis() > MULTI_GESTURE_TIMEOUT_MS {
+                    self.end_multi_gesture();
+                    return self.pending.pop_front();
+                }
+            }
+        }
+
+        // poll_iter borrows event_pump (so self) — collect first, then
+        // dispatch with full mutable access to the rest of self.
+        let events: Vec<_> = self.event_pump.poll_iter().collect();
+        for event in events {
             match event {
                 Event::Quit { .. } => return Some(InputEvent::Quit),
                 Event::KeyDown {
@@ -162,6 +311,23 @@ impl Surface for SdlSurface {
                         x: Fixed::from(self.last_mouse_x),
                         y: Fixed::from(self.last_mouse_y),
                     });
+                }
+                Event::MultiGesture {
+                    d_theta,
+                    d_dist,
+                    x,
+                    y,
+                    ..
+                } => {
+                    let win_w = self.width as f32 / self.scale.to_f32();
+                    let win_h = self.height as f32 / self.scale.to_f32();
+                    let cx = x * win_w;
+                    let cy = y * win_h;
+                    if let Some(first) =
+                        self.handle_multi_gesture(cx, cy, d_theta, d_dist, win_w, win_h)
+                    {
+                        return Some(first);
+                    }
                 }
                 Event::TextInput { text, .. } => {
                     if let Some(ch) = text.chars().next() {
