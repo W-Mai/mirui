@@ -21,10 +21,10 @@ pub(super) enum GestureState {
 
 const DRAG_THRESHOLD: i32 = 10;
 const LONG_PRESS_MS: u16 = 500;
-/// 5% relative distance change wakes Pinch.
-const PINCH_THRESHOLD: Fixed = Fixed::from_raw(3277);
-/// ≈0.1 rad (5.7°) wakes Rotate.
-const ROTATE_THRESHOLD: Fixed = Fixed::from_raw(6554);
+/// 5% relative distance change wakes Pinch. Q24.8: 0.05 * 256 ≈ 13.
+const PINCH_THRESHOLD: Fixed = Fixed::from_raw(13);
+/// ≈0.1 rad (5.7°) wakes Rotate. Q24.8: 0.1 * 256 ≈ 26.
+const ROTATE_THRESHOLD: Fixed = Fixed::from_raw(26);
 
 pub(super) const MAX_FINGERS: usize = 4;
 
