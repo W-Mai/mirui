@@ -56,6 +56,11 @@ enum ResolvedAction {
         duration_ms: u16,
         ease: EaseFn,
     },
+    Rotate {
+        delta: i16,
+        step_ms: u16,
+    },
+    RotaryClick,
     Wait(u32),
 }
 
@@ -256,11 +261,22 @@ pub struct MoveAction {
     pub anchor: Option<Entity>,
 }
 
+/// Encoder / Digital Crown rotation. `delta` is total ticks; `step_ms`
+/// is the gap between successive `Rotary { delta: 1 or -1 }` events
+/// the timeline emits.
+#[derive(Clone, Copy)]
+pub struct RotateAction {
+    pub delta: i16,
+    pub step_ms: u16,
+}
+
 #[derive(Clone, Copy)]
 pub enum SimAction {
     Tap(TapAction),
     Drag(DragAction),
     MoveTo(MoveAction),
+    Rotate(RotateAction),
+    RotaryClick,
     Wait(u32),
 }
 
@@ -302,18 +318,26 @@ impl SimAction {
         })
     }
 
+    pub fn rotate(delta: i16, step_ms: u16) -> Self {
+        Self::Rotate(RotateAction { delta, step_ms })
+    }
+
+    pub fn rotary_click() -> Self {
+        Self::RotaryClick
+    }
+
     pub fn wait(ms: u32) -> Self {
         Self::Wait(ms)
     }
 
     /// Anchor the action's coordinates to an entity's `ComputedRect`.
-    /// No-op on `Wait`.
+    /// No-op on actions without coordinates.
     pub fn on(mut self, e: Entity) -> Self {
         match &mut self {
             Self::Tap(t) => t.anchor = Some(e),
             Self::Drag(d) => d.anchor = Some(e),
             Self::MoveTo(m) => m.anchor = Some(e),
-            Self::Wait(_) => {}
+            Self::Rotate(_) | Self::RotaryClick | Self::Wait(_) => {}
         }
         self
     }
@@ -330,6 +354,9 @@ pub struct SimTimeline {
     cursor: usize,
     action_elapsed_ms: u32,
     action_started: bool,
+    /// Number of `Rotary { delta: ±1 }` ticks already emitted for the
+    /// current `Rotate` action.
+    rotate_emitted: u16,
     start_ms: Option<u32>,
     looping: bool,
     pub total_ms: u32,
@@ -348,6 +375,8 @@ impl SimTimeline {
                 SimAction::Tap(_) => 100,
                 SimAction::Drag(d) => d.duration_ms as u32,
                 SimAction::MoveTo(m) => m.duration_ms as u32,
+                SimAction::Rotate(r) => (r.delta.unsigned_abs() as u32) * (r.step_ms as u32),
+                SimAction::RotaryClick => 100,
                 SimAction::Wait(ms) => *ms,
             };
         }
@@ -356,6 +385,7 @@ impl SimTimeline {
             cursor: 0,
             action_elapsed_ms: 0,
             action_started: false,
+            rotate_emitted: 0,
             start_ms: None,
             looping: false,
             total_ms: t,
@@ -406,6 +436,7 @@ pub fn sim_timeline_system(world: &mut World) {
             if tl.looping {
                 tl.cursor = 0;
                 tl.action_started = false;
+                tl.rotate_emitted = 0;
                 tl.start_ms = Some(now_ms);
             }
             return;
@@ -448,6 +479,11 @@ pub fn sim_timeline_system(world: &mut World) {
                 _ => None,
             }
         }
+        SimAction::Rotate(r) => Some(ResolvedAction::Rotate {
+            delta: r.delta,
+            step_ms: r.step_ms,
+        }),
+        SimAction::RotaryClick => Some(ResolvedAction::RotaryClick),
         SimAction::Wait(ms) => Some(ResolvedAction::Wait(ms)),
     };
 
@@ -482,6 +518,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.rotate_emitted = 0;
                 }
             }
         }
@@ -512,6 +549,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.rotate_emitted = 0;
                 }
             } else {
                 let t = Fixed::from_raw(
@@ -551,6 +589,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.rotate_emitted = 0;
                 }
             } else {
                 let t = Fixed::from_raw(
@@ -563,11 +602,67 @@ pub fn sim_timeline_system(world: &mut World) {
                 super::dispatch_input(world, root, &event, now_ms, lw, lh);
             }
         }
+        ResolvedAction::Rotate { delta, step_ms } => {
+            let total = delta.unsigned_abs();
+            if total == 0 {
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.cursor += 1;
+                    tl.action_started = false;
+                    tl.rotate_emitted = 0;
+                }
+            } else {
+                let step = step_ms.max(1) as u32;
+                let target = ((action_elapsed / step) as u16).min(total);
+                let already = world
+                    .resource::<SimTimeline>()
+                    .map(|t| t.rotate_emitted)
+                    .unwrap_or(0);
+                let sign: i16 = if delta >= 0 { 1 } else { -1 };
+                for _ in already..target {
+                    let event = InputEvent::Rotary { id: 0, delta: sign };
+                    super::dispatch_input(world, root, &event, now_ms, lw, lh);
+                }
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.action_started = true;
+                    tl.rotate_emitted = target;
+                    if target >= total {
+                        tl.cursor += 1;
+                        tl.action_started = false;
+                        tl.rotate_emitted = 0;
+                    }
+                }
+            }
+        }
+        ResolvedAction::RotaryClick => {
+            if !action_started {
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.action_started = true;
+                    tl.action_elapsed_ms = 0;
+                }
+                let event = InputEvent::Key {
+                    code: crate::event::input::KEY_ROTARY_PRESS,
+                    pressed: true,
+                };
+                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+            } else if action_elapsed >= 50 {
+                let event = InputEvent::Key {
+                    code: crate::event::input::KEY_ROTARY_PRESS,
+                    pressed: false,
+                };
+                super::dispatch_input(world, root, &event, now_ms, lw, lh);
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.cursor += 1;
+                    tl.action_started = false;
+                    tl.rotate_emitted = 0;
+                }
+            }
+        }
         ResolvedAction::Wait(ms) => {
             if action_elapsed >= ms {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.rotate_emitted = 0;
                 }
             }
         }
@@ -665,6 +760,64 @@ mod tests {
             world.resource::<SimTimeline>().unwrap().cursor,
             1,
             "MoveTo timeline cursor must advance past completion",
+        );
+    }
+
+    #[test]
+    fn rotate_advances_after_step_ms_per_tick() {
+        let _g = mock::lock();
+        let mut world = setup_world();
+        // 5 ticks × 20 ms each = 100 ms total.
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate(5, 20)]));
+
+        sim_timeline_system(&mut world);
+        assert_eq!(world.resource::<SimTimeline>().unwrap().cursor, 0);
+
+        for _ in 0..3 {
+            mock::advance_ms(16);
+            sim_timeline_system(&mut world);
+        }
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().rotate_emitted,
+            2,
+            "rotate_emitted must equal elapsed_ms / step_ms",
+        );
+        assert_eq!(world.resource::<SimTimeline>().unwrap().cursor, 0);
+
+        for _ in 0..6 {
+            mock::advance_ms(16);
+            sim_timeline_system(&mut world);
+        }
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().cursor,
+            1,
+            "rotate failed to advance after total duration",
+        );
+        assert_eq!(world.resource::<SimTimeline>().unwrap().rotate_emitted, 0);
+    }
+
+    #[test]
+    fn rotary_click_emits_key_pair() {
+        let _g = mock::lock();
+        let mut world = setup_world();
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotary_click()]));
+
+        sim_timeline_system(&mut world);
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().cursor,
+            0,
+            "RotaryClick must not advance on first frame (pressed phase)",
+        );
+
+        // Hold past the 50 ms release threshold.
+        for _ in 0..5 {
+            mock::advance_ms(16);
+            sim_timeline_system(&mut world);
+        }
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().cursor,
+            1,
+            "RotaryClick must advance after release fires",
         );
     }
 
