@@ -5,11 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.2] - 2026-05-21
+
+Reconciles `PerfReportPlugin` / `FpsSummaryPlugin` numbers with what
+user-visible fps overlays report. Flush and prev-rect seeding are
+excluded from `render_nanos` so the metric reflects rasterization
+cost rather than platform I/O stalls.
+
+### Fixed
+
+- **`Plugin::post_render` `render_nanos` no longer includes flush or `seed_prev_rects`.** Previously `App::render` measured end-to-end including SPI flush and the second layout pass in `seed_prev_rects`; on ESP threebody this counted ~3 ms of SPI DMA stall against the render budget, making perf-reporting plugins disagree with the LCD fps overlay (9-10 ms vs 6.6 ms). Boundary now closes after the render walker; flush + prev-rect seeding stay observable through the `frame.flush` / `frame.seed_prev` trace spans. ESP threebody perf reads 6.3-7.3 ms, matching the 148-151 fps overlay reading.
+
+### Changed
+
+- Trace spans `frame.flush` (full render path) and `frame.seed_prev` (full render path) are explicit; `frame.flush` (dirty render path) and `frame.collect_dirty` already existed.
+
 ## [0.17.1] - 2026-05-21
 
-Theme: API Ergonomics 第二站. Adds `SystemSlot` as the typed entry
-point for the scheduler's named priority slots, and codifies a
-`Plugin` documentation contract enforced by an architecture test.
+Adds `SystemSlot` as the typed entry point for the scheduler's named
+priority slots, and codifies a `Plugin` documentation contract
+enforced by an architecture test.
 
 ### Added
 
