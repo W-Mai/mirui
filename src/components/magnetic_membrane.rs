@@ -107,7 +107,7 @@ impl MagneticMembrane {
         let sigma = self.sigma.max(Fixed::ONE);
         let mut path = Path::new();
         let (start, _) = self.basis_at(edge_x, mid_y, Fixed::ZERO - span);
-        path.move_to(start).line_to(start);
+        path.move_to(start);
         for i in 0..=64 {
             let t = Fixed::from_int(-64 + i * 2) * span / Fixed::from_int(64);
             let edge_u = t.abs() / safe;
@@ -149,9 +149,14 @@ mod tests {
             .collect()
     }
 
+    fn approx_eq(a: Fixed, b: Fixed, tol: Fixed) -> bool {
+        (a - b).abs() <= tol
+    }
+
     #[test]
     fn membrane_path_returns_to_edge_at_ends() {
         let membrane = MagneticMembrane::default();
+        let span = membrane.span();
         let path = membrane.path(
             Fixed::from_int(100),
             Fixed::from_int(100),
@@ -164,19 +169,29 @@ mod tests {
         assert!(pts.len() > 4);
         let first = pts.first().unwrap();
         let last = pts.last().unwrap();
-        assert_eq!(first.x, Fixed::from_int(100));
-        assert_eq!(last.x, Fixed::from_int(100));
+        let tol = Fixed::ONE / Fixed::from_int(64);
+        // edge_path draws forward arc t=-span..=+span then reverses for the inner edge,
+        // so first/last both land at t=-span. Middle of path reaches t=+span (min y).
+        assert!(approx_eq(first.x, Fixed::from_int(100), tol));
+        assert!(approx_eq(last.x, Fixed::from_int(100), tol));
+        assert!(approx_eq(first.y, Fixed::from_int(100) + span, tol));
+        assert!(approx_eq(last.y, Fixed::from_int(100) + span, tol));
+        let min_y = pts.iter().map(|p| p.y).min().unwrap();
+        assert!(approx_eq(min_y, Fixed::from_int(100) - span, tol));
     }
 
     #[test]
-    fn arc_membrane_path_builds() {
+    fn arc_membrane_path_endpoints_lie_on_radius() {
+        // Endpoints must sit on the watchface arc; drift here means the drop detaches from the bezel.
+        let center = Point {
+            x: Fixed::from_int(0),
+            y: Fixed::from_int(100),
+        };
+        let radius = Fixed::from_int(100);
         let membrane = MagneticMembrane {
             edge: MagneticMembraneEdge::Arc {
-                center: Point {
-                    x: Fixed::from_int(0),
-                    y: Fixed::from_int(100),
-                },
-                radius: Fixed::from_int(100),
+                center,
+                radius,
                 angle: Fixed::ZERO,
             },
             ..MagneticMembrane::default()
@@ -189,7 +204,21 @@ mod tests {
                 amp: Fixed::from_int(20),
             },
         );
-        assert!(line_points(&path).len() > 4);
+        let pts = line_points(&path);
+        assert!(pts.len() > 4);
+        let first = pts.first().unwrap();
+        let last = pts.last().unwrap();
+        // Squared distance avoids fixed-point sqrt.
+        let dist = |p: &Point| -> Fixed {
+            let dx = p.x - center.x;
+            let dy = p.y - center.y;
+            dx * dx + dy * dy
+        };
+        let r2 = radius * radius;
+        // 5% radius slack squares to ~10%, covers fixed-point + arc discretisation.
+        let tol = r2 / Fixed::from_int(10);
+        assert!(approx_eq(dist(first), r2, tol));
+        assert!(approx_eq(dist(last), r2, tol));
     }
 
     #[test]
@@ -199,11 +228,12 @@ mod tests {
     }
 
     #[test]
-    fn zero_sigma_does_not_panic() {
+    fn zero_sigma_falls_back_to_one_and_returns_to_edge() {
         let membrane = MagneticMembrane {
             sigma: Fixed::ZERO,
             ..MagneticMembrane::default()
         };
+        assert!(membrane.span() > Fixed::ZERO);
         let path = membrane.path(
             Fixed::from_int(100),
             Fixed::from_int(100),
@@ -212,6 +242,12 @@ mod tests {
                 amp: Fixed::from_int(28),
             },
         );
-        assert!(line_points(&path).len() > 4);
+        let pts = line_points(&path);
+        assert!(pts.len() > 4);
+        let first = pts.first().unwrap();
+        let last = pts.last().unwrap();
+        let tol = Fixed::ONE / Fixed::from_int(64);
+        assert!(approx_eq(first.x, Fixed::from_int(100), tol));
+        assert!(approx_eq(last.x, Fixed::from_int(100), tol));
     }
 }

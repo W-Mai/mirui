@@ -97,32 +97,26 @@ fn expand_rect(r: Rect, pad: Fixed) -> Rect {
     }
 }
 
+fn cursor_dot_rect(cursor: &CursorVisual) -> Rect {
+    let r = Fixed::from_int(if cursor.down { 5 } else { 4 });
+    Rect {
+        x: cursor.x - r,
+        y: cursor.y - r,
+        w: r * Fixed::from_int(2),
+        h: r * Fixed::from_int(2),
+    }
+}
+
 fn cursor_bbox(cursor: &CursorFeedback) -> Option<Rect> {
     if !cursor.enabled || !cursor.seen {
         return None;
     }
     match cursor.mode {
-        CursorFeedbackMode::Dot => {
-            let r = Fixed::from_int(if cursor.current.down { 5 } else { 4 });
-            Some(Rect {
-                x: cursor.current.x - r,
-                y: cursor.current.y - r,
-                w: r * Fixed::from_int(2),
-                h: r * Fixed::from_int(2),
-            })
-        }
-        CursorFeedbackMode::MagneticRect => cursor.current.target_rect.map_or_else(
-            || {
-                let r = Fixed::from_int(if cursor.current.down { 5 } else { 4 });
-                Some(Rect {
-                    x: cursor.current.x - r,
-                    y: cursor.current.y - r,
-                    w: r * Fixed::from_int(2),
-                    h: r * Fixed::from_int(2),
-                })
-            },
-            |target| Some(expand_rect(target, Fixed::from_int(3))),
-        ),
+        CursorFeedbackMode::Dot => Some(cursor_dot_rect(&cursor.current)),
+        CursorFeedbackMode::MagneticRect => Some(cursor.current.target_rect.map_or_else(
+            || cursor_dot_rect(&cursor.current),
+            |target| expand_rect(target, Fixed::from_int(3)),
+        )),
     }
 }
 
@@ -223,17 +217,13 @@ pub fn render_overlay(
         return;
     };
     let primary = Color::rgb(88, 166, 255);
-    if feedback.cursor.enabled {
+    // ESP rotary-only path never inserts PointerCursor → cursor.current stays (0,0)
+    // and cursor_bbox stays None, so a (0,0) ghost dot would never be erased.
+    if feedback.cursor.enabled && feedback.cursor.seen {
         match feedback.cursor.mode {
             CursorFeedbackMode::Dot => {
-                let r = Fixed::from_int(if feedback.cursor.current.down { 5 } else { 4 });
-                let area = Rect {
-                    x: feedback.cursor.current.x - r,
-                    y: feedback.cursor.current.y - r,
-                    w: r * Fixed::from_int(2),
-                    h: r * Fixed::from_int(2),
-                };
-                renderer.fill_rect(&area, clip, &primary, r, 220);
+                let area = cursor_dot_rect(&feedback.cursor.current);
+                renderer.fill_rect(&area, clip, &primary, area.h / Fixed::from_int(2), 220);
             }
             CursorFeedbackMode::MagneticRect => {
                 if let Some(target) = feedback.cursor.current.target_rect {
@@ -248,14 +238,8 @@ pub fn render_overlay(
                         160,
                     );
                 } else {
-                    let r = Fixed::from_int(if feedback.cursor.current.down { 5 } else { 4 });
-                    let area = Rect {
-                        x: feedback.cursor.current.x - r,
-                        y: feedback.cursor.current.y - r,
-                        w: r * Fixed::from_int(2),
-                        h: r * Fixed::from_int(2),
-                    };
-                    renderer.fill_rect(&area, clip, &primary, r, 220);
+                    let area = cursor_dot_rect(&feedback.cursor.current);
+                    renderer.fill_rect(&area, clip, &primary, area.h / Fixed::from_int(2), 220);
                 }
             }
         }
@@ -586,15 +570,47 @@ mod tests {
         world.insert_resource(crate::ecs::DeltaTimeMs(16));
 
         rotary_feedback_system(&mut world);
-        let first_velocity = world.resource::<InputFeedback>().unwrap().rotary.velocity;
+        let first_target = world.resource::<InputFeedback>().unwrap().rotary.target;
         rotary_feedback_system(&mut world);
-        let second_velocity = world.resource::<InputFeedback>().unwrap().rotary.velocity;
+        let second_target = world.resource::<InputFeedback>().unwrap().rotary.target;
 
-        assert!(second_velocity < first_velocity + Fixed::from_int(4));
+        // target decays *7/8 per frame, so single-consume keeps second_target < first_target.
+        // A double-consume would re-add the +10 impulse and push second_target back above first_target.
+        let upper = first_target * Fixed::from_int(95) / Fixed::from_int(100);
+        assert!(
+            second_target < upper,
+            "second_target {second_target:?} >= 0.95 * first_target {first_target:?}"
+        );
         let input = world.resource::<InputFeedbackInput>().unwrap();
         assert_eq!(input.rotary_delta, 0);
         assert_eq!(input.wheel_delta_y, Fixed::ZERO);
         assert!(!input.click_pulse);
+    }
+
+    #[test]
+    fn render_overlay_skips_cursor_when_pointer_never_seen() {
+        let mut world = World::new();
+        let mut feedback = InputFeedback::enabled();
+        feedback.rotary.enabled = false;
+        debug_assert!(feedback.cursor.enabled);
+        debug_assert!(!feedback.cursor.seen);
+        world.insert_resource(feedback);
+
+        let mut buf = alloc::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        render_overlay(&world, &viewport, &Rect::new(0, 0, 64, 64), &mut renderer);
+
+        for y in 0..8 {
+            for x in 0..8 {
+                assert_eq!(
+                    renderer.target.get_pixel(x, y).a,
+                    0,
+                    "ghost dot at ({x},{y})"
+                );
+            }
+        }
     }
 
     #[test]
@@ -680,6 +696,7 @@ mod tests {
             target: None,
             target_rect: None,
         };
+        feedback.cursor.seen = true;
         feedback.rotary.progress = Fixed::from_int(30);
         feedback.rotary.direction = 1;
         feedback.rotary.opacity = Fixed::ONE;
