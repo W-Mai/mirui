@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.1] - 2026-05-21
+
+Theme: API Ergonomics 第二站. Adds `SystemSlot` as the typed entry
+point for the scheduler's named priority slots, and codifies a
+`Plugin` documentation contract enforced by an architecture test.
+
+### Added
+
+- **`SystemSlot` enum** (`mirui::ecs::SystemSlot`) — `SimInput / DeltaTime / InteractionState / Animation / Timer / ScrollInertia / LazyList / TabPages / Normal`. `priority()` is `const`, `From<SystemSlot> for i32` provided. New code should prefer `SystemSlot::Foo` over the raw `run_order::FOO` constants for type-checked, IDE-completable scheduling.
+- **`Plugin` documentation contract.** Every plugin's struct docstring must include an `**Inserts**` section listing the resources, systems, views, entities, and lifecycle hooks it touches. The `Plugin` trait's own docstring spells out the format. An architecture test (`ecs::system::tests::plugins_declare_inserts_section`) scans the built-in plugin sources and fails if a plugin omits the section.
+
+### Changed
+
+- Built-in plugin docstrings (`PerfReportPlugin`, `FpsSummaryPlugin`, `StdInstantClockPlugin`, `InputFeedbackPlugin`) gain `**Inserts**` sections.
+- `run_order` constants now derive from `SystemSlot::*.priority()` instead of being independent integer literals; values unchanged.
+
 ## [0.17.0] - 2026-05-21
 
 Theme: **API Ergonomics**. v0.17 is a multi-patch series cleaning up
