@@ -1,4 +1,4 @@
-use crate::components::magnetic_membrane::{MagneticMembrane, MagneticMembraneState};
+use crate::draw::membrane::{MagneticMembrane, MagneticMembraneState};
 use crate::draw::canvas::Canvas;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};

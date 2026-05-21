@@ -1,6 +1,7 @@
 pub mod canvas;
 pub mod command;
 pub mod font;
+pub mod membrane;
 pub mod painter;
 pub mod partial;
 pub mod path;
