@@ -4,44 +4,52 @@
 [![docs.rs](https://docs.rs/mirui/badge.svg)](https://docs.rs/mirui)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A lightweight, `no_std` ECS-driven UI framework for embedded, desktop, and WebAssembly. Renders with 24.8 fixed-point subpixel precision on a software rasterizer designed for MCUs without an FPU.
+A `no_std`, ECS-driven UI framework for embedded, desktop, and (planned)
+WebAssembly. Renders with 24.8 fixed-point subpixel precision on a
+software rasterizer designed for MCUs without an FPU; optionally runs
+on top of SDL2 (CPU or hardware-accelerated) on desktop.
 
 ## Features
 
-- **ECS architecture** — entities, components, systems, resources, queries
+- **ECS architecture** — entities, components, systems, resources, queries; system scheduler with named priority slots
 - **`no_std` + `alloc`** — runs on bare-metal MCUs (ESP32-C3, STM32) with a global allocator
-- **Subpixel rasterizer** — 24.8 fixed-point throughout the pipeline (layout, rendering, events). Scanline coverage anti-aliasing on any `Path`
-- **Vector drawing API** — `fill_path` / `stroke_path` / `draw_line` / `draw_arc` on `Canvas`, cubic Bezier accurate circles
-- **Declarative DSL** — `ui!` macro powered by [xrune](https://github.com/W-Mai/xrune)
-- **Flexbox + absolute positioning** — familiar layout model with `Dimension::{Px, Percent, Auto, Content}`
+- **Subpixel rasterizer** — 24.8 fixed-point throughout (layout, rendering, hit-test, events). Scanline coverage AA on any `Path`; SDF / 2×2 supersample fast paths for quad fills
+- **Vector drawing** — `Canvas` exposes `fill_path` / `stroke_path` / `draw_line` / `draw_arc`; `DrawCommand::FillPath` puts path fills inside the same View pipeline as built-in widgets
+- **Layout** — Flexbox, absolute positioning, padding, justify / align; `Dimension::{Px, Percent, Auto, Content}`
+- **Animation** — Tween, Spring (WWDC23-derived critical damping), retargetable; declarative `animate!` and `timer!` macros
+- **Theme** — `ColorToken` / `ThemedColor`; built-in dark / light + custom tokens; per-`WidgetState` (Hovered / Pressed / Error / Disabled) overlay routing
+- **Interaction states** — hover, press, error, disabled propagated through ECS markers; system-level dispatch
+- **Multi-touch** — pinch / rotate gesture recognition from raw pointer streams; `SimAction` for scripted multi-touch in tests
+- **Input feedback** — opt-in `InputFeedbackPlugin` paints a cursor dot and a magnetic-membrane water drop responding to rotary / wheel / click input
+- **Dirty-flag partial refresh** — only re-renders changed regions; per-entity `Dirty` + `PrevRect` machinery
 - **HiDPI** — automatic scale factor propagation
-- **Dirty-flag partial refresh** — only re-renders changed regions
-- **ScrollView** — inertia, elastic bounce, scroll chaining, spring resistance
-- **Widgets** — Button, Checkbox, ProgressBar, Image, ScrollView
-- **Pluggable backends** — SDL2 (desktop), FramebufSurface (embedded RGB565 / ARGB8888 / RGB888 / RGB565Swapped)
+- **Plugins** — bundle clock, perf, input feedback into objects `App` drives through five lifecycle hooks
+- **Pluggable backends** — SDL2 CPU, SDL2 GPU (hardware-accelerated), `FramebufSurface` (embedded RGB565 / ARGB8888 / RGB888 / RGB565Swapped), `compose_backend!` for routing primitives across multiple backends
+- **Declarative DSL** — `ui!` macro for nested widget trees with attributes, enchants, walk loops, conditionals
 
 ## Quick Start
 
 ```toml
 [dependencies]
-mirui = "0.9"
-mirui-macros = "0.9"
+mirui = "0.17"
+mirui-macros = "0.17"
 ```
 
 ```rust
-use mirui::app::App;
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::layout::*;
-use mirui::types::{Color, Dimension};
-use mirui::widget::builder::WidgetBuilder;
+use mirui::widget::theme::ColorToken;
 use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("hello mirui", 480, 320);
     let mut app = App::new(backend);
+    app.with_default_widgets()
+        .with_default_systems()
+        .add_plugin(StdInstantClockPlugin::default());
 
     let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(30, 30, 46))
+        .bg_color(ColorToken::Surface)
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(480),
@@ -51,16 +59,15 @@ fn main() {
         .id();
 
     ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
+        :(parent: root, world: &mut app.world :)
 
-        content (direction: FlexDirection::Column, grow: 1.0) {
-            header (bg_color: Color::rgb(88, 166, 255), height: 40, text: "Hello mirui!", border_radius: 8) {}
-            body (grow: 1.0, bg_color: Color::rgb(40, 40, 60)) {}
-            footer (bg_color: Color::rgb(210, 168, 255), height: 30, text: "ECS + DSL") {}
-        }
+        header (
+            bg_color: ColorToken::Primary,
+            text_color: ColorToken::OnPrimary,
+            height: 40, text: "Hello mirui!", border_radius: 8
+        ) {}
+        body (grow: 1.0, bg_color: ColorToken::SurfaceVariant) {}
+        footer (height: 30, text: "ECS + DSL") {}
     };
 
     app.set_root(root);
@@ -68,22 +75,24 @@ fn main() {
 }
 ```
 
+`mirui::prelude` re-exports the most-reached types (`App`, layout enums,
+`WidgetBuilder`, theme tokens, the standard plugins, and built-in
+widgets). Use the canonical paths (`mirui::app::App`, etc.) when
+ambiguity matters; the prelude is convenience, not a stability surface.
+
 ## DSL Syntax
 
 ```rust
 ui! {
-    :(
-        parent: root
-        world: &mut world
-    :)
+    :(parent: root, world: &mut world :)
 
-    // Widgets with attributes
-    widget_name (attr: value, attr: value) {
-        child1 (attr: value) {}
-        child2 (attr: value) {}
+    // Widget with attributes
+    container (direction: FlexDirection::Column, grow: 1.0) {
+        header (text: "Header", height: 40) {}
+        body (grow: 1.0) {}
     }
 
-    // Enchants: attach arbitrary ECS components to the spawned entity
+    // Enchants — attach extra ECS components to the spawned entity
     img (width: 16, height: 16, image: Image::new(&IMG_THUMBS_UP)) [
         PhysicsBody { x: Fixed::ZERO, y: Fixed::ZERO },
         Velocity { vx: Fixed::from_int(1), vy: Fixed::ZERO },
@@ -101,216 +110,111 @@ ui! {
 }
 ```
 
-## Supported Attributes
+Powered by [xrune](https://github.com/W-Mai/xrune). Integer literals
+in attributes (`height: 40`) coerce to `Fixed` / `Dimension` via `Into`.
+
+### Common attributes
 
 | Attribute | Type | Description |
 |-----------|------|-------------|
-| `bg_color` | `Color` | Background color |
+| `bg_color` / `text_color` / `border_color` | `Color` or `ColorToken` | Solid colour or theme token |
 | `text` | `&str` | Text content |
-| `text_color` | `Color` | Text color |
-| `border_radius` | `Fixed` | Corner radius (subpixel) |
-| `border_color` | `Color` | Border color |
-| `width` / `height` | `Dimension` | Px / Percent / Auto / Content |
+| `border_radius` / `border_width` | `Fixed` | Subpixel-accurate |
+| `width` / `height` | `Dimension` | `Px / Percent / Auto / Content` |
 | `grow` | `f32` | Flex grow factor |
 | `direction` | `FlexDirection` | Row / Column |
-| `justify` | `JustifyContent` | Main axis alignment |
-| `align` | `AlignItems` | Cross axis alignment |
+| `justify` / `align` | `JustifyContent` / `AlignItems` | Axis alignment |
 | `padding` | `Padding` | Inner padding |
 | `position` | `Position` | Flex / Absolute |
 | `left` / `top` | `Dimension` | Absolute position |
 | `image` | `Image` | Image component |
 
-Integer literals passed in the DSL (e.g. `height: 40`, `border_radius: 8`) are coerced to `Fixed` or `Dimension` via `Into`.
+## Theme
 
-## Vector Drawing (0.3+)
-
-`Canvas` is a full 2D rendering surface. Every primitive — solid rects, borders, text, blits, arbitrary paths — goes through it.
+Built-in widgets read colours through `ColorToken`s; switch palette
+with `app.with_theme(Theme::light())`, swap at runtime with
+`app.set_theme(...)`.
 
 ```rust
-use mirui::draw::Canvas;
-use mirui::draw::path::Path;
-use mirui::types::{Color, Fixed, Point, Rect};
+use mirui::widget::theme::{Theme, ColorToken};
 
-// Inside any code holding a `&mut impl Canvas`:
+let mut theme = Theme::dark();
+theme.set(ColorToken::Custom("brand_accent"), Color::rgb(255, 105, 180));
+app.with_theme(theme);
+```
 
-// Stroked line
-backend.draw_line(
-    Point { x: Fixed::from_int(10), y: Fixed::from_int(10) },
-    Point { x: Fixed::from_int(100), y: Fixed::from_int(80) },
-    &clip,
-    Fixed::from_int(2),         // width
-    &Color::rgb(255, 180, 80),
-    255,
+`WidgetState` (`Hovered` / `Pressed` / `Error` / `Disabled`) routes
+overlays automatically: hover blends 8% `OnSurface`, press 12%, error
+16% `Error`, disabled blends text/icon to 38% on `Surface` and
+container roles to 12%. No widget needs to author per-state logic.
+
+## Animation
+
+```rust
+use mirui::anim::{Spring, SpringConfig};
+
+let mut spring = Spring::new(
+    SpringConfig::new(220, 0.3),  // 220 ms perceptual duration, 30% bounce
+    Fixed::ZERO,
 );
-
-// Stroked arc (degrees, counter-clockwise from +X axis)
-backend.draw_arc(
-    Point { x: Fixed::from_int(64), y: Fixed::from_int(64) },
-    Fixed::from_int(40),        // radius
-    Fixed::from_int(0),
-    Fixed::from_int(360),
-    &clip,
-    Fixed::from_int(3),
-    &Color::rgb(80, 180, 220),
-    255,
-);
-
-// Filled custom path
-let mut path = Path::new();
-path.move_to(Point { x: Fixed::from_int(20), y: Fixed::from_int(20) });
-path.cubic_to(
-    Point { x: Fixed::from_int(60), y: Fixed::ZERO },
-    Point { x: Fixed::from_int(100), y: Fixed::from_int(60) },
-    Point { x: Fixed::from_int(80), y: Fixed::from_int(100) },
-);
-path.close();
-backend.fill_path(&path, &clip, &Color::rgb(200, 90, 160), 230);
+spring.target(Fixed::from_int(100));
+// driven each frame by the animation system
 ```
 
-Paths are flattened via De Casteljau (8 segments per quadratic, 16 per cubic) then rasterized with a 4-sub-scanline coverage integration into the target texture. No allocation per pixel; per-edge sqrt only for strokes falling inside the AA ramp.
+`#[mirui::animate!(...)]` and `mirui::timer!(...)` macros declare
+motion components that the framework's animation / timer systems
+tick automatically.
 
-## Hybrid Backends — `compose_backend!` (0.3.1+)
+## Plugins
 
-Want the path rasterizer on software but blit and clear on a GPU fast path? Declare a hybrid struct and a route table; the `compose_backend!` proc-macro emits the full `Canvas` + `Renderer` impls statically — no runtime dispatch.
+Plugins package cross-cutting behaviour. Each plugin's docstring lists
+what it inserts so reading `add_plugin(...)` is enough to know what
+changes in `World`.
 
-```rust
-use mirui_macros::compose_backend;
+| Plugin | Inserts |
+|--------|---------|
+| `StdInstantClockPlugin` | resource: `MonoClock` (std-only) |
+| `PerfReportPlugin` | resource: `PerfAccum`; hook: `post_render` |
+| `FpsSummaryPlugin` | hook: `post_render` |
+| `InputFeedbackPlugin` | resources: `InputFeedback`, `InputFeedbackInput`; systems: cursor + rotary feedback; views: cursor (pri 90), rotary (pri 91); entities: `OverlayCursor` (lazy), `OverlayRotary` (eager); hooks: `on_event`, `pre_render` |
 
-compose_backend! {
-    pub struct Hybrid {
-        sw: SwRenderer,
-        gpu: MyGpuBackend,
-    }
-    route {
-        default => sw,       // everything unrouted goes here
-        blit => gpu,
-        clear => gpu,
-    }
-}
-```
-
-Generated:
+Custom plugin:
 
 ```rust
-pub struct Hybrid<__B0, __B1> {
-    pub sw: __B0,
-    pub gpu: __B1,
-}
-impl<__B0: Canvas, __B1: Canvas> Canvas for Hybrid<__B0, __B1> {
-    fn blit(&mut self, ...) { self.gpu.blit(...) }
-    fn clear(&mut self, ...) { self.gpu.clear(...) }
-    fn fill_path(&mut self, ...) { self.sw.fill_path(...) }
-    // ...and the rest, routed to `default` when unspecified
-}
-```
-
-`Hybrid` is generic over one type parameter per field, so backends carrying lifetimes (`SwRenderer<'fb>`) flow through without needing the struct itself to declare any.
-
-### Plugging into `App`
-
-`App` takes a second generic `F: RendererFactory` that defaults to `SwRendererFactory` (so every existing `App::new(backend)` call keeps working). To use a hybrid backend in the normal run loop:
-
-```rust
-struct HybridFactory { /* your per-frame setup */ }
-
-impl RendererFactory for HybridFactory {
-    type Renderer<'a> = Hybrid<SwRenderer<'a>, MyGpuBackend>;
-    fn make<'a>(&'a mut self, tex: Texture<'a>, scale: Fixed) -> Self::Renderer<'a> {
-        // build the fields each frame
-    }
-}
-
-let mut app = App::with_factory(backend, HybridFactory { ... });
-app.run();
-```
-
-Error messages are reasonable — unknown method names and unknown field names in `route { ... }` come with Levenshtein "did you mean" suggestions.
-
-See `examples/compose_backend_demo.rs` (direct API) and `examples/compose_backend_dsl.rs` (ECS + `ui!` + `App::with_factory`).
-
-## Plugins (0.4+)
-
-Bundle cross-cutting behaviour — monotonic clock, FPS summary, logging, hotkeys — into objects `App` drives through five lifecycle hooks:
-
-```rust
+use mirui::prelude::*;
 use mirui::plugin::Plugin;
-use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 
-app.add_plugin(StdInstantClockPlugin::default())
-   .add_plugin(FpsSummaryPlugin::default())
-   .add_system(my_system);
+/// MyHotkeysPlugin — Esc quits.
+///
+/// **Inserts**
+/// - resource: none
+/// - system:   none
+/// - view:     none
+/// - entity:   none
+/// - hooks:    on_event
+struct MyHotkeysPlugin;
 
-app.run();
-```
-
-`Plugin` trait has one required method (`build`) and four optional hooks:
-
-| Hook | When |
-|---|---|
-| `build(&mut self, app)` | Once at `add_plugin` — register systems, insert resources, swap `app.clock` |
-| `pre_render(world)` | Before each `render` / `render_dirty` |
-| `post_render(world, render_nanos)` | After each render, with the measured duration |
-| `on_event(world, event) -> bool` | For every input event before widget dispatch; `true` consumes it |
-| `on_quit(world)` | Right before `App::run` returns |
-
-Any `FnMut(&mut App<B, F>)` is a plugin via a blanket impl, so simple setup can be a closure:
-
-```rust
-app.add_plugin(|app: &mut App<_, _>| {
-    app.world.insert_resource(GameSeed(42));
-    app.add_system(spawn_entities);
-});
-```
-
-### Built-in plugins
-
-- **`StdInstantClockPlugin`** (`feature = "std"`) — swaps `app.clock` to a `std::time::Instant`-backed monotonic clock. Without a clock plugin installed, `post_render` sees `0` every frame and timing-oriented plugins no-op.
-- **`FpsSummaryPlugin`** — accumulates `render_nanos` over a configurable frame bucket and prints an average. Use `FpsSummaryPlugin::new(count).with_sink(my_sink)` to route the output somewhere other than stderr (an LCD overlay, a UART log).
-
-On bare metal an application normally writes its own clock plugin (e.g. an `esp_hal` systimer reader) and points the existing `FpsSummaryPlugin` at `esp_println` through `with_sink`.
-
-### Event consumption
-
-`on_event` returning `true` stops further widget dispatch for that event — use it for global hotkeys:
-
-```rust
-fn on_event(&mut self, _world: &mut World, event: &InputEvent) -> bool {
-    matches!(event, InputEvent::Key { code: KEY_ESCAPE, pressed: true })
-}
-```
-
-## ECS
-
-```rust
-// Spawn entities
-let e = world.spawn();
-world.insert(e, MyComponent { ... });
-
-// Query
-let mut buf = Vec::new();
-world.query::<PhysicsBody>().and::<Velocity>().without::<Disabled>().collect_into(&mut buf);
-for e in &buf {
-    world.get_mut::<Velocity>(*e).unwrap().vx += Fixed::from_int(1);
+impl<B, F> Plugin<B, F> for MyHotkeysPlugin
+where B: mirui::surface::Surface, F: mirui::app::RendererFactory<B>
+{
+    fn build(&mut self, _app: &mut App<B, F>) {}
+    fn on_event(&mut self, _world: &mut World, event: &mirui::event::input::InputEvent) -> bool {
+        matches!(event, mirui::event::input::InputEvent::Key {
+            code: mirui::event::input::KEY_ESCAPE, pressed: true,
+        })
+    }
 }
 
-// Resources (global singletons)
-world.insert_resource(DeltaTime(Fixed::from_f32(0.016)));
-let dt = world.resource::<DeltaTime>().unwrap().0;
-
-// Systems
-app.add_system(physics_system);
-app.systems.add_fn(|world| { /* closure system */ });
+app.add_plugin(MyHotkeysPlugin);
 ```
 
 ## ScrollView
 
 ```rust
-ui! {
-    :(
-        parent: root
-        world: &mut world
-    :)
+use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 
+ui! {
+    :(parent: root, world: &mut world :)
     scroll_container (direction: FlexDirection::Column, grow: 1.0) [
         ScrollOffset { x: Fixed::ZERO, y: Fixed::ZERO },
         ScrollConfig {
@@ -327,31 +231,102 @@ ui! {
 };
 ```
 
-Features: drag scrolling, inertia, elastic bounce with spring resistance, iOS-style scroll chaining across nested scroll views.
+Drag scrolling, inertia (spring-damped), elastic bounce, iOS-style
+scroll chaining across nested scroll views, and per-axis content
+clamping.
+
+## Hybrid Backends — `compose_backend!`
+
+Route different draw primitives to different backends, no runtime
+dispatch:
+
+```rust
+use mirui_macros::compose_backend;
+
+compose_backend! {
+    pub struct Hybrid {
+        sw: SwRenderer,
+        gpu: MyGpuBackend,
+    }
+    route {
+        default => sw,
+        blit => gpu,
+        clear => gpu,
+    }
+}
+```
+
+Generated `Hybrid<__B0, __B1>` is generic over each backend's lifetime
+parameters. See `gallery/examples/compose_backend_demo.rs` and
+`compose_backend_dsl.rs`.
+
+## ECS
+
+```rust
+// Spawn
+let e = world.spawn();
+world.insert(e, MyComponent { ... });
+
+// Query
+let mut buf = Vec::new();
+world.query::<PhysicsBody>().and::<Velocity>().collect_into(&mut buf);
+
+// Resources
+world.insert_resource(GameSeed(42));
+let seed = world.resource::<GameSeed>().unwrap().0;
+
+// Systems
+#[mirui::system(order = SystemSlot::Animation)]
+fn physics_system(world: &mut World) { /* ... */ }
+
+app.add_system(physics_system::system());
+```
+
+`SystemSlot` enum names the standard scheduling positions
+(`SimInput / DeltaTime / InteractionState / Animation / Timer /
+ScrollInertia / LazyList / TabPages / Normal`). Lower values run
+earlier; user systems default to `Normal`.
 
 ## Performance
 
-ESP32-C3 (RISC-V 160 MHz, no FPU) + ST7735S 128×128 SPI display, RGB565:
+Updated for v0.17.2 (rasterization-only, excluding SPI flush).
 
-| Demo | FPS | Notes |
-|------|-----|-------|
-| Three-body (widgets + dirty rect) | 160 | `border_radius: 3` anti-aliasing enabled |
-| Shapes (clock face, raw `Canvas`) | 32-35 | 1 circle + 12 tick lines + sweeping hand per frame |
-| Butterfly (vector, raw `Canvas`) | 30-32 | 8 `fill_path` + 3 `draw_line` per frame; Lissajous flight + yaw rotation |
+ESP32-C3 (RV32 160 MHz, no FPU) + ST7735S 128×128 SPI:
 
-Binary size: `mirui` + a typical ESP32 app + esp-hal around 120 KB `.text` for the vector demos.
+| Demo | Render | FPS | Notes |
+|------|--------|-----|-------|
+| Three-body (widgets + dirty rect) | ~6.6 ms | 148–151 | Default `quad-aa` off; partial refresh |
+| Shapes (clock face, raw `Canvas`) | — | 32–35 | 1 circle + 12 ticks + hand per frame |
+| Butterfly (vector, raw `Canvas`) | — | 30–32 | 8 `fill_path` + 3 `draw_line`; Lissajous + yaw |
+
+`PerfReportPlugin`'s `render_nanos` covers layout + render walker only;
+flush and prev-rect seeding stay observable through the `frame.flush`
+and `frame.seed_prev` trace spans.
 
 ## Hardware Examples
 
-[mirui-examples](https://github.com/W-Mai/mirui-examples) has the ESP32-C3 demos above:
+[mirui-examples](https://github.com/W-Mai/mirui-examples) hosts the
+ESP32-C3 demos:
 
-- `demo-threebody` (default) — three gravitating bodies rendered with widgets + dirty rect refresh
-- `demo-particles` — pulse rings, bouncing bars, floating particles
-- `demo-subpixel` — two bars moving by 1 px vs 0.1 px, showcasing subpixel AA
-- `demo-shapes` — clock face drawn via `draw_line` / `draw_arc`
-- `demo-butterfly` — flapping, flying, yaw-rotating vector butterfly
+- `demo-threebody` (default) — three gravitating bodies
+- `demo-particles` — pulse rings, bouncing bars, particles
+- `demo-subpixel` — bars moving by 1 px vs 0.1 px (subpixel AA)
+- `demo-shapes` — clock face via `draw_line` / `draw_arc`
+- `demo-butterfly` — flapping vector butterfly
+- `demo-coverflow` — cover flow with 3D quad transforms
+- `demo-flipcard`, `demo-gesture`, `demo-widgets` — additional showcases
+- `demo-hidpi-downscale` / `demo-hidpi-upscale` — HiDPI mode toggles
 
-Flash with `cargo run --release --features demo-butterfly --no-default-features` (or any other `demo-*` feature).
+Flash with `cargo run --release --features demo-XXX --no-default-features`.
+
+## Roadmap
+
+- v0.17.x — API ergonomics (this minor): App fluent unification,
+  SystemSlot enum, plugin doc contract, perf reconciliation, prelude
+- v0.18+ — Custom drawing API beyond `DrawCommand::FillPath`
+- v0.19+ — Render backends expansion (wgpu / SDL3 / VG-Lite)
+- v0.20+ — Compositing, blur, mask layers
+- v0.21+ — SDF fonts, custom font injection
 
 ## License
 

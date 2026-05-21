@@ -1,3 +1,14 @@
+//! Widget kinds and their shared infrastructure.
+//!
+//! Built-in widget constructors follow a uniform shape:
+//!
+//! - `Widget::default()` when no required arguments
+//! - `Widget::new(required, ...)` when required arguments exist
+//! - `.with_<field>(value)` for optional configuration; chains
+//!
+//! `Widget::new()` on no-arg widgets is kept as an alias for
+//! `Widget::default()` so the call site can stay either form.
+
 pub mod builder;
 pub mod dirty;
 pub mod render_system;
