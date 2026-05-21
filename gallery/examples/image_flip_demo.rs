@@ -1,12 +1,8 @@
-use mirui::app::App;
 use mirui::components::assets::*;
-use mirui::components::image::Image;
-use mirui::components::transform_3d::WidgetTransform3D;
-use mirui::ecs::World;
-use mirui::layout::*;
+use mirui::components::{Image, WidgetTransform3D};
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
-use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
 use mirui::widget::{Children, Parent};
 

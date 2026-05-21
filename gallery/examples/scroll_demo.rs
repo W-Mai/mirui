@@ -1,10 +1,6 @@
-use mirui::app::App;
 use mirui::event::scroll::{ScrollConfig, ScrollOffset};
-use mirui::layout::*;
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("mirui - scroll demo", 480, 320);

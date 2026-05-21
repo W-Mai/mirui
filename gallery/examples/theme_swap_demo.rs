@@ -6,24 +6,13 @@
 //! The accent dot in the corner uses a custom `accent` token —
 //! adding a token doesn't require forking mirui.
 
-use mirui::app::App;
-use mirui::components::button::Button;
-use mirui::components::checkbox::Checkbox;
-use mirui::components::progress_bar::ProgressBar;
-use mirui::components::slider::Slider;
-use mirui::components::switch::Switch;
-use mirui::components::tabbar::TabBar;
-use mirui::components::text_input::TextInput;
-use mirui::ecs::{Entity, World};
+use mirui::components::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, TextInput};
 use mirui::event::GestureHandler;
 use mirui::event::gesture::GestureEvent;
-use mirui::layout::*;
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::Theme;
-use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::theme::{self, ColorToken};
-use mirui_macros::ui;
 
 /// Per-button marker: tapping the entity carrying this swaps the
 /// World's `Theme` resource to the contained palette.

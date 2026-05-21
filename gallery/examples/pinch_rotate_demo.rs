@@ -1,18 +1,13 @@
 use mirui::anim::ease;
-use mirui::app::App;
-use mirui::components::text::Text;
-use mirui::components::transform::WidgetTransform;
-use mirui::ecs::{Entity, World};
+use mirui::components::{Text, WidgetTransform};
 use mirui::event::GestureHandler;
 use mirui::event::gesture::GestureEvent;
 use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
-use mirui::layout::*;
 use mirui::plugins::StdInstantClockPlugin;
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Fixed64, Point, Transform};
-use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
-use mirui_macros::ui;
 
 extern crate alloc;
 use alloc::format;

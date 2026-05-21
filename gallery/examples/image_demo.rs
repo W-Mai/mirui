@@ -1,10 +1,7 @@
-use mirui::app::App;
+use mirui::components::Image;
 use mirui::components::assets::*;
-use mirui::components::image::Image;
-use mirui::layout::*;
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension};
-use mirui::widget::builder::WidgetBuilder;
 
 extern crate alloc;
 

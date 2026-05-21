@@ -5,19 +5,14 @@
 //! Three diamonds in a row, each tappable to cycle through colours.
 //! Run with `cargo run -p gallery --example custom_view_demo`.
 
-use mirui::app::App;
 use mirui::draw::command::DrawCommand;
 use mirui::draw::renderer::Renderer;
-use mirui::ecs::{Entity, World};
 use mirui::event::GestureHandler;
 use mirui::event::gesture::GestureEvent;
-use mirui::layout::*;
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed, Point, Rect};
-use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
 use mirui::widget::view::{View, ViewCtx};
-use mirui_macros::ui;
 
 /// Per-entity component the user widget reads at render time.
 pub struct Diamond {

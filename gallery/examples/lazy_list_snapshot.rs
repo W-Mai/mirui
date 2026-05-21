@@ -3,22 +3,17 @@
 
 extern crate alloc;
 
+use mirui::prelude::*;
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use mirui::app::App;
+use mirui::components::Text;
 use mirui::components::lazy_list::{LazyList, LazyListBinder, LazyListPool, lazy_list_system};
-use mirui::components::text::Text;
 use mirui::draw::texture::ColorFormat;
-use mirui::ecs::{Entity, World};
 use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-use mirui::layout::*;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 const ROW_H: i32 = 32;
 const POOL_SIZE: usize = 12;

@@ -1,13 +1,9 @@
 extern crate alloc;
 
-use mirui::app::App;
-use mirui::components::text_input::{Placeholder, TextInput};
-use mirui::layout::*;
+use mirui::components::{Placeholder, TextInput};
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("TextInput Demo", 480, 200);

@@ -1,12 +1,8 @@
 use mirui::anim::{BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
-use mirui::app::App;
 use mirui::ecs::{DeltaTimeMs, World};
-use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 extern crate alloc;
 

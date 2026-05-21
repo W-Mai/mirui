@@ -1,10 +1,7 @@
-use mirui::app::App;
-use mirui::components::transform_3d::{TransformOrigin, WidgetTransform3D};
-use mirui::ecs::World;
-use mirui::layout::*;
+use mirui::components::{TransformOrigin, WidgetTransform3D};
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
-use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
 
 extern crate alloc;

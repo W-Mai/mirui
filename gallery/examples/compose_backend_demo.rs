@@ -4,13 +4,13 @@
 //! the plain sw backend. Every second the counter is printed to stderr so the
 //! routing stays visible without flooding the trace per-call.
 
+use mirui::prelude::*;
 use std::cell::RefCell;
 
 use mirui::draw::canvas::Canvas;
 use mirui::draw::path::Path;
 use mirui::draw::sw::SwRenderer;
 use mirui::draw::texture::{ColorFormat, Texture};
-use mirui::types::{Color, Fixed, Point, Rect};
 use mirui_macros::compose_backend;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;

@@ -1,15 +1,7 @@
-use mirui::app::App;
 use mirui::components::assets::*;
-use mirui::components::button::Button;
-use mirui::components::checkbox::Checkbox;
-use mirui::components::image::Image;
-use mirui::components::progress_bar::ProgressBar;
-use mirui::ecs::{Entity, World};
-use mirui::layout::*;
+use mirui::components::{Button, Checkbox, Image, ProgressBar};
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 extern crate alloc;
 

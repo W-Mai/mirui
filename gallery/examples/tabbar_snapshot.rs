@@ -1,19 +1,14 @@
 extern crate alloc;
 
+use mirui::prelude::*;
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use mirui::app::App;
-use mirui::components::tab_pages::TabContent;
-use mirui::components::tabbar::TabBar;
+use mirui::components::{TabBar, TabContent};
 use mirui::draw::texture::ColorFormat;
-use mirui::layout::*;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 fn main() {
     let mut args = env::args().skip(1);

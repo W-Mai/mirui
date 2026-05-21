@@ -1,9 +1,7 @@
 use mirui::draw::texture::{ColorFormat, Texture};
 use mirui::draw::{Renderer, SwRenderer};
-use mirui::ecs::World;
-use mirui::layout::*;
+use mirui::prelude::*;
 use mirui::types::{Color, Dimension, Fixed, Viewport};
-use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::render_system;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;

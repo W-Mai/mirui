@@ -4,21 +4,17 @@
 //! sub-pixel flicker during drag.
 //!
 //!     cargo run --example snapshot_cover_flow --features sdl --release
+use mirui::prelude::*;
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Write;
 use std::rc::Rc;
 
-use mirui::app::App;
 use mirui::components::assets::IMG_THUMBS_UP;
-use mirui::components::image::Image;
-use mirui::components::transform_3d::WidgetTransform3D;
-use mirui::ecs::World;
+use mirui::components::{Image, WidgetTransform3D};
 use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-use mirui::layout::*;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
-use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::dirty::Dirty;
 
 extern crate alloc;

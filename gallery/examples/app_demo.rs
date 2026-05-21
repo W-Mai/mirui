@@ -1,8 +1,5 @@
-use mirui::app::App;
-use mirui::layout::*;
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
 
 fn main() {
     let backend = SdlSurface::new("mirui - app demo", 480, 320);

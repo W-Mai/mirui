@@ -1,12 +1,7 @@
-use mirui::app::App;
-use mirui::components::slider::Slider;
-use mirui::components::switch::Switch;
-use mirui::layout::*;
+use mirui::components::{Slider, Switch};
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("mirui - slider & switch", 320, 200);

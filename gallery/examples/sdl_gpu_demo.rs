@@ -9,16 +9,13 @@
 //! no manual loop here.
 
 use mirui::app::{App, RendererFactory};
+use mirui::components::Image;
 use mirui::components::assets::*;
-use mirui::components::image::Image;
-use mirui::ecs::{Entity, World};
-use mirui::layout::*;
 use mirui::plugin::Plugin;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::prelude::*;
 use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
 use mirui::surface::{InputEvent, Surface};
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
 use mirui::widget::{Children, Parent};
 
 const DRAG_W: i32 = 160;

@@ -4,19 +4,15 @@
 
 extern crate alloc;
 
+use mirui::prelude::*;
 use std::env;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use mirui::app::App;
-use mirui::components::text_input::{Placeholder, TextInput};
+use mirui::components::{Placeholder, TextInput};
 use mirui::draw::texture::ColorFormat;
-use mirui::layout::*;
 use mirui::surface::framebuf::FramebufSurface;
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 fn write_png(out_path: &std::path::Path, pixels: &[u8], width: u16, height: u16, stride: usize) {
     let ppm_path = out_path.with_extension("ppm");

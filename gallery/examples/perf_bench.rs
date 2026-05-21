@@ -10,13 +10,10 @@
 //! real per-frame cost; runs for 10 seconds and prints avg FPS and per-
 //! frame render time.
 
-use mirui::app::App;
+use mirui::components::Image;
 use mirui::components::assets::*;
-use mirui::components::image::Image;
-use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
-use mirui::types::{Color, Dimension};
-use mirui::widget::builder::WidgetBuilder;
+use mirui::prelude::*;
 use mirui::widget::{Children, Parent};
 
 const W: u16 = 800;

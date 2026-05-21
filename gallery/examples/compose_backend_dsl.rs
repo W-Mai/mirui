@@ -6,22 +6,20 @@
 //! - `drift_system` moves each Image along a sine path
 //! - `StdInstantClockPlugin` + `FpsSummaryPlugin` print render timing
 
+use mirui::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use mirui::app::{App, RendererFactory};
+use mirui::components::Image;
 use mirui::components::assets::*;
-use mirui::components::image::Image;
 use mirui::draw::canvas::Canvas;
 use mirui::draw::path::Path;
 use mirui::draw::sw::SwRenderer;
 use mirui::draw::texture::Texture;
-use mirui::ecs::World;
-use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Point, Rect, Viewport};
-use mirui::widget::builder::WidgetBuilder;
 use mirui_macros::{compose_backend, ui};
 
 const W: u16 = 480;

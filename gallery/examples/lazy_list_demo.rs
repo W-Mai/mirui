@@ -1,16 +1,11 @@
 extern crate alloc;
 
-use mirui::app::App;
-use mirui::components::lazy_list::{LazyList, LazyListBinder, LazyListPool};
-use mirui::components::text::Text;
-use mirui::ecs::{Entity, World};
+use mirui::components::Text;
+use mirui::components::{LazyList, LazyListBinder, LazyListPool};
 use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-use mirui::layout::*;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 const ROW_H: i32 = 32;
 const POOL_SIZE: usize = 12;

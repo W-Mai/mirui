@@ -1,14 +1,9 @@
 extern crate alloc;
 
-use mirui::app::App;
-use mirui::components::tab_pages::TabContent;
-use mirui::components::tabbar::TabBar;
-use mirui::layout::*;
+use mirui::components::{TabBar, TabContent};
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension};
-use mirui::widget::builder::WidgetBuilder;
-use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("TabBar Demo", 480, 320);
