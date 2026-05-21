@@ -44,7 +44,7 @@ impl MagneticMembrane {
     }
 
     pub fn span(&self) -> Fixed {
-        self.sigma * self.visible_span
+        self.sigma.max(Fixed::ONE) * self.visible_span.max(Fixed::ONE)
     }
 
     pub fn path(&self, edge_x: Fixed, mid_y: Fixed, state: MagneticMembraneState) -> Path {
@@ -105,6 +105,7 @@ impl MagneticMembrane {
         let safe = span.max(Fixed::ONE);
         let pull_ratio = (state.ball_offset.abs() / safe).min(Fixed::ONE);
         let amp = state.amp.min(self.max_amp) * pull_ratio;
+        let sigma = self.sigma.max(Fixed::ONE);
         let mut path = Path::new();
         let (start, _) = self.basis_at(edge_x, mid_y, Fixed::ZERO - span);
         path.move_to(start).line_to(start);
@@ -112,7 +113,7 @@ impl MagneticMembrane {
             let t = Fixed::from_int(-64 + i * 2) * span / Fixed::from_int(64);
             let edge_u = t.abs() / safe;
             let edge_fade = (Fixed::ONE - edge_u * edge_u).max(Fixed::ZERO);
-            let d = (t - state.ball_offset).abs() / self.sigma;
+            let d = (t - state.ball_offset).abs() / sigma;
             let ball_fade = (Fixed::ONE - d * d).max(Fixed::ZERO);
             let a = amp * edge_fade * edge_fade * ball_fade * ball_fade;
             let (base, normal) = self.basis_at(edge_x, mid_y, t);
@@ -136,6 +137,18 @@ impl MagneticMembrane {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::draw::path::PathCmd;
+    use alloc::vec::Vec;
+
+    fn line_points(path: &Path) -> Vec<Point> {
+        path.cmds
+            .iter()
+            .filter_map(|cmd| match cmd {
+                PathCmd::MoveTo(p) | PathCmd::LineTo(p) => Some(*p),
+                _ => None,
+            })
+            .collect()
+    }
 
     #[test]
     fn membrane_path_returns_to_edge_at_ends() {
@@ -148,7 +161,12 @@ mod tests {
                 amp: Fixed::from_int(28),
             },
         );
-        assert!(!path.cmds.is_empty());
+        let pts = line_points(&path);
+        assert!(pts.len() > 4);
+        let first = pts.first().unwrap();
+        let last = pts.last().unwrap();
+        assert_eq!(first.x, Fixed::from_int(100));
+        assert_eq!(last.x, Fixed::from_int(100));
     }
 
     #[test]
@@ -172,12 +190,29 @@ mod tests {
                 amp: Fixed::from_int(20),
             },
         );
-        assert!(!path.cmds.is_empty());
+        assert!(line_points(&path).len() > 4);
     }
 
     #[test]
     fn max_pull_is_smaller_than_span() {
         let membrane = MagneticMembrane::default();
         assert!(membrane.max_pull() < membrane.span());
+    }
+
+    #[test]
+    fn zero_sigma_does_not_panic() {
+        let membrane = MagneticMembrane {
+            sigma: Fixed::ZERO,
+            ..MagneticMembrane::default()
+        };
+        let path = membrane.path(
+            Fixed::from_int(100),
+            Fixed::from_int(100),
+            MagneticMembraneState {
+                ball_offset: Fixed::from_int(30),
+                amp: Fixed::from_int(28),
+            },
+        );
+        assert!(line_points(&path).len() > 4);
     }
 }
