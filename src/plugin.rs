@@ -35,10 +35,9 @@ where
 
     fn pre_render(&mut self, _world: &mut World) {}
 
-    /// Called after a successful render, with the measured render duration in
-    /// nanoseconds. `render_nanos` will be 0 when no clock plugin has been
-    /// installed — plugins that care about timing should either install one
-    /// or skip their logic when they see 0.
+    /// `render_nanos` covers layout + render walker only; flush and
+    /// prev-rect seeding are excluded. Zero when no clock plugin is
+    /// installed.
     fn post_render(&mut self, _world: &mut World, _render_nanos: u64) {}
 
     /// Inspect each input event before it reaches widgets. Return true to

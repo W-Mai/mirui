@@ -199,6 +199,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             render_system::render(&self.world, root, &transform, &mut renderer);
         }
 
+        let render_ns = self.clock_ns().saturating_sub(start_ns);
+
         let (pw, ph) = self.backend.physical_size();
         {
             crate::trace_span!("frame.flush");
@@ -209,11 +211,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         // covers pixels this full render actually wrote — otherwise
         // any widget that shrinks or moves between the full render
         // and the first dirty render leaves residue.
-        render_system::seed_prev_rects(&mut self.world, root, &transform);
+        {
+            crate::trace_span!("frame.seed_prev");
+            render_system::seed_prev_rects(&mut self.world, root, &transform);
+        }
 
-        let elapsed = self.clock_ns().saturating_sub(start_ns);
         for p in &mut self.plugins {
-            p.post_render(&mut self.world, elapsed);
+            p.post_render(&mut self.world, render_ns);
         }
     }
 
@@ -381,7 +385,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 let mut renderer = self.factory.make(&mut self.backend, &transform);
                 render_system::render_region(&self.world, root, &transform, &area, &mut renderer);
             }
+        }
+        let render_ns = self.clock_ns().saturating_sub(start_ns);
 
+        if let Some(area) = dirty {
             let phys_area = transform.rect_to_physical(area);
             {
                 crate::trace_span!("frame.flush");
@@ -389,9 +396,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
         }
 
-        let elapsed = self.clock_ns().saturating_sub(start_ns);
         for p in &mut self.plugins {
-            p.post_render(&mut self.world, elapsed);
+            p.post_render(&mut self.world, render_ns);
         }
     }
 }
