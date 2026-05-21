@@ -352,8 +352,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
 
             let frame_end = self.clock_ns();
+            let frame_nanos = frame_end.saturating_sub(frame_start);
             self.world.insert_resource(crate::ecs::FrameTimings {
-                frame_nanos: frame_end.saturating_sub(frame_start),
+                frame_nanos,
                 event_poll_nanos: event_end.saturating_sub(frame_start),
                 systems_nanos: systems_end.saturating_sub(event_end),
                 layout_nanos: self.last_layout_ns,
@@ -361,6 +362,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 flush_nanos: self.last_flush_ns,
                 seed_prev_nanos: self.last_seed_prev_ns,
             });
+            // FrameStats is owned by App.run so it persists across
+            // resource overwrites. Pull, push, restore.
+            let mut stats = self
+                .world
+                .resource_mut::<crate::ecs::FrameStats>()
+                .map(core::mem::take)
+                .unwrap_or_default();
+            stats.push(frame_nanos);
+            self.world.insert_resource(stats);
         }
     }
 

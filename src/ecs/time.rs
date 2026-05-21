@@ -26,6 +26,97 @@ pub struct FrameTimings {
     pub seed_prev_nanos: u64,
 }
 
+/// Sliding window of recent `frame_nanos` values for jitter and tail
+/// latency analysis. `App::run` pushes one entry per frame; reading
+/// stays cheap (zero allocations after the first 256 frames).
+///
+/// 256 samples ≈ 3.4 s at 75 fps, ≈ 14 s at 18 fps — plenty to surface
+/// stutter without occupying meaningful RAM (2 KB).
+pub struct FrameStats {
+    /// Most recent frames first index (head). Underlying storage is a
+    /// fixed-size array so we don't allocate on the hot path.
+    samples: [u64; FRAME_STATS_CAP],
+    head: usize,
+    len: usize,
+}
+
+const FRAME_STATS_CAP: usize = 256;
+
+impl Default for FrameStats {
+    fn default() -> Self {
+        Self {
+            samples: [0; FRAME_STATS_CAP],
+            head: 0,
+            len: 0,
+        }
+    }
+}
+
+impl FrameStats {
+    /// Append a frame's `frame_nanos`.
+    pub fn push(&mut self, frame_nanos: u64) {
+        self.samples[self.head] = frame_nanos;
+        self.head = (self.head + 1) % FRAME_STATS_CAP;
+        if self.len < FRAME_STATS_CAP {
+            self.len += 1;
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn clear(&mut self) {
+        self.head = 0;
+        self.len = 0;
+    }
+
+    fn iter(&self) -> impl Iterator<Item = u64> + '_ {
+        let len = self.len;
+        let cap = FRAME_STATS_CAP;
+        let start = if len < cap { 0 } else { self.head };
+        (0..len).map(move |i| self.samples[(start + i) % cap])
+    }
+
+    pub fn avg(&self) -> u64 {
+        if self.len == 0 {
+            return 0;
+        }
+        let sum: u64 = self.iter().sum();
+        sum / self.len as u64
+    }
+
+    pub fn min(&self) -> u64 {
+        self.iter().min().unwrap_or(0)
+    }
+
+    pub fn max(&self) -> u64 {
+        self.iter().max().unwrap_or(0)
+    }
+
+    /// Approximate p99: the (n-1)th value of the bottom 99% in a sorted
+    /// view. With 256 samples that's the 254th-smallest. Allocates a
+    /// `Vec` for sorting; cheap because called by reporter plugins
+    /// once per N frames, not per frame.
+    pub fn p99(&self) -> u64 {
+        if self.len == 0 {
+            return 0;
+        }
+        let mut sorted: alloc::vec::Vec<u64> = self.iter().collect();
+        sorted.sort_unstable();
+        let idx = (self.len * 99 / 100).saturating_sub(1).min(self.len - 1);
+        sorted[idx]
+    }
+
+    pub fn jitter(&self) -> u64 {
+        self.max().saturating_sub(self.min())
+    }
+}
+
 /// Global monotonic clock resource. Single time source for the entire
 /// App — animation, gesture recognition, simulated input, render
 /// timing all read from this.
