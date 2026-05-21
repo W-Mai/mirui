@@ -6,6 +6,26 @@ use crate::surface::{InputEvent, Surface};
 /// hotkeys — without forking the run loop. `build` runs once at registration;
 /// the other methods are called by `App` at the matching point in the frame
 /// schedule. Any `FnMut(&mut App<B, F>)` is also a plugin via the blanket impl.
+///
+/// # Documentation contract
+///
+/// Every plugin's docstring must list what it inserts, in this format
+/// (omit empty rows):
+///
+/// ```text
+/// **Inserts**
+/// - resource: <names or "none">
+/// - system:   <names + slot, or "none">
+/// - view:     <names + priority, or "none">
+/// - entity:   <markers + spawn timing, or "none">
+/// - hooks:    <`on_event` / `pre_render` / `post_render` / `on_quit`, or "none">
+/// ```
+///
+/// Users reading `add_plugin(...)` can then tell what changes in their
+/// `World` without reading the plugin source. Existing built-in plugins
+/// (`PerfReportPlugin`, `FpsSummaryPlugin`, `StdInstantClockPlugin`,
+/// `InputFeedbackPlugin`) follow this contract; user-defined plugins are
+/// expected to as well.
 pub trait Plugin<B, F>
 where
     B: Surface,

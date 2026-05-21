@@ -15,6 +15,16 @@ use crate::surface::Surface;
 use crate::widget::WidgetRoot;
 use crate::widget::view::ViewRegistry;
 
+/// Cursor + rotary visual feedback overlays. Default off; opt-in via
+/// `app.add_plugin(InputFeedbackPlugin::new())`.
+///
+/// **Inserts**
+/// - resource: `InputFeedback`, `InputFeedbackInput`
+/// - system: `cursor_feedback_system`, `rotary_feedback_system` (both at `SystemSlot::Normal`)
+/// - view: `input_feedback_cursor` (priority 90), `input_feedback_rotary` (priority 91)
+/// - entity: `OverlayCursor` (lazy on first `PointerCursor`), `OverlayRotary` (eager via `pre_render`)
+/// - hooks: `on_event` (Rotary / Wheel / `KEY_ROTARY_PRESS` → `InputFeedbackInput`),
+///   `pre_render` (lazy spawn rotary entity once `WidgetRoot` is set)
 pub struct InputFeedbackPlugin {
     rotary_spawned: bool,
 }

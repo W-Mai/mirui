@@ -6,6 +6,13 @@ use crate::surface::Surface;
 /// Accumulates render timings and prints (via `println!` on std) every N frames.
 /// With no clock plugin installed `render_nanos` is 0 and the average stays 0 —
 /// still harmless, still shows frame count.
+///
+/// **Inserts**
+/// - resource: none
+/// - system: none
+/// - view: none
+/// - entity: none
+/// - hooks: `post_render` (per-frame counter + periodic console summary)
 pub struct FpsSummaryPlugin {
     frames_per_summary: u32,
     frame_count: u32,

@@ -46,6 +46,16 @@ pub struct PerfReport {
     pub systems: alloc::vec::Vec<SystemStat>,
 }
 
+/// Per-frame perf reporter: accumulates span and per-system timings,
+/// emits a `PerfReport` callback every `frames_per_report` frames,
+/// optionally writes Chrome-trace JSON to a file.
+///
+/// **Inserts**
+/// - resource: `PerfAccum` (private)
+/// - system: none
+/// - view: none
+/// - entity: none
+/// - hooks: `post_render` (drains `crate::perf` events; emits report at window boundary)
 pub struct PerfReportPlugin {
     frames_per_report: u32,
     frame_count: u32,

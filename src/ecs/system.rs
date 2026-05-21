@@ -30,38 +30,78 @@ impl System {
     }
 }
 
-/// Lower runs earlier. Spacing leaves room for user systems to slot
-/// between built-ins; reuse a named slot when role matches.
-pub mod run_order {
-    /// Synthetic input emitters (sim, replay) — produce events
-    /// downstream dispatch consumes this frame.
-    pub const SIM_INPUT: i32 = 50;
-
+/// Named slots for `System::priority`. Lower runs earlier.
+///
+/// Spacing leaves room for user systems to slot between built-ins;
+/// reuse a named slot when the role matches a documented one rather
+/// than picking a fresh integer.
+///
+/// Two ways to reference a slot in `#[mirui::system(order = ...)]`:
+///
+/// - `order = SystemSlot::Normal` — preferred; type-checked, IDE-completable
+/// - `order = NORMAL` — bare constant from `run_order` module; backward-compatible
+///
+/// New code should reach for the enum; the bare constants stay because
+/// the proc-macro glob-imports them today.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SystemSlot {
+    /// Synthetic input emitters (sim, replay).
+    SimInput,
     /// Clock / `DeltaTimeMs` sync. Anything reading `dt` runs after.
-    pub const DELTA_TIME: i32 = 60;
-
-    /// hover_system / press_system — read PointerCursor + hit_test, write
-    /// InteractionState. After sim_input emitters but before animation.
-    pub const INTERACTION_STATE: i32 = 80;
-
+    DeltaTime,
+    /// hover_system / press_system — read PointerCursor + hit_test, write `InteractionState`.
+    InteractionState,
     /// Animation tickers that consume `dt`.
-    pub const ANIMATION: i32 = 150;
-
+    Animation,
     /// Declarative timers — same band as animation.
-    pub const TIMER: i32 = 150;
-
-    /// Inertia spring tick. Runs after pointer events, before
-    /// `ScrollOffset` observers.
-    pub const SCROLL_INERTIA: i32 = 250;
-
+    Timer,
+    /// Inertia spring tick. Runs after pointer events, before `ScrollOffset` observers.
+    ScrollInertia,
     /// Re-bind/reposition pool slots from current `ScrollOffset`.
-    pub const LAZY_LIST: i32 = 350;
+    LazyList,
+    /// `TabBar.selected` → page visibility.
+    TabPages,
+    /// Default for user systems — observes fully-settled state.
+    Normal,
+}
 
-    /// TabBar.selected → page visibility.
-    pub const TAB_PAGES: i32 = 350;
+impl SystemSlot {
+    /// Numeric priority for `System::new`. Lower runs earlier.
+    pub const fn priority(self) -> i32 {
+        match self {
+            Self::SimInput => 50,
+            Self::DeltaTime => 60,
+            Self::InteractionState => 80,
+            Self::Animation => 150,
+            Self::Timer => 150,
+            Self::ScrollInertia => 250,
+            Self::LazyList => 350,
+            Self::TabPages => 350,
+            Self::Normal => 500,
+        }
+    }
+}
 
-    /// Default for user systems — observes a fully-settled state.
-    pub const NORMAL: i32 = 500;
+impl From<SystemSlot> for i32 {
+    fn from(slot: SystemSlot) -> i32 {
+        slot.priority()
+    }
+}
+
+/// Bare-constant aliases for [`SystemSlot::priority`]. Kept because the
+/// `#[mirui::system]` proc-macro glob-imports this module to support
+/// `order = NORMAL`-style attribute syntax.
+pub mod run_order {
+    use super::SystemSlot;
+    pub const SIM_INPUT: i32 = SystemSlot::SimInput.priority();
+    pub const DELTA_TIME: i32 = SystemSlot::DeltaTime.priority();
+    pub const INTERACTION_STATE: i32 = SystemSlot::InteractionState.priority();
+    pub const ANIMATION: i32 = SystemSlot::Animation.priority();
+    pub const TIMER: i32 = SystemSlot::Timer.priority();
+    pub const SCROLL_INERTIA: i32 = SystemSlot::ScrollInertia.priority();
+    pub const LAZY_LIST: i32 = SystemSlot::LazyList.priority();
+    pub const TAB_PAGES: i32 = SystemSlot::TabPages.priority();
+    pub const NORMAL: i32 = SystemSlot::Normal.priority();
 }
 
 #[derive(Default)]
@@ -136,5 +176,56 @@ mod tests {
         s.add(System::new("c", 100, dummy));
         let names: Vec<&str> = s.iter().map(|s| s.name).collect();
         assert_eq!(names, ["c", "a", "b"]);
+    }
+
+    #[test]
+    fn system_slot_priorities_match_run_order_constants() {
+        assert_eq!(SystemSlot::SimInput.priority(), run_order::SIM_INPUT);
+        assert_eq!(SystemSlot::DeltaTime.priority(), run_order::DELTA_TIME);
+        assert_eq!(
+            SystemSlot::InteractionState.priority(),
+            run_order::INTERACTION_STATE
+        );
+        assert_eq!(SystemSlot::Animation.priority(), run_order::ANIMATION);
+        assert_eq!(SystemSlot::Timer.priority(), run_order::TIMER);
+        assert_eq!(
+            SystemSlot::ScrollInertia.priority(),
+            run_order::SCROLL_INERTIA
+        );
+        assert_eq!(SystemSlot::LazyList.priority(), run_order::LAZY_LIST);
+        assert_eq!(SystemSlot::TabPages.priority(), run_order::TAB_PAGES);
+        assert_eq!(SystemSlot::Normal.priority(), run_order::NORMAL);
+    }
+
+    #[test]
+    fn system_slot_into_i32_returns_priority() {
+        let p: i32 = SystemSlot::Animation.into();
+        assert_eq!(p, 150);
+    }
+
+    /// Architecture invariant: every plugin in src/plugins/*.rs must
+    /// have a `**Inserts**` section in a docstring that survives into
+    /// the source file (i.e. the docstring directly above the struct).
+    /// This is the v0.17.1 plugin documentation contract; if a plugin
+    /// adds resources / systems / views silently, this test reminds the
+    /// author to document them.
+    #[test]
+    fn plugins_declare_inserts_section() {
+        let plugins = [
+            ("perf_report", include_str!("../plugins/perf_report.rs")),
+            ("fps_summary", include_str!("../plugins/fps_summary.rs")),
+            (
+                "input_feedback",
+                include_str!("../plugins/input_feedback.rs"),
+            ),
+            #[cfg(feature = "std")]
+            ("std_clock", include_str!("../plugins/std_clock.rs")),
+        ];
+        for (name, src) in plugins {
+            assert!(
+                src.contains("**Inserts**"),
+                "plugin {name} missing **Inserts** doc section",
+            );
+        }
     }
 }
