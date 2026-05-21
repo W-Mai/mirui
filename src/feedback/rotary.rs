@@ -13,18 +13,6 @@ const PRIMARY: Color = Color::rgb(88, 166, 255);
 /// without clipping at default `max_amp = 28`.
 const TRACK_WIDTH: i32 = 36;
 
-fn opa_from_fixed(v: Fixed) -> u8 {
-    let raw = (v.clamp(Fixed::ZERO, Fixed::ONE) * Fixed::from_int(255)).to_int();
-    raw.clamp(0, 255) as u8
-}
-
-/// Off-screen empty rect used while rotary is settled. Layout is still
-/// computed but the entity sits beyond the viewport so dirty union is a
-/// no-op until rotary state changes.
-fn empty_rect() -> Rect {
-    Rect::new(-1, -1, 0, 0)
-}
-
 fn rotary_active(rotary: &super::RotaryFeedback) -> bool {
     rotary.progress != Fixed::ZERO || rotary.opacity != Fixed::ZERO || rotary.pulse != Fixed::ZERO
 }
@@ -61,7 +49,7 @@ pub(crate) fn spawn_overlay_rotary(world: &mut World, root: Entity) -> Entity {
     world.insert(entity, Widget);
     world.insert(entity, OverlayRotary);
     world.insert(entity, IgnoreHitTest);
-    world.insert(entity, Style::absolute_at(empty_rect()));
+    world.insert(entity, Style::absolute_at(Rect::ZERO));
     world.insert(entity, Parent(root));
     if let Some(children) = world.get_mut::<Children>(root) {
         children.0.push(entity);
@@ -154,7 +142,7 @@ pub fn rotary_feedback_system(world: &mut World) {
         .map(|info| info.viewport());
     let target_rect = match viewport {
         Some(vp) if rotary_active(&feedback.rotary) => rotary_track_rect(&vp),
-        _ => empty_rect(),
+        _ => Rect::ZERO,
     };
     write_layout(world, entity, target_rect);
     world.insert(entity, Dirty);
@@ -186,7 +174,9 @@ fn render(
 
     let mid_y = rect.y + rect.h / Fixed::from_int(2);
     let edge_x = rect.x + rect.w;
-    let opa = opa_from_fixed(feedback.rotary.opacity.max(Fixed::ONE / Fixed::from_int(4)));
+    // Floor at 25% so a freshly-settled membrane is still faintly visible.
+    let opacity = feedback.rotary.opacity.max(Fixed::ONE / Fixed::from_int(4));
+    let opa = opacity.map01(255).to_int() as u8;
     let path = membrane.path(
         edge_x,
         mid_y,
