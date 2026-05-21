@@ -14,7 +14,7 @@ pub enum CursorFeedbackMode {
     MagneticRect,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CursorVisual {
     pub x: Fixed,
     pub y: Fixed,
@@ -23,16 +23,17 @@ pub struct CursorVisual {
     pub target_rect: Option<Rect>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CursorFeedback {
     pub enabled: bool,
     pub mode: CursorFeedbackMode,
     pub current: CursorVisual,
     pub prev_bbox: Option<Rect>,
     pub last_event_seq: u32,
+    pub seen: bool,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RotaryFeedback {
     pub enabled: bool,
     pub progress: Fixed,
@@ -46,10 +47,11 @@ pub struct RotaryFeedback {
     pub last_input_seq: u32,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct InputFeedback {
     pub cursor: CursorFeedback,
     pub rotary: RotaryFeedback,
+    pub dirty: bool,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -96,7 +98,7 @@ fn expand_rect(r: Rect, pad: Fixed) -> Rect {
 }
 
 fn cursor_bbox(cursor: &CursorFeedback) -> Option<Rect> {
-    if !cursor.enabled {
+    if !cursor.enabled || !cursor.seen {
         return None;
     }
     match cursor.mode {
@@ -176,14 +178,20 @@ fn rotary_membrane_state(
     rotary: &RotaryFeedback,
     membrane: &MagneticMembrane,
 ) -> MagneticMembraneState {
+    let progress_amp = membrane.max_amp
+        * (rotary.progress.abs() / membrane.span().max(Fixed::ONE)).min(Fixed::ONE);
+    let pulse_amp = membrane.max_amp * rotary.pulse / Fixed::from_int(2);
     MagneticMembraneState {
         ball_offset: rotary.progress,
-        amp: membrane.max_amp,
+        amp: progress_amp.max(pulse_amp),
     }
 }
 
 pub fn overlay_dirty_region(world: &World, viewport: &Viewport) -> Option<Rect> {
     let feedback = world.resource::<InputFeedback>()?;
+    if !feedback.dirty {
+        return None;
+    }
     let curr = overlay_bbox(feedback, viewport);
     let mut out = curr;
     if let Some(prev) = feedback.cursor.prev_bbox {
@@ -201,6 +209,7 @@ pub fn seed_overlay_prev_rects(world: &mut World, viewport: &Viewport) {
     };
     feedback.cursor.prev_bbox = cursor_bbox(&feedback.cursor);
     feedback.rotary.prev_bbox = rotary_bbox(&feedback.rotary, viewport);
+    feedback.dirty = false;
     world.insert_resource(feedback);
 }
 
@@ -277,6 +286,7 @@ impl Default for CursorFeedback {
             current: CursorVisual::default(),
             prev_bbox: None,
             last_event_seq: 0,
+            seen: false,
         }
     }
 }
@@ -306,10 +316,9 @@ pub fn cursor_feedback_system(world: &mut World) {
     if !feedback.cursor.enabled {
         return;
     }
-    let cursor = world
-        .resource::<crate::event::PointerCursor>()
-        .copied()
-        .unwrap_or_default();
+    let Some(cursor) = world.resource::<crate::event::PointerCursor>().copied() else {
+        return;
+    };
     let current = current_cursor_visual(world, cursor);
     if feedback.cursor.last_event_seq == cursor.event_seq
         && feedback.cursor.current.x == current.x
@@ -322,6 +331,8 @@ pub fn cursor_feedback_system(world: &mut World) {
     }
     feedback.cursor.current = current;
     feedback.cursor.last_event_seq = cursor.event_seq;
+    feedback.cursor.seen = true;
+    feedback.dirty = true;
     world.insert_resource(feedback);
 }
 
@@ -333,6 +344,7 @@ pub fn rotary_feedback_system(world: &mut World) {
     if !feedback.rotary.enabled {
         return;
     }
+    let before = feedback.rotary;
     let input = world
         .resource::<InputFeedbackInput>()
         .copied()
@@ -386,6 +398,9 @@ pub fn rotary_feedback_system(world: &mut World) {
         feedback.rotary.progress = Fixed::ZERO;
         feedback.rotary.velocity = Fixed::ZERO;
         feedback.rotary.target = Fixed::ZERO;
+    }
+    if feedback.rotary != before {
+        feedback.dirty = true;
     }
     world.insert_resource(feedback);
 }
@@ -627,6 +642,34 @@ mod tests {
     }
 
     #[test]
+    fn rotary_click_pulse_creates_membrane_amplitude() {
+        let membrane = MagneticMembrane::default();
+        let click = RotaryFeedback {
+            pulse: Fixed::ONE,
+            ..RotaryFeedback::default()
+        };
+
+        assert!(rotary_membrane_state(&click, &membrane).amp > Fixed::ZERO);
+    }
+
+    #[test]
+    fn overlay_dirty_region_is_none_after_seeding_static_cursor() {
+        let mut world = World::new();
+        world.insert_resource(InputFeedback::enabled());
+        world.insert_resource(crate::event::PointerCursor {
+            x: Fixed::from_int(20),
+            y: Fixed::from_int(20),
+            down: false,
+            event_seq: 1,
+        });
+        cursor_feedback_system(&mut world);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        assert!(overlay_dirty_region(&world, &viewport).is_some());
+        seed_overlay_prev_rects(&mut world, &viewport);
+        assert!(overlay_dirty_region(&world, &viewport).is_none());
+    }
+
+    #[test]
     fn render_overlay_draws_cursor_and_rotary_feedback() {
         let mut world = World::new();
         let mut feedback = InputFeedback::enabled();
@@ -659,6 +702,32 @@ mod tests {
         }
         assert!(water_pixels > 0, "expected water-drop pixels");
     }
+
+    #[test]
+    fn render_overlay_draws_rotary_click_pulse_without_progress() {
+        let mut world = World::new();
+        let mut feedback = InputFeedback::enabled();
+        feedback.cursor.enabled = false;
+        feedback.rotary.pulse = Fixed::ONE;
+        feedback.rotary.opacity = Fixed::ONE;
+        world.insert_resource(feedback);
+
+        let mut buf = alloc::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        render_overlay(&world, &viewport, &Rect::new(0, 0, 64, 64), &mut renderer);
+
+        let mut pixels = 0;
+        for y in 0..64 {
+            for x in 28..64 {
+                if renderer.target.get_pixel(x, y).a != 0 {
+                    pixels += 1;
+                }
+            }
+        }
+        assert!(pixels > 0, "expected click pulse pixels");
+    }
 }
 
 impl InputFeedback {
@@ -673,6 +742,7 @@ impl InputFeedback {
                 enabled: true,
                 ..RotaryFeedback::default()
             },
+            dirty: false,
         }
     }
 }

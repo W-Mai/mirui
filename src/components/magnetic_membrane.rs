@@ -103,8 +103,7 @@ impl MagneticMembrane {
     fn edge_path(&self, edge_x: Fixed, mid_y: Fixed, state: MagneticMembraneState) -> Path {
         let span = self.span();
         let safe = span.max(Fixed::ONE);
-        let pull_ratio = (state.ball_offset.abs() / safe).min(Fixed::ONE);
-        let amp = state.amp.min(self.max_amp) * pull_ratio;
+        let amp = state.amp.min(self.max_amp);
         let sigma = self.sigma.max(Fixed::ONE);
         let mut path = Path::new();
         let (start, _) = self.basis_at(edge_x, mid_y, Fixed::ZERO - span);
