@@ -60,6 +60,13 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     plugins: Vec<Box<dyn Plugin<B, F>>>,
     #[cfg(feature = "perf")]
     pub perf: Option<crate::draw::PerfCtx>,
+    // Per-stage nanosecond counters written by render / render_dirty so
+    // run() can fold them into the FrameTimings resource without each
+    // entry point also touching world.
+    last_layout_ns: u64,
+    last_render_ns: u64,
+    last_flush_ns: u64,
+    last_seed_prev_ns: u64,
 }
 
 impl<B: FramebufferAccess> App<B, SwRendererFactory> {
@@ -101,6 +108,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             plugins: Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
+            last_layout_ns: 0,
+            last_render_ns: 0,
+            last_flush_ns: 0,
+            last_seed_prev_ns: 0,
         }
     }
 
@@ -186,26 +197,31 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             p.pre_render(&mut self.world);
         }
 
-        let start_ns = self.clock_ns();
+        let layout_start = self.clock_ns();
 
         {
             crate::trace_span!("frame.layout");
             render_system::update_layout(&mut self.world, root, &transform);
         }
+        let layout_end = self.clock_ns();
+        self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
         {
             crate::trace_span!("frame.render");
             let mut renderer = self.factory.make(&mut self.backend, &transform);
             render_system::render(&self.world, root, &transform, &mut renderer);
         }
-
-        let render_ns = self.clock_ns().saturating_sub(start_ns);
+        let render_end = self.clock_ns();
+        self.last_render_ns = render_end.saturating_sub(layout_end);
+        let render_ns = render_end.saturating_sub(layout_start);
 
         let (pw, ph) = self.backend.physical_size();
         {
             crate::trace_span!("frame.flush");
             self.backend.flush(&Rect::new(0, 0, pw as u16, ph as u16));
         }
+        let flush_end = self.clock_ns();
+        self.last_flush_ns = flush_end.saturating_sub(render_end);
 
         // Seed PrevRect so the next render_dirty frame's dirty union
         // covers pixels this full render actually wrote — otherwise
@@ -215,6 +231,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::trace_span!("frame.seed_prev");
             render_system::seed_prev_rects(&mut self.world, root, &transform);
         }
+        self.last_seed_prev_ns = self.clock_ns().saturating_sub(flush_end);
 
         for p in &mut self.plugins {
             p.post_render(&mut self.world, render_ns);
@@ -246,6 +263,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
                 gs.events.clear();
             }
+
+            let frame_start = self.clock_ns();
 
             let mut logical: Option<(u16, u16)> = None;
             let mut quit = false;
@@ -317,17 +336,31 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 return;
             }
 
+            let event_end = self.clock_ns();
+
             // Systems run after event/gesture dispatch so that anything
             // observing input-driven state (ScrollOffset, focus, ...)
             // sees the post-event values within the same frame.
             self.systems.run_all(&mut self.world);
             self.snapshot_system_perf();
+            let systems_end = self.clock_ns();
 
             if transient {
                 self.render();
             } else {
                 self.render_dirty();
             }
+
+            let frame_end = self.clock_ns();
+            self.world.insert_resource(crate::ecs::FrameTimings {
+                frame_nanos: frame_end.saturating_sub(frame_start),
+                event_poll_nanos: event_end.saturating_sub(frame_start),
+                systems_nanos: systems_end.saturating_sub(event_end),
+                layout_nanos: self.last_layout_ns,
+                render_nanos: self.last_render_ns,
+                flush_nanos: self.last_flush_ns,
+                seed_prev_nanos: self.last_seed_prev_ns,
+            });
         }
     }
 
@@ -373,11 +406,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             p.pre_render(&mut self.world);
         }
 
-        let start_ns = self.clock_ns();
+        let layout_start = self.clock_ns();
 
         let dirty = crate::trace_span!("frame.collect_dirty", {
             render_system::collect_dirty_region(&mut self.world, root, &transform)
         });
+        let layout_end = self.clock_ns();
+        // collect_dirty_region runs build_layout_tree + compute_layout
+        // internally, so it counts as the dirty path's layout cost.
+        self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
         if let Some(area) = dirty {
             {
@@ -386,7 +423,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 render_system::render_region(&self.world, root, &transform, &area, &mut renderer);
             }
         }
-        let render_ns = self.clock_ns().saturating_sub(start_ns);
+        let render_end = self.clock_ns();
+        self.last_render_ns = render_end.saturating_sub(layout_end);
+        let render_ns = render_end.saturating_sub(layout_start);
 
         if let Some(area) = dirty {
             let phys_area = transform.rect_to_physical(area);
@@ -395,6 +434,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 self.backend.flush(&phys_area);
             }
         }
+        self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
+        // dirty path doesn't seed prev_rects (they're seeded inline by
+        // collect_dirty_walk), so report 0.
+        self.last_seed_prev_ns = 0;
 
         for p in &mut self.plugins {
             p.post_render(&mut self.world, render_ns);

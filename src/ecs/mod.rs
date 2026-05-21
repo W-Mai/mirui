@@ -9,5 +9,5 @@ pub use entity::Entity;
 pub use query::QueryBuilder;
 pub use sparse_set::SparseSet;
 pub use system::{System, SystemScheduler, SystemSlot, run_order};
-pub use time::{DeltaTimeMs, MonoClock};
+pub use time::{DeltaTimeMs, FrameTimings, MonoClock};
 pub use world::World;

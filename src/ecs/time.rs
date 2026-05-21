@@ -2,6 +2,30 @@
 /// animation hot paths on targets without an FPU.
 pub struct DeltaTimeMs(pub u16);
 
+/// Per-frame timing breakdown written by `App::run` once per loop
+/// iteration when a `MonoClock` is installed. All values are nanoseconds
+/// for the most recently completed frame; zero when no `MonoClock` is
+/// present.
+///
+/// Stages cover the entire `App::run` iteration:
+///
+/// ```text
+/// frame_nanos = event_poll + systems + layout + render + flush + seed_prev
+/// ```
+///
+/// `seed_prev` only advances on the full-render path; on dirty-render
+/// frames it stays zero. Plugins read this via `world.resource()`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FrameTimings {
+    pub frame_nanos: u64,
+    pub event_poll_nanos: u64,
+    pub systems_nanos: u64,
+    pub layout_nanos: u64,
+    pub render_nanos: u64,
+    pub flush_nanos: u64,
+    pub seed_prev_nanos: u64,
+}
+
 /// Global monotonic clock resource. Single time source for the entire
 /// App — animation, gesture recognition, simulated input, render
 /// timing all read from this.
