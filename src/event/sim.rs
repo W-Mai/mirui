@@ -1557,9 +1557,9 @@ mod tests {
     use crate::widget::{Children, Parent};
 
     fn build_widget_world() -> (World, Entity, Entity, Entity) {
-        let mut world = crate::app::App::headless(128, 128)
-            .with_default_widgets()
-            .world;
+        let mut app = crate::app::App::headless(128, 128);
+        app.with_default_widgets();
+        let mut world = app.world;
 
         let root = WidgetBuilder::new(&mut world)
             .layout(LayoutStyle {

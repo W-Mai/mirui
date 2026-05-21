@@ -155,7 +155,8 @@ fn main() {
         Rc::clone(&calls),
     );
 
-    let mut app = App::with_factory(backend, factory).with_default_widgets();
+    let mut app = App::with_factory(backend, factory);
+    app.with_default_widgets();
     app.add_system(mirui::ecs::System::new(
         "drift",
         mirui::ecs::run_order::NORMAL,

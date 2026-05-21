@@ -6,7 +6,8 @@ use mirui::widget::builder::WidgetBuilder;
 
 fn main() {
     let backend = SdlSurface::new("mirui - app demo", 480, 320);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
 
     // Build UI
     let c1 = WidgetBuilder::new(&mut app.world)

@@ -198,9 +198,9 @@ mod tests {
     use crate::widget::WidgetRoot;
 
     fn make_world() -> World {
-        crate::app::App::headless(64, 64)
-            .with_default_widgets()
-            .world
+        let mut app = crate::app::App::headless(64, 64);
+        app.with_default_widgets();
+        app.world
     }
 
     fn world_with_rotary_root() -> World {

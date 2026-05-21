@@ -664,9 +664,11 @@ mod clip_children_check {
     }
 
     fn make_world() -> World {
-        crate::app::App::headless(64, 64)
-            .with_default_widgets()
-            .world
+        {
+            let mut app = crate::app::App::headless(64, 64);
+            app.with_default_widgets();
+            app.world
+        }
     }
 
     fn vp() -> Viewport {
@@ -1134,9 +1136,11 @@ mod hidden_check {
     }
 
     fn make_world() -> World {
-        crate::app::App::headless(64, 64)
-            .with_default_widgets()
-            .world
+        {
+            let mut app = crate::app::App::headless(64, 64);
+            app.with_default_widgets();
+            app.world
+        }
     }
 
     #[test]
@@ -1214,9 +1218,11 @@ mod disabled_state_check {
     }
 
     fn make_world() -> World {
-        crate::app::App::headless(32, 32)
-            .with_default_widgets()
-            .world
+        {
+            let mut app = crate::app::App::headless(32, 32);
+            app.with_default_widgets();
+            app.world
+        }
     }
 
     #[test]

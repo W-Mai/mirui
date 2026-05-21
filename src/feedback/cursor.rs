@@ -190,9 +190,9 @@ mod tests {
     use crate::widget::Style;
 
     fn make_world() -> World {
-        crate::app::App::headless(128, 128)
-            .with_default_widgets()
-            .world
+        let mut app = crate::app::App::headless(128, 128);
+        app.with_default_widgets();
+        app.world
     }
 
     fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {

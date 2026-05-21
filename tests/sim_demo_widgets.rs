@@ -42,7 +42,9 @@ const SLIDER_Y: i32 = 47;
 /// root → TabBar + 3 TabContent pages, Slider on page 1, Switch on
 /// page 2. Returns (world, root, slider, switch, tab_bar).
 fn build() -> (World, Entity, Entity, Entity, Entity) {
-    let mut world = mirui::app::App::headless(W, H).with_default_widgets().world;
+    let mut app = mirui::app::App::headless(W, H);
+    app.with_default_widgets();
+    let mut world = app.world;
 
     let root = WidgetBuilder::new(&mut world)
         .layout(LayoutStyle {

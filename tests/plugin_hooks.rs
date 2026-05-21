@@ -53,7 +53,8 @@ fn noop_flush(_: &[u8], _: &Rect) {}
 #[test]
 fn build_fires_once_on_add_plugin() {
     let backend = FramebufSurface::new(64, 64, noop_flush);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
     let counts = Rc::new(Counts::default());
     app.add_plugin(CountPlugin {
         counts: Rc::clone(&counts),
@@ -65,7 +66,8 @@ fn build_fires_once_on_add_plugin() {
 #[test]
 fn pre_and_post_render_fire_per_render_call() {
     let backend = FramebufSurface::new(64, 64, noop_flush);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
     let counts = Rc::new(Counts::default());
     app.add_plugin(CountPlugin {
         counts: Rc::clone(&counts),

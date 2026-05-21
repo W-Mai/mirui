@@ -207,9 +207,9 @@ mod hover_press_e2e {
     use crate::widget::Widget;
 
     fn make_world_with_button() -> (World, Entity) {
-        let mut world = crate::app::App::headless(64, 64)
-            .with_default_widgets()
-            .world;
+        let mut app = crate::app::App::headless(64, 64);
+        app.with_default_widgets();
+        let mut world = app.world;
         let root = world.spawn();
         world.insert(root, Widget);
         world.insert(

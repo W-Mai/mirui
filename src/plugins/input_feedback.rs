@@ -81,7 +81,9 @@ mod tests {
 
     fn make_app() -> App<crate::surface::framebuf::FramebufSurface<fn(&[u8], &crate::types::Rect)>>
     {
-        crate::app::App::headless(64, 64).with_default_widgets()
+        let mut app = crate::app::App::headless(64, 64);
+        app.with_default_widgets();
+        app
     }
 
     fn child_with<C: 'static>(world: &World, root: Entity) -> Option<Entity> {

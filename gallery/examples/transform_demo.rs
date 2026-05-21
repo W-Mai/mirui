@@ -33,7 +33,8 @@ fn spin_system(world: &mut World) {
 
 fn main() {
     let backend = SdlSurface::new("mirui - transform demo", 480, 320);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
 
     app.add_system(spin_system::system());
 

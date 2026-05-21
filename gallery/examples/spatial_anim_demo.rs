@@ -54,9 +54,8 @@ fn spring_system(world: &mut World) {
 
 fn main() {
     let backend = SdlSurface::new("mirui - Tween vs Spring vs Elastic", 400, 300);
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_default_systems();
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
 
     app.add_system(mirui::ecs::System::new(
         "animate_tween_y",

@@ -79,9 +79,8 @@ fn main() {
     out.push(format!("lazylist-{scenario}.png"));
 
     let backend = FramebufSurface::with_format(W, H, ColorFormat::RGBA8888, |_, _| {});
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_default_systems();
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

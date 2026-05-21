@@ -46,9 +46,8 @@ fn main() {
     // closer-to-device timing.
     let backend = SlowSurface::new(SdlSurface::new("perf collect", 320, 320), 50);
 
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_default_systems();
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
 
     app.add_plugin(StdInstantClockPlugin::default());
     app.add_plugin(PerfReportPlugin::new(60).with_perfetto_writer("/tmp/mirui-perf.ndjson"));

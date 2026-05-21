@@ -44,7 +44,8 @@ fn flip_system(world: &mut World) {
 
 fn main() {
     let backend = SdlSurface::new("mirui - book flip (transform-origin)", 640, 360);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
     app.add_system(flip_system::system());
 
     let root = WidgetBuilder::new(&mut app.world)

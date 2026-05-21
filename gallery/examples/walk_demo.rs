@@ -7,7 +7,8 @@ use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("mirui - walk demo", 480, 320);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

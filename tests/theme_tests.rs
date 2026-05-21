@@ -24,7 +24,8 @@ fn app_new_inserts_default_theme() {
 #[test]
 fn with_theme_replaces_default() {
     let backend = FramebufSurface::new(64, 64, |_, _| {});
-    let app = App::new(backend).with_theme(Theme::light());
+    let mut app = App::new(backend);
+    app.with_theme(Theme::light());
     let theme = app.world.resource::<Theme>().unwrap();
     assert_eq!(
         theme.resolve(ColorToken::Surface),
@@ -37,7 +38,8 @@ fn with_theme_can_use_custom_palette() {
     let mut t = Theme::dark();
     t.set(ColorToken::Primary, Color::rgb(255, 0, 128));
     let backend = FramebufSurface::new(64, 64, |_, _| {});
-    let app = App::new(backend).with_theme(t);
+    let mut app = App::new(backend);
+    app.with_theme(t);
     assert_eq!(
         app.world
             .resource::<Theme>()
@@ -53,7 +55,8 @@ fn user_defined_token_round_trips_through_app() {
     let mut t = Theme::dark();
     t.set(BRAND, Color::rgb(220, 60, 70));
     let backend = FramebufSurface::new(64, 64, |_, _| {});
-    let app = App::new(backend).with_theme(t);
+    let mut app = App::new(backend);
+    app.with_theme(t);
     assert_eq!(
         app.world.resource::<Theme>().unwrap().resolve(BRAND),
         Color::rgb(220, 60, 70),
@@ -66,7 +69,8 @@ fn set_theme_swaps_resource_and_marks_tree_dirty() {
     use mirui::widget::dirty::Dirty;
 
     let backend = FramebufSurface::new(64, 64, |_, _| {});
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
 
     let child_a = WidgetBuilder::new(&mut app.world).id();
     let child_b = WidgetBuilder::new(&mut app.world).id();
@@ -103,7 +107,8 @@ fn set_root_publishes_widget_root_resource() {
     use mirui::widget::builder::WidgetBuilder;
 
     let backend = FramebufSurface::new(64, 64, |_, _| {});
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
     let root = WidgetBuilder::new(&mut app.world).id();
     app.set_root(root);
 

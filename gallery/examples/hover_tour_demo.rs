@@ -10,9 +10,8 @@ use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("mirui — hover tour", 720, 360);
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_default_systems();
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
 
     let surface_bg = Color::rgb(13, 17, 23);
     let card_a = Color::rgb(34, 74, 44);

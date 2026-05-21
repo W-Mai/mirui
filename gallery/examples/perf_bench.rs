@@ -27,14 +27,18 @@ fn main() {
     let mut app = {
         use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
         let backend = SdlGpuSurface::new_with_vsync("mirui perf_bench — SDL GPU", W, H, false);
-        App::with_factory(backend, SdlGpuFactory::new()).with_default_widgets()
+        let mut app = App::with_factory(backend, SdlGpuFactory::new());
+        app.with_default_widgets();
+        app
     };
 
     #[cfg(all(feature = "sdl", not(feature = "sdl-gpu")))]
     let mut app = {
         use mirui::surface::sdl::SdlSurface;
         let backend = SdlSurface::new_with_vsync("mirui perf_bench — SDL CPU", W, H, false);
-        App::new(backend).with_default_widgets()
+        let mut app = App::new(backend);
+        app.with_default_widgets();
+        app
     };
 
     let root = WidgetBuilder::new(&mut app.world)

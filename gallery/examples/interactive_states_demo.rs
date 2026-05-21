@@ -27,9 +27,8 @@ fn toggle_errored_handler(world: &mut World, entity: Entity, event: &GestureEven
 
 fn main() {
     let backend = SdlSurface::new("mirui — interactive states", 720, 420);
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_default_systems();
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
 
     let surface_bg = Color::rgb(13, 17, 23);
     let hover_bg = Color::rgb(34, 74, 44);

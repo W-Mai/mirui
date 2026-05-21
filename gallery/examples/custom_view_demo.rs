@@ -94,9 +94,8 @@ fn cycle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
 
 fn main() {
     let backend = SdlSurface::new("custom_view_demo", 480, 200);
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_widget(diamond_view());
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_widget(diamond_view());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(28, 28, 36))

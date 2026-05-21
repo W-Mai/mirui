@@ -26,7 +26,8 @@ const DRAG_H: i32 = 60;
 
 fn main() {
     let backend = SdlGpuSurface::new("mirui SDL GPU — drag me", 640, 480);
-    let mut app = App::with_factory(backend, SdlGpuFactory::new()).with_default_widgets();
+    let mut app = App::with_factory(backend, SdlGpuFactory::new());
+    app.with_default_widgets();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgba(30, 30, 46, 255))

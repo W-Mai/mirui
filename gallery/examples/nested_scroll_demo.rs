@@ -9,9 +9,8 @@ use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("mirui - nested scroll", 480, 400);
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_default_systems();
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
     app.add_plugin(InputFeedbackPlugin::new());
 
     let root = WidgetBuilder::new(&mut app.world)

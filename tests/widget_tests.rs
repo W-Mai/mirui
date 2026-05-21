@@ -29,9 +29,9 @@ mod tests {
 
     #[test]
     fn render_system_produces_draw_commands() {
-        let mut world = mirui::app::App::headless(64, 64)
-            .with_default_widgets()
-            .world;
+        let mut app = mirui::app::App::headless(64, 64);
+        app.with_default_widgets();
+        let mut world = app.world;
 
         let child = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))
@@ -87,9 +87,9 @@ mod tests {
 
     #[test]
     fn render_system_respects_layout() {
-        let mut world = mirui::app::App::headless(64, 64)
-            .with_default_widgets()
-            .world;
+        let mut app = mirui::app::App::headless(64, 64);
+        app.with_default_widgets();
+        let mut world = app.world;
 
         let c1 = WidgetBuilder::new(&mut world)
             .bg_color(Color::rgb(255, 0, 0))

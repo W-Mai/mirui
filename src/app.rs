@@ -105,7 +105,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     /// Replace the active [`Theme`]. Defaults to [`Theme::dark`].
-    pub fn with_theme(mut self, theme: Theme) -> Self {
+    pub fn with_theme(&mut self, theme: Theme) -> &mut Self {
         self.world.insert_resource(theme);
         self
     }
@@ -116,7 +116,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     /// Register one widget kind (built-in or user-defined).
-    pub fn with_widget(mut self, view: View) -> Self {
+    pub fn with_widget(&mut self, view: View) -> &mut Self {
         let systems = &mut self.systems;
         view.install(&mut self.world, |s| systems.add(s));
         if let Some(reg) = self.world.resource_mut::<ViewRegistry>() {
@@ -126,19 +126,19 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     /// Batch counterpart of `with_widget`; also accepts a `ViewRegistry`.
-    pub fn with_widgets(mut self, views: impl IntoIterator<Item = View>) -> Self {
+    pub fn with_widgets(&mut self, views: impl IntoIterator<Item = View>) -> &mut Self {
         for view in views {
-            self = self.with_widget(view);
+            self.with_widget(view);
         }
         self
     }
 
     /// Register all built-in mirui widgets in render-priority order.
-    pub fn with_default_widgets(self) -> Self {
+    pub fn with_default_widgets(&mut self) -> &mut Self {
         self.with_widgets(ViewRegistry::with_builtins())
     }
 
-    pub fn with_default_systems(mut self) -> Self {
+    pub fn with_default_systems(&mut self) -> &mut Self {
         self.add_system(crate::anim::sync_delta_time_ms::system());
         self.add_system(crate::timer::timer_system::system());
         self.add_system(crate::event::scroll::system::scroll_inertia_system::system());

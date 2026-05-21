@@ -110,9 +110,8 @@ fn handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
 
 fn main() {
     let backend = SdlSurface::new("mirui — pinch / rotate demo", W as u16, H as u16);
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_default_systems();
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

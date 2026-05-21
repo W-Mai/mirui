@@ -29,9 +29,8 @@ fn main() {
     let width: u16 = 480;
     let height: u16 = 200;
     let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_default_systems();
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

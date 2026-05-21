@@ -80,7 +80,8 @@ fn longpress_handler(world: &mut World, entity: Entity, event: &GestureEvent) ->
 
 fn main() {
     let backend = SdlSurface::new("mirui - gesture demo", 320, 240);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

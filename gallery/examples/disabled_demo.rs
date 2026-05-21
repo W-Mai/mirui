@@ -50,9 +50,8 @@ fn count_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
 
 fn main() {
     let backend = SdlSurface::new("mirui - disabled demo", 480, 320);
-    let mut app = App::new(backend)
-        .with_default_widgets()
-        .with_default_systems();
+    let mut app = App::new(backend);
+    app.with_default_widgets().with_default_systems();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

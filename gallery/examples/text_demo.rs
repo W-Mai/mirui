@@ -6,7 +6,8 @@ use mirui::widget::builder::WidgetBuilder;
 
 fn main() {
     let backend = SdlSurface::new("mirui - text demo", 480, 320);
-    let mut app = App::new(backend).with_default_widgets();
+    let mut app = App::new(backend);
+    app.with_default_widgets();
 
     let label1 = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(88, 166, 255))
