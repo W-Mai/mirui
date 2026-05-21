@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-05-21
+
+### Added
+
+- **`FrameTimings` resource** (`mirui::ecs::FrameTimings`) — `App::run` writes a 7-stage breakdown each frame (`frame_nanos`, `event_poll_nanos`, `systems_nanos`, `layout_nanos`, `render_nanos`, `flush_nanos`, `seed_prev_nanos`). Plugins read via `world.resource()`.
+- **`FrameStats` resource** (`mirui::ecs::FrameStats`) — 256-sample sliding window of `frame_nanos`. Exposes `avg / min / max / p99 / jitter` for tail-latency analysis.
+- **`crate::perf::set_clock(fn)`** — clock plugins inject the time source so `trace_span!` / `#[trace_fn]` start recording on `no_std` targets. `StdInstantClockPlugin` calls it automatically.
+- **`no_std` perf recorder** — 256-event ring buffer guarded by `critical_section`. Drains via `crate::perf::drain_events()`; `aggregate()` produces per-name stats.
+
+### Changed
+
+- **BREAKING: `FpsSummaryPlugin::with_sink`** signature changed from `fn(frames: u32, avg_render_ns: u64)` to `fn(FpsSummary<'_>)`. The new struct exposes per-stage averages, a borrow of `FrameStats`, and the drained `crate::perf` event list, so a single sink can report fps + tail latency + per-span detail.
+- **BREAKING: `Plugin::post_render`'s `render_nanos`** now reports rasterization time only (excludes flush + `seed_prev_rects`). For end-to-end frame time, read `FrameTimings.frame_nanos`. Already shipped in v0.17.2; documented here for completeness.
+- `crate::perf::aggregate` is now available on both `std` and `no_std`.
+
+### Dependencies
+
+- Adds `critical-section = "1.2"` (default-features = false) for the no_std recorder. Pulls `critical-section/std` automatically when the `std` feature is enabled.
+
 ## [0.17.3] - 2026-05-21
 
 ### Added

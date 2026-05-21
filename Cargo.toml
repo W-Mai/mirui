@@ -1,6 +1,6 @@
 [package]
 name = "mirui"
-version = "0.17.3"
+version = "0.18.0"
 edition = "2024"
 authors = ["Benign X <1341398182@qq.com>"]
 license = "MIT"
@@ -17,7 +17,7 @@ rust-version = "1.85"
 members = [".", "xtask", "mirui-macros", "gallery"]
 
 [dependencies]
-mirui-macros = { version = "0.17.3", path = "mirui-macros" }
+mirui-macros = { version = "0.18.0", path = "mirui-macros" }
 critical-section = { version = "1.2", default-features = false }
 
 [features]
