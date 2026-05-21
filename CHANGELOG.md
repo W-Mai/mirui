@@ -5,25 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.16.3] - 2026-05-21
+
+Theme: **Input Feedback Overlays**. v0.16.3 ships cursor and rotary visual feedback as opt-in overlays — a small dot tracks the cursor, a magnetic membrane swells from the right edge in response to rotary detents, wheel scroll, and rotary clicks. Implementation went through two rounds: an inline first cut, then a refactor onto framework conventions (Plugin + ViewRegistry + per-entity Dirty). Only the refactored shape ships; the inline cut never published.
 
 ### Added
 
-- **Cursor + rotary input feedback overlays now follow framework conventions.** The two overlays are real `Widget` entities under `WidgetRoot`, each backed by its own `View` (priority 90 / 91) and dirty-tracked through the per-entity `Dirty` + `PrevRect` mechanism that the rest of the framework already uses. Cursor entity is lazy-spawned on first `PointerCursor`; rotary entity is spawned by the plugin once the root is set.
-- **`InputFeedbackPlugin`.** Replaces the previous one-off `App::with_input_feedback()` toggle. Registers the systems, views, and entities through the standard `Plugin` lifecycle; `Plugin::on_event` records rotary / wheel / click impulses without `event::dispatch_input` reaching back into the feedback module.
-- **`DrawCommand::FillPath`.** Path fill is now part of the public draw command set, so any `View` (built-in or user-defined) can emit filled paths through the plain `&mut dyn Renderer` contract. Matches the existing `Canvas::fill_path` already implemented by both software and SDL_GPU backends.
-- **`IgnoreHitTest` marker.** Excludes a widget entity from `hit_test` while keeping it in layout and render. Used by the new overlay entities so they never intercept pointer input.
+- **`InputFeedbackPlugin` — opt-in cursor + rotary feedback overlays.** Two ECS entities live under `WidgetRoot` (cursor lazy-spawned on first `PointerCursor`, rotary spawned eagerly by the plugin's `pre_render`), each backed by its own `View` at priority 90 / 91 and dirty-tracked through the standard per-entity `Dirty` + `PrevRect` machinery. The plugin's `Plugin::on_event` translates `Rotary` / `Wheel` / `Key(KEY_ROTARY_PRESS)` into `InputFeedbackInput` impulses; `event::dispatch_input` does not reach into the feedback module.
+- **Cursor overlay.** Two modes: `Dot` (default) draws a 4–5 px circle that follows the pointer, `MagneticRect` (entry point reserved) will morph to the hovered widget's rect.
+- **Rotary overlay.** A magnetic-membrane water drop on the right edge. Driven by a critically-damped spring on `progress`, with separate decays for `opacity` and click `pulse`. Rotary detents drive `target` away from zero (clamped at the membrane's `max_pull`); the spring carries `progress` through and back. Wheel scroll feeds the same `target`. Rotary click triggers a one-off pulse.
+- **`MagneticMembrane`** (`mirui::draw::membrane`). Path-generating helper for the rotary overlay: ball + Gaussian-fade membrane on a `Flat` or `Arc` boundary. `max_pull` and `span` give callers the kinematic envelope; `path()` builds a closed path the renderer can fill.
+- **`DrawCommand::FillPath`.** Path fill is now part of the public draw command set, so any `View` (built-in or user-defined) can emit filled paths through the plain `&mut dyn Renderer` contract. Forwards to the existing `Canvas::fill_path` already implemented by both software and SDL_GPU backends.
+- **`IgnoreHitTest` marker** (`mirui::widget`). Excludes a widget entity from `hit_test` while keeping it in layout and render. Used by the overlay entities so they never intercept pointer input.
 - **`Style::absolute_at(rect)`.** Convenience constructor for absolutely-positioned widget styles (overlays, popovers, drag ghosts).
+- **Examples.** `gallery/examples/input_feedback_demo` (sim cursor + rotary feedback) and `nested_scroll_demo` is wired through the plugin.
 
 ### Changed
 
-- **BREAKING: `App::with_input_feedback()` removed.** Replace with `app.add_plugin(mirui::plugins::InputFeedbackPlugin::new())`. Behaviour is unchanged from a user perspective: opt-in, default off, no ESP runtime cost when not added.
-- `crate::input_feedback` → `crate::feedback`. Public types (`InputFeedback`, `CursorFeedback`, `RotaryFeedback`, `CursorFeedbackMode`, `CursorVisual`, `InputFeedbackInput`) keep the same names.
-- `crate::components::magnetic_membrane` → `crate::draw::membrane`. The membrane is a path-generating geometry helper, not a widget kind, and the new location matches its actual role.
-
-### Removed
-
-- `InputFeedback.dirty: bool`, `CursorFeedback.seen: bool`, `CursorFeedback.prev_bbox`, `RotaryFeedback.prev_bbox`, `seed_overlay_prev_rects`, and `overlay_dirty_region`. The per-entity `Dirty` + `PrevRect` machinery now handles all of these uniformly.
+- `gallery/examples/{input_feedback_demo,nested_scroll_demo}.rs` migrate to `app.add_plugin(InputFeedbackPlugin::new())`.
 
 ## [0.16.2] - 2026-05-20
 
