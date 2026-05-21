@@ -6,7 +6,7 @@ use crate::feedback::{InputFeedback, InputFeedbackInput, OverlayRotary};
 use crate::types::{Color, Dimension, Fixed, Rect, Viewport};
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
-use crate::widget::{Children, IgnoreHitTest, Parent, Style, Widget, WidgetRoot};
+use crate::widget::{Children, IgnoreHitTest, Parent, Style, Widget};
 
 const PRIMARY: Color = Color::rgb(88, 166, 255);
 /// Track width on the right edge. Wide enough for the membrane to swell
@@ -56,16 +56,6 @@ fn write_layout(world: &mut World, entity: Entity, rect: Rect) {
     }
 }
 
-fn find_overlay_rotary(world: &World) -> Option<Entity> {
-    let root = world.resource::<WidgetRoot>().copied()?;
-    let children = world.get::<Children>(root.0)?;
-    children
-        .0
-        .iter()
-        .copied()
-        .find(|e| world.get::<OverlayRotary>(*e).is_some())
-}
-
 pub(crate) fn spawn_overlay_rotary(world: &mut World, root: Entity) -> Entity {
     let entity = world.spawn();
     world.insert(entity, Widget);
@@ -77,6 +67,10 @@ pub(crate) fn spawn_overlay_rotary(world: &mut World, root: Entity) -> Entity {
         children.0.push(entity);
     } else {
         world.insert(root, Children(alloc::vec![entity]));
+    }
+    if let Some(mut feedback) = world.resource::<InputFeedback>().copied() {
+        feedback.rotary.entity = Some(entity);
+        world.insert_resource(feedback);
     }
     entity
 }
@@ -151,7 +145,7 @@ pub fn rotary_feedback_system(world: &mut World) {
     }
     world.insert_resource(feedback);
 
-    let Some(entity) = find_overlay_rotary(world) else {
+    let Some(entity) = feedback.rotary.entity else {
         return;
     };
 
@@ -217,6 +211,7 @@ pub fn view() -> View {
 mod tests {
     use super::*;
     use crate::ecs::DeltaTimeMs;
+    use crate::widget::WidgetRoot;
 
     fn make_world() -> World {
         crate::app::App::headless(64, 64)
@@ -334,7 +329,12 @@ mod tests {
     #[test]
     fn marks_overlay_dirty_when_state_changes() {
         let mut world = world_with_rotary_root();
-        let entity = find_overlay_rotary(&world).expect("spawned");
+        let entity = world
+            .resource::<InputFeedback>()
+            .unwrap()
+            .rotary
+            .entity
+            .expect("spawned");
         world.insert_resource(InputFeedbackInput {
             rotary_delta: 1,
             wheel_delta_y: Fixed::ZERO,

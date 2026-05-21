@@ -68,16 +68,6 @@ fn write_layout(world: &mut World, entity: Entity, rect: Rect) {
     }
 }
 
-fn find_overlay_cursor(world: &World) -> Option<Entity> {
-    let root = world.resource::<WidgetRoot>().copied()?;
-    let children = world.get::<Children>(root.0)?;
-    children
-        .0
-        .iter()
-        .copied()
-        .find(|e| world.get::<OverlayCursor>(*e).is_some())
-}
-
 fn spawn_overlay_cursor(world: &mut World, root: Entity, initial_rect: Rect) -> Entity {
     let entity = world.spawn();
     world.insert(entity, Widget);
@@ -113,21 +103,24 @@ pub fn cursor_feedback_system(world: &mut World) {
 
     feedback.cursor.current = visual;
     feedback.cursor.last_event_seq = cursor.event_seq;
-    world.insert_resource(feedback);
 
     let rect = entity_target_rect(&visual, feedback.cursor.mode);
-    let entity = match find_overlay_cursor(world) {
+    let entity = match feedback.cursor.entity {
         Some(e) => {
             write_layout(world, e, rect);
             e
         }
         None => {
             let Some(root) = world.resource::<WidgetRoot>().copied() else {
+                world.insert_resource(feedback);
                 return;
             };
-            spawn_overlay_cursor(world, root.0, rect)
+            let e = spawn_overlay_cursor(world, root.0, rect);
+            feedback.cursor.entity = Some(e);
+            e
         }
     };
+    world.insert_resource(feedback);
     world.insert(entity, Dirty);
 }
 
@@ -282,12 +275,22 @@ mod tests {
         });
 
         assert!(
-            find_overlay_cursor(&world).is_none(),
+            world
+                .resource::<InputFeedback>()
+                .unwrap()
+                .cursor
+                .entity
+                .is_none(),
             "no entity before pointer"
         );
         cursor_feedback_system(&mut world);
         assert!(
-            find_overlay_cursor(&world).is_some(),
+            world
+                .resource::<InputFeedback>()
+                .unwrap()
+                .cursor
+                .entity
+                .is_some(),
             "system should spawn overlay entity",
         );
     }
@@ -303,7 +306,12 @@ mod tests {
             event_seq: 1,
         });
         cursor_feedback_system(&mut world);
-        let entity = find_overlay_cursor(&world).expect("spawned");
+        let entity = world
+            .resource::<InputFeedback>()
+            .unwrap()
+            .cursor
+            .entity
+            .expect("spawned");
         // Walker normally consumes Dirty; assert it was set this frame.
         assert!(world.get::<Dirty>(entity).is_some());
 
@@ -332,7 +340,12 @@ mod tests {
             event_seq: 1,
         });
         cursor_feedback_system(&mut world);
-        let entity = find_overlay_cursor(&world).expect("spawned");
+        let entity = world
+            .resource::<InputFeedback>()
+            .unwrap()
+            .cursor
+            .entity
+            .expect("spawned");
         world.remove::<Dirty>(entity);
 
         // Same event_seq + same visual → no work.

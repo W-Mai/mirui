@@ -37,6 +37,7 @@ pub struct CursorFeedback {
     pub mode: CursorFeedbackMode,
     pub current: CursorVisual,
     pub last_event_seq: u32,
+    pub(crate) entity: Option<crate::ecs::Entity>,
 }
 
 impl Default for CursorFeedback {
@@ -46,6 +47,7 @@ impl Default for CursorFeedback {
             mode: CursorFeedbackMode::Dot,
             current: CursorVisual::default(),
             last_event_seq: 0,
+            entity: None,
         }
     }
 }
@@ -61,6 +63,7 @@ pub struct RotaryFeedback {
     pub last_input_ms: u32,
     pub pulse: Fixed,
     pub last_input_seq: u32,
+    pub(crate) entity: Option<crate::ecs::Entity>,
 }
 
 impl Default for RotaryFeedback {
@@ -75,6 +78,7 @@ impl Default for RotaryFeedback {
             last_input_ms: 0,
             pulse: Fixed::ZERO,
             last_input_seq: 0,
+            entity: None,
         }
     }
 }
