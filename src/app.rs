@@ -60,9 +60,6 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     plugins: Vec<Box<dyn Plugin<B, F>>>,
     #[cfg(feature = "perf")]
     pub perf: Option<crate::draw::PerfCtx>,
-    // Per-stage nanosecond counters written by render / render_dirty so
-    // run() can fold them into the FrameTimings resource without each
-    // entry point also touching world.
     last_layout_ns: u64,
     last_render_ns: u64,
     last_flush_ns: u64,
@@ -336,7 +333,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 return;
             }
 
-            let event_end = self.clock_ns();
+            let input_end = self.clock_ns();
 
             // Systems run after event/gesture dispatch so that anything
             // observing input-driven state (ScrollOffset, focus, ...)
@@ -351,19 +348,25 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 self.render_dirty();
             }
 
-            let frame_end = self.clock_ns();
-            let frame_nanos = frame_end.saturating_sub(frame_start);
+            // Sum disjoint stages so reporter post_render time isn't
+            // counted against the frame budget unattributed.
+            let input_nanos = input_end.saturating_sub(frame_start);
+            let systems_nanos = systems_end.saturating_sub(input_end);
+            let frame_nanos = input_nanos
+                + systems_nanos
+                + self.last_layout_ns
+                + self.last_render_ns
+                + self.last_flush_ns
+                + self.last_seed_prev_ns;
             self.world.insert_resource(crate::ecs::FrameTimings {
                 frame_nanos,
-                event_poll_nanos: event_end.saturating_sub(frame_start),
-                systems_nanos: systems_end.saturating_sub(event_end),
+                input_nanos,
+                systems_nanos,
                 layout_nanos: self.last_layout_ns,
                 render_nanos: self.last_render_ns,
                 flush_nanos: self.last_flush_ns,
                 seed_prev_nanos: self.last_seed_prev_ns,
             });
-            // FrameStats is owned by App.run so it persists across
-            // resource overwrites. Pull, push, restore.
             let mut stats = self
                 .world
                 .resource_mut::<crate::ecs::FrameStats>()

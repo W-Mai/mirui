@@ -156,45 +156,49 @@ mod imp {
         depth: u8,
     }
 
+    fn read_clock() -> Option<fn() -> u64> {
+        let raw = with_state(|s| s.clock);
+        if raw == 0 {
+            None
+        } else {
+            // SAFETY: only `set_clock` writes this slot, only with a
+            // valid `fn() -> u64` cast to usize.
+            Some(unsafe { core::mem::transmute::<usize, fn() -> u64>(raw) })
+        }
+    }
+
     impl Guard {
         fn new(name: &'static str) -> Self {
-            with_state(|s| {
-                let depth = s.depth;
+            // Clock fn runs outside the critical section.
+            let start_ns = read_clock().map(|f| f()).unwrap_or(0);
+            let depth = with_state(|s| {
+                let d = s.depth;
                 s.depth = s.depth.saturating_add(1);
-                if s.clock == 0 {
-                    return Guard {
-                        name,
-                        start_ns: 0,
-                        depth,
-                    };
-                }
-                let f: fn() -> u64 = unsafe { core::mem::transmute(s.clock) };
-                Guard {
-                    name,
-                    start_ns: f(),
-                    depth,
-                }
-            })
+                d
+            });
+            Guard {
+                name,
+                start_ns,
+                depth,
+            }
         }
     }
 
     impl Drop for Guard {
         fn drop(&mut self) {
+            let end_ns = read_clock().map(|f| f()).unwrap_or(0);
             with_state(|s| {
                 s.depth = s.depth.saturating_sub(1);
                 if s.clock == 0 {
                     return;
                 }
-                let f: fn() -> u64 = unsafe { core::mem::transmute(s.clock) };
-                let end_ns = f();
-                let ev = PerfEvent {
+                let r = &mut s.ring;
+                r.events[r.head] = PerfEvent {
                     name: self.name,
                     start_ns: self.start_ns,
                     end_ns,
                     depth: self.depth,
                 };
-                let r = &mut s.ring;
-                r.events[r.head] = ev;
                 r.head = (r.head + 1) % CAP;
                 if r.len < CAP {
                     r.len += 1;
@@ -208,20 +212,25 @@ mod imp {
     }
 
     pub fn drain_events() -> alloc::vec::Vec<PerfEvent> {
-        with_state(|s| {
-            let r = &mut s.ring;
-            if r.len == 0 {
-                return alloc::vec::Vec::new();
-            }
-            let mut out = alloc::vec::Vec::with_capacity(r.len);
-            let start = if r.len < CAP { 0 } else { r.head };
-            for i in 0..r.len {
-                out.push(r.events[(start + i) % CAP]);
-            }
-            r.head = 0;
-            r.len = 0;
-            out
-        })
+        // Snapshot head/len under the lock, alloc and copy outside,
+        // so the interrupt-blackout window stays O(1).
+        let (head, len) = with_state(|s| {
+            let h = s.ring.head;
+            let n = s.ring.len;
+            s.ring.head = 0;
+            s.ring.len = 0;
+            (h, n)
+        });
+        if len == 0 {
+            return alloc::vec::Vec::new();
+        }
+        let mut out = alloc::vec::Vec::with_capacity(len);
+        let start = if len < CAP { 0 } else { head };
+        for i in 0..len {
+            let ev = with_state(|s| s.ring.events[(start + i) % CAP]);
+            out.push(ev);
+        }
+        out
     }
 }
 

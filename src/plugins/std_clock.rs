@@ -12,16 +12,13 @@ fn std_clock_ns() -> u64 {
     CLOCK_START.get_or_init(Instant::now).elapsed().as_nanos() as u64
 }
 
-/// Backs `MonoClock` with `std::time::Instant`. Required on desktop /
-/// std builds for any plugin or system that consumes `MonoClock` (e.g.
-/// scheduler perf timing, animation `dt`).
+/// Backs `MonoClock` with `std::time::Instant`.
 ///
 /// **Inserts**
-/// - resource: `MonoClock` (clock fn returning ns since first build call)
-/// - system: none
-/// - view: none
-/// - entity: none
-/// - hooks: none
+/// - resource: `MonoClock`
+/// - global: calls `crate::perf::set_clock` so `trace_span!` records
+///   on `no_std` builds (no-op on `std` since the std imp uses
+///   `Instant` directly)
 #[derive(Default)]
 pub struct StdInstantClockPlugin;
 

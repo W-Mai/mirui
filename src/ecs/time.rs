@@ -7,18 +7,16 @@ pub struct DeltaTimeMs(pub u16);
 /// for the most recently completed frame; zero when no `MonoClock` is
 /// present.
 ///
-/// Stages cover the entire `App::run` iteration:
-///
-/// ```text
-/// frame_nanos = event_poll + systems + layout + render + flush + seed_prev
-/// ```
-///
-/// `seed_prev` only advances on the full-render path; on dirty-render
-/// frames it stays zero. Plugins read this via `world.resource()`.
+/// `frame_nanos` is the full loop iteration; the other fields are
+/// disjoint subsets that sum to it. `input_nanos` covers the entire
+/// "consume input" phase (backend `poll_event`, plugin `on_event`,
+/// `dispatch_input`, long-press scan, gesture bubble dispatch), not
+/// just `Surface::poll_event`. `seed_prev_nanos` only advances on the
+/// full-render path; dirty-render frames leave it zero.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct FrameTimings {
     pub frame_nanos: u64,
-    pub event_poll_nanos: u64,
+    pub input_nanos: u64,
     pub systems_nanos: u64,
     pub layout_nanos: u64,
     pub render_nanos: u64,
@@ -33,8 +31,6 @@ pub struct FrameTimings {
 /// 256 samples ≈ 3.4 s at 75 fps, ≈ 14 s at 18 fps — plenty to surface
 /// stutter without occupying meaningful RAM (2 KB).
 pub struct FrameStats {
-    /// Most recent frames first index (head). Underlying storage is a
-    /// fixed-size array so we don't allocate on the hot path.
     samples: [u64; FRAME_STATS_CAP],
     head: usize,
     len: usize,
@@ -70,11 +66,6 @@ impl FrameStats {
         self.len == 0
     }
 
-    pub fn clear(&mut self) {
-        self.head = 0;
-        self.len = 0;
-    }
-
     fn iter(&self) -> impl Iterator<Item = u64> + '_ {
         let len = self.len;
         let cap = FRAME_STATS_CAP;
@@ -108,7 +99,7 @@ impl FrameStats {
         }
         let mut sorted: alloc::vec::Vec<u64> = self.iter().collect();
         sorted.sort_unstable();
-        let idx = (self.len * 99 / 100).saturating_sub(1).min(self.len - 1);
+        let idx = ((self.len * 99).div_ceil(100) - 1).min(self.len - 1);
         sorted[idx]
     }
 
@@ -186,5 +177,80 @@ pub mod mock {
     pub fn lock() -> std::sync::MutexGuard<'static, ()> {
         static SERIAL: Mutex<()> = Mutex::new(());
         SERIAL.lock().unwrap_or_else(|p| p.into_inner())
+    }
+}
+
+#[cfg(test)]
+mod frame_stats_tests {
+    use super::*;
+
+    #[test]
+    fn empty_window_reports_zero() {
+        let s = FrameStats::default();
+        assert!(s.is_empty());
+        assert_eq!(s.len(), 0);
+        assert_eq!(s.min(), 0);
+        assert_eq!(s.max(), 0);
+        assert_eq!(s.p99(), 0);
+        assert_eq!(s.jitter(), 0);
+    }
+
+    #[test]
+    fn small_window_min_max_jitter() {
+        let mut s = FrameStats::default();
+        s.push(10);
+        s.push(20);
+        s.push(15);
+        assert_eq!(s.len(), 3);
+        assert_eq!(s.min(), 10);
+        assert_eq!(s.max(), 20);
+        assert_eq!(s.jitter(), 10);
+        assert_eq!(s.p99(), 20);
+    }
+
+    #[test]
+    fn p99_with_two_samples_returns_max() {
+        let mut s = FrameStats::default();
+        s.push(5);
+        s.push(50);
+        assert_eq!(s.p99(), 50);
+    }
+
+    #[test]
+    fn p99_with_one_sample_returns_that_sample() {
+        let mut s = FrameStats::default();
+        s.push(42);
+        assert_eq!(s.p99(), 42);
+    }
+
+    #[test]
+    fn p99_full_window_picks_254th_smallest() {
+        let mut s = FrameStats::default();
+        for v in 1..=256u64 {
+            s.push(v);
+        }
+        assert_eq!(s.len(), 256);
+        assert_eq!(s.p99(), 254);
+    }
+
+    #[test]
+    fn ring_drops_oldest_after_capacity() {
+        let mut s = FrameStats::default();
+        for v in 1..=256u64 {
+            s.push(v);
+        }
+        s.push(999);
+        assert_eq!(s.len(), 256);
+        assert_eq!(s.min(), 2);
+        assert_eq!(s.max(), 999);
+    }
+
+    #[test]
+    fn avg_matches_arithmetic_mean() {
+        let mut s = FrameStats::default();
+        s.push(10);
+        s.push(20);
+        s.push(30);
+        assert_eq!(s.avg(), 20);
     }
 }
