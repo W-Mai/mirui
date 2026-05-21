@@ -1,6 +1,7 @@
 use mirui::app::App;
 use mirui::event::scroll::{ScrollConfig, ScrollOffset};
 use mirui::layout::*;
+use mirui::plugins::InputFeedbackPlugin;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed};
 use mirui::widget::builder::WidgetBuilder;
@@ -10,8 +11,8 @@ fn main() {
     let backend = SdlSurface::new("mirui - nested scroll", 480, 400);
     let mut app = App::new(backend)
         .with_default_widgets()
-        .with_default_systems()
-        .with_input_feedback();
+        .with_default_systems();
+    app.add_plugin(InputFeedbackPlugin::new());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(20, 20, 30))

@@ -12,7 +12,7 @@ pub mod components;
 pub mod draw;
 pub mod ecs;
 pub mod event;
-pub mod input_feedback;
+pub mod feedback;
 pub mod layout;
 pub mod perf;
 pub mod plugin;

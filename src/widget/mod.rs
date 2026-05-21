@@ -10,7 +10,7 @@ pub mod visibility;
 pub use state::{InteractionState, UserState};
 pub use theme::{ColorToken, Theme, ThemedColor};
 pub use view::{View, ViewRegistry};
-pub use visibility::Hidden;
+pub use visibility::{Hidden, IgnoreHitTest};
 
 use alloc::vec::Vec;
 
@@ -74,6 +74,22 @@ impl Style {
     pub fn set_text_color(&mut self, color: impl Into<ThemedColor>) -> &mut Self {
         self.text_color = color.into();
         self
+    }
+
+    /// Style for an entity that lives at an explicit pixel rect, ignored
+    /// by flex flow. Useful for overlays, popovers, drag-ghost layers.
+    pub fn absolute_at(rect: crate::types::Rect) -> Self {
+        Self {
+            layout: LayoutStyle {
+                position: crate::layout::Position::Absolute,
+                left: crate::types::Dimension::Px(rect.x),
+                top: crate::types::Dimension::Px(rect.y),
+                width: crate::types::Dimension::Px(rect.w),
+                height: crate::types::Dimension::Px(rect.h),
+                ..LayoutStyle::default()
+            },
+            ..Self::default()
+        }
     }
 }
 

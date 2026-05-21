@@ -2,7 +2,7 @@ use mirui::anim::ease;
 use mirui::app::App;
 use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::layout::*;
-use mirui::plugins::StdInstantClockPlugin;
+use mirui::plugins::{InputFeedbackPlugin, StdInstantClockPlugin};
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Point};
 use mirui::widget::builder::WidgetBuilder;
@@ -14,8 +14,8 @@ fn main() {
     let backend = SdlSurface::new("mirui — input feedback", 640, 360);
     let mut app = App::new(backend)
         .with_default_widgets()
-        .with_default_systems()
-        .with_input_feedback();
+        .with_default_systems();
+    app.add_plugin(InputFeedbackPlugin::new());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(18, 22, 32))

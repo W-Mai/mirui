@@ -77,8 +77,6 @@ pub fn dispatch_input(
         _ => {}
     }
 
-    crate::input_feedback::record_input(world, event);
-
     if let InputEvent::PointerDown { x, y, .. } = event {
         if let Some(target) = hit_test(world, root, *x, *y, lw, lh) {
             if entity_or_ancestor_disabled(world, target) {

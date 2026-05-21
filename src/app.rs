@@ -147,16 +147,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    pub fn with_input_feedback(mut self) -> Self {
-        self.world
-            .insert_resource(crate::input_feedback::InputFeedback::enabled());
-        self.world
-            .insert_resource(crate::input_feedback::InputFeedbackInput::default());
-        self.add_system(crate::input_feedback::cursor_feedback_system::system());
-        self.add_system(crate::input_feedback::rotary_feedback_system::system());
-        self
-    }
-
     pub fn add_system(&mut self, system: System) -> &mut Self {
         self.systems.add(system);
         self
@@ -207,13 +197,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::trace_span!("frame.render");
             let mut renderer = self.factory.make(&mut self.backend, &transform);
             render_system::render(&self.world, root, &transform, &mut renderer);
-            let (lw, lh) = transform.logical_size();
-            crate::input_feedback::render_overlay(
-                &self.world,
-                &transform,
-                &Rect::new(0, 0, lw, lh),
-                &mut renderer,
-            );
         }
 
         let (pw, ph) = self.backend.physical_size();
@@ -227,7 +210,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         // any widget that shrinks or moves between the full render
         // and the first dirty render leaves residue.
         render_system::seed_prev_rects(&mut self.world, root, &transform);
-        crate::input_feedback::seed_overlay_prev_rects(&mut self.world, &transform);
 
         let elapsed = self.clock_ns().saturating_sub(start_ns);
         for p in &mut self.plugins {
@@ -393,27 +375,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             render_system::collect_dirty_region(&mut self.world, root, &transform)
         });
 
-        let dirty = match (
-            dirty,
-            crate::input_feedback::overlay_dirty_region(&self.world, &transform),
-        ) {
-            (Some(a), Some(b)) => Some(a.union(&b)),
-            (Some(a), None) => Some(a),
-            (None, Some(b)) => Some(b),
-            (None, None) => None,
-        };
-
         if let Some(area) = dirty {
             {
                 crate::trace_span!("frame.render_region");
                 let mut renderer = self.factory.make(&mut self.backend, &transform);
                 render_system::render_region(&self.world, root, &transform, &area, &mut renderer);
-                crate::input_feedback::render_overlay(
-                    &self.world,
-                    &transform,
-                    &area,
-                    &mut renderer,
-                );
             }
 
             let phys_area = transform.rect_to_physical(area);
@@ -421,7 +387,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 crate::trace_span!("frame.flush");
                 self.backend.flush(&phys_area);
             }
-            crate::input_feedback::seed_overlay_prev_rects(&mut self.world, &transform);
         }
 
         let elapsed = self.clock_ns().saturating_sub(start_ns);

@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Cursor + rotary input feedback overlays now follow framework conventions.** The two overlays are real `Widget` entities under `WidgetRoot`, each backed by its own `View` (priority 90 / 91) and dirty-tracked through the per-entity `Dirty` + `PrevRect` mechanism that the rest of the framework already uses. Cursor entity is lazy-spawned on first `PointerCursor`; rotary entity is spawned by the plugin once the root is set.
+- **`InputFeedbackPlugin`.** Replaces the previous one-off `App::with_input_feedback()` toggle. Registers the systems, views, and entities through the standard `Plugin` lifecycle; `Plugin::on_event` records rotary / wheel / click impulses without `event::dispatch_input` reaching back into the feedback module.
+- **`DrawCommand::FillPath`.** Path fill is now part of the public draw command set, so any `View` (built-in or user-defined) can emit filled paths through the plain `&mut dyn Renderer` contract. Matches the existing `Canvas::fill_path` already implemented by both software and SDL_GPU backends.
+- **`IgnoreHitTest` marker.** Excludes a widget entity from `hit_test` while keeping it in layout and render. Used by the new overlay entities so they never intercept pointer input.
+- **`Style::absolute_at(rect)`.** Convenience constructor for absolutely-positioned widget styles (overlays, popovers, drag ghosts).
+
+### Changed
+
+- **BREAKING: `App::with_input_feedback()` removed.** Replace with `app.add_plugin(mirui::plugins::InputFeedbackPlugin::new())`. Behaviour is unchanged from a user perspective: opt-in, default off, no ESP runtime cost when not added.
+- `crate::input_feedback` → `crate::feedback`. Public types (`InputFeedback`, `CursorFeedback`, `RotaryFeedback`, `CursorFeedbackMode`, `CursorVisual`, `InputFeedbackInput`) keep the same names.
+- `crate::components::magnetic_membrane` → `crate::draw::membrane`. The membrane is a path-generating geometry helper, not a widget kind, and the new location matches its actual role.
+
+### Removed
+
+- `InputFeedback.dirty: bool`, `CursorFeedback.seen: bool`, `CursorFeedback.prev_bbox`, `RotaryFeedback.prev_bbox`, `seed_overlay_prev_rects`, and `overlay_dirty_region`. The per-entity `Dirty` + `PrevRect` machinery now handles all of these uniformly.
+
 ## [0.16.2] - 2026-05-20
 
 ### Added

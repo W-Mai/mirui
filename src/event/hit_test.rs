@@ -7,7 +7,7 @@ use crate::ecs::{Entity, World};
 use crate::event::scroll::ScrollOffset;
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
-use crate::widget::{Children, Hidden, Style, Widget};
+use crate::widget::{Children, Hidden, IgnoreHitTest, Style, Widget};
 
 // INVARIANT: every recursive walker in this module — build_rects,
 // compute_scroll_offsets, compute_transforms, compute_transforms_3d —
@@ -250,6 +250,9 @@ pub fn hit_test(
 
     let mut hit = None;
     for (i, rect) in rects.iter().enumerate() {
+        if world.get::<IgnoreHitTest>(entities[i]).is_some() {
+            continue;
+        }
         let (sx, sy) = scroll_offsets[i];
         let shifted = Rect {
             x: rect.x - sx,
