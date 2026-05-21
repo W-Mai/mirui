@@ -2,8 +2,8 @@ use crate::draw::command::DrawCommand;
 use crate::draw::membrane::{MagneticMembrane, MagneticMembraneState};
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
-use crate::feedback::{InputFeedback, InputFeedbackInput, OverlayRotary};
-use crate::types::{Color, Dimension, Fixed, Rect, Viewport};
+use crate::feedback::{InputFeedback, InputFeedbackInput, OverlayRotary, write_overlay_layout};
+use crate::types::{Color, Fixed, Rect, Viewport};
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 use crate::widget::{Children, IgnoreHitTest, Parent, Style, Widget};
@@ -12,6 +12,13 @@ const PRIMARY: Color = Color::rgb(88, 166, 255);
 /// Track width on the right edge. Wide enough for the membrane to swell
 /// without clipping at default `max_amp = 28`.
 const TRACK_WIDTH: i32 = 36;
+
+/// Spring is "settled" when progress / velocity / target each fall below
+/// this absolute value. 1/128 logical pixel is well under one display
+/// pixel even at 4x scale, so the snap to zero is imperceptible.
+fn settle_eps() -> Fixed {
+    Fixed::ONE / Fixed::from_int(128)
+}
 
 fn rotary_active(rotary: &super::RotaryFeedback) -> bool {
     rotary.progress != Fixed::ZERO || rotary.opacity != Fixed::ZERO || rotary.pulse != Fixed::ZERO
@@ -32,15 +39,6 @@ pub(crate) fn rotary_membrane_state(
     MagneticMembraneState {
         ball_offset: rotary.progress,
         amp: progress_amp.max(pulse_amp),
-    }
-}
-
-fn write_layout(world: &mut World, entity: Entity, rect: Rect) {
-    if let Some(style) = world.get_mut::<Style>(entity) {
-        style.layout.left = Dimension::Px(rect.x);
-        style.layout.top = Dimension::Px(rect.y);
-        style.layout.width = Dimension::Px(rect.w);
-        style.layout.height = Dimension::Px(rect.h);
     }
 }
 
@@ -72,6 +70,7 @@ pub fn rotary_feedback_system(world: &mut World) {
         return;
     }
     let before = feedback.rotary;
+    let max_pull = MagneticMembrane::default().max_pull();
 
     let input = world
         .resource::<InputFeedbackInput>()
@@ -80,9 +79,8 @@ pub fn rotary_feedback_system(world: &mut World) {
     if input.event_seq != feedback.rotary.last_input_seq {
         let impulse = Fixed::from_int(input.rotary_delta as i32) - input.wheel_delta_y;
         if impulse != Fixed::ZERO {
-            let max_stretch = MagneticMembrane::default().max_pull();
-            let next_target = (feedback.rotary.target + impulse * Fixed::from_int(10))
-                .clamp(Fixed::ZERO - max_stretch, max_stretch);
+            let next_target =
+                (feedback.rotary.target + impulse * Fixed::from_int(10)).clamp(-max_pull, max_pull);
             feedback.rotary.velocity += (next_target - feedback.rotary.target) / Fixed::from_int(4);
             feedback.rotary.target = next_target;
             feedback.rotary.direction = if impulse > Fixed::ZERO { 1 } else { -1 };
@@ -108,18 +106,14 @@ pub fn rotary_feedback_system(world: &mut World) {
         (feedback.rotary.target - feedback.rotary.progress) * dt_fixed / Fixed::from_int(3);
     feedback.rotary.velocity += spring;
     feedback.rotary.progress += feedback.rotary.velocity * dt_fixed / Fixed::from_int(4);
-    let max_pull = MagneticMembrane::default().max_pull();
-    feedback.rotary.progress = feedback
-        .rotary
-        .progress
-        .clamp(Fixed::ZERO - max_pull, max_pull);
+    feedback.rotary.progress = feedback.rotary.progress.clamp(-max_pull, max_pull);
     feedback.rotary.velocity = feedback.rotary.velocity * Fixed::from_int(21) / Fixed::from_int(25);
     feedback.rotary.target = feedback.rotary.target * Fixed::from_int(7) / Fixed::from_int(8);
     feedback.rotary.opacity =
         (feedback.rotary.opacity - dt_fixed / Fixed::from_int(25)).max(Fixed::ZERO);
     feedback.rotary.pulse =
         (feedback.rotary.pulse - dt_fixed / Fixed::from_int(16)).max(Fixed::ZERO);
-    let settle = Fixed::ONE / Fixed::from_int(128);
+    let settle = settle_eps();
     if feedback.rotary.progress.abs() < settle
         && feedback.rotary.velocity.abs() < settle
         && feedback.rotary.target.abs() < settle
@@ -144,11 +138,11 @@ pub fn rotary_feedback_system(world: &mut World) {
         Some(vp) if rotary_active(&feedback.rotary) => rotary_track_rect(&vp),
         _ => Rect::ZERO,
     };
-    write_layout(world, entity, target_rect);
+    write_overlay_layout(world, entity, target_rect);
     world.insert(entity, Dirty);
 }
 
-fn render(
+fn rotary_render(
     renderer: &mut dyn Renderer,
     world: &World,
     entity: Entity,
@@ -194,7 +188,7 @@ fn render(
 }
 
 pub fn view() -> View {
-    View::new("input_feedback_rotary", 91, render)
+    View::new("input_feedback_rotary", 91, rotary_render)
 }
 
 #[cfg(test)]

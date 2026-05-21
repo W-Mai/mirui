@@ -52,6 +52,11 @@ impl Default for CursorFeedback {
     }
 }
 
+/// `entity` is monotonic: `None` until plugin's first `pre_render` spawns
+/// it, then a fixed `Some(_)` for the lifetime of the app. Equality compares
+/// it like the other fields, which is fine because it doesn't change after
+/// spawn — if that ever stops being true, the dirty short-circuit in
+/// `rotary_feedback_system` needs revisiting.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RotaryFeedback {
     pub enabled: bool,
@@ -119,3 +124,19 @@ pub struct OverlayCursor;
 
 /// Marker component on the rotary overlay entity.
 pub struct OverlayRotary;
+
+/// Update an overlay entity's absolute layout to track a logical-pixel rect.
+/// The flex pass picks this up next frame and writes the corresponding
+/// `ComputedRect`, which is what the dirty walker and view renderer read.
+pub(crate) fn write_overlay_layout(
+    world: &mut crate::ecs::World,
+    entity: crate::ecs::Entity,
+    rect: Rect,
+) {
+    if let Some(style) = world.get_mut::<crate::widget::Style>(entity) {
+        style.layout.left = crate::types::Dimension::Px(rect.x);
+        style.layout.top = crate::types::Dimension::Px(rect.y);
+        style.layout.width = crate::types::Dimension::Px(rect.w);
+        style.layout.height = crate::types::Dimension::Px(rect.h);
+    }
+}

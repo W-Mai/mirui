@@ -3,20 +3,19 @@ use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::PointerCursor;
 use crate::event::hit_test::hit_test;
-use crate::feedback::{CursorFeedbackMode, CursorVisual, InputFeedback, OverlayCursor};
-use crate::types::{Color, Dimension, Fixed, Rect};
+use crate::feedback::{
+    CursorFeedbackMode, CursorVisual, InputFeedback, OverlayCursor, write_overlay_layout,
+};
+use crate::types::{Color, Fixed, Rect};
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 use crate::widget::{Children, ComputedRect, IgnoreHitTest, Parent, Style, Widget, WidgetRoot};
 
 const PRIMARY: Color = Color::rgb(88, 166, 255);
 
-fn dot_radius(down: bool) -> Fixed {
-    Fixed::from_int(if down { 5 } else { 4 })
-}
-
 fn cursor_dot_rect(visual: &CursorVisual) -> Rect {
-    let r = dot_radius(visual.down);
+    // Larger radius while pressed gives a tactile "swell" without changing colour.
+    let r = Fixed::from_int(if visual.down { 5 } else { 4 });
     Rect {
         x: visual.x - r,
         y: visual.y - r,
@@ -59,15 +58,6 @@ fn entity_target_rect(visual: &CursorVisual, mode: CursorFeedbackMode) -> Rect {
     }
 }
 
-fn write_layout(world: &mut World, entity: Entity, rect: Rect) {
-    if let Some(style) = world.get_mut::<Style>(entity) {
-        style.layout.left = Dimension::Px(rect.x);
-        style.layout.top = Dimension::Px(rect.y);
-        style.layout.width = Dimension::Px(rect.w);
-        style.layout.height = Dimension::Px(rect.h);
-    }
-}
-
 fn spawn_overlay_cursor(world: &mut World, root: Entity, initial_rect: Rect) -> Entity {
     let entity = world.spawn();
     world.insert(entity, Widget);
@@ -103,28 +93,26 @@ pub fn cursor_feedback_system(world: &mut World) {
 
     feedback.cursor.current = visual;
     feedback.cursor.last_event_seq = cursor.event_seq;
-
     let rect = entity_target_rect(&visual, feedback.cursor.mode);
-    let entity = match feedback.cursor.entity {
-        Some(e) => {
-            write_layout(world, e, rect);
-            e
-        }
-        None => {
-            let Some(root) = world.resource::<WidgetRoot>().copied() else {
-                world.insert_resource(feedback);
-                return;
-            };
-            let e = spawn_overlay_cursor(world, root.0, rect);
-            feedback.cursor.entity = Some(e);
-            e
-        }
+
+    let entity = if let Some(e) = feedback.cursor.entity {
+        write_overlay_layout(world, e, rect);
+        e
+    } else {
+        let Some(root) = world.resource::<WidgetRoot>().copied() else {
+            // Visual change recorded but root not ready; commit and bail.
+            world.insert_resource(feedback);
+            return;
+        };
+        let e = spawn_overlay_cursor(world, root.0, rect);
+        feedback.cursor.entity = Some(e);
+        e
     };
     world.insert_resource(feedback);
     world.insert(entity, Dirty);
 }
 
-fn render(
+fn cursor_render(
     renderer: &mut dyn Renderer,
     world: &World,
     entity: Entity,
@@ -141,10 +129,10 @@ fn render(
         return;
     }
     ctx.bg_handled = true;
-    let dot_radius = rect.h / Fixed::from_int(2);
+    let corner = rect.h / Fixed::from_int(2);
     match feedback.cursor.mode {
         CursorFeedbackMode::Dot => {
-            emit_fill(renderer, ctx, rect, dot_radius, 220);
+            emit_fill(renderer, ctx, rect, corner, 220);
         }
         CursorFeedbackMode::MagneticRect => {
             if feedback.cursor.current.target_rect.is_some() {
@@ -152,7 +140,7 @@ fn render(
                 emit_fill(renderer, ctx, rect, rounded, 48);
                 emit_border(renderer, ctx, rect, rounded, 160);
             } else {
-                emit_fill(renderer, ctx, rect, dot_radius, 220);
+                emit_fill(renderer, ctx, rect, corner, 220);
             }
         }
     }
@@ -188,7 +176,7 @@ fn emit_border(renderer: &mut dyn Renderer, ctx: &ViewCtx, rect: &Rect, radius: 
 }
 
 pub fn view() -> View {
-    View::new("input_feedback_cursor", 90, render)
+    View::new("input_feedback_cursor", 90, cursor_render)
 }
 
 #[cfg(test)]

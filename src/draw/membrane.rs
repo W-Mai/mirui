@@ -47,10 +47,6 @@ impl MagneticMembrane {
         self.sigma.max(Fixed::ONE) * self.visible_span.max(Fixed::ONE)
     }
 
-    pub fn path(&self, edge_x: Fixed, mid_y: Fixed, state: MagneticMembraneState) -> Path {
-        self.edge_path(edge_x, mid_y, state)
-    }
-
     fn basis_at(&self, edge_x: Fixed, mid_y: Fixed, t: Fixed) -> (Point, Point) {
         match self.edge {
             MagneticMembraneEdge::Flat { angle } => {
@@ -59,11 +55,11 @@ impl MagneticMembrane {
                     y: Fixed::sin_deg(angle),
                 };
                 let normal = Point {
-                    x: Fixed::ZERO - outward.x,
-                    y: Fixed::ZERO - outward.y,
+                    x: -outward.x,
+                    y: -outward.y,
                 };
                 let tangent = Point {
-                    x: Fixed::ZERO - normal.y,
+                    x: -normal.y,
                     y: normal.x,
                 };
                 (
@@ -86,8 +82,8 @@ impl MagneticMembrane {
                     y: Fixed::sin_deg(theta),
                 };
                 let normal = Point {
-                    x: Fixed::ZERO - outward.x,
-                    y: Fixed::ZERO - outward.y,
+                    x: -outward.x,
+                    y: -outward.y,
                 };
                 (
                     Point {
@@ -100,13 +96,13 @@ impl MagneticMembrane {
         }
     }
 
-    fn edge_path(&self, edge_x: Fixed, mid_y: Fixed, state: MagneticMembraneState) -> Path {
+    pub fn path(&self, edge_x: Fixed, mid_y: Fixed, state: MagneticMembraneState) -> Path {
         let span = self.span();
         let safe = span.max(Fixed::ONE);
         let amp = state.amp.min(self.max_amp);
         let sigma = self.sigma.max(Fixed::ONE);
         let mut path = Path::new();
-        let (start, _) = self.basis_at(edge_x, mid_y, Fixed::ZERO - span);
+        let (start, _) = self.basis_at(edge_x, mid_y, -span);
         path.move_to(start);
         for i in 0..=64 {
             let t = Fixed::from_int(-64 + i * 2) * span / Fixed::from_int(64);
