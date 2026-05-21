@@ -76,8 +76,6 @@ impl Style {
         self
     }
 
-    /// Style for an entity that lives at an explicit pixel rect, ignored
-    /// by flex flow. Useful for overlays, popovers, drag-ghost layers.
     pub fn absolute_at(rect: crate::types::Rect) -> Self {
         Self {
             layout: LayoutStyle {

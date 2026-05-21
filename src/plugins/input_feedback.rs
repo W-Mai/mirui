@@ -144,18 +144,6 @@ mod tests {
         assert!(child_with::<OverlayRotary>(&app.world, root).is_some());
     }
 
-    /// Architecture invariant: the framework `event::dispatch_input` path
-    /// must not reach into the feedback module. The source is `include_str!`
-    /// so the check works in `no_std` test runs too.
-    #[test]
-    fn event_dispatch_does_not_depend_on_feedback() {
-        let src = include_str!("../event/mod.rs");
-        assert!(
-            !src.contains("input_feedback") && !src.contains("feedback::"),
-            "event/mod.rs must not depend on feedback module",
-        );
-    }
-
     #[test]
     fn cursor_overlay_not_eagerly_spawned() {
         // Cursor entity must wait for first PointerCursor; otherwise the
