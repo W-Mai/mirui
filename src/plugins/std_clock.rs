@@ -33,5 +33,8 @@ where
     fn build(&mut self, app: &mut App<B, F>) {
         CLOCK_START.get_or_init(Instant::now);
         app.world.insert_resource(MonoClock::new(std_clock_ns));
+        // std `perf` imp uses Instant directly, so this is a no-op
+        // there; calling it keeps API symmetry with no_std clock plugins.
+        crate::perf::set_clock(std_clock_ns);
     }
 }
