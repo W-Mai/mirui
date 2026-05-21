@@ -5,73 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.17.2] - 2026-05-21
+## [0.17.3] - 2026-05-21
 
-Reconciles `PerfReportPlugin` / `FpsSummaryPlugin` numbers with what
-user-visible fps overlays report. Flush and prev-rect seeding are
-excluded from `render_nanos` so the metric reflects rasterization
-cost rather than platform I/O stalls.
+### Added
+
+- **`mirui::prelude`** — re-exports `App`, layout types, `Color` / `Dimension` / `Fixed`, `Entity` / `World`, `WidgetBuilder`, theme tokens, and the `ui!` macro. Surface backends, plugins, and individual widget kinds stay on their canonical paths.
+- **`mirui::components` re-exports widget types directly** — `use mirui::components::{Button, Slider, Switch};` instead of reaching into each submodule. The deeper `mirui::components::button::Button` path still works.
+
+### Documentation
+
+- README updated for the current API surface.
+
+## [0.17.2] - 2026-05-21
 
 ### Fixed
 
-- **`Plugin::post_render` `render_nanos` no longer includes flush or `seed_prev_rects`.** Previously `App::render` measured end-to-end including SPI flush and the second layout pass in `seed_prev_rects`; on ESP threebody this counted ~3 ms of SPI DMA stall against the render budget, making perf-reporting plugins disagree with the LCD fps overlay (9-10 ms vs 6.6 ms). Boundary now closes after the render walker; flush + prev-rect seeding stay observable through the `frame.flush` / `frame.seed_prev` trace spans. ESP threebody perf reads 6.3-7.3 ms, matching the 148-151 fps overlay reading.
-
-### Changed
-
-- Trace spans `frame.flush` (full render path) and `frame.seed_prev` (full render path) are explicit; `frame.flush` (dirty render path) and `frame.collect_dirty` already existed.
+- **`Plugin::post_render` `render_nanos` reports rasterization time only.** Flush and `seed_prev_rects` are excluded; both are still observable as the `frame.flush` and `frame.seed_prev` trace spans.
 
 ## [0.17.1] - 2026-05-21
 
-Adds `SystemSlot` as the typed entry point for the scheduler's named
-priority slots, and codifies a `Plugin` documentation contract
-enforced by an architecture test.
-
 ### Added
 
-- **`SystemSlot` enum** (`mirui::ecs::SystemSlot`) — `SimInput / DeltaTime / InteractionState / Animation / Timer / ScrollInertia / LazyList / TabPages / Normal`. `priority()` is `const`, `From<SystemSlot> for i32` provided. New code should prefer `SystemSlot::Foo` over the raw `run_order::FOO` constants for type-checked, IDE-completable scheduling.
-- **`Plugin` documentation contract.** Every plugin's struct docstring must include an `**Inserts**` section listing the resources, systems, views, entities, and lifecycle hooks it touches. The `Plugin` trait's own docstring spells out the format. An architecture test (`ecs::system::tests::plugins_declare_inserts_section`) scans the built-in plugin sources and fails if a plugin omits the section.
-
-### Changed
-
-- Built-in plugin docstrings (`PerfReportPlugin`, `FpsSummaryPlugin`, `StdInstantClockPlugin`, `InputFeedbackPlugin`) gain `**Inserts**` sections.
-- `run_order` constants now derive from `SystemSlot::*.priority()` instead of being independent integer literals; values unchanged.
+- **`SystemSlot` enum** (`mirui::ecs::SystemSlot`) with variants `SimInput`, `DeltaTime`, `InteractionState`, `Animation`, `Timer`, `ScrollInertia`, `LazyList`, `TabPages`, `Normal`. `priority()` is `const`; `From<SystemSlot> for i32` is provided. Prefer this over the raw `run_order::FOO` constants in new code.
 
 ## [0.17.0] - 2026-05-21
 
-Theme: **API Ergonomics**. v0.17 is a multi-patch series cleaning up
-inconsistencies that piled up v0.7 → v0.16. v0.17.0 unifies the `App`
-fluent API on bevy-style `&mut self` so all builder methods compose the
-same way; later patches in the v0.17.x line continue with widget ctor
-unification, plugin doc contract, system slot enum, perf reconciliation,
-and a closing patch with `mirui::prelude` + design rules + README rewrite.
-
 ### Changed
 
-- **BREAKING: `App::with_theme` / `with_widget` / `with_widgets` / `with_default_widgets` / `with_default_systems` now take and return `&mut Self` instead of consuming `Self`.** This matches `add_plugin` / `add_system` (already `&mut self`) and aligns with bevy. Migration recipe: replace `let mut app = App::new(b).with_X().with_Y();` with `let mut app = App::new(b); app.with_X().with_Y();` — split the constructor onto its own line, then chain the configurators on the binding.
-
-  Reasons:
-  - Allows conditional registration: `if cfg!(feature = "fps") { app.add_plugin(FpsPlugin); }`
-  - One chaining style across the entire `App` API
-  - All 44 gallery examples and lib tests migrate mechanically (one `let` split per call site)
+- **BREAKING: `App::with_theme` / `with_widget` / `with_widgets` / `with_default_widgets` / `with_default_systems` now take and return `&mut Self` instead of consuming `Self`.** Migration: replace `let mut app = App::new(b).with_X().with_Y();` with `let mut app = App::new(b); app.with_X().with_Y();` — split the constructor onto its own line, then chain the configurators on the binding.
 
 ## [0.16.3] - 2026-05-21
 
-Theme: **Input Feedback Overlays**. v0.16.3 ships cursor and rotary visual feedback as opt-in overlays — a small dot tracks the cursor, a magnetic membrane swells from the right edge in response to rotary detents, wheel scroll, and rotary clicks. Implementation went through two rounds: an inline first cut, then a refactor onto framework conventions (Plugin + ViewRegistry + per-entity Dirty). Only the refactored shape ships; the inline cut never published.
-
 ### Added
 
-- **`InputFeedbackPlugin` — opt-in cursor + rotary feedback overlays.** Two ECS entities live under `WidgetRoot` (cursor lazy-spawned on first `PointerCursor`, rotary spawned eagerly by the plugin's `pre_render`), each backed by its own `View` at priority 90 / 91 and dirty-tracked through the standard per-entity `Dirty` + `PrevRect` machinery. The plugin's `Plugin::on_event` translates `Rotary` / `Wheel` / `Key(KEY_ROTARY_PRESS)` into `InputFeedbackInput` impulses; `event::dispatch_input` does not reach into the feedback module.
-- **Cursor overlay.** Two modes: `Dot` (default) draws a 4–5 px circle that follows the pointer, `MagneticRect` (entry point reserved) will morph to the hovered widget's rect.
-- **Rotary overlay.** A magnetic-membrane water drop on the right edge. Driven by a critically-damped spring on `progress`, with separate decays for `opacity` and click `pulse`. Rotary detents drive `target` away from zero (clamped at the membrane's `max_pull`); the spring carries `progress` through and back. Wheel scroll feeds the same `target`. Rotary click triggers a one-off pulse.
-- **`MagneticMembrane`** (`mirui::draw::membrane`). Path-generating helper for the rotary overlay: ball + Gaussian-fade membrane on a `Flat` or `Arc` boundary. `max_pull` and `span` give callers the kinematic envelope; `path()` builds a closed path the renderer can fill.
-- **`DrawCommand::FillPath`.** Path fill is now part of the public draw command set, so any `View` (built-in or user-defined) can emit filled paths through the plain `&mut dyn Renderer` contract. Forwards to the existing `Canvas::fill_path` already implemented by both software and SDL_GPU backends.
-- **`IgnoreHitTest` marker** (`mirui::widget`). Excludes a widget entity from `hit_test` while keeping it in layout and render. Used by the overlay entities so they never intercept pointer input.
-- **`Style::absolute_at(rect)`.** Convenience constructor for absolutely-positioned widget styles (overlays, popovers, drag ghosts).
-- **Examples.** `gallery/examples/input_feedback_demo` (sim cursor + rotary feedback) and `nested_scroll_demo` is wired through the plugin.
-
-### Changed
-
-- `gallery/examples/{input_feedback_demo,nested_scroll_demo}.rs` migrate to `app.add_plugin(InputFeedbackPlugin::new())`.
+- **`InputFeedbackPlugin`** — opt-in cursor + rotary feedback overlays. Cursor mode `Dot` (default) draws a small circle following the pointer; rotary mode renders a magnetic-membrane water drop on the right edge that responds to rotary detents, wheel scroll, and rotary clicks.
+- **`MagneticMembrane`** (`mirui::draw::membrane`) — path-generating helper for the rotary overlay; supports `Flat` and `Arc` boundaries.
+- **`DrawCommand::FillPath`** — any `View` can now emit filled paths through `&mut dyn Renderer`.
+- **`IgnoreHitTest`** marker (`mirui::widget`) — excludes an entity from `hit_test` while keeping it in layout and render.
+- **`Style::absolute_at(rect)`** — convenience constructor for absolutely-positioned widget styles.
 
 ## [0.16.2] - 2026-05-20
 

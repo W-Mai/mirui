@@ -38,15 +38,11 @@ mirui-macros = "0.17"
 ```rust
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
-use mirui::widget::theme::ColorToken;
-use mirui_macros::ui;
 
 fn main() {
     let backend = SdlSurface::new("hello mirui", 480, 320);
     let mut app = App::new(backend);
-    app.with_default_widgets()
-        .with_default_systems()
-        .add_plugin(StdInstantClockPlugin::default());
+    app.with_default_widgets().with_default_systems();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(ColorToken::Surface)
@@ -75,10 +71,11 @@ fn main() {
 }
 ```
 
-`mirui::prelude` re-exports the most-reached types (`App`, layout enums,
-`WidgetBuilder`, theme tokens, the standard plugins, and built-in
-widgets). Use the canonical paths (`mirui::app::App`, etc.) when
-ambiguity matters; the prelude is convenience, not a stability surface.
+`mirui::prelude` brings `App`, layout types, `Color` / `Dimension` /
+`Fixed`, `Entity` / `World`, `WidgetBuilder`, theme tokens, and the
+`ui!` macro. Surface backends, plugins, and individual widget kinds
+stay on their canonical paths so the prelude doesn't pin a platform
+or feature choice.
 
 ## DSL Syntax
 
@@ -318,15 +315,6 @@ ESP32-C3 demos:
 - `demo-hidpi-downscale` / `demo-hidpi-upscale` — HiDPI mode toggles
 
 Flash with `cargo run --release --features demo-XXX --no-default-features`.
-
-## Roadmap
-
-- v0.17.x — API ergonomics (this minor): App fluent unification,
-  SystemSlot enum, plugin doc contract, perf reconciliation, prelude
-- v0.18+ — Custom drawing API beyond `DrawCommand::FillPath`
-- v0.19+ — Render backends expansion (wgpu / SDL3 / VG-Lite)
-- v0.20+ — Compositing, blur, mask layers
-- v0.21+ — SDF fonts, custom font injection
 
 ## License
 
