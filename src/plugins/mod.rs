@@ -4,7 +4,7 @@ pub mod perf_report;
 #[cfg(feature = "std")]
 pub mod std_clock;
 
-pub use fps_summary::FpsSummaryPlugin;
+pub use fps_summary::{FpsSummary, FpsSummaryPlugin};
 pub use input_feedback::InputFeedbackPlugin;
 pub use perf_report::{PerfReport, PerfReportPlugin, SystemPerfSnapshot, SystemStat};
 #[cfg(feature = "std")]
