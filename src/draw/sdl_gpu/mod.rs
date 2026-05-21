@@ -398,10 +398,64 @@ impl Renderer for SdlGpuRenderer<'_> {
                 let pos = offset_point(pos, tx, ty);
                 self.draw_label(&pos, text, clip, color, *opa)
             }
+            DrawCommand::FillPath {
+                path, color, opa, ..
+            } => {
+                if tx == Fixed::ZERO && ty == Fixed::ZERO {
+                    self.fill_path_inner(path, clip, color, *opa);
+                } else {
+                    let translated = translate_path(path, tx, ty);
+                    self.fill_path_inner(&translated, clip, color, *opa);
+                }
+            }
         }
     }
 
     fn flush(&mut self) {}
+}
+
+fn translate_path(path: &crate::draw::path::Path, tx: Fixed, ty: Fixed) -> crate::draw::path::Path {
+    use crate::draw::path::PathCmd;
+    let cmds = path
+        .cmds
+        .iter()
+        .map(|c| match c {
+            PathCmd::MoveTo(p) => PathCmd::MoveTo(Point {
+                x: p.x + tx,
+                y: p.y + ty,
+            }),
+            PathCmd::LineTo(p) => PathCmd::LineTo(Point {
+                x: p.x + tx,
+                y: p.y + ty,
+            }),
+            PathCmd::QuadTo { ctrl, end } => PathCmd::QuadTo {
+                ctrl: Point {
+                    x: ctrl.x + tx,
+                    y: ctrl.y + ty,
+                },
+                end: Point {
+                    x: end.x + tx,
+                    y: end.y + ty,
+                },
+            },
+            PathCmd::CubicTo { ctrl1, ctrl2, end } => PathCmd::CubicTo {
+                ctrl1: Point {
+                    x: ctrl1.x + tx,
+                    y: ctrl1.y + ty,
+                },
+                ctrl2: Point {
+                    x: ctrl2.x + tx,
+                    y: ctrl2.y + ty,
+                },
+                end: Point {
+                    x: end.x + tx,
+                    y: end.y + ty,
+                },
+            },
+            PathCmd::Close => PathCmd::Close,
+        })
+        .collect();
+    crate::draw::path::Path { cmds }
 }
 
 #[inline]

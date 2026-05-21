@@ -1,3 +1,4 @@
+use crate::draw::path::Path;
 use crate::draw::texture::Texture;
 use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 
@@ -63,6 +64,15 @@ pub enum DrawCommand<'a> {
         quad: Option<[Point; 4]>,
         texture: &'a Texture<'a>,
     },
+    /// Fill the closed region described by `path`. Path vertices are in
+    /// logical pixels; under non-translate transforms the backend may
+    /// fall back to `unimplemented!` (same policy as `Arc`).
+    FillPath {
+        path: &'a Path,
+        transform: Transform,
+        color: Color,
+        opa: Opa,
+    },
 }
 
 impl DrawCommand<'_> {
@@ -74,7 +84,8 @@ impl DrawCommand<'_> {
             | Self::Label { transform, .. }
             | Self::Line { transform, .. }
             | Self::Arc { transform, .. }
-            | Self::Blit { transform, .. } => transform,
+            | Self::Blit { transform, .. }
+            | Self::FillPath { transform, .. } => transform,
         }
     }
 }

@@ -301,6 +301,9 @@ impl ComposeInput {
                         } => {
                             self.draw_arc(*center, *radius, *start_angle, *end_angle, clip, *width, color, *opa);
                         }
+                        ::mirui::draw::DrawCommand::FillPath { path, color, opa, .. } => {
+                            self.fill_path(path, clip, color, *opa);
+                        }
                     }
                 }
 
