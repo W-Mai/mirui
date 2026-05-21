@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-05-21
+
+Theme: **API Ergonomics**. v0.17 is a multi-patch series cleaning up
+inconsistencies that piled up v0.7 → v0.16. v0.17.0 unifies the `App`
+fluent API on bevy-style `&mut self` so all builder methods compose the
+same way; later patches in the v0.17.x line continue with widget ctor
+unification, plugin doc contract, system slot enum, perf reconciliation,
+and a closing patch with `mirui::prelude` + design rules + README rewrite.
+
+### Changed
+
+- **BREAKING: `App::with_theme` / `with_widget` / `with_widgets` / `with_default_widgets` / `with_default_systems` now take and return `&mut Self` instead of consuming `Self`.** This matches `add_plugin` / `add_system` (already `&mut self`) and aligns with bevy. Migration recipe: replace `let mut app = App::new(b).with_X().with_Y();` with `let mut app = App::new(b); app.with_X().with_Y();` — split the constructor onto its own line, then chain the configurators on the binding.
+
+  Reasons:
+  - Allows conditional registration: `if cfg!(feature = "fps") { app.add_plugin(FpsPlugin); }`
+  - One chaining style across the entire `App` API
+  - All 44 gallery examples and lib tests migrate mechanically (one `let` split per call site)
+
 ## [0.16.3] - 2026-05-21
 
 Theme: **Input Feedback Overlays**. v0.16.3 ships cursor and rotary visual feedback as opt-in overlays — a small dot tracks the cursor, a magnetic membrane swells from the right edge in response to rotary detents, wheel scroll, and rotary clicks. Implementation went through two rounds: an inline first cut, then a refactor onto framework conventions (Plugin + ViewRegistry + per-entity Dirty). Only the refactored shape ships; the inline cut never published.
