@@ -38,25 +38,24 @@ struct LabelKey {
 // `&mut self`, so the cached value is itself a `RefCell`.
 type CachedTexture = RefCell<SdlTexture<'static>>;
 
-/// Per-call inputs the rasteriser needs but that aren't part of `LabelKey`
-/// (the cache key intentionally hashes `text` to avoid storing the bytes).
-struct RasterCtx<'a, 'creator> {
+/// Per-call inputs the rasteriser needs but that aren't part of `LabelKey`.
+struct RasterCtx<'a> {
     text: &'a [u8],
     color: &'a Color,
     creator: &'a TextureCreator<WindowContext>,
     raster_buf: &'a mut Vec<u8>,
-    _creator_lt: core::marker::PhantomData<&'creator ()>,
 }
 
 const DEFAULT_CAPACITY: usize = 128;
 
-type LabelFactory = fn(&LabelKey, RasterCtx<'_, '_>) -> Result<CachedTexture, ()>;
+type LabelCtor = fn(&LabelKey, RasterCtx<'_>) -> Result<CachedTexture, ()>;
 
 pub struct LabelCache {
-    cache:
-        WithFactory<LruCache<LabelKey, CachedTexture>, LabelFactory, RasterCtx<'static, 'static>>,
+    cache: WithFactory<LruCache<LabelKey, CachedTexture>, LabelCtor>,
     creator: TextureCreator<WindowContext>,
     raster_buf: Vec<u8>,
+    #[cfg(feature = "cache-stats")]
+    draw_count: u32,
 }
 
 impl LabelCache {
@@ -70,10 +69,26 @@ impl LabelCache {
             .max_size(MaxSize::Count(capacity.max(1)))
             .build();
         Self {
-            cache: WithFactory::new(cache, rasterize_label as LabelFactory),
+            cache: WithFactory::new(cache, rasterize_label as LabelCtor),
             creator,
             raster_buf: Vec::new(),
+            #[cfg(feature = "cache-stats")]
+            draw_count: 0,
         }
+    }
+
+    /// Snapshot of the underlying cache statistics — exposed so external
+    /// callers can read hit / miss / evict counts without reaching into
+    /// the WithFactory internals.
+    #[allow(dead_code)]
+    pub fn stats(&self) -> &crate::cache::CacheStats {
+        self.cache.cache().stats()
+    }
+
+    /// Number of entries currently held by the cache.
+    #[allow(dead_code)]
+    pub fn len(&self) -> usize {
+        self.cache.cache().len()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -116,14 +131,15 @@ impl LabelCache {
 
         let creator = &self.creator;
         let raster_buf = &mut self.raster_buf;
-        let ctx = RasterCtx {
-            text,
-            color,
-            creator,
-            raster_buf,
-            _creator_lt: core::marker::PhantomData,
-        };
-        let Ok(handle) = (unsafe { acquire_or_create_with_ctx(&mut self.cache, key, ctx) }) else {
+        let Ok(handle) = self.cache.entry(key).or_insert_with(|ctor, k| {
+            let ctx = RasterCtx {
+                text,
+                color,
+                creator,
+                raster_buf,
+            };
+            ctor(k, ctx)
+        }) else {
             return;
         };
 
@@ -137,6 +153,29 @@ impl LabelCache {
         }
         let _ = canvas.copy(&tex, None, Some(dst));
         canvas.set_clip_rect(None);
+
+        #[cfg(feature = "cache-stats")]
+        self.maybe_dump_stats();
+    }
+
+    #[cfg(feature = "cache-stats")]
+    fn maybe_dump_stats(&mut self) {
+        const STATS_REPORT_PERIOD: u32 = 600; // every ~10s at 60fps
+        self.draw_count = self.draw_count.wrapping_add(1);
+        if self.draw_count % STATS_REPORT_PERIOD == 0 {
+            let s = self.stats();
+            eprintln!(
+                "[label_cache] draws={} entries={} hit={} miss={} hit_rate={:.1}% evict={} insert={} drop={}",
+                self.draw_count,
+                self.len(),
+                s.hit_count,
+                s.miss_count,
+                s.hit_rate() * 100.0,
+                s.evict_count,
+                s.insert_count,
+                s.drop_count,
+            );
+        }
     }
 
     #[allow(dead_code)]
@@ -152,36 +191,7 @@ impl LabelCache {
     }
 }
 
-/// Bridge an `'a`-bounded `RasterCtx` through `WithFactory`, whose
-/// `Ctx` type parameter is fixed at `RasterCtx<'static, 'static>`
-/// (struct fields can't carry call-site lifetimes).
-///
-/// # Safety
-///
-/// Caller must guarantee the `'a` borrows in `ctx` outlive this call.
-/// `WithFactory::acquire_or_create` consumes `Ctx` by value on the
-/// synchronous call stack and `rasterize_label` (the registered
-/// factory) does not store, return, or otherwise let any reference
-/// inside `ctx` escape: it only writes through `raster_buf` and reads
-/// from `creator` while building the texture, then drops the borrows
-/// before returning. The transmute therefore widens lifetimes only
-/// for the duration of the call frame, which is sound. If the
-/// factory or the cache ever stores `Ctx` past that frame, this
-/// becomes use-after-free.
-unsafe fn acquire_or_create_with_ctx<'a>(
-    cache: &mut WithFactory<
-        LruCache<LabelKey, CachedTexture>,
-        LabelFactory,
-        RasterCtx<'static, 'static>,
-    >,
-    key: LabelKey,
-    ctx: RasterCtx<'a, 'a>,
-) -> Result<crate::cache::Handle<CachedTexture>, crate::cache::CacheError<()>> {
-    let ctx_static: RasterCtx<'static, 'static> = unsafe { core::mem::transmute(ctx) };
-    cache.acquire_or_create(key, ctx_static)
-}
-
-fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_, '_>) -> Result<CachedTexture, ()> {
+fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture, ()> {
     let logical_w = CHAR_W as usize * ctx.text.len();
     let logical_h = CHAR_H as usize;
     let byte_stride = logical_w * 4;

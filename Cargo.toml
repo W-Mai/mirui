@@ -28,6 +28,7 @@ sdl = ["dep:sdl2", "std"]
 sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
 perf = []
 sync-cache = []
+cache-stats = ["std"]
 # Anti-aliasing for 3D-transformed quads. On `std` this uses a Fixed64
 # signed-distance field for smooth coverage; on `no_std` it degrades to
 # a 2×2 supersample (5 coverage steps). Disable to get the old v0.9.x

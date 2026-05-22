@@ -8,6 +8,7 @@ publish = false
 default = ["sdl"]
 sdl = ["mirui/sdl"]
 sdl-gpu = ["mirui/sdl-gpu"]
+cache-stats = ["mirui/cache-stats"]
 
 [dependencies]
 mirui = { path = "..", default-features = false, features = ["quad-aa"] }
