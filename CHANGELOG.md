@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-05-22
+
+### Added
+
+- **`mirui::cache` — generic caching framework**, suitable for any `K → V` workload (offscreen render buffers, font glyphs, decoded images, anything user-defined). Built natively on Rust generics: algorithm and lookup are independent type parameters, and the public surface hands out opaque `Handle<V>` values rather than `Rc<T>` / `Arc<T>` directly.
+  - **`Cache<K, V, A: Algorithm, L: Lookup<K>>`** — main type. Algorithm and lookup strategy are independent type parameters; the v0.19.0 release ships `Lru` plus three lookups (`OrdLookup` / `HashLookup` / `LinearLookup`).
+  - **Type aliases** `LruCache<K, V>` (default, hash-keyed), `LruBTreeCache<K, V>` (ordered keys), `LruLinearCache<K, V>` (small caches under ~10 entries).
+  - **`Handle<V>`** wraps the cache entry without exposing `Rc`/`Arc`. `Handle: Clone` for cross-frame retention; `Handle::is_invalid()` reports whether the entry is still resident in the cache; `Drop` releases the reference automatically.
+  - **`CacheBuilder<K, V, A, L>`** with `max_size(MaxSize)` / `on_evict(closure)` / `name(&str)`. `build()` panics if `max_size` was never set — there is no sensible default, since `Disabled` would silently swallow inserts.
+  - **Three API shapes** depending on need:
+    - `cache.acquire(&key)` — query only, returns `Option<Handle<V>>`.
+    - `cache.entry(key).or_insert_with(|| factory(...))` — std `HashMap::Entry`-style, factory closure passed each call. Also `or_try_insert_with` for fallible factories.
+    - `WithFactory::new(cache, |k| factory(k))` then `acquire_or_create(key)` — factory configured once at construction time, no closure at every call site.
+  - **`Cache::drop(&key)`** marks an entry invalid; **`Cache::evict_one()`** lets the algorithm pick a victim. `on_evict` only fires on algorithm-driven eviction so callers can tell user-initiated removals from capacity pressure.
+  - **`MaxSize::Disabled` / `Count(0)`** make the cache reject all inserts; the value still flows through `or_insert_with` as a detached, already-invalid `Handle`, so chains keep typing but `h.is_invalid()` flags it as "never reached the cache".
+  - **`CacheStats`** records hit / miss / evict / insert / drop counts; `hit_rate()` is the convenience accessor.
+  - **`sync-cache` feature** (off by default) flips `Handle`'s storage from `Rc` to `Arc` and the invalidation flag from `Cell<bool>` to `AtomicBool`. Single-threaded code (including ESP RV32IMC, which lacks atomic load/store on `u32`) does not pay the cost.
+  - **No new external dependencies** beyond `hashbrown 0.15` (used internally by `HashLookup`; default-features = false, alloc-only). Slab arena and intrusive linked list are hand-rolled in ~50 lines each.
+
+### Changed
+
+- `Cargo.toml` adds `hashbrown` as a direct dependency. It already ships in `std` internally, so the binary impact is limited to the no_std path that previously had no hash map at all.
+
 ## [0.18.1] - 2026-05-22
 
 ### Added
