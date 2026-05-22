@@ -6,6 +6,7 @@ pub mod core;
 pub mod error;
 pub mod factory;
 pub mod handle;
+pub mod inspect;
 pub mod lookup;
 pub mod stats;
 
@@ -15,6 +16,7 @@ pub use budget::{HasSize, MaxSize};
 pub use error::CacheError;
 pub use factory::WithFactory;
 pub use handle::Handle;
+pub use inspect::{CacheInspect, CacheRegistry, CacheStatsSnapshot, InspectCaches};
 pub use lookup::{HashLookup, LinearLookup, Lookup, NodeId, OrdLookup};
 pub use stats::CacheStats;
 
