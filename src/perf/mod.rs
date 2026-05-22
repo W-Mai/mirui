@@ -212,13 +212,24 @@ mod imp {
     }
 
     pub fn drain_events() -> alloc::vec::Vec<PerfEvent> {
-        // Snapshot head/len under the lock, alloc and copy outside,
-        // so the interrupt-blackout window stays O(1).
+        // One critical section: copy + reset atomically so a concurrent
+        // trace_span! between the reset and the read can't tear or
+        // mix events into the snapshot. Stack copy is 8 KB (256 × 32B);
+        // alloc happens after the lock is released.
+        let zero = PerfEvent {
+            name: "",
+            start_ns: 0,
+            end_ns: 0,
+            depth: 0,
+        };
+        let mut buf = [zero; CAP];
         let (head, len) = with_state(|s| {
-            let h = s.ring.head;
-            let n = s.ring.len;
-            s.ring.head = 0;
-            s.ring.len = 0;
+            let r = &mut s.ring;
+            let h = r.head;
+            let n = r.len;
+            buf.copy_from_slice(&r.events);
+            r.head = 0;
+            r.len = 0;
             (h, n)
         });
         if len == 0 {
@@ -227,14 +238,41 @@ mod imp {
         let mut out = alloc::vec::Vec::with_capacity(len);
         let start = if len < CAP { 0 } else { head };
         for i in 0..len {
-            let ev = with_state(|s| s.ring.events[(start + i) % CAP]);
-            out.push(ev);
+            out.push(buf[(start + i) % CAP]);
         }
         out
     }
 }
 
 pub use imp::{Guard, PerfEvent, drain_events, enter, set_clock};
+
+/// One Chrome trace event as JSON, no trailing newline. Wrap the
+/// stream as `[...]` or NDJSON for <https://ui.perfetto.dev>.
+pub fn format_chrome_event(ev: &PerfEvent, w: &mut impl core::fmt::Write) -> core::fmt::Result {
+    let dur_us = ev.end_ns.saturating_sub(ev.start_ns) / 1_000;
+    let ts_us = ev.start_ns / 1_000;
+    w.write_str(r#"{"name":""#)?;
+    write_json_escaped(ev.name, w)?;
+    write!(
+        w,
+        r#"","cat":"mirui","ph":"X","pid":1,"tid":1,"ts":{ts_us},"dur":{dur_us}}}"#,
+    )
+}
+
+fn write_json_escaped(s: &str, w: &mut impl core::fmt::Write) -> core::fmt::Result {
+    for c in s.chars() {
+        match c {
+            '"' => w.write_str(r#"\""#)?,
+            '\\' => w.write_str(r"\\")?,
+            '\n' => w.write_str(r"\n")?,
+            '\r' => w.write_str(r"\r")?,
+            '\t' => w.write_str(r"\t")?,
+            c if (c as u32) < 0x20 => write!(w, "\\u{:04x}", c as u32)?,
+            c => w.write_char(c)?,
+        }
+    }
+    Ok(())
+}
 
 /// Span macros — re-exported from `mirui-macros` so callers can
 /// write `mirui::trace_span!("...")` / `#[mirui::trace_fn("...")]`
@@ -290,4 +328,44 @@ pub fn aggregate(events: &[PerfEvent]) -> alloc::vec::Vec<StageStat> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::string::String;
+
+    fn ev(name: &'static str) -> PerfEvent {
+        PerfEvent {
+            name,
+            start_ns: 1_000,
+            end_ns: 5_000,
+            depth: 0,
+        }
+    }
+
+    #[test]
+    fn chrome_event_basic_shape() {
+        let mut s = String::new();
+        format_chrome_event(&ev("frame.render"), &mut s).unwrap();
+        assert!(s.starts_with(r#"{"name":"frame.render""#));
+        assert!(s.ends_with(r#""ts":1,"dur":4}"#));
+    }
+
+    #[test]
+    fn chrome_event_escapes_quote_backslash_newline() {
+        let mut s = String::new();
+        format_chrome_event(&ev("a\"b\\c\nd"), &mut s).unwrap();
+        assert!(s.contains(r#"\""#));
+        assert!(s.contains(r"\\"));
+        assert!(s.contains(r"\n"));
+        assert!(!s.contains('\n'));
+    }
+
+    #[test]
+    fn chrome_event_escapes_low_control_chars() {
+        let mut s = String::new();
+        format_chrome_event(&ev("a\x01b"), &mut s).unwrap();
+        assert!(s.contains(r"\u0001"));
+    }
 }

@@ -64,6 +64,13 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     last_render_ns: u64,
     last_flush_ns: u64,
     last_seed_prev_ns: u64,
+    pending_frame: Option<PendingFrame>,
+}
+
+struct PendingFrame {
+    frame_start: u64,
+    input_end: u64,
+    systems_end: u64,
 }
 
 impl<B: FramebufferAccess> App<B, SwRendererFactory> {
@@ -109,6 +116,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             last_render_ns: 0,
             last_flush_ns: 0,
             last_seed_prev_ns: 0,
+            pending_frame: None,
         }
     }
 
@@ -230,9 +238,43 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         self.last_seed_prev_ns = self.clock_ns().saturating_sub(flush_end);
 
+        self.finalize_frame_stats();
         for p in &mut self.plugins {
             p.post_render(&mut self.world, render_ns);
         }
+    }
+
+    fn finalize_frame_stats(&mut self) {
+        // FrameTimings + FrameStats must land before plugin post_render
+        // so reporters that read them (BudgetReportPlugin, custom sinks)
+        // see the just-finished frame, not the previous one.
+        let Some(pending) = self.pending_frame.take() else {
+            return;
+        };
+        let input_nanos = pending.input_end.saturating_sub(pending.frame_start);
+        let systems_nanos = pending.systems_end.saturating_sub(pending.input_end);
+        let frame_nanos = input_nanos
+            + systems_nanos
+            + self.last_layout_ns
+            + self.last_render_ns
+            + self.last_flush_ns
+            + self.last_seed_prev_ns;
+        self.world.insert_resource(crate::ecs::FrameTimings {
+            frame_nanos,
+            input_nanos,
+            systems_nanos,
+            layout_nanos: self.last_layout_ns,
+            render_nanos: self.last_render_ns,
+            flush_nanos: self.last_flush_ns,
+            seed_prev_nanos: self.last_seed_prev_ns,
+        });
+        let mut stats = self
+            .world
+            .resource_mut::<crate::ecs::FrameStats>()
+            .map(core::mem::take)
+            .unwrap_or_default();
+        stats.push(frame_nanos);
+        self.world.insert_resource(stats);
     }
 
     /// Get the dirty region in **logical pixels** after event processing,
@@ -342,38 +384,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.snapshot_system_perf();
             let systems_end = self.clock_ns();
 
+            self.pending_frame = Some(PendingFrame {
+                frame_start,
+                input_end,
+                systems_end,
+            });
             if transient {
                 self.render();
             } else {
                 self.render_dirty();
             }
-
-            // Sum disjoint stages so reporter post_render time isn't
-            // counted against the frame budget unattributed.
-            let input_nanos = input_end.saturating_sub(frame_start);
-            let systems_nanos = systems_end.saturating_sub(input_end);
-            let frame_nanos = input_nanos
-                + systems_nanos
-                + self.last_layout_ns
-                + self.last_render_ns
-                + self.last_flush_ns
-                + self.last_seed_prev_ns;
-            self.world.insert_resource(crate::ecs::FrameTimings {
-                frame_nanos,
-                input_nanos,
-                systems_nanos,
-                layout_nanos: self.last_layout_ns,
-                render_nanos: self.last_render_ns,
-                flush_nanos: self.last_flush_ns,
-                seed_prev_nanos: self.last_seed_prev_ns,
-            });
-            let mut stats = self
-                .world
-                .resource_mut::<crate::ecs::FrameStats>()
-                .map(core::mem::take)
-                .unwrap_or_default();
-            stats.push(frame_nanos);
-            self.world.insert_resource(stats);
         }
     }
 
@@ -448,10 +468,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
         }
         self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
-        // dirty path doesn't seed prev_rects (they're seeded inline by
-        // collect_dirty_walk), so report 0.
         self.last_seed_prev_ns = 0;
 
+        self.finalize_frame_stats();
         for p in &mut self.plugins {
             p.post_render(&mut self.world, render_ns);
         }

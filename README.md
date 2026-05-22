@@ -286,19 +286,35 @@ earlier; user systems default to `Normal`.
 
 ## Performance
 
-Updated for v0.17.2 (rasterization-only, excluding SPI flush).
-
 ESP32-C3 (RV32 160 MHz, no FPU) + ST7735S 128×128 SPI:
 
-| Demo | Render | FPS | Notes |
-|------|--------|-----|-------|
-| Three-body (widgets + dirty rect) | ~6.6 ms | 148–151 | Default `quad-aa` off; partial refresh |
-| Shapes (clock face, raw `Canvas`) | — | 32–35 | 1 circle + 12 ticks + hand per frame |
-| Butterfly (vector, raw `Canvas`) | — | 30–32 | 8 `fill_path` + 3 `draw_line`; Lissajous + yaw |
+| Demo | frame avg | FPS | Notes |
+|------|-----------|-----|-------|
+| Three-body (widgets + dirty rect) | ~14 ms | ~70 | Default `quad-aa` off; partial refresh |
+| Cover-flow (3D quad transforms) | ~52 ms | ~19 | `default-features = false` |
 
-`PerfReportPlugin`'s `render_nanos` covers layout + render walker only;
-flush and prev-rect seeding stay observable through the `frame.flush`
-and `frame.seed_prev` trace spans.
+`App::run` writes a per-stage `FrameTimings` resource each frame
+(input / systems / layout / render / flush / seed_prev) and pushes
+`frame_nanos` into a 256-sample `FrameStats` ring for jitter / p99
+analysis. `FpsSummaryPlugin` averages and prints the breakdown,
+`BudgetReportPlugin` warns when avg or p99 cross a configured
+threshold.
+
+### Drilling into spans
+
+Wrap any code with `mirui::trace_span!("name")` or annotate a fn
+with `#[mirui::trace_fn("name")]`. With a clock plugin installed
+(`StdInstantClockPlugin` on desktop, a custom one calling
+`mirui::perf::set_clock` on bare metal), every invocation records
+into a ring buffer that `mirui::perf::drain_events()` returns.
+
+`mirui::perf::format_chrome_event` writes one event as Chrome
+trace JSON for [Perfetto](https://ui.perfetto.dev). On `std`
+`PerfReportPlugin::with_perfetto_writer` dumps the stream to a
+file. On ESP, the bundled `mirui-examples/examples/esp32c3-animation`
+demo prints `[trace] {...}` lines through `esp_println`; the
+host-side `tools/esp-trace.py` script collects them into a
+Perfetto-loadable JSON file.
 
 ## Hardware Examples
 

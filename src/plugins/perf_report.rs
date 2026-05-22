@@ -183,19 +183,14 @@ fn collect_system_stats(world: &World) -> alloc::vec::Vec<SystemStat> {
 
 #[cfg(feature = "std")]
 fn write_perfetto_ndjson(w: &std::sync::Mutex<std::fs::File>, events: &[PerfEvent]) {
-    use std::io::Write;
+    use std::io::Write as _;
     let Ok(mut f) = w.lock() else { return };
+    let mut buf = alloc::string::String::with_capacity(128);
     for ev in events {
-        let dur_us = ev.end_ns.saturating_sub(ev.start_ns) / 1_000;
-        let ts_us = ev.start_ns / 1_000;
-        // ph: "X" — complete event with explicit duration, no
-        // pairing required. cat is fixed since we don't have multi-
-        // category traces yet.
-        let _ = writeln!(
-            f,
-            r#"{{"name":"{}","cat":"mirui","ph":"X","pid":1,"tid":1,"ts":{},"dur":{}}}"#,
-            ev.name, ts_us, dur_us,
-        );
+        buf.clear();
+        if crate::perf::format_chrome_event(ev, &mut buf).is_ok() {
+            let _ = writeln!(f, "{buf}");
+        }
     }
 }
 
