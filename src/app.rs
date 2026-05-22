@@ -275,6 +275,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             .unwrap_or_default();
         stats.push(frame_nanos);
         self.world.insert_resource(stats);
+
+        // Publish after FrameTimings so a single post_render sees both.
+        let snapshots = crate::cache::InspectCaches::inspect_caches(&self.backend)
+            .map(|(_, c)| crate::cache::CacheStatsSnapshot::capture(c))
+            .collect();
+        self.world
+            .insert_resource(crate::cache::CacheRegistry::from_snapshots(snapshots));
     }
 
     /// Get the dirty region in **logical pixels** after event processing,

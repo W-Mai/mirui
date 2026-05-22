@@ -32,6 +32,7 @@ use crate::draw::renderer::Renderer;
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
+use crate::cache::{CacheInspect, InspectCaches};
 use crate::surface::{DisplayInfo, InputEvent, Surface, logical_from_physical};
 
 pub struct SdlGpuSurface {
@@ -200,6 +201,18 @@ impl Surface for SdlGpuSurface {
 }
 
 // NOTE: no `impl FramebufferAccess for SdlGpuSurface` — by design.
+
+type CacheAccessor = fn(&SdlGpuSurface) -> &dyn CacheInspect;
+
+impl InspectCaches for SdlGpuSurface {
+    fn inspect_caches(&self) -> impl Iterator<Item = (&'static str, &dyn CacheInspect)> + '_ {
+        const ENTRIES: &[CacheAccessor] = &[|s: &SdlGpuSurface| s.label_cache.as_inspect()];
+        ENTRIES.iter().map(move |f| {
+            let c = f(self);
+            (c.cache_name(), c)
+        })
+    }
+}
 
 pub struct SdlGpuFactory;
 

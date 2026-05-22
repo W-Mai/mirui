@@ -65,6 +65,7 @@ impl LabelCache {
     pub fn with_capacity(creator: TextureCreator<WindowContext>, capacity: usize) -> Self {
         let cache = LruCache::builder()
             .max_size(MaxSize::Count(capacity.max(1)))
+            .name("sdl_gpu/label")
             .build();
         Self {
             cache: WithFactory::new(cache, rasterize_label as LabelCtor),
@@ -140,6 +141,13 @@ impl LabelCache {
     #[allow(dead_code)]
     pub fn clear(&mut self) {
         self.cache.cache_mut().clear();
+    }
+
+    /// Read-only `CacheInspect` view onto the underlying cache. Used by
+    /// `SdlGpuSurface` to surface label-cache stats without exposing
+    /// the private `LabelKey` / `CachedTexture` types.
+    pub(super) fn as_inspect(&self) -> &dyn crate::cache::CacheInspect {
+        self.cache.cache()
     }
 
     /// Expose the cache's `TextureCreator` so callers can allocate extra

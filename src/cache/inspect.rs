@@ -75,6 +75,10 @@ pub struct CacheRegistry {
 }
 
 impl CacheRegistry {
+    pub(crate) fn from_snapshots(snapshots: alloc::vec::Vec<CacheStatsSnapshot>) -> Self {
+        Self { snapshots }
+    }
+
     pub fn snapshots(&self) -> &[CacheStatsSnapshot] {
         &self.snapshots
     }

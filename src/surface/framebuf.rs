@@ -64,6 +64,8 @@ impl<F: FnMut(&[u8], &Rect)> FramebufSurface<F> {
     }
 }
 
+impl<F: FnMut(&[u8], &Rect)> crate::cache::InspectCaches for FramebufSurface<F> {}
+
 impl<F: FnMut(&[u8], &Rect)> Surface for FramebufSurface<F> {
     fn display_info(&self) -> DisplayInfo {
         let (lw, lh) = logical_from_physical(self.width, self.height, self.scale);

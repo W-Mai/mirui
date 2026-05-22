@@ -42,6 +42,14 @@ impl<S: Surface> SlowSurface<S> {
     }
 }
 
+impl<S: Surface> crate::cache::InspectCaches for SlowSurface<S> {
+    fn inspect_caches(
+        &self,
+    ) -> impl Iterator<Item = (&'static str, &dyn crate::cache::CacheInspect)> + '_ {
+        self.inner.inspect_caches()
+    }
+}
+
 impl<S: Surface> Surface for SlowSurface<S> {
     fn display_info(&self) -> DisplayInfo {
         self.inner.display_info()
