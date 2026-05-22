@@ -104,12 +104,7 @@ impl SwRenderer<'_> {
                             );
                             let final_opa = (cov * opa_norm).map01(255).to_int() as u8;
                             if final_opa > 0 {
-                                self.target.blend_pixel(
-                                    Fixed::from_int(px),
-                                    Fixed::from_int(py),
-                                    color,
-                                    final_opa,
-                                );
+                                self.target.blend_pixel_int(px, py, color, final_opa);
                             }
                         }
                     }
@@ -147,12 +142,8 @@ impl SwRenderer<'_> {
 
                 let final_opa = (cov_x * cov_y * corner_cov * opa_norm).map01(255).to_int() as u8;
                 if final_opa > 0 {
-                    self.target.blend_pixel(
-                        Fixed::from_int(px),
-                        Fixed::from_int(py),
-                        color,
-                        final_opa,
-                    );
+                    // px/py are integers — skip blend_pixel's is_integer dispatch.
+                    self.target.blend_pixel_int(px, py, color, final_opa);
                 }
             }
         }
