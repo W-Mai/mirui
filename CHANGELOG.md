@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-05-22
+
+### Added
+
+- **`BudgetReportPlugin`** — watches `FrameStats` and fires a sink when avg or p99 frame time crosses a configured threshold. Configure with `with_avg_budget(ns)` / `with_p99_budget(ns)` / `with_sink(fn(BudgetViolation))`; `0` disables a threshold. Reads `FrameStats` without draining, so it composes with `FpsSummaryPlugin` and `PerfReportPlugin`.
+- **`mirui::perf::format_chrome_event(&PerfEvent, &mut impl core::fmt::Write)`** — emits one Chrome-trace JSON event into any `fmt::Write`, with proper escaping for span names containing `"`, `\`, newlines or control chars. Available on both `std` and `no_std`.
+- **`PerfReportPlugin::with_perfetto_line_sink(PerfettoLineSink)`** — accepts a `Box<dyn FnMut(&str)>` so embedded backends can stream Chrome-trace JSON over UART or any other transport. The plugin's perfetto path no longer requires `std`.
+- **`PerfettoLineSink` type alias** (`mirui::plugins::PerfettoLineSink`) for the boxed writer.
+
+### Changed
+
+- **BREAKING: `FrameTimings.event_poll_nanos` renamed to `input_nanos`.** The stage covers all per-frame input handling, not just polling; the old name was misleading. Source compatibility is not preserved — update field accesses and any pattern destructures.
+- **`FrameTimings.frame_nanos` is now the explicit sum of disjoint stages** (`input + systems + layout + render + flush + seed_prev`) instead of a wall-clock measurement. Plugin `post_render` time is intentionally excluded so reporters don't inflate the budget they're measuring.
+- **`FrameStats` and `FrameTimings` land before `Plugin::post_render`** is dispatched, so reporters that read them (e.g. `BudgetReportPlugin`) see the just-finished frame's stats instead of the previous frame's.
+- **`FrameStats::p99`** now uses `((len * 99).div_ceil(100) - 1).min(len - 1)`, matching the standard nearest-rank definition. Small-window p99 values are slightly higher than before; tail-latency budgets may need re-tuning.
+- **`FpsSummary` no longer pre-drains perf events.** Sinks that want per-span detail call `crate::perf::drain_events()` explicitly; this makes the mutual exclusion with `PerfReportPlugin` visible at the call site.
+- **`no_std` perf recorder narrows its critical sections.** The clock function and event allocations run outside the lock; `drain_events` copies the ring atomically inside one critical section so concurrent `trace_span!` invocations can't tear the snapshot.
+- `PerfReportPlugin::with_perfetto_writer(path)` is now a thin `std`-only wrapper around `with_perfetto_line_sink`; behaviour is unchanged.
+
+### Fixed
+
+- `FrameStats::p99` no longer underflows on small windows.
+- Chrome-trace JSON escaping: span names with quotes, backslashes, or control characters previously produced invalid JSON that downstream parsers (e.g. `tools/esp-trace.py`) would silently drop.
+
 ## [0.18.0] - 2026-05-21
 
 ### Added
