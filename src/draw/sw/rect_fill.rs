@@ -114,21 +114,59 @@ impl SwRenderer<'_> {
         }
 
         crate::trace_span!("sw.fill_aa_loop");
+        let area_x_end = area.x + area.w;
+        let area_y_end = area.y + area.h;
+        // Pixels strictly inside the corner-free zone don't need an SDF
+        // call; ceil/floor on the Fixed side gives the integer column /
+        // row range. When r == 0 the whole interior is corner-free.
+        let r_int = if r > Fixed::ZERO {
+            r.ceil()
+        } else {
+            Fixed::ZERO
+        };
+        let mid_x0 = (area.x + r_int).ceil().to_int();
+        let mid_x1 = (area_x_end - r_int).to_int();
+        let mid_y0 = (area.y + r_int).ceil().to_int();
+        let mid_y1 = (area_y_end - r_int).to_int();
+        let has_corners = r > Fixed::ZERO;
+        let opa_full = opa == 255;
+
         for py in px_y0..px_y1 {
             let pixel_top = Fixed::from_int(py);
             let pixel_bot = Fixed::from_int(py + 1);
-            let cov_y = (pixel_bot.min(area.y + area.h) - pixel_top.max(area.y))
-                .max(Fixed::ZERO)
-                .min(Fixed::ONE);
+            // Row entirely inside [area.y, area_y_end) → cov_y is ONE.
+            let cov_y = if pixel_top >= area.y && pixel_bot <= area_y_end {
+                Fixed::ONE
+            } else {
+                (pixel_bot.min(area_y_end) - pixel_top.max(area.y))
+                    .max(Fixed::ZERO)
+                    .min(Fixed::ONE)
+            };
+            let row_full_y = cov_y == Fixed::ONE;
+            let in_mid_y = py >= mid_y0 && py < mid_y1;
 
             for px in px_x0..px_x1 {
                 let pixel_left = Fixed::from_int(px);
                 let pixel_right = Fixed::from_int(px + 1);
-                let cov_x = (pixel_right.min(area.x + area.w) - pixel_left.max(area.x))
-                    .max(Fixed::ZERO)
-                    .min(Fixed::ONE);
+                let col_full_x = pixel_left >= area.x && pixel_right <= area_x_end;
+                let in_mid_x = px >= mid_x0 && px < mid_x1;
 
-                let corner_cov = if r > Fixed::ZERO {
+                // Hot path: the pixel is inside the straight zone, the
+                // edges fall inside the area, and opa is 255 → skip
+                // every Fixed multiply and the SDF call.
+                if row_full_y && col_full_x && in_mid_y && in_mid_x && opa_full {
+                    self.target.set_pixel(px, py, color);
+                    continue;
+                }
+
+                let cov_x = if col_full_x {
+                    Fixed::ONE
+                } else {
+                    (pixel_right.min(area_x_end) - pixel_left.max(area.x))
+                        .max(Fixed::ZERO)
+                        .min(Fixed::ONE)
+                };
+                let corner_cov = if has_corners && !(in_mid_y && in_mid_x) {
                     rounded_rect_coverage(
                         Fixed::from_int(px) - area.x,
                         Fixed::from_int(py) - area.y,
@@ -420,6 +458,76 @@ mod corner_check {
 
     fn count_full_in_row(row: &[u8]) -> usize {
         row.iter().filter(|&&a| a > 200).count()
+    }
+
+    fn render_circle_at(
+        w: i32,
+        h: i32,
+        ox: Fixed,
+        oy: Fixed,
+        fw: Fixed,
+        fh: Fixed,
+        r: Fixed,
+    ) -> Vec<Vec<u8>> {
+        let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let rect = Rect {
+            x: ox,
+            y: oy,
+            w: fw,
+            h: fh,
+        };
+        let clip = Rect::new(0, 0, w, h);
+        backend.fill_rect(&rect, &clip, &Color::rgb(255, 255, 255), r, 255);
+        let mut out = std::vec![std::vec![0u8; w as usize]; h as usize];
+        for py in 0..h {
+            for px in 0..w {
+                out[py as usize][px as usize] = backend.target.get_pixel(px, py).r;
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn fractional_origin_rounded_inner_still_solid() {
+        // demo-widgets layout often produces fractional area origins
+        // (flex SpaceBetween / Center halves a px). Verify the inner
+        // straight zone stays fully opaque even when area.x and area.y
+        // carry a half-pixel offset.
+        let half = Fixed::ONE / 2;
+        let ox = Fixed::from_int(2) + half;
+        let oy = Fixed::from_int(3) + half;
+        let g = render_circle_at(
+            48,
+            32,
+            ox,
+            oy,
+            Fixed::from_int(40),
+            Fixed::from_int(24),
+            Fixed::from_int(6),
+        );
+        // r_int = ceil(6) = 6.
+        // mid_x0 = ceil(2.5 + 6) = 9. mid_x1 = (2.5 + 40 - 6).to_int() = 36.
+        // mid_y0 = ceil(3.5 + 6) = 10. mid_y1 = (3.5 + 24 - 6).to_int() = 21.
+        for y in 10..21 {
+            for x in 9..36 {
+                assert_eq!(
+                    g[y][x], 255,
+                    "fractional-origin inner pixel ({x},{y}) not solid: alpha={}",
+                    g[y][x]
+                );
+            }
+        }
+        // Fractional edges must still anti-alias — top row of the
+        // fractional area must be partially transparent (cov_y < 1).
+        for x in 9..36 {
+            let edge = g[3][x];
+            assert!(
+                edge > 0 && edge < 255,
+                "fractional top-edge pixel ({x},3) should AA but got {edge}"
+            );
+        }
     }
 
     #[test]
