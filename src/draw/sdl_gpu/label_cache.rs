@@ -54,8 +54,6 @@ pub struct LabelCache {
     cache: WithFactory<LruCache<LabelKey, CachedTexture>, LabelCtor>,
     creator: TextureCreator<WindowContext>,
     raster_buf: Vec<u8>,
-    #[cfg(feature = "cache-stats")]
-    draw_count: u32,
 }
 
 impl LabelCache {
@@ -72,23 +70,7 @@ impl LabelCache {
             cache: WithFactory::new(cache, rasterize_label as LabelCtor),
             creator,
             raster_buf: Vec::new(),
-            #[cfg(feature = "cache-stats")]
-            draw_count: 0,
         }
-    }
-
-    /// Snapshot of the underlying cache statistics — exposed so external
-    /// callers can read hit / miss / evict counts without reaching into
-    /// the WithFactory internals.
-    #[allow(dead_code)]
-    pub fn stats(&self) -> &crate::cache::CacheStats {
-        self.cache.cache().stats()
-    }
-
-    /// Number of entries currently held by the cache.
-    #[allow(dead_code)]
-    pub fn len(&self) -> usize {
-        self.cache.cache().len()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -153,29 +135,6 @@ impl LabelCache {
         }
         let _ = canvas.copy(&tex, None, Some(dst));
         canvas.set_clip_rect(None);
-
-        #[cfg(feature = "cache-stats")]
-        self.maybe_dump_stats();
-    }
-
-    #[cfg(feature = "cache-stats")]
-    fn maybe_dump_stats(&mut self) {
-        const STATS_REPORT_PERIOD: u32 = 600; // every ~10s at 60fps
-        self.draw_count = self.draw_count.wrapping_add(1);
-        if self.draw_count % STATS_REPORT_PERIOD == 0 {
-            let s = self.stats();
-            eprintln!(
-                "[label_cache] draws={} entries={} hit={} miss={} hit_rate={:.1}% evict={} insert={} drop={}",
-                self.draw_count,
-                self.len(),
-                s.hit_count,
-                s.miss_count,
-                s.hit_rate() * 100.0,
-                s.evict_count,
-                s.insert_count,
-                s.drop_count,
-            );
-        }
     }
 
     #[allow(dead_code)]
