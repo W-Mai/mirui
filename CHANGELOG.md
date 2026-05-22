@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-05-22
+
+Runtime cache observability and a friendlier `WithFactory` entry API.
+
+### Added
+
+- **Cache observability primitives** in `mirui::cache`:
+  - **`CacheInspect`** — type-erased read-only view (`cache_name` / `cache_stats` / `cache_len` / `cache_max_size`). Blanket-impl'd for every `Cache<K, V, A, L>` so any cache hands out `&dyn CacheInspect` without exposing `K`/`V`.
+  - **`InspectCaches`** — multi-cache walk for containers that own several caches (a backend with label + shape caches, a user struct with a mix). Default returns an empty iterator; one-line empty impl is enough for caches-free containers. Wired into `Surface` as a super-trait so backends opt in by overriding a single method.
+  - **`CacheStatsSnapshot`** + **`CacheRegistry`** world resource — `App::run` walks the backend's caches once per frame and republishes the snapshot vector, so `post_render` systems read live stats without poking the backend.
+  - **`CacheReportPlugin`** — periodic dump every N frames following the `FpsSummaryPlugin` template. Default sink prints `entries / hit / miss (rate%) / max_size` per cache; `with_sink` swaps in a custom sink for telemetry export.
+- **`WithFactory` entry API** — `entry(key).or_insert(...)` (no-ctx ctor) / `or_insert_with(|ctor, k| ...)` (per-call ctx via the build closure). Replaces the v0.19.0 `acquire_with(ctx)` shape, which threaded `Ctx` as a generic parameter and required an internal lifetime transmute to plumb backend handles through.
+
+### Changed
+
+- **`LabelCache`** moved onto `mirui::cache::WithFactory`. The hand-rolled `lru = "0.12"` dependency is gone, the lifetime transmute is gone, and the cache now reports itself to the registry as `sdl_gpu/label`.
+- **`cache-stats` feature flag** (development-time `LabelCache` print toggle) removed. Subsumed by `CacheReportPlugin` + `CacheRegistry`.
+
 ## [0.19.0] - 2026-05-22
 
 ### Added
