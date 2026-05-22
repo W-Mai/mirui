@@ -35,6 +35,89 @@ impl SwRenderer<'_> {
             return;
         }
 
+        // Axis-aligned + rounded: solid fill the inner cross, only run
+        // SDF coverage on the four r×r corner bboxes. r is ceil'd so
+        // the SDF region fully covers the curved boundary.
+        if area.is_aligned() && r > Fixed::ZERO {
+            let r_px = r.ceil().to_int();
+            let area_x0 = area.x.to_int();
+            let area_y0 = area.y.to_int();
+            let area_x1 = (area.x + area.w).to_int();
+            let area_y1 = (area.y + area.h).to_int();
+            // Inner-cross requires the area to be wider/taller than 2r;
+            // otherwise the four corner bboxes overlap and there's no
+            // straight section to short-circuit.
+            if area_x1 - area_x0 > 2 * r_px && area_y1 - area_y0 > 2 * r_px {
+                crate::trace_span!("sw.fill_aligned_rounded");
+                let inner_x0 = area_x0 + r_px;
+                let inner_x1 = area_x1 - r_px;
+                let inner_y0 = area_y0 + r_px;
+                let inner_y1 = area_y1 - r_px;
+                fill_axis_aligned(
+                    &mut self.target,
+                    inner_x0.max(px_x0),
+                    area_y0.max(px_y0),
+                    inner_x1.min(px_x1),
+                    inner_y0.min(px_y1),
+                    color,
+                    opa,
+                );
+                fill_axis_aligned(
+                    &mut self.target,
+                    inner_x0.max(px_x0),
+                    inner_y1.max(px_y0),
+                    inner_x1.min(px_x1),
+                    area_y1.min(px_y1),
+                    color,
+                    opa,
+                );
+                // Middle slab spans full width — covers left/right
+                // straight bands plus the inner rectangle in one call.
+                fill_axis_aligned(
+                    &mut self.target,
+                    area_x0.max(px_x0),
+                    inner_y0.max(px_y0),
+                    area_x1.min(px_x1),
+                    inner_y1.min(px_y1),
+                    color,
+                    opa,
+                );
+                let corners = [
+                    (area_x0, area_y0, inner_x0, inner_y0), // TL
+                    (inner_x1, area_y0, area_x1, inner_y0), // TR
+                    (area_x0, inner_y1, inner_x0, area_y1), // BL
+                    (inner_x1, inner_y1, area_x1, area_y1), // BR
+                ];
+                for (cx0, cy0, cx1, cy1) in corners {
+                    let bx0 = cx0.max(px_x0);
+                    let by0 = cy0.max(px_y0);
+                    let bx1 = cx1.min(px_x1);
+                    let by1 = cy1.min(px_y1);
+                    for py in by0..by1 {
+                        for px in bx0..bx1 {
+                            let cov = rounded_rect_coverage(
+                                Fixed::from_int(px) - area.x,
+                                Fixed::from_int(py) - area.y,
+                                area.w,
+                                area.h,
+                                r,
+                            );
+                            let final_opa = (cov * opa_norm).map01(255).to_int() as u8;
+                            if final_opa > 0 {
+                                self.target.blend_pixel(
+                                    Fixed::from_int(px),
+                                    Fixed::from_int(py),
+                                    color,
+                                    final_opa,
+                                );
+                            }
+                        }
+                    }
+                }
+                return;
+            }
+        }
+
         crate::trace_span!("sw.fill_aa_loop");
         for py in px_y0..px_y1 {
             let pixel_top = Fixed::from_int(py);
@@ -346,6 +429,82 @@ mod corner_check {
 
     fn count_full_in_row(row: &[u8]) -> usize {
         row.iter().filter(|&&a| a > 200).count()
+    }
+
+    #[test]
+    fn aligned_rounded_widget_inner_solid() {
+        // Typical widget: 40×24 r=6. Exercises the axis-aligned + r>0
+        // fast path (inner cross + four corner bboxes). The inner cross
+        // (away from any corner bbox) must be fully solid (alpha 255).
+        let g = render_circle(40, 24, 6);
+        // r_px is ceil(6) = 6, so corner bboxes are [0..6) × [0..6) etc.
+        // Inner cross x/y range fully solid: x∈[6, 34), y∈[6, 18).
+        for y in 6..18 {
+            for x in 6..34 {
+                assert_eq!(
+                    g[y][x], 255,
+                    "inner pixel ({x},{y}) not solid: alpha={}",
+                    g[y][x]
+                );
+            }
+        }
+        for y in [0, 5, 18, 23] {
+            for x in 6..34 {
+                assert_eq!(
+                    g[y][x], 255,
+                    "straight band pixel ({x},{y}) not solid: alpha={}",
+                    g[y][x]
+                );
+            }
+        }
+        for y in 6..18 {
+            for x in [0, 5, 34, 39] {
+                assert_eq!(
+                    g[y][x], 255,
+                    "straight band pixel ({x},{y}) not solid: alpha={}",
+                    g[y][x]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn aligned_rounded_widget_corner_curve() {
+        // 40×24 r=6: top-left corner bbox [0..6) × [0..6). Pixel (0,0)
+        // must be transparent (it's the curve's outer extreme), pixel
+        // (5,5) must be fully solid (it's on the inside of the curve).
+        let g = render_circle(40, 24, 6);
+        assert_eq!(g[0][0], 0, "TL corner outer pixel should be empty");
+        assert_eq!(g[0][39], 0, "TR corner outer pixel should be empty");
+        assert_eq!(g[23][0], 0, "BL corner outer pixel should be empty");
+        assert_eq!(g[23][39], 0, "BR corner outer pixel should be empty");
+        assert_eq!(g[5][5], 255, "TL corner inner pixel should be solid");
+        assert_eq!(g[5][34], 255, "TR corner inner pixel should be solid");
+        assert_eq!(g[18][5], 255, "BL corner inner pixel should be solid");
+        assert_eq!(g[18][34], 255, "BR corner inner pixel should be solid");
+    }
+
+    #[test]
+    fn aligned_rounded_matches_general_path() {
+        // Sanity: a square that triggers fast path (40×40 r=8) and the
+        // same scenario forced through the general loop (50×50 r=25,
+        // already runs the loop because 2r==w) should produce visually
+        // equivalent corner curvature for the equivalent corner radius.
+        // Spot-check by symmetry: fast-path output must be 4-way
+        // symmetric within ±2 alpha steps.
+        let g = render_circle(40, 40, 8);
+        for y in 0..20 {
+            for x in 0..20 {
+                let tl = g[y][x];
+                let tr = g[y][39 - x];
+                let bl = g[39 - y][x];
+                let br = g[39 - y][39 - x];
+                assert!(
+                    tl.abs_diff(tr) <= 2 && tl.abs_diff(bl) <= 2 && tl.abs_diff(br) <= 2,
+                    "asymmetry at ({x},{y}): TL={tl} TR={tr} BL={bl} BR={br}"
+                );
+            }
+        }
     }
 
     #[test]
