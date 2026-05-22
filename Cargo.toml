@@ -25,7 +25,7 @@ hashbrown = { version = "0.15", default-features = false, features = ["default-h
 default = ["quad-aa"]
 std = ["critical-section/std"]
 sdl = ["dep:sdl2", "std"]
-sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon", "dep:lru"]
+sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
 perf = []
 sync-cache = []
 # Anti-aliasing for 3D-transformed quads. On `std` this uses a Fixed64
@@ -46,11 +46,6 @@ optional = true
 [dependencies.lyon]
 version = "1.0"
 optional = true
-
-[dependencies.lru]
-version = "0.12"
-optional = true
-default-features = false
 
 [dev-dependencies]
 trybuild = "1"

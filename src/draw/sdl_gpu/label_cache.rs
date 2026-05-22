@@ -14,14 +14,14 @@
 //! `SDL_DestroyTexture` to be safe.
 
 use alloc::vec::Vec;
+use core::cell::RefCell;
 use core::hash::{Hash, Hasher};
-use core::num::NonZeroUsize;
 
-use lru::LruCache;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas as SdlCanvas, Texture as SdlTexture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
+use crate::cache::{LruCache, MaxSize, WithFactory};
 use crate::draw::SwRenderer;
 use crate::draw::canvas::Canvas as _;
 use crate::draw::font::{CHAR_H, CHAR_W};
@@ -34,40 +34,48 @@ struct LabelKey {
     color_rgba: u32,
 }
 
-struct Entry {
-    texture: SdlTexture<'static>,
+// `Handle<V>` hands out `&V`, but `SdlTexture::set_alpha_mod` needs
+// `&mut self`, so the cached value is itself a `RefCell`.
+type CachedTexture = RefCell<SdlTexture<'static>>;
+
+/// Per-call inputs the rasteriser needs but that aren't part of `LabelKey`
+/// (the cache key intentionally hashes `text` to avoid storing the bytes).
+struct RasterCtx<'a, 'creator> {
+    text: &'a [u8],
+    color: &'a Color,
+    creator: &'a TextureCreator<WindowContext>,
+    raster_buf: &'a mut Vec<u8>,
+    _creator_lt: core::marker::PhantomData<&'creator ()>,
 }
 
 const DEFAULT_CAPACITY: usize = 128;
 
+type LabelFactory = fn(&LabelKey, RasterCtx<'_, '_>) -> Result<CachedTexture, ()>;
+
 pub struct LabelCache {
-    cache: LruCache<LabelKey, Entry>,
+    cache:
+        WithFactory<LruCache<LabelKey, CachedTexture>, LabelFactory, RasterCtx<'static, 'static>>,
     creator: TextureCreator<WindowContext>,
     raster_buf: Vec<u8>,
 }
 
 impl LabelCache {
     pub fn new(creator: TextureCreator<WindowContext>) -> Self {
-        Self {
-            cache: LruCache::new(NonZeroUsize::new(DEFAULT_CAPACITY).unwrap()),
-            creator,
-            raster_buf: Vec::new(),
-        }
+        Self::with_capacity(creator, DEFAULT_CAPACITY)
     }
 
     #[allow(dead_code)]
     pub fn with_capacity(creator: TextureCreator<WindowContext>, capacity: usize) -> Self {
-        let cap = NonZeroUsize::new(capacity.max(1)).unwrap();
+        let cache = LruCache::builder()
+            .max_size(MaxSize::Count(capacity.max(1)))
+            .build();
         Self {
-            cache: LruCache::new(cap),
+            cache: WithFactory::new(cache, rasterize_label as LabelFactory),
             creator,
             raster_buf: Vec::new(),
         }
     }
 
-    /// Draw `text` at `pos` via the given `canvas`. On a miss, rasterises
-    /// the label into a streaming SDL texture and stores it; on a hit,
-    /// does a single `canvas.copy`.
     #[allow(clippy::too_many_arguments)]
     pub fn draw(
         &mut self,
@@ -106,75 +114,34 @@ impl LabelCache {
         };
         let a = ((color.a as u16) * (opa as u16) / 255) as u8;
 
-        if !self.cache.contains(&key) {
-            let logical_w = CHAR_W as usize * text.len();
-            let logical_h = CHAR_H as usize;
-            let byte_stride = logical_w * 4;
-            let byte_len = byte_stride * logical_h;
-            self.raster_buf.clear();
-            self.raster_buf.resize(byte_len, 0);
-
-            {
-                let tex = MiruiTexture::new(
-                    &mut self.raster_buf,
-                    logical_w as u16,
-                    logical_h as u16,
-                    ColorFormat::RGBA8888,
-                );
-                let mut sw = SwRenderer::new(tex);
-                let area = Rect::new(0, 0, logical_w as u16, logical_h as u16);
-                sw.draw_label(
-                    &Point {
-                        x: Fixed::ZERO,
-                        y: Fixed::ZERO,
-                    },
-                    text,
-                    &area,
-                    color,
-                    255,
-                );
-            }
-
-            let mut new_tex = match self.creator.create_texture_streaming(
-                PixelFormatEnum::RGBA32,
-                logical_w as u32,
-                logical_h as u32,
-            ) {
-                Ok(t) => t,
-                Err(_) => return,
-            };
-            if new_tex.update(None, &self.raster_buf, byte_stride).is_err() {
-                return;
-            }
-            new_tex.set_blend_mode(sdl2::render::BlendMode::Blend);
-
-            let new_tex_static: SdlTexture<'static> = unsafe { core::mem::transmute(new_tex) };
-            self.cache.put(
-                key,
-                Entry {
-                    texture: new_tex_static,
-                },
-            );
-        }
-
-        let entry = match self.cache.get_mut(&key) {
-            Some(e) => e,
-            None => return,
+        let creator = &self.creator;
+        let raster_buf = &mut self.raster_buf;
+        let ctx = RasterCtx {
+            text,
+            color,
+            creator,
+            raster_buf,
+            _creator_lt: core::marker::PhantomData,
         };
-        entry.texture.set_alpha_mod(a);
+        let Ok(handle) = (unsafe { acquire_or_create_with_ctx(&mut self.cache, key, ctx) }) else {
+            return;
+        };
+
+        let mut tex = handle.borrow_mut();
+        tex.set_alpha_mod(a);
 
         if let Some(sdl_clip) = clip_rect {
             canvas.set_clip_rect(sdl_clip);
         } else {
             canvas.set_clip_rect(None);
         }
-        let _ = canvas.copy(&entry.texture, None, Some(dst));
+        let _ = canvas.copy(&tex, None, Some(dst));
         canvas.set_clip_rect(None);
     }
 
     #[allow(dead_code)]
     pub fn clear(&mut self) {
-        self.cache.clear();
+        self.cache.cache_mut().clear();
     }
 
     /// Expose the cache's `TextureCreator` so callers can allocate extra
@@ -183,6 +150,80 @@ impl LabelCache {
     pub fn with_creator<R>(&self, f: impl FnOnce(&TextureCreator<WindowContext>) -> R) -> R {
         f(&self.creator)
     }
+}
+
+/// Bridge an `'a`-bounded `RasterCtx` through `WithFactory`, whose
+/// `Ctx` type parameter is fixed at `RasterCtx<'static, 'static>`
+/// (struct fields can't carry call-site lifetimes).
+///
+/// # Safety
+///
+/// Caller must guarantee the `'a` borrows in `ctx` outlive this call.
+/// `WithFactory::acquire_or_create` consumes `Ctx` by value on the
+/// synchronous call stack and `rasterize_label` (the registered
+/// factory) does not store, return, or otherwise let any reference
+/// inside `ctx` escape: it only writes through `raster_buf` and reads
+/// from `creator` while building the texture, then drops the borrows
+/// before returning. The transmute therefore widens lifetimes only
+/// for the duration of the call frame, which is sound. If the
+/// factory or the cache ever stores `Ctx` past that frame, this
+/// becomes use-after-free.
+unsafe fn acquire_or_create_with_ctx<'a>(
+    cache: &mut WithFactory<
+        LruCache<LabelKey, CachedTexture>,
+        LabelFactory,
+        RasterCtx<'static, 'static>,
+    >,
+    key: LabelKey,
+    ctx: RasterCtx<'a, 'a>,
+) -> Result<crate::cache::Handle<CachedTexture>, crate::cache::CacheError<()>> {
+    let ctx_static: RasterCtx<'static, 'static> = unsafe { core::mem::transmute(ctx) };
+    cache.acquire_or_create(key, ctx_static)
+}
+
+fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_, '_>) -> Result<CachedTexture, ()> {
+    let logical_w = CHAR_W as usize * ctx.text.len();
+    let logical_h = CHAR_H as usize;
+    let byte_stride = logical_w * 4;
+    let byte_len = byte_stride * logical_h;
+    ctx.raster_buf.clear();
+    ctx.raster_buf.resize(byte_len, 0);
+    {
+        let tex = MiruiTexture::new(
+            ctx.raster_buf,
+            logical_w as u16,
+            logical_h as u16,
+            ColorFormat::RGBA8888,
+        );
+        let mut sw = SwRenderer::new(tex);
+        let area = Rect::new(0, 0, logical_w as u16, logical_h as u16);
+        sw.draw_label(
+            &Point {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+            ctx.text,
+            &area,
+            ctx.color,
+            255,
+        );
+    }
+
+    let mut new_tex = ctx
+        .creator
+        .create_texture_streaming(PixelFormatEnum::RGBA32, logical_w as u32, logical_h as u32)
+        .map_err(|_| ())?;
+    new_tex
+        .update(None, ctx.raster_buf, byte_stride)
+        .map_err(|_| ())?;
+    new_tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+
+    // Erase the creator's borrow so the texture can sit inside `LruCache`.
+    // Soundness: every texture is dropped before its creator because
+    // `LabelCache` lists `cache` before `creator` and Rust drops fields
+    // in declaration order.
+    let new_tex_static: SdlTexture<'static> = unsafe { core::mem::transmute(new_tex) };
+    Ok(RefCell::new(new_tex_static))
 }
 
 fn hash_bytes(bytes: &[u8]) -> u64 {
