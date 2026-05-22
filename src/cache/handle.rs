@@ -32,9 +32,11 @@ impl<V> CacheEntry<V> {
         {
             self.is_invalid.get()
         }
+        // Relaxed is enough — the flag is a pure status bit; nothing else
+        // is published by setting it (V's lifetime is governed by Rc/Arc).
         #[cfg(feature = "sync-cache")]
         {
-            self.is_invalid.load(core::sync::atomic::Ordering::Acquire)
+            self.is_invalid.load(core::sync::atomic::Ordering::Relaxed)
         }
     }
 
@@ -46,7 +48,7 @@ impl<V> CacheEntry<V> {
         #[cfg(feature = "sync-cache")]
         {
             self.is_invalid
-                .store(v, core::sync::atomic::Ordering::Release);
+                .store(v, core::sync::atomic::Ordering::Relaxed);
         }
     }
 }

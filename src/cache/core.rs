@@ -50,6 +50,7 @@ where
     L: Lookup<K> + Default,
 {
     pub fn new(max_size: MaxSize) -> Self {
+        check_max_size_supported(max_size);
         Self {
             nodes: Slab::new(),
             index: L::default(),
@@ -61,6 +62,14 @@ where
             name: None,
             _phantom: PhantomData,
         }
+    }
+}
+
+fn check_max_size_supported(m: MaxSize) {
+    if let MaxSize::Bytes(_) = m {
+        unimplemented!(
+            "MaxSize::Bytes will be wired in a later patch; use Count or Disabled for now"
+        );
     }
 }
 
@@ -307,15 +316,16 @@ where
         &self.key
     }
 
+    /// On Disabled / Count(0) the value is wrapped as an already-invalid
+    /// detached Handle — the chain still types, but `h.is_invalid()` is
+    /// the signal the value never made it into the cache.
     pub fn insert(self, value: V) -> Handle<V> {
         if self.cache.ensure_room_count() {
             self.cache.insert_value(self.key, value, 1)
         } else {
-            // Cache cannot accept the value (Disabled / Count(0)). Hand the
-            // value back as a standalone Handle so or_insert_with chains
-            // still return Handle<V>; the entry is not registered, so a
-            // later acquire(key) will miss again.
-            Handle::from_rc(Rc::new(CacheEntry::new(value)))
+            let entry = CacheEntry::new(value);
+            entry.invalid_set(true);
+            Handle::from_rc(Rc::new(entry))
         }
     }
 }
@@ -360,11 +370,7 @@ impl<K, V, A: Algorithm, L: Lookup<K> + Default> CacheBuilder<K, V, A, L> {
         let max_size = self
             .max_size
             .expect("CacheBuilder::max_size must be configured before build");
-        if let MaxSize::Bytes(_) = max_size {
-            unimplemented!(
-                "MaxSize::Bytes will be wired in a later patch; use Count or Disabled for now"
-            );
-        }
+        check_max_size_supported(max_size);
         Cache {
             nodes: Slab::new(),
             index: L::default(),
@@ -561,30 +567,38 @@ mod tests {
     }
 
     #[test]
-    fn disabled_cache_does_not_register_entries() {
+    fn disabled_cache_returns_detached_invalid_handle() {
         let mut cache: Cache<u32, u32, Lru, HashLookup<u32>> =
             Cache::builder().max_size(MaxSize::Disabled).build();
         let h = cache.entry(1).or_insert_with(|| 42);
         assert_eq!(*h, 42);
+        assert!(h.is_invalid(), "detached handle must be invalid");
         assert_eq!(cache.len(), 0);
         assert!(cache.acquire(&1).is_none());
     }
 
     #[test]
-    fn count_zero_cache_does_not_register_entries() {
+    fn count_zero_cache_returns_detached_invalid_handle() {
         let mut cache: Cache<u32, u32, Lru, HashLookup<u32>> =
             Cache::builder().max_size(MaxSize::Count(0)).build();
         let h = cache.entry(1).or_insert_with(|| 7);
         assert_eq!(*h, 7);
+        assert!(h.is_invalid(), "detached handle must be invalid");
         assert_eq!(cache.len(), 0);
         assert!(cache.acquire(&1).is_none());
     }
 
     #[test]
     #[should_panic(expected = "MaxSize::Bytes")]
-    fn bytes_mode_panics_until_wired_up() {
+    fn bytes_mode_panics_via_builder() {
         let _: Cache<u32, u32, Lru, HashLookup<u32>> =
             Cache::builder().max_size(MaxSize::Bytes(64)).build();
+    }
+
+    #[test]
+    #[should_panic(expected = "MaxSize::Bytes")]
+    fn bytes_mode_panics_via_new() {
+        let _: Cache<u32, u32, Lru, HashLookup<u32>> = Cache::new(MaxSize::Bytes(64));
     }
 
     #[test]
