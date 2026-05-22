@@ -1,13 +1,10 @@
 //! Per-frame perf reporting.
 //!
-//! Drains the thread-local span events from [`crate::perf`] each
-//! frame, optionally writes them to a chrome-JSON ndjson file (open
-//! in <https://ui.perfetto.dev>), and periodically prints a console
-//! summary aggregating per-name count / total / avg / min / max.
-//!
-//! The plugin also surfaces the per-system timings the scheduler
-//! writes into [`SystemPerfSnapshot`] so a single report combines
-//! framework spans and user-registered systems.
+//! Drains span events from [`crate::perf`] each frame, optionally
+//! streams them as chrome-JSON lines through a user-supplied sink
+//! (open the captured stream in <https://ui.perfetto.dev>), and
+//! periodically emits an aggregated `PerfReport` containing
+//! per-name span totals plus per-system scheduler timings.
 
 use crate::app::{App, RendererFactory};
 use crate::ecs::World;
