@@ -89,7 +89,10 @@ where
     }
 
     pub fn acquire(&mut self, key: &K) -> Option<Handle<V>> {
-        let node_id = self.index.get(key)?;
+        let Some(node_id) = self.index.get(key) else {
+            self.stats.miss_count += 1;
+            return None;
+        };
         A::on_access(&mut self.order, node_id);
         self.stats.hit_count += 1;
         Some(Handle {
@@ -98,7 +101,7 @@ where
     }
 
     pub fn drop(&mut self, key: &K) -> bool {
-        self.drop_internal(key).is_some()
+        self.remove_internal(key, RemoveReason::Drop).is_some()
     }
 
     pub fn clear(&mut self) {
@@ -107,10 +110,7 @@ where
             let node = self.nodes.remove(id);
             self.index.remove(&node.key);
             A::on_remove(&mut self.order, id);
-            node.entry.is_invalid.set(true);
-            if let Some(cb) = self.on_evict.as_mut() {
-                cb(&node.key, &node.entry.payload);
-            }
+            node.entry.invalid_set(true);
             self.stats.drop_count += 1;
         }
         self.current_size = 0;
@@ -135,11 +135,11 @@ where
     L: Lookup<K>,
 {
     /// `K: Clone` because the algorithm only tracks `NodeId`; eviction
-    /// has to fish the key out of the slab to drive `drop_internal`.
+    /// has to fish the key out of the slab to drive `remove_internal`.
     pub fn evict_one(&mut self) -> Option<Handle<V>> {
         let victim_id = A::pick_victim(&self.order)?;
         let key = self.nodes.get(victim_id).key.clone();
-        self.drop_internal(&key)
+        self.remove_internal(&key, RemoveReason::Evict)
     }
 
     fn evict_one_for_reserve(&mut self) -> bool {
@@ -152,19 +152,31 @@ where
     A: Algorithm,
     L: Lookup<K>,
 {
-    fn drop_internal(&mut self, key: &K) -> Option<Handle<V>> {
+    fn remove_internal(&mut self, key: &K, reason: RemoveReason) -> Option<Handle<V>> {
         let node_id = self.index.remove(key)?;
         A::on_remove(&mut self.order, node_id);
         let node = self.nodes.remove(node_id);
         self.current_size = self.current_size.saturating_sub(node.size);
-        node.entry.is_invalid.set(true);
-        if let Some(cb) = self.on_evict.as_mut() {
-            cb(&node.key, &node.entry.payload);
+        node.entry.invalid_set(true);
+        // on_evict fires only on algorithm-driven removal; user-initiated
+        // drop / clear are silent because the caller already knows.
+        match reason {
+            RemoveReason::Drop => self.stats.drop_count += 1,
+            RemoveReason::Evict => {
+                self.stats.evict_count += 1;
+                if let Some(cb) = self.on_evict.as_mut() {
+                    cb(&node.key, &node.entry.payload);
+                }
+            }
         }
-        self.stats.drop_count += 1;
-        self.stats.evict_count += 1;
         Some(Handle { inner: node.entry })
     }
+}
+
+#[derive(Clone, Copy)]
+enum RemoveReason {
+    Drop,
+    Evict,
 }
 
 impl<K, V, A, L> Cache<K, V, A, L>
@@ -190,13 +202,13 @@ where
     fn ensure_room_count(&mut self) -> bool {
         match self.max_size {
             MaxSize::Disabled => false,
+            MaxSize::Count(0) => false,
             MaxSize::Count(limit) => {
                 while self.index.len() >= limit && self.evict_one_for_reserve() {}
                 self.index.len() < limit
             }
-            // bytes-mode enforcement requires a V: HasSize impl block; not
-            // wired in v0.19.0, falls through unbounded.
-            MaxSize::Bytes(_) => true,
+            // Bytes is rejected at builder time; reaching this arm is a bug.
+            MaxSize::Bytes(_) => unreachable!("MaxSize::Bytes rejected by CacheBuilder::build"),
         }
     }
 
@@ -296,13 +308,20 @@ where
     }
 
     pub fn insert(self, value: V) -> Handle<V> {
-        self.cache.ensure_room_count();
-        self.cache.insert_value(self.key, value, 1)
+        if self.cache.ensure_room_count() {
+            self.cache.insert_value(self.key, value, 1)
+        } else {
+            // Cache cannot accept the value (Disabled / Count(0)). Hand the
+            // value back as a standalone Handle so or_insert_with chains
+            // still return Handle<V>; the entry is not registered, so a
+            // later acquire(key) will miss again.
+            Handle::from_rc(Rc::new(CacheEntry::new(value)))
+        }
     }
 }
 
 pub struct CacheBuilder<K, V, A: Algorithm, L: Lookup<K>> {
-    max_size: MaxSize,
+    max_size: Option<MaxSize>,
     on_evict: Option<EvictCallback<K, V>>,
     name: Option<&'static str>,
     _phantom: PhantomData<(K, V, A, L)>,
@@ -311,7 +330,7 @@ pub struct CacheBuilder<K, V, A: Algorithm, L: Lookup<K>> {
 impl<K, V, A: Algorithm, L: Lookup<K>> Default for CacheBuilder<K, V, A, L> {
     fn default() -> Self {
         Self {
-            max_size: MaxSize::default(),
+            max_size: None,
             on_evict: None,
             name: None,
             _phantom: PhantomData,
@@ -321,7 +340,7 @@ impl<K, V, A: Algorithm, L: Lookup<K>> Default for CacheBuilder<K, V, A, L> {
 
 impl<K, V, A: Algorithm, L: Lookup<K> + Default> CacheBuilder<K, V, A, L> {
     pub fn max_size(mut self, m: MaxSize) -> Self {
-        self.max_size = m;
+        self.max_size = Some(m);
         self
     }
 
@@ -335,12 +354,22 @@ impl<K, V, A: Algorithm, L: Lookup<K> + Default> CacheBuilder<K, V, A, L> {
         self
     }
 
+    /// Panics if `max_size` was never set, or if it is `MaxSize::Bytes(_)`
+    /// (byte-mode enforcement is wired in a follow-up patch).
     pub fn build(self) -> Cache<K, V, A, L> {
+        let max_size = self
+            .max_size
+            .expect("CacheBuilder::max_size must be configured before build");
+        if let MaxSize::Bytes(_) = max_size {
+            unimplemented!(
+                "MaxSize::Bytes will be wired in a later patch; use Count or Disabled for now"
+            );
+        }
         Cache {
             nodes: Slab::new(),
             index: L::default(),
             order: A::State::default(),
-            max_size: self.max_size,
+            max_size,
             current_size: 0,
             on_evict: self.on_evict,
             stats: CacheStats::default(),
@@ -390,6 +419,10 @@ impl<T> Slab<T> {
     }
 
     fn remove(&mut self, id: usize) -> T {
+        // Check before mutate: a double-remove panics with len/next_free intact.
+        if !matches!(self.entries[id], SlabSlot::Occupied(_)) {
+            panic!("slab removing already-vacant slot {id}");
+        }
         let slot = core::mem::replace(
             &mut self.entries[id],
             SlabSlot::Vacant {
@@ -400,7 +433,7 @@ impl<T> Slab<T> {
         self.len -= 1;
         match slot {
             SlabSlot::Occupied(v) => v,
-            SlabSlot::Vacant { .. } => panic!("slab removing already-vacant slot {id}"),
+            SlabSlot::Vacant { .. } => unreachable!("checked occupancy above"),
         }
     }
 
@@ -440,14 +473,11 @@ mod tests {
 
         let h1 = cache.entry(1).or_insert_with(|| "a".into());
         let _h2 = cache.entry(2).or_insert_with(|| "b".into());
-        // 2 entries, at capacity. Touch 1 so 2 becomes LRU.
         let _h1_again = cache.acquire(&1).unwrap();
         let _h3 = cache.entry(3).or_insert_with(|| "c".into());
-        // 2 should be evicted, 1 and 3 remain.
         assert!(cache.acquire(&1).is_some());
         assert!(cache.acquire(&3).is_some());
         assert!(cache.acquire(&2).is_none());
-        // Old handle to 1 still valid (Rc shared payload).
         assert_eq!(&*h1, "a");
     }
 
@@ -478,21 +508,100 @@ mod tests {
     }
 
     #[test]
-    fn on_evict_callback_fires_with_key_and_value() {
+    fn on_evict_callback_fires_only_on_algorithmic_eviction() {
         use core::cell::RefCell;
         let log: alloc::rc::Rc<RefCell<alloc::vec::Vec<(u32, alloc::string::String)>>> =
             alloc::rc::Rc::new(RefCell::new(alloc::vec::Vec::new()));
         let log_for_cb = log.clone();
         let mut cache: Cache<u32, alloc::string::String, Lru, HashLookup<u32>> = Cache::builder()
-            .max_size(MaxSize::Count(1))
+            .max_size(MaxSize::Count(2))
             .on_evict(move |k: &u32, v: &alloc::string::String| {
                 log_for_cb.borrow_mut().push((*k, v.clone()));
             })
             .build();
         cache.entry(1).or_insert_with(|| "a".into());
         cache.entry(2).or_insert_with(|| "b".into());
+        cache.drop(&1);
+        assert!(log.borrow().is_empty(), "drop must not fire on_evict");
+        cache.clear();
+        assert!(log.borrow().is_empty(), "clear must not fire on_evict");
+        cache.entry(10).or_insert_with(|| "x".into());
+        cache.entry(11).or_insert_with(|| "y".into());
+        cache.entry(12).or_insert_with(|| "z".into()); // evicts 10
         let entries = log.borrow();
         assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0], (1, "a".into()));
+        assert_eq!(entries[0], (10, "x".into()));
+    }
+
+    #[test]
+    fn drop_and_evict_count_separately() {
+        let mut cache: Cache<u32, u32, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Count(2)).build();
+        cache.entry(1).or_insert_with(|| 1);
+        cache.entry(2).or_insert_with(|| 2);
+        cache.drop(&1);
+        assert_eq!(cache.stats().drop_count, 1);
+        assert_eq!(cache.stats().evict_count, 0);
+
+        cache.entry(3).or_insert_with(|| 3);
+        cache.entry(4).or_insert_with(|| 4); // evicts 2
+        assert_eq!(cache.stats().drop_count, 1);
+        assert_eq!(cache.stats().evict_count, 1);
+    }
+
+    #[test]
+    fn acquire_miss_increments_miss_count() {
+        let mut cache: Cache<u32, u32, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Count(2)).build();
+        cache.entry(1).or_insert_with(|| 100);
+        let _ = cache.acquire(&1); // hit
+        let _ = cache.acquire(&999); // miss
+        assert_eq!(cache.stats().hit_count, 1);
+        assert_eq!(cache.stats().miss_count, 2); // entry()@1 + acquire(999)
+    }
+
+    #[test]
+    fn disabled_cache_does_not_register_entries() {
+        let mut cache: Cache<u32, u32, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Disabled).build();
+        let h = cache.entry(1).or_insert_with(|| 42);
+        assert_eq!(*h, 42);
+        assert_eq!(cache.len(), 0);
+        assert!(cache.acquire(&1).is_none());
+    }
+
+    #[test]
+    fn count_zero_cache_does_not_register_entries() {
+        let mut cache: Cache<u32, u32, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Count(0)).build();
+        let h = cache.entry(1).or_insert_with(|| 7);
+        assert_eq!(*h, 7);
+        assert_eq!(cache.len(), 0);
+        assert!(cache.acquire(&1).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "MaxSize::Bytes")]
+    fn bytes_mode_panics_until_wired_up() {
+        let _: Cache<u32, u32, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Bytes(64)).build();
+    }
+
+    #[test]
+    #[should_panic(expected = "max_size must be configured")]
+    fn builder_panics_without_max_size() {
+        let _: Cache<u32, u32, Lru, HashLookup<u32>> = Cache::builder().build();
+    }
+
+    #[test]
+    fn slab_id_reuse_keeps_lru_consistent() {
+        let mut cache: Cache<u32, u32, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Count(2)).build();
+        for i in 0..10u32 {
+            cache.entry(i).or_insert_with(|| i * 100);
+        }
+        assert!(cache.acquire(&8).is_some());
+        assert!(cache.acquire(&9).is_some());
+        assert!(cache.acquire(&7).is_none());
     }
 }

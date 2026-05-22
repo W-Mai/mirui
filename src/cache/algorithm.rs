@@ -124,10 +124,8 @@ mod tests {
         Lru::on_insert(&mut s, 1);
         Lru::on_insert(&mut s, 2);
         Lru::on_insert(&mut s, 3);
-        // List front->back: 3, 2, 1
         assert_eq!(Lru::pick_victim(&s), Some(1));
 
-        // Touch 1 → moves to front
         Lru::on_access(&mut s, 1);
         assert_eq!(Lru::pick_victim(&s), Some(2));
     }

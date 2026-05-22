@@ -1,8 +1,7 @@
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MaxSize {
     Count(usize),
     Bytes(usize),
-    #[default]
     Disabled,
 }
 

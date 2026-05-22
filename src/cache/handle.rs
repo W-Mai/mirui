@@ -1,5 +1,3 @@
-use core::cell::Cell;
-
 #[cfg(not(feature = "sync-cache"))]
 use alloc::rc::Rc as EntryRcImpl;
 #[cfg(feature = "sync-cache")]
@@ -7,9 +5,14 @@ use alloc::sync::Arc as EntryRcImpl;
 
 pub(crate) type EntryRc<V> = EntryRcImpl<CacheEntry<V>>;
 
+#[cfg(not(feature = "sync-cache"))]
+pub(crate) type InvalidFlag = core::cell::Cell<bool>;
+#[cfg(feature = "sync-cache")]
+pub(crate) type InvalidFlag = core::sync::atomic::AtomicBool;
+
 pub struct CacheEntry<V> {
     pub(crate) payload: V,
-    pub(crate) is_invalid: Cell<bool>,
+    pub(crate) is_invalid: InvalidFlag,
 }
 
 impl<V> CacheEntry<V> {
@@ -17,7 +20,33 @@ impl<V> CacheEntry<V> {
     pub(crate) fn new(payload: V) -> Self {
         Self {
             payload,
-            is_invalid: Cell::new(false),
+            #[cfg(not(feature = "sync-cache"))]
+            is_invalid: core::cell::Cell::new(false),
+            #[cfg(feature = "sync-cache")]
+            is_invalid: core::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    pub(crate) fn invalid_get(&self) -> bool {
+        #[cfg(not(feature = "sync-cache"))]
+        {
+            self.is_invalid.get()
+        }
+        #[cfg(feature = "sync-cache")]
+        {
+            self.is_invalid.load(core::sync::atomic::Ordering::Acquire)
+        }
+    }
+
+    pub(crate) fn invalid_set(&self, v: bool) {
+        #[cfg(not(feature = "sync-cache"))]
+        {
+            self.is_invalid.set(v);
+        }
+        #[cfg(feature = "sync-cache")]
+        {
+            self.is_invalid
+                .store(v, core::sync::atomic::Ordering::Release);
         }
     }
 }
@@ -37,7 +66,7 @@ impl<V> Handle<V> {
     }
 
     pub fn is_invalid(&self) -> bool {
-        self.inner.is_invalid.get()
+        self.inner.invalid_get()
     }
 
     pub fn ref_count(&self) -> usize {
@@ -95,7 +124,7 @@ mod tests {
         let h1 = Handle::from_rc(entry);
         let h2 = h1.clone();
         assert!(!h1.is_invalid());
-        h1.inner.is_invalid.set(true);
+        h1.inner.invalid_set(true);
         assert!(h1.is_invalid());
         assert!(h2.is_invalid());
     }
