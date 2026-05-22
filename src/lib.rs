@@ -8,6 +8,7 @@ extern crate self as mirui;
 
 pub mod anim;
 pub mod app;
+pub mod cache;
 pub mod components;
 pub mod draw;
 pub mod ecs;
