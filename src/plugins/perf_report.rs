@@ -11,8 +11,6 @@
 
 use crate::app::{App, RendererFactory};
 use crate::ecs::World;
-#[cfg(feature = "std")]
-use crate::perf::PerfEvent;
 use crate::perf::StageStat;
 use crate::plugin::Plugin;
 use crate::surface::Surface;
@@ -60,9 +58,12 @@ pub struct PerfReportPlugin {
     frames_per_report: u32,
     frame_count: u32,
     on_report: fn(report: &PerfReport),
-    #[cfg(feature = "std")]
-    perfetto_writer: Option<std::sync::Mutex<std::fs::File>>,
+    perfetto_line_sink: Option<PerfettoLineSink>,
 }
+
+/// Writer for the perfetto line sink: one JSON event per call, no
+/// trailing newline (the sink decides how to terminate).
+pub type PerfettoLineSink = alloc::boxed::Box<dyn FnMut(&str)>;
 
 impl PerfReportPlugin {
     pub fn new(frames_per_report: u32) -> Self {
@@ -70,8 +71,7 @@ impl PerfReportPlugin {
             frames_per_report,
             frame_count: 0,
             on_report: default_sink,
-            #[cfg(feature = "std")]
-            perfetto_writer: None,
+            perfetto_line_sink: None,
         }
     }
 
@@ -80,14 +80,22 @@ impl PerfReportPlugin {
         self
     }
 
-    /// Write every drained span event to a chrome-JSON ndjson file.
-    /// Open the result in <https://ui.perfetto.dev> for a timeline
-    /// view. Truncates the file on creation.
-    #[cfg(feature = "std")]
-    pub fn with_perfetto_writer(mut self, path: impl AsRef<std::path::Path>) -> Self {
-        let f = std::fs::File::create(path).expect("failed to create perfetto trace file");
-        self.perfetto_writer = Some(std::sync::Mutex::new(f));
+    /// Write each drained event as one chrome-JSON line through `sink`.
+    /// Open the resulting NDJSON in <https://ui.perfetto.dev>. Works
+    /// on `no_std`; ESP backends pass an `esp_println` shim.
+    pub fn with_perfetto_line_sink(mut self, sink: PerfettoLineSink) -> Self {
+        self.perfetto_line_sink = Some(sink);
         self
+    }
+
+    /// `with_perfetto_line_sink` over a freshly-truncated file.
+    #[cfg(feature = "std")]
+    pub fn with_perfetto_writer(self, path: impl AsRef<std::path::Path>) -> Self {
+        use std::io::Write as _;
+        let mut f = std::fs::File::create(path).expect("failed to create perfetto trace file");
+        self.with_perfetto_line_sink(alloc::boxed::Box::new(move |line: &str| {
+            let _ = writeln!(f, "{line}");
+        }))
     }
 }
 
@@ -109,9 +117,14 @@ where
     fn post_render(&mut self, world: &mut World, _render_nanos: u64) {
         let events = crate::perf::drain_events();
 
-        #[cfg(feature = "std")]
-        if let Some(w) = self.perfetto_writer.as_ref() {
-            write_perfetto_ndjson(w, &events);
+        if let Some(sink) = self.perfetto_line_sink.as_mut() {
+            let mut buf = alloc::string::String::with_capacity(128);
+            for ev in &events {
+                buf.clear();
+                if crate::perf::format_chrome_event(ev, &mut buf).is_ok() {
+                    sink(&buf);
+                }
+            }
         }
 
         if let Some(acc) = world.resource_mut::<PerfAccum>() {
@@ -179,19 +192,6 @@ fn collect_system_stats(world: &World) -> alloc::vec::Vec<SystemStat> {
         .resource::<SystemPerfSnapshot>()
         .map(|s| s.entries.clone())
         .unwrap_or_default()
-}
-
-#[cfg(feature = "std")]
-fn write_perfetto_ndjson(w: &std::sync::Mutex<std::fs::File>, events: &[PerfEvent]) {
-    use std::io::Write as _;
-    let Ok(mut f) = w.lock() else { return };
-    let mut buf = alloc::string::String::with_capacity(128);
-    for ev in events {
-        buf.clear();
-        if crate::perf::format_chrome_event(ev, &mut buf).is_ok() {
-            let _ = writeln!(f, "{buf}");
-        }
-    }
 }
 
 #[cfg(feature = "std")]

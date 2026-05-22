@@ -8,6 +8,8 @@ pub mod std_clock;
 pub use budget::{BudgetReportPlugin, BudgetViolation};
 pub use fps_summary::{FpsSummary, FpsSummaryPlugin};
 pub use input_feedback::InputFeedbackPlugin;
-pub use perf_report::{PerfReport, PerfReportPlugin, SystemPerfSnapshot, SystemStat};
+pub use perf_report::{
+    PerfReport, PerfReportPlugin, PerfettoLineSink, SystemPerfSnapshot, SystemStat,
+};
 #[cfg(feature = "std")]
 pub use std_clock::StdInstantClockPlugin;
