@@ -12,7 +12,7 @@ use mirui::app::{App, RendererFactory};
 use mirui::components::Image;
 use mirui::components::assets::*;
 use mirui::plugin::Plugin;
-use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::plugins::{CacheReportPlugin, FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::prelude::*;
 use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
 use mirui::surface::{InputEvent, Surface};
@@ -102,11 +102,13 @@ fn main() {
     app.set_root(root);
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default())
+        .add_plugin(CacheReportPlugin::new(120))
         .add_plugin(DragPlugin {
             target: drag,
             pos: (Fixed::from_int(240), Fixed::from_int(30)),
             offset: None,
         });
+
     app.run();
 }
 
