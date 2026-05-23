@@ -499,6 +499,10 @@ impl Renderer for SwRenderer<'_> {
     fn flush(&mut self) {
         Canvas::flush(self);
     }
+
+    fn supports_offscreen(&self) -> bool {
+        true
+    }
 }
 
 fn translate_path(path: &Path, tx: Fixed, ty: Fixed) -> Path {
@@ -1232,5 +1236,13 @@ mod tests {
             blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10);
         }
         assert_eq!(dst_a, dst_b);
+    }
+
+    #[test]
+    fn sw_renderer_supports_offscreen() {
+        let mut buf = vec![0u8; 4 * 4 * 4];
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let backend = SwRenderer::new(tex);
+        assert!(Renderer::supports_offscreen(&backend));
     }
 }
