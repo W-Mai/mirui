@@ -29,7 +29,11 @@ impl SwRenderer<'_> {
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
         // Fold color.a into opa so every downstream blend treats the
         // colour as opaque RGB. Mirrors what blend_pixel does internally
-        // before delegating to blend_pixel_int.
+        // before delegating to blend_pixel_int. The fold happens before
+        // coverage instead of after, which can shift a half-transparent
+        // fully-covered pixel by ±1 alpha vs the pre-eb98ecc path; the
+        // difference is below visual threshold and inside the existing
+        // ±2 symmetry tolerance.
         let effective_opa = ((color.a as u16 * opa as u16) / 255) as u8;
         let opa_norm =
             Fixed::from_int(effective_opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
@@ -655,58 +659,150 @@ mod corner_check {
         out
     }
 
+    fn render_at_with_color(
+        w: i32,
+        h: i32,
+        ox: Fixed,
+        oy: Fixed,
+        fw: Fixed,
+        fh: Fixed,
+        r: Fixed,
+        color: Color,
+        opa: u8,
+    ) -> Vec<Vec<Color>> {
+        let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let rect = Rect {
+            x: ox,
+            y: oy,
+            w: fw,
+            h: fh,
+        };
+        let clip = Rect::new(0, 0, w, h);
+        backend.fill_rect(&rect, &clip, &color, r, opa);
+        let mut out = std::vec![std::vec![Color::rgba(0,0,0,0); w as usize]; h as usize];
+        for py in 0..h {
+            for px in 0..w {
+                out[py as usize][px as usize] = backend.target.get_pixel(px, py);
+            }
+        }
+        out
+    }
+
     #[test]
-    fn rounded_fill_respects_color_alpha() {
-        // Regression: blend_pixel(...) used to fold color.a in via
-        // a = color.a * opa / 255 before delegating to blend_pixel_int.
-        // Dropping that step lets a half-transparent colour with
-        // opa=255 land as fully opaque source RGB on an empty canvas
-        // (visually the widget over-saturates against its parent).
-        // Verify by checking the RGB channel — blend_pixel_int writes
-        // r ≈ color.r * a / 255 onto a (0,0,0,0) buffer.
+    fn rounded_fill_respects_color_alpha_fast_path() {
+        // Half-transparent colour at opa=255 must blend at ~half RGB
+        // against an empty canvas (color.a folded into the alpha sent
+        // to blend_pixel_int / fill_axis_aligned).
+        // 40×24 r=6 + integer origin → axis-aligned + r>0 fast path.
         let half = Color::rgba(255, 255, 255, 128);
         let g = render_with_color(40, 24, Fixed::from_int(6), half, 255);
-        // Inner pixel: hits the axis-aligned + r>0 fast path inner
-        // cross, which calls fill_axis_aligned with the source colour
-        // and ends up writing color.rgba directly. With color.a folded
-        // in, blend would land at r ≈ 128.
+        // Inner-cross pixel — hits fill_axis_aligned RGBA8888 splat.
         let inner = g[12][20];
         assert!(
             (110..=145).contains(&inner.r),
-            "inner pixel r {} should be ~128 (color.a=128 blended), not 255",
+            "inner pixel r {} should be ~128, not 255",
             inner.r
         );
-        // Corner row that takes the per-pixel aa_loop SDF path: same
-        // expectation on the straight edge.
-        let edge = g[5][20];
+    }
+
+    #[test]
+    fn rounded_fill_respects_color_alpha_aa_loop() {
+        // Force the general aa_loop by using a fractional origin: that
+        // skips the axis-aligned fast paths and exercises the corner
+        // SDF + edge AA branches.
+        let half = Color::rgba(255, 255, 255, 128);
+        let half_px = Fixed::ONE / 2;
+        let g = render_at_with_color(
+            48,
+            32,
+            Fixed::from_int(2) + half_px,
+            Fixed::from_int(3) + half_px,
+            Fixed::from_int(40),
+            Fixed::from_int(24),
+            Fixed::from_int(6),
+            half,
+            255,
+        );
+        // (15, 15) sits in the straight zone (mid_x=[9,36), mid_y=[10,21))
+        // and hits the aa_loop short-circuit set_pixel — but only when
+        // opa_full is true. With color.a < 255, opa_full must be false,
+        // and the pixel falls through to the Fixed multiply path that
+        // writes color.r * effective_opa onto the buffer.
+        let inner = g[15][20];
         assert!(
-            (110..=145).contains(&edge.r),
-            "aa-loop pixel r {} should be ~128, not 255",
-            edge.r
+            (110..=145).contains(&inner.r),
+            "aa_loop straight-zone pixel r {} should be ~128, not 255",
+            inner.r
+        );
+        // (4, 4) sits inside a corner bbox (mid_x0=9, mid_y0=10), so
+        // corner_cov is computed via the SDF and final_opa is
+        // cov × effective_opa. Where cov ≈ 1 (well inside the corner
+        // disk), r should still be ~128, not 255.
+        let corner = g[8][8];
+        assert!(
+            (90..=145).contains(&corner.r),
+            "aa_loop SDF-corner pixel r {} should be near 128, not 255",
+            corner.r
+        );
+    }
+
+    #[test]
+    fn rounded_fill_respects_color_alpha_general_loop() {
+        // A circle (2r==w==h) doesn't satisfy the inner-cross condition
+        // and falls through to the general aa_loop. Different code
+        // path from the fractional case above.
+        let half = Color::rgba(255, 255, 255, 128);
+        let g = render_with_color(32, 32, Fixed::from_int(16), half, 255);
+        // Centre of the circle — fully covered, just the alpha fold matters.
+        let center = g[16][16];
+        assert!(
+            (110..=145).contains(&center.r),
+            "circle centre r {} should be ~128, not 255",
+            center.r
         );
     }
 
     #[test]
     fn rounded_fill_clip_covers_only_corner() {
-        // Regression: the axis-aligned + r>0 fast path issues three
-        // fill_axis_aligned calls with sub-rect bounds. When the clip
-        // only overlaps a corner bbox, two of those calls collapse to
-        // empty rects (px_x1 < px_x0). fill_axis_aligned must guard
-        // against the negative-width cast that otherwise underflows
-        // into a huge usize and panics on slice access.
+        // 40×24 r=6 with clip = (0,0,3,24) leaves only the TL corner
+        // bbox visible. Two of the inner-cross fill_axis_aligned calls
+        // collapse to negative-width sub-rects; the entry guard must
+        // catch that before the usize cast underflows.
         let mut buf = std::vec![0u8; 40 * 24 * 4];
         let tex = Texture::new(&mut buf, 40, 24, ColorFormat::RGBA8888);
         let mut backend = SwRenderer::new(tex);
         let rect = Rect::new(0, 0, 40, 24);
-        let clip = Rect::new(0, 0, 3, 24); // only the TL corner bbox
-        // Should not panic; just renders the visible slice of the
-        // top-left corner.
+        let clip = Rect::new(0, 0, 3, 24);
         backend.fill_rect(
             &rect,
             &clip,
             &Color::rgb(255, 255, 255),
             Fixed::from_int(6),
             255,
+        );
+        // The visible vertical strip x∈[0,3) must still draw. (1, 8) is
+        // in the middle slab band (away from corners); guard must not
+        // have eaten it together with the empty top/bottom bands.
+        assert_eq!(
+            backend.target.get_pixel(1, 8).a,
+            255,
+            "clipped middle slab pixel (1,8) should be drawn"
+        );
+        // (2, 4) is inside the TL corner bbox AND inside the clip;
+        // SDF coverage should write at least a partial pixel here.
+        let corner = backend.target.get_pixel(2, 4);
+        assert!(
+            corner.a > 0,
+            "TL corner pixel (2,4) should be at least partially drawn, got a={}",
+            corner.a
+        );
+        // Outside clip — must remain untouched.
+        assert_eq!(
+            backend.target.get_pixel(20, 12).a,
+            0,
+            "pixel outside clip should not be written"
         );
     }
 }
