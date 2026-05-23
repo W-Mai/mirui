@@ -128,18 +128,20 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    /// Set the offscreen render buffer pool's entry capacity. Pick a
+    /// Set the offscreen render buffer pool's byte budget. Pick a
     /// value large enough to hold every concurrently-cached widget
-    /// buffer the app needs; lower values trade cache hit rate for
-    /// memory. Pass `0` to disable the pool entirely —
+    /// buffer the app needs (each is `width × height ×
+    /// bytes_per_pixel`, so a 128×64 RGB565 buffer is 16 KiB) plus
+    /// some eviction headroom; lower values trade cache hit rate for
+    /// resident memory. Pass `0` to disable the pool entirely —
     /// `OffscreenRender` entities then fall through to inline
     /// rendering on every frame.
     ///
     /// Replaces the existing pool, so call before any frame renders
     /// an [`crate::widget::OffscreenRender`] entity.
-    pub fn with_offscreen_pool_capacity(&mut self, capacity: usize) -> &mut Self {
+    pub fn with_offscreen_pool_budget(&mut self, budget_bytes: usize) -> &mut Self {
         self.world
-            .insert_resource(OffscreenBufferPool::new(capacity));
+            .insert_resource(OffscreenBufferPool::with_budget(budget_bytes));
         self
     }
 

@@ -72,10 +72,13 @@ pub(crate) struct BufferKey {
     pub generation: u32,
 }
 
-/// LRU pool of offscreen buffers, sized by entry count. Inserted
-/// into the `World` as a resource by `App::with_factory` with
-/// capacity `0` (disabled); set a real value via
-/// [`crate::app::App::with_offscreen_pool_capacity`].
+/// LRU pool of offscreen buffers, sized by total byte budget rather
+/// than entry count: the cap reflects the heap held by all live
+/// Texture allocations, not just the slot count. Inserted into the
+/// `World` as a resource by `App::with_factory` with budget `0`,
+/// which disables the cache and routes every `OffscreenRender` entity
+/// through inline rendering; set a real value via
+/// [`crate::app::App::with_offscreen_pool_budget`].
 pub struct OffscreenBufferPool {
     // RefCell so render_system can borrow the pool mutably while
     // holding `&World`. Each cached value is itself a RefCell<Texture>
@@ -95,12 +98,12 @@ fn make_buffer(k: &BufferKey) -> Result<RefCell<Texture<'static>>, BufferAllocEr
 }
 
 impl OffscreenBufferPool {
-    /// Build a pool with an explicit entry-count capacity. Pass `0`
-    /// to disable the cache entirely (every insert lands as a
-    /// detached invalid handle).
-    pub fn new(capacity: usize) -> Self {
+    /// Build a pool with an explicit byte budget. The budget caps the
+    /// total Texture heap held by the cache; LRU eviction kicks in
+    /// once an insert would push the running total past the budget.
+    pub fn with_budget(budget_bytes: usize) -> Self {
         let cache = LruCache::builder()
-            .max_size(MaxSize::Count(capacity))
+            .max_size(MaxSize::Bytes(budget_bytes))
             .name("widget/offscreen")
             .build();
         Self {
@@ -113,9 +116,9 @@ impl Default for OffscreenBufferPool {
     /// Disabled cache. Buffer working sets depend on widget sizes and
     /// available RAM, neither of which the library can guess; the
     /// caller opts in via
-    /// [`crate::app::App::with_offscreen_pool_capacity`].
+    /// [`crate::app::App::with_offscreen_pool_budget`].
     fn default() -> Self {
-        Self::new(0)
+        Self::with_budget(0)
     }
 }
 
@@ -128,15 +131,35 @@ mod tests {
     }
 
     #[test]
-    fn pool_creates_with_capacity() {
-        let pool = OffscreenBufferPool::new(4);
+    fn pool_creates_with_byte_budget() {
+        let pool = OffscreenBufferPool::with_budget(64 * 1024);
         assert_eq!(pool.cache.borrow().cache().len(), 0);
     }
 
     #[test]
-    fn pool_default_uses_platform_capacity() {
+    fn pool_default_disables_cache() {
+        // No platform sniffing in the default — caller must opt in via
+        // `App::with_offscreen_pool_budget`. Until they do, every
+        // insert lands as a detached invalid handle and the cache
+        // stays empty.
         let pool = OffscreenBufferPool::default();
-        // Just verify it builds; capacity is platform-dependent.
+        let key = BufferKey {
+            entity: dummy_entity(1),
+            w: 32,
+            h: 32,
+            format: ColorFormat::RGBA8888,
+            generation: 0,
+        };
+        let handle = pool
+            .cache
+            .borrow_mut()
+            .entry(key)
+            .or_insert()
+            .expect("ctor still runs even when the budget is zero");
+        assert!(
+            handle.is_invalid(),
+            "Bytes(0) must hand back a detached handle"
+        );
         assert_eq!(pool.cache.borrow().cache().len(), 0);
     }
 
@@ -177,7 +200,7 @@ mod tests {
 
     #[test]
     fn pool_or_insert_creates_buffer_at_requested_size() {
-        let pool = OffscreenBufferPool::new(4);
+        let pool = OffscreenBufferPool::with_budget(64 * 1024);
         let key = BufferKey {
             entity: dummy_entity(1),
             w: 40,
@@ -200,7 +223,7 @@ mod tests {
 
     #[test]
     fn pool_or_insert_hits_same_key() {
-        let pool = OffscreenBufferPool::new(4);
+        let pool = OffscreenBufferPool::with_budget(64 * 1024);
         let key = BufferKey {
             entity: dummy_entity(1),
             w: 40,
@@ -232,7 +255,7 @@ mod tests {
 
     #[test]
     fn pool_or_insert_misses_after_generation_bump() {
-        let pool = OffscreenBufferPool::new(4);
+        let pool = OffscreenBufferPool::with_budget(64 * 1024);
         let key0 = BufferKey {
             entity: dummy_entity(1),
             w: 40,
@@ -260,6 +283,54 @@ mod tests {
         let stats_after = *pool.cache.borrow().cache().stats();
         // generation bump → key not in cache → miss.
         assert_eq!(stats_after.miss_count, stats_before.miss_count + 1);
+    }
+
+    #[test]
+    fn pool_byte_budget_evicts_lru_when_total_exceeds_limit() {
+        // Budget = 8 KB; one 40×24 RGBA buffer is 3840 bytes. Three of
+        // them (11.5 KB) won't fit, so the LRU one must leave.
+        let pool = OffscreenBufferPool::with_budget(8 * 1024);
+        let key = |id, g| BufferKey {
+            entity: dummy_entity(id),
+            w: 40,
+            h: 24,
+            format: ColorFormat::RGBA8888,
+            generation: g,
+        };
+        let _h1 = pool.cache.borrow_mut().entry(key(1, 0)).or_insert();
+        let _h2 = pool.cache.borrow_mut().entry(key(2, 0)).or_insert();
+        // Touch h1 so h2 is the LRU candidate.
+        let _ = pool.cache.borrow_mut().acquire(&key(1, 0));
+        let _h3 = pool.cache.borrow_mut().entry(key(3, 0)).or_insert();
+
+        let cache = pool.cache.borrow();
+        assert_eq!(cache.cache().len(), 2);
+        assert!(cache.cache().current_size() <= 8 * 1024);
+        assert_eq!(cache.cache().stats().evict_count, 1);
+    }
+
+    #[test]
+    fn pool_oversized_entry_returns_invalid_handle_without_growing_cache() {
+        // 200×200 RGBA = 160 KB, way past a 4 KB budget.
+        let pool = OffscreenBufferPool::with_budget(4 * 1024);
+        let key = BufferKey {
+            entity: dummy_entity(1),
+            w: 200,
+            h: 200,
+            format: ColorFormat::RGBA8888,
+            generation: 0,
+        };
+        let handle = pool
+            .cache
+            .borrow_mut()
+            .entry(key)
+            .or_insert()
+            .expect("ctor still runs even when entry won't fit");
+        assert!(
+            handle.is_invalid(),
+            "oversized entry must come back detached"
+        );
+        assert_eq!(pool.cache.borrow().cache().len(), 0);
     }
 
     #[test]
