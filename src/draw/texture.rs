@@ -1,7 +1,7 @@
 use crate::types::{Color, Fixed};
 use alloc::vec::Vec;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ColorFormat {
     RGB565,
     RGB565Swapped,

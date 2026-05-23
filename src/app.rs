@@ -13,6 +13,7 @@ use crate::plugin::Plugin;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::{Rect, Viewport};
 use crate::widget::Theme;
+use crate::widget::offscreen::OffscreenBufferPool;
 use crate::widget::render_system;
 use crate::widget::view::{View, ViewRegistry};
 
@@ -103,6 +104,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(info);
         world.insert_resource(ViewRegistry::default());
         world.insert_resource(Theme::default());
+        world.insert_resource(OffscreenBufferPool::default());
         Self {
             world,
             backend,
@@ -123,6 +125,21 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Replace the active [`Theme`]. Defaults to [`Theme::dark`].
     pub fn with_theme(&mut self, theme: Theme) -> &mut Self {
         self.world.insert_resource(theme);
+        self
+    }
+
+    /// Set the offscreen render buffer pool's entry capacity. Pick a
+    /// value large enough to hold every concurrently-cached widget
+    /// buffer the app needs; lower values trade cache hit rate for
+    /// memory. Pass `0` to disable the pool entirely —
+    /// `OffscreenRender` entities then fall through to inline
+    /// rendering on every frame.
+    ///
+    /// Replaces the existing pool, so call before any frame renders
+    /// an [`crate::widget::OffscreenRender`] entity.
+    pub fn with_offscreen_pool_capacity(&mut self, capacity: usize) -> &mut Self {
+        self.world
+            .insert_resource(OffscreenBufferPool::new(capacity));
         self
     }
 

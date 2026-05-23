@@ -11,6 +11,7 @@
 
 pub mod builder;
 pub mod dirty;
+pub mod offscreen;
 pub mod render_system;
 pub mod state;
 pub mod style_view;
@@ -18,6 +19,7 @@ pub mod theme;
 pub mod view;
 pub mod visibility;
 
+pub use offscreen::{OffscreenBufferPool, OffscreenGeneration, OffscreenRender};
 pub use state::{InteractionState, UserState};
 pub use theme::{ColorToken, Theme, ThemedColor};
 pub use view::{View, ViewRegistry};
