@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] - 2026-05-23
+
+Software raster speed-up for rounded widget fills on ESP32-C3.
+
+### Changed
+
+- **`fill_rect_inner` axis-aligned + rounded fast path** (`src/draw/sw/rect_fill.rs`): solid-fill the inner cross via `fill_axis_aligned`, leaving only the four `r×r` corner bboxes for the SDF coverage path. Triggers when the area is integer-aligned and `2r < w/h`; circular pills (`2r ≥ w/h`) and fractional-origin areas fall through to the general `aa_loop`.
+- **`fill_rect_inner` aa_loop short-circuit**: hoist the row / column / mid-zone integer ranges before the inner loop so each pixel only checks three booleans. When all three plus opa = 255 align, write the pixel directly via `set_pixel`, skipping four Fixed multiplies, the SDF call, and `blend_pixel`'s integer-coordinate dispatch.
+- **Direct `blend_pixel_int` calls**: `fill_rect_inner` now feeds integer pixel coordinates straight into `blend_pixel_int(i32, i32, ...)`, skipping the `is_integer()` dispatch in `blend_pixel(Fixed, Fixed, ...)`.
+
+### Fixed
+
+- **`color.a` no longer drops on the rounded fast paths**: a half-transparent colour drawn with `opa = 255` previously rendered as fully opaque source RGB on the axis-aligned + rounded path and on the aa_loop short-circuit. `fill_rect_inner` now folds `color.a * opa / 255` into a single `effective_opa` at entry; the short-circuit also requires `effective_opa == 255` so it only fires when the colour is genuinely opaque.
+- **`fill_axis_aligned` empty sub-rect panic**: when the clip overlapped only one corner bbox of a rounded rect, two of the inner-cross calls collapsed to negative-width sub-rects and the `(px_x1 - px_x0) as usize` cast underflowed into a huge byte count that panicked on slice access. Entry guard returns early on empty sub-rects.
+
+### Added
+
+- **Four pixel-level regression tests** in `corner_check`: `rounded_fill_respects_color_alpha_fast_path`, `rounded_fill_respects_color_alpha_aa_loop`, `rounded_fill_respects_color_alpha_general_loop`, and `rounded_fill_clip_covers_only_corner` — covering the axis-aligned fast path, the aa_loop straight-zone short-circuit, the SDF corner path, and the clip-only-corner case respectively.
+
+### Performance
+
+ESP32-C3 demo-widgets reload-storm trace (1300 `sw.fill_aa_loop` calls per 100-frame window):
+
+- `sw.fill_aa_loop` avg: **3211 µs → ~2400 µs** (−25 %).
+- Reload-storm fps: 10 → 11–13.
+- Idle fps: unchanged at ~104 fps.
+- Visual output: pixel-equivalent to v0.19.1 within the existing 4-way symmetry tolerance (folding `color.a` before coverage shifts a fully-covered half-transparent pixel by ±1 alpha vs the pre-fix path; below visual threshold).
+
 ## [0.19.1] - 2026-05-22
 
 Runtime cache observability and a friendlier `WithFactory` entry API.
