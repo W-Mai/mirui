@@ -503,6 +503,10 @@ impl Renderer for SwRenderer<'_> {
     fn supports_offscreen(&self) -> bool {
         true
     }
+
+    fn offscreen_format(&self) -> Option<crate::draw::texture::ColorFormat> {
+        Some(self.target.format)
+    }
 }
 
 fn translate_path(path: &Path, tx: Fixed, ty: Fixed) -> Path {

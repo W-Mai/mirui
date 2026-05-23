@@ -1,6 +1,7 @@
 use crate::types::Rect;
 
 use super::command::DrawCommand;
+use super::texture::ColorFormat;
 
 pub trait Renderer {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect);
@@ -14,6 +15,13 @@ pub trait Renderer {
     /// entirely and inline-render the subtree.
     fn supports_offscreen(&self) -> bool {
         false
+    }
+
+    /// Format the offscreen buffer should be allocated in. `None`
+    /// means the backend does not host offscreen rendering and the
+    /// walker should not call [`Self::supports_offscreen`].
+    fn offscreen_format(&self) -> Option<ColorFormat> {
+        None
     }
 }
 

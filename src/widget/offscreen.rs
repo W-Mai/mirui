@@ -22,6 +22,7 @@ use crate::cache::{LruCache, MaxSize, WithFactory};
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::ecs::Entity;
 use crate::types::Fixed;
+use core::cell::RefCell;
 
 /// Mark an entity for offscreen rendering. Insert / remove to toggle.
 ///
@@ -76,19 +77,21 @@ pub(crate) struct BufferKey {
 /// capacity `0` (disabled); set a real value via
 /// [`crate::app::App::with_offscreen_pool_capacity`].
 pub struct OffscreenBufferPool {
-    // The render walker hooks into this in a follow-up patch; until
-    // then it's only exercised by unit tests, which clippy ignores.
-    #[allow(dead_code)]
-    pub(crate) cache: WithFactory<LruCache<BufferKey, Texture<'static>>, BufferCtor>,
+    // RefCell so render_system can borrow the pool mutably while
+    // holding `&World`. Each cached value is itself a RefCell<Texture>
+    // because the inner SwRenderer borrows the buffer's bytes mutably
+    // for the duration of the subtree render.
+    pub(crate) cache:
+        RefCell<WithFactory<LruCache<BufferKey, RefCell<Texture<'static>>>, BufferCtor>>,
 }
 
-pub(crate) type BufferCtor = fn(&BufferKey) -> Result<Texture<'static>, BufferAllocError>;
+pub(crate) type BufferCtor = fn(&BufferKey) -> Result<RefCell<Texture<'static>>, BufferAllocError>;
 
 #[derive(Debug)]
 pub struct BufferAllocError;
 
-fn make_buffer(k: &BufferKey) -> Result<Texture<'static>, BufferAllocError> {
-    Ok(Texture::owned(k.w, k.h, k.format))
+fn make_buffer(k: &BufferKey) -> Result<RefCell<Texture<'static>>, BufferAllocError> {
+    Ok(RefCell::new(Texture::owned(k.w, k.h, k.format)))
 }
 
 impl OffscreenBufferPool {
@@ -101,7 +104,7 @@ impl OffscreenBufferPool {
             .name("widget/offscreen")
             .build();
         Self {
-            cache: WithFactory::new(cache, make_buffer as BufferCtor),
+            cache: RefCell::new(WithFactory::new(cache, make_buffer as BufferCtor)),
         }
     }
 }
@@ -127,14 +130,14 @@ mod tests {
     #[test]
     fn pool_creates_with_capacity() {
         let pool = OffscreenBufferPool::new(4);
-        assert_eq!(pool.cache.cache().len(), 0);
+        assert_eq!(pool.cache.borrow().cache().len(), 0);
     }
 
     #[test]
     fn pool_default_uses_platform_capacity() {
         let pool = OffscreenBufferPool::default();
         // Just verify it builds; capacity is platform-dependent.
-        assert_eq!(pool.cache.cache().len(), 0);
+        assert_eq!(pool.cache.borrow().cache().len(), 0);
     }
 
     #[test]
@@ -174,7 +177,7 @@ mod tests {
 
     #[test]
     fn pool_or_insert_creates_buffer_at_requested_size() {
-        let mut pool = OffscreenBufferPool::new(4);
+        let pool = OffscreenBufferPool::new(4);
         let key = BufferKey {
             entity: dummy_entity(1),
             w: 40,
@@ -182,16 +185,22 @@ mod tests {
             format: ColorFormat::RGBA8888,
             generation: 0,
         };
-        let handle = pool.cache.entry(key).or_insert().expect("alloc");
+        let handle = pool
+            .cache
+            .borrow_mut()
+            .entry(key)
+            .or_insert()
+            .expect("alloc");
         assert!(!handle.is_invalid());
-        assert_eq!(handle.width, 40);
-        assert_eq!(handle.height, 24);
-        assert_eq!(handle.format, ColorFormat::RGBA8888);
+        let tex = handle.borrow();
+        assert_eq!(tex.width, 40);
+        assert_eq!(tex.height, 24);
+        assert_eq!(tex.format, ColorFormat::RGBA8888);
     }
 
     #[test]
     fn pool_or_insert_hits_same_key() {
-        let mut pool = OffscreenBufferPool::new(4);
+        let pool = OffscreenBufferPool::new(4);
         let key = BufferKey {
             entity: dummy_entity(1),
             w: 40,
@@ -199,10 +208,20 @@ mod tests {
             format: ColorFormat::RGBA8888,
             generation: 0,
         };
-        let _h1 = pool.cache.entry(key).or_insert().expect("first");
-        let stats_after_first = *pool.cache.cache().stats();
-        let _h2 = pool.cache.entry(key).or_insert().expect("second");
-        let stats_after_second = *pool.cache.cache().stats();
+        let _h1 = pool
+            .cache
+            .borrow_mut()
+            .entry(key)
+            .or_insert()
+            .expect("first");
+        let stats_after_first = *pool.cache.borrow().cache().stats();
+        let _h2 = pool
+            .cache
+            .borrow_mut()
+            .entry(key)
+            .or_insert()
+            .expect("second");
+        let stats_after_second = *pool.cache.borrow().cache().stats();
         // Second call hits, not misses.
         assert_eq!(stats_after_second.miss_count, stats_after_first.miss_count);
         assert_eq!(
@@ -213,7 +232,7 @@ mod tests {
 
     #[test]
     fn pool_or_insert_misses_after_generation_bump() {
-        let mut pool = OffscreenBufferPool::new(4);
+        let pool = OffscreenBufferPool::new(4);
         let key0 = BufferKey {
             entity: dummy_entity(1),
             w: 40,
@@ -221,14 +240,24 @@ mod tests {
             format: ColorFormat::RGBA8888,
             generation: 0,
         };
-        let _h0 = pool.cache.entry(key0).or_insert().expect("gen 0");
+        let _h0 = pool
+            .cache
+            .borrow_mut()
+            .entry(key0)
+            .or_insert()
+            .expect("gen 0");
         let key1 = BufferKey {
             generation: 1,
             ..key0
         };
-        let stats_before = *pool.cache.cache().stats();
-        let _h1 = pool.cache.entry(key1).or_insert().expect("gen 1");
-        let stats_after = *pool.cache.cache().stats();
+        let stats_before = *pool.cache.borrow().cache().stats();
+        let _h1 = pool
+            .cache
+            .borrow_mut()
+            .entry(key1)
+            .or_insert()
+            .expect("gen 1");
+        let stats_after = *pool.cache.borrow().cache().stats();
         // generation bump → key not in cache → miss.
         assert_eq!(stats_after.miss_count, stats_before.miss_count + 1);
     }
