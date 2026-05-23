@@ -27,11 +27,24 @@ impl SwRenderer<'_> {
 
         let r = radius.min(area.w / 2).min(area.h / 2);
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
-        let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        // Fold color.a into opa so every downstream blend treats the
+        // colour as opaque RGB. Mirrors what blend_pixel does internally
+        // before delegating to blend_pixel_int.
+        let effective_opa = ((color.a as u16 * opa as u16) / 255) as u8;
+        let opa_norm =
+            Fixed::from_int(effective_opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
 
         if area.is_aligned() && r == Fixed::ZERO {
             crate::trace_span!("sw.fill_aligned");
-            fill_axis_aligned(&mut self.target, px_x0, px_y0, px_x1, px_y1, color, opa);
+            fill_axis_aligned(
+                &mut self.target,
+                px_x0,
+                px_y0,
+                px_x1,
+                px_y1,
+                color,
+                effective_opa,
+            );
             return;
         }
 
@@ -60,7 +73,7 @@ impl SwRenderer<'_> {
                     inner_x1.min(px_x1),
                     inner_y0.min(px_y1),
                     color,
-                    opa,
+                    effective_opa,
                 );
                 fill_axis_aligned(
                     &mut self.target,
@@ -69,10 +82,8 @@ impl SwRenderer<'_> {
                     inner_x1.min(px_x1),
                     area_y1.min(px_y1),
                     color,
-                    opa,
+                    effective_opa,
                 );
-                // Middle slab spans full width — covers left/right
-                // straight bands plus the inner rectangle in one call.
                 fill_axis_aligned(
                     &mut self.target,
                     area_x0.max(px_x0),
@@ -80,7 +91,7 @@ impl SwRenderer<'_> {
                     area_x1.min(px_x1),
                     inner_y1.min(px_y1),
                     color,
-                    opa,
+                    effective_opa,
                 );
                 let corners = [
                     (area_x0, area_y0, inner_x0, inner_y0), // TL
@@ -129,12 +140,11 @@ impl SwRenderer<'_> {
         let mid_y0 = (area.y + r_int).ceil().to_int();
         let mid_y1 = (area_y_end - r_int).to_int();
         let has_corners = r > Fixed::ZERO;
-        let opa_full = opa == 255;
+        let opa_full = effective_opa == 255;
 
         for py in px_y0..px_y1 {
             let pixel_top = Fixed::from_int(py);
             let pixel_bot = Fixed::from_int(py + 1);
-            // Row entirely inside [area.y, area_y_end) → cov_y is ONE.
             let cov_y = if pixel_top >= area.y && pixel_bot <= area_y_end {
                 Fixed::ONE
             } else {
@@ -151,8 +161,7 @@ impl SwRenderer<'_> {
                 let col_full_x = pixel_left >= area.x && pixel_right <= area_x_end;
                 let in_mid_x = px >= mid_x0 && px < mid_x1;
 
-                // Hot path: the pixel is inside the straight zone, the
-                // edges fall inside the area, and opa is 255 → skip
+                // Hot path: straight-zone fully-opaque pixel — skip
                 // every Fixed multiply and the SDF call.
                 if row_full_y && col_full_x && in_mid_y && in_mid_x && opa_full {
                     self.target.set_pixel(px, py, color);
@@ -197,6 +206,12 @@ fn fill_axis_aligned(
     color: &Color,
     opa: u8,
 ) {
+    // Caller may pass an empty sub-rect when clip only overlaps one of
+    // the rounded fast path's bands; the negative width otherwise
+    // underflows `(px_x1 - px_x0) as usize` and panics on slice access.
+    if px_x1 <= px_x0 || px_y1 <= px_y0 {
+        return;
+    }
     if opa == 255 {
         let bpp = target.format.bytes_per_pixel();
         let stride = target.stride;
@@ -584,13 +599,11 @@ mod corner_check {
     }
 
     #[test]
-    fn aligned_rounded_matches_general_path() {
-        // Sanity: a square that triggers fast path (40×40 r=8) and the
-        // same scenario forced through the general loop (50×50 r=25,
-        // already runs the loop because 2r==w) should produce visually
-        // equivalent corner curvature for the equivalent corner radius.
-        // Spot-check by symmetry: fast-path output must be 4-way
-        // symmetric within ±2 alpha steps.
+    fn aligned_rounded_is_4way_symmetric() {
+        // 40×40 r=8 hits the axis-aligned + r>0 fast path. Output must
+        // be 4-way symmetric within ±2 alpha steps so corner SDF logic
+        // can't quietly pick up a per-corner asymmetry from clipping
+        // arithmetic.
         let g = render_circle(40, 40, 8);
         for y in 0..20 {
             for x in 0..20 {
@@ -623,6 +636,77 @@ mod corner_check {
             mid >= top + 8,
             "top={top} mid={mid} — corner curvature too flat (mid-top={})",
             mid - top
+        );
+    }
+
+    fn render_with_color(w: i32, h: i32, r: Fixed, color: Color, opa: u8) -> Vec<Vec<Color>> {
+        let mut buf = std::vec![0u8; (w as usize) * (h as usize) * 4];
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let rect = Rect::new(0, 0, w, h);
+        let clip = Rect::new(0, 0, w, h);
+        backend.fill_rect(&rect, &clip, &color, r, opa);
+        let mut out = std::vec![std::vec![Color::rgba(0,0,0,0); w as usize]; h as usize];
+        for py in 0..h {
+            for px in 0..w {
+                out[py as usize][px as usize] = backend.target.get_pixel(px, py);
+            }
+        }
+        out
+    }
+
+    #[test]
+    fn rounded_fill_respects_color_alpha() {
+        // Regression: blend_pixel(...) used to fold color.a in via
+        // a = color.a * opa / 255 before delegating to blend_pixel_int.
+        // Dropping that step lets a half-transparent colour with
+        // opa=255 land as fully opaque source RGB on an empty canvas
+        // (visually the widget over-saturates against its parent).
+        // Verify by checking the RGB channel — blend_pixel_int writes
+        // r ≈ color.r * a / 255 onto a (0,0,0,0) buffer.
+        let half = Color::rgba(255, 255, 255, 128);
+        let g = render_with_color(40, 24, Fixed::from_int(6), half, 255);
+        // Inner pixel: hits the axis-aligned + r>0 fast path inner
+        // cross, which calls fill_axis_aligned with the source colour
+        // and ends up writing color.rgba directly. With color.a folded
+        // in, blend would land at r ≈ 128.
+        let inner = g[12][20];
+        assert!(
+            (110..=145).contains(&inner.r),
+            "inner pixel r {} should be ~128 (color.a=128 blended), not 255",
+            inner.r
+        );
+        // Corner row that takes the per-pixel aa_loop SDF path: same
+        // expectation on the straight edge.
+        let edge = g[5][20];
+        assert!(
+            (110..=145).contains(&edge.r),
+            "aa-loop pixel r {} should be ~128, not 255",
+            edge.r
+        );
+    }
+
+    #[test]
+    fn rounded_fill_clip_covers_only_corner() {
+        // Regression: the axis-aligned + r>0 fast path issues three
+        // fill_axis_aligned calls with sub-rect bounds. When the clip
+        // only overlaps a corner bbox, two of those calls collapse to
+        // empty rects (px_x1 < px_x0). fill_axis_aligned must guard
+        // against the negative-width cast that otherwise underflows
+        // into a huge usize and panics on slice access.
+        let mut buf = std::vec![0u8; 40 * 24 * 4];
+        let tex = Texture::new(&mut buf, 40, 24, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let rect = Rect::new(0, 0, 40, 24);
+        let clip = Rect::new(0, 0, 3, 24); // only the TL corner bbox
+        // Should not panic; just renders the visible slice of the
+        // top-left corner.
+        backend.fill_rect(
+            &rect,
+            &clip,
+            &Color::rgb(255, 255, 255),
+            Fixed::from_int(6),
+            255,
         );
     }
 }
