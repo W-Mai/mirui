@@ -6,7 +6,7 @@ use alloc::rc::Rc;
 use alloc::sync::Arc as Rc;
 
 use super::algorithm::{Algorithm, Lru};
-use super::budget::MaxSize;
+use super::budget::{HasSize, MaxSize};
 use super::handle::{CacheEntry, Handle};
 use super::lookup::{HashLookup, Lookup, NodeId};
 use super::stats::CacheStats;
@@ -50,7 +50,6 @@ where
     L: Lookup<K> + Default,
 {
     pub fn new(max_size: MaxSize) -> Self {
-        check_max_size_supported(max_size);
         Self {
             nodes: Slab::new(),
             index: L::default(),
@@ -62,14 +61,6 @@ where
             name: None,
             _phantom: PhantomData,
         }
-    }
-}
-
-fn check_max_size_supported(m: MaxSize) {
-    if let MaxSize::Bytes(_) = m {
-        unimplemented!(
-            "MaxSize::Bytes will be wired in a later patch; use Count or Disabled for now"
-        );
     }
 }
 
@@ -208,7 +199,12 @@ where
         }
     }
 
-    fn ensure_room_count(&mut self) -> bool {
+    /// Make space for an incoming entry of `needed_size` bytes. Returns
+    /// false if the cache cannot or will not accept it (Disabled,
+    /// Count(0), or Bytes(0); or Bytes(limit) with `needed_size > limit`
+    /// — a single entry that exceeds the whole budget is rejected
+    /// rather than evicting everything and still failing).
+    fn ensure_room(&mut self, needed_size: usize) -> bool {
         match self.max_size {
             MaxSize::Disabled => false,
             MaxSize::Count(0) => false,
@@ -216,8 +212,14 @@ where
                 while self.index.len() >= limit && self.evict_one_for_reserve() {}
                 self.index.len() < limit
             }
-            // Bytes is rejected at builder time; reaching this arm is a bug.
-            MaxSize::Bytes(_) => unreachable!("MaxSize::Bytes rejected by CacheBuilder::build"),
+            MaxSize::Bytes(0) => false,
+            MaxSize::Bytes(limit) => {
+                if needed_size > limit {
+                    return false;
+                }
+                while self.current_size + needed_size > limit && self.evict_one_for_reserve() {}
+                self.current_size + needed_size <= limit
+            }
         }
     }
 
@@ -270,7 +272,13 @@ where
             Entry::Vacant(v) => &v.key,
         }
     }
+}
 
+impl<'a, K, V, A: Algorithm, L: Lookup<K>> Entry<'a, K, V, A, L>
+where
+    K: Clone,
+    V: HasSize,
+{
     pub fn or_insert_with<F: FnOnce() -> V>(self, factory: F) -> Handle<V> {
         match self {
             Entry::Occupied(o) => o.into_handle(),
@@ -315,13 +323,21 @@ where
     pub fn key(&self) -> &K {
         &self.key
     }
+}
 
-    /// On Disabled / Count(0) the value is wrapped as an already-invalid
-    /// detached Handle — the chain still types, but `h.is_invalid()` is
-    /// the signal the value never made it into the cache.
+impl<'a, K, V, A: Algorithm, L: Lookup<K>> VacantEntry<'a, K, V, A, L>
+where
+    K: Clone,
+    V: HasSize,
+{
+    /// On Disabled / Count(0) / Bytes(0), or when the value alone exceeds
+    /// a Bytes budget, the value is wrapped as an already-invalid detached
+    /// Handle — the chain still types, but `h.is_invalid()` is the signal
+    /// the value never made it into the cache.
     pub fn insert(self, value: V) -> Handle<V> {
-        if self.cache.ensure_room_count() {
-            self.cache.insert_value(self.key, value, 1)
+        let size = value.cache_size().max(1);
+        if self.cache.ensure_room(size) {
+            self.cache.insert_value(self.key, value, size)
         } else {
             let entry = CacheEntry::new(value);
             entry.invalid_set(true);
@@ -364,13 +380,11 @@ impl<K, V, A: Algorithm, L: Lookup<K> + Default> CacheBuilder<K, V, A, L> {
         self
     }
 
-    /// Panics if `max_size` was never set, or if it is `MaxSize::Bytes(_)`
-    /// (byte-mode enforcement is wired in a follow-up patch).
+    /// Panics if `max_size` was never set.
     pub fn build(self) -> Cache<K, V, A, L> {
         let max_size = self
             .max_size
             .expect("CacheBuilder::max_size must be configured before build");
-        check_max_size_supported(max_size);
         Cache {
             nodes: Slab::new(),
             index: L::default(),
@@ -589,22 +603,69 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "MaxSize::Bytes")]
-    fn bytes_mode_panics_via_builder() {
-        let _: Cache<u32, u32, Lru, HashLookup<u32>> =
-            Cache::builder().max_size(MaxSize::Bytes(64)).build();
-    }
-
-    #[test]
-    #[should_panic(expected = "MaxSize::Bytes")]
-    fn bytes_mode_panics_via_new() {
-        let _: Cache<u32, u32, Lru, HashLookup<u32>> = Cache::new(MaxSize::Bytes(64));
-    }
-
-    #[test]
     #[should_panic(expected = "max_size must be configured")]
     fn builder_panics_without_max_size() {
         let _: Cache<u32, u32, Lru, HashLookup<u32>> = Cache::builder().build();
+    }
+
+    #[test]
+    fn bytes_mode_evicts_lru_until_within_budget() {
+        // budget = 24 bytes; each Vec<u32> entry is len*4 bytes.
+        let mut cache: Cache<u32, alloc::vec::Vec<u32>, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Bytes(24)).build();
+
+        // 3 × 8-byte entries fit (24 bytes total).
+        cache.entry(1).or_insert_with(|| alloc::vec![10u32, 11]);
+        cache.entry(2).or_insert_with(|| alloc::vec![20u32, 21]);
+        cache.entry(3).or_insert_with(|| alloc::vec![30u32, 31]);
+        assert_eq!(cache.current_size(), 24);
+        assert_eq!(cache.len(), 3);
+
+        // Touch 1 so 2 becomes the LRU victim.
+        let _ = cache.acquire(&1);
+
+        // 4th entry forces evict; 2 leaves first.
+        cache.entry(4).or_insert_with(|| alloc::vec![40u32, 41]);
+        assert!(cache.acquire(&2).is_none(), "lru victim must be evicted");
+        assert!(cache.acquire(&1).is_some());
+        assert!(cache.acquire(&3).is_some());
+        assert!(cache.acquire(&4).is_some());
+        assert_eq!(cache.current_size(), 24);
+    }
+
+    #[test]
+    fn bytes_mode_rejects_entry_larger_than_budget() {
+        // 16-byte budget but inserting a 40-byte Vec<u32>.
+        let mut cache: Cache<u32, alloc::vec::Vec<u32>, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Bytes(16)).build();
+        let h = cache
+            .entry(1)
+            .or_insert_with(|| alloc::vec![1u32, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+        assert!(h.is_invalid(), "oversized entry must come back detached");
+        assert_eq!(cache.len(), 0);
+        assert_eq!(cache.current_size(), 0);
+    }
+
+    #[test]
+    fn bytes_mode_zero_budget_rejects_everything() {
+        let mut cache: Cache<u32, alloc::vec::Vec<u32>, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Bytes(0)).build();
+        let h = cache.entry(1).or_insert_with(|| alloc::vec![1u32]);
+        assert!(h.is_invalid());
+        assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn bytes_mode_current_size_decreases_on_drop() {
+        let mut cache: Cache<u32, alloc::vec::Vec<u32>, Lru, HashLookup<u32>> =
+            Cache::builder().max_size(MaxSize::Bytes(64)).build();
+        cache.entry(1).or_insert_with(|| alloc::vec![1u32, 2, 3]);
+        cache.entry(2).or_insert_with(|| alloc::vec![4u32, 5]);
+        assert_eq!(cache.current_size(), 20); // 12 + 8
+        cache.drop(&1);
+        assert_eq!(cache.current_size(), 8);
+        cache.clear();
+        assert_eq!(cache.current_size(), 0);
     }
 
     #[test]

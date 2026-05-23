@@ -1,3 +1,4 @@
+use crate::cache::HasSize;
 use crate::types::{Color, Fixed};
 use alloc::vec::Vec;
 
@@ -81,6 +82,12 @@ pub struct Texture<'a> {
     pub height: u16,
     pub format: ColorFormat,
     pub stride: usize,
+}
+
+impl HasSize for Texture<'_> {
+    fn cache_size(&self) -> usize {
+        self.buf.as_slice().len()
+    }
 }
 
 impl<'a> Texture<'a> {

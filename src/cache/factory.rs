@@ -1,4 +1,5 @@
 use super::algorithm::Algorithm;
+use super::budget::HasSize;
 use super::core::{self, Cache};
 use super::error::CacheError;
 use super::handle::Handle;
@@ -97,6 +98,7 @@ where
 impl<'a, K, V, A, L, F, E> Entry<'a, K, V, A, L, F>
 where
     K: Clone,
+    V: HasSize,
     A: Algorithm,
     L: Lookup<K>,
     F: FnMut(&K) -> Result<V, E>,
@@ -118,6 +120,7 @@ where
 impl<'a, K, V, A, L, F> Entry<'a, K, V, A, L, F>
 where
     K: Clone,
+    V: HasSize,
     A: Algorithm,
     L: Lookup<K>,
 {
@@ -163,7 +166,15 @@ where
     pub fn key(&self) -> &K {
         self.inner.key()
     }
+}
 
+impl<'a, K, V, A, L, F> VacantEntry<'a, K, V, A, L, F>
+where
+    K: Clone,
+    V: HasSize,
+    A: Algorithm,
+    L: Lookup<K>,
+{
     /// Insert a value directly, bypassing the cache's configured ctor.
     /// Useful when the caller has already produced V via some other
     /// path and just wants to register it under this key.

@@ -21,7 +21,7 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas as SdlCanvas, Texture as SdlTexture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
-use crate::cache::{LruCache, MaxSize, WithFactory};
+use crate::cache::{HasSize, LruCache, MaxSize, WithFactory};
 use crate::draw::SwRenderer;
 use crate::draw::canvas::Canvas as _;
 use crate::draw::font::{CHAR_H, CHAR_W};
@@ -34,9 +34,25 @@ struct LabelKey {
     color_rgba: u32,
 }
 
+/// SdlTexture wrapper carrying the rasterised byte count so the cache
+/// framework can read its size. Newtype-only because `SdlTexture` is
+/// from `sdl2` and orphan rules block a direct `HasSize` impl. Bytes
+/// are recorded once at rasterise time; the GPU-side allocation isn't
+/// observable from here.
+struct SizedSdlTexture {
+    tex: SdlTexture<'static>,
+    byte_len: usize,
+}
+
+impl HasSize for SizedSdlTexture {
+    fn cache_size(&self) -> usize {
+        self.byte_len
+    }
+}
+
 // `Handle<V>` hands out `&V`, but `SdlTexture::set_alpha_mod` needs
 // `&mut self`, so the cached value is itself a `RefCell`.
-type CachedTexture = RefCell<SdlTexture<'static>>;
+type CachedTexture = RefCell<SizedSdlTexture>;
 
 /// Per-call inputs the rasteriser needs but that aren't part of `LabelKey`.
 struct RasterCtx<'a> {
@@ -126,15 +142,15 @@ impl LabelCache {
             return;
         };
 
-        let mut tex = handle.borrow_mut();
-        tex.set_alpha_mod(a);
+        let mut wrapper = handle.borrow_mut();
+        wrapper.tex.set_alpha_mod(a);
 
         if let Some(sdl_clip) = clip_rect {
             canvas.set_clip_rect(sdl_clip);
         } else {
             canvas.set_clip_rect(None);
         }
-        let _ = canvas.copy(&tex, None, Some(dst));
+        let _ = canvas.copy(&wrapper.tex, None, Some(dst));
         canvas.set_clip_rect(None);
     }
 
@@ -200,7 +216,10 @@ fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture,
     // `LabelCache` lists `cache` before `creator` and Rust drops fields
     // in declaration order.
     let new_tex_static: SdlTexture<'static> = unsafe { core::mem::transmute(new_tex) };
-    Ok(RefCell::new(new_tex_static))
+    Ok(RefCell::new(SizedSdlTexture {
+        tex: new_tex_static,
+        byte_len,
+    }))
 }
 
 fn hash_bytes(bytes: &[u8]) -> u64 {
