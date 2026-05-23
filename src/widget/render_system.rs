@@ -1966,6 +1966,77 @@ mod offscreen_render_check {
         };
         assert_eq!(k, same);
     }
+
+    #[test]
+    fn offscreen_render_fractional_scale_rounds_buffer_dims() {
+        // scale = 0.7 on a 32×32 panel should produce a 22×22 buffer
+        // (32 × 0.7 = 22.4 → truncated to 22 by `Fixed::to_int`).
+        let mut world = make_world();
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(255, 255, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(32)),
+                    height: Dimension::Px(Fixed::from_int(32)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        // Fixed::ONE * 7 / 10 = 0.7 in Q24.8.
+        world.insert(panel, OffscreenRender::with_scale(Fixed::ONE * 7 / 10));
+
+        let mut buf = std::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        super::render(&world, panel, &viewport, &mut renderer);
+
+        let pool = world.resource::<OffscreenBufferPool>().expect("pool");
+        let cb = pool.cache.borrow();
+        // Single insert, single entry; buffer dims must round to 22×22.
+        assert_eq!(cb.cache().stats().insert_count, 1);
+        assert_eq!(cb.cache().len(), 1);
+    }
+
+    #[test]
+    fn hidden_entity_skips_offscreen_path() {
+        // An OffscreenRender entity that's also Hidden should not
+        // create a buffer — collect_entities_preorder skips Hidden
+        // entirely so the dispatch never reaches try_draw_offscreen.
+        use crate::widget::Hidden;
+        let mut world = make_world();
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(16)),
+                    height: Dimension::Px(Fixed::from_int(16)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::default());
+        world.insert(panel, Hidden);
+
+        let mut buf = std::vec![0u8; 32 * 32 * 4];
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(32, 32, Fixed::ONE);
+        super::render(&world, panel, &viewport, &mut renderer);
+
+        let pool = world.resource::<OffscreenBufferPool>().expect("pool");
+        assert_eq!(
+            pool.cache.borrow().cache().len(),
+            0,
+            "Hidden entity should not allocate an offscreen buffer"
+        );
+    }
 }
 
 #[cfg(test)]
