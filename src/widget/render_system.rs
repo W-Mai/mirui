@@ -309,6 +309,8 @@ fn draw_tree_offset(
                 &shifted_rect,
                 off,
                 entity,
+                &tf,
+                quad,
             )
         {
             return;
@@ -384,6 +386,8 @@ fn try_draw_offscreen(
     shifted_rect: &Rect,
     off: super::OffscreenRender,
     entity: Entity,
+    outer_tf: &Transform,
+    outer_quad: Option<[Point; 4]>,
 ) -> bool {
     use crate::draw::canvas::Canvas;
     use crate::draw::sw::SwRenderer;
@@ -540,8 +544,8 @@ fn try_draw_offscreen(
         let blit_cmd = DrawCommand::Blit {
             pos: Point::new(shifted_rect.x, shifted_rect.y),
             size: Point::new(shifted_rect.w, shifted_rect.h),
-            transform: Transform::IDENTITY,
-            quad: None,
+            transform: *outer_tf,
+            quad: outer_quad,
             texture: &tex_ref,
         };
         renderer.draw(&blit_cmd, clip);
@@ -1938,6 +1942,128 @@ mod offscreen_render_check {
         assert_eq!(
             fb_inline_f3, fb_off_f3,
             "frame 3 (gen bump) inline ≠ offscreen"
+        );
+    }
+
+    /// `WidgetTransform` on the OffscreenRender entity itself must
+    /// reach the outer blit so the buffer ends up positioned /
+    /// rotated / scaled the same way as the inline render's output.
+    /// Three variants — pure translate, scale, rotate — each
+    /// rendered both inline and offscreen, asserted byte-equal.
+    #[test]
+    fn offscreen_render_with_widget_transform_matches_inline() {
+        use crate::components::transform::WidgetTransform;
+        use crate::widget::{Children, Parent, Theme};
+
+        const FB_W: u16 = 128;
+        const FB_H: u16 = 128;
+
+        fn build_world(with_offscreen: bool, tf: Transform) -> (World, Entity) {
+            let mut world = World::default();
+            world.insert_resource(OffscreenBufferPool::with_budget(64 * 1024));
+            world.insert_resource(ViewRegistry::with_builtins());
+            world.insert_resource(Theme::dark());
+
+            let panel = world.spawn();
+            world.insert(panel, Widget);
+            world.insert(
+                panel,
+                Style {
+                    bg_color: Some(Color::rgb(255, 0, 0).into()),
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(40)),
+                        height: Dimension::Px(Fixed::from_int(20)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            world.insert(panel, WidgetTransform(tf));
+            if with_offscreen {
+                world.insert(panel, OffscreenRender::default());
+            }
+
+            let child = world.spawn();
+            world.insert(child, Widget);
+            world.insert(child, Parent(panel));
+            world.insert(panel, Children(std::vec![child]));
+            world.insert(
+                child,
+                Style {
+                    bg_color: Some(Color::rgb(0, 0, 255).into()),
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(8)),
+                        height: Dimension::Px(Fixed::from_int(8)),
+                        position: crate::layout::Position::Absolute,
+                        left: Dimension::Px(Fixed::from_int(4)),
+                        top: Dimension::Px(Fixed::from_int(4)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            (world, panel)
+        }
+
+        let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
+        let render_into = |world: &World, panel: Entity| -> alloc::vec::Vec<u8> {
+            let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render(world, panel, &viewport, &mut renderer);
+            fb
+        };
+
+        // Translate / scale paths must be byte-identical: the inner
+        // raster output then a transformed blit produces the same
+        // pixels as raster-with-transform-applied directly. Rotate
+        // is sampled twice — once when the inner SwRenderer rasters
+        // into the buffer, once when the outer blit rotates the
+        // buffer onto the framebuffer — so a few AA edge pixels
+        // legitimately differ.
+        let exact_cases = [
+            (
+                "translate(20, 30)",
+                Transform::translate(Fixed::from_int(20), Fixed::from_int(30)),
+            ),
+            (
+                "scale(2, 1.5)",
+                Transform::scale(Fixed::from_int(2), Fixed::ONE + Fixed::ONE / 2),
+            ),
+        ];
+        for (name, tf) in exact_cases {
+            let (w_inline, p_inline) = build_world(false, tf);
+            let (w_off, p_off) = build_world(true, tf);
+            let fb_inline = render_into(&w_inline, p_inline);
+            let fb_off = render_into(&w_off, p_off);
+            let diff = fb_inline
+                .iter()
+                .zip(&fb_off)
+                .filter(|(a, b)| a != b)
+                .count();
+            assert_eq!(
+                diff, 0,
+                "WidgetTransform({name}) on OffscreenRender ≠ inline ({diff} bytes diff)"
+            );
+        }
+
+        let rotate_tf = Transform::rotate_deg(Fixed::from_int(15));
+        let (w_inline, p_inline) = build_world(false, rotate_tf);
+        let (w_off, p_off) = build_world(true, rotate_tf);
+        let fb_inline = render_into(&w_inline, p_inline);
+        let fb_off = render_into(&w_off, p_off);
+        let diff = fb_inline
+            .iter()
+            .zip(&fb_off)
+            .filter(|(a, b)| a != b)
+            .count();
+        // 40×20 panel rotated 15° has ~50 AA edge pixels × 4 bytes
+        // each = ~200 bytes that legitimately resample differently.
+        // 256 leaves headroom; if the fix regresses the diff jumps
+        // into the thousands.
+        assert!(
+            diff < 256,
+            "WidgetTransform(rotate(15deg)) on OffscreenRender drifts {diff} bytes from inline"
         );
     }
 
