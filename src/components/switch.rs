@@ -110,12 +110,13 @@ pub(crate) fn animate_thumb_x_system(world: &mut World) {
 const SWITCH_THUMB_MARGIN: Fixed = Fixed::from_int(3);
 
 fn off_thumb_x(rect: &Rect) -> Fixed {
-    rect.x + SWITCH_THUMB_MARGIN
+    let _ = rect;
+    SWITCH_THUMB_MARGIN
 }
 
 fn on_thumb_x(rect: &Rect) -> Fixed {
     let thumb_size = (rect.h - SWITCH_THUMB_MARGIN * Fixed::from_int(2)).max(Fixed::ZERO);
-    rect.x + rect.w - thumb_size - SWITCH_THUMB_MARGIN
+    rect.w - thumb_size - SWITCH_THUMB_MARGIN
 }
 
 // Seed AnimatedThumbX once ComputedRect is available (post-layout).
@@ -174,16 +175,16 @@ fn switch_render(
     );
 
     let thumb_size = (rect.h - SWITCH_THUMB_MARGIN * Fixed::from_int(2)).max(Fixed::ZERO);
-    // Fallback to off endpoint covers the first frame before
-    // switch_init_system seeds AnimatedThumbX.
-    let thumb_x = world
+    // Fallback covers the first frame before switch_init_system seeds
+    // AnimatedThumbX.
+    let thumb_local_x = world
         .get::<AnimatedThumbX>(entity)
         .map(|x| x.0)
         .unwrap_or_else(|| off_thumb_x(rect));
     renderer.draw(
         &DrawCommand::Fill {
             area: Rect {
-                x: thumb_x,
+                x: rect.x + thumb_local_x,
                 y: rect.y + SWITCH_THUMB_MARGIN,
                 w: thumb_size,
                 h: thumb_size,

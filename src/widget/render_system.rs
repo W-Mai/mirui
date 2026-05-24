@@ -388,7 +388,7 @@ fn try_draw_offscreen(
     use crate::draw::canvas::Canvas;
     use crate::draw::sw::SwRenderer;
     use crate::draw::texture::Texture;
-    use crate::types::{Color, Point};
+    use crate::types::Point;
 
     let format = match renderer.offscreen_format() {
         Some(f) => f,
@@ -434,9 +434,17 @@ fn try_draw_offscreen(
         Err(_) => return false,
     };
 
-    // Borrow the buffer's bytes mutably so an inner SwRenderer can
-    // raster the subtree into them. The Texture::Mut wrapper lets us
-    // hand that &mut [u8] to a transient Texture<'borrow>.
+    // Seed the buffer with the framebuffer's current pixels under the
+    // entity's rect: partial-alpha writes during raster (capsule
+    // corners, AA edges) blend src against dst, and a transparent-
+    // black dst pre-darkens the source then ships through the
+    // 1to1_565sw_to_565sw blit as opaque, painting black fringes
+    // around every rounded shape on screen.
+    {
+        let mut tex_ref = handle.get().borrow_mut();
+        renderer.read_target_region(shifted_rect, &mut tex_ref);
+    }
+
     {
         let mut tex_ref = handle.get().borrow_mut();
         let buf_slice = tex_ref.buf.as_mut_slice();
@@ -444,16 +452,12 @@ fn try_draw_offscreen(
         let mut inner = SwRenderer::new(inner_tex);
         inner.viewport = Viewport::new(buf_w, buf_h, scale);
 
-        // Clear the buffer before drawing so stale pixels from the
-        // previous tenant of this cache slot don't bleed through.
-        let inner_clip = Rect::new(0, 0, buf_w as i32, buf_h as i32);
-        Canvas::clear(&mut inner, &inner_clip, &Color::rgba(0, 0, 0, 0));
-
-        // Translate so the entity's drawn rect lands at buffer (0, 0).
-        // We can't reuse draw_tree_offset for the whole subtree because
-        // it would re-detect the OffscreenRender marker on the entity
-        // itself and panic on nesting. Inline the entity's view
-        // dispatch, then recurse children with inside_offscreen=true.
+        // The entity's drawn rect maps to (0, 0) in the buffer's
+        // logical coordinate space. We can't recurse through
+        // draw_tree_offset for the whole subtree because it would
+        // re-detect the OffscreenRender marker on this same entity
+        // and panic on nesting; inline the entity's own view dispatch
+        // first, then recurse children with inside_offscreen=true.
         let inner_offset_x = shifted_rect.x;
         let inner_offset_y = shifted_rect.y;
         let entity_rect = Rect {
@@ -462,6 +466,7 @@ fn try_draw_offscreen(
             w: shifted_rect.w,
             h: shifted_rect.h,
         };
+        let inner_clip = entity_rect;
 
         if let Some(style) = world.get::<Style>(entity) {
             let state = resolve_widget_state(world, entity);
@@ -724,26 +729,26 @@ fn collect_dirty_walk(
     // here so the outer dirty bounds doesn't double-count them.
     let is_offscreen = world.get::<super::OffscreenRender>(entity).is_some();
     if is_offscreen {
-        // Self Dirty contributes the entity rect normally first.
-        if world.get::<Dirty>(entity).is_some() {
+        let self_was_dirty = world.get::<Dirty>(entity).is_some();
+        if self_was_dirty {
             push_entity_dirty(world, entity, node, parent_3d, &tf, scroll_offset, bounds);
         }
 
-        // Subtree scan — any descendant Dirty bumps generation + ensures
-        // the entity's rect is already in bounds.
         let mut sub_idx = *idx + 1;
         let mut had_subtree_dirty = false;
         for child in &node.children {
             scan_subtree_dirty(child, world, entities, &mut sub_idx, &mut had_subtree_dirty);
         }
-        if had_subtree_dirty {
-            // Make sure entity rect is in bounds even if entity itself
-            // wasn't marked Dirty before this frame.
-            if world.get::<super::dirty::PrevRect>(entity).is_none()
-                && world.get::<Dirty>(entity).is_none()
-            {
+
+        // Bump generation on either self-Dirty or subtree-Dirty (a
+        // single-widget marker like Switch has no children to feed
+        // subtree_dirty, so without the self branch theme rotation
+        // would never invalidate the buffer). Push the entity rect
+        // only once — skip the second push when self_was_dirty
+        // already did it, otherwise curr ∪ prev unions with itself.
+        if self_was_dirty || had_subtree_dirty {
+            if had_subtree_dirty && !self_was_dirty {
                 push_entity_dirty(world, entity, node, parent_3d, &tf, scroll_offset, bounds);
-                world.remove::<Dirty>(entity);
             }
             let next_gen = world
                 .get::<super::OffscreenGeneration>(entity)
@@ -1590,7 +1595,12 @@ mod offscreen_render_check {
 
     fn make_world() -> World {
         let mut app = crate::app::App::headless(64, 64);
-        app.with_default_widgets();
+        // Tests in this module exercise the offscreen-render path,
+        // which needs an actual cache. App ctor leaves the pool
+        // disabled (budget = 0) so the production default doesn't
+        // pretend to know the right size for any given target.
+        app.with_default_widgets()
+            .with_offscreen_pool_budget(64 * 1024);
         app.world
     }
 
@@ -1724,6 +1734,661 @@ mod offscreen_render_check {
         assert_eq!(stats.insert_count, 1);
     }
 
+    /// Children inside an OffscreenRender + scale=0.5 subtree must
+    /// land at upscaled coordinates after blit. A 40×20 child painted
+    /// at logical (5, 5) inside a 128×114 panel should appear on the
+    /// outer framebuffer at physical (5, 5) → (45, 25) — same as
+    /// inline rendering. If the inner viewport.scale is not threaded
+    /// through, the child paints at full physical 40×20 inside a 64×57
+    /// buffer, then 2× upscale doubles its on-screen size to 80×40.
+    #[test]
+    fn offscreen_scale_half_child_size_matches_inline() {
+        let mut world = make_world();
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(255, 255, 255).into()), // white
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(128)),
+                    height: Dimension::Px(Fixed::from_int(114)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::with_scale(Fixed::ONE / 2));
+
+        let _child = spawn(
+            &mut world,
+            Some(panel),
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0).into()), // red
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(40)),
+                    height: Dimension::Px(Fixed::from_int(20)),
+                    position: crate::layout::Position::Absolute,
+                    left: Dimension::Px(Fixed::from_int(5)),
+                    top: Dimension::Px(Fixed::from_int(5)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        let mut buf = std::vec![0u8; 128 * 128 * 4];
+        let tex = Texture::new(&mut buf, 128, 128, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        super::render(&world, panel, &viewport, &mut renderer);
+
+        let read_rgb = |x: usize, y: usize| -> (u8, u8, u8) {
+            let i = (y * 128 + x) * 4;
+            (buf[i], buf[i + 1], buf[i + 2])
+        };
+        assert_eq!(read_rgb(15, 15), (255, 0, 0), "child interior");
+        assert_eq!(
+            read_rgb(60, 30),
+            (255, 255, 255),
+            "(60, 30) should be panel white; if it's red the child \
+             rendered at 2× and the inner viewport scale is broken"
+        );
+        assert_eq!(
+            read_rgb(80, 40),
+            (255, 255, 255),
+            "(80, 40) should be panel white"
+        );
+    }
+
+    /// Same fill invariant as the 32×32 RGBA8888 case but with a
+    /// 128×114 panel + scale=0.5 + RGB565Swapped, exercising the
+    /// 565 byte-swap path that the RGBA test never hits.
+    #[test]
+    fn offscreen_scale_half_form_sized_panel_fills_correctly() {
+        let mut world = make_world();
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 255).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(128)),
+                    height: Dimension::Px(Fixed::from_int(114)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::with_scale(Fixed::ONE / 2));
+
+        let mut buf = std::vec![0u8; 128 * 128 * 2];
+        let tex = Texture::new(&mut buf, 128, 128, ColorFormat::RGB565Swapped);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        super::render(&world, panel, &viewport, &mut renderer);
+
+        // RGB565Swapped: blue (0, 0, 255) packs to 565 = 0x001F. The
+        // "swapped" variant byte-swaps to 0x1F00 and stores it
+        // little-endian → bytes [0x00, 0x1F].
+        let read_px = |x: usize, y: usize| -> [u8; 2] {
+            let i = (y * 128 + x) * 2;
+            [buf[i], buf[i + 1]]
+        };
+        for (x, y) in [(0, 0), (63, 56), (127, 0), (0, 113), (127, 113), (64, 60)] {
+            let px = read_px(x, y);
+            assert_eq!(
+                px,
+                [0x00, 0x1F],
+                "panel pixel ({x}, {y}) is {px:02x?}; expected blue (RGB565Swapped little-endian)"
+            );
+        }
+    }
+
+    /// Pixel-equivalence: rendering a panel + child subtree through
+    /// the OffscreenRender path must produce the same framebuffer
+    /// pixels as rendering inline. Holds across cold cache (frame 1),
+    /// warm cache hit (frame 2), and generation bump (frame 3 after
+    /// child Dirty). Uses RGB565Swapped on a 128×128 buffer — the
+    /// format pairing where integer-rounding drift between inline and
+    /// offscreen raster paths is most likely to surface.
+    #[test]
+    fn offscreen_render_red_panel_with_child_matches_inline_across_frames() {
+        use crate::widget::dirty::Dirty;
+        use crate::widget::{Children, Parent, Theme};
+
+        const FB_W: u16 = 128;
+        const FB_H: u16 = 128;
+
+        fn build_world(with_offscreen: bool) -> (World, Entity, Entity) {
+            let mut world = World::default();
+            // 64 KiB is plenty for a 40×20 panel + child buffer; the
+            // pool default is 0 (disabled) so the test must opt in.
+            world.insert_resource(OffscreenBufferPool::with_budget(64 * 1024));
+            world.insert_resource(ViewRegistry::with_builtins());
+            world.insert_resource(Theme::dark());
+
+            let panel = world.spawn();
+            world.insert(panel, Widget);
+            world.insert(
+                panel,
+                Style {
+                    bg_color: Some(Color::rgb(255, 0, 0).into()),
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(40)),
+                        height: Dimension::Px(Fixed::from_int(20)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            if with_offscreen {
+                world.insert(panel, OffscreenRender::default());
+            }
+
+            let child = world.spawn();
+            world.insert(child, Widget);
+            world.insert(child, Parent(panel));
+            world.insert(panel, Children(std::vec![child]));
+            world.insert(
+                child,
+                Style {
+                    bg_color: Some(Color::rgb(0, 0, 255).into()),
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(8)),
+                        height: Dimension::Px(Fixed::from_int(8)),
+                        position: crate::layout::Position::Absolute,
+                        left: Dimension::Px(Fixed::from_int(4)),
+                        top: Dimension::Px(Fixed::from_int(4)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            (world, panel, child)
+        }
+
+        let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
+        let render_into = |world: &World, panel: Entity| -> alloc::vec::Vec<u8> {
+            let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 2];
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGB565Swapped);
+            let mut renderer = SwRenderer::new(tex);
+            super::render(world, panel, &viewport, &mut renderer);
+            fb
+        };
+
+        let (mut w_inline, p_inline, c_inline) = build_world(false);
+        let (mut w_off, p_off, c_off) = build_world(true);
+
+        let fb_inline_f1 = render_into(&w_inline, p_inline);
+        let fb_off_f1 = render_into(&w_off, p_off);
+        assert_eq!(fb_inline_f1, fb_off_f1, "frame 1 (cold) inline ≠ offscreen");
+
+        // Inline re-rasters every frame; offscreen path serves the
+        // cached buffer. The framebuffer must still come out the same.
+        let fb_inline_f2 = render_into(&w_inline, p_inline);
+        let fb_off_f2 = render_into(&w_off, p_off);
+        assert_eq!(fb_inline_f2, fb_off_f2, "frame 2 (warm) inline ≠ offscreen");
+
+        // Inline ignores Dirty (always full render); offscreen path
+        // walks dirty + bumps generation. Both must converge.
+        w_inline.insert(c_inline, Dirty);
+        w_off.insert(c_off, Dirty);
+        let fb_inline_f3 = render_into(&w_inline, p_inline);
+        let fb_off_f3 = render_into(&w_off, p_off);
+        assert_eq!(
+            fb_inline_f3, fb_off_f3,
+            "frame 3 (gen bump) inline ≠ offscreen"
+        );
+    }
+
+    /// Pixel-equivalence on a non-trivial subtree (Switch + Slider +
+    /// ProgressBar + label inside a flex panel). Runs the same fixture
+    /// three times — inline reference, OffscreenRender on the panel,
+    /// OffscreenRender on a single leaf widget — and asserts each
+    /// framebuffer is byte-identical to the reference across cold
+    /// render, switch toggle, and slider mutation.
+    #[test]
+    fn offscreen_render_form_page_subtree_matches_inline() {
+        use crate::components::{ProgressBar, Slider, Switch, Text};
+        use crate::layout::{AlignItems, FlexDirection, Padding};
+        use crate::widget::dirty::Dirty;
+        use crate::widget::theme::ColorToken;
+        use crate::widget::{Children, Parent, Theme};
+
+        const FB_W: u16 = 128;
+        const FB_H: u16 = 128;
+
+        fn add_child(world: &mut World, parent: Entity, child: Entity) {
+            world.insert(child, Parent(parent));
+            if let Some(c) = world.get_mut::<Children>(parent) {
+                c.0.push(child);
+            } else {
+                world.insert(parent, Children(std::vec![child]));
+            }
+        }
+
+        fn spawn_styled(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
+            let e = world.spawn();
+            world.insert(e, Widget);
+            world.insert(e, style);
+            if let Some(p) = parent {
+                add_child(world, p, e);
+            }
+            e
+        }
+
+        #[derive(Clone, Copy)]
+        enum Mark {
+            None,
+            OnPanel,
+            OnSwitch,
+        }
+
+        fn build(mark: Mark) -> (World, Entity, Entity, Entity) {
+            let mut w = World::default();
+            // 64 KiB covers the form_page + Switch buffer working
+            // set; the pool default is 0 (disabled) so the test
+            // must opt in.
+            w.insert_resource(OffscreenBufferPool::with_budget(64 * 1024));
+            w.insert_resource(ViewRegistry::with_builtins());
+            w.insert_resource(Theme::dark());
+
+            let fp = spawn_styled(
+                &mut w,
+                None,
+                Style {
+                    bg_color: Some(ColorToken::Surface.into()),
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(128)),
+                        height: Dimension::Px(Fixed::from_int(114)),
+                        direction: FlexDirection::Column,
+                        padding: Padding::all(Dimension::Px(Fixed::from_int(10))),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            if matches!(mark, Mark::OnPanel) {
+                w.insert(fp, OffscreenRender::default());
+            }
+            let er = spawn_styled(
+                &mut w,
+                Some(fp),
+                Style {
+                    layout: LayoutStyle {
+                        direction: FlexDirection::Row,
+                        height: Dimension::Px(Fixed::from_int(28)),
+                        align: AlignItems::Center,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            let el = spawn_styled(
+                &mut w,
+                Some(er),
+                Style {
+                    text_color: ColorToken::OnSurface.into(),
+                    layout: LayoutStyle {
+                        grow: Fixed::ONE,
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            w.insert(el, Text(b"Enable".to_vec()));
+            let sw = spawn_styled(
+                &mut w,
+                Some(er),
+                Style {
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(40)),
+                        height: Dimension::Px(Fixed::from_int(20)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            w.insert(sw, Switch::new());
+            if matches!(mark, Mark::OnSwitch) {
+                w.insert(sw, OffscreenRender::default());
+            }
+            let sr = spawn_styled(
+                &mut w,
+                Some(fp),
+                Style {
+                    layout: LayoutStyle {
+                        height: Dimension::Px(Fixed::from_int(14)),
+                        padding: Padding {
+                            top: Dimension::Px(Fixed::from_int(6)),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            let sl = spawn_styled(
+                &mut w,
+                Some(sr),
+                Style {
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(108)),
+                        height: Dimension::Px(Fixed::from_int(14)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            w.insert(sl, Slider::new(Fixed::ZERO, Fixed::from_int(100)));
+            let pr = spawn_styled(
+                &mut w,
+                Some(fp),
+                Style {
+                    layout: LayoutStyle {
+                        height: Dimension::Px(Fixed::from_int(10)),
+                        padding: Padding {
+                            top: Dimension::Px(Fixed::from_int(8)),
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            let pb = spawn_styled(
+                &mut w,
+                Some(pr),
+                Style {
+                    border_radius: Fixed::from_int(4),
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(108)),
+                        height: Dimension::Px(Fixed::from_int(8)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            w.insert(pb, ProgressBar::new());
+            (w, fp, sw, sl)
+        }
+
+        let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
+        let render_into = |world: &World, root: Entity| -> alloc::vec::Vec<u8> {
+            let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 2];
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGB565Swapped);
+            let mut renderer = SwRenderer::new(tex);
+            super::render(world, root, &viewport, &mut renderer);
+            fb
+        };
+
+        let (w_ref, fp_ref, sw_ref, sl_ref) = build(Mark::None);
+        let (w_a, fp_a, sw_a, sl_a) = build(Mark::OnPanel);
+        let (w_b, fp_b, sw_b, sl_b) = build(Mark::OnSwitch);
+
+        assert_eq!(
+            render_into(&w_ref, fp_ref),
+            render_into(&w_a, fp_a),
+            "form_page OffscreenRender frame 1 ≠ inline"
+        );
+        assert_eq!(
+            render_into(&w_ref, fp_ref),
+            render_into(&w_b, fp_b),
+            "Switch OffscreenRender frame 1 ≠ inline"
+        );
+
+        // Inline path doesn't read Dirty; offscreen path's dirty
+        // walker does. Mark Dirty so the offscreen variants bump
+        // their cache generation; both must still match.
+        let flip_on = |w: &mut World, sw: Entity| {
+            if let Some(s) = w.get_mut::<Switch>(sw) {
+                s.on = true;
+            }
+            w.insert(sw, Dirty);
+        };
+        let mut w_ref = w_ref;
+        let mut w_a = w_a;
+        let mut w_b = w_b;
+        flip_on(&mut w_ref, sw_ref);
+        flip_on(&mut w_a, sw_a);
+        flip_on(&mut w_b, sw_b);
+        assert_eq!(
+            render_into(&w_ref, fp_ref),
+            render_into(&w_a, fp_a),
+            "form_page OffscreenRender frame 2 (switch on) ≠ inline"
+        );
+        assert_eq!(
+            render_into(&w_ref, fp_ref),
+            render_into(&w_b, fp_b),
+            "Switch OffscreenRender frame 2 (switch on) ≠ inline"
+        );
+
+        let slider_max = |w: &mut World, sl: Entity| {
+            if let Some(s) = w.get_mut::<Slider>(sl) {
+                s.value = s.max;
+            }
+            w.insert(sl, Dirty);
+        };
+        slider_max(&mut w_ref, sl_ref);
+        slider_max(&mut w_a, sl_a);
+        slider_max(&mut w_b, sl_b);
+        assert_eq!(
+            render_into(&w_ref, fp_ref),
+            render_into(&w_a, fp_a),
+            "form_page OffscreenRender frame 3 (slider max) ≠ inline"
+        );
+        assert_eq!(
+            render_into(&w_ref, fp_ref),
+            render_into(&w_b, fp_b),
+            "Switch OffscreenRender frame 3 (slider max) ≠ inline"
+        );
+    }
+
+    /// Same single-Switch reproducer but on RGB565Swapped instead of
+    /// RGBA8888 — exercises the format-specific paths the RGBA test
+    /// can't reach.
+    #[test]
+    fn offscreen_render_on_single_switch_widget_matches_inline_rgb565sw() {
+        use crate::components::Switch;
+
+        let pix_at = |buf: &[u8], x: usize, y: usize| -> [u8; 2] {
+            let i = (y * 128 + x) * 2;
+            [buf[i], buf[i + 1]]
+        };
+
+        // (a) Inline Switch on RGB565Swapped 128×128 framebuffer.
+        let mut buf_inline = std::vec![0u8; 128 * 128 * 2];
+        {
+            let mut world = make_world();
+            let switch = spawn(
+                &mut world,
+                None,
+                Style {
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(40)),
+                        height: Dimension::Px(Fixed::from_int(20)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            world.insert(switch, Switch::new());
+            let tex = Texture::new(&mut buf_inline, 128, 128, ColorFormat::RGB565Swapped);
+            let mut renderer = SwRenderer::new(tex);
+            let viewport = Viewport::new(128, 128, Fixed::ONE);
+            super::render(&world, switch, &viewport, &mut renderer);
+        }
+
+        let mut buf_off = std::vec![0u8; 128 * 128 * 2];
+        {
+            let mut world = make_world();
+            let switch = spawn(
+                &mut world,
+                None,
+                Style {
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(40)),
+                        height: Dimension::Px(Fixed::from_int(20)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            world.insert(switch, Switch::new());
+            world.insert(switch, OffscreenRender::default());
+            let tex = Texture::new(&mut buf_off, 128, 128, ColorFormat::RGB565Swapped);
+            let mut renderer = SwRenderer::new(tex);
+            let viewport = Viewport::new(128, 128, Fixed::ONE);
+            super::render(&world, switch, &viewport, &mut renderer);
+        }
+
+        for &(x, y) in [(0, 0), (10, 5), (20, 10), (30, 15), (35, 18)].iter() {
+            let i = pix_at(&buf_inline, x, y);
+            let o = pix_at(&buf_off, x, y);
+            assert_eq!(
+                i, o,
+                "pixel ({x}, {y}): inline {i:02x?} vs offscreen {o:02x?}"
+            );
+        }
+    }
+
+    /// Single Switch widget marked OffscreenRender::default(). Inline
+    /// rendering paints the switch at the widget's logical rect;
+    /// offscreen rendering must produce a pixel-identical result on
+    /// the outer framebuffer.
+    #[test]
+    fn offscreen_render_on_single_switch_widget_matches_inline() {
+        use crate::components::Switch;
+
+        let blue_at = |buf: &[u8], x: usize, y: usize| -> (u8, u8, u8) {
+            let i = (y * 64 + x) * 4;
+            (buf[i], buf[i + 1], buf[i + 2])
+        };
+
+        // (a) Inline Switch.
+        let mut buf_inline = std::vec![0u8; 64 * 64 * 4];
+        {
+            let mut world = make_world();
+            let switch = spawn(
+                &mut world,
+                None,
+                Style {
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(40)),
+                        height: Dimension::Px(Fixed::from_int(20)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            world.insert(switch, Switch::new());
+            let tex = Texture::new(&mut buf_inline, 64, 64, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            let viewport = Viewport::new(64, 64, Fixed::ONE);
+            super::render(&world, switch, &viewport, &mut renderer);
+        }
+
+        // (b) Offscreen Switch.
+        let mut buf_off = std::vec![0u8; 64 * 64 * 4];
+        {
+            let mut world = make_world();
+            let switch = spawn(
+                &mut world,
+                None,
+                Style {
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(40)),
+                        height: Dimension::Px(Fixed::from_int(20)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            world.insert(switch, Switch::new());
+            world.insert(switch, OffscreenRender::default());
+            let tex = Texture::new(&mut buf_off, 64, 64, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            let viewport = Viewport::new(64, 64, Fixed::ONE);
+            super::render(&world, switch, &viewport, &mut renderer);
+        }
+
+        // Sample a handful of pixels across the 40×20 switch rect.
+        // Both paths must produce the same colours within blending
+        // rounding.
+        for &(x, y) in [(0, 0), (10, 5), (20, 10), (30, 15), (35, 18)].iter() {
+            let i = blue_at(&buf_inline, x, y);
+            let o = blue_at(&buf_off, x, y);
+            for ch in 0..3 {
+                let inline_c = [i.0, i.1, i.2][ch];
+                let off_c = [o.0, o.1, o.2][ch];
+                let d = inline_c.abs_diff(off_c);
+                assert!(
+                    d <= 2,
+                    "pixel ({x}, {y}) ch {ch}: inline {inline_c} vs offscreen {off_c} differ by {d}\n\
+                     full pixel: inline {i:?}, offscreen {o:?}",
+                );
+            }
+        }
+    }
+
+    /// Scale=0.5 must paint the *entire* buffer with the panel's bg —
+    /// not just a fraction. After the blit upscale, the panel's full
+    /// rect on the outer framebuffer should be the panel colour, with
+    /// no black bands left behind. Regression for "scale=0.5 only paints
+    /// a quarter" — clip was being passed in physical instead of logical
+    /// coordinates inside try_draw_offscreen, which left 3/4 of the
+    /// buffer untouched.
+    #[test]
+    fn offscreen_scale_half_fills_buffer_and_blits_upscaled() {
+        let mut world = make_world();
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(32)),
+                    height: Dimension::Px(Fixed::from_int(32)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::with_scale(Fixed::ONE / 2));
+
+        let mut buf = std::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        super::render(&world, panel, &viewport, &mut renderer);
+
+        // After render: outer 64×64 framebuffer's (0..32, 0..32) region
+        // should be solid red. The buffer is internally 16×16 but the
+        // blit upscales 2×.
+        let read_px = |x: usize, y: usize| -> (u8, u8, u8, u8) {
+            let i = (y * 64 + x) * 4;
+            (buf[i], buf[i + 1], buf[i + 2], buf[i + 3])
+        };
+        for (x, y) in [(0, 0), (15, 15), (16, 0), (0, 16), (31, 31), (10, 20)] {
+            let (r, g, b, _) = read_px(x, y);
+            assert_eq!(
+                (r, g, b),
+                (255, 0, 0),
+                "panel pixel ({x}, {y}) is ({r}, {g}, {b}); expected red"
+            );
+        }
+        // Outside the panel's logical rect must still be untouched
+        // (zeroed-out backing buffer).
+        for (x, y) in [(32, 0), (0, 32), (50, 50), (63, 63)] {
+            let (r, g, b, _) = read_px(x, y);
+            assert_eq!(
+                (r, g, b),
+                (0, 0, 0),
+                "outside-panel pixel ({x}, {y}) leaked colour ({r}, {g}, {b})"
+            );
+        }
+    }
+
     #[test]
     fn offscreen_render_reuses_buffer_across_frames_when_unchanged() {
         let mut world = make_world();
@@ -1826,6 +2491,142 @@ mod offscreen_render_check {
         // Offscreen entity's generation has advanced.
         let g = world.get::<OffscreenGeneration>(panel).map(|gn| gn.0);
         assert_eq!(g, Some(1), "generation should bump from 0 to 1");
+    }
+
+    /// Self-Dirty case: the OffscreenRender entity itself goes Dirty
+    /// (e.g. theme rotation calls `mark_subtree_dirty(root)` which
+    /// stamps the entire tree). For an entity without children — a
+    /// single-widget marker, like a Switch — the subtree scan finds
+    /// no Dirty descendants and the old code skipped the
+    /// generation bump entirely, so the cache kept handing out the
+    /// stale buffer in the previous theme's colours.
+    #[test]
+    fn dirty_walker_bumps_generation_when_only_offscreen_entity_itself_is_dirty() {
+        use super::super::dirty::Dirty;
+        use super::super::offscreen::OffscreenGeneration;
+
+        let mut world = make_world();
+        let leaf = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 200, 100).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(20)),
+                    height: Dimension::Px(Fixed::from_int(10)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(leaf, OffscreenRender::default());
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        // Frame 1 cold — first dirty walk (no PrevRect yet).
+        world.insert(leaf, Dirty);
+        let _ = super::collect_dirty_region(&mut world, leaf, &viewport);
+        let g1 = world
+            .get::<OffscreenGeneration>(leaf)
+            .map(|g| g.0)
+            .unwrap_or(0);
+        assert_eq!(g1, 1, "frame 1 must bump from 0 → 1");
+
+        // Frame 2 — only the offscreen entity itself is Dirty (no
+        // children). The cache buffer is stale; generation must bump.
+        world.insert(leaf, Dirty);
+        let bounds = super::collect_dirty_region(&mut world, leaf, &viewport);
+        let g2 = world
+            .get::<OffscreenGeneration>(leaf)
+            .map(|g| g.0)
+            .unwrap_or(0);
+        assert_eq!(
+            g2, 2,
+            "frame 2 self-Dirty must bump from 1 → 2 so the buffer cache misses"
+        );
+        assert!(bounds.is_some(), "frame 2 self-Dirty must report bounds");
+    }
+
+    /// Multi-frame regression: the OffscreenRender entity's bounds
+    /// must end up in the dirty region every time a descendant goes
+    /// Dirty, not just the first time. The previous code path made
+    /// the rect-promotion conditional on `PrevRect.is_none()` — true
+    /// only on the very first dirty walk for a given entity — so the
+    /// second time a child went Dirty the offscreen entity dropped
+    /// out of the dirty bounds entirely, render_region had nothing
+    /// to paint, and the offscreen subtree visibly froze on the
+    /// previous frame's pixels.
+    #[test]
+    fn dirty_walker_promotes_subtree_dirty_on_every_frame() {
+        use super::super::dirty::{Dirty, PrevRect};
+        use super::super::offscreen::OffscreenGeneration;
+
+        let mut world = make_world();
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(64, 128, 255).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(32)),
+                    height: Dimension::Px(Fixed::from_int(32)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::default());
+        let child = spawn(
+            &mut world,
+            Some(panel),
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(8)),
+                    height: Dimension::Px(Fixed::from_int(8)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+
+        // Frame 1: child goes Dirty. Walker bumps generation, includes
+        // panel rect in bounds, sets PrevRect on panel.
+        world.insert(child, Dirty);
+        let b1 = super::collect_dirty_region(&mut world, panel, &viewport);
+        assert!(b1.is_some(), "frame 1 must report bounds");
+        let g1 = world
+            .get::<OffscreenGeneration>(panel)
+            .map(|g| g.0)
+            .unwrap_or(0);
+        assert_eq!(g1, 1, "frame 1 generation = 1");
+        assert!(world.get::<PrevRect>(panel).is_some(), "panel PrevRect set");
+
+        // Frame 2: child goes Dirty again. Walker must bump generation
+        // a second time AND include the panel rect in bounds. If it
+        // doesn't, render_region won't repaint the offscreen entity
+        // and the screen freezes.
+        world.insert(child, Dirty);
+        let b2 = super::collect_dirty_region(&mut world, panel, &viewport);
+        let g2 = world
+            .get::<OffscreenGeneration>(panel)
+            .map(|g| g.0)
+            .unwrap_or(0);
+        assert_eq!(g2, 2, "frame 2 generation = 2");
+        assert!(
+            b2.is_some(),
+            "frame 2 must still report bounds covering the offscreen entity"
+        );
+        let b2 = b2.unwrap();
+        // Panel logical rect is (0, 0, 32, 32) — bounds must contain it.
+        assert!(
+            b2.x.to_int() <= 0
+                && b2.y.to_int() <= 0
+                && (b2.x + b2.w).to_int() >= 32
+                && (b2.y + b2.h).to_int() >= 32,
+            "frame 2 bounds {b2:?} must cover the panel rect (0, 0, 32, 32)"
+        );
     }
 
     #[test]

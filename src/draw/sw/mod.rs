@@ -507,6 +507,26 @@ impl Renderer for SwRenderer<'_> {
     fn offscreen_format(&self) -> Option<crate::draw::texture::ColorFormat> {
         Some(self.target.format)
     }
+
+    fn read_target_region(&self, src: &Rect, dst: &mut crate::draw::texture::Texture) {
+        // Buffer pixels are physical, so we copy 1:1 from the target
+        // rather than going through Canvas::blit (no scale, no clip
+        // beyond the target's own bounds).
+        let (sx0, sy0, _sx1, _sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
+        let target_w = self.target.width as i32;
+        let target_h = self.target.height as i32;
+        for dy in 0..dst.height as i32 {
+            for dx in 0..dst.width as i32 {
+                let phys_x = sx0 + dx;
+                let phys_y = sy0 + dy;
+                if phys_x < 0 || phys_y < 0 || phys_x >= target_w || phys_y >= target_h {
+                    continue;
+                }
+                let px = self.target.get_pixel(phys_x, phys_y);
+                dst.set_pixel(dx, dy, &px);
+            }
+        }
+    }
 }
 
 fn translate_path(path: &Path, tx: Fixed, ty: Fixed) -> Path {

@@ -23,6 +23,22 @@ pub trait Renderer {
     fn offscreen_format(&self) -> Option<ColorFormat> {
         None
     }
+
+    /// Copy a logical-pixel rect from the current target into `dst`.
+    /// Used to seed an offscreen buffer with the pixels under it so
+    /// partial-alpha raster blends against the real background
+    /// instead of the buffer's clear colour. `src` is logical;
+    /// implementations apply their own viewport scale.
+    ///
+    /// Default fills `dst` with opaque black: no information is
+    /// recovered, but the buffer is at least defined.
+    fn read_target_region(&self, _src: &Rect, dst: &mut crate::draw::texture::Texture) {
+        for y in 0..dst.height as i32 {
+            for x in 0..dst.width as i32 {
+                dst.set_pixel(x, y, &crate::types::Color::rgb(0, 0, 0));
+            }
+        }
+    }
 }
 
 #[cfg(test)]
