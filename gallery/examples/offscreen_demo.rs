@@ -1,7 +1,8 @@
-//! Single dashboard panel (6×9 = 54 rounded tiles), marked `Dirty`
-//! every frame. The mode auto-toggles every 5 seconds between inline
-//! and offscreen so the bottom readout shows both `render_nanos`
-//! averages back-to-back.
+//! Dashboard panel (6×9 = 54 rounded tiles). Root is marked `Dirty`
+//! every frame so the dirty rect spans the window; the panel subtree
+//! itself stays clean, which is what lets the offscreen cache hit on
+//! every frame after the first. Mode auto-toggles every 5s; the
+//! bottom readout shows `render_nanos` averages for both modes.
 //!
 //! ```text
 //! cargo run -p gallery --example offscreen_demo --release

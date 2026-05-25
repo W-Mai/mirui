@@ -12,7 +12,36 @@
 //! rebuild the buffer; otherwise the prior buffer is blit'd as-is and
 //! the subtree's raster work is skipped entirely.
 //!
-//! Constraints — all `debug_assert!` panics:
+//! # Usage
+//!
+//! Two pieces opt the app in:
+//!
+//! ```ignore
+//! // 1. Size the pool. Default is `Bytes(0)` (disabled), so the cache
+//! //    never grows and OffscreenRender silently falls through to
+//! //    inline. Pick a budget that fits a couple of buffers:
+//! //    `width × height × bytes_per_pixel`. RGB565 is 2, RGBA8888 is 4.
+//! app.with_offscreen_pool_budget(64 * 1024);
+//!
+//! // 2. Tag the entity whose subtree should be cached.
+//! world.insert(panel, OffscreenRender::default());
+//! ```
+//!
+//! # When it pays off
+//!
+//! Best fit: a subtree that is **static or near-static between frames**
+//! while something else on screen redraws (forces the dirty rect to
+//! cover the cached entity). Inline path re-rasters the subtree;
+//! offscreen path blit's the cached buffer once.
+//!
+//! Worst fit: the subtree mutates every frame, or a `WidgetTransform`
+//! on the entity animates while the subtree is static. Both cases
+//! bump `generation` (or fail to skip raster) so the offscreen path
+//! runs the full raster + blit each frame and ends up slower than
+//! inline.
+//!
+//! # Constraints (debug_assert panics)
+//!
 //! - Renderer must implement the SW pipeline. GPU backends log once
 //!   and fall through to inline rendering.
 //! - Entity cannot also carry `WidgetTransform3D`.
