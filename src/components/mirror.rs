@@ -114,18 +114,23 @@ fn mirror_attach(world: &mut World, entity: Entity) {
     if world.get::<WidgetTextureRef>(entity).is_none() {
         world.insert(entity, WidgetTextureRef(source));
     }
-    // First-frame fix: maintain_widget_texture_refs adds
-    // OffscreenRender to the source on its first tick, but that
-    // tick runs *after* the initial render. Without this, frame 1's
-    // texture_of(source) misses the cache and the mirror paints
-    // nothing until something else dirties the area.
-    use crate::widget::offscreen::OffscreenAutoAdded;
+    // Add OffscreenRender up front so the first frame's
+    // texture_of(source) hits cache; maintain_widget_texture_refs
+    // does the same on its first tick, but that tick runs after the
+    // initial render.
+    use crate::widget::offscreen::{OffscreenAlphaMode, OffscreenAutoAdded};
     if world
         .get::<crate::widget::OffscreenRender>(source)
         .is_none()
     {
         world.insert(source, crate::widget::OffscreenRender::default());
         world.insert(source, OffscreenAutoAdded);
+    }
+    // Skip framebuffer pre-seed: pre-seeded pixels outside the
+    // source's drawn area would surface in the flipped blit (e.g.
+    // the mirror's own previous reflection from below).
+    if world.get::<OffscreenAlphaMode>(source).is_none() {
+        world.insert(source, OffscreenAlphaMode::clear_transparent());
     }
 }
 
