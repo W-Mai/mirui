@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-05-25
+
+OffscreenRender: render an entity's subtree into a cached buffer once, blit on subsequent frames when the subtree hasn't changed.
+
+### Added
+
+- **`OffscreenRender` component** (`src/widget/offscreen.rs`): tag any entity with `OffscreenRender::default()` to render its subtree through a buffer cache. `OffscreenRender::with_scale(s)` allocates the buffer at `s × ComputedRect` so the cache trades a smaller buffer for upscaled blit at draw time. Generation tracking via `OffscreenGeneration` invalidates the buffer when the dirty walker sees a self-Dirty or any subtree Dirty.
+- **`OffscreenBufferPool` World resource**: byte-budget LRU cache keyed by `(entity, w, h, format, generation)`. `App::with_offscreen_pool_budget(bytes)` opts in; the default budget is 0 so user code must size the pool to its target. Pool seeds buffers from the framebuffer pixels under the entity rect so partial-alpha raster blends against the real background instead of transparent black.
+- **`Renderer::supports_offscreen` / `offscreen_format` / `read_target_region`** trait methods (`src/draw/renderer.rs`): backend capability flag, buffer format pick, and framebuffer read for buffer pre-seed. SwRenderer implements all three; SDL_GPU returns `supports_offscreen = false` and the walker falls through to inline.
+- **`WidgetTransform` on OffscreenRender entities** (`src/widget/render_system.rs`): translate / scale / rotate apply to the outer Blit so the buffer ends up positioned the same way as inline raster.
+- **`MaxSize::Bytes` cache mode + `HasSize` trait** (`src/cache/budget.rs`): byte-aware LRU eviction. `Texture` and `RefCell<T: HasSize>` get blanket impls. SDL GPU `label_cache` wraps `SdlTexture` in a `SizedSdlTexture` newtype to bridge the orphan rule.
+- **`or_insert_with_status` API** (`src/cache/factory.rs`): `Entry` extension that returns `(Handle, EntryStatus::Hit | Inserted)` so callers branching on hit avoid a second hashmap lookup.
+- **`gallery/examples/offscreen_demo.rs`**: 6×9 rounded-tile dashboard, mode auto-toggles every 5s between inline and offscreen, on-screen `render avg` readout shows the per-frame raster cost difference directly.
+- **35 OffscreenRender invariant + edge tests** in `src/widget/render_system.rs::offscreen_render_check`: cold/warm/dirty-bump byte-equivalence vs inline across rounded panels, form pages, single Switch widgets, fractional scale, Hidden interaction, nested-OffscreenRender panic, 3D-transform panic, oversized buffer fall-through, cache-hit skip-raster proof, dirty walker promotion, and WidgetTransform parity (translate / scale byte-equal, rotate within AA tolerance).
+
+### Changed
+
+- **Cache hit skips inner raster** (`src/widget/render_system.rs::try_draw_offscreen`): on hit, skip `read_target_region`, the inner SwRenderer raster, and `Canvas::flush`; only the outer Blit runs. On miss, the full pre-seed + raster path still runs and the new buffer enters the cache.
+- **Dirty walker promotes subtree Dirty to OffscreenRender entity**: any Dirty marker under an `OffscreenRender` entity contributes the entity's full rect to the dirty union and bumps the entity's `OffscreenGeneration`, so the next render misses the cache and re-rasters with fresh content. Single-widget OffscreenRender markers (no children) also bump on self-Dirty.
+- **`OffscreenBufferPool::with_budget(bytes)`** replaces the previous count-based ctor; `App::with_offscreen_pool_budget(bytes)` is the public entry. Default `Bytes(0)` keeps the cache disabled until the user sizes it.
+
+### Fixed
+
+- **Switch `AnimatedThumbX` is entity-local, not screen-absolute** (`src/components/switch.rs`): `off_thumb_x` / `on_thumb_x` derive from `rect.w` only; the render pass adds `rect.x`. Previously the offset was world-absolute, so the thumb drifted off the track when the panel moved.
+- **Buffer pre-seed reads framebuffer pixels** (`src/widget/render_system.rs`): the previous transparent-black clear blended through the alpha channel and painted black fringes around AA edges. SwRenderer's `read_target_region` copies physical pixels under the entity's rect.
+- **Inner clip stays in logical coords**: `inner_clip = entity_rect` (logical) instead of physical, so `OffscreenRender::with_scale(0.5)` no longer clips children to a quarter of the buffer.
+
+### Performance
+
+OffscreenRender targets dashboard / form-page UIs where a large subtree is static between frames but other parts of the screen redraw. With the cache hit fast path:
+
+- Inline render of a 280×260 panel containing 54 rounded tiles re-rasters every tile every frame.
+- OffscreenRender hit path runs one Blit, skipping all 54 tile rasters and the framebuffer pre-seed.
+
+The desktop `offscreen_demo` example shows the gap directly via the on-screen `render avg` readout when toggling between modes.
+
 ## [0.19.2] - 2026-05-23
 
 Software raster speed-up for rounded widget fills on ESP32-C3.
