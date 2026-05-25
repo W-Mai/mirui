@@ -433,13 +433,9 @@ fn try_draw_offscreen(
 
     crate::trace_span!("draw.offscreen");
 
-    let (handle, was_hit) = if let Some(h) = pool.cache.borrow_mut().acquire(&key) {
-        (h, true)
-    } else {
-        match pool.cache.borrow_mut().entry(key).or_insert() {
-            Ok(h) => (h, false),
-            Err(_) => return false,
-        }
+    let (handle, was_hit) = match pool.cache.borrow_mut().entry(key).or_insert_with_status() {
+        Ok((h, status)) => (h, status == crate::cache::factory::EntryStatus::Hit),
+        Err(_) => return false,
     };
 
     if !was_hit {

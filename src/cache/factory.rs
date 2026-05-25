@@ -112,6 +112,25 @@ where
             }
         }
     }
+
+    /// Like `or_insert` but tells the caller whether the handle came
+    /// from an existing entry or a fresh insert. Saves a second hash
+    /// lookup vs `acquire` then `entry().or_insert()`.
+    pub fn or_insert_with_status(self) -> Result<(Handle<V>, EntryStatus), CacheError<E>> {
+        match self {
+            Entry::Occupied(o) => Ok((o.inner.into_handle(), EntryStatus::Hit)),
+            Entry::Vacant(v) => {
+                let value = (v.ctor)(v.inner.key()).map_err(CacheError::Factory)?;
+                Ok((v.inner.insert(value), EntryStatus::Inserted))
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum EntryStatus {
+    Hit,
+    Inserted,
 }
 
 // Case 3: ctor signature is unconstrained; the build closure decides
