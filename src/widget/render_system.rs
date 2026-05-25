@@ -602,28 +602,31 @@ pub fn render(world: &World, root: Entity, transform: &Viewport, renderer: &mut 
     let mut entities = Vec::new();
     collect_entities_preorder(world, root, &mut entities);
 
-    // Pre-pass: render every WidgetTextureRef'd source's offscreen
-    // buffer into the cache before the consumer's view fn (which
-    // reads that buffer via `texture_of`) runs. The full draw pass
-    // below sees a cache hit and reuses the same buffer for the blit.
-    let ref_sources: Vec<Entity> = world
-        .query::<super::offscreen::WidgetTextureRef>()
-        .iter()
-        .map(|(_, r)| r.0)
-        .collect();
-    if !ref_sources.is_empty() {
-        let mut idx = 0;
-        prerender_sources(
-            &layout_tree,
-            world,
-            &entities,
-            &mut idx,
-            renderer,
-            &clip,
-            &Transform::IDENTITY,
-            &Transform3D::IDENTITY,
-            &ref_sources,
-        );
+    // Storage-existence gate so a tree with no effect widgets pays
+    // nothing for the prerender pass: `query` walks even when empty.
+    if world
+        .storage::<super::offscreen::WidgetTextureRef>()
+        .is_some()
+    {
+        let ref_sources: Vec<Entity> = world
+            .query::<super::offscreen::WidgetTextureRef>()
+            .iter()
+            .map(|(_, r)| r.0)
+            .collect();
+        if !ref_sources.is_empty() {
+            let mut idx = 0;
+            prerender_sources(
+                &layout_tree,
+                world,
+                &entities,
+                &mut idx,
+                renderer,
+                &clip,
+                &Transform::IDENTITY,
+                &Transform3D::IDENTITY,
+                &ref_sources,
+            );
+        }
     }
 
     let mut idx = 0;
@@ -713,33 +716,32 @@ pub fn render_region(
         collect_entities_preorder(world, root, &mut entities);
     }
 
-    // Pre-pass: any entity that some other entity needs to read via
-    // `WidgetTextureAccess` (mirror / drop-shadow / temporal-mix) must
-    // have its offscreen buffer up-to-date *before* the consumer's
-    // view fn runs. Walk a parallel pass that only descends into ref'd
-    // sources and writes their buffers, ignoring the consumers and
-    // anything else. The full draw pass below sees the same buffer as
-    // a cache hit (BufferKey is the same) and reuses it for the blit
-    // back to the framebuffer.
-    let ref_sources: Vec<Entity> = world
-        .query::<super::offscreen::WidgetTextureRef>()
-        .iter()
-        .map(|(_, r)| r.0)
-        .collect();
-    if !ref_sources.is_empty() {
-        crate::trace_span!("render.prerender_sources");
-        let mut idx = 0;
-        prerender_sources(
-            &layout_tree,
-            world,
-            &entities,
-            &mut idx,
-            renderer,
-            dirty_rect,
-            &Transform::IDENTITY,
-            &Transform3D::IDENTITY,
-            &ref_sources,
-        );
+    // Storage-existence gate so a tree with no effect widgets pays
+    // nothing for the prerender pass: `query` walks even when empty.
+    if world
+        .storage::<super::offscreen::WidgetTextureRef>()
+        .is_some()
+    {
+        let ref_sources: Vec<Entity> = world
+            .query::<super::offscreen::WidgetTextureRef>()
+            .iter()
+            .map(|(_, r)| r.0)
+            .collect();
+        if !ref_sources.is_empty() {
+            crate::trace_span!("render.prerender_sources");
+            let mut idx = 0;
+            prerender_sources(
+                &layout_tree,
+                world,
+                &entities,
+                &mut idx,
+                renderer,
+                dirty_rect,
+                &Transform::IDENTITY,
+                &Transform3D::IDENTITY,
+                &ref_sources,
+            );
+        }
     }
 
     {
