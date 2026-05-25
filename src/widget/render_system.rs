@@ -2584,6 +2584,55 @@ mod offscreen_render_check {
         );
     }
 
+    /// Oversized panel + tiny pool budget rejects the buffer; caller
+    /// must fall through to inline raster instead of leaving the entity
+    /// unpainted. Compare byte-byte against an inline-only render.
+    #[test]
+    fn offscreen_render_falls_through_to_inline_when_buffer_oversized() {
+        fn build(with_offscreen: bool, budget: usize) -> (World, Entity) {
+            let mut app = crate::app::App::headless(64, 64);
+            app.with_default_widgets()
+                .with_offscreen_pool_budget(budget);
+            let mut world = app.world;
+            let panel = spawn(
+                &mut world,
+                None,
+                Style {
+                    bg_color: Some(Color::rgb(0, 200, 100).into()),
+                    layout: LayoutStyle {
+                        width: Dimension::Px(Fixed::from_int(48)),
+                        height: Dimension::Px(Fixed::from_int(48)),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                },
+            );
+            if with_offscreen {
+                world.insert(panel, OffscreenRender::default());
+            }
+            (world, panel)
+        }
+
+        let (w_inline, p_inline) = build(false, 64 * 1024);
+        // 48×48×4 = 9216 bytes; 1 KiB budget can't host it.
+        let (w_off, p_off) = build(true, 1024);
+
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let render = |world: &World, root: Entity| -> alloc::vec::Vec<u8> {
+            let mut fb = std::vec![0u8; 64 * 64 * 4];
+            let tex = Texture::new(&mut fb, 64, 64, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render(world, root, &viewport, &mut renderer);
+            fb
+        };
+
+        assert_eq!(
+            render(&w_inline, p_inline),
+            render(&w_off, p_off),
+            "oversized rejection must fall through to inline raster"
+        );
+    }
+
     #[test]
     fn offscreen_render_reuses_buffer_across_frames_when_unchanged() {
         let mut world = make_world();
