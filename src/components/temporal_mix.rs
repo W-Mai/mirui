@@ -85,10 +85,18 @@ fn temporal_mix_attach(world: &mut World, entity: Entity) {
         return;
     };
     let source = tm.source;
-    if world.get::<WidgetTextureRef>(entity).is_some() {
-        return;
+    if world.get::<WidgetTextureRef>(entity).is_none() {
+        world.insert(entity, WidgetTextureRef(source));
     }
-    world.insert(entity, WidgetTextureRef(source));
+    // First-frame fix: see mirror_attach.
+    use crate::widget::offscreen::OffscreenAutoAdded;
+    if world
+        .get::<crate::widget::OffscreenRender>(source)
+        .is_none()
+    {
+        world.insert(source, crate::widget::OffscreenRender::default());
+        world.insert(source, OffscreenAutoAdded);
+    }
 }
 
 pub fn view() -> View {
