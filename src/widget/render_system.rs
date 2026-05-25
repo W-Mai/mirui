@@ -433,23 +433,25 @@ fn try_draw_offscreen(
 
     crate::trace_span!("draw.offscreen");
 
-    let handle = match pool.cache.borrow_mut().entry(key).or_insert() {
-        Ok(h) => h,
-        Err(_) => return false,
+    let (handle, was_hit) = if let Some(h) = pool.cache.borrow_mut().acquire(&key) {
+        (h, true)
+    } else {
+        match pool.cache.borrow_mut().entry(key).or_insert() {
+            Ok(h) => (h, false),
+            Err(_) => return false,
+        }
     };
 
-    // Seed the buffer with the framebuffer's current pixels under the
-    // entity's rect: partial-alpha writes during raster (capsule
-    // corners, AA edges) blend src against dst, and a transparent-
-    // black dst pre-darkens the source then ships through the
-    // 1to1_565sw_to_565sw blit as opaque, painting black fringes
-    // around every rounded shape on screen.
-    {
+    if !was_hit {
+        // Pre-seed from framebuffer so AA fringe alpha blends against
+        // the existing background instead of transparent black.
         let mut tex_ref = handle.get().borrow_mut();
         renderer.read_target_region(shifted_rect, &mut tex_ref);
     }
 
-    {
+    if was_hit {
+        *idx += count_nodes(node);
+    } else {
         let mut tex_ref = handle.get().borrow_mut();
         let buf_slice = tex_ref.buf.as_mut_slice();
         let inner_tex = Texture::new(buf_slice, buf_w, buf_h, format);
@@ -2240,72 +2242,81 @@ mod offscreen_render_check {
         }
 
         let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
-        let render_into = |world: &World, root: Entity| -> alloc::vec::Vec<u8> {
+        // Mirror render_dirty so the walker bumps OffscreenGeneration
+        // when the subtree mutates between frames.
+        let render_into = |world: &mut World, root: Entity| -> alloc::vec::Vec<u8> {
             let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 2];
             let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGB565Swapped);
             let mut renderer = SwRenderer::new(tex);
-            super::render(world, root, &viewport, &mut renderer);
+            let dirty = super::collect_dirty_region(world, root, &viewport).unwrap_or(Rect {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                w: Fixed::from_int(FB_W as i32),
+                h: Fixed::from_int(FB_H as i32),
+            });
+            super::render_region(world, root, &viewport, &dirty, &mut renderer);
             fb
         };
 
-        let (w_ref, fp_ref, sw_ref, sl_ref) = build(Mark::None);
-        let (w_a, fp_a, sw_a, sl_a) = build(Mark::OnPanel);
-        let (w_b, fp_b, sw_b, sl_b) = build(Mark::OnSwitch);
+        let (mut w_ref, fp_ref, sw_ref, sl_ref) = build(Mark::None);
+        let (mut w_a, fp_a, sw_a, sl_a) = build(Mark::OnPanel);
+        let (mut w_b, fp_b, sw_b, sl_b) = build(Mark::OnSwitch);
+
+        crate::widget::dirty::mark_subtree_dirty(&mut w_ref, fp_ref);
+        crate::widget::dirty::mark_subtree_dirty(&mut w_a, fp_a);
+        crate::widget::dirty::mark_subtree_dirty(&mut w_b, fp_b);
 
         assert_eq!(
-            render_into(&w_ref, fp_ref),
-            render_into(&w_a, fp_a),
+            render_into(&mut w_ref, fp_ref),
+            render_into(&mut w_a, fp_a),
             "form_page OffscreenRender frame 1 ≠ inline"
         );
         assert_eq!(
-            render_into(&w_ref, fp_ref),
-            render_into(&w_b, fp_b),
+            render_into(&mut w_ref, fp_ref),
+            render_into(&mut w_b, fp_b),
             "Switch OffscreenRender frame 1 ≠ inline"
         );
 
-        // Inline path doesn't read Dirty; offscreen path's dirty
-        // walker does. Mark Dirty so the offscreen variants bump
-        // their cache generation; both must still match.
-        let flip_on = |w: &mut World, sw: Entity| {
+        // Mark the whole subtree so the inline path's dirty bound
+        // equals the offscreen path's (which always promotes to the
+        // OffscreenRender entity's full rect).
+        let flip_on = |w: &mut World, fp: Entity, sw: Entity| {
             if let Some(s) = w.get_mut::<Switch>(sw) {
                 s.on = true;
             }
-            w.insert(sw, Dirty);
+            crate::widget::dirty::mark_subtree_dirty(w, fp);
         };
-        let mut w_ref = w_ref;
-        let mut w_a = w_a;
-        let mut w_b = w_b;
-        flip_on(&mut w_ref, sw_ref);
-        flip_on(&mut w_a, sw_a);
-        flip_on(&mut w_b, sw_b);
+        flip_on(&mut w_ref, fp_ref, sw_ref);
+        flip_on(&mut w_a, fp_a, sw_a);
+        flip_on(&mut w_b, fp_b, sw_b);
         assert_eq!(
-            render_into(&w_ref, fp_ref),
-            render_into(&w_a, fp_a),
+            render_into(&mut w_ref, fp_ref),
+            render_into(&mut w_a, fp_a),
             "form_page OffscreenRender frame 2 (switch on) ≠ inline"
         );
         assert_eq!(
-            render_into(&w_ref, fp_ref),
-            render_into(&w_b, fp_b),
+            render_into(&mut w_ref, fp_ref),
+            render_into(&mut w_b, fp_b),
             "Switch OffscreenRender frame 2 (switch on) ≠ inline"
         );
 
-        let slider_max = |w: &mut World, sl: Entity| {
+        let slider_max = |w: &mut World, fp: Entity, sl: Entity| {
             if let Some(s) = w.get_mut::<Slider>(sl) {
                 s.value = s.max;
             }
-            w.insert(sl, Dirty);
+            crate::widget::dirty::mark_subtree_dirty(w, fp);
         };
-        slider_max(&mut w_ref, sl_ref);
-        slider_max(&mut w_a, sl_a);
-        slider_max(&mut w_b, sl_b);
+        slider_max(&mut w_ref, fp_ref, sl_ref);
+        slider_max(&mut w_a, fp_a, sl_a);
+        slider_max(&mut w_b, fp_b, sl_b);
         assert_eq!(
-            render_into(&w_ref, fp_ref),
-            render_into(&w_a, fp_a),
+            render_into(&mut w_ref, fp_ref),
+            render_into(&mut w_a, fp_a),
             "form_page OffscreenRender frame 3 (slider max) ≠ inline"
         );
         assert_eq!(
-            render_into(&w_ref, fp_ref),
-            render_into(&w_b, fp_b),
+            render_into(&mut w_ref, fp_ref),
+            render_into(&mut w_b, fp_b),
             "Switch OffscreenRender frame 3 (slider max) ≠ inline"
         );
     }
@@ -2513,6 +2524,68 @@ mod offscreen_render_check {
                 "outside-panel pixel ({x}, {y}) leaked colour ({r}, {g}, {b})"
             );
         }
+    }
+
+    #[test]
+    fn offscreen_cache_hit_skips_inner_raster() {
+        let mut world = make_world();
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 255, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(16)),
+                    height: Dimension::Px(Fixed::from_int(16)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::default());
+
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let mut buf = std::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+
+        super::render(&world, panel, &viewport, &mut renderer);
+
+        // Stamp magenta over the cached green buffer. Frame 2 raster
+        // would overwrite it back to green; hit path leaves it alone.
+        let pool = world.resource::<OffscreenBufferPool>().unwrap();
+        let key = {
+            let cache_ref = pool.cache.borrow();
+            cache_ref
+                .cache()
+                .iter()
+                .next()
+                .map(|(k, _)| *k)
+                .expect("frame 1 must have populated the buffer")
+        };
+        {
+            let mut cache_mut = pool.cache.borrow_mut();
+            let handle = cache_mut.acquire(&key).expect("acquire by key");
+            let mut tex_ref = handle.get().borrow_mut();
+            let bytes = tex_ref.buf.as_mut_slice();
+            for px in bytes.chunks_exact_mut(4) {
+                px[0] = 255;
+                px[1] = 0;
+                px[2] = 255;
+                px[3] = 255;
+            }
+        }
+
+        let mut buf2 = std::vec![0u8; 64 * 64 * 4];
+        let tex2 = Texture::new(&mut buf2, 64, 64, ColorFormat::RGBA8888);
+        let mut renderer2 = SwRenderer::new(tex2);
+        super::render(&world, panel, &viewport, &mut renderer2);
+
+        assert_eq!(
+            (buf2[0], buf2[1], buf2[2]),
+            (255, 0, 255),
+            "cache hit ran inner raster instead of blitting cached pixels"
+        );
     }
 
     #[test]
