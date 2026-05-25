@@ -16,7 +16,15 @@ impl SwRenderer<'_> {
         let phys_dst_size = self.viewport.point_to_physical(dst_size);
         let phys_clip = self.viewport.rect_to_physical(*clip);
         let (sx0, sy0, sw, sh) = src_rect.to_px();
-        let (clip_x0, clip_y0, clip_x1, clip_y1) = phys_clip.pixel_bounds();
+        // Negative clip x flowing through to the byte-offset math
+        // (`dx0 as usize * 4`) wraps; clamp to target bounds first.
+        let target_w = self.target.width as i32;
+        let target_h = self.target.height as i32;
+        let (raw_x0, raw_y0, raw_x1, raw_y1) = phys_clip.pixel_bounds();
+        let clip_x0 = raw_x0.max(0);
+        let clip_y0 = raw_y0.max(0);
+        let clip_x1 = raw_x1.min(target_w);
+        let clip_y1 = raw_y1.min(target_h);
         let dx0 = phys_dst.x.to_int();
         let dy0 = phys_dst.y.to_int();
         let dw = phys_dst_size.x.to_int();

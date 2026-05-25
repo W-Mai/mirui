@@ -580,6 +580,128 @@ mod tests {
     use crate::draw::texture::ColorFormat;
     use alloc::vec;
 
+    /// Blit dst origin at a negative x — common when an OffscreenRender
+    /// entity's WidgetTransform translates the buffer off the left
+    /// edge — must not write to wrong target rows. Pre-fix, blit_inner
+    /// passed `dx0=-N` straight to the path that did `dx0 as usize * 4`
+    /// for the row offset, wrapping into a far positive byte index and
+    /// scribbling the source texture into a different row of the
+    /// target.
+    #[test]
+    fn blit_at_negative_x_does_not_wrap_into_wrong_rows() {
+        let mut tgt_buf = vec![0u8; 64 * 64 * 4];
+        let tgt_tex = Texture::new(&mut tgt_buf, 64, 64, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tgt_tex);
+
+        let mut src_buf = vec![0u8; 32 * 32 * 4];
+        for px in src_buf.chunks_exact_mut(4) {
+            px[0] = 200;
+            px[1] = 100;
+            px[2] = 50;
+            px[3] = 255;
+        }
+        let src_tex = Texture::new(&mut src_buf, 32, 32, ColorFormat::RGBA8888);
+        let src_rect = Rect::new(0, 0, 32, 32);
+
+        let dst = Point::new(Fixed::from_int(-24), Fixed::from_int(8));
+        let dst_size = Point::new(Fixed::from_int(32), Fixed::from_int(32));
+        let clip = Rect {
+            x: Fixed::from_int(-24),
+            y: Fixed::from_int(0),
+            w: Fixed::from_int(80),
+            h: Fixed::from_int(64),
+        };
+        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip);
+
+        for y in 8..40 {
+            for x in 0..8 {
+                let p = backend.target.get_pixel(x, y);
+                assert_eq!(
+                    (p.r, p.g, p.b),
+                    (200, 100, 50),
+                    "visible pixel ({},{}) should be source colour",
+                    x,
+                    y
+                );
+            }
+        }
+        // Anywhere outside the visible band must stay zeroed; the
+        // pre-fix bug wrote source colour into row 8 columns ~40-64
+        // because dx0=-24 cast to usize wrapped the row offset.
+        for y in 0..64 {
+            for x in 0..64 {
+                let in_visible = (8..40).contains(&y) && x < 8;
+                if in_visible {
+                    continue;
+                }
+                let p = backend.target.get_pixel(x, y);
+                assert_eq!(
+                    (p.r, p.g, p.b, p.a),
+                    (0, 0, 0, 0),
+                    "out-of-visible pixel ({},{}) was written",
+                    x,
+                    y
+                );
+            }
+        }
+    }
+
+    /// Same negative-x guard as the RGBA8888 case but exercising the
+    /// RGB565Swapped → RGB565Swapped fast path, which has its own
+    /// `dx0 as usize * 2` byte-offset arithmetic.
+    #[test]
+    fn blit_at_negative_x_rgb565_swapped_does_not_wrap() {
+        let mut tgt_buf = vec![0u8; 64 * 64 * 2];
+        let tgt_tex = Texture::new(&mut tgt_buf, 64, 64, ColorFormat::RGB565Swapped);
+        let mut backend = SwRenderer::new(tgt_tex);
+
+        let mut src_buf = vec![0u8; 32 * 32 * 2];
+        for px in src_buf.chunks_exact_mut(2) {
+            // RGB565Swapped: hi byte first. Pack red = 0xF800,
+            // wire bytes [0xF8, 0x00].
+            px[0] = 0xF8;
+            px[1] = 0x00;
+        }
+        let src_tex = Texture::new(&mut src_buf, 32, 32, ColorFormat::RGB565Swapped);
+        let src_rect = Rect::new(0, 0, 32, 32);
+
+        let dst = Point::new(Fixed::from_int(-24), Fixed::from_int(8));
+        let dst_size = Point::new(Fixed::from_int(32), Fixed::from_int(32));
+        let clip = Rect {
+            x: Fixed::from_int(-24),
+            y: Fixed::from_int(0),
+            w: Fixed::from_int(80),
+            h: Fixed::from_int(64),
+        };
+        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip);
+
+        for y in 8..40 {
+            for x in 0..8 {
+                let p = backend.target.get_pixel(x, y);
+                assert_eq!(p.r, 248, "visible pixel ({},{}) should be red", x, y);
+            }
+        }
+        for y in 0..64 {
+            for x in 0..64 {
+                let in_visible = (8..40).contains(&y) && x < 8;
+                if in_visible {
+                    continue;
+                }
+                let off = (y as usize * 64 + x as usize) * 2;
+                assert_eq!(
+                    (
+                        backend.target.buf.as_slice()[off],
+                        backend.target.buf.as_slice()[off + 1]
+                    ),
+                    (0, 0),
+                    "out-of-visible pixel ({},{}) was written",
+                    x,
+                    y
+                );
+            }
+        }
+    }
+
     #[test]
     fn fill_rect_basic() {
         let mut buf = vec![0u8; 16 * 16 * 4];
