@@ -399,10 +399,10 @@ fn try_draw_offscreen(
         None => return false,
     };
 
-    if !rects_intersect(shifted_rect, clip) {
-        *idx += count_nodes(node);
-        return true;
-    }
+    // Caller's cull already used the transform-applied bbox; reusing
+    // shifted_rect (untransformed) here would skip render when the
+    // entity's transform moved it inside clip but its logical layout
+    // rect did not.
 
     // Buffer dimensions: ComputedRect × off.scale, clamped so neither
     // axis rounds to 0. Scale below 1/8 collapses the buffer too far
@@ -2581,6 +2581,155 @@ mod offscreen_render_check {
             (buf2[0], buf2[1], buf2[2]),
             (255, 0, 255),
             "cache hit ran inner raster instead of blitting cached pixels"
+        );
+    }
+
+    /// Pure Bug 2 isolation: the transform stays fully on-screen so
+    /// the negative-blit path doesn't fire — only the redundant
+    /// `try_draw_offscreen` cull bug would skip render here.
+    #[test]
+    fn offscreen_render_with_in_bounds_transform_still_renders() {
+        use crate::components::transform::WidgetTransform;
+        use crate::types::Transform;
+        use crate::widget::dirty::Dirty;
+
+        const FB_W: u16 = 64;
+        const FB_H: u16 = 64;
+
+        let mut app = crate::app::App::headless(FB_W, FB_H);
+        app.with_default_widgets()
+            .with_offscreen_pool_budget(64 * 1024);
+        let mut world = app.world;
+
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 255, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(16)),
+                    height: Dimension::Px(Fixed::from_int(16)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::default());
+
+        let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
+        let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
+        {
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render(&world, panel, &viewport, &mut renderer);
+        }
+        super::seed_prev_rects(&mut world, panel, &viewport);
+
+        world.insert(
+            panel,
+            WidgetTransform(Transform::translate(
+                Fixed::from_int(20),
+                Fixed::from_int(10),
+            )),
+        );
+        world.insert(panel, Dirty);
+
+        let dirty =
+            super::collect_dirty_region(&mut world, panel, &viewport).expect("dirty region");
+        let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
+        {
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render_region(&world, panel, &viewport, &dirty, &mut renderer);
+        }
+
+        let i = (15 * FB_W as usize + 25) * 4;
+        assert_eq!(
+            (fb[i], fb[i + 1], fb[i + 2]),
+            (0, 255, 0),
+            "panel translated to (20,10) must show green at sample (25,15), got ({},{},{})",
+            fb[i],
+            fb[i + 1],
+            fb[i + 2],
+        );
+    }
+
+    /// `WidgetTransform` translating the entity off-screen left must
+    /// still produce visible pixels at the transformed position. The
+    /// pre-fix `try_draw_offscreen` had its own cull check using the
+    /// entity's untransformed `shifted_rect`, which sat at logical
+    /// (80, 30) and didn't intersect the dirty clip when the entity
+    /// was animated to negative x — so the offscreen path silently
+    /// skipped raster + blit and the entity vanished.
+    #[test]
+    fn offscreen_render_with_transform_translating_partially_off_screen_still_renders() {
+        use crate::components::transform::WidgetTransform;
+        use crate::types::Transform;
+        use crate::widget::dirty::Dirty;
+
+        const FB_W: u16 = 64;
+        const FB_H: u16 = 64;
+
+        let mut app = crate::app::App::headless(FB_W, FB_H);
+        app.with_default_widgets()
+            .with_offscreen_pool_budget(64 * 1024);
+        let mut world = app.world;
+
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(0, 0, 255).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(32)),
+                    height: Dimension::Px(Fixed::from_int(32)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::default());
+
+        let viewport = Viewport::new(FB_W, FB_H, Fixed::ONE);
+        let render_full = |world: &World| -> alloc::vec::Vec<u8> {
+            let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render(world, panel, &viewport, &mut renderer);
+            fb
+        };
+        let render_dirty = |world: &mut World| -> alloc::vec::Vec<u8> {
+            let mut fb = std::vec![0u8; FB_W as usize * FB_H as usize * 4];
+            let dirty = super::collect_dirty_region(world, panel, &viewport).unwrap_or(Rect {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                w: Fixed::from_int(FB_W as i32),
+                h: Fixed::from_int(FB_H as i32),
+            });
+            let tex = Texture::new(&mut fb, FB_W, FB_H, ColorFormat::RGBA8888);
+            let mut renderer = SwRenderer::new(tex);
+            super::render_region(world, panel, &viewport, &dirty, &mut renderer);
+            fb
+        };
+
+        let _ = render_full(&world);
+        super::seed_prev_rects(&mut world, panel, &viewport);
+
+        world.insert(
+            panel,
+            WidgetTransform(Transform::translate(Fixed::from_int(-16), Fixed::ZERO)),
+        );
+        world.insert(panel, Dirty);
+        let fb = render_dirty(&mut world);
+
+        let i = (10 * FB_W as usize + 4) * 4;
+        assert_eq!(
+            (fb[i], fb[i + 1], fb[i + 2]),
+            (0, 0, 255),
+            "panel at translated position must show blue, got ({},{},{})",
+            fb[i],
+            fb[i + 1],
+            fb[i + 2],
         );
     }
 
