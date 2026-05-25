@@ -24,6 +24,31 @@ pub fn mark_subtree_dirty(world: &mut World, root: Entity) {
 /// Stores the previous rect before a position change
 pub struct PrevRect(pub Rect);
 
+/// Optional per-entity expansion of the dirty-region rect that the
+/// walker writes when `Dirty` triggers. Effects whose paint area
+/// extends past the entity's logical layout rect attach this so the
+/// walker re-paints the full visual bounds when the source moves.
+/// Each field is in *logical* pixels and adds to the corresponding
+/// side. A `Default` value (all zeros) is a no-op.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PaintInflate {
+    pub left: Fixed,
+    pub top: Fixed,
+    pub right: Fixed,
+    pub bottom: Fixed,
+}
+
+impl PaintInflate {
+    pub const fn uniform(px: Fixed) -> Self {
+        Self {
+            left: px,
+            top: px,
+            right: px,
+            bottom: px,
+        }
+    }
+}
+
 /// Tracks dirty regions for partial refresh
 #[derive(Default)]
 pub struct DirtyRegions {

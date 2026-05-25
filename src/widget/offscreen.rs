@@ -47,11 +47,11 @@
 //! - Entity cannot also carry `WidgetTransform3D`.
 //! - `OffscreenRender` cannot nest.
 
-use crate::cache::{LruCache, MaxSize, WithFactory};
+use crate::cache::{Handle, LruCache, MaxSize, WithFactory};
 use crate::draw::texture::{ColorFormat, Texture};
-use crate::ecs::Entity;
+use crate::ecs::{Entity, World};
 use crate::types::Fixed;
-use core::cell::RefCell;
+use core::cell::{Ref, RefCell};
 
 /// Mark an entity for offscreen rendering. Insert / remove to toggle.
 ///
@@ -89,6 +89,55 @@ impl OffscreenRender {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OffscreenGeneration(pub u32);
 
+/// Mark on a consumer entity to keep `source`'s OffscreenRender
+/// alive. mirui maintains a refcount per source — first ref adds
+/// OffscreenRender to source; the last ref removed restores source
+/// to its prior state (no OffscreenRender if the user hadn't opted
+/// in).
+///
+/// Effect widgets typically attach this via the view registry's
+/// `auto_attach` mechanism, so user code only inserts the effect's
+/// main component.
+#[derive(Clone, Copy, Debug)]
+pub struct WidgetTextureRef(pub Entity);
+
+/// Internal marker on a source entity that received `OffscreenRender`
+/// from `maintain_widget_texture_refs` (not from user code). Only
+/// auto-added entries get removed when the last `WidgetTextureRef`
+/// goes away; user-explicit `OffscreenRender` is left alone.
+#[derive(Clone, Copy, Debug)]
+pub struct OffscreenAutoAdded;
+
+/// Mark on an `OffscreenRender` source so its buffer initialises to
+/// fully-transparent black instead of a copy of the framebuffer
+/// underneath. Effect widgets that need the buffer's alpha channel
+/// to encode the source's actual silhouette (zero outside the
+/// widget's drawn pixels) attach this — without it, alpha
+/// extraction sees the framebuffer's alpha bleeding through and
+/// produces a rectangular silhouette that ignores `border_radius`.
+#[derive(Clone, Copy, Debug)]
+pub struct OffscreenAlphaMode {
+    /// `true` ⇒ buffer is cleared to RGBA `(0, 0, 0, 0)` before the
+    /// subtree renders. `false` ⇒ buffer is pre-seeded from the
+    /// framebuffer (default — keeps anti-aliased edges blending against
+    /// the existing background).
+    pub clear_transparent: bool,
+}
+
+impl OffscreenAlphaMode {
+    pub const fn clear_transparent() -> Self {
+        Self {
+            clear_transparent: true,
+        }
+    }
+}
+
+/// Internal marker on a consumer entity tracking the source's last-
+/// seen `OffscreenGeneration`, so the consumer can be marked Dirty
+/// when the source's buffer changes.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WidgetTextureRefPrevGen(pub u32);
+
 /// Cache key for [`OffscreenBufferPool`]. `entity` is part of the key so
 /// each offscreen entity owns its own slot — sharing buffers across
 /// entities would race when both render in the same frame.
@@ -115,6 +164,10 @@ pub struct OffscreenBufferPool {
     // for the duration of the subtree render.
     pub(crate) cache:
         RefCell<WithFactory<LruCache<BufferKey, RefCell<Texture<'static>>>, BufferCtor>>,
+    // Format used by the most recent buffer write. `None` until the
+    // first render. Effect widgets / `World::texture_of` read this to
+    // reconstruct the BufferKey without holding a Renderer reference.
+    pub(crate) last_format: core::cell::Cell<Option<ColorFormat>>,
 }
 
 pub(crate) type BufferCtor = fn(&BufferKey) -> Result<RefCell<Texture<'static>>, BufferAllocError>;
@@ -137,6 +190,7 @@ impl OffscreenBufferPool {
             .build();
         Self {
             cache: RefCell::new(WithFactory::new(cache, make_buffer as BufferCtor)),
+            last_format: core::cell::Cell::new(None),
         }
     }
 }
@@ -148,6 +202,178 @@ impl Default for OffscreenBufferPool {
     /// [`crate::app::App::with_offscreen_pool_budget`].
     fn default() -> Self {
         Self::with_budget(0)
+    }
+}
+
+/// Borrow guard for an entity's rendered texture cached in the
+/// [`OffscreenBufferPool`]. Holding it keeps the buffer alive in the
+/// pool (it counts as a live reference for LRU eviction). Drop
+/// before the next render so the cache can advance generations
+/// normally.
+#[derive(Clone)]
+pub struct TextureSnapshot {
+    handle: Handle<RefCell<Texture<'static>>>,
+}
+
+impl TextureSnapshot {
+    /// Borrow the underlying texture immutably.
+    ///
+    /// Panics if the texture is concurrently borrowed mutably (this
+    /// only happens if user code retains a snapshot across the next
+    /// render — drop snapshots before the frame ends).
+    pub fn borrow(&self) -> Ref<'_, Texture<'static>> {
+        self.handle.get().borrow()
+    }
+}
+
+fn texture_for(world: &World, entity: Entity, generation_offset: i64) -> Option<TextureSnapshot> {
+    let pool = world.resource::<OffscreenBufferPool>()?;
+    let format = pool.last_format.get()?;
+    let off = world.get::<OffscreenRender>(entity)?;
+    let rect = world.get::<super::ComputedRect>(entity)?.0;
+    let scale = off.scale.max(Fixed::ONE / 8);
+    let buf_w_f = Fixed::from_int(rect.w.to_int().max(1)) * scale;
+    let buf_h_f = Fixed::from_int(rect.h.to_int().max(1)) * scale;
+    let w = buf_w_f.to_int().max(1).min(u16::MAX as i32) as u16;
+    let h = buf_h_f.to_int().max(1).min(u16::MAX as i32) as u16;
+
+    let g_now = world
+        .get::<OffscreenGeneration>(entity)
+        .map(|g| g.0)
+        .unwrap_or(0);
+    let g = if generation_offset >= 0 {
+        g_now.checked_add(generation_offset as u32)?
+    } else {
+        g_now.checked_sub((-generation_offset) as u32)?
+    };
+
+    let key = BufferKey {
+        entity,
+        w,
+        h,
+        format,
+        generation: g,
+    };
+    let handle = pool.cache.borrow_mut().acquire(&key)?;
+    Some(TextureSnapshot { handle })
+}
+
+/// Extension trait that lives on `World` for ergonomic access to
+/// rendered widget textures from inside an effect widget's view fn.
+pub trait WidgetTextureAccess {
+    /// The entity's rendered texture from the current frame.
+    /// Returns `None` until at least one render happens after the
+    /// source got `OffscreenRender` (user-explicit or auto-added via
+    /// [`WidgetTextureRef`]).
+    fn texture_of(&self, entity: Entity) -> Option<TextureSnapshot>;
+
+    /// The entity's rendered texture from the previous frame. For
+    /// effects that mix two frames (TemporalMix) or run before the
+    /// source in z-order.
+    ///
+    /// Returns `None` on the first frame after opt-in (no prev
+    /// buffer yet) or when the prev buffer has been evicted.
+    fn prev_texture_of(&self, entity: Entity) -> Option<TextureSnapshot>;
+}
+
+impl WidgetTextureAccess for World {
+    fn texture_of(&self, entity: Entity) -> Option<TextureSnapshot> {
+        texture_for(self, entity, 0)
+    }
+
+    fn prev_texture_of(&self, entity: Entity) -> Option<TextureSnapshot> {
+        texture_for(self, entity, -1)
+    }
+}
+
+/// Walk every `WidgetTextureRef` and reconcile each referenced
+/// source's `OffscreenRender` state. Auto-add when a source gains
+/// its first ref; auto-remove when the last ref drops.
+#[crate::system(order = TAB_PAGES)]
+pub fn maintain_widget_texture_refs(world: &mut World) {
+    use alloc::vec::Vec;
+    use hashbrown::HashMap;
+
+    // Cheap path: if neither component is in use, the system has
+    // nothing to do — common until any effect widget gets attached.
+    let any_ref = world.query::<WidgetTextureRef>().iter().next().is_some();
+    let any_auto = world.query::<OffscreenAutoAdded>().iter().next().is_some();
+    if !any_ref && !any_auto {
+        return;
+    }
+
+    let mut counts: HashMap<Entity, u32> = HashMap::new();
+    for (_e, r) in world.query::<WidgetTextureRef>().iter() {
+        *counts.entry(r.0).or_insert(0) += 1;
+    }
+
+    let mut to_add: Vec<Entity> = Vec::new();
+    for (&source, &n) in &counts {
+        if n > 0 && world.get::<OffscreenRender>(source).is_none() {
+            to_add.push(source);
+        }
+    }
+    for source in to_add {
+        world.insert(source, OffscreenRender::default());
+        world.insert(source, OffscreenAutoAdded);
+    }
+
+    let auto_entries: Vec<Entity> = world
+        .query::<OffscreenAutoAdded>()
+        .iter()
+        .map(|(e, _)| e)
+        .collect();
+    for source in auto_entries {
+        if counts.get(&source).copied().unwrap_or(0) == 0 {
+            world.remove::<OffscreenRender>(source);
+            world.remove::<OffscreenAutoAdded>(source);
+        }
+    }
+
+    // Generation-change detection: mark consumer Dirty when source's
+    // OffscreenGeneration moved since last frame, so the consumer's
+    // view fn re-runs against the fresh source texture.
+    let pairs: Vec<(Entity, Entity)> = world
+        .query::<WidgetTextureRef>()
+        .iter()
+        .map(|(e, r)| (e, r.0))
+        .collect();
+    for (consumer, source) in pairs {
+        let g_now = world
+            .get::<OffscreenGeneration>(source)
+            .map(|g| g.0)
+            .unwrap_or(0);
+        let g_prev = world
+            .get::<WidgetTextureRefPrevGen>(consumer)
+            .map(|g| g.0)
+            .unwrap_or(0);
+        let source_dirty = world.get::<super::dirty::Dirty>(source).is_some();
+        let source_transform = world
+            .get::<crate::components::WidgetTransform>(source)
+            .copied();
+        if g_now != g_prev || source_dirty {
+            // `g_now != g_prev` catches buffer-content changes; the
+            // `source_dirty` clause catches translation / rotation
+            // animations on the source — those re-render at a new
+            // screen position without bumping the buffer's
+            // generation, so consumers that compose the source's
+            // transform onto their blit need to repaint even when
+            // the source's pixels haven't changed.
+            world.insert(consumer, super::dirty::Dirty);
+            world.insert(consumer, WidgetTextureRefPrevGen(g_now));
+            // Mirror the source's WidgetTransform onto the consumer
+            // so the dirty walker computes the consumer's screen
+            // bbox at the source's actual painted position, not at
+            // the consumer's static layout slot. Without this the
+            // dirty rect doesn't track the source's animation and
+            // old shadow / mirror pixels stick around as the source
+            // moves.
+            if let Some(tf) = source_transform {
+                world.insert(consumer, tf);
+            } else {
+                world.remove::<crate::components::WidgetTransform>(consumer);
+            }
+        }
     }
 }
 
@@ -372,5 +598,59 @@ mod tests {
     fn offscreen_render_with_scale() {
         let off = OffscreenRender::with_scale(Fixed::ONE / 2);
         assert_eq!(off.scale, Fixed::ONE / 2);
+    }
+
+    fn run_refs(world: &mut World) {
+        super::maintain_widget_texture_refs(world);
+    }
+
+    #[test]
+    fn first_ref_auto_adds_offscreen_render() {
+        let mut world = World::default();
+        let source = world.spawn();
+        let consumer = world.spawn();
+        world.insert(consumer, WidgetTextureRef(source));
+
+        run_refs(&mut world);
+        assert!(world.get::<OffscreenRender>(source).is_some());
+        assert!(world.get::<OffscreenAutoAdded>(source).is_some());
+    }
+
+    #[test]
+    fn last_ref_dropped_auto_removes_offscreen_render() {
+        let mut world = World::default();
+        let source = world.spawn();
+        let c1 = world.spawn();
+        let c2 = world.spawn();
+        world.insert(c1, WidgetTextureRef(source));
+        world.insert(c2, WidgetTextureRef(source));
+        run_refs(&mut world);
+        assert!(world.get::<OffscreenRender>(source).is_some());
+
+        world.remove::<WidgetTextureRef>(c1);
+        run_refs(&mut world);
+        assert!(world.get::<OffscreenRender>(source).is_some());
+
+        world.remove::<WidgetTextureRef>(c2);
+        run_refs(&mut world);
+        assert!(world.get::<OffscreenRender>(source).is_none());
+        assert!(world.get::<OffscreenAutoAdded>(source).is_none());
+    }
+
+    #[test]
+    fn user_explicit_offscreen_render_is_never_removed() {
+        let mut world = World::default();
+        let source = world.spawn();
+        // User-explicit: no `OffscreenAutoAdded` marker.
+        world.insert(source, OffscreenRender::default());
+
+        let consumer = world.spawn();
+        world.insert(consumer, WidgetTextureRef(source));
+        run_refs(&mut world);
+        assert!(world.get::<OffscreenAutoAdded>(source).is_none());
+
+        world.remove::<WidgetTextureRef>(consumer);
+        run_refs(&mut world);
+        assert!(world.get::<OffscreenRender>(source).is_some());
     }
 }

@@ -13,7 +13,9 @@ pub use perf::{PerfCtx, quad_perf};
 
 mod blit_dispatch;
 mod blit_fast;
+pub mod blur;
 mod label;
+pub mod mix;
 mod path;
 mod quad;
 mod quad_aa;

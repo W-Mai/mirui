@@ -150,6 +150,44 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         crate::widget::theme::set_theme(&mut self.world, theme);
     }
 
+    /// Owned snapshot of the entity's rendered output. One-off cost:
+    /// triggers a full-tree render if the entity isn't already
+    /// cached. For sustained access use [`WidgetTextureRef`].
+    ///
+    /// `None` when the renderer doesn't expose offscreen rendering
+    /// (GPU backends) or when the pool can't fit the entity's buffer.
+    pub fn snapshot_widget(
+        &mut self,
+        entity: crate::ecs::Entity,
+    ) -> Option<crate::draw::texture::Texture<'static>> {
+        use crate::widget::OffscreenRender;
+        use crate::widget::offscreen::{OffscreenAutoAdded, WidgetTextureAccess};
+
+        if let Some(snap) = self.world.texture_of(entity) {
+            return Some(clone_texture_owned(&snap.borrow()));
+        }
+
+        let already_explicit = self.world.get::<OffscreenRender>(entity).is_some();
+        if !already_explicit {
+            self.world.insert(entity, OffscreenRender::default());
+            self.world.insert(entity, OffscreenAutoAdded);
+        }
+
+        self.render();
+
+        let result = self
+            .world
+            .texture_of(entity)
+            .map(|snap| clone_texture_owned(&snap.borrow()));
+
+        if !already_explicit {
+            self.world.remove::<OffscreenRender>(entity);
+            self.world.remove::<OffscreenAutoAdded>(entity);
+        }
+
+        result
+    }
+
     /// Register one widget kind (built-in or user-defined).
     pub fn with_widget(&mut self, view: View) -> &mut Self {
         let systems = &mut self.systems;
@@ -179,6 +217,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.add_system(crate::event::scroll::system::scroll_inertia_system::system());
         self.add_system(crate::widget::state::hover_system::system());
         self.add_system(crate::widget::state::press_system::system());
+        self.add_system(crate::widget::offscreen::maintain_widget_texture_refs::system());
         self
     }
 
@@ -501,4 +540,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             p.post_render(&mut self.world, render_ns);
         }
     }
+}
+
+fn clone_texture_owned(
+    src: &crate::draw::texture::Texture<'static>,
+) -> crate::draw::texture::Texture<'static> {
+    use crate::draw::texture::{TexBuf, Texture};
+    let mut owned = Texture::owned(src.width, src.height, src.format);
+    if let TexBuf::Owned(ref mut dst) = owned.buf {
+        dst.copy_from_slice(src.buf.as_slice());
+    }
+    owned
 }

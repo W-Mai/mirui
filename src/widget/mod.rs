@@ -19,7 +19,11 @@ pub mod theme;
 pub mod view;
 pub mod visibility;
 
-pub use offscreen::{OffscreenBufferPool, OffscreenGeneration, OffscreenRender};
+pub use offscreen::{
+    OffscreenAlphaMode, OffscreenAutoAdded, OffscreenBufferPool, OffscreenGeneration,
+    OffscreenRender, TextureSnapshot, WidgetTextureAccess, WidgetTextureRef,
+    WidgetTextureRefPrevGen,
+};
 pub use state::{InteractionState, UserState};
 pub use theme::{ColorToken, Theme, ThemedColor};
 pub use view::{View, ViewRegistry};
