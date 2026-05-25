@@ -63,6 +63,9 @@ pub enum SystemSlot {
     TabPages,
     /// Default for user systems — observes fully-settled state.
     Normal,
+    /// Final reconciliation just before render (e.g. consumer dirty
+    /// propagation that must see all user-system writes).
+    PreRender,
 }
 
 impl SystemSlot {
@@ -78,6 +81,7 @@ impl SystemSlot {
             Self::LazyList => 350,
             Self::TabPages => 350,
             Self::Normal => 500,
+            Self::PreRender => 700,
         }
     }
 }
@@ -102,6 +106,7 @@ pub mod run_order {
     pub const LAZY_LIST: i32 = SystemSlot::LazyList.priority();
     pub const TAB_PAGES: i32 = SystemSlot::TabPages.priority();
     pub const NORMAL: i32 = SystemSlot::Normal.priority();
+    pub const PRE_RENDER: i32 = SystemSlot::PreRender.priority();
 }
 
 #[derive(Default)]
@@ -195,6 +200,7 @@ mod tests {
         assert_eq!(SystemSlot::LazyList.priority(), run_order::LAZY_LIST);
         assert_eq!(SystemSlot::TabPages.priority(), run_order::TAB_PAGES);
         assert_eq!(SystemSlot::Normal.priority(), run_order::NORMAL);
+        assert_eq!(SystemSlot::PreRender.priority(), run_order::PRE_RENDER);
     }
 
     #[test]

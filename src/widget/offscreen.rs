@@ -289,7 +289,7 @@ impl WidgetTextureAccess for World {
 /// Walk every `WidgetTextureRef` and reconcile each referenced
 /// source's `OffscreenRender` state. Auto-add when a source gains
 /// its first ref; auto-remove when the last ref drops.
-#[crate::system(order = TAB_PAGES)]
+#[crate::system(order = PRE_RENDER)]
 pub fn maintain_widget_texture_refs(world: &mut World) {
     use alloc::vec::Vec;
     use hashbrown::HashMap;
@@ -324,7 +324,14 @@ pub fn maintain_widget_texture_refs(world: &mut World) {
         .map(|(e, _)| e)
         .collect();
     for source in auto_entries {
-        if counts.get(&source).copied().unwrap_or(0) == 0 {
+        // Keep self-attached entries: an effect widget that holds a
+        // `WidgetTextureRef` may also need its own `OffscreenRender`
+        // (e.g. TemporalMix uses its own buffer for IIR feedback).
+        // Such an entity isn't anyone's source, so the refcount check
+        // alone would tear its buffer down.
+        if counts.get(&source).copied().unwrap_or(0) == 0
+            && world.get::<WidgetTextureRef>(source).is_none()
+        {
             world.remove::<OffscreenRender>(source);
             world.remove::<OffscreenAutoAdded>(source);
         }

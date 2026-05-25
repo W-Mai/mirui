@@ -75,7 +75,7 @@ fn animate_color_flash(world: &mut World) {
         } else {
             continue;
         };
-        let phase = (frame / 10) % 3;
+        let phase = (frame / 60) % 3;
         let color = match phase {
             0 => Color::rgb(220, 60, 60),
             1 => Color::rgb(60, 200, 80),
@@ -219,7 +219,7 @@ fn main() {
             width: 50,
             height: 50
         ) [
-            ColorFlash { frame: 5 },
+            ColorFlash { frame: 0 },
         ] {}
     };
     ui! {
@@ -235,7 +235,7 @@ fn main() {
             width: 50,
             height: 50
         ) [
-            TemporalMix::new(tm_source).with_mix(190),
+            TemporalMix::new(tm_source).with_mix(230),
         ] {}
     };
     ui! {

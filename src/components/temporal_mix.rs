@@ -1,18 +1,15 @@
-//! Temporal alpha mix between `source`'s current and previous frame
-//! textures. `mix=0` shows only the current frame; `mix=255` shows
-//! only the previous frame; values in between blend.
+//! Temporal IIR mix of `source`. Each frame's output is
+//! `α * prev_output + (1 - α) * source_curr`, where α = `mix / 255`.
+//! The recursion gives a real exponential decay across many frames:
+//! a step in `source` colour fades over several frames at α=0.75
+//! (mix=190) instead of resolving in one.
 //!
-//! Use this to smooth out per-frame content changes (colour shifts,
-//! sprite animation, scrolling text). It is **not** a screen-space
-//! motion blur — translating a `WidgetTransform` doesn't write into
-//! the source's offscreen buffer, so a positionally-animated source
-//! produces no trail. For a positional smear, animate something
-//! inside the source's subtree instead.
+//! `mix=0` shows only the current source; `mix=255` freezes the
+//! initial frame.
 //!
-//! The source must render before this widget in walker order so the
-//! current-frame texture is available; the previous-frame texture is
-//! automatic across frames as long as `WidgetTextureRef` keeps the
-//! buffer alive.
+//! Source must render before this widget in walker order. The
+//! widget's own offscreen buffer holds last frame's output and is
+//! reused as `prev_output` next frame.
 
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
@@ -20,7 +17,9 @@ use crate::draw::sw::mix::mix_inplace;
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::ecs::{Entity, World};
 use crate::types::{Point, Rect};
-use crate::widget::offscreen::{WidgetTextureAccess, WidgetTextureRef};
+use crate::widget::offscreen::{
+    OffscreenAlphaMode, OffscreenAutoAdded, WidgetTextureAccess, WidgetTextureRef,
+};
 use crate::widget::view::{View, ViewCtx};
 
 pub struct TemporalMix {
@@ -63,9 +62,16 @@ fn temporal_mix_render(
     }
     drop(curr);
 
-    if let Some(prev_snap) = world.prev_texture_of(tm.source) {
-        let prev = prev_snap.borrow();
-        mix_inplace(&mut tmp, &prev, tm.mix);
+    // Feedback: mix `prev_output` (this widget's own previous frame
+    // texture, generation - 1) into `tmp`. Without this the effect
+    // resolves a colour change in a single frame because both
+    // operands are source inputs from adjacent frames; with it the
+    // recursion `out_n = α*out_{n-1} + (1-α)*src_n` decays over many.
+    if let Some(prev_out) = world.prev_texture_of(entity) {
+        let p = prev_out.borrow();
+        if p.width == tmp.width && p.height == tmp.height && p.format == tmp.format {
+            mix_inplace(&mut tmp, &p, tm.mix);
+        }
     }
 
     renderer.draw(
@@ -88,8 +94,6 @@ fn temporal_mix_attach(world: &mut World, entity: Entity) {
     if world.get::<WidgetTextureRef>(entity).is_none() {
         world.insert(entity, WidgetTextureRef(source));
     }
-    // First-frame + buffer-cleanliness fix: see mirror_attach.
-    use crate::widget::offscreen::{OffscreenAlphaMode, OffscreenAutoAdded};
     if world
         .get::<crate::widget::OffscreenRender>(source)
         .is_none()
@@ -99,6 +103,19 @@ fn temporal_mix_attach(world: &mut World, entity: Entity) {
     }
     if world.get::<OffscreenAlphaMode>(source).is_none() {
         world.insert(source, OffscreenAlphaMode::clear_transparent());
+    }
+    // The widget's own offscreen buffer stores the previous output
+    // for the IIR feedback. clear_transparent keeps initialisation
+    // from picking up framebuffer pixels under the widget rect.
+    if world
+        .get::<crate::widget::OffscreenRender>(entity)
+        .is_none()
+    {
+        world.insert(entity, crate::widget::OffscreenRender::default());
+        world.insert(entity, OffscreenAutoAdded);
+    }
+    if world.get::<OffscreenAlphaMode>(entity).is_none() {
+        world.insert(entity, OffscreenAlphaMode::clear_transparent());
     }
 }
 
