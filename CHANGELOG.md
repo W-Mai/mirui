@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-05-25
+
+Two render artifacts surfaced in v0.20 when an `OffscreenRender` entity carried a `WidgetTransform` translate animation. Both are fixed.
+
+### Fixed
+
+- **Off-screen `Blit` no longer paints into a wrong scanline** (`src/draw/sw/blit_dispatch.rs`): the dispatcher now clips its destination to the target's physical bounds before handing off to the 1× / 2× / DDA paths, so a negative dst x can no longer wrap through `dx0 as usize * 4` into a far-positive byte offset.
+- **`OffscreenRender + WidgetTransform` no longer skips render** (`src/widget/render_system.rs`): a redundant cull inside `try_draw_offscreen` used the entity's untransformed layout rect and silently returned when the transform moved the entity off that rect. The duplicate check is removed; the caller's cull already uses the transform-applied bbox.
+
+### Added
+
+- **`gallery/examples/offscreen_modal_demo`** — sliding-modal animation that exercises the `OffscreenRender + WidgetTransform` path, with on-screen render-time readout for both modes.
+- **`gallery/examples/offscreen_modal_snapshot`** — manual loop + PPM dump of the same animation, for inspecting the dirty-region path frame by frame without a window server.
+
 ## [0.20.0] - 2026-05-25
 
 OffscreenRender: render an entity's subtree into a cached buffer once, blit on subsequent frames when the subtree hasn't changed.
