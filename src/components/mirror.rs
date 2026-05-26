@@ -58,34 +58,17 @@ fn flip_into(
     renderer: &mut dyn Renderer,
 ) {
     use crate::draw::command::DrawCommand;
-    let Ok(_) = ensure_rgba(src) else {
-        return;
-    };
 
     let w = src.width;
     let h = src.height;
     let mut tmp = Texture::owned(w, h, ColorFormat::RGBA8888);
-    let src_buf = src.buf.as_slice();
-    let src_stride = src.stride;
     if let crate::draw::texture::TexBuf::Owned(ref mut dst_buf) = tmp.buf {
         let dst_stride = w as usize * 4;
-        for y in 0..h as usize {
-            let src_row = (h as usize - 1 - y) * src_stride;
-            let dst_row = y * dst_stride;
-            // Per-row fade: closer to the bottom of the *output* gets
-            // more transparency, which matches the visual intuition of
-            // a reflection fading away from its source.
-            let row_fade = (fade as i32 * y as i32 / h as i32) as u8;
-            let alpha_scale = 255i32 - row_fade as i32;
-            for x in 0..w as usize {
-                let si = src_row + x * 4;
-                let di = dst_row + x * 4;
-                dst_buf[di] = src_buf[si];
-                dst_buf[di + 1] = src_buf[si + 1];
-                dst_buf[di + 2] = src_buf[si + 2];
-                let a = src_buf[si + 3] as i32;
-                dst_buf[di + 3] = ((a * alpha_scale) / 255) as u8;
-            }
+        match src.format {
+            ColorFormat::RGBA8888 => flip_rgba8888(src, dst_buf, dst_stride, fade),
+            ColorFormat::RGB565 => flip_rgb565(src, dst_buf, dst_stride, fade, false),
+            ColorFormat::RGB565Swapped => flip_rgb565(src, dst_buf, dst_stride, fade, true),
+            ColorFormat::RGB888 => return,
         }
     }
 
@@ -99,10 +82,55 @@ fn flip_into(
     renderer.draw(&cmd, clip);
 }
 
-fn ensure_rgba(tex: &Texture) -> Result<(), ()> {
-    match tex.format {
-        ColorFormat::RGBA8888 => Ok(()),
-        _ => Err(()),
+fn flip_rgba8888(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8) {
+    let w = src.width as usize;
+    let h = src.height as usize;
+    let src_buf = src.buf.as_slice();
+    let src_stride = src.stride;
+    for y in 0..h {
+        let src_row = (h - 1 - y) * src_stride;
+        let dst_row = y * dst_stride;
+        let row_fade = (fade as i32 * y as i32 / h as i32) as u8;
+        let alpha_scale = 255i32 - row_fade as i32;
+        for x in 0..w {
+            let si = src_row + x * 4;
+            let di = dst_row + x * 4;
+            dst_buf[di] = src_buf[si];
+            dst_buf[di + 1] = src_buf[si + 1];
+            dst_buf[di + 2] = src_buf[si + 2];
+            let a = src_buf[si + 3] as i32;
+            dst_buf[di + 3] = ((a * alpha_scale) / 255) as u8;
+        }
+    }
+}
+
+fn flip_rgb565(src: &Texture, dst_buf: &mut [u8], dst_stride: usize, fade: u8, swapped: bool) {
+    let w = src.width as usize;
+    let h = src.height as usize;
+    let src_buf = src.buf.as_slice();
+    let src_stride = src.stride;
+    for y in 0..h {
+        let src_row = (h - 1 - y) * src_stride;
+        let dst_row = y * dst_stride;
+        let row_fade = (fade as i32 * y as i32 / h as i32) as u8;
+        let alpha_scale = (255i32 - row_fade as i32) as u8;
+        for x in 0..w {
+            let si = src_row + x * 2;
+            let di = dst_row + x * 4;
+            let (lo, hi) = if swapped {
+                (src_buf[si + 1], src_buf[si])
+            } else {
+                (src_buf[si], src_buf[si + 1])
+            };
+            let pixel = ((hi as u16) << 8) | (lo as u16);
+            let r5 = ((pixel >> 11) & 0x1F) as u8;
+            let g6 = ((pixel >> 5) & 0x3F) as u8;
+            let b5 = (pixel & 0x1F) as u8;
+            dst_buf[di] = (r5 << 3) | (r5 >> 2);
+            dst_buf[di + 1] = (g6 << 2) | (g6 >> 4);
+            dst_buf[di + 2] = (b5 << 3) | (b5 >> 2);
+            dst_buf[di + 3] = alpha_scale;
+        }
     }
 }
 
