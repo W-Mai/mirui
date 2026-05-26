@@ -11,25 +11,40 @@ use crate::types::Fixed;
 /// Convert a Gaussian-equivalent radius (in pixels) to the IIR decay
 /// factor α used by [`iir_blur_inplace`]. The mapping `α ≈ exp(-1/r)`
 /// makes the IIR's effective half-width track the requested radius.
-/// `r = 0` returns α = 0 (no blur). `r` is clamped at 64 because
+/// `r ≤ 0` returns α = 0 (no blur). `r` is clamped at 64 because
 /// larger values converge so close to 1.0 the Q24.8 fixed-point
 /// representation runs out of headroom.
-pub fn alpha_for_radius(radius: u8) -> Fixed {
-    if radius == 0 {
-        return Fixed::ZERO;
-    }
-    let r = (radius as i32).min(64);
+///
+/// Fractional `r` is interpolated linearly between adjacent table
+/// entries, so animating `radius` produces a smooth blur ramp instead
+/// of stepping each integer pixel.
+pub fn alpha_for_radius(radius: Fixed) -> Fixed {
     // Lookup table for exp(-1/r) in Q24.8 (×256). Generated offline;
     // reproducible via `(exp(-1.0 / r) * 256.0).round() as i32`,
     // bumped where needed to stay non-decreasing in the rounding tail.
-    // Index 0 unused (radius=0 short-circuited above).
+    // Index 0 unused (radius ≤ 0 short-circuited below).
     const TABLE: [i32; 65] = [
         0, 94, 155, 183, 199, 210, 217, 222, 226, 229, 232, 234, 236, 237, 238, 239, 240, 241, 242,
         243, 244, 245, 246, 247, 248, 249, 250, 251, 252, 253, 254, 255, 255, 255, 255, 255, 255,
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
         255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
     ];
-    Fixed::from_raw(TABLE[r as usize])
+    if radius <= Fixed::ZERO {
+        return Fixed::ZERO;
+    }
+    if radius >= Fixed::from_int(64) {
+        return Fixed::from_raw(TABLE[64]);
+    }
+    // Linear blend between TABLE[lo] and TABLE[lo+1] in raw Q24.8
+    // alpha space. frac.raw() is fixed-point in [0, 256); multiply
+    // by raw delta and shift back to land on the same scale as
+    // TABLE entries.
+    let lo = radius.floor().to_int();
+    let hi = (lo + 1).min(64);
+    let frac_raw = (radius - Fixed::from_int(lo)).raw();
+    let a_lo = TABLE[lo as usize];
+    let a_hi = TABLE[hi as usize];
+    Fixed::from_raw(a_lo + ((a_hi - a_lo) * frac_raw / 256))
 }
 
 /// Blur `tex` in place using the IIR exponential filter with decay
@@ -203,18 +218,30 @@ mod tests {
 
     #[test]
     fn alpha_for_radius_zero_is_zero() {
-        assert_eq!(alpha_for_radius(0), Fixed::ZERO);
+        assert_eq!(alpha_for_radius(Fixed::ZERO), Fixed::ZERO);
     }
 
     #[test]
     fn alpha_for_radius_is_nondecreasing_and_bounded() {
         let mut prev = Fixed::ZERO;
-        for r in 1..=64u8 {
-            let a = alpha_for_radius(r);
+        for r in 1..=64i32 {
+            let a = alpha_for_radius(Fixed::from_int(r));
             assert!(a >= prev, "alpha at r={} regressed", r);
             assert!(a < Fixed::ONE, "alpha at r={} reached 1", r);
             prev = a;
         }
+    }
+
+    #[test]
+    fn alpha_for_radius_fractional_interpolates_between_neighbours() {
+        // r=4.5 should land between integer 4 and 5, not snap to either.
+        let a4 = alpha_for_radius(Fixed::from_int(4));
+        let a5 = alpha_for_radius(Fixed::from_int(5));
+        let a4_5 = alpha_for_radius(Fixed::from_int(4) + Fixed::ONE / 2);
+        assert!(
+            a4 < a4_5 && a4_5 < a5,
+            "got a4={a4:?} a4.5={a4_5:?} a5={a5:?}"
+        );
     }
 
     #[test]
@@ -241,7 +268,7 @@ mod tests {
             px[3] = 255;
         }
         let mut tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
-        iir_blur_inplace(&mut tex, alpha_for_radius(4));
+        iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(4)));
         for px in tex.buf.as_slice().chunks_exact(4) {
             assert!((px[0] as i32 - 200).abs() <= 1, "r drifted: {}", px[0]);
             assert!((px[1] as i32 - 100).abs() <= 1, "g drifted: {}", px[1]);
@@ -262,7 +289,7 @@ mod tests {
             .map(|p| p[0] as u64 + p[1] as u64 + p[2] as u64)
             .sum();
         let mut tex = Texture::new(&mut buf, 9, 9, ColorFormat::RGBA8888);
-        iir_blur_inplace(&mut tex, alpha_for_radius(2));
+        iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(2)));
         let after = tex.buf.as_slice();
         let centre_after = after[centre] as i32;
         assert!(centre_after < 255, "centre should have dimmed");

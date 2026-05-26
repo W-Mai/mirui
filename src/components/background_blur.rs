@@ -6,16 +6,22 @@ use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::draw::sw::blur::{alpha_for_radius, iir_blur_inplace};
 use crate::ecs::{Entity, World};
-use crate::types::{Point, Rect};
+use crate::types::{Fixed, Point, Rect};
 use crate::widget::view::{View, ViewCtx};
 
 pub struct BackgroundBlur {
-    pub radius: u8,
+    /// Pixels of Gaussian-equivalent blur radius. `Fixed` (not `u8`)
+    /// so an animation system (e.g. `mirui_macros::animate!`) can
+    /// drive it through fractional values without stepping each
+    /// integer.
+    pub radius: Fixed,
 }
 
 impl BackgroundBlur {
-    pub fn new(radius: u8) -> Self {
-        Self { radius }
+    pub fn new(radius: impl Into<Fixed>) -> Self {
+        Self {
+            radius: radius.into(),
+        }
     }
 }
 
@@ -29,7 +35,7 @@ fn background_blur_render(
     let Some(bg) = world.get::<BackgroundBlur>(entity) else {
         return;
     };
-    if bg.radius == 0 {
+    if bg.radius <= Fixed::ZERO {
         return;
     }
 
