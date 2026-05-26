@@ -43,6 +43,7 @@ pub struct SdlGpuSurface {
     width: u16,
     height: u16,
     scale: Fixed,
+    pending: alloc::collections::VecDeque<InputEvent>,
 }
 
 impl SdlGpuSurface {
@@ -100,6 +101,7 @@ impl SdlGpuSurface {
             width: phys_w,
             height: phys_h,
             scale,
+            pending: alloc::collections::VecDeque::new(),
         }
     }
 
@@ -138,9 +140,15 @@ impl Surface for SdlGpuSurface {
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
-        for event in self.event_pump.poll_iter() {
+        if let Some(e) = self.pending.pop_front() {
+            return Some(e);
+        }
+        // poll_iter drains SDL's queue; queue all translated events
+        // before returning one or the tail of a busy frame is lost.
+        let events: Vec<_> = self.event_pump.poll_iter().collect();
+        for event in events {
             match event {
-                Event::Quit { .. } => return Some(InputEvent::Quit),
+                Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::KeyDown {
                     keycode: Some(kc), ..
                 } => {
@@ -153,32 +161,33 @@ impl Surface for SdlGpuSurface {
                         Keycode::Home => KEY_HOME,
                         Keycode::End => KEY_END,
                         Keycode::Return => KEY_RETURN,
-                        Keycode::Escape => return Some(InputEvent::Quit),
+                        Keycode::Escape => {
+                            self.pending.push_back(InputEvent::Quit);
+                            continue;
+                        }
                         _ => continue,
                     };
-                    return Some(InputEvent::Key {
+                    self.pending.push_back(InputEvent::Key {
                         code,
                         pressed: true,
                     });
                 }
                 Event::MouseButtonDown { x, y, .. } => {
-                    return Some(InputEvent::PointerDown {
+                    self.pending.push_back(InputEvent::PointerDown {
                         id: 0,
                         x: x.into(),
                         y: y.into(),
                     });
                 }
                 Event::MouseButtonUp { x, y, .. } => {
-                    return Some(InputEvent::PointerUp {
+                    self.pending.push_back(InputEvent::PointerUp {
                         id: 0,
                         x: x.into(),
                         y: y.into(),
                     });
                 }
-                Event::MouseMotion {
-                    x, y, mousestate, ..
-                } if mousestate.left() => {
-                    return Some(InputEvent::PointerMove {
+                Event::MouseMotion { x, y, .. } => {
+                    self.pending.push_back(InputEvent::PointerMove {
                         id: 0,
                         x: x.into(),
                         y: y.into(),
@@ -186,13 +195,24 @@ impl Surface for SdlGpuSurface {
                 }
                 Event::TextInput { text, .. } => {
                     if let Some(ch) = text.chars().next() {
-                        return Some(InputEvent::CharInput { ch });
+                        self.pending.push_back(InputEvent::CharInput { ch });
                     }
+                }
+                Event::Window {
+                    win_event: sdl2::event::WindowEvent::Leave,
+                    ..
+                } => {
+                    const OFF: i32 = i16::MIN as i32;
+                    self.pending.push_back(InputEvent::PointerMove {
+                        id: 0,
+                        x: Fixed::from_int(OFF),
+                        y: Fixed::from_int(OFF),
+                    });
                 }
                 _ => {}
             }
         }
-        None
+        self.pending.pop_front()
     }
 
     fn persistence(&self) -> crate::surface::BackbufferPersistence {
