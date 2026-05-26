@@ -25,19 +25,21 @@ pub trait Renderer {
     }
 
     /// Copy a logical-pixel rect from the current target into `dst`.
-    /// Used to seed an offscreen buffer with the pixels under it so
-    /// partial-alpha raster blends against the real background
-    /// instead of the buffer's clear colour. `src` is logical;
-    /// implementations apply their own viewport scale.
-    ///
-    /// Default fills `dst` with opaque black: no information is
-    /// recovered, but the buffer is at least defined.
-    fn read_target_region(&self, _src: &Rect, dst: &mut crate::draw::texture::Texture) {
-        for y in 0..dst.height as i32 {
-            for x in 0..dst.width as i32 {
-                dst.set_pixel(x, y, &crate::types::Color::rgb(0, 0, 0));
-            }
-        }
+    /// `dst` is sized in physical pixels by the caller — usually
+    /// because they already own the buffer (offscreen pre-seed). A
+    /// backend that returns `Some` from [`Self::offscreen_format`]
+    /// must override this. Effects that just want to grab a region
+    /// of the framebuffer should use [`Self::sample_target_region`]
+    /// instead.
+    fn read_target_region(&self, _src: &Rect, _dst: &mut crate::draw::texture::Texture) {
+        unimplemented!("Renderer::read_target_region not implemented for this backend")
+    }
+
+    /// Logical-pixel `src` in, physical-resolution texture out.
+    /// Backends that can't read their own target should return `None`;
+    /// the default panics so a missing override is loud, not silent.
+    fn sample_target_region(&self, _src: &Rect) -> Option<crate::draw::texture::Texture<'static>> {
+        unimplemented!("Renderer::sample_target_region not implemented for this backend")
     }
 }
 

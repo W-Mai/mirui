@@ -235,7 +235,6 @@ fn main() {
         ) {}
     };
 
-    // ---- Pane 4 (bottom-right): BackgroundBlur over a tile grid ----
     let _backdrop = ui! {
         :(
             parent: root
@@ -277,6 +276,10 @@ fn main() {
             height: 80
         ) [
             BackgroundBlur::new(8),
+            AnimX {
+                t: Fixed::ZERO,
+                span_px: 30,
+            },
         ] {}
     };
     ui! {

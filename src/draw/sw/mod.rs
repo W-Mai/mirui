@@ -510,15 +510,25 @@ impl Renderer for SwRenderer<'_> {
         Some(self.target.format)
     }
 
+    fn sample_target_region(&self, src: &Rect) -> Option<crate::draw::texture::Texture<'static>> {
+        let (sx0, sy0, sx1, sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
+        let w = (sx1 - sx0).max(1) as u16;
+        let h = (sy1 - sy0).max(1) as u16;
+        let mut tex = crate::draw::texture::Texture::owned(w, h, self.target.format);
+        self.read_target_region(src, &mut tex);
+        Some(tex)
+    }
+
     fn read_target_region(&self, src: &Rect, dst: &mut crate::draw::texture::Texture) {
-        // Buffer pixels are physical, so we copy 1:1 from the target
-        // rather than going through Canvas::blit (no scale, no clip
-        // beyond the target's own bounds).
-        let (sx0, sy0, _sx1, _sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
+        // Caller may pass a logical-sized dst; clipping to the
+        // overlap avoids stretched top-left samples on HiDPI.
+        let (sx0, sy0, sx1, sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
         let target_w = self.target.width as i32;
         let target_h = self.target.height as i32;
-        for dy in 0..dst.height as i32 {
-            for dx in 0..dst.width as i32 {
+        let copy_w = ((sx1 - sx0).min(dst.width as i32)).max(0);
+        let copy_h = ((sy1 - sy0).min(dst.height as i32)).max(0);
+        for dy in 0..copy_h {
+            for dx in 0..copy_w {
                 let phys_x = sx0 + dx;
                 let phys_y = sy0 + dy;
                 if phys_x < 0 || phys_y < 0 || phys_x >= target_w || phys_y >= target_h {
