@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.4] - 2026-05-26
+
+### Changed
+
+- **`BackgroundBlur::radius` is `Fixed` instead of `u8`** (`src/components/background_blur.rs`): so the radius can be driven by `Tween` / `Spring` / any animation system through fractional values. The IIR alpha lookup table linearly interpolates between adjacent integer entries, producing a smooth ramp instead of staircase steps. `BackgroundBlur::new(N)` keeps accepting plain integers via `impl Into<Fixed>`. Callers reading `bg.radius` for arithmetic / comparison need `Fixed` ops.
+
+### Added
+
+- **SDL_GPU backend handles trackpad pinch / rotate and scroll wheel** (`src/draw/sdl_gpu/mod.rs`): same `MultiGesture → 2 virtual fingers` translation and `MouseWheel` forwarding the SDL CPU backend already had. `cover_flow_demo` and any scroll demo now responds to two-finger trackpad gestures under `--features sdl-gpu`.
+
 ## [0.20.3] - 2026-05-26
 
 ### Fixed
