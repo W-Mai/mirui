@@ -16,6 +16,8 @@ mod rect_fill;
 mod rect_stroke;
 mod tessellation;
 
+use std::time::Instant;
+
 use sdl2::EventPump;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
@@ -35,6 +37,25 @@ use crate::types::{Color, Fixed, Point, Rect, Viewport};
 use crate::cache::{CacheInspect, InspectCaches};
 use crate::surface::{DisplayInfo, InputEvent, Surface, logical_from_physical};
 
+/// macOS trackpad pinch / rotate is delivered by SDL as `MultiGesture`,
+/// which has no "end" sentinel; if no `MultiGesture` arrives within
+/// this window we synthesize PointerUp for the two virtual fingers.
+const MULTI_GESTURE_TIMEOUT_MS: u128 = 50;
+/// Half-distance between the two virtual fingers when the gesture
+/// starts. The recognizer only sees relative scale, so the absolute
+/// value doesn't matter for correctness.
+const INITIAL_DIST_FRAC: f32 = 0.05;
+const VIRT_FINGER_A: u8 = 1;
+const VIRT_FINGER_B: u8 = 2;
+
+#[derive(Default)]
+struct MultiGestureState {
+    active: bool,
+    f_a: (f32, f32),
+    f_b: (f32, f32),
+    last_event: Option<Instant>,
+}
+
 pub struct SdlGpuSurface {
     canvas: SdlCanvas<Window>,
     label_cache: LabelCache,
@@ -43,6 +64,9 @@ pub struct SdlGpuSurface {
     width: u16,
     height: u16,
     scale: Fixed,
+    last_mouse_x: i32,
+    last_mouse_y: i32,
+    multi: MultiGestureState,
     pending: alloc::collections::VecDeque<InputEvent>,
 }
 
@@ -101,8 +125,91 @@ impl SdlGpuSurface {
             width: phys_w,
             height: phys_h,
             scale,
+            last_mouse_x: 0,
+            last_mouse_y: 0,
+            multi: MultiGestureState::default(),
             pending: alloc::collections::VecDeque::new(),
         }
+    }
+
+    fn handle_multi_gesture(
+        &mut self,
+        cx: f32,
+        cy: f32,
+        d_theta: f32,
+        d_dist: f32,
+        win_w: f32,
+        win_h: f32,
+    ) {
+        if !self.multi.active {
+            let half = INITIAL_DIST_FRAC * win_w.min(win_h) / 2.0;
+            self.multi.f_a = (cx - half, cy);
+            self.multi.f_b = (cx + half, cy);
+            self.multi.active = true;
+            self.multi.last_event = Some(Instant::now());
+
+            let (ax, ay) = self.multi.f_a;
+            let (bx, by) = self.multi.f_b;
+            self.pending.push_back(InputEvent::PointerDown {
+                id: VIRT_FINGER_A,
+                x: Fixed::from(ax as i32),
+                y: Fixed::from(ay as i32),
+            });
+            self.pending.push_back(InputEvent::PointerDown {
+                id: VIRT_FINGER_B,
+                x: Fixed::from(bx as i32),
+                y: Fixed::from(by as i32),
+            });
+            return;
+        }
+
+        rotate_scale_around(&mut self.multi.f_a, cx, cy, d_theta, 1.0 + d_dist);
+        rotate_scale_around(&mut self.multi.f_b, cx, cy, d_theta, 1.0 + d_dist);
+        let mid = (
+            (self.multi.f_a.0 + self.multi.f_b.0) / 2.0,
+            (self.multi.f_a.1 + self.multi.f_b.1) / 2.0,
+        );
+        let dx = cx - mid.0;
+        let dy = cy - mid.1;
+        self.multi.f_a.0 += dx;
+        self.multi.f_a.1 += dy;
+        self.multi.f_b.0 += dx;
+        self.multi.f_b.1 += dy;
+
+        self.multi.last_event = Some(Instant::now());
+
+        let (ax, ay) = self.multi.f_a;
+        let (bx, by) = self.multi.f_b;
+        self.pending.push_back(InputEvent::PointerMove {
+            id: VIRT_FINGER_A,
+            x: Fixed::from(ax as i32),
+            y: Fixed::from(ay as i32),
+        });
+        self.pending.push_back(InputEvent::PointerMove {
+            id: VIRT_FINGER_B,
+            x: Fixed::from(bx as i32),
+            y: Fixed::from(by as i32),
+        });
+    }
+
+    fn end_multi_gesture(&mut self) {
+        if !self.multi.active {
+            return;
+        }
+        let (ax, ay) = self.multi.f_a;
+        let (bx, by) = self.multi.f_b;
+        self.pending.push_back(InputEvent::PointerUp {
+            id: VIRT_FINGER_A,
+            x: Fixed::from(ax as i32),
+            y: Fixed::from(ay as i32),
+        });
+        self.pending.push_back(InputEvent::PointerUp {
+            id: VIRT_FINGER_B,
+            x: Fixed::from(bx as i32),
+            y: Fixed::from(by as i32),
+        });
+        self.multi.active = false;
+        self.multi.last_event = None;
     }
 
     pub(crate) fn parts_mut(
@@ -118,6 +225,17 @@ impl SdlGpuSurface {
             &mut self.tessellator,
         )
     }
+}
+
+fn rotate_scale_around(p: &mut (f32, f32), cx: f32, cy: f32, theta: f32, scale: f32) {
+    let dx = p.0 - cx;
+    let dy = p.1 - cy;
+    let s = theta.sin();
+    let c = theta.cos();
+    let rx = (dx * c - dy * s) * scale;
+    let ry = (dx * s + dy * c) * scale;
+    p.0 = cx + rx;
+    p.1 = cy + ry;
 }
 
 impl Surface for SdlGpuSurface {
@@ -142,6 +260,14 @@ impl Surface for SdlGpuSurface {
     fn poll_event(&mut self) -> Option<InputEvent> {
         if let Some(e) = self.pending.pop_front() {
             return Some(e);
+        }
+        if self.multi.active {
+            if let Some(t) = self.multi.last_event {
+                if t.elapsed().as_millis() > MULTI_GESTURE_TIMEOUT_MS {
+                    self.end_multi_gesture();
+                    return self.pending.pop_front();
+                }
+            }
         }
         // poll_iter drains SDL's queue; queue all translated events
         // before returning one or the tail of a busy frame is lost.
@@ -187,11 +313,34 @@ impl Surface for SdlGpuSurface {
                     });
                 }
                 Event::MouseMotion { x, y, .. } => {
+                    self.last_mouse_x = x;
+                    self.last_mouse_y = y;
                     self.pending.push_back(InputEvent::PointerMove {
                         id: 0,
                         x: x.into(),
                         y: y.into(),
                     });
+                }
+                Event::MouseWheel { x, y, .. } => {
+                    self.pending.push_back(InputEvent::Wheel {
+                        dx: Fixed::from(x),
+                        dy: Fixed::from(y),
+                        x: Fixed::from(self.last_mouse_x),
+                        y: Fixed::from(self.last_mouse_y),
+                    });
+                }
+                Event::MultiGesture {
+                    d_theta,
+                    d_dist,
+                    x,
+                    y,
+                    ..
+                } => {
+                    let win_w = self.width as f32 / self.scale.to_f32();
+                    let win_h = self.height as f32 / self.scale.to_f32();
+                    let cx = x * win_w;
+                    let cy = y * win_h;
+                    self.handle_multi_gesture(cx, cy, d_theta, d_dist, win_w, win_h);
                 }
                 Event::TextInput { text, .. } => {
                     if let Some(ch) = text.chars().next() {
