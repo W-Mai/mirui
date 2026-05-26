@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.3] - 2026-05-26
+
+### Fixed
+
+- **SDL backend dropped events on busy frames** (`src/surface/sdl.rs`): `poll_event` collected the SDL pump's events into a Vec, returned the first translated one, and dropped the rest. A burst of Down + Move + Up in one frame lost the tail. Now every translated event is queued in a `pending` VecDeque and `poll_event` returns one per call.
+- **SDL backend left `Hovered` stuck after the cursor exited the window** (`src/surface/sdl.rs`): `WindowEvent::Leave` was unhandled. Now it produces a far-off-screen `PointerMove` so `hover_system`'s hit-test misses, clearing `Hovered`. The wheel anchor cache (`last_mouse_x/y`) is intentionally unchanged so a Wheel arriving before the next motion still anchors at the last in-window position.
+- **SDL_GPU backend had the same pump-drain bug**, plus `MouseMotion` was gated on `mousestate.left()` so it never delivered hover motion (`src/draw/sdl_gpu/mod.rs`). Both fixed; same pending-VecDeque pattern.
+
+### Added
+
+- **`MirrorOf` supports RGB565 / RGB565Swapped source buffers** (`src/components/mirror.rs`): the view fn used to bail when the source's offscreen buffer wasn't RGBA8888.
+- **`tests/sdl_poll_event.rs`**: headless regression test under `SDL_VIDEODRIVER=dummy` covering both SDL fixes.
+
 ## [0.20.2] - 2026-05-26
 
 Effect widgets — read another widget's rendered texture from inside a view fn.
