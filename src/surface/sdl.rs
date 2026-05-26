@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use std::time::Instant;
 
 use sdl2::EventPump;
-use sdl2::event::Event;
+use sdl2::event::{Event, WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas, TextureCreator};
@@ -111,8 +111,6 @@ impl SdlSurface {
         self.scale
     }
 
-    /// Returns the first event so the caller hands it off
-    /// immediately; the second is queued for the next `poll_event`.
     fn handle_multi_gesture(
         &mut self,
         cx: f32,
@@ -121,7 +119,7 @@ impl SdlSurface {
         d_dist: f32,
         win_w: f32,
         win_h: f32,
-    ) -> Option<InputEvent> {
+    ) {
         if !self.multi.active {
             // Place the virtual fingers symmetrically on the horizontal
             // axis through the gesture center. Absolute orientation is
@@ -135,15 +133,16 @@ impl SdlSurface {
             let (ax, ay) = self.multi.f_a;
             let (bx, by) = self.multi.f_b;
             self.pending.push_back(InputEvent::PointerDown {
-                id: VIRT_FINGER_B,
-                x: Fixed::from(bx as i32),
-                y: Fixed::from(by as i32),
-            });
-            return Some(InputEvent::PointerDown {
                 id: VIRT_FINGER_A,
                 x: Fixed::from(ax as i32),
                 y: Fixed::from(ay as i32),
             });
+            self.pending.push_back(InputEvent::PointerDown {
+                id: VIRT_FINGER_B,
+                x: Fixed::from(bx as i32),
+                y: Fixed::from(by as i32),
+            });
+            return;
         }
 
         rotate_scale_around(&mut self.multi.f_a, cx, cy, d_theta, 1.0 + d_dist);
@@ -167,15 +166,15 @@ impl SdlSurface {
         let (ax, ay) = self.multi.f_a;
         let (bx, by) = self.multi.f_b;
         self.pending.push_back(InputEvent::PointerMove {
+            id: VIRT_FINGER_A,
+            x: Fixed::from(ax as i32),
+            y: Fixed::from(ay as i32),
+        });
+        self.pending.push_back(InputEvent::PointerMove {
             id: VIRT_FINGER_B,
             x: Fixed::from(bx as i32),
             y: Fixed::from(by as i32),
         });
-        Some(InputEvent::PointerMove {
-            id: VIRT_FINGER_A,
-            x: Fixed::from(ax as i32),
-            y: Fixed::from(ay as i32),
-        })
     }
 
     fn end_multi_gesture(&mut self) {
@@ -257,12 +256,12 @@ impl Surface for SdlSurface {
             }
         }
 
-        // poll_iter borrows event_pump (so self) — collect first, then
-        // dispatch with full mutable access to the rest of self.
+        // poll_iter drains SDL's queue; queue all translated events
+        // before returning one or the tail of a busy frame is lost.
         let events: Vec<_> = self.event_pump.poll_iter().collect();
         for event in events {
             match event {
-                Event::Quit { .. } => return Some(InputEvent::Quit),
+                Event::Quit { .. } => self.pending.push_back(InputEvent::Quit),
                 Event::KeyDown {
                     keycode: Some(kc), ..
                 } => {
@@ -275,23 +274,26 @@ impl Surface for SdlSurface {
                         Keycode::Home => KEY_HOME,
                         Keycode::End => KEY_END,
                         Keycode::Return => KEY_RETURN,
-                        Keycode::Escape => return Some(InputEvent::Quit),
+                        Keycode::Escape => {
+                            self.pending.push_back(InputEvent::Quit);
+                            continue;
+                        }
                         _ => continue,
                     };
-                    return Some(InputEvent::Key {
+                    self.pending.push_back(InputEvent::Key {
                         code,
                         pressed: true,
                     });
                 }
                 Event::MouseButtonDown { x, y, .. } => {
-                    return Some(InputEvent::PointerDown {
+                    self.pending.push_back(InputEvent::PointerDown {
                         id: 0,
                         x: x.into(),
                         y: y.into(),
                     });
                 }
                 Event::MouseButtonUp { x, y, .. } => {
-                    return Some(InputEvent::PointerUp {
+                    self.pending.push_back(InputEvent::PointerUp {
                         id: 0,
                         x: x.into(),
                         y: y.into(),
@@ -300,14 +302,14 @@ impl Surface for SdlSurface {
                 Event::MouseMotion { x, y, .. } => {
                     self.last_mouse_x = x;
                     self.last_mouse_y = y;
-                    return Some(InputEvent::PointerMove {
+                    self.pending.push_back(InputEvent::PointerMove {
                         id: 0,
                         x: x.into(),
                         y: y.into(),
                     });
                 }
                 Event::MouseWheel { x, y, .. } => {
-                    return Some(InputEvent::Wheel {
+                    self.pending.push_back(InputEvent::Wheel {
                         dx: Fixed::from(x),
                         dy: Fixed::from(y),
                         x: Fixed::from(self.last_mouse_x),
@@ -325,21 +327,32 @@ impl Surface for SdlSurface {
                     let win_h = self.height as f32 / self.scale.to_f32();
                     let cx = x * win_w;
                     let cy = y * win_h;
-                    if let Some(first) =
-                        self.handle_multi_gesture(cx, cy, d_theta, d_dist, win_w, win_h)
-                    {
-                        return Some(first);
-                    }
+                    self.handle_multi_gesture(cx, cy, d_theta, d_dist, win_w, win_h);
                 }
                 Event::TextInput { text, .. } => {
                     if let Some(ch) = text.chars().next() {
-                        return Some(InputEvent::CharInput { ch });
+                        self.pending.push_back(InputEvent::CharInput { ch });
                     }
+                }
+                Event::Window {
+                    win_event: WindowEvent::Leave,
+                    ..
+                } => {
+                    // SDL has no hover-leave InputEvent; synthesize a
+                    // miss. Don't touch `last_mouse_x/y` so a wheel
+                    // event arriving before the next motion still
+                    // anchors at the last in-window position.
+                    const OFF: i32 = i16::MIN as i32;
+                    self.pending.push_back(InputEvent::PointerMove {
+                        id: 0,
+                        x: Fixed::from_int(OFF),
+                        y: Fixed::from_int(OFF),
+                    });
                 }
                 _ => {}
             }
         }
-        None
+        self.pending.pop_front()
     }
 }
 
