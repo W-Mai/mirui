@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.2] - 2026-05-26
+
+Effect widgets — read another widget's rendered texture from inside a view fn.
+
+### Added
+
+- **`mirui::components::MirrorOf`** — flipped + faded copy of a `source` entity, e.g. cover-flow reflections.
+- **`mirui::components::TemporalMix`** — per-frame IIR blend of `source`'s current frame with the widget's own previous output. `out_n = α·out_{n-1} + (1-α)·source_n`. Smooths content changes (colour shifts, sprite animation) over many frames at the configured `α = mix/255`. Source-side positional animation does not produce a trail; that's not what this widget is for.
+- **`mirui::components::BackgroundBlur`** — frosted-glass IIR blur of the framebuffer pixels behind the widget. Samples at the widget's transformed on-screen position, so an animated translate doesn't leave the source frozen.
+- **`World::texture_of(entity)` / `prev_texture_of(entity)`** (`src/widget/offscreen.rs`): current / previous frame's offscreen buffer for any entity in the offscreen pool, returned as `TextureSnapshot`.
+- **`App::snapshot_widget(entity) -> Option<Texture<'static>>`**: owned copy of any widget's current rendering. One-off cost; for sustained access use `WidgetTextureRef`.
+- **`WidgetTextureRef(Entity)` consumer marker** + **`OffscreenAlphaMode::clear_transparent` source marker**: the consumer holds a refcount on the source's offscreen buffer; the source's buffer init switches from framebuffer pre-seed to alpha=0 clear so effects that read the buffer don't see leftover pixels.
+- **`maintain_widget_texture_refs` system** (`SystemSlot::PreRender`): reconciles consumer-source pairs each frame — adds `OffscreenRender` to fresh sources, removes it when the last ref drops, copies the source's `WidgetTransform` onto the consumer (so dirty rects track moves), dirties consumers when the source's content generation changes.
+- **`SystemSlot::PreRender` (priority 700)**: final reconciliation slot after user systems write the frame's state but before render.
+- **`PaintInflate { left, top, right, bottom }`** (`src/widget/dirty.rs`): per-entity dirty-rect expansion for effects whose paint area extends past the layout rect.
+- **`Renderer::sample_target_region(src) -> Option<Texture<'static>>`** (`src/draw/renderer.rs`): logical-pixel rect in, physical-resolution texture out. Effect widgets that read the framebuffer no longer compute the physical buffer size themselves. Default implementation panics; backends opting into framebuffer read must override.
+- **Render-time prerender pass** (`src/widget/render_system.rs`): walks `WidgetTextureRef`'d sources and renders their offscreen buffers into the cache before consumers' view fns run. Skipped at zero cost when the tree contains no `WidgetTextureRef`.
+- **`gallery/examples/effect_demo`**: three-pane demo (MirrorOf / TemporalMix / BackgroundBlur). `effect_demo_snapshot` headless variant for visual regression. `zorder_baseline` minimal z-order sanity test.
+- **`draw/sw/blur::iir_blur_inplace`**: IIR exponential blur via forward + backward 1D passes per axis. O(1) per pixel regardless of radius.
+- **`draw/sw/mix::mix_inplace`**: linear blend `out = (1 - mix)·a + mix·b` for RGBA8888 / RGB888 / RGB565.
+
+### Changed
+
+- **`Renderer::read_target_region` default is now `unimplemented!()`** (was: fill `dst` with opaque black). A backend that returns `Some` from `offscreen_format` must override. This surfaces missing implementations loudly instead of silently returning a black region.
+- **`SwRenderer::read_target_region`** clips the copy to `min(src_phys, dst)` rows/cols. A caller that allocated `dst` at logical size on a HiDPI viewport used to receive the framebuffer's top-left logical_w × logical_h pixels stretched across the widget; the clip avoids that without changing behaviour at scale=1.
+
 ## [0.20.1] - 2026-05-25
 
 Two render artifacts surfaced in v0.20 when an `OffscreenRender` entity carried a `WidgetTransform` translate animation. Both are fixed.
