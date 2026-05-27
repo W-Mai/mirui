@@ -15,11 +15,10 @@ pub struct ScrollOffset {
     pub y: Fixed,
 }
 
-/// Per-frame scroll delta — accumulated by the input / inertia
-/// systems each time `ScrollOffset` moves; consumed by the dirty
-/// walker to emit a `ScrollOp` (framebuffer self-blit) instead of
-/// re-rendering the whole scroll container. Cleared at the end of
-/// every frame whether the renderer used it or not.
+/// Per-frame `ScrollOffset` increment. Input / inertia systems write
+/// it; the dirty walker reads it to plan a framebuffer self-blit and
+/// subtracts the integer pixels it consumed, leaving any sub-pixel
+/// residue for the next frame.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct ScrollDelta {
     pub dx: Fixed,

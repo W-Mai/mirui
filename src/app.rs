@@ -506,35 +506,72 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         let layout_start = self.clock_ns();
 
-        let dirty = crate::trace_span!("frame.collect_dirty", {
-            render_system::collect_dirty_region(&mut self.world, root, &transform)
+        let plan = crate::trace_span!("frame.collect_dirty", {
+            render_system::collect_dirty_regions(&mut self.world, root, &transform)
         });
         let layout_end = self.clock_ns();
-        // collect_dirty_region runs build_layout_tree + compute_layout
-        // internally, so it counts as the dirty path's layout cost.
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
-        if let Some(area) = dirty {
-            {
-                crate::trace_span!("frame.render_region");
-                let mut renderer = self.factory.make(&mut self.backend, &transform);
-                render_system::render_region(&self.world, root, &transform, &area, &mut renderer);
+        if !plan.is_empty() {
+            crate::trace_span!("frame.render_region");
+            let mut renderer = self.factory.make(&mut self.backend, &transform);
+
+            // Backend opt-out: if scroll-blit isn't supported, fold
+            // every RegionShift into a redraw rect (its container area)
+            // — equivalent to the pre-S4 full-redraw path.
+            let plan = if !renderer.supports_scroll_blit() {
+                plan.flatten_shifts()
+            } else {
+                plan
+            };
+
+            // Self-blit pass: DFS-post-order means inner shifts
+            // execute first; outer shifts carry the already-moved
+            // inner pixels.
+            for sop in &plan.shifts {
+                renderer.scroll_target_region(&sop.area, sop.dx, sop.dy);
             }
+
+            // Redraw pass: every rect (regular Dirty bbox + the
+            // strips newly exposed by scroll shifts).
+            for rect in &plan.rects {
+                render_system::render_region(&self.world, root, &transform, rect, &mut renderer);
+            }
+
+            drop(renderer);
+
+            // Per-rect flush for everything we touched. Keep the
+            // scroll areas in here too — the bytes inside them
+            // moved.
+            let render_end = self.clock_ns();
+            self.last_render_ns = render_end.saturating_sub(layout_end);
+            let render_ns = render_end.saturating_sub(layout_start);
+            {
+                crate::trace_span!("frame.flush");
+                for rect in &plan.rects {
+                    let phys = transform.rect_to_physical(*rect);
+                    self.backend.flush(&phys);
+                }
+                for sop in &plan.shifts {
+                    let phys = transform.rect_to_physical(sop.area);
+                    self.backend.flush(&phys);
+                }
+            }
+            self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
+            self.last_seed_prev_ns = 0;
+
+            self.finalize_frame_stats();
+            for p in &mut self.plugins {
+                p.post_render(&mut self.world, render_ns);
+            }
+            return;
         }
+
         let render_end = self.clock_ns();
         self.last_render_ns = render_end.saturating_sub(layout_end);
         let render_ns = render_end.saturating_sub(layout_start);
-
-        if let Some(area) = dirty {
-            let phys_area = transform.rect_to_physical(area);
-            {
-                crate::trace_span!("frame.flush");
-                self.backend.flush(&phys_area);
-            }
-        }
-        self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
+        self.last_flush_ns = 0;
         self.last_seed_prev_ns = 0;
-
         self.finalize_frame_stats();
         for p in &mut self.plugins {
             p.post_render(&mut self.world, render_ns);

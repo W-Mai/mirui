@@ -933,16 +933,27 @@ fn collect_dirty_walk(
     }
 
     if world.get::<Dirty>(entity).is_some() {
-        push_entity_dirty(
-            world,
-            entity,
-            node,
-            parent_3d,
-            &tf,
-            scroll_offset,
-            inside_scroll,
-            bounds,
-        );
+        // Scroll containers' own Dirty marker comes from
+        // `scroll_system` saying "I scrolled" — that's already
+        // expressed via the RegionShift we just queued, and folding
+        // the whole container rect into bounds would re-stretch
+        // the bbox over the area self-blit handles. Skip the push
+        // for containers that emitted a RegionShift this frame; clear
+        // the marker still so it doesn't leak into the next frame.
+        if my_scroll_op.is_some() {
+            world.remove::<Dirty>(entity);
+        } else {
+            push_entity_dirty(
+                world,
+                entity,
+                node,
+                parent_3d,
+                &tf,
+                scroll_offset,
+                inside_scroll,
+                bounds,
+            );
+        }
     }
 
     let child_scroll = if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity)
