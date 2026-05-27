@@ -1235,7 +1235,64 @@ pub fn collect_dirty_regions(world: &mut World, root: Entity, transform: &Viewpo
         });
     }
 
+    // Overlay protection: a feedback overlay (cursor / rotary) lives
+    // outside any scroll container's subtree but its framebuffer
+    // pixels sit on top of one. When self-blit drags the underlying
+    // pixels sideways, the overlay's image goes with them and the
+    // overlay's logical position is left without source pixels —
+    // a stationary cursor leaves a residue on the moving row, which
+    // is exactly what users see during inertial scroll-fling.
+    //
+    // Reliable fix: if any overlay rect intersects a queued
+    // RegionShift's area, demote that RegionShift to a full-area redraw
+    // for the frame. We lose the scroll-blit win on that frame but
+    // keep correctness; the overlay-clear case is rare enough
+    // (only while a scroll is in flight *and* the cursor sits over
+    // the list).
+    if !plan.shifts.is_empty() {
+        let overlay_rects = collect_overlay_rects(world);
+        if !overlay_rects.is_empty() {
+            let mut kept = Vec::with_capacity(plan.shifts.len());
+            for sop in plan.shifts.drain(..) {
+                let conflicts = overlay_rects
+                    .iter()
+                    .any(|or| or.intersect(&sop.area).is_some());
+                if conflicts {
+                    plan.rects.push(sop.area);
+                } else {
+                    kept.push(sop);
+                }
+            }
+            plan.shifts = kept;
+        }
+    }
+
     plan
+}
+
+fn collect_overlay_rects(world: &World) -> Vec<Rect> {
+    use crate::feedback::{OverlayCursor, OverlayRotary};
+    use crate::widget::ComputedRect;
+    let mut rects = Vec::new();
+    if let Some(storage) = world.storage::<OverlayCursor>() {
+        for (e, _) in storage.iter() {
+            if let Some(r) = world.get::<ComputedRect>(e).map(|r| r.0) {
+                if r.w > Fixed::ZERO && r.h > Fixed::ZERO {
+                    rects.push(r);
+                }
+            }
+        }
+    }
+    if let Some(storage) = world.storage::<OverlayRotary>() {
+        for (e, _) in storage.iter() {
+            if let Some(r) = world.get::<ComputedRect>(e).map(|r| r.0) {
+                if r.w > Fixed::ZERO && r.h > Fixed::ZERO {
+                    rects.push(r);
+                }
+            }
+        }
+    }
+    rects
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -4231,6 +4288,164 @@ mod scroll_plan_check {
         assert_eq!(plan.shifts[0].dy, Fixed::from_int(-1));
         let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
         assert_eq!(sd.dy, Fixed::ZERO, "residue should be consumed");
+    }
+
+    /// Negative sub-pixel deltas must quantise toward zero, not floor.
+    /// `Fixed::to_int` is arithmetic-shift floor (`-0.5 → -1`); using
+    /// it here would emit a `RegionShift.dy = +1` and leave a `+0.5`
+    /// residue with the wrong sign, so the next frame's `+0.5` input
+    /// would cancel it instead of accumulating. `trunc_to_int` keeps
+    /// the residue sign-aligned with the original delta.
+    #[test]
+    fn negative_sub_pixel_delta_quantises_toward_zero_not_floor() {
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        let neg_half = Fixed::ZERO - (Fixed::from_int(1) / Fixed::from_int(2));
+        world.insert(
+            list,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: neg_half,
+            },
+        );
+        world.insert(list, Dirty);
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+
+        // Frame 1: -0.5 truncates to 0, no shift, residue stays at -0.5.
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        assert!(
+            plan.shifts.is_empty(),
+            "sub-pixel delta must not emit a shift, got {:?}",
+            plan.shifts
+        );
+        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
+        assert_eq!(
+            sd.dy, neg_half,
+            "residue should still be -0.5 (sign-preserving), got {:?}",
+            sd.dy
+        );
+
+        // Frame 2: another -0.5 of input. Residue accumulates to -1.0
+        // and emits one integer shift.
+        if let Some(sd) = world.get_mut::<ScrollDelta>(list) {
+            sd.dy += neg_half;
+        }
+        world.insert(list, Dirty);
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        assert_eq!(
+            plan.shifts.len(),
+            1,
+            "two halves should accumulate to one whole pixel"
+        );
+        assert_eq!(
+            plan.shifts[0].dy,
+            Fixed::from_int(1),
+            "ScrollDelta.dy = -1 → RegionShift.dy = +1 (sign-flipped framebuffer shift)"
+        );
+        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
+        assert_eq!(sd.dy, Fixed::ZERO, "residue should be cleanly consumed");
+    }
+
+    fn absolute_style(left: i32, top: i32, w: i32, h: i32) -> Style {
+        use crate::layout::Position;
+        Style {
+            layout: LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::Px(Fixed::from_int(left)),
+                top: Dimension::Px(Fixed::from_int(top)),
+                width: Dimension::Px(Fixed::from_int(w)),
+                height: Dimension::Px(Fixed::from_int(h)),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn overlay_over_scroll_container_demotes_scroll_op() {
+        use crate::feedback::OverlayCursor;
+
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), absolute_style(0, 0, 128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        world.insert(
+            list,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: Fixed::from_int(2),
+            },
+        );
+        world.insert(list, Dirty);
+
+        let overlay = spawn_widget(&mut world, Some(root), absolute_style(40, 50, 40, 12));
+        world.insert(overlay, OverlayCursor);
+
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+
+        assert!(
+            plan.shifts.is_empty(),
+            "scroll demoted, got {:?}",
+            plan.shifts
+        );
+        let has_list_area = plan
+            .rects
+            .iter()
+            .any(|r| r.w == Fixed::from_int(128) && r.h == Fixed::from_int(100));
+        assert!(
+            has_list_area,
+            "demoted list area should be in rects, got {:?}",
+            plan.rects
+        );
+    }
+
+    #[test]
+    fn overlay_outside_scroll_container_keeps_scroll_op() {
+        use crate::feedback::OverlayCursor;
+
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), absolute_style(0, 30, 128, 90));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        world.insert(
+            list,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: Fixed::from_int(2),
+            },
+        );
+        world.insert(list, Dirty);
+
+        let overlay = spawn_widget(&mut world, Some(root), absolute_style(40, 0, 40, 12));
+        world.insert(overlay, OverlayCursor);
+
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        assert_eq!(plan.shifts.len(), 1, "scroll kept, got {:?}", plan.shifts);
     }
 }
 
