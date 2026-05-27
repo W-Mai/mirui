@@ -531,10 +531,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 renderer.scroll_target_region(&sop.area, sop.dx, sop.dy);
             }
 
-            // Redraw pass: every rect (regular Dirty bbox + the
-            // strips newly exposed by scroll shifts).
-            for rect in &plan.rects {
-                render_system::render_region(&self.world, root, &transform, rect, &mut renderer);
+            // Union into one bbox: a single tree walk is ~3x cheaper than
+            // N walks even when the union over-paints the gaps.
+            if let Some(union_rect) = plan.rects.iter().copied().reduce(|a, b| a.union(&b)) {
+                render_system::render_region(
+                    &self.world,
+                    root,
+                    &transform,
+                    &union_rect,
+                    &mut renderer,
+                );
             }
 
             drop(renderer);
