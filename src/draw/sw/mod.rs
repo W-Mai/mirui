@@ -601,7 +601,7 @@ impl Renderer for SwRenderer<'_> {
         if dy_phys < 0 {
             // Shifting up: copy rows top-down so a row's source
             // isn't overwritten before it's read.
-            let shift = (-dy_phys) as i32;
+            let shift = -dy_phys;
             for y in sy0..sy1 {
                 let src_y = y;
                 let dst_y = y - shift;
