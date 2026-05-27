@@ -527,6 +527,39 @@ impl Renderer for SwRenderer<'_> {
         let target_h = self.target.height as i32;
         let copy_w = ((sx1 - sx0).min(dst.width as i32)).max(0);
         let copy_h = ((sy1 - sy0).min(dst.height as i32)).max(0);
+        if copy_w == 0 || copy_h == 0 {
+            return;
+        }
+
+        // Same-format fast path: row-wise byte memcpy. Both callers
+        // (`try_draw_offscreen` pre-seed, `sample_target_region`)
+        // allocate dst at the target's format, so this normally hits.
+        if self.target.format == dst.format {
+            let bpp = dst.format.bytes_per_pixel();
+            let target_buf = self.target.buf.as_slice();
+            let dst_buf = dst.buf.as_mut_slice();
+            let target_stride = self.target.stride;
+            let dst_stride = dst.stride;
+            for dy in 0..copy_h as usize {
+                let phys_y = sy0 + dy as i32;
+                if phys_y < 0 || phys_y >= target_h {
+                    continue;
+                }
+                let src_x_start = sx0.max(0);
+                let src_x_end = (sx0 + copy_w).min(target_w);
+                if src_x_end <= src_x_start {
+                    continue;
+                }
+                let dst_x_start = (src_x_start - sx0) as usize;
+                let row_bytes = (src_x_end - src_x_start) as usize * bpp;
+                let src_row_off = phys_y as usize * target_stride + src_x_start as usize * bpp;
+                let dst_row_off = dy * dst_stride + dst_x_start * bpp;
+                dst_buf[dst_row_off..dst_row_off + row_bytes]
+                    .copy_from_slice(&target_buf[src_row_off..src_row_off + row_bytes]);
+            }
+            return;
+        }
+
         for dy in 0..copy_h {
             for dx in 0..copy_w {
                 let phys_x = sx0 + dx;
