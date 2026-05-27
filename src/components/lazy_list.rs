@@ -150,6 +150,19 @@ pub fn lazy_list_system(world: &mut World) {
         let Some(ctx) = collect_list_context(world, entity) else {
             continue;
         };
+        let prev_start = world
+            .get::<LazyList>(entity)
+            .map(|l| l.visible_start)
+            .unwrap_or(u32::MAX);
+        if prev_start == ctx.visible_start
+            && ctx
+                .bound_indices
+                .iter()
+                .enumerate()
+                .all(|(i, &bound)| bound == ctx.visible_start + i as u32)
+        {
+            continue;
+        }
         if apply_bindings(world, entity, ctx) {
             world.insert(entity, Dirty);
         }
