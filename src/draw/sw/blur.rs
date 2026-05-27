@@ -171,9 +171,10 @@ fn iir_blur_rgb565(
 ) {
     let w = w as usize;
     let h = h as usize;
-    // Working buffer in RGBA8888 layout (alpha unused, kept for
-    // alignment with the main path); 4 bytes per pixel.
-    let mut tmp: alloc::vec::Vec<u8> = alloc::vec::Vec::with_capacity(w * h * 4);
+    // RGB888 scratch: IIR needs 8-bit precision (rounding aliases on
+    // 5/6-bit RGB565 channels) but the alpha channel is dead weight
+    // for opaque pixels — packed 3-byte saves 25% over RGBA8888.
+    let mut tmp: alloc::vec::Vec<u8> = alloc::vec::Vec::with_capacity(w * h * 3);
     for y in 0..h {
         for x in 0..w {
             let i = y * stride + x * 2;
@@ -189,13 +190,12 @@ fn iir_blur_rgb565(
             tmp.push((r5 << 3) | (r5 >> 2));
             tmp.push((g6 << 2) | (g6 >> 4));
             tmp.push((b5 << 3) | (b5 >> 2));
-            tmp.push(255);
         }
     }
-    iir_blur_rgba8888(&mut tmp, w as u16, h as u16, w * 4, alpha_q, one_minus_q);
+    iir_blur_packed_rgb(&mut tmp, w, h, w * 3, 3, alpha_q, one_minus_q);
     for y in 0..h {
         for x in 0..w {
-            let ti = (y * w + x) * 4;
+            let ti = (y * w + x) * 3;
             let r = tmp[ti] >> 3;
             let g = tmp[ti + 1] >> 2;
             let b = tmp[ti + 2] >> 3;
@@ -208,6 +208,31 @@ fn iir_blur_rgb565(
                 buf[i] = pixel as u8;
                 buf[i + 1] = (pixel >> 8) as u8;
             }
+        }
+    }
+}
+
+/// IIR blur over a tightly packed N-channel buffer. RGBA8888 keeps a
+/// `bpp = 4` specialised version on the framebuffer hot path.
+fn iir_blur_packed_rgb(
+    buf: &mut [u8],
+    w: usize,
+    h: usize,
+    stride: usize,
+    bpp: usize,
+    alpha_q: i32,
+    one_minus_q: i32,
+) {
+    for y in 0..h {
+        let row_off = y * stride;
+        for ch in 0..bpp {
+            iir_pass(buf, row_off + ch, w, bpp, alpha_q, one_minus_q);
+        }
+    }
+    for x in 0..w {
+        let col_off = x * bpp;
+        for ch in 0..bpp {
+            iir_pass(buf, col_off + ch, h, stride, alpha_q, one_minus_q);
         }
     }
 }
@@ -302,5 +327,57 @@ mod tests {
         // magnitude of the input.
         assert!(total_after > total_before / 4, "energy collapsed");
         assert!(total_after < total_before * 4, "energy exploded");
+    }
+
+    #[test]
+    fn iir_blur_rgb565_constant_red_stays_red() {
+        let mut buf = alloc::vec::Vec::with_capacity(8 * 8 * 2);
+        for _ in 0..(8 * 8) {
+            buf.push(0x00);
+            buf.push(0xF8);
+        }
+        let mut tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGB565);
+        iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(3)));
+        for px in tex.buf.as_slice().chunks_exact(2) {
+            let pixel = ((px[1] as u16) << 8) | (px[0] as u16);
+            let r5 = (pixel >> 11) & 0x1F;
+            let g6 = (pixel >> 5) & 0x3F;
+            let b5 = pixel & 0x1F;
+            // 8-bit roundtrip allows ±1 here (31 → 30 acceptable).
+            assert!(r5 >= 30, "r5 dropped: pixel=0x{pixel:04X}");
+            assert!(g6 <= 1, "g6 leaked: pixel=0x{pixel:04X}");
+            assert!(b5 <= 1, "b5 leaked: pixel=0x{pixel:04X}");
+        }
+    }
+
+    #[test]
+    fn iir_blur_rgb565_centre_pixel_spreads() {
+        let mut buf = alloc::vec::Vec::with_capacity(9 * 9 * 2);
+        buf.resize(9 * 9 * 2, 0);
+        let centre_x = 4;
+        let centre_y = 4;
+        let i = (centre_y * 9 + centre_x) * 2;
+        buf[i] = 0xFF;
+        buf[i + 1] = 0xFF;
+        let mut tex = Texture::new(&mut buf, 9, 9, ColorFormat::RGB565);
+        iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(2)));
+        let after = tex.buf.as_slice();
+        let centre_pixel = ((after[i + 1] as u16) << 8) | (after[i] as u16);
+        let centre_r5 = (centre_pixel >> 11) & 0x1F;
+        assert!(
+            centre_r5 < 31,
+            "centre pixel should have dimmed, r5={centre_r5}"
+        );
+        let total: u64 = after
+            .chunks_exact(2)
+            .map(|p| {
+                let pixel = ((p[1] as u16) << 8) | (p[0] as u16);
+                let r5 = (pixel >> 11) & 0x1F;
+                let g6 = (pixel >> 5) & 0x3F;
+                let b5 = pixel & 0x1F;
+                r5 as u64 + g6 as u64 + b5 as u64
+            })
+            .sum();
+        assert!(total > 5, "blur sapped all energy");
     }
 }
