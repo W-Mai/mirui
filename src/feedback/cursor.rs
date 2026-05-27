@@ -84,6 +84,16 @@ pub fn cursor_feedback_system(world: &mut World) {
     let Some(cursor) = world.resource::<PointerCursor>().copied() else {
         return;
     };
+    // event_seq doesn't tick on Move events, so it can't gate this
+    // whole system; compare the raw pointer fields instead and skip
+    // the ~3 ms hit_test in `current_visual` when nothing changed.
+    if feedback.cursor.entity.is_some()
+        && feedback.cursor.current.x == cursor.x
+        && feedback.cursor.current.y == cursor.y
+        && feedback.cursor.current.down == cursor.down
+    {
+        return;
+    }
     let visual = current_visual(world, cursor);
     let unchanged =
         feedback.cursor.last_event_seq == cursor.event_seq && feedback.cursor.current == visual;
