@@ -81,6 +81,25 @@ pub fn press_system(world: &mut World) {
         return;
     }
     world.insert_resource(PressSnapshot(snap));
+
+    // Mid-drag: skip the ~1.4 ms hit_test while the pointer stays
+    // inside the already-Pressed entity's rect.
+    if snap.down && last.down {
+        let prev_pressed: Option<Entity> = world
+            .query::<InteractionState>()
+            .iter()
+            .find_map(|(e, s)| matches!(s, InteractionState::Pressed).then_some(e));
+        if let Some(p) = prev_pressed
+            && let Some(rect) = world.get::<crate::widget::ComputedRect>(p).map(|r| r.0)
+            && snap.x >= rect.x
+            && snap.x < rect.x + rect.w
+            && snap.y >= rect.y
+            && snap.y < rect.y + rect.h
+        {
+            return;
+        }
+    }
+
     let new_pressed = if snap.down {
         compute_pointer_target(world, snap.x, snap.y)
     } else {
