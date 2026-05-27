@@ -128,6 +128,69 @@ impl SwRenderer<'_> {
             }
         }
 
+        // Y-fractional fast path: a row scrolled to a sub-pixel Y
+        // offset is X-axis-aligned with a real integer-aligned middle
+        // band, so split the fill into top AA strip + memcpy mid +
+        // bottom AA strip and skip per-pixel coverage on the bulk.
+        let x_is_aligned = area.x.fract() == Fixed::ZERO && area.w.fract() == Fixed::ZERO;
+        if x_is_aligned && r == Fixed::ZERO && area.h >= Fixed::from_int(3) {
+            let area_x_end_int = (area.x + area.w).to_int();
+            let area_x_int = area.x.to_int();
+            let mid_y0_aligned = area.y.ceil().to_int();
+            let mid_y1_aligned = (area.y + area.h).floor().to_int();
+            if mid_y1_aligned > mid_y0_aligned {
+                let clip_x0 = area_x_int.max(px_x0);
+                let clip_x1 = area_x_end_int.min(px_x1);
+                let clip_mid_y0 = mid_y0_aligned.max(px_y0);
+                let clip_mid_y1 = mid_y1_aligned.min(px_y1);
+                if clip_x1 > clip_x0 && clip_mid_y1 > clip_mid_y0 {
+                    crate::trace_span!("sw.fill_aa_split_mid");
+                    fill_axis_aligned(
+                        &mut self.target,
+                        clip_x0,
+                        clip_mid_y0,
+                        clip_x1,
+                        clip_mid_y1,
+                        color,
+                        effective_opa,
+                    );
+                    let aa_top_y0 = px_y0;
+                    let aa_top_y1 = mid_y0_aligned.min(px_y1);
+                    let aa_bot_y0 = mid_y1_aligned.max(px_y0);
+                    let aa_bot_y1 = px_y1;
+                    if aa_top_y1 > aa_top_y0 {
+                        crate::trace_span!("sw.fill_aa_split_top");
+                        fill_aa_band(
+                            &mut self.target,
+                            *area,
+                            aa_top_y0,
+                            aa_top_y1,
+                            px_x0,
+                            px_x1,
+                            color,
+                            effective_opa,
+                            opa_norm,
+                        );
+                    }
+                    if aa_bot_y1 > aa_bot_y0 {
+                        crate::trace_span!("sw.fill_aa_split_bot");
+                        fill_aa_band(
+                            &mut self.target,
+                            *area,
+                            aa_bot_y0,
+                            aa_bot_y1,
+                            px_x0,
+                            px_x1,
+                            color,
+                            effective_opa,
+                            opa_norm,
+                        );
+                    }
+                    return;
+                }
+            }
+        }
+
         crate::trace_span!("sw.fill_aa_loop");
         let area_x_end = area.x + area.w;
         let area_y_end = area.y + area.h;
@@ -197,6 +260,49 @@ impl SwRenderer<'_> {
                     self.target.blend_pixel_int(px, py, color, final_opa);
                 }
             }
+        }
+    }
+}
+
+/// AA loop over `[y0, y1)`, used by the X-axis-aligned split. Caller
+/// has verified there are no rounded corners; X coverage is implicitly
+/// 1.0 so only Y coverage and `effective_opa` contribute.
+#[allow(clippy::too_many_arguments)]
+fn fill_aa_band(
+    target: &mut Texture,
+    area: Rect,
+    y0: i32,
+    y1: i32,
+    x0: i32,
+    x1: i32,
+    color: &Color,
+    effective_opa: u8,
+    opa_norm: Fixed,
+) {
+    let area_y_end = area.y + area.h;
+    for py in y0..y1 {
+        let pixel_top = Fixed::from_int(py);
+        let pixel_bot = Fixed::from_int(py + 1);
+        let cov_y = if pixel_top >= area.y && pixel_bot <= area_y_end {
+            Fixed::ONE
+        } else {
+            (pixel_bot.min(area_y_end) - pixel_top.max(area.y))
+                .max(Fixed::ZERO)
+                .min(Fixed::ONE)
+        };
+        if cov_y <= Fixed::ZERO {
+            continue;
+        }
+        let final_opa = if cov_y == Fixed::ONE && effective_opa == 255 {
+            255
+        } else {
+            (cov_y * opa_norm).map01(255).to_int() as u8
+        };
+        if final_opa == 0 {
+            continue;
+        }
+        for px in x0..x1 {
+            target.blend_pixel_int(px, py, color, final_opa);
         }
     }
 }
