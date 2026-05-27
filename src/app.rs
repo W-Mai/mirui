@@ -296,9 +296,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
         self.last_seed_prev_ns = self.clock_ns().saturating_sub(flush_end);
 
-        self.finalize_frame_stats();
-        for p in &mut self.plugins {
-            p.post_render(&mut self.world, render_ns);
+        {
+            crate::trace_span!("frame.finalize");
+            self.finalize_frame_stats();
+        }
+        {
+            crate::trace_span!("frame.post_render");
+            for p in &mut self.plugins {
+                p.post_render(&mut self.world, render_ns);
+            }
         }
     }
 
@@ -565,9 +571,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
             self.last_seed_prev_ns = 0;
 
-            self.finalize_frame_stats();
-            for p in &mut self.plugins {
-                p.post_render(&mut self.world, render_ns);
+            {
+                crate::trace_span!("frame.finalize");
+                self.finalize_frame_stats();
+            }
+            {
+                crate::trace_span!("frame.post_render");
+                for p in &mut self.plugins {
+                    p.post_render(&mut self.world, render_ns);
+                }
             }
             return;
         }
@@ -577,9 +589,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let render_ns = render_end.saturating_sub(layout_start);
         self.last_flush_ns = 0;
         self.last_seed_prev_ns = 0;
-        self.finalize_frame_stats();
-        for p in &mut self.plugins {
-            p.post_render(&mut self.world, render_ns);
+        {
+            crate::trace_span!("frame.finalize");
+            self.finalize_frame_stats();
+        }
+        {
+            crate::trace_span!("frame.post_render");
+            for p in &mut self.plugins {
+                p.post_render(&mut self.world, render_ns);
+            }
         }
     }
 }
