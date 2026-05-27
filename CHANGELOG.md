@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.3] - 2026-05-27
+
+Perfetto trace timeline names the previously unattributed input / systems / finalize / post_render phases, and `PerfReportPlugin`'s sink callback switches to one batched buffer per frame.
+
+### Changed
+
+- **`frame.input` / `frame.systems` / `frame.finalize` / `frame.post_render` trace spans** (`src/app.rs`): the existing `frame.collect_dirty` / `frame.render_region` / `frame.flush` / `frame.layout` / `frame.render` / `frame.seed_prev` spans covered the render path, but the input poll + gesture dispatch, the systems run, `finalize_frame_stats`, and the plugin `post_render` loop appeared as gaps on the timeline. The work was real (event poll, scroll system, animations, lazy-list pool maintenance, plugin sinks); it just wasn't named.
+- **`PerfReportPlugin` perfetto sink receives one batched buffer per frame** (`src/plugins/perf_report.rs`): the sink callback was previously invoked once per chrome-trace event. The JSON event payload is unchanged; batching removes the per-call overhead, and host-side collectors receive one frame batch instead of one callback per event.
+
+### Breaking
+
+- **Perfetto sink callback contract changed** (`src/plugins/perf_report.rs`): the `&str` passed to a sink registered via `with_perfetto_line_sink` now contains the frame's chrome-trace events joined by `\n`, with a trailing `\n` after the last event. Bundled sinks (`with_perfetto_writer` and the example sinks) already handle the new form. User code that registered a custom sink expecting exactly one event per call should write the buffer through unchanged when the downstream tool accepts joined events, or use `lines()` (which skips the trailing empty segment) when it needs them split.
+
 ## [0.21.2] - 2026-05-27
 
 Scroll-blit framework — scroll containers move their existing pixels in place inside the framebuffer instead of redrawing the whole subtree every frame. Driven through a new `DirtyRegions` plan that `App::render_dirty` consumes each frame.
