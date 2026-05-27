@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.2] - 2026-05-27
+
+Scroll-blit framework — scroll containers move their existing pixels in place inside the framebuffer instead of redrawing the whole subtree every frame. Driven through a new `DirtyRegions` plan that `App::render_dirty` consumes each frame.
+
+### Added
+
+- **`mirui::event::scroll::ScrollDelta` component** (`src/event/scroll/components.rs`): per-frame `ScrollOffset` increment. Input / inertia systems write it; the dirty walker reads it to plan a framebuffer self-blit and subtracts the integer pixels it consumed, leaving any sub-pixel residue for the next frame.
+- **`Renderer::supports_scroll_blit() -> bool`** + **`Renderer::scroll_target_region(area, dx, dy)`** (`src/draw/renderer.rs`): backend capability flag and in-place framebuffer shift. `SwRenderer` implements both with a row-wise / column-wise `copy_within` walk; backends that can't read the framebuffer inherit the default `false` + `unimplemented!`. `App::render_dirty` checks `supports_scroll_blit` before executing the plan's shifts and folds them into redraw rects when the renderer doesn't opt in.
+- **`Surface::begin_flush()` / `end_flush()` hooks** (`src/surface/mod.rs`): default no-op, called before / after the frame's `flush(area)` calls. Backends with a swap chain can amortise vsync / texture creation across the per-rect flushes.
+- **`mirui::widget::dirty::{DirtyRegions, RegionShift}`** (`src/widget/dirty.rs`): plan returned by the new walker — `rects` to redraw + `shifts` to memmove in place. `DirtyRegions::flatten_shifts` folds shifts into rects for non-scroll-blit backends; `bounding_rect` returns the union over both lists.
+- **`mirui::widget::render_system::collect_dirty_regions(world, root, viewport) -> DirtyRegions`** (`src/widget/render_system.rs`): plan-style dirty walker; `collect_dirty_region` (singular) is now a thin wrapper that returns `DirtyRegions::bounding_rect`.
+- **`mirui::widget::set_position_quiet`** (`src/widget/mod.rs`): like `set_position` but skips the `Dirty` mark. Use when the entity's pixels are about to be moved by something else (e.g. the enclosing scroll container's self-blit) so a redundant redraw is undesirable.
+- **`Fixed::trunc_to_int()`** (`src/types/fixed.rs`): truncate-toward-zero counterpart to `to_int` (which is arithmetic-shift floor). Required for residue-keeping quantisation where the integer part subtracted off must leave a residue with the same sign as the original.
+- **`mirui::widget::render_system::LastDirtyRegions` resource** (`src/widget/render_system.rs`): the plan from the last `render_dirty` frame, for probes / debug overlays. Production code should not depend on it.
+
+### Changed
+
+- **`render_dirty` consumes the new `DirtyRegions` plan** (`src/app.rs`): runs region shifts first, unions all redraw rects into a single bbox, walks the layout tree once at the union, then flushes each dirty rect inside one `begin_flush` / `end_flush` envelope. Replaces the previous "render each rect separately, flush each rect separately" path; saves repeated tree walks on frames with multiple dirty rects.
+- **`SwRenderer::scroll_target_region` quantises sub-pixel deltas toward zero** (`src/draw/sw/mod.rs`): a `-0.5` shift truncates to no movement (caller keeps the residue), not to `-1` (which would clobber a row). Matches the walker-side quantisation so residue accumulates across frames consistently.
+- **`SdlSurface` flushes each dirty rect into a cached streaming texture, then copies + presents once per frame** (`src/surface/sdl.rs`): replaces the per-flush `create_texture_streaming` + full-surface upload. The cached texture's lifetime is `'static`; one program-lifetime allocation per `SdlSurface`.
+- **`SdlSurface` field declaration order ensures the streaming texture is dropped before the canvas** (`src/surface/sdl.rs`): SDL textures must be destroyed before the renderer that created them, and Rust drops struct fields in declaration order.
+- **`LazyList` uses a ring-buffer slot mapping `slot[target % pool_size]`** (`src/components/lazy_list.rs`): a one-row scroll only rebinds one slot; the rest keep their content and only their layout position moves through `set_position_quiet`. The pre-ring linear mapping rebound every slot on every `visible_start` change, marking all rows Dirty and bloating the dirty bbox to the entire list area.
+- **Dirty walker emits `RegionShift` for every scroll container with a whole-pixel `ScrollDelta` after truncation toward zero** (`src/widget/render_system.rs`): DFS post-order so a nested inner shift runs in the child's local frame, then the outer shift carries the moved pixels along. The strip exposed by each shift is added to `plan.rects` for repaint. Sub-pixel-only deltas keep their residue in the component without emitting a shift.
+- **Walker quantises `ScrollDelta` toward zero, clips dirty rects to the innermost scroll container's screen area, and skips Dirty push for scroll containers that emitted a `RegionShift` or still carry only sub-pixel residue this frame** (`src/widget/render_system.rs`): a LazyList row whose `node.rect.y` sits below `visible_start` would otherwise blow bounds out vertically; the container's own Dirty marker is already expressed by the `RegionShift` (or has no on-screen effect when only the residue moved), so unioning its rect would re-stretch the bbox over the area self-blit handles.
+- **Scroll input / inertia systems only set Dirty on non-zero applied delta** (`src/event/scroll/system.rs`): clamp-at-edge frames produce a PointerMove that boils down to no movement, and there's nothing to repaint.
+- **`RegionShift` is kept (no demote) when an overlay sits on the scroll area; the overlay's old + shifted rects are added to `plan.rects` instead** (`src/widget/render_system.rs`): a stationary cursor / rotary overlay stays put logically but its framebuffer pixels would otherwise ride the self-blit. Repainting the overlay's old position (covers the row content under it) and the shifted position (covers the residue) preserves the overlay's place while the rest of the area still benefits from self-blit.
+
+### Fixed
+
+- **Negative sub-pixel `ScrollDelta` quantises toward zero, not floor** (`src/widget/render_system.rs`, `src/draw/sw/mod.rs`): `Fixed::to_int` is arithmetic-shift floor (`-0.5 → -1`); using it for residue-keeping quantisation would emit a `RegionShift.dy = +1` and leave a `+0.5` residue with the wrong sign, so the next frame's `-0.5` input would cancel it instead of accumulating. Walker and `SwRenderer::scroll_target_region` now both use `Fixed::trunc_to_int`. Regression tests cover walker accumulation across two `-0.5` frames and renderer no-op on a single `-0.5` shift.
+
 ## [0.21.1] - 2026-05-27
 
 Idle-frame short-circuits across high-frequency systems, plus a `Hidden`-related correctness fix.
