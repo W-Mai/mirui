@@ -85,13 +85,15 @@ impl PerfReportPlugin {
         self
     }
 
-    /// `with_perfetto_line_sink` over a freshly-truncated file.
+    /// `with_perfetto_line_sink` over a freshly-truncated file. The
+    /// sink receives one `\n`-joined batch per frame, written through
+    /// as-is.
     #[cfg(feature = "std")]
     pub fn with_perfetto_writer(self, path: impl AsRef<std::path::Path>) -> Self {
         use std::io::Write as _;
         let mut f = std::fs::File::create(path).expect("failed to create perfetto trace file");
-        self.with_perfetto_line_sink(alloc::boxed::Box::new(move |line: &str| {
-            let _ = writeln!(f, "{line}");
+        self.with_perfetto_line_sink(alloc::boxed::Box::new(move |batch: &str| {
+            let _ = f.write_all(batch.as_bytes());
         }))
     }
 }
@@ -115,12 +117,20 @@ where
         let events = crate::perf::drain_events();
 
         if let Some(sink) = self.perfetto_line_sink.as_mut() {
-            let mut buf = alloc::string::String::with_capacity(128);
+            // The sink may be expensive per call on `no_std` targets
+            // (critical section, FIFO flush, ...); batch the frame's
+            // events into one buffer so that overhead is paid once.
+            let mut frame_buf = alloc::string::String::with_capacity(events.len() * 96 + 16);
+            let mut line = alloc::string::String::with_capacity(128);
             for ev in &events {
-                buf.clear();
-                if crate::perf::format_chrome_event(ev, &mut buf).is_ok() {
-                    sink(&buf);
+                line.clear();
+                if crate::perf::format_chrome_event(ev, &mut line).is_ok() {
+                    frame_buf.push_str(&line);
+                    frame_buf.push('\n');
                 }
+            }
+            if !frame_buf.is_empty() {
+                sink(&frame_buf);
             }
         }
 
