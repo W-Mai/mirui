@@ -921,15 +921,15 @@ fn collect_dirty_walk(
     let mut my_scroll_op: Option<RegionShift> = None;
     let mut sub_pixel_pending = false;
     if let Some(sd) = scroll_delta {
-        // Quantise the delta to whole logical pixels: a fractional
-        // dy < 1 floor()s to 0 inside `scroll_target_region`, so
-        // the shift would be a no-op while the strip width also
-        // rounds to zero. Hold the residue back so it accumulates
-        // across frames until it crosses a pixel boundary.
-        let dx_int = sd.dx.to_int();
-        let dy_int = sd.dy.to_int();
-        let quant_dx = Fixed::from_int(dx_int);
-        let quant_dy = Fixed::from_int(dy_int);
+        // Sign flip: ScrollDelta is the ScrollOffset increment (positive
+        // dy = content scrolled up); the framebuffer must shift the
+        // opposite way. Quantise toward zero so a sub-pixel residue
+        // keeps the same sign as the original delta and accumulates
+        // across frames instead of bouncing.
+        let dx_int = sd.dx.trunc_to_int();
+        let dy_int = sd.dy.trunc_to_int();
+        let blit_dx = Fixed::from_int(-dx_int);
+        let blit_dy = Fixed::from_int(-dy_int);
         if dx_int != 0 || dy_int != 0 {
             let area = Rect {
                 x: node.rect.x - scroll_offset.0,
@@ -939,13 +939,13 @@ fn collect_dirty_walk(
             };
             my_scroll_op = Some(RegionShift {
                 area,
-                dx: quant_dx,
-                dy: quant_dy,
+                dx: blit_dx,
+                dy: blit_dy,
             });
             child_inside_scroll = true;
             if let Some(sd_mut) = world.get_mut::<crate::event::scroll::ScrollDelta>(entity) {
-                sd_mut.dx -= quant_dx;
-                sd_mut.dy -= quant_dy;
+                sd_mut.dx -= Fixed::from_int(dx_int);
+                sd_mut.dy -= Fixed::from_int(dy_int);
             }
         } else if sd.dx != Fixed::ZERO || sd.dy != Fixed::ZERO {
             sub_pixel_pending = true;
@@ -4004,7 +4004,59 @@ mod scroll_plan_check {
     }
 
     #[test]
-    fn scroll_delta_emits_scroll_op_and_strip() {
+    fn scroll_delta_positive_emits_negative_scroll_op_and_bottom_strip() {
+        // User flicks up → content scrolls up → ScrollOffset.y
+        // grows → ScrollDelta.dy is positive. The framebuffer
+        // self-blit must shift contents *up* (dy negative on
+        // `scroll_target_region`'s "shift contents by (dx, dy)"
+        // contract), so the walker emits `RegionShift.dy = -ScrollDelta.dy`.
+        // The strip newly exposed is at the bottom of the area.
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(20),
+            },
+        );
+        world.insert(
+            list,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: Fixed::from_int(3),
+            },
+        );
+        world.insert(list, Dirty);
+
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+
+        assert_eq!(plan.shifts.len(), 1, "should emit one RegionShift");
+        let sop = &plan.shifts[0];
+        assert_eq!(sop.dx, Fixed::ZERO);
+        assert_eq!(
+            sop.dy,
+            Fixed::from_int(-3),
+            "framebuffer shifts opposite to ScrollOffset growth"
+        );
+        assert_eq!(sop.area.h, Fixed::from_int(100));
+
+        // Bottom strip = (0, 100-3=97, 128, 3)
+        let has_strip = plan.rects.iter().any(|r| {
+            r.h == Fixed::from_int(3) && r.y == Fixed::from_int(97) && r.w == Fixed::from_int(128)
+        });
+        assert!(
+            has_strip,
+            "expected bottom strip rect, got {:?}",
+            plan.rects
+        );
+    }
+
+    #[test]
+    fn scroll_delta_negative_emits_positive_scroll_op_and_top_strip() {
         let mut world = World::new();
         let root = spawn_widget(&mut world, None, px_style(128, 128));
         world.insert(root, Dirty);
@@ -4024,30 +4076,20 @@ mod scroll_plan_check {
             },
         );
         world.insert(list, Dirty);
-
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         let plan = collect_dirty_regions(&mut world, root, &viewport);
-
-        assert_eq!(plan.shifts.len(), 1, "should emit one RegionShift");
-        let sop = &plan.shifts[0];
-        assert_eq!(sop.dx, Fixed::ZERO);
-        assert_eq!(sop.dy, Fixed::from_int(-3));
-        // List area = (0,0,128,100) (root at origin, list child at origin)
-        assert_eq!(sop.area.h, Fixed::from_int(100));
-
-        // Bottom strip = (0, 100-3=97, 128, 3)
-        let has_strip = plan.rects.iter().any(|r| {
-            r.h == Fixed::from_int(3) && r.y == Fixed::from_int(97) && r.w == Fixed::from_int(128)
+        assert_eq!(plan.shifts.len(), 1);
+        assert_eq!(plan.shifts[0].dy, Fixed::from_int(3));
+        let has_top_strip = plan.rects.iter().any(|r| {
+            r.y == Fixed::ZERO && r.h == Fixed::from_int(3) && r.w == Fixed::from_int(128)
         });
         assert!(
-            has_strip,
-            "expected bottom strip rect, got {:?}",
+            has_top_strip,
+            "expected top strip rect, got {:?}",
             plan.rects
         );
     }
 
-    /// Nested scroll: outer + inner both have ScrollDelta. DFS
-    /// post-order means inner RegionShift comes first.
     #[test]
     fn nested_scroll_emits_inner_first() {
         let mut world = World::new();
@@ -4088,10 +4130,9 @@ mod scroll_plan_check {
 
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         let plan = collect_dirty_regions(&mut world, root, &viewport);
-
-        assert_eq!(plan.shifts.len(), 2, "two ScrollOps for two containers");
-        assert_eq!(plan.shifts[0].dy, Fixed::from_int(-5), "inner first");
-        assert_eq!(plan.shifts[1].dy, Fixed::from_int(-2), "outer second");
+        assert_eq!(plan.shifts.len(), 2, "two RegionShifts for two containers");
+        assert_eq!(plan.shifts[0].dy, Fixed::from_int(5), "inner first");
+        assert_eq!(plan.shifts[1].dy, Fixed::from_int(2), "outer second");
     }
 
     #[test]
@@ -4185,10 +4226,9 @@ mod scroll_plan_check {
         }
         world.insert(list, Dirty);
 
-        // Second call: should emit RegionShift dy=1 and zero residue.
         let plan = collect_dirty_regions(&mut world, root, &viewport);
         assert_eq!(plan.shifts.len(), 1);
-        assert_eq!(plan.shifts[0].dy, Fixed::from_int(1));
+        assert_eq!(plan.shifts[0].dy, Fixed::from_int(-1));
         let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
         assert_eq!(sd.dy, Fixed::ZERO, "residue should be consumed");
     }
