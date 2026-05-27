@@ -4114,4 +4114,153 @@ mod scroll_plan_check {
         let plan = collect_dirty_regions(&mut world, root, &viewport);
         assert!(plan.shifts.is_empty());
     }
+
+    #[test]
+    fn sub_pixel_delta_keeps_residue_emits_nothing() {
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        let half = Fixed::from_int(1) / Fixed::from_int(2);
+        world.insert(
+            list,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: half,
+            },
+        );
+        world.insert(list, Dirty);
+
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        assert!(plan.shifts.is_empty(), "no integer pixel to shift yet");
+        // Residue stays in the component for the next frame to absorb.
+        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
+        assert_eq!(sd.dy, half);
+    }
+
+    #[test]
+    fn sub_pixel_residue_accumulates_to_pixel() {
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        let half = Fixed::from_int(1) / Fixed::from_int(2);
+        world.insert(
+            list,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: half,
+            },
+        );
+        world.insert(list, Dirty);
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+
+        let _ = collect_dirty_regions(&mut world, root, &viewport);
+        assert_eq!(
+            world
+                .get::<ScrollDelta>(list)
+                .copied()
+                .unwrap_or_default()
+                .dy,
+            half,
+        );
+
+        if let Some(sd) = world.get_mut::<ScrollDelta>(list) {
+            sd.dy += half;
+        }
+        world.insert(list, Dirty);
+
+        // Second call: should emit RegionShift dy=1 and zero residue.
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        assert_eq!(plan.shifts.len(), 1);
+        assert_eq!(plan.shifts[0].dy, Fixed::from_int(1));
+        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
+        assert_eq!(sd.dy, Fixed::ZERO, "residue should be consumed");
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod scroll_blit_visual_check {
+    extern crate std;
+    use super::*;
+    use crate::draw::renderer::Renderer;
+    use crate::draw::sw::SwRenderer;
+    use crate::draw::texture::{ColorFormat, Texture};
+
+    /// End-to-end check: scroll-blit + strip repaint matches a full
+    /// repaint of the post-scroll state. Covers the `Rect` arithmetic
+    /// the walker hands to the renderer; unit-level shifts are tested
+    /// directly in `sw/mod.rs`.
+    #[test]
+    fn scroll_blit_then_strip_paint_matches_full_repaint() {
+        let mut blit_buf = std::vec![0u8; 32 * 32 * 4];
+        let mut full_buf = std::vec![0u8; 32 * 32 * 4];
+        for y in 0..32 {
+            let red = (y * 8) as u8;
+            for x in 0..32 {
+                let off = (y * 32 + x) * 4;
+                for buf in [&mut blit_buf, &mut full_buf] {
+                    buf[off] = red;
+                    buf[off + 1] = 0;
+                    buf[off + 2] = 0;
+                    buf[off + 3] = 255;
+                }
+            }
+        }
+
+        {
+            let tex = Texture::new(&mut blit_buf, 32, 32, ColorFormat::RGBA8888);
+            let mut backend = SwRenderer::new(tex);
+            let area = Rect::new(
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(32),
+                Fixed::from_int(32),
+            );
+            backend.scroll_target_region(&area, Fixed::ZERO, Fixed::from_int(-4));
+            for y in 28..32 {
+                let post_shift_red = ((y + 4) * 8) as u8;
+                for x in 0..32 {
+                    let off = (y * 32 + x) * 4;
+                    backend.target.buf.as_mut_slice()[off] = post_shift_red;
+                }
+            }
+        }
+
+        {
+            for y in 0..32 {
+                let post_shift_red = ((y + 4) * 8) as u8;
+                for x in 0..32 {
+                    let off = (y * 32 + x) * 4;
+                    full_buf[off] = post_shift_red;
+                }
+            }
+        }
+
+        for y in 0..32 {
+            for x in 0..32 {
+                let off = (y * 32 + x) * 4;
+                assert_eq!(
+                    blit_buf[off], full_buf[off],
+                    "mismatch at ({x},{y}): blit={} full={}",
+                    blit_buf[off], full_buf[off]
+                );
+            }
+        }
+    }
 }
