@@ -1235,35 +1235,29 @@ pub fn collect_dirty_regions(world: &mut World, root: Entity, transform: &Viewpo
         });
     }
 
-    // Overlay protection: a feedback overlay (cursor / rotary) lives
-    // outside any scroll container's subtree but its framebuffer
-    // pixels sit on top of one. When self-blit drags the underlying
-    // pixels sideways, the overlay's image goes with them and the
-    // overlay's logical position is left without source pixels —
-    // a stationary cursor leaves a residue on the moving row, which
-    // is exactly what users see during inertial scroll-fling.
-    //
-    // Reliable fix: if any overlay rect intersects a queued
-    // RegionShift's area, demote that RegionShift to a full-area redraw
-    // for the frame. We lose the scroll-blit win on that frame but
-    // keep correctness; the overlay-clear case is rare enough
-    // (only while a scroll is in flight *and* the cursor sits over
-    // the list).
+    // Overlays (cursor / rotary feedback) sit on top of a scroll
+    // area but live outside its subtree, so self-blit drags their
+    // pixels sideways and leaves a residue at their logical position.
+    // Two small redraw rects per (overlay × shift) absorb both ends:
+    // the overlay's current rect (repaints under it) and the dragged
+    // rect (covers the residue). The shift itself stays so the bulk
+    // of the area still self-blits.
     if !plan.shifts.is_empty() {
         let overlay_rects = collect_overlay_rects(world);
-        if !overlay_rects.is_empty() {
-            let mut kept = Vec::with_capacity(plan.shifts.len());
-            for sop in plan.shifts.drain(..) {
-                let conflicts = overlay_rects
-                    .iter()
-                    .any(|or| or.intersect(&sop.area).is_some());
-                if conflicts {
-                    plan.rects.push(sop.area);
-                } else {
-                    kept.push(sop);
+        for sop in &plan.shifts.clone() {
+            for or in &overlay_rects {
+                if or.intersect(&sop.area).is_none() {
+                    continue;
                 }
+                let shifted = Rect {
+                    x: or.x + sop.dx,
+                    y: or.y + sop.dy,
+                    w: or.w,
+                    h: or.h,
+                };
+                plan.rects.push(*or);
+                plan.rects.push(shifted);
             }
-            plan.shifts = kept;
         }
     }
 
@@ -4062,12 +4056,6 @@ mod scroll_plan_check {
 
     #[test]
     fn scroll_delta_positive_emits_negative_scroll_op_and_bottom_strip() {
-        // User flicks up → content scrolls up → ScrollOffset.y
-        // grows → ScrollDelta.dy is positive. The framebuffer
-        // self-blit must shift contents *up* (dy negative on
-        // `scroll_target_region`'s "shift contents by (dx, dy)"
-        // contract), so the walker emits `RegionShift.dy = -ScrollDelta.dy`.
-        // The strip newly exposed is at the bottom of the area.
         let mut world = World::new();
         let root = spawn_widget(&mut world, None, px_style(128, 128));
         world.insert(root, Dirty);
@@ -4371,7 +4359,7 @@ mod scroll_plan_check {
     }
 
     #[test]
-    fn overlay_over_scroll_container_demotes_scroll_op() {
+    fn overlay_over_scroll_emits_overlay_rect_pair_keeps_scroll_op() {
         use crate::feedback::OverlayCursor;
 
         let mut world = World::new();
@@ -4400,18 +4388,26 @@ mod scroll_plan_check {
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         let plan = collect_dirty_regions(&mut world, root, &viewport);
 
+        assert_eq!(plan.shifts.len(), 1, "scroll kept, got {:?}", plan.shifts);
+        let dy = plan.shifts[0].dy;
+        assert_eq!(dy, Fixed::from_int(-2));
+
+        let has_overlay_rect = plan.rects.iter().any(|r| {
+            r.x == Fixed::from_int(40) && r.y == Fixed::from_int(50) && r.w == Fixed::from_int(40)
+        });
         assert!(
-            plan.shifts.is_empty(),
-            "scroll demoted, got {:?}",
-            plan.shifts
+            has_overlay_rect,
+            "expected overlay rect at original pos, got {:?}",
+            plan.rects
         );
-        let has_list_area = plan
-            .rects
-            .iter()
-            .any(|r| r.w == Fixed::from_int(128) && r.h == Fixed::from_int(100));
+        let has_shifted_rect = plan.rects.iter().any(|r| {
+            r.x == Fixed::from_int(40)
+                && r.y == Fixed::from_int(50) + dy
+                && r.w == Fixed::from_int(40)
+        });
         assert!(
-            has_list_area,
-            "demoted list area should be in rects, got {:?}",
+            has_shifted_rect,
+            "expected shifted rect to cover residue, got {:?}",
             plan.rects
         );
     }
