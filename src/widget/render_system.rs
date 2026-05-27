@@ -825,9 +825,10 @@ struct DirtyBounds {
     max_y: Fixed,
 }
 
-// `DirtyRegions` and `RegionShift` live in `widget::dirty` so the
-// data structures are reusable for non-scroll multi-rect dirty
-// flows too. The walker plumbing here just populates them.
+/// Resource exposing the last frame's plan. Read-only for probes /
+/// debug overlays; production code should not depend on it.
+#[derive(Clone, Debug, Default)]
+pub struct LastDirtyRegions(pub DirtyRegions);
 
 #[allow(clippy::too_many_arguments)]
 fn collect_dirty_walk(
@@ -839,6 +840,10 @@ fn collect_dirty_walk(
     parent_3d: &Transform3D,
     scroll_offset: (Fixed, Fixed),
     inside_scroll: bool,
+    // Innermost scroll container's screen rect: a LazyList row
+    // far below `visible_start` has a layout-y in the thousands
+    // and would otherwise blow the dirty bbox out vertically.
+    scroll_clip: Option<Rect>,
     bounds: &mut DirtyBounds,
     plan: &mut DirtyRegions,
 ) {
@@ -868,6 +873,7 @@ fn collect_dirty_walk(
                 &tf,
                 scroll_offset,
                 inside_scroll,
+                scroll_clip,
                 bounds,
             );
         }
@@ -894,6 +900,7 @@ fn collect_dirty_walk(
                     &tf,
                     scroll_offset,
                     inside_scroll,
+                    scroll_clip,
                     bounds,
                 );
             }
@@ -912,11 +919,18 @@ fn collect_dirty_walk(
         .copied();
     let mut child_inside_scroll = inside_scroll;
     let mut my_scroll_op: Option<RegionShift> = None;
+    let mut sub_pixel_pending = false;
     if let Some(sd) = scroll_delta {
-        if sd.dx != Fixed::ZERO || sd.dy != Fixed::ZERO {
-            // Container's screen-space area: layout rect, shifted
-            // by ancestor scroll only (not by its own ScrollOffset
-            // — that drives children, not the container itself).
+        // Quantise the delta to whole logical pixels: a fractional
+        // dy < 1 floor()s to 0 inside `scroll_target_region`, so
+        // the shift would be a no-op while the strip width also
+        // rounds to zero. Hold the residue back so it accumulates
+        // across frames until it crosses a pixel boundary.
+        let dx_int = sd.dx.to_int();
+        let dy_int = sd.dy.to_int();
+        let quant_dx = Fixed::from_int(dx_int);
+        let quant_dy = Fixed::from_int(dy_int);
+        if dx_int != 0 || dy_int != 0 {
             let area = Rect {
                 x: node.rect.x - scroll_offset.0,
                 y: node.rect.y - scroll_offset.1,
@@ -925,22 +939,25 @@ fn collect_dirty_walk(
             };
             my_scroll_op = Some(RegionShift {
                 area,
-                dx: sd.dx,
-                dy: sd.dy,
+                dx: quant_dx,
+                dy: quant_dy,
             });
             child_inside_scroll = true;
+            if let Some(sd_mut) = world.get_mut::<crate::event::scroll::ScrollDelta>(entity) {
+                sd_mut.dx -= quant_dx;
+                sd_mut.dy -= quant_dy;
+            }
+        } else if sd.dx != Fixed::ZERO || sd.dy != Fixed::ZERO {
+            sub_pixel_pending = true;
         }
     }
 
     if world.get::<Dirty>(entity).is_some() {
-        // Scroll containers' own Dirty marker comes from
-        // `scroll_system` saying "I scrolled" — that's already
-        // expressed via the RegionShift we just queued, and folding
-        // the whole container rect into bounds would re-stretch
-        // the bbox over the area self-blit handles. Skip the push
-        // for containers that emitted a RegionShift this frame; clear
-        // the marker still so it doesn't leak into the next frame.
-        if my_scroll_op.is_some() {
+        // Container's own Dirty is already expressed by the RegionShift;
+        // unioning its full rect would re-stretch bounds over the area
+        // self-blit handles. Sub-pixel frames similarly skip the push
+        // until the delta crosses a pixel boundary.
+        if my_scroll_op.is_some() || sub_pixel_pending {
             world.remove::<Dirty>(entity);
         } else {
             push_entity_dirty(
@@ -951,6 +968,7 @@ fn collect_dirty_walk(
                 &tf,
                 scroll_offset,
                 inside_scroll,
+                scroll_clip,
                 bounds,
             );
         }
@@ -963,6 +981,8 @@ fn collect_dirty_walk(
         scroll_offset
     };
 
+    let child_scroll_clip = my_scroll_op.as_ref().map(|s| s.area).or(scroll_clip);
+
     *idx += 1;
     for child in &node.children {
         collect_dirty_walk(
@@ -974,6 +994,7 @@ fn collect_dirty_walk(
             &tf_3d,
             child_scroll,
             child_inside_scroll,
+            child_scroll_clip,
             bounds,
             plan,
         );
@@ -1039,6 +1060,7 @@ fn push_entity_dirty(
     tf: &Transform,
     scroll_offset: (Fixed, Fixed),
     inside_scroll: bool,
+    scroll_clip: Option<Rect>,
     bounds: &mut DirtyBounds,
 ) {
     use super::dirty::Dirty;
@@ -1057,12 +1079,10 @@ fn push_entity_dirty(
         curr.w += inflate.left + inflate.right;
         curr.h += inflate.top + inflate.bottom;
     }
-    // Inside a scroll container, `prev` is the entity's old screen
-    // position; the framebuffer self-blit moved those pixels to
-    // their new spot in the same step. Unioning prev would just
-    // re-stretch the dirty bbox to cover the area we already
-    // handled.
-    let union_rect = if inside_scroll {
+    // Inside a scroll container the self-blit already moved the prev
+    // rect's pixels to their new spot, so unioning prev here would
+    // re-stretch the bbox over the area self-blit handled.
+    let mut union_rect = if inside_scroll {
         curr
     } else {
         match world.get::<super::dirty::PrevRect>(entity) {
@@ -1070,6 +1090,13 @@ fn push_entity_dirty(
             None => curr,
         }
     };
+    if let Some(clip) = scroll_clip {
+        if let Some(inter) = union_rect.intersect(&clip) {
+            union_rect = inter;
+        } else {
+            return;
+        }
+    }
     let (ux0, uy0, ux1, uy1) = union_rect.pixel_bounds();
     let x0 = Fixed::from_int(ux0);
     let y0 = Fixed::from_int(uy0);
@@ -1192,6 +1219,7 @@ pub fn collect_dirty_regions(world: &mut World, root: Entity, transform: &Viewpo
             &Transform3D::IDENTITY,
             (Fixed::ZERO, Fixed::ZERO),
             false,
+            None,
             &mut bounds,
             &mut plan,
         );

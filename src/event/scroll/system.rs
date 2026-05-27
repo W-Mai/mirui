@@ -218,7 +218,11 @@ pub fn scroll_system(
                 }
             }
             accumulate_scroll_delta(world, target, applied_dx, applied_dy);
-            world.insert(target, crate::widget::dirty::Dirty);
+            // Stuck-at-edge drags translate to zero applied delta; no
+            // need to redraw a frame whose pixels didn't move.
+            if applied_dx != Fixed::ZERO || applied_dy != Fixed::ZERO {
+                world.insert(target, crate::widget::dirty::Dirty);
+            }
 
             let dir = world
                 .get::<ScrollConfig>(target)

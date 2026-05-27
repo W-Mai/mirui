@@ -525,9 +525,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 plan
             };
 
-            // Self-blit pass: DFS-post-order means inner shifts
-            // execute first; outer shifts carry the already-moved
-            // inner pixels.
+            self.world
+                .insert_resource(crate::widget::render_system::LastDirtyRegions(plan.clone()));
             for sop in &plan.shifts {
                 renderer.scroll_target_region(&sop.area, sop.dx, sop.dy);
             }

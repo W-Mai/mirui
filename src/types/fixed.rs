@@ -32,6 +32,20 @@ impl Fixed {
         self.0 >> FRAC_BITS
     }
 
+    /// Truncate toward zero. `to_int` is arithmetic-shift floor
+    /// (`-0.5 → -1`); for the residue-keeping arithmetic that
+    /// `ScrollDelta` quantisation needs, the integer must be the
+    /// part that, subtracted off, leaves a fractional residue with
+    /// the same sign as the original.
+    #[inline]
+    pub const fn trunc_to_int(self) -> i32 {
+        if self.0 >= 0 {
+            self.0 >> FRAC_BITS
+        } else {
+            -((-self.0) >> FRAC_BITS)
+        }
+    }
+
     /// Round to nearest integer, returning Fixed
     #[inline]
     pub const fn round(self) -> Self {
@@ -598,6 +612,47 @@ mod tests {
         assert_eq!(f.0, 384); // 1.5 * 256
         assert_eq!(f.to_int(), 1);
         assert_eq!(f.round().to_int(), 2);
+    }
+
+    /// `to_int` is arithmetic-shift floor; `trunc_to_int` is toward
+    /// zero. The asymmetry matters for residue-keeping quantisation
+    /// (subtract integer part, keep fractional residue with same sign
+    /// as the original): on `-0.5`, floor gives `-1` and a residue of
+    /// `+0.5` (sign flip — wrong); trunc gives `0` and `-0.5`.
+    #[test]
+    fn trunc_to_int_is_toward_zero() {
+        let half = Fixed::from_f32(0.5);
+        assert_eq!(half.trunc_to_int(), 0);
+        assert_eq!(half.to_int(), 0);
+
+        let neg_half = Fixed::from_f32(-0.5);
+        assert_eq!(neg_half.trunc_to_int(), 0);
+        assert_eq!(neg_half.to_int(), -1, "to_int floors negatives");
+
+        let one_and_half = Fixed::from_f32(1.5);
+        assert_eq!(one_and_half.trunc_to_int(), 1);
+
+        let neg_one_and_half = Fixed::from_f32(-1.5);
+        assert_eq!(neg_one_and_half.trunc_to_int(), -1);
+        assert_eq!(neg_one_and_half.to_int(), -2, "to_int floors negatives");
+
+        // Residue check: x - from_int(trunc_to_int(x)) keeps the sign of x.
+        for raw in [-1500, -100, -1, 0, 1, 100, 1500] {
+            let x = Fixed::from_f32(raw as f32 / 1000.0);
+            let int = Fixed::from_int(x.trunc_to_int());
+            let residue = x - int;
+            if x.0 > 0 {
+                assert!(
+                    residue.0 >= 0,
+                    "residue of {x:?} should be >= 0, got {residue:?}"
+                );
+            } else if x.0 < 0 {
+                assert!(
+                    residue.0 <= 0,
+                    "residue of {x:?} should be <= 0, got {residue:?}"
+                );
+            }
+        }
     }
 
     #[test]
