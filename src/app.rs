@@ -372,80 +372,84 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
             let mut logical: Option<(u16, u16)> = None;
             let mut quit = false;
-            loop {
-                match self.poll_event() {
-                    Some(InputEvent::Quit) => {
-                        quit = true;
-                        break;
-                    }
-                    Some(event) => {
-                        // Active sim timelines own PointerCursor; real
-                        // input racing them corrupts the demo.
-                        let sim_running = self
-                            .world
-                            .resource::<crate::event::sim::SimTimeline>()
-                            .is_some_and(|t| t.is_running());
-                        if sim_running {
-                            continue;
+
+            {
+                crate::trace_span!("frame.input");
+                loop {
+                    match self.poll_event() {
+                        Some(InputEvent::Quit) => {
+                            quit = true;
+                            break;
                         }
-                        let mut consumed = false;
-                        for p in &mut self.plugins {
-                            if p.on_event(&mut self.world, &event) {
-                                consumed = true;
-                                break;
+                        Some(event) => {
+                            // Active sim timelines own PointerCursor; real
+                            // input racing them corrupts the demo.
+                            let sim_running = self
+                                .world
+                                .resource::<crate::event::sim::SimTimeline>()
+                                .is_some_and(|t| t.is_running());
+                            if sim_running {
+                                continue;
+                            }
+                            let mut consumed = false;
+                            for p in &mut self.plugins {
+                                if p.on_event(&mut self.world, &event) {
+                                    consumed = true;
+                                    break;
+                                }
+                            }
+                            if consumed {
+                                continue;
+                            }
+                            if let Some(root) = self.root {
+                                let (lw, lh) = *logical.get_or_insert_with(|| {
+                                    self.backend.display_info().viewport().logical_size()
+                                });
+                                let now_ms = (self.clock_ns() / 1_000_000) as u32;
+                                crate::event::dispatch_input(
+                                    &mut self.world,
+                                    root,
+                                    &event,
+                                    now_ms,
+                                    lw,
+                                    lh,
+                                );
                             }
                         }
-                        if consumed {
-                            continue;
-                        }
-                        if let Some(root) = self.root {
-                            let (lw, lh) = *logical.get_or_insert_with(|| {
-                                self.backend.display_info().viewport().logical_size()
-                            });
-                            let now_ms = (self.clock_ns() / 1_000_000) as u32;
-                            crate::event::dispatch_input(
-                                &mut self.world,
-                                root,
-                                &event,
-                                now_ms,
-                                lw,
-                                lh,
-                            );
-                        }
+                        None => break,
                     }
-                    None => break,
                 }
-            }
-            {
-                let now_ms = (self.clock_ns() / 1_000_000) as u32;
-                if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
-                    gs.recognizer.check_long_press(now_ms, &mut gs.events);
+                {
+                    let now_ms = (self.clock_ns() / 1_000_000) as u32;
+                    if let Some(gs) = self.world.resource_mut::<GestureSystem>() {
+                        gs.recognizer.check_long_press(now_ms, &mut gs.events);
+                    }
                 }
-            }
 
-            let pending: Vec<_> = self
-                .world
-                .resource_mut::<GestureSystem>()
-                .map(|gs| gs.events.drain().collect())
-                .unwrap_or_default();
-            for gesture in &pending {
-                focus_on_tap(&mut self.world, gesture);
-                bubble_dispatch(&mut self.world, gesture);
-            }
-
-            if quit {
-                for p in &mut self.plugins {
-                    p.on_quit(&mut self.world);
+                let pending: Vec<_> = self
+                    .world
+                    .resource_mut::<GestureSystem>()
+                    .map(|gs| gs.events.drain().collect())
+                    .unwrap_or_default();
+                for gesture in &pending {
+                    focus_on_tap(&mut self.world, gesture);
+                    bubble_dispatch(&mut self.world, gesture);
                 }
-                return;
+
+                if quit {
+                    for p in &mut self.plugins {
+                        p.on_quit(&mut self.world);
+                    }
+                    return;
+                }
             }
 
             let input_end = self.clock_ns();
 
-            // Systems run after event/gesture dispatch so that anything
-            // observing input-driven state (ScrollOffset, focus, ...)
-            // sees the post-event values within the same frame.
-            self.systems.run_all(&mut self.world);
+            {
+                crate::trace_span!("frame.systems");
+                self.systems.run_all(&mut self.world);
+            }
             self.snapshot_system_perf();
             let systems_end = self.clock_ns();
 
@@ -516,9 +520,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::trace_span!("frame.render_region");
             let mut renderer = self.factory.make(&mut self.backend, &transform);
 
-            // Backend opt-out: if scroll-blit isn't supported, fold
-            // every RegionShift into a redraw rect (its container area)
-            // — equivalent to the pre-S4 full-redraw path.
             let plan = if !renderer.supports_scroll_blit() {
                 plan.flatten_shifts()
             } else {
