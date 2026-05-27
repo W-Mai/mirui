@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-05-27
+
+Idle-frame short-circuits across high-frequency systems, plus a `Hidden`-related correctness fix.
+
+### Added
+
+- **`mirui::widget::dirty::clear_subtree_dirty(world, root)`** (`src/widget/dirty.rs`): walks a subtree and removes every `Dirty` marker. Mirror of `mark_subtree_dirty`. Called by the hide path in `tab_pages_system` so leftover markers don't strand once the walker stops descending through the subtree.
+
+### Changed
+
+- **`collect_dirty_region` bails at the top when the `Dirty` storage is empty** (`src/widget/render_system.rs`): the full 5-step layout pipeline (build_tree → compute_layout → collect_entities → write_computed → walk) used to run every frame, even on idle frames where no entity had a Dirty marker.
+- **`mark_subtree_dirty` now skips `Hidden` subtrees** (`src/widget/dirty.rs`): the walker only descends visible `LayoutNode`s, so a Dirty marker placed under a Hidden subtree (e.g. by `set_theme` walking the root tree) could never be swept and would defeat the storage-empty fast path.
+- **`tab_pages_system` rewrites both visibility transitions** (`src/components/tab_pages.rs`):
+  - Hide: clears the subtree's leftover Dirty markers and bumps Dirty on the parent so its `ComputedRect` (which covers the area being hidden) repaints. Marking the now-Hidden entity itself wouldn't reach the walker.
+  - Unhide: marks the whole subtree Dirty, not just the entity. While it was Hidden any global event walking from the root via `mark_subtree_dirty` skipped it, leaving descendants — including any cached offscreen buffers (mirror, blur, ...) — with stale data. Subtree-wide marking on unhide bumps every `OffscreenGeneration` inside so the cache misses on the next render.
+- **`cursor_feedback_system` fast-path on stationary pointer** (`src/feedback/cursor.rs`): the unchanged-check used to run *after* `current_visual`, so the expensive hit-test happened on every idle frame. Now compares the pointer's `(x, y, down)` against the cached visual's same fields up front. `event_seq` was the wrong key — it only ticks on PointerDown / PointerUp, not on Move, so a moving cursor would silently freeze if the short-circuit gated on it.
+- **`lazy_list_system` skips `apply_bindings` when scroll position unchanged** (`src/components/lazy_list.rs`): rewriting every pool slot's position via `set_position` every frame was a meaningful chunk of the idle frame budget. Now `continue`s when both `visible_start` and the existing `bound_indices` match the cached values.
+- **`press_system` skips `hit_test` mid-drag when pointer stays inside the pressed entity's rect** (`src/widget/state.rs`): during a drag every PointerMove ticks `PointerCursor`'s `(x, y)`, so the existing `snap == last` short-circuit couldn't fire. New fast path looks up the existing Pressed entity's `ComputedRect` and returns early if the cursor is still inside, cutting the per-frame cost on continuing-drag frames roughly in half.
+
+### Fixed
+
+- **Hidden subtree's `OffscreenRender` descendants no longer keep stale cached buffers across theme swaps** (`src/components/tab_pages.rs`): a theme swap while a tab is hidden used to leave that tab's mirror / blur / other offscreen buffers painted in the previous theme's colours, because `mark_subtree_dirty` skipped the Hidden subtree and the unhide path only marked the tab content entity itself. Subtree-wide marking on unhide now invalidates every `OffscreenGeneration` inside. Regression test in `src/components/tab_pages.rs::unhide_marks_whole_subtree_dirty`.
+
 ## [0.21.0] - 2026-05-27
 
 Software-renderer fast paths and a new in-place framebuffer-edit trait method.
