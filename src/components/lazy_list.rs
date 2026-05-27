@@ -304,7 +304,11 @@ mod tests {
         // slot 0 (mapped from target=5) needs rebinding; targets 1..4
         // still occupy their original slots.
         let trace = &world.resource::<BindTrace>().unwrap().0;
-        assert_eq!(trace.len(), 1, "ring buffer rebinds one slot per row scrolled, got {trace:?}");
+        assert_eq!(
+            trace.len(),
+            1,
+            "ring buffer rebinds one slot per row scrolled, got {trace:?}"
+        );
         assert_eq!(trace, &alloc::vec![5u32]);
     }
 }

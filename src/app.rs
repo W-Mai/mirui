@@ -545,14 +545,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
             drop(renderer);
 
-            // Per-rect flush for everything we touched. Keep the
-            // scroll areas in here too — the bytes inside them
-            // moved.
             let render_end = self.clock_ns();
             self.last_render_ns = render_end.saturating_sub(layout_end);
             let render_ns = render_end.saturating_sub(layout_start);
             {
                 crate::trace_span!("frame.flush");
+                self.backend.begin_flush();
                 for rect in &plan.rects {
                     let phys = transform.rect_to_physical(*rect);
                     self.backend.flush(&phys);
@@ -561,6 +559,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     let phys = transform.rect_to_physical(sop.area);
                     self.backend.flush(&phys);
                 }
+                self.backend.end_flush();
             }
             self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
             self.last_seed_prev_ns = 0;

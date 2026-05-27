@@ -585,46 +585,42 @@ impl Renderer for SwRenderer<'_> {
             return;
         }
 
-        // First pass: dx == 0, dy != 0. Vertical-only is the LazyList
-        // path; the horizontal case lands in a follow-up.
-        if dx_phys != 0 {
-            return;
-        }
-
         let bpp = self.target.format.bytes_per_pixel();
         let stride = self.target.stride;
         let buf = self.target.buf.as_mut_slice();
 
-        // Row width in bytes for the actual span we're moving.
-        let row_bytes = (sx1 - sx0) as usize * bpp;
-
-        if dy_phys < 0 {
-            // Shifting up: copy rows top-down so a row's source
-            // isn't overwritten before it's read.
-            let shift = -dy_phys;
-            for y in sy0..sy1 {
-                let src_y = y;
-                let dst_y = y - shift;
-                if dst_y < sy0 || dst_y >= sy1 {
-                    continue;
-                }
-                let src_off = src_y as usize * stride + sx0 as usize * bpp;
-                let dst_off = dst_y as usize * stride + sx0 as usize * bpp;
-                buf.copy_within(src_off..src_off + row_bytes, dst_off);
-            }
+        // Pick row order so a source row is never clobbered before it
+        // is read: top-down for dy < 0, bottom-up otherwise.
+        let row_iter: alloc::vec::Vec<i32> = if dy_phys >= 0 {
+            (sy0..sy1).rev().collect()
         } else {
-            // Shifting down: copy rows bottom-up.
-            let shift = dy_phys;
-            for y in (sy0..sy1).rev() {
-                let src_y = y;
-                let dst_y = y + shift;
-                if dst_y < sy0 || dst_y >= sy1 {
-                    continue;
-                }
+            (sy0..sy1).collect()
+        };
+
+        for src_y in row_iter {
+            let dst_y = src_y + dy_phys;
+            if dst_y < sy0 || dst_y >= sy1 {
+                continue;
+            }
+            if dx_phys == 0 {
                 let src_off = src_y as usize * stride + sx0 as usize * bpp;
                 let dst_off = dst_y as usize * stride + sx0 as usize * bpp;
+                let row_bytes = (sx1 - sx0) as usize * bpp;
                 buf.copy_within(src_off..src_off + row_bytes, dst_off);
+                continue;
             }
+            let dst_x0 = (sx0 + dx_phys).max(sx0);
+            let dst_x1 = (sx1 + dx_phys).min(sx1);
+            if dst_x1 <= dst_x0 {
+                continue;
+            }
+            let src_x0 = dst_x0 - dx_phys;
+            let copy_w = (dst_x1 - dst_x0) as usize * bpp;
+            let src_off = src_y as usize * stride + src_x0 as usize * bpp;
+            let dst_off = dst_y as usize * stride + dst_x0 as usize * bpp;
+            // `copy_within` is memmove, so within a row overlap is
+            // safe; the row_iter direction handles cross-row aliasing.
+            buf.copy_within(src_off..src_off + copy_w, dst_off);
         }
     }
 
@@ -1669,6 +1665,102 @@ mod tests {
         backend.scroll_target_region(&area, Fixed::ZERO, half);
         for px in backend.target.buf.as_slice() {
             assert_eq!(*px, 1);
+        }
+    }
+
+    /// Negative sub-pixel dy must truncate toward zero (no-op), not
+    /// floor (which would emit a 1-pixel shift). The residue lives
+    /// in the caller's `ScrollDelta`; if the renderer floored, a
+    /// `-0.5` shift would clobber a row of pixels and leave the
+    /// caller with a `+0.5` residue that cancels the next `-0.5`.
+    #[test]
+    fn scroll_target_region_negative_sub_pixel_dy_is_noop() {
+        // Stripe the buf per-row so a 1-row shift would be visible.
+        let mut buf = vec![0u8; 4 * 4 * 4];
+        for y in 0..4 {
+            for x in 0..4 {
+                let off = (y * 4 + x) * 4;
+                buf[off] = (y * 50) as u8;
+                buf[off + 3] = 255;
+            }
+        }
+        let snapshot = buf.clone();
+        let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let area = Rect::new(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(4),
+            Fixed::from_int(4),
+        );
+        let neg_half = Fixed::ZERO - (Fixed::from_int(1) / Fixed::from_int(2));
+        backend.scroll_target_region(&area, Fixed::ZERO, neg_half);
+        assert_eq!(
+            backend.target.buf.as_slice(),
+            snapshot.as_slice(),
+            "negative sub-pixel dy must not modify the buffer"
+        );
+    }
+
+    #[test]
+    fn scroll_target_region_shift_left_moves_columns_correctly() {
+        let mut buf = vec![0u8; 8 * 8 * 4];
+        for y in 0..8 {
+            for x in 0..8 {
+                let off = (y * 8 + x) * 4;
+                buf[off] = (x * 30) as u8;
+                buf[off + 3] = 255;
+            }
+        }
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let area = Rect::new(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(8),
+            Fixed::from_int(8),
+        );
+        backend.scroll_target_region(&area, Fixed::from_int(-2), Fixed::ZERO);
+
+        for x in 0..6 {
+            let src_x_before = x + 2;
+            let p = backend.target.get_pixel(x, 3);
+            assert_eq!(
+                p.r,
+                (src_x_before * 30) as u8,
+                "col {x} should hold pre-scroll col {src_x_before}",
+            );
+        }
+    }
+
+    #[test]
+    fn scroll_target_region_shift_right_moves_columns_correctly() {
+        let mut buf = vec![0u8; 8 * 8 * 4];
+        for y in 0..8 {
+            for x in 0..8 {
+                let off = (y * 8 + x) * 4;
+                buf[off] = (x * 30) as u8;
+                buf[off + 3] = 255;
+            }
+        }
+        let tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let area = Rect::new(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(8),
+            Fixed::from_int(8),
+        );
+        backend.scroll_target_region(&area, Fixed::from_int(2), Fixed::ZERO);
+
+        for x in 2..8 {
+            let src_x_before = x - 2;
+            let p = backend.target.get_pixel(x, 3);
+            assert_eq!(
+                p.r,
+                (src_x_before * 30) as u8,
+                "col {x} should hold pre-scroll col {src_x_before}",
+            );
         }
     }
 }

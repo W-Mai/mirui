@@ -1154,9 +1154,13 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
 }
 
 /// Plan-style dirty walker: returns redraw rects + framebuffer
-/// scroll ops. When no entity has `ScrollDelta` non-zero this is
-/// equivalent to `collect_dirty_region` but boxed in a `DirtyRegions`.
-pub fn collect_dirty_regions(world: &mut World, root: Entity, transform: &Viewport) -> DirtyRegions {
+/// scroll ops. With no `ScrollDelta` anywhere this is equivalent to
+/// `collect_dirty_region` boxed in a `DirtyRegions`.
+pub fn collect_dirty_regions(
+    world: &mut World,
+    root: Entity,
+    transform: &Viewport,
+) -> DirtyRegions {
     let (logical_w, logical_h) = transform.logical_size();
     let mut plan = DirtyRegions::default();
 

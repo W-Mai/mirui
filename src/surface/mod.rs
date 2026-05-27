@@ -60,6 +60,14 @@ pub trait Surface: crate::cache::InspectCaches {
     /// coordinates / buffer offsets.
     fn flush(&mut self, area: &Rect);
 
+    /// Called before the frame's first `flush`. Default no-op.
+    fn begin_flush(&mut self) {}
+
+    /// Called after the frame's last `flush`. Backends with a swap
+    /// chain (e.g. SDL `canvas.present()`) commit here so vsync waits
+    /// once per frame, not once per `flush(area)`.
+    fn end_flush(&mut self) {}
+
     fn poll_event(&mut self) -> Option<InputEvent>;
 
     /// Full logical-pixel screen rect.

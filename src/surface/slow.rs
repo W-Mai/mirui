@@ -69,6 +69,14 @@ impl<S: Surface> Surface for SlowSurface<S> {
         self.inner.flush(area);
     }
 
+    fn begin_flush(&mut self) {
+        self.inner.begin_flush();
+    }
+
+    fn end_flush(&mut self) {
+        self.inner.end_flush();
+    }
+
     fn poll_event(&mut self) -> Option<InputEvent> {
         self.inner.poll_event()
     }
