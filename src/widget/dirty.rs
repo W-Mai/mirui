@@ -69,15 +69,28 @@ impl PaintInflate {
     }
 }
 
-/// Tracks dirty regions for partial refresh
-#[derive(Default)]
+/// One framebuffer self-blit op. `area` is the container's logical
+/// rect, `(dx, dy)` is the shift in logical pixels. The walker emits
+/// these in DFS post-order: a nested inner shift runs in the child's
+/// local frame, then the outer shift carries the moved pixels along.
+#[derive(Clone, Debug)]
+pub struct RegionShift {
+    pub area: Rect,
+    pub dx: Fixed,
+    pub dy: Fixed,
+}
+
+/// Plan returned by the dirty walker: `rects` to redraw + `shifts`
+/// to memmove in place inside the framebuffer.
+#[derive(Clone, Debug, Default)]
 pub struct DirtyRegions {
     pub rects: Vec<Rect>,
+    pub shifts: Vec<RegionShift>,
 }
 
 impl DirtyRegions {
     pub fn new() -> Self {
-        Self { rects: Vec::new() }
+        Self::default()
     }
 
     pub fn mark(&mut self, rect: Rect) {
@@ -86,38 +99,58 @@ impl DirtyRegions {
 
     pub fn clear(&mut self) {
         self.rects.clear();
+        self.shifts.clear();
     }
 
     pub fn is_empty(&self) -> bool {
-        self.rects.is_empty()
+        self.rects.is_empty() && self.shifts.is_empty()
     }
 
-    /// Merge all dirty rects into one bounding rect
-    pub fn bounding_rect(&self) -> Option<Rect> {
-        if self.rects.is_empty() {
-            return None;
+    /// Fold every shift's area into a redraw rect; the resulting plan
+    /// has no shifts. Use when the active renderer can't self-blit.
+    pub fn flatten_shifts(mut self) -> Self {
+        for sop in self.shifts.drain(..) {
+            self.rects.push(sop.area);
         }
-        let mut min_x = Fixed::from_int(i32::MAX >> 8);
-        let mut min_y = Fixed::from_int(i32::MAX >> 8);
-        let mut max_x = Fixed::from_int(i32::MIN >> 8);
-        let mut max_y = Fixed::from_int(i32::MIN >> 8);
-        for r in &self.rects {
-            let rx = r.x;
-            let ry = r.y;
-            let rx2 = (r.x + r.w).ceil();
-            let ry2 = (r.y + r.h).ceil();
-            if rx < min_x {
-                min_x = rx;
+        self
+    }
+
+    /// Bounding rect over `rects` and `shifts`'s areas, or `None`
+    /// when the plan is empty.
+    pub fn bounding_rect(&self) -> Option<Rect> {
+        let mut min_x = Fixed::MAX;
+        let mut min_y = Fixed::MAX;
+        let mut max_x = Fixed::MIN;
+        let mut max_y = Fixed::MIN;
+        let mut any = false;
+        let mut absorb = |r: &Rect| {
+            if r.w <= Fixed::ZERO || r.h <= Fixed::ZERO {
+                return;
             }
-            if ry < min_y {
-                min_y = ry;
+            any = true;
+            if r.x < min_x {
+                min_x = r.x;
             }
+            if r.y < min_y {
+                min_y = r.y;
+            }
+            let rx2 = r.x + r.w;
+            let ry2 = r.y + r.h;
             if rx2 > max_x {
                 max_x = rx2;
             }
             if ry2 > max_y {
                 max_y = ry2;
             }
+        };
+        for r in &self.rects {
+            absorb(r);
+        }
+        for s in &self.shifts {
+            absorb(&s.area);
+        }
+        if !any {
+            return None;
         }
         Some(Rect {
             x: min_x,

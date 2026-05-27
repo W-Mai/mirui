@@ -8,6 +8,7 @@ use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
+use super::dirty::{DirtyRegions, RegionShift};
 use super::state::{InteractionState, UserState};
 use super::theme::WidgetState;
 use super::view::{ViewCtx, ViewRegistry};
@@ -824,6 +825,10 @@ struct DirtyBounds {
     max_y: Fixed,
 }
 
+// `DirtyRegions` and `RegionShift` live in `widget::dirty` so the
+// data structures are reusable for non-scroll multi-rect dirty
+// flows too. The walker plumbing here just populates them.
+
 #[allow(clippy::too_many_arguments)]
 fn collect_dirty_walk(
     node: &LayoutNode,
@@ -833,7 +838,9 @@ fn collect_dirty_walk(
     parent_transform: &Transform,
     parent_3d: &Transform3D,
     scroll_offset: (Fixed, Fixed),
+    inside_scroll: bool,
     bounds: &mut DirtyBounds,
+    plan: &mut DirtyRegions,
 ) {
     use super::dirty::Dirty;
     if *idx >= entities.len() {
@@ -853,7 +860,16 @@ fn collect_dirty_walk(
     if is_offscreen {
         let self_was_dirty = world.get::<Dirty>(entity).is_some();
         if self_was_dirty {
-            push_entity_dirty(world, entity, node, parent_3d, &tf, scroll_offset, bounds);
+            push_entity_dirty(
+                world,
+                entity,
+                node,
+                parent_3d,
+                &tf,
+                scroll_offset,
+                inside_scroll,
+                bounds,
+            );
         }
 
         let mut sub_idx = *idx + 1;
@@ -870,7 +886,16 @@ fn collect_dirty_walk(
         // already did it, otherwise curr ∪ prev unions with itself.
         if self_was_dirty || had_subtree_dirty {
             if had_subtree_dirty && !self_was_dirty {
-                push_entity_dirty(world, entity, node, parent_3d, &tf, scroll_offset, bounds);
+                push_entity_dirty(
+                    world,
+                    entity,
+                    node,
+                    parent_3d,
+                    &tf,
+                    scroll_offset,
+                    inside_scroll,
+                    bounds,
+                );
             }
             let next_gen = world
                 .get::<super::OffscreenGeneration>(entity)
@@ -882,8 +907,42 @@ fn collect_dirty_walk(
         return;
     }
 
+    let scroll_delta = world
+        .get::<crate::event::scroll::ScrollDelta>(entity)
+        .copied();
+    let mut child_inside_scroll = inside_scroll;
+    let mut my_scroll_op: Option<RegionShift> = None;
+    if let Some(sd) = scroll_delta {
+        if sd.dx != Fixed::ZERO || sd.dy != Fixed::ZERO {
+            // Container's screen-space area: layout rect, shifted
+            // by ancestor scroll only (not by its own ScrollOffset
+            // — that drives children, not the container itself).
+            let area = Rect {
+                x: node.rect.x - scroll_offset.0,
+                y: node.rect.y - scroll_offset.1,
+                w: node.rect.w,
+                h: node.rect.h,
+            };
+            my_scroll_op = Some(RegionShift {
+                area,
+                dx: sd.dx,
+                dy: sd.dy,
+            });
+            child_inside_scroll = true;
+        }
+    }
+
     if world.get::<Dirty>(entity).is_some() {
-        push_entity_dirty(world, entity, node, parent_3d, &tf, scroll_offset, bounds);
+        push_entity_dirty(
+            world,
+            entity,
+            node,
+            parent_3d,
+            &tf,
+            scroll_offset,
+            inside_scroll,
+            bounds,
+        );
     }
 
     let child_scroll = if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity)
@@ -903,8 +962,56 @@ fn collect_dirty_walk(
             &tf,
             &tf_3d,
             child_scroll,
+            child_inside_scroll,
             bounds,
+            plan,
         );
+    }
+
+    // DFS post-order so a nested inner shift executes before its outer
+    // carrier; the outer then moves the already-shifted inner pixels.
+    if let Some(sop) = my_scroll_op {
+        push_scroll_strips(&sop, plan);
+        plan.shifts.push(sop);
+    }
+}
+
+/// Append the strip(s) of `area` left without source pixels after the
+/// shift. dy < 0 exposes a bottom strip, dy > 0 exposes a top strip;
+/// dx mirrors that on the horizontal axis. Both axes can apply.
+fn push_scroll_strips(sop: &RegionShift, plan: &mut DirtyRegions) {
+    let area = sop.area;
+    if sop.dy < Fixed::ZERO {
+        let h = -sop.dy;
+        plan.rects.push(Rect {
+            x: area.x,
+            y: area.y + area.h - h,
+            w: area.w,
+            h,
+        });
+    } else if sop.dy > Fixed::ZERO {
+        plan.rects.push(Rect {
+            x: area.x,
+            y: area.y,
+            w: area.w,
+            h: sop.dy,
+        });
+    }
+    if sop.dx < Fixed::ZERO {
+        let w = -sop.dx;
+        plan.rects.push(Rect {
+            x: area.x + area.w - w,
+            y: area.y,
+            w,
+            h: area.h,
+        });
+    } else if sop.dx > Fixed::ZERO {
+        plan.rects.push(Rect {
+            x: area.x,
+            y: area.y,
+            w: sop.dx,
+            h: area.h,
+        });
     }
 }
 
@@ -920,6 +1027,7 @@ fn push_entity_dirty(
     parent_3d: &Transform3D,
     tf: &Transform,
     scroll_offset: (Fixed, Fixed),
+    inside_scroll: bool,
     bounds: &mut DirtyBounds,
 ) {
     use super::dirty::Dirty;
@@ -938,9 +1046,18 @@ fn push_entity_dirty(
         curr.w += inflate.left + inflate.right;
         curr.h += inflate.top + inflate.bottom;
     }
-    let union_rect = match world.get::<super::dirty::PrevRect>(entity) {
-        Some(prev) => curr.union(&prev.0),
-        None => curr,
+    // Inside a scroll container, `prev` is the entity's old screen
+    // position; the framebuffer self-blit moved those pixels to
+    // their new spot in the same step. Unioning prev would just
+    // re-stretch the dirty bbox to cover the area we already
+    // handled.
+    let union_rect = if inside_scroll {
+        curr
+    } else {
+        match world.get::<super::dirty::PrevRect>(entity) {
+            Some(prev) => curr.union(&prev.0),
+            None => curr,
+        }
     };
     let (ux0, uy0, ux1, uy1) = union_rect.pixel_bounds();
     let x0 = Fixed::from_int(ux0);
@@ -995,27 +1112,32 @@ fn scan_subtree_dirty(
 /// Collect the logical-pixel rects of all dirty entities, then remove Dirty flags.
 /// Returns the bounding rect of all dirty regions, or None if nothing dirty.
 pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewport) -> Option<Rect> {
-    let (logical_w, logical_h) = transform.logical_size();
+    collect_dirty_regions(world, root, transform).bounding_rect()
+}
 
-    // Idle fast path: no Dirty marker anywhere in the world means
-    // nothing scheduled a redraw this frame. The entire 5-step walk
-    // (build_layout_tree → compute_layout → collect_entities →
-    // write_computed_rects → collect_dirty_walk, ~2.5 ms on
-    // ESP32-C3) would just re-derive last frame's outputs and
-    // return None at the end. Bail at the top instead.
-    //
-    // Systems that mutate visible state outside Dirty (rare; the
-    // only known case is `set_position` from animation systems)
-    // are responsible for inserting Dirty themselves — animation
-    // helpers in this crate already do.
+/// Plan-style dirty walker: returns redraw rects + framebuffer
+/// scroll ops. When no entity has `ScrollDelta` non-zero this is
+/// equivalent to `collect_dirty_region` but boxed in a `DirtyRegions`.
+pub fn collect_dirty_regions(world: &mut World, root: Entity, transform: &Viewport) -> DirtyRegions {
+    let (logical_w, logical_h) = transform.logical_size();
+    let mut plan = DirtyRegions::default();
+
+    // Idle skip: with zero Dirty markers the 5-step walk would just
+    // re-derive last frame's outputs. Systems that mutate visible
+    // state without inserting Dirty (animation helpers, mainly) own
+    // the responsibility to mark themselves.
     use super::dirty::Dirty;
     let dirty_count = world.storage::<Dirty>().map(|s| s.len()).unwrap_or(0);
     if dirty_count == 0 {
-        return None;
+        return plan;
     }
 
-    let mut layout_tree =
-        crate::trace_span!("dirty.build_tree", { build_layout_tree(world, root)? });
+    let mut layout_tree = crate::trace_span!("dirty.build_tree", {
+        match build_layout_tree(world, root) {
+            Some(t) => t,
+            None => return plan,
+        }
+    });
 
     {
         crate::trace_span!("dirty.compute_layout");
@@ -1058,22 +1180,23 @@ pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewpor
             &Transform::IDENTITY,
             &Transform3D::IDENTITY,
             (Fixed::ZERO, Fixed::ZERO),
+            false,
             &mut bounds,
+            &mut plan,
         );
     }
 
     let (min_x, min_y, max_x, max_y) = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
-
-    if max_x < Fixed::ZERO {
-        None
-    } else {
-        Some(Rect {
+    if max_x >= Fixed::ZERO {
+        plan.rects.push(Rect {
             x: min_x,
             y: min_y,
             w: max_x - min_x,
             h: max_y - min_y,
-        })
+        });
     }
+
+    plan
 }
 
 #[cfg(all(test, feature = "std"))]
@@ -3802,5 +3925,154 @@ mod state_resolve_check {
         world.insert(e, UserState::Disabled);
         world.insert(e, InteractionState::Pressed);
         assert_eq!(resolve_widget_state(&world, e), WidgetState::Disabled);
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod scroll_plan_check {
+    extern crate std;
+    use super::*;
+    use crate::event::scroll::components::{ScrollDelta, ScrollOffset};
+    use crate::layout::LayoutStyle;
+    use crate::types::Dimension;
+    use crate::widget::dirty::Dirty;
+    use crate::widget::{Children, Parent, Style, Widget};
+
+    fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
+        let e = world.spawn();
+        world.insert(e, Widget);
+        world.insert(e, style);
+        if let Some(p) = parent {
+            world.insert(e, Parent(p));
+            if let Some(children) = world.get_mut::<Children>(p) {
+                children.0.push(e);
+            } else {
+                world.insert(p, Children(std::vec![e]));
+            }
+        }
+        e
+    }
+
+    fn px_style(w: i32, h: i32) -> Style {
+        Style {
+            layout: LayoutStyle {
+                width: Dimension::Px(Fixed::from_int(w)),
+                height: Dimension::Px(Fixed::from_int(h)),
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn scroll_delta_emits_scroll_op_and_strip() {
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(20),
+            },
+        );
+        world.insert(
+            list,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: Fixed::from_int(-3),
+            },
+        );
+        world.insert(list, Dirty);
+
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+
+        assert_eq!(plan.shifts.len(), 1, "should emit one RegionShift");
+        let sop = &plan.shifts[0];
+        assert_eq!(sop.dx, Fixed::ZERO);
+        assert_eq!(sop.dy, Fixed::from_int(-3));
+        // List area = (0,0,128,100) (root at origin, list child at origin)
+        assert_eq!(sop.area.h, Fixed::from_int(100));
+
+        // Bottom strip = (0, 100-3=97, 128, 3)
+        let has_strip = plan.rects.iter().any(|r| {
+            r.h == Fixed::from_int(3) && r.y == Fixed::from_int(97) && r.w == Fixed::from_int(128)
+        });
+        assert!(
+            has_strip,
+            "expected bottom strip rect, got {:?}",
+            plan.rects
+        );
+    }
+
+    /// Nested scroll: outer + inner both have ScrollDelta. DFS
+    /// post-order means inner RegionShift comes first.
+    #[test]
+    fn nested_scroll_emits_inner_first() {
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let outer = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            outer,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        world.insert(
+            outer,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: Fixed::from_int(-2),
+            },
+        );
+        world.insert(outer, Dirty);
+        let inner = spawn_widget(&mut world, Some(outer), px_style(128, 60));
+        world.insert(
+            inner,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        world.insert(
+            inner,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: Fixed::from_int(-5),
+            },
+        );
+        world.insert(inner, Dirty);
+
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+
+        assert_eq!(plan.shifts.len(), 2, "two ScrollOps for two containers");
+        assert_eq!(plan.shifts[0].dy, Fixed::from_int(-5), "inner first");
+        assert_eq!(plan.shifts[1].dy, Fixed::from_int(-2), "outer second");
+    }
+
+    #[test]
+    fn zero_scroll_delta_emits_no_op() {
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        world.insert(list, ScrollDelta::default());
+        world.insert(list, Dirty);
+
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        assert!(plan.shifts.is_empty());
     }
 }
