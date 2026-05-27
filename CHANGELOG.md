@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-05-27
+
+Software-renderer fast paths and a new in-place framebuffer-edit trait method.
+
+### Added
+
+- **`Renderer::modify_target_region(rect, |&mut tex| { ... })`** (`src/draw/renderer.rs`): hands the closure a borrowed `Texture` over the framebuffer's own pixels (same `stride` as the framebuffer, no temporary buffer) for "read pixels under me, transform them, write back" operations. Replaces the alloc + sample-copy + blit-back round-trip that effects like `BackgroundBlur` previously did. Default implementation panics; backends opt in by overriding (`SwRenderer` does).
+- **2 unit tests for RGB565 blur visual correctness** (`src/draw/sw/blur.rs`): constant-input preservation + bright-pixel spread, covering the new RGB888 scratch path.
+
+### Changed
+
+- **`BackgroundBlur` uses `modify_target_region` on the identity / translate transform path** (`src/components/background_blur.rs`): the common case skips the per-frame scratch allocation. Rotated / 3D-projected widgets still go through the sample-copy + blit-back round-trip because the blur source must stay axis-aligned before the post-transform.
+- **`SwRenderer::read_target_region` row-wise `copy_from_slice` fast path for matching formats** (`src/draw/sw/mod.rs`): both shipped callers (`try_draw_offscreen` pre-seed and `sample_target_region`) allocate the dst at the target's own format, so this is the hot path. The format-mismatch path falls through to the original per-pixel loop.
+- **`SwRenderer::fill` splits Y-fractional X-aligned rects into top AA strip + memcpy mid + bottom AA strip** (`src/draw/sw/rect_fill.rs`): a row mid-scroll (X-aligned, integer width, sub-pixel top) used to run per-pixel coverage across every interior pixel even though only the top / bottom bands needed it. The split sends the bulk of the rect through `fill_axis_aligned`'s memcpy fast path. Workloads that already produced integer-aligned rects are byte-identical.
+- **RGB565 IIR blur uses an RGB888 scratch buffer instead of RGBA8888** (`src/draw/sw/blur.rs`): the alpha channel was dead weight (written to 255 and never read). 25% less scratch memory and 25% less per-pixel scan work. RGBA8888 framebuffers keep their specialised `iir_blur_rgba8888`.
+
 ## [0.20.4] - 2026-05-26
 
 ### Changed
