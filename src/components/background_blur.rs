@@ -42,10 +42,25 @@ fn background_blur_render(
     // Animated transforms must sample the on-screen rect, not the
     // layout rect, or the blur source freezes at the original spot.
     let sample_rect = ctx.transform.apply_rect_bbox(*rect);
+    let alpha = alpha_for_radius(bg.radius);
+
+    // Identity / translate-only with no 3D quad can blur in place,
+    // skipping the alloc + sample-copy + blit-back round-trip. Rotated
+    // or projected widgets still need the intermediate sample so the
+    // blur runs on an axis-aligned source.
+    use crate::types::TransformClass;
+    let class = ctx.transform.classify();
+    if matches!(class, TransformClass::Identity | TransformClass::Translate) && ctx.quad.is_none() {
+        renderer.modify_target_region(&sample_rect, &mut |tex| {
+            iir_blur_inplace(tex, alpha);
+        });
+        return;
+    }
+
     let Some(mut tmp) = renderer.sample_target_region(&sample_rect) else {
         return;
     };
-    iir_blur_inplace(&mut tmp, alpha_for_radius(bg.radius));
+    iir_blur_inplace(&mut tmp, alpha);
 
     renderer.draw(
         &DrawCommand::Blit {

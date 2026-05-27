@@ -41,6 +41,19 @@ pub trait Renderer {
     fn sample_target_region(&self, _src: &Rect) -> Option<crate::draw::texture::Texture<'static>> {
         unimplemented!("Renderer::sample_target_region not implemented for this backend")
     }
+
+    /// Hand the closure a mutable `Texture` view over physical-pixel
+    /// framebuffer bytes inside `src`, skipping the alloc-and-blit-back
+    /// round-trip that `sample_target_region` + `draw(Blit)` would do.
+    /// Returns `true` when the closure ran. Default panics so a missing
+    /// override is loud.
+    fn modify_target_region(
+        &mut self,
+        _src: &Rect,
+        _f: &mut dyn FnMut(&mut crate::draw::texture::Texture),
+    ) -> bool {
+        unimplemented!("Renderer::modify_target_region not implemented for this backend")
+    }
 }
 
 #[cfg(test)]

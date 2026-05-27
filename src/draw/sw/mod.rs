@@ -519,6 +519,44 @@ impl Renderer for SwRenderer<'_> {
         Some(tex)
     }
 
+    fn modify_target_region(
+        &mut self,
+        src: &Rect,
+        f: &mut dyn FnMut(&mut crate::draw::texture::Texture),
+    ) -> bool {
+        use crate::draw::texture::{TexBuf, Texture};
+        let (sx0, sy0, sx1, sy1) = self.viewport.rect_to_physical_pixel_bounds(*src);
+        let target_w = self.target.width as i32;
+        let target_h = self.target.height as i32;
+        let cx0 = sx0.max(0);
+        let cy0 = sy0.max(0);
+        let cx1 = sx1.min(target_w);
+        let cy1 = sy1.min(target_h);
+        if cx1 <= cx0 || cy1 <= cy0 {
+            return false;
+        }
+        let bpp = self.target.format.bytes_per_pixel();
+        let target_stride = self.target.stride;
+        let off_start = cy0 as usize * target_stride + cx0 as usize * bpp;
+        // `(row_h - 1) * stride + row_w * bpp` so the slice ends at
+        // the rect's last pixel, not the last full stride row — the
+        // gap past `width` per row is shared with neighbouring
+        // entities and must stay outside our borrow.
+        let row_w = (cx1 - cx0) as u16;
+        let row_h = (cy1 - cy0) as u16;
+        let view_bytes = (row_h as usize - 1) * target_stride + row_w as usize * bpp;
+        let buf = &mut self.target.buf.as_mut_slice()[off_start..off_start + view_bytes];
+        let mut view = Texture {
+            buf: TexBuf::Mut(buf),
+            width: row_w,
+            height: row_h,
+            format: self.target.format,
+            stride: target_stride,
+        };
+        f(&mut view);
+        true
+    }
+
     fn read_target_region(&self, src: &Rect, dst: &mut crate::draw::texture::Texture) {
         // Caller may pass a logical-sized dst; clipping to the
         // overlap avoids stretched top-left samples on HiDPI.
@@ -1435,5 +1473,45 @@ mod tests {
         let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
         let backend = SwRenderer::new(tex);
         assert!(Renderer::supports_offscreen(&backend));
+    }
+
+    /// View `stride` must equal the framebuffer's so writing every
+    /// pixel of the borrowed view hits exactly the rect's pixels in
+    /// the underlying buffer.
+    #[test]
+    fn modify_target_region_writes_exact_rect() {
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let rect = Rect::new(
+            Fixed::from_int(4),
+            Fixed::from_int(4),
+            Fixed::from_int(6),
+            Fixed::from_int(5),
+        );
+        let ran = backend.modify_target_region(&rect, &mut |view| {
+            assert_eq!(view.width, 6);
+            assert_eq!(view.height, 5);
+            assert_eq!(view.stride, 16 * 4);
+            for y in 0..view.height as i32 {
+                for x in 0..view.width as i32 {
+                    view.set_pixel(x, y, &Color::rgb(255, 128, 64));
+                }
+            }
+        });
+        assert!(ran);
+
+        let target = &backend.target;
+        for py in 0..16i32 {
+            for px in 0..16i32 {
+                let p = target.get_pixel(px, py);
+                let in_rect = (4..10).contains(&px) && (4..9).contains(&py);
+                if in_rect {
+                    assert_eq!((p.r, p.g, p.b), (255, 128, 64), "in-rect ({px},{py})");
+                } else {
+                    assert_eq!((p.r, p.g, p.b), (0, 0, 0), "outside-rect ({px},{py})");
+                }
+            }
+        }
     }
 }
