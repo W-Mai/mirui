@@ -1,4 +1,4 @@
-use crate::types::Rect;
+use crate::types::{Fixed, Rect};
 
 use super::command::DrawCommand;
 use super::texture::ColorFormat;
@@ -53,6 +53,21 @@ pub trait Renderer {
         _f: &mut dyn FnMut(&mut crate::draw::texture::Texture),
     ) -> bool {
         unimplemented!("Renderer::modify_target_region not implemented for this backend")
+    }
+
+    /// Whether this backend implements `scroll_target_region`. The
+    /// dirty walker checks this before emitting a `RegionShift`.
+    fn supports_scroll_blit(&self) -> bool {
+        false
+    }
+
+    /// Shift `area`'s pixels by `(dx, dy)` *logical* pixels (memmove,
+    /// no draw, no flush). Pixels evicted from `area` are dropped; the
+    /// caller repaints the newly exposed strip(s). Default panics;
+    /// backends opt in by overriding both this and
+    /// `supports_scroll_blit()`.
+    fn scroll_target_region(&mut self, _area: &Rect, _dx: Fixed, _dy: Fixed) {
+        unimplemented!("Renderer::scroll_target_region not implemented for this backend")
     }
 }
 
