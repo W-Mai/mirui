@@ -158,11 +158,31 @@ pub fn set_position(
     x: impl Into<crate::types::Fixed>,
     y: impl Into<crate::types::Fixed>,
 ) {
+    set_position_inner(world, entity, x.into(), y.into(), true);
+}
+
+/// Like [`set_position`] but skips the `Dirty` mark. Use when the
+/// entity's pixels are about to be moved by something else (e.g. an
+/// enclosing scroll container's self-blit) so a redundant redraw is
+/// undesirable.
+pub fn set_position_quiet(
+    world: &mut crate::ecs::World,
+    entity: crate::ecs::Entity,
+    x: impl Into<crate::types::Fixed>,
+    y: impl Into<crate::types::Fixed>,
+) {
+    set_position_inner(world, entity, x.into(), y.into(), false);
+}
+
+fn set_position_inner(
+    world: &mut crate::ecs::World,
+    entity: crate::ecs::Entity,
+    x: crate::types::Fixed,
+    y: crate::types::Fixed,
+    mark_dirty: bool,
+) {
     use crate::types::{Dimension, Fixed, Rect};
     use dirty::{Dirty, PrevRect};
-
-    let x = x.into();
-    let y = y.into();
 
     if let Some(style) = world.get::<Style>(entity) {
         let l = &style.layout;
@@ -178,7 +198,7 @@ pub fn set_position(
             w: old_rect.w,
             h: old_rect.h,
         };
-        if old_rect.to_px() != new_rect.to_px() {
+        if old_rect.to_px() != new_rect.to_px() && mark_dirty {
             let (px, py, pw, ph) = old_rect.to_px();
             let axis_old = Rect::new(px, py, pw, ph);
             let merged = match world.get::<PrevRect>(entity) {
@@ -192,5 +212,7 @@ pub fn set_position(
         style.layout.left = Dimension::Px(x);
         style.layout.top = Dimension::Px(y);
     }
-    world.insert(entity, Dirty);
+    if mark_dirty {
+        world.insert(entity, Dirty);
+    }
 }

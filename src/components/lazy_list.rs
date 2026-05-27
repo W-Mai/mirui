@@ -118,21 +118,33 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
     let mut new_bindings = ctx.bound_indices;
     let mut any_changed = false;
     let pool_size = ctx.pool_size as usize;
-    for (i, slot) in ctx.items.iter().enumerate().take(pool_size) {
+    if pool_size == 0 {
+        return false;
+    }
+    // Ring-buffer mapping `slot[target % pool_size] = target` so a
+    // one-row scroll only rebinds one slot; the rest keep their
+    // content and only their layout position moves.
+    for i in 0..pool_size {
         let target = ctx.visible_start + i as u32;
         if target >= ctx.item_count {
             continue;
         }
-        if new_bindings[i] != target {
-            (ctx.binder)(world, *slot, target);
-            new_bindings[i] = target;
+        let slot_idx = (target as usize) % pool_size;
+        let slot = ctx.items[slot_idx];
+        let rebound = new_bindings[slot_idx] != target;
+        if rebound {
+            (ctx.binder)(world, slot, target);
+            new_bindings[slot_idx] = target;
             any_changed = true;
         }
-        // Reposition the slot. Children with absolute layout fall through
-        // this; non-absolute children would ignore set_position — the
-        // user is responsible for laying the pool out absolutely.
+        // Reposition-only slots ride the container's self-blit; only
+        // rebound slots need a Dirty redraw at their new position.
         let y = ctx.item_height * Fixed::from_int(target as i32);
-        crate::widget::set_position(world, *slot, Fixed::ZERO, y);
+        if rebound {
+            crate::widget::set_position(world, slot, Fixed::ZERO, y);
+        } else {
+            crate::widget::set_position_quiet(world, slot, Fixed::ZERO, y);
+        }
     }
     if let Some(pool) = world.get_mut::<LazyListPool>(entity) {
         pool.bound_indices = new_bindings;
@@ -154,14 +166,23 @@ pub fn lazy_list_system(world: &mut World) {
             .get::<LazyList>(entity)
             .map(|l| l.visible_start)
             .unwrap_or(u32::MAX);
-        if prev_start == ctx.visible_start
-            && ctx
-                .bound_indices
-                .iter()
-                .enumerate()
-                .all(|(i, &bound)| bound == ctx.visible_start + i as u32)
-        {
-            continue;
+        let pool_size = ctx.pool_size as usize;
+        if prev_start == ctx.visible_start && pool_size > 0 {
+            let mut all_bound = true;
+            for i in 0..pool_size {
+                let target = ctx.visible_start + i as u32;
+                if target >= ctx.item_count {
+                    continue;
+                }
+                let slot_idx = (target as usize) % pool_size;
+                if ctx.bound_indices[slot_idx] != target {
+                    all_bound = false;
+                    break;
+                }
+            }
+            if all_bound {
+                continue;
+            }
         }
         if apply_bindings(world, entity, ctx) {
             world.insert(entity, Dirty);
@@ -279,11 +300,11 @@ mod tests {
         );
         lazy_list_system(&mut world);
 
-        // Slot 0 was bound to 0; target 1; rebind.
-        // Slot 1 → 2; rebind. ... slot 4 → 5; rebind.
-        // i.e. all 5 slots rebound (the simple non-rotating policy).
+        // After scrolling to visible_start=1 with pool_size=5, only
+        // slot 0 (mapped from target=5) needs rebinding; targets 1..4
+        // still occupy their original slots.
         let trace = &world.resource::<BindTrace>().unwrap().0;
-        assert_eq!(trace.len(), 5);
-        assert_eq!(trace, &alloc::vec![1u32, 2, 3, 4, 5]);
+        assert_eq!(trace.len(), 1, "ring buffer rebinds one slot per row scrolled, got {trace:?}");
+        assert_eq!(trace, &alloc::vec![5u32]);
     }
 }
