@@ -15,6 +15,17 @@ pub struct ScrollOffset {
     pub y: Fixed,
 }
 
+/// Per-frame scroll delta — accumulated by the input / inertia
+/// systems each time `ScrollOffset` moves; consumed by the dirty
+/// walker to emit a `ScrollOp` (framebuffer self-blit) instead of
+/// re-rendering the whole scroll container. Cleared at the end of
+/// every frame whether the renderer used it or not.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ScrollDelta {
+    pub dx: Fixed,
+    pub dy: Fixed,
+}
+
 /// Scroll configuration
 pub struct ScrollConfig {
     pub direction: ScrollAxis,

@@ -1,9 +1,21 @@
-use super::components::{ScrollAxis, ScrollConfig, ScrollOffset};
+use super::components::{ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset};
 use crate::anim::{BOUNCY, SMOOTH, Spring};
 use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
 use crate::event::input::InputEvent;
 use crate::types::Fixed;
+
+fn accumulate_scroll_delta(world: &mut World, target: Entity, dx: Fixed, dy: Fixed) {
+    if dx == Fixed::ZERO && dy == Fixed::ZERO {
+        return;
+    }
+    if let Some(d) = world.get_mut::<ScrollDelta>(target) {
+        d.dx += dx;
+        d.dy += dy;
+    } else {
+        world.insert(target, ScrollDelta { dx, dy });
+    }
+}
 
 /// Scroll drag state resource
 pub struct ScrollDragState {
@@ -181,20 +193,31 @@ pub fn scroll_system(
                 }
             };
 
+            let mut applied_dx = Fixed::ZERO;
+            let mut applied_dy = Fixed::ZERO;
             if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
                 match dir {
                     ScrollAxis::Vertical => {
-                        scroll.y += bound(scroll.y, -dy, max_y);
+                        let d = bound(scroll.y, -dy, max_y);
+                        scroll.y += d;
+                        applied_dy = d;
                     }
                     ScrollAxis::Horizontal => {
-                        scroll.x += bound(scroll.x, -dx, max_x);
+                        let d = bound(scroll.x, -dx, max_x);
+                        scroll.x += d;
+                        applied_dx = d;
                     }
                     ScrollAxis::Both => {
-                        scroll.x += bound(scroll.x, -dx, max_x);
-                        scroll.y += bound(scroll.y, -dy, max_y);
+                        let dxa = bound(scroll.x, -dx, max_x);
+                        let dya = bound(scroll.y, -dy, max_y);
+                        scroll.x += dxa;
+                        scroll.y += dya;
+                        applied_dx = dxa;
+                        applied_dy = dya;
                     }
                 }
             }
+            accumulate_scroll_delta(world, target, applied_dx, applied_dy);
             world.insert(target, crate::widget::dirty::Dirty);
 
             let dir = world
@@ -302,13 +325,25 @@ pub fn scroll_system(
                     .get::<ScrollConfig>(target)
                     .map(|c| c.direction)
                     .unwrap_or(ScrollAxis::Vertical);
+                let mut applied_dx = Fixed::ZERO;
+                let mut applied_dy = Fixed::ZERO;
                 if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
                     match axis {
-                        ScrollAxis::Vertical => scroll.y -= offset,
-                        ScrollAxis::Horizontal => scroll.x -= offset,
-                        ScrollAxis::Both => scroll.y -= offset,
+                        ScrollAxis::Vertical => {
+                            scroll.y -= offset;
+                            applied_dy = -offset;
+                        }
+                        ScrollAxis::Horizontal => {
+                            scroll.x -= offset;
+                            applied_dx = -offset;
+                        }
+                        ScrollAxis::Both => {
+                            scroll.y -= offset;
+                            applied_dy = -offset;
+                        }
                     }
                 }
+                accumulate_scroll_delta(world, target, applied_dx, applied_dy);
                 world.insert(target, crate::widget::dirty::Dirty);
             }
         }
@@ -503,23 +538,28 @@ pub fn scroll_inertia_system(world: &mut World) {
     };
 
     let mut changed = false;
+    let mut applied_dx = Fixed::ZERO;
+    let mut applied_dy = Fixed::ZERO;
     if let Some(scroll) = world.get_mut::<ScrollOffset>(target) {
         if let Some(nx) = new_x {
             // >=1px gate would skip spring-tail sub-pixel drift, leaving
             // ScrollOffset and screen out of sync at settle.
             if nx != scroll.x {
                 changed = true;
+                applied_dx = nx - scroll.x;
             }
             scroll.x = nx;
         }
         if let Some(ny) = new_y {
             if ny != scroll.y {
                 changed = true;
+                applied_dy = ny - scroll.y;
             }
             scroll.y = ny;
         }
     }
     if changed {
+        accumulate_scroll_delta(world, target, applied_dx, applied_dy);
         world.insert(target, crate::widget::dirty::Dirty);
     }
 
@@ -747,6 +787,76 @@ mod tests {
             found,
             Some(target),
             "wheel scroll target lookup must resolve a vertical scroller from the hit entity",
+        );
+    }
+
+    #[test]
+    fn drag_accumulates_scroll_delta_across_frames() {
+        use crate::ecs::World;
+        use crate::event::input::InputEvent;
+        use crate::event::scroll::components::{
+            ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset,
+        };
+        use crate::widget::{ComputedRect, Widget};
+        let mut world = World::new();
+        world.insert_resource(ScrollDragState::default());
+        let target = world.spawn();
+        world.insert(target, Widget);
+        world.insert(
+            target,
+            ComputedRect(crate::types::Rect::new(0, 0, 128, 100)),
+        );
+        world.insert(
+            target,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(50),
+            },
+        );
+        world.insert(
+            target,
+            ScrollConfig {
+                direction: ScrollAxis::Vertical,
+                elastic: false,
+                content_height: Fixed::from_int(500),
+                content_width: Fixed::ZERO,
+            },
+        );
+        scroll_system(
+            &mut world,
+            target,
+            &InputEvent::PointerDown {
+                id: 0,
+                x: Fixed::from_int(64),
+                y: Fixed::from_int(50),
+            },
+            128,
+            100,
+        );
+        let mut y = 50;
+        for _ in 0..4 {
+            y += 5;
+            scroll_system(
+                &mut world,
+                target,
+                &InputEvent::PointerMove {
+                    id: 0,
+                    x: Fixed::from_int(64),
+                    y: Fixed::from_int(y),
+                },
+                128,
+                100,
+            );
+        }
+        let delta = world
+            .get::<ScrollDelta>(target)
+            .copied()
+            .unwrap_or_default();
+        assert_eq!(delta.dx, Fixed::ZERO);
+        assert!(
+            delta.dy.to_int().abs() >= 19,
+            "expected |dy| ≈ 20, got {:?}",
+            delta.dy
         );
     }
 }
