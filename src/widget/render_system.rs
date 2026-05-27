@@ -997,6 +997,23 @@ fn scan_subtree_dirty(
 pub fn collect_dirty_region(world: &mut World, root: Entity, transform: &Viewport) -> Option<Rect> {
     let (logical_w, logical_h) = transform.logical_size();
 
+    // Idle fast path: no Dirty marker anywhere in the world means
+    // nothing scheduled a redraw this frame. The entire 5-step walk
+    // (build_layout_tree → compute_layout → collect_entities →
+    // write_computed_rects → collect_dirty_walk, ~2.5 ms on
+    // ESP32-C3) would just re-derive last frame's outputs and
+    // return None at the end. Bail at the top instead.
+    //
+    // Systems that mutate visible state outside Dirty (rare; the
+    // only known case is `set_position` from animation systems)
+    // are responsible for inserting Dirty themselves — animation
+    // helpers in this crate already do.
+    use super::dirty::Dirty;
+    let dirty_count = world.storage::<Dirty>().map(|s| s.len()).unwrap_or(0);
+    if dirty_count == 0 {
+        return None;
+    }
+
     let mut layout_tree =
         crate::trace_span!("dirty.build_tree", { build_layout_tree(world, root)? });
 
@@ -3620,6 +3637,105 @@ mod offscreen_render_check {
         for px in tex_ref.buf.as_slice().chunks_exact(4) {
             assert_eq!(px[3], 0, "alpha-clear buffer pixel must stay alpha=0");
         }
+    }
+
+    /// Theme swap while a subtree is `Hidden`, then unhide.
+    /// `mark_subtree_dirty` skips Hidden, so the offscreen descendant
+    /// inside the hidden subtree never receives Dirty. When the
+    /// subtree is later unhidden, the dirty walker must still see
+    /// enough Dirty markers in the freshly-revealed subtree to bump
+    /// every OffscreenGeneration inside it; otherwise the cached
+    /// buffer keeps painting in the previous theme's colours.
+    #[test]
+    fn unhide_after_global_event_invalidates_offscreen_descendants() {
+        use crate::widget::Hidden;
+        use crate::widget::dirty::{Dirty, mark_subtree_dirty};
+        use crate::widget::offscreen::OffscreenGeneration;
+
+        let mut world = make_world();
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let tab_content = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(64)),
+                    height: Dimension::Px(Fixed::from_int(64)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        let offscreen_grandchild = spawn(
+            &mut world,
+            Some(tab_content),
+            Style {
+                bg_color: Some(Color::rgb(64, 128, 255).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(32)),
+                    height: Dimension::Px(Fixed::from_int(32)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(offscreen_grandchild, OffscreenRender::default());
+
+        // Frame 1 — initial render, generation gets to 1.
+        world.insert(offscreen_grandchild, Dirty);
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let _ = super::collect_dirty_region(&mut world, root, &viewport);
+        let g0 = world
+            .get::<OffscreenGeneration>(offscreen_grandchild)
+            .map(|g| g.0)
+            .unwrap_or(0);
+        assert_eq!(g0, 1, "first dirty walk must bump generation 0 → 1");
+
+        // Hide the tab and clear any leftover Dirty in the subtree
+        // (mirrors `tab_pages_system`'s hide branch).
+        world.insert(tab_content, Hidden);
+        crate::widget::dirty::clear_subtree_dirty(&mut world, tab_content);
+
+        // Global event: theme swap walks from `root`, hitting Hidden
+        // along the way. The offscreen grandchild does not get Dirty.
+        mark_subtree_dirty(&mut world, root);
+        assert!(
+            world.get::<Dirty>(offscreen_grandchild).is_none(),
+            "Hidden subtree's descendants must not be Dirty after \
+             mark_subtree_dirty (this part is the existing optimisation)"
+        );
+
+        // Unhide: emulate the (false, true) branch of
+        // `tab_pages_system::apply_visibility`. Marking the whole
+        // subtree (rather than only `tab_content`) is what makes
+        // descendants' caches invalidate.
+        world.remove::<Hidden>(tab_content);
+        mark_subtree_dirty(&mut world, tab_content);
+
+        // Run the walker and check the offscreen generation has
+        // advanced — the cached buffer must be invalidated so the
+        // next render misses cache and repaints in the new theme.
+        let _ = super::collect_dirty_region(&mut world, root, &viewport);
+        let g1 = world
+            .get::<OffscreenGeneration>(offscreen_grandchild)
+            .map(|g| g.0)
+            .unwrap_or(0);
+        assert!(
+            g1 > g0,
+            "OffscreenGeneration must bump on unhide so the cache \
+             misses; got {g1}, frame-1 was {g0}"
+        );
     }
 }
 

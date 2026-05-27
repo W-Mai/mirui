@@ -11,10 +11,30 @@ use alloc::vec::Vec;
 pub struct Dirty;
 
 pub fn mark_subtree_dirty(world: &mut World, root: Entity) {
+    use crate::widget::{Children, Hidden};
+    let mut stack = alloc::vec![root];
+    while let Some(e) = stack.pop() {
+        // Skip Hidden: the walker won't descend into it, so a marker
+        // placed here would stick forever and defeat the empty-storage
+        // fast path in `collect_dirty_region`.
+        if world.get::<Hidden>(e).is_some() {
+            continue;
+        }
+        world.insert(e, Dirty);
+        if let Some(children) = world.get::<Children>(e) {
+            stack.extend(children.0.iter().copied());
+        }
+    }
+}
+
+/// Sweep `Dirty` from the subtree at `root`. Call before hiding the
+/// subtree so the marker doesn't strand once the walker stops
+/// descending through it.
+pub fn clear_subtree_dirty(world: &mut World, root: Entity) {
     use crate::widget::Children;
     let mut stack = alloc::vec![root];
     while let Some(e) = stack.pop() {
-        world.insert(e, Dirty);
+        world.remove::<Dirty>(e);
         if let Some(children) = world.get::<Children>(e) {
             stack.extend(children.0.iter().copied());
         }
