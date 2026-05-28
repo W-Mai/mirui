@@ -1,5 +1,4 @@
 use alloc::boxed::Box;
-use alloc::vec::Vec;
 use core::any::{Any, TypeId};
 use hashbrown::HashMap;
 
@@ -35,7 +34,7 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
 pub struct World {
     allocator: EntityAllocator,
     storages: HashMap<TypeId, Box<dyn ComponentStorage>>,
-    resources: Vec<(TypeId, Box<dyn Any>)>,
+    resources: HashMap<TypeId, Box<dyn Any>>,
 }
 
 impl Default for World {
@@ -43,7 +42,7 @@ impl Default for World {
         Self {
             allocator: EntityAllocator::new(),
             storages: HashMap::new(),
-            resources: Vec::new(),
+            resources: HashMap::new(),
         }
     }
 }
@@ -128,27 +127,18 @@ impl World {
     }
 
     pub fn insert_resource<T: 'static>(&mut self, value: T) {
-        let type_id = TypeId::of::<T>();
-        if let Some(pos) = self.resources.iter().position(|(id, _)| *id == type_id) {
-            self.resources[pos].1 = Box::new(value);
-        } else {
-            self.resources.push((type_id, Box::new(value)));
-        }
+        self.resources.insert(TypeId::of::<T>(), Box::new(value));
     }
 
     pub fn resource<T: 'static>(&self) -> Option<&T> {
-        let type_id = TypeId::of::<T>();
         self.resources
-            .iter()
-            .find(|(id, _)| *id == type_id)
-            .and_then(|(_, v)| v.downcast_ref::<T>())
+            .get(&TypeId::of::<T>())
+            .and_then(|v| v.downcast_ref::<T>())
     }
 
     pub fn resource_mut<T: 'static>(&mut self) -> Option<&mut T> {
-        let type_id = TypeId::of::<T>();
         self.resources
-            .iter_mut()
-            .find(|(id, _)| *id == type_id)
-            .and_then(|(_, v)| v.downcast_mut::<T>())
+            .get_mut(&TypeId::of::<T>())
+            .and_then(|v| v.downcast_mut::<T>())
     }
 }
