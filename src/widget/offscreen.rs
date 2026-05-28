@@ -289,7 +289,7 @@ impl WidgetTextureAccess for World {
 /// Walk every `WidgetTextureRef` and reconcile each referenced
 /// source's `OffscreenRender` state. Auto-add when a source gains
 /// its first ref; auto-remove when the last ref drops.
-#[crate::system(order = PRE_RENDER)]
+#[crate::system(order = PRE_RENDER, expect = [WidgetTextureRef, OffscreenAutoAdded])]
 pub fn maintain_widget_texture_refs(world: &mut World) {
     use alloc::vec::Vec;
     use hashbrown::HashMap;

@@ -72,7 +72,7 @@ impl MotionComponent for AnimateSwitchBgT {
     }
 }
 
-#[crate::system(order = ANIMATION)]
+#[crate::system(order = ANIMATION, expect = AnimateSwitchBgT)]
 pub(crate) fn animate_switch_bg_t_system(world: &mut World) {
     run_motion::<AnimateSwitchBgT>(world, |world, entity, value| {
         if let Some(t) = world.get_mut::<SwitchBgT>(entity) {
@@ -95,7 +95,7 @@ impl MotionComponent for AnimateThumbX {
     }
 }
 
-#[crate::system(order = ANIMATION)]
+#[crate::system(order = ANIMATION, expect = AnimateThumbX)]
 pub(crate) fn animate_thumb_x_system(world: &mut World) {
     run_motion::<AnimateThumbX>(world, |world, entity, value| {
         if let Some(x) = world.get_mut::<AnimatedThumbX>(entity) {
@@ -121,7 +121,7 @@ fn on_thumb_x(rect: &Rect) -> Fixed {
 
 // Seed AnimatedThumbX once ComputedRect is available (post-layout).
 // Pre-layout we don't know rect yet, so attach can't compute it.
-#[crate::system(order = ANIMATION)]
+#[crate::system(order = ANIMATION, expect = Switch)]
 pub(crate) fn switch_init_system(world: &mut World) {
     let entities: alloc::vec::Vec<Entity> = world.query::<Switch>().collect();
     for e in entities {

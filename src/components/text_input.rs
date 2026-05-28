@@ -259,7 +259,7 @@ fn text_input_render(
 }
 
 /// Flip `CursorBlinkPhase` every 500 ms and Dirty every focused TextInput.
-#[crate::system(order = ANIMATION)]
+#[crate::system(order = ANIMATION, expect = TextInput)]
 pub fn cursor_blink_system(world: &mut World) {
     let now_ms = match world.resource::<crate::ecs::MonoClock>() {
         Some(c) => (c.clock)() / 1_000_000,

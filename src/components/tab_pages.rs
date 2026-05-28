@@ -24,7 +24,7 @@ struct TabIndicatorTween {
 
 const INDICATOR_TWEEN_MS: u16 = 220;
 
-#[crate::system(order = TAB_PAGES)]
+#[crate::system(order = TAB_PAGES, expect = TabBar)]
 pub fn tab_pages_system(world: &mut World) {
     drive_indicator_tweens(world);
     detect_selection_changes(world);

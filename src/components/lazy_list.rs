@@ -155,7 +155,7 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
     any_changed
 }
 
-#[crate::system(order = LAZY_LIST)]
+#[crate::system(order = LAZY_LIST, expect = LazyList)]
 pub fn lazy_list_system(world: &mut World) {
     let lists: Vec<Entity> = world.query::<LazyList>().collect();
     for entity in lists {
