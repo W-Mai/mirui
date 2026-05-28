@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.1] - 2026-05-29
+
+Bug-fix release for scroll-blit idle short-circuits, `LastDirtyRegions` idle-frame semantics, and regression coverage for negative sub-pixel and nested scroll.
+
+### Added
+
+- **Regression tests for negative sub-pixel and nested scroll** (`src/widget/render_system.rs`): three-frame -0.4 accumulation pinning residue against an explicitly-computed Q24.8 reference, plus a HiDPI viewport variant covering that the walker quantises in logical-pixel space regardless of physical scale. Nested scroll gains a pixel-equivalence test that applies inner + outer shifts in DFS post-order and checks every output row matches a fresh full-repaint of the composed source mapping.
+
+### Changed
+
+- **`App::render_dirty` writes `LastDirtyRegions::default()` on idle frames** (`src/app.rs`): idle frames previously skipped the resource write, leaving the resource at whatever the last non-idle frame published. Consumers that read it as "shifts produced last frame" — notably the cursor feedback short-circuit gate added in this release — would otherwise see a stale shift signal forever, defeating the gate's optimisation once any scroll happened. The resource now consistently means "plan from the most recently completed frame".
+
+### Fixed
+
+- **`cursor_feedback_system` short-circuit recomputes when layout shifts under a static pointer** (`src/feedback/cursor.rs`): the pointer-unchanged short-circuit returned early on cached `(x, y, down)` even when entities under the cursor had moved between frames. A magnetic-rect overlay therefore froze on the previous target's rect when scroll-blit shifted children below. New `world_has_layout_motion` gate bypasses the short-circuit when the previous frame published any `RegionShift` (via `LastDirtyRegions`) or any entity carries pending `ScrollDelta`. Both signals are O(1) on hash-indexed storages.
+- **`lazy_list_system` clears stale slot bindings on shrink and over-sized pools** (`src/components/lazy_list.rs`): the idle short-circuit (visible_start unchanged, all targets bound) skipped cleanup, so two cases left slots painting wrong content — `pool_size > item_count` at startup (slots beyond `item_count` never bound and never hidden) and `item_count` shrinking under live bindings (slots whose binding now points past the live tail). New `clear_extra_slots` sweep runs before the idle short-circuit; `apply_bindings` removes `Hidden` from slots it reuses when the data set grows back.
+
 ## [0.22.0] - 2026-05-29
 
 Software-render dispatch overhead reduction. Four independent paths cut per-entity and per-system work in the dirty + render flow: hash-indexed ECS lookups, an opt-in component filter on `View`, a scheduler skip hint on `System`, and a one-frame layout cache shared between the dirty and render walkers.
