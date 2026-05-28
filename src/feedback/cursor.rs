@@ -3,11 +3,13 @@ use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::PointerCursor;
 use crate::event::hit_test::hit_test;
+use crate::event::scroll::ScrollDelta;
 use crate::feedback::{
     CursorFeedbackMode, CursorVisual, InputFeedback, OverlayCursor, write_overlay_layout,
 };
 use crate::types::{Color, Fixed, Rect};
 use crate::widget::dirty::Dirty;
+use crate::widget::render_system::LastDirtyRegions;
 use crate::widget::view::{View, ViewCtx};
 use crate::widget::{Children, ComputedRect, IgnoreHitTest, Parent, Style, Widget, WidgetRoot};
 
@@ -73,6 +75,14 @@ fn spawn_overlay_cursor(world: &mut World, root: Entity, initial_rect: Rect) -> 
     entity
 }
 
+fn world_has_layout_motion(world: &World) -> bool {
+    let shifted = world
+        .resource::<LastDirtyRegions>()
+        .is_some_and(|r| !r.0.shifts.is_empty());
+    let pending_scroll = world.has_any_by_id(core::any::TypeId::of::<ScrollDelta>());
+    shifted || pending_scroll
+}
+
 #[crate::system(order = NORMAL)]
 pub fn cursor_feedback_system(world: &mut World) {
     let Some(mut feedback) = world.resource::<InputFeedback>().copied() else {
@@ -87,10 +97,20 @@ pub fn cursor_feedback_system(world: &mut World) {
     // event_seq doesn't tick on Move events, so it can't gate this
     // whole system; compare the raw pointer fields instead and skip
     // the ~3 ms hit_test in `current_visual` when nothing changed.
+    //
+    // The pointer-unchanged check alone misses one case: cursor stays
+    // put while content under it scrolls or otherwise moves. The
+    // already-cached `target_rect` then references entities whose
+    // `ComputedRect` shifted, leaving the magnetic overlay frozen on
+    // a position that no longer corresponds to anything. Force
+    // recompute when the previous frame moved entities (any
+    // `RegionShift` published) or when scroll containers carry a
+    // pending `ScrollDelta` this frame.
     if feedback.cursor.entity.is_some()
         && feedback.cursor.current.x == cursor.x
         && feedback.cursor.current.y == cursor.y
         && feedback.cursor.current.down == cursor.down
+        && !world_has_layout_motion(world)
     {
         return;
     }
@@ -324,6 +344,94 @@ mod tests {
         assert!(
             world.get::<Dirty>(entity).is_some(),
             "move should re-mark dirty"
+        );
+    }
+
+    #[test]
+    fn cursor_system_recomputes_when_layout_shifts_under_static_pointer() {
+        let mut world = make_world();
+        let root = root_with_target(&mut world);
+        world.insert_resource(PointerCursor {
+            x: Fixed::from_int(40),
+            y: Fixed::from_int(40),
+            down: false,
+            event_seq: 1,
+        });
+        // Configure MagneticRect mode so the overlay tracks target_rect.
+        let mut fb = world.resource::<InputFeedback>().copied().unwrap();
+        fb.cursor.mode = CursorFeedbackMode::MagneticRect;
+        world.insert_resource(fb);
+        cursor_feedback_system(&mut world);
+        let entity = world
+            .resource::<InputFeedback>()
+            .unwrap()
+            .cursor
+            .entity
+            .expect("spawned");
+        let cached_target = world
+            .resource::<InputFeedback>()
+            .unwrap()
+            .cursor
+            .current
+            .target_rect;
+        assert!(
+            cached_target.is_some(),
+            "magnetic rect should latch onto target"
+        );
+        world.remove::<Dirty>(entity);
+
+        // Move the target entity under a static pointer (simulates a
+        // scroll-blit shifting children below). Without the layout-
+        // motion gate, the short-circuit returns on stale (x, y, down)
+        // and leaves the magnetic overlay frozen on the old position.
+        let target = world
+            .get::<Children>(root)
+            .map(|c| c.0[0])
+            .expect("child target");
+        let prev_rect = world.get::<ComputedRect>(target).map(|r| r.0).unwrap();
+        world.insert(
+            target,
+            ComputedRect(crate::types::Rect::new(
+                prev_rect.x,
+                prev_rect.y + Fixed::from_int(20),
+                prev_rect.w,
+                prev_rect.h,
+            )),
+        );
+
+        // Layout-motion signal that triggers the gate: a published
+        // shift on the previous frame.
+        use crate::widget::dirty::{DirtyRegions, RegionShift};
+        world.insert_resource(crate::widget::render_system::LastDirtyRegions(
+            DirtyRegions {
+                rects: alloc::vec![],
+                shifts: alloc::vec![RegionShift {
+                    area: crate::types::Rect::new(
+                        Fixed::ZERO,
+                        Fixed::ZERO,
+                        Fixed::from_int(128),
+                        Fixed::from_int(128),
+                    ),
+                    dx: Fixed::ZERO,
+                    dy: Fixed::from_int(-4),
+                }],
+            },
+        ));
+        cursor_feedback_system(&mut world);
+        let new_target = world
+            .resource::<InputFeedback>()
+            .unwrap()
+            .cursor
+            .current
+            .target_rect;
+        assert_eq!(
+            new_target.map(|r| r.y),
+            Some(prev_rect.y + Fixed::from_int(20)),
+            "magnetic rect must follow shifted target, not stay on cached y",
+        );
+        assert!(
+            world.get::<Dirty>(entity).is_some(),
+            "overlay must Dirty so its position updates this frame",
         );
     }
 
