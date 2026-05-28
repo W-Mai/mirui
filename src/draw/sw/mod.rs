@@ -46,6 +46,11 @@ impl<'a> SwRenderer<'a> {
 }
 
 impl<'a> SwRenderer<'a> {
+    /// Each `DrawCommand` arm is `#[inline(never)]` so `Renderer::draw`
+    /// stays small enough to fit ESP32-C3's 16 KiB ICache. Letting LLVM
+    /// inline the full dispatch chain produced a 20 KiB monolith that
+    /// guaranteed cache miss every frame.
+    #[inline(never)]
     fn draw_transformed(&mut self, cmd: &DrawCommand, clip: &Rect, tf: &Transform) {
         let vp = self.viewport.as_transform();
         let phys_tf = vp.compose(tf);
@@ -134,6 +139,7 @@ impl<'a> Canvas for SwRenderer<'a> {
 }
 
 impl SwRenderer<'_> {
+    #[inline(never)]
     fn dispatch_fill_quad(
         &mut self,
         q: &[Point; 4],
@@ -167,6 +173,7 @@ impl SwRenderer<'_> {
         quad_perf::add_fill(quad_perf::now().wrapping_sub(t0));
     }
 
+    #[inline(never)]
     fn dispatch_blit_quad(&mut self, q: &[Point; 4], texture: &Texture, clip: &Rect) {
         #[cfg(feature = "perf")]
         let t0 = quad_perf::now();
@@ -182,6 +189,7 @@ impl SwRenderer<'_> {
         quad_perf::add_blit(quad_perf::now().wrapping_sub(t0));
     }
 
+    #[inline(never)]
     fn dispatch_border_quad(
         &mut self,
         q: &[Point; 4],
@@ -210,6 +218,7 @@ impl SwRenderer<'_> {
         );
     }
 
+    #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     fn dispatch_fill(
         &mut self,
@@ -232,6 +241,7 @@ impl SwRenderer<'_> {
         }
     }
 
+    #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     fn dispatch_border(
         &mut self,
@@ -255,6 +265,7 @@ impl SwRenderer<'_> {
         }
     }
 
+    #[inline(never)]
     fn dispatch_blit(
         &mut self,
         pos: &Point,
@@ -276,6 +287,7 @@ impl SwRenderer<'_> {
         }
     }
 
+    #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     fn dispatch_label(
         &mut self,
@@ -298,6 +310,7 @@ impl SwRenderer<'_> {
         }
     }
 
+    #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     fn dispatch_line(
         &mut self,
@@ -322,6 +335,7 @@ impl SwRenderer<'_> {
         }
     }
 
+    #[inline(never)]
     #[allow(clippy::too_many_arguments)]
     fn dispatch_arc(
         &mut self,
