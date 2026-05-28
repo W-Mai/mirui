@@ -702,33 +702,60 @@ pub fn render_region(
     renderer: &mut dyn Renderer,
 ) {
     let (logical_w, logical_h) = transform.logical_size();
-
-    let mut layout_tree = crate::trace_span!("render.build_tree", {
+    let mut tree = crate::trace_span!("render.build_tree", {
         match build_layout_tree(world, root) {
             Some(t) => t,
             None => return,
         }
     });
-
     {
         crate::trace_span!("render.compute_layout");
         compute_layout(
-            &mut layout_tree,
+            &mut tree,
             Fixed::ZERO,
             Fixed::ZERO,
             logical_w.into(),
             logical_h.into(),
         );
     }
-
     let mut entities = Vec::new();
     {
         crate::trace_span!("render.collect_entities");
         collect_entities_preorder(world, root, &mut entities);
     }
+    render_region_with(world, &tree, &entities, dirty_rect, renderer);
+}
 
-    // Storage-existence gate so a tree with no effect widgets pays
-    // nothing for the prerender pass: `query` walks even when empty.
+/// Internal cached variant: caller supplies a layout tree + entity
+/// preorder produced earlier in the same frame (typically by the
+/// dirty walker). Skips the build / compute / collect phases.
+///
+/// Caller must guarantee the snapshot was produced in the same frame
+/// against the same `transform` and `root`. Public `render_region` is
+/// the safe entry point — this one is `pub(crate)` and only invoked
+/// from `App::render_dirty`.
+pub(crate) fn render_region_cached(
+    world: &World,
+    snapshot: &LayoutSnapshot,
+    dirty_rect: &Rect,
+    renderer: &mut dyn Renderer,
+) {
+    render_region_with(
+        world,
+        &snapshot.layout_tree,
+        &snapshot.entities,
+        dirty_rect,
+        renderer,
+    );
+}
+
+fn render_region_with(
+    world: &World,
+    layout_tree: &LayoutNode,
+    entities: &[Entity],
+    dirty_rect: &Rect,
+    renderer: &mut dyn Renderer,
+) {
     if world
         .storage::<super::offscreen::WidgetTextureRef>()
         .is_some()
@@ -742,9 +769,9 @@ pub fn render_region(
             crate::trace_span!("render.prerender_sources");
             let mut idx = 0;
             prerender_sources(
-                &layout_tree,
+                layout_tree,
                 world,
-                &entities,
+                entities,
                 &mut idx,
                 renderer,
                 dirty_rect,
@@ -759,9 +786,9 @@ pub fn render_region(
         crate::trace_span!("render.draw_tree");
         let mut idx = 0;
         draw_tree_offset(
-            &layout_tree,
+            layout_tree,
             world,
-            &entities,
+            entities,
             &mut idx,
             renderer,
             dirty_rect,
@@ -839,6 +866,11 @@ struct DirtyBounds {
 /// debug overlays; production code should not depend on it.
 #[derive(Clone, Debug, Default)]
 pub struct LastDirtyRegions(pub DirtyRegions);
+
+pub(crate) struct LayoutSnapshot {
+    pub(crate) layout_tree: LayoutNode,
+    pub(crate) entities: Vec<Entity>,
+}
 
 #[allow(clippy::too_many_arguments)]
 fn collect_dirty_walk(
@@ -1274,6 +1306,11 @@ pub fn collect_dirty_regions(
             }
         }
     }
+
+    world.insert_resource(LayoutSnapshot {
+        layout_tree,
+        entities,
+    });
 
     plan
 }
@@ -4456,6 +4493,105 @@ mod scroll_plan_check {
         let viewport = Viewport::new(128, 128, Fixed::ONE);
         let plan = collect_dirty_regions(&mut world, root, &viewport);
         assert_eq!(plan.shifts.len(), 1, "scroll kept, got {:?}", plan.shifts);
+    }
+
+    #[test]
+    fn dirty_walker_publishes_layout_snapshot_for_render_walker() {
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(64, 64));
+        let child = spawn_widget(&mut world, Some(root), px_style(32, 32));
+        world.insert(child, Dirty);
+
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        assert!(!plan.rects.is_empty(), "child Dirty should produce a rect");
+
+        let snap = world
+            .resource::<LayoutSnapshot>()
+            .expect("dirty walker must publish a LayoutSnapshot");
+        assert_eq!(
+            snap.entities,
+            std::vec![root, child],
+            "snapshot must enumerate the same preorder as render walker would build",
+        );
+        assert_eq!(snap.layout_tree.children.len(), 1);
+    }
+
+    #[test]
+    fn idle_frame_leaves_snapshot_absent() {
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(64, 64));
+        spawn_widget(&mut world, Some(root), px_style(32, 32));
+
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let plan_idle = collect_dirty_regions(&mut world, root, &viewport);
+        assert!(plan_idle.rects.is_empty());
+        assert!(
+            world.resource::<LayoutSnapshot>().is_none(),
+            "no Dirty markers ⇒ no snapshot needed",
+        );
+    }
+
+    #[test]
+    fn render_region_cached_matches_fresh_output() {
+        use crate::draw::command::DrawCommand;
+        use crate::draw::renderer::Renderer;
+
+        struct Recorder(std::vec::Vec<core::mem::Discriminant<DrawCommand<'static>>>);
+        impl Renderer for Recorder {
+            fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
+                let static_cmd: &DrawCommand<'static> = unsafe { core::mem::transmute(cmd) };
+                self.0.push(core::mem::discriminant(static_cmd));
+            }
+            fn flush(&mut self) {}
+        }
+
+        let styled = |w, h| Style {
+            layout: LayoutStyle {
+                width: Dimension::Px(Fixed::from_int(w)),
+                height: Dimension::Px(Fixed::from_int(h)),
+                ..Default::default()
+            },
+            bg_color: Some(crate::widget::theme::ThemedColor::Raw(
+                crate::types::Color::rgb(255, 0, 0),
+            )),
+            ..Default::default()
+        };
+
+        let mut world = World::new();
+        world.insert_resource(crate::widget::view::ViewRegistry::with_builtins());
+        world.insert_resource(crate::widget::theme::Theme::default());
+        let root = spawn_widget(&mut world, None, styled(64, 64));
+        let child = spawn_widget(&mut world, Some(root), styled(32, 32));
+        world.insert(child, Dirty);
+
+        let viewport = Viewport::new(64, 64, Fixed::ONE);
+        let dirty_rect = Rect::new(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(64),
+            Fixed::from_int(64),
+        );
+        let plan = collect_dirty_regions(&mut world, root, &viewport);
+        assert!(!plan.rects.is_empty());
+
+        let snap = world
+            .resource::<LayoutSnapshot>()
+            .expect("snapshot present after dirty walk");
+        let mut cached_out = Recorder(std::vec::Vec::new());
+        render_region_cached(&world, snap, &dirty_rect, &mut cached_out);
+
+        let mut fresh_out = Recorder(std::vec::Vec::new());
+        render_region(&world, root, &viewport, &dirty_rect, &mut fresh_out);
+
+        assert_eq!(
+            cached_out.0, fresh_out.0,
+            "cached and fresh paths must emit the same DrawCommand sequence",
+        );
+        assert!(
+            !cached_out.0.is_empty(),
+            "test must exercise at least one DrawCommand",
+        );
     }
 }
 

@@ -541,13 +541,25 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             // Union into one bbox: a single tree walk is ~3x cheaper than
             // N walks even when the union over-paints the gaps.
             if let Some(union_rect) = plan.rects.iter().copied().reduce(|a, b| a.union(&b)) {
-                render_system::render_region(
-                    &self.world,
-                    root,
-                    &transform,
-                    &union_rect,
-                    &mut renderer,
-                );
+                if let Some(snapshot) = self
+                    .world
+                    .resource::<crate::widget::render_system::LayoutSnapshot>()
+                {
+                    render_system::render_region_cached(
+                        &self.world,
+                        snapshot,
+                        &union_rect,
+                        &mut renderer,
+                    );
+                } else {
+                    render_system::render_region(
+                        &self.world,
+                        root,
+                        &transform,
+                        &union_rect,
+                        &mut renderer,
+                    );
+                }
             }
 
             drop(renderer);
