@@ -596,6 +596,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             return;
         }
 
+        // Idle frame: clear LastDirtyRegions so consumers (cursor
+        // feedback, perf-plan-probe) can distinguish "this frame
+        // produced no shift" from "stale plan from N frames ago".
+        self.world
+            .insert_resource(crate::widget::render_system::LastDirtyRegions::default());
+
         let render_end = self.clock_ns();
         self.last_render_ns = render_end.saturating_sub(layout_end);
         let render_ns = render_end.saturating_sub(layout_start);
