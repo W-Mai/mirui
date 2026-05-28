@@ -664,27 +664,44 @@ pub fn trace_fn(args: TokenStream, item: TokenStream) -> TokenStream {
 
 mod system_attr {
     use syn::parse::{Parse, ParseStream};
-    use syn::{Expr, Ident, LitStr, Token};
+    use syn::{Expr, Ident, LitStr, Token, Type, bracketed, punctuated::Punctuated};
 
     pub struct SystemArgs {
         pub name: Option<LitStr>,
         pub order: Option<Expr>,
+        /// Component type(s) gating this system. Empty = always runs.
+        /// Multiple entries are OR-combined (any present triggers run).
+        pub expect: Vec<Type>,
     }
 
     impl Parse for SystemArgs {
         fn parse(input: ParseStream) -> syn::Result<Self> {
             let mut name: Option<LitStr> = None;
             let mut order: Option<Expr> = None;
+            let mut expect: Vec<Type> = Vec::new();
             while !input.is_empty() {
                 let key: Ident = input.parse()?;
                 input.parse::<Token![=]>()?;
                 match key.to_string().as_str() {
                     "name" => name = Some(input.parse()?),
                     "order" => order = Some(input.parse()?),
+                    "expect" => {
+                        if input.peek(syn::token::Bracket) {
+                            let content;
+                            bracketed!(content in input);
+                            let types: Punctuated<Type, Token![,]> =
+                                content.parse_terminated(Type::parse, Token![,])?;
+                            expect.extend(types);
+                        } else {
+                            expect.push(input.parse()?);
+                        }
+                    }
                     other => {
                         return Err(syn::Error::new(
                             key.span(),
-                            format!("unknown #[system] arg `{other}`; expected `name` or `order`"),
+                            format!(
+                                "unknown #[system] arg `{other}`; expected `name`, `order`, or `expect`",
+                            ),
                         ));
                     }
                 }
@@ -693,7 +710,11 @@ mod system_attr {
                 }
                 input.parse::<Token![,]>()?;
             }
-            Ok(Self { name, order })
+            Ok(Self {
+                name,
+                order,
+                expect,
+            })
         }
     }
 }
@@ -729,15 +750,35 @@ pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
         Some(e) => e,
         None => syn::parse_quote!(mirui::ecs::run_order::NORMAL),
     };
+    let expect_const_ident =
+        quote::format_ident!("__MIRUI_EXPECT_{}", fn_ident.to_string().to_uppercase());
+    let expect_outer = if args.expect.is_empty() {
+        quote::quote! {}
+    } else {
+        let entries = args.expect.iter().map(|ty| {
+            quote::quote! { (::core::any::TypeId::of::<#ty>) as fn() -> ::core::any::TypeId }
+        });
+        quote::quote! {
+            #[doc(hidden)]
+            #[allow(non_upper_case_globals)]
+            const #expect_const_ident: &[fn() -> ::core::any::TypeId] = &[ #(#entries),* ];
+        }
+    };
+    let with_expect_call = if args.expect.is_empty() {
+        quote::quote! {}
+    } else {
+        quote::quote! { .with_expect(super::#expect_const_ident) }
+    };
     quote::quote! {
         #func
+        #expect_outer
 
         #[allow(non_snake_case, non_camel_case_types)]
         #fn_vis mod #fn_ident {
             #[allow(unused_imports)]
             use mirui::ecs::run_order::*;
             pub const fn system() -> mirui::ecs::System {
-                mirui::ecs::System::new(#name_lit, #order_expr, super::#fn_ident)
+                mirui::ecs::System::new(#name_lit, #order_expr, super::#fn_ident) #with_expect_call
             }
         }
     }
