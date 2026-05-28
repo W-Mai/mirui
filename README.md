@@ -31,8 +31,8 @@ on top of SDL2 (CPU or hardware-accelerated) on desktop.
 
 ```toml
 [dependencies]
-mirui = "0.17"
-mirui-macros = "0.17"
+mirui = "0.22"
+mirui-macros = "0.22"
 ```
 
 ```rust
@@ -290,7 +290,7 @@ ESP32-C3 (RV32 160 MHz, no FPU) + ST7735S 128×128 SPI:
 
 | Demo | frame avg | FPS | Notes |
 |------|-----------|-----|-------|
-| Three-body (widgets + dirty rect) | ~14 ms | ~70 | Default `quad-aa` off; partial refresh |
+| Three-body (widgets + dirty rect) | ~13 ms | ~77 | Default `quad-aa` off; partial refresh |
 | Cover-flow (3D quad transforms) | ~52 ms | ~19 | `default-features = false` |
 
 `App::run` writes a per-stage `FrameTimings` resource each frame
