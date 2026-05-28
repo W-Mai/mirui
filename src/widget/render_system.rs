@@ -4394,6 +4394,105 @@ mod scroll_plan_check {
         assert_eq!(sd.dy, Fixed::ZERO, "residue should be cleanly consumed");
     }
 
+    #[test]
+    fn negative_sub_pixel_delta_three_frame_accumulation() {
+        // Three -0.4 frames must accumulate over -1.2 total: shift -1
+        // emitted on frame 3 with residue -0.2 carrying into frame 4.
+        // Pins the residue-preserving direction so a future change
+        // can't silently revert to floor and pass the simpler 2-frame
+        // test by skipping a beat.
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        let neg_two_fifths = Fixed::ZERO - (Fixed::from_int(2) / Fixed::from_int(5));
+        let viewport = Viewport::new(128, 128, Fixed::ONE);
+
+        let mut shift_total = Fixed::ZERO;
+        for _frame in 0..3 {
+            if let Some(sd) = world.get_mut::<ScrollDelta>(list) {
+                sd.dy += neg_two_fifths;
+            } else {
+                world.insert(
+                    list,
+                    ScrollDelta {
+                        dx: Fixed::ZERO,
+                        dy: neg_two_fifths,
+                    },
+                );
+            }
+            world.insert(list, Dirty);
+            let plan = collect_dirty_regions(&mut world, root, &viewport);
+            for s in &plan.shifts {
+                shift_total += s.dy;
+            }
+        }
+        // Three -0.4 inputs sum to -1.2. After one integer shift of
+        // +1 (sign-flipped framebuffer direction), residue should be
+        // the same -0.2 we'd get from arithmetic in Q24.8 — match the
+        // residue against an explicitly-computed reference rather
+        // than against an integer literal that ignores fixed-point
+        // rounding.
+        assert_eq!(
+            shift_total,
+            Fixed::from_int(1),
+            "expected exactly +1 cumulative shift across 3 frames",
+        );
+        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
+        let expected_residue = neg_two_fifths * Fixed::from_int(3) + Fixed::from_int(1);
+        assert_eq!(
+            sd.dy, expected_residue,
+            "residue must equal the Q24.8 sum of three -0.4 inputs minus the integer shift",
+        );
+    }
+
+    #[test]
+    fn negative_sub_pixel_delta_under_hidpi_quantises_in_logical_space() {
+        // HiDPI scale=2 means a logical -0.5 input must still trunc
+        // toward zero in logical-pixel space; the 2× physical mapping
+        // is the renderer's job, not the walker's.
+        let mut world = World::new();
+        let root = spawn_widget(&mut world, None, px_style(128, 128));
+        world.insert(root, Dirty);
+        let list = spawn_widget(&mut world, Some(root), px_style(128, 100));
+        world.insert(
+            list,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            },
+        );
+        let neg_half = Fixed::ZERO - (Fixed::from_int(1) / Fixed::from_int(2));
+        world.insert(
+            list,
+            ScrollDelta {
+                dx: Fixed::ZERO,
+                dy: neg_half,
+            },
+        );
+        world.insert(list, Dirty);
+
+        let hidpi_viewport = Viewport::new(128, 128, Fixed::from_int(2));
+        let plan = collect_dirty_regions(&mut world, root, &hidpi_viewport);
+        assert!(
+            plan.shifts.is_empty(),
+            "sub-pixel logical delta should still produce no shift under HiDPI, got {:?}",
+            plan.shifts,
+        );
+        let sd = world.get::<ScrollDelta>(list).copied().unwrap_or_default();
+        assert_eq!(
+            sd.dy, neg_half,
+            "residue must be preserved in logical space regardless of viewport scale",
+        );
+    }
+
     fn absolute_style(left: i32, top: i32, w: i32, h: i32) -> Style {
         use crate::layout::Position;
         Style {
@@ -4659,6 +4758,109 @@ mod scroll_blit_visual_check {
                 assert_eq!(
                     blit_buf[off], full_buf[off],
                     "mismatch at ({x},{y}): blit={} full={}",
+                    blit_buf[off], full_buf[off]
+                );
+            }
+        }
+    }
+
+    /// Nested scroll-blit: outer container shifts dy=-4, inner
+    /// (sub-rect at rows 8..24, height 16) shifts dy=-2 in its own
+    /// frame. End state must equal a full repaint where each row's
+    /// red channel is shifted by the cumulative offset that applies
+    /// at that y. Outer rows outside the inner sub-rect see only the
+    /// outer shift; rows inside see outer-then-inner.
+    #[test]
+    fn nested_scroll_blit_matches_full_repaint() {
+        let mut blit_buf = std::vec![0u8; 32 * 32 * 4];
+        let mut full_buf = std::vec![0u8; 32 * 32 * 4];
+        for y in 0..32 {
+            let red = (y * 4) as u8;
+            for x in 0..32 {
+                let off = (y * 32 + x) * 4;
+                for buf in [&mut blit_buf, &mut full_buf] {
+                    buf[off] = red;
+                    buf[off + 1] = 0;
+                    buf[off + 2] = 0;
+                    buf[off + 3] = 255;
+                }
+            }
+        }
+
+        // Apply nested shifts: inner shift first (DFS post-order
+        // — inner content moves in its own frame), then outer shift
+        // pulls the already-shifted inner along with everything.
+        {
+            let tex = Texture::new(&mut blit_buf, 32, 32, ColorFormat::RGBA8888);
+            let mut backend = SwRenderer::new(tex);
+            let inner_area = Rect::new(
+                Fixed::ZERO,
+                Fixed::from_int(8),
+                Fixed::from_int(32),
+                Fixed::from_int(16),
+            );
+            backend.scroll_target_region(&inner_area, Fixed::ZERO, Fixed::from_int(-2));
+            // Inner strip exposed at rows 22..24 (bottom of inner).
+            for y in 22..24 {
+                let post_inner_red = ((y + 2) * 4) as u8;
+                for x in 0..32 {
+                    let off = (y * 32 + x) * 4;
+                    backend.target.buf.as_mut_slice()[off] = post_inner_red;
+                }
+            }
+
+            let outer_area = Rect::new(
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(32),
+                Fixed::from_int(32),
+            );
+            backend.scroll_target_region(&outer_area, Fixed::ZERO, Fixed::from_int(-4));
+            // Outer strip exposed at rows 28..32.
+            for y in 28..32 {
+                // After both shifts: row y on screen reads from
+                // (y + 4) in original buffer, but if (y + 4) was in
+                // the inner area (8..24) it had already been shifted
+                // by 2 — so its source content was at (y + 4 + 2).
+                let src_y = y + 4;
+                let red = if (8..24).contains(&src_y) {
+                    ((src_y + 2) * 4) as u8
+                } else {
+                    (src_y * 4) as u8
+                };
+                for x in 0..32 {
+                    let off = (y * 32 + x) * 4;
+                    backend.target.buf.as_mut_slice()[off] = red;
+                }
+            }
+        }
+
+        // Reference: a fresh full-repaint of the post-shift state.
+        // Each row y reads from its post-shift source row.
+        for y in 0..32 {
+            // Outer shift -4: every row y on screen comes from y+4
+            // in the pre-outer-shift buffer.
+            let post_outer_y = y + 4;
+            // Within the inner sub-rect (8..24), inner shift -2
+            // composes: pre-inner buffer was at post_outer_y + 2.
+            let src_y = if (8..24).contains(&post_outer_y) {
+                post_outer_y + 2
+            } else {
+                post_outer_y
+            };
+            let red = (src_y * 4) as u8;
+            for x in 0..32 {
+                let off = (y * 32 + x) * 4;
+                full_buf[off] = red;
+            }
+        }
+
+        for y in 0..32 {
+            for x in 0..32 {
+                let off = (y * 32 + x) * 4;
+                assert_eq!(
+                    blit_buf[off], full_buf[off],
+                    "row {y} mismatch: blit={} full={}",
                     blit_buf[off], full_buf[off]
                 );
             }
