@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use core::any::{Any, TypeId};
+use hashbrown::HashMap;
 
 use super::entity::{Entity, EntityAllocator};
 use super::sparse_set::SparseSet;
@@ -29,7 +30,7 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
 
 pub struct World {
     allocator: EntityAllocator,
-    storages: Vec<(TypeId, Box<dyn ComponentStorage>)>,
+    storages: HashMap<TypeId, Box<dyn ComponentStorage>>,
     resources: Vec<(TypeId, Box<dyn Any>)>,
 }
 
@@ -37,7 +38,7 @@ impl Default for World {
     fn default() -> Self {
         Self {
             allocator: EntityAllocator::new(),
-            storages: Vec::new(),
+            storages: HashMap::new(),
             resources: Vec::new(),
         }
     }
@@ -56,7 +57,7 @@ impl World {
         if !self.allocator.deallocate(entity) {
             return false;
         }
-        for (_, storage) in &mut self.storages {
+        for storage in self.storages.values_mut() {
             storage.remove_entity(entity);
         }
         true
@@ -93,9 +94,8 @@ impl World {
 
     pub fn has_type(&self, entity: Entity, type_id: TypeId) -> bool {
         self.storages
-            .iter()
-            .find(|(id, _)| *id == type_id)
-            .is_some_and(|(_, s)| s.contains_entity(entity))
+            .get(&type_id)
+            .is_some_and(|s| s.contains_entity(entity))
     }
 
     pub fn query<T: 'static>(&self) -> super::query::QueryBuilder<'_, T> {
@@ -103,26 +103,15 @@ impl World {
     }
 
     pub(crate) fn storage<T: 'static>(&self) -> Option<&SparseSet<T>> {
-        let type_id = TypeId::of::<T>();
         self.storages
-            .iter()
-            .find(|(id, _)| *id == type_id)
-            .map(|(_, s)| s.as_any().downcast_ref::<SparseSet<T>>().unwrap())
+            .get(&TypeId::of::<T>())
+            .map(|s| s.as_any().downcast_ref::<SparseSet<T>>().unwrap())
     }
 
     fn storage_mut<T: 'static>(&mut self) -> &mut SparseSet<T> {
-        let type_id = TypeId::of::<T>();
-        let idx = self.storages.iter().position(|(id, _)| *id == type_id);
-        let idx = match idx {
-            Some(i) => i,
-            None => {
-                self.storages
-                    .push((type_id, Box::new(SparseSet::<T>::new())));
-                self.storages.len() - 1
-            }
-        };
-        self.storages[idx]
-            .1
+        self.storages
+            .entry(TypeId::of::<T>())
+            .or_insert_with(|| Box::new(SparseSet::<T>::new()))
             .as_any_mut()
             .downcast_mut::<SparseSet<T>>()
             .unwrap()
