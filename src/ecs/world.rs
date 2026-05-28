@@ -11,6 +11,7 @@ trait ComponentStorage: Any {
     fn as_any_mut(&mut self) -> &mut dyn Any;
     fn remove_entity(&mut self, entity: Entity);
     fn contains_entity(&self, entity: Entity) -> bool;
+    fn is_empty(&self) -> bool;
 }
 
 impl<T: 'static> ComponentStorage for SparseSet<T> {
@@ -25,6 +26,9 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
     }
     fn contains_entity(&self, entity: Entity) -> bool {
         self.contains(entity)
+    }
+    fn is_empty(&self) -> bool {
+        self.is_empty()
     }
 }
 
@@ -96,6 +100,12 @@ impl World {
         self.storages
             .get(&type_id)
             .is_some_and(|s| s.contains_entity(entity))
+    }
+
+    /// True iff *any* live entity owns a component of `type_id`.
+    /// Pairs with [`Self::has_type`] for per-entity checks.
+    pub fn has_any_by_id(&self, type_id: TypeId) -> bool {
+        self.storages.get(&type_id).is_some_and(|s| !s.is_empty())
     }
 
     pub fn query<T: 'static>(&self) -> super::query::QueryBuilder<'_, T> {
