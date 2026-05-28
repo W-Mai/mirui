@@ -22,9 +22,10 @@ fn run() -> Result {
         "bump" => cmd_bump(args.get(1).map(|s| s.as_str()).unwrap_or("")),
         "publish" => cmd_publish(args.iter().any(|a| a == "--dry-run")),
         "release" => cmd_release(),
+        "size-gate" => cmd_size_gate(args.get(1).map(|s| s.as_str())),
         _ => {
             eprintln!(
-                "usage: cargo xtask <ci|build|test|lint|size|bump <major|minor|patch>|publish [--dry-run]|release>"
+                "usage: cargo xtask <ci|build|test|lint|size|bump <major|minor|patch>|publish [--dry-run]|release|size-gate <binary>>"
             );
             std::process::exit(1);
         }
@@ -130,6 +131,227 @@ fn cmd_size() -> Result {
     println!("  rlib: {rlib}");
     let meta = std::fs::metadata(&rlib)?;
     println!("  total rlib size: {} bytes", meta.len());
+    Ok(())
+}
+
+/// Hot-function size budget. Targets with tight ICache (e.g. 16 KiB
+/// integral) miss every frame when a single function exceeds that
+/// volume. Budgets here keep the worst offenders under the line
+/// after the v0.21.x dispatch_* split.
+const SIZE_BUDGETS: &[(&str, &str, &str, usize)] = &[
+    ("SwRenderer", "Renderer", "draw", 5 * 1024),
+    ("App", "", "run", 8 * 1024),
+    ("SwRenderer", "Canvas", "blit", 9 * 1024),
+    ("SwRenderer", "", "dispatch_blit_quad", 6 * 1024),
+    ("SwRenderer", "", "dispatch_fill", 5 * 1024),
+    ("SwRenderer", "", "dispatch_fill_quad", 4 * 1024),
+    ("SwRenderer", "", "draw_transformed", 5 * 1024),
+];
+
+/// Return true when `sym` is an inherent / trait impl symbol whose
+/// outer impl block matches `struct_name` and (when non-empty)
+/// `trait_name`. Bare free fns (no `<...>`) match when trait_name is
+/// empty and the struct_name appears in the path.
+///
+/// Examples (trait_name = ""):
+///   `<App<X<Y>>>::run`              → struct_name "App"        ✓
+///   `<SwRenderer>::dispatch_fill`   → struct_name "SwRenderer" ✓
+///   `<X as Y>::z`                   → trait_name="" rejects (it's a trait impl)
+///
+/// Examples (trait_name = "Renderer"):
+///   `<SwRenderer as Renderer>::draw`     → ✓
+///   `<SwRenderer as Canvas>::blit`       → trait_name "Renderer" rejects
+fn matches_outer_block(sym: &str, struct_name: &str, trait_name: &str) -> bool {
+    // Find the outermost `<` that closes with `>::` somewhere later.
+    if !sym.starts_with('<') {
+        // Bare path like `mirui::app::run`.
+        return trait_name.is_empty() && sym.contains(struct_name);
+    }
+    // Walk forward tracking depth. We want the position of the `>` that
+    // closes the very first `<`.
+    let bytes = sym.as_bytes();
+    let mut depth: i32 = 0;
+    let mut close_idx: Option<usize> = None;
+    for (i, b) in bytes.iter().enumerate() {
+        match *b {
+            b'<' => depth += 1,
+            b'>' => {
+                depth -= 1;
+                if depth == 0 {
+                    close_idx = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close_idx = match close_idx {
+        Some(i) => i,
+        None => return false,
+    };
+    // The block is sym[1..close_idx]. Check it contains struct_name.
+    let block = &sym[1..close_idx];
+
+    // Find ` as ` only at depth 1 inside the block. Walk the block
+    // tracking depth; at depth 0 a literal " as " separates struct
+    // from trait.
+    let mut d = 0i32;
+    let mut as_pos: Option<usize> = None;
+    let bb = block.as_bytes();
+    let mut i = 0;
+    while i < bb.len() {
+        match bb[i] {
+            b'<' => d += 1,
+            b'>' => d -= 1,
+            b' ' if d == 0 && i + 4 <= bb.len() && &block[i..i + 4] == " as " => {
+                as_pos = Some(i);
+                break;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+
+    if trait_name.is_empty() {
+        // Inherent impl: must have NO ` as ` at depth 0.
+        as_pos.is_none() && block.contains(struct_name)
+    } else {
+        // Trait impl: must have ` as ` at depth 0; struct on left,
+        // trait on right.
+        let pos = match as_pos {
+            Some(p) => p,
+            None => return false,
+        };
+        let lhs = &block[..pos];
+        let rhs = &block[pos + 4..];
+        lhs.contains(struct_name) && rhs.contains(trait_name)
+    }
+}
+
+fn cmd_size_gate(binary: Option<&str>) -> Result {
+    let binary = match binary {
+        Some(b) => b.to_string(),
+        None => {
+            return Err("usage: cargo xtask size-gate <path/to/elf-binary>\n\n\
+             Pass any cross-built embedded ELF; size-gate reads symbols\n\
+             with rust-nm and checks hot SwRenderer / App functions\n\
+             against ICache-friendly budgets."
+                .into());
+        }
+    };
+    if !std::path::Path::new(&binary).exists() {
+        return Err(format!("binary not found: {binary}").into());
+    }
+
+    println!("  → reading symbols from {binary}");
+    let output = Command::new("rust-nm")
+        .args(["--demangle", "--print-size", "--size-sort", "-r", &binary])
+        .output()
+        .map_err(|e| format!("rust-nm failed (is rustup llvm-tools installed?): {e}"))?;
+    if !output.status.success() {
+        return Err(format!(
+            "rust-nm exited non-zero:\n{}",
+            String::from_utf8_lossy(&output.stderr)
+        )
+        .into());
+    }
+    let nm_output = String::from_utf8_lossy(&output.stdout);
+
+    let mut violations = Vec::new();
+    let mut hits = Vec::new();
+
+    for (struct_name, trait_name, fn_name, budget) in SIZE_BUDGETS {
+        // Generic instantiations stick `::<T1, T2, ...>` after the
+        // fn name. Strip those and check the remaining path ends in
+        // `::fn_name`.
+        let suffix = format!("::{fn_name}");
+
+        let mut best: Option<(String, usize)> = None;
+        for line in nm_output.lines() {
+            // rust-nm format with --demangle: "addr size T <demangled>"
+            let parts: Vec<&str> = line.splitn(4, ' ').collect();
+            if parts.len() < 4 {
+                continue;
+            }
+            let size = match usize::from_str_radix(parts[1], 16) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let sym = parts[3];
+
+            // Strip trailing generic instantiation `::<...>` so we can
+            // match against `::fn_name` at the end.
+            let core = match sym.rfind("::<") {
+                Some(idx) if sym[idx..].ends_with('>') => &sym[..idx],
+                _ => sym,
+            };
+            if !core.ends_with(&suffix) {
+                continue;
+            }
+
+            // Inherent impl `<...struct...>::fn` has no ` as ` between
+            // the impl-target's outermost `<` and the matching `>::`.
+            // Trait impl `<...struct as ...trait>::fn` has ` as `.
+            //
+            // Split: find the outermost balanced `<...>::` that ends
+            // before fn_name. Then check whether ` as ` appears at
+            // depth-1 of that block.
+            let matches_prefix = matches_outer_block(core, struct_name, trait_name);
+            if !matches_prefix {
+                continue;
+            }
+
+            if best.as_ref().is_none_or(|(_, s)| size > *s) {
+                best = Some((sym.to_string(), size));
+            }
+        }
+        let label = if trait_name.is_empty() {
+            format!("{struct_name}::{fn_name}")
+        } else {
+            format!("<{struct_name} as {trait_name}>::{fn_name}")
+        };
+        match best {
+            Some((sym, size)) => {
+                let kib = size as f64 / 1024.0;
+                let budget_kib = *budget as f64 / 1024.0;
+                if size > *budget {
+                    violations.push(format!(
+                        "  ❌ {label}\n      size {size} B ({kib:.1} KiB) > budget {budget} B ({budget_kib:.1} KiB)\n      sym: {sym}"
+                    ));
+                } else {
+                    hits.push(format!(
+                        "  ✅ {label}: {size} B ({kib:.1} KiB) ≤ {budget} B ({budget_kib:.1} KiB)"
+                    ));
+                }
+            }
+            None => {
+                hits.push(format!(
+                    "  ⏭  {label}: not found (skipping — only relevant if SwRenderer is used)"
+                ));
+            }
+        }
+    }
+
+    for line in &hits {
+        println!("{line}");
+    }
+    if !violations.is_empty() {
+        println!();
+        for v in &violations {
+            eprintln!("{v}");
+        }
+        return Err(format!(
+            "{} hot function(s) exceed ICache budget. \
+             See .local/specs/icache-perf-budget for context.",
+            violations.len()
+        )
+        .into());
+    }
+
+    println!(
+        "\n  ✅ all {} hot functions within ICache budget",
+        SIZE_BUDGETS.len()
+    );
     Ok(())
 }
 
