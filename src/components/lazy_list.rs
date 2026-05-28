@@ -137,6 +137,13 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
             new_bindings[slot_idx] = target;
             any_changed = true;
         }
+        // Reveal a slot that was previously Hidden (item_count grew
+        // back, or this slot was unbound at startup with
+        // pool_size > item_count and is now reused).
+        if world.get::<crate::widget::Hidden>(slot).is_some() {
+            world.remove::<crate::widget::Hidden>(slot);
+            any_changed = true;
+        }
         // Reposition-only slots ride the container's self-blit; only
         // rebound slots need a Dirty redraw at their new position.
         let y = ctx.item_height * Fixed::from_int(target as i32);
@@ -162,6 +169,13 @@ pub fn lazy_list_system(world: &mut World) {
         let Some(ctx) = collect_list_context(world, entity) else {
             continue;
         };
+        // Always sweep slots whose target index is now beyond
+        // `item_count` (pool larger than data, or `item_count` shrank
+        // since the last bind). Those slots otherwise keep stale
+        // bindings and stale positions, even when the idle short-
+        // circuit below decides nothing has changed.
+        let stale_cleared = clear_extra_slots(world, entity, &ctx);
+
         let prev_start = world
             .get::<LazyList>(entity)
             .map(|l| l.visible_start)
@@ -181,13 +195,54 @@ pub fn lazy_list_system(world: &mut World) {
                 }
             }
             if all_bound {
+                if stale_cleared {
+                    world.insert(entity, Dirty);
+                }
                 continue;
             }
         }
-        if apply_bindings(world, entity, ctx) {
+        let bindings_changed = apply_bindings(world, entity, ctx);
+        if bindings_changed || stale_cleared {
             world.insert(entity, Dirty);
         }
     }
+}
+
+/// Hide slots that should not be visible this frame: bindings past
+/// the live tail (`item_count` shrank under a stale binding) plus
+/// initial unbound slots when `pool_size > item_count`. Returns true
+/// if any slot was newly hidden so the caller can mark Dirty.
+fn clear_extra_slots(world: &mut World, entity: Entity, ctx: &ListContext) -> bool {
+    let pool_size = ctx.pool_size as usize;
+    if pool_size == 0 {
+        return false;
+    }
+    let mut any_cleared = false;
+    let mut new_bindings = ctx.bound_indices.clone();
+    for (i, bound) in new_bindings.iter_mut().enumerate().take(pool_size) {
+        let needs_hide = match *bound {
+            u32::MAX => i as u32 >= ctx.item_count,
+            n if n >= ctx.item_count => true,
+            _ => false,
+        };
+        if !needs_hide {
+            continue;
+        }
+        let slot = ctx.items[i];
+        if world.get::<crate::widget::Hidden>(slot).is_some() {
+            continue;
+        }
+        *bound = u32::MAX;
+        any_cleared = true;
+        // Hide via Hidden marker: layout / render / hit-test all skip.
+        world.insert(slot, crate::widget::Hidden);
+    }
+    if any_cleared {
+        if let Some(pool) = world.get_mut::<LazyListPool>(entity) {
+            pool.bound_indices = new_bindings;
+        }
+    }
+    any_cleared
 }
 
 pub fn view() -> crate::widget::view::View {
@@ -310,5 +365,118 @@ mod tests {
             "ring buffer rebinds one slot per row scrolled, got {trace:?}"
         );
         assert_eq!(trace, &alloc::vec![5u32]);
+    }
+
+    #[test]
+    fn pool_larger_than_item_count_hides_extra_slots() {
+        // 5-slot pool but only 3 items. Slots 3 and 4 must end up
+        // Hidden so they don't paint stale (or empty) bindings.
+        let mut world = World::default();
+        let list = world.spawn();
+        let pool: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, Widget);
+        world.insert(list, Style::default());
+        world.insert(list, LazyList::new(3, 40, 5));
+        world.insert(list, LazyListPool::new(pool.clone()));
+        world.insert(
+            list,
+            LazyListBinder {
+                bind: recording_binder,
+            },
+        );
+        world.insert_resource(BindTrace(alloc::vec::Vec::new()));
+
+        lazy_list_system(&mut world);
+
+        for &slot in &pool[..3] {
+            assert!(
+                world.get::<crate::widget::Hidden>(slot).is_none(),
+                "first 3 slots must be visible (bound)"
+            );
+        }
+        for &slot in &pool[3..] {
+            assert!(
+                world.get::<crate::widget::Hidden>(slot).is_some(),
+                "extra slots beyond item_count must be Hidden"
+            );
+        }
+    }
+
+    #[test]
+    fn shrinking_item_count_clears_stale_bindings() {
+        // Bind all 5 rows, then shrink item_count to 3. Slots that
+        // were bound to rows 3 / 4 must be cleared and Hidden.
+        let mut world = World::default();
+        let list = world.spawn();
+        let pool: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, Widget);
+        world.insert(list, Style::default());
+        world.insert(list, LazyList::new(5, 40, 5));
+        world.insert(list, LazyListPool::new(pool.clone()));
+        world.insert(
+            list,
+            LazyListBinder {
+                bind: recording_binder,
+            },
+        );
+        world.insert_resource(BindTrace(alloc::vec::Vec::new()));
+
+        lazy_list_system(&mut world);
+        let bound_after_bind = world
+            .get::<LazyListPool>(list)
+            .unwrap()
+            .bound_indices
+            .clone();
+        assert_eq!(bound_after_bind, alloc::vec![0u32, 1, 2, 3, 4]);
+
+        // Shrink: item_count 5 → 3.
+        if let Some(l) = world.get_mut::<LazyList>(list) {
+            l.item_count = 3;
+        }
+        lazy_list_system(&mut world);
+
+        let bound_after_shrink = &world.get::<LazyListPool>(list).unwrap().bound_indices;
+        assert_eq!(
+            bound_after_shrink,
+            &alloc::vec![0u32, 1, 2, u32::MAX, u32::MAX],
+            "rows 3 / 4 must be cleared from bound_indices",
+        );
+        assert!(world.get::<crate::widget::Hidden>(pool[3]).is_some());
+        assert!(world.get::<crate::widget::Hidden>(pool[4]).is_some());
+        assert!(world.get::<crate::widget::Hidden>(pool[0]).is_none());
+    }
+
+    #[test]
+    fn growing_item_count_unhides_reused_slots() {
+        let mut world = World::default();
+        let list = world.spawn();
+        let pool: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, Widget);
+        world.insert(list, Style::default());
+        world.insert(list, LazyList::new(3, 40, 5));
+        world.insert(list, LazyListPool::new(pool.clone()));
+        world.insert(
+            list,
+            LazyListBinder {
+                bind: recording_binder,
+            },
+        );
+        world.insert_resource(BindTrace(alloc::vec::Vec::new()));
+
+        lazy_list_system(&mut world);
+        assert!(world.get::<crate::widget::Hidden>(pool[3]).is_some());
+        assert!(world.get::<crate::widget::Hidden>(pool[4]).is_some());
+
+        if let Some(l) = world.get_mut::<LazyList>(list) {
+            l.item_count = 5;
+        }
+        lazy_list_system(&mut world);
+
+        for &slot in &pool {
+            assert!(
+                world.get::<crate::widget::Hidden>(slot).is_none(),
+                "all slots should be visible once item_count grows back",
+            );
+        }
     }
 }
