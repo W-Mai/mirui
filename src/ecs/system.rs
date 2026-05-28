@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use core::any::TypeId;
 
 use super::World;
 
@@ -12,6 +13,11 @@ pub struct System {
     pub name: &'static str,
     pub priority: i32,
     pub run: fn(&mut World),
+    /// When non-empty, the scheduler skips this system's run if no
+    /// live entity owns *any* of these component types. Each entry
+    /// is a `fn() -> TypeId` so the slice is constructible in const
+    /// context on stable Rust (`TypeId::of` is only `const` ≥ 1.85).
+    pub expect: &'static [fn() -> TypeId],
     pub last_us: u32,
     pub total_us: u64,
     pub call_count: u32,
@@ -23,10 +29,17 @@ impl System {
             name,
             priority,
             run,
+            expect: &[],
             last_us: 0,
             total_us: 0,
             call_count: 0,
         }
+    }
+
+    /// Pass an empty slice to clear the expect tag (the default).
+    pub const fn with_expect(mut self, expect: &'static [fn() -> TypeId]) -> Self {
+        self.expect = expect;
+        self
     }
 }
 
@@ -132,6 +145,15 @@ impl SystemScheduler {
     pub fn run_all(&mut self, world: &mut World) {
         let clock_fn = world.resource::<super::MonoClock>().map(|c| c.clock);
         for system in &mut self.systems {
+            if !system.expect.is_empty()
+                && !system
+                    .expect
+                    .iter()
+                    .any(|tid_fn| world.has_any_by_id(tid_fn()))
+            {
+                system.last_us = 0;
+                continue;
+            }
             let start_ns = clock_fn.map(|f| f()).unwrap_or(0);
             (system.run)(world);
             if let Some(f) = clock_fn {
@@ -171,6 +193,39 @@ mod tests {
         s.add(System::new("mid", 200, dummy));
         let names: Vec<&str> = s.iter().map(|s| s.name).collect();
         assert_eq!(names, ["early", "mid", "late"]);
+    }
+
+    #[test]
+    fn expect_skips_system_when_no_entity_has_component() {
+        struct Marker;
+        struct Counter(u32);
+
+        fn ticking(world: &mut World) {
+            if let Some(c) = world.resource_mut::<Counter>() {
+                c.0 += 1;
+            }
+        }
+
+        let mut world = World::new();
+        world.insert_resource(Counter(0));
+
+        let mut s = SystemScheduler::new();
+        s.add(System::new("ticking", 100, ticking).with_expect(&[TypeId::of::<Marker>]));
+
+        // No entity carries `Marker` → system must not run.
+        s.run_all(&mut world);
+        assert_eq!(world.resource::<Counter>().unwrap().0, 0);
+
+        // Spawn an entity with `Marker` → system runs.
+        let e = world.spawn();
+        world.insert(e, Marker);
+        s.run_all(&mut world);
+        assert_eq!(world.resource::<Counter>().unwrap().0, 1);
+
+        // Despawn it → system stops running again.
+        world.despawn(e);
+        s.run_all(&mut world);
+        assert_eq!(world.resource::<Counter>().unwrap().0, 1);
     }
 
     #[test]
