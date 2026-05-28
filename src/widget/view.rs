@@ -127,7 +127,7 @@ impl View {
     /// surface — callers don't read `self.systems` directly.
     pub(crate) fn install(&self, _world: &mut World, mut sink: impl FnMut(crate::ecs::System)) {
         for s in self.systems {
-            sink(crate::ecs::System::new(s.name, s.priority, s.run));
+            sink(crate::ecs::System::new(s.name, s.priority, s.run).with_expect(s.expect));
         }
     }
 }
@@ -212,6 +212,25 @@ mod tests {
 
     fn make_view(name: &'static str, priority: u8) -> View {
         View::new(name, priority, dummy_render)
+    }
+
+    #[test]
+    fn install_preserves_system_expect_tag() {
+        struct Marker;
+        fn dummy_run(_: &mut World) {}
+
+        const EXPECT: &[fn() -> TypeId] = &[TypeId::of::<Marker>];
+        const SYSTEMS: &[crate::ecs::System] =
+            &[crate::ecs::System::new("tagged", 100, dummy_run).with_expect(EXPECT)];
+
+        let view = View::new("V", 60, dummy_render).with_systems(SYSTEMS);
+        let mut world = World::new();
+        let mut installed: Vec<crate::ecs::System> = Vec::new();
+        view.install(&mut world, |s| installed.push(s));
+
+        assert_eq!(installed.len(), 1);
+        assert_eq!(installed[0].expect.len(), 1, "expect must survive install");
+        assert_eq!(installed[0].expect[0](), TypeId::of::<Marker>());
     }
 
     #[test]
