@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] - 2026-05-29
+
+Software-render dispatch overhead reduction. Four independent paths cut per-entity and per-system work in the dirty + render flow: hash-indexed ECS lookups, an opt-in component filter on `View`, a scheduler skip hint on `System`, and a one-frame layout cache shared between the dirty and render walkers.
+
+### Added
+
+- **`World::has_any_by_id(type_id) -> bool`** (`src/ecs/world.rs`): true iff any live entity owns a component of the given `TypeId`. Pairs with the existing per-entity `has_type` for a whole-storage emptiness probe in O(1).
+- **`View::with_filter::<T>()` builder** (`src/widget/view.rs`): restricts `render` dispatch to entities owning component `T`. The walker checks `world.has_type(entity, TypeId::of::<T>())` before invoking the view's render fn, hoisting the early-return guard most built-in views already had into the walker. All thirteen rendering built-in views opt in (`Style`, `Button`, `Checkbox`, `Image`, `Text`, `Slider`, `Switch`, `TabBar`, `ProgressBar`, `TextInput`, `MirrorOf`, `TemporalMix`, `BackgroundBlur`); user views without the filter behave as before.
+- **`System::expect: &'static [fn() -> TypeId]` field + `with_expect(...)` builder** (`src/ecs/system.rs`): a non-empty slice gates the system on `world.has_any_by_id(tid)` for any of the listed types. Empty slice (the default) preserves unconditional run. The slice element is `fn() -> TypeId` rather than `TypeId` so callers can build it in const context on stable Rust.
+- **`#[mirui::system(expect = T)]` and `#[mirui::system(expect = [T1, T2])]` macro arguments** (`mirui-macros/src/lib.rs`): forward the listed types to `System::with_expect`. Multi-entry slices use OR semantics — the system runs if any listed type has a live entity. Type paths resolve at the call site, supporting bare names, `crate::...`, `::other_crate::...`, and nested module paths.
+- **Seven built-in systems gain `expect` tags** (`src/components/switch.rs`, `src/components/text_input.rs`, `src/components/lazy_list.rs`, `src/components/tab_pages.rs`, `src/widget/offscreen.rs`): `switch_init_system` (`Switch`), `animate_switch_bg_t_system` (`AnimateSwitchBgT`), `animate_thumb_x_system` (`AnimateThumbX`), `cursor_blink_system` (`TextInput`), `lazy_list_system` (`LazyList`), `tab_pages_system` (`TabBar`), `maintain_widget_texture_refs` (`WidgetTextureRef` or `OffscreenAutoAdded`). Apps that don't instantiate these widgets avoid running those system bodies entirely.
+
+### Changed
+
+- **`World::storages` switches from `Vec<(TypeId, Box<dyn ...>)>` to `HashMap<TypeId, Box<dyn ...>>`** (`src/ecs/world.rs`): every `world.get<T>` / `has_type` / `storage<T>` lookup was a linear scan over a Vec; with dozens of registered component types and per-entity render dispatch hitting them thousands of times per frame, the scan dominated the hot path. `despawn` iterates `values_mut` instead of indexed positions. Public API signatures are unchanged; see Breaking for drop-order consequences.
+- **`World::resources` switches from `Vec` to `HashMap`** (`src/ecs/world.rs`): same lookup shape as storages, applied to resource access. Public API signatures unchanged; see Breaking for drop-order consequences.
+- **Dirty walker publishes a `LayoutSnapshot` resource consumed by the render walker on the same frame** (`src/widget/render_system.rs`, `src/app.rs`): `collect_dirty_regions` writes its solved layout tree + entity preorder; `App::render_dirty` hands the snapshot to a new internal `render_region_cached` entry point that skips the build / compute / collect phases. The public `pub fn render_region` keeps building from scratch — the cached path is `pub(crate)` and only invoked when the same-frame dirty walker has just produced the snapshot, so external callers cannot consume a stale cache.
+
+### Breaking
+
+- **`System` gains a public `expect: &'static [fn() -> TypeId]` field** (`src/ecs/system.rs`): callers constructing `System` via struct literal must add `expect: &[]` for unconditional run, or switch to the `System::new(name, priority, run)` builder (and chain `.with_expect(...)` if needed). The builder path is unchanged.
+- **`World` no longer drops resources or component storages in insertion order** (`src/ecs/world.rs`): both backing containers switched from `Vec` to `HashMap`, so cross-type drop order during `World::despawn` (per-entity component drops) and during `World` teardown (resource + storage drops) follows hash order instead. Code whose `Drop` implementations rely on cross-type ordering must be updated to be order-independent. Single-type drops, and drops that touch only the world (not other types' state), are unaffected.
+
+### Fixed
+
+- **`View::install` forwards `System::expect` to the scheduler** (`src/widget/view.rs`): the previous version rebuilt each registered system with `System::new(name, priority, run)`, dropping the `expect` slice that `#[mirui::system(expect = ...)]` had attached. Built-in widget systems registered through views (switch / text-input / lazy-list / tab-pages / texture-refs) carried tags that the scheduler then never saw. Now `view.install` chains `.with_expect(s.expect)` so the tag round-trips. A regression test in `view::tests` installs a tagged dummy view and asserts the slice survives.
+
 ## [0.21.3] - 2026-05-27
 
 Perfetto trace timeline names the previously unattributed input / systems / finalize / post_render phases, and `PerfReportPlugin`'s sink callback switches to one batched buffer per frame.
