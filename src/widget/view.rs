@@ -6,6 +6,7 @@
 // code adds custom kinds via `App::register_view`.
 
 use alloc::vec::Vec;
+use core::any::TypeId;
 
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
@@ -51,6 +52,10 @@ pub struct View {
     render: ViewRender,
     auto_attach: Option<ViewAttach>,
     systems: &'static [crate::ecs::System],
+    /// When set, the walker only invokes `render` on entities that
+    /// own a component of this type. `None` runs on every entity
+    /// (e.g. the generic Style stage).
+    component_filter: Option<fn() -> TypeId>,
 }
 
 impl View {
@@ -61,6 +66,7 @@ impl View {
             render,
             auto_attach: None,
             systems: &[],
+            component_filter: None,
         }
     }
 
@@ -71,6 +77,12 @@ impl View {
 
     pub const fn with_systems(mut self, systems: &'static [crate::ecs::System]) -> Self {
         self.systems = systems;
+        self
+    }
+
+    /// Restrict `render` dispatch to entities owning component `T`.
+    pub const fn with_filter<T: 'static>(mut self) -> Self {
+        self.component_filter = Some(TypeId::of::<T>);
         self
     }
 
@@ -90,6 +102,7 @@ impl View {
             render: noop_render,
             auto_attach: None,
             systems,
+            component_filter: None,
         }
     }
 
@@ -104,6 +117,9 @@ impl View {
     }
     pub(crate) fn auto_attach(&self) -> Option<ViewAttach> {
         self.auto_attach
+    }
+    pub(crate) fn component_filter(&self) -> Option<TypeId> {
+        self.component_filter.map(|f| f())
     }
 
     /// Hand each contributed `System` to `sink`. Called by `App` at

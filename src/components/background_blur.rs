@@ -75,5 +75,5 @@ fn background_blur_render(
 }
 
 pub fn view() -> View {
-    View::new("BackgroundBlur", 60, background_blur_render)
+    View::new("BackgroundBlur", 60, background_blur_render).with_filter::<BackgroundBlur>()
 }

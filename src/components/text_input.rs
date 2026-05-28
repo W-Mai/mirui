@@ -381,6 +381,7 @@ fn text_input_attach(world: &mut World, entity: Entity) {
 
 pub fn view() -> View {
     View::new("TextInput", 70, text_input_render)
+        .with_filter::<TextInput>()
         .with_attach(text_input_attach)
         .with_systems(const { &[cursor_blink_system::system()] })
 }

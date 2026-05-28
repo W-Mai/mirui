@@ -35,5 +35,5 @@ fn text_render(
 }
 
 pub fn view() -> View {
-    View::new("Text", 80, text_render)
+    View::new("Text", 80, text_render).with_filter::<Text>()
 }

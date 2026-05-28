@@ -44,5 +44,5 @@ fn image_render(
 }
 
 pub fn view() -> View {
-    View::new("Image", 70, image_render)
+    View::new("Image", 70, image_render).with_filter::<Image>()
 }

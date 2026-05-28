@@ -169,5 +169,7 @@ fn slider_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View::new("Slider", 60, slider_render).with_attach(slider_attach)
+    View::new("Slider", 60, slider_render)
+        .with_filter::<Slider>()
+        .with_attach(slider_attach)
 }

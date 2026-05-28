@@ -101,5 +101,7 @@ fn checkbox_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View::new("Checkbox", 40, checkbox_render).with_attach(checkbox_attach)
+    View::new("Checkbox", 40, checkbox_render)
+        .with_filter::<Checkbox>()
+        .with_attach(checkbox_attach)
 }

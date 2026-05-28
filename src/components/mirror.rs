@@ -163,7 +163,9 @@ fn mirror_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View::new("MirrorOf", 60, mirror_render).with_attach(mirror_attach)
+    View::new("MirrorOf", 60, mirror_render)
+        .with_filter::<MirrorOf>()
+        .with_attach(mirror_attach)
 }
 
 use crate::draw::renderer::Renderer;

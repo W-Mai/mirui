@@ -120,5 +120,7 @@ fn temporal_mix_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View::new("TemporalMix", 60, temporal_mix_render).with_attach(temporal_mix_attach)
+    View::new("TemporalMix", 60, temporal_mix_render)
+        .with_filter::<TemporalMix>()
+        .with_attach(temporal_mix_attach)
 }

@@ -124,5 +124,7 @@ fn progress_bar_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View::new("ProgressBar", 60, progress_bar_render).with_attach(progress_bar_attach)
+    View::new("ProgressBar", 60, progress_bar_render)
+        .with_filter::<ProgressBar>()
+        .with_attach(progress_bar_attach)
 }

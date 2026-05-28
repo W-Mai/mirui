@@ -109,5 +109,7 @@ fn button_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View::new("Button", 40, button_render).with_attach(button_attach)
+    View::new("Button", 40, button_render)
+        .with_filter::<Button>()
+        .with_attach(button_attach)
 }

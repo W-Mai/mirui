@@ -270,6 +270,7 @@ fn switch_attach(world: &mut World, entity: Entity) {
 
 pub fn view() -> View {
     View::new("Switch", 60, switch_render)
+        .with_filter::<Switch>()
         .with_attach(switch_attach)
         .with_systems(
             const {

@@ -121,7 +121,9 @@ fn tab_bar_attach(world: &mut World, entity: Entity) {
 }
 
 pub fn view() -> View {
-    View::new("TabBar", 60, tab_bar_render).with_attach(tab_bar_attach)
+    View::new("TabBar", 60, tab_bar_render)
+        .with_filter::<TabBar>()
+        .with_attach(tab_bar_attach)
 }
 
 #[cfg(test)]

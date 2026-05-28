@@ -335,6 +335,11 @@ fn draw_tree_offset(
             if let Some(registry) = world.resource::<ViewRegistry>() {
                 crate::trace_span!("draw.view_dispatch");
                 for view in registry.iter() {
+                    if let Some(tid) = view.component_filter()
+                        && !world.has_type(entity, tid)
+                    {
+                        continue;
+                    }
                     (view.render())(renderer, world, entity, &shifted_rect, &mut ctx);
                 }
             }
@@ -499,6 +504,11 @@ fn try_draw_offscreen(
             if let Some(registry) = world.resource::<ViewRegistry>() {
                 crate::trace_span!("draw.view_dispatch");
                 for view in registry.iter() {
+                    if let Some(tid) = view.component_filter()
+                        && !world.has_type(entity, tid)
+                    {
+                        continue;
+                    }
                     (view.render())(
                         &mut inner as &mut dyn Renderer,
                         world,

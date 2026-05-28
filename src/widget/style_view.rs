@@ -54,5 +54,5 @@ fn style_render(
 }
 
 pub fn view() -> View {
-    View::new("Style", 50, style_render)
+    View::new("Style", 50, style_render).with_filter::<Style>()
 }
