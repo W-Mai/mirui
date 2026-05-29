@@ -8,6 +8,7 @@ publish = false
 default = ["sdl"]
 sdl = ["mirui/sdl"]
 sdl-gpu = ["mirui/sdl-gpu"]
+wgpu = ["mirui/wgpu"]
 
 [dependencies]
 mirui = { path = "..", default-features = false, features = ["quad-aa"] }
@@ -17,3 +18,7 @@ sdl2 = "0.37"
 [[example]]
 name = "sdl_gpu_demo"
 required-features = ["sdl-gpu"]
+
+[[example]]
+name = "wgpu_smoke"
+required-features = ["wgpu"]
