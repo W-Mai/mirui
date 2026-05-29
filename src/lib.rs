@@ -8,7 +8,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! mirui = { version = "0.23", features = ["sdl"] }
+//! mirui = { version = "0.24", features = ["sdl"] }
 //! ```
 //!
 //! The snippet below builds against mirui's default features and is
