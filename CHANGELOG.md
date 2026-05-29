@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1] - 2026-05-29
+
+`SimAction::rotate_smooth` distributes encoder detents by an ease curve instead of fixed intervals, letting tests reproduce realistic accelerate / decelerate patterns rather than the always-equal tempo of `SimAction::rotate`.
+
+### Added
+
+- **`SimAction::rotate_smooth(ticks, total_ms, ease_fn)`** (`src/event/sim.rs`): distributes `ticks` detents across `total_ms` according to `ease_fn(elapsed / total_ms) ∈ [0, 1]`. `ease::linear` reproduces the legacy fixed-tempo path; `ease_in_out_cubic` and similar back-loaded curves emit detents slowly at start, accelerate through the middle, and decelerate near the end. The `Rotary` events themselves are unchanged — only their wall-clock distribution shifts.
+
+### Changed
+
+- **`RotateAction.ease_fn: Option<fn(Fixed) -> Fixed>`** (`src/event/sim.rs`): `None` keeps `SimAction::rotate(...)` running on the existing fixed-tempo path; `Some` is populated by `SimAction::rotate_smooth(...)`.
+
+### Breaking
+
+- **`RotateAction` gains a public `ease_fn` field** (`src/event/sim.rs`): callers constructing the struct via literal must add `ease_fn: None` for the legacy fixed-tempo behaviour, or switch to `SimAction::rotate(...)` / `SimAction::rotate_smooth(...)`. Pattern-match destructuring should add `..` to remain forward-compatible.
+
 ## [0.23.0] - 2026-05-29
 
 Alpha-aware software rasterisation. Offscreen buffers can now signal that their alpha channel matters downstream, and `SwRenderer` writes accumulate `dst.a` via non-premultiplied source-over instead of clobbering it to 255. Unblocks effect widgets (DropShadow and similar) that read the buffer's alpha as a silhouette mask.
