@@ -426,12 +426,12 @@ impl SimAction {
         })
     }
 
-    /// Rotate that distributes detents over `total_ms` according to
-    /// `ease_fn`. `ease::linear` is equivalent to `rotate(ticks,
-    /// total_ms / ticks)`; non-linear curves simulate accel / decel.
+    /// Detents distributed over `total_ms` (rounded up to the next
+    /// multiple of `|ticks|`) by `ease_fn`. `ease::linear` matches
+    /// the fixed-tempo `rotate(ticks, total_ms / |ticks|)`.
     pub fn rotate_smooth(ticks: i16, total_ms: u16, ease_fn: fn(Fixed) -> Fixed) -> Self {
         let abs = ticks.unsigned_abs().max(1);
-        let step_ms = (total_ms / abs).max(1);
+        let step_ms = total_ms.div_ceil(abs).max(1);
         Self::Rotate(RotateAction {
             ticks,
             step_ms,
@@ -1286,6 +1286,28 @@ mod tests {
             world.resource::<SimTimeline>().unwrap().cursor,
             1,
             "rotate_smooth must fully complete after total_ms",
+        );
+    }
+
+    #[test]
+    fn rotate_smooth_non_divisible_total_rounds_up_step_ms() {
+        let _g = mock::lock();
+        let mut world = setup_world();
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate_smooth(
+            3,
+            100,
+            crate::anim::ease::linear,
+        )]));
+
+        sim_timeline_system(&mut world);
+        for _ in 0..9 {
+            mock::advance_ms(16);
+            sim_timeline_system(&mut world);
+        }
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().cursor,
+            1,
+            "rotate_smooth(3, 100) must retire after ~102 ms",
         );
     }
 
