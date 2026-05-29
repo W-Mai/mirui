@@ -7,8 +7,11 @@ use core::time::Duration;
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
+use winit::event::{
+    ElementState, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
+};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{Key, NamedKey};
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window, WindowId};
 
@@ -201,6 +204,50 @@ impl ApplicationHandler for WgpuHandler {
                     TouchPhase::Ended | TouchPhase::Cancelled => InputEvent::PointerUp { id, x, y },
                 };
                 self.event_queue.push_back(event);
+            }
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        logical_key,
+                        text,
+                        state,
+                        ..
+                    },
+                ..
+            } => {
+                use crate::event::input::*;
+                if state != ElementState::Pressed {
+                    return;
+                }
+                let code = match &logical_key {
+                    Key::Named(NamedKey::Backspace) => Some(KEY_BACKSPACE),
+                    Key::Named(NamedKey::Delete) => Some(KEY_DELETE),
+                    Key::Named(NamedKey::ArrowLeft) => Some(KEY_LEFT),
+                    Key::Named(NamedKey::ArrowRight) => Some(KEY_RIGHT),
+                    Key::Named(NamedKey::Home) => Some(KEY_HOME),
+                    Key::Named(NamedKey::End) => Some(KEY_END),
+                    Key::Named(NamedKey::Enter) => Some(KEY_RETURN),
+                    Key::Named(NamedKey::Escape) => {
+                        self.event_queue.push_back(InputEvent::Quit);
+                        event_loop.exit();
+                        return;
+                    }
+                    _ => None,
+                };
+                if let Some(code) = code {
+                    self.event_queue.push_back(InputEvent::Key {
+                        code,
+                        pressed: true,
+                    });
+                }
+                // Printable text input — mirui currently consumes the first produced char.
+                if let Some(s) = text.as_ref() {
+                    if let Some(ch) = s.chars().next() {
+                        if !ch.is_control() {
+                            self.event_queue.push_back(InputEvent::CharInput { ch });
+                        }
+                    }
+                }
             }
             _ => {}
         }
