@@ -22,10 +22,11 @@ fn run() -> Result {
         "bump" => cmd_bump(args.get(1).map(|s| s.as_str()).unwrap_or("")),
         "publish" => cmd_publish(args.iter().any(|a| a == "--dry-run")),
         "release" => cmd_release(),
+        "templates-bump" => cmd_templates_bump(),
         "size-gate" => cmd_size_gate(args.get(1).map(|s| s.as_str())),
         _ => {
             eprintln!(
-                "usage: cargo xtask <ci|build|test|lint|size|bump <major|minor|patch>|publish [--dry-run]|release|size-gate <binary>>"
+                "usage: cargo xtask <ci|build|test|lint|size|bump <major|minor|patch>|publish [--dry-run]|release|templates-bump|size-gate <binary>>"
             );
             std::process::exit(1);
         }
@@ -466,6 +467,11 @@ fn cmd_release() -> Result {
     println!("  → publishing to crates.io...");
     cmd_publish(false)?;
 
+    println!("  → bumping mirui-templates pins...");
+    if let Err(e) = cmd_templates_bump() {
+        eprintln!("  ⚠ templates-bump failed (non-fatal): {e}");
+    }
+
     println!("\n  🎉 released {tag}!");
     Ok(())
 }
@@ -668,4 +674,138 @@ fn bump_version(version: &str, level: &str) -> Result<String> {
         "patch" => format!("{major}.{minor}.{}", patch + 1),
         _ => unreachable!(),
     })
+}
+
+fn cmd_templates_bump() -> Result {
+    let mirui_root = project_root();
+    let templates_root = std::path::Path::new(&mirui_root)
+        .parent()
+        .ok_or("no parent of project root")?
+        .join("mirui-templates");
+
+    if !templates_root.exists() {
+        println!(
+            "  ⚠ mirui-templates not found at {} — skipping",
+            templates_root.display()
+        );
+        return Ok(());
+    }
+
+    let templates_root_str = templates_root.to_string_lossy().to_string();
+    let version = read_version(&mirui_root)?;
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() < 2 {
+        return Err(format!("can't parse mirui version: {version}").into());
+    }
+    let minor = format!("{}.{}", parts[0], parts[1]);
+
+    // The template Cargo.toml files reference mirui via the
+    // `{{mirui-version}}` placeholder, which cargo-generate substitutes
+    // at generation time. We must not rewrite those literals — bump
+    // only the placeholder's default in each template's
+    // cargo-generate.toml.
+    let mut changed_files = Vec::new();
+    for path in find_files_named(&templates_root_str, "cargo-generate.toml") {
+        if patch_cargo_generate_default(&path, &minor)? {
+            changed_files.push(path);
+        }
+    }
+
+    if changed_files.is_empty() {
+        println!("  ✓ mirui-templates already defaults to {minor}");
+        return Ok(());
+    }
+
+    for f in &changed_files {
+        println!("  → patched {f}");
+    }
+
+    let msg = format!("🔧(release): bump mirui-version default to {minor}");
+    let status = Command::new("git")
+        .args(["add", "."])
+        .current_dir(&templates_root)
+        .status()
+        .map_err(|e| format!("git add failed: {e}"))?;
+    if !status.success() {
+        return Err("git add failed in mirui-templates".into());
+    }
+    let status = Command::new("git")
+        .args(["commit", "-m", &msg])
+        .current_dir(&templates_root)
+        .status()
+        .map_err(|e| format!("git commit failed: {e}"))?;
+    if !status.success() {
+        return Err("git commit failed in mirui-templates".into());
+    }
+
+    println!("  ✓ committed in mirui-templates");
+    println!("  ⚠ push manually:");
+    println!("      cd {} && git push", templates_root.display());
+
+    Ok(())
+}
+
+fn patch_cargo_generate_default(path: &str, new_minor: &str) -> Result<bool> {
+    let content = std::fs::read_to_string(path)?;
+    let mut in_mirui_block = false;
+    let mut changed = false;
+    let updated: Vec<String> = content
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            if trimmed == "[placeholders.mirui-version]" {
+                in_mirui_block = true;
+            } else if trimmed.starts_with('[') {
+                in_mirui_block = false;
+            }
+            if in_mirui_block
+                && trimmed.starts_with("default")
+                && let Some(replaced) = replace_first_quoted(line, new_minor)
+            {
+                if replaced != line {
+                    changed = true;
+                }
+                return replaced;
+            }
+            line.to_string()
+        })
+        .collect();
+    if !changed {
+        return Ok(false);
+    }
+    std::fs::write(path, updated.join("\n") + "\n")?;
+    Ok(true)
+}
+
+fn replace_first_quoted(line: &str, new: &str) -> Option<String> {
+    let start = line.find('"')?;
+    let end = line[start + 1..].find('"')?;
+    Some(format!(
+        "{}\"{new}\"{}",
+        &line[..start],
+        &line[start + 1 + end + 1..]
+    ))
+}
+
+fn find_files_named(root: &str, name: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    fn walk(dir: &std::path::Path, name: &str, result: &mut Vec<String>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                let dirname = path.file_name().unwrap_or_default().to_string_lossy();
+                if dirname != "target" && dirname != "node_modules" && dirname != ".git" {
+                    walk(&path, name, result);
+                }
+            } else if path.file_name().is_some_and(|f| f == name) {
+                result.push(path.to_string_lossy().into_owned());
+            }
+        }
+    }
+    walk(std::path::Path::new(root), name, &mut result);
+    result.sort();
+    result
 }
