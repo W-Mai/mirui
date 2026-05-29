@@ -2,7 +2,7 @@
 
 [package]
 name = "api-misuse"
-version = "0.22.1"
+version = "0.23.0"
 edition = "2024"
 
 [lib]

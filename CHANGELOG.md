@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-05-29
+
+Alpha-aware software rasterisation. Offscreen buffers can now signal that their alpha channel matters downstream, and `SwRenderer` writes accumulate `dst.a` via non-premultiplied source-over instead of clobbering it to 255. Unblocks effect widgets (DropShadow and similar) that read the buffer's alpha as a silhouette mask.
+
+### Added
+
+- **`AlphaMode` enum + `Texture::alpha_mode` field** (`src/draw/texture.rs`): `Opaque` (default — keeps the framebuffer path's "always write 255" behaviour) and `Blend` (accumulates `dst.a` via non-premultiplied source-over). `AlphaMode` is also re-exported from `crate::draw::sw` so existing `use mirui::draw::sw::*` callers see it alongside `SwRenderer`.
+- **`SwRenderer::with_alpha_mode(mode)` builder** (`src/draw/sw/mod.rs`): sets the underlying target's mode. Default `SwRenderer::new(target)` is unchanged — `Opaque`.
+- **Four unit tests covering Opaque vs Blend semantics** (`src/draw/sw/mod.rs`): default-mode regression, transparent-buffer first-hit alpha pass-through, two-fill source-over composition (±2 u8 rounding tolerance), and the `src.a = 255` source-over identity short-circuit.
+
+### Changed
+
+- **`Texture::blend_pixel_int` reads `self.alpha_mode`** (`src/draw/texture.rs`): the existing 4-arg signature is preserved (no caller migration needed). In `Blend` mode the destination alpha is composed via `out.a = src.a + dst.a × (255 − src.a) / 255` instead of writing 255. The `a == 255` short-circuit still writes 255 in both modes — that's the source-over identity at full source alpha.
+- **`fill_axis_aligned` falls back from the memcpy fast path when `Blend` mode + partial alpha** (`src/draw/sw/rect_fill.rs`): `fill_first_row_then_replicate` would otherwise clobber the destination's alpha byte. The Opaque path and the fully-opaque source case in Blend mode keep the memcpy fast path.
+- **`blit_1to1_argb_to_argb` accumulates `dst.a` in Blend mode** (`src/draw/sw/blit_fast.rs`): partial-alpha source pixels compose into the destination's alpha channel rather than overwriting it.
+- **`render_system::try_draw_offscreen` selects `AlphaMode` from `OffscreenAlphaMode`** (`src/widget/render_system.rs`): an entity carrying `OffscreenAlphaMode::clear_transparent()` makes the inner `SwRenderer` use `Blend`. Other offscreen entities keep `Opaque` so the framebuffer's alpha gets pre-seeded as before.
+
 ## [0.22.1] - 2026-05-29
 
 Bug-fix release for scroll-blit idle short-circuits, `LastDirtyRegions` idle-frame semantics, and regression coverage for negative sub-pixel and nested scroll.
