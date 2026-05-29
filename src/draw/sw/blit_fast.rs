@@ -123,6 +123,7 @@ fn blit_1to1_argb_to_argb(
 ) {
     let src_stride = src.stride;
     let dst_stride = dst.stride;
+    let blend_aware = dst.alpha_mode == crate::draw::texture::AlphaMode::Blend;
     let src_buf = src.buf.as_slice();
     let dst_buf = dst.buf.as_mut_slice();
     for row in 0..run_h {
@@ -139,6 +140,8 @@ fn blit_1to1_argb_to_argb(
                 dst_buf[di] = src_buf[si];
                 dst_buf[di + 1] = src_buf[si + 1];
                 dst_buf[di + 2] = src_buf[si + 2];
+                // a == 255: source covers dst regardless of mode; both
+                // write 255 (Blend's source-over identity gives 255).
                 dst_buf[di + 3] = 255;
             } else {
                 // Blend: out = src * a + dst * (255 - a), via integer.
@@ -149,7 +152,14 @@ fn blit_1to1_argb_to_argb(
                     ((src_buf[si + 1] as u16 * sa + dst_buf[di + 1] as u16 * inv) / 255) as u8;
                 dst_buf[di + 2] =
                     ((src_buf[si + 2] as u16 * sa + dst_buf[di + 2] as u16 * inv) / 255) as u8;
-                dst_buf[di + 3] = 255;
+                dst_buf[di + 3] = if blend_aware {
+                    // Source-over alpha accumulation:
+                    //   out.a = src.a + dst.a × (255 − src.a) / 255
+                    let dst_a = dst_buf[di + 3] as u16;
+                    (sa + (dst_a * inv) / 255) as u8
+                } else {
+                    255
+                };
             }
         }
     }
