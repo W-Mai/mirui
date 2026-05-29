@@ -445,12 +445,13 @@ fn try_draw_offscreen(
         Err(_) => return false,
     };
 
+    let clear_transparent = world
+        .get::<super::OffscreenAlphaMode>(entity)
+        .map(|m| m.clear_transparent)
+        .unwrap_or(false);
+
     if !was_hit {
         let mut tex_ref = handle.get().borrow_mut();
-        let clear_transparent = world
-            .get::<super::OffscreenAlphaMode>(entity)
-            .map(|m| m.clear_transparent)
-            .unwrap_or(false);
         if clear_transparent {
             // Effect widgets that need the buffer's alpha channel to
             // encode the source's silhouette. Pre-seed would write
@@ -472,7 +473,15 @@ fn try_draw_offscreen(
         let mut tex_ref = handle.get().borrow_mut();
         let buf_slice = tex_ref.buf.as_mut_slice();
         let inner_tex = Texture::new(buf_slice, buf_w, buf_h, format);
-        let mut inner = SwRenderer::new(inner_tex);
+        // Buffers cleared to transparent need source-over alpha
+        // accumulation so the silhouette stays meaningful for
+        // downstream samplers (DropShadow, Mirror, etc).
+        let alpha_mode = if clear_transparent {
+            crate::draw::sw::AlphaMode::Blend
+        } else {
+            crate::draw::sw::AlphaMode::Opaque
+        };
+        let mut inner = SwRenderer::new(inner_tex).with_alpha_mode(alpha_mode);
         inner.viewport = Viewport::new(buf_w, buf_h, scale);
 
         // The entity's drawn rect maps to (0, 0) in the buffer's

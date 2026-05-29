@@ -25,6 +25,8 @@ mod transformed;
 use quad::{blit_quad, fill_rect_quad, stroke_rect_quad};
 use transformed::{blit_transformed, fill_rect_transformed, offset_point, offset_rect};
 
+pub use crate::draw::texture::AlphaMode;
+
 pub struct SwRenderer<'a> {
     pub target: Texture<'a>,
     pub viewport: Viewport,
@@ -42,6 +44,18 @@ impl<'a> SwRenderer<'a> {
             #[cfg(feature = "perf")]
             perf: None,
         }
+    }
+
+    /// Sets the destination buffer's alpha mode. `Opaque` (the
+    /// default) writes `dst.a = 255` on every pixel — correct for
+    /// framebuffer output. `Blend` accumulates `dst.a` via
+    /// non-premultiplied source-over so a sampler reading the
+    /// buffer's alpha channel sees a correct silhouette; intended
+    /// for offscreen buffers feeding effect widgets that read the
+    /// alpha channel.
+    pub fn with_alpha_mode(mut self, mode: AlphaMode) -> Self {
+        self.target.alpha_mode = mode;
+        self
     }
 }
 
@@ -566,6 +580,7 @@ impl Renderer for SwRenderer<'_> {
             height: row_h,
             format: self.target.format,
             stride: target_stride,
+            alpha_mode: self.target.alpha_mode,
         };
         f(&mut view);
         true
@@ -1776,5 +1791,67 @@ mod tests {
                 "col {x} should hold pre-scroll col {src_x_before}",
             );
         }
+    }
+
+    #[test]
+    fn opaque_mode_writes_full_alpha() {
+        // Default mode (Opaque): every blend-pixel write must leave
+        // dst.a = 255 regardless of source alpha. Regression guard
+        // for the framebuffer path post-AlphaMode introduction.
+        let mut buf = std::vec![0u8; 4 * 4];
+        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
+        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 100), 100);
+        tex.blend_pixel_int(1, 0, &Color::rgba(0, 255, 0, 200), 200);
+        assert_eq!(tex.get_pixel(0, 0).a, 255, "opaque mode: dst.a always 255");
+        assert_eq!(tex.get_pixel(1, 0).a, 255, "opaque mode: dst.a always 255");
+    }
+
+    #[test]
+    fn blend_alpha_accumulates_on_clear_transparent() {
+        // Blend mode + transparent dst (a=0): a single fill of partial
+        // alpha must leave dst.a = src.a, not 255.
+        let mut buf = std::vec![0u8; 4 * 4];
+        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
+        tex.alpha_mode = AlphaMode::Blend;
+        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 128), 128);
+        let p = tex.get_pixel(0, 0);
+        assert_eq!(
+            p.a, 128,
+            "blend mode + transparent dst: dst.a should equal src.a, got {}",
+            p.a,
+        );
+    }
+
+    #[test]
+    fn blend_alpha_blends_when_dst_partial() {
+        // Two overlapping fills in Blend mode must compose alpha via
+        //   out.a = src.a + dst.a * (255 − src.a) / 255
+        // First fill leaves dst.a = 100; second fill src.a = 100 over
+        // that should give roughly 100 + 100 × 155 / 255 = 161.
+        let mut buf = std::vec![0u8; 4 * 4];
+        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
+        tex.alpha_mode = AlphaMode::Blend;
+        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 100), 100);
+        tex.blend_pixel_int(0, 0, &Color::rgba(0, 0, 255, 100), 100);
+        let p = tex.get_pixel(0, 0);
+        // ±2 tolerance for u8 rounding in two-step source-over.
+        let expected = 100 + (100 * 155) / 255;
+        assert!(
+            (p.a as i32 - expected as i32).abs() <= 2,
+            "blend mode source-over: expected ~{expected}, got {}",
+            p.a,
+        );
+    }
+
+    #[test]
+    fn blend_a_eq_255_writes_full_alpha_in_blend_mode() {
+        // Source-over identity at a=255: fully opaque source covers
+        // dst, so dst.a = 255 even in Blend mode. Pins the
+        // short-circuit behaviour for the common case.
+        let mut buf = std::vec![0u8; 4 * 4];
+        let mut tex = Texture::new(&mut buf, 2, 2, ColorFormat::RGBA8888);
+        tex.alpha_mode = AlphaMode::Blend;
+        tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 255), 255);
+        assert_eq!(tex.get_pixel(0, 0).a, 255);
     }
 }
