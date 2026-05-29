@@ -367,10 +367,9 @@ fn fill_axis_aligned(
             }
         }
     } else {
-        let effective_opa = if blend_aware { color.a } else { opa };
         for py in px_y0..px_y1 {
             for px in px_x0..px_x1 {
-                target.blend_pixel_int(px, py, color, effective_opa);
+                target.blend_pixel_int(px, py, color, opa);
             }
         }
     }
@@ -915,6 +914,22 @@ mod corner_check {
             backend.target.get_pixel(20, 12).a,
             0,
             "pixel outside clip should not be written"
+        );
+    }
+
+    #[test]
+    fn fill_axis_aligned_blend_mode_honours_caller_folded_opa() {
+        let mut buf = std::vec![0u8; 4 * 4 * 4];
+        let mut tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
+        tex.alpha_mode = crate::draw::texture::AlphaMode::Blend;
+        let folded = ((128u16 * 128) / 255) as u8;
+        super::fill_axis_aligned(&mut tex, 0, 0, 4, 4, &Color::rgba(255, 0, 0, 128), folded);
+        let p = tex.get_pixel(2, 2);
+        let expected = folded as i32;
+        assert!(
+            (p.a as i32 - expected).abs() <= 2,
+            "Blend fallback must use folded opa, expected ~{expected}, got {}",
+            p.a,
         );
     }
 }
