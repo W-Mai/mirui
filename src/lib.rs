@@ -11,12 +11,22 @@
 //! mirui = { version = "0.23", features = ["sdl"] }
 //! ```
 //!
-//! ```ignore
-//! // Requires the `sdl` feature: `cargo run --features sdl`.
-//! use mirui::prelude::*;
-//! use mirui::surface::sdl::SdlSurface;
+//! The snippet below builds against mirui's default features and is
+//! verified by `cargo test --doc`. Swap `FramebufSurface` for
+//! `mirui::surface::sdl::SdlSurface::new("hello", 480, 320)` (with the
+//! `sdl` feature) to run on a desktop window instead of into a
+//! user-supplied flush callback.
 //!
-//! let backend = SdlSurface::new("hello mirui", 480, 320);
+//! ```no_run
+//! use mirui::prelude::*;
+//! use mirui::surface::framebuf::FramebufSurface;
+//! use mirui::draw::texture::ColorFormat;
+//! use mirui::types::Rect;
+//!
+//! let backend = FramebufSurface::with_format(
+//!     480, 320, ColorFormat::RGBA8888,
+//!     |_bytes: &[u8], _area: &Rect| { /* push to your display */ },
+//! );
 //! let mut app = App::new(backend);
 //! app.with_default_widgets().with_default_systems();
 //!
