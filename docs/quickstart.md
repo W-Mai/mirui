@@ -63,7 +63,6 @@ edition = "2024"
 
 [dependencies]
 mirui = { version = "0.23", features = ["sdl"] }
-mirui-macros = "0.23"
 ```
 
 `src/main.rs`:
@@ -233,7 +232,6 @@ std = ["mirui/std"]
 
 [dependencies]
 mirui = { version = "0.23", default-features = false, features = ["quad-aa"] }
-mirui-macros = "0.23"
 ```
 
 `app/src/lib.rs`:

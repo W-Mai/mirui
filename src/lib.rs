@@ -9,7 +9,6 @@
 //! ```toml
 //! [dependencies]
 //! mirui = { version = "0.23", features = ["sdl"] }
-//! mirui-macros = "0.23"
 //! ```
 //!
 //! ```ignore
