@@ -400,10 +400,19 @@ fn try_draw_offscreen(
     use crate::draw::texture::Texture;
     use crate::types::Point;
 
-    let format = match renderer.offscreen_format() {
+    let backend_format = match renderer.offscreen_format() {
         Some(f) => f,
         None => return false,
     };
+    let needs_alpha = world
+        .get::<super::OffscreenAlphaMode>(entity)
+        .is_some_and(|m| m.clear_transparent);
+    let format =
+        if needs_alpha && !matches!(backend_format, crate::draw::texture::ColorFormat::RGBA8888) {
+            crate::draw::texture::ColorFormat::RGBA8888
+        } else {
+            backend_format
+        };
 
     // Caller's cull already used the transform-applied bbox; reusing
     // shifted_rect (untransformed) here would skip render when the
