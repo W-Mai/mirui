@@ -1,3 +1,72 @@
+//! mirui — a `no_std`, ECS-driven UI framework for embedded, desktop,
+//! and (planned) WebAssembly. Renders with 24.8 fixed-point subpixel
+//! precision on a software rasterizer designed for MCUs without an FPU;
+//! optionally runs on top of SDL2 (CPU or hardware-accelerated) on
+//! desktop.
+//!
+//! # Quick Start
+//!
+//! ```toml
+//! [dependencies]
+//! mirui = { version = "0.23", features = ["sdl"] }
+//! mirui-macros = "0.23"
+//! ```
+//!
+//! ```ignore
+//! // Requires the `sdl` feature: `cargo run --features sdl`.
+//! use mirui::prelude::*;
+//! use mirui::surface::sdl::SdlSurface;
+//!
+//! let backend = SdlSurface::new("hello mirui", 480, 320);
+//! let mut app = App::new(backend);
+//! app.with_default_widgets().with_default_systems();
+//!
+//! let root = WidgetBuilder::new(&mut app.world)
+//!     .bg_color(ColorToken::Surface)
+//!     .id();
+//!
+//! ui! {
+//!     :(
+//!         parent: root
+//!         world: &mut app.world
+//!     :)
+//!
+//!     header (
+//!         bg_color: ColorToken::Primary,
+//!         text_color: ColorToken::OnPrimary,
+//!         text: "Hello mirui!",
+//!         border_radius: 8
+//!     ) {}
+//! };
+//!
+//! app.set_root(root);
+//! app.run();
+//! ```
+//!
+//! # Other targets
+//!
+//! mirui also runs bare-metal on RISC-V and ARM Cortex-M MCUs through
+//! [`surface::framebuf::FramebufSurface`], and a Cargo workspace
+//! template builds the same UI code on both desktop and embedded
+//! targets unchanged. The full walkthrough — including ESP32-C3
+//! wiring, the workspace layout, and a recipe for adding new target
+//! crates — lives in [`docs/quickstart.md`][quickstart].
+//!
+//! [quickstart]: https://github.com/W-Mai/mirui/blob/main/docs/quickstart.md
+//!
+//! # Module map
+//!
+//! - [`app`]: the [`App`][app::App] entry point and [`Plugin`][plugin::Plugin] trait.
+//! - [`ecs`]: World, Entity, Component, Resource, Query, System, SystemScheduler.
+//! - [`widget`]: widget tree primitives (Style, ComputedRect, View, Theme, Dirty).
+//! - [`components`]: built-in widgets — buttons, sliders, lazy lists, effects.
+//! - [`draw`]: software rasterizer, paths, textures, draw commands.
+//! - [`surface`]: backend trait + bundled SDL2 / framebuffer / SDL_GPU implementations.
+//! - [`event`]: input dispatch, gestures, hit-testing, focus.
+//! - [`anim`]: easing, springs, motion components.
+//! - [`layout`]: flexbox + absolute positioning + dimension types.
+//! - [`plugins`]: bundled `App` plugins (clock, perf, FPS, input feedback).
+
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
