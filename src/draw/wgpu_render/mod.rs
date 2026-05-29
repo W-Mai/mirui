@@ -441,6 +441,66 @@ fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
     }
 }
 
+fn offset_rect(r: &Rect, tx: Fixed, ty: Fixed) -> Rect {
+    Rect {
+        x: r.x + tx,
+        y: r.y + ty,
+        w: r.w,
+        h: r.h,
+    }
+}
+
+fn offset_point(p: &Point, tx: Fixed, ty: Fixed) -> Point {
+    Point {
+        x: p.x + tx,
+        y: p.y + ty,
+    }
+}
+
+fn translate_path(path: &Path, tx: Fixed, ty: Fixed) -> Path {
+    use crate::draw::path::PathCmd;
+    let cmds = path
+        .cmds
+        .iter()
+        .map(|c| match c {
+            PathCmd::MoveTo(p) => PathCmd::MoveTo(Point {
+                x: p.x + tx,
+                y: p.y + ty,
+            }),
+            PathCmd::LineTo(p) => PathCmd::LineTo(Point {
+                x: p.x + tx,
+                y: p.y + ty,
+            }),
+            PathCmd::QuadTo { ctrl, end } => PathCmd::QuadTo {
+                ctrl: Point {
+                    x: ctrl.x + tx,
+                    y: ctrl.y + ty,
+                },
+                end: Point {
+                    x: end.x + tx,
+                    y: end.y + ty,
+                },
+            },
+            PathCmd::CubicTo { ctrl1, ctrl2, end } => PathCmd::CubicTo {
+                ctrl1: Point {
+                    x: ctrl1.x + tx,
+                    y: ctrl1.y + ty,
+                },
+                ctrl2: Point {
+                    x: ctrl2.x + tx,
+                    y: ctrl2.y + ty,
+                },
+                end: Point {
+                    x: end.x + tx,
+                    y: end.y + ty,
+                },
+            },
+            PathCmd::Close => PathCmd::Close,
+        })
+        .collect();
+    Path { cmds }
+}
+
 impl WgpuRenderer<'_> {
     fn fill_path_inner(&mut self, path: &Path, color: &Color, opa: u8) {
         let (verts, indices) = {
@@ -593,6 +653,43 @@ impl WgpuRenderer<'_> {
         }
 
         frame.cleared = true;
+    }
+
+    /// Quad rounded corners are ignored because they need a quad-local SDF mask.
+    fn fill_quad_inner(&mut self, q: &[Point; 4], _radius: Fixed, color: &Color, opa: u8) {
+        let mut path = Path::new();
+        path.move_to(q[0]).line_to(q[1]).line_to(q[2]).line_to(q[3]);
+        path.cmds.push(crate::draw::path::PathCmd::Close);
+        self.fill_path_inner(&path, color, opa);
+    }
+
+    fn stroke_quad_inner(
+        &mut self,
+        q: &[Point; 4],
+        width: Fixed,
+        _radius: Fixed,
+        color: &Color,
+        opa: u8,
+    ) {
+        let mut path = Path::new();
+        path.move_to(q[0]).line_to(q[1]).line_to(q[2]).line_to(q[3]);
+        path.cmds.push(crate::draw::path::PathCmd::Close);
+        self.stroke_path_inner(&path, width, color, opa);
+    }
+
+    /// Quad blit uses an axis-aligned bounding box; UVs are not perspective-correct.
+    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4]) {
+        let min_x = q[0].x.min(q[1].x).min(q[2].x).min(q[3].x);
+        let max_x = q[0].x.max(q[1].x).max(q[2].x).max(q[3].x);
+        let min_y = q[0].y.min(q[1].y).min(q[2].y).min(q[3].y);
+        let max_y = q[0].y.max(q[1].y).max(q[2].y).max(q[3].y);
+        let dst_pos = Point { x: min_x, y: min_y };
+        let dst_size = Point {
+            x: max_x - min_x,
+            y: max_y - min_y,
+        };
+        let src_rect = Rect::new(0, 0, src.width, src.height);
+        self.blit_inner(src, &src_rect, dst_pos, dst_size);
     }
 
     fn draw_label_inner(&mut self, pos: &Point, text: &[u8], color: &Color, opa: u8) {
@@ -781,6 +878,54 @@ impl WgpuRenderer<'_> {
 
 impl Renderer for WgpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
+        use crate::types::TransformClass;
+
+        // Quad short-circuits: render_system already pre-projected the
+        // 3D / non-affine widget into 4 corner points, so the GPU only
+        // has to draw the resulting quad.
+        match cmd {
+            DrawCommand::Fill {
+                quad: Some(q),
+                color,
+                radius,
+                opa,
+                ..
+            } => {
+                self.fill_quad_inner(q, *radius, color, *opa);
+                return;
+            }
+            DrawCommand::Border {
+                quad: Some(q),
+                width,
+                radius,
+                color,
+                opa,
+                ..
+            } => {
+                self.stroke_quad_inner(q, *width, *radius, color, *opa);
+                return;
+            }
+            DrawCommand::Blit {
+                quad: Some(q),
+                texture,
+                ..
+            } => {
+                self.blit_quad_inner(texture, q);
+                return;
+            }
+            _ => {}
+        }
+
+        let tf = cmd.transform();
+        let (tx, ty) = match tf.classify() {
+            TransformClass::Identity => (Fixed::ZERO, Fixed::ZERO),
+            TransformClass::Translate => (tf.tx, tf.ty),
+            other => unimplemented!(
+                "wgpu backend: transform class {:?} not yet handled — render_system should pre-project to a quad",
+                other
+            ),
+        };
+
         match cmd {
             DrawCommand::Fill {
                 area,
@@ -788,12 +933,16 @@ impl Renderer for WgpuRenderer<'_> {
                 radius,
                 opa,
                 ..
-            } => self.fill_rect_inner(area, color, *radius, *opa),
+            } => {
+                let area = offset_rect(area, tx, ty);
+                self.fill_rect_inner(&area, color, *radius, *opa);
+            }
             DrawCommand::Blit {
                 pos, size, texture, ..
             } => {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                self.blit_inner(texture, &src_rect, *pos, *size);
+                let pos = offset_point(pos, tx, ty);
+                self.blit_inner(texture, &src_rect, pos, *size);
             }
             DrawCommand::Border {
                 area,
@@ -803,6 +952,7 @@ impl Renderer for WgpuRenderer<'_> {
                 opa,
                 ..
             } => {
+                let area = offset_rect(area, tx, ty);
                 let half = *width / 2;
                 let path = Path::rounded_rect(
                     area.x + half,
@@ -821,8 +971,10 @@ impl Renderer for WgpuRenderer<'_> {
                 opa,
                 ..
             } => {
+                let p1 = offset_point(p1, tx, ty);
+                let p2 = offset_point(p2, tx, ty);
                 let mut path = Path::new();
-                path.move_to(*p1).line_to(*p2);
+                path.move_to(p1).line_to(p2);
                 self.stroke_path_inner(&path, *width, color, *opa);
             }
             DrawCommand::Arc {
@@ -835,13 +987,19 @@ impl Renderer for WgpuRenderer<'_> {
                 opa,
                 ..
             } => {
-                let path = Path::arc(*center, *radius, *start_angle, *end_angle);
+                let center = offset_point(center, tx, ty);
+                let path = Path::arc(center, *radius, *start_angle, *end_angle);
                 self.stroke_path_inner(&path, *width, color, *opa);
             }
             DrawCommand::FillPath {
                 path, color, opa, ..
             } => {
-                self.fill_path_inner(path, color, *opa);
+                if tx == Fixed::ZERO && ty == Fixed::ZERO {
+                    self.fill_path_inner(path, color, *opa);
+                } else {
+                    let translated = translate_path(path, tx, ty);
+                    self.fill_path_inner(&translated, color, *opa);
+                }
             }
             DrawCommand::Label {
                 pos,
@@ -850,7 +1008,8 @@ impl Renderer for WgpuRenderer<'_> {
                 opa,
                 ..
             } => {
-                self.draw_label_inner(pos, text, color, *opa);
+                let pos = offset_point(pos, tx, ty);
+                self.draw_label_inner(&pos, text, color, *opa);
             }
         }
     }

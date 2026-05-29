@@ -45,6 +45,23 @@ struct WgpuHandler {
     last_cursor: (Fixed, Fixed),
 }
 
+impl WgpuHandler {
+    /// winit hands every coordinate as `PhysicalPosition` (device
+    /// pixels). mirui hit-tests in logical points; divide by the
+    /// integer-rounded `scale_factor` to bridge.
+    fn to_logical(&self, x: f64, y: f64) -> (Fixed, Fixed) {
+        let scale = self
+            .state
+            .as_ref()
+            .map(|s| s.window.scale_factor().round().max(1.0))
+            .unwrap_or(1.0);
+        (
+            Fixed::from((x / scale) as i32),
+            Fixed::from((y / scale) as i32),
+        )
+    }
+}
+
 impl ApplicationHandler for WgpuHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.is_some() {
@@ -144,8 +161,7 @@ impl ApplicationHandler for WgpuHandler {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let x = Fixed::from(position.x as i32);
-                let y = Fixed::from(position.y as i32);
+                let (x, y) = self.to_logical(position.x, position.y);
                 self.last_cursor = (x, y);
                 self.event_queue
                     .push_back(InputEvent::PointerMove { id: 0, x, y });
@@ -170,17 +186,14 @@ impl ApplicationHandler for WgpuHandler {
                             Fixed::from((y * 16.0) as i32),
                         )
                     }
-                    MouseScrollDelta::PixelDelta(p) => {
-                        (Fixed::from(p.x as i32), Fixed::from(p.y as i32))
-                    }
+                    MouseScrollDelta::PixelDelta(p) => self.to_logical(p.x, p.y),
                 };
                 let (x, y) = self.last_cursor;
                 self.event_queue
                     .push_back(InputEvent::Wheel { dx, dy, x, y });
             }
             WindowEvent::Touch(touch) => {
-                let x = Fixed::from(touch.location.x as i32);
-                let y = Fixed::from(touch.location.y as i32);
+                let (x, y) = self.to_logical(touch.location.x, touch.location.y);
                 let id = (touch.id & 0xff) as u8;
                 let event = match touch.phase {
                     TouchPhase::Started => InputEvent::PointerDown { id, x, y },
