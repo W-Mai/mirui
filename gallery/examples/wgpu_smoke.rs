@@ -1,45 +1,68 @@
-//! Smoke test for the wgpu backend. Opens a window, paints a red
-//! rounded rectangle each frame, exits on close. Visual check —
-//! the window must show the rectangle, not just open without panic.
+//! End-to-end smoke for the wgpu backend: `App` with the default
+//! widget systems registered, three rectangles rendered through the
+//! widget tree, exits when the window is closed. Visual check —
+//! header / row / footer must show up, not just a blank window.
 
-use mirui::draw::canvas::Canvas;
 use mirui::draw::wgpu_render::WgpuRendererFactory;
-use mirui::surface::Surface;
+use mirui::prelude::*;
 use mirui::surface::wgpu_surface::WgpuSurface;
-use mirui::types::{Color, Fixed, Rect, Viewport};
-
-use mirui::app::RendererFactory;
-use mirui::draw::renderer::Renderer;
 
 fn main() {
-    let mut surface = WgpuSurface::new("mirui wgpu smoke", 480, 320);
-    let mut factory = WgpuRendererFactory::new();
-    let info = surface.display_info();
-    let viewport = Viewport::new(info.width, info.height, info.scale);
-    println!("WgpuSurface ready: {}x{}", info.width, info.height);
+    let backend = WgpuSurface::new("mirui wgpu smoke", 480, 320);
+    let factory = WgpuRendererFactory::new();
+    let mut app = App::with_factory(backend, factory);
+    app.with_default_widgets();
 
-    loop {
-        if let Some(event) = surface.poll_event() {
-            if matches!(event, mirui::surface::InputEvent::Quit) {
-                break;
-            }
+    let root = WidgetBuilder::new(&mut app.world)
+        .bg_color(Color::rgb(30, 30, 46))
+        .layout(LayoutStyle {
+            direction: FlexDirection::Column,
+            width: Dimension::px(480),
+            height: Dimension::px(320),
+            ..Default::default()
+        })
+        .id();
+
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
+
+        header (
+            bg_color: Color::rgb(88, 166, 255),
+            height: 40,
+            text: "Hello wgpu!",
+            border_radius: 8
+        ) {}
+    };
+
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
+
+        row (direction: FlexDirection::Row, grow: 1.0) {
+            btn1 (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6) {}
+            btn2 (bg_color: Color::rgb(248, 81, 73), grow: 1.0, text: "Cancel", border_radius: 6) {}
+            btn3 (bg_color: Color::rgb(210, 168, 255), grow: 1.0, text: "Maybe", border_radius: 6) {}
         }
+    };
 
-        {
-            let mut renderer = factory.make(&mut surface, &viewport);
-            renderer.fill_rect(
-                &Rect::new(80, 60, 320, 200),
-                &Rect::new(0, 0, 480, 320),
-                &Color::rgb(220, 40, 40),
-                Fixed::from(24),
-                255,
-            );
-            Renderer::flush(&mut renderer);
-        }
-        surface.flush(&Rect::new(0, 0, 480, 320));
+    ui! {
+        :(
+            parent: root
+            world: &mut app.world
+        :)
 
-        std::thread::sleep(std::time::Duration::from_millis(16));
-    }
+        footer (
+            bg_color: Color::rgb(50, 50, 70),
+            height: 30,
+            text: "wgpu backend"
+        ) {}
+    };
 
-    println!("done");
+    app.set_root(root);
+    app.run();
 }

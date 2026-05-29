@@ -263,6 +263,16 @@ impl Renderer for WgpuRenderer<'_> {
     }
 }
 
+impl Drop for WgpuRenderer<'_> {
+    // App drops the renderer without explicitly calling flush; submit
+    // + present here so the frame reaches the screen.
+    fn drop(&mut self) {
+        if self.frame.is_some() {
+            Renderer::flush(self);
+        }
+    }
+}
+
 impl Canvas for WgpuRenderer<'_> {
     fn fill_rect(&mut self, area: &Rect, _clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         self.fill_rect_inner(area, color, radius, opa);

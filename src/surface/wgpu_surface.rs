@@ -84,11 +84,15 @@ impl ApplicationHandler for WgpuHandler {
 
         let size = window.inner_size();
         let surface_caps = surface.get_capabilities(&adapter);
+        // Prefer unorm: mirui Color values are already sRGB-encoded
+        // bytes, and the renderer composites in that space. Picking
+        // an sRGB swap-chain format would re-encode and wash colours
+        // out by ~2× luminance.
         let surface_format = surface_caps
             .formats
             .iter()
             .copied()
-            .find(|f| f.is_srgb())
+            .find(|f| !f.is_srgb())
             .unwrap_or(surface_caps.formats[0]);
 
         let config = wgpu::SurfaceConfiguration {
