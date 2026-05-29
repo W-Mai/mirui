@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.2] - 2026-05-29
+
+### Fixed
+
+- **`fill_axis_aligned` Blend fallback now uses the caller's folded `opa`** (`src/draw/sw/rect_fill.rs`): regression in v0.23.0 wrote alpha ≈ `color.a` instead of `color.a × opa / 255` on alpha-aware buffers. Effect widgets (`MirrorOf` / `TemporalMix` / `BackgroundBlur`) sampling the buffer saw a thicker silhouette than intended. Default Opaque path unaffected.
+- **`SimAction::rotate_smooth` ceil-divides `total_ms` by `|ticks|`** (`src/event/sim.rs`): floor division could retire early when `total_ms` was not divisible by `|ticks|`. The per-detent step now rounds up so the effective duration is `≥ total_ms`, with at most `|ticks| − 1` ms of overshoot. Doc updated to mark the value as approximate.
+- **Offscreen buffers promote to RGBA8888 when alpha matters** (`src/widget/render_system.rs`): on RGB565 backends, an entity with `OffscreenAlphaMode::clear_transparent()` previously produced an opaque-black halo around the silhouette because the buffer had no alpha channel. The offscreen format is now overridden to RGBA8888 in this case; framebuffer rendering and offscreen entities without `clear_transparent` keep their native format.
+
 ## [0.23.1] - 2026-05-29
 
 `SimAction::rotate_smooth` distributes encoder detents by an ease curve instead of fixed intervals, letting tests reproduce realistic accelerate / decelerate patterns rather than the always-equal tempo of `SimAction::rotate`.
