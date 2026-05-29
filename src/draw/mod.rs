@@ -11,6 +11,8 @@ pub mod renderer;
 pub mod sdl_gpu;
 pub mod sw;
 pub mod texture;
+#[cfg(feature = "wgpu")]
+pub mod wgpu_render;
 
 pub use canvas::Canvas;
 pub use command::DrawCommand;

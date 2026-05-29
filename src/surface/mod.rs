@@ -5,6 +5,8 @@ pub mod sdl;
 pub mod sdl_gpu;
 #[cfg(feature = "std")]
 pub mod slow;
+#[cfg(feature = "wgpu")]
+pub mod wgpu_surface;
 
 use crate::draw::texture::Texture;
 use crate::types::{Fixed, Rect, Viewport};
