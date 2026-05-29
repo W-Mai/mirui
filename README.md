@@ -31,8 +31,8 @@ on top of SDL2 (CPU or hardware-accelerated) on desktop.
 
 ```toml
 [dependencies]
-mirui = "0.22"
-mirui-macros = "0.22"
+mirui = { version = "0.23", features = ["sdl"] }
+mirui-macros = "0.23"
 ```
 
 ```rust
@@ -55,15 +55,22 @@ fn main() {
         .id();
 
     ui! {
-        :(parent: root, world: &mut app.world :)
+        :(
+            parent: root
+            world: &mut app.world
+        :)
 
-        header (
-            bg_color: ColorToken::Primary,
-            text_color: ColorToken::OnPrimary,
-            height: 40, text: "Hello mirui!", border_radius: 8
-        ) {}
-        body (grow: 1.0, bg_color: ColorToken::SurfaceVariant) {}
-        footer (height: 30, text: "ECS + DSL") {}
+        column (direction: FlexDirection::Column, grow: 1.0) {
+            header (
+                bg_color: ColorToken::Primary,
+                text_color: ColorToken::OnPrimary,
+                height: 40,
+                text: "Hello mirui!",
+                border_radius: 8
+            ) {}
+            content (bg_color: ColorToken::SurfaceVariant, grow: 1.0) {}
+            footer (height: 30, text: "ECS + DSL") {}
+        }
     };
 
     app.set_root(root);
@@ -77,11 +84,24 @@ fn main() {
 stay on their canonical paths so the prelude doesn't pin a platform
 or feature choice.
 
+### Other targets
+
+The snippet above runs on the SDL backend (desktop). mirui also runs
+bare-metal on RISC-V and ARM Cortex-M MCUs through `FramebufSurface`,
+and a Cargo workspace template ships UI code that builds on both
+desktop and embedded targets unchanged. See
+[`docs/quickstart.md`](docs/quickstart.md) for the full walkthrough,
+including ESP32-C3 wiring, the workspace layout, and a recipe for
+adding new target crates.
+
 ## DSL Syntax
 
 ```rust
 ui! {
-    :(parent: root, world: &mut world :)
+    :(
+        parent: root
+        world: &mut world
+    :)
 
     // Widget with attributes
     container (direction: FlexDirection::Column, grow: 1.0) {
@@ -211,7 +231,11 @@ app.add_plugin(MyHotkeysPlugin);
 use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 
 ui! {
-    :(parent: root, world: &mut world :)
+    :(
+        parent: root
+        world: &mut world
+    :)
+
     scroll_container (direction: FlexDirection::Column, grow: 1.0) [
         ScrollOffset { x: Fixed::ZERO, y: Fixed::ZERO },
         ScrollConfig {
