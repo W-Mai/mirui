@@ -112,6 +112,7 @@ enum ResolvedAction {
     Rotate {
         ticks: i16,
         step_ms: u16,
+        ease_fn: Option<fn(Fixed) -> Fixed>,
     },
     Pinch {
         center: Point,
@@ -330,12 +331,20 @@ pub struct MoveAction {
 }
 
 /// Encoder / Digital Crown rotation. `ticks` is the signed total
-/// number of detents to dispatch; `step_ms` is the gap between
-/// successive `InputEvent::Rotary` events.
+/// number of detents to dispatch.
+///
+/// Two timing modes:
+/// - `ease_fn = None`: detents at fixed `step_ms` intervals (legacy
+///   behaviour, kept for `SimAction::rotate`).
+/// - `ease_fn = Some(f)`: detents distributed across `step_ms × ticks`
+///   total time according to `f(t/total) → progress in [0, 1]`. A
+///   linear `ease_fn` is equivalent to fixed-step; non-linear curves
+///   simulate a real encoder's accel / decel envelope.
 #[derive(Clone, Copy)]
 pub struct RotateAction {
     pub ticks: i16,
     pub step_ms: u16,
+    pub ease_fn: Option<fn(Fixed) -> Fixed>,
 }
 
 #[derive(Clone, Copy)]
@@ -410,7 +419,24 @@ impl SimAction {
     }
 
     pub fn rotate(ticks: i16, step_ms: u16) -> Self {
-        Self::Rotate(RotateAction { ticks, step_ms })
+        Self::Rotate(RotateAction {
+            ticks,
+            step_ms,
+            ease_fn: None,
+        })
+    }
+
+    /// Rotate that distributes detents over `total_ms` according to
+    /// `ease_fn`. `ease::linear` is equivalent to `rotate(ticks,
+    /// total_ms / ticks)`; non-linear curves simulate accel / decel.
+    pub fn rotate_smooth(ticks: i16, total_ms: u16, ease_fn: fn(Fixed) -> Fixed) -> Self {
+        let abs = ticks.unsigned_abs().max(1);
+        let step_ms = (total_ms / abs).max(1);
+        Self::Rotate(RotateAction {
+            ticks,
+            step_ms,
+            ease_fn: Some(ease_fn),
+        })
     }
 
     pub fn pinch(
@@ -611,6 +637,7 @@ pub fn sim_timeline_system(world: &mut World) {
         SimAction::Rotate(r) => Some(ResolvedAction::Rotate {
             ticks: r.ticks,
             step_ms: r.step_ms,
+            ease_fn: r.ease_fn,
         }),
         SimAction::Pinch(p) => resolve_dim_point(world, p.center, p.anchor).map(|c| {
             let c = anchored_center(world, p.anchor, c);
@@ -982,7 +1009,11 @@ pub fn sim_timeline_system(world: &mut World) {
                 );
             }
         }
-        ResolvedAction::Rotate { ticks, step_ms } => {
+        ResolvedAction::Rotate {
+            ticks,
+            step_ms,
+            ease_fn,
+        } => {
             let total = ticks.unsigned_abs();
             if total == 0 {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
@@ -992,7 +1023,24 @@ pub fn sim_timeline_system(world: &mut World) {
                 }
             } else {
                 let step = step_ms.max(1) as u32;
-                let target = ((action_elapsed / step) as u16).min(total);
+                let total_ms = step * total as u32;
+                // ease_fn maps elapsed/total ∈ [0, 1] to a progress
+                // value also in [0, 1]; multiply by total detents for
+                // the current target. Linear ease and `ease_fn = None`
+                // both reduce to the legacy `elapsed / step` formula.
+                let target = if let Some(ease) = ease_fn {
+                    let t = if total_ms == 0 {
+                        Fixed::ONE
+                    } else {
+                        Fixed::from_int(action_elapsed.min(total_ms) as i32)
+                            / Fixed::from_int(total_ms as i32)
+                    };
+                    let progress = ease(t).clamp(Fixed::ZERO, Fixed::ONE);
+                    let det_f = progress * Fixed::from_int(total as i32);
+                    (det_f.to_int() as u16).min(total)
+                } else {
+                    ((action_elapsed / step) as u16).min(total)
+                };
                 let already = world
                     .resource::<SimTimeline>()
                     .map(|t| t.rotate_emitted)
@@ -1174,6 +1222,71 @@ mod tests {
             "rotate failed to advance after total duration",
         );
         assert_eq!(world.resource::<SimTimeline>().unwrap().rotate_emitted, 0);
+    }
+
+    #[test]
+    fn rotate_smooth_with_linear_ease_matches_rotate() {
+        // Linear ease is the identity timing curve, so rotate_smooth
+        // with linear must emit detents at the same relative tempo as
+        // the legacy rotate(...).
+        let _g = mock::lock();
+        let mut world = setup_world();
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate_smooth(
+            4,
+            80,
+            crate::anim::ease::linear,
+        )]));
+
+        sim_timeline_system(&mut world);
+        for _ in 0..2 {
+            mock::advance_ms(20);
+            sim_timeline_system(&mut world);
+        }
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().rotate_emitted,
+            2,
+            "linear ease at 50% time → 2 of 4 detents",
+        );
+    }
+
+    #[test]
+    fn rotate_smooth_back_loaded_curve_stalls_then_finishes() {
+        // ease_in_out_cubic is back-loaded: at t=0.25 progress is far
+        // below 0.25, so detent emissions should lag the linear case.
+        // Pin the contract by checking that no detents have fired
+        // halfway through total_ms when ease_in_out_cubic is used,
+        // while linear would have fired half by then.
+        let _g = mock::lock();
+        let mut world = setup_world();
+        world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate_smooth(
+            4,
+            100,
+            crate::anim::ease::ease_in_out_cubic,
+        )]));
+
+        sim_timeline_system(&mut world);
+        // 25% elapsed: ease_in_out_cubic(0.25) ≈ 0.0625 → 0 detents.
+        for _ in 0..1 {
+            mock::advance_ms(25);
+            sim_timeline_system(&mut world);
+        }
+        let mid_emitted = world.resource::<SimTimeline>().unwrap().rotate_emitted;
+        assert!(
+            mid_emitted < 2,
+            "ease_in_out_cubic at 25% should not have emitted half the detents (got {mid_emitted})",
+        );
+
+        // Run past total_ms; all 4 detents must have fired and the
+        // cursor must advance.
+        for _ in 0..8 {
+            mock::advance_ms(20);
+            sim_timeline_system(&mut world);
+        }
+        assert_eq!(
+            world.resource::<SimTimeline>().unwrap().cursor,
+            1,
+            "rotate_smooth must fully complete after total_ms",
+        );
     }
 
     #[test]
