@@ -30,8 +30,11 @@ pub struct RectUniform {
     pub pos: [f32; 2],
     pub size: [f32; 2],
     pub color: [f32; 4],
-    pub radius: f32,
-    pub _pad: [f32; 3],
+    /// `[radius, 0, 0, 0]` — wrapping in vec4 keeps the layout 48 bytes
+    /// to match the WGSL `Rect` struct. A bare `radius: f32` plus
+    /// `[f32; 3]` padding is 48 bytes Rust-side but 64 bytes WGSL-side
+    /// because `vec3<f32>` aligns to 16.
+    pub radius_pad: [f32; 4],
 }
 
 pub struct PipelineCache {
@@ -145,5 +148,7 @@ fn build_pipeline(
 const _: () = {
     // Keep Rust uniform layouts in sync with WGSL structs.
     assert!(core::mem::size_of::<ViewportUniform>() == 16);
+    // Must match `Rect` in shader/fill.wgsl. Bumping fields here
+    // requires the corresponding WGSL update.
     assert!(core::mem::size_of::<RectUniform>() == 48);
 };

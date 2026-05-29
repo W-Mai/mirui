@@ -1,4 +1,5 @@
-//! wgpu-backed Surface.
+//! wgpu-backed Surface. Wraps a winit window driven by
+//! `pump_app_events` so mirui's polling main loop stays untouched.
 
 use alloc::collections::VecDeque;
 use alloc::string::{String, ToString};
@@ -188,6 +189,16 @@ pub struct WgpuSurface {
 }
 
 impl WgpuSurface {
+    /// `None` only between `WgpuSurface::new` constructing the struct
+    /// and `resumed` populating the wgpu device.
+    pub fn state(&self) -> Option<&WgpuState> {
+        self.handler.state.as_ref()
+    }
+
+    pub fn state_mut(&mut self) -> Option<&mut WgpuState> {
+        self.handler.state.as_mut()
+    }
+
     /// Open a window of the given logical size and stand up the wgpu
     /// device that backs it.
     pub fn new(title: &str, width: u16, height: u16) -> Self {
@@ -239,15 +250,20 @@ impl Surface for WgpuSurface {
             width: lw,
             height: lh,
             scale: Fixed::ONE,
+            // The surface format is sRGB BGRA / RGBA — mirui's `Texture`
             format: ColorFormat::RGBA8888,
         }
     }
 
     fn flush(&mut self, _area: &Rect) {
-        todo!()
+        // wgpu present happens inside `WgpuRenderer::flush` (the
+        // SurfaceTexture lives on the renderer's frame state). The
+        // backend-side flush is a no-op so the App tick order stays
+        // identical to other backends.
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
+        // `window_event` already pushes (Quit on CloseRequested).
         self.pump_once();
         self.handler.event_queue.pop_front()
     }

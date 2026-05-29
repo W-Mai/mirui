@@ -13,12 +13,12 @@ struct Rect {
     pos: vec2<f32>,
     // Width / height in physical pixels.
     size: vec2<f32>,
-    // Premultiplied... no, straight RGBA. The fragment shader folds
-    // alpha at the end.
+    // Straight RGBA, premultiplied at the end of the fragment shader.
     color: vec4<f32>,
-    // Corner radius in physical pixels. 0 = square.
-    radius: f32,
-    _pad: vec3<f32>,
+    // .x = corner radius in physical pixels (0 = square). .yzw unused —
+    // the wrapping vec4 is here so the Rust-side struct stays at 48
+    // bytes (vec3 forces 16-byte alignment, which would round to 64).
+    radius_pad: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> view: Viewport;
@@ -59,7 +59,7 @@ fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
     // Vector from rect centre to current pixel.
     let centre = pixel_local - half_size;
     // Clamp the requested radius so it never exceeds half the smaller side.
-    let r = min(rect.radius, min(half_size.x, half_size.y));
+    let r = min(rect.radius_pad.x, min(half_size.x, half_size.y));
     // SDF for a rounded rectangle (inigo quilez style):
     //   |centre| - half + r, then collapse outside-corner distance.
     let q = abs(centre) - half_size + vec2<f32>(r);
