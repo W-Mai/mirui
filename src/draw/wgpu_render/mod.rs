@@ -3,6 +3,7 @@
 mod label_atlas;
 mod path;
 mod pipeline;
+mod texture_pool;
 
 use wgpu::util::DeviceExt;
 
@@ -22,6 +23,7 @@ use self::pipeline::{
     BlitUniform, LabelVertex, PathTintUniform, PipelineCache, PipelineKey, RectUniform, ShaderKind,
     ViewportUniform,
 };
+use self::texture_pool::{CachedTexture, TextureKey, TexturePool, new_pool};
 
 pub use self::pipeline::MSAA_SAMPLES;
 
@@ -29,6 +31,7 @@ pub struct WgpuRendererFactory {
     cache: Option<PipelineCache>,
     glyph_atlas: Option<GlyphAtlas>,
     tessellator: PathTessellator,
+    texture_pool: TexturePool,
 }
 
 impl WgpuRendererFactory {
@@ -37,6 +40,7 @@ impl WgpuRendererFactory {
             cache: None,
             glyph_atlas: None,
             tessellator: PathTessellator::new(),
+            texture_pool: new_pool(),
         }
     }
 }
@@ -247,6 +251,45 @@ impl WgpuRenderer<'_> {
         if !self.begin_frame() {
             return;
         }
+
+        let key = TextureKey::from(src);
+        let tex_handle: crate::cache::Handle<CachedTexture> = {
+            let state = self
+                .surface
+                .state()
+                .expect("WgpuSurface state missing in blit");
+            match self
+                .factory
+                .texture_pool
+                .entry(key)
+                .or_try_insert_with::<_, ()>(|| {
+                    let rgba = texture_to_rgba8(src).ok_or(())?;
+                    Ok(CachedTexture(state.device.create_texture_with_data(
+                        &state.queue,
+                        &wgpu::TextureDescriptor {
+                            label: Some("mirui-blit-source"),
+                            size: wgpu::Extent3d {
+                                width: src.width as u32,
+                                height: src.height as u32,
+                                depth_or_array_layers: 1,
+                            },
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                | wgpu::TextureUsages::COPY_DST,
+                            view_formats: &[],
+                        },
+                        wgpu::util::TextureDataOrder::LayerMajor,
+                        &rgba,
+                    )))
+                }) {
+                Ok(h) => h,
+                Err(_) => return,
+            }
+        };
+
         let frame = self.frame.as_mut().expect("frame just initialised");
         let state = self
             .surface
@@ -257,32 +300,9 @@ impl WgpuRenderer<'_> {
             .cache
             .as_mut()
             .expect("PipelineCache must be initialised before blit");
-
-        let rgba = match texture_to_rgba8(src) {
-            Some(buf) => buf,
-            None => return,
-        };
-
-        let tex = state.device.create_texture_with_data(
-            &state.queue,
-            &wgpu::TextureDescriptor {
-                label: Some("mirui-blit-source"),
-                size: wgpu::Extent3d {
-                    width: src.width as u32,
-                    height: src.height as u32,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            },
-            wgpu::util::TextureDataOrder::LayerMajor,
-            &rgba,
-        );
-        let tex_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let tex_view = tex_handle
+            .0
+            .create_view(&wgpu::TextureViewDescriptor::default());
         let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("mirui-blit-sampler"),
             mag_filter: wgpu::FilterMode::Linear,
