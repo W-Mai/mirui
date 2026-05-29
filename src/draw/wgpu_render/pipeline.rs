@@ -11,6 +11,7 @@ pub enum ShaderKind {
     Fill,
     Blit,
     Path,
+    Label,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -53,10 +54,18 @@ pub struct PathTintUniform {
     pub color: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct LabelVertex {
+    pub pos: [f32; 2],
+    pub uv: [f32; 2],
+}
+
 pub struct PipelineCache {
     pub fill_bgl: wgpu::BindGroupLayout,
     pub blit_bgl: wgpu::BindGroupLayout,
     pub path_bgl: wgpu::BindGroupLayout,
+    pub label_bgl: wgpu::BindGroupLayout,
     pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
 }
 
@@ -72,34 +81,40 @@ impl PipelineCache {
             entries: &[uniform_entry(0), uniform_entry(1)],
         });
 
+        let texture_entries = [
+            uniform_entry(0),
+            uniform_entry(1),
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 3,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ];
         let blit_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("mirui-blit-bgl"),
-            entries: &[
-                uniform_entry(0),
-                uniform_entry(1),
-                wgpu::BindGroupLayoutEntry {
-                    binding: 2,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 3,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                    count: None,
-                },
-            ],
+            entries: &texture_entries,
+        });
+        let label_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mirui-label-bgl"),
+            entries: &texture_entries,
         });
 
         Self {
             fill_bgl,
             blit_bgl,
             path_bgl,
+            label_bgl,
             pipelines: HashMap::new(),
         }
     }
@@ -114,6 +129,7 @@ impl PipelineCache {
                 ShaderKind::Fill => &self.fill_bgl,
                 ShaderKind::Blit => &self.blit_bgl,
                 ShaderKind::Path => &self.path_bgl,
+                ShaderKind::Label => &self.label_bgl,
             };
             build_pipeline(device, bgl, key)
         })
@@ -142,6 +158,7 @@ fn build_pipeline(
         ShaderKind::Fill => ("mirui-fill", include_str!("shader/fill.wgsl")),
         ShaderKind::Blit => ("mirui-blit", include_str!("shader/blit.wgsl")),
         ShaderKind::Path => ("mirui-path", include_str!("shader/path.wgsl")),
+        ShaderKind::Label => ("mirui-label", include_str!("shader/label.wgsl")),
     };
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -164,11 +181,31 @@ fn build_pipeline(
             shader_location: 0,
         }],
     };
+    let label_vertex_layout = wgpu::VertexBufferLayout {
+        array_stride: 16,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: 0,
+                shader_location: 0,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: 8,
+                shader_location: 1,
+            },
+        ],
+    };
 
     let (vertex_buffers, topology): (&[wgpu::VertexBufferLayout], _) = match key.shader {
         ShaderKind::Fill | ShaderKind::Blit => (&[], wgpu::PrimitiveTopology::TriangleStrip),
         ShaderKind::Path => (
             core::slice::from_ref(&path_vertex_layout),
+            wgpu::PrimitiveTopology::TriangleList,
+        ),
+        ShaderKind::Label => (
+            core::slice::from_ref(&label_vertex_layout),
             wgpu::PrimitiveTopology::TriangleList,
         ),
     };
@@ -224,4 +261,7 @@ const _: () = {
     assert!(core::mem::size_of::<BlitUniform>() == 32);
     // Must match `PathTint` in shader/path.wgsl.
     assert!(core::mem::size_of::<PathTintUniform>() == 16);
+    // Must match the `LabelVertex` layout in pipeline.rs and the
+    // `VertexIn` struct in shader/label.wgsl.
+    assert!(core::mem::size_of::<LabelVertex>() == 16);
 };

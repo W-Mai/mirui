@@ -1,18 +1,13 @@
-//! End-to-end smoke for the wgpu backend: `App` with the default
-//! widget systems registered, three rectangles rendered through the
-//! widget tree, exits when the window is closed. Visual check —
-//! header / row / footer must show up, not just a blank window.
+//! Smoke test for the SDL backend using the shared widget tree.
 
 use mirui::components::Image;
 use mirui::components::assets::IMG_THUMBS_UP;
-use mirui::draw::wgpu_render::WgpuRendererFactory;
 use mirui::prelude::*;
-use mirui::surface::wgpu_surface::WgpuSurface;
+use mirui::surface::sdl::SdlSurface;
 
 fn main() {
-    let backend = WgpuSurface::new("mirui wgpu smoke", 480, 320);
-    let factory = WgpuRendererFactory::new();
-    let mut app = App::with_factory(backend, factory);
+    let backend = SdlSurface::new("mirui sdl smoke", 480, 320);
+    let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
     let root = WidgetBuilder::new(&mut app.world)
@@ -35,7 +30,7 @@ fn main() {
             header (
                 bg_color: Color::rgb(88, 166, 255),
                 height: 40,
-                text: "Hello wgpu!",
+                text: "Hello sdl!",
                 border_radius: 8,
                 border_color: Color::rgb(255, 255, 255)
             ) {}
@@ -63,7 +58,7 @@ fn main() {
             footer (
                 bg_color: Color::rgb(50, 50, 70),
                 height: 30,
-                text: "wgpu backend"
+                text: "sdl backend"
             ) {}
         }
     };

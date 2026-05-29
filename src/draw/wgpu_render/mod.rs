@@ -1,5 +1,6 @@
 //! wgpu-backed Renderer + Canvas.
 
+mod label_atlas;
 mod path;
 mod pipeline;
 
@@ -15,9 +16,10 @@ use crate::surface::Surface;
 use crate::surface::wgpu_surface::WgpuSurface;
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
+use self::label_atlas::GlyphAtlas;
 use self::path::PathTessellator;
 use self::pipeline::{
-    BlitUniform, PathTintUniform, PipelineCache, PipelineKey, RectUniform, ShaderKind,
+    BlitUniform, LabelVertex, PathTintUniform, PipelineCache, PipelineKey, RectUniform, ShaderKind,
     ViewportUniform,
 };
 
@@ -25,6 +27,7 @@ pub use self::pipeline::MSAA_SAMPLES;
 
 pub struct WgpuRendererFactory {
     cache: Option<PipelineCache>,
+    glyph_atlas: Option<GlyphAtlas>,
     tessellator: PathTessellator,
 }
 
@@ -32,6 +35,7 @@ impl WgpuRendererFactory {
     pub fn new() -> Self {
         Self {
             cache: None,
+            glyph_atlas: None,
             tessellator: PathTessellator::new(),
         }
     }
@@ -52,17 +56,23 @@ impl RendererFactory<WgpuSurface> for WgpuRendererFactory {
     fn make<'a>(
         &'a mut self,
         backend: &'a mut WgpuSurface,
-        _transform: &Viewport,
+        transform: &Viewport,
     ) -> WgpuRenderer<'a> {
-        if self.cache.is_none() {
+        if self.cache.is_none() || self.glyph_atlas.is_none() {
             let state = backend
                 .state()
                 .expect("WgpuSurface must be initialised before make()");
-            self.cache = Some(PipelineCache::new(&state.device));
+            if self.cache.is_none() {
+                self.cache = Some(PipelineCache::new(&state.device));
+            }
+            if self.glyph_atlas.is_none() {
+                self.glyph_atlas = Some(GlyphAtlas::new(&state.device, &state.queue));
+            }
         }
         WgpuRenderer {
             factory: self,
             surface: backend,
+            viewport: *transform,
             frame: None,
         }
     }
@@ -71,6 +81,7 @@ impl RendererFactory<WgpuSurface> for WgpuRendererFactory {
 pub struct WgpuRenderer<'a> {
     factory: &'a mut WgpuRendererFactory,
     surface: &'a mut WgpuSurface,
+    viewport: Viewport,
     frame: Option<Frame>,
 }
 
@@ -80,8 +91,11 @@ struct Frame {
     msaa_view: wgpu::TextureView,
     encoder: wgpu::CommandEncoder,
     cleared: bool,
-    width: f32,
-    height: f32,
+    /// Logical viewport size — mirui hands the renderer logical
+    /// coordinates and we let NDC do the scaling onto the physical
+    /// swapchain texture, so the shader uniforms stay logical too.
+    logical_w: f32,
+    logical_h: f32,
 }
 
 impl WgpuRenderer<'_> {
@@ -111,14 +125,15 @@ impl WgpuRenderer<'_> {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("mirui-wgpu-encoder"),
             });
+        let scale = self.viewport.scale().to_f32().max(1.0);
         self.frame = Some(Frame {
             surface_texture,
             swapchain_view,
             msaa_view,
             encoder,
             cleared: false,
-            width: state.config.width as f32,
-            height: state.config.height as f32,
+            logical_w: state.config.width as f32 / scale,
+            logical_h: state.config.height as f32 / scale,
         });
         true
     }
@@ -139,7 +154,7 @@ impl WgpuRenderer<'_> {
             .expect("PipelineCache must be initialised before fill_rect");
 
         let viewport_uniform = ViewportUniform {
-            size: [frame.width, frame.height],
+            size: [frame.logical_w, frame.logical_h],
             _pad: [0.0, 0.0],
         };
         let rect_uniform = RectUniform {
@@ -276,7 +291,7 @@ impl WgpuRenderer<'_> {
         });
 
         let viewport_uniform = ViewportUniform {
-            size: [frame.width, frame.height],
+            size: [frame.logical_w, frame.logical_h],
             _pad: [0.0, 0.0],
         };
         let tw = src.width as f32;
@@ -451,7 +466,7 @@ impl WgpuRenderer<'_> {
             .expect("PipelineCache must be initialised before path");
 
         let viewport_uniform = ViewportUniform {
-            size: [frame.width, frame.height],
+            size: [frame.logical_w, frame.logical_h],
             _pad: [0.0, 0.0],
         };
         let tint_uniform = PathTintUniform {
@@ -559,6 +574,189 @@ impl WgpuRenderer<'_> {
 
         frame.cleared = true;
     }
+
+    fn draw_label_inner(&mut self, pos: &Point, text: &[u8], color: &Color, opa: u8) {
+        if text.is_empty() {
+            return;
+        }
+        if !self.begin_frame() {
+            return;
+        }
+        let frame = self.frame.as_mut().expect("frame just initialised");
+        let state = self
+            .surface
+            .state()
+            .expect("WgpuSurface state missing in draw_label");
+        let cache = self
+            .factory
+            .cache
+            .as_mut()
+            .expect("PipelineCache must be initialised before draw_label");
+        let atlas = self
+            .factory
+            .glyph_atlas
+            .as_ref()
+            .expect("GlyphAtlas must be initialised before draw_label");
+
+        let cell_w = crate::draw::font::CHAR_W as f32;
+        let cell_h = crate::draw::font::CHAR_H as f32;
+        let mut verts = alloc::vec::Vec::with_capacity(text.len() * 4);
+        let mut indices = alloc::vec::Vec::with_capacity(text.len() * 6);
+        let base_x = pos.x.to_f32();
+        let base_y = pos.y.to_f32();
+        for (i, &ch) in text.iter().enumerate() {
+            let x0 = base_x + i as f32 * cell_w;
+            let y0 = base_y;
+            let x1 = x0 + cell_w;
+            let y1 = y0 + cell_h;
+            let [u0, v0, u1, v1] = GlyphAtlas::uv_for(ch);
+            let v_base = verts.len() as u32;
+            verts.push(LabelVertex {
+                pos: [x0, y0],
+                uv: [u0, v0],
+            });
+            verts.push(LabelVertex {
+                pos: [x1, y0],
+                uv: [u1, v0],
+            });
+            verts.push(LabelVertex {
+                pos: [x0, y1],
+                uv: [u0, v1],
+            });
+            verts.push(LabelVertex {
+                pos: [x1, y1],
+                uv: [u1, v1],
+            });
+            indices.extend_from_slice(&[
+                v_base,
+                v_base + 1,
+                v_base + 2,
+                v_base + 1,
+                v_base + 3,
+                v_base + 2,
+            ]);
+        }
+
+        let viewport_uniform = ViewportUniform {
+            size: [frame.logical_w, frame.logical_h],
+            _pad: [0.0, 0.0],
+        };
+        let tint_uniform = PathTintUniform {
+            color: [
+                color.r as f32 / 255.0,
+                color.g as f32 / 255.0,
+                color.b as f32 / 255.0,
+                color.a as f32 / 255.0 * opa as f32 / 255.0,
+            ],
+        };
+
+        let viewport_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-label-viewport"),
+                contents: bytemuck::bytes_of(&viewport_uniform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let tint_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-label-tint"),
+                contents: bytemuck::bytes_of(&tint_uniform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let vertex_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-label-vertices"),
+                contents: bytemuck::cast_slice(&verts),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-label-indices"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        let atlas_view = atlas
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("mirui-label-sampler"),
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mirui-label-bind-group"),
+            layout: &cache.label_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: tint_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&atlas_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        let pipeline = cache
+            .get_or_build(
+                &state.device,
+                PipelineKey {
+                    shader: ShaderKind::Label,
+                    format: state.config.format,
+                },
+            )
+            .clone();
+
+        let load = if frame.cleared {
+            wgpu::LoadOp::Load
+        } else {
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+        };
+
+        {
+            let mut pass = frame
+                .encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("mirui-label-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &frame.msaa_view,
+                        resolve_target: Some(&frame.swapchain_view),
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                })
+                .forget_lifetime();
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buf.slice(..));
+            pass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+        }
+
+        frame.cleared = true;
+    }
 }
 
 impl Renderer for WgpuRenderer<'_> {
@@ -625,7 +823,15 @@ impl Renderer for WgpuRenderer<'_> {
             } => {
                 self.fill_path_inner(path, color, *opa);
             }
-            _ => {}
+            DrawCommand::Label {
+                pos,
+                text,
+                color,
+                opa,
+                ..
+            } => {
+                self.draw_label_inner(pos, text, color, *opa);
+            }
         }
     }
 
@@ -697,7 +903,9 @@ impl Canvas for WgpuRenderer<'_> {
         self.fill_rect_inner(&area, color, Fixed::ZERO, 255);
     }
 
-    fn draw_label(&mut self, _pos: &Point, _text: &[u8], _clip: &Rect, _color: &Color, _opa: u8) {}
+    fn draw_label(&mut self, pos: &Point, text: &[u8], _clip: &Rect, color: &Color, opa: u8) {
+        self.draw_label_inner(pos, text, color, opa);
+    }
 
     fn flush(&mut self) {
         Renderer::flush(self)

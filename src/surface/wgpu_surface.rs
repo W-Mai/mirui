@@ -53,7 +53,7 @@ impl ApplicationHandler for WgpuHandler {
 
         let attrs = Window::default_attributes()
             .with_title(self.title.clone())
-            .with_inner_size(winit::dpi::PhysicalSize::new(
+            .with_inner_size(winit::dpi::LogicalSize::new(
                 self.requested_size.0,
                 self.requested_size.1,
             ));
@@ -273,12 +273,13 @@ impl Surface for WgpuSurface {
             .as_ref()
             .expect("WgpuSurface state must be initialised by new()");
         let size = state.window.inner_size();
-        let (lw, lh) = logical_from_physical(size.width as u16, size.height as u16, Fixed::ONE);
+        let scale_int = state.window.scale_factor().round().max(1.0) as u16;
+        let scale = Fixed::from(scale_int);
+        let (lw, lh) = logical_from_physical(size.width as u16, size.height as u16, scale);
         DisplayInfo {
             width: lw,
             height: lh,
-            scale: Fixed::ONE,
-            // The surface format is sRGB BGRA / RGBA — mirui's `Texture`
+            scale,
             format: ColorFormat::RGBA8888,
         }
     }
