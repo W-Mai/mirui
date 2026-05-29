@@ -322,7 +322,12 @@ fn fill_axis_aligned(
     if px_x1 <= px_x0 || px_y1 <= px_y0 {
         return;
     }
-    if opa == 255 {
+    // Blend mode + partially transparent source must accumulate
+    // dst.a via source-over per pixel; the memcpy fast path below
+    // would clobber the destination's existing alpha and break the
+    // silhouette for any downstream sampler.
+    let blend_aware = target.alpha_mode == crate::draw::texture::AlphaMode::Blend && color.a < 255;
+    if opa == 255 && !blend_aware {
         let bpp = target.format.bytes_per_pixel();
         let stride = target.stride;
         let row_px = (px_x1 - px_x0) as usize;
@@ -362,9 +367,10 @@ fn fill_axis_aligned(
             }
         }
     } else {
+        let effective_opa = if blend_aware { color.a } else { opa };
         for py in px_y0..px_y1 {
             for px in px_x0..px_x1 {
-                target.blend_pixel_int(px, py, color, opa);
+                target.blend_pixel_int(px, py, color, effective_opa);
             }
         }
     }
