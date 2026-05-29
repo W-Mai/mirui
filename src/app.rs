@@ -374,9 +374,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         }
     }
 
-    /// Run one frame: drain input, run systems, render. Returns `true`
-    /// when a `Quit` event was processed and `on_quit` plugin hooks
-    /// have fired — callers driving their own loop should exit then.
+    /// One frame. Returns `true` on `Quit` (after `on_quit` hooks).
     pub fn tick(&mut self) -> bool {
         let transient =
             self.backend.persistence() == crate::surface::BackbufferPersistence::Transient;
@@ -629,6 +627,47 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 p.post_render(&mut self.world, render_ns);
             }
         }
+    }
+
+    /// Consume into a [`Runner`].
+    pub fn into_runner(self) -> Runner<B, F> {
+        Runner { app: self }
+    }
+}
+
+/// Owns an [`App`] and drives [`tick`][App::tick] from a non-blocking
+/// loop. Native: [`run_blocking`][Runner::run_blocking]. Wasm:
+/// [`start_animation_frame`][Runner::start_animation_frame].
+pub struct Runner<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
+    app: App<B, F>,
+}
+
+impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
+    /// `App::run` with `-> !`.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub fn run_blocking(mut self) -> ! {
+        self.app.render();
+        loop {
+            if self.app.tick() {
+                break;
+            }
+        }
+        #[cfg(feature = "std")]
+        {
+            std::process::exit(0)
+        }
+        // no_std MCUs never return from main; spin.
+        #[cfg(not(feature = "std"))]
+        loop {
+            core::hint::spin_loop()
+        }
+    }
+
+    /// Wired by the WebAssembly canvas backend; panics until then.
+    #[cfg(target_arch = "wasm32")]
+    pub fn start_animation_frame(self) -> ! {
+        let _ = self.app;
+        unimplemented!("Runner::start_animation_frame is wired by the WebAssembly canvas backend");
     }
 }
 
