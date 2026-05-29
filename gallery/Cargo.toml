@@ -22,3 +22,7 @@ required-features = ["sdl-gpu"]
 [[example]]
 name = "wgpu_smoke"
 required-features = ["wgpu"]
+
+[[example]]
+name = "wgpu_demo"
+required-features = ["wgpu"]

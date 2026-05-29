@@ -1,5 +1,8 @@
+//! Demo with the same widget tree as `dsl_demo` on the wgpu backend.
+
+use mirui::draw::wgpu_render::WgpuRendererFactory;
 use mirui::prelude::*;
-use mirui::surface::sdl::SdlSurface;
+use mirui::surface::wgpu_surface::WgpuSurface;
 
 fn header(world: &mut World, parent: Entity) -> Entity {
     ui! {
@@ -48,8 +51,9 @@ fn footer(world: &mut World, parent: Entity) -> Entity {
 }
 
 fn main() {
-    let backend = SdlSurface::new("mirui - DSL demo", 480, 320);
-    let mut app = App::new(backend);
+    let backend = WgpuSurface::new("mirui - wgpu DSL demo", 480, 320);
+    let factory = WgpuRendererFactory::new();
+    let mut app = App::with_factory(backend, factory);
     app.with_default_widgets().with_default_systems();
 
     let root = WidgetBuilder::new(&mut app.world)
