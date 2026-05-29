@@ -14,7 +14,9 @@ use crate::surface::Surface;
 use crate::surface::wgpu_surface::WgpuSurface;
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
-use self::pipeline::{PipelineCache, PipelineKey, RectUniform, ShaderKind, ViewportUniform};
+use self::pipeline::{
+    BlitUniform, PipelineCache, PipelineKey, RectUniform, ShaderKind, ViewportUniform,
+};
 
 pub struct WgpuRendererFactory {
     cache: Option<PipelineCache>,
@@ -211,21 +213,204 @@ impl WgpuRenderer<'_> {
 
         frame.cleared = true;
     }
+
+    fn blit_inner(&mut self, src: &Texture, src_rect: &Rect, dst_pos: Point, dst_size: Point) {
+        if !self.begin_frame() {
+            return;
+        }
+        let frame = self.frame.as_mut().expect("frame just initialised");
+        let state = self
+            .surface
+            .state()
+            .expect("WgpuSurface state missing in blit");
+        let cache = self
+            .factory
+            .cache
+            .as_mut()
+            .expect("PipelineCache must be initialised before blit");
+
+        let rgba = match texture_to_rgba8(src) {
+            Some(buf) => buf,
+            None => return,
+        };
+
+        let tex = state.device.create_texture_with_data(
+            &state.queue,
+            &wgpu::TextureDescriptor {
+                label: Some("mirui-blit-source"),
+                size: wgpu::Extent3d {
+                    width: src.width as u32,
+                    height: src.height as u32,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            },
+            wgpu::util::TextureDataOrder::LayerMajor,
+            &rgba,
+        );
+        let tex_view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("mirui-blit-sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let viewport_uniform = ViewportUniform {
+            size: [frame.width, frame.height],
+            _pad: [0.0, 0.0],
+        };
+        let tw = src.width as f32;
+        let th = src.height as f32;
+        let blit_uniform = BlitUniform {
+            dst_pos: [dst_pos.x.to_f32(), dst_pos.y.to_f32()],
+            dst_size: [dst_size.x.to_f32(), dst_size.y.to_f32()],
+            uv: [
+                src_rect.x.to_f32() / tw,
+                src_rect.y.to_f32() / th,
+                (src_rect.x.to_f32() + src_rect.w.to_f32()) / tw,
+                (src_rect.y.to_f32() + src_rect.h.to_f32()) / th,
+            ],
+        };
+
+        let viewport_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-blit-viewport"),
+                contents: bytemuck::bytes_of(&viewport_uniform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let blit_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-blit-uniform"),
+                contents: bytemuck::bytes_of(&blit_uniform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+
+        let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mirui-blit-bind-group"),
+            layout: &cache.blit_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: blit_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&tex_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        let pipeline = cache
+            .get_or_build(
+                &state.device,
+                PipelineKey {
+                    shader: ShaderKind::Blit,
+                    format: state.config.format,
+                },
+            )
+            .clone();
+
+        let load = if frame.cleared {
+            wgpu::LoadOp::Load
+        } else {
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+        };
+
+        {
+            let mut pass = frame
+                .encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("mirui-blit-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &frame.view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                })
+                .forget_lifetime();
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.draw(0..4, 0..1);
+        }
+
+        frame.cleared = true;
+    }
+}
+
+/// RGB565 formats return `None`; this upload path only handles
+/// byte-aligned RGB/RGBA.
+fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
+    use crate::draw::texture::ColorFormat;
+    let buf = src.buf.as_slice();
+    let bpp = src.format.bytes_per_pixel();
+    let w = src.width as usize;
+    let h = src.height as usize;
+    match src.format {
+        ColorFormat::RGBA8888 => {
+            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
+            for y in 0..h {
+                let row = &buf[y * src.stride..y * src.stride + w * bpp];
+                out.extend_from_slice(row);
+            }
+            Some(out)
+        }
+        ColorFormat::RGB888 => {
+            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
+            for y in 0..h {
+                for x in 0..w {
+                    let i = y * src.stride + x * bpp;
+                    out.extend_from_slice(&[buf[i], buf[i + 1], buf[i + 2], 255]);
+                }
+            }
+            Some(out)
+        }
+        ColorFormat::RGB565 | ColorFormat::RGB565Swapped => None,
+    }
 }
 
 impl Renderer for WgpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
-        if let DrawCommand::Fill {
-            area,
-            color,
-            radius,
-            opa,
-            ..
-        } = cmd
-        {
-            self.fill_rect_inner(area, color, *radius, *opa);
+        match cmd {
+            DrawCommand::Fill {
+                area,
+                color,
+                radius,
+                opa,
+                ..
+            } => self.fill_rect_inner(area, color, *radius, *opa),
+            DrawCommand::Blit {
+                pos, size, texture, ..
+            } => {
+                let src_rect = Rect::new(0, 0, texture.width, texture.height);
+                self.blit_inner(texture, &src_rect, *pos, *size);
+            }
+            // Path / label commands route through their own dispatch.
+            _ => {}
         }
-        // Path / blit / label commands route through their own dispatch.
     }
 
     fn flush(&mut self) {
@@ -283,14 +468,8 @@ impl Canvas for WgpuRenderer<'_> {
     fn stroke_path(&mut self, _path: &Path, _clip: &Rect, _width: Fixed, _color: &Color, _opa: u8) {
     }
 
-    fn blit(
-        &mut self,
-        _src: &Texture,
-        _src_rect: &Rect,
-        _dst: Point,
-        _dst_size: Point,
-        _clip: &Rect,
-    ) {
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, _clip: &Rect) {
+        self.blit_inner(src, src_rect, dst, dst_size);
     }
 
     fn clear(&mut self, _area: &Rect, color: &Color) {

@@ -9,6 +9,7 @@ use hashbrown::HashMap;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShaderKind {
     Fill,
+    Blit,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,10 +38,17 @@ pub struct RectUniform {
     pub radius_pad: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct BlitUniform {
+    pub dst_pos: [f32; 2],
+    pub dst_size: [f32; 2],
+    pub uv: [f32; 4],
+}
+
 pub struct PipelineCache {
-    // Bind-group layout reused by every pipeline that consumes
-    // `(Viewport, Rect)`. Built once.
     pub fill_bgl: wgpu::BindGroupLayout,
+    pub blit_bgl: wgpu::BindGroupLayout,
     pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
 }
 
@@ -48,25 +56,28 @@ impl PipelineCache {
     pub fn new(device: &wgpu::Device) -> Self {
         let fill_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("mirui-fill-bgl"),
+            entries: &[uniform_entry(0), uniform_entry(1)],
+        });
+
+        let blit_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mirui-blit-bgl"),
             entries: &[
+                uniform_entry(0),
+                uniform_entry(1),
                 wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
                     },
                     count: None,
                 },
                 wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -74,6 +85,7 @@ impl PipelineCache {
 
         Self {
             fill_bgl,
+            blit_bgl,
             pipelines: HashMap::new(),
         }
     }
@@ -83,19 +95,37 @@ impl PipelineCache {
         device: &wgpu::Device,
         key: PipelineKey,
     ) -> &wgpu::RenderPipeline {
-        self.pipelines
-            .entry(key)
-            .or_insert_with(|| build_pipeline(device, &self.fill_bgl, key))
+        self.pipelines.entry(key).or_insert_with(|| {
+            let bgl = match key.shader {
+                ShaderKind::Fill => &self.fill_bgl,
+                ShaderKind::Blit => &self.blit_bgl,
+            };
+            build_pipeline(device, bgl, key)
+        })
+    }
+}
+
+fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
     }
 }
 
 fn build_pipeline(
     device: &wgpu::Device,
-    fill_bgl: &wgpu::BindGroupLayout,
+    bgl: &wgpu::BindGroupLayout,
     key: PipelineKey,
 ) -> wgpu::RenderPipeline {
     let (label, src) = match key.shader {
         ShaderKind::Fill => ("mirui-fill", include_str!("shader/fill.wgsl")),
+        ShaderKind::Blit => ("mirui-blit", include_str!("shader/blit.wgsl")),
     };
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -104,8 +134,8 @@ fn build_pipeline(
     });
 
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("mirui-fill-pipeline-layout"),
-        bind_group_layouts: &[Some(fill_bgl)],
+        label: Some("mirui-pipeline-layout"),
+        bind_group_layouts: &[Some(bgl)],
         immediate_size: 0,
     });
 
@@ -148,7 +178,6 @@ fn build_pipeline(
 const _: () = {
     // Keep Rust uniform layouts in sync with WGSL structs.
     assert!(core::mem::size_of::<ViewportUniform>() == 16);
-    // Must match `Rect` in shader/fill.wgsl. Bumping fields here
-    // requires the corresponding WGSL update.
     assert!(core::mem::size_of::<RectUniform>() == 48);
+    assert!(core::mem::size_of::<BlitUniform>() == 32);
 };
