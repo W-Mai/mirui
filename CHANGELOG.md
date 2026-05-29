@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-05-30
+
+Main loop refactor for non-blocking event loops (browsers, custom embedded schedulers).
+
+### Added
+
+- `App::tick(&mut self) -> bool` — runs one frame; returns `true` after `Quit` + `on_quit` hooks.
+- `Runner<B, F>` + `App::into_runner()` — `Runner::run_blocking()` (native, `-> !`) is the existing `App::run` with `process::exit` on quit; on no_std it spins after quit. `Runner::start_animation_frame()` (wasm) is a stub that the WebAssembly canvas backend will wire to `requestAnimationFrame`.
+
+### Changed
+
+- `App::run` body now wraps `App::tick` — pure refactor, no semantic change.
+- `cargo xtask bump <level>` now also rewrites the `mirui-macros` pin in the root Cargo.toml and the `mirui = "X.Y"` literals in README, `docs/quickstart.md`, and the crate-root rustdoc.
+
 ## [0.24.0] - 2026-05-29
 
 Onboarding pass: a long-form Quickstart guide, the [`W-Mai/mirui-templates`](https://github.com/W-Mai/mirui-templates) cargo-generate template repo, and infrastructure to keep the two repos pinned to matching mirui versions on every release.
