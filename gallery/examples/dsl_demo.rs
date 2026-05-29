@@ -1,5 +1,4 @@
-use mirui::prelude::*;
-use mirui::surface::sdl::SdlSurface;
+use gallery::prelude::*;
 
 fn header(world: &mut World, parent: Entity) -> Entity {
     ui! {
@@ -48,24 +47,20 @@ fn footer(world: &mut World, parent: Entity) -> Entity {
 }
 
 fn main() {
-    let backend = SdlSurface::new("mirui - DSL demo", 480, 320);
-    let mut app = App::new(backend);
-    app.with_default_widgets().with_default_systems();
-
-    let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(30, 30, 46))
-        .layout(LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            ..Default::default()
-        })
-        .id();
-
-    header(&mut app.world, root);
-    button_row(&mut app.world, root);
-    footer(&mut app.world, root);
-
-    app.set_root(root);
-    app.run();
+    gallery::run("mirui - DSL demo", 480, 320, |setup| {
+        let world = &mut setup.app.world;
+        let root = WidgetBuilder::new(world)
+            .bg_color(Color::rgb(30, 30, 46))
+            .layout(LayoutStyle {
+                direction: FlexDirection::Column,
+                width: Dimension::px(480),
+                height: Dimension::px(320),
+                ..Default::default()
+            })
+            .id();
+        header(world, root);
+        button_row(world, root);
+        footer(world, root);
+        root
+    });
 }

@@ -1,14 +1,9 @@
+use gallery::prelude::*;
 use mirui::components::assets::IMG_THUMBS_UP;
 use mirui::components::{Image, WidgetTransform3D};
 use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
-use mirui::prelude::*;
-#[cfg(all(feature = "sdl", not(feature = "sdl-gpu")))]
-use mirui::surface::sdl::SdlSurface;
-#[cfg(feature = "sdl-gpu")]
-use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
-use mirui::types::{Color, Dimension, Fixed, Transform3D};
-use mirui::widget::builder::WidgetBuilder;
+use mirui::types::Transform3D;
 use mirui::widget::dirty::Dirty;
 
 extern crate alloc;
@@ -72,109 +67,94 @@ fn layout_system(world: &mut World) {
 }
 
 fn main() {
-    #[cfg(feature = "sdl-gpu")]
-    let mut app = {
-        let backend = SdlGpuSurface::new(
-            "mirui - cover flow (SDL GPU)",
-            WINDOW_W as u16,
-            WINDOW_H as u16,
-        );
-        let mut app = App::with_factory(backend, SdlGpuFactory::new());
-        app.with_default_widgets().with_default_systems();
-        app
-    };
-    #[cfg(all(feature = "sdl", not(feature = "sdl-gpu")))]
-    let mut app = {
-        let backend = SdlSurface::new(
-            "mirui - cover flow (SDL CPU)",
-            WINDOW_W as u16,
-            WINDOW_H as u16,
-        );
-        let mut app = App::new(backend);
-        app.with_default_widgets().with_default_systems();
-        app
-    };
+    gallery::run(
+        "mirui - cover flow",
+        WINDOW_W as u16,
+        WINDOW_H as u16,
+        |setup| {
+            setup
+                .app
+                .add_system(layout_system::system())
+                .add_plugin(StdInstantClockPlugin::default())
+                .add_plugin(FpsSummaryPlugin::default());
 
-    app.add_system(layout_system::system());
+            let card_colors = [
+                Color::rgb(255, 107, 107),
+                Color::rgb(255, 206, 84),
+                Color::rgb(136, 216, 176),
+                Color::rgb(118, 209, 244),
+                Color::rgb(178, 148, 255),
+            ];
 
-    let card_colors = [
-        Color::rgb(255, 107, 107),
-        Color::rgb(255, 206, 84),
-        Color::rgb(136, 216, 176),
-        Color::rgb(118, 209, 244),
-        Color::rgb(178, 148, 255),
-    ];
+            let root = WidgetBuilder::new(&mut setup.app.world)
+                .bg_color(Color::rgb(24, 26, 34))
+                .layout(LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(WINDOW_W),
+                    height: Dimension::px(WINDOW_H),
+                    ..Default::default()
+                })
+                .id();
 
-    let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(24, 26, 34))
-        .layout(LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(WINDOW_W),
-            height: Dimension::px(WINDOW_H),
-            ..Default::default()
-        })
-        .id();
+            let world = &mut setup.app.world;
+            let card_colors_ref = &card_colors;
+            ui! {
+                :(
+                    parent: root
+                    world: world
+                :)
 
-    let world = &mut app.world;
-    let card_colors_ref = &card_colors;
-    mirui_macros::ui! {
-        :(
-            parent: root
-            world: world
-        :)
-
-        carousel (
-            position: Position::Absolute,
-            left: 0,
-            top: 0,
-            width: WINDOW_W,
-            height: WINDOW_H
-        ) [
-            Carousel,
-            ScrollOffset {
-                x: Fixed::from_int(440),
-                y: Fixed::ZERO,
-            },
-            ScrollConfig {
-                direction: ScrollAxis::Horizontal,
-                elastic: true,
-                content_width: Fixed::from_int(
-                WINDOW_W + (CARD_W + CARD_GAP) * (CARD_COUNT - 1),
-            ),
-                content_height: Fixed::ZERO,
-            },
-        ] {
-            walk card_colors_ref.iter().enumerate() with item {
-                card (
+                carousel (
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
-                    width: CARD_W,
-                    height: CARD_H,
-                    bg_color: *item.1,
-                    border_radius: 8,
-                    border_color: Color::rgb(0, 0, 0),
-                    border_width: 5
+                    width: WINDOW_W,
+                    height: WINDOW_H
                 ) [
-                    CarouselCard { index: item.0 },
+                    Carousel,
+                    ScrollOffset {
+                        x: Fixed::from_int(440),
+                        y: Fixed::ZERO,
+                    },
+                    ScrollConfig {
+                        direction: ScrollAxis::Horizontal,
+                        elastic: true,
+                        content_width: Fixed::from_int(
+                        WINDOW_W + (CARD_W + CARD_GAP) * (CARD_COUNT - 1),
+                    ),
+                        content_height: Fixed::ZERO,
+                    },
                 ] {
-                    if item.0 % 2 == 1 {
-                        thumb (
+                    walk card_colors_ref.iter().enumerate() with item {
+                        card (
                             position: Position::Absolute,
-                            left: (CARD_W - 64) / 2,
-                            top: (CARD_H - 64) / 2,
-                            width: 64,
-                            height: 64,
-                            image: Image::new(&IMG_THUMBS_UP)
-                        ) {}
+                            left: 0,
+                            top: 0,
+                            width: CARD_W,
+                            height: CARD_H,
+                            bg_color: *item.1,
+                            border_radius: 8,
+                            border_color: Color::rgb(0, 0, 0),
+                            border_width: 5
+                        ) [
+                            CarouselCard { index: item.0 },
+                        ] {
+                            if item.0 % 2 == 1 {
+                                thumb (
+                                    position: Position::Absolute,
+                                    left: (CARD_W - 64) / 2,
+                                    top: (CARD_H - 64) / 2,
+                                    width: 64,
+                                    height: 64,
+                                    image: Image::new(&IMG_THUMBS_UP)
+                                ) {}
+                            }
+                        }
                     }
                 }
-            }
-        }
-    };
+            };
 
-    app.set_root(root);
-    app.add_plugin(StdInstantClockPlugin::default())
-        .add_plugin(FpsSummaryPlugin::default());
-    app.run();
+            root
+        },
+    );
 }

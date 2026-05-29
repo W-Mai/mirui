@@ -1,8 +1,7 @@
+use gallery::prelude::*;
 use mirui::components::assets::*;
 use mirui::components::{Image, WidgetTransform};
-use mirui::prelude::*;
-use mirui::surface::sdl::SdlSurface;
-use mirui::types::{Color, Dimension, Fixed, Transform};
+use mirui::types::Transform;
 use mirui::widget::{Children, Parent};
 
 extern crate alloc;
@@ -28,69 +27,67 @@ fn spin_system(world: &mut World) {
 }
 
 fn main() {
-    let backend = SdlSurface::new("mirui - transform demo", 480, 320);
-    let mut app = App::new(backend);
-    app.with_default_widgets();
+    gallery::run("mirui - transform demo", 480, 320, |setup| {
+        setup.app.add_system(spin_system::system());
+        let world = &mut setup.app.world;
 
-    app.add_system(spin_system::system());
+        let root = WidgetBuilder::new(world)
+            .bg_color(Color::rgb(30, 30, 46))
+            .layout(LayoutStyle {
+                direction: FlexDirection::Column,
+                width: Dimension::px(480),
+                height: Dimension::px(320),
+                ..Default::default()
+            })
+            .id();
 
-    let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(30, 30, 46))
-        .layout(LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            ..Default::default()
-        })
-        .id();
+        let spinning_box = WidgetBuilder::new(world)
+            .bg_color(Color::rgb(248, 81, 73))
+            .layout(LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::px(100),
+                top: Dimension::px(100),
+                width: Dimension::px(80),
+                height: Dimension::px(80),
+                ..Default::default()
+            })
+            .rotate(0)
+            .id();
+        world.insert(
+            spinning_box,
+            Spinner {
+                angle: Fixed::ZERO,
+                speed: Fixed::from_int(2),
+            },
+        );
 
-    let spinning_box = WidgetBuilder::new(&mut app.world)
-        .bg_color(Color::rgb(248, 81, 73))
-        .layout(LayoutStyle {
-            position: Position::Absolute,
-            left: Dimension::px(100),
-            top: Dimension::px(100),
-            width: Dimension::px(80),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .rotate(0)
-        .id();
-    app.world.insert(
-        spinning_box,
-        Spinner {
-            angle: Fixed::ZERO,
-            speed: Fixed::from_int(2),
-        },
-    );
+        let spinning_img = WidgetBuilder::new(world)
+            .layout(LayoutStyle {
+                position: Position::Absolute,
+                left: Dimension::px(300),
+                top: Dimension::px(120),
+                width: Dimension::px(64),
+                height: Dimension::px(64),
+                ..Default::default()
+            })
+            .rotate(0)
+            .id();
+        world.insert(spinning_img, Image::new(&IMG_THUMBS_UP));
+        world.insert(
+            spinning_img,
+            Spinner {
+                angle: Fixed::ZERO,
+                speed: Fixed::from_int(3),
+            },
+        );
 
-    let spinning_img = WidgetBuilder::new(&mut app.world)
-        .layout(LayoutStyle {
-            position: Position::Absolute,
-            left: Dimension::px(300),
-            top: Dimension::px(120),
-            width: Dimension::px(64),
-            height: Dimension::px(64),
-            ..Default::default()
-        })
-        .rotate(0)
-        .id();
-    app.world.insert(spinning_img, Image::new(&IMG_THUMBS_UP));
-    app.world.insert(
-        spinning_img,
-        Spinner {
-            angle: Fixed::ZERO,
-            speed: Fixed::from_int(3),
-        },
-    );
-
-    for &entity in &[spinning_box, spinning_img] {
-        app.world.insert(entity, Parent(root));
-        if let Some(children) = app.world.get_mut::<Children>(root) {
-            children.0.push(entity);
+        for &entity in &[spinning_box, spinning_img] {
+            world.insert(entity, Parent(root));
+            if let Some(children) = world.get_mut::<Children>(root) {
+                children.0.push(entity);
+            }
         }
-    }
 
-    app.set_root(root);
-    app.run();
+        root
+    });
 }
