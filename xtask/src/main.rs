@@ -365,14 +365,190 @@ fn cmd_bump(level: &str) -> Result {
     let next = bump_version(&current, level)?;
     println!("  → bumping {current} → {next}");
 
+    // 1. [package].version in every Cargo.toml under the workspace.
     for toml in find_cargo_tomls(&root) {
         if rewrite_version(&toml, &next)? {
             println!("  → updated {toml}");
         }
     }
+
+    // 2. Internal dependency pins on workspace crates. Workspace path
+    //    deps still need a version pin for cargo publish; the root
+    //    Cargo.toml carries `mirui-macros = { version = "X.Y.Z", path = ... }`
+    //    and that string has to track the bumped [package].version.
+    let workspace_deps = ["mirui-macros"];
+    let cargo_toml_paths = [
+        format!("{root}/Cargo.toml"),
+        format!("{root}/gallery/Cargo.toml"),
+    ];
+    for cargo_toml in &cargo_toml_paths {
+        for dep in &workspace_deps {
+            if patch_dep_version(cargo_toml, dep, &next)? {
+                println!("  → updated {dep} pin in {cargo_toml}");
+            }
+        }
+    }
+
+    // 3. User-facing docs that show `mirui = { version = "X.Y", ... }`.
+    //    Pin only major.minor so the literal matches what users
+    //    typically write (cargo's caret semantics pull patches
+    //    automatically).
+    let parts: Vec<&str> = next.split('.').collect();
+    if parts.len() >= 2 {
+        let next_minor = format!("{}.{}", parts[0], parts[1]);
+        let doc_paths = [
+            format!("{root}/README.md"),
+            format!("{root}/docs/quickstart.md"),
+            format!("{root}/src/lib.rs"),
+        ];
+        for doc in &doc_paths {
+            if !std::path::Path::new(doc).exists() {
+                continue;
+            }
+            if patch_mirui_doc_literal(doc, &next_minor)? {
+                println!("  → updated mirui pin literals in {doc}");
+            }
+        }
+    }
+
     println!("  ✅ version bumped to {next}");
     println!("  → run: git add -p && git commit -m \"🔖: bump to {next}\"");
     Ok(())
+}
+
+/// In `[dependencies]` (or any nested dependency table) find a line
+/// like `<dep_name> = { version = "X.Y.Z", ... }` or `<dep_name> = "X.Y.Z"`
+/// and rewrite the version quoted string to `next`. Path-only or
+/// git-only deps without a `version = "..."` field are left alone.
+/// Returns whether the file changed.
+fn patch_dep_version(path: &str, dep_name: &str, next: &str) -> Result<bool> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Ok(false);
+    };
+    let mut changed = false;
+    let updated: Vec<String> = content
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            // First whitespace-or-`=`-delimited token must be the dep
+            // name to avoid misfiring on e.g. `mirui-macros-foo = ...`.
+            let token_break = trimmed
+                .find(|c: char| c.is_whitespace() || c == '=')
+                .unwrap_or(trimmed.len());
+            if &trimmed[..token_break] != dep_name {
+                return line.to_string();
+            }
+            // Two acceptable forms after the `=`:
+            //   1. `<dep> = "X.Y.Z"`                   — only quoted is the version
+            //   2. `<dep> = { version = "X.Y.Z", ... }` — version inside an inline table
+            // Form 3 (`<dep> = { path = "..." }` with no version) must
+            // be left alone; rewriting the first quoted there would
+            // clobber the path.
+            let Some(eq_idx) = line.find('=') else {
+                return line.to_string();
+            };
+            let after_eq_trim = line[eq_idx + 1..].trim_start();
+            let replaced = if after_eq_trim.starts_with('"') {
+                replace_first_quoted(line, next)
+            } else if after_eq_trim.starts_with('{') {
+                line.find("version")
+                    .and_then(|kw_pos| replace_first_quoted_after(line, kw_pos, next))
+            } else {
+                None
+            };
+            match replaced {
+                Some(new_line) if new_line != line => {
+                    changed = true;
+                    new_line
+                }
+                _ => line.to_string(),
+            }
+        })
+        .collect();
+    if !changed {
+        return Ok(false);
+    }
+    std::fs::write(path, updated.join("\n") + "\n")?;
+    Ok(true)
+}
+
+/// In docs (markdown or Rust source comments) find every line that
+/// pins mirui via `mirui = { version = "X.Y" ... }` or `mirui = "X.Y"`
+/// and rewrite the first quoted string to `next_minor`. Skips lines
+/// referencing other crates (e.g. `mirui-macros = ...`).
+fn patch_mirui_doc_literal(path: &str, next_minor: &str) -> Result<bool> {
+    let content = std::fs::read_to_string(path)?;
+    let mut changed = false;
+    let updated: Vec<String> = content
+        .lines()
+        .map(|line| {
+            // Find a `mirui` token in the line followed by `=` (toml
+            // dependency form). Match either bare `mirui = ...` or
+            // commented-out `//! mirui = ...` / `# mirui = ...`.
+            let pos = match find_mirui_pin_position(line) {
+                Some(p) => p,
+                None => return line.to_string(),
+            };
+            // The first `"..."` after `pos` is the version literal.
+            if let Some(replaced) = replace_first_quoted_after(line, pos, next_minor) {
+                if replaced != line {
+                    changed = true;
+                }
+                return replaced;
+            }
+            line.to_string()
+        })
+        .collect();
+    if !changed {
+        return Ok(false);
+    }
+    std::fs::write(path, updated.join("\n") + "\n")?;
+    Ok(true)
+}
+
+/// Look for a `mirui` identifier followed (after optional whitespace) by
+/// `=`, with a non-identifier character (or start of line) on its left
+/// so that `mirui-macros = ...` is excluded. Returns the byte index of
+/// the `m` in `mirui`.
+fn find_mirui_pin_position(line: &str) -> Option<usize> {
+    let mut start = 0;
+    while let Some(rel) = line[start..].find("mirui") {
+        let abs = start + rel;
+        // Left boundary: start of line or non-ident char.
+        let left_ok = abs == 0
+            || !line.as_bytes()[abs - 1].is_ascii_alphanumeric()
+                && line.as_bytes()[abs - 1] != b'_';
+        // Right boundary: char immediately after "mirui" must be
+        // whitespace or `=` (so `mirui-macros` and `miruix` are ruled out).
+        let after_idx = abs + "mirui".len();
+        let right_ok = line[after_idx..]
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_whitespace() || c == '=');
+        if !(left_ok && right_ok) {
+            start = abs + 1;
+            continue;
+        }
+        // Verify the line actually pins a version: there must be `=`
+        // followed by a quoted string somewhere after.
+        let rest = &line[after_idx..];
+        if !rest.contains('=') || !rest.contains('"') {
+            start = abs + 1;
+            continue;
+        }
+        return Some(abs);
+    }
+    None
+}
+
+fn replace_first_quoted_after(line: &str, from: usize, new: &str) -> Option<String> {
+    let start = line[from..].find('"')? + from;
+    let end = line[start + 1..].find('"')?;
+    Some(format!(
+        "{}\"{new}\"{}",
+        &line[..start],
+        &line[start + 1 + end + 1..]
+    ))
 }
 
 fn cmd_publish(dry_run: bool) -> Result {
