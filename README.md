@@ -31,7 +31,7 @@ on top of SDL2 (CPU or hardware-accelerated) on desktop.
 
 ```toml
 [dependencies]
-mirui = { version = "0.24", features = ["sdl"] }
+mirui = { version = "0.25", features = ["sdl"] }
 ```
 
 ```rust
