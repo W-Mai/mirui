@@ -6,7 +6,7 @@ use core::time::Duration;
 use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
-use winit::event::WindowEvent;
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window, WindowId};
@@ -34,6 +34,11 @@ struct WgpuHandler {
     requested_size: (u32, u32),
     state: Option<WgpuState>,
     event_queue: VecDeque<InputEvent>,
+    /// Last known cursor position, in logical pixels. Updated on
+    /// every `CursorMoved` so `MouseInput` (which doesn't carry a
+    /// position in winit 0.30) can attach one to the synthetic
+    /// `PointerDown`/`PointerUp`.
+    last_cursor: (Fixed, Fixed),
 }
 
 impl ApplicationHandler for WgpuHandler {
@@ -126,7 +131,52 @@ impl ApplicationHandler for WgpuHandler {
                     state.surface.configure(&state.device, &state.config);
                 }
             }
-            // Other window events remain unmapped in this commit.
+            WindowEvent::CursorMoved { position, .. } => {
+                let x = Fixed::from(position.x as i32);
+                let y = Fixed::from(position.y as i32);
+                self.last_cursor = (x, y);
+                self.event_queue
+                    .push_back(InputEvent::PointerMove { id: 0, x, y });
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                if button != MouseButton::Left {
+                    return;
+                }
+                let (x, y) = self.last_cursor;
+                let event = match state {
+                    ElementState::Pressed => InputEvent::PointerDown { id: 0, x, y },
+                    ElementState::Released => InputEvent::PointerUp { id: 0, x, y },
+                };
+                self.event_queue.push_back(event);
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let (dx, dy) = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => {
+                        // 16 logical px per line tick.
+                        (
+                            Fixed::from((x * 16.0) as i32),
+                            Fixed::from((y * 16.0) as i32),
+                        )
+                    }
+                    MouseScrollDelta::PixelDelta(p) => {
+                        (Fixed::from(p.x as i32), Fixed::from(p.y as i32))
+                    }
+                };
+                let (x, y) = self.last_cursor;
+                self.event_queue
+                    .push_back(InputEvent::Wheel { dx, dy, x, y });
+            }
+            WindowEvent::Touch(touch) => {
+                let x = Fixed::from(touch.location.x as i32);
+                let y = Fixed::from(touch.location.y as i32);
+                let id = (touch.id & 0xff) as u8;
+                let event = match touch.phase {
+                    TouchPhase::Started => InputEvent::PointerDown { id, x, y },
+                    TouchPhase::Moved => InputEvent::PointerMove { id, x, y },
+                    TouchPhase::Ended | TouchPhase::Cancelled => InputEvent::PointerUp { id, x, y },
+                };
+                self.event_queue.push_back(event);
+            }
             _ => {}
         }
     }
@@ -151,6 +201,7 @@ impl WgpuSurface {
                 requested_size: (width as u32, height as u32),
                 state: None,
                 event_queue: VecDeque::new(),
+                last_cursor: (Fixed::ZERO, Fixed::ZERO),
             },
         };
 
