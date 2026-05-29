@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] - 2026-05-29
+
+Onboarding pass: a long-form Quickstart guide, the [`W-Mai/mirui-templates`](https://github.com/W-Mai/mirui-templates) cargo-generate template repo, and infrastructure to keep the two repos pinned to matching mirui versions on every release.
+
+### Added
+
+- **`docs/quickstart.md`**: 6-section walkthrough — toolchain prerequisites, the desktop SDL hello (Cargo.toml + main.rs verbatim, verified to build on a fresh project), the ESP32-C3 path (delegates to `mirui-examples` for BSP wiring rather than duplicate a recipe that bit-rots with esp-hal releases), the Cargo workspace layout that shares UI code across multiple targets, the cargo-generate shortcut, and a "where to go next" pointer set.
+- **Crate-level rustdoc Quick Start** (`src/lib.rs`): the docs.rs landing page now shows the SDL hello inline and links at `docs/quickstart.md` for embedded, the workspace template, and the multi-target recipe. Maps the public modules so users can find `app` / `ecs` / `widget` / `draw` / `surface` / etc. without hunting through the sidebar.
+- **`cargo xtask templates-bump`**: walks `../mirui-templates/templates/` for `cargo-generate.toml` files and rewrites the `[placeholders.mirui-version]` default to match mirui's current major.minor. Designed to commit the change locally and let the maintainer review and push, the same pattern `mirui-examples` uses for its `Cargo.lock` bumps. Auto-invoked from `cargo xtask release` after the crates.io publish step. Importantly, it leaves `{{mirui-version}}` placeholders inside template `Cargo.toml` files alone — those are substituted by cargo-generate at generation time.
+
+### Changed
+
+- **`cargo xtask bump <level>`**: now also rewrites the `mirui-macros` dependency pin in the root Cargo.toml and the `mirui = { version = "X.Y", ... }` literals in README, `docs/quickstart.md`, and the crate-root rustdoc. Previous releases needed those edits made by hand; the bump is now a single command. Path-only deps (e.g. `mirui-macros = { path = "../mirui-macros" }` in `gallery/Cargo.toml`) without a `version = "..."` field are left alone.
+- **README Quick Start**: bumped pinned version to `0.24`, declared the `sdl` feature explicitly (recent versions stopped linking SDL2 by default), reshaped the inline `ui!` example to use a column container around `header`/`content`/`footer` (the xrune `:( :)` block accepts a single root widget below it, so siblings need a parent), and switched to the multi-line `:( parent: ... world: ... :)` form (the comma-separated single-line variant the previous README carried did not actually parse).
+- **Quickstart mirui pin literals**: README, `docs/quickstart.md`, and the crate-level rustdoc all now pin `mirui = "0.24"` matching this release.
+- **Crate-root doctest** (`src/lib.rs`): switched from `ignore` to `no_run` so `cargo test --doc` actually compiles the snippet on default features. Uses `FramebufSurface` with a no-op flush callback to exercise the prelude, `App::new`, `WidgetBuilder`, `ui!` macro syntax, `set_root`, and `run` end-to-end at type-check time.
+
+### Removed
+
+- **`mirui-macros = "0.23"` from Quick Start examples**: the mirui crate already re-exports the proc-macros it ships (`ui!`, `system`, `animate!`, `timer!`, `trace_span!`, `trace_fn`, `compose_backend!`). Declaring `mirui-macros` directly was redundant and gave a reader two version pins to keep in sync. Verified by building a fresh project with only `mirui = { version = "0.24", features = ["sdl"] }` declared.
+
 ## [0.23.2] - 2026-05-29
 
 ### Fixed
