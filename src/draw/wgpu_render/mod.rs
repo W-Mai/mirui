@@ -1,5 +1,6 @@
 //! wgpu-backed Renderer + Canvas.
 
+mod path;
 mod pipeline;
 
 use wgpu::util::DeviceExt;
@@ -14,17 +15,25 @@ use crate::surface::Surface;
 use crate::surface::wgpu_surface::WgpuSurface;
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
+use self::path::PathTessellator;
 use self::pipeline::{
-    BlitUniform, PipelineCache, PipelineKey, RectUniform, ShaderKind, ViewportUniform,
+    BlitUniform, PathTintUniform, PipelineCache, PipelineKey, RectUniform, ShaderKind,
+    ViewportUniform,
 };
+
+pub use self::pipeline::MSAA_SAMPLES;
 
 pub struct WgpuRendererFactory {
     cache: Option<PipelineCache>,
+    tessellator: PathTessellator,
 }
 
 impl WgpuRendererFactory {
     pub fn new() -> Self {
-        Self { cache: None }
+        Self {
+            cache: None,
+            tessellator: PathTessellator::new(),
+        }
     }
 }
 
@@ -67,7 +76,8 @@ pub struct WgpuRenderer<'a> {
 
 struct Frame {
     surface_texture: wgpu::SurfaceTexture,
-    view: wgpu::TextureView,
+    swapchain_view: wgpu::TextureView,
+    msaa_view: wgpu::TextureView,
     encoder: wgpu::CommandEncoder,
     cleared: bool,
     width: f32,
@@ -90,8 +100,11 @@ impl WgpuRenderer<'_> {
             | wgpu::CurrentSurfaceTexture::Suboptimal(t) => t,
             _ => return false,
         };
-        let view = surface_texture
+        let swapchain_view = surface_texture
             .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let msaa_view = state
+            .msaa
             .create_view(&wgpu::TextureViewDescriptor::default());
         let encoder = state
             .device
@@ -100,7 +113,8 @@ impl WgpuRenderer<'_> {
             });
         self.frame = Some(Frame {
             surface_texture,
-            view,
+            swapchain_view,
+            msaa_view,
             encoder,
             cleared: false,
             width: state.config.width as f32,
@@ -192,9 +206,9 @@ impl WgpuRenderer<'_> {
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("mirui-fill-pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.view,
+                        view: &frame.msaa_view,
+                        resolve_target: Some(&frame.swapchain_view),
                         depth_slice: None,
-                        resolve_target: None,
                         ops: wgpu::Operations {
                             load,
                             store: wgpu::StoreOp::Store,
@@ -338,9 +352,9 @@ impl WgpuRenderer<'_> {
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("mirui-blit-pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.view,
+                        view: &frame.msaa_view,
+                        resolve_target: Some(&frame.swapchain_view),
                         depth_slice: None,
-                        resolve_target: None,
                         ops: wgpu::Operations {
                             load,
                             store: wgpu::StoreOp::Store,
@@ -392,6 +406,161 @@ fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
     }
 }
 
+impl WgpuRenderer<'_> {
+    fn fill_path_inner(&mut self, path: &Path, color: &Color, opa: u8) {
+        let (verts, indices) = {
+            let (v, i) = self.factory.tessellator.fill(path);
+            (v.to_vec(), i.to_vec())
+        };
+        self.draw_path_mesh(&verts, &indices, color, opa);
+    }
+
+    fn stroke_path_inner(&mut self, path: &Path, width: Fixed, color: &Color, opa: u8) {
+        let (verts, indices) = {
+            let (v, i) = self
+                .factory
+                .tessellator
+                .stroke(path, width.to_f32().max(1.0));
+            (v.to_vec(), i.to_vec())
+        };
+        self.draw_path_mesh(&verts, &indices, color, opa);
+    }
+
+    fn draw_path_mesh(
+        &mut self,
+        verts: &[lyon::math::Point],
+        indices: &[u32],
+        color: &Color,
+        opa: u8,
+    ) {
+        if verts.is_empty() || indices.is_empty() {
+            return;
+        }
+        if !self.begin_frame() {
+            return;
+        }
+        let frame = self.frame.as_mut().expect("frame just initialised");
+        let state = self
+            .surface
+            .state()
+            .expect("WgpuSurface state missing in path");
+        let cache = self
+            .factory
+            .cache
+            .as_mut()
+            .expect("PipelineCache must be initialised before path");
+
+        let viewport_uniform = ViewportUniform {
+            size: [frame.width, frame.height],
+            _pad: [0.0, 0.0],
+        };
+        let tint_uniform = PathTintUniform {
+            color: [
+                color.r as f32 / 255.0,
+                color.g as f32 / 255.0,
+                color.b as f32 / 255.0,
+                color.a as f32 / 255.0 * opa as f32 / 255.0,
+            ],
+        };
+
+        // lyon::math::Point is repr(C) over (f32, f32) — same wire layout
+        // as `[f32; 2]`, so cast straight into the vertex buffer without
+        // an intermediate copy.
+        let vertex_bytes: &[u8] = bytemuck::cast_slice(unsafe {
+            core::slice::from_raw_parts(verts.as_ptr() as *const [f32; 2], verts.len())
+        });
+
+        let viewport_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-path-viewport"),
+                contents: bytemuck::bytes_of(&viewport_uniform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let tint_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-path-tint"),
+                contents: bytemuck::bytes_of(&tint_uniform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let vertex_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-path-vertices"),
+                contents: vertex_bytes,
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-path-indices"),
+                contents: bytemuck::cast_slice(indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mirui-path-bind-group"),
+            layout: &cache.path_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: tint_buf.as_entire_binding(),
+                },
+            ],
+        });
+
+        let pipeline = cache
+            .get_or_build(
+                &state.device,
+                PipelineKey {
+                    shader: ShaderKind::Path,
+                    format: state.config.format,
+                },
+            )
+            .clone();
+
+        let load = if frame.cleared {
+            wgpu::LoadOp::Load
+        } else {
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+        };
+
+        {
+            let mut pass = frame
+                .encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("mirui-path-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &frame.msaa_view,
+                        resolve_target: Some(&frame.swapchain_view),
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                })
+                .forget_lifetime();
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buf.slice(..));
+            pass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+        }
+
+        frame.cleared = true;
+    }
+}
+
 impl Renderer for WgpuRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
         match cmd {
@@ -408,7 +577,54 @@ impl Renderer for WgpuRenderer<'_> {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 self.blit_inner(texture, &src_rect, *pos, *size);
             }
-            // Path / label commands route through their own dispatch.
+            DrawCommand::Border {
+                area,
+                width,
+                radius,
+                color,
+                opa,
+                ..
+            } => {
+                let half = *width / 2;
+                let path = Path::rounded_rect(
+                    area.x + half,
+                    area.y + half,
+                    area.w - *width,
+                    area.h - *width,
+                    *radius,
+                );
+                self.stroke_path_inner(&path, *width, color, *opa);
+            }
+            DrawCommand::Line {
+                p1,
+                p2,
+                width,
+                color,
+                opa,
+                ..
+            } => {
+                let mut path = Path::new();
+                path.move_to(*p1).line_to(*p2);
+                self.stroke_path_inner(&path, *width, color, *opa);
+            }
+            DrawCommand::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+                width,
+                color,
+                opa,
+                ..
+            } => {
+                let path = Path::arc(*center, *radius, *start_angle, *end_angle);
+                self.stroke_path_inner(&path, *width, color, *opa);
+            }
+            DrawCommand::FillPath {
+                path, color, opa, ..
+            } => {
+                self.fill_path_inner(path, color, *opa);
+            }
             _ => {}
         }
     }
@@ -425,9 +641,9 @@ impl Renderer for WgpuRenderer<'_> {
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("mirui-empty-clear-pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.view,
+                        view: &frame.msaa_view,
+                        resolve_target: Some(&frame.swapchain_view),
                         depth_slice: None,
-                        resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                             store: wgpu::StoreOp::Store,
@@ -463,9 +679,12 @@ impl Canvas for WgpuRenderer<'_> {
         self.fill_rect_inner(area, color, radius, opa);
     }
 
-    fn fill_path(&mut self, _path: &Path, _clip: &Rect, _color: &Color, _opa: u8) {}
+    fn fill_path(&mut self, path: &Path, _clip: &Rect, color: &Color, opa: u8) {
+        self.fill_path_inner(path, color, opa);
+    }
 
-    fn stroke_path(&mut self, _path: &Path, _clip: &Rect, _width: Fixed, _color: &Color, _opa: u8) {
+    fn stroke_path(&mut self, path: &Path, _clip: &Rect, width: Fixed, color: &Color, opa: u8) {
+        self.stroke_path_inner(path, width, color, opa);
     }
 
     fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, _clip: &Rect) {

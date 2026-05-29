@@ -28,6 +28,9 @@ pub struct WgpuState {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub config: wgpu::SurfaceConfiguration,
+    /// MSAA color attachment; render passes draw here and resolve to
+    /// the swapchain texture. Recreated on resize.
+    pub msaa: wgpu::Texture,
 }
 
 struct WgpuHandler {
@@ -107,6 +110,8 @@ impl ApplicationHandler for WgpuHandler {
         };
         surface.configure(&device, &config);
 
+        let msaa = create_msaa(&device, &config);
+
         self.state = Some(WgpuState {
             window,
             instance,
@@ -115,6 +120,7 @@ impl ApplicationHandler for WgpuHandler {
             device,
             queue,
             config,
+            msaa,
         });
     }
 
@@ -134,6 +140,7 @@ impl ApplicationHandler for WgpuHandler {
                     state.config.width = new_size.width.max(1);
                     state.config.height = new_size.height.max(1);
                     state.surface.configure(&state.device, &state.config);
+                    state.msaa = create_msaa(&state.device, &state.config);
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -237,6 +244,23 @@ impl WgpuSurface {
         self.event_loop
             .pump_app_events(Some(Duration::ZERO), &mut self.handler)
     }
+}
+
+fn create_msaa(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> wgpu::Texture {
+    device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("mirui-wgpu-msaa"),
+        size: wgpu::Extent3d {
+            width: config.width,
+            height: config.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: crate::draw::wgpu_render::MSAA_SAMPLES,
+        dimension: wgpu::TextureDimension::D2,
+        format: config.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    })
 }
 
 impl InspectCaches for WgpuSurface {}

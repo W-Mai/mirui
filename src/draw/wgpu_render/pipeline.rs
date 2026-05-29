@@ -10,6 +10,7 @@ use hashbrown::HashMap;
 pub enum ShaderKind {
     Fill,
     Blit,
+    Path,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -46,9 +47,16 @@ pub struct BlitUniform {
     pub uv: [f32; 4],
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct PathTintUniform {
+    pub color: [f32; 4],
+}
+
 pub struct PipelineCache {
     pub fill_bgl: wgpu::BindGroupLayout,
     pub blit_bgl: wgpu::BindGroupLayout,
+    pub path_bgl: wgpu::BindGroupLayout,
     pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
 }
 
@@ -56,6 +64,11 @@ impl PipelineCache {
     pub fn new(device: &wgpu::Device) -> Self {
         let fill_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("mirui-fill-bgl"),
+            entries: &[uniform_entry(0), uniform_entry(1)],
+        });
+
+        let path_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mirui-path-bgl"),
             entries: &[uniform_entry(0), uniform_entry(1)],
         });
 
@@ -86,6 +99,7 @@ impl PipelineCache {
         Self {
             fill_bgl,
             blit_bgl,
+            path_bgl,
             pipelines: HashMap::new(),
         }
     }
@@ -99,6 +113,7 @@ impl PipelineCache {
             let bgl = match key.shader {
                 ShaderKind::Fill => &self.fill_bgl,
                 ShaderKind::Blit => &self.blit_bgl,
+                ShaderKind::Path => &self.path_bgl,
             };
             build_pipeline(device, bgl, key)
         })
@@ -126,6 +141,7 @@ fn build_pipeline(
     let (label, src) = match key.shader {
         ShaderKind::Fill => ("mirui-fill", include_str!("shader/fill.wgsl")),
         ShaderKind::Blit => ("mirui-blit", include_str!("shader/blit.wgsl")),
+        ShaderKind::Path => ("mirui-path", include_str!("shader/path.wgsl")),
     };
 
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -139,6 +155,24 @@ fn build_pipeline(
         immediate_size: 0,
     });
 
+    let path_vertex_layout = wgpu::VertexBufferLayout {
+        array_stride: 8,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x2,
+            offset: 0,
+            shader_location: 0,
+        }],
+    };
+
+    let (vertex_buffers, topology): (&[wgpu::VertexBufferLayout], _) = match key.shader {
+        ShaderKind::Fill | ShaderKind::Blit => (&[], wgpu::PrimitiveTopology::TriangleStrip),
+        ShaderKind::Path => (
+            core::slice::from_ref(&path_vertex_layout),
+            wgpu::PrimitiveTopology::TriangleList,
+        ),
+    };
+
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
         layout: Some(&layout),
@@ -146,7 +180,7 @@ fn build_pipeline(
             module: &shader,
             entry_point: Some("vs_main"),
             compilation_options: wgpu::PipelineCompilationOptions::default(),
-            buffers: &[],
+            buffers: vertex_buffers,
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
@@ -159,7 +193,7 @@ fn build_pipeline(
             })],
         }),
         primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            topology,
             strip_index_format: None,
             front_face: wgpu::FrontFace::Ccw,
             cull_mode: None,
@@ -168,11 +202,19 @@ fn build_pipeline(
             conservative: false,
         },
         depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
+        multisample: wgpu::MultisampleState {
+            count: MSAA_SAMPLES,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
         multiview_mask: None,
         cache: None,
     })
 }
+
+/// 4× MSAA — best compromise between quality and bandwidth on the
+/// integrated GPUs the wgpu backend targets first.
+pub const MSAA_SAMPLES: u32 = 4;
 
 #[allow(dead_code)]
 const _: () = {
@@ -180,4 +222,6 @@ const _: () = {
     assert!(core::mem::size_of::<ViewportUniform>() == 16);
     assert!(core::mem::size_of::<RectUniform>() == 48);
     assert!(core::mem::size_of::<BlitUniform>() == 32);
+    // Must match `PathTint` in shader/path.wgsl.
+    assert!(core::mem::size_of::<PathTintUniform>() == 16);
 };

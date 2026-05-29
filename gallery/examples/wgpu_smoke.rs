@@ -36,7 +36,8 @@ fn main() {
                 bg_color: Color::rgb(88, 166, 255),
                 height: 40,
                 text: "Hello wgpu!",
-                border_radius: 8
+                border_radius: 8,
+                border_color: Color::rgb(255, 255, 255)
             ) {}
             row (direction: FlexDirection::Row, grow: 1.0) {
                 btn1 (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6) {}
