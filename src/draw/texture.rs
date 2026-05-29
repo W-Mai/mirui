@@ -76,12 +76,28 @@ impl TexBuf<'_> {
     }
 }
 
+/// Destination buffer interpretation for blend writes.
+///
+/// `Opaque` is the framebuffer path: `dst.a` is written as 255 on
+/// every pixel (ignoring whatever alpha the source carried). `Blend`
+/// is the alpha-aware path used when the destination buffer's alpha
+/// channel matters downstream — `dst.a` accumulates via
+/// non-premultiplied source-over so a sampler reading the buffer's
+/// alpha sees a correct silhouette.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum AlphaMode {
+    #[default]
+    Opaque,
+    Blend,
+}
+
 pub struct Texture<'a> {
     pub buf: TexBuf<'a>,
     pub width: u16,
     pub height: u16,
     pub format: ColorFormat,
     pub stride: usize,
+    pub alpha_mode: AlphaMode,
 }
 
 impl HasSize for Texture<'_> {
@@ -99,6 +115,7 @@ impl<'a> Texture<'a> {
             height,
             format,
             stride,
+            alpha_mode: AlphaMode::Opaque,
         }
     }
 
@@ -110,6 +127,7 @@ impl<'a> Texture<'a> {
             height,
             format,
             stride,
+            alpha_mode: AlphaMode::Opaque,
         }
     }
 
@@ -121,6 +139,7 @@ impl<'a> Texture<'a> {
             height,
             format,
             stride,
+            alpha_mode: AlphaMode::Opaque,
         }
     }
 
@@ -133,6 +152,7 @@ impl<'a> Texture<'a> {
             height,
             format,
             stride,
+            alpha_mode: AlphaMode::Opaque,
         }
     }
 
@@ -249,6 +269,9 @@ impl<'a> Texture<'a> {
             return;
         }
         if a == 255 {
+            // Fully opaque source: covers dst regardless of mode. The
+            // source-over identity (1·src + 0·dst) gives both `out.rgb
+            // = src.rgb` and `out.a = src.a` — `set_pixel` does both.
             self.set_pixel(x, y, color);
             return;
         }
@@ -257,16 +280,31 @@ impl<'a> Texture<'a> {
         // old implementation did; exact within ±1 over the full range.
         let dst = self.get_pixel(x, y);
         let ia = 255 - a as u32;
-        let a = a as u32;
+        let aa = a as u32;
         let blend = |src: u8, dst: u8| -> u8 {
-            let sum = src as u32 * a + dst as u32 * ia + 127;
+            let sum = src as u32 * aa + dst as u32 * ia + 127;
             ((sum + (sum >> 8)) >> 8) as u8
+        };
+        // Blend mode accumulates dst.a via non-premultiplied source-over:
+        //   out.a = src.a + dst.a × (255 − src.a) / 255
+        // so a downstream sampler reading the buffer's alpha sees a
+        // correct silhouette. Opaque mode writes 255 — matches the
+        // pre-AlphaMode behaviour for the framebuffer path.
+        let out_a = match self.alpha_mode {
+            AlphaMode::Opaque => 255,
+            AlphaMode::Blend => {
+                let src_a = a as u32;
+                let dst_a = dst.a as u32;
+                let inv = 255 - src_a;
+                let sum = src_a * 255 + dst_a * inv + 127;
+                ((sum + (sum >> 8)) >> 8) as u8
+            }
         };
         let out = Color {
             r: blend(color.r, dst.r),
             g: blend(color.g, dst.g),
             b: blend(color.b, dst.b),
-            a: 255,
+            a: out_a,
         };
         self.set_pixel(x, y, &out);
     }
