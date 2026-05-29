@@ -1,5 +1,7 @@
 //! wgpu-backed Renderer + Canvas.
 
+mod pipeline;
+
 use crate::app::RendererFactory;
 use crate::draw::canvas::Canvas;
 use crate::draw::command::DrawCommand;
