@@ -12,6 +12,7 @@ pub enum ShaderKind {
     Fill,
     Blit,
     BlitQuad,
+    QuadSdf,
     Path,
     Label,
 }
@@ -69,6 +70,27 @@ pub struct LabelVertex {
 pub struct BlitQuadVertex {
     pub pos: [f32; 2],
     pub uvw: [f32; 3],
+}
+
+/// `local_uvw = (lx/w, ly/w, 1/w)` where `(lx, ly)` are widget-local
+/// pixels in `[0..size.x, 0..size.y]`; fragment recovers
+/// `(lx, ly) = local_uvw.xy / local_uvw.z` for SDF evaluation.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct QuadSdfVertex {
+    pub pos: [f32; 2],
+    pub local_uvw: [f32; 3],
+}
+
+/// Same 48-byte layout as `RectUniform` so the fill bind group covers both.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct QuadSdfUniform {
+    pub size: [f32; 2],
+    pub _pad0: [f32; 2],
+    pub color: [f32; 4],
+    /// `.x` = corner radius, `.y` = stroke width (0 = fill); `.zw` unused.
+    pub radius_stroke: [f32; 4],
 }
 
 /// `cache_size = 1` so `Count(PIPELINE_CACHE_LIMIT)` admits every entry
@@ -191,7 +213,7 @@ impl PipelineCache {
             pipelines,
         } = self;
         let bgl = match key.shader {
-            ShaderKind::Fill => fill_bgl,
+            ShaderKind::Fill | ShaderKind::QuadSdf => fill_bgl,
             ShaderKind::Blit => blit_bgl,
             ShaderKind::BlitQuad => blit_quad_bgl,
             ShaderKind::Path => path_bgl,
@@ -239,6 +261,7 @@ fn build_pipeline(
         ShaderKind::Fill => ("mirui-fill", include_str!("shader/fill.wgsl")),
         ShaderKind::Blit => ("mirui-blit", include_str!("shader/blit.wgsl")),
         ShaderKind::BlitQuad => ("mirui-blit-quad", include_str!("shader/blit_quad.wgsl")),
+        ShaderKind::QuadSdf => ("mirui-quad-sdf", include_str!("shader/quad_sdf.wgsl")),
         ShaderKind::Path => ("mirui-path", include_str!("shader/path.wgsl")),
         ShaderKind::Label => ("mirui-label", include_str!("shader/label.wgsl")),
     };
@@ -298,7 +321,7 @@ fn build_pipeline(
 
     let (vertex_buffers, topology): (&[wgpu::VertexBufferLayout], _) = match key.shader {
         ShaderKind::Fill | ShaderKind::Blit => (&[], wgpu::PrimitiveTopology::TriangleStrip),
-        ShaderKind::BlitQuad => (
+        ShaderKind::BlitQuad | ShaderKind::QuadSdf => (
             core::slice::from_ref(&blit_quad_vertex_layout),
             wgpu::PrimitiveTopology::TriangleList,
         ),
@@ -368,4 +391,8 @@ const _: () = {
     assert!(core::mem::size_of::<LabelVertex>() == 16);
     // Must match `VertexIn` in shader/blit_quad.wgsl (vec2 + vec3 = 20).
     assert!(core::mem::size_of::<BlitQuadVertex>() == 20);
+    assert!(core::mem::size_of::<QuadSdfVertex>() == 20);
+    // Must match `QuadSdf` in shader/quad_sdf.wgsl and stay 48 bytes
+    // so the fill bind group's binding-1 binding-size covers it.
+    assert!(core::mem::size_of::<QuadSdfUniform>() == 48);
 };

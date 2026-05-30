@@ -20,7 +20,7 @@ use self::label_atlas::GlyphAtlas;
 use self::path::PathTessellator;
 use self::pipeline::{
     BlitQuadVertex, BlitUniform, LabelVertex, PathTintUniform, PipelineCache, PipelineKey,
-    RectUniform, ShaderKind, ViewportUniform,
+    QuadSdfUniform, QuadSdfVertex, RectUniform, ShaderKind, ViewportUniform,
 };
 use self::texture_pool::{CachedTexture, TextureKey, TexturePool, new_pool};
 
@@ -723,34 +723,169 @@ impl WgpuRenderer<'_> {
         });
     }
 
-    /// Quad rounded corners are ignored because they need a quad-local SDF mask.
     fn fill_quad_inner(
         &mut self,
+        area: &Rect,
         q: &[Point; 4],
-        _radius: Fixed,
+        radius: Fixed,
         clip: &Rect,
         color: &Color,
         opa: u8,
     ) {
-        let mut path = Path::new();
-        path.move_to(q[0]).line_to(q[1]).line_to(q[2]).line_to(q[3]);
-        path.cmds.push(crate::draw::path::PathCmd::Close);
-        self.fill_path_inner(&path, clip, color, opa);
+        self.quad_sdf_inner(area, q, radius, Fixed::ZERO, clip, color, opa);
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn stroke_quad_inner(
         &mut self,
+        area: &Rect,
         q: &[Point; 4],
         width: Fixed,
-        _radius: Fixed,
+        radius: Fixed,
         clip: &Rect,
         color: &Color,
         opa: u8,
     ) {
-        let mut path = Path::new();
-        path.move_to(q[0]).line_to(q[1]).line_to(q[2]).line_to(q[3]);
-        path.cmds.push(crate::draw::path::PathCmd::Close);
-        self.stroke_path_inner(&path, clip, width, color, opa);
+        self.quad_sdf_inner(area, q, radius, width, clip, color, opa);
+    }
+
+    /// `stroke_width = 0` paints a fill; `> 0` paints a ring of that
+    /// width centred on the outline.
+    #[allow(clippy::too_many_arguments)]
+    fn quad_sdf_inner(
+        &mut self,
+        area: &Rect,
+        q: &[Point; 4],
+        radius: Fixed,
+        stroke_width: Fixed,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        if !self.begin_frame() {
+            return;
+        }
+        let scissor = self.scissor_from_clip(clip);
+        if scissor[2] == 0 || scissor[3] == 0 {
+            return;
+        }
+
+        // The homography's bottom row gives each corner's projective `w`.
+        let widget_w = area.w.to_f32();
+        let widget_h = area.h.to_f32();
+        if widget_w <= 0.0 || widget_h <= 0.0 {
+            return;
+        }
+        let src_rect = Rect::new(0, 0, area.w, area.h);
+        let Some(forward) = crate::types::Transform3D::from_quad(src_rect, q) else {
+            return;
+        };
+        let m20 = forward.m20.to_f32();
+        let m21 = forward.m21.to_f32();
+        let m22 = forward.m22.to_f32();
+        let corners = [
+            (0.0_f32, 0.0_f32),
+            (widget_w, 0.0),
+            (widget_w, widget_h),
+            (0.0, widget_h),
+        ];
+        let mut verts = [QuadSdfVertex::default(); 4];
+        for (i, (lx, ly)) in corners.iter().enumerate() {
+            let w = m20 * lx + m21 * ly + m22;
+            if w <= 0.0 {
+                return;
+            }
+            let inv_w = 1.0 / w;
+            verts[i] = QuadSdfVertex {
+                pos: [q[i].x.to_f32(), q[i].y.to_f32()],
+                local_uvw: [lx * inv_w, ly * inv_w, inv_w],
+            };
+        }
+        let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
+
+        let uniform = QuadSdfUniform {
+            size: [widget_w, widget_h],
+            _pad0: [0.0, 0.0],
+            color: [
+                color.r as f32 / 255.0,
+                color.g as f32 / 255.0,
+                color.b as f32 / 255.0,
+                color.a as f32 / 255.0 * opa as f32 / 255.0,
+            ],
+            radius_stroke: [radius.to_f32(), stroke_width.to_f32(), 0.0, 0.0],
+        };
+        let Some(offset) = self.push_uniform(&uniform) else {
+            return;
+        };
+
+        let frame = self.frame.as_mut().expect("frame just initialised");
+        let state = self
+            .surface
+            .state()
+            .expect("WgpuSurface state missing in quad_sdf");
+        let cache = self
+            .factory
+            .cache
+            .as_mut()
+            .expect("PipelineCache must be initialised before quad_sdf");
+
+        if frame.fill_bind_group.is_none() {
+            frame.fill_bind_group =
+                Some(state.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("mirui-fill-bind-group"),
+                    layout: &cache.fill_bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: frame.viewport_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: &frame.uniform_arena,
+                                offset: 0,
+                                size: core::num::NonZeroU64::new(
+                                    core::mem::size_of::<RectUniform>() as u64,
+                                ),
+                            }),
+                        },
+                    ],
+                }));
+        }
+
+        let vertex_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-quad-sdf-vertex"),
+                contents: bytemuck::cast_slice(&verts),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-quad-sdf-index"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        let pipeline = cache.get_or_build(
+            &state.device,
+            PipelineKey {
+                shader: ShaderKind::QuadSdf,
+                format: state.config.format,
+            },
+        );
+
+        frame.ops.push(DrawOp {
+            pipeline,
+            bind_group: BindGroupRef::Shared(0),
+            vertex_buf: Some(vertex_buf),
+            index_buf: Some(index_buf),
+            index_format: wgpu::IndexFormat::Uint16,
+            count: 6,
+            scissor,
+            dynamic_offset: Some(offset),
+        });
     }
 
     /// Perspective-correct quad blit via `Transform3D::from_quad`.
@@ -1083,16 +1218,18 @@ impl Renderer for WgpuRenderer<'_> {
         // has to draw the resulting quad.
         match cmd {
             DrawCommand::Fill {
+                area,
                 quad: Some(q),
                 color,
                 radius,
                 opa,
                 ..
             } => {
-                self.fill_quad_inner(q, *radius, clip, color, *opa);
+                self.fill_quad_inner(area, q, *radius, clip, color, *opa);
                 return;
             }
             DrawCommand::Border {
+                area,
                 quad: Some(q),
                 width,
                 radius,
@@ -1100,7 +1237,7 @@ impl Renderer for WgpuRenderer<'_> {
                 opa,
                 ..
             } => {
-                self.stroke_quad_inner(q, *width, *radius, clip, color, *opa);
+                self.stroke_quad_inner(area, q, *width, *radius, clip, color, *opa);
                 return;
             }
             DrawCommand::Blit {
