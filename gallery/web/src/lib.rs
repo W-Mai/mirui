@@ -1,12 +1,4 @@
 //! `?demo=<name>` selects which `gallery::demos::*::build` runs.
-//!
-//! ```text
-//! /                      → dsl
-//! /?demo=rounded         → rounded
-//! /?demo=text            → text
-//! /?demo=components      → components
-//! /?demo=transform       → transform
-//! ```
 
 #![cfg(target_arch = "wasm32")]
 
@@ -37,6 +29,33 @@ pub fn start() {
             320,
             gallery::demos::transform::build,
         ),
+        "cover_flow" => {
+            let (w, h) = gallery::demos::cover_flow::SIZE;
+            gallery::run(
+                "mirui - cover flow",
+                w,
+                h,
+                gallery::demos::cover_flow::build,
+            )
+        }
+        "nested_scroll" => {
+            let (w, h) = gallery::demos::nested_scroll::SIZE;
+            gallery::run(
+                "mirui - nested scroll",
+                w,
+                h,
+                gallery::demos::nested_scroll::build,
+            )
+        }
+        "effect" => {
+            let (w, h) = gallery::demos::effect::SIZE;
+            gallery::run(
+                "mirui — effect widget demo",
+                w,
+                h,
+                gallery::demos::effect::build,
+            )
+        }
         _ => gallery::run("mirui - DSL demo", 480, 320, gallery::demos::dsl::build),
     }
 }
