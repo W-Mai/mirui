@@ -46,6 +46,11 @@ struct WgpuHandler {
     /// position in winit 0.30) can attach one to the synthetic
     /// `PointerDown`/`PointerUp`.
     last_cursor: (Fixed, Fixed),
+    /// `Some` while a `PointerMove` is queued for emission this pump
+    /// cycle. Only the latest position is sent — winit can fire
+    /// CursorMoved 100+ times per gesture and dispatch_input is too
+    /// expensive to walk that on every event.
+    pending_move: Option<(Fixed, Fixed)>,
 }
 
 impl WgpuHandler {
@@ -166,8 +171,7 @@ impl ApplicationHandler for WgpuHandler {
             WindowEvent::CursorMoved { position, .. } => {
                 let (x, y) = self.to_logical(position.x, position.y);
                 self.last_cursor = (x, y);
-                self.event_queue
-                    .push_back(InputEvent::PointerMove { id: 0, x, y });
+                self.pending_move = Some((x, y));
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 if button != MouseButton::Left {
@@ -181,15 +185,25 @@ impl ApplicationHandler for WgpuHandler {
                 self.event_queue.push_back(event);
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                // mirui wheel units are line ticks; PixelDelta is logical points.
+                // 16 logical points matches macOS default line height.
+                // Keep right-swipe positive in mirui coordinates.
+                const PX_PER_LINE: f32 = 16.0;
+                let scale = self
+                    .state
+                    .as_ref()
+                    .map(|s| s.window.scale_factor().round().max(1.0))
+                    .unwrap_or(1.0) as f32;
                 let (dx, dy) = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => {
-                        // 16 logical px per line tick.
+                    MouseScrollDelta::LineDelta(x, y) => (Fixed::from_f32(-x), Fixed::from_f32(y)),
+                    MouseScrollDelta::PixelDelta(p) => {
+                        let lx = (p.x as f32) / scale;
+                        let ly = (p.y as f32) / scale;
                         (
-                            Fixed::from((x * 16.0) as i32),
-                            Fixed::from((y * 16.0) as i32),
+                            Fixed::from_f32(-lx / PX_PER_LINE),
+                            Fixed::from_f32(ly / PX_PER_LINE),
                         )
                     }
-                    MouseScrollDelta::PixelDelta(p) => self.to_logical(p.x, p.y),
                 };
                 let (x, y) = self.last_cursor;
                 self.event_queue
@@ -257,6 +271,12 @@ impl ApplicationHandler for WgpuHandler {
 pub struct WgpuSurface {
     event_loop: EventLoop<()>,
     handler: WgpuHandler,
+    /// macOS `pump_app_events(Duration::ZERO)` costs ~6 ms per call
+    /// (it spins NSApp internally even with no events). mirui calls
+    /// `poll_event` until `None` every frame, so without this flag a
+    /// frame with N events would pump N+1 times = 6N ms of overhead.
+    /// Pump once per frame; `Surface::flush` resets the latch.
+    pumped_this_frame: bool,
 }
 
 impl WgpuSurface {
@@ -284,7 +304,9 @@ impl WgpuSurface {
                 state: None,
                 event_queue: VecDeque::new(),
                 last_cursor: (Fixed::ZERO, Fixed::ZERO),
+                pending_move: None,
             },
+            pumped_this_frame: false,
         };
 
         // winit creates windows from `resumed` only.
@@ -345,15 +367,31 @@ impl Surface for WgpuSurface {
     }
 
     fn flush(&mut self, _area: &Rect) {
-        // wgpu present happens inside `WgpuRenderer::flush` (the
-        // SurfaceTexture lives on the renderer's frame state). The
-        // backend-side flush is a no-op so the App tick order stays
-        // identical to other backends.
+        // Frame boundary: re-arm `poll_event` to pump once next tick.
+        // Transient backends like wgpu hit `flush` every frame but
+        // never `begin_flush`, so the latch lives here.
+        //
+        // wgpu present itself happens inside `WgpuRenderer::flush`
+        // (the SurfaceTexture lives on the renderer's frame state)
+        // — this method only owns the per-frame latch reset.
+        self.pumped_this_frame = false;
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
-        // `window_event` already pushes (Quit on CloseRequested).
+        if let Some(e) = self.handler.event_queue.pop_front() {
+            return Some(e);
+        }
+        if self.pumped_this_frame {
+            return None;
+        }
+        self.pumped_this_frame = true;
+
         self.pump_once();
+        if let Some((x, y)) = self.handler.pending_move.take() {
+            self.handler
+                .event_queue
+                .push_back(InputEvent::PointerMove { id: 0, x, y });
+        }
         self.handler.event_queue.pop_front()
     }
 
