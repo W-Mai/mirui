@@ -188,22 +188,19 @@ fn wheel_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) {
         evt.prevent_default();
         let x = Fixed::from_int(evt.offset_x());
         let y = Fixed::from_int(evt.offset_y());
-        // `delta_mode == 0` is pixels (the common case for trackpads
-        // and high-resolution wheels); modes 1 and 2 (lines / pages)
-        // are normalised by the browser to ~16 px / line and viewport
-        // height respectively, so passing the raw delta still produces
-        // a sensible scroll velocity.
-        let dx = Fixed::from_int(evt.delta_x().round() as i32);
-        let dy = Fixed::from_int(evt.delta_y().round() as i32);
-        // mirui inertial scroll expects a positive `dy` to scroll
-        // content up; browsers report positive `deltaY` for scroll
-        // down, so flip the sign.
-        q.borrow_mut().push_back(InputEvent::Wheel {
-            dx: -dx,
-            dy: -dy,
-            x,
-            y,
-        });
+        // Convert browser wheel deltas to detent units the scroll
+        // system expects (~±1 per detent). `deltaMode == 0` is
+        // pixel-precise; 16 matches AppKit's default line height.
+        // Modes 1 (lines) and 2 (pages) the browser has already
+        // normalised, so the same divisor produces a reasonable
+        // magnitude.
+        let dx_units = evt.delta_x() / 16.0;
+        let dy_units = evt.delta_y() / 16.0;
+        let dx = Fixed::from_f32(dx_units as f32);
+        // DOM `deltaY > 0` = content scrolls down; flip to match
+        // `scroll_system`'s convention. `dx` keeps the browser sign.
+        let dy = Fixed::from_f32(-dy_units as f32);
+        q.borrow_mut().push_back(InputEvent::Wheel { dx, dy, x, y });
     });
     canvas
         .add_event_listener_with_callback("wheel", cb.as_ref().unchecked_ref())

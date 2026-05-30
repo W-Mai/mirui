@@ -120,6 +120,124 @@ impl WebCanvasRenderer<'_> {
         ctx.set_line_width((width.to_f32() as f64).max(1.0));
     }
 
+    fn build_quad_path(&self, q: &[Point; 4]) {
+        let ctx = self.ctx();
+        ctx.begin_path();
+        ctx.move_to(q[0].x.to_f32() as f64, q[0].y.to_f32() as f64);
+        for p in &q[1..] {
+            ctx.line_to(p.x.to_f32() as f64, p.y.to_f32() as f64);
+        }
+        ctx.close_path();
+    }
+
+    /// Quad fill — rounded corners aren't honoured; Canvas 2D has no
+    /// homography, so this falls back to a flat 4-point polygon.
+    fn fill_quad_inner(&mut self, q: &[Point; 4], clip: &Rect, color: &Color, opa: u8) {
+        self.push_clip(clip);
+        self.set_fill(color, opa);
+        self.build_quad_path(q);
+        self.ctx().fill();
+        self.pop_clip();
+    }
+
+    fn stroke_quad_inner(
+        &mut self,
+        q: &[Point; 4],
+        width: Fixed,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.push_clip(clip);
+        self.set_stroke(color, width, opa);
+        self.build_quad_path(q);
+        self.ctx().stroke();
+        self.pop_clip();
+    }
+
+    /// Quad blit via an `MESH_N × MESH_N` affine triangle mesh —
+    /// Canvas 2D has no homography, so subdivision approximates one.
+    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect) {
+        const MESH_N: i32 = 8;
+
+        let key = TextureKey::from(src);
+        let handle = match self
+            .factory
+            .texture_pool
+            .entry(key)
+            .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
+        {
+            Ok(h) => h,
+            Err(_) => return,
+        };
+        if handle.is_invalid() {
+            return;
+        }
+
+        self.push_clip(clip);
+        let ctx = self.ctx();
+        let src_w = src.width as f64;
+        let src_h = src.height as f64;
+        // Quad index order matches `apply_rect`: 0=TL, 1=TR, 2=BR, 3=BL.
+        let interp = |u: f64, v: f64| -> (f64, f64) {
+            let q0x = q[0].x.to_f32() as f64;
+            let q0y = q[0].y.to_f32() as f64;
+            let q1x = q[1].x.to_f32() as f64;
+            let q1y = q[1].y.to_f32() as f64;
+            let q2x = q[2].x.to_f32() as f64;
+            let q2y = q[2].y.to_f32() as f64;
+            let q3x = q[3].x.to_f32() as f64;
+            let q3y = q[3].y.to_f32() as f64;
+            let top_x = q0x * (1.0 - u) + q1x * u;
+            let top_y = q0y * (1.0 - u) + q1y * u;
+            let bot_x = q3x * (1.0 - u) + q2x * u;
+            let bot_y = q3y * (1.0 - u) + q2y * u;
+            (top_x * (1.0 - v) + bot_x * v, top_y * (1.0 - v) + bot_y * v)
+        };
+
+        for j in 0..MESH_N {
+            for i in 0..MESH_N {
+                let u0 = i as f64 / MESH_N as f64;
+                let v0 = j as f64 / MESH_N as f64;
+                let u1 = (i + 1) as f64 / MESH_N as f64;
+                let v1 = (j + 1) as f64 / MESH_N as f64;
+                let s00 = (u0 * src_w, v0 * src_h);
+                let s10 = (u1 * src_w, v0 * src_h);
+                let s11 = (u1 * src_w, v1 * src_h);
+                let s01 = (u0 * src_w, v1 * src_h);
+                let d00 = interp(u0, v0);
+                let d10 = interp(u1, v0);
+                let d11 = interp(u1, v1);
+                let d01 = interp(u0, v1);
+                draw_textured_triangle(
+                    ctx,
+                    &handle.canvas,
+                    src_w,
+                    src_h,
+                    s00,
+                    s10,
+                    s11,
+                    d00,
+                    d10,
+                    d11,
+                );
+                draw_textured_triangle(
+                    ctx,
+                    &handle.canvas,
+                    src_w,
+                    src_h,
+                    s00,
+                    s11,
+                    s01,
+                    d00,
+                    d11,
+                    d01,
+                );
+            }
+        }
+        self.pop_clip();
+    }
+
     /// Walk a `Path` and translate it into Canvas 2D path operations.
     /// Coordinates are logical; the active context transform applies
     /// the DPR + widget transform once for the whole frame's draw.
@@ -180,6 +298,14 @@ impl Renderer for WebCanvasRenderer<'_> {
 
         match cmd {
             DrawCommand::Fill {
+                quad: Some(q),
+                color,
+                opa,
+                ..
+            } => {
+                self.fill_quad_inner(q, clip, color, *opa);
+            }
+            DrawCommand::Fill {
                 area,
                 color,
                 radius,
@@ -187,6 +313,15 @@ impl Renderer for WebCanvasRenderer<'_> {
                 ..
             } => {
                 self.fill_rect(area, clip, color, *radius, *opa);
+            }
+            DrawCommand::Border {
+                quad: Some(q),
+                width,
+                color,
+                opa,
+                ..
+            } => {
+                self.stroke_quad_inner(q, *width, clip, color, *opa);
             }
             DrawCommand::Border {
                 area,
@@ -197,6 +332,13 @@ impl Renderer for WebCanvasRenderer<'_> {
                 ..
             } => {
                 self.stroke_rect(area, clip, *width, color, *radius, *opa);
+            }
+            DrawCommand::Blit {
+                quad: Some(q),
+                texture,
+                ..
+            } => {
+                self.blit_quad_inner(texture, q, clip);
             }
             DrawCommand::Blit {
                 pos, size, texture, ..
@@ -372,4 +514,42 @@ impl Canvas for WebCanvasRenderer<'_> {
 
 fn css_color(c: &Color) -> String {
     format!("rgb({}, {}, {})", c.r, c.g, c.b)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_textured_triangle(
+    ctx: &CanvasRenderingContext2d,
+    src_canvas: &web_sys::OffscreenCanvas,
+    src_w: f64,
+    src_h: f64,
+    s0: (f64, f64),
+    s1: (f64, f64),
+    s2: (f64, f64),
+    d0: (f64, f64),
+    d1: (f64, f64),
+    d2: (f64, f64),
+) {
+    let det = (s1.0 - s0.0) * (s2.1 - s0.1) - (s2.0 - s0.0) * (s1.1 - s0.1);
+    if det.abs() < 1e-6 {
+        return;
+    }
+    let inv = 1.0 / det;
+    let a = ((d1.0 - d0.0) * (s2.1 - s0.1) - (d2.0 - d0.0) * (s1.1 - s0.1)) * inv;
+    let c = ((d2.0 - d0.0) * (s1.0 - s0.0) - (d1.0 - d0.0) * (s2.0 - s0.0)) * inv;
+    let e = d0.0 - a * s0.0 - c * s0.1;
+    let b = ((d1.1 - d0.1) * (s2.1 - s0.1) - (d2.1 - d0.1) * (s1.1 - s0.1)) * inv;
+    let d = ((d2.1 - d0.1) * (s1.0 - s0.0) - (d1.1 - d0.1) * (s2.0 - s0.0)) * inv;
+    let f = d0.1 - b * s0.0 - d * s0.1;
+
+    ctx.save();
+    // Post-multiply onto the caller's `dpr × widget_tf` (don't replace).
+    ctx.transform(a, b, c, d, e, f).expect("transform");
+    ctx.begin_path();
+    ctx.move_to(s0.0, s0.1);
+    ctx.line_to(s1.0, s1.1);
+    ctx.line_to(s2.0, s2.1);
+    ctx.close_path();
+    ctx.clip();
+    let _ = ctx.draw_image_with_offscreen_canvas_and_dw_and_dh(src_canvas, 0.0, 0.0, src_w, src_h);
+    ctx.restore();
 }
