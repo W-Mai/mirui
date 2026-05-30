@@ -6,6 +6,7 @@ use mirui::components::{Image, WidgetTransform};
 use mirui::ecs::Entity;
 use mirui::prelude::*;
 use mirui::types::Transform;
+use mirui::widget::dirty::Dirty;
 use mirui::widget::{Children, Parent};
 
 struct Spinner {
@@ -25,6 +26,11 @@ fn spin_system(world: &mut World) {
             continue;
         };
         world.insert(e, WidgetTransform(Transform::rotate_deg(next)));
+        // `WidgetTransform` alone doesn't trigger the dirty walker —
+        // the spin only repaints when a separate input event happens
+        // to mark the entity. Tag it explicitly so render_dirty picks
+        // up every frame.
+        world.insert(e, Dirty);
     }
 }
 

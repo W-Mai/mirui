@@ -88,6 +88,7 @@ web-sys = { version = "0.3.99", optional = true, features = [
     "HtmlElement",
     "HtmlCanvasElement",
     "CanvasRenderingContext2d",
+    "DomMatrix",
     "OffscreenCanvas",
     "OffscreenCanvasRenderingContext2d",
     "ImageData",

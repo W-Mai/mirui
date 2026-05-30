@@ -132,6 +132,7 @@ fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) {
     pointer_listener(canvas, queue, "pointercancel", |id, x, y| {
         InputEvent::PointerUp { id, x, y }
     });
+    leave_listener(canvas, queue);
     wheel_listener(canvas, queue);
     touch_listener(canvas, queue, "touchstart", TouchKind::Start);
     touch_listener(canvas, queue, "touchmove", TouchKind::Move);
@@ -157,6 +158,26 @@ fn pointer_listener(
     });
     canvas
         .add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
+        .expect("addEventListener");
+    cb.forget();
+}
+
+/// Synthesize an off-screen `PointerMove` when the pointer leaves the
+/// canvas so `hover_system` clears the active widget — `pointerleave`
+/// itself doesn't carry coordinates that hit-test would interpret as
+/// a miss.
+fn leave_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) {
+    let q = queue.clone();
+    let cb = Closure::<dyn FnMut(_)>::new(move |_evt: PointerEvent| {
+        const OFF: i32 = i16::MIN as i32;
+        q.borrow_mut().push_back(InputEvent::PointerMove {
+            id: 0,
+            x: Fixed::from_int(OFF),
+            y: Fixed::from_int(OFF),
+        });
+    });
+    canvas
+        .add_event_listener_with_callback("pointerleave", cb.as_ref().unchecked_ref())
         .expect("addEventListener");
     cb.forget();
 }
