@@ -137,6 +137,8 @@ struct DrawOp {
     index_format: wgpu::IndexFormat,
     /// `draw_indexed(0..count)` when `index_buf.is_some()`, else `draw(0..count)`.
     count: u32,
+    /// Physical-pixel scissor `(x, y, w, h)`; clamped to swapchain extent.
+    scissor: [u32; 4],
 }
 
 impl WgpuRenderer<'_> {
@@ -193,8 +195,12 @@ impl WgpuRenderer<'_> {
         true
     }
 
-    fn fill_rect_inner(&mut self, area: &Rect, color: &Color, radius: Fixed, opa: u8) {
+    fn fill_rect_inner(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         if !self.begin_frame() {
+            return;
+        }
+        let scissor = self.scissor_from_clip(clip);
+        if scissor[2] == 0 || scissor[3] == 0 {
             return;
         }
         let frame = self.frame.as_mut().expect("frame just initialised");
@@ -258,11 +264,23 @@ impl WgpuRenderer<'_> {
             index_buf: None,
             index_format: wgpu::IndexFormat::Uint32,
             count: 4,
+            scissor,
         });
     }
 
-    fn blit_inner(&mut self, src: &Texture, src_rect: &Rect, dst_pos: Point, dst_size: Point) {
+    fn blit_inner(
+        &mut self,
+        src: &Texture,
+        src_rect: &Rect,
+        dst_pos: Point,
+        dst_size: Point,
+        clip: &Rect,
+    ) {
         if !self.begin_frame() {
+            return;
+        }
+        let scissor = self.scissor_from_clip(clip);
+        if scissor[2] == 0 || scissor[3] == 0 {
             return;
         }
 
@@ -382,7 +400,34 @@ impl WgpuRenderer<'_> {
             index_buf: None,
             index_format: wgpu::IndexFormat::Uint32,
             count: 4,
+            scissor,
         });
+    }
+}
+
+/// Logical clip → physical scissor, clamped to the swapchain extent.
+/// wgpu validates `x + w <= extent` and `y + h <= extent` so any clip
+/// extending past the surface must be cropped before reaching the pass.
+fn clip_to_scissor(clip: &Rect, scale: f32, surface_w: u32, surface_h: u32) -> [u32; 4] {
+    let x0 = (clip.x.to_f32() * scale).max(0.0).min(surface_w as f32) as u32;
+    let y0 = (clip.y.to_f32() * scale).max(0.0).min(surface_h as f32) as u32;
+    let x1 = ((clip.x.to_f32() + clip.w.to_f32()) * scale)
+        .max(0.0)
+        .min(surface_w as f32) as u32;
+    let y1 = ((clip.y.to_f32() + clip.h.to_f32()) * scale)
+        .max(0.0)
+        .min(surface_h as f32) as u32;
+    [x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0)]
+}
+
+impl WgpuRenderer<'_> {
+    fn scissor_from_clip(&self, clip: &Rect) -> [u32; 4] {
+        let state = self
+            .surface
+            .state()
+            .expect("WgpuSurface state missing for scissor");
+        let scale = self.viewport.scale().to_f32().max(1.0);
+        clip_to_scissor(clip, scale, state.config.width, state.config.height)
     }
 }
 
@@ -478,15 +523,22 @@ fn translate_path(path: &Path, tx: Fixed, ty: Fixed) -> Path {
 }
 
 impl WgpuRenderer<'_> {
-    fn fill_path_inner(&mut self, path: &Path, color: &Color, opa: u8) {
+    fn fill_path_inner(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
         let (verts, indices) = {
             let (v, i) = self.factory.tessellator.fill(path);
             (v.to_vec(), i.to_vec())
         };
-        self.draw_path_mesh(&verts, &indices, color, opa);
+        self.draw_path_mesh(&verts, &indices, clip, color, opa);
     }
 
-    fn stroke_path_inner(&mut self, path: &Path, width: Fixed, color: &Color, opa: u8) {
+    fn stroke_path_inner(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+    ) {
         let (verts, indices) = {
             let (v, i) = self
                 .factory
@@ -494,13 +546,14 @@ impl WgpuRenderer<'_> {
                 .stroke(path, width.to_f32().max(1.0));
             (v.to_vec(), i.to_vec())
         };
-        self.draw_path_mesh(&verts, &indices, color, opa);
+        self.draw_path_mesh(&verts, &indices, clip, color, opa);
     }
 
     fn draw_path_mesh(
         &mut self,
         verts: &[lyon::math::Point],
         indices: &[u32],
+        clip: &Rect,
         color: &Color,
         opa: u8,
     ) {
@@ -508,6 +561,10 @@ impl WgpuRenderer<'_> {
             return;
         }
         if !self.begin_frame() {
+            return;
+        }
+        let scissor = self.scissor_from_clip(clip);
+        if scissor[2] == 0 || scissor[3] == 0 {
             return;
         }
         let frame = self.frame.as_mut().expect("frame just initialised");
@@ -590,15 +647,23 @@ impl WgpuRenderer<'_> {
             index_buf: Some(index_buf),
             index_format: wgpu::IndexFormat::Uint32,
             count,
+            scissor,
         });
     }
 
     /// Quad rounded corners are ignored because they need a quad-local SDF mask.
-    fn fill_quad_inner(&mut self, q: &[Point; 4], _radius: Fixed, color: &Color, opa: u8) {
+    fn fill_quad_inner(
+        &mut self,
+        q: &[Point; 4],
+        _radius: Fixed,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
         let mut path = Path::new();
         path.move_to(q[0]).line_to(q[1]).line_to(q[2]).line_to(q[3]);
         path.cmds.push(crate::draw::path::PathCmd::Close);
-        self.fill_path_inner(&path, color, opa);
+        self.fill_path_inner(&path, clip, color, opa);
     }
 
     fn stroke_quad_inner(
@@ -606,18 +671,23 @@ impl WgpuRenderer<'_> {
         q: &[Point; 4],
         width: Fixed,
         _radius: Fixed,
+        clip: &Rect,
         color: &Color,
         opa: u8,
     ) {
         let mut path = Path::new();
         path.move_to(q[0]).line_to(q[1]).line_to(q[2]).line_to(q[3]);
         path.cmds.push(crate::draw::path::PathCmd::Close);
-        self.stroke_path_inner(&path, width, color, opa);
+        self.stroke_path_inner(&path, clip, width, color, opa);
     }
 
     /// Perspective-correct quad blit via `Transform3D::from_quad`.
-    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4]) {
+    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect) {
         if !self.begin_frame() {
+            return;
+        }
+        let scissor = self.scissor_from_clip(clip);
+        if scissor[2] == 0 || scissor[3] == 0 {
             return;
         }
 
@@ -635,6 +705,7 @@ impl WgpuRenderer<'_> {
                     x: q[2].x - q[0].x,
                     y: q[2].y - q[0].y,
                 },
+                clip,
             );
         };
 
@@ -775,14 +846,19 @@ impl WgpuRenderer<'_> {
             index_buf: Some(index_buf),
             index_format: wgpu::IndexFormat::Uint16,
             count: 6,
+            scissor,
         });
     }
 
-    fn draw_label_inner(&mut self, pos: &Point, text: &[u8], color: &Color, opa: u8) {
+    fn draw_label_inner(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
         if text.is_empty() {
             return;
         }
         if !self.begin_frame() {
+            return;
+        }
+        let scissor = self.scissor_from_clip(clip);
+        if scissor[2] == 0 || scissor[3] == 0 {
             return;
         }
         let frame = self.frame.as_mut().expect("frame just initialised");
@@ -919,12 +995,13 @@ impl WgpuRenderer<'_> {
             index_buf: Some(index_buf),
             index_format: wgpu::IndexFormat::Uint32,
             count,
+            scissor,
         });
     }
 }
 
 impl Renderer for WgpuRenderer<'_> {
-    fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
+    fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         use crate::types::TransformClass;
 
         // Quad short-circuits: render_system already pre-projected the
@@ -938,7 +1015,7 @@ impl Renderer for WgpuRenderer<'_> {
                 opa,
                 ..
             } => {
-                self.fill_quad_inner(q, *radius, color, *opa);
+                self.fill_quad_inner(q, *radius, clip, color, *opa);
                 return;
             }
             DrawCommand::Border {
@@ -949,7 +1026,7 @@ impl Renderer for WgpuRenderer<'_> {
                 opa,
                 ..
             } => {
-                self.stroke_quad_inner(q, *width, *radius, color, *opa);
+                self.stroke_quad_inner(q, *width, *radius, clip, color, *opa);
                 return;
             }
             DrawCommand::Blit {
@@ -957,7 +1034,7 @@ impl Renderer for WgpuRenderer<'_> {
                 texture,
                 ..
             } => {
-                self.blit_quad_inner(texture, q);
+                self.blit_quad_inner(texture, q, clip);
                 return;
             }
             _ => {}
@@ -982,14 +1059,14 @@ impl Renderer for WgpuRenderer<'_> {
                 ..
             } => {
                 let area = offset_rect(area, tx, ty);
-                self.fill_rect_inner(&area, color, *radius, *opa);
+                self.fill_rect_inner(&area, clip, color, *radius, *opa);
             }
             DrawCommand::Blit {
                 pos, size, texture, ..
             } => {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
-                self.blit_inner(texture, &src_rect, pos, *size);
+                self.blit_inner(texture, &src_rect, pos, *size, clip);
             }
             DrawCommand::Border {
                 area,
@@ -1008,7 +1085,7 @@ impl Renderer for WgpuRenderer<'_> {
                     area.h - *width,
                     *radius,
                 );
-                self.stroke_path_inner(&path, *width, color, *opa);
+                self.stroke_path_inner(&path, clip, *width, color, *opa);
             }
             DrawCommand::Line {
                 p1,
@@ -1022,7 +1099,7 @@ impl Renderer for WgpuRenderer<'_> {
                 let p2 = offset_point(p2, tx, ty);
                 let mut path = Path::new();
                 path.move_to(p1).line_to(p2);
-                self.stroke_path_inner(&path, *width, color, *opa);
+                self.stroke_path_inner(&path, clip, *width, color, *opa);
             }
             DrawCommand::Arc {
                 center,
@@ -1036,16 +1113,16 @@ impl Renderer for WgpuRenderer<'_> {
             } => {
                 let center = offset_point(center, tx, ty);
                 let path = Path::arc(center, *radius, *start_angle, *end_angle);
-                self.stroke_path_inner(&path, *width, color, *opa);
+                self.stroke_path_inner(&path, clip, *width, color, *opa);
             }
             DrawCommand::FillPath {
                 path, color, opa, ..
             } => {
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.fill_path_inner(path, color, *opa);
+                    self.fill_path_inner(path, clip, color, *opa);
                 } else {
                     let translated = translate_path(path, tx, ty);
-                    self.fill_path_inner(&translated, color, *opa);
+                    self.fill_path_inner(&translated, clip, color, *opa);
                 }
             }
             DrawCommand::Label {
@@ -1056,7 +1133,7 @@ impl Renderer for WgpuRenderer<'_> {
                 ..
             } => {
                 let pos = offset_point(pos, tx, ty);
-                self.draw_label_inner(&pos, text, color, *opa);
+                self.draw_label_inner(&pos, text, clip, color, *opa);
             }
         }
     }
@@ -1093,6 +1170,7 @@ impl Renderer for WgpuRenderer<'_> {
                 })
                 .forget_lifetime();
             for op in &frame.ops {
+                pass.set_scissor_rect(op.scissor[0], op.scissor[1], op.scissor[2], op.scissor[3]);
                 pass.set_pipeline(&op.pipeline);
                 pass.set_bind_group(0, &op.bind_group, &[]);
                 if let Some(vb) = &op.vertex_buf {
@@ -1126,30 +1204,30 @@ impl Drop for WgpuRenderer<'_> {
 }
 
 impl Canvas for WgpuRenderer<'_> {
-    fn fill_rect(&mut self, area: &Rect, _clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
-        self.fill_rect_inner(area, color, radius, opa);
+    fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
+        self.fill_rect_inner(area, clip, color, radius, opa);
     }
 
-    fn fill_path(&mut self, path: &Path, _clip: &Rect, color: &Color, opa: u8) {
-        self.fill_path_inner(path, color, opa);
+    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
+        self.fill_path_inner(path, clip, color, opa);
     }
 
-    fn stroke_path(&mut self, path: &Path, _clip: &Rect, width: Fixed, color: &Color, opa: u8) {
-        self.stroke_path_inner(path, width, color, opa);
+    fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
+        self.stroke_path_inner(path, clip, width, color, opa);
     }
 
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, _clip: &Rect) {
-        self.blit_inner(src, src_rect, dst, dst_size);
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
+        self.blit_inner(src, src_rect, dst, dst_size, clip);
     }
 
     fn clear(&mut self, _area: &Rect, color: &Color) {
         let info = self.surface.display_info();
         let area = Rect::new(0, 0, info.width, info.height);
-        self.fill_rect_inner(&area, color, Fixed::ZERO, 255);
+        self.fill_rect_inner(&area, &area, color, Fixed::ZERO, 255);
     }
 
-    fn draw_label(&mut self, pos: &Point, text: &[u8], _clip: &Rect, color: &Color, opa: u8) {
-        self.draw_label_inner(pos, text, color, opa);
+    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
+        self.draw_label_inner(pos, text, clip, color, opa);
     }
 
     fn flush(&mut self) {
