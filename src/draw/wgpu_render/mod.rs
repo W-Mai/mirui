@@ -13,7 +13,6 @@ use crate::draw::command::DrawCommand;
 use crate::draw::path::Path;
 use crate::draw::renderer::Renderer;
 use crate::draw::texture::Texture;
-use crate::surface::Surface;
 use crate::surface::wgpu_surface::WgpuSurface;
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
@@ -1310,10 +1309,8 @@ impl Canvas for WgpuRenderer<'_> {
         self.blit_inner(src, src_rect, dst, dst_size, clip);
     }
 
-    fn clear(&mut self, _area: &Rect, color: &Color) {
-        let info = self.surface.display_info();
-        let area = Rect::new(0, 0, info.width, info.height);
-        self.fill_rect_inner(&area, &area, color, Fixed::ZERO, 255);
+    fn clear(&mut self, area: &Rect, color: &Color) {
+        self.fill_rect_inner(area, area, color, Fixed::ZERO, 255);
     }
 
     fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
