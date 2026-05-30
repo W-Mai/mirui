@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>mirui · web-canvas</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #181a22; }
+      body { display: flex; align-items: center; justify-content: center; }
+      #mirui {
+        width: 480px;
+        height: 320px;
+        max-width: 100%;
+        max-height: 100%;
+        touch-action: none;
+        outline: none;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="mirui" tabindex="0"></canvas>
+    <script type="module">
+      import init from "./pkg/gallery_web.js";
+      init();
+    </script>
+  </body>
+</html>

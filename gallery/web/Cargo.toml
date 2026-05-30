@@ -1,0 +1,21 @@
+[package]
+name = "gallery-web"
+version = "0.25.1"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+mirui = { path = "../..", default-features = false, features = ["web-canvas"] }
+mirui-macros = { path = "../../mirui-macros" }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.122"
+web-sys = { version = "0.3.99", features = [
+    "Document",
+    "HtmlCanvasElement",
+    "Window",
+] }
+console_error_panic_hook = "0.1"

@@ -20,6 +20,7 @@ fn run() -> Result {
         "lint" => cmd_lint(),
         "size" => cmd_size(),
         "wasm-check" => cmd_wasm_check(),
+        "wasm-build" => cmd_wasm_build(),
         "bump" => cmd_bump(args.get(1).map(|s| s.as_str()).unwrap_or("")),
         "publish" => cmd_publish(args.iter().any(|a| a == "--dry-run")),
         "release" => cmd_release(),
@@ -27,7 +28,7 @@ fn run() -> Result {
         "size-gate" => cmd_size_gate(args.get(1).map(|s| s.as_str())),
         _ => {
             eprintln!(
-                "usage: cargo xtask <ci|build|test|lint|size|wasm-check|bump <major|minor|patch>|publish [--dry-run]|release|templates-bump|size-gate <binary>>"
+                "usage: cargo xtask <ci|build|test|lint|size|wasm-check|wasm-build|bump <major|minor|patch>|publish [--dry-run]|release|templates-bump|size-gate <binary>>"
             );
             std::process::exit(1);
         }
@@ -73,6 +74,44 @@ fn cmd_wasm_check() -> Result {
         "web-canvas",
         "--lib",
     ])
+}
+
+fn cmd_wasm_build() -> Result {
+    let root = project_root();
+    cargo(&[
+        "build",
+        "--release",
+        "-p",
+        "gallery-web",
+        "--target",
+        "wasm32-unknown-unknown",
+    ])?;
+    let wasm = format!(
+        "{root}/target/wasm32-unknown-unknown/release/gallery_web.wasm",
+        root = root
+    );
+    let out_dir = format!("{root}/gallery/web/pkg", root = root);
+    let status = Command::new("wasm-bindgen")
+        .args([
+            "--target",
+            "web",
+            "--out-dir",
+            &out_dir,
+            "--no-typescript",
+            &wasm,
+        ])
+        .status()
+        .map_err(|e| {
+            format!(
+                "wasm-bindgen failed (install: cargo install wasm-bindgen-cli --version 0.2.122): {e}",
+            )
+        })?;
+    if !status.success() {
+        return Err("wasm-bindgen exited non-zero".into());
+    }
+    println!("  → wasm bundle in {out_dir}");
+    println!("  → serve: python3 -m http.server --directory gallery/web 8080");
+    Ok(())
 }
 
 fn cmd_cha() -> Result {

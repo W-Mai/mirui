@@ -14,7 +14,7 @@ categories = ["gui", "embedded"]
 rust-version = "1.85"
 
 [workspace]
-members = [".", "xtask", "mirui-macros", "gallery"]
+members = [".", "xtask", "mirui-macros", "gallery", "gallery/web"]
 
 [dependencies]
 mirui-macros = { version = "0.25.1", path = "mirui-macros" }
