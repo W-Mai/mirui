@@ -11,6 +11,7 @@ use crate::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 pub enum ShaderKind {
     Fill,
     Blit,
+    BlitQuad,
     Path,
     Label,
 }
@@ -62,6 +63,14 @@ pub struct LabelVertex {
     pub uv: [f32; 2],
 }
 
+/// `uvw = (u/w, v/w, 1/w)`; fragment recovers `uv = uvw.xy / uvw.z`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
+pub struct BlitQuadVertex {
+    pub pos: [f32; 2],
+    pub uvw: [f32; 3],
+}
+
 /// `cache_size = 0` because pipelines never evict; the cache runs in
 /// `MaxSize::Disabled`.
 pub struct CachedPipeline(pub wgpu::RenderPipeline);
@@ -75,6 +84,7 @@ impl HasSize for CachedPipeline {
 pub struct PipelineCache {
     pub fill_bgl: wgpu::BindGroupLayout,
     pub blit_bgl: wgpu::BindGroupLayout,
+    pub blit_quad_bgl: wgpu::BindGroupLayout,
     pub path_bgl: wgpu::BindGroupLayout,
     pub label_bgl: wgpu::BindGroupLayout,
     pipelines: Cache<PipelineKey, CachedPipeline, Lru, HashLookup<PipelineKey>>,
@@ -121,9 +131,34 @@ impl PipelineCache {
             entries: &texture_entries,
         });
 
+        let blit_quad_entries = [
+            uniform_entry(0),
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 2,
+                visibility: wgpu::ShaderStages::FRAGMENT,
+                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                count: None,
+            },
+        ];
+        let blit_quad_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("mirui-blit-quad-bgl"),
+            entries: &blit_quad_entries,
+        });
+
         Self {
             fill_bgl,
             blit_bgl,
+            blit_quad_bgl,
             path_bgl,
             label_bgl,
             pipelines: Cache::builder().max_size(MaxSize::Disabled).build(),
@@ -139,6 +174,7 @@ impl PipelineCache {
         let Self {
             fill_bgl,
             blit_bgl,
+            blit_quad_bgl,
             path_bgl,
             label_bgl,
             pipelines,
@@ -146,6 +182,7 @@ impl PipelineCache {
         let bgl = match key.shader {
             ShaderKind::Fill => fill_bgl,
             ShaderKind::Blit => blit_bgl,
+            ShaderKind::BlitQuad => blit_quad_bgl,
             ShaderKind::Path => path_bgl,
             ShaderKind::Label => label_bgl,
         };
@@ -177,6 +214,7 @@ fn build_pipeline(
     let (label, src) = match key.shader {
         ShaderKind::Fill => ("mirui-fill", include_str!("shader/fill.wgsl")),
         ShaderKind::Blit => ("mirui-blit", include_str!("shader/blit.wgsl")),
+        ShaderKind::BlitQuad => ("mirui-blit-quad", include_str!("shader/blit_quad.wgsl")),
         ShaderKind::Path => ("mirui-path", include_str!("shader/path.wgsl")),
         ShaderKind::Label => ("mirui-label", include_str!("shader/label.wgsl")),
     };
@@ -217,9 +255,29 @@ fn build_pipeline(
             },
         ],
     };
+    let blit_quad_vertex_layout = wgpu::VertexBufferLayout {
+        array_stride: 20,
+        step_mode: wgpu::VertexStepMode::Vertex,
+        attributes: &[
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x2,
+                offset: 0,
+                shader_location: 0,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32x3,
+                offset: 8,
+                shader_location: 1,
+            },
+        ],
+    };
 
     let (vertex_buffers, topology): (&[wgpu::VertexBufferLayout], _) = match key.shader {
         ShaderKind::Fill | ShaderKind::Blit => (&[], wgpu::PrimitiveTopology::TriangleStrip),
+        ShaderKind::BlitQuad => (
+            core::slice::from_ref(&blit_quad_vertex_layout),
+            wgpu::PrimitiveTopology::TriangleList,
+        ),
         ShaderKind::Path => (
             core::slice::from_ref(&path_vertex_layout),
             wgpu::PrimitiveTopology::TriangleList,
@@ -284,4 +342,6 @@ const _: () = {
     // Must match the `LabelVertex` layout in pipeline.rs and the
     // `VertexIn` struct in shader/label.wgsl.
     assert!(core::mem::size_of::<LabelVertex>() == 16);
+    // Must match `VertexIn` in shader/blit_quad.wgsl (vec2 + vec3 = 20).
+    assert!(core::mem::size_of::<BlitQuadVertex>() == 20);
 };

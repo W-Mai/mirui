@@ -20,8 +20,8 @@ use crate::types::{Color, Fixed, Point, Rect, Viewport};
 use self::label_atlas::GlyphAtlas;
 use self::path::PathTessellator;
 use self::pipeline::{
-    BlitUniform, LabelVertex, PathTintUniform, PipelineCache, PipelineKey, RectUniform, ShaderKind,
-    ViewportUniform,
+    BlitQuadVertex, BlitUniform, LabelVertex, PathTintUniform, PipelineCache, PipelineKey,
+    RectUniform, ShaderKind, ViewportUniform,
 };
 use self::texture_pool::{CachedTexture, TextureKey, TexturePool, new_pool};
 
@@ -671,19 +671,204 @@ impl WgpuRenderer<'_> {
         self.stroke_path_inner(&path, width, color, opa);
     }
 
-    /// Quad blit uses an axis-aligned bounding box; UVs are not perspective-correct.
+    /// Perspective-correct quad blit via `Transform3D::from_quad`.
     fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4]) {
-        let min_x = q[0].x.min(q[1].x).min(q[2].x).min(q[3].x);
-        let max_x = q[0].x.max(q[1].x).max(q[2].x).max(q[3].x);
-        let min_y = q[0].y.min(q[1].y).min(q[2].y).min(q[3].y);
-        let max_y = q[0].y.max(q[1].y).max(q[2].y).max(q[3].y);
-        let dst_pos = Point { x: min_x, y: min_y };
-        let dst_size = Point {
-            x: max_x - min_x,
-            y: max_y - min_y,
-        };
+        if !self.begin_frame() {
+            return;
+        }
+
         let src_rect = Rect::new(0, 0, src.width, src.height);
-        self.blit_inner(src, &src_rect, dst_pos, dst_size);
+        let Some(forward) = crate::types::Transform3D::from_quad(src_rect, q) else {
+            // Degenerate quad — AABB fallback keeps the widget on screen.
+            return self.blit_inner(
+                src,
+                &src_rect,
+                Point {
+                    x: q[0].x,
+                    y: q[0].y,
+                },
+                Point {
+                    x: q[2].x - q[0].x,
+                    y: q[2].y - q[0].y,
+                },
+            );
+        };
+
+        let corners = [(0.0_f32, 0.0_f32), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)];
+        let m20 = forward.m20.to_f32();
+        let m21 = forward.m21.to_f32();
+        let m22 = forward.m22.to_f32();
+        // `from_quad` takes a pixel-space src rect, so unit corners need
+        // source-size scaling before plugging into the bottom row.
+        let sw = src.width as f32;
+        let sh = src.height as f32;
+
+        let mut verts = [BlitQuadVertex::default(); 4];
+        for (i, (u, v)) in corners.iter().enumerate() {
+            let pixel_u = u * sw;
+            let pixel_v = v * sh;
+            let w = m20 * pixel_u + m21 * pixel_v + m22;
+            if w <= 0.0 {
+                // Corner behind the near plane — drop rather than emit NaN UVs.
+                return;
+            }
+            // Encode `(u/w, v/w, 1/w)`: linear interpolation of these
+            // across screen-space gives perspective-correct attributes
+            // when the fragment shader divides `xy / z`. Encoding
+            // `(u·w, v·w, w)` would also satisfy `xy / z = (u, v)` at
+            // each vertex but only stays correct under uniform `w`.
+            let inv_w = 1.0 / w;
+            verts[i] = BlitQuadVertex {
+                pos: [q[i].x.to_f32(), q[i].y.to_f32()],
+                uvw: [u * inv_w, v * inv_w, inv_w],
+            };
+        }
+        let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
+
+        let key = TextureKey::from(src);
+        let tex_handle: crate::cache::Handle<CachedTexture> = {
+            let state = self
+                .surface
+                .state()
+                .expect("WgpuSurface state missing in blit_quad");
+            match self
+                .factory
+                .texture_pool
+                .entry(key)
+                .or_try_insert_with::<_, ()>(|| {
+                    let rgba = texture_to_rgba8(src).ok_or(())?;
+                    Ok(CachedTexture(state.device.create_texture_with_data(
+                        &state.queue,
+                        &wgpu::TextureDescriptor {
+                            label: Some("mirui-blit-quad-source"),
+                            size: wgpu::Extent3d {
+                                width: src.width as u32,
+                                height: src.height as u32,
+                                depth_or_array_layers: 1,
+                            },
+                            mip_level_count: 1,
+                            sample_count: 1,
+                            dimension: wgpu::TextureDimension::D2,
+                            format: wgpu::TextureFormat::Rgba8Unorm,
+                            usage: wgpu::TextureUsages::TEXTURE_BINDING
+                                | wgpu::TextureUsages::COPY_DST,
+                            view_formats: &[],
+                        },
+                        wgpu::util::TextureDataOrder::LayerMajor,
+                        &rgba,
+                    )))
+                }) {
+                Ok(h) => h,
+                Err(_) => return,
+            }
+        };
+
+        let frame = self.frame.as_mut().expect("frame just initialised");
+        let state = self
+            .surface
+            .state()
+            .expect("WgpuSurface state missing in blit_quad");
+        let cache = self
+            .factory
+            .cache
+            .as_mut()
+            .expect("PipelineCache must be initialised before blit_quad");
+        let tex_view = tex_handle
+            .0
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("mirui-blit-quad-sampler"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+
+        let viewport_uniform = ViewportUniform {
+            size: [frame.logical_w, frame.logical_h],
+            _pad: [0.0, 0.0],
+        };
+        let viewport_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-blit-quad-viewport"),
+                contents: bytemuck::bytes_of(&viewport_uniform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let vertex_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-blit-quad-vertex"),
+                contents: bytemuck::cast_slice(&verts),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-blit-quad-index"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("mirui-blit-quad-bind-group"),
+            layout: &cache.blit_quad_bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: viewport_buf.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&tex_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        let pipeline = cache.get_or_build(
+            &state.device,
+            PipelineKey {
+                shader: ShaderKind::BlitQuad,
+                format: state.config.format,
+            },
+        );
+
+        let load = if frame.cleared {
+            wgpu::LoadOp::Load
+        } else {
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
+        };
+
+        {
+            let mut pass = frame
+                .encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("mirui-blit-quad-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &frame.msaa_view,
+                        resolve_target: Some(&frame.swapchain_view),
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                })
+                .forget_lifetime();
+            pass.set_pipeline(&pipeline);
+            pass.set_bind_group(0, &bind_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buf.slice(..));
+            pass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..6, 0, 0..1);
+        }
+        frame.cleared = true;
     }
 
     fn draw_label_inner(&mut self, pos: &Point, text: &[u8], color: &Color, opa: u8) {
