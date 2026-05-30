@@ -51,15 +51,15 @@ mod backend {
 #[cfg(all(feature = "sdl-gpu", not(feature = "wgpu")))]
 mod backend {
     use super::*;
-    use mirui::draw::sdl_gpu::SdlGpuRendererFactory;
+    use mirui::draw::sdl_gpu::SdlGpuFactory;
     use mirui::surface::sdl_gpu::SdlGpuSurface;
 
     pub type ActiveSurface = SdlGpuSurface;
-    pub type ActiveFactory = SdlGpuRendererFactory;
+    pub type ActiveFactory = SdlGpuFactory;
 
     pub fn build_app(title: &str, w: u16, h: u16) -> App<ActiveSurface, ActiveFactory> {
         let backend = SdlGpuSurface::new(title, w, h);
-        let factory = SdlGpuRendererFactory::new();
+        let factory = SdlGpuFactory;
         let mut app = App::with_factory(backend, factory);
         app.with_default_widgets().with_default_systems();
         app

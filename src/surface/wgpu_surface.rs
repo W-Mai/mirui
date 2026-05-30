@@ -128,7 +128,21 @@ impl ApplicationHandler for WgpuHandler {
             format: surface_format,
             width: size.width.max(1),
             height: size.height.max(1),
-            present_mode: surface_caps.present_modes[0],
+            // Mailbox > Immediate > Fifo: present without vsync stall when
+            // the driver supports it; Fifo is the universal fallback.
+            present_mode: if surface_caps
+                .present_modes
+                .contains(&wgpu::PresentMode::Mailbox)
+            {
+                wgpu::PresentMode::Mailbox
+            } else if surface_caps
+                .present_modes
+                .contains(&wgpu::PresentMode::Immediate)
+            {
+                wgpu::PresentMode::Immediate
+            } else {
+                wgpu::PresentMode::Fifo
+            },
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: alloc::vec![],
             desired_maximum_frame_latency: 2,

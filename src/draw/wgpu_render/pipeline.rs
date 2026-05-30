@@ -71,15 +71,21 @@ pub struct BlitQuadVertex {
     pub uvw: [f32; 3],
 }
 
-/// `cache_size = 0` because pipelines never evict; the cache runs in
-/// `MaxSize::Disabled`.
+/// `cache_size = 1` so `Count(PIPELINE_CACHE_LIMIT)` admits every entry
+/// without ever picking a victim (`ShaderKind` × `TextureFormat` stays
+/// well under the cap).
 pub struct CachedPipeline(pub wgpu::RenderPipeline);
 
 impl HasSize for CachedPipeline {
     fn cache_size(&self) -> usize {
-        0
+        1
     }
 }
+
+/// Comfortably above `ShaderKind::COUNT × number-of-swapchain-formats`
+/// so eviction never triggers; the cache effectively becomes a
+/// `(key) -> pipeline` map with `mirui::cache` plumbing for stats.
+const PIPELINE_CACHE_LIMIT: usize = 64;
 
 pub struct PipelineCache {
     pub fill_bgl: wgpu::BindGroupLayout,
@@ -164,7 +170,9 @@ impl PipelineCache {
             blit_quad_bgl,
             path_bgl,
             label_bgl,
-            pipelines: Cache::builder().max_size(MaxSize::Disabled).build(),
+            pipelines: Cache::builder()
+                .max_size(MaxSize::Count(PIPELINE_CACHE_LIMIT))
+                .build(),
         }
     }
 
