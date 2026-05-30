@@ -32,6 +32,9 @@ pub struct WgpuRendererFactory {
     glyph_atlas: Option<GlyphAtlas>,
     tessellator: PathTessellator,
     texture_pool: TexturePool,
+    /// Samplers are immutable; one instance covers every frame.
+    linear_sampler: Option<wgpu::Sampler>,
+    nearest_sampler: Option<wgpu::Sampler>,
 }
 
 impl WgpuRendererFactory {
@@ -41,6 +44,8 @@ impl WgpuRendererFactory {
             glyph_atlas: None,
             tessellator: PathTessellator::new(),
             texture_pool: new_pool(),
+            linear_sampler: None,
+            nearest_sampler: None,
         }
     }
 }
@@ -62,7 +67,11 @@ impl RendererFactory<WgpuSurface> for WgpuRendererFactory {
         backend: &'a mut WgpuSurface,
         transform: &Viewport,
     ) -> WgpuRenderer<'a> {
-        if self.cache.is_none() || self.glyph_atlas.is_none() {
+        if self.cache.is_none()
+            || self.glyph_atlas.is_none()
+            || self.linear_sampler.is_none()
+            || self.nearest_sampler.is_none()
+        {
             let state = backend
                 .state()
                 .expect("WgpuSurface must be initialised before make()");
@@ -71,6 +80,23 @@ impl RendererFactory<WgpuSurface> for WgpuRendererFactory {
             }
             if self.glyph_atlas.is_none() {
                 self.glyph_atlas = Some(GlyphAtlas::new(&state.device, &state.queue));
+            }
+            if self.linear_sampler.is_none() {
+                self.linear_sampler = Some(state.device.create_sampler(&wgpu::SamplerDescriptor {
+                    label: Some("mirui-linear-sampler"),
+                    mag_filter: wgpu::FilterMode::Linear,
+                    min_filter: wgpu::FilterMode::Linear,
+                    ..Default::default()
+                }));
+            }
+            if self.nearest_sampler.is_none() {
+                self.nearest_sampler =
+                    Some(state.device.create_sampler(&wgpu::SamplerDescriptor {
+                        label: Some("mirui-nearest-sampler"),
+                        mag_filter: wgpu::FilterMode::Nearest,
+                        min_filter: wgpu::FilterMode::Nearest,
+                        ..Default::default()
+                    }));
             }
         }
         WgpuRenderer {
@@ -94,12 +120,23 @@ struct Frame {
     swapchain_view: wgpu::TextureView,
     msaa_view: wgpu::TextureView,
     encoder: wgpu::CommandEncoder,
-    cleared: bool,
-    /// Logical viewport size — mirui hands the renderer logical
-    /// coordinates and we let NDC do the scaling onto the physical
-    /// swapchain texture, so the shader uniforms stay logical too.
-    logical_w: f32,
-    logical_h: f32,
+    /// One viewport uniform shared across the frame's draws.
+    viewport_buf: wgpu::Buffer,
+    /// Encoded into one render pass on `flush`.
+    ops: alloc::vec::Vec<DrawOp>,
+}
+
+/// wgpu pipelines / buffers / bind groups are `Arc`-backed clones, so
+/// owning them in the `Vec<DrawOp>` keeps them alive until
+/// `queue.submit` consumes the encoder.
+struct DrawOp {
+    pipeline: wgpu::RenderPipeline,
+    bind_group: wgpu::BindGroup,
+    vertex_buf: Option<wgpu::Buffer>,
+    index_buf: Option<wgpu::Buffer>,
+    index_format: wgpu::IndexFormat,
+    /// `draw_indexed(0..count)` when `index_buf.is_some()`, else `draw(0..count)`.
+    count: u32,
 }
 
 impl WgpuRenderer<'_> {
@@ -130,14 +167,28 @@ impl WgpuRenderer<'_> {
                 label: Some("mirui-wgpu-encoder"),
             });
         let scale = self.viewport.scale().to_f32().max(1.0);
+        // Logical pixels — NDC scales onto the physical swapchain.
+        let viewport_uniform = ViewportUniform {
+            size: [
+                state.config.width as f32 / scale,
+                state.config.height as f32 / scale,
+            ],
+            _pad: [0.0, 0.0],
+        };
+        let viewport_buf = state
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("mirui-frame-viewport"),
+                contents: bytemuck::bytes_of(&viewport_uniform),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
         self.frame = Some(Frame {
             surface_texture,
             swapchain_view,
             msaa_view,
             encoder,
-            cleared: false,
-            logical_w: state.config.width as f32 / scale,
-            logical_h: state.config.height as f32 / scale,
+            viewport_buf,
+            ops: alloc::vec::Vec::new(),
         });
         true
     }
@@ -157,10 +208,6 @@ impl WgpuRenderer<'_> {
             .as_mut()
             .expect("PipelineCache must be initialised before fill_rect");
 
-        let viewport_uniform = ViewportUniform {
-            size: [frame.logical_w, frame.logical_h],
-            _pad: [0.0, 0.0],
-        };
         let rect_uniform = RectUniform {
             pos: [area.x.to_f32(), area.y.to_f32()],
             size: [area.w.to_f32(), area.h.to_f32()],
@@ -173,13 +220,6 @@ impl WgpuRenderer<'_> {
             radius_pad: [radius.to_f32(), 0.0, 0.0, 0.0],
         };
 
-        let viewport_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-fill-viewport"),
-                contents: bytemuck::bytes_of(&viewport_uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         let rect_buf = state
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -194,7 +234,7 @@ impl WgpuRenderer<'_> {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: viewport_buf.as_entire_binding(),
+                    resource: frame.viewport_buf.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -211,38 +251,14 @@ impl WgpuRenderer<'_> {
             },
         );
 
-        let load = if frame.cleared {
-            wgpu::LoadOp::Load
-        } else {
-            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-        };
-
-        {
-            let mut pass = frame
-                .encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("mirui-fill-pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.msaa_view,
-                        resolve_target: Some(&frame.swapchain_view),
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                })
-                .forget_lifetime();
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.draw(0..4, 0..1);
-        }
-
-        frame.cleared = true;
+        frame.ops.push(DrawOp {
+            pipeline,
+            bind_group,
+            vertex_buf: None,
+            index_buf: None,
+            index_format: wgpu::IndexFormat::Uint32,
+            count: 4,
+        });
     }
 
     fn blit_inner(&mut self, src: &Texture, src_rect: &Rect, dst_pos: Point, dst_size: Point) {
@@ -298,20 +314,15 @@ impl WgpuRenderer<'_> {
             .cache
             .as_mut()
             .expect("PipelineCache must be initialised before blit");
+        let sampler = self
+            .factory
+            .linear_sampler
+            .as_ref()
+            .expect("linear sampler must be initialised before blit");
         let tex_view = tex_handle
             .0
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("mirui-blit-sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
 
-        let viewport_uniform = ViewportUniform {
-            size: [frame.logical_w, frame.logical_h],
-            _pad: [0.0, 0.0],
-        };
         let tw = src.width as f32;
         let th = src.height as f32;
         let blit_uniform = BlitUniform {
@@ -325,13 +336,6 @@ impl WgpuRenderer<'_> {
             ],
         };
 
-        let viewport_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-blit-viewport"),
-                contents: bytemuck::bytes_of(&viewport_uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         let blit_buf = state
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -346,7 +350,7 @@ impl WgpuRenderer<'_> {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: viewport_buf.as_entire_binding(),
+                    resource: frame.viewport_buf.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -358,7 +362,7 @@ impl WgpuRenderer<'_> {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(sampler),
                 },
             ],
         });
@@ -371,38 +375,14 @@ impl WgpuRenderer<'_> {
             },
         );
 
-        let load = if frame.cleared {
-            wgpu::LoadOp::Load
-        } else {
-            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-        };
-
-        {
-            let mut pass = frame
-                .encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("mirui-blit-pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.msaa_view,
-                        resolve_target: Some(&frame.swapchain_view),
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                })
-                .forget_lifetime();
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.draw(0..4, 0..1);
-        }
-
-        frame.cleared = true;
+        frame.ops.push(DrawOp {
+            pipeline,
+            bind_group,
+            vertex_buf: None,
+            index_buf: None,
+            index_format: wgpu::IndexFormat::Uint32,
+            count: 4,
+        });
     }
 }
 
@@ -541,10 +521,6 @@ impl WgpuRenderer<'_> {
             .as_mut()
             .expect("PipelineCache must be initialised before path");
 
-        let viewport_uniform = ViewportUniform {
-            size: [frame.logical_w, frame.logical_h],
-            _pad: [0.0, 0.0],
-        };
         let tint_uniform = PathTintUniform {
             color: [
                 color.r as f32 / 255.0,
@@ -561,13 +537,6 @@ impl WgpuRenderer<'_> {
             core::slice::from_raw_parts(verts.as_ptr() as *const [f32; 2], verts.len())
         });
 
-        let viewport_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-path-viewport"),
-                contents: bytemuck::bytes_of(&viewport_uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         let tint_buf = state
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -596,7 +565,7 @@ impl WgpuRenderer<'_> {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: viewport_buf.as_entire_binding(),
+                    resource: frame.viewport_buf.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -613,40 +582,15 @@ impl WgpuRenderer<'_> {
             },
         );
 
-        let load = if frame.cleared {
-            wgpu::LoadOp::Load
-        } else {
-            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-        };
-
-        {
-            let mut pass = frame
-                .encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("mirui-path-pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.msaa_view,
-                        resolve_target: Some(&frame.swapchain_view),
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                })
-                .forget_lifetime();
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.set_vertex_buffer(0, vertex_buf.slice(..));
-            pass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
-        }
-
-        frame.cleared = true;
+        let count = indices.len() as u32;
+        frame.ops.push(DrawOp {
+            pipeline,
+            bind_group,
+            vertex_buf: Some(vertex_buf),
+            index_buf: Some(index_buf),
+            index_format: wgpu::IndexFormat::Uint32,
+            count,
+        });
     }
 
     /// Quad rounded corners are ignored because they need a quad-local SDF mask.
@@ -773,27 +717,15 @@ impl WgpuRenderer<'_> {
             .cache
             .as_mut()
             .expect("PipelineCache must be initialised before blit_quad");
+        let sampler = self
+            .factory
+            .linear_sampler
+            .as_ref()
+            .expect("linear sampler must be initialised before blit_quad");
         let tex_view = tex_handle
             .0
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("mirui-blit-quad-sampler"),
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
-            ..Default::default()
-        });
 
-        let viewport_uniform = ViewportUniform {
-            size: [frame.logical_w, frame.logical_h],
-            _pad: [0.0, 0.0],
-        };
-        let viewport_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-blit-quad-viewport"),
-                contents: bytemuck::bytes_of(&viewport_uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         let vertex_buf = state
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -815,7 +747,7 @@ impl WgpuRenderer<'_> {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: viewport_buf.as_entire_binding(),
+                    resource: frame.viewport_buf.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -823,7 +755,7 @@ impl WgpuRenderer<'_> {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(sampler),
                 },
             ],
         });
@@ -836,39 +768,14 @@ impl WgpuRenderer<'_> {
             },
         );
 
-        let load = if frame.cleared {
-            wgpu::LoadOp::Load
-        } else {
-            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-        };
-
-        {
-            let mut pass = frame
-                .encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("mirui-blit-quad-pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.msaa_view,
-                        resolve_target: Some(&frame.swapchain_view),
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                })
-                .forget_lifetime();
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.set_vertex_buffer(0, vertex_buf.slice(..));
-            pass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint16);
-            pass.draw_indexed(0..6, 0, 0..1);
-        }
-        frame.cleared = true;
+        frame.ops.push(DrawOp {
+            pipeline,
+            bind_group,
+            vertex_buf: Some(vertex_buf),
+            index_buf: Some(index_buf),
+            index_format: wgpu::IndexFormat::Uint16,
+            count: 6,
+        });
     }
 
     fn draw_label_inner(&mut self, pos: &Point, text: &[u8], color: &Color, opa: u8) {
@@ -933,10 +840,6 @@ impl WgpuRenderer<'_> {
             ]);
         }
 
-        let viewport_uniform = ViewportUniform {
-            size: [frame.logical_w, frame.logical_h],
-            _pad: [0.0, 0.0],
-        };
         let tint_uniform = PathTintUniform {
             color: [
                 color.r as f32 / 255.0,
@@ -946,13 +849,6 @@ impl WgpuRenderer<'_> {
             ],
         };
 
-        let viewport_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-label-viewport"),
-                contents: bytemuck::bytes_of(&viewport_uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         let tint_buf = state
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -978,12 +874,11 @@ impl WgpuRenderer<'_> {
         let atlas_view = atlas
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = state.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("mirui-label-sampler"),
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
+        let sampler = self
+            .factory
+            .nearest_sampler
+            .as_ref()
+            .expect("nearest sampler must be initialised before draw_label");
 
         let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("mirui-label-bind-group"),
@@ -991,7 +886,7 @@ impl WgpuRenderer<'_> {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: viewport_buf.as_entire_binding(),
+                    resource: frame.viewport_buf.as_entire_binding(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -1003,7 +898,7 @@ impl WgpuRenderer<'_> {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
+                    resource: wgpu::BindingResource::Sampler(sampler),
                 },
             ],
         });
@@ -1016,40 +911,15 @@ impl WgpuRenderer<'_> {
             },
         );
 
-        let load = if frame.cleared {
-            wgpu::LoadOp::Load
-        } else {
-            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT)
-        };
-
-        {
-            let mut pass = frame
-                .encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("mirui-label-pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.msaa_view,
-                        resolve_target: Some(&frame.swapchain_view),
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                })
-                .forget_lifetime();
-            pass.set_pipeline(&pipeline);
-            pass.set_bind_group(0, &bind_group, &[]);
-            pass.set_vertex_buffer(0, vertex_buf.slice(..));
-            pass.set_index_buffer(index_buf.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
-        }
-
-        frame.cleared = true;
+        let count = indices.len() as u32;
+        frame.ops.push(DrawOp {
+            pipeline,
+            bind_group,
+            vertex_buf: Some(vertex_buf),
+            index_buf: Some(index_buf),
+            index_format: wgpu::IndexFormat::Uint32,
+            count,
+        });
     }
 }
 
@@ -1195,19 +1065,24 @@ impl Renderer for WgpuRenderer<'_> {
         let Some(mut frame) = self.frame.take() else {
             return;
         };
-        // Force a clear-only pass when nothing was drawn so the
-        // swapchain image isn't garbage on transient backbuffers.
-        if !frame.cleared {
-            let _ = frame
+        // Empty frames still need a clear or transient backbuffers
+        // show stale pixels from the previous swap.
+        let load = wgpu::LoadOp::Clear(if frame.ops.is_empty() {
+            wgpu::Color::BLACK
+        } else {
+            wgpu::Color::TRANSPARENT
+        });
+        {
+            let mut pass = frame
                 .encoder
                 .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("mirui-empty-clear-pass"),
+                    label: Some("mirui-frame-pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &frame.msaa_view,
                         resolve_target: Some(&frame.swapchain_view),
                         depth_slice: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            load,
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -1215,7 +1090,21 @@ impl Renderer for WgpuRenderer<'_> {
                     timestamp_writes: None,
                     occlusion_query_set: None,
                     multiview_mask: None,
-                });
+                })
+                .forget_lifetime();
+            for op in &frame.ops {
+                pass.set_pipeline(&op.pipeline);
+                pass.set_bind_group(0, &op.bind_group, &[]);
+                if let Some(vb) = &op.vertex_buf {
+                    pass.set_vertex_buffer(0, vb.slice(..));
+                }
+                if let Some(ib) = &op.index_buf {
+                    pass.set_index_buffer(ib.slice(..), op.index_format);
+                    pass.draw_indexed(0..op.count, 0, 0..1);
+                } else {
+                    pass.draw(0..op.count, 0..1);
+                }
+            }
         }
         let state = self
             .surface
