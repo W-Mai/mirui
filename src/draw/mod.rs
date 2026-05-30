@@ -11,6 +11,8 @@ pub mod renderer;
 pub mod sdl_gpu;
 pub mod sw;
 pub mod texture;
+#[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
+pub mod web_canvas;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_render;
 
