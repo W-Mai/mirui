@@ -15,8 +15,8 @@
 mod imp {
     extern crate std;
     use std::cell::RefCell;
-    use std::time::Instant;
     use std::vec::Vec;
+    use web_time::Instant;
 
     thread_local! {
         static EVENTS: RefCell<Vec<PerfEvent>> = RefCell::new(Vec::with_capacity(2048));

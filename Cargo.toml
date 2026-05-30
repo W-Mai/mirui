@@ -23,7 +23,7 @@ hashbrown = { version = "0.15", default-features = false, features = ["default-h
 
 [features]
 default = ["quad-aa"]
-std = ["critical-section/std"]
+std = ["critical-section/std", "dep:web-time"]
 sdl = ["dep:sdl2", "std"]
 sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
 wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "std"]
@@ -70,6 +70,13 @@ optional = true
 
 [dependencies.pollster]
 version = "0.4"
+optional = true
+
+# Drop-in replacement for `std::time` on `wasm32-unknown-unknown` —
+# native targets re-export `std::time` at zero cost; wasm reads
+# `performance.now()` so `Instant::now()` doesn't panic.
+[dependencies.web-time]
+version = "1.1"
 optional = true
 
 # wasm32-only deps for the web-canvas backend.

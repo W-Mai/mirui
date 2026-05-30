@@ -35,29 +35,13 @@ pub struct WebCanvasSurface {
     canvas: HtmlCanvasElement,
     ctx: CanvasRenderingContext2d,
     event_queue: EventQueue,
-    /// Logical-pixel size; physical is `(width × scale, height × scale)`.
-    width: u16,
-    height: u16,
-    scale: Fixed,
 }
 
 impl WebCanvasSurface {
     /// `canvas` must already be in the DOM with its CSS size set —
     /// mirui only owns the backing store and the 2D context state.
     pub fn new(canvas: HtmlCanvasElement) -> Self {
-        let window = web_sys::window().expect("no global `window`");
-        let dpr = window.device_pixel_ratio().max(1.0);
-        let scale = Fixed::from_int(dpr.round() as i32);
-
-        // CSS box → logical pixels. `client_*` returns the rendered
-        // size in CSS pixels regardless of the backing store.
-        let css_w = canvas.client_width().max(1) as u16;
-        let css_h = canvas.client_height().max(1) as u16;
-        let phys_w = (css_w as f64 * dpr).round() as u32;
-        let phys_h = (css_h as f64 * dpr).round() as u32;
-        canvas.set_width(phys_w);
-        canvas.set_height(phys_h);
-
+        sync_canvas_size(&canvas);
         let ctx = canvas
             .get_context("2d")
             .expect("canvas.getContext failed")
@@ -72,9 +56,6 @@ impl WebCanvasSurface {
             canvas,
             ctx,
             event_queue,
-            width: css_w,
-            height: css_h,
-            scale,
         }
     }
 
@@ -92,10 +73,13 @@ impl InspectCaches for WebCanvasSurface {}
 
 impl Surface for WebCanvasSurface {
     fn display_info(&self) -> DisplayInfo {
+        // Re-sync each query so window resizes / OS zoom are picked up
+        // without a dedicated `resize` listener.
+        let (css_w, css_h, scale) = sync_canvas_size(&self.canvas);
         DisplayInfo {
-            width: self.width,
-            height: self.height,
-            scale: self.scale,
+            width: css_w,
+            height: css_h,
+            scale,
             format: ColorFormat::RGBA8888,
         }
     }
@@ -107,10 +91,32 @@ impl Surface for WebCanvasSurface {
     }
 
     fn persistence(&self) -> BackbufferPersistence {
-        // Canvas 2D retains pixels across paints — `App::run` can take
-        // the dirty-only path.
-        BackbufferPersistence::Persistent
+        // `set_width` blanks the backing store on every resize / DPR
+        // change, so every frame repaints instead of trusting persistence.
+        BackbufferPersistence::Transient
     }
+}
+
+/// Reconcile the canvas backing store with the CSS box and current
+/// `devicePixelRatio`. Returns `(logical_w, logical_h, scale)` — the
+/// caller publishes those via `DisplayInfo`. `set_width` / `set_height`
+/// clear the backing store on every assignment, so the `if !=` guards
+/// keep an unchanged frame from blanking the canvas.
+fn sync_canvas_size(canvas: &HtmlCanvasElement) -> (u16, u16, Fixed) {
+    let window = web_sys::window().expect("no global `window`");
+    let dpr = window.device_pixel_ratio().max(1.0);
+    let css_w = canvas.client_width().max(1) as u16;
+    let css_h = canvas.client_height().max(1) as u16;
+    let phys_w = (css_w as f64 * dpr).round() as u32;
+    let phys_h = (css_h as f64 * dpr).round() as u32;
+    if canvas.width() != phys_w {
+        canvas.set_width(phys_w);
+    }
+    if canvas.height() != phys_h {
+        canvas.set_height(phys_h);
+    }
+    let scale = Fixed::from_int(dpr.round() as i32);
+    (css_w, css_h, scale)
 }
 
 fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) {

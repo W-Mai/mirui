@@ -4,7 +4,7 @@ use crate::plugin::Plugin;
 use crate::surface::Surface;
 
 use std::sync::OnceLock;
-use std::time::Instant;
+use web_time::Instant;
 
 static CLOCK_START: OnceLock<Instant> = OnceLock::new();
 
