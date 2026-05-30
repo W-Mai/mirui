@@ -1,6 +1,5 @@
-//! Gallery shared runner — write a demo once, run it on any backend
-//! mirui supports. The active backend is picked at compile time from
-//! the enabled cargo features (priority: `wgpu` > `sdl-gpu` > `sdl`).
+//! Gallery shared runner. Backend chosen by feature flag (priority:
+//! `web-canvas` on wasm32 > `wgpu` > `sdl-gpu` > `sdl`).
 //!
 //! ```ignore
 //! use gallery::prelude::*;
@@ -18,6 +17,7 @@
 //! }
 //! ```
 
+pub mod demos;
 pub mod prelude {
     pub use mirui::prelude::*;
 }
@@ -30,7 +30,40 @@ pub struct SetupGeneric<'a, B: Surface, F: RendererFactory<B>> {
     pub app: &'a mut App<B, F>,
 }
 
-#[cfg(feature = "wgpu")]
+// `web-canvas` overrides the desktop backends on wasm32; the loader
+// hands us a `<canvas>` element and we treat the title / size as
+// hints rather than window-creation parameters.
+#[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
+mod backend {
+    use super::*;
+    use mirui::draw::web_canvas::WebCanvasRendererFactory;
+    use mirui::surface::web_canvas::WebCanvasSurface;
+    use wasm_bindgen::JsCast;
+
+    pub type ActiveSurface = WebCanvasSurface;
+    pub type ActiveFactory = WebCanvasRendererFactory;
+
+    pub fn build_app(_title: &str, _w: u16, _h: u16) -> App<ActiveSurface, ActiveFactory> {
+        let canvas = web_sys::window()
+            .expect("window")
+            .document()
+            .expect("document")
+            .get_element_by_id("mirui")
+            .expect("canvas element with id=\"mirui\"")
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .expect("element is not <canvas>");
+        let backend = WebCanvasSurface::new(canvas);
+        let factory = WebCanvasRendererFactory::new();
+        let mut app = App::with_factory(backend, factory);
+        app.with_default_widgets().with_default_systems();
+        app
+    }
+}
+
+#[cfg(all(
+    feature = "wgpu",
+    not(all(feature = "web-canvas", target_arch = "wasm32"))
+))]
 mod backend {
     use super::*;
     use mirui::draw::wgpu_render::WgpuRendererFactory;
@@ -48,7 +81,11 @@ mod backend {
     }
 }
 
-#[cfg(all(feature = "sdl-gpu", not(feature = "wgpu")))]
+#[cfg(all(
+    feature = "sdl-gpu",
+    not(feature = "wgpu"),
+    not(all(feature = "web-canvas", target_arch = "wasm32")),
+))]
 mod backend {
     use super::*;
     use mirui::draw::sdl_gpu::SdlGpuFactory;
@@ -66,7 +103,12 @@ mod backend {
     }
 }
 
-#[cfg(all(feature = "sdl", not(feature = "wgpu"), not(feature = "sdl-gpu")))]
+#[cfg(all(
+    feature = "sdl",
+    not(feature = "wgpu"),
+    not(feature = "sdl-gpu"),
+    not(all(feature = "web-canvas", target_arch = "wasm32")),
+))]
 mod backend {
     use super::*;
     use mirui::app::SwRendererFactory;
@@ -86,7 +128,8 @@ mod backend {
 /// Active-backend setup passed to gallery demos.
 pub type Setup<'a> = SetupGeneric<'a, backend::ActiveSurface, backend::ActiveFactory>;
 
-/// Runs a demo on the selected backend.
+/// Run a demo on the selected backend. Returns on wasm32 so the
+/// browser keeps driving frames.
 pub fn run<F>(title: &str, w: u16, h: u16, build: F)
 where
     F: FnOnce(&mut Setup<'_>) -> Entity,
@@ -97,5 +140,10 @@ where
         build(&mut setup)
     };
     app.set_root(root);
+
+    #[cfg(not(all(feature = "web-canvas", target_arch = "wasm32")))]
     app.run();
+
+    #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
+    app.into_runner().start_animation_frame();
 }

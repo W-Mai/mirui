@@ -1,63 +1,58 @@
-//! Hello-widget demo for the `web-canvas` backend. The `<canvas>`
-//! element is matched by `id = "mirui"` in `index.html`; the Rust
-//! side wraps it in `WebCanvasSurface` and drives `App::tick` from
-//! `requestAnimationFrame`.
+//! `?demo=<name>` selects which `gallery::demos::*::build` runs.
+//!
+//! ```text
+//! /                      → dsl
+//! /?demo=rounded         → rounded
+//! /?demo=text            → text
+//! /?demo=components      → components
+//! /?demo=transform       → transform
+//! ```
 
 #![cfg(target_arch = "wasm32")]
 
-use mirui::draw::web_canvas::WebCanvasRendererFactory;
-use mirui::prelude::*;
-use mirui::surface::web_canvas::WebCanvasSurface;
-use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
 
-    let canvas = web_sys::window()
-        .expect("window")
-        .document()
-        .expect("document")
-        .get_element_by_id("mirui")
-        .expect("canvas element with id=\"mirui\"")
-        .dyn_into::<web_sys::HtmlCanvasElement>()
-        .expect("element is not <canvas>");
+    let demo = read_demo_query().unwrap_or_else(|| "dsl".to_string());
+    match demo.as_str() {
+        "rounded" => gallery::run(
+            "mirui - rounded + border",
+            480,
+            320,
+            gallery::demos::rounded::build,
+        ),
+        "text" => gallery::run("mirui - text demo", 480, 320, gallery::demos::text::build),
+        "components" => gallery::run(
+            "mirui - components demo",
+            480,
+            320,
+            gallery::demos::components::build,
+        ),
+        "transform" => gallery::run(
+            "mirui - transform demo",
+            480,
+            320,
+            gallery::demos::transform::build,
+        ),
+        _ => gallery::run("mirui - DSL demo", 480, 320, gallery::demos::dsl::build),
+    }
+}
 
-    let surface = WebCanvasSurface::new(canvas);
-    let factory = WebCanvasRendererFactory::new();
-    let mut app = App::with_factory(surface, factory);
-    app.with_default_widgets().with_default_systems();
-
-    let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(ColorToken::Surface)
-        .layout(LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            ..Default::default()
-        })
-        .id();
-
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
-
-        column (direction: FlexDirection::Column, grow: 1.0) {
-            header (
-                bg_color: ColorToken::Primary,
-                text_color: ColorToken::OnPrimary,
-                height: 48,
-                text: "hello mirui — web-canvas",
-                border_radius: 8
-            ) {}
-            content (bg_color: ColorToken::SurfaceVariant, grow: 1.0) {}
-            footer (height: 32, text: "ECS + Canvas 2D") {}
+fn read_demo_query() -> Option<String> {
+    let search = web_sys::window()?.location().search().ok()?;
+    let trimmed = search.trim_start_matches('?');
+    for pair in trimmed.split('&') {
+        let mut parts = pair.splitn(2, '=');
+        if parts.next() == Some("demo") {
+            if let Some(value) = parts.next() {
+                return js_sys::decode_uri_component(value)
+                    .ok()
+                    .map(|s| s.as_string().unwrap_or_default());
+            }
         }
-    };
-
-    app.set_root(root);
-    app.into_runner().start_animation_frame();
+    }
+    None
 }

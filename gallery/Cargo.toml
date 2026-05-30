@@ -6,14 +6,24 @@ publish = false
 
 [features]
 default = ["sdl"]
-sdl = ["mirui/sdl"]
-sdl-gpu = ["mirui/sdl-gpu"]
+sdl = ["mirui/sdl", "dep:sdl2"]
+sdl-gpu = ["mirui/sdl-gpu", "dep:sdl2"]
 wgpu = ["mirui/wgpu"]
+web-canvas = ["mirui/web-canvas", "dep:wasm-bindgen", "dep:web-sys"]
 
 [dependencies]
 mirui = { path = "..", default-features = false, features = ["quad-aa"] }
 mirui-macros = { path = "../mirui-macros" }
-sdl2 = "0.37"
+sdl2 = { version = "0.37", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = { version = "0.2.122", optional = true }
+web-sys = { version = "0.3.99", optional = true, features = [
+    "Document",
+    "Element",
+    "HtmlCanvasElement",
+    "Window",
+] }
 
 [[example]]
 name = "sdl_gpu_demo"

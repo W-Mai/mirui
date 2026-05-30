@@ -4,8 +4,19 @@
     <meta charset="utf-8" />
     <title>mirui · web-canvas</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #181a22; }
-      body { display: flex; align-items: center; justify-content: center; }
+      html, body { margin: 0; height: 100%; background: #181a22; color: #c9d1d9; font-family: system-ui, sans-serif; }
+      body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+      nav { display: flex; gap: 8px; }
+      nav a {
+        padding: 6px 12px;
+        background: #2a2d3a;
+        color: #c9d1d9;
+        text-decoration: none;
+        border-radius: 6px;
+        font-size: 14px;
+      }
+      nav a:hover { background: #3a3d4a; }
+      nav a.active { background: #58a6ff; color: #181a22; }
       #mirui {
         width: 480px;
         height: 320px;
@@ -17,7 +28,21 @@
     </style>
   </head>
   <body>
+    <nav>
+      <a href="?demo=dsl" data-demo="dsl">dsl</a>
+      <a href="?demo=rounded" data-demo="rounded">rounded</a>
+      <a href="?demo=text" data-demo="text">text</a>
+      <a href="?demo=components" data-demo="components">components</a>
+      <a href="?demo=transform" data-demo="transform">transform</a>
+    </nav>
     <canvas id="mirui" tabindex="0"></canvas>
+    <script>
+      const params = new URLSearchParams(location.search);
+      const active = params.get("demo") || "dsl";
+      for (const link of document.querySelectorAll("nav a")) {
+        if (link.dataset.demo === active) link.classList.add("active");
+      }
+    </script>
     <script type="module">
       import init from "./pkg/gallery_web.js";
       init();
