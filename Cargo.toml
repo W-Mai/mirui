@@ -27,6 +27,13 @@ std = ["critical-section/std"]
 sdl = ["dep:sdl2", "std"]
 sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
 wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "std"]
+web-canvas = [
+    "dep:web-sys",
+    "dep:js-sys",
+    "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "std",
+]
 perf = []
 sync-cache = []
 # Anti-aliasing for 3D-transformed quads. On `std` this uses a Fixed64
@@ -64,6 +71,35 @@ optional = true
 [dependencies.pollster]
 version = "0.4"
 optional = true
+
+# wasm32-only deps for the web-canvas backend.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = { version = "0.3.99", optional = true, features = [
+    "Window",
+    "Document",
+    "Element",
+    "HtmlElement",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "OffscreenCanvas",
+    "OffscreenCanvasRenderingContext2d",
+    "ImageData",
+    "Path2d",
+    "MouseEvent",
+    "PointerEvent",
+    "WheelEvent",
+    "KeyboardEvent",
+    "TouchEvent",
+    "Touch",
+    "TouchList",
+    "DomRect",
+    "EventTarget",
+    "Event",
+    "console",
+] }
+js-sys = { version = "0.3.99", optional = true }
+wasm-bindgen = { version = "0.2.122", optional = true }
+wasm-bindgen-futures = { version = "0.4.72", optional = true }
 
 [dev-dependencies]
 trybuild = "1"

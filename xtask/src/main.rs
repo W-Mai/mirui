@@ -19,6 +19,7 @@ fn run() -> Result {
         "test" => cmd_test(),
         "lint" => cmd_lint(),
         "size" => cmd_size(),
+        "wasm-check" => cmd_wasm_check(),
         "bump" => cmd_bump(args.get(1).map(|s| s.as_str()).unwrap_or("")),
         "publish" => cmd_publish(args.iter().any(|a| a == "--dry-run")),
         "release" => cmd_release(),
@@ -26,7 +27,7 @@ fn run() -> Result {
         "size-gate" => cmd_size_gate(args.get(1).map(|s| s.as_str())),
         _ => {
             eprintln!(
-                "usage: cargo xtask <ci|build|test|lint|size|bump <major|minor|patch>|publish [--dry-run]|release|templates-bump|size-gate <binary>>"
+                "usage: cargo xtask <ci|build|test|lint|size|wasm-check|bump <major|minor|patch>|publish [--dry-run]|release|templates-bump|size-gate <binary>>"
             );
             std::process::exit(1);
         }
@@ -40,6 +41,7 @@ fn cmd_ci() -> Result {
         ("lint", cmd_lint),
         ("examples", cmd_examples),
         ("size", cmd_size),
+        ("wasm-check", cmd_wasm_check),
         ("cha", cmd_cha),
     ] {
         println!("\n=== xtask: {name} ===");
@@ -47,6 +49,30 @@ fn cmd_ci() -> Result {
     }
     println!("\n✅ All CI checks passed.");
     Ok(())
+}
+
+fn cmd_wasm_check() -> Result {
+    // `wasm32-unknown-unknown` is an optional rustup target; skip
+    // silently when missing so host-only CI agents stay green.
+    let installed = Command::new("rustup")
+        .args(["target", "list", "--installed"])
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).contains("wasm32-unknown-unknown"))
+        .unwrap_or(false);
+    if !installed {
+        println!("  ⏭ wasm32-unknown-unknown not installed, skipping");
+        return Ok(());
+    }
+    cargo(&[
+        "check",
+        "--target",
+        "wasm32-unknown-unknown",
+        "--no-default-features",
+        "--features",
+        "web-canvas",
+        "--lib",
+    ])
 }
 
 fn cmd_cha() -> Result {
