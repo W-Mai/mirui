@@ -5,6 +5,8 @@ pub mod sdl;
 pub mod sdl_gpu;
 #[cfg(feature = "std")]
 pub mod slow;
+#[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
+pub mod web_canvas;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_surface;
 
