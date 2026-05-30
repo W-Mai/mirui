@@ -203,15 +203,13 @@ impl WgpuRenderer<'_> {
             ],
         });
 
-        let pipeline = cache
-            .get_or_build(
-                &state.device,
-                PipelineKey {
-                    shader: ShaderKind::Fill,
-                    format: state.config.format,
-                },
-            )
-            .clone();
+        let pipeline = cache.get_or_build(
+            &state.device,
+            PipelineKey {
+                shader: ShaderKind::Fill,
+                format: state.config.format,
+            },
+        );
 
         let load = if frame.cleared {
             wgpu::LoadOp::Load
@@ -365,15 +363,13 @@ impl WgpuRenderer<'_> {
             ],
         });
 
-        let pipeline = cache
-            .get_or_build(
-                &state.device,
-                PipelineKey {
-                    shader: ShaderKind::Blit,
-                    format: state.config.format,
-                },
-            )
-            .clone();
+        let pipeline = cache.get_or_build(
+            &state.device,
+            PipelineKey {
+                shader: ShaderKind::Blit,
+                format: state.config.format,
+            },
+        );
 
         let load = if frame.cleared {
             wgpu::LoadOp::Load
@@ -609,15 +605,13 @@ impl WgpuRenderer<'_> {
             ],
         });
 
-        let pipeline = cache
-            .get_or_build(
-                &state.device,
-                PipelineKey {
-                    shader: ShaderKind::Path,
-                    format: state.config.format,
-                },
-            )
-            .clone();
+        let pipeline = cache.get_or_build(
+            &state.device,
+            PipelineKey {
+                shader: ShaderKind::Path,
+                format: state.config.format,
+            },
+        );
 
         let load = if frame.cleared {
             wgpu::LoadOp::Load
@@ -829,15 +823,13 @@ impl WgpuRenderer<'_> {
             ],
         });
 
-        let pipeline = cache
-            .get_or_build(
-                &state.device,
-                PipelineKey {
-                    shader: ShaderKind::Label,
-                    format: state.config.format,
-                },
-            )
-            .clone();
+        let pipeline = cache.get_or_build(
+            &state.device,
+            PipelineKey {
+                shader: ShaderKind::Label,
+                format: state.config.format,
+            },
+        );
 
         let load = if frame.cleared {
             wgpu::LoadOp::Load

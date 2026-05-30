@@ -4,7 +4,8 @@
 #![allow(dead_code)]
 
 use bytemuck::{Pod, Zeroable};
-use hashbrown::HashMap;
+
+use crate::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShaderKind {
@@ -61,12 +62,22 @@ pub struct LabelVertex {
     pub uv: [f32; 2],
 }
 
+/// `cache_size = 0` because pipelines never evict; the cache runs in
+/// `MaxSize::Disabled`.
+pub struct CachedPipeline(pub wgpu::RenderPipeline);
+
+impl HasSize for CachedPipeline {
+    fn cache_size(&self) -> usize {
+        0
+    }
+}
+
 pub struct PipelineCache {
     pub fill_bgl: wgpu::BindGroupLayout,
     pub blit_bgl: wgpu::BindGroupLayout,
     pub path_bgl: wgpu::BindGroupLayout,
     pub label_bgl: wgpu::BindGroupLayout,
-    pipelines: HashMap<PipelineKey, wgpu::RenderPipeline>,
+    pipelines: Cache<PipelineKey, CachedPipeline, Lru, HashLookup<PipelineKey>>,
 }
 
 impl PipelineCache {
@@ -115,7 +126,7 @@ impl PipelineCache {
             blit_bgl,
             path_bgl,
             label_bgl,
-            pipelines: HashMap::new(),
+            pipelines: Cache::builder().max_size(MaxSize::Disabled).build(),
         }
     }
 
@@ -123,16 +134,25 @@ impl PipelineCache {
         &mut self,
         device: &wgpu::Device,
         key: PipelineKey,
-    ) -> &wgpu::RenderPipeline {
-        self.pipelines.entry(key).or_insert_with(|| {
-            let bgl = match key.shader {
-                ShaderKind::Fill => &self.fill_bgl,
-                ShaderKind::Blit => &self.blit_bgl,
-                ShaderKind::Path => &self.path_bgl,
-                ShaderKind::Label => &self.label_bgl,
-            };
-            build_pipeline(device, bgl, key)
-        })
+    ) -> wgpu::RenderPipeline {
+        // Split-borrow `self` so `entry` and `bgl` borrow disjoint fields.
+        let Self {
+            fill_bgl,
+            blit_bgl,
+            path_bgl,
+            label_bgl,
+            pipelines,
+        } = self;
+        let bgl = match key.shader {
+            ShaderKind::Fill => fill_bgl,
+            ShaderKind::Blit => blit_bgl,
+            ShaderKind::Path => path_bgl,
+            ShaderKind::Label => label_bgl,
+        };
+        let handle = pipelines
+            .entry(key)
+            .or_insert_with(|| CachedPipeline(build_pipeline(device, bgl, key)));
+        handle.0.clone()
     }
 }
 
