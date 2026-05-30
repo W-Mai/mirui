@@ -663,11 +663,57 @@ impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
         }
     }
 
-    /// Wired by the WebAssembly canvas backend; panics until then.
-    #[cfg(target_arch = "wasm32")]
+    /// Drive `App::tick` from `requestAnimationFrame` and return so the
+    /// wasm-bindgen `start` function can yield to the browser.
+    #[cfg(all(target_arch = "wasm32", feature = "web-canvas"))]
+    pub fn start_animation_frame(self)
+    where
+        B: 'static,
+        F: 'static,
+    {
+        use alloc::rc::Rc;
+        use core::cell::RefCell;
+        use wasm_bindgen::JsCast;
+        use wasm_bindgen::closure::Closure;
+
+        let app = Rc::new(RefCell::new(self.app));
+        let holder: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
+        let holder_inner = holder.clone();
+
+        *holder.borrow_mut() = Some(Closure::<dyn FnMut()>::new(move || {
+            if app.borrow_mut().tick() {
+                return;
+            }
+            let window = web_sys::window().expect("no global `window`");
+            window
+                .request_animation_frame(
+                    holder_inner
+                        .borrow()
+                        .as_ref()
+                        .expect("RAF closure")
+                        .as_ref()
+                        .unchecked_ref(),
+                )
+                .expect("requestAnimationFrame");
+        }));
+
+        let window = web_sys::window().expect("no global `window`");
+        window
+            .request_animation_frame(
+                holder
+                    .borrow()
+                    .as_ref()
+                    .expect("RAF closure")
+                    .as_ref()
+                    .unchecked_ref(),
+            )
+            .expect("requestAnimationFrame");
+    }
+
+    #[cfg(all(target_arch = "wasm32", not(feature = "web-canvas")))]
     pub fn start_animation_frame(self) -> ! {
         let _ = self.app;
-        unimplemented!("Runner::start_animation_frame is wired by the WebAssembly canvas backend");
+        unimplemented!("Runner::start_animation_frame requires the `web-canvas` feature on wasm32");
     }
 }
 
