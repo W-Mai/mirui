@@ -188,14 +188,10 @@ fn wheel_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) {
         evt.prevent_default();
         let x = Fixed::from_int(evt.offset_x());
         let y = Fixed::from_int(evt.offset_y());
-        // Convert browser wheel deltas to detent units the scroll
-        // system expects (~±1 per detent). `deltaMode == 0` is
-        // pixel-precise; 16 matches AppKit's default line height.
-        // Modes 1 (lines) and 2 (pages) the browser has already
-        // normalised, so the same divisor produces a reasonable
-        // magnitude.
-        let dx_units = evt.delta_x() / 16.0;
-        let dy_units = evt.delta_y() / 16.0;
+        // Wheel pixels → scroll-system detents (step = 20). Divisor 4
+        // lands an active drag at a comfortable magnitude.
+        let dx_units = evt.delta_x() / 4.0;
+        let dy_units = evt.delta_y() / 4.0;
         let dx = Fixed::from_f32(dx_units as f32);
         // DOM `deltaY > 0` = content scrolls down; flip to match
         // `scroll_system`'s convention. `dx` keeps the browser sign.
