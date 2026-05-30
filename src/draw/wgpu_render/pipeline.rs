@@ -92,14 +92,17 @@ pub struct PipelineCache {
 
 impl PipelineCache {
     pub fn new(device: &wgpu::Device) -> Self {
+        // binding 0 = viewport (frame-shared, offset 0); binding 1 =
+        // per-draw uniform packed into the frame's ring buffer with
+        // a dynamic offset.
         let fill_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("mirui-fill-bgl"),
-            entries: &[uniform_entry(0), uniform_entry(1)],
+            entries: &[uniform_entry(0), dynamic_uniform_entry(1)],
         });
 
         let path_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("mirui-path-bgl"),
-            entries: &[uniform_entry(0), uniform_entry(1)],
+            entries: &[uniform_entry(0), dynamic_uniform_entry(1)],
         });
 
         let texture_entries = [
@@ -200,6 +203,19 @@ fn uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
         ty: wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Uniform,
             has_dynamic_offset: false,
+            min_binding_size: None,
+        },
+        count: None,
+    }
+}
+
+fn dynamic_uniform_entry(binding: u32) -> wgpu::BindGroupLayoutEntry {
+    wgpu::BindGroupLayoutEntry {
+        binding,
+        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+        ty: wgpu::BindingType::Buffer {
+            ty: wgpu::BufferBindingType::Uniform,
+            has_dynamic_offset: true,
             min_binding_size: None,
         },
         count: None,

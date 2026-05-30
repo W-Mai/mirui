@@ -122,16 +122,37 @@ struct Frame {
     encoder: wgpu::CommandEncoder,
     /// One viewport uniform shared across the frame's draws.
     viewport_buf: wgpu::Buffer,
+    /// Per-draw uniforms (rect / tint) packed back-to-back. `set_bind_group`
+    /// dynamic offsets index into this single buffer.
+    uniform_arena: wgpu::Buffer,
+    /// Bytes already written; advances by `UNIFORM_ALIGN` per draw.
+    uniform_cursor: u32,
+    /// Cached fill / path bind groups — same `(viewport_buf, uniform_arena)`
+    /// pair every draw, so one bind group covers the whole frame.
+    fill_bind_group: Option<wgpu::BindGroup>,
+    path_bind_group: Option<wgpu::BindGroup>,
     /// Encoded into one render pass on `flush`.
     ops: alloc::vec::Vec<DrawOp>,
 }
+
+/// 1 MiB / 256 B = 4096 draws per frame before the arena overflows.
+/// Past that the overflowing draw is silently dropped — pick a size
+/// large enough that real workloads never hit the cap.
+const UNIFORM_ARENA_SIZE: u64 = 1024 * 1024;
+
+/// Most desktop / mobile GPUs require 256-byte alignment for dynamic
+/// uniform offsets. `RectUniform` is 48 B, `PathTintUniform` is 16 B —
+/// align up to the limit so any device accepts the offset.
+const UNIFORM_ALIGN: u32 = 256;
 
 /// wgpu pipelines / buffers / bind groups are `Arc`-backed clones, so
 /// owning them in the `Vec<DrawOp>` keeps them alive until
 /// `queue.submit` consumes the encoder.
 struct DrawOp {
     pipeline: wgpu::RenderPipeline,
-    bind_group: wgpu::BindGroup,
+    /// `None` when the op uses the frame-cached fill/path bind group;
+    /// `Some` for blit / blit_quad / draw_label which carry textures.
+    bind_group: BindGroupRef,
     vertex_buf: Option<wgpu::Buffer>,
     index_buf: Option<wgpu::Buffer>,
     index_format: wgpu::IndexFormat,
@@ -139,6 +160,15 @@ struct DrawOp {
     count: u32,
     /// Physical-pixel scissor `(x, y, w, h)`; clamped to swapchain extent.
     scissor: [u32; 4],
+    dynamic_offset: Option<u32>,
+}
+
+enum BindGroupRef {
+    /// Owned per-draw — blit / label use this because the texture view
+    /// changes between draws.
+    Owned(wgpu::BindGroup),
+    /// Index into a frame-shared bind group. 0 = fill, 1 = path.
+    Shared(u8),
 }
 
 impl WgpuRenderer<'_> {
@@ -184,15 +214,44 @@ impl WgpuRenderer<'_> {
                 contents: bytemuck::bytes_of(&viewport_uniform),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
+        let uniform_arena = state.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("mirui-frame-uniform-arena"),
+            size: UNIFORM_ARENA_SIZE,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         self.frame = Some(Frame {
             surface_texture,
             swapchain_view,
             msaa_view,
             encoder,
             viewport_buf,
+            uniform_arena,
+            uniform_cursor: 0,
+            fill_bind_group: None,
+            path_bind_group: None,
             ops: alloc::vec::Vec::new(),
         });
         true
+    }
+
+    /// Append a uniform to the frame's arena. Returns the dynamic
+    /// offset for `set_bind_group`, or `None` when the arena is full;
+    /// callers drop the draw on `None`.
+    fn push_uniform<T: bytemuck::Pod>(&mut self, value: &T) -> Option<u32> {
+        let frame = self.frame.as_mut()?;
+        let offset = frame.uniform_cursor;
+        if (offset as u64) + UNIFORM_ALIGN as u64 > UNIFORM_ARENA_SIZE {
+            return None;
+        }
+        let state = self.surface.state()?;
+        state.queue.write_buffer(
+            &frame.uniform_arena,
+            offset as u64,
+            bytemuck::bytes_of(value),
+        );
+        frame.uniform_cursor += UNIFORM_ALIGN;
+        Some(offset)
     }
 
     fn fill_rect_inner(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
@@ -203,16 +262,6 @@ impl WgpuRenderer<'_> {
         if scissor[2] == 0 || scissor[3] == 0 {
             return;
         }
-        let frame = self.frame.as_mut().expect("frame just initialised");
-        let state = self
-            .surface
-            .state()
-            .expect("WgpuSurface state missing in fill_rect");
-        let cache = self
-            .factory
-            .cache
-            .as_mut()
-            .expect("PipelineCache must be initialised before fill_rect");
 
         let rect_uniform = RectUniform {
             pos: [area.x.to_f32(), area.y.to_f32()],
@@ -225,29 +274,44 @@ impl WgpuRenderer<'_> {
             ],
             radius_pad: [radius.to_f32(), 0.0, 0.0, 0.0],
         };
+        let Some(offset) = self.push_uniform(&rect_uniform) else {
+            return;
+        };
 
-        let rect_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-fill-rect"),
-                contents: bytemuck::bytes_of(&rect_uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
+        let frame = self.frame.as_mut().expect("frame just initialised");
+        let state = self
+            .surface
+            .state()
+            .expect("WgpuSurface state missing in fill_rect");
+        let cache = self
+            .factory
+            .cache
+            .as_mut()
+            .expect("PipelineCache must be initialised before fill_rect");
 
-        let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("mirui-fill-bind-group"),
-            layout: &cache.fill_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: frame.viewport_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: rect_buf.as_entire_binding(),
-                },
-            ],
-        });
+        if frame.fill_bind_group.is_none() {
+            frame.fill_bind_group =
+                Some(state.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("mirui-fill-bind-group"),
+                    layout: &cache.fill_bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: frame.viewport_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: &frame.uniform_arena,
+                                offset: 0,
+                                size: core::num::NonZeroU64::new(
+                                    core::mem::size_of::<RectUniform>() as u64,
+                                ),
+                            }),
+                        },
+                    ],
+                }));
+        }
 
         let pipeline = cache.get_or_build(
             &state.device,
@@ -259,12 +323,13 @@ impl WgpuRenderer<'_> {
 
         frame.ops.push(DrawOp {
             pipeline,
-            bind_group,
+            bind_group: BindGroupRef::Shared(0),
             vertex_buf: None,
             index_buf: None,
             index_format: wgpu::IndexFormat::Uint32,
             count: 4,
             scissor,
+            dynamic_offset: Some(offset),
         });
     }
 
@@ -395,12 +460,13 @@ impl WgpuRenderer<'_> {
 
         frame.ops.push(DrawOp {
             pipeline,
-            bind_group,
+            bind_group: BindGroupRef::Owned(bind_group),
             vertex_buf: None,
             index_buf: None,
             index_format: wgpu::IndexFormat::Uint32,
             count: 4,
             scissor,
+            dynamic_offset: None,
         });
     }
 }
@@ -567,6 +633,19 @@ impl WgpuRenderer<'_> {
         if scissor[2] == 0 || scissor[3] == 0 {
             return;
         }
+
+        let tint_uniform = PathTintUniform {
+            color: [
+                color.r as f32 / 255.0,
+                color.g as f32 / 255.0,
+                color.b as f32 / 255.0,
+                color.a as f32 / 255.0 * opa as f32 / 255.0,
+            ],
+        };
+        let Some(offset) = self.push_uniform(&tint_uniform) else {
+            return;
+        };
+
         let frame = self.frame.as_mut().expect("frame just initialised");
         let state = self
             .surface
@@ -578,15 +657,6 @@ impl WgpuRenderer<'_> {
             .as_mut()
             .expect("PipelineCache must be initialised before path");
 
-        let tint_uniform = PathTintUniform {
-            color: [
-                color.r as f32 / 255.0,
-                color.g as f32 / 255.0,
-                color.b as f32 / 255.0,
-                color.a as f32 / 255.0 * opa as f32 / 255.0,
-            ],
-        };
-
         // lyon::math::Point is repr(C) over (f32, f32) — same wire layout
         // as `[f32; 2]`, so cast straight into the vertex buffer without
         // an intermediate copy.
@@ -594,13 +664,6 @@ impl WgpuRenderer<'_> {
             core::slice::from_raw_parts(verts.as_ptr() as *const [f32; 2], verts.len())
         });
 
-        let tint_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-path-tint"),
-                contents: bytemuck::bytes_of(&tint_uniform),
-                usage: wgpu::BufferUsages::UNIFORM,
-            });
         let vertex_buf = state
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -616,20 +679,29 @@ impl WgpuRenderer<'_> {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-        let bind_group = state.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("mirui-path-bind-group"),
-            layout: &cache.path_bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: frame.viewport_buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: tint_buf.as_entire_binding(),
-                },
-            ],
-        });
+        if frame.path_bind_group.is_none() {
+            frame.path_bind_group =
+                Some(state.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("mirui-path-bind-group"),
+                    layout: &cache.path_bgl,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: frame.viewport_buf.as_entire_binding(),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                buffer: &frame.uniform_arena,
+                                offset: 0,
+                                size: core::num::NonZeroU64::new(
+                                    core::mem::size_of::<PathTintUniform>() as u64,
+                                ),
+                            }),
+                        },
+                    ],
+                }));
+        }
 
         let pipeline = cache.get_or_build(
             &state.device,
@@ -642,12 +714,13 @@ impl WgpuRenderer<'_> {
         let count = indices.len() as u32;
         frame.ops.push(DrawOp {
             pipeline,
-            bind_group,
+            bind_group: BindGroupRef::Shared(1),
             vertex_buf: Some(vertex_buf),
             index_buf: Some(index_buf),
             index_format: wgpu::IndexFormat::Uint32,
             count,
             scissor,
+            dynamic_offset: Some(offset),
         });
     }
 
@@ -841,12 +914,13 @@ impl WgpuRenderer<'_> {
 
         frame.ops.push(DrawOp {
             pipeline,
-            bind_group,
+            bind_group: BindGroupRef::Owned(bind_group),
             vertex_buf: Some(vertex_buf),
             index_buf: Some(index_buf),
             index_format: wgpu::IndexFormat::Uint16,
             count: 6,
             scissor,
+            dynamic_offset: None,
         });
     }
 
@@ -990,12 +1064,13 @@ impl WgpuRenderer<'_> {
         let count = indices.len() as u32;
         frame.ops.push(DrawOp {
             pipeline,
-            bind_group,
+            bind_group: BindGroupRef::Owned(bind_group),
             vertex_buf: Some(vertex_buf),
             index_buf: Some(index_buf),
             index_format: wgpu::IndexFormat::Uint32,
             count,
             scissor,
+            dynamic_offset: None,
         });
     }
 }
@@ -1172,7 +1247,22 @@ impl Renderer for WgpuRenderer<'_> {
             for op in &frame.ops {
                 pass.set_scissor_rect(op.scissor[0], op.scissor[1], op.scissor[2], op.scissor[3]);
                 pass.set_pipeline(&op.pipeline);
-                pass.set_bind_group(0, &op.bind_group, &[]);
+                let bg: &wgpu::BindGroup = match &op.bind_group {
+                    BindGroupRef::Owned(bg) => bg,
+                    BindGroupRef::Shared(0) => frame
+                        .fill_bind_group
+                        .as_ref()
+                        .expect("fill bind group must be created before any Shared(0) op"),
+                    BindGroupRef::Shared(1) => frame
+                        .path_bind_group
+                        .as_ref()
+                        .expect("path bind group must be created before any Shared(1) op"),
+                    BindGroupRef::Shared(other) => panic!("unknown shared bind group id {}", other),
+                };
+                match op.dynamic_offset {
+                    Some(o) => pass.set_bind_group(0, bg, &[o]),
+                    None => pass.set_bind_group(0, bg, &[]),
+                }
                 if let Some(vb) = &op.vertex_buf {
                     pass.set_vertex_buffer(0, vb.slice(..));
                 }

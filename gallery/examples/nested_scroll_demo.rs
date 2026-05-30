@@ -1,10 +1,12 @@
 use gallery::prelude::*;
 use mirui::event::scroll::{ScrollConfig, ScrollOffset};
-use mirui::plugins::InputFeedbackPlugin;
+use mirui::plugins::{FpsSummaryPlugin, InputFeedbackPlugin, StdInstantClockPlugin};
 
 fn main() {
     gallery::run("mirui - nested scroll", 480, 400, |setup| {
         setup.app.add_plugin(InputFeedbackPlugin::new());
+        setup.app.add_plugin(StdInstantClockPlugin::default());
+        setup.app.add_plugin(FpsSummaryPlugin::default());
 
         let root = WidgetBuilder::new(&mut setup.app.world)
             .bg_color(Color::rgb(20, 20, 30))
