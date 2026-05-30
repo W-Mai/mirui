@@ -2,11 +2,14 @@
 
 #![cfg(target_arch = "wasm32")]
 
+mod texture_pool;
+
 use alloc::format;
 use alloc::string::String;
 
 use web_sys::CanvasRenderingContext2d;
 
+use self::texture_pool::{TextureKey, TexturePool, new_pool};
 use crate::app::RendererFactory;
 use crate::draw::canvas::Canvas;
 use crate::draw::command::DrawCommand;
@@ -16,11 +19,15 @@ use crate::draw::texture::Texture;
 use crate::surface::web_canvas::WebCanvasSurface;
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
-pub struct WebCanvasRendererFactory {}
+pub struct WebCanvasRendererFactory {
+    texture_pool: TexturePool,
+}
 
 impl WebCanvasRendererFactory {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            texture_pool: new_pool(),
+        }
     }
 }
 
@@ -50,7 +57,6 @@ impl RendererFactory<WebCanvasSurface> for WebCanvasRendererFactory {
 }
 
 pub struct WebCanvasRenderer<'a> {
-    #[allow(dead_code)]
     factory: &'a mut WebCanvasRendererFactory,
     surface: &'a mut WebCanvasSurface,
     viewport: Viewport,
@@ -286,15 +292,38 @@ impl Canvas for WebCanvasRenderer<'_> {
         self.pop_clip();
     }
 
-    fn blit(
-        &mut self,
-        _src: &Texture,
-        _src_rect: &Rect,
-        _dst: Point,
-        _dst_size: Point,
-        _clip: &Rect,
-    ) {
-        // Texture upload + cache wired in a separate commit.
+    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
+        let key = TextureKey::from(src);
+        let handle = match self
+            .factory
+            .texture_pool
+            .entry(key)
+            .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
+        {
+            Ok(h) => h,
+            Err(_) => return,
+        };
+        if handle.is_invalid() {
+            return;
+        }
+
+        self.push_clip(clip);
+        let s = self.scale();
+        let ctx = self.ctx();
+        let result = ctx
+            .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
+                &handle.canvas,
+                src_rect.x.to_f32() as f64,
+                src_rect.y.to_f32() as f64,
+                src_rect.w.to_f32() as f64,
+                src_rect.h.to_f32() as f64,
+                dst.x.to_f32() as f64 * s,
+                dst.y.to_f32() as f64 * s,
+                dst_size.x.to_f32() as f64 * s,
+                dst_size.y.to_f32() as f64 * s,
+            );
+        let _ = result;
+        self.pop_clip();
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
