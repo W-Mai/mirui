@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.1] - 2026-05-31
+
+wgpu desktop backend (experimental) — new `feature = "wgpu"` runs mirui on Vulkan / Metal / DX12 / OpenGL ES through a winit window, with one render pass per frame, a uniform ring buffer for batched draws, and shared bind groups whose binding 1 carries a dynamic offset.
+
+### Added
+
+- **`feature = "wgpu"`** — opt-in cross-platform GPU backend on `wgpu` 29 and `winit` 0.30.
+  - `mirui::surface::wgpu_surface::WgpuSurface` + `mirui::draw::wgpu_render::WgpuRendererFactory`.
+  - 4× MSAA, perspective-correct quad blit (`Transform3D::from_quad` recovers the homography), rounded-rect SDF for both axis-aligned and 2.5D quad widgets, glyph atlas, lyon-tessellated paths.
+  - `Mailbox > Immediate > Fifo` present-mode preference; `Fifo` is the universal fallback.
+  - Per-draw `set_scissor_rect` derived from each command's logical clip, clamped to the swapchain extent.
+- **`gallery::run`** picks the backend at compile time: `--features wgpu` > `--features sdl-gpu` > `--features sdl` (default).
+- **`gallery/examples/wgpu_smoke.rs`** — minimal hello window for the wgpu path.
+
+### Changed
+
+- `mirui::cache::Cache` backs the wgpu render-pipeline cache. `Count(N)` is the right knob for "admit everything, never evict"; `MaxSize::Disabled` means "no insertion at all" and is no longer used for that purpose.
+- `gallery::run` requires a `Send + 'static` builder closure so wgpu shares one demo entrypoint with sdl / sdl-gpu.
+
+### Fixed
+
+- `Canvas::clear(area, color)` honours `area`. The wgpu impl was overwriting the whole display, defeating dirty-region renderers that called `clear` with a sub-rect.
+
+### Limitations on the wgpu backend
+
+- macOS trackpad two-finger scroll feels less responsive than on the sdl backend.
+- Pinch and rotation gestures are not delivered as input events.
+- `ColorFormat::RGB565` / `RGB565Swapped` textures are skipped by `Canvas::blit`; convert to `RGB888` / `RGBA8888` first.
+
 ## [0.25.0] - 2026-05-30
 
 Main loop refactor for non-blocking event loops (browsers, custom embedded schedulers).
