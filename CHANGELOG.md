@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.2] - 2026-05-31
+
+Experimental web-canvas backend — `feature = "web-canvas"` runs mirui in `wasm32-unknown-unknown` against an HTML `<canvas>` 2D context. `App::tick` is driven from `requestAnimationFrame`, DOM pointer / wheel / touch / keyboard events are bridged into the input queue, and texture uploads are cached per-canvas through `OffscreenCanvas`.
+
+### Added
+
+- **`feature = "web-canvas"`** — opt-in browser backend on `web-sys` 0.3.99, `js-sys` 0.3.99, `wasm-bindgen` 0.2.122, `wasm-bindgen-futures` 0.4.72, and `web-time` 1.
+  - `mirui::surface::web_canvas::WebCanvasSurface` wraps a DOM `<canvas>`, sizes the backing store to `logical × devicePixelRatio` (fractional DPR preserved), captures the pointer on `pointerdown` so drags survive crossing the canvas edge, and unregisters every DOM listener through `Drop`.
+  - `mirui::draw::web_canvas::WebCanvasRendererFactory` paints fills / strokes / blits / text via Canvas 2D. Quad blit subdivides the source rect into an 8 × 8 affine triangle mesh — Canvas 2D has no homography, so subdivision approximates the projective warp.
+  - `Runner::start_animation_frame()` (under `cfg(target_arch = "wasm32", feature = "web-canvas")`) drives the run-loop from `requestAnimationFrame` and returns to the wasm-bindgen entry so the browser keeps owning frames.
+- **`gallery-web` crate** — `?demo=<name>` query parameter selects which `gallery::demos::*::build` runs (`dsl` is the default).
+- **`gallery::demos::*`** — demo bodies hoisted out of `examples/` so the same `build(setup)` feeds both the native cargo examples and the wasm crate.
+- **`xtask wasm-check`** — `cargo check --target wasm32-unknown-unknown --no-default-features --features web-canvas --lib`. Skips silently when the rustup target is missing.
+- **`xtask wasm-build`** — release build of `gallery-web` plus a `wasm-bindgen --target web` post-process into `gallery/web/pkg/`.
+
+### Changed
+
+- `web_time::Instant` replaces `std::time::Instant` in `StdInstantClockPlugin` and the perf path. Native re-exports `std::time`; wasm32 reads `performance.now()`.
+
+### Limitations
+
+- Effect widgets that read or modify the framebuffer — `BackgroundBlur`, `MirrorOf`, `TemporalMix` — are unimplemented on Canvas 2D. `gallery-web` does not route the `effect` demo.
+- `RGB565` / `RGB565Swapped` textures fall through to a no-op blit.
+- A non-trivial 2D `WidgetTransform` outside a quad path is multiplied as `dpr × widget_tf` once per command. Quad branches paint under a DPR-only matrix because the four points already encode every parent transform.
+
 ## [0.25.1] - 2026-05-31
 
 wgpu desktop backend (experimental) — new `feature = "wgpu"` runs mirui on Vulkan / Metal / DX12 / OpenGL ES through a winit window, with one render pass per frame, a uniform ring buffer for batched draws, and shared bind groups whose binding 1 carries a dynamic offset.
