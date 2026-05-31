@@ -34,6 +34,7 @@ web-canvas = [
     "dep:wasm-bindgen-futures",
     "std",
 ]
+linux-fb = ["dep:memmap2", "dep:evdev", "dep:libc", "std"]
 perf = []
 sync-cache = []
 # Anti-aliasing for 3D-transformed quads. On `std` this uses a Fixed64
@@ -78,6 +79,12 @@ optional = true
 [dependencies.web-time]
 version = "1.1"
 optional = true
+
+# Linux-only deps for the fbdev / evdev backend.
+[target.'cfg(target_os = "linux")'.dependencies]
+memmap2 = { version = "0.9", optional = true }
+evdev = { version = "0.13", optional = true }
+libc = { version = "0.2", optional = true }
 
 # wasm32-only deps for the web-canvas backend.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

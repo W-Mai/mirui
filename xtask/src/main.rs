@@ -43,6 +43,7 @@ fn cmd_ci() -> Result {
         ("examples", cmd_examples),
         ("size", cmd_size),
         ("wasm-check", cmd_wasm_check),
+        ("linux-fb-check", cmd_linux_fb_check),
         ("cha", cmd_cha),
     ] {
         println!("\n=== xtask: {name} ===");
@@ -73,6 +74,34 @@ fn cmd_wasm_check() -> Result {
         "--features",
         "web-canvas",
         "--lib",
+    ])
+}
+
+fn cmd_linux_fb_check() -> Result {
+    // The fbdev backend is `cfg(target_os = "linux")` only. Cross-host
+    // CI agents (macOS / Windows) skip silently — only the Linux
+    // runner exercises the path. Pick the host's own architecture so
+    // a separate cross toolchain isn't required.
+    if !cfg!(target_os = "linux") {
+        println!("  ⏭ host is not linux, skipping");
+        return Ok(());
+    }
+    cargo(&[
+        "check",
+        "--no-default-features",
+        "--features",
+        "linux-fb",
+        "--lib",
+    ])?;
+    cargo(&[
+        "check",
+        "-p",
+        "gallery",
+        "--no-default-features",
+        "--features",
+        "linux-fb",
+        "--example",
+        "linux_fb_demo",
     ])
 }
 

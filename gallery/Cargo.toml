@@ -10,6 +10,7 @@ sdl = ["mirui/sdl", "dep:sdl2"]
 sdl-gpu = ["mirui/sdl-gpu", "dep:sdl2"]
 wgpu = ["mirui/wgpu"]
 web-canvas = ["mirui/web-canvas", "dep:wasm-bindgen", "dep:web-sys"]
+linux-fb = ["mirui/linux-fb"]
 
 [dependencies]
 mirui = { path = "..", default-features = false, features = ["quad-aa"] }
@@ -34,3 +35,7 @@ required-features = ["sdl-gpu"]
 [[example]]
 name = "wgpu_smoke"
 required-features = ["wgpu"]
+
+[[example]]
+name = "linux_fb_demo"
+required-features = ["linux-fb"]

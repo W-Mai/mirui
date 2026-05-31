@@ -1,4 +1,6 @@
 pub mod framebuf;
+#[cfg(all(feature = "linux-fb", target_os = "linux"))]
+pub mod linux;
 #[cfg(feature = "sdl")]
 pub mod sdl;
 #[cfg(feature = "sdl-gpu")]
