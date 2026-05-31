@@ -9,3 +9,4 @@ pub mod nested_scroll;
 pub mod rounded;
 pub mod text;
 pub mod transform;
+pub mod widgets;
