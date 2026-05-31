@@ -130,29 +130,114 @@ impl WebCanvasRenderer<'_> {
         ctx.close_path();
     }
 
-    /// Quad fill — rounded corners aren't honoured; Canvas 2D has no
-    /// homography, so this falls back to a flat 4-point polygon.
-    fn fill_quad_inner(&mut self, q: &[Point; 4], clip: &Rect, color: &Color, opa: u8) {
+    /// Quad fill. Affine quads (no perspective) honour `radius` via
+    /// `setTransform` + `roundRect`; perspective quads fall back to a
+    /// flat 4-point polygon — Canvas 2D can't apply a homography.
+    fn fill_quad_inner(
+        &mut self,
+        q: &[Point; 4],
+        area: &Rect,
+        clip: &Rect,
+        color: &Color,
+        radius: Fixed,
+        opa: u8,
+    ) {
         self.push_clip(clip);
         self.set_fill(color, opa);
-        self.build_quad_path(q);
-        self.ctx().fill();
+        if let Some(m) = quad_to_affine(q, area) {
+            let ctx = self.ctx();
+            let dpr = self.dpr();
+            ctx.save();
+            ctx.set_transform(
+                m.0 * dpr,
+                m.1 * dpr,
+                m.2 * dpr,
+                m.3 * dpr,
+                m.4 * dpr,
+                m.5 * dpr,
+            )
+            .expect("setTransform");
+            self.fill_axis_aligned(area, radius);
+            ctx.restore();
+        } else {
+            self.build_quad_path(q);
+            self.ctx().fill();
+        }
         self.pop_clip();
     }
 
     fn stroke_quad_inner(
         &mut self,
         q: &[Point; 4],
+        area: &Rect,
         width: Fixed,
         clip: &Rect,
         color: &Color,
+        radius: Fixed,
         opa: u8,
     ) {
         self.push_clip(clip);
         self.set_stroke(color, width, opa);
-        self.build_quad_path(q);
-        self.ctx().stroke();
+        if let Some(m) = quad_to_affine(q, area) {
+            let ctx = self.ctx();
+            let dpr = self.dpr();
+            ctx.save();
+            ctx.set_transform(
+                m.0 * dpr,
+                m.1 * dpr,
+                m.2 * dpr,
+                m.3 * dpr,
+                m.4 * dpr,
+                m.5 * dpr,
+            )
+            .expect("setTransform");
+            self.stroke_axis_aligned(area, radius);
+            ctx.restore();
+        } else {
+            self.build_quad_path(q);
+            self.ctx().stroke();
+        }
         self.pop_clip();
+    }
+
+    fn fill_axis_aligned(&self, area: &Rect, radius: Fixed) {
+        let ctx = self.ctx();
+        let x = area.x.to_f32() as f64;
+        let y = area.y.to_f32() as f64;
+        let w = area.w.to_f32() as f64;
+        let h = area.h.to_f32() as f64;
+        let r = radius.to_f32().max(0.0) as f64;
+        if r <= 0.0 {
+            ctx.fill_rect(x, y, w, h);
+        } else {
+            ctx.begin_path();
+            if ctx
+                .round_rect_with_f64(x, y, w, h, r.min(w * 0.5).min(h * 0.5))
+                .is_err()
+            {
+                ctx.rect(x, y, w, h);
+            }
+            ctx.fill();
+        }
+    }
+
+    fn stroke_axis_aligned(&self, area: &Rect, radius: Fixed) {
+        let ctx = self.ctx();
+        let x = area.x.to_f32() as f64;
+        let y = area.y.to_f32() as f64;
+        let w = area.w.to_f32() as f64;
+        let h = area.h.to_f32() as f64;
+        let r = radius.to_f32().max(0.0) as f64;
+        ctx.begin_path();
+        if r <= 0.0 {
+            ctx.rect(x, y, w, h);
+        } else if ctx
+            .round_rect_with_f64(x, y, w, h, r.min(w * 0.5).min(h * 0.5))
+            .is_err()
+        {
+            ctx.rect(x, y, w, h);
+        }
+        ctx.stroke();
     }
 
     /// Quad blit via an `MESH_N × MESH_N` affine triangle mesh —
@@ -308,12 +393,14 @@ impl Renderer for WebCanvasRenderer<'_> {
 
         match cmd {
             DrawCommand::Fill {
+                area,
                 quad: Some(q),
                 color,
+                radius,
                 opa,
                 ..
             } => {
-                self.fill_quad_inner(q, clip, color, *opa);
+                self.fill_quad_inner(q, area, clip, color, *radius, *opa);
             }
             DrawCommand::Fill {
                 area,
@@ -325,13 +412,15 @@ impl Renderer for WebCanvasRenderer<'_> {
                 self.fill_rect(area, clip, color, *radius, *opa);
             }
             DrawCommand::Border {
+                area,
                 quad: Some(q),
                 width,
                 color,
+                radius,
                 opa,
                 ..
             } => {
-                self.stroke_quad_inner(q, *width, clip, color, *opa);
+                self.stroke_quad_inner(q, area, *width, clip, color, *radius, *opa);
             }
             DrawCommand::Border {
                 area,
@@ -524,6 +613,49 @@ impl Canvas for WebCanvasRenderer<'_> {
 
 fn css_color(c: &Color) -> String {
     format!("rgb({}, {}, {})", c.r, c.g, c.b)
+}
+
+/// Recover the 2D affine `(a, b, c, d, e, f)` (`setTransform` argument
+/// order) that maps `area`'s four corners to `q`. Returns `None` for
+/// perspective quads — the top and bottom edges no longer parallel /
+/// equal-length, which an affine matrix can't reproduce.
+fn quad_to_affine(q: &[Point; 4], area: &Rect) -> Option<(f64, f64, f64, f64, f64, f64)> {
+    let q0x = q[0].x.to_f32() as f64;
+    let q0y = q[0].y.to_f32() as f64;
+    let q1x = q[1].x.to_f32() as f64;
+    let q1y = q[1].y.to_f32() as f64;
+    let q2x = q[2].x.to_f32() as f64;
+    let q2y = q[2].y.to_f32() as f64;
+    let q3x = q[3].x.to_f32() as f64;
+    let q3y = q[3].y.to_f32() as f64;
+
+    let top_dx = q1x - q0x;
+    let top_dy = q1y - q0y;
+    let bot_dx = q2x - q3x;
+    let bot_dy = q2y - q3y;
+
+    // 0.5 px tolerance — `apply_rect` rounds to integer points before
+    // emitting, so a true affine quad rounds to within one pixel.
+    const EPS: f64 = 0.5;
+    if (top_dx - bot_dx).abs() > EPS || (top_dy - bot_dy).abs() > EPS {
+        return None;
+    }
+
+    let w = area.w.to_f32() as f64;
+    let h = area.h.to_f32() as f64;
+    if w.abs() < 1e-6 || h.abs() < 1e-6 {
+        return None;
+    }
+
+    let ax = area.x.to_f32() as f64;
+    let ay = area.y.to_f32() as f64;
+    let a = (q1x - q0x) / w;
+    let b = (q1y - q0y) / w;
+    let c = (q3x - q0x) / h;
+    let d = (q3y - q0y) / h;
+    let e = q0x - a * ax - c * ay;
+    let f = q0y - b * ax - d * ay;
+    Some((a, b, c, d, e, f))
 }
 
 #[allow(clippy::too_many_arguments)]
