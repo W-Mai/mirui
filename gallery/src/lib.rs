@@ -30,9 +30,6 @@ pub struct SetupGeneric<'a, B: Surface, F: RendererFactory<B>> {
     pub app: &'a mut App<B, F>,
 }
 
-// `web-canvas` overrides the desktop backends on wasm32; the loader
-// hands us a `<canvas>` element and we treat the title / size as
-// hints rather than window-creation parameters.
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
 mod backend {
     use super::*;
@@ -43,7 +40,7 @@ mod backend {
     pub type ActiveSurface = WebCanvasSurface;
     pub type ActiveFactory = WebCanvasRendererFactory;
 
-    pub fn build_app(_title: &str, _w: u16, _h: u16) -> App<ActiveSurface, ActiveFactory> {
+    pub fn build_app(_title: &str, w: u16, h: u16) -> App<ActiveSurface, ActiveFactory> {
         let canvas = web_sys::window()
             .expect("window")
             .document()
@@ -52,6 +49,11 @@ mod backend {
             .expect("canvas element with id=\"mirui\"")
             .dyn_into::<web_sys::HtmlCanvasElement>()
             .expect("element is not <canvas>");
+        // Demo's logical size drives the canvas CSS box; `index.html`
+        // ships a default that any demo other than `dsl` overrides.
+        let style = canvas.style();
+        let _ = style.set_property("width", &format!("{w}px"));
+        let _ = style.set_property("height", &format!("{h}px"));
         let backend = WebCanvasSurface::new(canvas);
         let factory = WebCanvasRendererFactory::new();
         let mut app = App::with_factory(backend, factory);

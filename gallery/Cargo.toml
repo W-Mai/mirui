@@ -19,9 +19,11 @@ sdl2 = { version = "0.37", optional = true }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = { version = "0.2.122", optional = true }
 web-sys = { version = "0.3.99", optional = true, features = [
+    "CssStyleDeclaration",
     "Document",
     "Element",
     "HtmlCanvasElement",
+    "HtmlElement",
     "Window",
 ] }
 

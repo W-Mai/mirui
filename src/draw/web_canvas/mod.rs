@@ -278,23 +278,33 @@ impl WebCanvasRenderer<'_> {
 
 impl Renderer for WebCanvasRenderer<'_> {
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
-        // Push DPR × widget-transform onto the context so every Canvas
-        // method below can stay in logical pixels. Restored at the end
-        // of the dispatch — the next `draw` call rebuilds the matrix
-        // from scratch for that command's transform.
-        let tf = cmd.transform();
+        // `quad: Some(q)` already bakes `cmd.transform()` into its
+        // 4 points; multiplying again would warp twice. Quad branches
+        // paint under DPR-only; the rest stack `dpr × widget_tf`.
         let dpr = self.dpr();
+        let tf = cmd.transform();
+        let has_quad = matches!(
+            cmd,
+            DrawCommand::Fill { quad: Some(_), .. }
+                | DrawCommand::Border { quad: Some(_), .. }
+                | DrawCommand::Blit { quad: Some(_), .. }
+        );
         let ctx = self.ctx();
         ctx.save();
-        ctx.set_transform(
-            tf.m00.to_f32() as f64 * dpr,
-            tf.m10.to_f32() as f64 * dpr,
-            tf.m01.to_f32() as f64 * dpr,
-            tf.m11.to_f32() as f64 * dpr,
-            tf.tx.to_f32() as f64 * dpr,
-            tf.ty.to_f32() as f64 * dpr,
-        )
-        .expect("setTransform");
+        if has_quad {
+            ctx.set_transform(dpr, 0.0, 0.0, dpr, 0.0, 0.0)
+                .expect("setTransform");
+        } else {
+            ctx.set_transform(
+                tf.m00.to_f32() as f64 * dpr,
+                tf.m10.to_f32() as f64 * dpr,
+                tf.m01.to_f32() as f64 * dpr,
+                tf.m11.to_f32() as f64 * dpr,
+                tf.tx.to_f32() as f64 * dpr,
+                tf.ty.to_f32() as f64 * dpr,
+            )
+            .expect("setTransform");
+        }
 
         match cmd {
             DrawCommand::Fill {

@@ -6,13 +6,15 @@
 
 use alloc::collections::VecDeque;
 use alloc::rc::Rc;
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use wasm_bindgen::JsCast;
 use wasm_bindgen::prelude::*;
 use web_sys::{
-    CanvasRenderingContext2d, HtmlCanvasElement, KeyboardEvent, PointerEvent, TouchEvent,
-    WheelEvent,
+    CanvasRenderingContext2d, EventTarget, HtmlCanvasElement, KeyboardEvent, PointerEvent,
+    TouchEvent, WheelEvent,
 };
 
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface};
@@ -25,16 +27,20 @@ use crate::types::{Fixed, Rect};
 
 type EventQueue = Rc<RefCell<VecDeque<InputEvent>>>;
 
-/// Surface owning a DOM canvas and its 2D context.
-///
-/// The caller hands an existing `<canvas>` element; mirui resizes the
-/// physical buffer to `logical × devicePixelRatio` and treats the CSS
-/// box as logical pixels. Closures forwarding DOM events into the
-/// queue are `Closure::forget`-ed and live until page teardown.
+/// Owned by the surface so `Drop` runs `removeEventListener`.
+struct Listener {
+    target: EventTarget,
+    event: String,
+    closure: Closure<dyn FnMut(JsValue)>,
+}
+
+/// The backing store is sized to `logical × devicePixelRatio`; the
+/// CSS box stays in logical pixels.
 pub struct WebCanvasSurface {
     canvas: HtmlCanvasElement,
     ctx: CanvasRenderingContext2d,
     event_queue: EventQueue,
+    _listeners: Vec<Listener>,
 }
 
 impl WebCanvasSurface {
@@ -50,12 +56,13 @@ impl WebCanvasSurface {
             .expect("getContext('2d') returned a non-2d context");
 
         let event_queue: EventQueue = Rc::new(RefCell::new(VecDeque::new()));
-        attach_listeners(&canvas, &event_queue);
+        let listeners = attach_listeners(&canvas, &event_queue);
 
         Self {
             canvas,
             ctx,
             event_queue,
+            _listeners: listeners,
         }
     }
 
@@ -66,6 +73,18 @@ impl WebCanvasSurface {
 
     pub fn canvas(&self) -> &HtmlCanvasElement {
         &self.canvas
+    }
+}
+
+impl Drop for WebCanvasSurface {
+    fn drop(&mut self) {
+        // Otherwise the browser keeps invoking the dropped closure.
+        for listener in self._listeners.drain(..) {
+            let _ = listener.target.remove_event_listener_with_callback(
+                &listener.event,
+                listener.closure.as_ref().unchecked_ref(),
+            );
+        }
     }
 }
 
@@ -97,11 +116,9 @@ impl Surface for WebCanvasSurface {
     }
 }
 
-/// Reconcile the canvas backing store with the CSS box and current
-/// `devicePixelRatio`. Returns `(logical_w, logical_h, scale)` — the
-/// caller publishes those via `DisplayInfo`. `set_width` / `set_height`
-/// clear the backing store on every assignment, so the `if !=` guards
-/// keep an unchanged frame from blanking the canvas.
+/// `set_width` / `set_height` blank the backing store on every
+/// assignment, so the `if !=` guards skip same-size frames.
+/// Fractional DPR is preserved to match the rendered extent.
 fn sync_canvas_size(canvas: &HtmlCanvasElement) -> (u16, u16, Fixed) {
     let window = web_sys::window().expect("no global `window`");
     let dpr = window.device_pixel_ratio().max(1.0);
@@ -115,31 +132,47 @@ fn sync_canvas_size(canvas: &HtmlCanvasElement) -> (u16, u16, Fixed) {
     if canvas.height() != phys_h {
         canvas.set_height(phys_h);
     }
-    let scale = Fixed::from_int(dpr.round() as i32);
+    let scale = Fixed::from_f32(dpr as f32);
     (css_w, css_h, scale)
 }
 
-fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) {
-    pointer_listener(canvas, queue, "pointerdown", |id, x, y| {
-        InputEvent::PointerDown { id, x, y }
-    });
-    pointer_listener(canvas, queue, "pointermove", |id, x, y| {
-        InputEvent::PointerMove { id, x, y }
-    });
-    pointer_listener(canvas, queue, "pointerup", |id, x, y| {
+fn attach_listeners(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Vec<Listener> {
+    let mut listeners = Vec::with_capacity(12);
+    listeners.push(pointer_listener(
+        canvas,
+        queue,
+        "pointerdown",
+        |id, x, y| InputEvent::PointerDown { id, x, y },
+    ));
+    listeners.push(pointer_listener(
+        canvas,
+        queue,
+        "pointermove",
+        |id, x, y| InputEvent::PointerMove { id, x, y },
+    ));
+    listeners.push(pointer_listener(canvas, queue, "pointerup", |id, x, y| {
         InputEvent::PointerUp { id, x, y }
-    });
-    pointer_listener(canvas, queue, "pointercancel", |id, x, y| {
-        InputEvent::PointerUp { id, x, y }
-    });
-    leave_listener(canvas, queue);
-    wheel_listener(canvas, queue);
-    touch_listener(canvas, queue, "touchstart", TouchKind::Start);
-    touch_listener(canvas, queue, "touchmove", TouchKind::Move);
-    touch_listener(canvas, queue, "touchend", TouchKind::End);
-    touch_listener(canvas, queue, "touchcancel", TouchKind::End);
-    keyboard_listener(queue, "keydown", true);
-    keyboard_listener(queue, "keyup", false);
+    }));
+    listeners.push(pointer_listener(
+        canvas,
+        queue,
+        "pointercancel",
+        |id, x, y| InputEvent::PointerUp { id, x, y },
+    ));
+    listeners.push(leave_listener(canvas, queue));
+    listeners.push(wheel_listener(canvas, queue));
+    listeners.push(touch_listener(
+        canvas,
+        queue,
+        "touchstart",
+        TouchKind::Start,
+    ));
+    listeners.push(touch_listener(canvas, queue, "touchmove", TouchKind::Move));
+    listeners.push(touch_listener(canvas, queue, "touchend", TouchKind::End));
+    listeners.push(touch_listener(canvas, queue, "touchcancel", TouchKind::End));
+    listeners.push(keyboard_listener(queue, "keydown", true));
+    listeners.push(keyboard_listener(queue, "keyup", false));
+    listeners
 }
 
 fn pointer_listener(
@@ -147,28 +180,50 @@ fn pointer_listener(
     queue: &EventQueue,
     name: &str,
     map: fn(u8, Fixed, Fixed) -> InputEvent,
-) {
+) -> Listener {
     let q = queue.clone();
-    let cb = Closure::<dyn FnMut(_)>::new(move |evt: PointerEvent| {
+    // Capture so move/up keep firing once the cursor leaves the canvas.
+    let capture_on_down = name == "pointerdown";
+    let canvas_for_capture = canvas.clone();
+    let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
+        let evt: PointerEvent = raw.unchecked_into();
         evt.prevent_default();
+        if capture_on_down {
+            let _ = canvas_for_capture.set_pointer_capture(evt.pointer_id());
+        }
         let id = (evt.pointer_id().rem_euclid(0xff)) as u8;
         let x = Fixed::from_int(evt.offset_x());
         let y = Fixed::from_int(evt.offset_y());
         q.borrow_mut().push_back(map(id, x, y));
     });
-    canvas
-        .add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
-        .expect("addEventListener");
-    cb.forget();
+    register_listener(canvas.clone().into(), name, closure)
 }
 
-/// Synthesize an off-screen `PointerMove` when the pointer leaves the
-/// canvas so `hover_system` clears the active widget — `pointerleave`
-/// itself doesn't carry coordinates that hit-test would interpret as
-/// a miss.
-fn leave_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) {
+fn register_listener(
+    target: EventTarget,
+    name: &str,
+    closure: Closure<dyn FnMut(JsValue)>,
+) -> Listener {
+    target
+        .add_event_listener_with_callback(name, closure.as_ref().unchecked_ref())
+        .expect("addEventListener");
+    Listener {
+        target,
+        event: name.into(),
+        closure,
+    }
+}
+
+/// Synthetic off-screen `PointerMove` so `hover_system` clears the
+/// active widget. Skipped while a button is held — the captured
+/// pointer is still delivering real coordinates and would race.
+fn leave_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Listener {
     let q = queue.clone();
-    let cb = Closure::<dyn FnMut(_)>::new(move |_evt: PointerEvent| {
+    let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
+        let evt: PointerEvent = raw.unchecked_into();
+        if evt.buttons() != 0 {
+            return;
+        }
         const OFF: i32 = i16::MIN as i32;
         q.borrow_mut().push_back(InputEvent::PointerMove {
             id: 0,
@@ -176,15 +231,13 @@ fn leave_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) {
             y: Fixed::from_int(OFF),
         });
     });
-    canvas
-        .add_event_listener_with_callback("pointerleave", cb.as_ref().unchecked_ref())
-        .expect("addEventListener");
-    cb.forget();
+    register_listener(canvas.clone().into(), "pointerleave", closure)
 }
 
-fn wheel_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) {
+fn wheel_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) -> Listener {
     let q = queue.clone();
-    let cb = Closure::<dyn FnMut(_)>::new(move |evt: WheelEvent| {
+    let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
+        let evt: WheelEvent = raw.unchecked_into();
         evt.prevent_default();
         let x = Fixed::from_int(evt.offset_x());
         let y = Fixed::from_int(evt.offset_y());
@@ -198,10 +251,7 @@ fn wheel_listener(canvas: &HtmlCanvasElement, queue: &EventQueue) {
         let dy = Fixed::from_f32(-dy_units as f32);
         q.borrow_mut().push_back(InputEvent::Wheel { dx, dy, x, y });
     });
-    canvas
-        .add_event_listener_with_callback("wheel", cb.as_ref().unchecked_ref())
-        .expect("addEventListener");
-    cb.forget();
+    register_listener(canvas.clone().into(), "wheel", closure)
 }
 
 #[derive(Clone, Copy)]
@@ -211,10 +261,16 @@ enum TouchKind {
     End,
 }
 
-fn touch_listener(canvas: &HtmlCanvasElement, queue: &EventQueue, name: &str, kind: TouchKind) {
+fn touch_listener(
+    canvas: &HtmlCanvasElement,
+    queue: &EventQueue,
+    name: &str,
+    kind: TouchKind,
+) -> Listener {
     let q = queue.clone();
     let canvas_for_rect = canvas.clone();
-    let cb = Closure::<dyn FnMut(_)>::new(move |evt: TouchEvent| {
+    let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
+        let evt: TouchEvent = raw.unchecked_into();
         evt.prevent_default();
         // `client_x/y` are viewport-relative — subtract the canvas
         // rect to match pointer events' `offsetX/Y`.
@@ -238,16 +294,14 @@ fn touch_listener(canvas: &HtmlCanvasElement, queue: &EventQueue, name: &str, ki
             q.borrow_mut().push_back(event);
         }
     });
-    canvas
-        .add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
-        .expect("addEventListener");
-    cb.forget();
+    register_listener(canvas.clone().into(), name, closure)
 }
 
-fn keyboard_listener(queue: &EventQueue, name: &str, pressed: bool) {
+fn keyboard_listener(queue: &EventQueue, name: &str, pressed: bool) -> Listener {
     let q = queue.clone();
     let window = web_sys::window().expect("no global `window`");
-    let cb = Closure::<dyn FnMut(_)>::new(move |evt: KeyboardEvent| {
+    let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
+        let evt: KeyboardEvent = raw.unchecked_into();
         let key = evt.key();
         if let Some(code) = map_key(&key) {
             evt.prevent_default();
@@ -261,10 +315,7 @@ fn keyboard_listener(queue: &EventQueue, name: &str, pressed: bool) {
             }
         }
     });
-    window
-        .add_event_listener_with_callback(name, cb.as_ref().unchecked_ref())
-        .expect("addEventListener");
-    cb.forget();
+    register_listener(window.into(), name, closure)
 }
 
 fn map_key(key: &str) -> Option<u32> {

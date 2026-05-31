@@ -47,15 +47,8 @@ pub fn start() {
                 gallery::demos::nested_scroll::build,
             )
         }
-        "effect" => {
-            let (w, h) = gallery::demos::effect::SIZE;
-            gallery::run(
-                "mirui — effect widget demo",
-                w,
-                h,
-                gallery::demos::effect::build,
-            )
-        }
+        // No `effect` route: the Canvas 2D renderer leaves
+        // `read_target_region` / `modify_target_region` unimplemented.
         _ => gallery::run("mirui - DSL demo", 480, 320, gallery::demos::dsl::build),
     }
 }
