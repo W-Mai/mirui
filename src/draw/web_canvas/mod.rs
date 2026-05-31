@@ -120,19 +120,9 @@ impl WebCanvasRenderer<'_> {
         ctx.set_line_width((width.to_f32() as f64).max(1.0));
     }
 
-    fn build_quad_path(&self, q: &[Point; 4]) {
-        let ctx = self.ctx();
-        ctx.begin_path();
-        ctx.move_to(q[0].x.to_f32() as f64, q[0].y.to_f32() as f64);
-        for p in &q[1..] {
-            ctx.line_to(p.x.to_f32() as f64, p.y.to_f32() as f64);
-        }
-        ctx.close_path();
-    }
-
-    /// Quad fill. Affine quads (no perspective) honour `radius` via
-    /// `setTransform` + `roundRect`; perspective quads fall back to a
-    /// flat 4-point polygon — Canvas 2D can't apply a homography.
+    /// Affine quads use `setTransform` + `roundRect`; perspective
+    /// quads fall back to `Path::rounded_quad`'s cubic bezier
+    /// approximation — Canvas 2D has no homography.
     fn fill_quad_inner(
         &mut self,
         q: &[Point; 4],
@@ -160,7 +150,7 @@ impl WebCanvasRenderer<'_> {
             self.fill_axis_aligned(area, radius);
             ctx.restore();
         } else {
-            self.build_quad_path(q);
+            self.build_path(&Path::rounded_quad(q, radius));
             self.ctx().fill();
         }
         self.pop_clip();
@@ -194,7 +184,7 @@ impl WebCanvasRenderer<'_> {
             self.stroke_axis_aligned(area, radius);
             ctx.restore();
         } else {
-            self.build_quad_path(q);
+            self.build_path(&Path::rounded_quad(q, radius));
             self.ctx().stroke();
         }
         self.pop_clip();
