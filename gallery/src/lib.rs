@@ -163,6 +163,25 @@ where
     F: FnOnce(&mut Setup<'_>) -> Entity,
 {
     let mut app = backend::build_app(title, w, h);
+
+    // Every native backend (SDL / SDL-GPU / wgpu / linux-fb) skips
+    // `present`/`flush` on idle frames, which is also where vsync
+    // would have waited — without a cap the loop hits 60k+ fps and
+    // tears against the host compositor. Web canvas runs ticks from
+    // `requestAnimationFrame`, so the browser already paces it.
+    // 120 covers ProMotion / 120 Hz panels; override with
+    // `MIRUI_FPS_CAP=<n>`. 0 disables the cap for benchmarks.
+    #[cfg(not(all(feature = "web-canvas", target_arch = "wasm32")))]
+    {
+        let cap = std::env::var("MIRUI_FPS_CAP")
+            .ok()
+            .and_then(|s| s.parse::<u32>().ok())
+            .unwrap_or(120);
+        if cap > 0 {
+            app.add_plugin(mirui::plugins::FrameRateCapPlugin::new(cap));
+        }
+    }
+
     let root = {
         let mut setup = Setup { app: &mut app };
         build(&mut setup)
