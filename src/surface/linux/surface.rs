@@ -31,6 +31,30 @@ pub struct LinuxConfig<'a> {
     /// Inset the view by N% on every side, centred on the panel.
     /// 0 = full panel. Capped at 25%.
     pub overscan_inset_percent: u8,
+    /// Override the auto-detected DPI scale. `None` reads
+    /// `var.width` / `var.height` (mm) and divides actual DPI by
+    /// `baseline_dpi` (default 96 = legacy desktop). Drivers that
+    /// report 0 mm fall through to scale 1.0.
+    pub scale: ScaleMode,
+}
+
+/// How `LinuxFbSurface` derives `DisplayInfo.scale`.
+#[derive(Debug, Clone, Copy)]
+pub enum ScaleMode {
+    /// Read `var.width` / `var.height` (mm), compute DPI, divide by
+    /// `baseline_dpi` (96 = "1 logical px ≈ 1 desktop px"). Falls
+    /// back to 1.0 when the driver reports 0 mm (qemu ramfb,
+    /// simple-framebuffer, EFI fb).
+    AutoDpi {
+        baseline_dpi: u32,
+    },
+    Fixed(Fixed),
+}
+
+impl Default for ScaleMode {
+    fn default() -> Self {
+        ScaleMode::AutoDpi { baseline_dpi: 96 }
+    }
 }
 
 impl Default for LinuxConfig<'_> {
@@ -39,6 +63,7 @@ impl Default for LinuxConfig<'_> {
             fb_path: "/dev/fb0",
             input_path: None,
             overscan_inset_percent: 0,
+            scale: ScaleMode::default(),
         }
     }
 }
@@ -51,6 +76,7 @@ pub struct LinuxFbSurface {
     line_length: usize,
     format: ColorFormat,
     view_byte_offset: usize,
+    scale: Fixed,
     inputs: alloc::vec::Vec<EvdevInput>,
     queue: VecDeque<InputEvent>,
     quit_flag: Arc<AtomicBool>,
@@ -131,6 +157,8 @@ impl LinuxFbSurface {
             let _ = signal_hook::flag::register(sig, Arc::clone(&quit_flag));
         }
 
+        let scale = compute_scale(cfg.scale, fb_width, fb_height, var.width, var.height);
+
         Ok(Self {
             _file: file,
             mmap,
@@ -139,11 +167,43 @@ impl LinuxFbSurface {
             line_length,
             format,
             view_byte_offset,
+            scale,
             inputs,
             queue: VecDeque::new(),
             quit_flag,
         })
     }
+}
+
+/// Picks `DisplayInfo.scale` from the panel's reported physical
+/// size. A 7" 800×480 SBC panel comes out around 1.4× — close
+/// enough that a 96-DPI desktop layout reads correctly without
+/// a hand-tuned config.
+fn compute_scale(mode: ScaleMode, xres: u16, yres: u16, width_mm: u32, height_mm: u32) -> Fixed {
+    let ScaleMode::AutoDpi { baseline_dpi } = mode else {
+        let ScaleMode::Fixed(s) = mode else {
+            unreachable!()
+        };
+        return s;
+    };
+    if width_mm == 0 || height_mm == 0 || baseline_dpi == 0 {
+        return Fixed::ONE;
+    }
+    // Use the larger axis; non-square pixels would otherwise pull
+    // text either too dense or too loose. Multiply before divide to
+    // keep precision in fixed-point.
+    let dpi_x = (xres as u32 * 254) / (width_mm * 10);
+    let dpi_y = (yres as u32 * 254) / (height_mm * 10);
+    let dpi = dpi_x.max(dpi_y);
+    if dpi == 0 {
+        return Fixed::ONE;
+    }
+    // Quantise to quarter-steps (1.0 / 1.25 / 1.5 / ...) so demos on
+    // similar panels share a baseline; clamp to [1.0, 4.0] — > 4
+    // would reflect a bogus driver value, < 1 is just desktop.
+    let raw = Fixed::from_int(dpi as i32) / Fixed::from_int(baseline_dpi as i32);
+    let quarters = (raw * Fixed::from_int(4)).to_int().clamp(4, 16);
+    Fixed::from_int(quarters) / Fixed::from_int(4)
 }
 
 impl InspectCaches for LinuxFbSurface {}
@@ -153,7 +213,7 @@ impl Surface for LinuxFbSurface {
         DisplayInfo {
             width: self.width,
             height: self.height,
-            scale: Fixed::ONE,
+            scale: self.scale,
             format: self.format,
         }
     }
@@ -819,6 +879,42 @@ mod tests {
             }
             other => panic!("expected Wheel, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn scale_falls_back_to_one_when_panel_reports_zero_mm() {
+        // qemu ramfb / EFI fb / simple-framebuffer report 0 here.
+        let s = compute_scale(ScaleMode::default(), 800, 600, 0, 0);
+        assert_eq!(s, Fixed::ONE);
+    }
+
+    #[test]
+    fn scale_quantises_high_dpi_to_quarter_steps() {
+        // Pi 7" (800×480, ~154×86 mm) → ~132 DPI → 1.375 → clamped
+        // to nearest 0.25 = 1.25.
+        let s = compute_scale(ScaleMode::default(), 800, 480, 154, 86);
+        assert_eq!(s, Fixed::from_f32(1.25));
+    }
+
+    #[test]
+    fn scale_phone_class_panel() {
+        // 720×1440 ~6" panel (~72 × 145 mm) → ~254 DPI →
+        // 254/96 = 2.65 → quarter-rounded down to 2.5.
+        let s = compute_scale(ScaleMode::default(), 720, 1440, 72, 145);
+        assert_eq!(s, Fixed::from_f32(2.5));
+    }
+
+    #[test]
+    fn scale_clamps_at_four_when_driver_reports_bogus_size() {
+        // Driver reports 1 mm — DPI explodes; cap at 4.0.
+        let s = compute_scale(ScaleMode::default(), 800, 600, 1, 1);
+        assert_eq!(s, Fixed::from_int(4));
+    }
+
+    #[test]
+    fn scale_fixed_mode_passes_through_unchanged() {
+        let s = compute_scale(ScaleMode::Fixed(Fixed::from_f32(2.5)), 800, 600, 154, 86);
+        assert_eq!(s, Fixed::from_f32(2.5));
     }
 
     #[test]
