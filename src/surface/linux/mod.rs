@@ -1,5 +1,8 @@
 #![cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 
+#[cfg(all(feature = "linux-fb", feature = "linux-drm"))]
+compile_error!("`linux-fb` and `linux-drm` are mutually exclusive — enable exactly one");
+
 mod input;
 mod scale;
 
