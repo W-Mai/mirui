@@ -202,6 +202,7 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
     }
     let style = world.get::<Style>(entity)?;
     let mut node = LayoutNode::new(style.layout);
+    apply_text_intrinsic(world, entity, &mut node);
 
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
@@ -211,6 +212,29 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
         }
     }
     Some(node)
+}
+
+// FIXME: not the full solution.
+pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
+    use crate::components::text::Text;
+    use crate::draw::font::{CHAR_H, CHAR_W};
+    use crate::types::Dimension;
+
+    let Some(text) = world.get::<Text>(entity) else {
+        return;
+    };
+    if node.style.grow > Fixed::ZERO {
+        return;
+    }
+    let pad: i32 = 4;
+    let intrinsic_w = Fixed::from_int(text.0.len() as i32 * CHAR_W as i32 + pad);
+    let intrinsic_h = Fixed::from_int(CHAR_H as i32 + pad);
+    if matches!(node.style.width, Dimension::Auto | Dimension::Content) {
+        node.style.width = Dimension::Px(intrinsic_w);
+    }
+    if matches!(node.style.height, Dimension::Auto | Dimension::Content) {
+        node.style.height = Dimension::Px(intrinsic_h);
+    }
 }
 
 fn rects_intersect(a: &Rect, b: &Rect) -> bool {

@@ -32,6 +32,7 @@ fn build_rects(
             }
             if let Some(style) = world.get::<Style>(child) {
                 let mut child_node = LayoutNode::new(style.layout);
+                crate::widget::render_system::apply_text_intrinsic(world, child, &mut child_node);
                 build_rects(world, child, &mut child_node, entities);
                 parent_node.add_child(child_node);
             }
