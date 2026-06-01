@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use drm::Device;
 use drm::buffer::{Buffer, DrmFourcc};
 use drm::control::Device as ControlDevice;
-use drm::control::{Mode, connector, crtc, framebuffer};
+use drm::control::{Event, Mode, PageFlipFlags, connector, crtc, framebuffer};
 
 use super::input::{EvdevInput, detect_keyboard_device, detect_pointer_device};
 use super::scale::{ScaleMode, compute_scale};
@@ -70,7 +70,9 @@ pub struct LinuxDrmSurface {
     format: ColorFormat,
     scale: Fixed,
     buffers: alloc::vec::Vec<DrmBuffer>,
+    back_idx: u8,
     front_idx: u8,
+    flip_pending: bool,
     inputs: alloc::vec::Vec<EvdevInput>,
     queue: VecDeque<InputEvent>,
     quit_flag: Arc<AtomicBool>,
@@ -210,6 +212,9 @@ impl LinuxDrmSurface {
         let (mm_w, mm_h) = connector_info.size().unwrap_or((0, 0));
         let scale = compute_scale(cfg.scale, mode_w, mode_h, mm_w as u32, mm_h as u32);
 
+        // N=1: indices coincide → tearing.
+        let back_idx = if buffer_count > 1 { 1 } else { 0 };
+
         Ok(Self {
             card,
             crtc: crtc_handle,
@@ -220,11 +225,29 @@ impl LinuxDrmSurface {
             format,
             scale,
             buffers,
+            back_idx,
             front_idx: 0,
+            flip_pending: false,
             inputs,
             queue: VecDeque::new(),
             quit_flag,
         })
+    }
+
+    fn drain_flip_event(&mut self) {
+        if !self.flip_pending {
+            return;
+        }
+        if let Ok(events) = self.card.receive_events() {
+            for ev in events {
+                if matches!(ev, Event::PageFlip(_)) {
+                    self.flip_pending = false;
+                }
+            }
+        } else {
+            // Read failure → clear flag; next frame tears, not deadlocks.
+            self.flip_pending = false;
+        }
     }
 }
 
@@ -305,9 +328,24 @@ impl Surface for LinuxDrmSurface {
         }
     }
 
-    fn flush(&mut self, _area: &Rect) {
-        // No staging copy — SwRenderer writes the backbuffer's mmap
-        // directly via `framebuffer()`. Page flip moved to S8.
+    fn flush(&mut self, _area: &Rect) {}
+
+    fn frame_end(&mut self) {
+        // N=1 has no back to flip in.
+        if self.buffers.len() < 2 {
+            return;
+        }
+        // Drain prior flip first — page_flip returns -EBUSY otherwise.
+        self.drain_flip_event();
+        let back_fb = self.buffers[self.back_idx as usize].fb_id;
+        if self
+            .card
+            .page_flip(self.crtc, back_fb, PageFlipFlags::EVENT, None)
+            .is_ok()
+        {
+            self.flip_pending = true;
+            core::mem::swap(&mut self.front_idx, &mut self.back_idx);
+        }
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
@@ -326,10 +364,7 @@ impl Surface for LinuxDrmSurface {
 
 impl FramebufferAccess for LinuxDrmSurface {
     fn framebuffer(&mut self) -> Texture<'_> {
-        // Until S8 wires page-flip, render into the live front buffer
-        // (single-buffer mode — visible tear, but matches fbdev
-        // backend behaviour while we get modeset right).
-        let buf = &self.buffers[self.front_idx as usize];
+        let buf = &self.buffers[self.back_idx as usize];
         let stride = buf.dumb.pitch() as usize;
         // SAFETY: `mmap_ptr/len` valid until self's Drop; `&mut self` excludes aliasing.
         let slice: &mut [u8] =
