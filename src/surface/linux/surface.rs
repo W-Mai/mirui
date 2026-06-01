@@ -26,6 +26,9 @@ pub struct LinuxConfig<'a> {
     /// `ABS_X` + `ABS_Y`; if none match the surface comes up
     /// display-only.
     pub input_path: Option<&'a str>,
+    /// Inset the view by N% on every side, centred on the panel.
+    /// 0 = full panel. Capped at 25%.
+    pub overscan_inset_percent: u8,
 }
 
 impl Default for LinuxConfig<'_> {
@@ -33,6 +36,7 @@ impl Default for LinuxConfig<'_> {
         Self {
             fb_path: "/dev/fb0",
             input_path: None,
+            overscan_inset_percent: 0,
         }
     }
 }
@@ -44,6 +48,7 @@ pub struct LinuxFbSurface {
     height: u16,
     line_length: usize,
     format: ColorFormat,
+    view_byte_offset: usize,
     input: Option<EvdevInput>,
     queue: VecDeque<InputEvent>,
 }
@@ -63,9 +68,18 @@ impl LinuxFbSurface {
         let fix = unsafe { ioctl::fbioget_fscreeninfo(fd)? };
 
         let format = format_from_var(&var)?;
+        let bytes_per_pixel = format.bytes_per_pixel();
         let line_length = fix.line_length as usize;
-        let width = u16::try_from(var.xres).map_err(invalid_data)?;
-        let height = u16::try_from(var.yres).map_err(invalid_data)?;
+        let fb_width = u16::try_from(var.xres).map_err(invalid_data)?;
+        let fb_height = u16::try_from(var.yres).map_err(invalid_data)?;
+
+        // Cap at 25% so a misconfigured value can't collapse the view.
+        let inset = cfg.overscan_inset_percent.min(25) as u32;
+        let width = u16::try_from(fb_width as u32 * (100 - 2 * inset) / 100).unwrap_or(fb_width);
+        let height = u16::try_from(fb_height as u32 * (100 - 2 * inset) / 100).unwrap_or(fb_height);
+        let off_x = (fb_width - width) / 2;
+        let off_y = (fb_height - height) / 2;
+        let view_byte_offset = off_y as usize * line_length + off_x as usize * bytes_per_pixel;
 
         // `/dev/fb0` is a char device — `fstat` returns size 0 and
         // `MmapMut::map_mut(&file)` would mmap nothing. `smem_len` is
@@ -105,6 +119,7 @@ impl LinuxFbSurface {
             height,
             line_length,
             format,
+            view_byte_offset,
             input,
             queue: VecDeque::new(),
         })
@@ -144,9 +159,14 @@ impl Surface for LinuxFbSurface {
 
 impl FramebufferAccess for LinuxFbSurface {
     fn framebuffer(&mut self) -> Texture<'_> {
-        let mut tex = Texture::new(&mut self.mmap[..], self.width, self.height, self.format);
-        // Driver may pad each scanline beyond `width × bpp`; honour the
-        // panel's line_length so the renderer addresses the right pixels.
+        let mut tex = Texture::new(
+            &mut self.mmap[self.view_byte_offset..],
+            self.width,
+            self.height,
+            self.format,
+        );
+        // line_length covers both driver scanline padding and the
+        // overscan border the renderer must skip.
         tex.stride = self.line_length;
         tex
     }
