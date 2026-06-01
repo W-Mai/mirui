@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.3] - 2026-06-01
+
+Experimental Linux fbdev backend — `feature = "linux-fb"` runs mirui directly against `/dev/fb0` and `/dev/input/event*` on Linux, bypassing X11 / Wayland for SBCs and embedded panels. Ships with full input (keyboard / mouse / wheel / SIGINT-as-Quit), auto DPI scale from physical-mm hints, and an opt-in HDMI overscan inset. Two long-standing per-frame allocation leaks in the perf-instrumentation path are also fixed.
+
+### Added
+
+- **`feature = "linux-fb"`** — opt-in Linux backend on `memmap2` 0.9, `evdev` 0.13, `libc` 0.2, and `signal-hook` 0.3. Fbdev resolution and pixel format come from `FBIOGET_VSCREENINFO`; the renderer writes through `&mut self.mmap[..]` directly and respects `line_length` so padded scanlines on driver-aligned panels render correctly.
+  - **Input** — USB tablet / touchscreen (`EV_ABS` + multi-touch slot tracking), USB mouse (`EV_REL` accumulated into a clamped cursor position), scroll wheel (`REL_WHEEL` / `REL_HWHEEL` coalesced per `SYN_REPORT`), and a keyboard fd that maps eight editing keys (`KEY_BACKSPACE` / `KEY_LEFT` / `KEY_RETURN` / ...) to mirui's SDL-style codes; unmapped scancodes pass through raw.
+  - **Quit signal** — `signal-hook` registers a flag for `SIGINT` / `SIGTERM`; `poll_event` turns the next tick into `InputEvent::Quit` so demos exit cleanly without `SIGKILL`.
+  - **Auto DPI scale** — `LinuxConfig::scale` defaults to `ScaleMode::AutoDpi { baseline_dpi: 96 }`. Reads `var.width` / `var.height` (mm), computes panel DPI, divides by `baseline_dpi`, quantises to quarter-steps, and clamps to `[1.0, 4.0]`. Drivers reporting 0 mm (qemu ramfb, EFI fb, simple-framebuffer) fall back to `Fixed::ONE`. `ScaleMode::Fixed(Fixed)` overrides for known-broken drivers.
+  - **HDMI overscan inset** — `LinuxConfig::overscan_inset_percent` (capped at 25%) lets `gallery::run` shrink the rendered view symmetrically when an HDMI panel eats the panel's outer rim. `framebuffer()` exposes a sub-slice with `tex.stride = line_length` so the renderer never touches the unsafe border.
+- **`gallery::demos::hello`** — minimal LinuxFb-friendly scene (single card + text). Hoisted out of `linux_fb_demo` so other backends can run the same body.
+- **`gallery::demos::widgets`** — port of the ESP32-C3 widgets showcase (`LazyList` + `Slider` + `Switch` + `TabBar` + theme cycling) scaled for desktop / fb-class panels.
+- **`mirui::plugins::FrameRateCapPlugin`** — sleeps in `post_render` to a target FPS read from `MonoClock`. Native backends in `gallery::run` install it at default 120 Hz (override via `MIRUI_FPS_CAP=<n>`, `0` opts out for benchmarks). Needed because every native backend skips `present` / `flush` on idle frames, which is also where vsync would have waited — the tick loop otherwise runs at 60 000+ fps and tears against the host compositor.
+- **`FpsSummary::wall_ns`** — wall-clock span over the reporting window (`MonoClock`-based) so sinks can compute the visible FPS (`frames * 1e9 / wall_ns`) separately from the per-frame work rate (`1e9 / avg_frame_ns`). Mixed idle / active frames inside a window made the latter swing wildly without context.
+
+### Fixed
+
+- **`App::snapshot_system_perf` no longer allocates per frame when no plugin reads it.** Each tick used to build a fresh `Vec<SystemStat>` + `Box<SystemPerfSnapshot>` regardless of consumer. With `PerfReportPlugin` absent the snapshot was thrown away every frame, but musl / glibc returned the freed memory to size-class arenas rather than the OS. Vsync-free backends (linux-fb, headless benches) hit OOM in 3-4 minutes. `PerfReportPlugin::build` now inserts the resource as an opt-in flag; `snapshot_system_perf` early-returns without it, and reuses the resource's `Vec` via `clear() + push()` when present.
+- **`trace_span!` / `#[trace_fn]` no longer leak `PerfEvent`s when no plugin drains them.** `Guard::drop` pushed a `PerfEvent` into a thread-local `Vec` regardless of whether anyone called `drain_events`. Without `PerfReportPlugin` the `Vec` grew via doubling (40 → 80 → 160 → 320 MB allocations confirmed via backtrace sampling) until OOM. `perf::set_enabled(bool)` now gates both `enter()` and `Guard::drop`; `PerfReportPlugin::build` flips it on. The `no_std` ring-buffer path is unchanged.
+- **Text widgets without an explicit size now contribute a fallback intrinsic measurement to layout.** A flex parent could otherwise hand `Text` `width = 0`, which the render walker culled via strict-less-than `rects_intersect`, and a covering parent `fill_rect` then erased the previous frame's glyphs — visible as text disappearing where the cursor passed. `build_layout_tree` and `build_rects` apply a local `LayoutNode` measurement (`Px(text.bytes.len × CHAR_W + 4, CHAR_H + 4)`) when both axes are `Auto` / `Content` and `flex_grow == 0`. ECS state is untouched.
+- **Web-canvas backend** — perspective-warped quads now draw rounded corners through `Path::rounded_quad`'s cubic-bezier approximation. Canvas 2D has no homography, so the affine `setTransform + roundRect` fast path does not apply.
+
+### Changed
+
+- **`mirui::surface::linux::LinuxFbSurface` writes directly to mmap** — the previous staging `Vec<u8>` + per-band `memcpy` was the source of partial-flush coherence bugs. `framebuffer()` now hands the renderer `&mut self.mmap[..]` straight, with `tex.stride = line_length`. `flush()` becomes a no-op. Side-effect: the R↔B byte swap path is also gone, so BGRX fbdev drivers (qemu ramfb, most modern PC fbs) render with reversed colour until the planned `BGRA8888` `ColorFormat` lands. RGB565 drivers (Pi 4 HDMI) are unaffected.
+
+### Internal
+
+- `gallery` / `gallery-web` / `xtask` / `.cha/plugin-src` workspace members bumped from 0.25.1 to 0.25.2 (the 0.25.2 release commit had only touched `mirui` + `mirui-macros`), then to 0.25.3 alongside the rest of the workspace.
+
 ## [0.25.2] - 2026-05-31
 
 Experimental web-canvas backend — `feature = "web-canvas"` runs mirui in `wasm32-unknown-unknown` against an HTML `<canvas>` 2D context. `App::tick` is driven from `requestAnimationFrame`, DOM pointer / wheel / touch / keyboard events are bridged into the input queue, and texture uploads are cached per-canvas through `OffscreenCanvas`.
