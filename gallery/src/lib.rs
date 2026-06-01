@@ -146,7 +146,16 @@ mod backend {
     pub fn build_app(_title: &str, _w: u16, _h: u16) -> App<ActiveSurface, ActiveFactory> {
         // fbdev resolution comes from the kernel; demo `w` / `h` are
         // honoured only on backends that own a window.
-        let backend = linux::init(linux::LinuxConfig::default()).expect("open /dev/fb0");
+        // `MIRUI_OVERSCAN_INSET=<n>` per-side inset in %; HDMI panels eat the edges.
+        let inset = std::env::var("MIRUI_OVERSCAN_INSET")
+            .ok()
+            .and_then(|s| s.parse::<u8>().ok())
+            .unwrap_or(0);
+        let backend = linux::init(linux::LinuxConfig {
+            overscan_inset_percent: inset,
+            ..linux::LinuxConfig::default()
+        })
+        .expect("open /dev/fb0");
         let mut app = App::with_factory(backend, SwRendererFactory);
         app.with_default_widgets().with_default_systems();
         app
