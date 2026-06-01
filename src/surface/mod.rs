@@ -97,6 +97,9 @@ pub trait Surface: crate::cache::InspectCaches {
     fn persistence(&self) -> BackbufferPersistence {
         BackbufferPersistence::Persistent
     }
+
+    /// Called at the end of every `App::tick`, even on empty frames.
+    fn frame_end(&mut self) {}
 }
 
 /// Convert a backend-private physical pixel size to logical via `scale`.

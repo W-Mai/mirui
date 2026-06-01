@@ -478,6 +478,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         } else {
             self.render_dirty();
         }
+        self.backend.frame_end();
 
         false
     }
