@@ -10,14 +10,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use drm::Device;
 use drm::buffer::{Buffer, DrmFourcc};
 use drm::control::Device as ControlDevice;
-use drm::control::{Event, Mode, PageFlipFlags, connector, crtc, framebuffer};
+use drm::control::{ClipRect, Mode, connector, crtc, framebuffer};
+use drm_ffi::drm_sys::drm_vblank_seq_type::_DRM_VBLANK_RELATIVE;
+use drm_ffi::wait_vblank;
 
 use super::input::{EvdevInput, detect_keyboard_device, detect_pointer_device};
 use super::scale::{ScaleMode, compute_scale};
 use crate::cache::InspectCaches;
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::event::input::InputEvent;
-use crate::surface::{DisplayInfo, FramebufferAccess, Surface};
+use crate::surface::{BackbufferPersistence, DisplayInfo, FramebufferAccess, Surface};
 use crate::types::{Fixed, Rect};
 
 #[derive(Debug, Clone)]
@@ -62,17 +64,17 @@ impl ControlDevice for Card {}
 
 pub struct LinuxDrmSurface {
     card: Card,
+    #[allow(dead_code)] // kept for future atomic / multi-buffer paths
     crtc: crtc::Handle,
+    #[allow(dead_code)]
     connector: connector::Handle,
+    #[allow(dead_code)]
     mode: Mode,
     width: u16,
     height: u16,
     format: ColorFormat,
     scale: Fixed,
     buffers: alloc::vec::Vec<DrmBuffer>,
-    back_idx: u8,
-    front_idx: u8,
-    flip_pending: bool,
     inputs: alloc::vec::Vec<EvdevInput>,
     queue: VecDeque<InputEvent>,
     quit_flag: Arc<AtomicBool>,
@@ -209,11 +211,14 @@ impl LinuxDrmSurface {
             let _ = signal_hook::flag::register(sig, Arc::clone(&quit_flag));
         }
 
+        // Paravirtual drivers report bogus mm sizes; fall back to 1.0×.
+        let mm_lying = matches!(driver_name.as_ref(), "virtio_gpu" | "vmwgfx" | "qxl");
+        let scale_mode = match cfg.scale {
+            ScaleMode::AutoDpi { .. } if mm_lying => ScaleMode::Fixed(Fixed::ONE),
+            other => other,
+        };
         let (mm_w, mm_h) = connector_info.size().unwrap_or((0, 0));
-        let scale = compute_scale(cfg.scale, mode_w, mode_h, mm_w as u32, mm_h as u32);
-
-        // N=1: indices coincide → tearing.
-        let back_idx = if buffer_count > 1 { 1 } else { 0 };
+        let scale = compute_scale(scale_mode, mode_w, mode_h, mm_w as u32, mm_h as u32);
 
         Ok(Self {
             card,
@@ -225,29 +230,10 @@ impl LinuxDrmSurface {
             format,
             scale,
             buffers,
-            back_idx,
-            front_idx: 0,
-            flip_pending: false,
             inputs,
             queue: VecDeque::new(),
             quit_flag,
         })
-    }
-
-    fn drain_flip_event(&mut self) {
-        if !self.flip_pending {
-            return;
-        }
-        if let Ok(events) = self.card.receive_events() {
-            for ev in events {
-                if matches!(ev, Event::PageFlip(_)) {
-                    self.flip_pending = false;
-                }
-            }
-        } else {
-            // Read failure → clear flag; next frame tears, not deadlocks.
-            self.flip_pending = false;
-        }
     }
 }
 
@@ -329,24 +315,21 @@ impl Surface for LinuxDrmSurface {
         }
     }
 
-    fn flush(&mut self, _area: &Rect) {}
+    fn flush(&mut self, area: &Rect) {
+        // Paravirtual drivers (virtio_gpu/vmwgfx) need MODE_DIRTYFB to flush.
+        let (x0, y0, x1, y1) = area.pixel_bounds();
+        let clip = ClipRect::new(
+            x0.max(0) as u16,
+            y0.max(0) as u16,
+            (x1.max(0) as u16).min(self.width),
+            (y1.max(0) as u16).min(self.height),
+        );
+        let _ = self.card.dirty_framebuffer(self.buffers[0].fb_id, &[clip]);
+    }
 
     fn frame_end(&mut self) {
-        // N=1 has no back to flip in.
-        if self.buffers.len() < 2 {
-            return;
-        }
-        // Drain prior flip first — page_flip returns -EBUSY otherwise.
-        self.drain_flip_event();
-        let back_fb = self.buffers[self.back_idx as usize].fb_id;
-        if self
-            .card
-            .page_flip(self.crtc, back_fb, PageFlipFlags::EVENT, None)
-            .is_ok()
-        {
-            self.flip_pending = true;
-            core::mem::swap(&mut self.front_idx, &mut self.back_idx);
-        }
+        // vc4/mali/iMX implement DRM wait_vblank; fbdev compat layer doesn't.
+        let _ = unsafe { wait_vblank(self.card.as_fd(), _DRM_VBLANK_RELATIVE, 1, 0) };
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
@@ -361,11 +344,15 @@ impl Surface for LinuxDrmSurface {
         }
         self.queue.pop_front()
     }
+
+    fn persistence(&self) -> BackbufferPersistence {
+        BackbufferPersistence::Persistent
+    }
 }
 
 impl FramebufferAccess for LinuxDrmSurface {
     fn framebuffer(&mut self) -> Texture<'_> {
-        let buf = &self.buffers[self.back_idx as usize];
+        let buf = &self.buffers[0];
         let stride = buf.dumb.pitch() as usize;
         // SAFETY: `mmap_ptr/len` valid until self's Drop; `&mut self` excludes aliasing.
         let slice: &mut [u8] =

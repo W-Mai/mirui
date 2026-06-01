@@ -35,7 +35,7 @@ web-canvas = [
     "std",
 ]
 linux-fb = ["dep:memmap2", "dep:evdev", "dep:libc", "dep:signal-hook", "std"]
-linux-drm = ["dep:drm", "dep:evdev", "dep:libc", "dep:signal-hook", "std"]
+linux-drm = ["dep:drm", "dep:drm-ffi", "dep:evdev", "dep:libc", "dep:signal-hook", "std"]
 perf = []
 sync-cache = []
 # Anti-aliasing for 3D-transformed quads. On `std` this uses a Fixed64
@@ -88,6 +88,7 @@ evdev = { version = "0.13", optional = true }
 libc = { version = "0.2", optional = true }
 signal-hook = { version = "0.3", optional = true }
 drm = { version = "0.14", optional = true }
+drm-ffi = { version = "0.9", optional = true }
 
 # wasm32-only deps for the web-canvas backend.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
