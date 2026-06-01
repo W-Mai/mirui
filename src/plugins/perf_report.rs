@@ -111,6 +111,8 @@ where
 {
     fn build(&mut self, app: &mut App<B, F>) {
         app.world.insert_resource(PerfAccum::default());
+        // Opt-in flag for App::snapshot_system_perf.
+        app.world.insert_resource(SystemPerfSnapshot::default());
     }
 
     fn post_render(&mut self, world: &mut World, _render_nanos: u64) {

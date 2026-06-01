@@ -483,6 +483,15 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 
     fn snapshot_system_perf(&mut self) {
+        // PerfReportPlugin::build is the opt-in path for this resource.
+        if self
+            .world
+            .resource::<crate::plugins::perf_report::SystemPerfSnapshot>()
+            .is_none()
+        {
+            return;
+        }
+
         let want_reset = self
             .world
             .resource::<crate::plugins::perf_report::PerfResetFlag>()
@@ -494,14 +503,18 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 .insert_resource(crate::plugins::perf_report::PerfResetFlag(false));
         }
 
-        let mut entries = alloc::vec::Vec::with_capacity(8);
+        let snap = self
+            .world
+            .resource_mut::<crate::plugins::perf_report::SystemPerfSnapshot>()
+            .expect("checked above");
+        snap.entries.clear();
         for s in self.systems.iter() {
             let avg = if s.call_count == 0 {
                 0
             } else {
                 (s.total_us / s.call_count as u64) as u32
             };
-            entries.push(crate::plugins::perf_report::SystemStat {
+            snap.entries.push(crate::plugins::perf_report::SystemStat {
                 name: s.name,
                 priority: s.priority,
                 last_us: s.last_us,
@@ -509,8 +522,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 call_count: s.call_count,
             });
         }
-        self.world
-            .insert_resource(crate::plugins::perf_report::SystemPerfSnapshot { entries });
     }
 
     /// Render only dirty regions. Falls back to full render if no dirty tracking.
