@@ -4,9 +4,12 @@
 //! framebuffer, and pumps `/dev/input/event*` into mirui's
 //! `InputEvent` queue.
 
+mod input;
 mod ioctl;
+mod scale;
 mod surface;
 
+pub use scale::ScaleMode;
 pub use surface::{LinuxConfig, LinuxFbSurface};
 
 pub fn init(cfg: LinuxConfig<'_>) -> std::io::Result<LinuxFbSurface> {
