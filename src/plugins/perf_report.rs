@@ -113,6 +113,8 @@ where
         app.world.insert_resource(PerfAccum::default());
         // Opt-in flag for App::snapshot_system_perf.
         app.world.insert_resource(SystemPerfSnapshot::default());
+        // Opens the trace_span!/trace_fn recording path.
+        crate::perf::set_enabled(true);
     }
 
     fn post_render(&mut self, world: &mut World, _render_nanos: u64) {

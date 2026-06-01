@@ -14,9 +14,17 @@
 #[cfg(feature = "std")]
 mod imp {
     extern crate std;
+    use core::sync::atomic::{AtomicBool, Ordering};
     use std::cell::RefCell;
     use std::vec::Vec;
     use web_time::Instant;
+
+    // Off by default; PerfReportPlugin::build flips it on.
+    static ENABLED: AtomicBool = AtomicBool::new(false);
+
+    pub fn set_enabled(on: bool) {
+        ENABLED.store(on, Ordering::Relaxed);
+    }
 
     thread_local! {
         static EVENTS: RefCell<Vec<PerfEvent>> = RefCell::new(Vec::with_capacity(2048));
@@ -63,6 +71,9 @@ mod imp {
 
     impl Drop for Guard {
         fn drop(&mut self) {
+            if !ENABLED.load(Ordering::Relaxed) {
+                return;
+            }
             let end_ns = now_ns();
             DEPTH.with(|d| {
                 let cur = *d.borrow();
@@ -80,6 +91,14 @@ mod imp {
     }
 
     pub fn enter(name: &'static str) -> Guard {
+        if !ENABLED.load(Ordering::Relaxed) {
+            // Stand-in: skip now_ns and the EVENTS push in Drop.
+            return Guard {
+                name,
+                start_ns: 0,
+                depth: 0,
+            };
+        }
         Guard::new(name)
     }
 
@@ -149,6 +168,10 @@ mod imp {
     pub fn set_clock(f: fn() -> u64) {
         with_state(|s| s.clock = f as usize);
     }
+
+    /// No-op on `no_std`: the ring buffer already drops oldest, and
+    /// `read_clock` short-circuits when no clock was injected.
+    pub fn set_enabled(_on: bool) {}
 
     pub struct Guard {
         name: &'static str,
@@ -244,7 +267,7 @@ mod imp {
     }
 }
 
-pub use imp::{Guard, PerfEvent, drain_events, enter, set_clock};
+pub use imp::{Guard, PerfEvent, drain_events, enter, set_clock, set_enabled};
 
 /// One Chrome trace event as JSON, no trailing newline. Wrap the
 /// stream as `[...]` or NDJSON for <https://ui.perfetto.dev>.
