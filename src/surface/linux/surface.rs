@@ -310,7 +310,6 @@ fn detect_pointer_device() -> Option<alloc::string::String> {
 /// "Keyboard" = device with `KEY_A` and no `ABS_X`/`REL_X` —
 /// excludes touch panels with hard buttons.
 fn detect_keyboard_device() -> Option<alloc::string::String> {
-    use alloc::string::String;
     use alloc::string::ToString;
     for n in 0..16 {
         let path = alloc::format!("/dev/input/event{n}");
