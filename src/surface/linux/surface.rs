@@ -40,17 +40,10 @@ impl Default for LinuxConfig<'_> {
 pub struct LinuxFbSurface {
     _file: std::fs::File,
     mmap: MmapMut,
-    buf: alloc::vec::Vec<u8>,
     width: u16,
     height: u16,
     line_length: usize,
     format: ColorFormat,
-    bytes_per_pixel: usize,
-    /// Driver reports R at byte 2 / B at byte 0 (XRGB / BGRX layout
-    /// — common on QEMU `ramfb` and most modern fbdev drivers).
-    /// SwRenderer writes byte 0 = R; flush swaps the two channels
-    /// per pixel so what reaches the panel matches the source.
-    swap_rb: bool,
     input: Option<EvdevInput>,
     queue: VecDeque<InputEvent>,
 }
@@ -70,13 +63,7 @@ impl LinuxFbSurface {
         let fix = unsafe { ioctl::fbioget_fscreeninfo(fd)? };
 
         let format = format_from_var(&var)?;
-        let bytes_per_pixel = format.bytes_per_pixel();
         let line_length = fix.line_length as usize;
-        // 32-bpp drivers fall into two camps:
-        // - `R/G/B = 0/8/16` (BMP-style RGBX, what `ColorFormat::RGBA8888` produces)
-        // - `R/G/B = 16/8/0` (XRGB / BGRX, what QEMU ramfb / most modern panels expose)
-        // Detect by which channel sits at byte 0 — `red.offset > blue.offset` means BGRX.
-        let swap_rb = bytes_per_pixel == 4 && var.red.offset > var.blue.offset;
         let width = u16::try_from(var.xres).map_err(invalid_data)?;
         let height = u16::try_from(var.yres).map_err(invalid_data)?;
 
@@ -111,17 +98,13 @@ impl LinuxFbSurface {
             }
         });
 
-        let buf_len = width as usize * height as usize * bytes_per_pixel;
         Ok(Self {
             _file: file,
             mmap,
-            buf: alloc::vec![0u8; buf_len],
             width,
             height,
             line_length,
             format,
-            bytes_per_pixel,
-            swap_rb,
             input,
             queue: VecDeque::new(),
         })
@@ -144,36 +127,8 @@ impl Surface for LinuxFbSurface {
         (self.width as u32, self.height as u32)
     }
 
-    fn flush(&mut self, area: &Rect) {
-        let stride_buf = self.width as usize * self.bytes_per_pixel;
-        let stride_mmap = self.line_length;
-        let bpp = self.bytes_per_pixel;
-        let (x0, y0, x1, y1) = area.pixel_bounds();
-        let fx0 = x0.max(0) as usize;
-        let fy0 = y0.max(0) as usize;
-        let fx1 = (x1.min(self.width as i32)).max(0) as usize;
-        let fy1 = (y1.min(self.height as i32)).max(0) as usize;
-        if fx1 <= fx0 || fy1 <= fy0 {
-            return;
-        }
-        let row_bytes = (fx1 - fx0) * bpp;
-        for y in fy0..fy1 {
-            let src = y * stride_buf + fx0 * bpp;
-            let dst = y * stride_mmap + fx0 * bpp;
-            if self.swap_rb {
-                let src_row = &self.buf[src..src + row_bytes];
-                let dst_row = &mut self.mmap[dst..dst + row_bytes];
-                for px in 0..(fx1 - fx0) {
-                    let off = px * bpp;
-                    dst_row[off] = src_row[off + 2];
-                    dst_row[off + 1] = src_row[off + 1];
-                    dst_row[off + 2] = src_row[off];
-                    dst_row[off + 3] = src_row[off + 3];
-                }
-            } else {
-                self.mmap[dst..dst + row_bytes].copy_from_slice(&self.buf[src..src + row_bytes]);
-            }
-        }
+    fn flush(&mut self, _area: &Rect) {
+        // Direct mmap; no staging copy / present here.
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
@@ -189,10 +144,11 @@ impl Surface for LinuxFbSurface {
 
 impl FramebufferAccess for LinuxFbSurface {
     fn framebuffer(&mut self) -> Texture<'_> {
-        // The renderer writes into the staging buffer (`xres × yres ×
-        // bpp`, no row padding); `flush` copies dirty bands into the
-        // mmap, applying the driver's `line_length` stride there.
-        Texture::new(&mut self.buf, self.width, self.height, self.format)
+        let mut tex = Texture::new(&mut self.mmap[..], self.width, self.height, self.format);
+        // Driver may pad each scanline beyond `width × bpp`; honour the
+        // panel's line_length so the renderer addresses the right pixels.
+        tex.stride = self.line_length;
+        tex
     }
 }
 
