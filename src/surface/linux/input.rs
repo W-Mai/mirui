@@ -1,4 +1,4 @@
-#![cfg(all(feature = "linux-fb", target_os = "linux"))]
+#![cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 
 use alloc::collections::VecDeque;
 use std::io;
