@@ -8,6 +8,7 @@ pub enum ColorFormat {
     RGB565Swapped,
     RGB888,
     RGBA8888,
+    BGRA8888,
 }
 
 impl ColorFormat {
@@ -15,7 +16,7 @@ impl ColorFormat {
         match self {
             Self::RGB565 | Self::RGB565Swapped => 2,
             Self::RGB888 => 3,
-            Self::RGBA8888 => 4,
+            Self::RGBA8888 | Self::BGRA8888 => 4,
         }
     }
 
@@ -27,6 +28,12 @@ impl ColorFormat {
                 (color.r as u32)
                     | ((color.g as u32) << 8)
                     | ((color.b as u32) << 16)
+                    | ((color.a as u32) << 24)
+            }
+            Self::BGRA8888 => {
+                (color.b as u32)
+                    | ((color.g as u32) << 8)
+                    | ((color.r as u32) << 16)
                     | ((color.a as u32) << 24)
             }
             Self::RGB888 => (color.r as u32) | ((color.g as u32) << 8) | ((color.b as u32) << 16),
@@ -172,6 +179,7 @@ impl<'a> Texture<'a> {
         let buf = self.buf.as_slice();
         match self.format {
             ColorFormat::RGBA8888 => Color::rgba(buf[i], buf[i + 1], buf[i + 2], buf[i + 3]),
+            ColorFormat::BGRA8888 => Color::rgba(buf[i + 2], buf[i + 1], buf[i], buf[i + 3]),
             ColorFormat::RGB888 => Color::rgb(buf[i], buf[i + 1], buf[i + 2]),
             ColorFormat::RGB565 => {
                 let lo = buf[i] as u16;
@@ -205,6 +213,12 @@ impl<'a> Texture<'a> {
                 buf[i] = color.r;
                 buf[i + 1] = color.g;
                 buf[i + 2] = color.b;
+                buf[i + 3] = color.a;
+            }
+            ColorFormat::BGRA8888 => {
+                buf[i] = color.b;
+                buf[i + 1] = color.g;
+                buf[i + 2] = color.r;
                 buf[i + 3] = color.a;
             }
             ColorFormat::RGB888 => {
@@ -321,6 +335,27 @@ mod tests {
         let c = Color::rgba(100, 200, 50, 255);
         tex.set_pixel(0, 0, &c);
         assert_eq!(tex.get_pixel(0, 0), c);
+    }
+
+    #[test]
+    fn bgra8888_roundtrip() {
+        let mut buf = [0u8; 4];
+        let mut tex = Texture::new(&mut buf, 1, 1, ColorFormat::BGRA8888);
+        let c = Color::rgba(100, 200, 50, 255);
+        tex.set_pixel(0, 0, &c);
+        assert_eq!(tex.get_pixel(0, 0), c);
+        assert_eq!(buf, [c.b, c.g, c.r, c.a]);
+    }
+
+    #[test]
+    fn bgra8888_pack_byte_order() {
+        let c = Color::rgba(0xAA, 0xBB, 0xCC, 0xDD);
+        let bgra = ColorFormat::BGRA8888.pack(&c);
+        // LE u32: byte 0=B, 1=G, 2=R, 3=A.
+        assert_eq!(bgra & 0xFF, c.b as u32);
+        assert_eq!((bgra >> 8) & 0xFF, c.g as u32);
+        assert_eq!((bgra >> 16) & 0xFF, c.r as u32);
+        assert_eq!((bgra >> 24) & 0xFF, c.a as u32);
     }
 
     #[test]

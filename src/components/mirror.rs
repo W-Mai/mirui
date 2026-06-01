@@ -68,7 +68,7 @@ fn flip_into(
             ColorFormat::RGBA8888 => flip_rgba8888(src, dst_buf, dst_stride, fade),
             ColorFormat::RGB565 => flip_rgb565(src, dst_buf, dst_stride, fade, false),
             ColorFormat::RGB565Swapped => flip_rgb565(src, dst_buf, dst_stride, fade, true),
-            ColorFormat::RGB888 => return,
+            ColorFormat::RGB888 | ColorFormat::BGRA8888 => return,
         }
     }
 

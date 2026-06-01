@@ -257,6 +257,8 @@ impl FramebufferAccess for LinuxFbSurface {
 
 fn format_from_var(var: &ioctl::FbVarScreeninfo) -> io::Result<ColorFormat> {
     match var.bits_per_pixel {
+        // BGRX panel: fbdev signals via red.offset > blue.offset.
+        32 if var.red.offset > var.blue.offset => Ok(ColorFormat::BGRA8888),
         32 => Ok(ColorFormat::RGBA8888),
         16 => Ok(ColorFormat::RGB565),
         bpp => Err(io::Error::new(

@@ -84,6 +84,13 @@ fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
     let h = src.height as usize;
     match src.format {
         ColorFormat::RGBA8888 => Some(buf.to_vec()),
+        ColorFormat::BGRA8888 => {
+            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
+            for chunk in buf.chunks_exact(bpp) {
+                out.extend_from_slice(&[chunk[2], chunk[1], chunk[0], chunk[3]]);
+            }
+            Some(out)
+        }
         ColorFormat::RGB888 => {
             let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
             for chunk in buf.chunks_exact(bpp) {

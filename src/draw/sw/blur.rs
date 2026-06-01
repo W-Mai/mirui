@@ -91,7 +91,7 @@ pub fn iir_blur_inplace(tex: &mut Texture, alpha: Fixed) {
             true,
         ),
         // RGB888 isn't reachable from any current backend.
-        ColorFormat::RGB888 => {}
+        ColorFormat::RGB888 | ColorFormat::BGRA8888 => {}
     }
 }
 

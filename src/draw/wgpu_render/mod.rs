@@ -513,6 +513,16 @@ fn texture_to_rgba8(src: &Texture) -> Option<alloc::vec::Vec<u8>> {
             }
             Some(out)
         }
+        ColorFormat::BGRA8888 => {
+            let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
+            for y in 0..h {
+                for x in 0..w {
+                    let i = y * src.stride + x * bpp;
+                    out.extend_from_slice(&[buf[i + 2], buf[i + 1], buf[i], buf[i + 3]]);
+                }
+            }
+            Some(out)
+        }
         ColorFormat::RGB888 => {
             let mut out = alloc::vec::Vec::with_capacity(w * h * 4);
             for y in 0..h {

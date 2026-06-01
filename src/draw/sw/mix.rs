@@ -19,7 +19,8 @@ pub fn mix_inplace(a: &mut Texture, b: &Texture, mix: u8) {
     let w = a.width as usize;
     let h = a.height as usize;
     match a.format {
-        ColorFormat::RGBA8888 => mix_bytewise(
+        // Per-channel lerp is byte-order-agnostic.
+        ColorFormat::RGBA8888 | ColorFormat::BGRA8888 => mix_bytewise(
             a.buf.as_mut_slice(),
             a.stride,
             b.buf.as_slice(),
