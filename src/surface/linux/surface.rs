@@ -293,7 +293,7 @@ fn detect_pointer_device() -> Option<alloc::string::String> {
         if abs.is_some_and(|a| {
             a.contains(evdev::AbsoluteAxisCode::ABS_X) && a.contains(evdev::AbsoluteAxisCode::ABS_Y)
         }) {
-            return Some(String::from(path.to_string()));
+            return Some(path.to_string());
         }
         if rel_fallback.is_none()
             && rel.is_some_and(|r| {
@@ -301,7 +301,7 @@ fn detect_pointer_device() -> Option<alloc::string::String> {
                     && r.contains(evdev::RelativeAxisCode::REL_Y)
             })
         {
-            rel_fallback = Some(String::from(path.to_string()));
+            rel_fallback = Some(path.to_string());
         }
     }
     rel_fallback
@@ -327,7 +327,7 @@ fn detect_keyboard_device() -> Option<alloc::string::String> {
                 .supported_relative_axes()
                 .is_some_and(|r| r.contains(evdev::RelativeAxisCode::REL_X));
         if has_letters && !has_pointer {
-            return Some(String::from(path.to_string()));
+            return Some(path.to_string());
         }
     }
     None
