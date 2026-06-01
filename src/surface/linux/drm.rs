@@ -256,11 +256,12 @@ fn pick_connector<'a>(
     filter: Option<&str>,
 ) -> io::Result<&'a connector::Info> {
     if let Some(name_filter) = filter {
+        // Match `xrandr`/`kmsprint` form: `<Interface>-<id>`, e.g. `HDMI-A-1`.
         coninfo
             .iter()
             .filter(|c| c.state() == connector::State::Connected)
             .find(|c| {
-                let name = alloc::format!("{:?}-{}", c.interface(), c.interface_id());
+                let name = alloc::format!("{}-{}", c.interface().as_str(), c.interface_id());
                 name == name_filter
             })
             .ok_or_else(|| {
