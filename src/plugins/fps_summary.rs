@@ -12,6 +12,7 @@ pub struct FpsSummaryPlugin {
     frames_per_summary: u32,
     frame_count: u32,
     totals: StageTotals,
+    window_start_ns: Option<u64>,
     on_summary: fn(report: FpsSummary<'_>),
 }
 
@@ -39,8 +40,13 @@ impl StageTotals {
 }
 
 /// Snapshot handed to the [`FpsSummaryPlugin`] sink each window.
-/// `avg_*_ns` values are per-frame averages over `frames`; `stats` is
-/// the 256-frame sliding window for jitter / p99.
+/// `avg_*_ns` are per-frame averages over `frames`; `stats` is the
+/// 256-frame sliding window for jitter / p99.
+///
+/// `frames * 1e9 / wall_ns` is the visible frame rate (covers idle
+/// frames and any frame-rate cap sleep); `1e9 / avg_frame_ns` is the
+/// "could-go" rate ignoring idle skips and pacing. `wall_ns` is
+/// `None` if no `MonoClock` resource is installed.
 ///
 /// Sinks that want per-span detail call `crate::perf::drain_events()`
 /// explicitly — the plugin doesn't pre-drain, because that single
@@ -54,6 +60,7 @@ pub struct FpsSummary<'a> {
     pub avg_render_ns: u64,
     pub avg_flush_ns: u64,
     pub avg_seed_prev_ns: u64,
+    pub wall_ns: Option<u64>,
     pub stats: Option<&'a crate::ecs::FrameStats>,
 }
 
@@ -63,6 +70,7 @@ impl FpsSummaryPlugin {
             frames_per_summary,
             frame_count: 0,
             totals: StageTotals::default(),
+            window_start_ns: None,
             on_summary: default_summary,
         }
     }
@@ -92,12 +100,22 @@ where
         let Some(t) = world.resource::<crate::ecs::FrameTimings>().copied() else {
             return;
         };
+        let now_ns = world
+            .resource::<crate::ecs::MonoClock>()
+            .map(|c| c.now_ns());
+        if self.window_start_ns.is_none() {
+            self.window_start_ns = now_ns;
+        }
         self.frame_count += 1;
         self.totals.add(&t);
 
         if self.frame_count >= self.frames_per_summary {
             let n = self.frame_count as u64;
             let avg = |total: u64| total / n;
+            let wall_ns = match (self.window_start_ns, now_ns) {
+                (Some(start), Some(end)) if end > start => Some(end - start),
+                _ => None,
+            };
             (self.on_summary)(FpsSummary {
                 frames: self.frame_count,
                 avg_frame_ns: avg(self.totals.frame_ns),
@@ -107,26 +125,33 @@ where
                 avg_render_ns: avg(self.totals.render_ns),
                 avg_flush_ns: avg(self.totals.flush_ns),
                 avg_seed_prev_ns: avg(self.totals.seed_prev_ns),
+                wall_ns,
                 stats: world.resource::<crate::ecs::FrameStats>(),
             });
             self.frame_count = 0;
             self.totals = StageTotals::default();
+            self.window_start_ns = None;
         }
     }
 }
 
 #[cfg(feature = "std")]
 fn default_summary(report: FpsSummary<'_>) {
-    let fps = if report.avg_frame_ns == 0 {
+    let work_fps = if report.avg_frame_ns == 0 {
         0.0
     } else {
         1_000_000_000.0 / report.avg_frame_ns as f64
     };
+    let wall_fps = match report.wall_ns {
+        Some(ns) if ns > 0 => f64::from(report.frames) * 1_000_000_000.0 / ns as f64,
+        _ => 0.0,
+    };
     eprintln!(
-        "[fps] {} frames | frame {}us ({:.1} fps) = input {} + systems {} + layout {} + render {} + flush {} + seed {}",
+        "[fps] {} frames | wall {:.1} fps | work {}us ({:.1} fps) = input {} + systems {} + layout {} + render {} + flush {} + seed {}",
         report.frames,
+        wall_fps,
         report.avg_frame_ns / 1000,
-        fps,
+        work_fps,
         report.avg_input_ns / 1000,
         report.avg_systems_ns / 1000,
         report.avg_layout_ns / 1000,
