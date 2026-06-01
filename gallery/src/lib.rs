@@ -186,9 +186,16 @@ mod backend {
             .and_then(|s| s.parse::<u8>().ok())
             .unwrap_or(0);
         let card_path = std::env::var("MIRUI_DRM_CARD").unwrap_or_else(|_| "/dev/dri/card0".into());
+        let connector_filter = std::env::var("MIRUI_DRM_CONNECTOR").ok();
+        let buffer_count = std::env::var("MIRUI_DRM_BUFFERS")
+            .ok()
+            .and_then(|s| s.parse::<u8>().ok())
+            .unwrap_or(2);
         let backend = linux::init_drm(linux::LinuxDrmConfig {
             card_path: &card_path,
+            connector_filter: connector_filter.as_deref(),
             overscan_inset_percent: inset,
+            buffer_count,
             ..linux::LinuxDrmConfig::default()
         })
         .expect("open DRM card");
