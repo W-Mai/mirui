@@ -133,6 +133,7 @@ mod backend {
     not(feature = "wgpu"),
     not(feature = "sdl-gpu"),
     not(feature = "sdl"),
+    not(feature = "linux-drm"),
     not(all(feature = "web-canvas", target_arch = "wasm32")),
 ))]
 mod backend {
@@ -156,6 +157,41 @@ mod backend {
             ..linux::LinuxConfig::default()
         })
         .expect("open /dev/fb0");
+        let mut app = App::with_factory(backend, SwRendererFactory);
+        app.with_default_widgets().with_default_systems();
+        app
+    }
+}
+
+#[cfg(all(
+    feature = "linux-drm",
+    target_os = "linux",
+    not(feature = "wgpu"),
+    not(feature = "sdl-gpu"),
+    not(feature = "sdl"),
+    not(feature = "linux-fb"),
+    not(all(feature = "web-canvas", target_arch = "wasm32")),
+))]
+mod backend {
+    use super::*;
+    use mirui::app::SwRendererFactory;
+    use mirui::surface::linux::{self, LinuxDrmSurface};
+
+    pub type ActiveSurface = LinuxDrmSurface;
+    pub type ActiveFactory = SwRendererFactory;
+
+    pub fn build_app(_title: &str, _w: u16, _h: u16) -> App<ActiveSurface, ActiveFactory> {
+        let inset = std::env::var("MIRUI_OVERSCAN_INSET")
+            .ok()
+            .and_then(|s| s.parse::<u8>().ok())
+            .unwrap_or(0);
+        let card_path = std::env::var("MIRUI_DRM_CARD").unwrap_or_else(|_| "/dev/dri/card0".into());
+        let backend = linux::init_drm(linux::LinuxDrmConfig {
+            card_path: &card_path,
+            overscan_inset_percent: inset,
+            ..linux::LinuxDrmConfig::default()
+        })
+        .expect("open DRM card");
         let mut app = App::with_factory(backend, SwRendererFactory);
         app.with_default_widgets().with_default_systems();
         app
