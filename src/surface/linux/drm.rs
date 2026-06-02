@@ -246,14 +246,20 @@ impl LinuxDrmSurface {
                 None,
             ) {
                 Ok(()) => {
+                    // POLLIN gate: drivers that ack page_flip but drop the event
+                    // would otherwise hang `receive_events` here.
                     let mut pfd = libc::pollfd {
                         fd: card.as_fd().as_raw_fd(),
                         events: libc::POLLIN,
                         revents: 0,
                     };
-                    let _ = unsafe { libc::poll(&mut pfd, 1, 200) };
-                    let _ = card.receive_events();
-                    true
+                    let r = unsafe { libc::poll(&mut pfd, 1, 200) };
+                    if r > 0 && pfd.revents & libc::POLLIN != 0 {
+                        let _ = card.receive_events();
+                        true
+                    } else {
+                        false
+                    }
                 }
                 Err(_) => false,
             }

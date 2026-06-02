@@ -3,10 +3,10 @@ use crate::draw::texture::Texture;
 /// Same-position physical-pixel copy between two framebuffer slots.
 /// Bounds must come from `Viewport::rect_to_physical_pixel_bounds`.
 pub(crate) fn blit_region(dst: &mut Texture, src: &Texture, x0: i32, y0: i32, x1: i32, y1: i32) {
-    debug_assert_eq!(src.format, dst.format);
-    debug_assert_eq!(src.stride, dst.stride);
-    debug_assert_eq!(src.width, dst.width);
-    debug_assert_eq!(src.height, dst.height);
+    assert_eq!(src.format, dst.format, "mirror src/dst format mismatch");
+    assert_eq!(src.stride, dst.stride, "mirror src/dst stride mismatch");
+    assert_eq!(src.width, dst.width, "mirror src/dst width mismatch");
+    assert_eq!(src.height, dst.height, "mirror src/dst height mismatch");
     let x0 = x0.max(0) as usize;
     let y0 = y0.max(0) as usize;
     let x1 = (x1.max(0) as usize).min(src.width as usize);
