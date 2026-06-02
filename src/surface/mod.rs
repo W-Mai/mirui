@@ -1,6 +1,7 @@
 pub mod framebuf;
 #[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 pub mod linux;
+pub(crate) mod mirror;
 #[cfg(feature = "sdl")]
 pub mod sdl;
 #[cfg(feature = "sdl-gpu")]
@@ -100,6 +101,11 @@ pub trait Surface: crate::cache::InspectCaches {
 
     /// Called at the end of every `App::tick`, even on empty frames.
     fn frame_end(&mut self) {}
+
+    /// Default 1 skips dirty mirroring.
+    fn buffer_count(&self) -> usize {
+        1
+    }
 }
 
 /// Convert a backend-private physical pixel size to logical via `scale`.
@@ -123,6 +129,13 @@ pub(crate) fn logical_from_physical(phys_w: u16, phys_h: u16, scale: Fixed) -> (
 /// methods instead.
 pub trait FramebufferAccess: Surface {
     fn framebuffer(&mut self) -> Texture<'_>;
+
+    /// Index 0 is active; rest are inactives in rotation order.
+    fn all_buffers(&mut self) -> alloc::vec::Vec<Texture<'_>> {
+        alloc::vec![self.framebuffer()]
+    }
+
+    fn advance(&mut self) {}
 }
 
 #[cfg(test)]

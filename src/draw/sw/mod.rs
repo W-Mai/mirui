@@ -591,66 +591,20 @@ impl Renderer for SwRenderer<'_> {
     }
 
     fn scroll_target_region(&mut self, area: &Rect, dx: Fixed, dy: Fixed) {
-        // Sub-pixel deltas truncate toward zero; the caller is expected
-        // to keep the residue and re-submit it next frame. Truncation
-        // (not floor) keeps the residue's sign matching the original
-        // delta so a `-0.5` shift doesn't bounce to `-1` here and leave
-        // a `+0.5` residue.
+        // Truncate (not floor) so sub-pixel residue keeps the original sign.
         let (px0, py0, px1, py1) = self.viewport.rect_to_physical_pixel_bounds(*area);
-        let target_w = self.target.width as i32;
-        let target_h = self.target.height as i32;
         let scale = self.viewport.scale();
         let dx_phys = (dx * scale).trunc_to_int();
         let dy_phys = (dy * scale).trunc_to_int();
-        if dx_phys == 0 && dy_phys == 0 {
-            return;
-        }
-
-        let sx0 = px0.max(0);
-        let sy0 = py0.max(0);
-        let sx1 = px1.min(target_w);
-        let sy1 = py1.min(target_h);
-        if sx1 <= sx0 || sy1 <= sy0 {
-            return;
-        }
-
-        let bpp = self.target.format.bytes_per_pixel();
-        let stride = self.target.stride;
-        let buf = self.target.buf.as_mut_slice();
-
-        // Pick row order so a source row is never clobbered before it
-        // is read: top-down for dy < 0, bottom-up otherwise.
-        let row_iter: alloc::vec::Vec<i32> = if dy_phys >= 0 {
-            (sy0..sy1).rev().collect()
-        } else {
-            (sy0..sy1).collect()
-        };
-
-        for src_y in row_iter {
-            let dst_y = src_y + dy_phys;
-            if dst_y < sy0 || dst_y >= sy1 {
-                continue;
-            }
-            if dx_phys == 0 {
-                let src_off = src_y as usize * stride + sx0 as usize * bpp;
-                let dst_off = dst_y as usize * stride + sx0 as usize * bpp;
-                let row_bytes = (sx1 - sx0) as usize * bpp;
-                buf.copy_within(src_off..src_off + row_bytes, dst_off);
-                continue;
-            }
-            let dst_x0 = (sx0 + dx_phys).max(sx0);
-            let dst_x1 = (sx1 + dx_phys).min(sx1);
-            if dst_x1 <= dst_x0 {
-                continue;
-            }
-            let src_x0 = dst_x0 - dx_phys;
-            let copy_w = (dst_x1 - dst_x0) as usize * bpp;
-            let src_off = src_y as usize * stride + src_x0 as usize * bpp;
-            let dst_off = dst_y as usize * stride + dst_x0 as usize * bpp;
-            // `copy_within` is memmove, so within a row overlap is
-            // safe; the row_iter direction handles cross-row aliasing.
-            buf.copy_within(src_off..src_off + copy_w, dst_off);
-        }
+        crate::surface::mirror::texture_scroll_in_place(
+            &mut self.target,
+            px0,
+            py0,
+            px1,
+            py1,
+            dx_phys,
+            dy_phys,
+        );
     }
 
     fn read_target_region(&self, src: &Rect, dst: &mut crate::draw::texture::Texture) {

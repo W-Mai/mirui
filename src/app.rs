@@ -31,6 +31,16 @@ pub trait RendererFactory<B: Surface> {
         Self: 'a,
         B: 'a;
     fn make<'a>(&'a mut self, backend: &'a mut B, transform: &Viewport) -> Self::Renderer<'a>;
+
+    /// Mirror the frame's dirty rects into inactive slots and rotate.
+    /// Default no-op — only multi-buffer CPU backends override.
+    fn mirror_and_advance(
+        &mut self,
+        _backend: &mut B,
+        _plan: &crate::widget::dirty::DirtyRegions,
+        _transform: &Viewport,
+    ) {
+    }
 }
 
 /// Default factory that produces plain `SwRenderer<'a>` on top of any
@@ -48,6 +58,40 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
         let mut r = SwRenderer::new(tex);
         r.viewport = *transform;
         r
+    }
+
+    fn mirror_and_advance(
+        &mut self,
+        backend: &mut B,
+        plan: &crate::widget::dirty::DirtyRegions,
+        transform: &Viewport,
+    ) {
+        if backend.buffer_count() <= 1 {
+            return;
+        }
+        {
+            let mut bufs = backend.all_buffers();
+            if let Some((active, inactives)) = bufs.split_first_mut() {
+                for rect in &plan.rects {
+                    let (x0, y0, x1, y1) = transform.rect_to_physical_pixel_bounds(*rect);
+                    for inact in inactives.iter_mut() {
+                        crate::surface::mirror::blit_region(inact, active, x0, y0, x1, y1);
+                    }
+                }
+                let scale = transform.scale();
+                for shift in &plan.shifts {
+                    let (x0, y0, x1, y1) = transform.rect_to_physical_pixel_bounds(shift.area);
+                    let dx_phys = (shift.dx * scale).trunc_to_int();
+                    let dy_phys = (shift.dy * scale).trunc_to_int();
+                    for inact in inactives.iter_mut() {
+                        crate::surface::mirror::texture_scroll_in_place(
+                            inact, x0, y0, x1, y1, dx_phys, dy_phys,
+                        );
+                    }
+                }
+            }
+        }
+        backend.advance();
     }
 }
 
