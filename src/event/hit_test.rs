@@ -20,8 +20,12 @@ fn build_rects(
     entity: Entity,
     parent_node: &mut LayoutNode,
     entities: &mut Vec<Entity>,
+    parents: &mut Vec<Option<usize>>,
+    parent_idx: Option<usize>,
 ) {
+    let my_idx = entities.len();
     entities.push(entity);
+    parents.push(parent_idx);
     if let Some(children) = world.get::<Children>(entity) {
         for &child in &children.0 {
             if world.get::<Widget>(child).is_none() {
@@ -33,7 +37,14 @@ fn build_rects(
             if let Some(style) = world.get::<Style>(child) {
                 let mut child_node = LayoutNode::new(style.layout);
                 crate::widget::render_system::apply_text_intrinsic(world, child, &mut child_node);
-                build_rects(world, child, &mut child_node, entities);
+                build_rects(
+                    world,
+                    child,
+                    &mut child_node,
+                    entities,
+                    parents,
+                    Some(my_idx),
+                );
                 parent_node.add_child(child_node);
             }
         }
@@ -233,7 +244,15 @@ pub fn hit_test(
     let root_style = world.get::<Style>(root)?;
     let mut root_node = LayoutNode::new(root_style.layout);
     let mut entities = Vec::new();
-    build_rects(world, root, &mut root_node, &mut entities);
+    let mut parents: Vec<Option<usize>> = Vec::new();
+    build_rects(
+        world,
+        root,
+        &mut root_node,
+        &mut entities,
+        &mut parents,
+        None,
+    );
     compute_layout(
         &mut root_node,
         Fixed::ZERO,
@@ -248,6 +267,27 @@ pub fn hit_test(
     let scroll_offsets = compute_scroll_offsets(world, root, &entities);
     let transforms = compute_transforms(world, root, &entities, &rects);
     let transforms_3d = compute_transforms_3d(world, root, &entities, &rects);
+
+    // Visually-clipped rows must not steal taps from siblings outside the scroll.
+    let clip_ok = |i: usize, px: Fixed, py: Fixed| -> bool {
+        let mut p = parents[i];
+        while let Some(idx) = p {
+            if world
+                .get::<crate::event::scroll::components::ScrollOffset>(entities[idx])
+                .is_some()
+            {
+                let r = rects[idx];
+                let (asx, asy) = scroll_offsets[idx];
+                let ax = r.x - asx;
+                let ay = r.y - asy;
+                if !(px >= ax && px < ax + r.w && py >= ay && py < ay + r.h) {
+                    return false;
+                }
+            }
+            p = parents[idx];
+        }
+        true
+    };
 
     let mut hit = None;
     for (i, rect) in rects.iter().enumerate() {
@@ -264,7 +304,8 @@ pub fn hit_test(
 
         if let Some(tf3d) = transforms_3d[i] {
             if let Some(q) = tf3d.apply_rect(shifted) {
-                if crate::types::transform_3d::point_in_quad(&q, Point { x, y }) {
+                if crate::types::transform_3d::point_in_quad(&q, Point { x, y }) && clip_ok(i, x, y)
+                {
                     hit = Some(entities[i]);
                 }
             }
@@ -284,6 +325,7 @@ pub fn hit_test(
             && probe.x < shifted.x + shifted.w
             && probe.y >= shifted.y
             && probe.y < shifted.y + shifted.h
+            && clip_ok(i, probe.x, probe.y)
         {
             hit = Some(entities[i]);
         }

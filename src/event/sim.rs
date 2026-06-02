@@ -1878,6 +1878,68 @@ mod tests {
         );
     }
 
+    /// Regression: scrolled-past row must not steal taps from a tabbar above.
+    #[test]
+    fn hit_test_clips_scrolled_child_to_container_rect() {
+        use crate::event::scroll::ScrollOffset;
+        use crate::layout::Position;
+        use crate::widget::{Children, Parent};
+        let mut world = World::new();
+        let mk = |w: &mut World, width: i32, h: i32| {
+            WidgetBuilder::new(w)
+                .layout(LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(width),
+                    height: Dimension::px(h),
+                    ..Default::default()
+                })
+                .id()
+        };
+        let attach = |w: &mut World, parent: Entity, child: Entity| {
+            w.insert(child, Parent(parent));
+            if let Some(c) = w.get_mut::<Children>(parent) {
+                c.0.push(child);
+            }
+        };
+
+        let root = mk(&mut world, 100, 100);
+        let tab = mk(&mut world, 100, 20);
+        let scroll = mk(&mut world, 100, 80);
+        attach(&mut world, root, tab);
+        attach(&mut world, root, scroll);
+
+        let row = WidgetBuilder::new(&mut world)
+            .layout(LayoutStyle {
+                position: Position::Absolute,
+                top: Dimension::px(80),
+                left: Dimension::px(0),
+                width: Dimension::px(100),
+                height: Dimension::px(40),
+                ..Default::default()
+            })
+            .id();
+        attach(&mut world, scroll, row);
+
+        // tabbar y=[0,20). row layout y=100, ScrollOffset 95 → visual y=5.
+        world.insert(
+            scroll,
+            ScrollOffset {
+                x: Fixed::ZERO,
+                y: Fixed::from_int(95),
+            },
+        );
+
+        let hit = hit_test(
+            &world,
+            root,
+            Fixed::from_int(50),
+            Fixed::from_int(10),
+            100,
+            100,
+        );
+        assert_eq!(hit, Some(tab));
+    }
+
     /// Bug repro: a Tap event delivered through dispatch_input at
     /// the Switch's centre must run switch_handler and toggle on.
     #[test]
