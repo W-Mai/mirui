@@ -329,7 +329,7 @@ impl Surface for LinuxDrmSurface {
 
     fn frame_end(&mut self) {
         // vc4/mali/iMX implement DRM wait_vblank; fbdev compat layer doesn't.
-        let _ = unsafe { wait_vblank(self.card.as_fd(), _DRM_VBLANK_RELATIVE, 1, 0) };
+        let _ = wait_vblank(self.card.as_fd(), _DRM_VBLANK_RELATIVE, 1, 0);
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
