@@ -18,16 +18,37 @@ use mirui::widget::dirty::Dirty;
 use mirui::widget::theme::{self, ColorToken};
 use mirui::widget::{Children, OffscreenRender, Theme};
 
-const SCALE: i32 = 4;
-const W: i32 = 128 * SCALE;
-const H: i32 = 128 * SCALE;
-const TABBAR_H: i32 = 14 * SCALE;
-const PAGE_H: i32 = H - TABBAR_H;
-const ROW_H: i32 = 12 * SCALE;
+const DEFAULT_SCALE: i32 = 4;
 const POOL_SIZE: usize = 12;
 const ITEM_COUNT: u32 = 50;
 
-pub const SIZE: (u16, u16) = (W as u16, H as u16);
+struct DemoSize {
+    w: i32,
+    h: i32,
+    tabbar_h: i32,
+    page_h: i32,
+    row_h: i32,
+    scale: i32,
+}
+
+impl DemoSize {
+    fn for_viewport(view_w: u16, view_h: u16) -> Self {
+        let w = (view_w as i32).max(1);
+        let h = (view_h as i32).max(1);
+        let scale = (w.min(h) / 128).max(1);
+        let tabbar_h = 14 * scale;
+        Self {
+            w,
+            h,
+            tabbar_h,
+            page_h: h - tabbar_h,
+            row_h: 12 * scale,
+            scale,
+        }
+    }
+}
+
+pub const SIZE: (u16, u16) = ((128 * DEFAULT_SCALE) as u16, (128 * DEFAULT_SCALE) as u16);
 
 const ACCENT: ColorToken = ColorToken::custom("accent");
 
@@ -101,7 +122,17 @@ mirui_macros::timer!(Cycle, every: 3_000, |world, entity| {
 });
 
 pub fn build(setup: &mut Setup<'_>) -> Entity {
+    use mirui::surface::Surface;
     let app = &mut setup.app;
+    let info = app.backend.display_info();
+    let DemoSize {
+        w: w_,
+        h: h_,
+        tabbar_h: tabbar_h_,
+        page_h: page_h_,
+        row_h: row_h_,
+        scale: scale_,
+    } = DemoSize::for_viewport(info.width, info.height);
     app.add_plugin(InputFeedbackPlugin::default());
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(FpsSummaryPlugin::default());
@@ -117,8 +148,8 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         .bg_color(ColorToken::Surface)
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Dimension::px(W),
-            height: Dimension::px(H),
+            width: Dimension::px(w_),
+            height: Dimension::px(h_),
             ..Default::default()
         })
         .id();
@@ -131,10 +162,10 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
 
         tabs (
             bg_color: ColorToken::SurfaceVariant,
-            width: W,
-            height: TABBAR_H
+            width: w_,
+            height: tabbar_h_
         ) [
-            TabBar::new(3).with_indicator_height(2 * SCALE as u32),
+            TabBar::new(3).with_indicator_height(2 * scale_ as u32),
         ] {
             tab0 (
                 text: "List",
@@ -170,15 +201,15 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             bg_color: ColorToken::Surface,
             position: Position::Absolute,
             left: 0,
-            top: TABBAR_H,
-            width: W,
-            height: PAGE_H
+            top: tabbar_h_,
+            width: w_,
+            height: page_h_
         ) [
             TabContent {
                 tab_bar: tabs,
                 index: 0,
             },
-            LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
+            LazyList::new(ITEM_COUNT, row_h_, POOL_SIZE as u8),
             LazyListBinder { bind: row_binder },
             ScrollOffset {
                 x: Fixed::ZERO,
@@ -187,7 +218,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             ScrollConfig {
                 direction: ScrollAxis::Vertical,
                 elastic: false,
-                content_height: Fixed::from_int(ROW_H * ITEM_COUNT as i32),
+                content_height: Fixed::from_int(row_h_ * ITEM_COUNT as i32),
                 content_width: Fixed::ZERO,
             },
         ] {
@@ -198,8 +229,8 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
-                    width: W,
-                    height: ROW_H
+                    width: w_,
+                    height: row_h_
                 ) {}
             }
         }
@@ -221,11 +252,11 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             bg_color: ColorToken::Surface,
             position: Position::Absolute,
             left: 0,
-            top: TABBAR_H,
-            width: W,
-            height: PAGE_H,
+            top: tabbar_h_,
+            width: w_,
+            height: page_h_,
             direction: FlexDirection::Column,
-            padding: Padding::all(10 * SCALE)
+            padding: Padding::all(10 * scale_)
         ) [
             TabContent {
                 tab_bar: tabs,
@@ -234,35 +265,35 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         ] {
             enable_row (
                 direction: FlexDirection::Row,
-                height: 28 * SCALE,
+                height: 28 * scale_,
                 align: AlignItems::Center
             ) {
                 enable_label (text: "Enable", text_color: ColorToken::OnSurface, grow: 1.0) {}
-                enable_switch (width: 40 * SCALE, height: 20 * SCALE) [
+                enable_switch (width: 40 * scale_, height: 20 * scale_) [
                     Switch::new(),
                     OffscreenRender::default(),
                 ] {}
             }
             slider_row (
-                height: 14 * SCALE,
+                height: 14 * scale_,
                 padding: Padding {
-                    top: Dimension::px(6 * SCALE),
+                    top: Dimension::px(6 * scale_),
                     ..Default::default()
                 }
             ) {
-                value_slider (width: 108 * SCALE, height: 14 * SCALE) [
+                value_slider (width: 108 * scale_, height: 14 * scale_) [
                     Slider::new(Fixed::ZERO, Fixed::from_int(100)),
                     FormSlider,
                 ] {}
             }
             progress_row (
-                height: 10 * SCALE,
+                height: 10 * scale_,
                 padding: Padding {
-                    top: Dimension::px(8 * SCALE),
+                    top: Dimension::px(8 * scale_),
                     ..Default::default()
                 }
             ) {
-                value_progress (width: 108 * SCALE, height: 8 * SCALE, border_radius: 4 * SCALE as u32) [
+                value_progress (width: 108 * scale_, height: 8 * scale_, border_radius: 4 * scale_ as u32) [
                     ProgressBar::new(),
                     FormProgress,
                 ] {}
@@ -280,11 +311,11 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             bg_color: ColorToken::Surface,
             position: Position::Absolute,
             left: 0,
-            top: TABBAR_H,
-            width: W,
-            height: PAGE_H,
+            top: tabbar_h_,
+            width: w_,
+            height: page_h_,
             direction: FlexDirection::Column,
-            padding: Padding::all(12 * SCALE),
+            padding: Padding::all(12 * scale_),
             align: AlignItems::Center
         ) [
             TabContent {
@@ -292,18 +323,18 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                 index: 2,
             },
         ] {
-            primary_label (text: "Primary", text_color: ColorToken::OnSurface, height: 14 * SCALE) {}
-            primary_block (width: 80 * SCALE, height: 18 * SCALE, bg_color: ColorToken::Primary, border_radius: 4 * SCALE as u32) {}
+            primary_label (text: "Primary", text_color: ColorToken::OnSurface, height: 14 * scale_) {}
+            primary_block (width: 80 * scale_, height: 18 * scale_, bg_color: ColorToken::Primary, border_radius: 4 * scale_ as u32) {}
             accent_label (
                 text: "accent (custom)",
                 text_color: ColorToken::OnSurfaceVariant,
-                height: 12 * SCALE,
+                height: 12 * scale_,
                 padding: Padding {
-                    top: Dimension::px(8 * SCALE),
+                    top: Dimension::px(8 * scale_),
                     ..Default::default()
                 }
             ) {}
-            accent_block (width: 80 * SCALE, height: 18 * SCALE, bg_color: ACCENT, border_radius: 4 * SCALE as u32) {}
+            accent_block (width: 80 * scale_, height: 18 * scale_, bg_color: ACCENT, border_radius: 4 * scale_ as u32) {}
         }
     };
 
@@ -327,6 +358,11 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         .expect("form Slider must be installed");
 
     let list_drag_anchor = list;
+
+    // MIRUI_SIM_OFF=1: skip auto-cycle so real InputEvents reach the demo.
+    if std::env::var("MIRUI_SIM_OFF").ok().as_deref() == Some("1") {
+        return root;
+    }
 
     app.world.insert_resource(
         SimTimeline::new(vec![
