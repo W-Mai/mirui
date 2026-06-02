@@ -64,17 +64,17 @@ impl ControlDevice for Card {}
 
 pub struct LinuxDrmSurface {
     card: Card,
-    #[allow(dead_code)] // kept for future atomic / multi-buffer paths
     crtc: crtc::Handle,
-    #[allow(dead_code)]
     connector: connector::Handle,
-    #[allow(dead_code)]
     mode: Mode,
     width: u16,
     height: u16,
     format: ColorFormat,
     scale: Fixed,
     buffers: alloc::vec::Vec<DrmBuffer>,
+    /// Index of the current active slot in `buffers`. mirui paints
+    /// here; `advance()` rotates it forward and re-points scanout.
+    front_idx: usize,
     inputs: alloc::vec::Vec<EvdevInput>,
     queue: VecDeque<InputEvent>,
     quit_flag: Arc<AtomicBool>,
@@ -230,6 +230,7 @@ impl LinuxDrmSurface {
             format,
             scale,
             buffers,
+            front_idx: 0,
             inputs,
             queue: VecDeque::new(),
             quit_flag,
@@ -324,7 +325,9 @@ impl Surface for LinuxDrmSurface {
             (x1.max(0) as u16).min(self.width),
             (y1.max(0) as u16).min(self.height),
         );
-        let _ = self.card.dirty_framebuffer(self.buffers[0].fb_id, &[clip]);
+        let _ = self
+            .card
+            .dirty_framebuffer(self.buffers[self.front_idx].fb_id, &[clip]);
     }
 
     fn frame_end(&mut self) {
@@ -346,13 +349,18 @@ impl Surface for LinuxDrmSurface {
     }
 
     fn persistence(&self) -> BackbufferPersistence {
+        // Dirty mirror keeps every slot synced; safe to treat as Persistent.
         BackbufferPersistence::Persistent
+    }
+
+    fn buffer_count(&self) -> usize {
+        self.buffers.len()
     }
 }
 
 impl FramebufferAccess for LinuxDrmSurface {
     fn framebuffer(&mut self) -> Texture<'_> {
-        let buf = &self.buffers[0];
+        let buf = &self.buffers[self.front_idx];
         let stride = buf.dumb.pitch() as usize;
         // SAFETY: `mmap_ptr/len` valid until self's Drop; `&mut self` excludes aliasing.
         let slice: &mut [u8] =
@@ -360,6 +368,42 @@ impl FramebufferAccess for LinuxDrmSurface {
         let mut tex = Texture::new(slice, self.width, self.height, self.format);
         tex.stride = stride;
         tex
+    }
+
+    fn all_buffers(&mut self) -> alloc::vec::Vec<Texture<'_>> {
+        let n = self.buffers.len();
+        let w = self.width;
+        let h = self.height;
+        let f = self.format;
+        let mut out = alloc::vec::Vec::with_capacity(n);
+        for i in 0..n {
+            let idx = (self.front_idx + i) % n;
+            let buf = &self.buffers[idx];
+            let stride = buf.dumb.pitch() as usize;
+            // SAFETY: N mmaps are disjoint allocations; `&mut self` excludes aliasing.
+            let slice: &mut [u8] =
+                unsafe { core::slice::from_raw_parts_mut(buf.mmap_ptr, buf.mmap_len) };
+            let mut tex = Texture::new(slice, w, h, f);
+            tex.stride = stride;
+            out.push(tex);
+        }
+        out
+    }
+
+    fn advance(&mut self) {
+        let n = self.buffers.len();
+        if n <= 1 {
+            return;
+        }
+        self.front_idx = (self.front_idx + 1) % n;
+        // set_crtc triggers RESOURCE_FLUSH for paravirtual drivers.
+        let _ = self.card.set_crtc(
+            self.crtc,
+            Some(self.buffers[self.front_idx].fb_id),
+            (0, 0),
+            &[self.connector],
+            Some(self.mode),
+        );
     }
 }
 
