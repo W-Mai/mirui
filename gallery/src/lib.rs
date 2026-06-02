@@ -191,11 +191,24 @@ mod backend {
             .ok()
             .and_then(|s| s.parse::<u8>().ok())
             .unwrap_or(2);
+        // MIRUI_DRM_MODE=WxH forces a panel mode the connector reports.
+        let mode = std::env::var("MIRUI_DRM_MODE").ok().and_then(|raw| {
+            let parsed = raw
+                .split_once('x')
+                .and_then(|(w, h)| Some((w.parse::<u16>().ok()?, h.parse::<u16>().ok()?)));
+            if parsed.is_none() {
+                eprintln!(
+                    "mirui::gallery: MIRUI_DRM_MODE={raw:?} not WxH; falling back to connector default"
+                );
+            }
+            parsed
+        });
         let backend = linux::init_drm(linux::LinuxDrmConfig {
             card_path: &card_path,
             connector_filter: connector_filter.as_deref(),
             overscan_inset_percent: inset,
             buffer_count,
+            mode,
             ..linux::LinuxDrmConfig::default()
         })
         .expect("open DRM card");

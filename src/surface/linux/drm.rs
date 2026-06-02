@@ -462,12 +462,14 @@ impl FramebufferAccess for LinuxDrmSurface {
              frame_end must drain the previous flip before the next \
              advance"
         );
+        // `front_idx` is the slot mirui *just* painted; rotate before flip.
+        let just_painted = self.buffers[self.front_idx].fb_id;
         self.front_idx = (self.front_idx + 1) % n;
 
         if self.page_flip_supported {
             match self.card.page_flip(
                 self.crtc,
-                self.buffers[self.front_idx].fb_id,
+                just_painted,
                 drm::control::PageFlipFlags::EVENT,
                 None,
             ) {
@@ -481,7 +483,7 @@ impl FramebufferAccess for LinuxDrmSurface {
         // set_crtc triggers RESOURCE_FLUSH for paravirtual drivers.
         let _ = self.card.set_crtc(
             self.crtc,
-            Some(self.buffers[self.front_idx].fb_id),
+            Some(just_painted),
             (0, 0),
             &[self.connector],
             Some(self.mode),
