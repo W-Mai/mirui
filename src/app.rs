@@ -110,6 +110,7 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     last_flush_ns: u64,
     last_seed_prev_ns: u64,
     pending_frame: Option<PendingFrame>,
+    needs_full_first_frame: bool,
 }
 
 struct PendingFrame {
@@ -163,6 +164,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             last_flush_ns: 0,
             last_seed_prev_ns: 0,
             pending_frame: None,
+            needs_full_first_frame: true,
         }
     }
 
@@ -582,9 +584,18 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         let layout_start = self.clock_ns();
 
-        let plan = crate::trace_span!("frame.collect_dirty", {
-            render_system::collect_dirty_regions(&mut self.world, root, &transform)
-        });
+        let force_full = self.needs_full_first_frame && self.backend.buffer_count() > 1;
+        let plan = if force_full {
+            let (lw, lh) = transform.logical_size();
+            crate::widget::dirty::DirtyRegions {
+                rects: alloc::vec![Rect::new(0, 0, lw, lh)],
+                shifts: alloc::vec::Vec::new(),
+            }
+        } else {
+            crate::trace_span!("frame.collect_dirty", {
+                render_system::collect_dirty_regions(&mut self.world, root, &transform)
+            })
+        };
         let layout_end = self.clock_ns();
         self.last_layout_ns = layout_end.saturating_sub(layout_start);
 
@@ -646,6 +657,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 }
                 self.backend.end_flush();
             }
+            self.factory
+                .mirror_and_advance(&mut self.backend, &plan, &transform);
+            self.needs_full_first_frame = false;
             self.last_flush_ns = self.clock_ns().saturating_sub(render_end);
             self.last_seed_prev_ns = 0;
 
