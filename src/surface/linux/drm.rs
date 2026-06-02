@@ -317,7 +317,12 @@ impl Surface for LinuxDrmSurface {
     }
 
     fn flush(&mut self, area: &Rect) {
-        // Paravirtual drivers (virtio_gpu/vmwgfx) need MODE_DIRTYFB to flush.
+        // N>1: page-flip in `advance` is the sync path; skip dirty_framebuffer.
+        // N=1: dirty_framebuffer is paravirtual's only RESOURCE_FLUSH path.
+        if self.buffers.len() > 1 {
+            let _ = area;
+            return;
+        }
         let (x0, y0, x1, y1) = area.pixel_bounds();
         let clip = ClipRect::new(
             x0.max(0) as u16,

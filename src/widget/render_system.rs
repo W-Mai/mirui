@@ -930,6 +930,7 @@ fn collect_dirty_walk(
     scroll_clip: Option<Rect>,
     bounds: &mut DirtyBounds,
     plan: &mut DirtyRegions,
+    out_of_scroll_prev: &mut alloc::vec::Vec<Rect>,
 ) {
     use super::dirty::Dirty;
     if *idx >= entities.len() {
@@ -959,6 +960,7 @@ fn collect_dirty_walk(
                 inside_scroll,
                 scroll_clip,
                 bounds,
+                out_of_scroll_prev,
             );
         }
 
@@ -986,6 +988,7 @@ fn collect_dirty_walk(
                     inside_scroll,
                     scroll_clip,
                     bounds,
+                    out_of_scroll_prev,
                 );
             }
             let next_gen = world
@@ -1054,6 +1057,7 @@ fn collect_dirty_walk(
                 inside_scroll,
                 scroll_clip,
                 bounds,
+                out_of_scroll_prev,
             );
         }
     }
@@ -1081,6 +1085,7 @@ fn collect_dirty_walk(
             child_scroll_clip,
             bounds,
             plan,
+            out_of_scroll_prev,
         );
     }
 
@@ -1146,6 +1151,7 @@ fn push_entity_dirty(
     inside_scroll: bool,
     scroll_clip: Option<Rect>,
     bounds: &mut DirtyBounds,
+    out_of_scroll_prev: &mut alloc::vec::Vec<Rect>,
 ) {
     use super::dirty::Dirty;
     let curr_layout = quad_for(world, entity, node.rect, parent_3d)
@@ -1166,11 +1172,17 @@ fn push_entity_dirty(
     // Inside a scroll container the self-blit already moved the prev
     // rect's pixels to their new spot, so unioning prev here would
     // re-stretch the bbox over the area self-blit handled.
+    //
+    // Out-of-scroll prev rects feed post-walk shift translation
+    // (overlay smear from ancestor-scroll self-blit).
     let mut union_rect = if inside_scroll {
         curr
     } else {
         match world.get::<super::dirty::PrevRect>(entity) {
-            Some(prev) => curr.union(&prev.0),
+            Some(prev) => {
+                out_of_scroll_prev.push(prev.0);
+                curr.union(&prev.0)
+            }
             None => curr,
         }
     };
@@ -1295,6 +1307,7 @@ pub fn collect_dirty_regions(
         max_y: Fixed::from_int(-1),
     };
 
+    let mut out_of_scroll_prev: alloc::vec::Vec<Rect> = alloc::vec::Vec::new();
     {
         crate::trace_span!("dirty.walk");
         idx = 0;
@@ -1310,7 +1323,43 @@ pub fn collect_dirty_regions(
             None,
             &mut bounds,
             &mut plan,
+            &mut out_of_scroll_prev,
         );
+    }
+
+    // Cover the smear strip from ancestor-scroll self-blit dragging overlay prev pixels.
+    for prev in &out_of_scroll_prev {
+        for sop in &plan.shifts {
+            let Some(inter) = prev.intersect(&sop.area) else {
+                continue;
+            };
+            let shifted = Rect {
+                x: inter.x + sop.dx,
+                y: inter.y + sop.dy,
+                w: inter.w,
+                h: inter.h,
+            };
+            let (sx0, sy0, sx1, sy1) = shifted.pixel_bounds();
+            if sx1 <= sx0 || sy1 <= sy0 {
+                continue;
+            }
+            let fx0 = Fixed::from_int(sx0);
+            let fy0 = Fixed::from_int(sy0);
+            let fx1 = Fixed::from_int(sx1);
+            let fy1 = Fixed::from_int(sy1);
+            if fx0 < bounds.min_x {
+                bounds.min_x = fx0;
+            }
+            if fy0 < bounds.min_y {
+                bounds.min_y = fy0;
+            }
+            if fx1 > bounds.max_x {
+                bounds.max_x = fx1;
+            }
+            if fy1 > bounds.max_y {
+                bounds.max_y = fy1;
+            }
+        }
     }
 
     let (min_x, min_y, max_x, max_y) = (bounds.min_x, bounds.min_y, bounds.max_x, bounds.max_y);
