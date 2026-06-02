@@ -509,6 +509,7 @@ pub struct SimTimeline {
     cursor: usize,
     action_elapsed_ms: u32,
     action_started: bool,
+    drag_move_emitted: bool,
     rotate_emitted: u16,
     start_ms: Option<u32>,
     looping: bool,
@@ -540,6 +541,7 @@ impl SimTimeline {
             cursor: 0,
             action_elapsed_ms: 0,
             action_started: false,
+            drag_move_emitted: false,
             rotate_emitted: 0,
             start_ms: None,
             looping: false,
@@ -591,6 +593,7 @@ pub fn sim_timeline_system(world: &mut World) {
             if tl.looping {
                 tl.cursor = 0;
                 tl.action_started = false;
+                tl.drag_move_emitted = false;
                 tl.rotate_emitted = 0;
                 tl.start_ms = Some(now_ms);
             }
@@ -695,6 +698,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
             }
@@ -705,10 +709,15 @@ pub fn sim_timeline_system(world: &mut World) {
             duration_ms,
             ease,
         } => {
+            let move_emitted = world
+                .resource::<SimTimeline>()
+                .map(|tl| tl.drag_move_emitted)
+                .unwrap_or(false);
             if !action_started {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.action_started = true;
                     tl.action_elapsed_ms = 0;
+                    tl.drag_move_emitted = false;
                 }
                 let event = InputEvent::PointerDown {
                     id: 0,
@@ -716,7 +725,7 @@ pub fn sim_timeline_system(world: &mut World) {
                     y: from.y,
                 };
                 super::dispatch_input(world, root, &event, now_ms, lw, lh);
-            } else if action_elapsed >= duration_ms as u32 {
+            } else if action_elapsed >= duration_ms as u32 && move_emitted {
                 let event = InputEvent::PointerUp {
                     id: 0,
                     x: to.x,
@@ -726,17 +735,27 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
             } else {
-                let t = Fixed::from_raw(
-                    (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
-                );
-                let eased = ease(t);
+                // Catch-up branch (elapsed ≥ duration, no move yet) clamps t=1
+                // so a sub-tick drag still emits one move before PointerUp.
+                let t_raw = if action_elapsed >= duration_ms as u32 {
+                    Fixed::ONE
+                } else {
+                    Fixed::from_raw(
+                        (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
+                    )
+                };
+                let eased = ease(t_raw);
                 let x = from.x + eased * (to.x - from.x);
                 let y = from.y + eased * (to.y - from.y);
                 let event = InputEvent::PointerMove { id: 0, x, y };
                 super::dispatch_input(world, root, &event, now_ms, lw, lh);
+                if let Some(tl) = world.resource_mut::<SimTimeline>() {
+                    tl.drag_move_emitted = true;
+                }
             }
         }
         ResolvedAction::MoveTo {
@@ -766,6 +785,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
             } else {
@@ -858,6 +878,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
             } else {
@@ -974,6 +995,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
             } else {
@@ -1019,6 +1041,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
             } else {
@@ -1081,6 +1104,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
             }
@@ -1090,6 +1114,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 if let Some(tl) = world.resource_mut::<SimTimeline>() {
                     tl.cursor += 1;
                     tl.action_started = false;
+                    tl.drag_move_emitted = false;
                     tl.rotate_emitted = 0;
                 }
             }
