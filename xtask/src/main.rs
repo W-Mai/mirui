@@ -743,8 +743,46 @@ fn cmd_release() -> Result {
     println!("  → waiting for CI...");
     wait_for_ci(&root)?;
 
-    run_cmd("git", &["tag", &tag])?;
-    run_cmd("git", &["push", "origin", &tag])?;
+    // Idempotent: skip `git tag` when the tag already points at HEAD.
+    let head = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(&root)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    let tag_sha = Command::new("git")
+        .args(["rev-parse", "--verify", "--quiet", &tag])
+        .current_dir(&root)
+        .output()
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .unwrap_or_default();
+    if tag_sha.is_empty() {
+        run_cmd("git", &["tag", &tag])?;
+    } else if tag_sha != head {
+        return Err(format!("tag {tag} exists but points at {tag_sha}, not HEAD {head}").into());
+    } else {
+        println!("  → tag {tag} already at HEAD, skip");
+    }
+
+    // Idempotent: skip tag push when origin already has the same sha.
+    let remote_tag = Command::new("git")
+        .args(["ls-remote", "--tags", "origin", &format!("refs/tags/{tag}")])
+        .current_dir(&root)
+        .output()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .next()
+                .and_then(|l| l.split_whitespace().next())
+                .unwrap_or("")
+                .to_string()
+        })
+        .unwrap_or_default();
+    if remote_tag.is_empty() {
+        run_cmd("git", &["push", "origin", &tag])?;
+    } else {
+        println!("  → tag {tag} already on origin, skip");
+    }
 
     // Create GitHub release with changelog content
     let notes = extract_changelog_for_version(&root, &version);
