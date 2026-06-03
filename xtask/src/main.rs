@@ -181,6 +181,37 @@ fn cmd_lint() -> Result {
         "-D",
         "warnings",
     ])?;
+    // `--all-features` enables `linux-fb` + `linux-drm`, but their
+    // `cfg(target_os = "linux")` gate hides them on macOS / Windows
+    // hosts — CI on Linux saw the only error. Re-run pinned to the
+    // installed `x86_64-unknown-linux-gnu` target when off-Linux so
+    // cross-host devs catch the same clippy lints locally.
+    if !cfg!(target_os = "linux") {
+        let installed = Command::new("rustup")
+            .args(["target", "list", "--installed"])
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).contains("x86_64-unknown-linux-gnu"))
+            .unwrap_or(false);
+        if installed {
+            cargo(&[
+                "+stable",
+                "clippy",
+                "--workspace",
+                "--all-features",
+                "--target",
+                "x86_64-unknown-linux-gnu",
+                "--",
+                "-D",
+                "warnings",
+            ])?;
+        } else {
+            println!(
+                "  ⏭ x86_64-unknown-linux-gnu target not installed, \
+                 cross-host linux clippy skipped"
+            );
+        }
+    }
     cargo(&["+stable", "fmt", "--all", "--check"])?;
     println!("  → xrune-fmt --check gallery/examples/*.rs");
     for entry in std::fs::read_dir("gallery/examples")? {
