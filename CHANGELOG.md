@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-06-03
+
+Linux DRM/KMS backend — `feature = "linux-drm"` runs mirui directly against `/dev/dri/cardN` with a connector + CRTC + N dumb buffers, page-flipping via legacy `drmModePageFlip` on every `frame_end`. Companion N-buffer dirty mirror in core: `Surface` exposes multiple framebuffer slots and mirui copies each frame's dirty rects + scroll shifts into the inactive slots so the next rotation finds them ready. A handful of fixes ride along — `hit_test` no longer routes taps through scrolled-off rows, the cursor leaves no smear on a scrolled overlay, and `SimAction::drag` emits at least one `PointerMove` on low-tick-rate hosts.
+
+### Added
+
+- **`feature = "linux-drm"`** — opt-in DRM/KMS backend on `drm` 0.14, `drm-ffi` 0.10, `evdev` 0.13, `libc` 0.2, and `signal-hook` 0.3. Mutually exclusive with `linux-fb` at compile time. Drives the full legacy modeset (`acquire_master_lock` → connector + mode + CRTC selection → dumb buffer × N → `add_framebuffer` → `set_crtc`), mmaps each dumb buffer for the surface's lifetime, shares the evdev pump and DPI scale heuristic with `linux-fb`, and rejects `simpledrm` / `simple-framebuffer` / `efifb` upfront so callers fall through to the fbdev path.
+  - **Page-flip + vblank wait** — `advance()` queues a non-blocking `drmModePageFlip` with `PageFlipFlags::EVENT`; `frame_end()` polls the drm fd to drain the event before the next paint. An open-time probe gates the path so old simpledrm-style drivers fall back to `set_crtc` + `wait_vblank`.
+  - **Paravirtual scale + dirty notification** — `virtio_gpu` / `vmwgfx` / `qxl` report bogus mm panel sizes; `LinuxDrmConfig::scale = AutoDpi { .. }` is downgraded to `Fixed(1.0)` for those drivers (caller `Fixed(_)` honoured regardless). `flush()` issues `MODE_DIRTYFB` so paravirtual cards sync the dumb buffer to the host (`EOPNOTSUPP` on real hardware is a non-error).
+  - **`LinuxDrmConfig`** — `card_path`, `connector_filter` (matches `xrandr` / `kmsprint`-style names like `HDMI-A-1`), `mode` (`Some((w, h))` matches by exact dimensions), `input_path`, `overscan_inset_percent`, `scale`, `buffer_count` (default 2).
+- **N-buffer dirty mirror core** — `Surface::buffer_count()` (default 1, skips the mirror loop). `FramebufferAccess::all_buffers()` returns every slot with idx 0 = active; `FramebufferAccess::advance()` rotates to the next slot. `RendererFactory::mirror_and_advance(backend, plan, transform)` is default no-op; `SwRendererFactory` overrides it to copy each frame's dirty rects + scroll shifts into every inactive slot before rotating. The shared mirror primitives live in `src/surface/mirror.rs`.
+- **`Surface::frame_end()`** — per-tick hook after `render` / `render_dirty`, called even on empty frames so vblank-bound backends can wait. Default empty.
+- **`ColorFormat::BGRA8888`** — byte 0 = B, byte 3 = A. `LinuxFbSurface::format_from_var` picks it when `var.red.offset > var.blue.offset` (the BGRX layout signal); `LinuxDrmSurface` pins it for `DRM_FORMAT_XRGB8888`. Cross-backend conversions wired through `sdl_gpu` (`PixelFormatEnum::BGRA32`) and the wgpu / web-canvas byte swap. Fast paths in `src/draw/sw/{rect_fill, blit_fast, blend}/` aren't mirrored yet, so BGRA frames go through the slow path; RGB565 panels are unaffected.
+- **`gallery::demos::widgets` viewport scaling** — `DemoSize::for_viewport(view_w, view_h)` reads `backend.display_info()` so the demo fills any aspect ratio. `scale = min(w, h) / 128` keys row + tabbar heights to the shorter axis.
+- **`gallery/examples/linux_drm_demo.rs`** — runs the shared `hello` scene on the DRM backend.
+- **Env var overrides** — `MIRUI_OVERSCAN_INSET=<n>`, `MIRUI_DRM_CARD=/dev/dri/cardN`, `MIRUI_DRM_CONNECTOR=HDMI-A-1`, `MIRUI_DRM_BUFFERS=<n>`, `MIRUI_DRM_MODE=WxH`, `MIRUI_SIM_OFF=1` (skip widgets demo's auto-cycle).
+
+### Fixed
+
+- **`hit_test` no longer routes taps to scrolled-off rows.** A row scrolled past the top of its container had its post-shift rect drift outside the container's layout rect, and last-hit-wins traversal then let it steal taps from siblings outside the scroll — most visible as a `TabBar` above a `LazyList` where the list's first screen kept eating taps that should have hit the tab. `hit_test` now walks the parent chain and rejects any candidate whose probe falls outside an ancestor scroll container's visible viewport.
+- **Cursor leaves no smear on a scrolled overlay.** When the cursor moved between frames *and* sat above a scrolling container, the in-place self-blit on the scroll area carried the previous-frame cursor pixels by `(dx, dy)`, leaving a strip the existing overlay-rect repaint didn't cover. The dirty walker now records each out-of-scroll `PrevRect` and a post-walk pass folds `prev ∩ shift.area` translated by the shift back into the dirty bounds.
+- **`SimAction::drag` emits at least one `PointerMove` on low-tick-rate hosts.** A 100ms drag on a 16-30ms tick went `action_started=false → true → elapsed ≥ duration` in two iterations and skipped the move branch entirely; the gesture recogniser then classified the result as a `Tap`. `SimTimeline::drag_move_emitted` now gates the final `PointerUp`: if no move ever fired, the catch-up tick clamps `t` to 1.0 and emits the move first.
+- **N=2 buffer-role rotation in `LinuxDrmSurface::advance`.** `advance()` was page-flipping the slot mirui *was about to paint* instead of the one it *just finished* painting; the bug was masked on virtio_gpu by paravirtual scanout latency but surfaced as per-frame tearing on real hardware. The rotation now reads `front_idx` before incrementing.
+- **`LinuxDrmSurface::open` page_flip probe could hang.** The probe called blocking `receive_events()` without gating on POLLIN, so a driver that returned `Ok` from `page_flip` but never delivered the event parked `open()` forever. Probe now gates on POLLIN and treats poll-timeout as `page_flip_supported = false`.
+
+### Changed
+
+- **`linux-fb` and `linux-drm` are mutually exclusive at compile time.** Both backends drive the same panel — fbdev via mmap on `/dev/fb0`, DRM via master on `/dev/dri/card0`. `compile_error!` fires at lib compile time on Linux when both features are set.
+
+### Internal
+
+- `mirui::surface::linux::input` and `mirui::surface::linux::scale` extracted from `surface.rs` (943 → 227 lines). Both gate on `any(linux-fb, linux-drm)`, so the DRM backend reuses the evdev pump and DPI heuristic verbatim.
+- `mirror::blit_region` format / stride / dimensions checks promoted from `debug_assert_eq!` to `assert_eq!` so any backend with mismatched per-slot dimensions panics loudly instead of silently corrupting buffers.
+- `SwRendererFactory::mirror_and_advance` runs shift-on-inactives before blit-from-active, matching `render_dirty`'s active-target order; the reverse smears the just-blitted dirty pixels.
+- `LinuxDrmSurface::flush` is a no-op when `buffer_count > 1`; `set_crtc` in `advance` is what re-points scanout, so `dirty_framebuffer` on the new active wakes the host on a slot it isn't displaying.
+- `App::needs_full_first_frame` — first persistent-path tick on a multi-buffer backend renders the full screen so every inactive slot starts from a known-complete image; cleared afterward.
+- `drm-ffi` 0.10 added to the `linux-drm` feature for `wait_vblank`.
+
 ## [0.25.3] - 2026-06-01
 
 Experimental Linux fbdev backend — `feature = "linux-fb"` runs mirui directly against `/dev/fb0` and `/dev/input/event*` on Linux, bypassing X11 / Wayland for SBCs and embedded panels. Ships with full input (keyboard / mouse / wheel / SIGINT-as-Quit), auto DPI scale from physical-mm hints, and an opt-in HDMI overscan inset. Two long-standing per-frame allocation leaks in the perf-instrumentation path are also fixed.
