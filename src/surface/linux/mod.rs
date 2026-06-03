@@ -1,14 +1,12 @@
 #![cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 
-#[cfg(all(feature = "linux-fb", feature = "linux-drm"))]
-compile_error!("`linux-fb` and `linux-drm` are mutually exclusive — enable exactly one");
-
 mod input;
 mod scale;
 
-#[cfg(feature = "linux-fb")]
+// linux-drm wins when both features are on (e.g. `--all-features` builds).
+#[cfg(all(feature = "linux-fb", not(feature = "linux-drm")))]
 mod ioctl;
-#[cfg(feature = "linux-fb")]
+#[cfg(all(feature = "linux-fb", not(feature = "linux-drm")))]
 mod surface;
 
 #[cfg(feature = "linux-drm")]
@@ -16,10 +14,10 @@ mod drm;
 
 pub use scale::ScaleMode;
 
-#[cfg(feature = "linux-fb")]
+#[cfg(all(feature = "linux-fb", not(feature = "linux-drm")))]
 pub use surface::{LinuxConfig, LinuxFbSurface};
 
-#[cfg(feature = "linux-fb")]
+#[cfg(all(feature = "linux-fb", not(feature = "linux-drm")))]
 pub fn init(cfg: LinuxConfig<'_>) -> std::io::Result<LinuxFbSurface> {
     LinuxFbSurface::open(cfg)
 }

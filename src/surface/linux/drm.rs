@@ -235,7 +235,7 @@ impl LinuxDrmSurface {
             other => other,
         };
         let (mm_w, mm_h) = connector_info.size().unwrap_or((0, 0));
-        let scale = compute_scale(scale_mode, mode_w, mode_h, mm_w as u32, mm_h as u32);
+        let scale = compute_scale(scale_mode, mode_w, mode_h, mm_w, mm_h);
 
         // Probe page_flip via flip-to-self; broken drivers return -EINVAL/-ENOSYS.
         let page_flip_supported = if buffers.len() > 1 {
@@ -472,19 +472,20 @@ impl FramebufferAccess for LinuxDrmSurface {
         let just_painted = self.buffers[self.front_idx].fb_id;
         self.front_idx = (self.front_idx + 1) % n;
 
-        if self.page_flip_supported {
-            match self.card.page_flip(
-                self.crtc,
-                just_painted,
-                drm::control::PageFlipFlags::EVENT,
-                None,
-            ) {
-                Ok(()) => {
-                    self.flip_pending = true;
-                    return;
-                }
-                Err(_) => {} // EBUSY / driver hiccup → sync fallback.
-            }
+        if self.page_flip_supported
+            && self
+                .card
+                .page_flip(
+                    self.crtc,
+                    just_painted,
+                    drm::control::PageFlipFlags::EVENT,
+                    None,
+                )
+                .is_ok()
+        {
+            // EBUSY / driver hiccup → fall through to sync set_crtc.
+            self.flip_pending = true;
+            return;
         }
         // set_crtc triggers RESOURCE_FLUSH for paravirtual drivers.
         let _ = self.card.set_crtc(
