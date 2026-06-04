@@ -1,10 +1,18 @@
 pub mod framebuf;
-#[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
+#[cfg(any(
+    all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"),
+    all(feature = "nuttx", target_os = "nuttx"),
+))]
 pub(crate) mod input_state;
 #[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 pub mod linux;
 pub(crate) mod mirror;
-#[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
+#[cfg(all(feature = "nuttx", target_os = "nuttx"))]
+pub mod nuttx;
+#[cfg(any(
+    all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"),
+    all(feature = "nuttx", target_os = "nuttx"),
+))]
 pub(crate) mod scale;
 #[cfg(feature = "sdl")]
 pub mod sdl;
