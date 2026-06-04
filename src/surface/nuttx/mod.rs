@@ -5,6 +5,7 @@
 // numbers, so the device structs and constants are not shared.
 
 mod fb;
+mod input;
 mod ioctl;
 
 /// No `.M` plane suffix: multi-plane single-display boards aren't exposed in v1.
