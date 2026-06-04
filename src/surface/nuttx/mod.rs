@@ -7,6 +7,7 @@
 mod fb;
 mod input;
 mod ioctl;
+mod signal;
 
 /// No `.M` plane suffix: multi-plane single-display boards aren't exposed in v1.
 pub fn fb_path_for_display(display_index: u8) -> alloc::string::String {
