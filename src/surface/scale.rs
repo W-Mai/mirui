@@ -1,5 +1,3 @@
-#![cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
-
 use crate::types::Fixed;
 
 #[derive(Debug, Clone, Copy)]
@@ -14,7 +12,7 @@ impl Default for ScaleMode {
     }
 }
 
-pub(super) fn compute_scale(
+pub(crate) fn compute_scale(
     mode: ScaleMode,
     xres: u16,
     yres: u16,

@@ -1,7 +1,6 @@
 #![cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 
 mod input;
-mod scale;
 
 // linux-drm wins when both features are on (e.g. `--all-features` builds).
 #[cfg(all(feature = "linux-fb", not(feature = "linux-drm")))]
@@ -12,7 +11,7 @@ mod surface;
 #[cfg(feature = "linux-drm")]
 mod drm;
 
-pub use scale::ScaleMode;
+pub use crate::surface::scale::ScaleMode;
 
 #[cfg(all(feature = "linux-fb", not(feature = "linux-drm")))]
 pub use surface::{LinuxConfig, LinuxFbSurface};

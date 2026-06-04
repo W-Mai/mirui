@@ -11,10 +11,10 @@ use memmap2::{MmapMut, MmapOptions};
 
 use super::input::{EvdevInput, detect_keyboard_device, detect_pointer_device};
 use super::ioctl;
-use super::scale::{ScaleMode, compute_scale};
 use crate::cache::InspectCaches;
 use crate::draw::texture::{ColorFormat, Texture};
 use crate::event::input::InputEvent;
+use crate::surface::scale::{ScaleMode, compute_scale};
 use crate::surface::{DisplayInfo, FramebufferAccess, Surface};
 use crate::types::{Fixed, Rect};
 

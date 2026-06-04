@@ -2,6 +2,8 @@ pub mod framebuf;
 #[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 pub mod linux;
 pub(crate) mod mirror;
+#[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
+pub(crate) mod scale;
 #[cfg(feature = "sdl")]
 pub mod sdl;
 #[cfg(feature = "sdl-gpu")]
