@@ -1,5 +1,7 @@
 pub mod framebuf;
 #[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
+pub(crate) mod input_state;
+#[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
 pub mod linux;
 pub(crate) mod mirror;
 #[cfg(all(any(feature = "linux-fb", feature = "linux-drm"), target_os = "linux"))]
