@@ -110,3 +110,72 @@ impl Drop for TouchInput {
         unsafe { close(self.fd) };
     }
 }
+
+pub(super) struct KeyInput {
+    fd: c_int,
+    buf: Vec<u8>,
+}
+
+impl KeyInput {
+    pub(super) fn open(path: &str) -> io::Result<Self> {
+        let cpath = CString::new(path)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "kbd path contains NUL"))?;
+        // SAFETY: `cpath` is a valid NUL-terminated C string.
+        let fd = unsafe { open(cpath.as_ptr(), O_RDONLY | O_NONBLOCK) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // 32 events/read stays under one circbuf burst.
+        let buf = vec![0u8; 32 * core::mem::size_of::<KeyboardEvent>()];
+        Ok(Self { fd, buf })
+    }
+
+    pub(super) fn drain_into(&mut self, queue: &mut VecDeque<InputEvent>) {
+        loop {
+            // SAFETY: `self.buf.as_mut_ptr()` valid for `self.buf.len()`
+            // bytes; kernel writes at most that.
+            let n = unsafe { read(self.fd, self.buf.as_mut_ptr().cast(), self.buf.len()) };
+            if n <= 0 {
+                return;
+            }
+            let count = (n as usize) / core::mem::size_of::<KeyboardEvent>();
+            for i in 0..count {
+                let off = i * core::mem::size_of::<KeyboardEvent>();
+                // SAFETY: kernel wrote `KeyboardEvent` records into the
+                // buffer; `read_unaligned` handles non-4-aligned offsets.
+                let ev: KeyboardEvent = unsafe {
+                    core::ptr::read_unaligned(self.buf.as_ptr().add(off) as *const KeyboardEvent)
+                };
+                let pressed = ev.event_type == KEYBOARD_PRESS;
+                queue.push_back(InputEvent::Key {
+                    code: x11_keysym_to_mirui(ev.code),
+                    pressed,
+                });
+            }
+        }
+    }
+}
+
+impl Drop for KeyInput {
+    fn drop(&mut self) {
+        // SAFETY: `fd` was opened by `open()` and is closed once here.
+        unsafe { close(self.fd) };
+    }
+}
+
+/// NuttX's keyboard upper half emits X11 keysyms. Unmapped keys pass
+/// through as the raw keysym so user dispatch can still match literals.
+fn x11_keysym_to_mirui(code: u32) -> u32 {
+    use crate::event::input::*;
+    match code {
+        0xFF0D => KEY_RETURN,    // XK_Return
+        0xFF1B => KEY_ESCAPE,    // XK_Escape
+        0xFF08 => KEY_BACKSPACE, // XK_BackSpace
+        0xFF50 => KEY_HOME,      // XK_Home
+        0xFF51 => KEY_LEFT,      // XK_Left
+        0xFF53 => KEY_RIGHT,     // XK_Right
+        0xFF57 => KEY_END,       // XK_End
+        0xFFFF => KEY_DELETE,    // XK_Delete
+        _ => code,
+    }
+}
