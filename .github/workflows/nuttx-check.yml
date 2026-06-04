@@ -1,0 +1,51 @@
+name: NuttX target check
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/surface/nuttx/**"
+      - "src/surface/scale.rs"
+      - "src/surface/input_state.rs"
+      - "src/surface/mod.rs"
+      - "Cargo.toml"
+      - ".github/workflows/nuttx-check.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/surface/nuttx/**"
+      - "src/surface/scale.rs"
+      - "src/surface/input_state.rs"
+      - "src/surface/mod.rs"
+      - "Cargo.toml"
+      - ".github/workflows/nuttx-check.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  nuttx-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nightly toolchain with rust-src
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: nuttx
+      - name: cargo check riscv32imac-unknown-nuttx-elf
+        # NuttX is rustc tier-3 — `riscv32imac-unknown-nuttx-elf` ships
+        # no prebuilt artifacts, so `-Zbuild-std` rebuilds libstd from
+        # source. `feature = "nuttx"` pulls in `std` (libc syscalls
+        # `open`/`ioctl`/`read`/`close` go through `std::io::Result`),
+        # so the build-std set has to include `std` and `panic_abort`
+        # (NuttX target spec mandates `panic = abort`).
+        run: |
+          cargo +nightly check \
+            --target riscv32imac-unknown-nuttx-elf \
+            --no-default-features \
+            --features nuttx \
+            -Zbuild-std=std,panic_abort \
+            --lib
