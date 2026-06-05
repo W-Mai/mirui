@@ -1,5 +1,13 @@
 name: NuttX target check
 
+# Pinned to nightly-2026-02-01 + a sysroot patch (ci/patch-nuttx-libstd.sh)
+# because tier-3 riscv32imac-unknown-nuttx-elf needs -Zbuild-std, and that
+# nightly's libstd references libc::_SC_HOST_NAME_MAX for nuttx while the
+# libc it pins lacks the constant. `[patch.crates-io] libc` can't fix it
+# (-Zbuild-std resolves the std workspace separately, rust-lang/cargo#9424).
+# Temporary: drop the pin + patch step once a clean nightly compiles
+# libstd for nuttx without sysroot edits.
+
 on:
   push:
     branches: [main]
@@ -10,6 +18,7 @@ on:
       - "src/surface/mod.rs"
       - "Cargo.toml"
       - ".github/workflows/nuttx-check.yml"
+      - "ci/patch-nuttx-libstd.sh"
   pull_request:
     branches: [main]
     paths:
@@ -19,6 +28,7 @@ on:
       - "src/surface/mod.rs"
       - "Cargo.toml"
       - ".github/workflows/nuttx-check.yml"
+      - "ci/patch-nuttx-libstd.sh"
 
 env:
   CARGO_TERM_COLOR: always
@@ -26,15 +36,30 @@ env:
 jobs:
   nuttx-check:
     runs-on: ubuntu-latest
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-02-01
     steps:
       - uses: actions/checkout@v4
-      - name: Install nightly toolchain with rust-src
-        uses: dtolnay/rust-toolchain@nightly
+      - name: Install pinned nightly
+        uses: dtolnay/rust-toolchain@master
         with:
-          components: rust-src
+          toolchain: nightly-2026-02-01
+      # rust-src via a separate `rustup component add`: installing it
+      # through dtolnay's `--component` registers it per-arch and
+      # -Zbuild-std can't find library/Cargo.lock (rustup#2601).
+      - name: Add rust-src to pinned nightly
+        run: rustup component add rust-src --toolchain nightly-2026-02-01
+      - name: Verify rust-src is materialized
+        run: test -f "$(rustc +nightly-2026-02-01 --print sysroot)/lib/rustlib/src/rust/library/Cargo.lock"
+      - name: Patch sysroot libstd for nuttx target
+        run: ci/patch-nuttx-libstd.sh nightly-2026-02-01
       - uses: Swatinem/rust-cache@v2
         with:
-          key: nuttx
+          # Suffix busts the cache when the patch changes — rust-cache's
+          # auto key doesn't hash the sysroot or the patch, so a stale
+          # target/ built against unpatched libstd would otherwise be
+          # reused. Bump the version when the patch changes.
+          key: nuttx-patched-v1
       - name: cargo check riscv32imac-unknown-nuttx-elf
         # NuttX is rustc tier-3 — `riscv32imac-unknown-nuttx-elf` ships
         # no prebuilt artifacts, so `-Zbuild-std` rebuilds libstd from
@@ -43,7 +68,7 @@ jobs:
         # so the build-std set has to include `std` and `panic_abort`
         # (NuttX target spec mandates `panic = abort`).
         run: |
-          cargo +nightly check \
+          cargo +nightly-2026-02-01 check \
             --target riscv32imac-unknown-nuttx-elf \
             --no-default-features \
             --features nuttx \
