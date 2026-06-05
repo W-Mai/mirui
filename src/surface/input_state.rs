@@ -375,4 +375,25 @@ mod tests {
             _ => panic!("expected PointerMove"),
         }
     }
+
+    #[test]
+    fn nonzero_abs_min_maps_physical_offset_to_view_origin() {
+        // Overscan: driver reports physical 0..200; view occupies [10, 110).
+        let mut s = PointerState::new(100, 100, 10, 110, 10, 110);
+        let events = drain(
+            &mut s,
+            &[InputAxis::AbsX(10), InputAxis::AbsY(110), InputAxis::Sync],
+        );
+        match &events[0] {
+            InputEvent::PointerMove { x, y, .. } => {
+                assert_eq!(x.to_int(), 0, "physical off_x maps to view x=0");
+                assert_eq!(
+                    y.to_int(),
+                    100,
+                    "physical off_y+height maps to view y=height"
+                );
+            }
+            other => panic!("expected PointerMove, got {other:?}"),
+        }
+    }
 }

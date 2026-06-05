@@ -18,7 +18,13 @@ pub(super) struct TouchInput {
 }
 
 impl TouchInput {
-    pub(super) fn open(path: &str, width: u16, height: u16) -> io::Result<Self> {
+    pub(super) fn open(
+        path: &str,
+        width: u16,
+        height: u16,
+        off_x: u16,
+        off_y: u16,
+    ) -> io::Result<Self> {
         let cpath = CString::new(path)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "touch path contains NUL"))?;
         // SAFETY: `cpath` is a valid NUL-terminated C string.
@@ -26,17 +32,15 @@ impl TouchInput {
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }
+        // Driver reports physical pixel coords; map the overscan'd view span
+        // [off, off+dim) onto the cropped [0, dim) the renderer expects.
         let state = PointerState::new(
             width,
             height,
-            // NuttX touchscreen drivers report pre-calibrated x/y in pixel
-            // coords (touch_point_s.x/y is i16 of pixel position, not raw
-            // ADC ticks). PointerState's calibration map is a no-op when
-            // min=0, max=screen_dim, scaled to full screen.
-            0,
-            width as i32,
-            0,
-            height as i32,
+            off_x as i32,
+            off_x as i32 + width as i32,
+            off_y as i32,
+            off_y as i32 + height as i32,
         );
         let buf =
             vec![0u8; TOUCH_SAMPLE_HEADER + MAX_TOUCH_POINTS * core::mem::size_of::<TouchPoint>()];
@@ -84,7 +88,14 @@ impl TouchInput {
     /// right contact), then position, then `TrackingId` (down/up edge),
     /// finally `Sync` (flushes the slot's dirty bit into `PointerMove`).
     fn feed(&mut self, p: TouchPoint, queue: &mut VecDeque<InputEvent>) {
-        self.state.process(InputAxis::Slot(p.id), queue);
+        // `id` is only trustworthy when TOUCH_ID_VALID is set; collapse to
+        // slot 0 otherwise so a bad id can't corrupt multi-touch slot state.
+        let id = if p.flags & TOUCH_ID_VALID != 0 {
+            p.id
+        } else {
+            0
+        };
+        self.state.process(InputAxis::Slot(id), queue);
         if p.flags & TOUCH_POS_VALID != 0 {
             self.state.process(InputAxis::AbsX(p.x as i32), queue);
             self.state.process(InputAxis::AbsY(p.y as i32), queue);
@@ -93,8 +104,7 @@ impl TouchInput {
             // `TrackingId(>=0)` is the down-edge signal. NuttX doesn't
             // expose a kernel-assigned tracking id; reusing the slot id
             // is fine because PointerState only checks sign of value.
-            self.state
-                .process(InputAxis::TrackingId(p.id as i32), queue);
+            self.state.process(InputAxis::TrackingId(id as i32), queue);
         } else if p.flags & TOUCH_UP != 0 {
             self.state.process(InputAxis::TrackingId(-1), queue);
         }
