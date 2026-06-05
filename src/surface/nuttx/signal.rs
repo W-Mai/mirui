@@ -1,27 +1,17 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use libc::{SIGINT, SIGTERM, c_int, sigaction, sigset_t};
 
-// `'static` because `extern "C" fn` can't capture; the surface's
-// `Arc<AtomicBool>` is cloned into this slot at install time.
-static QUIT_FLAG: std::sync::OnceLock<Arc<AtomicBool>> = std::sync::OnceLock::new();
+pub(super) static QUIT_FLAG: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn handle_term(_sig: c_int) {
-    if let Some(flag) = QUIT_FLAG.get() {
-        flag.store(true, Ordering::Relaxed);
-    }
+    QUIT_FLAG.store(true, Ordering::Relaxed);
 }
 
-/// Idempotent: a second call keeps the first flag (one shared shutdown
-/// flag per process is fine). The handler is async-signal-safe because
-/// `AtomicBool::store(Relaxed)` is one atomic instruction — no syscall
-/// or allocator call.
-pub(super) fn install(flag: &Arc<AtomicBool>) -> std::io::Result<()> {
-    if QUIT_FLAG.set(flag.clone()).is_err() {
-        return Ok(());
-    }
-
+/// Idempotent: re-installing is harmless. Async-signal-safe: the handler
+/// only does an atomic store on a `'static AtomicBool` — no allocator,
+/// syscall, or lock.
+pub(super) fn install() -> std::io::Result<()> {
     // NuttX libc's `sigaction` has a private `__reserved` padding field,
     // so `..core::mem::zeroed()` struct-update syntax is rejected.
     // SAFETY: zeroed all-bits-zero is a valid `sigaction` value.

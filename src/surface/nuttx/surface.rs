@@ -1,7 +1,6 @@
 use alloc::collections::VecDeque;
 use std::io;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::Ordering;
 
 use super::fb::FbDevice;
 use super::input::{KeyInput, TouchInput};
@@ -54,7 +53,6 @@ pub struct NuttxFbSurface {
     touch: Option<TouchInput>,
     keyboard: Option<KeyInput>,
     queue: VecDeque<InputEvent>,
-    quit_flag: Arc<AtomicBool>,
 }
 
 impl NuttxFbSurface {
@@ -77,8 +75,15 @@ impl NuttxFbSurface {
         let off_y = (fb.yres - height) / 2;
         let view_byte_offset = off_y as usize * fb.stride + off_x as usize * bytes_per_pixel;
 
+        let view_span =
+            (height as usize).saturating_sub(1) * fb.stride + width as usize * bytes_per_pixel;
+        match view_byte_offset.checked_add(view_span) {
+            Some(end) if end <= fb.fblen => {}
+            _ => return Err(io::Error::other("nuttx fb: view extents exceed fblen")),
+        }
+
         let touch = match cfg.touch_path {
-            Some(p) => match TouchInput::open(p, width, height) {
+            Some(p) => match TouchInput::open(p, width, height, off_x, off_y) {
                 Ok(t) => Some(t),
                 Err(err) => {
                     warn!("mirui::nuttx: skipping touch {p}: {err}");
@@ -99,8 +104,7 @@ impl NuttxFbSurface {
             None => None,
         };
 
-        let quit_flag = Arc::new(AtomicBool::new(false));
-        if let Err(err) = signal::install(&quit_flag) {
+        if let Err(err) = signal::install() {
             error!("mirui::nuttx: sigaction install failed: {err}");
         }
 
@@ -116,7 +120,6 @@ impl NuttxFbSurface {
             touch,
             keyboard,
             queue: VecDeque::new(),
-            quit_flag,
         }
         .finalize_stride())
     }
@@ -145,10 +148,12 @@ impl Surface for NuttxFbSurface {
 
     fn flush(&mut self, area: &Rect) {
         let (x0, y0, x1, y1) = area.pixel_bounds();
-        let x = x0.max(0) as u16;
-        let y = y0.max(0) as u16;
-        let w = (x1.max(0) as u16).saturating_sub(x).min(self.width);
-        let h = (y1.max(0) as u16).saturating_sub(y).min(self.height);
+        let x = x0.clamp(0, self.width as i32) as u16;
+        let y = y0.clamp(0, self.height as i32) as u16;
+        let xe = x1.clamp(0, self.width as i32) as u16;
+        let ye = y1.clamp(0, self.height as i32) as u16;
+        let w = xe.saturating_sub(x);
+        let h = ye.saturating_sub(y);
         if w == 0 || h == 0 {
             return;
         }
@@ -156,13 +161,12 @@ impl Surface for NuttxFbSurface {
     }
 
     fn frame_end(&mut self) {
-        // PAN every frame — see `NuttxConfig::use_paninfo` for why.
-        self.fb.flush(0, 0, self.fb.xres, self.fb.yres);
+        self.fb.pan();
         self.fb.wait_vsync();
     }
 
     fn poll_event(&mut self) -> Option<InputEvent> {
-        if self.quit_flag.swap(false, Ordering::Relaxed) {
+        if signal::QUIT_FLAG.swap(false, Ordering::Relaxed) {
             return Some(InputEvent::Quit);
         }
         if let Some(ev) = self.queue.pop_front() {
@@ -180,11 +184,10 @@ impl Surface for NuttxFbSurface {
 
 impl FramebufferAccess for NuttxFbSurface {
     fn framebuffer(&mut self) -> Texture<'_> {
-        // SAFETY: `fbmem` came from FBIOGET_PLANEINFO at `open`-time and
-        // stays valid for the FbDevice's lifetime; `fblen` is the exact
-        // length the kernel reported. The `&mut self` borrow rules out
-        // any other code grabbing a second slice into the same memory
-        // while this one is live.
+        // SAFETY: `fbmem`/`fblen` come from FBIOGET_PLANEINFO at open and
+        // stay valid for the FbDevice's lifetime; open validated the view
+        // span fits within `fblen`, so the subtraction can't underflow.
+        // `&mut self` rules out a second live slice into the same memory.
         let slice: &mut [u8] = unsafe {
             core::slice::from_raw_parts_mut(
                 self.fb.fbmem.add(self.view_byte_offset),

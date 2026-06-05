@@ -120,17 +120,21 @@ impl FbDevice {
                 ioctl(self.fd, FBIO_UPDATE as _, &area as *const _);
             }
         }
-        if self.use_paninfo {
-            self.pan_template.yoffset = 0;
-            // SAFETY: `pan_template` is a caller-allocated `fb_planeinfo_s`;
-            // the kernel reads from the const pointer.
-            unsafe {
-                ioctl(
-                    self.fd,
-                    FBIOPAN_DISPLAY as _,
-                    &self.pan_template as *const _,
-                );
-            }
+    }
+
+    pub(super) fn pan(&mut self) {
+        if !self.use_paninfo {
+            return;
+        }
+        self.pan_template.yoffset = 0;
+        // SAFETY: `pan_template` is a caller-allocated `fb_planeinfo_s`;
+        // the kernel reads from the const pointer.
+        unsafe {
+            ioctl(
+                self.fd,
+                FBIOPAN_DISPLAY as _,
+                &self.pan_template as *const _,
+            );
         }
     }
 
