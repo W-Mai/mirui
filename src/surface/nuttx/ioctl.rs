@@ -31,6 +31,11 @@ pub(super) struct FbPlaneInfo {
     pub yoffset: u32,
 }
 
+#[cfg(target_pointer_width = "32")]
+const _: () = {
+    assert!(core::mem::size_of::<FbPlaneInfo>() == 28);
+};
+
 #[repr(C)]
 pub(super) struct FbArea {
     pub x: FbCoord,
