@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.1] - 2026-06-05
+
+Apache NuttX RTOS backend — `feature = "nuttx"` runs mirui against `/dev/fbN` framebuffer + `/dev/inputN` touchscreen + optional `/dev/kbdN` keyboard, verified on ESP32-C3 (ST7735 SPI LCD) and qemu virtio-gpu. The framebuffer pointer comes straight from `FBIOGET_PLANEINFO` with no mmap. `PointerState` and the DPI scale heuristic are shared with the Linux backends via a small cross-platform refactor.
+
+### Added
+
+- **`feature = "nuttx"`** — opt-in NuttX backend on `libc` 0.2, gated on `target_os = "nuttx"`. `NuttxFbSurface::open(NuttxConfig)` wires the framebuffer, touchscreen, optional keyboard, and a SIGTERM/SIGINT quit handler.
+  - Framebuffer via `FBIOGET_VIDEOINFO` / `FBIOGET_PLANEINFO` (direct pointer, RGB565 / RGB888 / BGRA8888 / RGBA8888).
+  - `NuttxConfig::use_paninfo` controls per-frame `FBIOPAN_DISPLAY`; `None` auto-detects (virtio-gpu / DRM-style fb pan, SPI LCD doesn't).
+  - Multi-touch via the shared `PointerState`; optional `/dev/kbdN` keyboard mapping X11 keysyms.
+  - Diagnostics go through NuttX `syslog(3)` (libstd's stderr blocks on USB-Serial/JTAG consoles).
+  - `NuttxConfig`: `fb_path`, `touch_path`, `keyboard_path`, `display_index`, `overscan_inset_percent`, `scale`, `use_paninfo`.
+- **NuttX target CI gate** — compiles the `nuttx` feature for `riscv32imac-unknown-nuttx-elf`.
+
+### Fixed
+
+- `framebuffer()` view extents are validated against `fblen` at open, so an overscan offset can't build an out-of-bounds slice.
+- `flush` clamps rect endpoints to display bounds instead of only the width/height.
+
+### Changed
+
+- **`PointerState` + `InputAxis`** moved to a cross-platform `surface/input_state.rs` (and the DPI heuristic to `surface/scale.rs`) so the NuttX backend reuses them verbatim.
+
 ## [0.26.0] - 2026-06-03
 
 Linux DRM/KMS backend — `feature = "linux-drm"` runs mirui directly against `/dev/dri/cardN` with a connector + CRTC + N dumb buffers, page-flipping via legacy `drmModePageFlip` on every `frame_end`. Companion N-buffer dirty mirror in core: `Surface` exposes multiple framebuffer slots and mirui copies each frame's dirty rects + scroll shifts into the inactive slots so the next rotation finds them ready. A handful of fixes ride along — `hit_test` no longer routes taps through scrolled-off rows, the cursor leaves no smear on a scrolled overlay, and `SimAction::drag` emits at least one `PointerMove` on low-tick-rate hosts.
