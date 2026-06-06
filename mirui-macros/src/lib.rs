@@ -86,10 +86,21 @@ enum Cmd {
     Iter(IterCmd),
     If(IfCmd),
     Niche(NicheCmd),
+    Match(MatchCmd),
 }
 
 struct NicheCmd {
     name: syn::Ident,
+    body: Vec<Cmd>,
+}
+
+struct MatchCmd {
+    scrutinee: proc_macro2::TokenStream,
+    arms: Vec<MatchArm>,
+}
+
+struct MatchArm {
+    pat: syn::Pat,
     body: Vec<Cmd>,
 }
 
@@ -330,6 +341,7 @@ impl MiruiRune {
             Cmd::Iter(i) => Self::emit_iter(i, world, parent_var),
             Cmd::If(i) => Self::emit_if(i, world, parent_var),
             Cmd::Niche(n) => Self::emit_niche(n, world, parent_var),
+            Cmd::Match(m) => Self::emit_match(m, world, parent_var),
         }
     }
 
@@ -363,7 +375,7 @@ impl MiruiRune {
                     tokens.extend(Self::emit_widget(w, world));
                     child_vars.push(&w.var);
                 }
-                Cmd::Iter(_) | Cmd::If(_) | Cmd::Niche(_) => {
+                Cmd::Iter(_) | Cmd::If(_) | Cmd::Niche(_) | Cmd::Match(_) => {
                     deferred_iters.push(child);
                 }
             }
@@ -436,6 +448,40 @@ impl MiruiRune {
         }
 
         tokens
+    }
+
+    fn emit_match(
+        cmd: &MatchCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let scrutinee = &cmd.scrutinee;
+        let arm_tokens = cmd.arms.iter().map(|arm| {
+            let pat = &arm.pat;
+            let mut body_tokens = proc_macro2::TokenStream::new();
+            for child in &arm.body {
+                body_tokens.extend(Self::emit_cmd(child, world, parent_var));
+                if let Cmd::Widget(w) = child {
+                    let child_var = &w.var;
+                    body_tokens.extend(quote! {
+                        {
+                            use mirui::widget::{Children, Parent};
+                            (#world).insert(#child_var, Parent(#parent_var));
+                            if let Some(children) = (#world).get_mut::<Children>(#parent_var) {
+                                children.0.push(#child_var);
+                            }
+                        }
+                    });
+                }
+            }
+            quote! { #pat => { #body_tokens } }
+        });
+
+        quote! {
+            match #scrutinee {
+                #(#arm_tokens)*
+            }
+        }
     }
 
     fn emit_niche(
@@ -655,10 +701,27 @@ impl DsRune for MiruiRune {
 
     fn inscribe_match(
         &mut self,
-        _scrutinee: &syn::Expr,
-        _arms: &[xrune::ds_node::ds_match::DsMatchArm],
+        scrutinee: &syn::Expr,
+        arms: &[xrune::ds_node::ds_match::DsMatchArm],
     ) {
-        unimplemented!("ui! match emission is not yet supported in this build");
+        let mut arm_cmds = Vec::with_capacity(arms.len());
+        for arm in arms {
+            self.stack.push(Vec::new());
+            for child in arm.get_children() {
+                decipher(child, self);
+            }
+            let body = self.stack.pop().unwrap();
+            arm_cmds.push(MatchArm {
+                pat: arm.get_pat().clone(),
+                body,
+            });
+        }
+
+        let cmd = Cmd::Match(MatchCmd {
+            scrutinee: quote! { #scrutinee },
+            arms: arm_cmds,
+        });
+        self.stack.last_mut().unwrap().push(cmd);
     }
 
     fn seal(self) -> proc_macro2::TokenStream {
