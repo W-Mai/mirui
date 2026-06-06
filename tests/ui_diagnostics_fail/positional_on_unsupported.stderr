@@ -1,0 +1,5 @@
+error: Button does not accept positional arguments; use `name: value` form
+  --> tests/ui_diagnostics_fail/positional_on_unsupported.rs:18:16
+   |
+18 |         Button(42) {}
+   |                ^^

@@ -54,6 +54,14 @@ const BUILTIN_COMPONENT_NAMES: &[&str] = &[
     "TemporalMix",
 ];
 
+fn primary_attr_for(widget_name: &str) -> Option<&'static str> {
+    match widget_name {
+        "Text" => Some("text"),
+        "Image" => Some("texture"),
+        _ => None,
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum WidgetKind {
     IllegalLowercase,
@@ -163,8 +171,8 @@ impl MiruiRune {
             "focus_border_color",
         ];
 
+        let mut positional_consumed = false;
         for attr in attrs {
-            let name = attr.name.to_string();
             let mut rewritten = attr.value.clone();
             syn::visit_mut::VisitMut::visit_expr_mut(
                 &mut crate::visit_id::IdRewriter {
@@ -174,13 +182,53 @@ impl MiruiRune {
             );
             let value = &rewritten;
 
+            let name = match &attr.name {
+                Some(n) => n.to_string(),
+                None => match (primary_attr_for(widget_name), positional_consumed) {
+                    (Some(primary), false) => {
+                        positional_consumed = true;
+                        primary.to_string()
+                    }
+                    (Some(_), true) => {
+                        errors.push(
+                            syn::Error::new(
+                                syn::spanned::Spanned::span(&attr.value),
+                                format!(
+                                    "{widget_name} accepts only one positional argument; pass extra fields by name",
+                                ),
+                            )
+                            .to_compile_error(),
+                        );
+                        continue;
+                    }
+                    (None, _) => {
+                        errors.push(
+                            syn::Error::new(
+                                syn::spanned::Spanned::span(&attr.value),
+                                format!(
+                                    "{widget_name} does not accept positional arguments; use `name: value` form",
+                                ),
+                            )
+                            .to_compile_error(),
+                        );
+                        continue;
+                    }
+                },
+            };
+
             if is_text_widget && name == "text" {
                 text_tuple_value = Some(quote! { #value });
                 continue;
             }
 
+            let attr_span = attr
+                .name
+                .as_ref()
+                .map(|n| n.span())
+                .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
+
             if is_text_input_widget && TEXT_INPUT_FIELDS.contains(&name.as_str()) {
-                let field_ident = syn::Ident::new(&name, attr.name.span());
+                let field_ident = syn::Ident::new(&name, attr_span);
                 component_fields.push(quote! { #field_ident: (#value).into() });
                 continue;
             }
@@ -216,8 +264,7 @@ impl MiruiRune {
                 },
                 unknown => match widget_kind {
                     WidgetKind::Component => {
-                        let field_ident =
-                            syn::Ident::new(unknown, attr.name.span());
+                        let field_ident = syn::Ident::new(unknown, attr_span);
                         component_fields.push(quote! { #field_ident: (#value).into() });
                     }
                     WidgetKind::Layout | WidgetKind::IllegalLowercase => {
@@ -230,7 +277,7 @@ impl MiruiRune {
                         if let Some(hint) = crate::diag::closest(unknown, candidates, 2) {
                             msg.push_str(&format!(". did you mean `{hint}`?"));
                         }
-                        errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
+                        errors.push(syn::Error::new(attr_span, msg).to_compile_error());
                     }
                 },
             }
@@ -581,7 +628,10 @@ pub fn ui(input: TokenStream) -> TokenStream {
     let mut rune = MiruiRune::new();
 
     let context_attrs = root.get_context_attrs();
-    if let Some(world_attr) = context_attrs.iter().find(|a| a.name == "world") {
+    if let Some(world_attr) = context_attrs
+        .iter()
+        .find(|a| a.name.as_ref().is_some_and(|n| n == "world"))
+    {
         let world_expr = &world_attr.value;
         rune.world_expr = quote! { #world_expr };
     } else {

@@ -105,6 +105,29 @@ mod tests {
     }
 
     #[test]
+    fn text_widget_supports_positional_arg() {
+        use mirui::components::Text;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Text("Positional") {}
+        };
+
+        let entities = world.query::<Text>().collect();
+        assert_eq!(entities.len(), 1);
+        let text = world.get::<Text>(entities[0]).unwrap();
+        assert_eq!(text.0, b"Positional");
+    }
+
+    #[test]
     fn lowercase_name_stays_layout_fallback() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
