@@ -13,7 +13,11 @@ mod tests {
         let root = WidgetBuilder::new(&mut world).id();
 
         ui! {
-            :( parent: root world: &mut world :)
+            :(
+                parent: root
+                world: &mut world
+            :)
+
             slot (id: "src") {}
         };
 
@@ -31,7 +35,11 @@ mod tests {
         let root = WidgetBuilder::new(&mut world).id();
 
         ui! {
-            :( parent: root world: &mut world :)
+            :(
+                parent: root
+                world: &mut world
+            :)
+
             slot (id: "hero") {}
         };
 
@@ -49,7 +57,11 @@ mod tests {
         let root = WidgetBuilder::new(&mut world).id();
 
         ui! {
-            :( parent: root world: &mut world :)
+            :(
+                parent: root
+                world: &mut world
+            :)
+
             container (direction: mirui::layout::FlexDirection::Row) {
                 src (id: "anchor") {}
                 consumer () [LinkTo(id("anchor"))] {}
@@ -75,7 +87,11 @@ mod tests {
         let root = WidgetBuilder::new(&mut world).id();
 
         ui! {
-            :( parent: root world: &mut world :)
+            :(
+                parent: root
+                world: &mut world
+            :)
+
             row (direction: mirui::layout::FlexDirection::Row) {
                 first (id: "shared") {}
                 second (id: "shared") {}
