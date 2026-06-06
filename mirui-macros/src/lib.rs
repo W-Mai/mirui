@@ -317,6 +317,18 @@ impl DsRune for MiruiRune {
         self.stack.last_mut().unwrap().push(cmd);
     }
 
+    fn inscribe_niche(&mut self, _name: &syn::Ident, _children: &[DsTreeRef]) {
+        unimplemented!("@niche emission is not yet supported in this build");
+    }
+
+    fn inscribe_match(
+        &mut self,
+        _scrutinee: &syn::Expr,
+        _arms: &[xrune::ds_node::ds_match::DsMatchArm],
+    ) {
+        unimplemented!("ui! match emission is not yet supported in this build");
+    }
+
     fn seal(self) -> proc_macro2::TokenStream {
         let world = &self.world_expr;
         let parent_entity = &self.parent_expr;
