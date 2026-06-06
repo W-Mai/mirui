@@ -14,10 +14,18 @@ use mirui::surface::sdl::SdlSurface;
 use mirui::widget::dirty::Dirty;
 use mirui::widget::view::{View, ViewCtx};
 
-/// Per-entity component the user widget reads at render time.
 pub struct Diamond {
     pub color: Color,
     pub line_width: Fixed,
+}
+
+impl Default for Diamond {
+    fn default() -> Self {
+        Self {
+            color: Color::rgb(255, 255, 255),
+            line_width: Fixed::from_int(1),
+        }
+    }
 }
 
 /// `ViewRender` for the user widget. Reads `Diamond` from World,
@@ -117,38 +125,32 @@ fn main() {
             width: 480,
             height: 200
         ) {
-            d0 (
+            Diamond (
+                color: PALETTE[0],
+                line_width: Fixed::from_int(2),
                 width: 100,
                 height: 100
             ) [
-                Diamond {
-                    color: PALETTE[0],
-                    line_width: Fixed::from_int(2),
-                },
                 GestureHandler {
                     on_gesture: cycle_handler,
                 },
             ] {}
-            d1 (
+            Diamond (
+                color: PALETTE[1],
+                line_width: Fixed::from_int(3),
                 width: 100,
                 height: 100
             ) [
-                Diamond {
-                    color: PALETTE[1],
-                    line_width: Fixed::from_int(3),
-                },
                 GestureHandler {
                     on_gesture: cycle_handler,
                 },
             ] {}
-            d2 (
+            Diamond (
+                color: PALETTE[2],
+                line_width: Fixed::from_int(4),
                 width: 100,
                 height: 100
             ) [
-                Diamond {
-                    color: PALETTE[2],
-                    line_width: Fixed::from_int(4),
-                },
                 GestureHandler {
                     on_gesture: cycle_handler,
                 },
