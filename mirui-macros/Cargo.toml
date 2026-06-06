@@ -13,6 +13,6 @@ proc-macro = true
 
 [dependencies]
 xrune = { path = "../../xrune/crates/xrune" }
-syn = { version = "2", features = ["full"] }
+syn = { version = "2", features = ["full", "visit-mut"] }
 quote = "1"
 proc-macro2 = "1"

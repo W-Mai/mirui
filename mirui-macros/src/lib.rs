@@ -2,6 +2,7 @@ extern crate proc_macro;
 
 mod compose;
 mod diag;
+mod visit_id;
 
 use proc_macro::TokenStream;
 use quote::quote;
@@ -25,6 +26,7 @@ struct WidgetCmd {
     errors: Vec<proc_macro2::TokenStream>,
     enchants: Vec<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
+    id_lookups: Vec<(syn::Ident, String)>,
     children: Vec<Cmd>,
 }
 
@@ -34,6 +36,7 @@ struct ParsedAttrs {
     errors: Vec<proc_macro2::TokenStream>,
     component_inserts: Vec<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
+    id_lookups: Vec<(syn::Ident, String)>,
 }
 
 struct IterCmd {
@@ -70,16 +73,24 @@ impl MiruiRune {
         syn::Ident::new(&name, proc_macro2::Span::call_site())
     }
 
-    fn parse_attrs(attrs: &[DsAttr]) -> ParsedAttrs {
+    fn parse_attrs(&self, attrs: &[DsAttr]) -> ParsedAttrs {
         let mut builder_calls = Vec::new();
         let mut layout_fields = Vec::new();
         let mut errors = Vec::new();
         let component_inserts = Vec::new();
         let mut id_registrations = Vec::new();
+        let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
 
         for attr in attrs {
             let name = attr.name.to_string();
-            let value = &attr.value;
+            let mut rewritten = attr.value.clone();
+            syn::visit_mut::VisitMut::visit_expr_mut(
+                &mut crate::visit_id::IdRewriter {
+                    captured: &mut id_lookups,
+                },
+                &mut rewritten,
+            );
+            let value = &rewritten;
             match name.as_str() {
                 "bg_color" => builder_calls.push(quote! { .bg_color(#value) }),
                 "text" => builder_calls.push(quote! { .text(#value) }),
@@ -121,6 +132,7 @@ impl MiruiRune {
             errors,
             component_inserts,
             id_registrations,
+            id_lookups,
         }
     }
 
@@ -160,6 +172,13 @@ impl MiruiRune {
 
         for e in errors {
             tokens.extend(e.clone());
+        }
+
+        for (ident, key) in &cmd.id_lookups {
+            tokens.extend(quote! {
+                let #ident = mirui::ecs::World::find_by_id(&*(#world), #key)
+                    .expect(concat!("ui!: id '", #key, "' not found in IdMap"));
+            });
         }
 
         // Emit static widget children first (post-order)
@@ -299,9 +318,19 @@ impl DsRune for MiruiRune {
         children: &[DsTreeRef],
     ) {
         let var = self.next_var();
-        let parsed = Self::parse_attrs(attrs);
+        let parsed = self.parse_attrs(attrs);
+        let mut id_lookups = parsed.id_lookups;
         let mut enchant_tokens: Vec<proc_macro2::TokenStream> = parsed.component_inserts;
-        enchant_tokens.extend(enchants.iter().map(|e| quote! { #e }));
+        for e in enchants.iter() {
+            let mut rewritten = e.clone();
+            syn::visit_mut::VisitMut::visit_expr_mut(
+                &mut crate::visit_id::IdRewriter {
+                    captured: &mut id_lookups,
+                },
+                &mut rewritten,
+            );
+            enchant_tokens.push(quote! { #rewritten });
+        }
 
         self.stack.push(Vec::new());
         for child in children {
@@ -316,6 +345,7 @@ impl DsRune for MiruiRune {
             errors: parsed.errors,
             enchants: enchant_tokens,
             id_registrations: parsed.id_registrations,
+            id_lookups,
             children: my_children,
         });
 
