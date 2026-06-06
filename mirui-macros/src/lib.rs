@@ -13,14 +13,7 @@ use xrune::ds_node::{DsRoot, DsTreeRef};
 use xrune::ds_rune::DsRune;
 use xrune::ds_rune::decipher::decipher;
 
-const KNOWN_UI_ATTRS: &[&str] = &[
-    "bg_color",
-    "text",
-    "text_color",
-    "border_radius",
-    "clip_children",
-    "border_color",
-    "border_width",
+const LAYOUT_ATTRS: &[&str] = &[
     "width",
     "height",
     "grow",
@@ -31,8 +24,15 @@ const KNOWN_UI_ATTRS: &[&str] = &[
     "position",
     "left",
     "top",
-    "image",
-    "id",
+];
+
+const STYLE_ATTRS: &[&str] = &[
+    "bg_color",
+    "text_color",
+    "border_color",
+    "border_radius",
+    "border_width",
+    "clip_children",
 ];
 
 const RESERVED_LAYOUT_NAMES: &[&str] = &["View", "Row", "Column"];
@@ -165,7 +165,12 @@ impl MiruiRune {
                 },
                 unknown => {
                     let mut msg = format!("unknown widget attribute `{unknown}`");
-                    if let Some(hint) = crate::diag::closest(unknown, KNOWN_UI_ATTRS.iter().copied(), 2) {
+                    let candidates = LAYOUT_ATTRS
+                        .iter()
+                        .copied()
+                        .chain(STYLE_ATTRS.iter().copied())
+                        .chain(["text", "image", "id"].iter().copied());
+                    if let Some(hint) = crate::diag::closest(unknown, candidates, 2) {
                         msg.push_str(&format!(". did you mean `{hint}`?"));
                     }
                     errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
