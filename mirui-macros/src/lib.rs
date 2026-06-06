@@ -35,6 +35,27 @@ const KNOWN_UI_ATTRS: &[&str] = &[
     "id",
 ];
 
+const RESERVED_LAYOUT_NAMES: &[&str] = &["View", "Row", "Column"];
+
+#[derive(Debug, PartialEq, Eq)]
+enum WidgetKind {
+    IllegalLowercase,
+    Layout,
+    Component,
+}
+
+fn classify_widget_name(name: &syn::Ident) -> WidgetKind {
+    let s = name.to_string();
+    let first = s.chars().next().unwrap_or('_');
+    if first.is_ascii_lowercase() {
+        WidgetKind::IllegalLowercase
+    } else if RESERVED_LAYOUT_NAMES.contains(&s.as_str()) {
+        WidgetKind::Layout
+    } else {
+        WidgetKind::Component
+    }
+}
+
 enum Cmd {
     Widget(WidgetCmd),
     Iter(IterCmd),
@@ -337,11 +358,12 @@ impl DsRune for MiruiRune {
 
     fn inscribe_widget(
         &mut self,
-        _name: &syn::Ident,
+        name: &syn::Ident,
         attrs: &[DsAttr],
         enchants: &[syn::Expr],
         children: &[DsTreeRef],
     ) {
+        let _kind = classify_widget_name(name);
         let var = self.next_var();
         let parsed = self.parse_attrs(attrs);
         let mut id_lookups = parsed.id_lookups;
@@ -892,4 +914,40 @@ pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
     .into()
+}
+
+#[cfg(test)]
+mod widget_kind_tests {
+    use super::*;
+    use proc_macro2::Span;
+
+    fn id(s: &str) -> syn::Ident {
+        syn::Ident::new(s, Span::call_site())
+    }
+
+    #[test]
+    fn lowercase_is_illegal() {
+        assert_eq!(
+            classify_widget_name(&id("button")),
+            WidgetKind::IllegalLowercase
+        );
+        assert_eq!(
+            classify_widget_name(&id("dark_btn")),
+            WidgetKind::IllegalLowercase
+        );
+    }
+
+    #[test]
+    fn reserved_names_are_layout() {
+        assert_eq!(classify_widget_name(&id("View")), WidgetKind::Layout);
+        assert_eq!(classify_widget_name(&id("Row")), WidgetKind::Layout);
+        assert_eq!(classify_widget_name(&id("Column")), WidgetKind::Layout);
+    }
+
+    #[test]
+    fn other_capital_names_are_component() {
+        assert_eq!(classify_widget_name(&id("Button")), WidgetKind::Component);
+        assert_eq!(classify_widget_name(&id("MyCard")), WidgetKind::Component);
+        assert_eq!(classify_widget_name(&id("Checkbox")), WidgetKind::Component);
+    }
 }
