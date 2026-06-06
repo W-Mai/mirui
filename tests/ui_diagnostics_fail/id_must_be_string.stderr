@@ -1,0 +1,5 @@
+error: id attribute must be a string literal, e.g. `id: "submit"`
+  --> tests/ui_diagnostics_fail/id_must_be_string.rs:17:19
+   |
+17 |         slot (id: 42) {}
+   |                   ^^

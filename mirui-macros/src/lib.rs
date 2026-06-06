@@ -13,6 +13,28 @@ use xrune::ds_node::{DsRoot, DsTreeRef};
 use xrune::ds_rune::DsRune;
 use xrune::ds_rune::decipher::decipher;
 
+const KNOWN_UI_ATTRS: &[&str] = &[
+    "bg_color",
+    "text",
+    "text_color",
+    "border_radius",
+    "clip_children",
+    "border_color",
+    "border_width",
+    "width",
+    "height",
+    "grow",
+    "direction",
+    "justify",
+    "align",
+    "padding",
+    "position",
+    "left",
+    "top",
+    "image",
+    "id",
+];
+
 enum Cmd {
     Widget(WidgetCmd),
     Iter(IterCmd),
@@ -121,7 +143,10 @@ impl MiruiRune {
                     ),
                 },
                 unknown => {
-                    let msg = format!("unknown widget attribute `{unknown}`");
+                    let mut msg = format!("unknown widget attribute `{unknown}`");
+                    if let Some(hint) = crate::diag::closest(unknown, KNOWN_UI_ATTRS.iter().copied(), 2) {
+                        msg.push_str(&format!(". did you mean `{hint}`?"));
+                    }
                     errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
                 }
             }

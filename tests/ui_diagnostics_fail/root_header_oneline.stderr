@@ -1,0 +1,11 @@
+error: root header must be multi-line — put each context attr on its own line, e.g.
+
+           :(
+               attr1: value1
+               attr2: value2
+           :)
+
+  --> tests/ui_diagnostics_fail/root_header_oneline.rs:13:10
+   |
+13 |         :( parent: root world: world_ref :)
+   |          ^
