@@ -24,7 +24,16 @@ struct WidgetCmd {
     layout_fields: Vec<proc_macro2::TokenStream>,
     errors: Vec<proc_macro2::TokenStream>,
     enchants: Vec<proc_macro2::TokenStream>,
+    id_registrations: Vec<proc_macro2::TokenStream>,
     children: Vec<Cmd>,
+}
+
+struct ParsedAttrs {
+    builder_calls: Vec<proc_macro2::TokenStream>,
+    layout_fields: Vec<proc_macro2::TokenStream>,
+    errors: Vec<proc_macro2::TokenStream>,
+    component_inserts: Vec<proc_macro2::TokenStream>,
+    id_registrations: Vec<proc_macro2::TokenStream>,
 }
 
 struct IterCmd {
@@ -61,18 +70,12 @@ impl MiruiRune {
         syn::Ident::new(&name, proc_macro2::Span::call_site())
     }
 
-    fn parse_attrs(
-        attrs: &[DsAttr],
-    ) -> (
-        Vec<proc_macro2::TokenStream>,
-        Vec<proc_macro2::TokenStream>,
-        Vec<proc_macro2::TokenStream>,
-        Vec<proc_macro2::TokenStream>,
-    ) {
+    fn parse_attrs(attrs: &[DsAttr]) -> ParsedAttrs {
         let mut builder_calls = Vec::new();
         let mut layout_fields = Vec::new();
         let mut errors = Vec::new();
         let component_inserts = Vec::new();
+        let mut id_registrations = Vec::new();
 
         for attr in attrs {
             let name = attr.name.to_string();
@@ -96,13 +99,41 @@ impl MiruiRune {
                 "left" => layout_fields.push(quote! { left: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value)) }),
                 "top" => layout_fields.push(quote! { top: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value)) }),
                 "image" => builder_calls.push(quote! { .image(#value) }),
+                "id" => match Self::extract_id_str(value) {
+                    Some(s) => id_registrations.push(quote! { #s }),
+                    None => errors.push(
+                        syn::Error::new_spanned(
+                            value,
+                            "id attribute must be a string literal, e.g. `id: \"submit\"`",
+                        )
+                        .to_compile_error(),
+                    ),
+                },
                 unknown => {
                     let msg = format!("unknown widget attribute `{unknown}`");
                     errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
                 }
             }
         }
-        (builder_calls, layout_fields, errors, component_inserts)
+        ParsedAttrs {
+            builder_calls,
+            layout_fields,
+            errors,
+            component_inserts,
+            id_registrations,
+        }
+    }
+
+    fn extract_id_str(expr: &syn::Expr) -> Option<syn::LitStr> {
+        if let syn::Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(s),
+            ..
+        }) = expr
+        {
+            Some(s.clone())
+        } else {
+            None
+        }
     }
 
     /// Emit a Cmd, returning generated tokens.
@@ -171,6 +202,15 @@ impl MiruiRune {
         for enchant in enchants {
             tokens.extend(quote! {
                 (#world).insert(#var, #enchant);
+            });
+        }
+
+        for id_lit in &cmd.id_registrations {
+            tokens.extend(quote! {
+                (#world).insert(#var, mirui::widget::NamedId(#id_lit));
+                if let Some(__map) = (#world).resource_mut::<mirui::widget::IdMap>() {
+                    __map.insert(#id_lit, #var);
+                }
             });
         }
 
@@ -259,8 +299,8 @@ impl DsRune for MiruiRune {
         children: &[DsTreeRef],
     ) {
         let var = self.next_var();
-        let (builder_calls, layout_fields, errors, component_inserts) = Self::parse_attrs(attrs);
-        let mut enchant_tokens: Vec<proc_macro2::TokenStream> = component_inserts;
+        let parsed = Self::parse_attrs(attrs);
+        let mut enchant_tokens: Vec<proc_macro2::TokenStream> = parsed.component_inserts;
         enchant_tokens.extend(enchants.iter().map(|e| quote! { #e }));
 
         self.stack.push(Vec::new());
@@ -271,10 +311,11 @@ impl DsRune for MiruiRune {
 
         let cmd = Cmd::Widget(WidgetCmd {
             var,
-            attrs: builder_calls,
-            layout_fields,
-            errors,
+            attrs: parsed.builder_calls,
+            layout_fields: parsed.layout_fields,
+            errors: parsed.errors,
             enchants: enchant_tokens,
+            id_registrations: parsed.id_registrations,
             children: my_children,
         });
 
