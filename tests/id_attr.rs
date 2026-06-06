@@ -49,6 +49,32 @@ mod tests {
     }
 
     #[test]
+    fn id_lookup_supports_bare_ident() {
+        struct LinkTo(mirui::ecs::Entity);
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            container (direction: mirui::layout::FlexDirection::Row) {
+                src (id: "anchor") {}
+                consumer () [LinkTo(id(anchor))] {}
+            }
+        };
+
+        let anchor = world.find_by_id("anchor").expect("anchor registered");
+        let entities = world.query::<LinkTo>().collect();
+        let consumer = entities.first().copied().expect("consumer with LinkTo");
+        assert_eq!(world.get::<LinkTo>(consumer).unwrap().0, anchor);
+    }
+
+    #[test]
     fn id_lookup_in_enchant_resolves_to_entity() {
         struct LinkTo(mirui::ecs::Entity);
 

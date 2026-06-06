@@ -13,11 +13,9 @@ impl VisitMut for IdRewriter<'_> {
             }) = func.as_ref()
             && path.is_ident("id")
             && args.len() == 1
-            && let Some(Expr::Lit(ExprLit {
-                lit: Lit::Str(s), ..
-            })) = args.first()
+            && let Some(arg) = args.first()
+            && let Some(id_str) = extract_id_arg(arg)
         {
-            let id_str = s.value();
             let var = Ident::new(
                 &format!("__id_lookup_{}", self.captured.len()),
                 proc_macro2::Span::call_site(),
@@ -27,6 +25,18 @@ impl VisitMut for IdRewriter<'_> {
             return;
         }
         visit_mut::visit_expr_mut(self, expr);
+    }
+}
+
+fn extract_id_arg(arg: &Expr) -> Option<String> {
+    match arg {
+        Expr::Lit(ExprLit {
+            lit: Lit::Str(s), ..
+        }) => Some(s.value()),
+        Expr::Path(ExprPath {
+            path, qself: None, ..
+        }) => path.get_ident().map(|i| i.to_string()),
+        _ => None,
     }
 }
 
@@ -62,8 +72,15 @@ mod tests {
     }
 
     #[test]
-    fn skips_non_string_arg() {
-        let (_, ids) = rewrite(quote!(id(some_var)));
+    fn captures_bare_ident_arg() {
+        let (out, ids) = rewrite(quote!(id(submit)));
+        assert_eq!(ids, vec!["submit".to_string()]);
+        assert!(out.contains("__id_lookup_0"));
+    }
+
+    #[test]
+    fn skips_non_string_non_ident_arg() {
+        let (_, ids) = rewrite(quote!(id(42)));
         assert!(ids.is_empty());
     }
 
