@@ -1,6 +1,7 @@
 extern crate proc_macro;
 
 mod compose;
+mod diag;
 
 use proc_macro::TokenStream;
 use quote::quote;

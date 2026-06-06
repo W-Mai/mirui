@@ -88,42 +88,19 @@ struct Route {
 /// Best-match hint for an unknown method name. Returns `Some(name)` only
 /// when the Levenshtein distance is ≤ 2, to avoid suggesting random methods.
 fn closest_known_method(query: &str) -> Option<&'static str> {
-    let mut best: Option<(usize, &'static str)> = None;
-    for (name, _, _) in METHODS {
-        let d = levenshtein(query, name);
-        if d <= 2 && best.is_none_or(|(bd, _)| d < bd) {
-            best = Some((d, name));
-        }
-    }
-    best.map(|(_, n)| n)
+    crate::diag::closest(query, METHODS.iter().map(|(name, _, _)| *name), 2)
 }
 
 fn closest_field(query: &str, fields: &[FieldDecl]) -> Option<String> {
     let mut best: Option<(usize, String)> = None;
     for f in fields {
         let name = f.name.to_string();
-        let d = levenshtein(query, &name);
+        let d = crate::diag::levenshtein(query, &name);
         if d <= 2 && best.as_ref().is_none_or(|(bd, _)| d < *bd) {
             best = Some((d, name));
         }
     }
     best.map(|(_, n)| n)
-}
-
-fn levenshtein(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let mut prev: Vec<usize> = (0..=b.len()).collect();
-    let mut curr = vec![0usize; b.len() + 1];
-    for i in 1..=a.len() {
-        curr[0] = i;
-        for j in 1..=b.len() {
-            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
-        }
-        core::mem::swap(&mut prev, &mut curr);
-    }
-    prev[b.len()]
 }
 
 /// Build one `fn name(&mut self, <params>) { self.<field>.name(<args>) }`.
