@@ -37,7 +37,24 @@ const STYLE_ATTRS: &[&str] = &[
 
 const RESERVED_LAYOUT_NAMES: &[&str] = &["View", "Row", "Column"];
 
-#[derive(Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+const BUILTIN_COMPONENT_NAMES: &[&str] = &[
+    "Button",
+    "Checkbox",
+    "ProgressBar",
+    "Slider",
+    "Switch",
+    "TabBar",
+    "TextInput",
+    "Image",
+    "Text",
+    "LazyList",
+    "MirrorOf",
+    "BackgroundBlur",
+    "TemporalMix",
+];
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum WidgetKind {
     IllegalLowercase,
     Layout,
@@ -63,11 +80,14 @@ enum Cmd {
 }
 
 struct WidgetCmd {
+    name: syn::Ident,
+    kind: WidgetKind,
     var: syn::Ident,
     attrs: Vec<proc_macro2::TokenStream>,
     layout_fields: Vec<proc_macro2::TokenStream>,
     errors: Vec<proc_macro2::TokenStream>,
     enchants: Vec<proc_macro2::TokenStream>,
+    component_fields: Vec<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
     children: Vec<Cmd>,
@@ -78,6 +98,7 @@ struct ParsedAttrs {
     layout_fields: Vec<proc_macro2::TokenStream>,
     errors: Vec<proc_macro2::TokenStream>,
     component_inserts: Vec<proc_macro2::TokenStream>,
+    component_fields: Vec<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
 }
@@ -116,11 +137,12 @@ impl MiruiRune {
         syn::Ident::new(&name, proc_macro2::Span::call_site())
     }
 
-    fn parse_attrs(&self, attrs: &[DsAttr]) -> ParsedAttrs {
+    fn parse_attrs(&self, attrs: &[DsAttr], widget_kind: WidgetKind) -> ParsedAttrs {
         let mut builder_calls = Vec::new();
         let mut layout_fields = Vec::new();
         let mut errors = Vec::new();
         let component_inserts = Vec::new();
+        let mut component_fields = Vec::new();
         let mut id_registrations = Vec::new();
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
 
@@ -163,18 +185,25 @@ impl MiruiRune {
                         .to_compile_error(),
                     ),
                 },
-                unknown => {
-                    let mut msg = format!("unknown widget attribute `{unknown}`");
-                    let candidates = LAYOUT_ATTRS
-                        .iter()
-                        .copied()
-                        .chain(STYLE_ATTRS.iter().copied())
-                        .chain(["text", "image", "id"].iter().copied());
-                    if let Some(hint) = crate::diag::closest(unknown, candidates, 2) {
-                        msg.push_str(&format!(". did you mean `{hint}`?"));
+                unknown => match widget_kind {
+                    WidgetKind::Component => {
+                        let field_ident =
+                            syn::Ident::new(unknown, attr.name.span());
+                        component_fields.push(quote! { #field_ident: (#value).into() });
                     }
-                    errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
-                }
+                    WidgetKind::Layout | WidgetKind::IllegalLowercase => {
+                        let mut msg = format!("unknown widget attribute `{unknown}`");
+                        let candidates = LAYOUT_ATTRS
+                            .iter()
+                            .copied()
+                            .chain(STYLE_ATTRS.iter().copied())
+                            .chain(["text", "image", "id"].iter().copied());
+                        if let Some(hint) = crate::diag::closest(unknown, candidates, 2) {
+                            msg.push_str(&format!(". did you mean `{hint}`?"));
+                        }
+                        errors.push(syn::Error::new(attr.name.span(), msg).to_compile_error());
+                    }
+                },
             }
         }
         ParsedAttrs {
@@ -182,6 +211,7 @@ impl MiruiRune {
             layout_fields,
             errors,
             component_inserts,
+            component_fields,
             id_registrations,
             id_lookups,
         }
@@ -266,6 +296,17 @@ impl MiruiRune {
                 #(#child_calls)*
                 .id();
         });
+
+        if cmd.kind == WidgetKind::Component {
+            let comp_name = &cmd.name;
+            let comp_fields = &cmd.component_fields;
+            tokens.extend(quote! {
+                (#world).insert(#var, #comp_name {
+                    #(#comp_fields,)*
+                    ..Default::default()
+                });
+            });
+        }
 
         // Emit enchants — insert components
         let enchants = &cmd.enchants;
@@ -368,9 +409,9 @@ impl DsRune for MiruiRune {
         enchants: &[syn::Expr],
         children: &[DsTreeRef],
     ) {
-        let _kind = classify_widget_name(name);
+        let kind = classify_widget_name(name);
         let var = self.next_var();
-        let parsed = self.parse_attrs(attrs);
+        let parsed = self.parse_attrs(attrs, kind);
         let mut id_lookups = parsed.id_lookups;
         let mut enchant_tokens: Vec<proc_macro2::TokenStream> = parsed.component_inserts;
         for e in enchants.iter() {
@@ -391,11 +432,14 @@ impl DsRune for MiruiRune {
         let my_children = self.stack.pop().unwrap();
 
         let cmd = Cmd::Widget(WidgetCmd {
+            name: name.clone(),
+            kind,
             var,
             attrs: parsed.builder_calls,
             layout_fields: parsed.layout_fields,
             errors: parsed.errors,
             enchants: enchant_tokens,
+            component_fields: parsed.component_fields,
             id_registrations: parsed.id_registrations,
             id_lookups,
             children: my_children,

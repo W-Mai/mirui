@@ -66,7 +66,7 @@ fn main() {
         :)
 
         walk colors.iter() with color {
-            Rect (
+            tile (
                 bg_color: *color,
                 width: 120,
                 height: 80
