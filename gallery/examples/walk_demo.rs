@@ -1,3 +1,4 @@
+use mirui::components::Text;
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 
@@ -32,12 +33,14 @@ fn main() {
             world: &mut app.world
         :)
 
-        container (direction: FlexDirection::Column, grow: 1.0) {
+        Column (grow: 1.0) {
             walk colors.iter() with color {
-                item (bg_color: *color, grow: 1.0, border_radius: 4) {}
+                View (bg_color: *color, grow: 1.0, border_radius: 4) {}
             }
             if show_footer {
-                footer (bg_color: Color::rgb(50, 50, 70), height: 30, text: "conditional!") {}
+                View (bg_color: Color::rgb(50, 50, 70), height: 30) {
+                    Text ("conditional!") {}
+                }
             }
         }
     };

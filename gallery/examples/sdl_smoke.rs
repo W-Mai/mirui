@@ -1,6 +1,7 @@
 //! Smoke test for the SDL backend using the shared widget tree.
 
 use mirui::components::Image;
+use mirui::components::Text;
 use mirui::components::assets::IMG_THUMBS_UP;
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
@@ -26,40 +27,37 @@ fn main() {
             world: &mut app.world
         :)
 
-        content (direction: FlexDirection::Column, grow: 1.0) {
-            header (
+        Column (grow: 1.0) {
+            View (
                 bg_color: Color::rgb(88, 166, 255),
                 height: 40,
-                text: "Hello sdl!",
                 border_radius: 8,
                 border_color: Color::rgb(255, 255, 255)
-            ) {}
-            row (direction: FlexDirection::Row, grow: 1.0) {
-                btn1 (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6) {}
-                btn2 (
-                    bg_color: Color::rgb(248, 81, 73),
-                    grow: 1.0,
-                    text: "Cancel",
-                    border_radius: 6
-                ) {}
-                btn3 (
-                    bg_color: Color::rgb(210, 168, 255),
-                    grow: 1.0,
-                    text: "Maybe",
-                    border_radius: 6
-                ) {}
+            ) {
+                Text ("Hello sdl!") {}
             }
-            thumb (
+            Row (grow: 1.0) {
+                View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, border_radius: 6) {
+                    Text ("OK") {}
+                }
+                View (bg_color: Color::rgb(248, 81, 73), grow: 1.0, border_radius: 6) {
+                    Text ("Cancel") {}
+                }
+                View (bg_color: Color::rgb(210, 168, 255), grow: 1.0, border_radius: 6) {
+                    Text ("Maybe") {}
+                }
+            }
+            Image (
+                texture: &IMG_THUMBS_UP,
                 width: IMG_THUMBS_UP.width as i32 * 4,
                 height: IMG_THUMBS_UP.height as i32 * 4
-            ) [
-                Image::new(&IMG_THUMBS_UP),
-            ] {}
-            footer (
-                bg_color: Color::rgb(50, 50, 70),
-                height: 30,
-                text: "sdl backend"
             ) {}
+            View (
+                bg_color: Color::rgb(50, 50, 70),
+                height: 30
+            ) {
+                Text ("sdl backend") {}
+            }
         }
     };
 
