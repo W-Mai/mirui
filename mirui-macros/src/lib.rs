@@ -216,18 +216,24 @@ impl MiruiRune {
                 },
             };
 
-            if is_text_widget && name == "text" {
-                text_tuple_value = Some(quote! { #value });
-                continue;
-            }
-
             let attr_span = attr
                 .name
                 .as_ref()
                 .map(|n| n.span())
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
 
+            if is_text_widget && name == "text" {
+                text_tuple_value = Some(quote! { #value });
+                continue;
+            }
+
             if is_text_input_widget && TEXT_INPUT_FIELDS.contains(&name.as_str()) {
+                let field_ident = syn::Ident::new(&name, attr_span);
+                component_fields.push(quote! { #field_ident: (#value).into() });
+                continue;
+            }
+
+            if widget_kind == WidgetKind::Component && name == "text" {
                 let field_ident = syn::Ident::new(&name, attr_span);
                 component_fields.push(quote! { #field_ident: (#value).into() });
                 continue;

@@ -1,0 +1,7 @@
+error[E0560]: struct `Button` has no field named `text`
+  --> tests/ui_diagnostics_fail/button_no_text_attr.rs:18:17
+   |
+18 |         Button (text: "Click me") {}
+   |                 ^^^^ `Button` does not have this field
+   |
+   = note: all struct fields are already assigned
