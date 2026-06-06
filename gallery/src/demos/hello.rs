@@ -1,4 +1,5 @@
 use crate::Setup;
+use mirui::components::Text;
 use mirui::ecs::Entity;
 use mirui::plugins::input_feedback::InputFeedbackPlugin;
 use mirui::prelude::*;
@@ -20,16 +21,17 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             world: world
         :)
 
-        column (direction: FlexDirection::Column, grow: 1.0) {
-            title (
-                text: "mirui hello",
+        Column (grow: 1.0) {
+            View (
                 bg_color: Color::rgb(38, 50, 70),
                 text_color: Color::rgb(220, 220, 240),
                 border_radius: 12,
                 padding: Padding::all(16)
-            ) {}
-            spacer (height: 16) {}
-            card (
+            ) {
+                Text("mirui hello") {}
+            }
+            View (height: 16) {}
+            View (
                 bg_color: Color::rgb(60, 80, 110),
                 border_color: Color::rgb(120, 160, 220),
                 border_width: 2,
@@ -37,7 +39,10 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                 padding: Padding::all(20),
                 grow: 1.0
             ) {
-                msg (text: "tap to interact", text_color: Color::rgb(240, 240, 255)) {}
+                Text(
+                    "tap to interact",
+                    text_color: Color::rgb(240, 240, 255),
+                ) {}
             }
         }
     };
