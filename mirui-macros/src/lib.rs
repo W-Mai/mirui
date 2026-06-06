@@ -85,6 +85,12 @@ enum Cmd {
     Widget(WidgetCmd),
     Iter(IterCmd),
     If(IfCmd),
+    Niche(NicheCmd),
+}
+
+struct NicheCmd {
+    name: syn::Ident,
+    body: Vec<Cmd>,
 }
 
 struct WidgetCmd {
@@ -323,6 +329,7 @@ impl MiruiRune {
             Cmd::Widget(w) => Self::emit_widget(w, world),
             Cmd::Iter(i) => Self::emit_iter(i, world, parent_var),
             Cmd::If(i) => Self::emit_if(i, world, parent_var),
+            Cmd::Niche(n) => Self::emit_niche(n, world, parent_var),
         }
     }
 
@@ -356,7 +363,7 @@ impl MiruiRune {
                     tokens.extend(Self::emit_widget(w, world));
                     child_vars.push(&w.var);
                 }
-                Cmd::Iter(_) | Cmd::If(_) => {
+                Cmd::Iter(_) | Cmd::If(_) | Cmd::Niche(_) => {
                     deferred_iters.push(child);
                 }
             }
@@ -400,6 +407,10 @@ impl MiruiRune {
                     });
                 });
             }
+
+            tokens.extend(quote! {
+                mirui::event::widget_input::attach_handlers_for(#world, #var);
+            });
         }
 
         // Emit enchants — insert components
@@ -425,6 +436,55 @@ impl MiruiRune {
         }
 
         tokens
+    }
+
+    fn emit_niche(
+        cmd: &NicheCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let niche_name = cmd.name.to_string();
+        let niche_var = syn::Ident::new(
+            &format!("__niche_{}", cmd.name),
+            proc_macro2::Span::call_site(),
+        );
+        let niche_var_ts = quote! { #niche_var };
+
+        let mut body_tokens = proc_macro2::TokenStream::new();
+        for child in &cmd.body {
+            body_tokens.extend(Self::emit_cmd(child, world, &niche_var_ts));
+            if let Cmd::Widget(w) = child {
+                let child_var = &w.var;
+                body_tokens.extend(quote! {
+                    {
+                        use mirui::widget::{Children, Parent};
+                        (#world).insert(#child_var, Parent(#niche_var_ts));
+                        if let Some(children) = (#world).get_mut::<Children>(#niche_var_ts) {
+                            children.0.push(#child_var);
+                        }
+                    }
+                });
+            }
+        }
+
+        let widget_label = quote! { stringify!(#parent_var) };
+        quote! {
+            let #niche_var = match (#world).get::<mirui::widget::NicheMap>(#parent_var) {
+                Some(map) => match map.get(#niche_name) {
+                    Some(e) => e,
+                    None => panic!(
+                        "ui!: niche '{}' not registered on widget {}",
+                        #niche_name,
+                        #widget_label,
+                    ),
+                },
+                None => panic!(
+                    "ui!: widget {} has no NicheMap (missing auto_attach?)",
+                    #widget_label
+                ),
+            };
+            #body_tokens
+        }
     }
 
     fn emit_iter(
@@ -579,8 +639,18 @@ impl DsRune for MiruiRune {
         self.stack.last_mut().unwrap().push(cmd);
     }
 
-    fn inscribe_niche(&mut self, _name: &syn::Ident, _children: &[DsTreeRef]) {
-        unimplemented!("@niche emission is not yet supported in this build");
+    fn inscribe_niche(&mut self, name: &syn::Ident, children: &[DsTreeRef]) {
+        self.stack.push(Vec::new());
+        for child in children {
+            decipher(child, self);
+        }
+        let body = self.stack.pop().unwrap();
+
+        let cmd = Cmd::Niche(NicheCmd {
+            name: name.clone(),
+            body,
+        });
+        self.stack.last_mut().unwrap().push(cmd);
     }
 
     fn inscribe_match(

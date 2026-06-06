@@ -6,7 +6,7 @@ pub use crate::components::text_input::{CursorBlinkPhase, cursor_blink_system};
 // Snapshot ViewAttach fn pointers so the borrow on ViewRegistry
 // drops before each fn gets &mut World. The mut-borrow conflict
 // is the reason for the two-step copy instead of streaming.
-fn attach_handlers_for(world: &mut World, entity: Entity) {
+pub fn attach_handlers_for(world: &mut World, entity: Entity) {
     let mut pending: alloc::vec::Vec<crate::widget::view::ViewAttach> = alloc::vec::Vec::new();
     if let Some(reg) = world.resource::<crate::widget::view::ViewRegistry>() {
         for v in reg.iter() {

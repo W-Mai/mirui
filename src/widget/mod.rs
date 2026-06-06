@@ -12,6 +12,7 @@
 pub mod builder;
 pub mod dirty;
 pub mod id;
+pub mod niche;
 pub mod offscreen;
 pub mod render_system;
 pub mod state;
@@ -21,6 +22,7 @@ pub mod view;
 pub mod visibility;
 
 pub use id::{IdMap, NamedId};
+pub use niche::NicheMap;
 pub use offscreen::{
     OffscreenAlphaMode, OffscreenAutoAdded, OffscreenBufferPool, OffscreenGeneration,
     OffscreenRender, TextureSnapshot, WidgetTextureAccess, WidgetTextureRef,
