@@ -88,6 +88,7 @@ struct WidgetCmd {
     errors: Vec<proc_macro2::TokenStream>,
     enchants: Vec<proc_macro2::TokenStream>,
     component_fields: Vec<proc_macro2::TokenStream>,
+    text_tuple_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
     children: Vec<Cmd>,
@@ -99,6 +100,7 @@ struct ParsedAttrs {
     errors: Vec<proc_macro2::TokenStream>,
     component_inserts: Vec<proc_macro2::TokenStream>,
     component_fields: Vec<proc_macro2::TokenStream>,
+    text_tuple_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
 }
@@ -137,14 +139,29 @@ impl MiruiRune {
         syn::Ident::new(&name, proc_macro2::Span::call_site())
     }
 
-    fn parse_attrs(&self, attrs: &[DsAttr], widget_kind: WidgetKind) -> ParsedAttrs {
+    fn parse_attrs(
+        &self,
+        attrs: &[DsAttr],
+        widget_name: &str,
+        widget_kind: WidgetKind,
+    ) -> ParsedAttrs {
         let mut builder_calls = Vec::new();
         let mut layout_fields = Vec::new();
         let mut errors = Vec::new();
         let component_inserts = Vec::new();
         let mut component_fields = Vec::new();
+        let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
         let mut id_registrations = Vec::new();
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
+
+        let is_text_widget = widget_name == "Text";
+        let is_text_input_widget = widget_name == "TextInput";
+        const TEXT_INPUT_FIELDS: &[&str] = &[
+            "text_color",
+            "placeholder_color",
+            "cursor_color",
+            "focus_border_color",
+        ];
 
         for attr in attrs {
             let name = attr.name.to_string();
@@ -156,6 +173,18 @@ impl MiruiRune {
                 &mut rewritten,
             );
             let value = &rewritten;
+
+            if is_text_widget && name == "text" {
+                text_tuple_value = Some(quote! { #value });
+                continue;
+            }
+
+            if is_text_input_widget && TEXT_INPUT_FIELDS.contains(&name.as_str()) {
+                let field_ident = syn::Ident::new(&name, attr.name.span());
+                component_fields.push(quote! { #field_ident: (#value).into() });
+                continue;
+            }
+
             match name.as_str() {
                 "bg_color" => builder_calls.push(quote! { .bg_color(#value) }),
                 "text" => builder_calls.push(quote! { .text(#value) }),
@@ -212,6 +241,7 @@ impl MiruiRune {
             errors,
             component_inserts,
             component_fields,
+            text_tuple_value,
             id_registrations,
             id_lookups,
         }
@@ -299,13 +329,24 @@ impl MiruiRune {
 
         if cmd.kind == WidgetKind::Component {
             let comp_name = &cmd.name;
-            let comp_fields = &cmd.component_fields;
-            tokens.extend(quote! {
-                (#world).insert(#var, #comp_name {
-                    #(#comp_fields,)*
-                    ..Default::default()
+            if cmd.name == "Text"
+                && let Some(text_value) = &cmd.text_tuple_value
+            {
+                tokens.extend(quote! {
+                    (#world).insert(
+                        #var,
+                        #comp_name((#text_value).as_bytes().to_vec()),
+                    );
                 });
-            });
+            } else {
+                let comp_fields = &cmd.component_fields;
+                tokens.extend(quote! {
+                    (#world).insert(#var, #comp_name {
+                        #(#comp_fields,)*
+                        ..Default::default()
+                    });
+                });
+            }
         }
 
         // Emit enchants — insert components
@@ -411,7 +452,7 @@ impl DsRune for MiruiRune {
     ) {
         let kind = classify_widget_name(name);
         let var = self.next_var();
-        let parsed = self.parse_attrs(attrs, kind);
+        let parsed = self.parse_attrs(attrs, &name.to_string(), kind);
         let mut id_lookups = parsed.id_lookups;
         let mut enchant_tokens: Vec<proc_macro2::TokenStream> = parsed.component_inserts;
         for e in enchants.iter() {
@@ -440,6 +481,7 @@ impl DsRune for MiruiRune {
             errors: parsed.errors,
             enchants: enchant_tokens,
             component_fields: parsed.component_fields,
+            text_tuple_value: parsed.text_tuple_value,
             id_registrations: parsed.id_registrations,
             id_lookups,
             children: my_children,

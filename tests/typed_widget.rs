@@ -54,6 +54,57 @@ mod tests {
     }
 
     #[test]
+    fn text_widget_uses_tuple_init() {
+        use mirui::components::Text;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Text (text: "Hello") {}
+        };
+
+        let entities = world.query::<Text>().collect();
+        assert_eq!(entities.len(), 1);
+        let text = world.get::<Text>(entities[0]).unwrap();
+        assert_eq!(text.0, b"Hello");
+    }
+
+    #[test]
+    fn text_input_text_color_routes_to_field() {
+        use mirui::components::TextInput;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            TextInput (
+                text_color: mirui::widget::ColorToken::Primary,
+            ) {}
+        };
+
+        let entities = world.query::<TextInput>().collect();
+        assert_eq!(entities.len(), 1);
+        let ti = world.get::<TextInput>(entities[0]).unwrap();
+        assert!(matches!(
+            ti.text_color,
+            mirui::widget::ThemedColor::Token(mirui::widget::ColorToken::Primary)
+        ));
+    }
+
+    #[test]
     fn lowercase_name_stays_layout_fallback() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
