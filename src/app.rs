@@ -151,6 +151,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(ViewRegistry::default());
         world.insert_resource(Theme::default());
         world.insert_resource(OffscreenBufferPool::default());
+        world.insert_resource(crate::widget::IdMap::new());
         Self {
             world,
             backend,

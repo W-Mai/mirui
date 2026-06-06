@@ -1,6 +1,6 @@
 use alloc::collections::BTreeMap;
 
-use crate::ecs::Entity;
+use crate::ecs::{Entity, World};
 
 pub struct NamedId(pub &'static str);
 
@@ -31,6 +31,12 @@ impl IdMap {
 impl Default for IdMap {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl World {
+    pub fn find_by_id(&self, id: &'static str) -> Option<Entity> {
+        self.resource::<IdMap>().and_then(|m| m.get(id))
     }
 }
 
@@ -83,5 +89,23 @@ mod tests {
     fn remove_missing_returns_none() {
         let mut m = IdMap::new();
         assert_eq!(m.remove("ghost"), None);
+    }
+
+    #[test]
+    fn world_find_by_id_returns_none_without_map() {
+        let w = World::new();
+        assert_eq!(w.find_by_id("anything"), None);
+    }
+
+    #[test]
+    fn world_find_by_id_hits_resource() {
+        let mut w = World::new();
+        w.insert_resource(IdMap::new());
+        let e = w.spawn();
+        if let Some(map) = w.resource_mut::<IdMap>() {
+            map.insert("hero", e);
+        }
+        assert_eq!(w.find_by_id("hero"), Some(e));
+        assert_eq!(w.find_by_id("ghost"), None);
     }
 }
