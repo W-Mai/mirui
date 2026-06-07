@@ -161,6 +161,111 @@ mod tests {
     }
 
     #[test]
+    fn on_tap_count_two_only_triggers_on_double() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {
+                on Tap(2) { fire(); }
+            }
+        };
+
+        let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
+        let target = handlers.pop().unwrap();
+        bubble_dispatch_at(&mut world, &tap_event(target), 100);
+        assert_eq!(fired(), 0, "single Tap with only on Tap(2) must not fire");
+        bubble_dispatch_at(&mut world, &tap_event(target), 200);
+        assert_eq!(fired(), 1, "second Tap within window fires on Tap(2)");
+    }
+
+    #[test]
+    fn on_tap_count_resets_after_window() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {
+                on Tap(2) { fire(); }
+            }
+        };
+
+        let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
+        let target = handlers.pop().unwrap();
+        bubble_dispatch_at(&mut world, &tap_event(target), 100);
+        bubble_dispatch_at(&mut world, &tap_event(target), 500);
+        assert_eq!(fired(), 0, "second Tap past 300ms window resets count");
+    }
+
+    #[test]
+    fn on_tap_mixed_single_and_double_routes_by_count() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {
+                on Tap { fire(); }
+                on Tap(2) { fire(); fire(); }
+            }
+        };
+
+        let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
+        let target = handlers.pop().unwrap();
+        bubble_dispatch_at(&mut world, &tap_event(target), 100);
+        assert_eq!(fired(), 1, "first Tap fires single");
+        bubble_dispatch_at(&mut world, &tap_event(target), 200);
+        assert_eq!(
+            fired(),
+            3,
+            "second Tap within window fires double (2 fires)"
+        );
+    }
+
+    #[test]
+    fn on_tap_count_three_fires_after_two_priming_taps() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {
+                on Tap(3) { fire(); }
+            }
+        };
+
+        let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
+        let target = handlers.pop().unwrap();
+        bubble_dispatch_at(&mut world, &tap_event(target), 100);
+        bubble_dispatch_at(&mut world, &tap_event(target), 200);
+        assert_eq!(fired(), 0, "first two Taps prime, no Tap(1) or Tap(2) arm");
+        bubble_dispatch_at(&mut world, &tap_event(target), 300);
+        assert_eq!(fired(), 1, "third Tap fires on Tap(3)");
+    }
+
+    #[test]
     fn on_handlers_on_component_widget_overrides_internal() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
