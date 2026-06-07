@@ -1,0 +1,5 @@
+error: qualified `on Path::EventKind` is reserved for a later release; use unqualified `on EventKind` for now
+  --> tests/ui/on_qualified_path.rs:18:16
+   |
+18 |             on Slider::ValueChanged { todo!() }
+   |                ^^^^^^

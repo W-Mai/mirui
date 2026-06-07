@@ -1,0 +1,5 @@
+error: parameters on `on LongPress(...)` are reserved for a later release; only `on Tap(n)` is parameterised in v0.27.x
+  --> tests/ui/on_non_tap_with_args.rs:18:16
+   |
+18 |             on LongPress(500) { todo!() }
+   |                ^^^^^^^^^

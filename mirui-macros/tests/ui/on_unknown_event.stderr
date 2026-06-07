@@ -1,0 +1,5 @@
+error: unknown gesture event `Wiggle`; expected one of: Tap, LongPress, DragStart, DragMove, DragEnd, Pinch, Rotate
+  --> tests/ui/on_unknown_event.rs:18:16
+   |
+18 |             on Wiggle { todo!() }
+   |                ^^^^^^
