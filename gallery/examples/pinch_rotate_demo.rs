@@ -123,7 +123,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        status (
+        View (
             position: Position::Absolute,
             left: 16,
             top: 16,
@@ -140,7 +140,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        rect (
+        View (
             position: Position::Absolute,
             left: CENTER_X - BASE_W / 2,
             top: CENTER_Y - BASE_H / 2,

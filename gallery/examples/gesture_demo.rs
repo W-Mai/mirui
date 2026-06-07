@@ -93,7 +93,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        tap_box (
+        View (
             bg_color: Color::rgb(63, 185, 80),
             position: Position::Absolute,
             left: 20,
@@ -117,7 +117,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        drag_box (
+        View (
             bg_color: Color::rgb(88, 166, 255),
             position: Position::Absolute,
             left: 90,
@@ -140,7 +140,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        lp_box (
+        View (
             bg_color: Color::rgb(210, 168, 255),
             position: Position::Absolute,
             left: 200,

@@ -32,7 +32,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        input (
+        View (
             bg_color: Color::rgb(40, 40, 56),
             border_color: Color::rgb(80, 80, 100),
             border_radius: 4,

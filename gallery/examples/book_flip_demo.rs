@@ -62,14 +62,14 @@ fn main() {
             world: world
         :)
 
-        spread (
+        View (
             position: Position::Absolute,
             left: 0,
             top: 0,
             width: 640,
             height: 360
         ) {
-            left_page (
+            View (
                 position: Position::Absolute,
                 left: 140,
                 top: 60,
@@ -80,7 +80,7 @@ fn main() {
                 border_color: Color::rgb(255, 255, 255),
                 border_width: 3
             ) {}
-            right_page (
+            View (
                 position: Position::Absolute,
                 left: 320,
                 top: 60,

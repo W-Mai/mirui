@@ -48,7 +48,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        ball (
+        View (
             bg_color: Color::rgb(255, 50, 100),
             border_radius: 20,
             position: Position::Absolute,

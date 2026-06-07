@@ -79,12 +79,12 @@ fn main() {
             world: &mut app.world
         :)
 
-        chooser_row (
+        View (
             direction: FlexDirection::Row,
             height: 44,
             padding: Padding::all(0)
         ) {
-            dark_btn (
+            View (
                 grow: 1.0,
                 height: 36,
                 border_radius: 6,
@@ -99,7 +99,7 @@ fn main() {
                     on_gesture: theme_swap_handler,
                 },
             ] {}
-            light_btn (
+            View (
                 grow: 1.0,
                 height: 36,
                 border_radius: 6,
@@ -114,7 +114,7 @@ fn main() {
                     on_gesture: theme_swap_handler,
                 },
             ] {}
-            custom_btn (
+            View (
                 grow: 1.0,
                 height: 36,
                 border_radius: 6,
@@ -138,54 +138,54 @@ fn main() {
             world: &mut app.world
         :)
 
-        showcase (
+        View (
             direction: FlexDirection::Column,
             grow: 1.0,
             padding: Padding::all(0)
         ) {
-            slider_row (direction: FlexDirection::Row, height: 28, align: AlignItems::Center) {
-                slider_label (text: "Slider", width: 90) {}
-                slider (grow: 1.0, height: 20) [
+            View (direction: FlexDirection::Row, height: 28, align: AlignItems::Center) {
+                View (text: "Slider", width: 90) {}
+                View (grow: 1.0, height: 20) [
                     Slider::new(Fixed::ZERO, Fixed::from_int(100)),
                 ] {}
             }
-            switch_row (direction: FlexDirection::Row, height: 36, align: AlignItems::Center) {
-                switch_label (text: "Switch", width: 90) {}
-                switch_widget (width: 56, height: 28) [
+            View (direction: FlexDirection::Row, height: 36, align: AlignItems::Center) {
+                View (text: "Switch", width: 90) {}
+                View (width: 56, height: 28) [
                     Switch::new(),
                 ] {}
             }
-            checkbox_row (direction: FlexDirection::Row, height: 36, align: AlignItems::Center) {
-                checkbox_label (text: "Checkbox", width: 90) {}
-                checkbox_widget (width: 24, height: 24, border_radius: 4) [
+            View (direction: FlexDirection::Row, height: 36, align: AlignItems::Center) {
+                View (text: "Checkbox", width: 90) {}
+                View (width: 24, height: 24, border_radius: 4) [
                     Checkbox::new(),
                 ] {}
             }
-            progress_row (direction: FlexDirection::Row, height: 28, align: AlignItems::Center) {
-                progress_label (text: "Progress", width: 90) {}
-                progress (grow: 1.0, height: 12, border_radius: 6) [
+            View (direction: FlexDirection::Row, height: 28, align: AlignItems::Center) {
+                View (text: "Progress", width: 90) {}
+                View (grow: 1.0, height: 12, border_radius: 6) [
                     ProgressBar::new(),
                 ] {}
             }
-            input_row (direction: FlexDirection::Row, height: 36, align: AlignItems::Center) {
-                input_label (text: "Input", width: 90) {}
-                input (grow: 1.0, height: 28) [
+            View (direction: FlexDirection::Row, height: 36, align: AlignItems::Center) {
+                View (text: "Input", width: 90) {}
+                View (grow: 1.0, height: 28) [
                     TextInput::new(),
                 ] {}
             }
-            tabs_row (direction: FlexDirection::Row, height: 24, align: AlignItems::Center) {
-                tabs_label (text: "Tabs", width: 90) {}
-                tabs (grow: 1.0, height: 24) [
+            View (direction: FlexDirection::Row, height: 24, align: AlignItems::Center) {
+                View (text: "Tabs", width: 90) {}
+                View (grow: 1.0, height: 24) [
                     TabBar::new(3),
                 ] {
-                    t0 (grow: 1.0) {}
-                    t1 (grow: 1.0) {}
-                    t2 (grow: 1.0) {}
+                    View (grow: 1.0) {}
+                    View (grow: 1.0) {}
+                    View (grow: 1.0) {}
                 }
             }
-            accent_row (direction: FlexDirection::Row, height: 32, align: AlignItems::Center) {
-                accent_label (text: "Custom 'accent'", width: 120) {}
-                accent_block (width: 32, height: 24, border_radius: 4, bg_color: ACCENT) {}
+            View (direction: FlexDirection::Row, height: 32, align: AlignItems::Center) {
+                View (text: "Custom 'accent'", width: 120) {}
+                View (width: 32, height: 24, border_radius: 4, bg_color: ACCENT) {}
             }
         }
     };

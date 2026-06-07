@@ -33,7 +33,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        purple (
+        View (
             bg_color: Color::rgb(120, 40, 180),
             position: Position::Absolute,
             left: 60,
@@ -51,7 +51,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        white (
+        View (
             bg_color: Color::rgb(245, 245, 250),
             position: Position::Absolute,
             left: 60,

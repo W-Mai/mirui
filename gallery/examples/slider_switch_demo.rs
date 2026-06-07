@@ -30,7 +30,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        slider (width: 200, height: 16) [
+        View (width: 200, height: 16) [
             Slider::new(Fixed::ZERO, Fixed::from_int(100)),
         ] {}
     };
@@ -44,7 +44,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        switch (width: 50, height: 26) [
+        View (width: 50, height: 26) [
             Switch::new(),
         ] {}
     };

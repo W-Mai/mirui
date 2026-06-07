@@ -43,28 +43,28 @@ fn main() {
             world: &mut app.world
         :)
 
-        tabbar (
+        View (
             bg_color: Color::rgb(40, 40, 56),
             width: 480,
             height: 40
         ) [
             TabBar::new(3).with_indicator_height(3),
         ] {
-            tab0 (
+            View (
                 text: "Home",
                 text_color: Color::rgb(220, 220, 230),
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
             ) {}
-            tab1 (
+            View (
                 text: "Search",
                 text_color: Color::rgb(220, 220, 230),
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
             ) {}
-            tab2 (
+            View (
                 text: "Profile",
                 text_color: Color::rgb(220, 220, 230),
                 grow: 1.0,
@@ -80,8 +80,8 @@ fn main() {
             world: &mut app.world
         :)
 
-        content_root (width: 480, height: 160) {
-            home_page (
+        View (width: 480, height: 160) {
+            View (
                 bg_color: Color::rgb(63, 185, 80),
                 text: "Home page",
                 text_color: Color::rgb(255, 255, 255),
@@ -95,7 +95,7 @@ fn main() {
                     index: 0,
                 },
             ] {}
-            search_page (
+            View (
                 bg_color: Color::rgb(255, 165, 80),
                 text: "Search page",
                 text_color: Color::rgb(255, 255, 255),
@@ -109,7 +109,7 @@ fn main() {
                     index: 1,
                 },
             ] {}
-            profile_page (
+            View (
                 bg_color: Color::rgb(210, 168, 255),
                 text: "Profile page",
                 text_color: Color::rgb(40, 40, 56),

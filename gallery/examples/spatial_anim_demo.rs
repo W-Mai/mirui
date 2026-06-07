@@ -75,7 +75,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        l1 (
+        View (
             bg_color: Color::rgb(40, 40, 50),
             position: Position::Absolute,
             left: 25,
@@ -91,7 +91,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        l2 (
+        View (
             bg_color: Color::rgb(40, 40, 50),
             position: Position::Absolute,
             left: 140,
@@ -107,7 +107,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        l3 (
+        View (
             bg_color: Color::rgb(40, 40, 50),
             position: Position::Absolute,
             left: 270,
@@ -125,7 +125,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        tb (
+        View (
             bg_color: Color::rgb(248, 81, 73),
             position: Position::Absolute,
             left: 50,
@@ -156,7 +156,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        sb (
+        View (
             bg_color: Color::rgb(63, 185, 80),
             position: Position::Absolute,
             left: 170,
@@ -181,7 +181,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        eb (
+        View (
             bg_color: Color::rgb(88, 166, 255),
             position: Position::Absolute,
             left: 300,

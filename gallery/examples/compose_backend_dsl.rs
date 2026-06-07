@@ -190,15 +190,15 @@ fn main() {
             world: &mut app.world
         :)
 
-        scene (grow: 1.0) {
-            banner (
+        View (grow: 1.0) {
+            View (
                 bg_color: Color::rgb(88, 166, 255),
                 height: 40,
                 text: "compose_backend DSL demo",
                 border_radius: 6
             ) {}
             walk drifters.iter() with d {
-                drifter (
+                View (
                     position: Position::Absolute,
                     left: d.0,
                     top: d.1,
