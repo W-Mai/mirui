@@ -65,9 +65,25 @@ fn main() {
             ) {}
             Row (grow: 1.0, justify: JustifyContent::SpaceEvenly, align: AlignItems::Center) {
                 Switch (width: 60, height: 32)
-                    on Toggled { __world . resource_mut :: < ToggleStats > () . map (| s | { s . switch_on = * now ; s . switch_changes += 1 ; }) ; refresh_label (__world) ; } {}
+                    on Toggled {
+                        __world
+                            .resource_mut::<ToggleStats>()
+                            .map(|s| {
+                                s.switch_on = *now;
+                                s.switch_changes += 1;
+                            });
+                        refresh_label(__world);
+                    } {}
                 Checkbox (width: 32, height: 32)
-                    on Toggled { __world . resource_mut :: < ToggleStats > () . map (| s | { s . checkbox_checked = * now ; s . checkbox_changes += 1 ; }) ; refresh_label (__world) ; } {}
+                    on Toggled {
+                        __world
+                            .resource_mut::<ToggleStats>()
+                            .map(|s| {
+                                s.checkbox_checked = *now;
+                                s.checkbox_changes += 1;
+                            });
+                        refresh_label(__world);
+                    } {}
             }
         }
     };

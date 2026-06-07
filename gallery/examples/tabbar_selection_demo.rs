@@ -67,7 +67,16 @@ fn main() {
                 height: 30
             ) {}
             TabBar (width: 440, height: 44)
-                on SelectionChanged { __world . resource_mut :: < SelectionStats > () . map (| s | { s . last_new = * new ; s . last_old = * old ; s . changes += 1 ; }) ; refresh_label (__world) ; } {}
+                on SelectionChanged {
+                    __world
+                        .resource_mut::<SelectionStats>()
+                        .map(|s| {
+                            s.last_new = *new;
+                            s.last_old = *old;
+                            s.changes += 1;
+                        });
+                    refresh_label(__world);
+                } {}
         }
     };
 
