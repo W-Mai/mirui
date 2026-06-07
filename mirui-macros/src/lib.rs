@@ -128,6 +128,7 @@ struct ParsedAttrs {
     text_tuple_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
+    user_set_direction: bool,
 }
 
 struct IterCmd {
@@ -178,6 +179,7 @@ impl MiruiRune {
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
         let mut id_registrations = Vec::new();
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
+        let mut user_set_direction = false;
 
         let is_text_widget = widget_name == "Text";
         let is_text_input_widget = widget_name == "TextInput";
@@ -267,7 +269,10 @@ impl MiruiRune {
                 "width" => layout_fields.push(quote! { width: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value as i32)) }),
                 "height" => layout_fields.push(quote! { height: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value as i32)) }),
                 "grow" => layout_fields.push(quote! { grow: mirui::types::Fixed::from_f32(#value) }),
-                "direction" => layout_fields.push(quote! { direction: #value }),
+                "direction" => {
+                    user_set_direction = true;
+                    layout_fields.push(quote! { direction: #value });
+                }
                 "justify" => layout_fields.push(quote! { justify: #value }),
                 "align" => layout_fields.push(quote! { align: #value }),
                 "padding" => layout_fields.push(quote! { padding: #value }),
@@ -314,6 +319,7 @@ impl MiruiRune {
             text_tuple_value,
             id_registrations,
             id_lookups,
+            user_set_direction,
         }
     }
 
@@ -618,7 +624,24 @@ impl DsRune for MiruiRune {
     ) {
         let kind = classify_widget_name(name);
         let var = self.next_var();
-        let parsed = self.parse_attrs(attrs, &name.to_string(), kind);
+        let mut parsed = self.parse_attrs(attrs, &name.to_string(), kind);
+        if !parsed.user_set_direction {
+            let widget_name_str = name.to_string();
+            match widget_name_str.as_str() {
+                "Row" => {
+                    parsed
+                        .layout_fields
+                        .insert(0, quote! { direction: mirui::layout::FlexDirection::Row });
+                }
+                "Column" => {
+                    parsed.layout_fields.insert(
+                        0,
+                        quote! { direction: mirui::layout::FlexDirection::Column },
+                    );
+                }
+                _ => {}
+            }
+        }
         let mut id_lookups = parsed.id_lookups;
         let mut enchant_tokens: Vec<proc_macro2::TokenStream> = parsed.component_inserts;
         for e in enchants.iter() {

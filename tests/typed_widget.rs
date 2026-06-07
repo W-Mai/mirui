@@ -128,6 +128,74 @@ mod tests {
     }
 
     #[test]
+    fn row_widget_implies_row_direction() {
+        use mirui::layout::FlexDirection;
+        use mirui::widget::Style;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Row (width: 100) {}
+        };
+
+        let entities = world.query::<Style>().collect();
+        let row_count = entities
+            .iter()
+            .filter(|&&e| {
+                world
+                    .get::<Style>(e)
+                    .map(|s| matches!(s.layout.direction, FlexDirection::Row))
+                    .unwrap_or(false)
+            })
+            .count();
+        assert!(
+            row_count >= 1,
+            "Row widget must default to FlexDirection::Row"
+        );
+    }
+
+    #[test]
+    fn column_widget_implies_column_direction() {
+        use mirui::layout::FlexDirection;
+        use mirui::widget::Style;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Column (width: 100) {}
+        };
+
+        let entities = world.query::<Style>().collect();
+        let col_count = entities
+            .iter()
+            .filter(|&&e| {
+                world
+                    .get::<Style>(e)
+                    .map(|s| matches!(s.layout.direction, FlexDirection::Column))
+                    .unwrap_or(false)
+            })
+            .count();
+        assert!(
+            col_count >= 1,
+            "Column widget must default to FlexDirection::Column"
+        );
+    }
+
+    #[test]
     fn lowercase_name_stays_layout_fallback() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
