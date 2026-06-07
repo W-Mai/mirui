@@ -1,4 +1,5 @@
 use mirui::components::Text;
+use mirui::plugins::StdInstantClockPlugin;
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::widget::IdMap;
@@ -37,6 +38,7 @@ fn refresh_label(world: &mut World) {
 fn main() {
     let backend = SdlSurface::new("mirui - on handlers", 640, 320);
     let mut app = App::new(backend);
+    app.add_plugin(StdInstantClockPlugin);
     app.with_default_widgets();
     app.world.insert_resource(IdMap::new());
     app.world.insert_resource(ClickCounter::default());
