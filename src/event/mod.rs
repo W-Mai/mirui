@@ -133,6 +133,12 @@ pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) 
     multi_tap::observe_gesture(world, event, now_ms);
     let mut current = event.target();
     loop {
+        let internals = collect_internal_handlers(world, current);
+        for f in internals {
+            if f(world, current, event) {
+                return;
+            }
+        }
         let handler_fn = world.get::<GestureHandler>(current).map(|h| h.on_gesture);
         if let Some(f) = handler_fn {
             if f(world, current, event) {
@@ -144,6 +150,26 @@ pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) 
             None => return,
         }
     }
+}
+
+fn collect_internal_handlers(
+    world: &World,
+    entity: Entity,
+) -> alloc::vec::Vec<crate::widget::view::ViewInternalGesture> {
+    let Some(registry) = world.resource::<crate::widget::view::ViewRegistry>() else {
+        return alloc::vec::Vec::new();
+    };
+    registry
+        .iter()
+        .filter_map(|v| {
+            let f = v.internal_gesture()?;
+            match v.component_filter() {
+                Some(type_id) if world.has_type(entity, type_id) => Some(f),
+                Some(_) => None,
+                None => Some(f),
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -183,5 +209,142 @@ mod tests {
         let e = world.spawn();
         world.insert(e, UserState::Errored);
         assert!(!entity_or_ancestor_disabled(&world, e));
+    }
+
+    mod dual_channel {
+        use super::*;
+        use crate::types::Fixed;
+        use crate::widget::view::{View, ViewRegistry};
+        use core::sync::atomic::{AtomicU8, Ordering};
+        use std::sync::Mutex;
+
+        struct ChannelMarker;
+
+        static INTERNAL_FIRES: AtomicU8 = AtomicU8::new(0);
+        static USER_FIRES: AtomicU8 = AtomicU8::new(0);
+        static SERIAL: Mutex<()> = Mutex::new(());
+
+        fn reset() {
+            INTERNAL_FIRES.store(0, Ordering::SeqCst);
+            USER_FIRES.store(0, Ordering::SeqCst);
+        }
+
+        fn internal_consume(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {
+            INTERNAL_FIRES.fetch_add(1, Ordering::SeqCst);
+            true
+        }
+
+        fn internal_passthrough(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {
+            INTERNAL_FIRES.fetch_add(1, Ordering::SeqCst);
+            false
+        }
+
+        fn user_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {
+            USER_FIRES.fetch_add(1, Ordering::SeqCst);
+            true
+        }
+
+        fn registry_with(internal: fn(&mut World, Entity, &GestureEvent) -> bool) -> ViewRegistry {
+            fn dummy_render(
+                _r: &mut dyn crate::draw::renderer::Renderer,
+                _w: &World,
+                _e: Entity,
+                _rect: &crate::types::Rect,
+                _ctx: &mut crate::widget::view::ViewCtx,
+            ) {
+            }
+            let mut reg = ViewRegistry::default();
+            reg.insert(
+                View::new("ChannelMarker", 60, dummy_render)
+                    .with_filter::<ChannelMarker>()
+                    .with_internal_gesture(internal),
+            );
+            reg
+        }
+
+        fn tap_event(target: Entity) -> GestureEvent {
+            GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target,
+            }
+        }
+
+        #[test]
+        fn user_only_runs_when_no_internal() {
+            let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+            reset();
+            let mut world = World::new();
+            world.insert_resource(ViewRegistry::default());
+            let e = world.spawn();
+            world.insert(
+                e,
+                GestureHandler {
+                    on_gesture: user_handler,
+                },
+            );
+            bubble_dispatch_at(&mut world, &tap_event(e), 0);
+            assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 0);
+            assert_eq!(USER_FIRES.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn internal_only_runs_when_no_user() {
+            let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+            reset();
+            let mut world = World::new();
+            world.insert_resource(registry_with(internal_consume));
+            let e = world.spawn();
+            world.insert(e, ChannelMarker);
+            bubble_dispatch_at(&mut world, &tap_event(e), 0);
+            assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
+            assert_eq!(USER_FIRES.load(Ordering::SeqCst), 0);
+        }
+
+        #[test]
+        fn internal_consumes_blocks_user() {
+            let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+            reset();
+            let mut world = World::new();
+            world.insert_resource(registry_with(internal_consume));
+            let e = world.spawn();
+            world.insert(e, ChannelMarker);
+            world.insert(
+                e,
+                GestureHandler {
+                    on_gesture: user_handler,
+                },
+            );
+            bubble_dispatch_at(&mut world, &tap_event(e), 0);
+            assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                USER_FIRES.load(Ordering::SeqCst),
+                0,
+                "internal returned true, user must not fire",
+            );
+        }
+
+        #[test]
+        fn internal_passthrough_lets_user_run() {
+            let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+            reset();
+            let mut world = World::new();
+            world.insert_resource(registry_with(internal_passthrough));
+            let e = world.spawn();
+            world.insert(e, ChannelMarker);
+            world.insert(
+                e,
+                GestureHandler {
+                    on_gesture: user_handler,
+                },
+            );
+            bubble_dispatch_at(&mut world, &tap_event(e), 0);
+            assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
+            assert_eq!(
+                USER_FIRES.load(Ordering::SeqCst),
+                1,
+                "internal returned false, user must fire on the same entity",
+            );
+        }
     }
 }

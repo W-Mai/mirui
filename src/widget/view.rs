@@ -10,6 +10,7 @@ use core::any::TypeId;
 
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
+use crate::event::gesture::GestureEvent;
 use crate::types::{Point, Rect, Transform};
 use crate::widget::Style;
 use crate::widget::theme::WidgetState;
@@ -43,6 +44,8 @@ pub type ViewRender =
 
 pub type ViewAttach = fn(world: &mut World, entity: Entity);
 
+pub type ViewInternalGesture = fn(&mut World, Entity, &GestureEvent) -> bool;
+
 pub struct View {
     name: &'static str,
     /// Lower runs earlier. Slot reservation: 0..30 pre-bg,
@@ -56,6 +59,11 @@ pub struct View {
     /// own a component of this type. `None` runs on every entity
     /// (e.g. the generic Style stage).
     component_filter: Option<fn() -> TypeId>,
+    /// Component-internal gesture handler that runs *before* the user
+    /// `GestureHandler` channel during `bubble_dispatch`. Returning
+    /// `true` consumes the event; returning `false` lets bubble walk
+    /// continue (and visit any user-attached `GestureHandler`).
+    internal_gesture: Option<ViewInternalGesture>,
 }
 
 impl View {
@@ -67,6 +75,7 @@ impl View {
             auto_attach: None,
             systems: &[],
             component_filter: None,
+            internal_gesture: None,
         }
     }
 
@@ -83,6 +92,14 @@ impl View {
     /// Restrict `render` dispatch to entities owning component `T`.
     pub const fn with_filter<T: 'static>(mut self) -> Self {
         self.component_filter = Some(TypeId::of::<T>);
+        self
+    }
+
+    /// Register a component-internal gesture handler. Runs before the
+    /// user `GestureHandler` channel during `bubble_dispatch`; return
+    /// `false` to let the user handler also see the event.
+    pub const fn with_internal_gesture(mut self, f: ViewInternalGesture) -> Self {
+        self.internal_gesture = Some(f);
         self
     }
 
@@ -103,6 +120,7 @@ impl View {
             auto_attach: None,
             systems,
             component_filter: None,
+            internal_gesture: None,
         }
     }
 
@@ -120,6 +138,9 @@ impl View {
     }
     pub(crate) fn component_filter(&self) -> Option<TypeId> {
         self.component_filter.map(|f| f())
+    }
+    pub(crate) fn internal_gesture(&self) -> Option<ViewInternalGesture> {
+        self.internal_gesture
     }
 
     /// Hand each contributed `System` to `sink`. Called by `App` at
