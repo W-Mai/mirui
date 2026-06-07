@@ -1,7 +1,6 @@
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
 use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
@@ -160,22 +159,13 @@ pub(crate) fn slider_handler(world: &mut World, entity: Entity, event: &GestureE
 }
 
 fn slider_attach(world: &mut World, entity: Entity) {
-    if world.get::<Slider>(entity).is_none() {
-        return;
-    }
-    if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    world.insert(
-        entity,
-        GestureHandler {
-            on_gesture: slider_handler,
-        },
-    );
+    let _ = world;
+    let _ = entity;
 }
 
 pub fn view() -> View {
     View::new("Slider", 60, slider_render)
         .with_filter::<Slider>()
         .with_attach(slider_attach)
+        .with_internal_gesture(slider_handler)
 }
