@@ -729,6 +729,15 @@ impl DsRune for MiruiRune {
         self.stack.last_mut().unwrap().push(cmd);
     }
 
+    fn inscribe_on(
+        &mut self,
+        _qualifier: Option<&syn::Ident>,
+        _name: &syn::Ident,
+        _args: &[syn::Expr],
+        _body: &[DsTreeRef],
+    ) {
+    }
+
     fn inscribe_match(
         &mut self,
         scrutinee: &syn::Expr,
