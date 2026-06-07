@@ -329,7 +329,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let (pw, ph) = self.backend.physical_size();
         {
             crate::trace_span!("frame.flush");
+            self.backend.begin_flush();
             self.backend.flush(&Rect::new(0, 0, pw as u16, ph as u16));
+            self.backend.end_flush();
         }
         let flush_end = self.clock_ns();
         self.last_flush_ns = flush_end.saturating_sub(render_end);
