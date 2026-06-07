@@ -1,4 +1,4 @@
-error: unknown gesture event `Wiggle`; expected one of: Tap, LongPress, DragStart, DragMove, DragEnd, Pinch, Rotate
+error: unknown event `Wiggle` for widget `View`; expected a GestureEvent variant (Tap, LongPress, DragStart, DragMove, DragEnd, Pinch, Rotate) or a business event
   --> tests/ui/on_unknown_event.rs:17:23
    |
 17 |         View () {} on Wiggle { todo!() }

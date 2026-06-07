@@ -88,6 +88,44 @@ fn is_known_gesture_event(name: &str) -> bool {
     )
 }
 
+struct BusinessEventEntry {
+    widget: &'static str,
+    event: &'static str,
+    handler_component: &'static str,
+    event_path: &'static str,
+    fields: &'static [&'static str],
+}
+
+const FIRST_PARTY_BUSINESS_EVENTS: &[BusinessEventEntry] = &[
+    BusinessEventEntry {
+        widget: "Slider",
+        event: "ValueChanged",
+        handler_component: "::mirui::components::slider::SliderHandler",
+        event_path: "::mirui::components::slider::SliderEvent::ValueChanged",
+        fields: &["new", "old"],
+    },
+    BusinessEventEntry {
+        widget: "Slider",
+        event: "DragStarted",
+        handler_component: "::mirui::components::slider::SliderHandler",
+        event_path: "::mirui::components::slider::SliderEvent::DragStarted",
+        fields: &[],
+    },
+    BusinessEventEntry {
+        widget: "Slider",
+        event: "DragEnded",
+        handler_component: "::mirui::components::slider::SliderHandler",
+        event_path: "::mirui::components::slider::SliderEvent::DragEnded",
+        fields: &[],
+    },
+];
+
+fn lookup_business_event(widget: &str, event: &str) -> Option<&'static BusinessEventEntry> {
+    FIRST_PARTY_BUSINESS_EVENTS
+        .iter()
+        .find(|e| e.widget == widget && e.event == event)
+}
+
 fn gesture_event_fields(name: &str) -> &'static [&'static str] {
     match name {
         "Tap" | "LongPress" | "DragStart" => &["x", "y", "target"],
@@ -96,6 +134,79 @@ fn gesture_event_fields(name: &str) -> &'static [&'static str] {
         "Pinch" => &["x", "y", "scale_delta", "target"],
         "Rotate" => &["x", "y", "angle", "target"],
         _ => &[],
+    }
+}
+
+fn emit_business_handler(
+    widget_var: &syn::Ident,
+    handler_component: &str,
+    group: &[(&'static BusinessEventEntry, &OnCmd)],
+    world: &proc_macro2::TokenStream,
+) -> proc_macro2::TokenStream {
+    let handler_path: syn::Path = syn::parse_str(handler_component).unwrap();
+    let suffix: String = handler_component
+        .rsplit("::")
+        .next()
+        .unwrap_or("Handler")
+        .to_lowercase();
+    let fn_name = syn::Ident::new(
+        &format!("__mirui_on_{suffix}_{widget_var}"),
+        proc_macro2::Span::call_site(),
+    );
+
+    let mut arms = proc_macro2::TokenStream::new();
+    for (entry, on_cmd) in group {
+        let body = &on_cmd.body;
+        let event_path: syn::Path = syn::parse_str(entry.event_path).unwrap();
+        let field_idents: Vec<syn::Ident> = entry
+            .fields
+            .iter()
+            .map(|f| syn::Ident::new(f, proc_macro2::Span::call_site()))
+            .collect();
+        let pattern = if field_idents.is_empty() {
+            quote! { #event_path }
+        } else {
+            quote! { #event_path { #(#field_idents),* } }
+        };
+        let bindings = if field_idents.is_empty() {
+            quote! {}
+        } else {
+            quote! { let _ = ( #(#field_idents),* ); }
+        };
+        arms.extend(quote! {
+            #pattern => {
+                #bindings
+                let __consumed: bool = { #body; true };
+                if __consumed { return true; }
+            },
+        });
+    }
+
+    let event_ty: syn::Path = {
+        let mut ty: syn::Path = syn::parse_str(group[0].0.event_path).unwrap();
+        ty.segments.pop();
+        if let Some(pair) = ty.segments.pop() {
+            ty.segments.push_value(pair.into_value());
+        }
+        ty
+    };
+
+    quote! {
+        fn #fn_name(
+            __world: &mut ::mirui::ecs::World,
+            __entity: ::mirui::ecs::Entity,
+            __event: &#event_ty,
+        ) -> bool {
+            match __event {
+                #arms
+                #[allow(unreachable_patterns)]
+                _ => false,
+            }
+        }
+        (#world).insert(
+            #widget_var,
+            #handler_path { on_event: #fn_name },
+        );
     }
 }
 
@@ -444,39 +555,86 @@ impl MiruiRune {
     }
 
     fn emit_on_dispatch(
+        widget_name: &str,
         handlers: &[&OnCmd],
         widget_var: &syn::Ident,
         world: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
-        let fn_name = syn::Ident::new(
-            &format!("__mirui_on_{widget_var}"),
-            proc_macro2::Span::call_site(),
-        );
-
         let mut errors = proc_macro2::TokenStream::new();
-        let mut by_event: std::collections::BTreeMap<String, Vec<&OnCmd>> =
+        let mut gesture_arms: std::collections::BTreeMap<String, Vec<&OnCmd>> =
             std::collections::BTreeMap::new();
+        let mut business_arms: std::collections::BTreeMap<
+            &'static str,
+            Vec<(&'static BusinessEventEntry, &OnCmd)>,
+        > = std::collections::BTreeMap::new();
+
         for h in handlers {
+            let event_name = h.name.to_string();
+
             if let Some(q) = h.qualifier.as_ref() {
-                errors.extend(
-                    syn::Error::new(
-                        q.span(),
-                        "qualified `on Path::EventKind` is reserved for a later release; \
-                         use unqualified `on EventKind` for now",
-                    )
-                    .to_compile_error(),
-                );
+                let q_str = q.to_string();
+                if q_str != widget_name {
+                    errors.extend(
+                        syn::Error::new(
+                            q.span(),
+                            format!(
+                                "qualified `on {q_str}::{event_name}` does not match enclosing \
+                                 widget `{widget_name}`; drop the qualifier or rename the widget"
+                            ),
+                        )
+                        .to_compile_error(),
+                    );
+                    continue;
+                }
+                match lookup_business_event(widget_name, &event_name) {
+                    Some(entry) => {
+                        business_arms
+                            .entry(entry.handler_component)
+                            .or_default()
+                            .push((entry, *h));
+                    }
+                    None => {
+                        errors.extend(
+                            syn::Error::new(
+                                h.name.span(),
+                                format!(
+                                    "no business event named `{event_name}` is registered for \
+                                     widget `{widget_name}`"
+                                ),
+                            )
+                            .to_compile_error(),
+                        );
+                    }
+                }
                 continue;
             }
-            let event_name = h.name.to_string();
+
+            if let Some(entry) = lookup_business_event(widget_name, &event_name) {
+                if !h.args.is_empty() {
+                    errors.extend(
+                        syn::Error::new(
+                            h.name.span(),
+                            format!("business event `{event_name}` does not take arguments"),
+                        )
+                        .to_compile_error(),
+                    );
+                    continue;
+                }
+                business_arms
+                    .entry(entry.handler_component)
+                    .or_default()
+                    .push((entry, *h));
+                continue;
+            }
+
             if !is_known_gesture_event(&event_name) {
                 errors.extend(
                     syn::Error::new(
                         h.name.span(),
                         format!(
-                            "unknown gesture event `{event_name}`; \
-                             expected one of: Tap, LongPress, DragStart, DragMove, \
-                             DragEnd, Pinch, Rotate"
+                            "unknown event `{event_name}` for widget `{widget_name}`; \
+                             expected a GestureEvent variant (Tap, LongPress, DragStart, \
+                             DragMove, DragEnd, Pinch, Rotate) or a business event"
                         ),
                     )
                     .to_compile_error(),
@@ -496,31 +654,49 @@ impl MiruiRune {
                 );
                 continue;
             }
-            by_event.entry(event_name).or_default().push(*h);
+            gesture_arms.entry(event_name).or_default().push(*h);
         }
 
-        let mut arms = proc_macro2::TokenStream::new();
-        for (event_name, group) in &by_event {
-            arms.extend(emit_event_arm(event_name, group));
-        }
+        let mut tokens = proc_macro2::TokenStream::new();
+        tokens.extend(errors);
 
-        quote! {
-            #errors
-            fn #fn_name(
-                __world: &mut ::mirui::ecs::World,
-                __entity: ::mirui::ecs::Entity,
-                __event: &::mirui::event::gesture::GestureEvent,
-            ) -> bool {
-                match __event {
-                    #arms
-                    _ => false,
-                }
-            }
-            (#world).insert(
-                #widget_var,
-                ::mirui::event::GestureHandler { on_gesture: #fn_name },
+        if !gesture_arms.is_empty() {
+            let fn_name = syn::Ident::new(
+                &format!("__mirui_on_gesture_{widget_var}"),
+                proc_macro2::Span::call_site(),
             );
+            let mut arms = proc_macro2::TokenStream::new();
+            for (event_name, group) in &gesture_arms {
+                arms.extend(emit_event_arm(event_name, group));
+            }
+            tokens.extend(quote! {
+                fn #fn_name(
+                    __world: &mut ::mirui::ecs::World,
+                    __entity: ::mirui::ecs::Entity,
+                    __event: &::mirui::event::gesture::GestureEvent,
+                ) -> bool {
+                    match __event {
+                        #arms
+                        _ => false,
+                    }
+                }
+                (#world).insert(
+                    #widget_var,
+                    ::mirui::event::GestureHandler { on_gesture: #fn_name },
+                );
+            });
         }
+
+        for (handler_component, group) in &business_arms {
+            tokens.extend(emit_business_handler(
+                widget_var,
+                handler_component,
+                group,
+                world,
+            ));
+        }
+
+        tokens
     }
 
     fn emit_widget(cmd: &WidgetCmd, world: &proc_macro2::TokenStream) -> proc_macro2::TokenStream {
@@ -619,7 +795,12 @@ impl MiruiRune {
         }
 
         if !on_handlers.is_empty() {
-            tokens.extend(Self::emit_on_dispatch(&on_handlers, &cmd.var, world));
+            tokens.extend(Self::emit_on_dispatch(
+                &cmd.name.to_string(),
+                &on_handlers,
+                &cmd.var,
+                world,
+            ));
         }
 
         for id_lit in &cmd.id_registrations {

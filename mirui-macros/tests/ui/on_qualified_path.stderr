@@ -1,4 +1,4 @@
-error: qualified `on Path::EventKind` is reserved for a later release; use unqualified `on EventKind` for now
+error: qualified `on Slider::ValueChanged` does not match enclosing widget `View`; drop the qualifier or rename the widget
   --> tests/ui/on_qualified_path.rs:17:23
    |
 17 |         View () {} on Slider::ValueChanged { todo!() }
