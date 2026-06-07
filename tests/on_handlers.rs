@@ -1,0 +1,190 @@
+#[cfg(test)]
+mod tests {
+    use mirui::components::Button;
+    use mirui::ecs::{Entity, World};
+    use mirui::event::GestureHandler;
+    use mirui::event::bubble_dispatch_at;
+    use mirui::event::gesture::GestureEvent;
+    use mirui::event::multi_tap::MultiTapTracker;
+    use mirui::types::{Color, Fixed};
+    use mirui::ui;
+    use mirui::widget::IdMap;
+    use mirui::widget::builder::WidgetBuilder;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicI64, Ordering};
+
+    static COUNTER: AtomicI64 = AtomicI64::new(0);
+    static SUM_X: AtomicI64 = AtomicI64::new(0);
+    static SERIAL: Mutex<()> = Mutex::new(());
+
+    fn reset() {
+        COUNTER.store(0, Ordering::SeqCst);
+        SUM_X.store(0, Ordering::SeqCst);
+    }
+
+    fn fire() {
+        COUNTER.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn fired() -> i64 {
+        COUNTER.load(Ordering::SeqCst)
+    }
+
+    fn fresh_world() -> (World, Entity) {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        world.insert_resource(MultiTapTracker::new());
+        let root = WidgetBuilder::new(&mut world).id();
+        (world, root)
+    }
+
+    fn tap_event(target: Entity) -> GestureEvent {
+        GestureEvent::Tap {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target,
+        }
+    }
+
+    #[test]
+    fn on_tap_attaches_gesture_handler() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {
+                on Tap { fire(); }
+            }
+        };
+
+        let layouts: Vec<_> = world.query::<GestureHandler>().collect();
+        assert!(
+            !layouts.is_empty(),
+            "ui! on Tap must attach a GestureHandler"
+        );
+    }
+
+    #[test]
+    fn on_tap_body_runs_on_dispatch() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {
+                on Tap { fire(); }
+            }
+        };
+
+        let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
+        let target = handlers.pop().expect("one GestureHandler attached");
+        bubble_dispatch_at(&mut world, &tap_event(target), 100);
+
+        assert_eq!(fired(), 1, "on Tap body must fire once per Tap");
+    }
+
+    #[test]
+    fn on_long_press_distinct_from_tap() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {
+                on Tap { fire(); }
+                on LongPress { fire(); fire(); }
+            }
+        };
+
+        let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
+        let target = handlers.pop().unwrap();
+        bubble_dispatch_at(&mut world, &tap_event(target), 100);
+        assert_eq!(fired(), 1);
+
+        let lp = GestureEvent::LongPress {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target,
+        };
+        bubble_dispatch_at(&mut world, &lp, 1000);
+        assert_eq!(
+            fired(),
+            3,
+            "Tap fires once + LongPress fires twice = 3 total"
+        );
+    }
+
+    #[test]
+    fn on_tap_destructured_x_y_in_scope() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {
+                on Tap {
+                    SUM_X.fetch_add(x.to_int() as i64, Ordering::SeqCst);
+                }
+            }
+        };
+
+        let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
+        let target = handlers.pop().unwrap();
+        let event = GestureEvent::Tap {
+            x: Fixed::from_int(7),
+            y: Fixed::ZERO,
+            target,
+        };
+        bubble_dispatch_at(&mut world, &event, 100);
+        assert_eq!(SUM_X.load(Ordering::SeqCst), 7);
+    }
+
+    #[test]
+    fn on_handlers_on_component_widget_overrides_internal() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Button (normal_color: Color::rgb(100, 100, 100)) {
+                on Tap { fire(); }
+            }
+        };
+
+        let buttons: Vec<Entity> = world.query::<Button>().collect();
+        let target = buttons[0];
+        bubble_dispatch_at(&mut world, &tap_event(target), 100);
+        assert_eq!(
+            fired(),
+            1,
+            "Component widget on Tap fires user body once \
+             (v0.27.1: user dispatch overrides internal handler)"
+        );
+    }
+}

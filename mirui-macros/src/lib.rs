@@ -81,12 +81,103 @@ fn classify_widget_name(name: &syn::Ident) -> WidgetKind {
     }
 }
 
+fn is_known_gesture_event(name: &str) -> bool {
+    matches!(
+        name,
+        "Tap" | "LongPress" | "DragStart" | "DragMove" | "DragEnd" | "Pinch" | "Rotate"
+    )
+}
+
+fn gesture_event_fields(name: &str) -> &'static [&'static str] {
+    match name {
+        "Tap" | "LongPress" | "DragStart" => &["x", "y", "target"],
+        "DragMove" => &["x", "y", "dx", "dy", "target"],
+        "DragEnd" => &["x", "y", "vx", "vy", "target"],
+        "Pinch" => &["x", "y", "scale_delta", "target"],
+        "Rotate" => &["x", "y", "angle", "target"],
+        _ => &[],
+    }
+}
+
+fn emit_event_arm(event_name: &str, group: &[&OnCmd]) -> proc_macro2::TokenStream {
+    let event_ident = syn::Ident::new(event_name, proc_macro2::Span::call_site());
+    let fields = gesture_event_fields(event_name);
+    let field_idents: Vec<syn::Ident> = fields
+        .iter()
+        .map(|f| syn::Ident::new(f, proc_macro2::Span::call_site()))
+        .collect();
+
+    if event_name == "Tap" && group.iter().any(|h| !h.args.is_empty()) {
+        return emit_tap_with_count(group, &field_idents);
+    }
+
+    let bodies = group.iter().map(|h| &h.body);
+    let used_idents: Vec<&syn::Ident> = field_idents.iter().collect();
+
+    quote! {
+        ::mirui::event::gesture::GestureEvent::#event_ident { #(#field_idents),* } => {
+            let _ = ( #( #used_idents ),* );
+            #(
+                {
+                    let __consumed: bool = { #bodies; true };
+                    if __consumed { return true; }
+                }
+            )*
+            false
+        },
+    }
+}
+
+fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_macro2::TokenStream {
+    let mut count_arms = proc_macro2::TokenStream::new();
+    let mut default_arm: Option<proc_macro2::TokenStream> = None;
+    for h in group {
+        let body = &h.body;
+        if h.args.is_empty() {
+            default_arm = Some(quote! {
+                _ => {
+                    let __consumed: bool = { #body; true };
+                    return __consumed;
+                }
+            });
+        } else if h.args.len() == 1 {
+            let arg = &h.args[0];
+            count_arms.extend(quote! {
+                __c if __c == (#arg as u8) => {
+                    let __consumed: bool = { #body; true };
+                    return __consumed;
+                },
+            });
+        }
+    }
+    let default = default_arm.unwrap_or_else(|| quote! { _ => return false });
+
+    quote! {
+        ::mirui::event::gesture::GestureEvent::Tap { #(#field_idents),* } => {
+            let _ = ( #(#field_idents),* );
+            let __count = ::mirui::event::multi_tap::current_count(__world, __entity);
+            match __count {
+                #count_arms
+                #default
+            }
+        },
+    }
+}
+
 enum Cmd {
     Widget(WidgetCmd),
     Iter(IterCmd),
     If(IfCmd),
     Niche(NicheCmd),
     Match(MatchCmd),
+    On(OnCmd),
+}
+
+struct OnCmd {
+    qualifier: Option<syn::Ident>,
+    name: syn::Ident,
+    args: Vec<syn::Expr>,
+    body: syn::Block,
 }
 
 struct NicheCmd {
@@ -348,6 +439,87 @@ impl MiruiRune {
             Cmd::If(i) => Self::emit_if(i, world, parent_var),
             Cmd::Niche(n) => Self::emit_niche(n, world, parent_var),
             Cmd::Match(m) => Self::emit_match(m, world, parent_var),
+            Cmd::On(_) => proc_macro2::TokenStream::new(),
+        }
+    }
+
+    fn emit_on_dispatch(
+        handlers: &[&OnCmd],
+        widget_var: &syn::Ident,
+        world: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let fn_name = syn::Ident::new(
+            &format!("__mirui_on_{widget_var}"),
+            proc_macro2::Span::call_site(),
+        );
+
+        let mut errors = proc_macro2::TokenStream::new();
+        let mut by_event: std::collections::BTreeMap<String, Vec<&OnCmd>> =
+            std::collections::BTreeMap::new();
+        for h in handlers {
+            if let Some(q) = h.qualifier.as_ref() {
+                errors.extend(
+                    syn::Error::new(
+                        q.span(),
+                        "qualified `on Path::EventKind` is reserved for a later release; \
+                         use unqualified `on EventKind` for now",
+                    )
+                    .to_compile_error(),
+                );
+                continue;
+            }
+            let event_name = h.name.to_string();
+            if !is_known_gesture_event(&event_name) {
+                errors.extend(
+                    syn::Error::new(
+                        h.name.span(),
+                        format!(
+                            "unknown gesture event `{event_name}`; \
+                             expected one of: Tap, LongPress, DragStart, DragMove, \
+                             DragEnd, Pinch, Rotate"
+                        ),
+                    )
+                    .to_compile_error(),
+                );
+                continue;
+            }
+            if !h.args.is_empty() && event_name != "Tap" {
+                errors.extend(
+                    syn::Error::new(
+                        h.name.span(),
+                        format!(
+                            "parameters on `on {event_name}(...)` are reserved for a \
+                             later release; only `on Tap(n)` is parameterised in v0.27.x"
+                        ),
+                    )
+                    .to_compile_error(),
+                );
+                continue;
+            }
+            by_event.entry(event_name).or_default().push(*h);
+        }
+
+        let mut arms = proc_macro2::TokenStream::new();
+        for (event_name, group) in &by_event {
+            arms.extend(emit_event_arm(event_name, group));
+        }
+
+        quote! {
+            #errors
+            fn #fn_name(
+                __world: &mut ::mirui::ecs::World,
+                __entity: ::mirui::ecs::Entity,
+                __event: &::mirui::event::gesture::GestureEvent,
+            ) -> bool {
+                match __event {
+                    #arms
+                    _ => false,
+                }
+            }
+            (#world).insert(
+                #widget_var,
+                ::mirui::event::GestureHandler { on_gesture: #fn_name },
+            );
         }
     }
 
@@ -374,6 +546,7 @@ impl MiruiRune {
         let var_ts = quote! { #var };
         let mut child_vars = Vec::new();
         let mut deferred_iters = Vec::new();
+        let mut on_handlers: Vec<&OnCmd> = Vec::new();
 
         for child in &cmd.children {
             match child {
@@ -383,6 +556,9 @@ impl MiruiRune {
                 }
                 Cmd::Iter(_) | Cmd::If(_) | Cmd::Niche(_) | Cmd::Match(_) => {
                     deferred_iters.push(child);
+                }
+                Cmd::On(on) => {
+                    on_handlers.push(on);
                 }
             }
         }
@@ -444,6 +620,10 @@ impl MiruiRune {
             tokens.extend(quote! {
                 (#world).insert(#var, #enchant);
             });
+        }
+
+        if !on_handlers.is_empty() {
+            tokens.extend(Self::emit_on_dispatch(&on_handlers, &cmd.var, world));
         }
 
         for id_lit in &cmd.id_registrations {
@@ -731,11 +911,18 @@ impl DsRune for MiruiRune {
 
     fn inscribe_on(
         &mut self,
-        _qualifier: Option<&syn::Ident>,
-        _name: &syn::Ident,
-        _args: &[syn::Expr],
-        _body: &[DsTreeRef],
+        qualifier: Option<&syn::Ident>,
+        name: &syn::Ident,
+        args: &[syn::Expr],
+        body: &syn::Block,
     ) {
+        let cmd = Cmd::On(OnCmd {
+            qualifier: qualifier.cloned(),
+            name: name.clone(),
+            args: args.to_vec(),
+            body: body.clone(),
+        });
+        self.stack.last_mut().unwrap().push(cmd);
     }
 
     fn inscribe_match(
