@@ -65,11 +65,11 @@ fn main() {
             world: &mut app.world
         :)
 
-        row (
+        Row (
             direction: FlexDirection::Row,
             grow: 1.0
         ) {
-            counted (
+            View (
                 bg_color: Color::rgb(63, 185, 80),
                 grow: 1.0,
                 border_radius: 8,
@@ -81,7 +81,7 @@ fn main() {
                     on_gesture: count_handler,
                 },
             ] {}
-            target (
+            View (
                 bg_color: Color::rgb(248, 81, 73),
                 grow: 1.0,
                 border_radius: 8,
@@ -107,7 +107,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        toggle (
+        View (
             height: 40,
             bg_color: Color::rgb(88, 166, 255),
             border_radius: 8,

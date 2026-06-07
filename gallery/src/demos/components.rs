@@ -24,7 +24,7 @@ fn build_ui(world: &mut World) -> Entity {
             world: world
         :)
 
-        header (
+        View (
             bg_color: Color::rgb(30, 102, 245),
             height: 40,
             border_radius: 8,
@@ -32,8 +32,8 @@ fn build_ui(world: &mut World) -> Entity {
             align: AlignItems::Center,
             padding: Padding::all(8)
         ) {
-            title (text: "mirui Components", grow: 1.0) {}
-            badge (bg_color: Color::rgb(255, 200, 50), width: 16, height: 16, border_radius: 8) {}
+            View (text: "mirui Components", grow: 1.0) {}
+            View (bg_color: Color::rgb(255, 200, 50), width: 16, height: 16, border_radius: 8) {}
         }
     };
 
@@ -228,7 +228,7 @@ fn build_ui(world: &mut World) -> Entity {
             world: world
         :)
 
-        footer (
+        View (
             bg_color: Color::rgb(40, 40, 55),
             height: 30,
             border_radius: 6,

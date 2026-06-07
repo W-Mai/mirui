@@ -9,7 +9,7 @@ fn header(world: &mut World, parent: Entity) -> Entity {
             world: world
         :)
 
-        header (
+        View (
             bg_color: Color::rgb(88, 166, 255),
             height: 40,
             text: "Hello xrune!",
@@ -25,10 +25,10 @@ fn button_row(world: &mut World, parent: Entity) -> Entity {
             world: world
         :)
 
-        row (direction: FlexDirection::Row, grow: 1.0) {
-            btn1 (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6) {}
-            btn2 (bg_color: Color::rgb(248, 81, 73), grow: 1.0, text: "Cancel", border_radius: 6) {}
-            btn3 (bg_color: Color::rgb(210, 168, 255), grow: 1.0, text: "Maybe", border_radius: 6) {}
+        Row (direction: FlexDirection::Row, grow: 1.0) {
+            View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6) {}
+            View (bg_color: Color::rgb(248, 81, 73), grow: 1.0, text: "Cancel", border_radius: 6) {}
+            View (bg_color: Color::rgb(210, 168, 255), grow: 1.0, text: "Maybe", border_radius: 6) {}
         }
     }
 }
@@ -40,7 +40,7 @@ fn footer(world: &mut World, parent: Entity) -> Entity {
             world: world
         :)
 
-        footer (
+        View (
             bg_color: Color::rgb(50, 50, 70),
             height: 30,
             text: "Built with mirui + xrune"

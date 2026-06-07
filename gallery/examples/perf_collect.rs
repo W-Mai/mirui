@@ -66,7 +66,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        list (
+        View (
             bg_color: Color::rgb(40, 40, 56),
             grow: 1.0
         ) [
@@ -84,7 +84,7 @@ fn main() {
             },
         ] {
             walk 0..POOL_SIZE with _i {
-                row (
+                Row (
                     bg_color: Color::rgb(60, 60, 80),
                     text_color: Color::rgb(220, 220, 230),
                     position: Position::Absolute,

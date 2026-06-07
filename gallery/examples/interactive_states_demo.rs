@@ -54,21 +54,21 @@ fn main() {
             world: &mut app.world
         :)
 
-        column (
+        Column (
             direction: FlexDirection::Column,
             grow: 1.0
         ) {
-            title (
+            View (
                 height: 36,
                 text: "WidgetState: Hover / Press / Errored / Disabled",
                 text_color: title_color
             ) {}
-            spacer (height: 16) {}
-            row (
+            View (height: 16) {}
+            Row (
                 direction: FlexDirection::Row,
                 grow: 1.0
             ) {
-                hover_card (
+                View (
                     bg_color: hover_bg,
                     border_color: card_border,
                     border_width: 1,
@@ -78,8 +78,8 @@ fn main() {
                     text: "Hover me / Press me",
                     text_color: title_color
                 ) {}
-                spacer_l (width: 16) {}
-                errored_card (
+                View (width: 16) {}
+                View (
                     bg_color: errored_bg,
                     border_color: card_border,
                     border_width: 1,
@@ -94,8 +94,8 @@ fn main() {
                         on_gesture: toggle_errored_handler,
                     },
                 ] {}
-                spacer_r (width: 16) {}
-                disabled_card (
+                View (width: 16) {}
+                View (
                     bg_color: disabled_bg,
                     border_color: card_border,
                     border_width: 1,

@@ -118,7 +118,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        row (
+        Row (
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,

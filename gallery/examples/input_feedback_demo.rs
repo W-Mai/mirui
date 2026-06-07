@@ -29,21 +29,21 @@ fn main() {
             world: &mut app.world
         :)
 
-        column (
+        Column (
             direction: FlexDirection::Column,
             grow: 1.0
         ) {
-            title (
+            View (
                 height: 32,
                 text: "Input feedback: cursor highlight + rotary / wheel water-drop",
                 text_color: Color::rgb(201, 209, 217)
             ) {}
-            spacer (height: 20) {}
-            row (
+            View (height: 20) {}
+            Row (
                 direction: FlexDirection::Row,
                 grow: 1.0
             ) {
-                card_a (
+                View (
                     grow: 1.0,
                     height: 180,
                     bg_color: Color::rgb(34, 74, 44),
@@ -54,8 +54,8 @@ fn main() {
                     text_color: Color::rgb(220, 240, 225),
                     padding: Padding::all(20)
                 ) {}
-                gap1 (width: 20) {}
-                card_b (
+                View (width: 20) {}
+                View (
                     grow: 1.0,
                     height: 180,
                     bg_color: Color::rgb(38, 58, 96),
@@ -66,8 +66,8 @@ fn main() {
                     text_color: Color::rgb(220, 235, 255),
                     padding: Padding::all(20)
                 ) {}
-                gap2 (width: 20) {}
-                card_c (
+                View (width: 20) {}
+                View (
                     grow: 1.0,
                     height: 180,
                     bg_color: Color::rgb(82, 38, 38),

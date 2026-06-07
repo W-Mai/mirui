@@ -28,7 +28,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                 border_radius: 12,
                 padding: Padding::all(16)
             ) {
-                Text("mirui hello") {}
+                Text ("mirui hello") {}
             }
             View (height: 16) {}
             View (
@@ -39,9 +39,9 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                 padding: Padding::all(20),
                 grow: 1.0
             ) {
-                Text(
+                Text (
                     "tap to interact",
-                    text_color: Color::rgb(240, 240, 255),
+                    text_color: Color::rgb(240, 240, 255)
                 ) {}
             }
         }

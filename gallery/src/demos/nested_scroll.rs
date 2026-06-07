@@ -51,7 +51,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             world: world
         :)
 
-        outer_scroll (
+        View (
             direction: FlexDirection::Column,
             grow: 1.0,
             bg_color: Color::rgb(30, 30, 50)
@@ -68,14 +68,14 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             },
         ] {
             walk colors_outer.iter().enumerate() with item {
-                section (
+                View (
                     direction: FlexDirection::Column,
                     height: 200,
                     bg_color: *item.1,
                     border_radius: 6
                 ) {
-                    label (height: 30, text: "Section", bg_color: Color::rgb(40, 40, 60)) {}
-                    inner_scroll_h (direction: FlexDirection::Row, grow: 1.0) [
+                    View (height: 30, text: "Section", bg_color: Color::rgb(40, 40, 60)) {}
+                    View (direction: FlexDirection::Row, grow: 1.0) [
                         ScrollOffset {
                             x: Fixed::ZERO,
                             y: Fixed::ZERO,
@@ -88,23 +88,23 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                         },
                     ] {
                         walk colors_inner.iter() with color {
-                            card (width: 100, height: 150, bg_color: *color, border_radius: 8) {}
+                            View (width: 100, height: 150, bg_color: *color, border_radius: 8) {}
                         }
                     }
                 }
             }
-            nested_v_section (
+            View (
                 direction: FlexDirection::Column,
                 height: 300,
                 bg_color: Color::rgb(50, 40, 70),
                 border_radius: 6
             ) {
-                nested_label (
+                View (
                     height: 30,
                     text: "Nested V-Scroll",
                     bg_color: Color::rgb(60, 30, 80)
                 ) {}
-                inner_scroll_v (
+                View (
                     direction: FlexDirection::Column,
                     grow: 1.0,
                     bg_color: Color::rgb(40, 35, 60),
@@ -127,7 +127,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                     },
                 ] {
                     walk colors_inner.iter().enumerate() with item {
-                        vcard (
+                        View (
                             height: 80,
                             bg_color: *item.1,
                             border_radius: 6,

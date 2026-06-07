@@ -34,7 +34,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        scroll (direction: FlexDirection::Column, bg_color: Color::rgb(40, 40, 60), grow: 1.0) [
+        View (direction: FlexDirection::Column, bg_color: Color::rgb(40, 40, 60), grow: 1.0) [
             ScrollOffset {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
@@ -47,7 +47,7 @@ fn main() {
             },
         ] {
             walk colors.iter() with item {
-                row (bg_color: item.1, height: 60, border_radius: 4, text: item.0) {}
+                Row (bg_color: item.1, height: 60, border_radius: 4, text: item.0) {}
             }
         }
     };

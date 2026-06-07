@@ -103,7 +103,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             world: world
         :)
 
-        carousel (
+        View (
             position: Position::Absolute,
             left: 0,
             top: 0,
@@ -125,7 +125,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             },
         ] {
             walk card_colors_ref.iter().enumerate() with item {
-                card (
+                View (
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
@@ -139,7 +139,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                     CarouselCard { index: item.0 },
                 ] {
                     if item.0 % 2 == 1 {
-                        thumb (
+                        View (
                             position: Position::Absolute,
                             left: (CARD_W - 64) / 2,
                             top: (CARD_H - 64) / 2,

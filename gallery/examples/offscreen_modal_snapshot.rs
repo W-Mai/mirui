@@ -118,7 +118,7 @@ fn run(out_dir: &str, offscreen: bool) {
             world: &mut app.world
         :)
 
-        modal (
+        View (
             bg_color: ColorToken::Surface,
             border_radius: Fixed::from_int(12),
             position: Position::Absolute,
@@ -130,7 +130,7 @@ fn run(out_dir: &str, offscreen: bool) {
             Anim { t: Fixed::ZERO },
         ] {
             walk 0..(GRID_COLS * GRID_ROWS) with i {
-                tile (
+                View (
                     bg_color: tile_color(i),
                     border_color: ColorToken::OnSurface,
                     border_width: Fixed::ONE,

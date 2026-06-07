@@ -27,9 +27,9 @@ fn main() {
             world: &mut app.world
         :)
 
-        content (direction: FlexDirection::Column, grow: 1.0) {
-            header (bg_color: Color::rgb(88, 166, 255), height: 40, text: "Enchants Demo") {}
-            img_widget (
+        View (direction: FlexDirection::Column, grow: 1.0) {
+            View (bg_color: Color::rgb(88, 166, 255), height: 40, text: "Enchants Demo") {}
+            View (
                 position: Position::Absolute,
                 left: 200,
                 top: 150,

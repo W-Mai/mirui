@@ -160,28 +160,28 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             world: &mut app.world
         :)
 
-        tabs (
+        View (
             bg_color: ColorToken::SurfaceVariant,
             width: w_,
             height: tabbar_h_
         ) [
             TabBar::new(3).with_indicator_height(2 * scale_ as u32),
         ] {
-            tab0 (
+            View (
                 text: "List",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
             ) {}
-            tab1 (
+            View (
                 text: "Form",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
             ) {}
-            tab2 (
+            View (
                 text: "Thm",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
@@ -197,7 +197,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             world: &mut app.world
         :)
 
-        list (
+        View (
             bg_color: ColorToken::Surface,
             position: Position::Absolute,
             left: 0,
@@ -223,7 +223,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             },
         ] {
             walk 0..POOL_SIZE with _i {
-                row (
+                Row (
                     bg_color: ColorToken::SurfaceVariant,
                     text_color: ColorToken::OnSurface,
                     position: Position::Absolute,
@@ -248,7 +248,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             world: &mut app.world
         :)
 
-        form_page (
+        View (
             bg_color: ColorToken::Surface,
             position: Position::Absolute,
             left: 0,
@@ -263,37 +263,37 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                 index: 1,
             },
         ] {
-            enable_row (
+            View (
                 direction: FlexDirection::Row,
                 height: 28 * scale_,
                 align: AlignItems::Center
             ) {
-                enable_label (text: "Enable", text_color: ColorToken::OnSurface, grow: 1.0) {}
-                enable_switch (width: 40 * scale_, height: 20 * scale_) [
+                View (text: "Enable", text_color: ColorToken::OnSurface, grow: 1.0) {}
+                View (width: 40 * scale_, height: 20 * scale_) [
                     Switch::new(),
                     OffscreenRender::default(),
                 ] {}
             }
-            slider_row (
+            View (
                 height: 14 * scale_,
                 padding: Padding {
                     top: Dimension::px(6 * scale_),
                     ..Default::default()
                 }
             ) {
-                value_slider (width: 108 * scale_, height: 14 * scale_) [
+                View (width: 108 * scale_, height: 14 * scale_) [
                     Slider::new(Fixed::ZERO, Fixed::from_int(100)),
                     FormSlider,
                 ] {}
             }
-            progress_row (
+            View (
                 height: 10 * scale_,
                 padding: Padding {
                     top: Dimension::px(8 * scale_),
                     ..Default::default()
                 }
             ) {
-                value_progress (width: 108 * scale_, height: 8 * scale_, border_radius: 4 * scale_ as u32) [
+                View (width: 108 * scale_, height: 8 * scale_, border_radius: 4 * scale_ as u32) [
                     ProgressBar::new(),
                     FormProgress,
                 ] {}
@@ -307,7 +307,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             world: &mut app.world
         :)
 
-        theme_page (
+        View (
             bg_color: ColorToken::Surface,
             position: Position::Absolute,
             left: 0,
@@ -323,9 +323,14 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                 index: 2,
             },
         ] {
-            primary_label (text: "Primary", text_color: ColorToken::OnSurface, height: 14 * scale_) {}
-            primary_block (width: 80 * scale_, height: 18 * scale_, bg_color: ColorToken::Primary, border_radius: 4 * scale_ as u32) {}
-            accent_label (
+            View (text: "Primary", text_color: ColorToken::OnSurface, height: 14 * scale_) {}
+            View (
+                width: 80 * scale_,
+                height: 18 * scale_,
+                bg_color: ColorToken::Primary,
+                border_radius: 4 * scale_ as u32
+            ) {}
+            View (
                 text: "accent (custom)",
                 text_color: ColorToken::OnSurfaceVariant,
                 height: 12 * scale_,
@@ -334,7 +339,12 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                     ..Default::default()
                 }
             ) {}
-            accent_block (width: 80 * scale_, height: 18 * scale_, bg_color: ACCENT, border_radius: 4 * scale_ as u32) {}
+            View (
+                width: 80 * scale_,
+                height: 18 * scale_,
+                bg_color: ACCENT,
+                border_radius: 4 * scale_ as u32
+            ) {}
         }
     };
 

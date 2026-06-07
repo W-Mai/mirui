@@ -180,7 +180,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        panel (
+        View (
             bg_color: ColorToken::Surface,
             border_radius: Fixed::from_int(12),
             position: Position::Absolute,
@@ -192,7 +192,7 @@ fn main() {
             PanelTarget,
         ] {
             walk 0..(GRID_COLS * GRID_ROWS) with i {
-                tile (
+                View (
                     bg_color: tile_color(i),
                     border_color: ColorToken::OnSurface,
                     border_width: Fixed::ONE,
@@ -213,7 +213,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        readout (
+        View (
             text_color: ColorToken::OnSurface,
             position: Position::Absolute,
             left: 20,

@@ -149,7 +149,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        m_source (
+        View (
             bg_color: ColorToken::Primary,
             border_radius: Fixed::from_int(8),
             position: Position::Absolute,
@@ -158,7 +158,7 @@ fn main() {
             width: 180,
             height: 50
         ) {
-            label (
+            View (
                 text: "MirrorOf",
                 text_color: ColorToken::OnPrimary,
                 position: Position::Absolute,
@@ -175,7 +175,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        m_mirror (
+        View (
             position: Position::Absolute,
             left: 30,
             top: 90,
@@ -192,7 +192,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        tm_bare (
+        View (
             bg_color: Color::rgb(220, 60, 60),
             border_radius: Fixed::from_int(8),
             position: Position::Absolute,
@@ -210,7 +210,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        tm_source (
+        View (
             bg_color: Color::rgb(220, 60, 60),
             border_radius: Fixed::from_int(8),
             position: Position::Absolute,
@@ -228,7 +228,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        tm_overlay (
+        View (
             position: Position::Absolute,
             left: 160,
             top: HALF_H + 60,
@@ -244,7 +244,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        tm_label (
+        View (
             text: "raw flash       TemporalMix",
             text_color: ColorToken::OnSurface,
             position: Position::Absolute,
@@ -261,7 +261,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        bg_backdrop (
+        View (
             position: Position::Absolute,
             left: HALF_W + 20,
             top: HALF_H + 20,
@@ -269,7 +269,7 @@ fn main() {
             height: 140
         ) {
             walk 0..12 with i {
-                tile (
+                View (
                     bg_color: tile_color(i),
                     position: Position::Absolute,
                     left: (i % 4) * 55,
@@ -286,7 +286,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        bg_glass (
+        View (
             bg_color: Color::rgba(255, 255, 255, 50),
             border_radius: Fixed::from_int(10),
             position: Position::Absolute,
@@ -304,7 +304,7 @@ fn main() {
             world: &mut app.world
         :)
 
-        bg_label (
+        View (
             text: "BackgroundBlur",
             text_color: ColorToken::OnSurface,
             position: Position::Absolute,

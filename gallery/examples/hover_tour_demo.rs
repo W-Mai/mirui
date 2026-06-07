@@ -33,21 +33,21 @@ fn main() {
             world: &mut app.world
         :)
 
-        column (
+        Column (
             direction: FlexDirection::Column,
             grow: 1.0
         ) {
-            title (
+            View (
                 height: 36,
                 text: "MoveTo demo: simulated cursor sweeps the row, hover overlays follow",
                 text_color: title_color
             ) {}
-            spacer (height: 16) {}
-            row (
+            View (height: 16) {}
+            Row (
                 direction: FlexDirection::Row,
                 grow: 1.0
             ) {
-                a_card (
+                View (
                     bg_color: card_a,
                     border_color: card_border,
                     border_width: 1,
@@ -57,8 +57,8 @@ fn main() {
                     text: "Card A",
                     text_color: title_color
                 ) {}
-                spacer1 (width: 16) {}
-                b_card (
+                View (width: 16) {}
+                View (
                     bg_color: card_b,
                     border_color: card_border,
                     border_width: 1,
@@ -68,8 +68,8 @@ fn main() {
                     text: "Card B",
                     text_color: title_color
                 ) {}
-                spacer2 (width: 16) {}
-                c_card (
+                View (width: 16) {}
+                View (
                     bg_color: card_c,
                     border_color: card_border,
                     border_width: 1,
