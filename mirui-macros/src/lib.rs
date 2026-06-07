@@ -177,7 +177,7 @@ fn emit_business_handler(
             #pattern => {
                 #bindings
                 let __consumed: bool = { #body; true };
-                if __consumed { return true; }
+                __consumed
             },
         });
     }
