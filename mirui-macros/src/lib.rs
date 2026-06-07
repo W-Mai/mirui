@@ -118,6 +118,27 @@ const FIRST_PARTY_BUSINESS_EVENTS: &[BusinessEventEntry] = &[
         event_path: "::mirui::components::slider::SliderEvent::DragEnded",
         fields: &[],
     },
+    BusinessEventEntry {
+        widget: "Switch",
+        event: "Toggled",
+        handler_component: "::mirui::components::switch::SwitchHandler",
+        event_path: "::mirui::components::switch::SwitchEvent::Toggled",
+        fields: &["now"],
+    },
+    BusinessEventEntry {
+        widget: "Checkbox",
+        event: "Toggled",
+        handler_component: "::mirui::components::checkbox::CheckboxHandler",
+        event_path: "::mirui::components::checkbox::CheckboxEvent::Toggled",
+        fields: &["now"],
+    },
+    BusinessEventEntry {
+        widget: "ProgressBar",
+        event: "ValueChanged",
+        handler_component: "::mirui::components::progress_bar::ProgressBarHandler",
+        event_path: "::mirui::components::progress_bar::ProgressBarEvent::ValueChanged",
+        fields: &["new", "old"],
+    },
 ];
 
 fn lookup_business_event(widget: &str, event: &str) -> Option<&'static BusinessEventEntry> {
