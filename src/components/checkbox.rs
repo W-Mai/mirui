@@ -1,12 +1,20 @@
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
 use crate::types::Rect;
 use crate::widget::dirty::Dirty;
 use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
+
+#[derive(Clone, Debug)]
+pub enum CheckboxEvent {
+    Toggled { now: bool },
+}
+
+pub struct CheckboxHandler {
+    pub on_event: fn(&mut World, Entity, &CheckboxEvent) -> bool,
+}
 
 pub struct Checkbox {
     pub checked: bool,
@@ -76,32 +84,34 @@ fn checkbox_render(
 
 pub(crate) fn checkbox_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     if let GestureEvent::Tap { .. } = event {
-        if let Some(cb) = world.get_mut::<Checkbox>(entity) {
+        let now = if let Some(cb) = world.get_mut::<Checkbox>(entity) {
             cb.toggle();
-        }
+            cb.checked
+        } else {
+            return false;
+        };
+        emit_checkbox_event(world, entity, &CheckboxEvent::Toggled { now });
         world.insert(entity, Dirty);
         return true;
     }
     false
 }
 
+fn emit_checkbox_event(world: &mut World, entity: Entity, event: &CheckboxEvent) {
+    let cb = world.get::<CheckboxHandler>(entity).map(|h| h.on_event);
+    if let Some(f) = cb {
+        f(world, entity, event);
+    }
+}
+
 fn checkbox_attach(world: &mut World, entity: Entity) {
-    if world.get::<Checkbox>(entity).is_none() {
-        return;
-    }
-    if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    world.insert(
-        entity,
-        GestureHandler {
-            on_gesture: checkbox_handler,
-        },
-    );
+    let _ = world;
+    let _ = entity;
 }
 
 pub fn view() -> View {
     View::new("Checkbox", 40, checkbox_render)
         .with_filter::<Checkbox>()
         .with_attach(checkbox_attach)
+        .with_internal_gesture(checkbox_handler)
 }

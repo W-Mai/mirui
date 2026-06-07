@@ -1,13 +1,21 @@
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
 use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
 use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
+
+#[derive(Clone, Debug)]
+pub enum ProgressBarEvent {
+    ValueChanged { new: f32, old: f32 },
+}
+
+pub struct ProgressBarHandler {
+    pub on_event: fn(&mut World, Entity, &ProgressBarEvent) -> bool,
+}
 
 pub struct ProgressBar {
     pub value: f32, // 0.0 ~ 1.0
@@ -101,30 +109,42 @@ fn progress_bar_handler(world: &mut World, entity: Entity, event: &GestureEvent)
         return false;
     }
     let ratio = ((x - rect.x).to_f32() / rect.w.to_f32()).clamp(0.0, 1.0);
-    if let Some(pb) = world.get_mut::<ProgressBar>(entity) {
+    let (old_value, new_value) = if let Some(pb) = world.get_mut::<ProgressBar>(entity) {
+        let old = pb.value;
         pb.value = ratio;
+        (old, pb.value)
+    } else {
+        return false;
+    };
+    if old_value != new_value {
+        emit_progress_bar_event(
+            world,
+            entity,
+            &ProgressBarEvent::ValueChanged {
+                new: new_value,
+                old: old_value,
+            },
+        );
     }
     world.insert(entity, Dirty);
     true
 }
 
+fn emit_progress_bar_event(world: &mut World, entity: Entity, event: &ProgressBarEvent) {
+    let cb = world.get::<ProgressBarHandler>(entity).map(|h| h.on_event);
+    if let Some(f) = cb {
+        f(world, entity, event);
+    }
+}
+
 fn progress_bar_attach(world: &mut World, entity: Entity) {
-    if world.get::<ProgressBar>(entity).is_none() {
-        return;
-    }
-    if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    world.insert(
-        entity,
-        GestureHandler {
-            on_gesture: progress_bar_handler,
-        },
-    );
+    let _ = world;
+    let _ = entity;
 }
 
 pub fn view() -> View {
     View::new("ProgressBar", 60, progress_bar_render)
         .with_filter::<ProgressBar>()
         .with_attach(progress_bar_attach)
+        .with_internal_gesture(progress_bar_handler)
 }

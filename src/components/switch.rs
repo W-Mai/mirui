@@ -2,13 +2,21 @@ use crate::anim::{Motion, MotionComponent, Spring, run_motion};
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
 use crate::types::{Color, Fixed, Rect};
 use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
 use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
+
+#[derive(Clone, Debug)]
+pub enum SwitchEvent {
+    Toggled { now: bool },
+}
+
+pub struct SwitchHandler {
+    pub on_event: fn(&mut World, Entity, &SwitchEvent) -> bool,
+}
 
 pub struct Switch {
     pub on: bool,
@@ -212,6 +220,8 @@ pub(crate) fn switch_handler(world: &mut World, entity: Entity, event: &GestureE
         s.on
     };
 
+    emit_switch_event(world, entity, &SwitchEvent::Toggled { now: on_now });
+
     let target_t = if on_now { Fixed::ONE } else { Fixed::ZERO };
     let cur_t = world
         .get::<SwitchBgT>(entity)
@@ -248,19 +258,17 @@ pub(crate) fn switch_handler(world: &mut World, entity: Entity, event: &GestureE
     true
 }
 
+fn emit_switch_event(world: &mut World, entity: Entity, event: &SwitchEvent) {
+    let cb = world.get::<SwitchHandler>(entity).map(|h| h.on_event);
+    if let Some(f) = cb {
+        f(world, entity, event);
+    }
+}
+
 fn switch_attach(world: &mut World, entity: Entity) {
     if world.get::<Switch>(entity).is_none() {
         return;
     }
-    if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    world.insert(
-        entity,
-        GestureHandler {
-            on_gesture: switch_handler,
-        },
-    );
     let on = world.get::<Switch>(entity).map(|s| s.on).unwrap_or(false);
     let initial_t = if on { Fixed::ONE } else { Fixed::ZERO };
     world.insert(entity, SwitchBgT(initial_t));
@@ -272,6 +280,7 @@ pub fn view() -> View {
     View::new("Switch", 60, switch_render)
         .with_filter::<Switch>()
         .with_attach(switch_attach)
+        .with_internal_gesture(switch_handler)
         .with_systems(
             const {
                 &[

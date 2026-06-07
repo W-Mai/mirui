@@ -141,38 +141,20 @@ mod tests {
     }
 
     #[test]
-    fn registry_attach_installs_progress_bar_gesture_handler() {
-        let mut world = World::default();
-        let mut reg = ViewRegistry::default();
-        reg.insert(crate::components::progress_bar::view());
-        world.insert_resource(reg);
-
-        let e = world.spawn();
-        world.insert(e, ProgressBar::new());
-
-        attach_handlers_for(&mut world, e);
-
+    fn registry_carries_progress_bar_internal_gesture() {
+        let view = crate::components::progress_bar::view();
         assert!(
-            world.get::<GestureHandler>(e).is_some(),
-            "registry-driven attach must install a GestureHandler on ProgressBar entities"
+            view.internal_gesture().is_some(),
+            "ProgressBar view must expose an internal gesture handler"
         );
     }
 
     #[test]
-    fn registry_attach_installs_checkbox_gesture_handler() {
-        let mut world = World::default();
-        let mut reg = ViewRegistry::default();
-        reg.insert(crate::components::checkbox::view());
-        world.insert_resource(reg);
-
-        let e = world.spawn();
-        world.insert(e, Checkbox::new());
-
-        attach_handlers_for(&mut world, e);
-
+    fn registry_carries_checkbox_internal_gesture() {
+        let view = crate::components::checkbox::view();
         assert!(
-            world.get::<GestureHandler>(e).is_some(),
-            "registry-driven attach must install a GestureHandler on Checkbox entities"
+            view.internal_gesture().is_some(),
+            "Checkbox view must expose an internal gesture handler"
         );
     }
 
