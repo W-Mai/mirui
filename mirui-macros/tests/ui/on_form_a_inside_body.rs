@@ -14,6 +14,8 @@ fn main() {
             world: &mut world
         :)
 
-        View () {} on Slider::ValueChanged { todo!() }
+        View () {
+            on Tap { todo!() }
+        }
     };
 }

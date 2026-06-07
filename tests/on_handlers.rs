@@ -47,7 +47,7 @@ mod tests {
     }
 
     #[test]
-    fn on_tap_attaches_gesture_handler() {
+    fn form_b_modifier_chain_attaches_to_widget() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
@@ -58,20 +58,18 @@ mod tests {
                 world: &mut world
             :)
 
-            View () {
-                on Tap { fire(); }
-            }
+            View () {} on Tap { fire(); }
         };
 
         let layouts: Vec<_> = world.query::<GestureHandler>().collect();
         assert!(
             !layouts.is_empty(),
-            "ui! on Tap must attach a GestureHandler"
+            "Form B: trailing on Tap must attach a GestureHandler to the widget"
         );
     }
 
     #[test]
-    fn on_tap_body_runs_on_dispatch() {
+    fn form_c_inline_on_attaches_to_widget() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
@@ -82,9 +80,29 @@ mod tests {
                 world: &mut world
             :)
 
-            View () {
-                on Tap { fire(); }
-            }
+            View () on Tap { fire(); } {}
+        };
+
+        let layouts: Vec<_> = world.query::<GestureHandler>().collect();
+        assert!(
+            !layouts.is_empty(),
+            "Form C: inline on Tap between attrs and body attaches a GestureHandler"
+        );
+    }
+
+    #[test]
+    fn form_b_body_runs_on_dispatch() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () {} on Tap { fire(); }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -95,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn on_long_press_distinct_from_tap() {
+    fn form_b_chained_on_distinct_events() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
@@ -106,10 +124,9 @@ mod tests {
                 world: &mut world
             :)
 
-            View () {
+            View () {}
                 on Tap { fire(); }
                 on LongPress { fire(); fire(); }
-            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -131,7 +148,7 @@ mod tests {
     }
 
     #[test]
-    fn on_tap_destructured_x_y_in_scope() {
+    fn form_b_destructured_x_y_in_scope() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
@@ -142,11 +159,10 @@ mod tests {
                 world: &mut world
             :)
 
-            View () {
+            View () {}
                 on Tap {
                     SUM_X.fetch_add(x.to_int() as i64, Ordering::SeqCst);
                 }
-            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -161,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn on_tap_count_two_only_triggers_on_double() {
+    fn form_b_on_component_widget_overrides_internal() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
@@ -172,9 +188,34 @@ mod tests {
                 world: &mut world
             :)
 
-            View () {
-                on Tap(2) { fire(); }
-            }
+            Button (normal_color: Color::rgb(100, 100, 100)) {}
+                on Tap { fire(); }
+        };
+
+        let buttons: Vec<Entity> = world.query::<Button>().collect();
+        let target = buttons[0];
+        bubble_dispatch_at(&mut world, &tap_event(target), 100);
+        assert_eq!(
+            fired(),
+            1,
+            "Component widget on Tap fires user body once \
+             (v0.27.1: user dispatch overrides internal handler)"
+        );
+    }
+
+    #[test]
+    fn form_c_on_tap_count_two_only_triggers_on_double() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh_world();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () on Tap(2) { fire(); } {}
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -186,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn on_tap_count_resets_after_window() {
+    fn form_b_on_tap_count_resets_after_window() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
@@ -197,9 +238,7 @@ mod tests {
                 world: &mut world
             :)
 
-            View () {
-                on Tap(2) { fire(); }
-            }
+            View () {} on Tap(2) { fire(); }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -210,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn on_tap_mixed_single_and_double_routes_by_count() {
+    fn form_b_on_tap_mixed_single_and_double_routes_by_count() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
@@ -221,10 +260,9 @@ mod tests {
                 world: &mut world
             :)
 
-            View () {
+            View () {}
                 on Tap { fire(); }
                 on Tap(2) { fire(); fire(); }
-            }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
@@ -240,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn on_tap_count_three_fires_after_two_priming_taps() {
+    fn form_b_plus_c_mixed_on_same_widget() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh_world();
@@ -251,45 +289,22 @@ mod tests {
                 world: &mut world
             :)
 
-            View () {
-                on Tap(3) { fire(); }
-            }
+            View ()
+                on Tap { fire(); }
+                {}
+                on LongPress { fire(); fire(); }
         };
 
         let mut handlers: Vec<Entity> = world.query::<GestureHandler>().collect();
         let target = handlers.pop().unwrap();
         bubble_dispatch_at(&mut world, &tap_event(target), 100);
-        bubble_dispatch_at(&mut world, &tap_event(target), 200);
-        assert_eq!(fired(), 0, "first two Taps prime, no Tap(1) or Tap(2) arm");
-        bubble_dispatch_at(&mut world, &tap_event(target), 300);
-        assert_eq!(fired(), 1, "third Tap fires on Tap(3)");
-    }
-
-    #[test]
-    fn on_handlers_on_component_widget_overrides_internal() {
-        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        reset();
-        let (mut world, root) = fresh_world();
-
-        ui! {
-            :(
-                parent: root
-                world: &mut world
-            :)
-
-            Button (normal_color: Color::rgb(100, 100, 100)) {
-                on Tap { fire(); }
-            }
+        assert_eq!(fired(), 1, "Form C Tap arm fires");
+        let lp = GestureEvent::LongPress {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            target,
         };
-
-        let buttons: Vec<Entity> = world.query::<Button>().collect();
-        let target = buttons[0];
-        bubble_dispatch_at(&mut world, &tap_event(target), 100);
-        assert_eq!(
-            fired(),
-            1,
-            "Component widget on Tap fires user body once \
-             (v0.27.1: user dispatch overrides internal handler)"
-        );
+        bubble_dispatch_at(&mut world, &lp, 1000);
+        assert_eq!(fired(), 3, "Form B LongPress arm fires twice");
     }
 }

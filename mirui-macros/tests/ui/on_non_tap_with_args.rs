@@ -14,8 +14,6 @@ fn main() {
             world: &mut world
         :)
 
-        View () {
-            on LongPress(500) { todo!() }
-        }
+        View () {} on LongPress(500) { todo!() }
     };
 }

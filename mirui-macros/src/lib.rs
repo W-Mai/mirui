@@ -164,13 +164,13 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum Cmd {
     Widget(WidgetCmd),
     Iter(IterCmd),
     If(IfCmd),
     Niche(NicheCmd),
     Match(MatchCmd),
-    On(OnCmd),
 }
 
 struct OnCmd {
@@ -203,6 +203,7 @@ struct WidgetCmd {
     layout_fields: Vec<proc_macro2::TokenStream>,
     errors: Vec<proc_macro2::TokenStream>,
     enchants: Vec<proc_macro2::TokenStream>,
+    on_handlers: Vec<OnCmd>,
     component_fields: Vec<proc_macro2::TokenStream>,
     text_tuple_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
@@ -439,7 +440,6 @@ impl MiruiRune {
             Cmd::If(i) => Self::emit_if(i, world, parent_var),
             Cmd::Niche(n) => Self::emit_niche(n, world, parent_var),
             Cmd::Match(m) => Self::emit_match(m, world, parent_var),
-            Cmd::On(_) => proc_macro2::TokenStream::new(),
         }
     }
 
@@ -542,11 +542,10 @@ impl MiruiRune {
             });
         }
 
-        // Emit static widget children first (post-order)
         let var_ts = quote! { #var };
         let mut child_vars = Vec::new();
         let mut deferred_iters = Vec::new();
-        let mut on_handlers: Vec<&OnCmd> = Vec::new();
+        let on_handlers: Vec<&OnCmd> = cmd.on_handlers.iter().collect();
 
         for child in &cmd.children {
             match child {
@@ -556,9 +555,6 @@ impl MiruiRune {
                 }
                 Cmd::Iter(_) | Cmd::If(_) | Cmd::Niche(_) | Cmd::Match(_) => {
                     deferred_iters.push(child);
-                }
-                Cmd::On(on) => {
-                    on_handlers.push(on);
                 }
             }
         }
@@ -800,6 +796,7 @@ impl DsRune for MiruiRune {
         name: &syn::Ident,
         attrs: &[DsAttr],
         enchants: &[syn::Expr],
+        on_handlers: &[xrune::ds_node::ds_on::DsOn],
         children: &[DsTreeRef],
     ) {
         let kind = classify_widget_name(name);
@@ -835,6 +832,16 @@ impl DsRune for MiruiRune {
             enchant_tokens.push(quote! { #rewritten });
         }
 
+        let collected_on_handlers: Vec<OnCmd> = on_handlers
+            .iter()
+            .map(|h| OnCmd {
+                qualifier: h.get_qualifier().cloned(),
+                name: h.get_name().clone(),
+                args: h.get_args().to_vec(),
+                body: h.get_body().clone(),
+            })
+            .collect();
+
         self.stack.push(Vec::new());
         for child in children {
             decipher(child, self);
@@ -849,6 +856,7 @@ impl DsRune for MiruiRune {
             layout_fields: parsed.layout_fields,
             errors: parsed.errors,
             enchants: enchant_tokens,
+            on_handlers: collected_on_handlers,
             component_fields: parsed.component_fields,
             text_tuple_value: parsed.text_tuple_value,
             id_registrations: parsed.id_registrations,
@@ -905,22 +913,6 @@ impl DsRune for MiruiRune {
         let cmd = Cmd::Niche(NicheCmd {
             name: name.clone(),
             body,
-        });
-        self.stack.last_mut().unwrap().push(cmd);
-    }
-
-    fn inscribe_on(
-        &mut self,
-        qualifier: Option<&syn::Ident>,
-        name: &syn::Ident,
-        args: &[syn::Expr],
-        body: &syn::Block,
-    ) {
-        let cmd = Cmd::On(OnCmd {
-            qualifier: qualifier.cloned(),
-            name: name.clone(),
-            args: args.to_vec(),
-            body: body.clone(),
         });
         self.stack.last_mut().unwrap().push(cmd);
     }

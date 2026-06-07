@@ -14,8 +14,6 @@ fn main() {
             world: &mut world
         :)
 
-        View () {
-            on Wiggle { todo!() }
-        }
+        View () {} on Wiggle { todo!() }
     };
 }
