@@ -5,7 +5,7 @@ use crate::draw::SwRenderer;
 use crate::draw::canvas::Canvas;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, System, SystemScheduler, World};
-use crate::event::bubble_dispatch;
+use crate::event::bubble_dispatch_at;
 use crate::event::focus::{FocusState, focus_on_tap};
 use crate::event::gesture::GestureSystem;
 use crate::event::scroll::{ScrollDragState, ScrollSpring};
@@ -496,9 +496,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                 .resource_mut::<GestureSystem>()
                 .map(|gs| gs.events.drain().collect())
                 .unwrap_or_default();
+            let now_ms = (self.clock_ns() / 1_000_000) as u32;
             for gesture in &pending {
                 focus_on_tap(&mut self.world, gesture);
-                bubble_dispatch(&mut self.world, gesture);
+                bubble_dispatch_at(&mut self.world, gesture, now_ms);
             }
 
             if quit {

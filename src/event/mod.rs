@@ -2,6 +2,7 @@ pub mod focus;
 pub mod gesture;
 pub mod hit_test;
 pub mod input;
+pub mod multi_tap;
 pub mod scroll;
 pub mod sim;
 pub mod widget_input;
@@ -124,6 +125,12 @@ pub struct GestureHandler {
 /// `GestureHandler` found. Stops when a handler returns `true`
 /// (consumed) or the root is reached.
 pub fn bubble_dispatch(world: &mut World, event: &GestureEvent) {
+    bubble_dispatch_at(world, event, 0);
+}
+
+/// `now_ms`-aware variant; pass `0` when no clock is available.
+pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) {
+    multi_tap::observe_gesture(world, event, now_ms);
     let mut current = event.target();
     loop {
         let handler_fn = world.get::<GestureHandler>(current).map(|h| h.on_gesture);
