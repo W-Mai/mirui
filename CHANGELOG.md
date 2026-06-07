@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1] - 2026-06-07
+
+`ui!` widgets accept `on EventKind { body }` for inline gesture handlers, with two unambiguous positions: between attrs and children body (Form C), or as a modifier chain after the widget (Form B). The seven `GestureEvent` variants are routed by name; multi-tap is supported on `Tap` via a new `MultiTapTracker` resource with a 300ms window.
+
+### Added
+
+- **`Widget() on EventKind { body } { children }`** (Form C, inline) — `on` lives between attrs and children body. Multiple `on` clauses stack on the same widget.
+- **`Widget() {} on EventKind { body }`** (Form B, modifier chain) — `on` follows a fully-parsed widget. Inside a nested body, `on` attaches to the nearest preceding sibling widget. Multiple `on` clauses chain.
+- **Mixed Form B + Form C on the same widget** — all `on` clauses collect into one dispatch fn, regardless of their position.
+- **`on Tap(n)` multi-tap** — `n` ∈ {1, 2, 3} routes by `MultiTapTracker::current_count`. `on Tap` and `on Tap(2)` coexist on the same widget; the dispatch fn picks the matching arm at fire time.
+- **`MultiTapTracker` resource** — `bubble_dispatch_at` lazy-inserts the resource on the first Tap. The 300ms window is `MULTI_TAP_WINDOW_MS`. `now_ms == 0` is the "no clock available" sentinel and never accumulates count.
+- **`bubble_dispatch_at(world, event, now_ms)`** — clock-aware dispatch; `bubble_dispatch` delegates to it with `now_ms = 0`. The real input loop in `App::run` uses the live monotonic clock.
+- **Auto-destructured fields** in handler bodies — `x`, `y`, `dx`, `dy`, `vx`, `vy`, `scale_delta`, `angle`, `target` are all in scope as appropriate for the matched event variant. `__world: &mut World` and `__entity: Entity` are also bound.
+- **trybuild fixtures** for ui! diagnostics: `on_form_a_inside_body.rs` (rejects `Widget() { on EventKind {} }` with a clear error), `on_non_tap_with_args.rs`, `on_qualified_path.rs`, `on_unknown_event.rs`.
+- **`gallery/examples/on_handlers_demo.rs`** — four colour-coded boxes with `on Tap` / `on Tap(2)` / `on Tap(3)` / `on LongPress` in modifier-chain form, a label above counts each kind.
+
+### Notes
+
+- Bodies default to `true` (consume the event); explicit `return false` lets `bubble_dispatch` keep walking.
+- On Component widgets (`Button`, `Slider`, etc.) the user `on EventKind` dispatch fn replaces the component's internal `GestureHandler` — same single-handler ECS semantics that already governed manual `world.insert(GestureHandler { ... })`.
+- `on Path::EventKind` qualified form parses but raises a compile error pointing users at the unqualified form. Non-Tap events with parameters (`on LongPress(500)` etc.) compile-error too.
+
+### Internal
+
+- xrune dependency: `1.5.1` (1.5.0 yanked). `DsRune::inscribe_widget` now takes `on_handlers: &[DsOn]` for the on-clauses attached to the widget; `DsRune::inscribe_on` is removed.
+
 ## [0.27.0] - 2026-06-07
 
 Typed widget DSL — `ui!` widget names are now first-class component constructors. `Button (...) { Text("Click") }` expands directly into the right `world.insert(__w, Button { ... })` (and inserts a child Text node), no more enchant block boilerplate to wire up the actual widget kind. The whole gallery + esp32c3-animation moves over; lowercase widget names still parse for now (Layout fallback) but are slated for hard rejection in a follow-up.

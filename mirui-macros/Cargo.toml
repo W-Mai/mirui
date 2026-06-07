@@ -1,6 +1,6 @@
 [package]
 name = "mirui-macros"
-version = "0.27.0"
+version = "0.27.1"
 edition = "2024"
 authors = ["Benign X <1341398182@qq.com>"]
 license = "MIT"
@@ -12,7 +12,7 @@ publish = true
 proc-macro = true
 
 [dependencies]
-xrune = { path = "../../xrune/crates/xrune" }
+xrune = "1.5.1"
 syn = { version = "2", features = ["full", "visit-mut"] }
 quote = "1"
 proc-macro2 = "1"
