@@ -19,7 +19,7 @@ fn refresh_label(world: &mut World) {
         "switch: {} ({} flips)   checkbox: {} ({} flips)",
         if stats.switch_on { "ON" } else { "OFF" },
         stats.switch_changes,
-        if stats.checkbox_checked { "✓" } else { "·" },
+        if stats.checkbox_checked { "[x]" } else { "[ ]" },
         stats.checkbox_changes,
     );
     let label = match world.find_by_id("toggle_label") {
@@ -59,7 +59,7 @@ fn main() {
 
         Column (grow: 1.0) {
             Text (
-                "switch: OFF (0 flips)   checkbox: · (0 flips)",
+                "switch: OFF (0 flips)   checkbox: [ ] (0 flips)",
                 id: "toggle_label",
                 height: 30
             ) {}
