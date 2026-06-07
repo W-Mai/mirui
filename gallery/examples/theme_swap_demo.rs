@@ -60,7 +60,9 @@ const H: u16 = 320;
 fn main() {
     let backend = SdlSurface::new("mirui — theme swap", W, H);
     let mut app = App::new(backend);
-    app.with_theme(dark_with_accent()).with_default_widgets();
+    app.with_theme(dark_with_accent())
+        .with_default_widgets()
+        .with_default_systems();
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(ColorToken::Surface)
