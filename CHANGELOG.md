@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.2] - 2026-06-07
+
+`Slider` gets a business-event channel: `on ValueChanged { ... }`,
+`on DragStarted { ... }`, `on DragEnded { ... }` route through the new
+`SliderHandler` instead of `GestureHandler`. A user-attached
+`GestureHandler` on the same Slider entity no longer replaces the
+slider's internal drag/tap behaviour, thanks to a dual-channel
+`bubble_dispatch`.
+
+### Added
+
+- **`View::with_internal_gesture(fn)`** — register a component-internal gesture handler. `bubble_dispatch_at` walks each entity through the View-registered internal channel first, then the user `GestureHandler`. Internal handlers that return `true` consume the event; `false` lets the user handler on the same entity also see it.
+- **`SliderEvent` enum** — `ValueChanged { new, old }`, `DragStarted`, `DragEnded`. Bound to the `SliderHandler` component.
+- **`SliderHandler { on_event: fn(&mut World, Entity, &SliderEvent) -> bool }`** — user-attached component that receives slider business events.
+- **`ui! { Slider (...) on ValueChanged { ... } {} }`** — handler bodies see `new` and `old` auto-destructured from the variant. `on Slider::ValueChanged` qualified form is also accepted.
+- **`gallery/examples/slider_value_changed_demo.rs`** — typed-widget Slider with all three business events wired to a label that reports the live value, change count, and drag transitions.
+
+### Changed
+
+- **`Slider` no longer attaches a `GestureHandler`** — `slider_handler` lives on the View's internal gesture channel. A user that previously attached a `GestureHandler` on a Slider entity to override the drag behaviour will see both run now (internal first; user handler only fires if internal returns `false`). The `slider_attach` fn is kept as a placeholder for future motion seeding.
+- **`mirui-macros` widget+EventKind table** — `FIRST_PARTY_BUSINESS_EVENTS` registers `(widget, event)` pairs that route `on EventKind` clauses to a business handler. Slider's three events populate the table; the dispatch fn synthesis splits handlers across the gesture channel and the business channel.
+
 ## [0.27.1] - 2026-06-07
 
 `ui!` widgets accept `on EventKind { body }` for inline gesture handlers, with two unambiguous positions: between attrs and children body (Form C), or as a modifier chain after the widget (Form B). The seven `GestureEvent` variants are routed by name; multi-tap is supported on `Tap` via a new `MultiTapTracker` resource with a 300ms window.
