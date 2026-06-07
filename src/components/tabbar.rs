@@ -20,6 +20,12 @@ pub struct TabBar {
     pub indicator_height: Fixed,
 }
 
+impl Default for TabBar {
+    fn default() -> Self {
+        Self::new(0)
+    }
+}
+
 impl TabBar {
     pub fn new(count: u8) -> Self {
         Self {

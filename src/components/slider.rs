@@ -18,6 +18,12 @@ pub struct Slider {
     pub thumb_color: ThemedColor,
 }
 
+impl Default for Slider {
+    fn default() -> Self {
+        Self::new(Fixed::ZERO, Fixed::ONE)
+    }
+}
+
 impl Slider {
     pub fn new(min: Fixed, max: Fixed) -> Self {
         Self {

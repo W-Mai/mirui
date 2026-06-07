@@ -6,7 +6,7 @@
 //! The accent dot in the corner uses a custom `accent` token —
 //! adding a token doesn't require forking mirui.
 
-use mirui::components::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, TextInput};
+use mirui::components::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
 use mirui::event::GestureHandler;
 use mirui::event::gesture::GestureEvent;
 use mirui::prelude::*;
@@ -79,56 +79,52 @@ fn main() {
             world: &mut app.world
         :)
 
-        View (
-            direction: FlexDirection::Row,
-            height: 44,
-            padding: Padding::all(0)
-        ) {
-            View (
+        Row (height: 44) {
+            Button (
                 grow: 1.0,
                 height: 36,
                 border_radius: 6,
-                text: "Dark",
-                text_color: ColorToken::OnPrimary
+                text_color: ColorToken::OnPrimary,
+                normal_color: Color::rgb(40, 50, 70),
+                pressed_color: Color::rgb(20, 25, 35)
             ) [
-                Button::new()
-                    .with_normal_color(Color::rgb(40, 50, 70))
-                    .with_pressed_color(Color::rgb(20, 25, 35)),
                 ThemeChoice(dark_with_accent()),
                 GestureHandler {
                     on_gesture: theme_swap_handler,
                 },
-            ] {}
-            View (
+            ] {
+                Text ("Dark") {}
+            }
+            Button (
                 grow: 1.0,
                 height: 36,
                 border_radius: 6,
-                text: "Light",
-                text_color: ColorToken::OnPrimary
+                text_color: ColorToken::OnPrimary,
+                normal_color: Color::rgb(0, 100, 200),
+                pressed_color: Color::rgb(0, 70, 150)
             ) [
-                Button::new()
-                    .with_normal_color(Color::rgb(0, 100, 200))
-                    .with_pressed_color(Color::rgb(0, 70, 150)),
                 ThemeChoice(light_with_accent()),
                 GestureHandler {
                     on_gesture: theme_swap_handler,
                 },
-            ] {}
-            View (
+            ] {
+                Text ("Light") {}
+            }
+            Button (
                 grow: 1.0,
                 height: 36,
                 border_radius: 6,
-                text: "Custom",
-                text_color: ColorToken::OnPrimary
+                text_color: ColorToken::OnPrimary,
+                normal_color: Color::rgb(255, 105, 180),
+                pressed_color: Color::rgb(200, 70, 140)
             ) [
-                Button::new()
-                    .with_normal_color(Color::rgb(255, 105, 180))
-                    .with_pressed_color(Color::rgb(200, 70, 140)),
                 ThemeChoice(custom_theme()),
                 GestureHandler {
                     on_gesture: theme_swap_handler,
                 },
-            ] {}
+            ] {
+                Text ("Custom") {}
+            }
         }
     };
 
@@ -138,53 +134,56 @@ fn main() {
             world: &mut app.world
         :)
 
-        View (
-            direction: FlexDirection::Column,
-            grow: 1.0,
-            padding: Padding::all(0)
-        ) {
-            View (direction: FlexDirection::Row, height: 28, align: AlignItems::Center) {
-                View (text: "Slider", width: 90) {}
-                View (grow: 1.0, height: 20) [
-                    Slider::new(Fixed::ZERO, Fixed::from_int(100)),
-                ] {}
+        Column (grow: 1.0) {
+            Row (height: 28, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Slider") {}
+                }
+                Slider (
+                    min: Fixed::ZERO,
+                    max: Fixed::from_int(100),
+                    grow: 1.0,
+                    height: 20
+                ) {}
             }
-            View (direction: FlexDirection::Row, height: 36, align: AlignItems::Center) {
-                View (text: "Switch", width: 90) {}
-                View (width: 56, height: 28) [
-                    Switch::new(),
-                ] {}
+            Row (height: 36, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Switch") {}
+                }
+                Switch (width: 56, height: 28) {}
             }
-            View (direction: FlexDirection::Row, height: 36, align: AlignItems::Center) {
-                View (text: "Checkbox", width: 90) {}
-                View (width: 24, height: 24, border_radius: 4) [
-                    Checkbox::new(),
-                ] {}
+            Row (height: 36, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Checkbox") {}
+                }
+                Checkbox (width: 24, height: 24, border_radius: 4) {}
             }
-            View (direction: FlexDirection::Row, height: 28, align: AlignItems::Center) {
-                View (text: "Progress", width: 90) {}
-                View (grow: 1.0, height: 12, border_radius: 6) [
-                    ProgressBar::new(),
-                ] {}
+            Row (height: 28, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Progress") {}
+                }
+                ProgressBar (grow: 1.0, height: 12, border_radius: 6) {}
             }
-            View (direction: FlexDirection::Row, height: 36, align: AlignItems::Center) {
-                View (text: "Input", width: 90) {}
-                View (grow: 1.0, height: 28) [
-                    TextInput::new(),
-                ] {}
+            Row (height: 36, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Input") {}
+                }
+                TextInput (grow: 1.0, height: 28) {}
             }
-            View (direction: FlexDirection::Row, height: 24, align: AlignItems::Center) {
-                View (text: "Tabs", width: 90) {}
-                View (grow: 1.0, height: 24) [
-                    TabBar::new(3),
-                ] {
+            Row (height: 24, align: AlignItems::Center) {
+                View (width: 90) {
+                    Text ("Tabs") {}
+                }
+                TabBar (count: 3, grow: 1.0, height: 24) {
                     View (grow: 1.0) {}
                     View (grow: 1.0) {}
                     View (grow: 1.0) {}
                 }
             }
-            View (direction: FlexDirection::Row, height: 32, align: AlignItems::Center) {
-                View (text: "Custom 'accent'", width: 120) {}
+            Row (height: 32, align: AlignItems::Center) {
+                View (width: 120) {
+                    Text ("Custom 'accent'") {}
+                }
                 View (width: 32, height: 24, border_radius: 4, bg_color: ACCENT) {}
             }
         }
