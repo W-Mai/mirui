@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.3] - 2026-06-08
+
+`Switch`, `Checkbox`, and `ProgressBar` join Slider on the dual-channel
+gesture path. `on Toggled { ... }` and `on ValueChanged { ... }` route
+through dedicated handler components (`SwitchHandler`, `CheckboxHandler`,
+`ProgressBarHandler`) instead of the generic `GestureHandler`.
+
+### Added
+
+- **`SwitchEvent::Toggled { now }`** + `SwitchHandler` — fires after `switch_handler` flips `Switch.on`.
+- **`CheckboxEvent::Toggled { now }`** + `CheckboxHandler` — fires after `checkbox_handler` flips `Checkbox.checked`.
+- **`ProgressBarEvent::ValueChanged { new: f32, old: f32 }`** + `ProgressBarHandler` — fires when a Tap or DragMove moves `ProgressBar.value` (only when the new value differs from the old).
+- **`ui! { Switch (...) on Toggled { ... } {} }`** and the same for Checkbox / ProgressBar — `now`, `new`, `old` auto-destructured into the body's scope. Qualified forms (`on Switch::Toggled` etc.) work too.
+- **`gallery/examples/toggle_demo.rs`** — Switch + Checkbox in modifier-chain form with shared stats resource and live label.
+
+### Changed
+
+- **`switch_handler`, `checkbox_handler`, `progress_bar_handler`** moved to `View::with_internal_gesture`. A user `world.insert(entity, GestureHandler { ... })` on these components no longer overwrites the toggle / value-update behaviour.
+
 ## [0.27.2] - 2026-06-07
 
 `Slider` gets a business-event channel: `on ValueChanged { ... }`,
