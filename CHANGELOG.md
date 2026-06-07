@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-06-07
+
+Typed widget DSL — `ui!` widget names are now first-class component constructors. `Button (...) { Text("Click") }` expands directly into the right `world.insert(__w, Button { ... })` (and inserts a child Text node), no more enchant block boilerplate to wire up the actual widget kind. The whole gallery + esp32c3-animation moves over; lowercase widget names still parse for now (Layout fallback) but are slated for hard rejection in a follow-up.
+
+### Added
+
+- **Typed widget syntax** — capitalised ui! names map to component types:
+  - Built-ins: `Button`, `Checkbox`, `Slider`, `Switch`, `ProgressBar`, `TabBar`, `TextInput`, `Image`, `Text`, `LazyList`, `MirrorOf`, `BackgroundBlur`, `TemporalMix`.
+  - Reserved layout names `View / Row / Column` stay as pure layout containers; `Row` / `Column` auto-set `FlexDirection`.
+  - Anything else capitalised expands the same way and lets rustc check the type — user-defined components opt in by registering a `View` and (typically) impl'ing `Default`.
+- **Component widgets accept positional arg for a primary attr** — `Text("hello")`, `Image(&IMG_THUMBS_UP)`. Widgets without a registered primary attr reject positional args at compile time.
+- **Named niche slots** — `@name { children }` inside a component widget routes children into a `NicheMap`-registered anchor entity. Components publish a `NicheMap` from their `auto_attach`; ui! resolves the anchor at fill time.
+- **`id` references** — `id: "foo"` attr registers a `NamedId` marker on the entity and an entry in the new `IdMap` resource. `id("foo")` (or unquoted `id(foo)`) inside any other attr value expands to a `World::find_by_id` lookup hoisted to the surrounding scope, so a sibling can refer to a marked entity by name.
+  - `IdMap` is auto-inserted by `App::new`, available everywhere; `World::find_by_id(&'static str) -> Option<Entity>` is the read API.
+- **`match` syntax** — `ui! { match expr { Pat => { children } ... } }` inserts only the winning arm's children. Composable with niche / walk / if.
+- **Empty children blocks may be omitted** — `Image (texture: &IMG)` (no `{}`) parses as a Widget with no children. `if` / `walk` / `@niche` / `match` still require their bodies.
+- **Multi-attr root header is multi-line and accepts trailing commas** — `:( parent: root, world: w, :)` and the existing newline form both parse; mashing them onto a single line errors out at parse time.
+- **Off-screen renderer tests** — new `tests/typed_widget_visual.rs`, `tests/theme_swap_visual.rs`, `tests/typed_widget.rs`, `tests/niche.rs`, `tests/match_syntax.rs`, plus `gallery/examples/theme_swap_snapshot.rs` for ad-hoc PPM/PNG dumps.
+- **trybuild fixtures** for ui! diagnostics: `unknown_attr_typo`, `id_must_be_string`, `root_header_oneline`, `positional_on_unsupported`, `button_no_text_attr`.
+
+### Fixed
+
+- **`App::render` now wraps its full-screen flush in `begin_flush` / `end_flush`** — previously the first frame after `App::run` only called `Surface::flush`, which on SDL leaves `pending_present` pinned without calling `canvas.copy + canvas.present`. Standalone SDL demos that didn't pull in `InputFeedbackPlugin` (which keeps the dirty path firing every frame) showed a black window until the user moused over a widget. The `App::render_dirty` non-empty branch had the right wrapper already; this brings the full-render path in line.
+- Fuzzy hint for unknown ui! attrs — typing `txt:` now suggests `text:` via Levenshtein-2 lookup against the known attr list.
+
+### Changed
+
+- **`Button` no longer accepts `text:` attr** — the label belongs in a child Text node now: `Button (...) { Text("Click") }`. The legacy `text:` writes the string into `WidgetBuilder::text` on Layout-kind widgets only; on Component widgets it routes to the struct's `text` field, which Button doesn't have, so the old form fails to compile with a clear error.
+- **`Text` is a tuple struct** (`Text(Vec<u8>)`); the macro special-cases `Text(text: "x")` and `Text("x")` to emit `Text(b"x".to_vec())` instead of named-struct init.
+- **`TextInput`'s `text_color` / `placeholder_color` / `cursor_color` / `focus_border_color` route to the struct field**, not the WidgetBuilder, when the widget is a TextInput.
+- **`Slider` and `TabBar` gain `Default` impls** so the macro's `..Default::default()` spread can fill in unset fields. Defaults are sentinels (`Slider` → `(0..1)`, `TabBar` → `count: 0`); always overridden in practice by the call site.
+- `parse_attrs` returns a `ParsedAttrs` struct rather than a tuple (avoids clippy `type_complexity`).
+
+### BREAKING
+
+- Demos that wrote `dark_btn (...) [Button::new()...]` must rewrite to `Button (...) [...] { Text("...") }`. The codemod that ran during this development cycle handled the gallery + mirui-examples sweep; user code on the legacy syntax keeps compiling on the lowercase Layout fallback path until a later release tightens that.
+- xrune's `DsAttr.name` becomes `Option<syn::Ident>` (positional args have `name = None`). Every `DsRune` impl gains `inscribe_niche` and `inscribe_match`. xrune workspace depends on `xrune = "1.4"` (see xrune CHANGELOG).
+- `mirui-macros` Cargo.toml requires `syn` with `visit-mut` feature.
+
 ## [0.26.1] - 2026-06-05
 
 Apache NuttX RTOS backend — `feature = "nuttx"` runs mirui against `/dev/fbN` framebuffer + `/dev/inputN` touchscreen + optional `/dev/kbdN` keyboard, verified on ESP32-C3 (ST7735 SPI LCD) and qemu virtio-gpu. The framebuffer pointer comes straight from `FBIOGET_PLANEINFO` with no mmap. `PointerState` and the DPI scale heuristic are shared with the Linux backends via a small cross-platform refactor.
