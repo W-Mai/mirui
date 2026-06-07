@@ -1,7 +1,6 @@
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
 use crate::types::Rect;
 use crate::widget::dirty::Dirty;
@@ -94,22 +93,13 @@ fn button_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
 }
 
 fn button_attach(world: &mut World, entity: Entity) {
-    if world.get::<Button>(entity).is_none() {
-        return;
-    }
-    if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    world.insert(
-        entity,
-        GestureHandler {
-            on_gesture: button_handler,
-        },
-    );
+    let _ = world;
+    let _ = entity;
 }
 
 pub fn view() -> View {
     View::new("Button", 40, button_render)
         .with_filter::<Button>()
         .with_attach(button_attach)
+        .with_internal_gesture(button_handler)
 }

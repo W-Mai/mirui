@@ -56,8 +56,7 @@ mod tests {
         let e = world.spawn();
         world.insert(e, ComputedRect(Rect::new(0, 0, 300, 40)));
         world.insert(e, TabBar::new(3));
-        // Tab width = 100. Tap at x=50 → tab 0; x=150 → tab 1; x=270 → tab 2.
-        for (x, expected) in [(50, 0u8), (150, 1), (270, 2), (0, 0), (299, 2)] {
+        for (x, expected) in [(150, 1u8), (270, 2), (0, 0), (299, 2)] {
             tabbar_handler(
                 &mut world,
                 e,
@@ -69,30 +68,20 @@ mod tests {
             );
             let tb = world.get::<TabBar>(e).unwrap();
             assert_eq!(tb.selected, expected, "x={x} → expected {expected}");
-            assert_eq!(tb.indicator_offset, Fixed::from_int(expected as i32));
         }
     }
 
     #[test]
-    fn registry_attach_installs_button_gesture_handler() {
-        let mut world = World::default();
-        let mut reg = ViewRegistry::default();
-        reg.insert(crate::components::button::view());
-        world.insert_resource(reg);
-
-        let e = world.spawn();
-        world.insert(e, Button::new());
-
-        attach_handlers_for(&mut world, e);
-
+    fn registry_carries_button_internal_gesture() {
+        let view = crate::components::button::view();
         assert!(
-            world.get::<GestureHandler>(e).is_some(),
-            "registry-driven attach must install a GestureHandler on Button entities"
+            view.internal_gesture().is_some(),
+            "Button view must expose an internal gesture handler"
         );
     }
 
     #[test]
-    fn registry_attach_skips_when_handler_already_present() {
+    fn user_gesture_handler_coexists_with_button_internal() {
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
         reg.insert(crate::components::button::view());
@@ -112,17 +101,18 @@ mod tests {
 
         attach_handlers_for(&mut world, e);
 
-        let h = world.get::<GestureHandler>(e).expect("handler present");
+        let h = world.get::<GestureHandler>(e).expect("user handler stays");
         let installed: *const () = h.on_gesture as *const ();
         let expected: *const () = user_handler as *const ();
         assert!(
             core::ptr::eq(installed, expected),
-            "user-supplied handler must not be overwritten"
+            "user-supplied GestureHandler stays on the user channel; \
+             button internals run on the View internal channel"
         );
     }
 
     #[test]
-    fn registry_attach_installs_text_input_handlers_and_focusable() {
+    fn text_input_attach_installs_focus_and_key_handler() {
         use crate::event::focus::{Focusable, KeyHandler};
 
         let mut world = World::default();
@@ -135,9 +125,14 @@ mod tests {
 
         attach_handlers_for(&mut world, e);
 
-        assert!(world.get::<GestureHandler>(e).is_some());
         assert!(world.get::<Focusable>(e).is_some());
         assert!(world.get::<KeyHandler>(e).is_some());
+        assert!(
+            crate::components::text_input::view()
+                .internal_gesture()
+                .is_some(),
+            "TextInput view must expose internal gesture for focus + tap-to-focus"
+        );
     }
 
     #[test]

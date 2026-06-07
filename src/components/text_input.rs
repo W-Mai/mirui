@@ -1,7 +1,6 @@
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
 use crate::event::focus::{FocusState, Focusable, KeyHandler};
 use crate::event::gesture::GestureEvent;
 use crate::event::input::{
@@ -361,28 +360,24 @@ fn text_input_attach(world: &mut World, entity: Entity) {
     if world.get::<TextInput>(entity).is_none() {
         return;
     }
-    if world.get::<GestureHandler>(entity).is_some() {
-        return;
+    if world.get::<Focusable>(entity).is_none() {
+        world.insert(entity, Focusable);
     }
-    world.insert(
-        entity,
-        GestureHandler {
-            on_gesture: textinput_gesture_handler,
-        },
-    );
-    world.insert(entity, Focusable);
-    world.insert(
-        entity,
-        KeyHandler {
-            on_key: textinput_key_handler,
-        },
-    );
+    if world.get::<KeyHandler>(entity).is_none() {
+        world.insert(
+            entity,
+            KeyHandler {
+                on_key: textinput_key_handler,
+            },
+        );
+    }
 }
 
 pub fn view() -> View {
     View::new("TextInput", 70, text_input_render)
         .with_filter::<TextInput>()
         .with_attach(text_input_attach)
+        .with_internal_gesture(textinput_gesture_handler)
         .with_systems(const { &[cursor_blink_system::system()] })
 }
 

@@ -1,13 +1,32 @@
+use crate::anim::Tween;
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
 use crate::event::gesture::GestureEvent;
 use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
 use crate::widget::theme::{ColorToken, ThemedColor};
 use crate::widget::view::{View, ViewCtx};
+
+#[derive(Clone, Debug)]
+pub enum TabBarEvent {
+    SelectionChanged { new: u8, old: u8 },
+}
+
+pub struct TabBarHandler {
+    pub on_event: fn(&mut World, Entity, &TabBarEvent) -> bool,
+}
+
+pub(crate) const INDICATOR_TWEEN_MS: u16 = 220;
+
+pub(crate) struct TabIndicatorTween {
+    pub(crate) tween: Tween,
+}
+
+pub(crate) struct TabBarPrev {
+    pub(crate) selected: u8,
+}
 
 /// Horizontal tab bar with N children laid out flex-row.
 /// `selected` is the discrete tab index; `indicator_offset` is the
@@ -84,7 +103,9 @@ fn tab_bar_render(
     );
 }
 
-/// Snap selected and indicator_offset to the tapped tab.
+/// Tap on a tab: clamp pointer x onto the tab grid, update `selected`,
+/// emit `SelectionChanged`, and start the indicator tween toward the
+/// new index. The tween itself is driven by `tab_pages_system`.
 pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     let x = match event {
         GestureEvent::Tap { x, .. } => *x,
@@ -103,33 +124,54 @@ pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureE
     let local = (x - rect.x).max(Fixed::ZERO);
     let tab_w = rect.w / Fixed::from_int(count as i32);
     let idx = (local / tab_w).to_int().clamp(0, count as i32 - 1) as u8;
+
+    let (old_idx, current_offset) = match world.get::<TabBar>(entity) {
+        Some(tb) => (tb.selected, tb.indicator_offset),
+        None => return false,
+    };
+    if old_idx == idx {
+        return true;
+    }
     if let Some(tb) = world.get_mut::<TabBar>(entity) {
         tb.selected = idx;
-        tb.indicator_offset = Fixed::from_int(idx as i32);
     }
+    let to = Fixed::from_int(idx as i32);
+    world.insert(
+        entity,
+        TabIndicatorTween {
+            tween: Tween::ease_to(current_offset, to, INDICATOR_TWEEN_MS),
+        },
+    );
+    world.insert(entity, TabBarPrev { selected: idx });
+    emit_tabbar_event(
+        world,
+        entity,
+        &TabBarEvent::SelectionChanged {
+            new: idx,
+            old: old_idx,
+        },
+    );
     world.insert(entity, Dirty);
     true
 }
 
+fn emit_tabbar_event(world: &mut World, entity: Entity, event: &TabBarEvent) {
+    let cb = world.get::<TabBarHandler>(entity).map(|h| h.on_event);
+    if let Some(f) = cb {
+        f(world, entity, event);
+    }
+}
+
 fn tab_bar_attach(world: &mut World, entity: Entity) {
-    if world.get::<TabBar>(entity).is_none() {
-        return;
-    }
-    if world.get::<GestureHandler>(entity).is_some() {
-        return;
-    }
-    world.insert(
-        entity,
-        GestureHandler {
-            on_gesture: tabbar_handler,
-        },
-    );
+    let _ = world;
+    let _ = entity;
 }
 
 pub fn view() -> View {
     View::new("TabBar", 60, tab_bar_render)
         .with_filter::<TabBar>()
         .with_attach(tab_bar_attach)
+        .with_internal_gesture(tabbar_handler)
 }
 
 #[cfg(test)]

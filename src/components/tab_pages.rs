@@ -1,5 +1,5 @@
 use crate::anim::Tween;
-use crate::components::tabbar::TabBar;
+use crate::components::tabbar::{INDICATOR_TWEEN_MS, TabBar, TabBarPrev, TabIndicatorTween};
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
 use crate::widget::dirty::Dirty;
@@ -14,20 +14,10 @@ pub struct TabContent {
     pub index: u8,
 }
 
-struct TabBarPrev {
-    selected: u8,
-}
-
-struct TabIndicatorTween {
-    tween: Tween,
-}
-
-const INDICATOR_TWEEN_MS: u16 = 220;
-
 #[crate::system(order = TAB_PAGES, expect = TabBar)]
 pub fn tab_pages_system(world: &mut World) {
     drive_indicator_tweens(world);
-    detect_selection_changes(world);
+    detect_programmatic_selection_changes(world);
     apply_visibility(world);
 }
 
@@ -54,7 +44,10 @@ fn drive_indicator_tweens(world: &mut World) {
     }
 }
 
-fn detect_selection_changes(world: &mut World) {
+/// Catches programmatic `TabBar.selected` mutations and starts the
+/// indicator tween. `tabbar_handler` syncs `TabBarPrev` itself, so tap
+/// path doesn't double-fire here.
+fn detect_programmatic_selection_changes(world: &mut World) {
     let bars: Vec<Entity> = world.query::<TabBar>().collect();
     for bar in bars {
         let current = match world.get::<TabBar>(bar) {

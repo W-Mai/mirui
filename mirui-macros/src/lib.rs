@@ -139,6 +139,13 @@ const FIRST_PARTY_BUSINESS_EVENTS: &[BusinessEventEntry] = &[
         event_path: "::mirui::components::progress_bar::ProgressBarEvent::ValueChanged",
         fields: &["new", "old"],
     },
+    BusinessEventEntry {
+        widget: "TabBar",
+        event: "SelectionChanged",
+        handler_component: "::mirui::components::tabbar::TabBarHandler",
+        event_path: "::mirui::components::tabbar::TabBarEvent::SelectionChanged",
+        fields: &["new", "old"],
+    },
 ];
 
 fn lookup_business_event(widget: &str, event: &str) -> Option<&'static BusinessEventEntry> {
