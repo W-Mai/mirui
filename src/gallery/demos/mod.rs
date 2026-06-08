@@ -37,6 +37,7 @@ pub mod tabbar_selection;
 pub mod text;
 pub mod text_input;
 pub mod theme_swap;
+pub mod three_body;
 pub mod toggle;
 pub mod transform;
 pub mod walk;
