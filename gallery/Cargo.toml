@@ -29,18 +29,87 @@ web-sys = { version = "0.3.99", optional = true, features = [
     "Window",
 ] }
 
+# cargo autoexamples doesn't recurse — subdir entries need explicit path.
+[[example]]
+name = "compose_backend_demo"
+path = "examples/backends/compose_backend_demo.rs"
+
+[[example]]
+name = "compose_backend_dsl"
+path = "examples/backends/compose_backend_dsl.rs"
+
+[[example]]
+name = "sdl_smoke"
+path = "examples/backends/sdl_smoke.rs"
+
 [[example]]
 name = "sdl_gpu_demo"
+path = "examples/backends/sdl_gpu_demo.rs"
 required-features = ["sdl-gpu"]
 
 [[example]]
 name = "wgpu_smoke"
+path = "examples/backends/wgpu_smoke.rs"
 required-features = ["wgpu"]
 
 [[example]]
 name = "linux_fb_demo"
+path = "examples/backends/linux_fb_demo.rs"
 required-features = ["linux-fb"]
 
 [[example]]
 name = "linux_drm_demo"
+path = "examples/backends/linux_drm_demo.rs"
 required-features = ["linux-drm"]
+
+[[example]]
+name = "effect_demo_snapshot"
+path = "examples/tools/effect_demo_snapshot.rs"
+
+[[example]]
+name = "hello_sdl"
+path = "examples/tools/hello_sdl.rs"
+
+[[example]]
+name = "lazy_list_snapshot"
+path = "examples/tools/lazy_list_snapshot.rs"
+
+[[example]]
+name = "offscreen_modal_snapshot"
+path = "examples/tools/offscreen_modal_snapshot.rs"
+
+[[example]]
+name = "perf_bench"
+path = "examples/tools/perf_bench.rs"
+
+[[example]]
+name = "perf_collect"
+path = "examples/tools/perf_collect.rs"
+
+[[example]]
+name = "sim_input_demo"
+path = "examples/tools/sim_input_demo.rs"
+
+[[example]]
+name = "snapshot_cover_flow"
+path = "examples/tools/snapshot_cover_flow.rs"
+
+[[example]]
+name = "tabbar_snapshot"
+path = "examples/tools/tabbar_snapshot.rs"
+
+[[example]]
+name = "text_input_snapshot"
+path = "examples/tools/text_input_snapshot.rs"
+
+[[example]]
+name = "theme_swap_snapshot"
+path = "examples/tools/theme_swap_snapshot.rs"
+
+[[example]]
+name = "widget_demo"
+path = "examples/tools/widget_demo.rs"
+
+[[example]]
+name = "zorder_baseline"
+path = "examples/tools/zorder_baseline.rs"
