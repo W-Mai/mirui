@@ -1,6 +1,7 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::{Entity, World};
+    use mirui::event::HandlerCtx;
     use mirui::event::bubble_dispatch_at;
     use mirui::event::gesture::GestureEvent;
     use mirui::event::multi_tap::MultiTapTracker;
@@ -18,7 +19,7 @@ mod tests {
         FIRES.store(0, Ordering::SeqCst);
     }
 
-    fn my_callback(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {
+    fn my_callback(_ctx: &mut HandlerCtx<GestureEvent>) -> bool {
         FIRES.fetch_add(1, Ordering::SeqCst);
         true
     }

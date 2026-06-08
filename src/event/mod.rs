@@ -121,6 +121,13 @@ pub struct GestureHandler {
     pub on_gesture: fn(&mut World, Entity, &GestureEvent) -> bool,
 }
 
+/// Aggregated context handed to user `on EventKind` bodies and callback-form fns.
+pub struct HandlerCtx<'a, E> {
+    pub world: &'a mut World,
+    pub entity: Entity,
+    pub event: &'a E,
+}
+
 /// Walk from `target` up via `Parent` links, invoking the first
 /// `GestureHandler` found. Stops when a handler returns `true`
 /// (consumed) or the root is reached.

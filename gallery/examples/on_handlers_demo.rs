@@ -74,10 +74,10 @@ fn main() {
                     border_radius: 10
                 )
                     on Tap {
-                        if let Some(c) = __world.resource_mut::<ClickCounter>() {
+                        if let Some(c) = ctx.world.resource_mut::<ClickCounter>() {
                             c.single += 1;
                         }
-                        refresh_label(__world);
+                        refresh_label(ctx.world);
                     } {}
                 View (
                     bg_color: Color::rgb(63, 185, 80),
@@ -86,10 +86,10 @@ fn main() {
                     border_radius: 10
                 )
                     on Tap(2) {
-                        if let Some(c) = __world.resource_mut::<ClickCounter>() {
+                        if let Some(c) = ctx.world.resource_mut::<ClickCounter>() {
                             c.double += 1;
                         }
-                        refresh_label(__world);
+                        refresh_label(ctx.world);
                     } {}
                 View (
                     bg_color: Color::rgb(248, 81, 73),
@@ -98,10 +98,10 @@ fn main() {
                     border_radius: 10
                 )
                     on Tap(3) {
-                        if let Some(c) = __world.resource_mut::<ClickCounter>() {
+                        if let Some(c) = ctx.world.resource_mut::<ClickCounter>() {
                             c.triple += 1;
                         }
-                        refresh_label(__world);
+                        refresh_label(ctx.world);
                     } {}
                 View (
                     bg_color: Color::rgb(210, 168, 255),
@@ -110,10 +110,10 @@ fn main() {
                     border_radius: 10
                 )
                     on LongPress {
-                        if let Some(c) = __world.resource_mut::<ClickCounter>() {
+                        if let Some(c) = ctx.world.resource_mut::<ClickCounter>() {
                             c.long += 1;
                         }
-                        refresh_label(__world);
+                        refresh_label(ctx.world);
                     } {}
             }
         }

@@ -204,6 +204,12 @@ fn emit_business_handler(
         arms.extend(quote! {
             #pattern => {
                 #bindings
+                #[allow(unused_mut, unused_variables)]
+                let mut ctx = ::mirui::event::HandlerCtx {
+                    world: __world,
+                    entity: __entity,
+                    event: __event,
+                };
                 let __consumed: bool = { #body; true };
                 __consumed
             },
@@ -258,6 +264,12 @@ fn emit_event_arm(event_name: &str, group: &[&OnCmd]) -> proc_macro2::TokenStrea
             let _ = ( #( #used_idents ),* );
             #(
                 {
+                    #[allow(unused_mut, unused_variables)]
+                    let mut ctx = ::mirui::event::HandlerCtx {
+                        world: __world,
+                        entity: __entity,
+                        event: __event,
+                    };
                     let __consumed: bool = { #bodies; true };
                     if __consumed { return true; }
                 }
@@ -275,6 +287,12 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
         if h.args.is_empty() {
             default_arm = Some(quote! {
                 _ => {
+                    #[allow(unused_mut, unused_variables)]
+                    let mut ctx = ::mirui::event::HandlerCtx {
+                        world: __world,
+                        entity: __entity,
+                        event: __event,
+                    };
                     let __consumed: bool = { #body; true };
                     return __consumed;
                 }
@@ -283,6 +301,12 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
             let arg = &h.args[0];
             count_arms.extend(quote! {
                 __c if __c == (#arg as u8) => {
+                    #[allow(unused_mut, unused_variables)]
+                    let mut ctx = ::mirui::event::HandlerCtx {
+                        world: __world,
+                        entity: __entity,
+                        event: __event,
+                    };
                     let __consumed: bool = { #body; true };
                     return __consumed;
                 },
@@ -323,7 +347,7 @@ impl OnCmd {
     fn synthesised_body_from_callback(callback: &syn::Expr) -> syn::Block {
         syn::parse_quote! {
             {
-                (#callback)(__world, __entity, __event)
+                (#callback)(&mut ctx)
             }
         }
     }

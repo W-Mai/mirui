@@ -68,21 +68,21 @@ fn main() {
                 on ValueChanged {
                     let new_value = new.to_int();
                     let _ = old;
-                    __world
+                    ctx.world
                         .resource_mut::<Stats>()
                         .map(|s| {
                             s.last_value = new_value;
                             s.changes += 1;
                         });
-                    refresh_label(__world);
+                    refresh_label(ctx.world);
                 }
                 on DragStarted {
-                    __world.resource_mut::<Stats>().map(|s| s.drags += 1);
-                    refresh_label(__world);
+                    ctx.world.resource_mut::<Stats>().map(|s| s.drags += 1);
+                    refresh_label(ctx.world);
                 }
                 on DragEnded {
-                    __world.resource_mut::<Stats>().map(|s| s.drags += 1);
-                    refresh_label(__world);
+                    ctx.world.resource_mut::<Stats>().map(|s| s.drags += 1);
+                    refresh_label(ctx.world);
                 } {}
         }
     };
