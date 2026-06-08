@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.5] - 2026-06-08
+
+`mirui::gallery` ships behind a new opt-in `gallery` feature: 40 demo
+bodies live as `pub fn build_widgets(world, parent) -> Entity` plus an
+optional `setup_app(app, parent) -> Entity` that brings the matching
+plugins, themes, and SimTimelines. Any backend — desktop SDL, the
+Linux fbdev / DRM paths, or the bare-metal ESP32-C3 build — can mount
+the same demo widget tree by calling `setup_app`.
+
+`on` body return semantics gain explicit shapes through a new
+`HandlerReturn` trait: a body ending in `()` defaults to Prevent, a
+trailing `bool` keeps the existing convention, and the new
+`BubbleControl::{Prevent, Allow}` enum names the choice. The
+underlying handler context aggregates `world` / `entity` / `event`
+into a single `HandlerCtx<'a, E>` so handler bodies access fields
+through `ctx.world`, `ctx.entity`, `ctx.event`. `on EventKind(cb)`
+callback-form receives `&mut HandlerCtx<E>` accordingly.
+
+### Added
+
+- **`mirui::gallery` module + `gallery` cargo feature** — gated re-export of 40 widget-tree demos under `mirui::gallery::demos::*`. Each demo carries a build_widgets signature usable in `no_std` plus a `setup_app` helper available under `feature = "std"`.
+- **`mirui::event::HandlerCtx<'a, E>`** — a `&mut World`, `Entity`, and `&E` aggregate that `on` body and callback handlers receive instead of three separate parameters.
+- **`mirui::event::HandlerReturn` trait** — implemented for `()` (returns Prevent), `bool` (current Prevent / Allow convention), and the new `BubbleControl` enum.
+- **`mirui::event::BubbleControl::{Prevent, Allow}`** — a named enum for `on` body returns; equivalent to returning `true` / `false` but reads at the call site.
+- **`gallery/examples/backends/` and `gallery/examples/tools/`** — backend-specific demos (`compose_backend`, `linux_drm`, `linux_fb`, `sdl_gpu`, `sdl_smoke`, `wgpu_smoke`, `compose_backend_dsl`) and developer tooling (`perf_bench`, `perf_collect`, snapshot regressions, `widget_demo`, `zorder_baseline`, `hello_sdl`, `sim_input_demo`, `layout_demo`) move to subdirectories with explicit `[[example]]` entries in `gallery/Cargo.toml`.
+- **`tests/gallery_demos.rs`** — 38 demos under one aggregate smoke plus dedicated `custom_view_demo_smoke` and `widgets_demo_smoke` for the registry-aware and viewport-aware paths.
+
+### Changed
+
+- **`on` body context aggregation (BREAKING)** — `__world`, `__entity`, `__event` identifiers are gone. Handler bodies access state through `ctx.world`, `ctx.entity`, `ctx.event` instead.
+- **`on EventKind(cb)` callback-form signature (BREAKING)** — callbacks take `&mut HandlerCtx<E>` and return a `HandlerReturn`-compatible value, replacing the previous `(world, entity, event)` triple.
+- **`gallery/src/demos/` directory removed** — every demo body that used to live there now resides at `mirui::gallery::demos::xxx`. The `gallery::run` runner stays in `gallery/src/lib.rs`; demos are imported from the mirui crate. `linux_fb_demo` and `linux_drm_demo` route through `mirui::gallery::demos::hello::setup_app`.
+- **`xtask cmd_lint`** — `xrune-fmt --check` walks `gallery/examples/` recursively so files under `backends/` and `tools/` stay in the format gate.
+
+### Internal
+
+- Demo bodies kept `no_std` + `alloc`-friendly: `setup_app` is `cfg(feature = "std")`, `build_widgets` is not. `widgets::build_widgets` takes `(world, parent, view_w, view_h)` so the host backend's display size flows through without a `Setup` parameter.
+- `gallery/Cargo.toml` enables `mirui` features `["quad-aa", "gallery"]` so every cargo example sees the demos module.
+- xrune dependency stays at `1.5.2`.
+
 ## [0.27.4] - 2026-06-08
 
 `TabBar` joins the dual-channel pattern with `SelectionChanged` business events; `Button` and `TextInput` move their internal handlers off the user `GestureHandler` slot. `ui!` `on EventKind` accepts a callback-form (`on Tap(cb)` / `on Tap(2, cb)`) so handlers can stay one line when there's no inline body.
