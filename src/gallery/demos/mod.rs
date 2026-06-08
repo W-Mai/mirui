@@ -2,6 +2,11 @@ use crate::ecs::{Entity, World};
 use crate::widget::{Children, Parent};
 
 pub mod absolute;
+pub mod app_demo;
+pub mod components;
+pub mod custom_view;
+pub mod dsl;
+pub mod enchants;
 pub mod hello;
 pub mod lazy_list;
 pub mod nested_scroll;
@@ -11,6 +16,7 @@ pub mod slider_value_changed;
 pub mod tabbar_selection;
 pub mod toggle;
 pub mod walk;
+pub mod widgets;
 
 pub(crate) fn attach_to_parent(world: &mut World, parent: Entity, child: Entity) {
     world.insert(child, Parent(parent));

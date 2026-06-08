@@ -1,26 +1,41 @@
-//! ESP32C3 v0.14 widgets showcase, ported to gallery's `Setup`-based runner
-//! so it runs on every desktop / fb backend gallery already supports.
-//!
-//! Original 128×128 ESP layout is scaled by `SCALE` so the same scene
-//! reads on a desktop / Pi fb screen without re-laying-out by hand.
+extern crate alloc;
 
-use crate::Setup;
-use mirui::anim::ease;
-use mirui::components::{LazyList, LazyListBinder, LazyListPool};
-use mirui::components::{ProgressBar, Slider, Switch, TabBar, TabContent, Text};
-use mirui::ecs::Entity;
-use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
-use mirui::plugins::{FpsSummaryPlugin, InputFeedbackPlugin, StdInstantClockPlugin};
-use mirui::prelude::*;
-use mirui::types::{Color, DimPoint, Dimension, Fixed};
-use mirui::widget::dirty::Dirty;
-use mirui::widget::theme::{self, ColorToken};
-use mirui::widget::{Children, OffscreenRender, Theme};
+use super::attach_to_parent;
+#[cfg(feature = "std")]
+use crate::anim::ease;
+#[cfg(feature = "std")]
+use crate::app::{App, RendererFactory};
+use crate::components::{LazyList, LazyListBinder, LazyListPool};
+use crate::components::{ProgressBar, Slider, Switch, TabBar, TabContent, Text};
+use crate::ecs::{Entity, World};
+use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+#[cfg(feature = "std")]
+use crate::event::sim::{SimAction, SimTimeline, sim_timeline_system};
+#[cfg(feature = "std")]
+use crate::plugins::{FpsSummaryPlugin, InputFeedbackPlugin, StdInstantClockPlugin};
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::surface::Surface;
+#[cfg(feature = "std")]
+use crate::types::DimPoint;
+use crate::widget::dirty::Dirty;
+use crate::widget::theme::{self, ColorToken};
+use crate::widget::{Children, OffscreenRender, Theme};
+use alloc::format;
+#[cfg(feature = "std")]
+use alloc::vec;
+use alloc::vec::Vec;
 
-const DEFAULT_SCALE: i32 = 4;
 const POOL_SIZE: usize = 12;
 const ITEM_COUNT: u32 = 50;
+
+pub const DEFAULT_VIEW: (u16, u16) = (512, 512);
+
+pub const ACCENT: ColorToken = ColorToken::custom("accent");
+
+struct FormSlider;
+struct FormProgress;
+struct ThemeCycleIndex(u8);
 
 struct DemoSize {
     w: i32,
@@ -48,23 +63,15 @@ impl DemoSize {
     }
 }
 
-pub const SIZE: (u16, u16) = ((128 * DEFAULT_SCALE) as u16, (128 * DEFAULT_SCALE) as u16);
-
-const ACCENT: ColorToken = ColorToken::custom("accent");
-
-struct FormSlider;
-struct FormProgress;
-struct ThemeCycleIndex(u8);
-
-fn dark_with_accent() -> Theme {
+pub fn dark_with_accent() -> Theme {
     Theme::dark().with(ACCENT, Color::rgb(255, 200, 60))
 }
 
-fn light_with_accent() -> Theme {
+pub fn light_with_accent() -> Theme {
     Theme::light().with(ACCENT, Color::rgb(220, 60, 90))
 }
 
-fn custom_theme() -> Theme {
+pub fn custom_theme() -> Theme {
     Theme::dark().with_many([
         (ColorToken::Primary, Color::rgb(255, 105, 180)),
         (ColorToken::OnPrimary, Color::rgb(20, 20, 30)),
@@ -86,7 +93,8 @@ fn row_binder(world: &mut World, entity: Entity, index: u32) {
     }
 }
 
-#[mirui::system]
+#[cfg(feature = "std")]
+#[mirui_macros::system]
 fn slider_to_progress_system(world: &mut World) {
     let sliders: Vec<Entity> = world.query::<FormSlider>().collect();
     let mut value = None;
@@ -121,10 +129,7 @@ mirui_macros::timer!(Cycle, every: 3_000, |world, entity| {
     theme::set_theme(world, theme);
 });
 
-pub fn build(setup: &mut Setup<'_>) -> Entity {
-    use mirui::surface::Surface;
-    let app = &mut setup.app;
-    let info = app.backend.display_info();
+pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) -> Entity {
     let DemoSize {
         w: w_,
         h: h_,
@@ -132,19 +137,9 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         page_h: page_h_,
         row_h: row_h_,
         scale: scale_,
-    } = DemoSize::for_viewport(info.width, info.height);
-    app.add_plugin(InputFeedbackPlugin::default());
-    app.add_plugin(StdInstantClockPlugin);
-    app.add_plugin(FpsSummaryPlugin::default());
-    app.with_offscreen_pool_budget(512 * 1024);
-    app.add_system(sim_timeline_system::system());
-    app.add_system(slider_to_progress_system::system());
+    } = DemoSize::for_viewport(view_w, view_h);
 
-    app.world.insert_resource(dark_with_accent());
-    let cycle_e = Cycle::install(&mut app.world);
-    app.world.insert(cycle_e, ThemeCycleIndex(0));
-
-    let root = WidgetBuilder::new(&mut app.world)
+    let root = WidgetBuilder::new(world)
         .bg_color(ColorToken::Surface)
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -157,7 +152,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     let tabs = ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -194,7 +189,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     let list = ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -235,17 +230,16 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
             }
         }
     };
-    let pool: Vec<Entity> = app
-        .world
+    let pool: Vec<Entity> = world
         .get::<Children>(list)
         .map(|c| c.0.clone())
         .unwrap_or_default();
-    app.world.insert(list, LazyListPool::new(pool));
+    world.insert(list, LazyListPool::new(pool));
 
     ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -304,7 +298,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -348,28 +342,49 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         }
     };
 
-    let tab_kids = app
-        .world
-        .get::<Children>(tabs)
-        .map(|c| c.0.clone())
-        .unwrap_or_default();
-    let (tab_list, tab_form, tab_theme) = (tab_kids[0], tab_kids[1], tab_kids[2]);
-    let switch_e = *app
-        .world
-        .query::<Switch>()
-        .collect()
-        .first()
-        .expect("form Switch must be installed");
-    let slider_e = *app
-        .world
-        .query::<Slider>()
-        .collect()
-        .first()
-        .expect("form Slider must be installed");
+    attach_to_parent(world, parent, root);
+    root
+}
 
-    let list_drag_anchor = list;
+#[cfg(feature = "std")]
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    let info = app.backend.display_info();
+    app.add_plugin(InputFeedbackPlugin::default());
+    app.add_plugin(StdInstantClockPlugin);
+    app.add_plugin(FpsSummaryPlugin::default());
+    app.with_offscreen_pool_budget(512 * 1024);
+    app.add_system(sim_timeline_system::system());
+    app.add_system(slider_to_progress_system::system());
 
-    // MIRUI_SIM_OFF=1: skip auto-cycle so real InputEvents reach the demo.
+    app.world.insert_resource(dark_with_accent());
+    let cycle_e = Cycle::install(&mut app.world);
+    app.world.insert(cycle_e, ThemeCycleIndex(0));
+
+    let root = build_widgets(&mut app.world, parent, info.width, info.height);
+
+    let tabs_kids: Vec<Entity> = {
+        let q: Vec<Entity> = app.world.query::<TabBar>().collect();
+        let tab_bar_e = *q.first().expect("TabBar must be installed");
+        app.world
+            .get::<Children>(tab_bar_e)
+            .map(|c| c.0.clone())
+            .unwrap_or_default()
+    };
+    if tabs_kids.len() < 3 {
+        return root;
+    }
+    let (tab_list, tab_form, tab_theme) = (tabs_kids[0], tabs_kids[1], tabs_kids[2]);
+    let switches: Vec<Entity> = app.world.query::<Switch>().collect();
+    let switch_e = *switches.first().expect("form Switch must be installed");
+    let sliders: Vec<Entity> = app.world.query::<Slider>().collect();
+    let slider_e = *sliders.first().expect("form Slider must be installed");
+    let lists: Vec<Entity> = app.world.query::<LazyList>().collect();
+    let list_e = *lists.first().expect("List LazyList must be installed");
+
     if std::env::var("MIRUI_SIM_OFF").ok().as_deref() == Some("1") {
         return root;
     }
@@ -401,7 +416,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                 100,
                 ease::linear,
             )
-            .on(list_drag_anchor),
+            .on(list_e),
             SimAction::wait(800),
             SimAction::drag(
                 DimPoint::percent(50, 20),
@@ -409,11 +424,32 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                 100,
                 ease::linear,
             )
-            .on(list_drag_anchor),
+            .on(list_e),
             SimAction::wait(800),
         ])
         .looping(true),
     );
 
     root
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::IdMap;
+    use crate::widget::builder::WidgetBuilder;
+
+    #[test]
+    fn build_widgets_smoke() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let root = build_widgets(&mut world, parent, DEFAULT_VIEW.0, DEFAULT_VIEW.1);
+        assert_ne!(root, parent);
+        assert!(
+            world
+                .get::<Children>(parent)
+                .is_some_and(|c| c.0.contains(&root)),
+        );
+    }
 }

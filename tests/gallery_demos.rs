@@ -22,6 +22,10 @@ fn all_demos_build_widgets_smoke() {
     }
 
     smoke!(mirui::gallery::demos::absolute::build_widgets);
+    smoke!(mirui::gallery::demos::app_demo::build_widgets);
+    smoke!(mirui::gallery::demos::components::build_widgets);
+    smoke!(mirui::gallery::demos::dsl::build_widgets);
+    smoke!(mirui::gallery::demos::enchants::build_widgets);
     smoke!(mirui::gallery::demos::hello::build_widgets);
     smoke!(mirui::gallery::demos::lazy_list::build_widgets);
     smoke!(mirui::gallery::demos::nested_scroll::build_widgets);
@@ -31,4 +35,25 @@ fn all_demos_build_widgets_smoke() {
     smoke!(mirui::gallery::demos::tabbar_selection::build_widgets);
     smoke!(mirui::gallery::demos::toggle::build_widgets);
     smoke!(mirui::gallery::demos::walk::build_widgets);
+}
+
+#[test]
+fn custom_view_demo_smoke() {
+    use mirui::widget::view::ViewRegistry;
+    let mut world = World::new();
+    let mut reg = ViewRegistry::with_builtins();
+    reg.insert(mirui::gallery::demos::custom_view::diamond_view());
+    world.insert_resource(reg);
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::custom_view::build_widgets(&mut world, parent);
+    assert_ne!(root, parent);
+}
+
+#[test]
+fn widgets_demo_smoke() {
+    let (w, h) = mirui::gallery::demos::widgets::DEFAULT_VIEW;
+    let mut world = World::new();
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::widgets::build_widgets(&mut world, parent, w, h);
+    assert_ne!(root, parent);
 }

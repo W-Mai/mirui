@@ -1,12 +1,17 @@
 extern crate alloc;
 
-use crate::Setup;
-use mirui::components::assets::*;
-use mirui::components::{Button, Checkbox, Image, ProgressBar};
-use mirui::ecs::{Entity, World};
-use mirui::prelude::*;
+use super::attach_to_parent;
+#[cfg(feature = "std")]
+use crate::app::{App, RendererFactory};
+use crate::components::assets::*;
+use crate::components::{Button, Checkbox, Image, ProgressBar};
+use crate::ecs::{Entity, World};
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::surface::Surface;
+use crate::widget::{Children, Parent};
 
-fn build_ui(world: &mut World) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
     let root = WidgetBuilder::new(world)
         .bg_color(Color::rgb(24, 24, 37))
         .layout(LayoutStyle {
@@ -45,7 +50,6 @@ fn build_ui(world: &mut World) -> Entity {
         })
         .id();
     world.insert(badge_img, Image::new(&IMG_THUMBS_UP));
-    use mirui::widget::{Children, Parent};
     world.insert(badge_img, Parent(root));
     if let Some(children) = world.get_mut::<Children>(root) {
         children.0.push(badge_img);
@@ -236,9 +240,36 @@ fn build_ui(world: &mut World) -> Entity {
         ) {}
     };
 
+    attach_to_parent(world, parent, root);
     root
 }
 
-pub fn build(setup: &mut Setup<'_>) -> Entity {
-    build_ui(&mut setup.app.world)
+#[cfg(feature = "std")]
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    build_widgets(&mut app.world, parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::IdMap;
+    use crate::widget::builder::WidgetBuilder;
+
+    #[test]
+    fn build_widgets_smoke() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let root = build_widgets(&mut world, parent);
+        assert_ne!(root, parent);
+        assert!(
+            world
+                .get::<Children>(parent)
+                .is_some_and(|c| c.0.contains(&root)),
+        );
+    }
 }

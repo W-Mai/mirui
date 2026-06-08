@@ -1,6 +1,10 @@
-use crate::Setup;
-use mirui::ecs::{Entity, World};
-use mirui::prelude::*;
+use super::attach_to_parent;
+#[cfg(feature = "std")]
+use crate::app::{App, RendererFactory};
+use crate::ecs::{Entity, World};
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::surface::Surface;
 
 fn header(world: &mut World, parent: Entity) -> Entity {
     ui! {
@@ -48,8 +52,7 @@ fn footer(world: &mut World, parent: Entity) -> Entity {
     }
 }
 
-pub fn build(setup: &mut Setup<'_>) -> Entity {
-    let world = &mut setup.app.world;
+pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
     let root = WidgetBuilder::new(world)
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
@@ -62,5 +65,37 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     header(world, root);
     button_row(world, root);
     footer(world, root);
+    attach_to_parent(world, parent, root);
     root
+}
+
+#[cfg(feature = "std")]
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    build_widgets(&mut app.world, parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::Children;
+    use crate::widget::IdMap;
+    use crate::widget::builder::WidgetBuilder;
+
+    #[test]
+    fn build_widgets_smoke() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let root = build_widgets(&mut world, parent);
+        assert_ne!(root, parent);
+        assert!(
+            world
+                .get::<Children>(parent)
+                .is_some_and(|c| c.0.contains(&root)),
+        );
+    }
 }
