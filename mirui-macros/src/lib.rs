@@ -319,6 +319,16 @@ struct OnCmd {
     body: syn::Block,
 }
 
+impl OnCmd {
+    fn synthesised_body_from_callback(callback: &syn::Expr) -> syn::Block {
+        syn::parse_quote! {
+            {
+                (#callback)(__world, __entity, __event)
+            }
+        }
+    }
+}
+
 struct NicheCmd {
     name: syn::Ident,
     body: Vec<Cmd>,
@@ -1043,11 +1053,23 @@ impl DsRune for MiruiRune {
 
         let collected_on_handlers: Vec<OnCmd> = on_handlers
             .iter()
-            .map(|h| OnCmd {
-                qualifier: h.get_qualifier().cloned(),
-                name: h.get_name().clone(),
-                args: h.get_args().to_vec(),
-                body: h.get_body().clone(),
+            .map(|h| {
+                let mut args = h.get_args().to_vec();
+                let body = match h.get_body() {
+                    Some(b) => b.clone(),
+                    None => {
+                        let callback = args
+                            .pop()
+                            .expect("DsOn parser already rejects empty args+no-body forms");
+                        OnCmd::synthesised_body_from_callback(&callback)
+                    }
+                };
+                OnCmd {
+                    qualifier: h.get_qualifier().cloned(),
+                    name: h.get_name().clone(),
+                    args,
+                    body,
+                }
             })
             .collect();
 
