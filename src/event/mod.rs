@@ -128,8 +128,18 @@ pub struct HandlerCtx<'a, E> {
     pub event: &'a E,
 }
 
-/// Bridges user `on EventKind` body return types to the dispatch fn's `bool` slot.
-/// `()` bodies default to `true` (consume); `bool` bodies pass through.
+/// Spelled-out bubble control for `on EventKind` body return values.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BubbleControl {
+    Prevent,
+    Allow,
+}
+
+/// Bridges user `on EventKind` body return types into the dispatch fn's bubble-control bit.
+///
+/// - `()` → `Prevent` (default; mirrors web's "stopPropagation by default" idiom)
+/// - `bool` → `true = Prevent, false = Allow`
+/// - `BubbleControl` → pass through
 pub trait HandlerReturn {
     fn into_consumed(self) -> bool;
 }
@@ -143,6 +153,12 @@ impl HandlerReturn for () {
 impl HandlerReturn for bool {
     fn into_consumed(self) -> bool {
         self
+    }
+}
+
+impl HandlerReturn for BubbleControl {
+    fn into_consumed(self) -> bool {
+        matches!(self, BubbleControl::Prevent)
     }
 }
 

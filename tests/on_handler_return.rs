@@ -135,4 +135,70 @@ mod tests {
         assert_eq!(CHILD_FIRES.load(Ordering::SeqCst), 1);
         assert_eq!(PARENT_FIRES.load(Ordering::SeqCst), 0);
     }
+
+    #[test]
+    fn bubble_control_prevent_consumes() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh();
+        world.insert(
+            root,
+            GestureHandler {
+                on_gesture: parent_handler,
+            },
+        );
+
+        let child = ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () on Tap {
+                CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
+                ::mirui::event::BubbleControl::Prevent
+            }
+        };
+
+        bubble_dispatch_at(&mut world, &tap(child), 100);
+        assert_eq!(CHILD_FIRES.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            PARENT_FIRES.load(Ordering::SeqCst),
+            0,
+            "BubbleControl::Prevent stops bubble"
+        );
+    }
+
+    #[test]
+    fn bubble_control_allow_lets_bubble_continue() {
+        let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+        reset();
+        let (mut world, root) = fresh();
+        world.insert(
+            root,
+            GestureHandler {
+                on_gesture: parent_handler,
+            },
+        );
+
+        let child = ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            View () on Tap {
+                CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
+                ::mirui::event::BubbleControl::Allow
+            }
+        };
+
+        bubble_dispatch_at(&mut world, &tap(child), 100);
+        assert_eq!(CHILD_FIRES.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            PARENT_FIRES.load(Ordering::SeqCst),
+            1,
+            "BubbleControl::Allow propagates"
+        );
+    }
 }
