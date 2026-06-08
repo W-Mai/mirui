@@ -27,7 +27,7 @@ fn all_demos_build_widgets_smoke() {
     smoke!(mirui::gallery::demos::book_flip::build_widgets);
     smoke!(mirui::gallery::demos::click::build_widgets);
     smoke!(mirui::gallery::demos::components::build_widgets);
-    smoke!(mirui::gallery::demos::cover_flow::build_widgets);
+
     smoke!(mirui::gallery::demos::disabled::build_widgets);
     smoke!(mirui::gallery::demos::dsl::build_widgets);
     smoke!(mirui::gallery::demos::effect::build_widgets);
@@ -86,5 +86,14 @@ fn flip_card_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
     let root = mirui::gallery::demos::flip_card::build_widgets(&mut world, parent, 480, 320);
+    assert_ne!(root, parent);
+}
+
+#[test]
+fn cover_flow_demo_smoke() {
+    let (w, h) = mirui::gallery::demos::cover_flow::DEFAULT_VIEW;
+    let mut world = World::new();
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::cover_flow::build_widgets(&mut world, parent, w, h);
     assert_ne!(root, parent);
 }
