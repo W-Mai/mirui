@@ -45,6 +45,7 @@ sync-cache = []
 # hard-edge binary fill back — embedded targets that can't spare the
 # cycles should `default-features = false`.
 quad-aa = []
+gallery = []
 
 [dependencies.sdl2]
 version = "0.37"

@@ -101,6 +101,9 @@ pub mod timer;
 pub mod types;
 pub mod widget;
 
+#[cfg(feature = "gallery")]
+pub mod gallery;
+
 pub use mirui_macros::{system, trace_fn, trace_span, ui};
 
 /// `use mirui::prelude::*;` brings in the types and macros that nearly
