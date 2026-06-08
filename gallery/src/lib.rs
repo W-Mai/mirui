@@ -17,7 +17,6 @@
 //! }
 //! ```
 
-pub mod demos;
 pub mod prelude {
     pub use mirui::prelude::*;
 }
