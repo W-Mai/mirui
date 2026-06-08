@@ -74,7 +74,11 @@ mod tests {
         let target = world.query::<mirui::event::GestureHandler>().collect();
         let entity = *target.first().expect("dispatch fn attached");
         bubble_dispatch_at(&mut world, &tap(entity), 100);
-        assert_eq!(FIRES.load(Ordering::SeqCst), 0, "single Tap silent for count=2");
+        assert_eq!(
+            FIRES.load(Ordering::SeqCst),
+            0,
+            "single Tap silent for count=2"
+        );
         bubble_dispatch_at(&mut world, &tap(entity), 200);
         assert_eq!(FIRES.load(Ordering::SeqCst), 1, "double Tap fires callback");
     }
@@ -105,6 +109,10 @@ mod tests {
             target: entity,
         };
         bubble_dispatch_at(&mut world, &lp, 200);
-        assert_eq!(FIRES.load(Ordering::SeqCst), 11, "LongPress body fires += 10");
+        assert_eq!(
+            FIRES.load(Ordering::SeqCst),
+            11,
+            "LongPress body fires += 10"
+        );
     }
 }
