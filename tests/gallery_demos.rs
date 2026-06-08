@@ -21,9 +21,14 @@ fn all_demos_build_widgets_smoke() {
         }};
     }
 
+    smoke!(mirui::gallery::demos::absolute::build_widgets);
     smoke!(mirui::gallery::demos::hello::build_widgets);
+    smoke!(mirui::gallery::demos::lazy_list::build_widgets);
+    smoke!(mirui::gallery::demos::nested_scroll::build_widgets);
     smoke!(mirui::gallery::demos::on_handlers::build_widgets);
+    smoke!(mirui::gallery::demos::scroll::build_widgets);
     smoke!(mirui::gallery::demos::slider_value_changed::build_widgets);
-    smoke!(mirui::gallery::demos::toggle::build_widgets);
     smoke!(mirui::gallery::demos::tabbar_selection::build_widgets);
+    smoke!(mirui::gallery::demos::toggle::build_widgets);
+    smoke!(mirui::gallery::demos::walk::build_widgets);
 }

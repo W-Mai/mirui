@@ -1,17 +1,16 @@
-use crate::Setup;
-use mirui::ecs::Entity;
-use mirui::event::scroll::{ScrollConfig, ScrollOffset};
-use mirui::plugins::{FpsSummaryPlugin, InputFeedbackPlugin, StdInstantClockPlugin};
-use mirui::prelude::*;
+use super::attach_to_parent;
+#[cfg(feature = "std")]
+use crate::app::{App, RendererFactory};
+use crate::ecs::{Entity, World};
+use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+#[cfg(feature = "std")]
+use crate::plugins::input_feedback::InputFeedbackPlugin;
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::surface::Surface;
 
-pub const SIZE: (u16, u16) = (480, 400);
-
-pub fn build(setup: &mut Setup<'_>) -> Entity {
-    setup.app.add_plugin(InputFeedbackPlugin::new());
-    setup.app.add_plugin(StdInstantClockPlugin);
-    setup.app.add_plugin(FpsSummaryPlugin::default());
-
-    let root = WidgetBuilder::new(&mut setup.app.world)
+pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
+    let root = WidgetBuilder::new(world)
         .bg_color(Color::rgb(20, 20, 30))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -44,10 +43,9 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         Color::rgb(100, 200, 150),
     ];
 
-    let world = &mut setup.app.world;
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -61,7 +59,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                 y: Fixed::ZERO,
             },
             ScrollConfig {
-                direction: mirui::event::scroll::ScrollAxis::Vertical,
+                direction: ScrollAxis::Vertical,
                 elastic: true,
                 content_height: Fixed::from_int(1200),
                 content_width: Fixed::ZERO,
@@ -81,7 +79,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                             y: Fixed::ZERO,
                         },
                         ScrollConfig {
-                            direction: mirui::event::scroll::ScrollAxis::Horizontal,
+                            direction: ScrollAxis::Horizontal,
                             elastic: true,
                             content_height: Fixed::ZERO,
                             content_width: Fixed::from_int(600),
@@ -120,7 +118,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
                         y: Fixed::ZERO,
                     },
                     ScrollConfig {
-                        direction: mirui::event::scroll::ScrollAxis::Vertical,
+                        direction: ScrollAxis::Vertical,
                         elastic: true,
                         content_height: Fixed::from_int(500),
                         content_width: Fixed::ZERO,
@@ -139,5 +137,38 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         }
     };
 
+    attach_to_parent(world, parent, root);
     root
+}
+
+#[cfg(feature = "std")]
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    app.add_plugin(InputFeedbackPlugin::new());
+    build_widgets(&mut app.world, parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::Children;
+    use crate::widget::IdMap;
+    use crate::widget::builder::WidgetBuilder;
+
+    #[test]
+    fn build_widgets_smoke() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let root = build_widgets(&mut world, parent);
+        assert_ne!(root, parent);
+        assert!(
+            world
+                .get::<Children>(parent)
+                .is_some_and(|c| c.0.contains(&root)),
+        );
+    }
 }

@@ -71,6 +71,10 @@ name = "hello_sdl"
 path = "examples/tools/hello_sdl.rs"
 
 [[example]]
+name = "layout_demo"
+path = "examples/tools/layout_demo.rs"
+
+[[example]]
 name = "lazy_list_snapshot"
 path = "examples/tools/lazy_list_snapshot.rs"
 

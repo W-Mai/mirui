@@ -5,7 +5,6 @@ pub mod cover_flow;
 pub mod dsl;
 pub mod effect;
 pub mod hello;
-pub mod nested_scroll;
 pub mod rounded;
 pub mod text;
 pub mod transform;
