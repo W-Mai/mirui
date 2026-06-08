@@ -32,7 +32,7 @@ fn all_demos_build_widgets_smoke() {
     smoke!(mirui::gallery::demos::dsl::build_widgets);
     smoke!(mirui::gallery::demos::effect::build_widgets);
     smoke!(mirui::gallery::demos::enchants::build_widgets);
-    smoke!(mirui::gallery::demos::flip_card::build_widgets);
+
     smoke!(mirui::gallery::demos::gesture::build_widgets);
     smoke!(mirui::gallery::demos::hello::build_widgets);
     smoke!(mirui::gallery::demos::hover_tour::build_widgets);
@@ -78,5 +78,13 @@ fn widgets_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
     let root = mirui::gallery::demos::widgets::build_widgets(&mut world, parent, w, h);
+    assert_ne!(root, parent);
+}
+
+#[test]
+fn flip_card_demo_smoke() {
+    let mut world = World::new();
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::flip_card::build_widgets(&mut world, parent, 480, 320);
     assert_ne!(root, parent);
 }

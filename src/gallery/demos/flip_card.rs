@@ -57,13 +57,21 @@ pub fn flip_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) -> Entity {
+    let vw = view_w as i32;
+    let vh = view_h as i32;
+    // 5/12 and 9/16 reproduce the original 200×180 card in a 480×320 window.
+    let card_w = vw * 5 / 12;
+    let card_h = vh * 9 / 16;
+    let card_left = (vw - card_w) / 2;
+    let card_top = (vh - card_h) / 2;
+
     let root = WidgetBuilder::new(world)
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
+            width: Dimension::px(vw),
+            height: Dimension::px(vh),
             ..Default::default()
         })
         .id();
@@ -72,10 +80,10 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
         .bg_color(Color::rgb(88, 166, 255))
         .layout(LayoutStyle {
             position: Position::Absolute,
-            left: Dimension::px(140),
-            top: Dimension::px(70),
-            width: Dimension::px(200),
-            height: Dimension::px(180),
+            left: Dimension::px(card_left),
+            top: Dimension::px(card_top),
+            width: Dimension::px(card_w),
+            height: Dimension::px(card_h),
             ..Default::default()
         })
         .id();
@@ -105,8 +113,9 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    let info = app.backend.display_info();
     app.add_system(flip_system::system());
-    build_widgets(&mut app.world, parent)
+    build_widgets(&mut app.world, parent, info.width, info.height)
 }
 
 #[cfg(test)]
@@ -120,7 +129,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent);
+        let root = build_widgets(&mut world, parent, 480, 320);
         assert_ne!(root, parent);
         assert!(
             world
