@@ -35,7 +35,7 @@ pub const ACCENT: ColorToken = ColorToken::custom("accent");
 
 struct FormSlider;
 struct FormProgress;
-struct ThemeCycleIndex(u8);
+pub struct ThemeCycleIndex(pub u8);
 
 struct DemoSize {
     w: i32,
@@ -93,9 +93,8 @@ fn row_binder(world: &mut World, entity: Entity, index: u32) {
     }
 }
 
-#[cfg(feature = "std")]
 #[mirui_macros::system]
-fn slider_to_progress_system(world: &mut World) {
+pub fn slider_to_progress_system(world: &mut World) {
     let sliders: Vec<Entity> = world.query::<FormSlider>().collect();
     let mut value = None;
     for e in sliders {
