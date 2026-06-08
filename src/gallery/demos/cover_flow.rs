@@ -1,14 +1,20 @@
 extern crate alloc;
 
-use crate::Setup;
-use mirui::components::assets::IMG_THUMBS_UP;
-use mirui::components::{Image, WidgetTransform3D};
-use mirui::ecs::Entity;
-use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
-use mirui::prelude::*;
-use mirui::types::Transform3D;
-use mirui::widget::dirty::Dirty;
+use super::attach_to_parent;
+#[cfg(feature = "std")]
+use crate::app::{App, RendererFactory};
+use crate::components::assets::IMG_THUMBS_UP;
+use crate::components::{Image, WidgetTransform3D};
+use crate::ecs::{Entity, World};
+use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+#[cfg(feature = "std")]
+use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::surface::Surface;
+use crate::types::Transform3D;
+use crate::widget;
+use crate::widget::dirty::Dirty;
 
 const WINDOW_W: i32 = 640;
 const WINDOW_H: i32 = 360;
@@ -18,16 +24,16 @@ const CARD_GAP: i32 = 80;
 const PERSPECTIVE: i32 = 250;
 const CARD_COUNT: i32 = 5;
 
-pub const SIZE: (u16, u16) = (WINDOW_W as u16, WINDOW_H as u16);
+pub const DEFAULT_VIEW: (u16, u16) = (WINDOW_W as u16, WINDOW_H as u16);
 
-struct CarouselCard {
-    index: usize,
+pub struct CarouselCard {
+    pub index: usize,
 }
 
-struct Carousel;
+pub struct Carousel;
 
-#[mirui::system]
-fn layout_system(world: &mut World) {
+#[mirui_macros::system]
+pub fn layout_system(world: &mut World) {
     let mut carousels = alloc::vec::Vec::new();
     world.query::<Carousel>().collect_into(&mut carousels);
     let offset = match carousels
@@ -56,27 +62,21 @@ fn layout_system(world: &mut World) {
         let tx =
             container_center + Fixed::from_int(idx) * slot_stride - Fixed::from_int(CARD_W / 2);
         let ty = Fixed::from_int((WINDOW_H - CARD_H) / 2);
-        mirui::widget::set_position(world, e, tx, ty);
+        widget::set_position(world, e, tx, ty);
 
         let relative = Fixed::from_int(idx) - offset / slot_stride;
         let tilt_y = Fixed::ZERO - relative * Fixed::from_int(45);
         let tilt_x = relative.abs() * Fixed::from_int(20) - Fixed::from_int(15);
         let distance = Fixed::from_int(PERSPECTIVE);
-        let ty = Transform3D::rotate_y_perspective(tilt_y, distance);
+        let ty3d = Transform3D::rotate_y_perspective(tilt_y, distance);
         let tx3d = Transform3D::rotate_x_perspective(tilt_x, distance);
-        world.insert(e, WidgetTransform3D(ty.compose(&tx3d)));
+        world.insert(e, WidgetTransform3D(ty3d.compose(&tx3d)));
         world.insert(e, Dirty);
     }
     world.insert(carousel, Dirty);
 }
 
-pub fn build(setup: &mut Setup<'_>) -> Entity {
-    setup
-        .app
-        .add_system(layout_system::system())
-        .add_plugin(StdInstantClockPlugin)
-        .add_plugin(FpsSummaryPlugin::default());
-
+pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
     let card_colors = [
         Color::rgb(255, 107, 107),
         Color::rgb(255, 206, 84),
@@ -85,7 +85,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         Color::rgb(178, 148, 255),
     ];
 
-    let root = WidgetBuilder::new(&mut setup.app.world)
+    let root = WidgetBuilder::new(world)
         .bg_color(Color::rgb(24, 26, 34))
         .layout(LayoutStyle {
             direction: FlexDirection::Column,
@@ -95,7 +95,6 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         })
         .id();
 
-    let world = &mut setup.app.world;
     let card_colors_ref = &card_colors;
     ui! {
         :(
@@ -153,5 +152,40 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         }
     };
 
+    attach_to_parent(world, parent, root);
     root
+}
+
+#[cfg(feature = "std")]
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    app.add_system(layout_system::system())
+        .add_plugin(StdInstantClockPlugin)
+        .add_plugin(FpsSummaryPlugin::default());
+    build_widgets(&mut app.world, parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::Children;
+    use crate::widget::IdMap;
+    use crate::widget::builder::WidgetBuilder;
+
+    #[test]
+    fn build_widgets_smoke() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let root = build_widgets(&mut world, parent);
+        assert_ne!(root, parent);
+        assert!(
+            world
+                .get::<Children>(parent)
+                .is_some_and(|c| c.0.contains(&root)),
+        );
+    }
 }

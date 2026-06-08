@@ -1,6 +1,3 @@
 //! Demo bodies shared between the native cargo examples and `gallery-web`.
 
-pub mod cover_flow;
-pub mod effect;
 pub mod hello;
-pub mod rounded;

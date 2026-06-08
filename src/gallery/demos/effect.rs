@@ -1,31 +1,31 @@
-//! Visual demo of the three built-in effect widgets:
-//! `MirrorOf`, `TemporalMix`, `BackgroundBlur`.
-
 extern crate alloc;
 
-use crate::Setup;
-use mirui::components::{BackgroundBlur, MirrorOf, TemporalMix};
-use mirui::ecs::Entity;
-use mirui::prelude::*;
-use mirui::types::Transform;
-use mirui::widget::Theme;
-use mirui::widget::dirty::Dirty;
+use super::attach_to_parent;
+#[cfg(feature = "std")]
+use crate::app::{App, RendererFactory};
+use crate::components::{BackgroundBlur, MirrorOf, TemporalMix, WidgetTransform};
+use crate::ecs::{Entity, World};
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::surface::Surface;
+use crate::types::Transform;
+use crate::widget::Theme;
+use crate::widget::dirty::Dirty;
 
 const WIN_W: i32 = 480;
 const WIN_H: i32 = 360;
 const HALF_W: i32 = WIN_W / 2;
 const HALF_H: i32 = WIN_H / 2;
 
-pub const SIZE: (u16, u16) = (WIN_W as u16, WIN_H as u16);
+pub const DEFAULT_VIEW: (u16, u16) = (WIN_W as u16, WIN_H as u16);
 
-struct AnimX {
-    t: Fixed,
-    span_px: i32,
+pub struct AnimX {
+    pub t: Fixed,
+    pub span_px: i32,
 }
 
-#[mirui::system(order = ANIMATION)]
-fn animate_x(world: &mut World) {
-    use mirui::components::WidgetTransform;
+#[mirui_macros::system(order = ANIMATION)]
+pub fn animate_x(world: &mut World) {
     let mut entities = alloc::vec::Vec::new();
     world.query::<AnimX>().collect_into(&mut entities);
     for e in entities {
@@ -50,13 +50,13 @@ fn animate_x(world: &mut World) {
     }
 }
 
-struct ColorFlash {
-    frame: u32,
+pub struct ColorFlash {
+    pub frame: u32,
 }
 
-#[mirui::system(order = ANIMATION)]
-fn animate_color_flash(world: &mut World) {
-    use mirui::widget::Style;
+#[mirui_macros::system(order = ANIMATION)]
+pub fn animate_color_flash(world: &mut World) {
+    use crate::widget::Style;
     let mut entities = alloc::vec::Vec::new();
     world.query::<ColorFlash>().collect_into(&mut entities);
     for e in entities {
@@ -66,8 +66,6 @@ fn animate_color_flash(world: &mut World) {
         } else {
             continue;
         };
-        // Switch colour every 60 frames so the change is jarring
-        // without `TemporalMix` and noticeably smoother with it.
         let phase = (frame / 60) % 3;
         let color = match phase {
             0 => Color::rgb(220, 60, 60),
@@ -81,16 +79,19 @@ fn animate_color_flash(world: &mut World) {
     }
 }
 
-pub fn build(setup: &mut Setup<'_>) -> Entity {
-    setup
-        .app
-        .with_theme(Theme::dark())
-        .with_offscreen_pool_budget(1024 * 1024)
-        .add_system(animate_x::system())
-        .add_system(animate_color_flash::system());
+fn tile_color(idx: i32) -> Color {
+    match idx % 6 {
+        0 => Color::rgb(220, 60, 60),
+        1 => Color::rgb(220, 160, 40),
+        2 => Color::rgb(60, 200, 80),
+        3 => Color::rgb(40, 140, 220),
+        4 => Color::rgb(180, 80, 220),
+        _ => Color::rgb(40, 200, 200),
+    }
+}
 
-    let app = &mut setup.app;
-    let root = WidgetBuilder::new(&mut app.world)
+pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
+    let root = WidgetBuilder::new(world)
         .bg_color(Color::rgb(20, 22, 28))
         .layout(LayoutStyle {
             width: Dimension::px(WIN_W),
@@ -102,7 +103,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     let m_source = ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -128,7 +129,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -142,10 +143,10 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         ] {}
     };
 
-    let _bare = ui! {
+    ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -163,7 +164,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     let tm_source = ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -181,7 +182,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -197,7 +198,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -211,10 +212,10 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         ) {}
     };
 
-    let _backdrop = ui! {
+    ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -239,7 +240,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -261,7 +262,7 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
     ui! {
         :(
             parent: root
-            world: &mut app.world
+            world: world
         :)
 
         View (
@@ -275,16 +276,41 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         ) {}
     };
 
+    attach_to_parent(world, parent, root);
     root
 }
 
-fn tile_color(idx: i32) -> Color {
-    match idx % 6 {
-        0 => Color::rgb(220, 60, 60),
-        1 => Color::rgb(220, 160, 40),
-        2 => Color::rgb(60, 200, 80),
-        3 => Color::rgb(40, 140, 220),
-        4 => Color::rgb(180, 80, 220),
-        _ => Color::rgb(40, 200, 200),
+#[cfg(feature = "std")]
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    app.with_theme(Theme::dark())
+        .with_offscreen_pool_budget(1024 * 1024)
+        .add_system(animate_x::system())
+        .add_system(animate_color_flash::system());
+    build_widgets(&mut app.world, parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::Children;
+    use crate::widget::IdMap;
+    use crate::widget::builder::WidgetBuilder;
+
+    #[test]
+    fn build_widgets_smoke() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let root = build_widgets(&mut world, parent);
+        assert_ne!(root, parent);
+        assert!(
+            world
+                .get::<Children>(parent)
+                .is_some_and(|c| c.0.contains(&root)),
+        );
     }
 }
