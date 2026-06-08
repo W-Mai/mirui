@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.4] - 2026-06-08
+
+`TabBar` joins the dual-channel pattern with `SelectionChanged` business events; `Button` and `TextInput` move their internal handlers off the user `GestureHandler` slot. `ui!` `on EventKind` accepts a callback-form (`on Tap(cb)` / `on Tap(2, cb)`) so handlers can stay one line when there's no inline body.
+
+### Added
+
+- **`TabBarEvent::SelectionChanged { new: u8, old: u8 }`** + `TabBarHandler` — fires from `tabbar_handler` after a Tap moves `selected`. Same-tab re-tap doesn't emit. Indicator tween starts from the handler itself; `tab_pages_system` keeps a `detect_programmatic_selection_changes` pass for callers that mutate `TabBar.selected` directly.
+- **`ui! { TabBar (...) on SelectionChanged { ... } {} }`** — handler bodies see `new` and `old` auto-destructured from the variant. Qualified `on TabBar::SelectionChanged` works too.
+- **Callback-form `on EventKind(cb)`** — the trailing arg in `on EventKind(args, cb)` may be a callable expression instead of a `{ ... }` body. Combinations: `on Tap(cb)` (bare callback), `on Tap(2, cb)` (count=2 callback). Body-form and callback-form coexist on the same widget.
+- **`gallery/examples/tabbar_selection_demo.rs`** — typed-widget TabBar with on SelectionChanged callback updating a live label.
+
+### Changed
+
+- **`Button` and `TextInput` move to `View::with_internal_gesture`** — `button_handler` and `textinput_gesture_handler` no longer install a user-facing `GestureHandler` component. A user that attaches their own `GestureHandler` on these widgets no longer overwrites the press / focus-on-tap behaviour. `text_input_attach` still installs `Focusable` and `KeyHandler` on the focus channel.
+- **TabBar internal handler moves to `View::with_internal_gesture`** — same pattern as Slider / Switch / Checkbox / ProgressBar in v0.27.2 / v0.27.3.
+
+### Internal
+
+- xrune dependency: `1.5.2` (1.5.0 yanked previously). `DsOn.body` is `Option<syn::Block>` to support callback-form parsing; the macro side handles the optional body.
+
 ## [0.27.3] - 2026-06-08
 
 `Switch`, `Checkbox`, and `ProgressBar` join Slider on the dual-channel
