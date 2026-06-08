@@ -1,21 +1,25 @@
 extern crate alloc;
 
-use crate::Setup;
-use mirui::components::assets::*;
-use mirui::components::{Image, WidgetTransform};
-use mirui::ecs::Entity;
-use mirui::prelude::*;
-use mirui::types::Transform;
-use mirui::widget::dirty::Dirty;
-use mirui::widget::{Children, Parent};
+use super::attach_to_parent;
+#[cfg(feature = "std")]
+use crate::app::{App, RendererFactory};
+use crate::components::assets::*;
+use crate::components::{Image, WidgetTransform};
+use crate::ecs::{Entity, World};
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::surface::Surface;
+use crate::types::Transform;
+use crate::widget::dirty::Dirty;
+use crate::widget::{Children, Parent};
 
-struct Spinner {
-    angle: Fixed,
-    speed: Fixed,
+pub struct Spinner {
+    pub angle: Fixed,
+    pub speed: Fixed,
 }
 
-#[mirui::system(order = ANIMATION)]
-fn spin_system(world: &mut World) {
+#[mirui_macros::system(order = ANIMATION)]
+pub fn spin_system(world: &mut World) {
     let mut entities = alloc::vec::Vec::new();
     world.query::<Spinner>().collect_into(&mut entities);
     for e in entities {
@@ -26,18 +30,11 @@ fn spin_system(world: &mut World) {
             continue;
         };
         world.insert(e, WidgetTransform(Transform::rotate_deg(next)));
-        // `WidgetTransform` alone doesn't trigger the dirty walker —
-        // the spin only repaints when a separate input event happens
-        // to mark the entity. Tag it explicitly so render_dirty picks
-        // up every frame.
         world.insert(e, Dirty);
     }
 }
 
-pub fn build(setup: &mut Setup<'_>) -> Entity {
-    setup.app.add_system(spin_system::system());
-    let world = &mut setup.app.world;
-
+pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
     let root = WidgetBuilder::new(world)
         .bg_color(Color::rgb(30, 30, 46))
         .layout(LayoutStyle {
@@ -95,5 +92,37 @@ pub fn build(setup: &mut Setup<'_>) -> Entity {
         }
     }
 
+    attach_to_parent(world, parent, root);
     root
+}
+
+#[cfg(feature = "std")]
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    app.add_system(spin_system::system());
+    build_widgets(&mut app.world, parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::IdMap;
+    use crate::widget::builder::WidgetBuilder;
+
+    #[test]
+    fn build_widgets_smoke() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let root = build_widgets(&mut world, parent);
+        assert_ne!(root, parent);
+        assert!(
+            world
+                .get::<Children>(parent)
+                .is_some_and(|c| c.0.contains(&root)),
+        );
+    }
 }

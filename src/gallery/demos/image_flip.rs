@@ -1,0 +1,130 @@
+extern crate alloc;
+
+use super::attach_to_parent;
+#[cfg(feature = "std")]
+use crate::app::{App, RendererFactory};
+use crate::components::assets::*;
+use crate::components::{Image, WidgetTransform3D};
+use crate::ecs::{Entity, World};
+use crate::prelude::*;
+#[cfg(feature = "std")]
+use crate::surface::Surface;
+use crate::types::Transform3D;
+use crate::widget::dirty::Dirty;
+use crate::widget::{Children, Parent};
+
+pub struct Spinner {
+    pub angle: Fixed,
+    pub speed: Fixed,
+    pub bounce_phase: Fixed,
+}
+
+#[mirui_macros::system(order = ANIMATION)]
+pub fn spin_system(world: &mut World) {
+    let mut entities = alloc::vec::Vec::new();
+    world.query::<Spinner>().collect_into(&mut entities);
+    for e in entities {
+        let (angle, bounce) = if let Some(s) = world.get_mut::<Spinner>(e) {
+            s.angle += s.speed;
+            if s.angle >= Fixed::from_int(360) {
+                s.angle -= Fixed::from_int(360);
+            }
+            s.bounce_phase += s.speed;
+            if s.bounce_phase >= Fixed::from_int(360) {
+                s.bounce_phase -= Fixed::from_int(360);
+            }
+            (s.angle, s.bounce_phase)
+        } else {
+            continue;
+        };
+
+        let t_num = bounce.to_int() % 180;
+        let t = Fixed::from_int(t_num) / Fixed::from_int(180);
+        let two_t_minus_1 = t * Fixed::from_int(2) - Fixed::ONE;
+        let h = Fixed::ONE - two_t_minus_1 * two_t_minus_1;
+
+        let bounce_y = Fixed::ZERO - h * Fixed::from_int(100);
+        let squash = Fixed::ONE - (Fixed::ONE - h) / Fixed::from_int(4);
+        let stretch = Fixed::ONE + h / Fixed::from_int(8);
+
+        let rot = Transform3D::rotate_y_perspective(angle, Fixed::from_int(400));
+        let scale = Transform3D::scale(squash, stretch);
+        let translate = Transform3D::translate(Fixed::ZERO, bounce_y);
+        world.insert(
+            e,
+            WidgetTransform3D(translate.compose(&rot).compose(&scale)),
+        );
+        world.insert(e, Dirty);
+    }
+}
+
+pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
+    let root = WidgetBuilder::new(world)
+        .bg_color(Color::rgb(30, 30, 46))
+        .layout(LayoutStyle {
+            direction: FlexDirection::Column,
+            width: Dimension::px(480),
+            height: Dimension::px(320),
+            ..Default::default()
+        })
+        .id();
+
+    let side = 120;
+    let img_widget = WidgetBuilder::new(world)
+        .layout(LayoutStyle {
+            position: Position::Absolute,
+            left: Dimension::px((480 - side) / 2),
+            top: Dimension::px(320 - side - 20),
+            width: Dimension::px(side),
+            height: Dimension::px(side),
+            ..Default::default()
+        })
+        .id();
+    world.insert(img_widget, Image::new(&IMG_THUMBS_UP));
+    world.insert(
+        img_widget,
+        Spinner {
+            angle: Fixed::ZERO,
+            speed: Fixed::from_int(3),
+            bounce_phase: Fixed::ZERO,
+        },
+    );
+    world.insert(img_widget, Parent(root));
+    if let Some(children) = world.get_mut::<Children>(root) {
+        children.0.push(img_widget);
+    }
+
+    attach_to_parent(world, parent, root);
+    root
+}
+
+#[cfg(feature = "std")]
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+where
+    B: Surface,
+    F: RendererFactory<B>,
+{
+    app.add_system(spin_system::system());
+    build_widgets(&mut app.world, parent)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::widget::IdMap;
+    use crate::widget::builder::WidgetBuilder;
+
+    #[test]
+    fn build_widgets_smoke() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        let root = build_widgets(&mut world, parent);
+        assert_ne!(root, parent);
+        assert!(
+            world
+                .get::<Children>(parent)
+                .is_some_and(|c| c.0.contains(&root)),
+        );
+    }
+}

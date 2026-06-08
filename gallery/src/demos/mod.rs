@@ -4,4 +4,3 @@ pub mod cover_flow;
 pub mod effect;
 pub mod hello;
 pub mod rounded;
-pub mod transform;
