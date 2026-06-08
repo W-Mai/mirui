@@ -146,7 +146,8 @@ basic_demo!(toggle, 640, 320);
 basic_demo!(transform, 480, 320);
 basic_demo!(walk, 480, 320);
 
-viewport_demo!(effect, 480, 360);
+viewport_demo!(effect_panels, 480, 360);
+viewport_demo!(effect_glass, 128, 128);
 viewport_demo!(particles, 480, 320);
 viewport_demo!(subpixel, 480, 320);
 viewport_demo!(widgets, 512, 512);

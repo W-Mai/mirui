@@ -9,9 +9,11 @@ use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+#[cfg(feature = "std")]
+use crate::widget::Theme;
 use crate::widget::dirty::Dirty;
 use crate::widget::theme::ColorToken;
-use crate::widget::{Children, OffscreenRender, Style, Theme};
+use crate::widget::{Children, OffscreenRender, Style};
 
 const WIN_W: i32 = 360;
 const WIN_H: i32 = 360;

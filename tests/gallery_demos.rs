@@ -107,11 +107,20 @@ fn cover_flow_demo_smoke() {
 }
 
 #[test]
-fn effect_demo_smoke() {
-    let (w, h) = mirui::gallery::demos::effect::DEFAULT_VIEW;
+fn effect_panels_demo_smoke() {
+    let (w, h) = mirui::gallery::demos::effect_panels::DEFAULT_VIEW;
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
-    mirui::gallery::demos::effect::build_widgets(&mut world, parent, w, h);
+    mirui::gallery::demos::effect_panels::build_widgets(&mut world, parent, w, h);
+    assert_demo_built(&world, parent);
+}
+
+#[test]
+fn effect_glass_demo_smoke() {
+    let (w, h) = mirui::gallery::demos::effect_glass::DEFAULT_VIEW;
+    let mut world = World::new();
+    let parent = WidgetBuilder::new(&mut world).id();
+    mirui::gallery::demos::effect_glass::build_widgets(&mut world, parent, w, h);
     assert_demo_built(&world, parent);
 }
 

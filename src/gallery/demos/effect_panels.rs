@@ -9,6 +9,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 use crate::types::Transform;
 use crate::widget::Style;
+#[cfg(feature = "std")]
 use crate::widget::Theme;
 use crate::widget::dirty::Dirty;
 
