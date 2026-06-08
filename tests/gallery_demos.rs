@@ -106,3 +106,59 @@ fn effect_demo_smoke() {
     let root = mirui::gallery::demos::effect::build_widgets(&mut world, parent, w, h);
     assert_ne!(root, parent);
 }
+
+#[test]
+fn three_body_demo_smoke() {
+    use mirui::types::Fixed;
+    let mut world = World::new();
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::three_body::build_widgets(
+        &mut world,
+        parent,
+        128,
+        128,
+        3,
+        Fixed::from_int(30),
+    );
+    assert_ne!(root, parent);
+}
+
+#[test]
+fn particles_demo_smoke() {
+    let mut world = World::new();
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::particles::build_widgets(&mut world, parent, 128, 128);
+    assert_ne!(root, parent);
+}
+
+#[test]
+fn subpixel_demo_smoke() {
+    let mut world = World::new();
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::subpixel::build_widgets(&mut world, parent, 128, 128);
+    assert_ne!(root, parent);
+}
+
+#[test]
+fn shapes_demo_smoke() {
+    use mirui::widget::view::ViewRegistry;
+    let mut world = World::new();
+    let mut reg = ViewRegistry::with_builtins();
+    reg.insert(mirui::gallery::demos::shapes::shapes_view());
+    world.insert_resource(reg);
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::shapes::build_widgets(&mut world, parent, 128, 128);
+    assert_ne!(root, parent);
+}
+
+#[test]
+fn butterfly_demo_smoke() {
+    use mirui::widget::view::ViewRegistry;
+    let mut world = World::new();
+    let mut reg = ViewRegistry::with_builtins();
+    reg.insert(mirui::gallery::demos::butterfly::butterfly_view());
+    world.insert_resource(reg);
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::butterfly::build_widgets(&mut world, parent, 128, 128);
+    assert_ne!(root, parent);
+}
