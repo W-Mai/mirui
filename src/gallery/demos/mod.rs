@@ -5,6 +5,7 @@ pub mod absolute;
 pub mod animation;
 pub mod app_demo;
 pub mod book_flip;
+pub mod butterfly;
 pub mod click;
 pub mod components;
 pub mod cover_flow;
