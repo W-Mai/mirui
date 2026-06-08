@@ -30,7 +30,7 @@ fn all_demos_build_widgets_smoke() {
 
     smoke!(mirui::gallery::demos::disabled::build_widgets);
     smoke!(mirui::gallery::demos::dsl::build_widgets);
-    smoke!(mirui::gallery::demos::effect::build_widgets);
+
     smoke!(mirui::gallery::demos::enchants::build_widgets);
 
     smoke!(mirui::gallery::demos::gesture::build_widgets);
@@ -95,5 +95,14 @@ fn cover_flow_demo_smoke() {
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
     let root = mirui::gallery::demos::cover_flow::build_widgets(&mut world, parent, w, h);
+    assert_ne!(root, parent);
+}
+
+#[test]
+fn effect_demo_smoke() {
+    let (w, h) = mirui::gallery::demos::effect::DEFAULT_VIEW;
+    let mut world = World::new();
+    let parent = WidgetBuilder::new(&mut world).id();
+    let root = mirui::gallery::demos::effect::build_widgets(&mut world, parent, w, h);
     assert_ne!(root, parent);
 }

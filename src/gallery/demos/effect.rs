@@ -12,12 +12,7 @@ use crate::types::Transform;
 use crate::widget::Theme;
 use crate::widget::dirty::Dirty;
 
-const WIN_W: i32 = 480;
-const WIN_H: i32 = 360;
-const HALF_W: i32 = WIN_W / 2;
-const HALF_H: i32 = WIN_H / 2;
-
-pub const DEFAULT_VIEW: (u16, u16) = (WIN_W as u16, WIN_H as u16);
+pub const DEFAULT_VIEW: (u16, u16) = (480, 360);
 
 pub struct AnimX {
     pub t: Fixed,
@@ -90,12 +85,17 @@ fn tile_color(idx: i32) -> Color {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) -> Entity {
+    let win_w = view_w as i32;
+    let win_h = view_h as i32;
+    let half_w = win_w / 2;
+    let half_h = win_h / 2;
+
     let root = WidgetBuilder::new(world)
         .bg_color(Color::rgb(20, 22, 28))
         .layout(LayoutStyle {
-            width: Dimension::px(WIN_W),
-            height: Dimension::px(WIN_H),
+            width: Dimension::px(win_w),
+            height: Dimension::px(win_h),
             ..Default::default()
         })
         .id();
@@ -154,7 +154,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             border_radius: Fixed::from_int(8),
             position: Position::Absolute,
             left: 50,
-            top: HALF_H + 60,
+            top: half_h + 60,
             width: 50,
             height: 50
         ) [
@@ -172,7 +172,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             border_radius: Fixed::from_int(8),
             position: Position::Absolute,
             left: 160,
-            top: HALF_H + 60,
+            top: half_h + 60,
             width: 50,
             height: 50
         ) [
@@ -188,7 +188,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
         View (
             position: Position::Absolute,
             left: 160,
-            top: HALF_H + 60,
+            top: half_h + 60,
             width: 50,
             height: 50
         ) [
@@ -206,7 +206,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             text_color: ColorToken::OnSurface,
             position: Position::Absolute,
             left: 30,
-            top: HALF_H + 20,
+            top: half_h + 20,
             width: 220,
             height: 20
         ) {}
@@ -220,8 +220,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
 
         View (
             position: Position::Absolute,
-            left: HALF_W + 20,
-            top: HALF_H + 20,
+            left: half_w + 20,
+            top: half_h + 20,
             width: 220,
             height: 140
         ) {
@@ -247,8 +247,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             bg_color: Color::rgba(255, 255, 255, 50),
             border_radius: Fixed::from_int(10),
             position: Position::Absolute,
-            left: HALF_W + 50,
-            top: HALF_H + 50,
+            left: half_w + 50,
+            top: half_h + 50,
             width: 160,
             height: 80
         ) [
@@ -269,8 +269,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             text: "BackgroundBlur",
             text_color: ColorToken::OnSurface,
             position: Position::Absolute,
-            left: HALF_W + 30,
-            top: HALF_H + 165,
+            left: half_w + 30,
+            top: half_h + 165,
             width: 200,
             height: 20
         ) {}
@@ -286,11 +286,12 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    let info = app.backend.display_info();
     app.with_theme(Theme::dark())
         .with_offscreen_pool_budget(1024 * 1024)
         .add_system(animate_x::system())
         .add_system(animate_color_flash::system());
-    build_widgets(&mut app.world, parent)
+    build_widgets(&mut app.world, parent, info.width, info.height)
 }
 
 #[cfg(test)]
@@ -305,7 +306,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent);
+        let root = build_widgets(&mut world, parent, 480, 360);
         assert_ne!(root, parent);
         assert!(
             world
