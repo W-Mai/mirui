@@ -30,6 +30,7 @@ pub mod particles;
 pub mod pinch_rotate;
 pub mod rounded;
 pub mod scroll;
+pub mod shapes;
 pub mod slider_switch;
 pub mod slider_value_changed;
 pub mod spatial_anim;
