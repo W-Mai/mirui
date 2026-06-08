@@ -1,9 +1,12 @@
 use super::attach_to_parent;
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::Text;
 use crate::ecs::{Entity, World};
+#[cfg(feature = "std")]
 use crate::plugins::input_feedback::InputFeedbackPlugin;
 use crate::prelude::*;
+#[cfg(feature = "std")]
 use crate::surface::Surface;
 
 /// Hello world card layout: a header card and a body card stacked
@@ -55,6 +58,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
     root
 }
 
+#[cfg(feature = "std")]
 pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
 where
     B: Surface,

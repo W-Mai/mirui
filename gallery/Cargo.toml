@@ -14,7 +14,7 @@ linux-fb = ["mirui/linux-fb"]
 linux-drm = ["mirui/linux-drm"]
 
 [dependencies]
-mirui = { path = "..", default-features = false, features = ["quad-aa"] }
+mirui = { path = "..", default-features = false, features = ["quad-aa", "gallery"] }
 mirui-macros = { path = "../mirui-macros" }
 sdl2 = { version = "0.37", optional = true }
 
