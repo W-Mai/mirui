@@ -128,6 +128,24 @@ pub struct HandlerCtx<'a, E> {
     pub event: &'a E,
 }
 
+/// Bridges user `on EventKind` body return types to the dispatch fn's `bool` slot.
+/// `()` bodies default to `true` (consume); `bool` bodies pass through.
+pub trait HandlerReturn {
+    fn into_consumed(self) -> bool;
+}
+
+impl HandlerReturn for () {
+    fn into_consumed(self) -> bool {
+        true
+    }
+}
+
+impl HandlerReturn for bool {
+    fn into_consumed(self) -> bool {
+        self
+    }
+}
+
 /// Walk from `target` up via `Parent` links, invoking the first
 /// `GestureHandler` found. Stops when a handler returns `true`
 /// (consumed) or the root is reached.

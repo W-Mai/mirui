@@ -210,7 +210,8 @@ fn emit_business_handler(
                     entity: __entity,
                     event: __event,
                 };
-                let __consumed: bool = { #body; true };
+                let __consumed: bool =
+                    ::mirui::event::HandlerReturn::into_consumed({ #body });
                 __consumed
             },
         });
@@ -270,7 +271,8 @@ fn emit_event_arm(event_name: &str, group: &[&OnCmd]) -> proc_macro2::TokenStrea
                         entity: __entity,
                         event: __event,
                     };
-                    let __consumed: bool = { #bodies; true };
+                    let __consumed: bool =
+                        ::mirui::event::HandlerReturn::into_consumed({ #bodies });
                     if __consumed { return true; }
                 }
             )*
@@ -293,7 +295,8 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
                         entity: __entity,
                         event: __event,
                     };
-                    let __consumed: bool = { #body; true };
+                    let __consumed: bool =
+                        ::mirui::event::HandlerReturn::into_consumed({ #body });
                     return __consumed;
                 }
             });
@@ -307,7 +310,8 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
                         entity: __entity,
                         event: __event,
                     };
-                    let __consumed: bool = { #body; true };
+                    let __consumed: bool =
+                        ::mirui::event::HandlerReturn::into_consumed({ #body });
                     return __consumed;
                 },
             });
