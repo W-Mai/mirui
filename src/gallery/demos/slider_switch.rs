@@ -1,4 +1,3 @@
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::{Slider, Switch};
@@ -8,11 +7,12 @@ use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::widget::Style;
 
-pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(30, 30, 46))
-        .layout(LayoutStyle {
+pub fn build_widgets(world: &mut World, parent: Entity) {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(30, 30, 46).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(320),
             height: Dimension::px(200),
@@ -22,9 +22,10 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
                 right: Dimension::px(20),
                 bottom: Dimension::px(30),
             },
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     let slider = ui! {
         :(
@@ -42,7 +43,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
 
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -50,20 +51,17 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             Switch::new(),
         ] {}
     };
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    build_widgets(&mut app.world, parent)
+    build_widgets(&mut app.world, parent);
 }
 
 #[cfg(test)]
@@ -78,12 +76,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::assets::IMG_THUMBS_UP;
@@ -14,6 +13,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 use crate::types::Transform3D;
 use crate::widget;
+use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 
 pub const DEFAULT_VIEW: (u16, u16) = (640, 360);
@@ -106,7 +106,7 @@ pub fn layout_system(world: &mut World) {
     world.insert(carousel, Dirty);
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let bounds = CoverFlowBounds::for_view(view_w, view_h);
     let vw = bounds.view_w;
     let vh = bounds.view_h;
@@ -124,20 +124,21 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
         Color::rgb(178, 148, 255),
     ];
 
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(24, 26, 34))
-        .layout(LayoutStyle {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(24, 26, 34).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(vw),
             height: Dimension::px(vh),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     let card_colors_ref = &card_colors;
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -188,13 +189,10 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             }
         }
     };
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
@@ -203,7 +201,7 @@ where
     app.add_system(layout_system::system())
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    build_widgets(&mut app.world, parent, info.width, info.height)
+    build_widgets(&mut app.world, parent, info.width, info.height);
 }
 
 #[cfg(test)]
@@ -218,12 +216,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent, 640, 360);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent, 640, 360);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

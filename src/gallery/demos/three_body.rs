@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::Image;
@@ -12,6 +11,7 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::widget;
+use crate::widget::Style;
 use alloc::vec::Vec;
 
 pub struct Velocity {
@@ -255,7 +255,7 @@ pub fn build_widgets(
     view_h: u16,
     n_bodies: usize,
     equilibrium: Fixed,
-) -> Entity {
+) {
     let logical_w = view_w as i32;
     let logical_h = view_h as i32;
 
@@ -281,19 +281,20 @@ pub fn build_widgets(
     });
     world.insert_resource(KickPhase(0));
 
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(30, 30, 46))
-        .layout(LayoutStyle {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(30, 30, 46).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(logical_w),
             height: Dimension::px(logical_h),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -334,7 +335,7 @@ pub fn build_widgets(
 
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -352,13 +353,10 @@ pub fn build_widgets(
             ] {}
         }
     };
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
@@ -375,7 +373,7 @@ where
         info.height,
         3,
         Fixed::from_int(30),
-    )
+    );
 }
 
 #[cfg(test)]
@@ -390,12 +388,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent, 128, 128, 3, Fixed::from_int(30));
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent, 128, 128, 3, Fixed::from_int(30));
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, MonoClock, World};
@@ -135,19 +134,20 @@ pub fn bar_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let bw = view_w as i32;
     let bh = view_h as i32;
     world.insert_resource(ParticleBounds { w: bw, h: bh });
 
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(10, 10, 20))
-        .layout(LayoutStyle {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(10, 10, 20).into());
+        style.layout = LayoutStyle {
             width: Dimension::px(bw),
             height: Dimension::px(bh),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     let ring_colors = [
         Color::rgba(80, 200, 255, 60),
@@ -183,8 +183,8 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 max_radius: ring_max[i],
             },
         );
-        world.insert(ring, Parent(root));
-        if let Some(ch) = world.get_mut::<Children>(root) {
+        world.insert(ring, Parent(parent));
+        if let Some(ch) = world.get_mut::<Children>(parent) {
             ch.0.push(ring);
         }
     }
@@ -237,8 +237,8 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 vertical,
             },
         );
-        world.insert(bar, Parent(root));
-        if let Some(ch) = world.get_mut::<Children>(root) {
+        world.insert(bar, Parent(parent));
+        if let Some(ch) = world.get_mut::<Children>(parent) {
             ch.0.push(bar);
         }
     }
@@ -295,18 +295,15 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 phase: Fixed::ZERO,
             },
         );
-        world.insert(particle, Parent(root));
-        if let Some(ch) = world.get_mut::<Children>(root) {
+        world.insert(particle, Parent(parent));
+        if let Some(ch) = world.get_mut::<Children>(parent) {
             ch.0.push(particle);
         }
     }
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
@@ -316,7 +313,7 @@ where
     app.add_system(particle_system::system());
     app.add_system(pulse_ring_system::system());
     app.add_system(bar_system::system());
-    build_widgets(&mut app.world, parent, info.width, info.height)
+    build_widgets(&mut app.world, parent, info.width, info.height);
 }
 
 #[cfg(test)]
@@ -330,12 +327,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent, 128, 128);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent, 128, 128);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

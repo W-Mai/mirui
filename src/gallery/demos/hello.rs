@@ -1,4 +1,3 @@
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::Text;
@@ -8,21 +7,24 @@ use crate::plugins::input_feedback::InputFeedbackPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::types::Fixed;
+use crate::widget::Style;
 
 /// Hello world card layout: a header card and a body card stacked
 /// vertically with rounded corners and contrasting backgrounds.
 ///
 /// # Required plugins
 /// - [`InputFeedbackPlugin`] (for the cursor / rotary feedback overlay)
-pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(20, 22, 30))
-        .layout(LayoutStyle {
+pub fn build_widgets(world: &mut World, parent: Entity) {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(20, 22, 30).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             padding: Padding::all(24),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
     ui! {
         :(
             parent: parent
@@ -54,18 +56,16 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             }
         }
     };
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     app.add_plugin(InputFeedbackPlugin::new());
-    build_widgets(&mut app.world, parent)
+    build_widgets(&mut app.world, parent);
 }
 
 #[cfg(test)]
@@ -80,13 +80,12 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
-            "root must be added under parent",
+                .is_some_and(|c| !c.0.is_empty()),
+            "demo did not add any children to parent",
         );
     }
 }

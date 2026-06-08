@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::anim::ease;
 #[cfg(feature = "std")]
@@ -20,7 +19,7 @@ use crate::surface::Surface;
 use crate::types::DimPoint;
 use crate::widget::dirty::Dirty;
 use crate::widget::theme::{self, ColorToken};
-use crate::widget::{Children, OffscreenRender, Theme};
+use crate::widget::{Children, OffscreenRender, Style, Theme};
 use alloc::format;
 #[cfg(feature = "std")]
 use alloc::vec;
@@ -128,7 +127,7 @@ mirui_macros::timer!(Cycle, every: 3_000, |world, entity| {
     theme::set_theme(world, theme);
 });
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let DemoSize {
         w: w_,
         h: h_,
@@ -138,19 +137,20 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
         scale: scale_,
     } = DemoSize::for_viewport(view_w, view_h);
 
-    let root = WidgetBuilder::new(world)
-        .bg_color(ColorToken::Surface)
-        .layout(LayoutStyle {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(ColorToken::Surface.into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(w_),
             height: Dimension::px(h_),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     let tabs = ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -187,7 +187,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
     let list = ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -237,7 +237,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -296,7 +296,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -340,13 +340,10 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             ) {}
         }
     };
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
@@ -363,7 +360,7 @@ where
     let cycle_e = Cycle::install(&mut app.world);
     app.world.insert(cycle_e, ThemeCycleIndex(0));
 
-    let root = build_widgets(&mut app.world, parent, info.width, info.height);
+    build_widgets(&mut app.world, parent, info.width, info.height);
 
     let tabs_kids: Vec<Entity> = {
         let q: Vec<Entity> = app.world.query::<TabBar>().collect();
@@ -374,7 +371,7 @@ where
             .unwrap_or_default()
     };
     if tabs_kids.len() < 3 {
-        return root;
+        return;
     }
     let (tab_list, tab_form, tab_theme) = (tabs_kids[0], tabs_kids[1], tabs_kids[2]);
     let switches: Vec<Entity> = app.world.query::<Switch>().collect();
@@ -385,7 +382,7 @@ where
     let list_e = *lists.first().expect("List LazyList must be installed");
 
     if std::env::var("MIRUI_SIM_OFF").ok().as_deref() == Some("1") {
-        return root;
+        return;
     }
 
     app.world.insert_resource(
@@ -428,8 +425,6 @@ where
         ])
         .looping(true),
     );
-
-    root
 }
 
 #[cfg(test)]
@@ -443,12 +438,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent, DEFAULT_VIEW.0, DEFAULT_VIEW.1);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent, DEFAULT_VIEW.0, DEFAULT_VIEW.1);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

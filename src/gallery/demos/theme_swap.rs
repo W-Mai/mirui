@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
@@ -10,6 +9,7 @@ use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::widget::Style;
 use crate::widget::Theme;
 use crate::widget::theme::{self, ColorToken};
 use alloc::vec::Vec;
@@ -53,21 +53,22 @@ fn theme_swap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -
 const W: u16 = 480;
 const H: u16 = 320;
 
-pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
-    let root = WidgetBuilder::new(world)
-        .bg_color(ColorToken::Surface)
-        .layout(LayoutStyle {
+pub fn build_widgets(world: &mut World, parent: Entity) {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(ColorToken::Surface.into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(W as i32),
             height: Dimension::px(H as i32),
             padding: Padding::all(12),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -122,7 +123,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
 
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -187,19 +188,16 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             p.value = 0.6;
         }
     }
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     app.with_theme(dark_with_accent());
-    build_widgets(&mut app.world, parent)
+    build_widgets(&mut app.world, parent);
 }
 
 #[cfg(test)]
@@ -214,7 +212,11 @@ mod tests {
         world.insert_resource(IdMap::new());
         world.insert_resource(dark_with_accent());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent);
+        assert!(
+            world
+                .get::<crate::widget::Children>(parent)
+                .is_some_and(|c| !c.0.is_empty())
+        );
     }
 }

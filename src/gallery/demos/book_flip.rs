@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::{TransformOrigin, WidgetTransform3D};
@@ -9,6 +8,7 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::Transform3D;
+use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 
 pub struct Page {
@@ -43,16 +43,17 @@ pub fn flip_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(24, 26, 34))
-        .layout(LayoutStyle {
+pub fn build_widgets(world: &mut World, parent: Entity) {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(24, 26, 34).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(640),
             height: Dimension::px(360),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     ui! {
         :(
@@ -100,19 +101,16 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             ] {}
         }
     };
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     app.add_system(flip_system::system());
-    build_widgets(&mut app.world, parent)
+    build_widgets(&mut app.world, parent);
 }
 
 #[cfg(test)]
@@ -127,12 +125,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

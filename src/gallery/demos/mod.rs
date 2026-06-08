@@ -1,6 +1,3 @@
-use crate::ecs::{Entity, World};
-use crate::widget::{Children, Parent};
-
 pub mod absolute;
 pub mod animation;
 pub mod app_demo;
@@ -46,10 +43,3 @@ pub mod toggle;
 pub mod transform;
 pub mod walk;
 pub mod widgets;
-
-pub(crate) fn attach_to_parent(world: &mut World, parent: Entity, child: Entity) {
-    world.insert(child, Parent(parent));
-    if let Some(children) = world.get_mut::<Children>(parent) {
-        children.0.push(child);
-    }
-}

@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::assets::*;
@@ -11,7 +10,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 use crate::types::Transform;
 use crate::widget::dirty::Dirty;
-use crate::widget::{Children, Parent};
+use crate::widget::{Children, Parent, Style};
 
 pub struct Spinner {
     pub angle: Fixed,
@@ -34,16 +33,17 @@ pub fn spin_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(30, 30, 46))
-        .layout(LayoutStyle {
+pub fn build_widgets(world: &mut World, parent: Entity) {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(30, 30, 46).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(480),
             height: Dimension::px(320),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     let spinning_box = WidgetBuilder::new(world)
         .bg_color(Color::rgb(248, 81, 73))
@@ -86,24 +86,21 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
     );
 
     for &entity in &[spinning_box, spinning_img] {
-        world.insert(entity, Parent(root));
-        if let Some(children) = world.get_mut::<Children>(root) {
+        world.insert(entity, Parent(parent));
+        if let Some(children) = world.get_mut::<Children>(parent) {
             children.0.push(entity);
         }
     }
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     app.add_system(spin_system::system());
-    build_widgets(&mut app.world, parent)
+    build_widgets(&mut app.world, parent);
 }
 
 #[cfg(test)]
@@ -117,12 +114,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

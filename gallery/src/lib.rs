@@ -21,6 +21,8 @@ pub mod prelude {
     pub use mirui::prelude::*;
 }
 
+pub use mirui;
+
 use mirui::app::{App, RendererFactory};
 use mirui::ecs::Entity;
 use mirui::surface::Surface;
@@ -219,6 +221,7 @@ mod backend {
 
 /// Active-backend setup passed to gallery demos.
 pub type Setup<'a> = SetupGeneric<'a, backend::ActiveSurface, backend::ActiveFactory>;
+pub use backend::{ActiveFactory, ActiveSurface};
 
 /// Run a demo on the selected backend. Returns on wasm32 so the
 /// browser keeps driving frames.

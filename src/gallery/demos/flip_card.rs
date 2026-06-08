@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::WidgetTransform3D;
@@ -57,7 +56,7 @@ pub fn flip_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let vw = view_w as i32;
     let vh = view_h as i32;
     // 5/12 and 9/16 reproduce the original 200×180 card in a 480×320 window.
@@ -66,15 +65,16 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
     let card_left = (vw - card_w) / 2;
     let card_top = (vh - card_h) / 2;
 
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(30, 30, 46))
-        .layout(LayoutStyle {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(30, 30, 46).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(vw),
             height: Dimension::px(vh),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     let card = WidgetBuilder::new(world)
         .bg_color(Color::rgb(88, 166, 255))
@@ -94,28 +94,25 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             speed_deg: Fixed::ONE,
             front_color: Color::rgb(88, 166, 255),
             back_color: Color::rgb(248, 81, 73),
-            root,
+            root: parent,
         },
     );
 
-    world.insert(card, Parent(root));
-    if let Some(children) = world.get_mut::<Children>(root) {
+    world.insert(card, Parent(parent));
+    if let Some(children) = world.get_mut::<Children>(parent) {
         children.0.push(card);
     }
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     let info = app.backend.display_info();
     app.add_system(flip_system::system());
-    build_widgets(&mut app.world, parent, info.width, info.height)
+    build_widgets(&mut app.world, parent, info.width, info.height);
 }
 
 #[cfg(test)]
@@ -129,12 +126,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent, 480, 320);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent, 480, 320);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

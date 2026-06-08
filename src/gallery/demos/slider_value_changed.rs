@@ -1,4 +1,3 @@
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::{Slider, Text};
@@ -10,6 +9,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 use crate::types::Fixed;
 use crate::widget::IdMap;
+use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 use alloc::format;
 
@@ -28,7 +28,7 @@ pub struct Stats {
 /// # Resources auto-inserted
 /// - [`IdMap`] (if absent) — `find_by_id("stats_label")`
 /// - [`Stats`] (if absent) — populated by the handlers
-pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity) {
     if world.resource::<IdMap>().is_none() {
         world.insert_resource(IdMap::new());
     }
@@ -36,18 +36,19 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
         world.insert_resource(Stats::default());
     }
 
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(30, 30, 46))
-        .layout(LayoutStyle {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(30, 30, 46).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             padding: Padding::all(20),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     ui! {
         :(
-            parent: root
+            parent: parent
             world: world
         :)
 
@@ -90,19 +91,16 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
         s.max = Fixed::from_int(100);
         s.value = Fixed::ZERO;
     }
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent)
+    build_widgets(&mut app.world, parent);
 }
 
 fn refresh_label(world: &mut World) {
@@ -130,12 +128,11 @@ mod tests {
     fn build_widgets_smoke() {
         let mut world = World::new();
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root))
+                .is_some_and(|c| !c.0.is_empty())
         );
         assert!(world.resource::<Stats>().is_some());
     }

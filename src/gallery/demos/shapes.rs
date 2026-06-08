@@ -2,7 +2,6 @@
 
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::draw::command::DrawCommand;
@@ -13,6 +12,7 @@ use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
@@ -113,20 +113,21 @@ pub fn shapes_anim_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let now_ms = world
         .resource::<MonoClock>()
         .map(|c| c.now_ms())
         .unwrap_or(0);
 
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(20, 20, 30))
-        .layout(LayoutStyle {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(20, 20, 30).into());
+        style.layout = LayoutStyle {
             width: Dimension::px(view_w as i32),
             height: Dimension::px(view_h as i32),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     ui! {
         :(
@@ -143,13 +144,10 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             top: 0
         ) {}
     };
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
@@ -158,7 +156,7 @@ where
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(shapes_view());
     app.add_system(shapes_anim_system::system());
-    build_widgets(&mut app.world, parent, info.width, info.height)
+    build_widgets(&mut app.world, parent, info.width, info.height);
 }
 
 #[cfg(test)]
@@ -177,12 +175,11 @@ mod tests {
         reg.insert(shapes_view());
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent, 128, 128);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent, 128, 128);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

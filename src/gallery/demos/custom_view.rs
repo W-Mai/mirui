@@ -1,6 +1,5 @@
 #![allow(clippy::needless_update)]
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::draw::command::DrawCommand;
@@ -11,6 +10,7 @@ use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
@@ -91,18 +91,19 @@ fn cycle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
     true
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(28, 28, 36))
-        .layout(LayoutStyle {
+pub fn build_widgets(world: &mut World, parent: Entity) {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(28, 28, 36).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
             width: Dimension::px(480),
             height: Dimension::px(200),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     ui! {
         :(
@@ -149,19 +150,16 @@ pub fn build_widgets(world: &mut World, parent: Entity) -> Entity {
             ] {}
         }
     };
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     app.with_widget(diamond_view());
-    build_widgets(&mut app.world, parent)
+    build_widgets(&mut app.world, parent);
 }
 
 #[cfg(test)]
@@ -180,12 +178,11 @@ mod tests {
         reg.insert(diamond_view());
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }

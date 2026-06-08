@@ -1,6 +1,5 @@
 extern crate alloc;
 
-use super::attach_to_parent;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
@@ -8,7 +7,7 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::widget;
-use crate::widget::{Children, Parent};
+use crate::widget::{Children, Parent, Style};
 use alloc::vec::Vec;
 
 pub struct BarState {
@@ -47,20 +46,21 @@ pub fn bar_move_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) -> Entity {
+pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let bw = view_w as i32;
     let bh = view_h as i32;
     world.insert_resource(BarBounds { h: bh });
 
-    let root = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(20, 20, 30))
-        .layout(LayoutStyle {
+    if let Some(style) = world.get_mut::<Style>(parent) {
+        style.bg_color = Some(Color::rgb(20, 20, 30).into());
+        style.layout = LayoutStyle {
             direction: FlexDirection::Column,
             width: Dimension::px(bw),
             height: Dimension::px(bh),
+            grow: Fixed::ONE,
             ..Default::default()
-        })
-        .id();
+        };
+    }
 
     let bar1 = WidgetBuilder::new(world)
         .bg_color(Color::rgb(255, 100, 100))
@@ -104,26 +104,23 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
         },
     );
 
-    world.insert(bar1, Parent(root));
-    world.insert(bar2, Parent(root));
-    if let Some(children) = world.get_mut::<Children>(root) {
+    world.insert(bar1, Parent(parent));
+    world.insert(bar2, Parent(parent));
+    if let Some(children) = world.get_mut::<Children>(parent) {
         children.0.push(bar1);
         children.0.push(bar2);
     }
-
-    attach_to_parent(world, parent, root);
-    root
 }
 
 #[cfg(feature = "std")]
-pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity) -> Entity
+pub fn setup_app<B, F>(app: &mut App<B, F>, parent: Entity)
 where
     B: Surface,
     F: RendererFactory<B>,
 {
     let info = app.backend.display_info();
     app.add_system(bar_move_system::system());
-    build_widgets(&mut app.world, parent, info.width, info.height)
+    build_widgets(&mut app.world, parent, info.width, info.height);
 }
 
 #[cfg(test)]
@@ -137,12 +134,11 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        let root = build_widgets(&mut world, parent, 128, 128);
-        assert_ne!(root, parent);
+        build_widgets(&mut world, parent, 128, 128);
         assert!(
             world
                 .get::<Children>(parent)
-                .is_some_and(|c| c.0.contains(&root)),
+                .is_some_and(|c| !c.0.is_empty()),
         );
     }
 }
