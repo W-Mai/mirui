@@ -33,6 +33,7 @@ pub mod scroll;
 pub mod slider_switch;
 pub mod slider_value_changed;
 pub mod spatial_anim;
+pub mod subpixel;
 pub mod tabbar;
 pub mod tabbar_selection;
 pub mod text;
