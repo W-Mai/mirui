@@ -31,14 +31,19 @@ fn all_demos_build_widgets_smoke() {
     smoke!(mirui::gallery::demos::gesture::build_widgets);
     smoke!(mirui::gallery::demos::hello::build_widgets);
     smoke!(mirui::gallery::demos::hover_tour::build_widgets);
+    smoke!(mirui::gallery::demos::input_feedback::build_widgets);
     smoke!(mirui::gallery::demos::interactive_states::build_widgets);
     smoke!(mirui::gallery::demos::lazy_list::build_widgets);
     smoke!(mirui::gallery::demos::nested_scroll::build_widgets);
     smoke!(mirui::gallery::demos::on_handlers::build_widgets);
     smoke!(mirui::gallery::demos::pinch_rotate::build_widgets);
     smoke!(mirui::gallery::demos::scroll::build_widgets);
+    smoke!(mirui::gallery::demos::slider_switch::build_widgets);
     smoke!(mirui::gallery::demos::slider_value_changed::build_widgets);
+    smoke!(mirui::gallery::demos::tabbar::build_widgets);
     smoke!(mirui::gallery::demos::tabbar_selection::build_widgets);
+    smoke!(mirui::gallery::demos::text::build_widgets);
+    smoke!(mirui::gallery::demos::text_input::build_widgets);
     smoke!(mirui::gallery::demos::toggle::build_widgets);
     smoke!(mirui::gallery::demos::walk::build_widgets);
 }
