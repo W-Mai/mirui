@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>mirui — gallery</title>
+    <link data-trunk rel="rust" data-wasm-opt="z" data-wasm-opt-params="--all-features" />
     <style>
       :root {
         color-scheme: dark;
@@ -160,38 +161,37 @@
         </div>
       </main>
     </div>
-    <script type="module">
-      import init, { nav_html } from "./pkg/gallery_web.js";
-      const params = new URLSearchParams(location.search);
-      const activeSlug = params.get("demo") || "dsl";
+    <script>
+      window.addEventListener("TrunkApplicationStarted", () => {
+        const params = new URLSearchParams(location.search);
+        const activeSlug = params.get("demo") || "dsl";
 
-      await init();
+        const navEl = document.getElementById("nav");
+        navEl.innerHTML = wasmBindings.nav_html();
 
-      const navEl = document.getElementById("nav");
-      navEl.innerHTML = nav_html();
-
-      let activeLink = null;
-      for (const link of navEl.querySelectorAll("a")) {
-        if (link.dataset.demo === activeSlug) {
-          link.classList.add("active");
-          activeLink = link;
+        let activeLink = null;
+        for (const link of navEl.querySelectorAll("a")) {
+          if (link.dataset.demo === activeSlug) {
+            link.classList.add("active");
+            activeLink = link;
+          }
         }
-      }
 
-      const stageName = document.getElementById("stage-name");
-      const stageSize = document.getElementById("stage-size");
-      if (activeLink) {
-        stageName.textContent = activeLink.textContent;
-        const w = activeLink.dataset.w;
-        const h = activeLink.dataset.h;
-        if (w && h) {
-          stageSize.textContent = `${w} × ${h}`;
-          const canvas = document.getElementById("mirui");
-          canvas.style.width = `${w}px`;
-          canvas.style.height = `${h}px`;
+        const stageName = document.getElementById("stage-name");
+        const stageSize = document.getElementById("stage-size");
+        if (activeLink) {
+          stageName.textContent = activeLink.textContent;
+          const w = activeLink.dataset.w;
+          const h = activeLink.dataset.h;
+          if (w && h) {
+            stageSize.textContent = `${w} × ${h}`;
+            const canvas = document.getElementById("mirui");
+            canvas.style.width = `${w}px`;
+            canvas.style.height = `${h}px`;
+          }
+          activeLink.scrollIntoView({ block: "nearest" });
         }
-        activeLink.scrollIntoView({ block: "nearest" });
-      }
+      });
     </script>
   </body>
 </html>
