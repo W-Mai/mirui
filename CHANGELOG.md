@@ -5,6 +5,33 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-06-09
+
+In-place demo body layout and an `effect_glass` companion to
+`effect_panels`.
+
+### Changed
+
+- **Demo body contract (BREAKING)** — `mirui::gallery::demos::*::build_widgets` signs as `(world, parent[, ...])` and returns `()`; mutates `parent.Style` in place. `setup_app(app, parent)` returns `()`.
+- **`mirui::gallery::demos::effect` (BREAKING)** — renamed to `effect_panels`.
+
+### Added
+
+- **`mirui::gallery::demos::effect_glass`** — `MirrorOf` + animated `BackgroundBlur` over a 4-tile grid (128×128 viewport).
+- **`gallery/examples/effect_glass_demo.rs`** — desktop runner for `effect_glass`.
+
+### Removed
+
+- **`mirui::gallery::demos::attach_to_parent`** — no callers after the demo body contract change.
+
+### Internal
+
+- `gallery/web/src/lib.rs` rewired to `setup_app(app, parent)`.
+- `gallery/src/lib.rs` re-exports `mirui` plus `ActiveSurface` / `ActiveFactory`.
+- `tests/gallery_demos.rs` covers `effect_panels` and `effect_glass` smoke tests.
+- `tests/gallery_demo_render_snapshot.rs` renders 41 demos and asserts ≥ 3 distinct quantized colours per frame; four demos carry `#[ignore]` because their first frame depends on multi-frame state evolution.
+- Six `unused import` warnings under `no_std` builds resolved by gating `Theme`, `ease`, `SimAction` / `SimTimeline` / `sim_timeline_system`, and `alloc::vec` behind `#[cfg(feature = "std")]`.
+
 ## [0.27.5] - 2026-06-08
 
 `mirui::gallery` ships behind a new opt-in `gallery` feature: 40 demo
