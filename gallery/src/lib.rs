@@ -31,6 +31,41 @@ pub struct SetupGeneric<'a, B: Surface, F: RendererFactory<B>> {
     pub app: &'a mut App<B, F>,
 }
 
+pub struct DemoEntry {
+    pub slug: &'static str,
+    pub label: &'static str,
+    pub category: &'static str,
+    pub width: u16,
+    pub height: u16,
+    pub setup: fn(&mut Setup<'_>) -> Entity,
+}
+
+#[macro_export]
+macro_rules! register_demos {
+    ( $( ($slug:literal, $label:literal, $category:literal, $module:ident, $w:literal, $h:literal) ),* $(,)? ) => {
+        pub const DEMOS: &[$crate::DemoEntry] = &[
+            $(
+                $crate::DemoEntry {
+                    slug: $slug,
+                    label: $label,
+                    category: $category,
+                    width: $w,
+                    height: $h,
+                    setup: |setup| {
+                        let parent = $crate::mirui::widget::builder::WidgetBuilder::new(&mut setup.app.world).id();
+                        $crate::mirui::gallery::demos::$module::setup_app(setup.app, parent);
+                        parent
+                    },
+                },
+            )*
+        ];
+
+        pub fn lookup_demo(slug: &str) -> Option<&'static $crate::DemoEntry> {
+            DEMOS.iter().find(|d| d.slug == slug)
+        }
+    };
+}
+
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
 mod backend {
     use super::*;
