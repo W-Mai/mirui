@@ -297,6 +297,20 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         crate::event::sim::set_sim_root(&mut self.world, root);
     }
 
+    /// Create the root widget with a fill-viewport default style and
+    /// register it via [`set_root`][Self::set_root].
+    ///
+    /// Defaults: `grow: Fixed::ONE` (fills the viewport), background
+    /// [`ColorToken::Surface`][crate::widget::theme::ColorToken::Surface],
+    /// and [`FlexDirection::Column`][crate::layout::FlexDirection::Column].
+    /// Chain [`RootBuilder::bg_color`] / [`RootBuilder::layout`] to
+    /// override, then [`RootBuilder::id`] to finish:
+    ///
+    /// ```ignore
+    /// let root = app.spawn_root().id();
+    /// // or override the defaults:
+    /// let root = app.spawn_root().bg_color(ColorToken::Primary).id();
+    /// ```
     pub fn spawn_root(&mut self) -> RootBuilder<'_, B, F> {
         let entity = crate::widget::builder::WidgetBuilder::new(&mut self.world)
             .bg_color(crate::widget::theme::ColorToken::Surface)
@@ -722,12 +736,17 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     }
 }
 
+/// Chainable override for the root spawned by [`App::spawn_root`].
+/// [`id`][Self::id] finalizes by registering the root via
+/// [`App::set_root`].
 pub struct RootBuilder<'a, B: Surface, F: RendererFactory<B>> {
     app: &'a mut App<B, F>,
     entity: Entity,
 }
 
 impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
+    /// Override the root background, replacing the
+    /// [`ColorToken::Surface`][crate::widget::theme::ColorToken::Surface] default.
     pub fn bg_color(self, color: impl Into<crate::widget::theme::ThemedColor>) -> Self {
         if let Some(style) = self.app.world.get_mut::<crate::widget::Style>(self.entity) {
             style.bg_color = Some(color.into());
@@ -735,6 +754,8 @@ impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
         self
     }
 
+    /// Replace the root layout wholesale, dropping the
+    /// fill-viewport `Column` default.
     pub fn layout(self, layout: crate::layout::LayoutStyle) -> Self {
         if let Some(style) = self.app.world.get_mut::<crate::widget::Style>(self.entity) {
             style.layout = layout;
@@ -742,6 +763,7 @@ impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
         self
     }
 
+    /// Register the root via [`App::set_root`] and return its entity.
     pub fn id(self) -> Entity {
         self.app.set_root(self.entity);
         self.entity

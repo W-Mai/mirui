@@ -76,15 +76,7 @@ fn main() {
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(ColorToken::Surface)
-        .layout(LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            ..Default::default()
-        })
-        .id();
+    let root = app.spawn_root().id();
 
     ui! {
         :(
@@ -105,7 +97,6 @@ fn main() {
         }
     };
 
-    app.set_root(root);
     app.run();
 }
 ```
@@ -171,7 +162,7 @@ let backend = FramebufSurface::with_format(
 
 let mut app = App::new(backend);
 app.with_default_widgets().with_default_systems();
-// build the ui! tree, set_root, run — same as the desktop hello.
+// app.spawn_root(), build the ui! tree, app.run() — same as the desktop hello.
 ```
 
 `ColorFormat::RGB565Swapped` is the byte order most ST7735/ST7789 panels

@@ -43,15 +43,9 @@ fn main() {
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    let root = WidgetBuilder::new(&mut app.world)
-        .bg_color(ColorToken::Surface)
-        .layout(LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            ..Default::default()
-        })
-        .id();
+    // Root fills the viewport with a Surface bg + Column layout by
+    // default; chain .bg_color()/.layout() before .id() to override.
+    let root = app.spawn_root().id();
 
     ui! {
         :(
@@ -72,7 +66,6 @@ fn main() {
         }
     };
 
-    app.set_root(root);
     app.run();
 }
 ```

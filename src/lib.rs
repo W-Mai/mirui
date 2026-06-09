@@ -30,9 +30,7 @@
 //! let mut app = App::new(backend);
 //! app.with_default_widgets().with_default_systems();
 //!
-//! let root = WidgetBuilder::new(&mut app.world)
-//!     .bg_color(ColorToken::Surface)
-//!     .id();
+//! let root = app.spawn_root().id();
 //!
 //! ui! {
 //!     :(
@@ -48,7 +46,6 @@
 //!     ) {}
 //! };
 //!
-//! app.set_root(root);
 //! app.run();
 //! ```
 //!
