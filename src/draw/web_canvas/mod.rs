@@ -352,6 +352,18 @@ impl WebCanvasRenderer<'_> {
 }
 
 impl Renderer for WebCanvasRenderer<'_> {
+    fn sample_target_region(&self, _src: &Rect) -> Option<crate::draw::texture::Texture<'static>> {
+        None
+    }
+
+    fn modify_target_region(
+        &mut self,
+        _src: &Rect,
+        _f: &mut dyn FnMut(&mut crate::draw::texture::Texture),
+    ) -> bool {
+        false
+    }
+
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
         // `quad: Some(q)` already bakes `cmd.transform()` into its
         // 4 points; multiplying again would warp twice. Quad branches
