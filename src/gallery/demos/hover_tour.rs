@@ -12,29 +12,15 @@ use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 #[cfg(feature = "std")]
 use alloc::vec;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    let surface_bg = Color::rgb(13, 17, 23);
     let card_a = Color::rgb(34, 74, 44);
     let card_b = Color::rgb(82, 38, 38);
     let card_c = Color::rgb(34, 56, 86);
     let card_border = Color::rgb(48, 54, 61);
     let title_color = Color::rgb(201, 209, 217);
-
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(surface_bg.into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(720),
-            height: Dimension::px(360),
-            padding: Padding::all(28),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
 
     ui! {
         :(
@@ -44,7 +30,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         Column (
             direction: FlexDirection::Column,
-            grow: 1.0
+            grow: 1.0,
+            padding: Padding::all(28)
         ) {
             View (
                 height: 36,

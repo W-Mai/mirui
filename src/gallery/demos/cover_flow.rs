@@ -13,7 +13,6 @@ use crate::prelude::*;
 use crate::surface::Surface;
 use crate::types::Transform3D;
 use crate::widget;
-use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 
 pub const DEFAULT_VIEW: (u16, u16) = (640, 360);
@@ -123,17 +122,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
         Color::rgb(118, 209, 244),
         Color::rgb(178, 148, 255),
     ];
-
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(24, 26, 34).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(vw),
-            height: Dimension::px(vh),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
 
     let card_colors_ref = &card_colors;
     ui! {

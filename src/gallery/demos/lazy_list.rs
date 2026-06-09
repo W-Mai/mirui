@@ -11,7 +11,6 @@ use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 
 const ROW_H: i32 = 32;
 const POOL_SIZE: usize = 12;
@@ -27,17 +26,6 @@ fn row_binder(world: &mut World, entity: Entity, index: u32) {
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 20, 30).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(320),
-            height: Dimension::px(320),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let list = ui! {
         :(
             parent: parent

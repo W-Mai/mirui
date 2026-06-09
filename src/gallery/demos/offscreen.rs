@@ -13,7 +13,7 @@ use crate::surface::Surface;
 use crate::widget::Theme;
 use crate::widget::dirty::Dirty;
 use crate::widget::theme::ColorToken;
-use crate::widget::{Children, OffscreenRender, Style};
+use crate::widget::{Children, OffscreenRender};
 
 const WIN_W: i32 = 360;
 const WIN_H: i32 = 360;
@@ -139,15 +139,6 @@ fn tile_color(idx: i32) -> ColorToken {
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 22, 28).into());
-        style.layout = LayoutStyle {
-            width: Dimension::px(WIN_W),
-            height: Dimension::px(WIN_H),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
     world.insert(parent, ForceDirty);
 
     let panel = ui! {

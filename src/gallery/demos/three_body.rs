@@ -11,7 +11,6 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::widget;
-use crate::widget::Style;
 use alloc::vec::Vec;
 
 pub struct Velocity {
@@ -280,17 +279,6 @@ pub fn build_widgets(
         ay: Vec::with_capacity(n),
     });
     world.insert_resource(KickPhase(0));
-
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(logical_w),
-            height: Dimension::px(logical_h),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
 
     ui! {
         :(

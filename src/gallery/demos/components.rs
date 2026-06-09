@@ -8,21 +8,9 @@ use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::{Children, Parent, Style};
+use crate::widget::{Children, Parent};
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(24, 24, 37).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            padding: Padding::all(8),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let _header_root = ui! {
         :(
             parent: parent

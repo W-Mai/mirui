@@ -4,61 +4,26 @@ use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::{Children, Parent, Style};
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
+    ui! {
+        :(
+            parent: parent
+            world: world
+        :)
+
+        Row (
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            padding: Padding {
-                top: 20.into(),
-                right: 20.into(),
-                bottom: 20.into(),
-                left: 20.into(),
-            },
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
-    let c1 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(88, 166, 255))
-        .layout(LayoutStyle {
-            width: Dimension::px(120),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    let c2 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(63, 185, 80))
-        .layout(LayoutStyle {
-            grow: Fixed::from_f32(1.0),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    let c3 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(248, 81, 73))
-        .layout(LayoutStyle {
-            width: Dimension::px(120),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    for child in [c1, c2, c3] {
-        world.insert(child, Parent(parent));
-        if let Some(children) = world.get_mut::<Children>(parent) {
-            children.0.push(child);
+            padding: Padding::all(20),
+            grow: 1.0
+        ) {
+            View (bg_color: Color::rgb(88, 166, 255), width: 120, height: 80) {}
+            View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, height: 80) {}
+            View (bg_color: Color::rgb(248, 81, 73), width: 120, height: 80) {}
         }
-    }
+    };
 }
 
 #[cfg(feature = "std")]

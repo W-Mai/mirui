@@ -80,16 +80,6 @@ fn longpress_handler(world: &mut World, entity: Entity, event: &GestureEvent) ->
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<widget::Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
-            width: Dimension::px(320),
-            height: Dimension::px(240),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let tap_box = ui! {
         :(
             parent: parent

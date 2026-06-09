@@ -7,8 +7,6 @@ use crate::plugins::input_feedback::InputFeedbackPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::types::Fixed;
-use crate::widget::Style;
 
 /// Hello world card layout: a header card and a body card stacked
 /// vertically with rounded corners and contrasting backgrounds.
@@ -16,22 +14,13 @@ use crate::widget::Style;
 /// # Required plugins
 /// - [`InputFeedbackPlugin`] (for the cursor / rotary feedback overlay)
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 22, 30).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            padding: Padding::all(24),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
     ui! {
         :(
             parent: parent
             world: world
         :)
 
-        Column (grow: 1.0) {
+        Column (grow: 1.0, padding: Padding::all(24)) {
             View (
                 bg_color: Color::rgb(38, 50, 70),
                 text_color: Color::rgb(220, 220, 240),

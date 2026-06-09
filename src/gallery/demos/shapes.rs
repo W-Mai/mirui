@@ -12,7 +12,6 @@ use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
@@ -118,16 +117,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
         .resource::<MonoClock>()
         .map(|c| c.now_ms())
         .unwrap_or(0);
-
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 20, 30).into());
-        style.layout = LayoutStyle {
-            width: Dimension::px(view_w as i32),
-            height: Dimension::px(view_h as i32),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
 
     ui! {
         :(

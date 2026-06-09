@@ -42,46 +42,35 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     ];
     let accent = Color::rgb(210, 168, 255);
 
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Row,
-            justify: JustifyContent::SpaceEvenly,
-            align: AlignItems::Center,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            padding: Padding {
-                top: 20.into(),
-                right: 20.into(),
-                bottom: 20.into(),
-                left: 20.into(),
-            },
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     ui! {
         :(
             parent: parent
             world: world
         :)
 
-        walk colors.iter() with color {
-            View (
-                bg_color: *color,
-                width: 120,
-                height: 80
-            ) [
-                Toggle {
-                    on: false,
-                    base: *color,
-                    accent,
-                },
-                GestureHandler {
-                    on_gesture: toggle_handler,
-                },
-            ] {}
+        View (
+            direction: FlexDirection::Row,
+            justify: JustifyContent::SpaceEvenly,
+            align: AlignItems::Center,
+            padding: Padding::all(20),
+            grow: 1.0
+        ) {
+            walk colors.iter() with color {
+                View (
+                    bg_color: *color,
+                    width: 120,
+                    height: 80
+                ) [
+                    Toggle {
+                        on: false,
+                        base: *color,
+                        accent,
+                    },
+                    GestureHandler {
+                        on_gesture: toggle_handler,
+                    },
+                ] {}
+            }
         }
     };
 }

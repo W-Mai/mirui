@@ -5,20 +5,8 @@ use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let colors = [
         ("Item 0", Color::rgb(88, 166, 255)),
         ("Item 1", Color::rgb(63, 185, 80)),

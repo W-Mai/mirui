@@ -24,16 +24,6 @@ mirui_macros::animate!(AnimateColor, |world, entity, value| {
 });
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<widget::Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 20, 30).into());
-        style.layout = LayoutStyle {
-            width: Dimension::px(320),
-            height: Dimension::px(180),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let ball = ui! {
         :(
             parent: parent

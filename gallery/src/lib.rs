@@ -52,7 +52,7 @@ macro_rules! register_demos {
                     width: $w,
                     height: $h,
                     setup: |setup| {
-                        let parent = $crate::mirui::widget::builder::WidgetBuilder::new(&mut setup.app.world).id();
+                        let parent = setup.app.spawn_root().id();
                         $crate::mirui::gallery::demos::$module::setup_app(setup.app, parent);
                         parent
                     },

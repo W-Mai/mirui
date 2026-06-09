@@ -7,7 +7,7 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::widget;
-use crate::widget::{Children, Parent, Style};
+use crate::widget::{Children, Parent};
 use alloc::vec::Vec;
 
 pub struct BarState {
@@ -50,17 +50,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
     let bw = view_w as i32;
     let bh = view_h as i32;
     world.insert_resource(BarBounds { h: bh });
-
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 20, 30).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(bw),
-            height: Dimension::px(bh),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
 
     let bar1 = WidgetBuilder::new(world)
         .bg_color(Color::rgb(255, 100, 100))

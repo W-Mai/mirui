@@ -9,7 +9,6 @@ use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 use crate::widget::Theme;
 use crate::widget::theme::{self, ColorToken};
 use alloc::vec::Vec;
@@ -50,29 +49,14 @@ fn theme_swap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -
     true
 }
 
-const W: u16 = 480;
-const H: u16 = 320;
-
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(ColorToken::Surface.into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(W as i32),
-            height: Dimension::px(H as i32),
-            padding: Padding::all(12),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     ui! {
         :(
             parent: parent
             world: world
         :)
 
-        Row (height: 44) {
+        Row (height: 44, padding: Padding::all(12)) {
             Button (
                 grow: 1.0,
                 height: 36,

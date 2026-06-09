@@ -7,9 +7,7 @@ use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::types::Fixed;
 use crate::widget::IdMap;
-use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 use alloc::format;
 
@@ -37,23 +35,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         world.insert_resource(ToggleStats::default());
     }
 
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            padding: Padding::all(20),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     ui! {
         :(
             parent: parent
             world: world
         :)
 
-        Column (grow: 1.0) {
+        Column (grow: 1.0, padding: Padding::all(20)) {
             Text (
                 "switch: OFF (0 flips)   checkbox: [ ] (0 flips)",
                 id: "toggle_label",

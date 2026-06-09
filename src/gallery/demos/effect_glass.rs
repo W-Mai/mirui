@@ -8,7 +8,6 @@ use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 
 pub const DEFAULT_VIEW: (u16, u16) = (128, 128);
 
@@ -36,16 +35,6 @@ fn tile_color(row: i32, col: i32) -> Color {
 pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let win_w = view_w as i32;
     let win_h = view_h as i32;
-
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 22, 28).into());
-        style.layout = LayoutStyle {
-            width: Dimension::px(win_w),
-            height: Dimension::px(win_h),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
 
     ui! {
         :(

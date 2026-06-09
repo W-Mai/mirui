@@ -16,7 +16,6 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::{Fixed64, Transform};
-use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 use alloc::format;
 #[cfg(feature = "std")]
@@ -115,16 +114,6 @@ fn handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
-            width: Dimension::px(W),
-            height: Dimension::px(H),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let status = ui! {
         :(
             parent: parent

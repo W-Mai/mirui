@@ -10,7 +10,6 @@ use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};
 
@@ -92,19 +91,6 @@ fn cycle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(28, 28, 36).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Row,
-            justify: JustifyContent::SpaceEvenly,
-            align: AlignItems::Center,
-            width: Dimension::px(480),
-            height: Dimension::px(200),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     ui! {
         :(
             parent: parent

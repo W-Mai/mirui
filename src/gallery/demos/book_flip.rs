@@ -8,7 +8,6 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::Transform3D;
-use crate::widget::Style;
 use crate::widget::dirty::Dirty;
 
 pub struct Page {
@@ -44,17 +43,6 @@ pub fn flip_system(world: &mut World) {
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(24, 26, 34).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(640),
-            height: Dimension::px(360),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     ui! {
         :(
             parent: parent

@@ -4,63 +4,46 @@ use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::{Children, Parent, Style};
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
+    ui! {
+        :(
+            parent: parent
+            world: world
+        :)
+
+        Row (
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
-    let label1 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(88, 166, 255))
-        .border_radius(8)
-        .text("Hello, mirui!")
-        .text_color(Color::rgb(255, 255, 255))
-        .layout(LayoutStyle {
-            width: Dimension::px(140),
-            height: Dimension::px(40),
-            ..Default::default()
-        })
-        .id();
-
-    let label2 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(63, 185, 80))
-        .border_radius(8)
-        .text("ECS + Flexbox")
-        .layout(LayoutStyle {
-            width: Dimension::px(140),
-            height: Dimension::px(40),
-            ..Default::default()
-        })
-        .id();
-
-    let label3 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(248, 81, 73))
-        .border(Color::rgb(255, 255, 255), 2)
-        .border_radius(12)
-        .text("no_std :)")
-        .layout(LayoutStyle {
-            width: Dimension::px(140),
-            height: Dimension::px(40),
-            ..Default::default()
-        })
-        .id();
-
-    for child in [label1, label2, label3] {
-        world.insert(child, Parent(parent));
-        if let Some(children) = world.get_mut::<Children>(parent) {
-            children.0.push(child);
+            grow: 1.0
+        ) {
+            View (
+                bg_color: Color::rgb(88, 166, 255),
+                text_color: Color::rgb(255, 255, 255),
+                border_radius: 8,
+                text: "Hello, mirui!",
+                width: 140,
+                height: 40
+            ) {}
+            View (
+                bg_color: Color::rgb(63, 185, 80),
+                border_radius: 8,
+                text: "ECS + Flexbox",
+                width: 140,
+                height: 40
+            ) {}
+            View (
+                bg_color: Color::rgb(248, 81, 73),
+                border_color: Color::rgb(255, 255, 255),
+                border_width: 2,
+                border_radius: 12,
+                text: "no_std :)",
+                width: 140,
+                height: 40
+            ) {}
         }
-    }
+    };
 }
 
 #[cfg(feature = "std")]

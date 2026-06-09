@@ -4,70 +4,51 @@ use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::{Children, Parent, Style};
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
+    ui! {
+        :(
+            parent: parent
+            world: world
+        :)
+
+        Row (
             direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
-    let card1 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(88, 166, 255))
-        .border(Color::rgb(255, 255, 255), 2)
-        .border_radius(12)
-        .layout(LayoutStyle {
-            width: Dimension::px(120),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    let card2 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(63, 185, 80))
-        .border(Color::rgb(30, 30, 46), 3)
-        .border_radius(20)
-        .layout(LayoutStyle {
-            width: Dimension::px(120),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    let card3 = WidgetBuilder::new(world)
-        .bg_color(Color::rgb(248, 81, 73))
-        .border_radius(40)
-        .layout(LayoutStyle {
-            width: Dimension::px(120),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    let outline = WidgetBuilder::new(world)
-        .border(Color::rgb(210, 168, 255), 3)
-        .border_radius(8)
-        .layout(LayoutStyle {
-            width: Dimension::px(120),
-            height: Dimension::px(80),
-            ..Default::default()
-        })
-        .id();
-
-    for child in [card1, card2, card3, outline] {
-        world.insert(child, Parent(parent));
-        if let Some(children) = world.get_mut::<Children>(parent) {
-            children.0.push(child);
+            grow: 1.0
+        ) {
+            View (
+                bg_color: Color::rgb(88, 166, 255),
+                border_color: Color::rgb(255, 255, 255),
+                border_width: 2,
+                border_radius: 12,
+                width: 120,
+                height: 80
+            ) {}
+            View (
+                bg_color: Color::rgb(63, 185, 80),
+                border_color: Color::rgb(30, 30, 46),
+                border_width: 3,
+                border_radius: 20,
+                width: 120,
+                height: 80
+            ) {}
+            View (
+                bg_color: Color::rgb(248, 81, 73),
+                border_radius: 40,
+                width: 120,
+                height: 80
+            ) {}
+            View (
+                border_color: Color::rgb(210, 168, 255),
+                border_width: 3,
+                border_radius: 8,
+                width: 120,
+                height: 80
+            ) {}
         }
-    }
+    };
 }
 
 #[cfg(feature = "std")]

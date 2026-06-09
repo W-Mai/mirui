@@ -19,7 +19,7 @@ use crate::surface::Surface;
 use crate::types::DimPoint;
 use crate::widget::dirty::Dirty;
 use crate::widget::theme::{self, ColorToken};
-use crate::widget::{Children, OffscreenRender, Style, Theme};
+use crate::widget::{Children, OffscreenRender, Theme};
 use alloc::format;
 #[cfg(feature = "std")]
 use alloc::vec;
@@ -38,7 +38,6 @@ pub struct ThemeCycleIndex(pub u8);
 
 struct DemoSize {
     w: i32,
-    h: i32,
     tabbar_h: i32,
     page_h: i32,
     row_h: i32,
@@ -53,7 +52,6 @@ impl DemoSize {
         let tabbar_h = 14 * scale;
         Self {
             w,
-            h,
             tabbar_h,
             page_h: h - tabbar_h,
             row_h: 12 * scale,
@@ -130,23 +128,11 @@ mirui_macros::timer!(Cycle, every: 3_000, |world, entity| {
 pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let DemoSize {
         w: w_,
-        h: h_,
         tabbar_h: tabbar_h_,
         page_h: page_h_,
         row_h: row_h_,
         scale: scale_,
     } = DemoSize::for_viewport(view_w, view_h);
-
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(ColorToken::Surface.into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(w_),
-            height: Dimension::px(h_),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
 
     let tabs = ui! {
         :(

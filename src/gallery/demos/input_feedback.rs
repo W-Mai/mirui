@@ -12,23 +12,10 @@ use crate::plugins::{InputFeedbackPlugin, StdInstantClockPlugin};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 #[cfg(feature = "std")]
 use alloc::vec;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(18, 22, 32).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(640),
-            height: Dimension::px(360),
-            padding: Padding::all(28),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     ui! {
         :(
             parent: parent
@@ -37,7 +24,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         Column (
             direction: FlexDirection::Column,
-            grow: 1.0
+            grow: 1.0,
+            padding: Padding::all(28)
         ) {
             View (
                 height: 32,

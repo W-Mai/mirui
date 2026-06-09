@@ -8,7 +8,6 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::Transform;
-use crate::widget::Style;
 #[cfg(feature = "std")]
 use crate::widget::Theme;
 use crate::widget::dirty::Dirty;
@@ -91,16 +90,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
     let win_h = view_h as i32;
     let half_w = win_w / 2;
     let half_h = win_h / 2;
-
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 22, 28).into());
-        style.layout = LayoutStyle {
-            width: Dimension::px(win_w),
-            height: Dimension::px(win_h),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
 
     let m_source = ui! {
         :(

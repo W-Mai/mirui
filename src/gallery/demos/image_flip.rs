@@ -10,7 +10,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 use crate::types::Transform3D;
 use crate::widget::dirty::Dirty;
-use crate::widget::{Children, Parent, Style};
+use crate::widget::{Children, Parent};
 
 pub struct Spinner {
     pub angle: Fixed,
@@ -58,17 +58,6 @@ pub fn spin_system(world: &mut World) {
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let side = 120;
     let img_widget = WidgetBuilder::new(world)
         .layout(LayoutStyle {

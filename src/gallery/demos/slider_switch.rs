@@ -7,26 +7,8 @@ use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(320),
-            height: Dimension::px(200),
-            padding: Padding {
-                top: Dimension::px(30),
-                left: Dimension::px(20),
-                right: Dimension::px(20),
-                bottom: Dimension::px(30),
-            },
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let slider = ui! {
         :(
             parent: parent

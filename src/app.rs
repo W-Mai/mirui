@@ -297,6 +297,18 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         crate::event::sim::set_sim_root(&mut self.world, root);
     }
 
+    pub fn spawn_root(&mut self) -> RootBuilder<'_, B, F> {
+        let entity = crate::widget::builder::WidgetBuilder::new(&mut self.world)
+            .bg_color(crate::widget::theme::ColorToken::Surface)
+            .layout(crate::layout::LayoutStyle {
+                direction: crate::layout::FlexDirection::Column,
+                grow: crate::types::Fixed::ONE,
+                ..Default::default()
+            })
+            .id();
+        RootBuilder { app: self, entity }
+    }
+
     /// Render one frame
     #[mirui::trace_fn("frame.full")]
     pub fn render(&mut self) {
@@ -707,6 +719,32 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Consume into a [`Runner`].
     pub fn into_runner(self) -> Runner<B, F> {
         Runner { app: self }
+    }
+}
+
+pub struct RootBuilder<'a, B: Surface, F: RendererFactory<B>> {
+    app: &'a mut App<B, F>,
+    entity: Entity,
+}
+
+impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
+    pub fn bg_color(self, color: impl Into<crate::widget::theme::ThemedColor>) -> Self {
+        if let Some(style) = self.app.world.get_mut::<crate::widget::Style>(self.entity) {
+            style.bg_color = Some(color.into());
+        }
+        self
+    }
+
+    pub fn layout(self, layout: crate::layout::LayoutStyle) -> Self {
+        if let Some(style) = self.app.world.get_mut::<crate::widget::Style>(self.entity) {
+            style.layout = layout;
+        }
+        self
+    }
+
+    pub fn id(self) -> Entity {
+        self.app.set_root(self.entity);
+        self.entity
     }
 }
 

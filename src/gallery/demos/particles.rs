@@ -139,16 +139,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
     let bh = view_h as i32;
     world.insert_resource(ParticleBounds { w: bw, h: bh });
 
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(10, 10, 20).into());
-        style.layout = LayoutStyle {
-            width: Dimension::px(bw),
-            height: Dimension::px(bh),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let ring_colors = [
         Color::rgba(80, 200, 255, 60),
         Color::rgba(255, 100, 200, 40),

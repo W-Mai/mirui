@@ -65,17 +65,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
     let card_left = (vw - card_w) / 2;
     let card_top = (vh - card_h) / 2;
 
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(30, 30, 46).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(vw),
-            height: Dimension::px(vh),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let card = WidgetBuilder::new(world)
         .bg_color(Color::rgb(88, 166, 255))
         .layout(LayoutStyle {

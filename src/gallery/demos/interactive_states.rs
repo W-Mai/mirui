@@ -6,7 +6,6 @@ use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 use crate::widget::UserState;
 use crate::widget::dirty::Dirty;
 
@@ -26,29 +25,11 @@ fn toggle_errored_handler(world: &mut World, entity: Entity, event: &GestureEven
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    let surface_bg = Color::rgb(13, 17, 23);
     let hover_bg = Color::rgb(34, 74, 44);
     let errored_bg = Color::rgb(82, 38, 38);
     let disabled_bg = Color::rgb(34, 56, 86);
     let card_border = Color::rgb(48, 54, 61);
     let title_color = Color::rgb(201, 209, 217);
-
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(surface_bg.into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(720),
-            height: Dimension::px(420),
-            padding: Padding {
-                top: 28.into(),
-                left: 32.into(),
-                right: 32.into(),
-                bottom: 28.into(),
-            },
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
 
     ui! {
         :(
@@ -58,7 +39,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         Column (
             direction: FlexDirection::Column,
-            grow: 1.0
+            grow: 1.0,
+            padding: Padding {
+                top: 28.into(),
+                left: 32.into(),
+                right: 32.into(),
+                bottom: 28.into(),
+            }
         ) {
             View (
                 height: 36,

@@ -7,26 +7,8 @@ use crate::plugins::input_feedback::InputFeedbackPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 20, 30).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(400),
-            padding: Padding {
-                top: Dimension::px(20),
-                left: Dimension::px(20),
-                right: Dimension::px(20),
-                bottom: Dimension::px(20),
-            },
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let colors_outer = [
         Color::rgb(60, 60, 90),
         Color::rgb(70, 50, 80),
@@ -53,7 +35,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         View (
             direction: FlexDirection::Column,
             grow: 1.0,
-            bg_color: Color::rgb(30, 30, 50)
+            bg_color: Color::rgb(30, 30, 50),
+            padding: Padding {
+                top: Dimension::px(20),
+                left: Dimension::px(20),
+                right: Dimension::px(20),
+                bottom: Dimension::px(20),
+            }
         ) [
             ScrollOffset {
                 x: Fixed::ZERO,

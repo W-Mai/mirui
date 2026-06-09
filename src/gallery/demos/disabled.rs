@@ -9,7 +9,6 @@ use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
 use crate::widget::UserState;
 use crate::widget::dirty::Dirty;
 use alloc::format;
@@ -53,18 +52,6 @@ fn count_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> boo
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    if let Some(style) = world.get_mut::<Style>(parent) {
-        style.bg_color = Some(Color::rgb(20, 20, 30).into());
-        style.layout = LayoutStyle {
-            direction: FlexDirection::Column,
-            width: Dimension::px(480),
-            height: Dimension::px(320),
-            padding: Padding::all(24),
-            grow: Fixed::ONE,
-            ..Default::default()
-        };
-    }
-
     let row_e = ui! {
         :(
             parent: parent
@@ -73,7 +60,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         Row (
             direction: FlexDirection::Row,
-            grow: 1.0
+            grow: 1.0,
+            padding: Padding::all(24)
         ) {
             View (
                 bg_color: Color::rgb(63, 185, 80),
