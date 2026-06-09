@@ -5,6 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1] - 2026-06-09
+
+`App::spawn_root()` creates the root widget, applies a default
+fill-viewport style (`grow: Fixed::ONE`, `ColorToken::Surface`,
+`FlexDirection::Column`), and registers it via `set_root` in one call,
+returning a `RootBuilder` whose chainable `.bg_color()` / `.layout()`
+override the defaults. Gallery demo bodies no longer patch the
+caller-supplied parent's `Style` — root styling now lives at the spawn
+site.
+
+The web gallery builds and serves with [trunk](https://trunkrs.dev):
+a `<link data-trunk rel="rust">` plus `Trunk.toml` replace the manual
+`wasm-bindgen` + `python -m http.server` steps, and `register_demos!`
+generates the sidebar and routes from one table covering all 46 demos.
+
+### Added
+
+- **`App::spawn_root() -> RootBuilder`** — spawns the root, applies a default fill-viewport style, and registers it via `set_root`. `RootBuilder` chains `.bg_color()` / `.layout()` to override defaults; `.id()` finalizes. Available on `no_std`.
+
+### Changed
+
+- **Gallery demo bodies** — `build_widgets` no longer sets the root's `Style`; callers obtain a styled root from `App::spawn_root()`. Demos that previously hand-built children with `WidgetBuilder` + manual `Parent`/`Children` wiring (app_demo, click, rounded, text, image) are rewritten as pure `ui!` trees.
+
+### Fixed
+
+- **Button releases `Tap` / `DragEnd` to user handlers** — `button`'s internal gesture handler returned `true` on `Tap`/`DragEnd`, which stopped bubble dispatch and prevented a user-attached `GestureHandler` from ever firing. It now returns `false` so user handlers run; the `pressed` state toggle and `Dirty` insert still happen.
+- **`web-canvas` no longer panics on offscreen effects** — `WebCanvasRenderer` now overrides `sample_target_region` / `modify_target_region` to return `None` / `false` instead of inheriting the default `unimplemented!()` panic. `BackgroundBlur` / `MirrorOf` / `TemporalMix` degrade gracefully on the web backend rather than freezing the frame loop.
+
+### Internal
+
+- `gallery-web` migrated to trunk: `index.html` carries `data-trunk rel="rust"` with `--all-features` wired into `data-wasm-opt-params` (rustc emits bulk-memory ops for wasm32 that binaryen validates against only when told). `Trunk.toml` pins dist/serve/watch. `cargo xtask wasm-build` shells out to `trunk build --release`; new `cargo xtask web-serve` runs `trunk serve`.
+- `register_demos!` macro in `gallery/src/lib.rs` emits a `DEMOS` table (slug / label / category / size / setup fn) plus `lookup_demo` and a wasm-bindgen `nav_html()`; the web sidebar groups all 46 demos by category.
+
 ## [0.28.0] - 2026-06-09
 
 In-place demo body layout and an `effect_glass` companion to
