@@ -86,7 +86,7 @@ fn button_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bo
                 btn.pressed = false;
             }
             world.insert(entity, Dirty);
-            true
+            false
         }
         _ => false,
     }
