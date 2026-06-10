@@ -32,12 +32,14 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             world: world
         :)
 
-        View (
+        LazyList (
             bg_color: Color::rgb(28, 28, 40),
             width: 320,
-            height: 320
+            height: 320,
+            item_count: ITEM_COUNT,
+            item_height: Fixed::from_int(ROW_H),
+            pool_size: POOL_SIZE as u8
         ) [
-            LazyList::new(ITEM_COUNT, ROW_H, POOL_SIZE as u8),
             LazyListBinder { bind: row_binder },
             ScrollOffset {
                 x: Fixed::ZERO,

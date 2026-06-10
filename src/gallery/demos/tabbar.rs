@@ -17,13 +17,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             world: world
         :)
 
-        View (
+        TabBar (
             bg_color: Color::rgb(40, 40, 56),
             width: 480,
-            height: 40
-        ) [
-            TabBar::new(3).with_indicator_height(3),
-        ] {
+            height: 40,
+            count: 3,
+            indicator_height: Fixed::from_int(3)
+        ) {
             View (
                 text: "Home",
                 text_color: Color::rgb(220, 220, 230),

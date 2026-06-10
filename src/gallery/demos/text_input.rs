@@ -17,14 +17,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             world: world
         :)
 
-        View (
+        TextInput (
             bg_color: Color::rgb(40, 40, 56),
             border_color: Color::rgb(80, 80, 100),
             border_radius: 4,
             width: 400,
             height: 28
         ) [
-            TextInput::new(),
             Placeholder("type something..."),
         ] {}
     };

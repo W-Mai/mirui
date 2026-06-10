@@ -47,15 +47,14 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 width: 80,
                 height: 40
             ) {}
-            View (
+            Image (
                 position: Position::Absolute,
                 left: 350,
                 top: 60,
                 width: IMG_THUMBS_UP.width as i32,
-                height: IMG_THUMBS_UP.height as i32
-            ) [
-                Image::new(&IMG_THUMBS_UP),
-            ] {}
+                height: IMG_THUMBS_UP.height as i32,
+                texture: &IMG_THUMBS_UP
+            ) {}
             View (
                 bg_color: Color::rgb(210, 168, 255),
                 text: "floating",

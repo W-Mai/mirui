@@ -15,9 +15,12 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             world: world
         :)
 
-        View (width: 200, height: 16) [
-            Slider::new(Fixed::ZERO, Fixed::from_int(100)),
-        ] {}
+        Slider (
+            width: 200,
+            height: 16,
+            min: Fixed::ZERO,
+            max: Fixed::from_int(100)
+        ) {}
     };
     if let Some(s) = world.get_mut::<Slider>(slider) {
         s.value = Fixed::from_int(50);
@@ -29,9 +32,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             world: world
         :)
 
-        View (width: 50, height: 26) [
-            Switch::new(),
-        ] {}
+        Switch (width: 50, height: 26) {}
     };
 }
 

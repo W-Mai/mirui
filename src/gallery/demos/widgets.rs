@@ -140,13 +140,13 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             world: world
         :)
 
-        View (
+        TabBar (
             bg_color: ColorToken::SurfaceVariant,
             width: w_,
-            height: tabbar_h_
-        ) [
-            TabBar::new(3).with_indicator_height(2 * scale_ as u32),
-        ] {
+            height: tabbar_h_,
+            count: 3,
+            indicator_height: Fixed::from_int(2 * scale_)
+        ) {
             View (
                 text: "List",
                 text_color: ColorToken::OnSurface,
@@ -177,19 +177,21 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             world: world
         :)
 
-        View (
+        LazyList (
             bg_color: ColorToken::Surface,
             position: Position::Absolute,
             left: 0,
             top: tabbar_h_,
             width: w_,
-            height: page_h_
+            height: page_h_,
+            item_count: ITEM_COUNT,
+            item_height: Fixed::from_int(row_h_),
+            pool_size: POOL_SIZE as u8
         ) [
             TabContent {
                 tab_bar: tabs,
                 index: 0,
             },
-            LazyList::new(ITEM_COUNT, row_h_, POOL_SIZE as u8),
             LazyListBinder { bind: row_binder },
             ScrollOffset {
                 x: Fixed::ZERO,
@@ -248,8 +250,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 align: AlignItems::Center
             ) {
                 View (text: "Enable", text_color: ColorToken::OnSurface, grow: 1.0) {}
-                View (width: 40 * scale_, height: 20 * scale_) [
-                    Switch::new(),
+                Switch (width: 40 * scale_, height: 20 * scale_) [
                     OffscreenRender::default(),
                 ] {}
             }
@@ -260,8 +261,12 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                     ..Default::default()
                 }
             ) {
-                View (width: 108 * scale_, height: 14 * scale_) [
-                    Slider::new(Fixed::ZERO, Fixed::from_int(100)),
+                Slider (
+                    width: 108 * scale_,
+                    height: 14 * scale_,
+                    min: Fixed::ZERO,
+                    max: Fixed::from_int(100)
+                ) [
                     FormSlider,
                 ] {}
             }
@@ -272,8 +277,11 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                     ..Default::default()
                 }
             ) {
-                View (width: 108 * scale_, height: 8 * scale_, border_radius: 4 * scale_ as u32) [
-                    ProgressBar::new(),
+                ProgressBar (
+                    width: 108 * scale_,
+                    height: 8 * scale_,
+                    border_radius: 4 * scale_ as u32
+                ) [
                     FormProgress,
                 ] {}
             }
