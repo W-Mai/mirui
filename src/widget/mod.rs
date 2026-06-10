@@ -45,7 +45,7 @@ pub struct Widget;
 #[derive(Clone, Copy)]
 pub struct WidgetRoot(pub crate::ecs::Entity);
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, crate::Component)]
 pub struct Style {
     pub bg_color: Option<ThemedColor>,
     pub border_color: Option<ThemedColor>,

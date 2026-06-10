@@ -840,9 +840,13 @@ impl MiruiRune {
             } else {
                 let comp_fields = &cmd.component_fields;
                 tokens.extend(quote! {
-                    (#world).insert(#var, #comp_name {
-                        #(#comp_fields,)*
-                        ..Default::default()
+                    (#world).insert(#var, {
+                        #[allow(clippy::needless_update)]
+                        let __c = #comp_name {
+                            #(#comp_fields,)*
+                            ..Default::default()
+                        };
+                        __c
                     });
                 });
             }
