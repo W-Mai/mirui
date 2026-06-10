@@ -4,8 +4,6 @@ extern crate alloc;
 use crate::app::{App, RendererFactory};
 use crate::components::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
-use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
@@ -38,17 +36,6 @@ pub fn custom_theme() -> Theme {
     ])
 }
 
-fn theme_swap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    if !matches!(event, GestureEvent::Tap { .. }) {
-        return false;
-    }
-    let Some(theme) = world.get::<ThemeChoice>(entity).map(|c| c.0.clone()) else {
-        return false;
-    };
-    theme::set_theme(world, theme);
-    true
-}
-
 pub fn build_widgets(world: &mut World, parent: Entity) {
     ui! {
         :(
@@ -66,11 +53,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 pressed_color: Color::rgb(20, 25, 35)
             ) [
                 ThemeChoice(dark_with_accent()),
-                GestureHandler {
-                    on_gesture: theme_swap_handler,
-                },
-            ] {
-                Text ("Dark") {}
+            ] on Tap {
+                if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
+                    theme::set_theme(ctx.world, theme);
+                }
+            }
+            {
+                Text ("Dark")
             }
             Button (
                 grow: 1.0,
@@ -81,11 +70,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 pressed_color: Color::rgb(0, 70, 150)
             ) [
                 ThemeChoice(light_with_accent()),
-                GestureHandler {
-                    on_gesture: theme_swap_handler,
-                },
-            ] {
-                Text ("Light") {}
+            ] on Tap {
+                if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
+                    theme::set_theme(ctx.world, theme);
+                }
+            }
+            {
+                Text ("Light")
             }
             Button (
                 grow: 1.0,
@@ -96,11 +87,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 pressed_color: Color::rgb(200, 70, 140)
             ) [
                 ThemeChoice(custom_theme()),
-                GestureHandler {
-                    on_gesture: theme_swap_handler,
-                },
-            ] {
-                Text ("Custom") {}
+            ] on Tap {
+                if let Some(theme) = ctx.world.get::<ThemeChoice>(ctx.entity).map(|c| c.0.clone()) {
+                    theme::set_theme(ctx.world, theme);
+                }
+            }
+            {
+                Text ("Custom")
             }
         }
     };
@@ -114,54 +107,54 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         Column (grow: 1.0) {
             Row (height: 28, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Slider") {}
+                    Text ("Slider")
                 }
                 Slider (
                     min: Fixed::ZERO,
                     max: Fixed::from_int(100),
                     grow: 1.0,
                     height: 20
-                ) {}
+                )
             }
             Row (height: 36, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Switch") {}
+                    Text ("Switch")
                 }
-                Switch (width: 56, height: 28) {}
+                Switch (width: 56, height: 28)
             }
             Row (height: 36, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Checkbox") {}
+                    Text ("Checkbox")
                 }
-                Checkbox (width: 24, height: 24, border_radius: 4) {}
+                Checkbox (width: 24, height: 24, border_radius: 4)
             }
             Row (height: 28, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Progress") {}
+                    Text ("Progress")
                 }
-                ProgressBar (grow: 1.0, height: 12, border_radius: 6) {}
+                ProgressBar (grow: 1.0, height: 12, border_radius: 6)
             }
             Row (height: 36, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Input") {}
+                    Text ("Input")
                 }
-                TextInput (grow: 1.0, height: 28) {}
+                TextInput (grow: 1.0, height: 28)
             }
             Row (height: 24, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Tabs") {}
+                    Text ("Tabs")
                 }
                 TabBar (count: 3, grow: 1.0, height: 24) {
-                    View (grow: 1.0) {}
-                    View (grow: 1.0) {}
-                    View (grow: 1.0) {}
+                    View (grow: 1.0)
+                    View (grow: 1.0)
+                    View (grow: 1.0)
                 }
             }
             Row (height: 32, align: AlignItems::Center) {
                 View (width: 120) {
-                    Text ("Custom 'accent'") {}
+                    Text ("Custom 'accent'")
                 }
-                View (width: 32, height: 24, border_radius: 4, bg_color: ACCENT) {}
+                View (width: 32, height: 24, border_radius: 4, bg_color: ACCENT)
             }
         }
     };
@@ -190,6 +183,9 @@ mod tests {
     use crate::widget::IdMap;
     use crate::widget::builder::WidgetBuilder;
 
+    use crate::event::GestureHandler;
+    use crate::event::gesture::GestureEvent;
+
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
@@ -202,5 +198,29 @@ mod tests {
                 .get::<crate::widget::Children>(parent)
                 .is_some_and(|c| !c.0.is_empty())
         );
+    }
+
+    #[test]
+    fn tap_button_swaps_global_theme() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        world.insert_resource(dark_with_accent());
+        let parent = WidgetBuilder::new(&mut world).id();
+        build_widgets(&mut world, parent);
+        let row = world.get::<crate::widget::Children>(parent).unwrap().0[0];
+        let custom_btn = world.get::<crate::widget::Children>(row).unwrap().0[2];
+
+        let h = world.get::<GestureHandler>(custom_btn).unwrap().on_gesture;
+        h(
+            &mut world,
+            custom_btn,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: custom_btn,
+            },
+        );
+        let theme = world.resource::<Theme>().unwrap();
+        assert_eq!(theme.resolve(ACCENT), Color::rgb(140, 200, 220));
     }
 }

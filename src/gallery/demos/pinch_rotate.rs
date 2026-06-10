@@ -6,8 +6,6 @@ use crate::anim::ease;
 use crate::app::{App, RendererFactory};
 use crate::components::{Text, WidgetTransform};
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
-use crate::event::gesture::GestureEvent;
 #[cfg(feature = "std")]
 use crate::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 #[cfg(feature = "std")]
@@ -40,47 +38,10 @@ pub struct PinchTarget {
     pub pinch_events: u32,
     pub rotate_events: u32,
     pub mode: &'static str,
-    pub status: Entity,
 }
 
-fn handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    let (
-        mode,
-        last_pinch,
-        last_rotate,
-        visual_scale,
-        visual_rotation,
-        pinch_events,
-        rotate_events,
-        status,
-    ) = {
-        let Some(t) = world.get_mut::<PinchTarget>(entity) else {
-            return false;
-        };
-        match event {
-            GestureEvent::Pinch { scale_delta, .. } => {
-                t.last_pinch = *scale_delta;
-                let lo = Fixed64::from_fixed(Fixed::ONE / Fixed::from_int(2));
-                let hi = Fixed64::from_fixed(Fixed::from_int(2));
-                t.visual_scale64 = (t.visual_scale64 * *scale_delta).clamp(lo, hi);
-                t.visual_scale = t.visual_scale64.to_fixed();
-                t.pinch_events += 1;
-                t.mode = if *scale_delta > Fixed64::ONE {
-                    "EXPAND"
-                } else if *scale_delta < Fixed64::ONE {
-                    "SHRINK"
-                } else {
-                    "PINCH"
-                };
-            }
-            GestureEvent::Rotate { angle, .. } => {
-                t.last_rotate = *angle;
-                t.visual_rotation += *angle;
-                t.rotate_events += 1;
-                t.mode = "ROTATE";
-            }
-            _ => return false,
-        }
+fn refresh(world: &mut World, entity: Entity) {
+    let snapshot = world.get::<PinchTarget>(entity).map(|t| {
         (
             t.mode,
             t.last_pinch,
@@ -89,8 +50,19 @@ fn handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
             t.visual_rotation,
             t.pinch_events,
             t.rotate_events,
-            t.status,
         )
+    });
+    let Some((
+        mode,
+        last_pinch,
+        last_rotate,
+        visual_scale,
+        visual_rotation,
+        pinch_events,
+        rotate_events,
+    )) = snapshot
+    else {
+        return;
     };
 
     let rot_deg = last_rotate * Fixed::from_int(180) / Fixed::PI;
@@ -108,13 +80,14 @@ fn handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
         "{mode}   delta {scale_pct}%/{} raw   visual {visual_scale_pct}% {visual_rot_int}deg   rotate_delta {rot_int}   counts {pinch_events}/{rotate_events}",
         last_pinch.raw(),
     );
-    world.insert(status, Text(line.into_bytes()));
-    world.insert(status, Dirty);
-    true
+    if let Some(status) = world.find_by_id("pinch_status") {
+        world.insert(status, Text(line.into_bytes()));
+        world.insert(status, Dirty);
+    }
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    let status = ui! {
+    ui! {
         :(
             parent: parent
             world: world
@@ -127,8 +100,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             width: W - 32,
             height: 28,
             text: "scale 100%   rotation 0",
-            text_color: Color::rgb(140, 220, 255)
-        ) {}
+            text_color: Color::rgb(140, 220, 255),
+            id: "pinch_status"
+        )
     };
 
     ui! {
@@ -154,12 +128,33 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 pinch_events: 0,
                 rotate_events: 0,
                 mode: "IDLE",
-                status,
             },
-            GestureHandler {
-                on_gesture: handler,
-            },
-        ] {}
+        ] on Pinch {
+            if let Some(t) = ctx.world.get_mut::<PinchTarget>(ctx.entity) {
+                t.last_pinch = *scale_delta;
+                let lo = Fixed64::from_fixed(Fixed::ONE / Fixed::from_int(2));
+                let hi = Fixed64::from_fixed(Fixed::from_int(2));
+                t.visual_scale64 = (t.visual_scale64 * *scale_delta).clamp(lo, hi);
+                t.visual_scale = t.visual_scale64.to_fixed();
+                t.pinch_events += 1;
+                t.mode = if *scale_delta > Fixed64::ONE {
+                    "EXPAND"
+                } else if *scale_delta < Fixed64::ONE {
+                    "SHRINK"
+                } else {
+                    "PINCH"
+                };
+            }
+            refresh(ctx.world, ctx.entity);
+        } on Rotate {
+            if let Some(t) = ctx.world.get_mut::<PinchTarget>(ctx.entity) {
+                t.last_rotate = *angle;
+                t.visual_rotation += *angle;
+                t.rotate_events += 1;
+                t.mode = "ROTATE";
+            }
+            refresh(ctx.world, ctx.entity);
+        }
     };
 }
 
@@ -219,6 +214,9 @@ mod tests {
     use crate::widget::IdMap;
     use crate::widget::builder::WidgetBuilder;
 
+    use crate::event::GestureHandler;
+    use crate::event::gesture::GestureEvent;
+
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
@@ -230,5 +228,41 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
         );
+    }
+
+    #[test]
+    fn pinch_updates_target_and_status() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        build_widgets(&mut world, parent);
+        let target = world.get::<Children>(parent).unwrap().0[1];
+        let status = world.find_by_id("pinch_status").expect("status id");
+
+        assert_eq!(
+            world.get::<PinchTarget>(target).map(|t| t.pinch_events),
+            Some(0)
+        );
+        let h = world.get::<GestureHandler>(target).unwrap().on_gesture;
+        h(
+            &mut world,
+            target,
+            &GestureEvent::Pinch {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                scale_delta: Fixed64::from_int(2),
+                target,
+            },
+        );
+        assert_eq!(
+            world.get::<PinchTarget>(target).map(|t| t.pinch_events),
+            Some(1)
+        );
+        assert_eq!(
+            world.get::<PinchTarget>(target).map(|t| t.mode),
+            Some("EXPAND")
+        );
+        assert!(world.has::<WidgetTransform>(target));
+        assert!(world.get::<Text>(status).is_some());
     }
 }

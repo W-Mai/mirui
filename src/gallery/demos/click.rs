@@ -1,8 +1,6 @@
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
-use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
@@ -13,25 +11,6 @@ pub struct Toggle {
     pub on: bool,
     pub base: Color,
     pub accent: Color,
-}
-
-fn toggle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    if let GestureEvent::Tap { .. } = event {
-        let new_color = {
-            let Some(t) = world.get_mut::<Toggle>(entity) else {
-                return false;
-            };
-            t.on = !t.on;
-            if t.on { t.accent } else { t.base }
-        };
-        if let Some(style) = world.get_mut::<Style>(entity) {
-            style.set_bg_color(new_color);
-        }
-        world.insert(entity, Dirty);
-        true
-    } else {
-        false
-    }
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
@@ -65,10 +44,21 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                         base: *color,
                         accent,
                     },
-                    GestureHandler {
-                        on_gesture: toggle_handler,
-                    },
-                ] {}
+                ] on Tap {
+                    let new_color = ctx
+                        .world
+                        .get_mut::<Toggle>(ctx.entity)
+                        .map(|t| {
+                            t.on = !t.on;
+                            if t.on { t.accent } else { t.base }
+                        });
+                    if let Some(c) = new_color {
+                        if let Some(style) = ctx.world.get_mut::<Style>(ctx.entity) {
+                            style.set_bg_color(c);
+                        }
+                        ctx.world.insert(ctx.entity, Dirty);
+                    }
+                }
             }
         }
     };
@@ -90,6 +80,9 @@ mod tests {
     use crate::widget::IdMap;
     use crate::widget::builder::WidgetBuilder;
 
+    use crate::event::GestureHandler;
+    use crate::event::gesture::GestureEvent;
+
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
@@ -101,5 +94,28 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
         );
+    }
+
+    #[test]
+    fn tap_toggles_on_flag() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        build_widgets(&mut world, parent);
+        let row = world.get::<Children>(parent).unwrap().0[0];
+        let card = world.get::<Children>(row).unwrap().0[0];
+
+        assert_eq!(world.get::<Toggle>(card).map(|t| t.on), Some(false));
+        let h = world.get::<GestureHandler>(card).unwrap().on_gesture;
+        h(
+            &mut world,
+            card,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: card,
+            },
+        );
+        assert_eq!(world.get::<Toggle>(card).map(|t| t.on), Some(true));
     }
 }

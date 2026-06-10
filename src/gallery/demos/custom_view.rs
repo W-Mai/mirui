@@ -5,8 +5,6 @@ use crate::app::{App, RendererFactory};
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
-use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
@@ -78,18 +76,6 @@ pub const PALETTE: [Color; 3] = [
     Color::rgb(190, 240, 140),
 ];
 
-fn cycle_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    if !matches!(event, GestureEvent::Tap { .. }) {
-        return false;
-    }
-    if let Some(d) = world.get_mut::<Diamond>(entity) {
-        let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
-        d.color = PALETTE[(i + 1) % PALETTE.len()];
-    }
-    world.insert(entity, Dirty);
-    true
-}
-
 pub fn build_widgets(world: &mut World, parent: Entity) {
     ui! {
         :(
@@ -108,31 +94,37 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 line_width: Fixed::from_int(2),
                 width: 100,
                 height: 100
-            ) [
-                GestureHandler {
-                    on_gesture: cycle_handler,
-                },
-            ] {}
+            ) on Tap {
+                if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
+                    let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
+                    d.color = PALETTE[(i + 1) % PALETTE.len()];
+                }
+                ctx.world.insert(ctx.entity, Dirty);
+            }
             Diamond (
                 color: PALETTE[1],
                 line_width: Fixed::from_int(3),
                 width: 100,
                 height: 100
-            ) [
-                GestureHandler {
-                    on_gesture: cycle_handler,
-                },
-            ] {}
+            ) on Tap {
+                if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
+                    let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
+                    d.color = PALETTE[(i + 1) % PALETTE.len()];
+                }
+                ctx.world.insert(ctx.entity, Dirty);
+            }
             Diamond (
                 color: PALETTE[2],
                 line_width: Fixed::from_int(4),
                 width: 100,
                 height: 100
-            ) [
-                GestureHandler {
-                    on_gesture: cycle_handler,
-                },
-            ] {}
+            ) on Tap {
+                if let Some(d) = ctx.world.get_mut::<Diamond>(ctx.entity) {
+                    let i = PALETTE.iter().position(|c| *c == d.color).unwrap_or(0);
+                    d.color = PALETTE[(i + 1) % PALETTE.len()];
+                }
+                ctx.world.insert(ctx.entity, Dirty);
+            }
         }
     };
 }
@@ -155,6 +147,9 @@ mod tests {
     use crate::widget::builder::WidgetBuilder;
     use crate::widget::view::ViewRegistry;
 
+    use crate::event::GestureHandler;
+    use crate::event::gesture::GestureEvent;
+
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
@@ -169,5 +164,31 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
         );
+    }
+
+    #[test]
+    fn tap_cycles_diamond_color() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let mut reg = ViewRegistry::with_builtins();
+        reg.insert(diamond_view());
+        world.insert_resource(reg);
+        let parent = WidgetBuilder::new(&mut world).id();
+        build_widgets(&mut world, parent);
+        let row = world.get::<Children>(parent).unwrap().0[0];
+        let d0 = world.get::<Children>(row).unwrap().0[0];
+
+        assert_eq!(world.get::<Diamond>(d0).map(|d| d.color), Some(PALETTE[0]));
+        let h = world.get::<GestureHandler>(d0).unwrap().on_gesture;
+        h(
+            &mut world,
+            d0,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: d0,
+            },
+        );
+        assert_eq!(world.get::<Diamond>(d0).map(|d| d.color), Some(PALETTE[1]));
     }
 }

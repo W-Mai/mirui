@@ -1,8 +1,6 @@
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
-use crate::event::GestureHandler;
-use crate::event::gesture::GestureEvent;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
@@ -10,19 +8,6 @@ use crate::widget::UserState;
 use crate::widget::dirty::Dirty;
 
 pub struct ToggleErrored;
-
-fn toggle_errored_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
-    if !matches!(event, GestureEvent::Tap { .. }) {
-        return false;
-    }
-    if matches!(world.get::<UserState>(entity), Some(UserState::Errored)) {
-        world.remove::<UserState>(entity);
-    } else {
-        world.insert(entity, UserState::Errored);
-    }
-    world.insert(entity, Dirty);
-    true
-}
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     let hover_bg = Color::rgb(34, 74, 44);
@@ -50,11 +35,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 36,
                 text: "WidgetState: Hover / Press / Errored / Disabled",
                 text_color: title_color
-            ) {}
-            View (height: 16) {}
-            Row (
-                grow: 1.0
-            ) {
+            )
+            View (height: 16)
+            Row (grow: 1.0) {
                 View (
                     bg_color: hover_bg,
                     border_color: card_border,
@@ -64,8 +47,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     padding: Padding::all(20),
                     text: "Hover me / Press me",
                     text_color: title_color
-                ) {}
-                View (width: 16) {}
+                )
+                View (width: 16)
                 View (
                     bg_color: errored_bg,
                     border_color: card_border,
@@ -77,11 +60,15 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     text_color: title_color
                 ) [
                     ToggleErrored,
-                    GestureHandler {
-                        on_gesture: toggle_errored_handler,
-                    },
-                ] {}
-                View (width: 16) {}
+                ] on Tap {
+                    if matches!(ctx.world.get::< UserState > (ctx.entity), Some(UserState::Errored)) {
+                        ctx.world.remove::<UserState>(ctx.entity);
+                    } else {
+                        ctx.world.insert(ctx.entity, UserState::Errored);
+                    }
+                    ctx.world.insert(ctx.entity, Dirty);
+                }
+                View (width: 16)
                 View (
                     bg_color: disabled_bg,
                     border_color: card_border,
@@ -93,7 +80,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     text_color: title_color
                 ) [
                     UserState::Disabled,
-                ] {}
+                ]
             }
         }
     };
@@ -115,6 +102,9 @@ mod tests {
     use crate::widget::IdMap;
     use crate::widget::builder::WidgetBuilder;
 
+    use crate::event::GestureHandler;
+    use crate::event::gesture::GestureEvent;
+
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
@@ -126,5 +116,35 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
         );
+    }
+
+    #[test]
+    fn tap_toggles_errored_state() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let parent = WidgetBuilder::new(&mut world).id();
+        build_widgets(&mut world, parent);
+        let column = world.get::<Children>(parent).unwrap().0[0];
+        let row = world.get::<Children>(column).unwrap().0[2];
+        let errored_card = world.get::<Children>(row).unwrap().0[2];
+
+        assert!(world.get::<UserState>(errored_card).is_none());
+        let h = world
+            .get::<GestureHandler>(errored_card)
+            .unwrap()
+            .on_gesture;
+        h(
+            &mut world,
+            errored_card,
+            &GestureEvent::Tap {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                target: errored_card,
+            },
+        );
+        assert!(matches!(
+            world.get::<UserState>(errored_card),
+            Some(UserState::Errored)
+        ));
     }
 }
