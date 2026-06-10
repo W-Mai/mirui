@@ -5,6 +5,42 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.2] - 2026-06-10
+
+`World::spawn` now takes a bundle and unfolds it into per-component
+inserts; the former no-arg spawn is `World::spawn_empty`. A bundle is any
+`#[derive(Component)]` type, a tuple of components, or a widget builder —
+`world.spawn(Slider::new(0, 100))`, `world.spawn((Slider::new(0, 100),
+Style { .. }))`, and `world.spawn(Slider::build(0, 100).style(..).on_change(h))`
+all work, as does `spawn_children` for closure-built subtrees. Each
+built-in widget gains a chained `X::build(..)` entry that defers into
+`world.spawn`, giving non-macro users the same ergonomics the `ui!` macro
+lowers to.
+
+The `ui!` macro and gallery demos move to the modern surface: `Column`/
+`Row` widget kinds replace `View(direction: ..)`, widgets spawn as
+first-class kinds (`Slider(min:.., max:..)`) instead of
+`View(..)[Slider::new(..)]` enchants, and gesture logic uses inline
+`on Tap`/`on DragMove`/`on Pinch` clauses (cross-entity handlers reach
+their target via `find_by_id`). Childless nodes drop their `{}`.
+
+### Added
+
+- **`IntoBundle` + `World::spawn(bundle)`** — spawns an entity and unfolds the bundle into individual component inserts. `#[derive(Component)]` opts a `'static` type into single-component spawning; tuples and widget builders implement `IntoBundle` too. `World::spawn_empty` is the former no-arg spawn.
+- **`X::build(..)` widget builders** — every built-in widget (Slider, Switch, Checkbox, Button, ProgressBar, TabBar, TextInput, Image, Text) has a chained builder with `.style()` / per-field setters / `.on_change()` that finalizes via `world.spawn`.
+- **`spawn_children`** — builds a subtree through a closure that owns the world's borrow for its duration.
+- **`#[derive(Component)]`** — re-exported from the crate root.
+
+### Changed
+
+- **`World::spawn` signature** — was `fn spawn(&mut self) -> Entity`, now `fn spawn<B: IntoBundle>(&mut self, bundle: B) -> Entity`. The no-arg form is `spawn_empty`.
+- **Gallery demos** — `View(direction: FlexDirection::Column/Row, ..)` becomes the `Column(..)`/`Row(..)` widget kinds; `View(..)[Widget::new(..)]` enchants become widget-kind nodes; gesture handlers become inline `on` clauses. Childless nodes are formatted without `{}` (xrune-fmt 1.6.0). A `builder_form` demo shows the non-macro spawn path.
+- **`Style` is a `Component`** — spawns standalone and inside tuples.
+
+### Tooling
+
+- **`xrune-fmt` check covers `src/gallery/demos`** — `cargo xtask ci` now formats-checks the demo modules, not just examples.
+
 ## [0.28.1] - 2026-06-09
 
 `App::spawn_root()` creates the root widget, applies a default
