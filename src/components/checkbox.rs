@@ -16,6 +16,7 @@ pub struct CheckboxHandler {
     pub on_event: fn(&mut World, Entity, &CheckboxEvent) -> bool,
 }
 
+#[derive(crate::Component)]
 pub struct Checkbox {
     pub checked: bool,
     pub checked_color: ThemedColor,
@@ -49,6 +50,63 @@ impl Checkbox {
 
     pub fn toggle(&mut self) {
         self.checked = !self.checked;
+    }
+
+    pub fn build() -> CheckboxBuilder {
+        CheckboxBuilder {
+            checkbox: Checkbox::new(),
+            style: None,
+            handler: None,
+        }
+    }
+}
+
+pub struct CheckboxBuilder {
+    checkbox: Checkbox,
+    style: Option<crate::widget::Style>,
+    handler: Option<CheckboxHandler>,
+}
+
+impl CheckboxBuilder {
+    pub fn style(mut self, style: crate::widget::Style) -> Self {
+        self.style = Some(style);
+        self
+    }
+
+    pub fn on_change(mut self, on_event: fn(&mut World, Entity, &CheckboxEvent) -> bool) -> Self {
+        self.handler = Some(CheckboxHandler { on_event });
+        self
+    }
+
+    pub fn checked(mut self, v: bool) -> Self {
+        self.checkbox.checked = v;
+        self
+    }
+
+    pub fn checked_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.checkbox.checked_color = color.into();
+        self
+    }
+
+    pub fn unchecked_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.checkbox.unchecked_color = color.into();
+        self
+    }
+
+    pub fn spawn(self, world: &mut World) -> Entity {
+        world.spawn(self)
+    }
+}
+
+impl crate::ecs::IntoBundle for CheckboxBuilder {
+    fn spawn_into(self, world: &mut World, entity: Entity) {
+        world.insert(entity, self.checkbox);
+        if let Some(style) = self.style {
+            world.insert(entity, style);
+        }
+        if let Some(handler) = self.handler {
+            world.insert(entity, handler);
+        }
     }
 }
 
@@ -114,4 +172,35 @@ pub fn view() -> View {
         .with_filter::<Checkbox>()
         .with_attach(checkbox_attach)
         .with_internal_gesture(checkbox_handler)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn h(_: &mut World, _: Entity, _: &CheckboxEvent) -> bool {
+        true
+    }
+
+    #[test]
+    fn build_spawns_checkbox_with_style_and_handler() {
+        let mut world = World::new();
+        let e = Checkbox::build()
+            .style(crate::widget::Style::default())
+            .on_change(h)
+            .spawn(&mut world);
+        assert!(world.has::<Checkbox>(e));
+        assert!(world.has::<crate::widget::Style>(e));
+        assert!(world.has::<CheckboxHandler>(e));
+        assert!(world.has::<crate::widget::Widget>(e));
+    }
+
+    #[test]
+    fn build_without_handler_omits_it() {
+        let mut world = World::new();
+        let e = Checkbox::build().spawn(&mut world);
+        assert!(world.has::<Checkbox>(e));
+        assert!(!world.has::<CheckboxHandler>(e));
+        assert!(!world.has::<crate::widget::Style>(e));
+    }
 }

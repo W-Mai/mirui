@@ -19,6 +19,7 @@ pub struct SliderHandler {
     pub on_event: fn(&mut World, Entity, &SliderEvent) -> bool,
 }
 
+#[derive(crate::Component)]
 pub struct Slider {
     pub value: Fixed,
     pub min: Fixed,
@@ -72,6 +73,63 @@ impl Slider {
     pub fn set_ratio(&mut self, ratio: Fixed) {
         let clamped = ratio.clamp(Fixed::ZERO, Fixed::ONE);
         self.value = self.min + clamped * (self.max - self.min);
+    }
+
+    pub fn build(min: impl Into<Fixed>, max: impl Into<Fixed>) -> SliderBuilder {
+        SliderBuilder {
+            slider: Slider::new(min.into(), max.into()),
+            style: None,
+            handler: None,
+        }
+    }
+}
+
+pub struct SliderBuilder {
+    slider: Slider,
+    style: Option<crate::widget::Style>,
+    handler: Option<SliderHandler>,
+}
+
+impl SliderBuilder {
+    pub fn style(mut self, style: crate::widget::Style) -> Self {
+        self.style = Some(style);
+        self
+    }
+
+    pub fn on_change(mut self, on_event: fn(&mut World, Entity, &SliderEvent) -> bool) -> Self {
+        self.handler = Some(SliderHandler { on_event });
+        self
+    }
+
+    pub fn track_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.slider.track_color = color.into();
+        self
+    }
+
+    pub fn fill_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.slider.fill_color = color.into();
+        self
+    }
+
+    pub fn thumb_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.slider.thumb_color = color.into();
+        self
+    }
+
+    pub fn spawn(self, world: &mut World) -> Entity {
+        world.spawn(self)
+    }
+}
+
+impl crate::ecs::IntoBundle for SliderBuilder {
+    fn spawn_into(self, world: &mut World, entity: Entity) {
+        world.insert(entity, self.slider);
+        if let Some(style) = self.style {
+            world.insert(entity, style);
+        }
+        if let Some(handler) = self.handler {
+            world.insert(entity, handler);
+        }
     }
 }
 
@@ -244,7 +302,7 @@ mod tests {
 
     fn fresh() -> (World, Entity) {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Slider::new(Fixed::ZERO, Fixed::from_int(100)));
         world.insert(
             e,
@@ -347,5 +405,27 @@ mod tests {
         };
         slider_handler(&mut world, e, &event);
         assert_eq!(drain_events(), &["DragEnded"]);
+    }
+
+    #[test]
+    fn build_spawns_slider_with_style_and_handler() {
+        let mut world = World::new();
+        let e = Slider::build(Fixed::ZERO, Fixed::from_int(100))
+            .style(crate::widget::Style::default())
+            .on_change(record_handler)
+            .spawn(&mut world);
+        assert_eq!(world.get::<Slider>(e).unwrap().max, Fixed::from_int(100));
+        assert!(world.has::<crate::widget::Style>(e));
+        assert!(world.has::<SliderHandler>(e));
+        assert!(world.has::<crate::widget::Widget>(e));
+    }
+
+    #[test]
+    fn build_without_handler_omits_it() {
+        let mut world = World::new();
+        let e = Slider::build(Fixed::ZERO, Fixed::ONE).spawn(&mut world);
+        assert!(world.has::<Slider>(e));
+        assert!(!world.has::<SliderHandler>(e));
+        assert!(!world.has::<crate::widget::Style>(e));
     }
 }

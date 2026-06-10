@@ -31,6 +31,7 @@ pub(crate) struct TabBarPrev {
 /// Horizontal tab bar with N children laid out flex-row.
 /// `selected` is the discrete tab index; `indicator_offset` is the
 /// continuous (0.0 .. count) position the renderer reads.
+#[derive(crate::Component)]
 pub struct TabBar {
     pub selected: u8,
     pub count: u8,
@@ -64,6 +65,58 @@ impl TabBar {
     pub fn with_indicator_height(mut self, height: impl Into<Fixed>) -> Self {
         self.indicator_height = height.into();
         self
+    }
+
+    pub fn build(count: u8) -> TabBarBuilder {
+        TabBarBuilder {
+            tab_bar: TabBar::new(count),
+            style: None,
+            handler: None,
+        }
+    }
+}
+
+pub struct TabBarBuilder {
+    tab_bar: TabBar,
+    style: Option<crate::widget::Style>,
+    handler: Option<TabBarHandler>,
+}
+
+impl TabBarBuilder {
+    pub fn style(mut self, style: crate::widget::Style) -> Self {
+        self.style = Some(style);
+        self
+    }
+
+    pub fn on_change(mut self, on_event: fn(&mut World, Entity, &TabBarEvent) -> bool) -> Self {
+        self.handler = Some(TabBarHandler { on_event });
+        self
+    }
+
+    pub fn indicator_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.tab_bar.indicator_color = color.into();
+        self
+    }
+
+    pub fn indicator_height(mut self, height: impl Into<Fixed>) -> Self {
+        self.tab_bar.indicator_height = height.into();
+        self
+    }
+
+    pub fn spawn(self, world: &mut World) -> Entity {
+        world.spawn(self)
+    }
+}
+
+impl crate::ecs::IntoBundle for TabBarBuilder {
+    fn spawn_into(self, world: &mut World, entity: Entity) {
+        world.insert(entity, self.tab_bar);
+        if let Some(style) = self.style {
+            world.insert(entity, style);
+        }
+        if let Some(handler) = self.handler {
+            world.insert(entity, handler);
+        }
     }
 }
 
@@ -200,5 +253,30 @@ mod tests {
     fn with_indicator_token_via_into() {
         let tb = TabBar::new(3).with_indicator_color(ColorToken::Success);
         assert_eq!(tb.indicator_color, ThemedColor::Token(ColorToken::Success),);
+    }
+
+    #[test]
+    fn builder_inserts_all() {
+        fn h(_: &mut World, _: Entity, _: &TabBarEvent) -> bool {
+            true
+        }
+        let mut world = World::new();
+        let e = TabBar::build(3)
+            .style(crate::widget::Style::default())
+            .on_change(h)
+            .spawn(&mut world);
+        assert!(world.get::<TabBar>(e).is_some());
+        assert!(world.get::<crate::widget::Style>(e).is_some());
+        assert!(world.get::<TabBarHandler>(e).is_some());
+        assert!(world.get::<crate::widget::Widget>(e).is_some());
+    }
+
+    #[test]
+    fn bare_builder_omits_optionals() {
+        let mut world = World::new();
+        let e = TabBar::build(3).spawn(&mut world);
+        assert!(world.get::<TabBar>(e).is_some());
+        assert!(world.get::<crate::widget::Style>(e).is_none());
+        assert!(world.get::<TabBarHandler>(e).is_none());
     }
 }

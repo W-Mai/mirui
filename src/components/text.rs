@@ -6,7 +6,42 @@ use crate::ecs::{Entity, World};
 use crate::types::{Fixed, Point, Rect};
 use crate::widget::view::{View, ViewCtx};
 
+#[derive(crate::Component)]
 pub struct Text(pub Vec<u8>);
+
+impl Text {
+    pub fn build(s: &str) -> TextBuilder {
+        TextBuilder {
+            text: Text(s.as_bytes().to_vec()),
+            style: None,
+        }
+    }
+}
+
+pub struct TextBuilder {
+    text: Text,
+    style: Option<crate::widget::Style>,
+}
+
+impl TextBuilder {
+    pub fn style(mut self, style: crate::widget::Style) -> Self {
+        self.style = Some(style);
+        self
+    }
+
+    pub fn spawn(self, world: &mut World) -> Entity {
+        world.spawn(self)
+    }
+}
+
+impl crate::ecs::IntoBundle for TextBuilder {
+    fn spawn_into(self, world: &mut World, entity: Entity) {
+        world.insert(entity, self.text);
+        if let Some(style) = self.style {
+            world.insert(entity, style);
+        }
+    }
+}
 
 fn text_render(
     renderer: &mut dyn Renderer,
@@ -36,4 +71,28 @@ fn text_render(
 
 pub fn view() -> View {
     View::new("Text", 80, text_render).with_filter::<Text>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn build_spawns_text_with_style() {
+        let mut world = World::new();
+        let e = Text::build("hi")
+            .style(crate::widget::Style::default())
+            .spawn(&mut world);
+        assert_eq!(world.get::<Text>(e).unwrap().0, b"hi".to_vec());
+        assert!(world.has::<crate::widget::Style>(e));
+        assert!(world.has::<crate::widget::Widget>(e));
+    }
+
+    #[test]
+    fn build_without_style_omits_it() {
+        let mut world = World::new();
+        let e = Text::build("hi").spawn(&mut world);
+        assert!(world.has::<Text>(e));
+        assert!(!world.has::<crate::widget::Style>(e));
+    }
 }

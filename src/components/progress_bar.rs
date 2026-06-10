@@ -17,6 +17,7 @@ pub struct ProgressBarHandler {
     pub on_event: fn(&mut World, Entity, &ProgressBarEvent) -> bool,
 }
 
+#[derive(crate::Component)]
 pub struct ProgressBar {
     pub value: f32, // 0.0 ~ 1.0
     pub track_color: ThemedColor,
@@ -46,6 +47,66 @@ impl ProgressBar {
     pub fn with_fill_color(mut self, color: impl Into<ThemedColor>) -> Self {
         self.fill_color = color.into();
         self
+    }
+
+    pub fn build() -> ProgressBarBuilder {
+        ProgressBarBuilder {
+            progress_bar: ProgressBar::new(),
+            style: None,
+            handler: None,
+        }
+    }
+}
+
+pub struct ProgressBarBuilder {
+    progress_bar: ProgressBar,
+    style: Option<crate::widget::Style>,
+    handler: Option<ProgressBarHandler>,
+}
+
+impl ProgressBarBuilder {
+    pub fn style(mut self, style: crate::widget::Style) -> Self {
+        self.style = Some(style);
+        self
+    }
+
+    pub fn on_change(
+        mut self,
+        on_event: fn(&mut World, Entity, &ProgressBarEvent) -> bool,
+    ) -> Self {
+        self.handler = Some(ProgressBarHandler { on_event });
+        self
+    }
+
+    pub fn value(mut self, v: f32) -> Self {
+        self.progress_bar.value = v;
+        self
+    }
+
+    pub fn track_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.progress_bar.track_color = color.into();
+        self
+    }
+
+    pub fn fill_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.progress_bar.fill_color = color.into();
+        self
+    }
+
+    pub fn spawn(self, world: &mut World) -> Entity {
+        world.spawn(self)
+    }
+}
+
+impl crate::ecs::IntoBundle for ProgressBarBuilder {
+    fn spawn_into(self, world: &mut World, entity: Entity) {
+        world.insert(entity, self.progress_bar);
+        if let Some(style) = self.style {
+            world.insert(entity, style);
+        }
+        if let Some(handler) = self.handler {
+            world.insert(entity, handler);
+        }
     }
 }
 
@@ -147,4 +208,35 @@ pub fn view() -> View {
         .with_filter::<ProgressBar>()
         .with_attach(progress_bar_attach)
         .with_internal_gesture(progress_bar_handler)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn h(_: &mut World, _: Entity, _: &ProgressBarEvent) -> bool {
+        true
+    }
+
+    #[test]
+    fn build_spawns_progress_bar_with_style_and_handler() {
+        let mut world = World::new();
+        let e = ProgressBar::build()
+            .style(crate::widget::Style::default())
+            .on_change(h)
+            .spawn(&mut world);
+        assert!(world.has::<ProgressBar>(e));
+        assert!(world.has::<crate::widget::Style>(e));
+        assert!(world.has::<ProgressBarHandler>(e));
+        assert!(world.has::<crate::widget::Widget>(e));
+    }
+
+    #[test]
+    fn build_without_handler_omits_it() {
+        let mut world = World::new();
+        let e = ProgressBar::build().spawn(&mut world);
+        assert!(world.has::<ProgressBar>(e));
+        assert!(!world.has::<ProgressBarHandler>(e));
+        assert!(!world.has::<crate::widget::Style>(e));
+    }
 }

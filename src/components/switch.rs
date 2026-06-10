@@ -18,6 +18,7 @@ pub struct SwitchHandler {
     pub on_event: fn(&mut World, Entity, &SwitchEvent) -> bool,
 }
 
+#[derive(crate::Component)]
 pub struct Switch {
     pub on: bool,
     pub on_color: ThemedColor,
@@ -58,6 +59,63 @@ impl Switch {
 
     pub fn toggle(&mut self) {
         self.on = !self.on;
+    }
+
+    pub fn build() -> SwitchBuilder {
+        SwitchBuilder {
+            switch: Switch::new(),
+            style: None,
+            handler: None,
+        }
+    }
+}
+
+pub struct SwitchBuilder {
+    switch: Switch,
+    style: Option<crate::widget::Style>,
+    handler: Option<SwitchHandler>,
+}
+
+impl SwitchBuilder {
+    pub fn style(mut self, style: crate::widget::Style) -> Self {
+        self.style = Some(style);
+        self
+    }
+
+    pub fn on_change(mut self, on_event: fn(&mut World, Entity, &SwitchEvent) -> bool) -> Self {
+        self.handler = Some(SwitchHandler { on_event });
+        self
+    }
+
+    pub fn on_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.switch.on_color = color.into();
+        self
+    }
+
+    pub fn off_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.switch.off_color = color.into();
+        self
+    }
+
+    pub fn thumb_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.switch.thumb_color = color.into();
+        self
+    }
+
+    pub fn spawn(self, world: &mut World) -> Entity {
+        world.spawn(self)
+    }
+}
+
+impl crate::ecs::IntoBundle for SwitchBuilder {
+    fn spawn_into(self, world: &mut World, entity: Entity) {
+        world.insert(entity, self.switch);
+        if let Some(style) = self.style {
+            world.insert(entity, style);
+        }
+        if let Some(handler) = self.handler {
+            world.insert(entity, handler);
+        }
     }
 }
 
@@ -290,4 +348,35 @@ pub fn view() -> View {
                 ]
             },
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn h(_: &mut World, _: Entity, _: &SwitchEvent) -> bool {
+        true
+    }
+
+    #[test]
+    fn build_spawns_switch_with_style_and_handler() {
+        let mut world = World::new();
+        let e = Switch::build()
+            .style(crate::widget::Style::default())
+            .on_change(h)
+            .spawn(&mut world);
+        assert!(world.has::<Switch>(e));
+        assert!(world.has::<crate::widget::Style>(e));
+        assert!(world.has::<SwitchHandler>(e));
+        assert!(world.has::<crate::widget::Widget>(e));
+    }
+
+    #[test]
+    fn build_without_handler_omits_it() {
+        let mut world = World::new();
+        let e = Switch::build().spawn(&mut world);
+        assert!(world.has::<Switch>(e));
+        assert!(!world.has::<SwitchHandler>(e));
+        assert!(!world.has::<crate::widget::Style>(e));
+    }
 }

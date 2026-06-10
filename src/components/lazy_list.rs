@@ -14,6 +14,7 @@ use alloc::vec::Vec;
 /// rewrites the pool entities' positions so they line up at
 /// `index * item_height` in the parent's coordinate space. The scroll
 /// system handles the rest via `ScrollOffset`.
+#[derive(crate::Component)]
 pub struct LazyList {
     pub item_count: u32,
     pub item_height: Fixed,
@@ -21,6 +22,17 @@ pub struct LazyList {
     /// Updated by lazy_list_system each frame; the leftmost (topmost)
     /// row index currently bound to pool slot 0.
     pub visible_start: u32,
+}
+
+impl Default for LazyList {
+    fn default() -> Self {
+        Self {
+            item_count: 0,
+            item_height: Fixed::ZERO,
+            pool_size: 0,
+            visible_start: 0,
+        }
+    }
 }
 
 impl LazyList {
@@ -279,7 +291,7 @@ mod tests {
     }
 
     fn make_slot(world: &mut World, list: Entity) -> Entity {
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Widget);
         world.insert(
             e,
@@ -302,7 +314,7 @@ mod tests {
     #[test]
     fn first_tick_binds_all_slots_top_down() {
         let mut world = World::default();
-        let list = world.spawn();
+        let list = world.spawn_empty();
         let pool: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
         world.insert(list, Widget);
         world.insert(list, Style::default());
@@ -328,7 +340,7 @@ mod tests {
     #[test]
     fn scroll_one_row_rebinds_one_slot() {
         let mut world = World::default();
-        let list = world.spawn();
+        let list = world.spawn_empty();
         let pool: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
         world.insert(list, Widget);
         world.insert(list, Style::default());
@@ -372,7 +384,7 @@ mod tests {
         // 5-slot pool but only 3 items. Slots 3 and 4 must end up
         // Hidden so they don't paint stale (or empty) bindings.
         let mut world = World::default();
-        let list = world.spawn();
+        let list = world.spawn_empty();
         let pool: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
         world.insert(list, Widget);
         world.insert(list, Style::default());
@@ -407,7 +419,7 @@ mod tests {
         // Bind all 5 rows, then shrink item_count to 3. Slots that
         // were bound to rows 3 / 4 must be cleared and Hidden.
         let mut world = World::default();
-        let list = world.spawn();
+        let list = world.spawn_empty();
         let pool: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
         world.insert(list, Widget);
         world.insert(list, Style::default());
@@ -449,7 +461,7 @@ mod tests {
     #[test]
     fn growing_item_count_unhides_reused_slots() {
         let mut world = World::default();
-        let list = world.spawn();
+        let list = world.spawn_empty();
         let pool: Vec<Entity> = (0..5).map(|_| make_slot(&mut world, list)).collect();
         world.insert(list, Widget);
         world.insert(list, Style::default());

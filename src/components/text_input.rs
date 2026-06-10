@@ -25,6 +25,7 @@ pub const TEXT_INPUT_CAP: usize = 32;
 ///
 /// `focused` mirrors `FocusState` for fast read in the renderer; it's
 /// updated by the gesture handler on Tap.
+#[derive(crate::Component)]
 pub struct TextInput {
     pub buffer: [u8; TEXT_INPUT_CAP],
     pub len: u8,
@@ -151,11 +152,73 @@ impl TextInput {
     pub fn move_end(&mut self) {
         self.cursor = self.len;
     }
+
+    pub fn build() -> TextInputBuilder {
+        TextInputBuilder {
+            text_input: TextInput::new(),
+            style: None,
+            placeholder: None,
+        }
+    }
 }
 
 impl Default for TextInput {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+pub struct TextInputBuilder {
+    text_input: TextInput,
+    style: Option<crate::widget::Style>,
+    placeholder: Option<&'static str>,
+}
+
+impl TextInputBuilder {
+    pub fn style(mut self, style: crate::widget::Style) -> Self {
+        self.style = Some(style);
+        self
+    }
+
+    pub fn placeholder(mut self, ph: &'static str) -> Self {
+        self.placeholder = Some(ph);
+        self
+    }
+
+    pub fn text_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.text_input.text_color = color.into();
+        self
+    }
+
+    pub fn placeholder_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.text_input.placeholder_color = color.into();
+        self
+    }
+
+    pub fn cursor_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.text_input.cursor_color = color.into();
+        self
+    }
+
+    pub fn focus_border_color(mut self, color: impl Into<ThemedColor>) -> Self {
+        self.text_input.focus_border_color = color.into();
+        self
+    }
+
+    pub fn spawn(self, world: &mut World) -> Entity {
+        world.spawn(self)
+    }
+}
+
+impl crate::ecs::IntoBundle for TextInputBuilder {
+    fn spawn_into(self, world: &mut World, entity: Entity) {
+        world.insert(entity, self.text_input);
+        if let Some(style) = self.style {
+            world.insert(entity, style);
+        }
+        if let Some(ph) = self.placeholder {
+            world.insert(entity, Placeholder(ph));
+        }
     }
 }
 
@@ -453,5 +516,27 @@ mod tests {
         }
         assert!(!ti.insert(b'b'));
         assert_eq!(ti.len as usize, TEXT_INPUT_CAP);
+    }
+
+    #[test]
+    fn builder_inserts_all() {
+        let mut world = World::new();
+        let e = TextInput::build()
+            .style(crate::widget::Style::default())
+            .placeholder("hi")
+            .spawn(&mut world);
+        assert!(world.get::<TextInput>(e).is_some());
+        assert!(world.get::<crate::widget::Style>(e).is_some());
+        assert!(world.get::<Placeholder>(e).is_some());
+        assert!(world.get::<crate::widget::Widget>(e).is_some());
+    }
+
+    #[test]
+    fn bare_builder_omits_optionals() {
+        let mut world = World::new();
+        let e = TextInput::build().spawn(&mut world);
+        assert!(world.get::<TextInput>(e).is_some());
+        assert!(world.get::<crate::widget::Style>(e).is_none());
+        assert!(world.get::<Placeholder>(e).is_none());
     }
 }
