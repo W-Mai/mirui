@@ -59,7 +59,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         :)
 
         Row (
-            direction: FlexDirection::Row,
             grow: 1.0,
             padding: Padding::all(24)
         ) {

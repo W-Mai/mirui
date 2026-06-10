@@ -28,7 +28,7 @@ fn button_row(world: &mut World, parent: Entity) -> Entity {
             world: world
         :)
 
-        Row (direction: FlexDirection::Row, grow: 1.0) {
+        Row (grow: 1.0) {
             View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6) {}
             View (bg_color: Color::rgb(248, 81, 73), grow: 1.0, text: "Cancel", border_radius: 6) {}
             View (bg_color: Color::rgb(210, 168, 255), grow: 1.0, text: "Maybe", border_radius: 6) {}

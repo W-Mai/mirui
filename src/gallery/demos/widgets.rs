@@ -229,14 +229,13 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             world: world
         :)
 
-        View (
+        Column (
             bg_color: ColorToken::Surface,
             position: Position::Absolute,
             left: 0,
             top: tabbar_h_,
             width: w_,
             height: page_h_,
-            direction: FlexDirection::Column,
             padding: Padding::all(10 * scale_)
         ) [
             TabContent {
@@ -244,8 +243,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 index: 1,
             },
         ] {
-            View (
-                direction: FlexDirection::Row,
+            Row (
                 height: 28 * scale_,
                 align: AlignItems::Center
             ) {
@@ -294,14 +292,13 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             world: world
         :)
 
-        View (
+        Column (
             bg_color: ColorToken::Surface,
             position: Position::Absolute,
             left: 0,
             top: tabbar_h_,
             width: w_,
             height: page_h_,
-            direction: FlexDirection::Column,
             padding: Padding::all(12 * scale_),
             align: AlignItems::Center
         ) [

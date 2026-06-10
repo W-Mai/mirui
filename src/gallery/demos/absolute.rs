@@ -14,9 +14,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             world: world
         :)
 
-        View (
+        Column (
             bg_color: Color::rgb(30, 30, 46),
-            direction: FlexDirection::Column,
             width: 480,
             height: 320
         ) {

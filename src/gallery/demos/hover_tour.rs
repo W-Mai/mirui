@@ -29,7 +29,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         :)
 
         Column (
-            direction: FlexDirection::Column,
             grow: 1.0,
             padding: Padding::all(28)
         ) {
@@ -40,7 +39,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             ) {}
             View (height: 16) {}
             Row (
-                direction: FlexDirection::Row,
                 grow: 1.0
             ) {
                 View (

@@ -286,14 +286,14 @@ pub fn build_widgets(
             world: world
         :)
 
-        View (direction: FlexDirection::Column, grow: 1.0) {
+        Column (grow: 1.0) {
             View (
                 bg_color: Color::rgb(88, 166, 255),
                 height: 20,
                 text: "mirui",
                 border_radius: 3
             ) {}
-            Row (direction: FlexDirection::Row, grow: 1.0) {
+            Row (grow: 1.0) {
                 View (bg_color: Color::rgb(63, 185, 80), grow: 1.0) {}
                 View (bg_color: Color::rgb(248, 81, 73), grow: 1.0) {}
             }

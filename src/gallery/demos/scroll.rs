@@ -24,7 +24,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             world: world
         :)
 
-        View (direction: FlexDirection::Column, bg_color: Color::rgb(40, 40, 60), grow: 1.0) [
+        Column (bg_color: Color::rgb(40, 40, 60), grow: 1.0) [
             ScrollOffset {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,

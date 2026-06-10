@@ -98,7 +98,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         :)
 
         Row (
-            direction: FlexDirection::Row,
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
             width: 480,
