@@ -43,7 +43,7 @@ pub(crate) fn rotary_membrane_state(
 }
 
 pub(crate) fn spawn_overlay_rotary(world: &mut World, root: Entity) -> Entity {
-    let entity = world.spawn();
+    let entity = world.spawn_empty();
     world.insert(entity, Widget);
     world.insert(entity, OverlayRotary);
     world.insert(entity, IgnoreHitTest);
@@ -206,7 +206,7 @@ mod tests {
     fn world_with_rotary_root() -> World {
         let mut world = make_world();
         world.insert_resource(InputFeedback::enabled());
-        let root = world.spawn();
+        let root = world.spawn_empty();
         world.insert(root, Widget);
         world.insert(root, Style::default());
         world.insert_resource(WidgetRoot(root));

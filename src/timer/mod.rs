@@ -192,7 +192,7 @@ mod tests {
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
-        let e = w.spawn();
+        let e = w.spawn_empty();
         w.insert(e, Timer::every(100, count_cb));
 
         anchor(&mut w, 0);
@@ -229,7 +229,7 @@ mod tests {
         let _g = mock::lock();
         mock::set_ms(0);
         let mut w = fresh_world();
-        let e = w.spawn();
+        let e = w.spawn_empty();
         w.insert(e, Timer::every(100, count_cb));
         anchor(&mut w, 0);
 
@@ -255,7 +255,7 @@ mod tests {
         mock::set_ms(pre_wrap as u64);
         reset_count();
         let mut w = fresh_world();
-        let e = w.spawn();
+        let e = w.spawn_empty();
         w.insert(e, Timer::every(100, count_cb));
 
         // Anchor at u32::MAX-50: next_at = (u32::MAX-50) + 100 wraps to 49.
@@ -278,7 +278,7 @@ mod tests {
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
-        let e = w.spawn();
+        let e = w.spawn_empty();
         w.insert(e, Timer::after(50, count_cb));
 
         anchor(&mut w, 0);
@@ -298,7 +298,7 @@ mod tests {
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
-        let e = w.spawn();
+        let e = w.spawn_empty();
         w.insert(e, Timer::repeat(3, 100, count_cb));
 
         anchor(&mut w, 0);
@@ -326,7 +326,7 @@ mod tests {
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
-        let e = w.spawn();
+        let e = w.spawn_empty();
         // deadline 250: fires at 100 and 200; the 300 step would cross
         // 250 so the system removes the component instead.
         w.insert(e, Timer::until(250, 100, count_cb));
@@ -346,7 +346,7 @@ mod tests {
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
-        let e = w.spawn();
+        let e = w.spawn_empty();
         w.insert(e, Timer::every(100, count_cb));
 
         // First tick anchors next_at = 0 + 100. No fire yet.

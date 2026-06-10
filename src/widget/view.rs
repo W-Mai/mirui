@@ -299,7 +299,7 @@ mod tests {
         }
 
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Style::default());
 
         let style = world.get::<Style>(e).expect("style present");

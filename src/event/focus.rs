@@ -82,8 +82,8 @@ mod tests {
     #[test]
     fn focus_skips_disabled_subtree() {
         let mut world = World::new();
-        let parent = world.spawn();
-        let child = world.spawn();
+        let parent = world.spawn_empty();
+        let child = world.spawn_empty();
         world.insert(child, Parent(parent));
         world.insert(child, Focusable);
         world.insert(parent, UserState::Disabled);
@@ -93,7 +93,7 @@ mod tests {
     #[test]
     fn focus_ignores_disabled_self() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Focusable);
         world.insert(e, UserState::Disabled);
         assert_eq!(find_focusable(&world, e), None);
@@ -102,8 +102,8 @@ mod tests {
     #[test]
     fn focus_walks_through_non_disabled() {
         let mut world = World::new();
-        let parent = world.spawn();
-        let child = world.spawn();
+        let parent = world.spawn_empty();
+        let child = world.spawn_empty();
         world.insert(child, Parent(parent));
         world.insert(parent, Focusable);
         assert_eq!(find_focusable(&world, child), Some(parent));

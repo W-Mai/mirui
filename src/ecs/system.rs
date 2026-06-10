@@ -217,7 +217,7 @@ mod tests {
         assert_eq!(world.resource::<Counter>().unwrap().0, 0);
 
         // Spawn an entity with `Marker` → system runs.
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Marker);
         s.run_all(&mut world);
         assert_eq!(world.resource::<Counter>().unwrap().0, 1);

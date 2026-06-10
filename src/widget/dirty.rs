@@ -170,13 +170,13 @@ mod tests {
     #[test]
     fn mark_subtree_walks_descendants() {
         let mut world = World::new();
-        let root = world.spawn();
-        let child_a = world.spawn();
-        let child_b = world.spawn();
-        let grandchild = world.spawn();
+        let root = world.spawn_empty();
+        let child_a = world.spawn_empty();
+        let child_b = world.spawn_empty();
+        let grandchild = world.spawn_empty();
         world.insert(root, Children(alloc::vec![child_a, child_b]));
         world.insert(child_a, Children(alloc::vec![grandchild]));
-        let outsider = world.spawn();
+        let outsider = world.spawn_empty();
 
         mark_subtree_dirty(&mut world, root);
 
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn mark_subtree_handles_leaf() {
         let mut world = World::new();
-        let only = world.spawn();
+        let only = world.spawn_empty();
         mark_subtree_dirty(&mut world, only);
         assert!(world.get::<Dirty>(only).is_some());
     }

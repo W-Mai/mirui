@@ -1149,7 +1149,7 @@ mod tests {
             scale: crate::types::Fixed::ONE,
             format: crate::draw::texture::ColorFormat::RGBA8888,
         });
-        let root = world.spawn();
+        let root = world.spawn_empty();
         world.insert_resource(SimRootFallback(root));
         // Caller is expected to hold mock::lock() for the test's
         // duration so the global mock clock isn't shared with parallel
@@ -1558,7 +1558,7 @@ mod tests {
         style: crate::widget::Style,
     ) -> Entity {
         use crate::widget::{Children, Parent, Widget};
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Widget);
         world.insert(e, style);
         if let Some(p) = parent {
@@ -1632,7 +1632,7 @@ mod tests {
     fn tap_on_waits_indefinitely_for_computed_rect() {
         let _g = mock::lock();
         let mut world = setup_world();
-        let target = world.spawn();
+        let target = world.spawn_empty();
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::tap(DimPoint::CENTER).on(target),
@@ -2125,7 +2125,7 @@ mod tests {
         use crate::widget::ComputedRect;
 
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Slider::new(Fixed::ZERO, Fixed::from_int(100)));
         world.insert(
             e,

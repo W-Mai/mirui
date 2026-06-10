@@ -1442,7 +1442,7 @@ mod clip_children_check {
     use crate::widget::{Children, Parent, Style, Widget};
 
     fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Widget);
         world.insert(e, style);
         if let Some(p) = parent {
@@ -1914,7 +1914,7 @@ mod hidden_check {
     use crate::widget::{Children, Hidden, Parent, Style, Widget};
 
     fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Widget);
         world.insert(e, style);
         if let Some(p) = parent {
@@ -1996,7 +1996,7 @@ mod disabled_state_check {
     use crate::widget::{Children, Parent, Style, UserState, Widget};
 
     fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Widget);
         world.insert(e, style);
         if let Some(p) = parent {
@@ -2079,7 +2079,7 @@ mod offscreen_render_check {
     use crate::widget::{Children, OffscreenBufferPool, OffscreenRender, Parent, Style, Widget};
 
     fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Widget);
         world.insert(e, style);
         if let Some(p) = parent {
@@ -2367,7 +2367,7 @@ mod offscreen_render_check {
             world.insert_resource(ViewRegistry::with_builtins());
             world.insert_resource(Theme::dark());
 
-            let panel = world.spawn();
+            let panel = world.spawn_empty();
             world.insert(panel, Widget);
             world.insert(
                 panel,
@@ -2385,7 +2385,7 @@ mod offscreen_render_check {
                 world.insert(panel, OffscreenRender::default());
             }
 
-            let child = world.spawn();
+            let child = world.spawn_empty();
             world.insert(child, Widget);
             world.insert(child, Parent(panel));
             world.insert(panel, Children(std::vec![child]));
@@ -2460,7 +2460,7 @@ mod offscreen_render_check {
             world.insert_resource(ViewRegistry::with_builtins());
             world.insert_resource(Theme::dark());
 
-            let panel = world.spawn();
+            let panel = world.spawn_empty();
             world.insert(panel, Widget);
             world.insert(
                 panel,
@@ -2479,7 +2479,7 @@ mod offscreen_render_check {
                 world.insert(panel, OffscreenRender::default());
             }
 
-            let child = world.spawn();
+            let child = world.spawn_empty();
             world.insert(child, Widget);
             world.insert(child, Parent(panel));
             world.insert(panel, Children(std::vec![child]));
@@ -2590,7 +2590,7 @@ mod offscreen_render_check {
         }
 
         fn spawn_styled(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
-            let e = world.spawn();
+            let e = world.spawn_empty();
             world.insert(e, Widget);
             world.insert(e, style);
             if let Some(p) = parent {
@@ -3342,7 +3342,7 @@ mod offscreen_render_check {
             .with_default_systems()
             .with_offscreen_pool_budget(64 * 1024);
 
-        let panel = app.world.spawn();
+        let panel = app.world.spawn_empty();
         app.world.insert(panel, Widget);
         app.world.insert(
             panel,
@@ -4101,14 +4101,14 @@ mod state_resolve_check {
     #[test]
     fn enabled_when_no_state_components() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         assert_eq!(resolve_widget_state(&world, e), WidgetState::Enabled);
     }
 
     #[test]
     fn disabled_user_state_self() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, UserState::Disabled);
         assert_eq!(resolve_widget_state(&world, e), WidgetState::Disabled);
     }
@@ -4116,8 +4116,8 @@ mod state_resolve_check {
     #[test]
     fn disabled_propagates_via_parent() {
         let mut world = World::new();
-        let parent = world.spawn();
-        let child = world.spawn();
+        let parent = world.spawn_empty();
+        let child = world.spawn_empty();
         world.insert(child, Parent(parent));
         world.insert(parent, UserState::Disabled);
         assert_eq!(resolve_widget_state(&world, child), WidgetState::Disabled);
@@ -4126,8 +4126,8 @@ mod state_resolve_check {
     #[test]
     fn errored_self_only() {
         let mut world = World::new();
-        let parent = world.spawn();
-        let child = world.spawn();
+        let parent = world.spawn_empty();
+        let child = world.spawn_empty();
         world.insert(child, Parent(parent));
         world.insert(parent, UserState::Errored);
         assert_eq!(resolve_widget_state(&world, child), WidgetState::Enabled);
@@ -4137,7 +4137,7 @@ mod state_resolve_check {
     #[test]
     fn pressed_beats_hovered() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, InteractionState::Pressed);
         assert_eq!(resolve_widget_state(&world, e), WidgetState::Pressed);
     }
@@ -4145,7 +4145,7 @@ mod state_resolve_check {
     #[test]
     fn hovered_when_only_hover() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, InteractionState::Hovered);
         assert_eq!(resolve_widget_state(&world, e), WidgetState::Hovered);
     }
@@ -4153,7 +4153,7 @@ mod state_resolve_check {
     #[test]
     fn disabled_beats_pressed() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, UserState::Disabled);
         world.insert(e, InteractionState::Pressed);
         assert_eq!(resolve_widget_state(&world, e), WidgetState::Disabled);
@@ -4171,7 +4171,7 @@ mod scroll_plan_check {
     use crate::widget::{Children, Parent, Style, Widget};
 
     fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Widget);
         world.insert(e, style);
         if let Some(p) = parent {

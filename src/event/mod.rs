@@ -220,8 +220,8 @@ mod tests {
     #[test]
     fn ancestor_disabled_propagates() {
         let mut world = World::new();
-        let parent = world.spawn();
-        let child = world.spawn();
+        let parent = world.spawn_empty();
+        let child = world.spawn_empty();
         world.insert(child, Parent(parent));
         world.insert(parent, UserState::Disabled);
         assert!(entity_or_ancestor_disabled(&world, child));
@@ -230,7 +230,7 @@ mod tests {
     #[test]
     fn entity_self_disabled() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, UserState::Disabled);
         assert!(entity_or_ancestor_disabled(&world, e));
     }
@@ -238,8 +238,8 @@ mod tests {
     #[test]
     fn unrelated_entity_not_disabled() {
         let mut world = World::new();
-        let a = world.spawn();
-        let b = world.spawn();
+        let a = world.spawn_empty();
+        let b = world.spawn_empty();
         world.insert(a, UserState::Disabled);
         assert!(!entity_or_ancestor_disabled(&world, b));
     }
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn errored_does_not_propagate_via_disabled_walk() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, UserState::Errored);
         assert!(!entity_or_ancestor_disabled(&world, e));
     }
@@ -317,7 +317,7 @@ mod tests {
             reset();
             let mut world = World::new();
             world.insert_resource(ViewRegistry::default());
-            let e = world.spawn();
+            let e = world.spawn_empty();
             world.insert(
                 e,
                 GestureHandler {
@@ -335,7 +335,7 @@ mod tests {
             reset();
             let mut world = World::new();
             world.insert_resource(registry_with(internal_consume));
-            let e = world.spawn();
+            let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
             bubble_dispatch_at(&mut world, &tap_event(e), 0);
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
@@ -348,7 +348,7 @@ mod tests {
             reset();
             let mut world = World::new();
             world.insert_resource(registry_with(internal_consume));
-            let e = world.spawn();
+            let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
             world.insert(
                 e,
@@ -371,7 +371,7 @@ mod tests {
             reset();
             let mut world = World::new();
             world.insert_resource(registry_with(internal_passthrough));
-            let e = world.spawn();
+            let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
             world.insert(
                 e,

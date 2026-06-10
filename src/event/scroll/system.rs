@@ -628,7 +628,7 @@ mod tests {
         use crate::widget::{ComputedRect, Widget};
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
-        let target = world.spawn();
+        let target = world.spawn_empty();
         world.insert(target, Widget);
         world.insert(
             target,
@@ -697,7 +697,7 @@ mod tests {
         use crate::widget::{ComputedRect, Widget};
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
-        let target = world.spawn();
+        let target = world.spawn_empty();
         world.insert(target, Widget);
         world.insert(
             target,
@@ -757,7 +757,7 @@ mod tests {
         use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
         use crate::widget::{ComputedRect, Widget};
         let mut world = World::new();
-        let target = world.spawn();
+        let target = world.spawn_empty();
         world.insert(target, Widget);
         world.insert(
             target,
@@ -804,7 +804,7 @@ mod tests {
         use crate::widget::{ComputedRect, Widget};
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
-        let target = world.spawn();
+        let target = world.spawn_empty();
         world.insert(target, Widget);
         world.insert(
             target,

@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn swap_marker_inserts_when_target_arrives() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         swap_marker(
             &mut world,
             Some(e),
@@ -169,7 +169,7 @@ mod tests {
     #[test]
     fn swap_marker_removes_when_target_leaves() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, InteractionState::Hovered);
         swap_marker(
             &mut world,
@@ -183,8 +183,8 @@ mod tests {
     #[test]
     fn swap_marker_moves_when_target_changes() {
         let mut world = World::new();
-        let a = world.spawn();
-        let b = world.spawn();
+        let a = world.spawn_empty();
+        let b = world.spawn_empty();
         world.insert(a, InteractionState::Hovered);
         swap_marker(
             &mut world,
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn swap_marker_noop_when_target_unchanged() {
         let mut world = World::new();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, InteractionState::Hovered);
         assert!(world.get::<crate::widget::dirty::Dirty>(e).is_none());
         swap_marker(
@@ -229,7 +229,7 @@ mod hover_press_e2e {
         let mut app = crate::app::App::headless(64, 64);
         app.with_default_widgets();
         let mut world = app.world;
-        let root = world.spawn();
+        let root = world.spawn_empty();
         world.insert(root, Widget);
         world.insert(
             root,

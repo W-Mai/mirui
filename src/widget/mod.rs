@@ -152,6 +152,102 @@ pub struct Children(pub Vec<crate::ecs::Entity>);
 
 pub struct Parent(pub crate::ecs::Entity);
 
+/// Holds the world's only `&mut` for a [`spawn_children`] closure, so child
+/// spawns are sequential — two child handles can never be live at once.
+pub struct ChildSpawner<'w> {
+    world: &'w mut crate::ecs::World,
+    parent: crate::ecs::Entity,
+}
+
+impl ChildSpawner<'_> {
+    pub fn spawn<B: crate::ecs::IntoBundle>(&mut self, bundle: B) -> crate::ecs::Entity {
+        let child = self.world.spawn(bundle);
+        self.attach(child);
+        child
+    }
+
+    pub fn children<B: crate::ecs::IntoBundle>(
+        &mut self,
+        bundle: B,
+        f: impl FnOnce(&mut ChildSpawner),
+    ) -> crate::ecs::Entity {
+        let child = spawn_children(self.world, bundle, f);
+        self.attach(child);
+        child
+    }
+
+    fn attach(&mut self, child: crate::ecs::Entity) {
+        self.world.insert(child, Parent(self.parent));
+        if let Some(children) = self.world.get_mut::<Children>(self.parent) {
+            children.0.push(child);
+        }
+    }
+}
+
+/// Spawn `parent` from a bundle, then run `f` to populate its children.
+/// `f` receives a [`ChildSpawner`] holding the world's only mutable borrow,
+/// which `spawn_children` reclaims when `f` returns.
+pub fn spawn_children<B: crate::ecs::IntoBundle>(
+    world: &mut crate::ecs::World,
+    bundle: B,
+    f: impl FnOnce(&mut ChildSpawner),
+) -> crate::ecs::Entity {
+    let parent = world.spawn(bundle);
+    if !world.has::<Children>(parent) {
+        world.insert(parent, Children(Vec::new()));
+    }
+    let mut spawner = ChildSpawner { world, parent };
+    f(&mut spawner);
+    parent
+}
+
+#[cfg(test)]
+mod child_spawner_tests {
+    use super::*;
+    use crate::ecs::{IntoBundle, World};
+
+    struct Tag(u32);
+    struct TagBundle(u32);
+    impl IntoBundle for TagBundle {
+        fn spawn_into(self, world: &mut World, entity: crate::ecs::Entity) {
+            world.insert(entity, Tag(self.0));
+        }
+    }
+
+    #[test]
+    fn closure_children_wire_parent_and_children() {
+        let mut world = World::default();
+        let root = spawn_children(&mut world, TagBundle(0), |c| {
+            c.spawn(TagBundle(1));
+            c.spawn(TagBundle(2));
+        });
+
+        let kids = &world.get::<Children>(root).unwrap().0;
+        assert_eq!(kids.len(), 2);
+        assert_eq!(world.get::<Tag>(kids[0]).unwrap().0, 1);
+        assert_eq!(world.get::<Tag>(kids[1]).unwrap().0, 2);
+        assert_eq!(world.get::<Parent>(kids[0]).unwrap().0, root);
+        assert_eq!(world.get::<Parent>(kids[1]).unwrap().0, root);
+        assert!(world.has::<Widget>(root));
+    }
+
+    #[test]
+    fn nested_closure_children() {
+        let mut world = World::default();
+        let mut grandchild = None;
+        let root = spawn_children(&mut world, TagBundle(0), |c| {
+            grandchild = Some(c.children(TagBundle(2), |gc| {
+                gc.spawn(TagBundle(3));
+            }));
+        });
+        let grandchild = grandchild.unwrap();
+        assert_eq!(world.get::<Children>(root).unwrap().0.len(), 1);
+        assert_eq!(world.get::<Tag>(grandchild).unwrap().0, 2);
+        assert_eq!(world.get::<Children>(grandchild).unwrap().0.len(), 1);
+        assert_eq!(world.get::<Parent>(grandchild).unwrap().0, root);
+    }
+}
+
 /// Resolved post-layout rect (cf. `Style.layout` declarations).
 pub struct ComputedRect(pub crate::types::Rect);
 

@@ -47,8 +47,8 @@ mod tests {
 
     fn fresh() -> (World, Entity, Entity) {
         let mut w = World::new();
-        let a = w.spawn();
-        let b = w.spawn();
+        let a = w.spawn_empty();
+        let b = w.spawn_empty();
         (w, a, b)
     }
 
@@ -101,7 +101,7 @@ mod tests {
     fn world_find_by_id_hits_resource() {
         let mut w = World::new();
         w.insert_resource(IdMap::new());
-        let e = w.spawn();
+        let e = w.spawn_empty();
         if let Some(map) = w.resource_mut::<IdMap>() {
             map.insert("hero", e);
         }

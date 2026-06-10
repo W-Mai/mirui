@@ -46,7 +46,7 @@ mod tests {
     #[test]
     fn insert_and_get() {
         let mut w = World::new();
-        let e = w.spawn();
+        let e = w.spawn_empty();
         let mut m = NicheMap::new();
         m.insert("body", e);
         assert_eq!(m.get("body"), Some(e));
@@ -56,8 +56,8 @@ mod tests {
     #[test]
     fn from_array() {
         let mut w = World::new();
-        let a = w.spawn();
-        let b = w.spawn();
+        let a = w.spawn_empty();
+        let b = w.spawn_empty();
         let m = NicheMap::from([("header", a), ("body", b)]);
         assert_eq!(m.get("header"), Some(a));
         assert_eq!(m.get("body"), Some(b));
@@ -66,8 +66,8 @@ mod tests {
     #[test]
     fn keys_lists_registered_names() {
         let mut w = World::new();
-        let a = w.spawn();
-        let b = w.spawn();
+        let a = w.spawn_empty();
+        let b = w.spawn_empty();
         let m = NicheMap::from([("a", a), ("b", b)]);
         let names: alloc::vec::Vec<_> = m.keys().copied().collect();
         assert_eq!(names, alloc::vec!["a", "b"]);

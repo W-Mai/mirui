@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn tabbar_tap_picks_correct_tab() {
         let mut world = World::default();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, ComputedRect(Rect::new(0, 0, 300, 40)));
         world.insert(e, TabBar::new(3));
         for (x, expected) in [(150, 1u8), (270, 2), (0, 0), (299, 2)] {
@@ -87,7 +87,7 @@ mod tests {
         reg.insert(crate::components::button::view());
         world.insert_resource(reg);
 
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Button::new());
         fn user_handler(_: &mut World, _: Entity, _: &GestureEvent) -> bool {
             false
@@ -120,7 +120,7 @@ mod tests {
         reg.insert(crate::components::text_input::view());
         world.insert_resource(reg);
 
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, TextInput::new());
 
         attach_handlers_for(&mut world, e);
@@ -160,7 +160,7 @@ mod tests {
         reg.insert(crate::components::checkbox::view());
         world.insert_resource(reg);
 
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Checkbox::new());
         attach_handlers_for(&mut world, e);
 
@@ -180,7 +180,7 @@ mod tests {
     #[test]
     fn tabbar_ignores_non_tap() {
         let mut world = World::default();
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, ComputedRect(Rect::new(0, 0, 300, 40)));
         world.insert(e, TabBar::new(3));
         let consumed = tabbar_handler(

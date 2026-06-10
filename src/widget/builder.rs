@@ -13,7 +13,7 @@ pub struct WidgetBuilder<'a> {
 
 impl<'a> WidgetBuilder<'a> {
     pub fn new(world: &'a mut World) -> Self {
-        let entity = world.spawn();
+        let entity = world.spawn_empty();
         world.insert(entity, Widget);
         world.insert(entity, Style::default());
         world.insert(entity, Children(alloc::vec::Vec::new()));

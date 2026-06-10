@@ -79,7 +79,7 @@ mod tests {
     fn first_tap_records_count_one() {
         let mut world = World::default();
         world.insert_resource(MultiTapTracker::new());
-        let e = world.spawn();
+        let e = world.spawn_empty();
         observe_gesture(&mut world, &tap(e), 100);
         assert_eq!(current_count(&world, e), 1);
     }
@@ -88,7 +88,7 @@ mod tests {
     fn within_window_increments() {
         let mut world = World::default();
         world.insert_resource(MultiTapTracker::new());
-        let e = world.spawn();
+        let e = world.spawn_empty();
         observe_gesture(&mut world, &tap(e), 100);
         observe_gesture(&mut world, &tap(e), 200);
         observe_gesture(&mut world, &tap(e), 350);
@@ -99,7 +99,7 @@ mod tests {
     fn outside_window_resets() {
         let mut world = World::default();
         world.insert_resource(MultiTapTracker::new());
-        let e = world.spawn();
+        let e = world.spawn_empty();
         observe_gesture(&mut world, &tap(e), 100);
         observe_gesture(&mut world, &tap(e), 500);
         assert_eq!(current_count(&world, e), 1);
@@ -109,8 +109,8 @@ mod tests {
     fn different_target_resets() {
         let mut world = World::default();
         world.insert_resource(MultiTapTracker::new());
-        let a = world.spawn();
-        let b = world.spawn();
+        let a = world.spawn_empty();
+        let b = world.spawn_empty();
         observe_gesture(&mut world, &tap(a), 100);
         observe_gesture(&mut world, &tap(b), 200);
         assert_eq!(current_count(&world, a), 1);
@@ -121,8 +121,8 @@ mod tests {
     fn current_count_unrelated_entity_defaults_one() {
         let mut world = World::default();
         world.insert_resource(MultiTapTracker::new());
-        let a = world.spawn();
-        let b = world.spawn();
+        let a = world.spawn_empty();
+        let b = world.spawn_empty();
         observe_gesture(&mut world, &tap(a), 100);
         assert_eq!(current_count(&world, b), 1);
     }
@@ -141,7 +141,7 @@ mod tests {
     fn now_ms_zero_never_accumulates() {
         let mut world = World::default();
         world.insert_resource(MultiTapTracker::new());
-        let e = world.spawn();
+        let e = world.spawn_empty();
         observe_gesture(&mut world, &tap(e), 0);
         observe_gesture(&mut world, &tap(e), 0);
         observe_gesture(&mut world, &tap(e), 0);
@@ -152,7 +152,7 @@ mod tests {
     fn non_tap_event_ignored() {
         let mut world = World::default();
         world.insert_resource(MultiTapTracker::new());
-        let e = world.spawn();
+        let e = world.spawn_empty();
         let drag = GestureEvent::DragStart {
             x: Fixed::ZERO,
             y: Fixed::ZERO,

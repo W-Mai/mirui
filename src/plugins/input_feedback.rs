@@ -141,7 +141,7 @@ mod tests {
     #[test]
     fn pre_render_lazy_spawns_rotary_after_root_set() {
         let mut app = make_app();
-        let root = app.world.spawn();
+        let root = app.world.spawn_empty();
         app.world.insert(root, crate::widget::Widget);
         app.world.insert(root, crate::widget::Style::default());
         app.world.insert_resource(WidgetRoot(root));
@@ -161,7 +161,7 @@ mod tests {
         // Cursor entity must wait for first PointerCursor; otherwise the
         // ESP rotary-only path leaks an unused entity into every frame.
         let mut app = make_app();
-        let root = app.world.spawn();
+        let root = app.world.spawn_empty();
         app.world.insert(root, crate::widget::Widget);
         app.world.insert(root, crate::widget::Style::default());
         app.world.insert_resource(WidgetRoot(root));

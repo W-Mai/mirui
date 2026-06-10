@@ -52,7 +52,7 @@ impl World {
         Self::default()
     }
 
-    pub fn spawn(&mut self) -> Entity {
+    pub fn spawn_empty(&mut self) -> Entity {
         self.allocator.allocate()
     }
 

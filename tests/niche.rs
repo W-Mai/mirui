@@ -16,11 +16,11 @@ mod tests {
         if world.get::<NicheMap>(entity).is_some() {
             return;
         }
-        let header = world.spawn();
+        let header = world.spawn_empty();
         world.insert(header, Parent(entity));
-        let body = world.spawn();
+        let body = world.spawn_empty();
         world.insert(body, Parent(entity));
-        let footer = world.spawn();
+        let footer = world.spawn_empty();
         world.insert(footer, Parent(entity));
         world.insert(
             entity,

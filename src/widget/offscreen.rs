@@ -614,8 +614,8 @@ mod tests {
     #[test]
     fn first_ref_auto_adds_offscreen_render() {
         let mut world = World::default();
-        let source = world.spawn();
-        let consumer = world.spawn();
+        let source = world.spawn_empty();
+        let consumer = world.spawn_empty();
         world.insert(consumer, WidgetTextureRef(source));
 
         run_refs(&mut world);
@@ -626,9 +626,9 @@ mod tests {
     #[test]
     fn last_ref_dropped_auto_removes_offscreen_render() {
         let mut world = World::default();
-        let source = world.spawn();
-        let c1 = world.spawn();
-        let c2 = world.spawn();
+        let source = world.spawn_empty();
+        let c1 = world.spawn_empty();
+        let c2 = world.spawn_empty();
         world.insert(c1, WidgetTextureRef(source));
         world.insert(c2, WidgetTextureRef(source));
         run_refs(&mut world);
@@ -647,11 +647,11 @@ mod tests {
     #[test]
     fn user_explicit_offscreen_render_is_never_removed() {
         let mut world = World::default();
-        let source = world.spawn();
+        let source = world.spawn_empty();
         // User-explicit: no `OffscreenAutoAdded` marker.
         world.insert(source, OffscreenRender::default());
 
-        let consumer = world.spawn();
+        let consumer = world.spawn_empty();
         world.insert(consumer, WidgetTextureRef(source));
         run_refs(&mut world);
         assert!(world.get::<OffscreenAutoAdded>(source).is_none());

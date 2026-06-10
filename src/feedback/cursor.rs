@@ -61,7 +61,7 @@ fn entity_target_rect(visual: &CursorVisual, mode: CursorFeedbackMode) -> Rect {
 }
 
 fn spawn_overlay_cursor(world: &mut World, root: Entity, initial_rect: Rect) -> Entity {
-    let entity = world.spawn();
+    let entity = world.spawn_empty();
     world.insert(entity, Widget);
     world.insert(entity, OverlayCursor);
     world.insert(entity, IgnoreHitTest);
@@ -226,7 +226,7 @@ mod tests {
     }
 
     fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, Widget);
         world.insert(e, style);
         if let Some(p) = parent {

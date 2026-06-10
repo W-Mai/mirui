@@ -129,13 +129,13 @@ mod tests {
     use crate::ecs::World;
 
     fn make_bar(world: &mut World, count: u8) -> Entity {
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(e, TabBar::new(count));
         e
     }
 
     fn make_content(world: &mut World, bar: Entity, index: u8) -> Entity {
-        let e = world.spawn();
+        let e = world.spawn_empty();
         world.insert(
             e,
             TabContent {
@@ -211,7 +211,7 @@ mod tests {
         let p0 = make_content(&mut world, bar, 0);
         let p1 = make_content(&mut world, bar, 1);
         // Give p1 a child so we can verify subtree-wide Dirty marking.
-        let p1_child = world.spawn();
+        let p1_child = world.spawn_empty();
         world.insert(p1_child, crate::widget::Parent(p1));
         world.insert(p1, Children(alloc::vec![p1_child]));
 
