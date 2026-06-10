@@ -101,7 +101,7 @@ pub mod widget;
 #[cfg(feature = "gallery")]
 pub mod gallery;
 
-pub use mirui_macros::{system, trace_fn, trace_span, ui};
+pub use mirui_macros::{Component, system, trace_fn, trace_span, ui};
 
 /// `use mirui::prelude::*;` brings in the types and macros that nearly
 /// every application file needs: `App`, the layout module, `Color` /

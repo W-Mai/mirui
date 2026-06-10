@@ -1391,7 +1391,7 @@ mod timer_impl {
             impl #name {
                 pub fn install(world: &mut mirui::ecs::World) -> mirui::ecs::Entity {
                     let __cb: fn(&mut mirui::ecs::World, mirui::ecs::Entity) = #closure;
-                    let e = world.spawn();
+                    let e = world.spawn_empty();
                     world.insert(e, #ctor);
                     e
                 }
@@ -1669,6 +1669,17 @@ pub fn system(args: TokenStream, item: TokenStream) -> TokenStream {
                 mirui::ecs::System::new(#name_lit, #order_expr, super::#fn_ident) #with_expect_call
             }
         }
+    }
+    .into()
+}
+
+#[proc_macro_derive(Component)]
+pub fn derive_component(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+    quote! {
+        impl #impl_generics ::mirui::ecs::Component for #name #ty_generics #where_clause {}
     }
     .into()
 }
