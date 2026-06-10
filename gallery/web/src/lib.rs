@@ -54,6 +54,7 @@ gallery::register_demos! {
     ("components",           "components",           "Components",  components,           480, 320),
     ("theme_swap",           "theme swap",           "Components",  theme_swap,           480, 320),
     ("widgets",              "widgets",              "Components",  widgets,              512, 512),
+    ("builder_form",         "builder API (no DSL)", "Components",  builder_form,         320, 200),
 }
 
 #[wasm_bindgen(start)]
