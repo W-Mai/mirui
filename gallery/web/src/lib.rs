@@ -87,6 +87,13 @@ fn read_demo_query() -> Option<String> {
 }
 
 #[wasm_bindgen]
+pub fn demo_source(slug: &str) -> String {
+    lookup_demo(slug)
+        .map(|d| d.source.to_string())
+        .unwrap_or_default()
+}
+
+#[wasm_bindgen]
 pub fn nav_html() -> String {
     let mut out = String::new();
     let mut prev_cat = "";

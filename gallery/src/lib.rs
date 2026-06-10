@@ -38,6 +38,7 @@ pub struct DemoEntry {
     pub width: u16,
     pub height: u16,
     pub setup: fn(&mut Setup<'_>) -> Entity,
+    pub source: &'static str,
 }
 
 #[macro_export]
@@ -56,6 +57,12 @@ macro_rules! register_demos {
                         $crate::mirui::gallery::demos::$module::setup_app(setup.app, parent);
                         parent
                     },
+                    source: include_str!(concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/../../src/gallery/demos/",
+                        stringify!($module),
+                        ".rs"
+                    )),
                 },
             )*
         ];
