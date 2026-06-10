@@ -14,6 +14,7 @@ use crate::surface::Surface;
 /// # Required plugins
 /// - [`InputFeedbackPlugin`] (for the cursor / rotary feedback overlay)
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -45,6 +46,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             }
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

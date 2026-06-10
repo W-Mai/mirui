@@ -94,6 +94,13 @@ pub fn demo_source(slug: &str) -> String {
 }
 
 #[wasm_bindgen]
+pub fn demo_source_focus(slug: &str) -> String {
+    lookup_demo(slug)
+        .map(|d| gallery::extract_focus(d.source))
+        .unwrap_or_default()
+}
+
+#[wasm_bindgen]
 pub fn nav_html() -> String {
     let mut out = String::new();
     let mut prev_cat = "";

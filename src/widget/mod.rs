@@ -45,6 +45,14 @@ pub struct Widget;
 #[derive(Clone, Copy)]
 pub struct WidgetRoot(pub crate::ecs::Entity);
 
+/// The root's laid-out `Rect` this frame, for systems that size
+/// absolute children to the live canvas instead of a setup-time value.
+/// `None` before the first layout pass.
+pub fn root_viewport(world: &crate::ecs::World) -> Option<crate::types::Rect> {
+    let root = world.resource::<WidgetRoot>()?.0;
+    world.get::<ComputedRect>(root).map(|c| c.0)
+}
+
 #[derive(Clone, Debug, crate::Component)]
 pub struct Style {
     pub bg_color: Option<ThemedColor>,

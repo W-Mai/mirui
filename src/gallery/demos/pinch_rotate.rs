@@ -105,6 +105,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         )
     };
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -156,6 +157,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             refresh(ctx.world, ctx.entity);
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

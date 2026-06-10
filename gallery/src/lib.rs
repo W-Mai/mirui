@@ -41,6 +41,54 @@ pub struct DemoEntry {
     pub source: &'static str,
 }
 
+const FOCUS_START: &str = "//~focus-start";
+const FOCUS_END: &str = "//~focus-end";
+
+/// Returns the lines inside `//~focus-start` / `//~focus-end` pairs,
+/// dedented to their shallowest common indentation. Sources without
+/// any marker fall back to the full text so annotation stays opt-in.
+pub fn extract_focus(src: &str) -> String {
+    let mut regions: Vec<&str> = Vec::new();
+    let mut in_focus = false;
+    for line in src.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with(FOCUS_START) {
+            in_focus = true;
+            continue;
+        }
+        if trimmed.starts_with(FOCUS_END) {
+            in_focus = false;
+            continue;
+        }
+        if in_focus {
+            regions.push(line);
+        }
+    }
+
+    if regions.is_empty() {
+        return src.to_string();
+    }
+
+    let min_indent = regions
+        .iter()
+        .filter(|l| !l.trim().is_empty())
+        .map(|l| l.len() - l.trim_start().len())
+        .min()
+        .unwrap_or(0);
+
+    let mut out = String::new();
+    for (i, line) in regions.iter().enumerate() {
+        if i > 0 {
+            out.push('\n');
+        }
+        if line.trim().is_empty() {
+            continue;
+        }
+        out.push_str(&line[min_indent..]);
+    }
+    out
+}
+
 #[macro_export]
 macro_rules! register_demos {
     ( $( ($slug:literal, $label:literal, $category:literal, $module:ident, $w:literal, $h:literal) ),* $(,)? ) => {
@@ -302,4 +350,45 @@ where
 
     #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
     app.into_runner().start_animation_frame();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_focus;
+
+    #[test]
+    fn no_markers_returns_full_source() {
+        let src = "fn main() {\n    let x = 1;\n}\n";
+        assert_eq!(extract_focus(src), src);
+    }
+
+    #[test]
+    fn single_region_dedented() {
+        let src = "use foo;\n//~focus-start\nfn core() {\n    let x = 1;\n}\n//~focus-end\nfn tail() {}\n";
+        assert_eq!(extract_focus(src), "fn core() {\n    let x = 1;\n}");
+    }
+
+    #[test]
+    fn nested_region_keeps_relative_indent() {
+        let src = "//~focus-start\n        ui! {\n            row () {}\n        }\n//~focus-end\n";
+        assert_eq!(extract_focus(src), "ui! {\n    row () {}\n}");
+    }
+
+    #[test]
+    fn multiple_regions_joined() {
+        let src = "//~focus-start\n    a();\n//~focus-end\nnoise();\n//~focus-start\n    b();\n//~focus-end\n";
+        assert_eq!(extract_focus(src), "a();\nb();");
+    }
+
+    #[test]
+    fn blank_lines_preserved_without_indent() {
+        let src = "//~focus-start\n    a();\n\n    b();\n//~focus-end\n";
+        assert_eq!(extract_focus(src), "a();\n\nb();");
+    }
+
+    #[test]
+    fn mixed_depth_dedents_to_shallowest() {
+        let src = "//~focus-start\n    a();\n        b();\n//~focus-end\n";
+        assert_eq!(extract_focus(src), "a();\n    b();");
+    }
 }

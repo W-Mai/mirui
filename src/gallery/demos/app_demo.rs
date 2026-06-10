@@ -6,6 +6,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -23,6 +24,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             View (bg_color: Color::rgb(248, 81, 73), width: 120, height: 80)
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

@@ -24,7 +24,13 @@ fn render_demo<F: FnOnce(&mut World, mirui::ecs::Entity)>(
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
     app.add_plugin(mirui::plugins::StdInstantClockPlugin);
-    let parent = WidgetBuilder::new(&mut app.world).id();
+    let parent = WidgetBuilder::new(&mut app.world)
+        .layout(mirui::layout::LayoutStyle {
+            direction: mirui::layout::FlexDirection::Column,
+            grow: Fixed::ONE,
+            ..Default::default()
+        })
+        .id();
     build(&mut app.world, parent);
 
     app.systems.run_all(&mut app.world);
@@ -109,6 +115,19 @@ macro_rules! viewport_demo_ignored {
     };
 }
 
+macro_rules! viewport_demo_ignored_noargs {
+    ($name:ident, $w:expr, $h:expr) => {
+        #[test]
+        #[ignore = "needs multi-frame example loop, see module note above"]
+        fn $name() {
+            let cs = render_demo($w, $h, |world, parent| {
+                mirui::gallery::demos::$name::build_widgets(world, parent);
+            });
+            assert_renders(stringify!($name), cs);
+        }
+    };
+}
+
 basic_demo!(absolute, 480, 320);
 basic_demo!(animation, 320, 180);
 basic_demo!(app_demo, 480, 320);
@@ -146,16 +165,16 @@ basic_demo!(toggle, 640, 320);
 basic_demo!(transform, 480, 320);
 basic_demo!(walk, 480, 320);
 
-viewport_demo!(effect_panels, 480, 360);
-viewport_demo!(effect_glass, 128, 128);
-viewport_demo!(particles, 480, 320);
-viewport_demo!(subpixel, 480, 320);
+basic_demo!(effect_panels, 480, 360);
+basic_demo!(effect_glass, 128, 128);
+basic_demo!(particles, 480, 320);
+basic_demo!(subpixel, 480, 320);
 viewport_demo!(widgets, 512, 512);
 
-viewport_demo_ignored!(butterfly, 480, 480);
+viewport_demo_ignored_noargs!(butterfly, 480, 480);
 viewport_demo_ignored!(cover_flow, 640, 360);
-viewport_demo_ignored!(flip_card, 480, 320);
-viewport_demo_ignored!(shapes, 480, 480);
+viewport_demo_ignored_noargs!(flip_card, 480, 320);
+viewport_demo_ignored_noargs!(shapes, 480, 480);
 
 #[test]
 fn three_body_renders() {

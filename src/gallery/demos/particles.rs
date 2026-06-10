@@ -10,8 +10,11 @@ use crate::prelude::*;
 use crate::surface::Surface;
 use crate::widget;
 use crate::widget::dirty::Dirty;
+use crate::widget::root_viewport;
 use crate::widget::{Children, Parent, Style};
 use alloc::vec::Vec;
+
+pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
 
 pub struct Particle {
     pub x: Fixed,
@@ -38,6 +41,17 @@ pub struct ParticleBounds {
     pub h: i32,
 }
 
+#[mirui_macros::system(order = ANIMATION)]
+pub fn particle_bounds_system(world: &mut World) {
+    if let Some(rect) = root_viewport(world) {
+        world.insert_resource(ParticleBounds {
+            w: rect.w.to_int(),
+            h: rect.h.to_int(),
+        });
+    }
+}
+
+//~focus-start
 #[mirui_macros::system(order = ANIMATION)]
 pub fn particle_system(world: &mut World) {
     let (bw, bh) = world
@@ -68,6 +82,7 @@ pub fn particle_system(world: &mut World) {
         widget::set_position(world, e, new_x, new_y);
     }
 }
+//~focus-end
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn pulse_ring_system(world: &mut World) {
@@ -134,9 +149,9 @@ pub fn bar_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
-    let bw = view_w as i32;
-    let bh = view_h as i32;
+pub fn build_widgets(world: &mut World, parent: Entity) {
+    let bw = DEFAULT_VIEW.0 as i32;
+    let bh = DEFAULT_VIEW.1 as i32;
     world.insert_resource(ParticleBounds { w: bw, h: bh });
 
     let ring_colors = [
@@ -298,12 +313,12 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    let info = app.backend.display_info();
     app.add_plugin(StdInstantClockPlugin);
+    app.add_system(particle_bounds_system::system());
     app.add_system(particle_system::system());
     app.add_system(pulse_ring_system::system());
     app.add_system(bar_system::system());
-    build_widgets(&mut app.world, parent, info.width, info.height);
+    build_widgets(&mut app.world, parent);
 }
 
 #[cfg(test)]
@@ -317,7 +332,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent, 128, 128);
+        build_widgets(&mut world, parent);
         assert!(
             world
                 .get::<Children>(parent)

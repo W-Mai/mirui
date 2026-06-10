@@ -20,6 +20,7 @@ pub struct SpringBall {
     pub x: Fixed,
 }
 
+//~focus-start
 #[mirui_macros::system(order = ANIMATION)]
 pub fn spring_system(world: &mut World) {
     let dt = world.resource::<DeltaTimeMs>().map_or(16, |r| r.0);
@@ -50,6 +51,7 @@ pub fn spring_system(world: &mut World) {
         }
     }
 }
+//~focus-end
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     ui! {
@@ -101,6 +103,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         )
     };
 
+    //~focus-start
     let tween_ball = ui! {
         :(
             parent: parent
@@ -130,7 +133,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             .into(),
         ),
     );
+    //~focus-end
 
+    //~focus-start
     let spring_ball = ui! {
         :(
             parent: parent
@@ -154,7 +159,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             x: Fixed::from_int(170),
         },
     );
+    //~focus-end
 
+    //~focus-start
     let elastic_ball = ui! {
         :(
             parent: parent
@@ -178,6 +185,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             x: Fixed::from_int(300),
         },
     );
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

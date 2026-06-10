@@ -6,6 +6,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 
 fn header(world: &mut World, parent: Entity) -> Entity {
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -19,9 +20,11 @@ fn header(world: &mut World, parent: Entity) -> Entity {
             border_radius: 8
         )
     }
+    //~focus-end
 }
 
 fn button_row(world: &mut World, parent: Entity) -> Entity {
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -34,9 +37,11 @@ fn button_row(world: &mut World, parent: Entity) -> Entity {
             View (bg_color: Color::rgb(210, 168, 255), grow: 1.0, text: "Maybe", border_radius: 6)
         }
     }
+    //~focus-end
 }
 
 fn footer(world: &mut World, parent: Entity) -> Entity {
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -49,6 +54,7 @@ fn footer(world: &mut World, parent: Entity) -> Entity {
             text: "Built with mirui + xrune"
         )
     }
+    //~focus-end
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {

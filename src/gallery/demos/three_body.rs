@@ -11,6 +11,7 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::widget;
+use crate::widget::root_viewport;
 use alloc::vec::Vec;
 
 pub struct Velocity {
@@ -62,6 +63,12 @@ fn isqrt(n: u32) -> u32 {
 
 #[mirui_macros::system]
 pub fn physics_tick_system(world: &mut World) {
+    if let Some(rect) = root_viewport(world) {
+        world.insert_resource(WorldBounds {
+            w: rect.w.to_int(),
+            h: rect.h.to_int(),
+        });
+    }
     let now_ms = world
         .resource::<MonoClock>()
         .map(|c| c.now_ms())
@@ -82,6 +89,7 @@ pub fn physics_tick_system(world: &mut World) {
     }
 }
 
+//~focus-start
 fn three_body_step(world: &mut World) {
     let (bound_w, bound_h) = world
         .resource::<WorldBounds>()
@@ -206,6 +214,7 @@ fn three_body_step(world: &mut World) {
         *s = scratch;
     }
 }
+//~focus-end
 
 #[mirui_macros::system]
 pub fn kick_system(world: &mut World) {
@@ -321,6 +330,7 @@ pub fn build_widgets(
         ));
     }
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -341,6 +351,7 @@ pub fn build_widgets(
             ]
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

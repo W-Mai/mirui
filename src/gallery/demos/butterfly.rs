@@ -130,6 +130,7 @@ fn fill_wing(
     );
 }
 
+//~focus-start
 fn butterfly_render(
     renderer: &mut dyn Renderer,
     world: &World,
@@ -257,6 +258,7 @@ fn butterfly_render(
         ctx.clip,
     );
 }
+//~focus-end
 
 pub fn butterfly_view() -> View {
     View::new("Butterfly", 60, butterfly_render).with_filter::<Butterfly>()
@@ -271,12 +273,13 @@ pub fn butterfly_anim_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
+pub fn build_widgets(world: &mut World, parent: Entity) {
     let now_ms = world
         .resource::<MonoClock>()
         .map(|c| c.now_ms())
         .unwrap_or(0);
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -285,13 +288,10 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
         Butterfly (
             start_ms: now_ms,
-            width: view_w as i32,
-            height: view_h as i32,
-            position: Position::Absolute,
-            left: 0,
-            top: 0
+            grow: 1.0
         )
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]
@@ -300,11 +300,10 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    let info = app.backend.display_info();
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(butterfly_view());
     app.add_system(butterfly_anim_system::system());
-    build_widgets(&mut app.world, parent, info.width, info.height);
+    build_widgets(&mut app.world, parent);
 }
 
 #[cfg(test)]
@@ -323,7 +322,7 @@ mod tests {
         reg.insert(butterfly_view());
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent, 128, 128);
+        build_widgets(&mut world, parent);
         assert!(
             world
                 .get::<Children>(parent)

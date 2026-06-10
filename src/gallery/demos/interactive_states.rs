@@ -16,6 +16,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     let card_border = Color::rgb(48, 54, 61);
     let title_color = Color::rgb(201, 209, 217);
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -84,6 +85,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             }
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

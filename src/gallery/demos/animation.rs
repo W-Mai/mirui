@@ -24,6 +24,7 @@ mirui_macros::animate!(AnimateColor, |world, entity, value| {
 });
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     let ball = ui! {
         :(
             parent: parent
@@ -40,6 +41,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             height: 40
         )
     };
+    //~focus-end
 
     world.insert(
         ball,

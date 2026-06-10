@@ -35,6 +35,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         world.insert_resource(Stats::default());
     }
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -68,6 +69,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             }
         }
     };
+    //~focus-end
 
     let sliders = world.query::<Slider>().collect();
     if let Some(&slider_entity) = sliders.first()

@@ -11,6 +11,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     let tabs = ui! {
         :(
             parent: parent
@@ -19,7 +20,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         TabBar (
             bg_color: Color::rgb(40, 40, 56),
-            width: 480,
             height: 40,
             count: 3,
             indicator_height: Fixed::from_int(3)
@@ -47,7 +47,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             )
         }
     };
+    //~focus-end
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -56,15 +58,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         View (
             bg_color: Color::rgb(20, 20, 30),
-            width: 480,
-            height: 280
+            grow: 1.0
         ) {
             View (
                 bg_color: Color::rgb(63, 185, 80),
                 text: "Home page",
                 text_color: Color::rgb(255, 255, 255),
-                width: 480,
-                height: 280,
+                grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
             ) [
@@ -77,8 +77,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 bg_color: Color::rgb(255, 165, 80),
                 text: "Search page",
                 text_color: Color::rgb(255, 255, 255),
-                width: 480,
-                height: 280,
+                grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
             ) [
@@ -91,8 +90,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 bg_color: Color::rgb(210, 168, 255),
                 text: "Profile page",
                 text_color: Color::rgb(40, 40, 56),
-                width: 480,
-                height: 280,
+                grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
             ) [
@@ -103,6 +101,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             ]
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

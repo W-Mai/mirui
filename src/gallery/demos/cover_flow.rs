@@ -11,9 +11,10 @@ use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::types::Transform3D;
+use crate::types::{Dimension, Transform3D};
 use crate::widget;
 use crate::widget::dirty::Dirty;
+use crate::widget::root_viewport;
 
 pub const DEFAULT_VIEW: (u16, u16) = (640, 360);
 const CARD_COUNT: i32 = 5;
@@ -35,8 +36,10 @@ pub struct CoverFlowBounds {
 
 impl CoverFlowBounds {
     fn for_view(view_w: u16, view_h: u16) -> Self {
-        let vw = view_w as i32;
-        let vh = view_h as i32;
+        Self::for_px(view_w as i32, view_h as i32)
+    }
+
+    fn for_px(vw: i32, vh: i32) -> Self {
         Self {
             view_w: vw,
             view_h: vh,
@@ -46,22 +49,30 @@ impl CoverFlowBounds {
             perspective: vw * 25 / 64,
         }
     }
+
+    fn content_width(&self) -> i32 {
+        self.view_w + (self.card_w + self.card_gap) * (CARD_COUNT - 1)
+    }
 }
 
+//~focus-start
 #[mirui_macros::system]
 pub fn layout_system(world: &mut World) {
-    let (view_w, view_h, card_w, card_h, card_gap, perspective) =
-        match world.resource::<CoverFlowBounds>() {
-            Some(b) => (
-                b.view_w,
-                b.view_h,
-                b.card_w,
-                b.card_h,
-                b.card_gap,
-                b.perspective,
-            ),
+    let bounds = match root_viewport(world) {
+        Some(rect) => CoverFlowBounds::for_px(rect.w.to_int(), rect.h.to_int()),
+        None => match world.resource::<CoverFlowBounds>() {
+            Some(b) => CoverFlowBounds::for_px(b.view_w, b.view_h),
             None => return,
-        };
+        },
+    };
+    let CoverFlowBounds {
+        view_w,
+        view_h,
+        card_w,
+        card_h,
+        card_gap,
+        perspective,
+    } = bounds;
 
     let mut carousels = alloc::vec::Vec::new();
     world.query::<Carousel>().collect_into(&mut carousels);
@@ -74,6 +85,14 @@ pub fn layout_system(world: &mut World) {
     };
 
     let carousel = carousels[0];
+
+    if let Some(style) = world.get_mut::<Style>(carousel) {
+        style.layout.width = Dimension::Px(Fixed::from_int(view_w));
+        style.layout.height = Dimension::Px(Fixed::from_int(view_h));
+    }
+    if let Some(cfg) = world.get_mut::<ScrollConfig>(carousel) {
+        cfg.content_width = Fixed::from_int(view_w + (card_w + card_gap) * (CARD_COUNT - 1));
+    }
 
     let mut cards = alloc::vec::Vec::new();
     world.query::<CarouselCard>().collect_into(&mut cards);
@@ -104,6 +123,7 @@ pub fn layout_system(world: &mut World) {
     }
     world.insert(carousel, Dirty);
 }
+//~focus-end
 
 pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let bounds = CoverFlowBounds::for_view(view_w, view_h);
@@ -111,8 +131,8 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
     let vh = bounds.view_h;
     let card_w = bounds.card_w;
     let card_h = bounds.card_h;
-    let card_gap = bounds.card_gap;
-    let initial_offset = (vw + (card_w + card_gap) * (CARD_COUNT - 1) - vw) / 2 - card_w / 4;
+    let content_width = bounds.content_width();
+    let initial_offset = (content_width - vw) / 2 - card_w / 4;
     world.insert_resource(bounds);
 
     let card_colors = [
@@ -124,6 +144,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
     ];
 
     let card_colors_ref = &card_colors;
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -145,7 +166,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             ScrollConfig {
                 direction: ScrollAxis::Horizontal,
                 elastic: true,
-                content_width: Fixed::from_int(vw + (card_w + card_gap) * (CARD_COUNT - 1)),
+                content_width: Fixed::from_int(content_width),
                 content_height: Fixed::ZERO,
             },
         ] {
@@ -177,6 +198,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             }
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

@@ -21,6 +21,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     ];
     let accent = Color::rgb(210, 168, 255);
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -62,6 +63,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             }
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

@@ -10,6 +10,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -101,6 +102,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             )
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

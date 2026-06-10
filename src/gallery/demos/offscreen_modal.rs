@@ -156,6 +156,7 @@ fn tile_color(idx: i32) -> ColorToken {
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     let modal = ui! {
         :(
             parent: parent
@@ -188,6 +189,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             }
         }
     };
+    //~focus-end
 
     let readout = ui! {
         :(

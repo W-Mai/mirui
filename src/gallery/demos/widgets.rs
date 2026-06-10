@@ -37,9 +37,7 @@ struct FormProgress;
 pub struct ThemeCycleIndex(pub u8);
 
 struct DemoSize {
-    w: i32,
     tabbar_h: i32,
-    page_h: i32,
     row_h: i32,
     scale: i32,
 }
@@ -49,11 +47,8 @@ impl DemoSize {
         let w = (view_w as i32).max(1);
         let h = (view_h as i32).max(1);
         let scale = (w.min(h) / 128).max(1);
-        let tabbar_h = 14 * scale;
         Self {
-            w,
-            tabbar_h,
-            page_h: h - tabbar_h,
+            tabbar_h: 14 * scale,
             row_h: 12 * scale,
             scale,
         }
@@ -127,13 +122,12 @@ mirui_macros::timer!(Cycle, every: 3_000, |world, entity| {
 
 pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
     let DemoSize {
-        w: w_,
         tabbar_h: tabbar_h_,
-        page_h: page_h_,
         row_h: row_h_,
         scale: scale_,
     } = DemoSize::for_viewport(view_w, view_h);
 
+    //~focus-start
     let tabs = ui! {
         :(
             parent: parent
@@ -142,7 +136,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
         TabBar (
             bg_color: ColorToken::SurfaceVariant,
-            width: w_,
             height: tabbar_h_,
             count: 3,
             indicator_height: Fixed::from_int(2 * scale_)
@@ -170,7 +163,9 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             )
         }
     };
+    //~focus-end
 
+    //~focus-start
     let list = ui! {
         :(
             parent: parent
@@ -179,11 +174,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
         LazyList (
             bg_color: ColorToken::Surface,
-            position: Position::Absolute,
-            left: 0,
-            top: tabbar_h_,
-            width: w_,
-            height: page_h_,
+            grow: 1.0,
             item_count: ITEM_COUNT,
             item_height: Fixed::from_int(row_h_),
             pool_size: POOL_SIZE as u8
@@ -211,18 +202,25 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
-                    width: w_,
                     height: row_h_
                 )
             }
         }
     };
+    //~focus-end
     let pool: Vec<Entity> = world
         .get::<Children>(list)
         .map(|c| c.0.clone())
         .unwrap_or_default();
+    // Absolute children resolve Auto width to 0; force Percent so rows track list width.
+    for &row in &pool {
+        if let Some(style) = world.get_mut::<Style>(row) {
+            style.layout.width = Dimension::percent(100);
+        }
+    }
     world.insert(list, LazyListPool::new(pool));
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -231,11 +229,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
         Column (
             bg_color: ColorToken::Surface,
-            position: Position::Absolute,
-            left: 0,
-            top: tabbar_h_,
-            width: w_,
-            height: page_h_,
+            grow: 1.0,
             padding: Padding::all(10 * scale_)
         ) [
             TabContent {
@@ -285,7 +279,9 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             }
         }
     };
+    //~focus-end
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -294,11 +290,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
         Column (
             bg_color: ColorToken::Surface,
-            position: Position::Absolute,
-            left: 0,
-            top: tabbar_h_,
-            width: w_,
-            height: page_h_,
+            grow: 1.0,
             padding: Padding::all(12 * scale_),
             align: AlignItems::Center
         ) [
@@ -331,6 +323,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             )
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

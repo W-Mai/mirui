@@ -34,6 +34,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         world.insert_resource(SelectionStats::default());
     }
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -56,6 +57,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             }
         }
     };
+    //~focus-end
 
     let bars = world.query::<TabBar>().collect();
     if let Some(&bar) = bars.first()

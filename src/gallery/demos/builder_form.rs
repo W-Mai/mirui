@@ -45,6 +45,7 @@ fn row_style(height: i32) -> Style {
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     let column = spawn_children(world, column_style(), |c| {
         c.spawn(
             Slider::build(Fixed::ZERO, Fixed::from_int(100))
@@ -54,6 +55,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         c.spawn(Switch::build().style(row_style(26)));
         c.spawn(ProgressBar::build().value(0.6).style(row_style(12)));
     });
+    //~focus-end
 
     world.insert(column, crate::widget::Parent(parent));
     if let Some(children) = world.get_mut::<crate::widget::Children>(parent) {

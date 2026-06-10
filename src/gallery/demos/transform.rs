@@ -17,6 +17,7 @@ pub struct Spinner {
     pub speed: Fixed,
 }
 
+//~focus-start
 #[mirui_macros::system(order = ANIMATION)]
 pub fn spin_system(world: &mut World) {
     let mut entities = alloc::vec::Vec::new();
@@ -32,6 +33,7 @@ pub fn spin_system(world: &mut World) {
         world.insert(e, Dirty);
     }
 }
+//~focus-end
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     let spinning_box = WidgetBuilder::new(world)

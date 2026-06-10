@@ -37,6 +37,7 @@ pub fn custom_theme() -> Theme {
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -97,7 +98,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             }
         }
     };
+    //~focus-end
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -158,6 +161,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             }
         }
     };
+    //~focus-end
 
     let pbs: Vec<Entity> = world.query::<ProgressBar>().collect();
     for pb in pbs {

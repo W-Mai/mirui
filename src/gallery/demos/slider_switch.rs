@@ -9,6 +9,7 @@ use crate::prelude::*;
 use crate::surface::Surface;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     let slider = ui! {
         :(
             parent: parent
@@ -25,7 +26,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     if let Some(s) = world.get_mut::<Slider>(slider) {
         s.value = Fixed::from_int(50);
     }
+    //~focus-end
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -34,6 +37,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         Switch (width: 50, height: 26)
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

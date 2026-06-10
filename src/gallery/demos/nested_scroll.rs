@@ -26,6 +26,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         Color::rgb(100, 200, 150),
     ];
 
+    //~focus-start
     ui! {
         :(
             parent: parent
@@ -121,6 +122,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             }
         }
     };
+    //~focus-end
 }
 
 #[cfg(feature = "std")]

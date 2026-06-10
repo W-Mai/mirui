@@ -26,6 +26,7 @@ fn row_binder(world: &mut World, entity: Entity, index: u32) {
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
+    //~focus-start
     let list = ui! {
         :(
             parent: parent
@@ -34,8 +35,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         LazyList (
             bg_color: Color::rgb(28, 28, 40),
-            width: 320,
-            height: 320,
+            grow: 1.0,
             item_count: ITEM_COUNT,
             item_height: Fixed::from_int(ROW_H),
             pool_size: POOL_SIZE as u8
@@ -59,17 +59,23 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     position: Position::Absolute,
                     left: 0,
                     top: 0,
-                    width: 320,
                     height: ROW_H
                 )
             }
         }
     };
+    //~focus-end
 
     let pool: alloc::vec::Vec<Entity> = world
         .get::<crate::widget::Children>(list)
         .map(|c| c.0.clone())
         .unwrap_or_default();
+    // Absolute children resolve Auto width to 0; force Percent so rows track list width.
+    for &row in &pool {
+        if let Some(style) = world.get_mut::<Style>(row) {
+            style.layout.width = Dimension::percent(100);
+        }
+    }
     world.insert(list, LazyListPool::new(pool));
 }
 
