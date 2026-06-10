@@ -210,18 +210,24 @@ fn cmd_lint() -> Result {
         }
     }
     cargo(&["+stable", "fmt", "--all", "--check"])?;
-    println!("  → xrune-fmt --check gallery/examples/**/*.rs");
+    println!("  → xrune-fmt --check gallery/examples + src/gallery/demos");
     xrune_fmt_check_dir("gallery/examples")?;
+    xrune_fmt_check_dir("src/gallery/demos")?;
     Ok(())
 }
 
+fn xrune_fmt_bin() -> String {
+    std::env::var("XRUNE_FMT_BIN").unwrap_or_else(|_| "xrune-fmt".to_string())
+}
+
 fn xrune_fmt_check_dir(dir: &str) -> Result {
+    let bin = xrune_fmt_bin();
     for entry in std::fs::read_dir(dir)? {
         let path = entry?.path();
         if path.is_dir() {
             xrune_fmt_check_dir(path.to_str().unwrap())?;
         } else if path.extension().is_some_and(|e| e == "rs") {
-            let status = std::process::Command::new("xrune-fmt")
+            let status = std::process::Command::new(&bin)
                 .args([path.to_str().unwrap(), "--check"])
                 .status()?;
             if !status.success() {
