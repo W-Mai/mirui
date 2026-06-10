@@ -174,7 +174,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
                             width: 64,
                             height: 64,
                             image: Image::new(&IMG_THUMBS_UP)
-                        ) {}
+                        )
                     }
                 }
             }

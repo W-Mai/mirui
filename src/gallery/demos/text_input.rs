@@ -25,7 +25,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             height: 28
         ) [
             Placeholder("type something..."),
-        ] {}
+        ]
     };
 }
 

@@ -24,14 +24,14 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 text: "Hello, mirui!",
                 width: 140,
                 height: 40
-            ) {}
+            )
             View (
                 bg_color: Color::rgb(63, 185, 80),
                 border_radius: 8,
                 text: "ECS + Flexbox",
                 width: 140,
                 height: 40
-            ) {}
+            )
             View (
                 bg_color: Color::rgb(248, 81, 73),
                 border_color: Color::rgb(255, 255, 255),
@@ -40,7 +40,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 text: "no_std :)",
                 width: 140,
                 height: 40
-            ) {}
+            )
         }
     };
 }

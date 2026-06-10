@@ -80,7 +80,7 @@ fn main() {
                     on_gesture: dummy_handler,
                 },
             ] {
-                Text ("Dark") {}
+                Text ("Dark")
             }
             Button (
                 grow: 1.0,
@@ -94,7 +94,7 @@ fn main() {
                     on_gesture: dummy_handler,
                 },
             ] {
-                Text ("Light") {}
+                Text ("Light")
             }
             Button (
                 grow: 1.0,
@@ -108,7 +108,7 @@ fn main() {
                     on_gesture: dummy_handler,
                 },
             ] {
-                Text ("Custom") {}
+                Text ("Custom")
             }
         }
     };
@@ -122,47 +122,47 @@ fn main() {
         Column (grow: 1.0) {
             Row (height: 28, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Slider") {}
+                    Text ("Slider")
                 }
                 Slider (
                     min: Fixed::ZERO,
                     max: Fixed::from_int(100),
                     grow: 1.0,
                     height: 20
-                ) {}
+                )
             }
             Row (height: 36, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Switch") {}
+                    Text ("Switch")
                 }
-                Switch (width: 56, height: 28) {}
+                Switch (width: 56, height: 28)
             }
             Row (height: 36, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Checkbox") {}
+                    Text ("Checkbox")
                 }
-                Checkbox (width: 24, height: 24, border_radius: 4) {}
+                Checkbox (width: 24, height: 24, border_radius: 4)
             }
             Row (height: 28, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Progress") {}
+                    Text ("Progress")
                 }
-                ProgressBar (grow: 1.0, height: 12, border_radius: 6) {}
+                ProgressBar (grow: 1.0, height: 12, border_radius: 6)
             }
             Row (height: 36, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Input") {}
+                    Text ("Input")
                 }
-                TextInput (grow: 1.0, height: 28) {}
+                TextInput (grow: 1.0, height: 28)
             }
             Row (height: 24, align: AlignItems::Center) {
                 View (width: 90) {
-                    Text ("Tabs") {}
+                    Text ("Tabs")
                 }
                 TabBar (count: 3, grow: 1.0, height: 24) {
-                    View (grow: 1.0) {}
-                    View (grow: 1.0) {}
-                    View (grow: 1.0) {}
+                    View (grow: 1.0)
+                    View (grow: 1.0)
+                    View (grow: 1.0)
                 }
             }
         }

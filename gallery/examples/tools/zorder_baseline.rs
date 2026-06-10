@@ -40,7 +40,7 @@ fn main() {
             top: 60,
             width: 80,
             height: 80
-        ) {}
+        )
     };
 
     // SECOND in children: a fully opaque white square at (60, 60) 80x80
@@ -58,7 +58,7 @@ fn main() {
             top: 60,
             width: 80,
             height: 80
-        ) {}
+        )
     };
 
     if let Some(c) = app.world.get::<mirui::widget::Children>(root) {

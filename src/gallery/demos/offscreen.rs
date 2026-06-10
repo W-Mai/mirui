@@ -169,7 +169,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     top: TILE_PAD + (i / GRID_COLS) * (TILE_H + TILE_GAP),
                     width: TILE_W,
                     height: TILE_H
-                ) {}
+                )
             }
         }
     };
@@ -193,7 +193,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 counter: 0,
                 accum_render_ns: 0,
             },
-        ] {}
+        ]
     };
 
     if let Some(children) = world.get_mut::<Children>(parent) {

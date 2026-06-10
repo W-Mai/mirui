@@ -45,16 +45,15 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 "selected: 0 (was 0, 0 changes)",
                 id: "selection_label",
                 height: 30
-            ) {}
-            TabBar (width: 440, height: 44)
-                on SelectionChanged {
-                    if let Some(s) = ctx.world.resource_mut::<SelectionStats>() {
-                        s.last_new = *new;
-                        s.last_old = *old;
-                        s.changes += 1;
-                    }
-                    refresh_label(ctx.world);
-                } {}
+            )
+            TabBar (width: 440, height: 44) on SelectionChanged {
+                if let Some(s) = ctx.world.resource_mut::<SelectionStats>() {
+                    s.last_new = *new;
+                    s.last_old = *old;
+                    s.changes += 1;
+                }
+                refresh_label(ctx.world);
+            }
         }
     };
 

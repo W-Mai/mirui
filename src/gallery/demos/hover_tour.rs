@@ -36,11 +36,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 36,
                 text: "MoveTo demo: simulated cursor sweeps the row, hover overlays follow",
                 text_color: title_color
-            ) {}
-            View (height: 16) {}
-            Row (
-                grow: 1.0
-            ) {
+            )
+            View (height: 16)
+            Row (grow: 1.0) {
                 View (
                     bg_color: card_a,
                     border_color: card_border,
@@ -50,8 +48,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     padding: Padding::all(20),
                     text: "Card A",
                     text_color: title_color
-                ) {}
-                View (width: 16) {}
+                )
+                View (width: 16)
                 View (
                     bg_color: card_b,
                     border_color: card_border,
@@ -61,8 +59,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     padding: Padding::all(20),
                     text: "Card B",
                     text_color: title_color
-                ) {}
-                View (width: 16) {}
+                )
+                View (width: 16)
                 View (
                     bg_color: card_c,
                     border_color: card_border,
@@ -72,7 +70,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     padding: Padding::all(20),
                     text: "Card C",
                     text_color: title_color
-                ) {}
+                )
             }
         }
     };

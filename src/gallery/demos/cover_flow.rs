@@ -171,7 +171,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                             width: 64,
                             height: 64,
                             image: Image::new(&IMG_THUMBS_UP)
-                        ) {}
+                        )
                     }
                 }
             }

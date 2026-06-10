@@ -27,9 +27,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 border_radius: 12,
                 padding: Padding::all(16)
             ) {
-                Text ("mirui hello") {}
+                Text ("mirui hello")
             }
-            View (height: 16) {}
+            View (height: 16)
             View (
                 bg_color: Color::rgb(60, 80, 110),
                 border_color: Color::rgb(120, 160, 220),
@@ -41,7 +41,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 Text (
                     "tap to interact",
                     text_color: Color::rgb(240, 240, 255)
-                ) {}
+                )
             }
         }
     };

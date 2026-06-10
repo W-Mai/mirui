@@ -66,7 +66,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             width: 70,
             height: 14,
             text: "Tween"
-        ) {}
+        )
     };
     ui! {
         :(
@@ -82,7 +82,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             width: 70,
             height: 14,
             text: "Spring"
-        ) {}
+        )
     };
     ui! {
         :(
@@ -98,7 +98,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             width: 70,
             height: 14,
             text: "Elastic"
-        ) {}
+        )
     };
 
     let tween_ball = ui! {
@@ -115,7 +115,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             width: 20,
             height: 20,
             border_radius: 10
-        ) {}
+        )
     };
     world.insert(
         tween_ball,
@@ -145,7 +145,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             width: 20,
             height: 20,
             border_radius: 10
-        ) {}
+        )
     };
     world.insert(
         spring_ball,
@@ -169,7 +169,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             width: 20,
             height: 20,
             border_radius: 10
-        ) {}
+        )
     };
     world.insert(
         elastic_ball,

@@ -18,9 +18,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             padding: Padding::all(20),
             grow: 1.0
         ) {
-            View (bg_color: Color::rgb(88, 166, 255), width: 120, height: 80) {}
-            View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, height: 80) {}
-            View (bg_color: Color::rgb(248, 81, 73), width: 120, height: 80) {}
+            View (bg_color: Color::rgb(88, 166, 255), width: 120, height: 80)
+            View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, height: 80)
+            View (bg_color: Color::rgb(248, 81, 73), width: 120, height: 80)
         }
     };
 }

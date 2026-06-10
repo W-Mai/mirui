@@ -61,7 +61,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     top: 0,
                     width: 320,
                     height: ROW_H
-                ) {}
+                )
             }
         }
     };

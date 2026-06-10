@@ -153,21 +153,21 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
-            ) {}
+            )
             View (
                 text: "Form",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
-            ) {}
+            )
             View (
                 text: "Thm",
                 text_color: ColorToken::OnSurface,
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
-            ) {}
+            )
         }
     };
 
@@ -213,7 +213,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                     top: 0,
                     width: w_,
                     height: row_h_
-                ) {}
+                )
             }
         }
     };
@@ -247,10 +247,10 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 height: 28 * scale_,
                 align: AlignItems::Center
             ) {
-                View (text: "Enable", text_color: ColorToken::OnSurface, grow: 1.0) {}
+                View (text: "Enable", text_color: ColorToken::OnSurface, grow: 1.0)
                 Switch (width: 40 * scale_, height: 20 * scale_) [
                     OffscreenRender::default(),
-                ] {}
+                ]
             }
             View (
                 height: 14 * scale_,
@@ -266,7 +266,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                     max: Fixed::from_int(100)
                 ) [
                     FormSlider,
-                ] {}
+                ]
             }
             View (
                 height: 10 * scale_,
@@ -281,7 +281,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                     border_radius: 4 * scale_ as u32
                 ) [
                     FormProgress,
-                ] {}
+                ]
             }
         }
     };
@@ -307,13 +307,13 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 index: 2,
             },
         ] {
-            View (text: "Primary", text_color: ColorToken::OnSurface, height: 14 * scale_) {}
+            View (text: "Primary", text_color: ColorToken::OnSurface, height: 14 * scale_)
             View (
                 width: 80 * scale_,
                 height: 18 * scale_,
                 bg_color: ColorToken::Primary,
                 border_radius: 4 * scale_ as u32
-            ) {}
+            )
             View (
                 text: "accent (custom)",
                 text_color: ColorToken::OnSurfaceVariant,
@@ -322,13 +322,13 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                     top: Dimension::px(8 * scale_),
                     ..Default::default()
                 }
-            ) {}
+            )
             View (
                 width: 80 * scale_,
                 height: 18 * scale_,
                 bg_color: ACCENT,
                 border_radius: 4 * scale_ as u32
-            ) {}
+            )
         }
     };
 }

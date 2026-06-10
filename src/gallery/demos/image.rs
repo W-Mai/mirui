@@ -25,7 +25,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 width: IMG_THUMBS_UP.width as i32,
                 height: IMG_THUMBS_UP.height as i32,
                 image: Image::new(&IMG_THUMBS_UP)
-            ) {}
+            )
         }
     };
 }

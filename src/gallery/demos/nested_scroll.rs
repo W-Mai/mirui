@@ -59,7 +59,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     bg_color: *item.1,
                     border_radius: 6
                 ) {
-                    View (height: 30, text: "Section", bg_color: Color::rgb(40, 40, 60)) {}
+                    View (height: 30, text: "Section", bg_color: Color::rgb(40, 40, 60))
                     Row (grow: 1.0) [
                         ScrollOffset {
                             x: Fixed::ZERO,
@@ -73,7 +73,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                         },
                     ] {
                         walk colors_inner.iter() with color {
-                            View (width: 100, height: 150, bg_color: *color, border_radius: 8) {}
+                            View (width: 100, height: 150, bg_color: *color, border_radius: 8)
                         }
                     }
                 }
@@ -87,7 +87,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     height: 30,
                     text: "Nested V-Scroll",
                     bg_color: Color::rgb(60, 30, 80)
-                ) {}
+                )
                 Column (
                     grow: 1.0,
                     bg_color: Color::rgb(40, 35, 60),
@@ -115,7 +115,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                             bg_color: *item.1,
                             border_radius: 6,
                             text: "V-Item"
-                        ) {}
+                        )
                     }
                 }
             }

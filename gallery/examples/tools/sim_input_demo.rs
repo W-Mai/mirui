@@ -87,7 +87,7 @@ fn main() {
             width: 80,
             height: 80,
             border_radius: 10
-        ) {}
+        )
     };
     app.world.insert(tap_box, TapCount(0));
     app.world.insert(
@@ -111,7 +111,7 @@ fn main() {
             width: 60,
             height: 60,
             border_radius: 30
-        ) {}
+        )
     };
     app.world.insert(
         drag_box,

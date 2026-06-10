@@ -196,7 +196,7 @@ fn main() {
                 height: 40,
                 text: "compose_backend DSL demo",
                 border_radius: 6
-            ) {}
+            )
             walk drifters.iter() with d {
                 View (
                     position: Position::Absolute,
@@ -213,7 +213,7 @@ fn main() {
                         speed: d.2,
                         amplitude: Fixed::from_int(60),
                     },
-                ] {}
+                ]
             }
         }
     };

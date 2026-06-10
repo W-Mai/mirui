@@ -140,7 +140,7 @@ fn run(out_dir: &str, offscreen: bool) {
                     top: TILE_PAD + (i / GRID_COLS) * (TILE_H + TILE_GAP),
                     width: TILE_W,
                     height: TILE_H
-                ) {}
+                )
             }
         }
     };

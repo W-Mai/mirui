@@ -66,7 +66,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 border_radius: 4,
                 border_color: Color::rgb(255, 255, 255),
                 border_width: 3
-            ) {}
+            )
             View (
                 position: Position::Absolute,
                 left: 320,
@@ -86,7 +86,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     angle_deg: Fixed::ZERO,
                     speed_deg: Fixed::ONE / 2,
                 },
-            ] {}
+            ]
         }
     };
 }

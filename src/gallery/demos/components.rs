@@ -24,16 +24,14 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 align: AlignItems::Center,
                 padding: Padding::all(8)
             ) {
-                View (text: "mirui Components", grow: 1.0) {}
-                View (bg_color: Color::rgb(255, 200, 50), width: 16, height: 16, border_radius: 8) {}
+                View (text: "mirui Components", grow: 1.0)
+                View (bg_color: Color::rgb(255, 200, 50), width: 16, height: 16, border_radius: 8)
             }
-
             Image (
                 width: IMG_THUMBS_UP.width as i32,
                 height: IMG_THUMBS_UP.height as i32,
                 texture: &IMG_THUMBS_UP
-            ) {}
-
+            )
             Row (height: 36) {
                 Button (
                     border_radius: 6,
@@ -42,7 +40,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     pressed_color: Color::rgb(40, 140, 55)
                 ) [
                     Text(b"OK".to_vec()),
-                ] {}
+                ]
                 Button (
                     border_radius: 6,
                     grow: 1.0,
@@ -50,28 +48,26 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     pressed_color: Color::rgb(200, 50, 45)
                 ) [
                     Text(b"Cancel".to_vec()),
-                ] {}
+                ]
             }
-
             Column (
                 height: 50,
                 justify: JustifyContent::SpaceBetween
             ) {
-                ProgressBar (border_radius: 4, height: 12, value: 0.7) {}
+                ProgressBar (border_radius: 4, height: 12, value: 0.7)
                 ProgressBar (
                     border_radius: 4,
                     height: 12,
                     value: 0.4,
                     fill_color: Color::rgb(63, 185, 80)
-                ) {}
+                )
                 ProgressBar (
                     border_radius: 4,
                     height: 12,
                     value: 0.9,
                     fill_color: Color::rgb(248, 81, 73)
-                ) {}
+                )
             }
-
             Row (height: 30, align: AlignItems::Center) {
                 Checkbox (
                     border_radius: 4,
@@ -80,14 +76,14 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     checked: true,
                     checked_color: Color::rgb(88, 166, 255),
                     unchecked_color: Color::rgb(80, 80, 100)
-                ) {}
+                )
                 Checkbox (
                     border_radius: 4,
                     width: 24,
                     height: 24,
                     checked_color: Color::rgb(63, 185, 80),
                     unchecked_color: Color::rgb(80, 80, 100)
-                ) {}
+                )
                 Checkbox (
                     border_radius: 4,
                     width: 24,
@@ -95,15 +91,14 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     checked: true,
                     checked_color: Color::rgb(248, 81, 73),
                     unchecked_color: Color::rgb(80, 80, 100)
-                ) {}
+                )
             }
-
             View (
                 bg_color: Color::rgb(40, 40, 55),
                 height: 30,
                 border_radius: 6,
                 text: "Button | ProgressBar | Checkbox | Image"
-            ) {}
+            )
         }
     };
 }

@@ -58,7 +58,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                         top: row * 32,
                         width: 32,
                         height: 32
-                    ) {}
+                    )
                 }
             }
         }
@@ -77,7 +77,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             top: 8,
             width: 40,
             height: 14
-        ) {}
+        )
     };
 
     ui! {
@@ -94,7 +94,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             height: 14
         ) [
             MirrorOf::new(m_source).with_fade(180),
-        ] {}
+        ]
     };
 
     ui! {
@@ -112,7 +112,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             height: 14
         ) [
             Text(b"BlurMeBlurMe".to_vec()),
-        ] {}
+        ]
     };
 
     ui! {
@@ -133,25 +133,25 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             BackgroundBlur::new(2),
             GlassX(
                 Tween::new(
-                    Fixed::from_int(8),
-                    Fixed::from_int(win_w - 60 - 8),
-                    3000,
-                    ease::ease_in_out_cubic,
-                    PlayMode::PingPong,
-                )
+                Fixed::from_int(8),
+                Fixed::from_int(win_w - 60 - 8),
+                3000,
+                ease::ease_in_out_cubic,
+                PlayMode::PingPong,
+            )
                 .into(),
             ),
             GaussRadius(
                 Tween::new(
-                    Fixed::from_int(0),
-                    Fixed::from_int(3),
-                    3000,
-                    ease::ease_in_out_cubic,
-                    PlayMode::PingPong,
-                )
-                .into(),
+                Fixed::from_int(0),
+                Fixed::from_int(3),
+                3000,
+                ease::ease_in_out_cubic,
+                PlayMode::PingPong,
             )
-        ] {}
+                .into(),
+            ),
+        ]
     };
 }
 

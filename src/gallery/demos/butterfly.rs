@@ -290,7 +290,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             position: Position::Absolute,
             left: 0,
             top: 0
-        ) {}
+        )
     };
 }
 

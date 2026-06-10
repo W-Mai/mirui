@@ -30,11 +30,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 32,
                 text: "Input feedback: cursor highlight + rotary / wheel water-drop",
                 text_color: Color::rgb(201, 209, 217)
-            ) {}
-            View (height: 20) {}
-            Row (
-                grow: 1.0
-            ) {
+            )
+            View (height: 20)
+            Row (grow: 1.0) {
                 View (
                     grow: 1.0,
                     height: 180,
@@ -45,8 +43,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     text: "Hover A",
                     text_color: Color::rgb(220, 240, 225),
                     padding: Padding::all(20)
-                ) {}
-                View (width: 20) {}
+                )
+                View (width: 20)
                 View (
                     grow: 1.0,
                     height: 180,
@@ -57,8 +55,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     text: "Hover B",
                     text_color: Color::rgb(220, 235, 255),
                     padding: Padding::all(20)
-                ) {}
-                View (width: 20) {}
+                )
+                View (width: 20)
                 View (
                     grow: 1.0,
                     height: 180,
@@ -69,7 +67,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     text: "Hover C",
                     text_color: Color::rgb(255, 225, 225),
                     padding: Padding::all(20)
-                ) {}
+                )
             }
         }
     };

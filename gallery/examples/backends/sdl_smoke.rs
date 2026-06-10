@@ -34,29 +34,29 @@ fn main() {
                 border_radius: 8,
                 border_color: Color::rgb(255, 255, 255)
             ) {
-                Text ("Hello sdl!") {}
+                Text ("Hello sdl!")
             }
             Row (grow: 1.0) {
                 View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, border_radius: 6) {
-                    Text ("OK") {}
+                    Text ("OK")
                 }
                 View (bg_color: Color::rgb(248, 81, 73), grow: 1.0, border_radius: 6) {
-                    Text ("Cancel") {}
+                    Text ("Cancel")
                 }
                 View (bg_color: Color::rgb(210, 168, 255), grow: 1.0, border_radius: 6) {
-                    Text ("Maybe") {}
+                    Text ("Maybe")
                 }
             }
             Image (
                 texture: &IMG_THUMBS_UP,
                 width: IMG_THUMBS_UP.width as i32 * 4,
                 height: IMG_THUMBS_UP.height as i32 * 4
-            ) {}
+            )
             View (
                 bg_color: Color::rgb(50, 50, 70),
                 height: 30
             ) {
-                Text ("sdl backend") {}
+                Text ("sdl backend")
             }
         }
     };

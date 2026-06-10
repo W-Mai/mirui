@@ -23,11 +23,11 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 bg_color: Color::rgb(88, 166, 255),
                 text: "Absolute Position Demo",
                 height: 40
-            ) {}
+            )
             View (
                 bg_color: Color::rgb(40, 40, 60),
                 grow: 1.0
-            ) {}
+            )
             View (
                 bg_color: Color::rgb(248, 81, 73),
                 border_radius: 8,
@@ -36,7 +36,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 top: 80,
                 width: 60,
                 height: 60
-            ) {}
+            )
             View (
                 bg_color: Color::rgb(63, 185, 80),
                 border_radius: 8,
@@ -45,7 +45,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 top: 120,
                 width: 80,
                 height: 40
-            ) {}
+            )
             Image (
                 position: Position::Absolute,
                 left: 350,
@@ -53,7 +53,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 width: IMG_THUMBS_UP.width as i32,
                 height: IMG_THUMBS_UP.height as i32,
                 texture: &IMG_THUMBS_UP
-            ) {}
+            )
             View (
                 bg_color: Color::rgb(210, 168, 255),
                 text: "floating",
@@ -63,7 +63,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 top: 200,
                 width: 120,
                 height: 50
-            ) {}
+            )
         }
     };
 }

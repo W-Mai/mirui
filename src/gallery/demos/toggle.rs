@@ -46,24 +46,22 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 "switch: OFF (0 flips)   checkbox: [ ] (0 flips)",
                 id: "toggle_label",
                 height: 30
-            ) {}
+            )
             Row (grow: 1.0, justify: JustifyContent::SpaceEvenly, align: AlignItems::Center) {
-                Switch (width: 60, height: 32)
-                    on Toggled {
-                        if let Some(s) = ctx.world.resource_mut::<ToggleStats>() {
-                            s.switch_on = *now;
-                            s.switch_changes += 1;
-                        }
-                        refresh_label(ctx.world);
-                    } {}
-                Checkbox (width: 32, height: 32)
-                    on Toggled {
-                        if let Some(s) = ctx.world.resource_mut::<ToggleStats>() {
-                            s.checkbox_checked = *now;
-                            s.checkbox_changes += 1;
-                        }
-                        refresh_label(ctx.world);
-                    } {}
+                Switch (width: 60, height: 32) on Toggled {
+                    if let Some(s) = ctx.world.resource_mut::<ToggleStats>() {
+                        s.switch_on = *now;
+                        s.switch_changes += 1;
+                    }
+                    refresh_label(ctx.world);
+                }
+                Checkbox (width: 32, height: 32) on Toggled {
+                    if let Some(s) = ctx.world.resource_mut::<ToggleStats>() {
+                        s.checkbox_checked = *now;
+                        s.checkbox_changes += 1;
+                    }
+                    refresh_label(ctx.world);
+                }
             }
         }
     };

@@ -114,7 +114,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 top: 16,
                 width: 160,
                 height: 20
-            ) {}
+            )
         }
     };
     ui! {
@@ -131,7 +131,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             height: 50
         ) [
             MirrorOf::new(m_source).with_fade(160),
-        ] {}
+        ]
     };
 
     ui! {
@@ -150,7 +150,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             height: 50
         ) [
             ColorFlash { frame: 0 },
-        ] {}
+        ]
     };
     let tm_source = ui! {
         :(
@@ -168,7 +168,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             height: 50
         ) [
             ColorFlash { frame: 0 },
-        ] {}
+        ]
     };
     ui! {
         :(
@@ -184,7 +184,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             height: 50
         ) [
             TemporalMix::new(tm_source).with_mix(230),
-        ] {}
+        ]
     };
     ui! {
         :(
@@ -200,7 +200,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             top: half_h + 20,
             width: 220,
             height: 20
-        ) {}
+        )
     };
 
     ui! {
@@ -224,7 +224,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                     top: (i / 4) * 47,
                     width: 55,
                     height: 47
-                ) {}
+                )
             }
         }
     };
@@ -248,7 +248,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                 t: Fixed::ZERO,
                 span_px: 30,
             },
-        ] {}
+        ]
     };
     ui! {
         :(
@@ -264,7 +264,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
             top: half_h + 165,
             width: 200,
             height: 20
-        ) {}
+        )
     };
 }
 

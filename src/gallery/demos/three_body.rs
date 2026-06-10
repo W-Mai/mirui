@@ -292,12 +292,12 @@ pub fn build_widgets(
                 height: 20,
                 text: "mirui",
                 border_radius: 3
-            ) {}
+            )
             Row (grow: 1.0) {
-                View (bg_color: Color::rgb(63, 185, 80), grow: 1.0) {}
-                View (bg_color: Color::rgb(248, 81, 73), grow: 1.0) {}
+                View (bg_color: Color::rgb(63, 185, 80), grow: 1.0)
+                View (bg_color: Color::rgb(248, 81, 73), grow: 1.0)
             }
-            View (bg_color: Color::rgb(210, 168, 255), height: 20, text: "n-body") {}
+            View (bg_color: Color::rgb(210, 168, 255), height: 20, text: "n-body")
         }
     };
 
@@ -338,7 +338,7 @@ pub fn build_widgets(
             ) [
                 PhysicsBody { x: pos.0, y: pos.1 },
                 Velocity { vx: pos.2, vy: pos.3 },
-            ] {}
+            ]
         }
     };
 }

@@ -38,33 +38,33 @@ fn main() {
                 text: "Hello wgpu!",
                 border_radius: 8,
                 border_color: Color::rgb(255, 255, 255)
-            ) {}
+            )
             Row (direction: FlexDirection::Row, grow: 1.0) {
-                View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6) {}
+                View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6)
                 View (
                     bg_color: Color::rgb(248, 81, 73),
                     grow: 1.0,
                     text: "Cancel",
                     border_radius: 6
-                ) {}
+                )
                 View (
                     bg_color: Color::rgb(210, 168, 255),
                     grow: 1.0,
                     text: "Maybe",
                     border_radius: 6
-                ) {}
+                )
             }
             View (
                 width: IMG_THUMBS_UP.width as i32 * 4,
                 height: IMG_THUMBS_UP.height as i32 * 4
             ) [
                 Image::new(&IMG_THUMBS_UP),
-            ] {}
+            ]
             View (
                 bg_color: Color::rgb(50, 50, 70),
                 height: 30,
                 text: "wgpu backend"
-            ) {}
+            )
         }
     };
 

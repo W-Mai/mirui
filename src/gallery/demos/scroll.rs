@@ -37,7 +37,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             },
         ] {
             walk colors.iter() with item {
-                Row (bg_color: item.1, height: 60, border_radius: 4, text: item.0) {}
+                Row (bg_color: item.1, height: 60, border_radius: 4, text: item.0)
             }
         }
     };

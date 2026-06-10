@@ -24,7 +24,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 border_radius: 12,
                 width: 120,
                 height: 80
-            ) {}
+            )
             View (
                 bg_color: Color::rgb(63, 185, 80),
                 border_color: Color::rgb(30, 30, 46),
@@ -32,20 +32,20 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 border_radius: 20,
                 width: 120,
                 height: 80
-            ) {}
+            )
             View (
                 bg_color: Color::rgb(248, 81, 73),
                 border_radius: 40,
                 width: 120,
                 height: 80
-            ) {}
+            )
             View (
                 border_color: Color::rgb(210, 168, 255),
                 border_width: 3,
                 border_radius: 8,
                 width: 120,
                 height: 80
-            ) {}
+            )
         }
     };
 }

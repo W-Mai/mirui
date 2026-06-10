@@ -25,11 +25,11 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         Column (grow: 1.0) {
             walk colors.iter() with color {
-                View (bg_color: *color, grow: 1.0, border_radius: 4) {}
+                View (bg_color: *color, grow: 1.0, border_radius: 4)
             }
             if show_footer {
                 View (bg_color: Color::rgb(50, 50, 70), height: 30) {
-                    Text ("conditional!") {}
+                    Text ("conditional!")
                 }
             }
         }

@@ -166,7 +166,7 @@ fn main() {
                 top: 16,
                 width: 160,
                 height: 20
-            ) {}
+            )
         }
     };
     ui! {
@@ -183,7 +183,7 @@ fn main() {
             height: 50
         ) [
             MirrorOf::new(m_source).with_fade(160),
-        ] {}
+        ]
     };
 
     let _bare = ui! {
@@ -202,7 +202,7 @@ fn main() {
             height: 50
         ) [
             ColorFlash { frame: 0 },
-        ] {}
+        ]
     };
     let tm_source = ui! {
         :(
@@ -220,7 +220,7 @@ fn main() {
             height: 50
         ) [
             ColorFlash { frame: 0 },
-        ] {}
+        ]
     };
     ui! {
         :(
@@ -236,7 +236,7 @@ fn main() {
             height: 50
         ) [
             TemporalMix::new(tm_source).with_mix(230),
-        ] {}
+        ]
     };
     ui! {
         :(
@@ -252,7 +252,7 @@ fn main() {
             top: HALF_H + 20,
             width: 220,
             height: 20
-        ) {}
+        )
     };
 
     let _backdrop = ui! {
@@ -276,7 +276,7 @@ fn main() {
                     top: (i / 4) * 47,
                     width: 55,
                     height: 47
-                ) {}
+                )
             }
         }
     };
@@ -296,7 +296,7 @@ fn main() {
             height: 80
         ) [
             BackgroundBlur::new(10),
-        ] {}
+        ]
     };
     ui! {
         :(
@@ -312,7 +312,7 @@ fn main() {
             top: HALF_H + 165,
             width: 200,
             height: 20
-        ) {}
+        )
     };
 
     app.set_root(root);

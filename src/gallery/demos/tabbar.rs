@@ -30,21 +30,21 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
-            ) {}
+            )
             View (
                 text: "Search",
                 text_color: Color::rgb(220, 220, 230),
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
-            ) {}
+            )
             View (
                 text: "Profile",
                 text_color: Color::rgb(220, 220, 230),
                 grow: 1.0,
                 align: AlignItems::Center,
                 justify: JustifyContent::Center
-            ) {}
+            )
         }
     };
 
@@ -72,7 +72,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     tab_bar: tabs,
                     index: 0,
                 },
-            ] {}
+            ]
             View (
                 bg_color: Color::rgb(255, 165, 80),
                 text: "Search page",
@@ -86,7 +86,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     tab_bar: tabs,
                     index: 1,
                 },
-            ] {}
+            ]
             View (
                 bg_color: Color::rgb(210, 168, 255),
                 text: "Profile page",
@@ -100,7 +100,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     tab_bar: tabs,
                     index: 2,
                 },
-            ] {}
+            ]
         }
     };
 }

@@ -15,7 +15,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         :)
 
         Column (grow: 1.0) {
-            View (bg_color: Color::rgb(88, 166, 255), height: 40, text: "Enchants Demo") {}
+            View (bg_color: Color::rgb(88, 166, 255), height: 40, text: "Enchants Demo")
             View (
                 position: Position::Absolute,
                 left: 200,
@@ -23,7 +23,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 width: 16,
                 height: 16,
                 image: Image::new(&IMG_THUMBS_UP)
-            ) {}
+            )
         }
     };
 }

@@ -105,7 +105,7 @@ fn main() {
         ) [
             ti,
             Placeholder("type something..."),
-        ] {}
+        ]
     };
 
     // Deterministic cursor: pin the blink phase ON so the snapshot

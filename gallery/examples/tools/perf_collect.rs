@@ -92,7 +92,7 @@ fn main() {
                     top: 0,
                     width: 320,
                     height: ROW_H
-                ) {}
+                )
             }
         }
     };

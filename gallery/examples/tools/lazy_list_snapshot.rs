@@ -120,7 +120,7 @@ fn main() {
                     top: 0,
                     width: W as i32,
                     height: ROW_H
-                ) {}
+                )
             }
         }
     };

@@ -46,29 +46,26 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 "value: 0   changes: 0   drags started/ended: 0",
                 id: "stats_label",
                 height: 30
-            ) {}
-            Slider (width: 600, height: 24)
-                on ValueChanged {
-                    let new_value = new.to_int();
-                    let _ = old;
-                    if let Some(s) = ctx.world.resource_mut::<Stats>() {
-                        s.last_value = new_value;
-                        s.changes += 1;
-                    }
-                    refresh_label(ctx.world);
+            )
+            Slider (width: 600, height: 24) on ValueChanged {
+                let new_value = new.to_int();
+                let _ = old;
+                if let Some(s) = ctx.world.resource_mut::<Stats>() {
+                    s.last_value = new_value;
+                    s.changes += 1;
                 }
-                on DragStarted {
-                    if let Some(s) = ctx.world.resource_mut::<Stats>() {
-                        s.drags += 1;
-                    }
-                    refresh_label(ctx.world);
+                refresh_label(ctx.world);
+            } on DragStarted {
+                if let Some(s) = ctx.world.resource_mut::<Stats>() {
+                    s.drags += 1;
                 }
-                on DragEnded {
-                    if let Some(s) = ctx.world.resource_mut::<Stats>() {
-                        s.drags += 1;
-                    }
-                    refresh_label(ctx.world);
-                } {}
+                refresh_label(ctx.world);
+            } on DragEnded {
+                if let Some(s) = ctx.world.resource_mut::<Stats>() {
+                    s.drags += 1;
+                }
+                refresh_label(ctx.world);
+            }
         }
     };
 
