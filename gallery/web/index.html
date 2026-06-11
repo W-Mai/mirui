@@ -1210,9 +1210,38 @@
         ring.addEventListener("pointercancel", endResize);
 
         // ── Reset to registered size ───────────────────────────
+        // rAF-tween the CSS box: the wasm surface re-reads the size each
+        // frame, so animating style.width/height (not a CSS transition it
+        // can't observe) makes the demo re-flow smoothly to the target.
+        let resetRAF = null;
+        function animateCanvasSize(targetW, targetH) {
+          if (resetRAF) cancelAnimationFrame(resetRAF);
+          const r = canvas.getBoundingClientRect();
+          const fromW = r.width;
+          const fromH = r.height;
+          if (Math.abs(fromW - targetW) < 1 && Math.abs(fromH - targetH) < 1) {
+            applyCanvasSize(targetW, targetH);
+            return;
+          }
+          const dur = 280;
+          const start = performance.now();
+          const ease = (t) => 1 - Math.pow(1 - t, 3);
+          const step = (now) => {
+            const t = Math.min(1, (now - start) / dur);
+            const k = ease(t);
+            applyCanvasSize(fromW + (targetW - fromW) * k, fromH + (targetH - fromH) * k);
+            if (t < 1) {
+              resetRAF = requestAnimationFrame(step);
+            } else {
+              resetRAF = null;
+            }
+          };
+          resetRAF = requestAnimationFrame(step);
+        }
+
         const resetBtn = document.getElementById("reset-btn");
         resetBtn.addEventListener("click", () => {
-          applyCanvasSize(initW, initH);
+          animateCanvasSize(initW, initH);
         });
 
         // ── Theme toggle (page shell + mirui canvas in lockstep) ───
