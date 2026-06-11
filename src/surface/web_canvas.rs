@@ -185,6 +185,7 @@ fn pointer_listener(
     // Capture so move/up keep firing once the cursor leaves the canvas.
     let capture_on_down = name == "pointerdown";
     let canvas_for_capture = canvas.clone();
+    let canvas_for_rect = canvas.clone();
     let closure = Closure::<dyn FnMut(JsValue)>::new(move |raw: JsValue| {
         let evt: PointerEvent = raw.unchecked_into();
         evt.prevent_default();
@@ -192,8 +193,13 @@ fn pointer_listener(
             let _ = canvas_for_capture.set_pointer_capture(evt.pointer_id());
         }
         let id = (evt.pointer_id().rem_euclid(0xff)) as u8;
-        let x = Fixed::from_int(evt.offset_x());
-        let y = Fixed::from_int(evt.offset_y());
+        // `offset_x/y` is relative to the canvas backing-store box, which
+        // diverges from the CSS box once the canvas is resized (or pointer
+        // capture is held); `client_x/y - rect` is the reliable CSS-space
+        // coordinate, matching the touch path.
+        let rect = canvas_for_rect.get_bounding_client_rect();
+        let x = Fixed::from_int((evt.client_x() as f64 - rect.left()).round() as i32);
+        let y = Fixed::from_int((evt.client_y() as f64 - rect.top()).round() as i32);
         q.borrow_mut().push_back(map(id, x, y));
     });
     register_listener(canvas.clone().into(), name, closure)
