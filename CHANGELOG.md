@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.3] - 2026-06-11
+
+The web gallery becomes an interactive showcase: each demo's source is
+shown beside the canvas with a focus view and copy button, the canvas
+stage is drag-resizable, demos switch in place without a page reload,
+the source panel is a slide-out drawer, and a topbar toggle switches the
+page and the running app between light and dark together (following
+`prefers-color-scheme` on load). Every demo adapts to the live canvas
+size at runtime. Alongside, four runtime correctness fixes for resize and
+backgrounded-tab behaviour.
+
+### Added
+
+- **Demo source view** — `demo_source(slug)` / `demo_source_focus(slug)` expose each demo's `.rs` text; the page renders it with a hand-rolled Rust highlighter, a copy button, and an eye toggle between the focused `ui!` region (delimited by `//~focus` markers, dedented) and the full file.
+- **Resizable canvas stage** — a corner drag-ring resizes the canvas; the surface re-reads the size each frame and re-lays-out. A reset control restores the registered size.
+- **In-place demo switching** — `switch_demo(slug)` rebuilds the running app around the same canvas instead of navigating, so sidebar scroll and filter survive; `history.pushState`/`popstate` keep the URL and back/forward in sync. `App::into_backend` reclaims the surface; `Runner::drive_animation_frame` drives a swappable app cell that skips frames during the swap.
+- **Light/dark theme toggle** — `set_theme(dark)` switches the running app; the page shell switches in step and the initial mode follows `prefers-color-scheme`.
+- **Slide-out source drawer** — the source panel docks as a right-edge handle on desktop and a bottom sheet on narrow screens, as a fixed overlay that never reflows the stage.
+
+### Changed
+
+- **Size-relative demos** — demos adapt to any canvas size: flex demos fill their growing root; absolute-positioned and canvas-render demos recompute geometry each frame from the root's laid-out rect via the new `root_viewport` helper; aspect-locked demos fill while keeping a centred square.
+- **Per-frame dt is bounded at the source** — `sync_delta_time_ms` clamps the frame delta to `MAX_FRAME_DT_MS` (100) where it is born, so a stalled clock can no longer hand the motion integrators a step large enough to diverge the semi-implicit Euler update and overflow the fixed-point multiply.
+
+### Fixed
+
+- **Widgets track resize** — slider fill, switch knob, and the lazy-list visible window derive from the current `ComputedRect` instead of a size captured at first layout. The slider fill edge meets the knob centre at any track width; the lazy-list row count follows the live height.
+- **Pointer coordinates are CSS-space** — the web canvas reads `client_x/y - rect` instead of `offset_x/y`, which diverges from the CSS box after a resize, so taps and drags hit the correct position across the whole widened surface.
+- **`DisplayInfo` refreshes each frame** — `App::tick` re-reads the backend size so hover/cursor hit-tests track the live surface instead of the size captured at construction.
+
 ## [0.28.2] - 2026-06-10
 
 `World::spawn` now takes a bundle and unfolds it into per-component
