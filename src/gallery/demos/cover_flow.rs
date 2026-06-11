@@ -55,6 +55,13 @@ impl CoverFlowBounds {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+struct LayoutCache {
+    view_w: i32,
+    view_h: i32,
+    offset: Fixed,
+}
+
 //~focus-start
 #[mirui_macros::system]
 pub fn layout_system(world: &mut World) {
@@ -83,6 +90,16 @@ pub fn layout_system(world: &mut World) {
         Some(s) => s.x,
         None => return,
     };
+
+    let frame = LayoutCache {
+        view_w,
+        view_h,
+        offset,
+    };
+    if world.resource::<LayoutCache>() == Some(&frame) {
+        return;
+    }
+    world.insert_resource(frame);
 
     let carousel = carousels[0];
 
@@ -231,6 +248,39 @@ mod tests {
             world
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty()),
+        );
+    }
+
+    #[cfg(feature = "std")]
+    #[test]
+    fn layout_system_tracks_live_viewport() {
+        use crate::types::Viewport;
+        use crate::widget::Style;
+        use crate::widget::render_system::update_layout;
+
+        let mut app = crate::app::App::headless(640, 360);
+        app.with_default_widgets().with_default_systems();
+        let root = app.spawn_root().id();
+        build_widgets(&mut app.world, root, 640, 360);
+        app.set_root(root);
+
+        let carousel = app.world.query::<Carousel>().collect()[0];
+
+        let width_at = |app: &mut crate::app::App<_, _>, w: u16, h: u16| -> i32 {
+            let vp = Viewport::new(w, h, Fixed::ONE);
+            update_layout(&mut app.world, root, &vp);
+            layout_system(&mut app.world);
+            match app.world.get::<Style>(carousel).map(|s| s.layout.width) {
+                Some(Dimension::Px(px)) => px.to_int(),
+                _ => -1,
+            }
+        };
+
+        let narrow = width_at(&mut app, 480, 320);
+        let wide = width_at(&mut app, 960, 540);
+        assert!(
+            wide > narrow,
+            "carousel width must grow with the live viewport: {narrow} -> {wide}",
         );
     }
 }

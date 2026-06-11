@@ -13,5 +13,9 @@ gallery = { path = "..", default-features = false, features = ["web-canvas"] }
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 wasm-bindgen = "0.2.122"
 js-sys = "0.3.99"
-web-sys = { version = "0.3.99", features = ["Location", "Window"] }
+web-sys = { version = "0.3.99", features = [
+    "Location",
+    "Window",
+    "MediaQueryList",
+] }
 console_error_panic_hook = "0.1"

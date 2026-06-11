@@ -920,4 +920,30 @@ mod swap_tests {
         let app = App::new(backend);
         assert!(app.root.is_none());
     }
+
+    #[test]
+    fn swap_cycle_leaves_a_rooted_app() {
+        use alloc::rc::Rc;
+        use core::cell::RefCell;
+
+        let mut first = App::headless(64, 64);
+        let root = first.spawn_root().id();
+        first.set_root(root);
+        let cell = Rc::new(RefCell::new(Some(first)));
+
+        for _ in 0..5 {
+            let old = cell.borrow_mut().take().expect("app present before swap");
+            let backend = old.into_backend();
+            let mut next = App::new(backend);
+            let root = next.spawn_root().id();
+            next.set_root(root);
+            *cell.borrow_mut() = Some(next);
+
+            let guard = cell.borrow();
+            let app = guard
+                .as_ref()
+                .expect("swap must restore the app, never leave None");
+            assert!(app.root.is_some(), "rebuilt app must have a root");
+        }
+    }
 }

@@ -66,6 +66,15 @@ type WebApp = gallery::mirui::app::App<gallery::ActiveSurface, gallery::ActiveFa
 
 thread_local! {
     static APP: RefCell<Option<Rc<RefCell<Option<WebApp>>>>> = const { RefCell::new(None) };
+    static DARK: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
+}
+
+fn current_theme() -> gallery::mirui::widget::Theme {
+    if DARK.with(|d| d.get()) {
+        gallery::mirui::widget::Theme::dark()
+    } else {
+        gallery::mirui::widget::Theme::light()
+    }
 }
 
 fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> WebApp {
@@ -76,6 +85,8 @@ fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> 
         (demo.setup)(&mut setup)
     };
     app.set_root(root);
+    // Global toggle wins over any theme a demo set in its own setup_app.
+    app.set_theme(current_theme());
     app
 }
 
@@ -94,10 +105,18 @@ fn set_canvas_size(w: u16, h: u16) {
     }
 }
 
+fn prefers_dark() -> bool {
+    web_sys::window()
+        .and_then(|w| w.match_media("(prefers-color-scheme: dark)").ok().flatten())
+        .map(|m| m.matches())
+        .unwrap_or(true)
+}
+
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
 
+    DARK.with(|d| d.set(prefers_dark()));
     let slug = read_demo_query().unwrap_or_else(|| "dsl".to_string());
     let demo =
         lookup_demo(&slug).unwrap_or_else(|| lookup_demo("dsl").expect("dsl demo registered"));
@@ -105,6 +124,16 @@ pub fn start() {
     let cell = Rc::new(RefCell::new(Some(app)));
     APP.with(|slot| *slot.borrow_mut() = Some(cell.clone()));
     gallery::mirui::app::Runner::<gallery::ActiveSurface, gallery::ActiveFactory>::drive_animation_frame(cell);
+}
+
+#[wasm_bindgen]
+pub fn set_theme(dark: bool) {
+    DARK.with(|d| d.set(dark));
+    let cell = APP.with(|slot| slot.borrow().clone());
+    let Some(cell) = cell else { return };
+    if let Some(app) = cell.borrow_mut().as_mut() {
+        app.set_theme(current_theme());
+    }
 }
 
 #[wasm_bindgen]

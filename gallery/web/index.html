@@ -4,6 +4,24 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>mirui — gallery</title>
+    <script>
+      /* Resolve the theme BEFORE first paint so the page shell never flashes
+         the wrong mode while the wasm canvas picks its own initial theme.
+         Source of truth: an explicit stored choice, else the OS preference —
+         the same prefers-color-scheme the wasm reads on load, so page and
+         canvas agree from frame 1. Dark is the default :root; light opts in
+         via data-theme="light". */
+      (function () {
+        try {
+          var stored = localStorage.getItem("mirui-theme");
+          var dark = stored ? stored === "dark"
+            : !window.matchMedia || window.matchMedia("(prefers-color-scheme: dark)").matches;
+          document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+        } catch (_) {
+          document.documentElement.setAttribute("data-theme", "dark");
+        }
+      })();
+    </script>
     <link data-trunk rel="rust" data-wasm-opt="z" data-wasm-opt-params="--all-features" />
     <style>
       /* ════════════════════════════════════════════════════════════
@@ -75,6 +93,69 @@
         --syn-mac:  #b3a7ff;
         --syn-type: #7df4e4;
         --syn-attr: #8fd98a;
+      }
+
+      /* ── Light theme — same instrument in daylight. A warm-paper surface
+         ladder (front → back inverted so panels read as raised, not sunken),
+         a deepened teal signal that stays legible on white, and darkened
+         Rust tokens tuned for light backgrounds (Rust-playground / light
+         GitHub register). Same var names, light values — the design system
+         is unchanged, only repainted. ── */
+      :root[data-theme="light"] {
+        color-scheme: light;
+
+        --bg:        #f4f6f8;   /* app shell base — soft paper          */
+        --panel:     #ffffff;   /* navigator + source bodies            */
+        --panel-2:   #f0f3f6;   /* rails, heads, sunken fields          */
+        --raised:    #ffffff;   /* stage card, controls                 */
+        --raised-2:  #e9edf2;   /* control hover                        */
+        --well:      #f7f9fb;   /* code well + canvas backdrop          */
+
+        --line:        #d8dee6; /* primary seam                          */
+        --line-soft:   #e7ebf0; /* faint inner divider                   */
+        --line-strong: #c2cbd5; /* emphasised / focused edge             */
+
+        --ink:       #1c2530;   /* primary text                          */
+        --ink-dim:   #54616f;   /* secondary text                        */
+        --ink-faint: #8a96a4;   /* tertiary / placeholder / metadata     */
+
+        --signal:        #0d9488; /* deepened teal — legible on white    */
+        --signal-bright: #0b7a70;
+        --signal-deep:   #0f766e;
+        --signal-on:     #ffffff; /* ink on a signal fill                */
+        --signal-wash:   rgba(13, 148, 136, 0.10);
+        --signal-edge:   rgba(13, 148, 136, 0.45);
+        --signal-glow:   rgba(13, 148, 136, 0.18);
+
+        --live: #0d9488;
+        --good: #1f8fd6;
+
+        --lift-hero: 0 1px 0 rgba(255,255,255,0.6) inset,
+                     0 18px 44px -26px rgba(31,45,61,0.30),
+                     0 3px 10px rgba(31,45,61,0.08);
+        --lift-pop:  0 2px 8px rgba(31,45,61,0.16);
+
+        /* Rust tokens — darker, high-contrast on light surfaces */
+        --syn-kw:   #b3261e;
+        --syn-str:  #0a7d4f;
+        --syn-num:  #9a5b00;
+        --syn-com:  #8a96a4;
+        --syn-mac:  #6b3fd1;
+        --syn-type: #0f766e;
+        --syn-attr: #2e7d32;
+      }
+      /* atmosphere washes are authored with the dark signal rgb; repaint
+         them to the light teal so the shell tint matches the palette */
+      :root[data-theme="light"] .layout {
+        background:
+          radial-gradient(120% 80% at 18% -10%, rgba(13,148,136,0.06) 0%, transparent 55%),
+          var(--bg);
+      }
+      :root[data-theme="light"] main {
+        background:
+          radial-gradient(78% 56% at 32% 4%, rgba(13,148,136,0.05) 0%, transparent 58%),
+          radial-gradient(64% 56% at 100% 100%, rgba(15,118,110,0.035) 0%, transparent 55%),
+          var(--bg);
       }
 
       * { box-sizing: border-box; }
@@ -166,6 +247,34 @@
         border-color: var(--line-strong);
         background: var(--raised);
       }
+      /* theme toggle — shares the topbar pill family with .gh; icon-only */
+      .topbar .theme-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        padding: 0;
+        color: var(--ink-dim);
+        border: 1px solid var(--line);
+        border-radius: var(--r-pill);
+        background: var(--panel-2);
+        cursor: pointer;
+        flex: 0 0 auto;
+        transition: color 0.13s, border-color 0.13s, background 0.13s;
+      }
+      .topbar .theme-toggle svg { display: block; }
+      .topbar .theme-toggle:hover {
+        color: var(--signal-bright);
+        border-color: var(--line-strong);
+        background: var(--raised);
+      }
+      .topbar .theme-toggle:active { transform: translateY(1px); }
+      /* dark = default → offer the sun (switch to light); hide the moon.
+         in light mode the .light-active class flips which glyph shows. */
+      .topbar .theme-toggle .ico-moon { display: none; }
+      :root[data-theme="light"] .topbar .theme-toggle .ico-sun  { display: none; }
+      :root[data-theme="light"] .topbar .theme-toggle .ico-moon { display: block; }
       /* live indicator — the canvas is rendering each frame */
       .live-chip {
         display: inline-flex;
@@ -755,12 +864,75 @@
           max-height: 40vh;
         }
         .topbar { height: 48px; padding: 0 var(--s4); gap: var(--s3); }
-        .code-panel { --topbar-h: 48px; }
         .live-chip { display: none; }
         main {
           padding: var(--s5) var(--s3);
           align-items: flex-start;
         }
+
+        /* ── Source as a BOTTOM SHEET ──────────────────────────────
+           The right-edge drawer hides under the canvas resize ring and
+           eats 90vw of a phone. On narrow screens it becomes a full-width
+           sheet docked to the bottom: a horizontal grab bar peeks above
+           the safe-area, and the sheet rises to a readable height when
+           opened. Still a fixed overlay — the stage never reflows. */
+        .code-panel {
+          --handle: 34px;
+          top: auto;
+          right: 0;
+          left: 0;
+          bottom: 0;
+          width: 100%;
+          height: min(72vh, 560px);
+          border: 1px solid var(--line-strong);
+          border-bottom: none;
+          border-radius: var(--r3) var(--r3) 0 0;
+          box-shadow: 0 -18px 48px -28px rgba(0,0,0,0.85), var(--lift-pop);
+          /* peek the grab bar above the bottom (+ iOS home-indicator inset) */
+          transform: translateY(calc(100% - var(--handle) - env(safe-area-inset-bottom, 0px)));
+          transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+        }
+        .code-panel.open { transform: translateY(0); }
+
+        /* grab bar runs along the TOP edge of the sheet, full width */
+        .code-handle {
+          left: 0;
+          top: 0;
+          width: 100%;
+          height: var(--handle);
+          flex-direction: row;
+          justify-content: center;
+          gap: var(--s2);
+          padding: 0 var(--s4);
+          border-right: none;
+          border-bottom: 1px solid var(--line-soft);
+          background: linear-gradient(180deg, var(--panel-2) 60%, transparent 100%);
+        }
+        .code-panel.open .code-handle {
+          border-right: none;
+          border-bottom: 1px solid var(--line);
+        }
+        /* chevron points up (open me) at rest, flips down (close me) when open */
+        .code-handle .chev { transform: rotate(90deg); }
+        .code-panel.open .code-handle .chev { transform: rotate(-90deg); }
+        .code-handle .vlabel {
+          writing-mode: horizontal-tb;
+          transform: none;
+        }
+
+        /* inner column sits BELOW the top grab bar */
+        .code-inner {
+          left: 0;
+          top: var(--handle);
+          right: 0;
+          bottom: 0;
+          height: auto;
+        }
+        /* keep the sheet's bottom edge clear of the home indicator */
+        .code-body pre { padding-bottom: calc(var(--s5) + env(safe-area-inset-bottom, 0px)); }
+      }
+      @media (max-width: 760px) and (prefers-reduced-motion: reduce) {
+        .code-panel { transition: none; }
       }
       @media (max-width: 420px) {
         .topbar .gh span.gh-label { display: none; }
@@ -786,6 +958,15 @@
         </div>
         <div class="topbar-spacer"></div>
         <span class="live-chip" aria-hidden="true"><span class="dot"></span>rendering</span>
+        <button class="theme-toggle" id="theme-toggle" type="button" title="Switch to light theme" aria-label="Toggle light / dark theme">
+          <svg class="ico-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M12 2v2.5M12 19.5V22M22 12h-2.5M4.5 12H2M19.07 4.93l-1.77 1.77M6.7 17.3l-1.77 1.77M19.07 19.07l-1.77-1.77M6.7 6.7 4.93 4.93" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+          <svg class="ico-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+          </svg>
+        </button>
         <a class="gh" href="https://github.com/W-Mai/mirui" target="_blank" rel="noopener">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
             <path d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.6 7.6 0 0 1 4 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/>
@@ -891,13 +1072,15 @@
           cat.setAttribute("data-count", String(count));
         }
 
-        let activeLink = null;
-        for (const link of navEl.querySelectorAll("a")) {
-          if (link.dataset.demo === activeSlug) {
-            link.classList.add("active");
-            activeLink = link;
-          }
+        let activeLink = navEl.querySelector(`a[data-demo="${CSS.escape(activeSlug)}"]`);
+        if (!activeLink) {
+          // Unknown ?demo= slug: the wasm fell back to "dsl", so align the
+          // page (active link, title, source, URL) with what's running.
+          activeSlug = "dsl";
+          activeLink = navEl.querySelector('a[data-demo="dsl"]');
+          history.replaceState({ demo: activeSlug }, "", "?demo=" + activeSlug);
         }
+        if (activeLink) activeLink.classList.add("active");
 
         // ── Client-side demo filter ────────────────────────────
         // Operates purely over the existing nav <a> nodes: hides
@@ -1007,8 +1190,11 @@
           if (!resizing) return;
           const maxW = Math.max(MIN_SIZE, window.innerWidth - 80);
           const maxH = Math.max(MIN_SIZE, window.innerHeight - 80);
-          const nextW = Math.min(maxW, Math.max(MIN_SIZE, startW + (e.clientX - startX)));
-          const nextH = Math.min(maxH, Math.max(MIN_SIZE, startH + (e.clientY - startY)));
+          // Stage is flex-centered, so it grows from the middle: the corner
+          // moves half the width delta. Double the delta so the corner tracks
+          // the pointer 1:1 while the box stays centered.
+          const nextW = Math.min(maxW, Math.max(MIN_SIZE, startW + (e.clientX - startX) * 2));
+          const nextH = Math.min(maxH, Math.max(MIN_SIZE, startH + (e.clientY - startY) * 2));
           applyCanvasSize(nextW, nextH);
         });
 
@@ -1028,6 +1214,50 @@
         resetBtn.addEventListener("click", () => {
           applyCanvasSize(initW, initH);
         });
+
+        // ── Theme toggle (page shell + mirui canvas in lockstep) ───
+        // The head script already set data-theme from a stored choice or
+        // prefers-color-scheme. The wasm picked the canvas theme from the
+        // same prefers-color-scheme on load; we push set_theme(dark) once
+        // here so the canvas honours an explicit stored preference too and
+        // page + canvas are guaranteed to agree from the first frame.
+        const themeToggle = document.getElementById("theme-toggle");
+        const themeQuery = window.matchMedia
+          ? window.matchMedia("(prefers-color-scheme: dark)")
+          : null;
+
+        let userPicked = false;
+        try { userPicked = !!localStorage.getItem("mirui-theme"); } catch (_) {}
+
+        function isDark() {
+          return document.documentElement.getAttribute("data-theme") !== "light";
+        }
+        function syncCanvasTheme(dark) {
+          try { wasmBindings.set_theme(dark); } catch (_) {}
+        }
+        function applyTheme(dark, persist) {
+          document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
+          themeToggle.title = dark ? "Switch to light theme" : "Switch to dark theme";
+          syncCanvasTheme(dark);
+          if (persist) {
+            try { localStorage.setItem("mirui-theme", dark ? "dark" : "light"); } catch (_) {}
+            userPicked = true;
+          }
+        }
+
+        // Align the canvas with whatever the head script resolved.
+        applyTheme(isDark(), false);
+
+        themeToggle.addEventListener("click", () => {
+          applyTheme(!isDark(), true);
+        });
+
+        // Follow the OS only while the user hasn't made an explicit choice.
+        if (themeQuery) {
+          const onScheme = (e) => { if (!userPicked) applyTheme(e.matches, false); };
+          if (themeQuery.addEventListener) themeQuery.addEventListener("change", onScheme);
+          else if (themeQuery.addListener) themeQuery.addListener(onScheme);
+        }
 
         // ── Code panel ─────────────────────────────────────────
         const codeBody = document.getElementById("code-body");

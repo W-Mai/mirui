@@ -413,4 +413,16 @@ mod tests {
         let src = "//~focus-start\n    a();\n        b();\n//~focus-end\n";
         assert_eq!(extract_focus(src), "a();\n    b();");
     }
+
+    #[test]
+    fn start_without_end_runs_to_eof() {
+        let src = "head();\n//~focus-start\n    a();\n    b();\n";
+        assert_eq!(extract_focus(src), "a();\nb();");
+    }
+
+    #[test]
+    fn lone_end_is_ignored() {
+        let src = "a();\n//~focus-end\nb();\n";
+        assert_eq!(extract_focus(src), src);
+    }
 }
