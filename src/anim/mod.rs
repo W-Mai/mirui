@@ -5,6 +5,11 @@ use crate::types::{Fixed, Fixed64};
 
 pub use ease::EaseFn;
 
+/// Upper bound on a single frame's delta, applied where dt is sourced.
+/// Caps the semi-implicit Euler step so a stalled clock can't diverge the
+/// integrators; motion freezes and resumes instead of taking one huge step.
+pub const MAX_FRAME_DT_MS: u16 = 100;
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum PlayMode {
     Once,
@@ -178,6 +183,10 @@ impl Spring {
     }
 
     pub fn tick(&mut self, dt_ms: u16) {
+        // Guard direct callers: an unbounded dt would diverge the
+        // semi-implicit Euler step (ω₀·sub_dt < 2) and overflow Fixed64.
+        let dt_ms = dt_ms.min(MAX_FRAME_DT_MS);
+
         // Stability bound for semi-implicit Euler: ω₀·dt < 2 (ω₀ = √stiffness).
         // Pick N substeps so each sub_dt × ω₀ stays well below 1.
         let omega = self.stiffness.sqrt();
@@ -301,7 +310,7 @@ pub fn sync_delta_time_ms(world: &mut World) {
             let now = (fc.clock)();
             let dt_ns = now.saturating_sub(fc.last_ns);
             fc.last_ns = now;
-            (dt_ns / 1_000_000).clamp(1, 65535) as u16
+            (dt_ns / 1_000_000).clamp(1, MAX_FRAME_DT_MS as u64) as u16
         }
         None => 16,
     };
@@ -636,5 +645,35 @@ mod settle_threshold_check {
             failures.len(),
             &failures[..failures.len().min(5)],
         );
+    }
+
+    #[test]
+    fn sync_delta_time_clamps_wall_clock_spike() {
+        use crate::ecs::MonoClock;
+        use core::sync::atomic::{AtomicU64, Ordering};
+
+        static T_NS: AtomicU64 = AtomicU64::new(0);
+        fn clock() -> u64 {
+            T_NS.load(Ordering::Relaxed)
+        }
+
+        let mut world = World::new();
+        T_NS.store(0, Ordering::Relaxed);
+        world.insert_resource(MonoClock::new(clock));
+        T_NS.store(30_000_000_000, Ordering::Relaxed);
+        sync_delta_time_ms(&mut world);
+        let dt = world.resource::<DeltaTimeMs>().map(|d| d.0).unwrap();
+        assert!(dt <= MAX_FRAME_DT_MS, "spike dt {dt} must be clamped");
+    }
+
+    #[test]
+    fn spring_survives_huge_dt() {
+        let mut s = Spring::new(Fixed::ZERO, Fixed::ONE, 250, Fixed::ZERO);
+        s.tick(u16::MAX);
+        assert!(s.position.to_int().abs() < 100, "huge dt must not blow up");
+        for _ in 0..200 {
+            s.tick(16);
+        }
+        assert!((s.value() - Fixed::ONE).abs() < Fixed::ONE / Fixed::from_int(20));
     }
 }

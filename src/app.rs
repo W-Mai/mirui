@@ -468,6 +468,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         let frame_start = self.clock_ns();
 
+        // Keep the DisplayInfo resource in step with the backend each frame;
+        // systems that read it (not the per-event size) would otherwise see a
+        // stale viewport after the surface changes size.
+        let info = self.backend.display_info();
+        self.world.insert_resource(info);
+
         let mut logical: Option<(u16, u16)> = None;
         let mut quit = false;
 
