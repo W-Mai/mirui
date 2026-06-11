@@ -241,12 +241,19 @@ fn switch_render(
     );
 
     let thumb_size = (rect.h - SWITCH_THUMB_MARGIN * Fixed::from_int(2)).max(Fixed::ZERO);
-    // Fallback covers the first frame before switch_init_system seeds
-    // AnimatedThumbX.
-    let thumb_local_x = world
-        .get::<AnimatedThumbX>(entity)
-        .map(|x| x.0)
-        .unwrap_or_else(|| off_thumb_x(rect));
+    // Mid-animation the spring owns the position; at rest derive it from the
+    // live rect so a resize moves the ON knob to the new right edge instead
+    // of leaving it at the baked `AnimatedThumbX`.
+    let thumb_local_x = if world.get::<AnimateThumbX>(entity).is_some() {
+        world
+            .get::<AnimatedThumbX>(entity)
+            .map(|x| x.0)
+            .unwrap_or_else(|| off_thumb_x(rect))
+    } else if s.on {
+        on_thumb_x(rect)
+    } else {
+        off_thumb_x(rect)
+    };
     renderer.draw(
         &DrawCommand::Fill {
             area: Rect {
@@ -378,5 +385,24 @@ mod tests {
         assert!(world.has::<Switch>(e));
         assert!(!world.has::<SwitchHandler>(e));
         assert!(!world.has::<crate::widget::Style>(e));
+    }
+
+    #[test]
+    fn on_thumb_x_tracks_track_width() {
+        let narrow = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(40),
+            h: Fixed::from_int(20),
+        };
+        let wide = Rect {
+            w: Fixed::from_int(120),
+            ..narrow
+        };
+        assert!(
+            on_thumb_x(&wide) > on_thumb_x(&narrow),
+            "ON knob must move right as the track widens so resize tracks the edge",
+        );
+        assert_eq!(off_thumb_x(&wide), off_thumb_x(&narrow));
     }
 }

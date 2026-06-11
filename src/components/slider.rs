@@ -133,6 +133,19 @@ impl crate::ecs::IntoBundle for SliderBuilder {
     }
 }
 
+/// Right edge of the fill bar, measured from the track's left edge.
+/// Held equal to `knob_center_offset` so the round knob always covers
+/// the fill's square right edge.
+fn fill_width(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed {
+    ratio * (track_w - thumb_size) + thumb_size / Fixed::from_int(2)
+}
+
+/// Knob centre, measured from the track's left edge. The knob travels
+/// the usable track (full width minus its own diameter).
+fn knob_center_offset(ratio: Fixed, track_w: Fixed, thumb_size: Fixed) -> Fixed {
+    ratio * (track_w - thumb_size) + thumb_size / Fixed::from_int(2)
+}
+
 fn slider_render(
     renderer: &mut dyn Renderer,
     world: &World,
@@ -149,6 +162,7 @@ fn slider_render(
     let thumb_color = s.thumb_color.resolve_in(theme, ctx.state);
     let ratio = s.ratio();
     let cap_radius = rect.h / Fixed::from_int(2);
+    let thumb_size = rect.h;
 
     renderer.draw(
         &DrawCommand::Fill {
@@ -162,9 +176,8 @@ fn slider_render(
         ctx.clip,
     );
 
-    // Fill bar: full-width capsule with the right side cut off via a
-    // narrowed clip rect — preserves the rounded right end at any ratio.
-    let ratio_w = rect.w * ratio;
+    // Capsule clipped to ratio_w; the square right edge sits under the knob.
+    let ratio_w = fill_width(ratio, rect.w, thumb_size);
     if ratio_w > Fixed::ZERO {
         let ratio_box = Rect {
             x: rect.x,
@@ -187,8 +200,8 @@ fn slider_render(
         }
     }
 
-    let thumb_size = rect.h;
-    let thumb_x = rect.x + ratio * (rect.w - thumb_size);
+    let thumb_x =
+        rect.x + knob_center_offset(ratio, rect.w, thumb_size) - thumb_size / Fixed::from_int(2);
     renderer.draw(
         &DrawCommand::Fill {
             area: Rect {
@@ -418,6 +431,34 @@ mod tests {
         assert!(world.has::<crate::widget::Style>(e));
         assert!(world.has::<SliderHandler>(e));
         assert!(world.has::<crate::widget::Widget>(e));
+    }
+
+    #[test]
+    fn fill_edge_lands_on_knob_center() {
+        let track_w = Fixed::from_int(200);
+        let thumb_size = Fixed::from_int(20);
+        for ratio in [
+            Fixed::ZERO,
+            Fixed::from_int(1) / Fixed::from_int(2),
+            Fixed::ONE,
+        ] {
+            assert_eq!(
+                fill_width(ratio, track_w, thumb_size),
+                knob_center_offset(ratio, track_w, thumb_size),
+                "fill right edge must equal knob centre at ratio {ratio:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn fill_width_never_zero_at_min() {
+        let track_w = Fixed::from_int(200);
+        let thumb_size = Fixed::from_int(20);
+        assert_eq!(
+            fill_width(Fixed::ZERO, track_w, thumb_size),
+            thumb_size / Fixed::from_int(2),
+            "at ratio 0 the fill reaches the knob centre, not zero",
+        );
     }
 
     #[test]

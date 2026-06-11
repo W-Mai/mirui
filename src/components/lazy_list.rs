@@ -1,6 +1,7 @@
 use crate::ecs::{Entity, World};
 use crate::event::scroll::ScrollOffset;
 use crate::types::Fixed;
+use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
 use alloc::vec::Vec;
 
@@ -86,6 +87,7 @@ struct ListContext {
     item_height: Fixed,
     pool_size: u32,
     visible_start: u32,
+    visible_count: u32,
     items: Vec<Entity>,
     bound_indices: Vec<u32>,
     binder: ItemBinder,
@@ -110,6 +112,15 @@ fn collect_list_context(world: &World, entity: Entity) -> Option<ListContext> {
     let raw_start = (scroll_y / item_height).to_int();
     let visible_start = (raw_start.max(0) as u32).min(item_count.saturating_sub(pool_size));
 
+    // +2 overscan covers a partially-revealed row at each edge; before
+    // first layout (no ComputedRect) bind the full pool.
+    let visible_count = match world.get::<ComputedRect>(entity).map(|r| r.0.h) {
+        Some(h) if h > Fixed::ZERO => {
+            ((h / item_height).ceil().to_int().max(0) as u32 + 2).min(pool_size)
+        }
+        _ => pool_size,
+    };
+
     let pool = world.get::<LazyListPool>(entity)?;
     let binder = world.get::<LazyListBinder>(entity).map(|b| b.bind)?;
     Some(ListContext {
@@ -117,6 +128,7 @@ fn collect_list_context(world: &World, entity: Entity) -> Option<ListContext> {
         item_height,
         pool_size,
         visible_start,
+        visible_count,
         items: pool.items.clone(),
         bound_indices: pool.bound_indices.clone(),
         binder,
@@ -136,7 +148,8 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
     // Ring-buffer mapping `slot[target % pool_size] = target` so a
     // one-row scroll only rebinds one slot; the rest keep their
     // content and only their layout position moves.
-    for i in 0..pool_size {
+    let active = (ctx.visible_count as usize).min(pool_size);
+    for i in 0..active {
         let target = ctx.visible_start + i as u32;
         if target >= ctx.item_count {
             continue;
@@ -194,8 +207,9 @@ pub fn lazy_list_system(world: &mut World) {
             .unwrap_or(u32::MAX);
         let pool_size = ctx.pool_size as usize;
         if prev_start == ctx.visible_start && pool_size > 0 {
+            let active = (ctx.visible_count as usize).min(pool_size);
             let mut all_bound = true;
-            for i in 0..pool_size {
+            for i in 0..active {
                 let target = ctx.visible_start + i as u32;
                 if target >= ctx.item_count {
                     continue;
@@ -220,22 +234,28 @@ pub fn lazy_list_system(world: &mut World) {
     }
 }
 
-/// Hide slots that should not be visible this frame: bindings past
-/// the live tail (`item_count` shrank under a stale binding) plus
-/// initial unbound slots when `pool_size > item_count`. Returns true
-/// if any slot was newly hidden so the caller can mark Dirty.
+/// Returns true if any slot was newly hidden, so the caller marks Dirty.
 fn clear_extra_slots(world: &mut World, entity: Entity, ctx: &ListContext) -> bool {
     let pool_size = ctx.pool_size as usize;
     if pool_size == 0 {
         return false;
     }
+    let active = (ctx.visible_count as usize).min(pool_size);
+    let in_window = |row: u32| {
+        row >= ctx.visible_start && row < ctx.visible_start + active as u32 && row < ctx.item_count
+    };
+    let active_slot = |slot_idx: usize| {
+        (0..active).any(|i| {
+            let target = ctx.visible_start + i as u32;
+            target < ctx.item_count && (target as usize) % pool_size == slot_idx
+        })
+    };
     let mut any_cleared = false;
     let mut new_bindings = ctx.bound_indices.clone();
     for (i, bound) in new_bindings.iter_mut().enumerate().take(pool_size) {
         let needs_hide = match *bound {
-            u32::MAX => i as u32 >= ctx.item_count,
-            n if n >= ctx.item_count => true,
-            _ => false,
+            u32::MAX => !active_slot(i),
+            n => !in_window(n),
         };
         if !needs_hide {
             continue;
@@ -490,5 +510,57 @@ mod tests {
                 "all slots should be visible once item_count grows back",
             );
         }
+    }
+
+    fn set_list_height(world: &mut World, list: Entity, h: i32) {
+        world.insert(
+            list,
+            crate::widget::ComputedRect(crate::types::Rect {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                w: Fixed::from_int(100),
+                h: Fixed::from_int(h),
+            }),
+        );
+    }
+
+    fn visible_count(world: &World, pool: &[Entity]) -> usize {
+        pool.iter()
+            .filter(|&&s| world.get::<crate::widget::Hidden>(s).is_none())
+            .count()
+    }
+
+    #[test]
+    fn visible_window_tracks_live_height() {
+        let mut world = World::default();
+        let list = world.spawn_empty();
+        let pool: Vec<Entity> = (0..12).map(|_| make_slot(&mut world, list)).collect();
+        world.insert(list, Widget);
+        world.insert(list, Style::default());
+        world.insert(list, LazyList::new(1000, 32, 12));
+        world.insert(list, LazyListPool::new(pool.clone()));
+        world.insert(
+            list,
+            LazyListBinder {
+                bind: recording_binder,
+            },
+        );
+        world.insert_resource(BindTrace(alloc::vec::Vec::new()));
+
+        // Short canvas: 64 px / 32 px = 2 rows + 2 overscan = 4 visible.
+        set_list_height(&mut world, list, 64);
+        lazy_list_system(&mut world);
+        let narrow = visible_count(&world, &pool);
+        assert_eq!(narrow, 4, "short canvas binds ceil(h/item)+2 rows");
+
+        // Grow taller than pool*item_height: window saturates at the pool.
+        set_list_height(&mut world, list, 600);
+        lazy_list_system(&mut world);
+        let wide = visible_count(&world, &pool);
+        assert!(
+            wide > narrow,
+            "more rows must become visible as the list grows: {narrow} -> {wide}",
+        );
+        assert_eq!(wide, 12, "window is capped at the allocated pool");
     }
 }
