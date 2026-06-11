@@ -404,16 +404,16 @@
       }
       #nav.is-empty .nav-empty { display: block; }
 
-      /* ── CENTER + RIGHT: the workbench ── */
+      /* ── CENTER: the workbench. The source drawer is pulled OUT of this
+         flow into a fixed overlay, so the stage stays pixel-stable when
+         the drawer slides open or shut. ── */
       main {
+        position: relative;
         display: flex;
         align-items: center;
         justify-content: center;
         padding: var(--s7);
         overflow: auto;
-        gap: var(--s7);
-        flex-wrap: wrap;
-        align-content: center;
         background:
           radial-gradient(78% 56% at 32% 4%, rgba(70,229,208,0.045) 0%, transparent 58%),
           radial-gradient(64% 56% at 100% 100%, rgba(125,244,228,0.03) 0%, transparent 55%),
@@ -577,19 +577,92 @@
         border-color: var(--signal-on);
       }
 
-      /* ── Source panel — docked reference, flush card, no float lift ── */
+      /* ── Source drawer — fixed overlay, peeks a sliver at the right edge,
+         slides fully out on click. Pulled out of <main> flow so toggling
+         it never reflows the centered stage. ── */
       .code-panel {
+        --handle: 30px;
+        --topbar-h: 52px;
+        --gap-y: 18px;
+        position: fixed;
+        top: calc(var(--topbar-h) + var(--gap-y));
+        right: 0;
+        height: calc(100vh - var(--topbar-h) - var(--gap-y) * 2);
+        width: min(680px, 90vw);
         display: flex;
         flex-direction: column;
         background: var(--panel);
-        border: 1px solid var(--line);
-        border-radius: var(--r4);
-        box-shadow: var(--lift-pop);
-        width: 540px;
-        max-width: 100%;
-        max-height: min(78vh, 720px);
+        border: 1px solid var(--line-strong);
+        border-right: none;
+        border-radius: var(--r3) 0 0 var(--r3);
+        box-shadow: -18px 0 48px -28px rgba(0,0,0,0.85), var(--lift-pop);
         overflow: hidden;
-        flex: 1 1 420px;
+        z-index: 30;
+        will-change: transform;
+        transform: translateX(calc(100% - var(--handle)));
+        transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+      }
+      .code-panel.open {
+        transform: translateX(0);
+      }
+
+      /* left-edge handle strip — the always-visible affordance. When the
+         drawer is closed it shows a vertical SOURCE label + chevron over
+         the peeking code; clicking the strip toggles the drawer. */
+      .code-handle {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: var(--handle);
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: var(--s3);
+        padding: var(--s4) 0;
+        border-right: 1px solid var(--line-soft);
+        background: linear-gradient(90deg, var(--panel-2) 60%, transparent 100%);
+        cursor: pointer;
+        z-index: 2;
+        transition: background 0.13s;
+      }
+      .code-panel.open .code-handle {
+        background: var(--panel-2);
+        border-right: 1px solid var(--line);
+      }
+      .code-handle:hover { background: var(--panel-2); }
+      .code-handle .chev {
+        flex: 0 0 auto;
+        color: var(--ink-dim);
+        transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1), color 0.13s;
+      }
+      .code-handle:hover .chev { color: var(--signal-bright); }
+      /* chevron points left (open me) at rest, flips right (close me) when open */
+      .code-panel.open .code-handle .chev { transform: rotate(180deg); }
+      .code-handle .vlabel {
+        writing-mode: vertical-rl;
+        transform: rotate(180deg);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--ink-faint);
+        font-family: var(--font-mono);
+        user-select: none;
+      }
+      .code-handle:hover .vlabel { color: var(--ink-dim); }
+      .code-panel.open .code-handle .vlabel { color: var(--signal-bright); }
+
+      /* inner column sits right of the handle strip */
+      .code-inner {
+        position: absolute;
+        left: var(--handle);
+        top: 0;
+        right: 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
       }
       .code-head {
         display: flex;
@@ -599,6 +672,7 @@
         padding: var(--s3) var(--s3) var(--s3) var(--s4);
         border-bottom: 1px solid var(--line);
         background: var(--panel-2);
+        cursor: pointer;
       }
       .code-head .actions {
         display: inline-flex;
@@ -681,13 +755,12 @@
           max-height: 40vh;
         }
         .topbar { height: 48px; padding: 0 var(--s4); gap: var(--s3); }
+        .code-panel { --topbar-h: 48px; }
         .live-chip { display: none; }
         main {
           padding: var(--s5) var(--s3);
-          gap: var(--s5);
           align-items: flex-start;
         }
-        .code-panel { width: 100%; flex-basis: auto; }
       }
       @media (max-width: 420px) {
         .topbar .gh span.gh-label { display: none; }
@@ -758,30 +831,38 @@
             </div>
           </div>
           <div class="code-panel" id="code-panel">
-            <div class="code-head">
-              <span class="title">source · <b id="code-title">—</b></span>
-              <span class="actions">
-                <button class="icon-btn on" id="focus-btn" type="button" title="Showing core ui! tree — click to show full source" aria-label="Toggle focused source">
-                  <svg class="eye-open" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" stroke="currentColor" stroke-width="1.3"/>
-                    <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/>
-                  </svg>
-                  <svg class="eye-off" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="display:none">
-                    <path d="M1.5 8s2.5-4.5 6.5-4.5c1.06 0 2.02.32 2.86.81M14.5 8s-.86 1.55-2.5 2.86M9.9 9.9A2 2 0 0 1 6.1 6.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                    <path d="M2.5 2.5l11 11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-                  </svg>
-                </button>
-                <button class="copy-btn" id="copy-btn" type="button" aria-label="Copy source">
-                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                    <rect x="5.5" y="5.5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
-                    <path d="M3.5 10.5H3a1.5 1.5 0 0 1-1.5-1.5V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5" stroke="currentColor" stroke-width="1.4"/>
-                  </svg>
-                  <span class="label">Copy</span>
-                </button>
-              </span>
+            <div class="code-handle" id="code-handle" title="Toggle source panel" role="button" tabindex="0" aria-label="Toggle source panel" aria-expanded="false">
+              <svg class="chev" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="vlabel">Source</span>
             </div>
-            <div class="code-body" id="code-body">
-              <pre><code id="code"></code></pre>
+            <div class="code-inner">
+              <div class="code-head" id="code-head" title="Click to close the source panel">
+                <span class="title">source · <b id="code-title">—</b></span>
+                <span class="actions">
+                  <button class="icon-btn on" id="focus-btn" type="button" title="Showing core ui! tree — click to show full source" aria-label="Toggle focused source">
+                    <svg class="eye-open" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" stroke="currentColor" stroke-width="1.3"/>
+                      <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.3"/>
+                    </svg>
+                    <svg class="eye-off" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true" style="display:none">
+                      <path d="M1.5 8s2.5-4.5 6.5-4.5c1.06 0 2.02.32 2.86.81M14.5 8s-.86 1.55-2.5 2.86M9.9 9.9A2 2 0 0 1 6.1 6.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                      <path d="M2.5 2.5l11 11" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
+                    </svg>
+                  </button>
+                  <button class="copy-btn" id="copy-btn" type="button" aria-label="Copy source">
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                      <rect x="5.5" y="5.5" width="8" height="9" rx="1.5" stroke="currentColor" stroke-width="1.4"/>
+                      <path d="M3.5 10.5H3a1.5 1.5 0 0 1-1.5-1.5V3A1.5 1.5 0 0 1 3 1.5h6A1.5 1.5 0 0 1 10.5 3v.5" stroke="currentColor" stroke-width="1.4"/>
+                    </svg>
+                    <span class="label">Copy</span>
+                  </button>
+                </span>
+              </div>
+              <div class="code-body" id="code-body">
+                <pre><code id="code"></code></pre>
+              </div>
             </div>
           </div>
         </main>
@@ -790,7 +871,7 @@
     <script>
       window.addEventListener("TrunkApplicationStarted", () => {
         const params = new URLSearchParams(location.search);
-        const activeSlug = params.get("demo") || "dsl";
+        let activeSlug = params.get("demo") || "dsl";
 
         const navEl = document.getElementById("nav");
         navEl.innerHTML = wasmBindings.nav_html();
@@ -949,7 +1030,6 @@
         });
 
         // ── Code panel ─────────────────────────────────────────
-        const codeEl = document.getElementById("code");
         const codeBody = document.getElementById("code-body");
         const codeTitle = document.getElementById("code-title");
         const copyBtn = document.getElementById("copy-btn");
@@ -1085,22 +1165,12 @@
           return out;
         }
 
+        // Per-demo source state. loadSource() refreshes these from the
+        // wasm bindings on each switch; applyFocusState() repaints the panel.
         let fullSource = "";
-        try {
-          fullSource = wasmBindings.demo_source(activeSlug) || "";
-        } catch (err) {
-          fullSource = "";
-        }
         let focusSource = "";
-        try {
-          focusSource = wasmBindings.demo_source_focus(activeSlug) || "";
-        } catch (err) {
-          focusSource = "";
-        }
-        // Fall back to full if focus is empty so the toggle is harmless.
-        if (!focusSource) focusSource = fullSource;
 
-        // Default to the focused core ui! view each page load.
+        // Default to the focused core ui! view.
         let focusMode = true;
         const focusBtn = document.getElementById("focus-btn");
         const eyeOpen = focusBtn.querySelector(".eye-open");
@@ -1111,12 +1181,29 @@
           return focusMode ? focusSource : fullSource;
         }
 
-        codeTitle.textContent = `${activeSlug}.rs`;
+        // Pull both source views for a slug from the wasm bindings.
+        function loadSource(slug) {
+          try {
+            fullSource = wasmBindings.demo_source(slug) || "";
+          } catch (err) {
+            fullSource = "";
+          }
+          try {
+            focusSource = wasmBindings.demo_source_focus(slug) || "";
+          } catch (err) {
+            focusSource = "";
+          }
+          // Fall back to full if focus is empty so the toggle is harmless.
+          if (!focusSource) focusSource = fullSource;
+          codeTitle.textContent = `${slug}.rs`;
+        }
 
         function renderSource() {
           const src = shownSource();
           if (src) {
-            codeEl.innerHTML = highlightRust(src);
+            codeBody.innerHTML = '<pre><code id="code"></code></pre>';
+            document.getElementById("code").innerHTML = highlightRust(src);
+            copyBtn.disabled = false;
           } else {
             codeBody.innerHTML = `<div class="code-empty">No source available for <code>${escapeHtml(activeSlug)}</code>.</div>`;
             copyBtn.disabled = true;
@@ -1134,9 +1221,7 @@
           renderSource();
         }
 
-        if (!fullSource) {
-          copyBtn.disabled = true;
-        }
+        loadSource(activeSlug);
         applyFocusState();
 
         focusBtn.addEventListener("click", () => {
@@ -1169,6 +1254,93 @@
             copyLabel.textContent = "Copy";
           }, 1400);
         });
+
+        // ── Source drawer toggle ───────────────────────────────
+        // Closed at rest (a sliver peeks at the right edge). The handle
+        // strip toggles; the head closes when open. Clicks inside the code
+        // body never toggle, so selecting source can't retract the drawer.
+        const codePanel = document.getElementById("code-panel");
+        const codeHandle = document.getElementById("code-handle");
+        const codeHead = document.getElementById("code-head");
+
+        function setDrawer(open) {
+          codePanel.classList.toggle("open", open);
+          codeHandle.setAttribute("aria-expanded", String(open));
+        }
+        codeHandle.addEventListener("click", () => {
+          setDrawer(!codePanel.classList.contains("open"));
+        });
+        codeHandle.addEventListener("keydown", (e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setDrawer(!codePanel.classList.contains("open"));
+          }
+        });
+        // The head closes the drawer — but not when a control inside it
+        // (focus / copy button) was the target.
+        codeHead.addEventListener("click", (e) => {
+          if (e.target.closest("button")) return;
+          if (codePanel.classList.contains("open")) setDrawer(false);
+        });
+
+        // ── In-place demo switching (no page reload) ───────────
+        // wasmBindings.switch_demo(slug) rebuilds the running demo on the
+        // same canvas. We then move the .active class, retarget the stage
+        // meta + canvas size, reload the source panel, and push the URL —
+        // all without rebuilding nav, so sidebar scroll + filter persist.
+        function switchDemo(slug, push) {
+          if (!slug || slug === activeSlug) return;
+          const link = navEl.querySelector(`a[data-demo="${CSS.escape(slug)}"]`);
+          if (!link) return;
+
+          try {
+            wasmBindings.switch_demo(slug);
+          } catch (err) {
+            // Unknown slug or wasm teardown error — bail without disturbing
+            // the current demo or UI state.
+            return;
+          }
+
+          if (activeLink) activeLink.classList.remove("active");
+          link.classList.add("active");
+          activeLink = link;
+          activeSlug = slug;
+
+          stageName.textContent = link.textContent;
+          const w = parseInt(link.dataset.w, 10);
+          const h = parseInt(link.dataset.h, 10);
+          if (Number.isFinite(w) && Number.isFinite(h)) {
+            initW = w;
+            initH = h;
+          }
+          applyCanvasSize(initW, initH);
+
+          loadSource(slug);
+          applyFocusState();
+
+          if (push) {
+            history.pushState({ demo: slug }, "", "?demo=" + encodeURIComponent(slug));
+          }
+        }
+
+        // Intercept sidebar clicks → switch in place instead of navigating.
+        navEl.addEventListener("click", (e) => {
+          const link = e.target.closest("a[data-demo]");
+          if (!link || !navEl.contains(link)) return;
+          e.preventDefault();
+          switchDemo(link.dataset.demo, true);
+        });
+
+        // Back / forward navigate demos in place (no reload).
+        window.addEventListener("popstate", (e) => {
+          const slug = (e.state && e.state.demo)
+            || new URLSearchParams(location.search).get("demo")
+            || "dsl";
+          switchDemo(slug, false);
+        });
+
+        // Seed history so the first back press returns to the entry demo.
+        history.replaceState({ demo: activeSlug }, "", location.search || ("?demo=" + encodeURIComponent(activeSlug)));
       });
     </script>
   </body>

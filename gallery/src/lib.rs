@@ -147,11 +147,33 @@ mod backend {
         let _ = style.set_property("height", &format!("{h}px"));
         let backend = WebCanvasSurface::new(canvas);
         let factory = WebCanvasRendererFactory::new();
+        assemble_app(backend, factory)
+    }
+
+    pub fn grab_canvas() -> WebCanvasSurface {
+        let canvas = web_sys::window()
+            .expect("window")
+            .document()
+            .expect("document")
+            .get_element_by_id("mirui")
+            .expect("canvas element with id=\"mirui\"")
+            .dyn_into::<web_sys::HtmlCanvasElement>()
+            .expect("element is not <canvas>");
+        WebCanvasSurface::new(canvas)
+    }
+
+    pub fn assemble_app(
+        backend: ActiveSurface,
+        factory: ActiveFactory,
+    ) -> App<ActiveSurface, ActiveFactory> {
         let mut app = App::with_factory(backend, factory);
         app.with_default_widgets().with_default_systems();
         app
     }
 }
+
+#[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
+pub use backend::{assemble_app, grab_canvas};
 
 #[cfg(all(
     feature = "wgpu",

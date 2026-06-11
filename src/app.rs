@@ -297,6 +297,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         crate::event::sim::set_sim_root(&mut self.world, root);
     }
 
+    /// Reclaim the backend by value, dropping the rest of the `App`.
+    /// Lets a host rebuild a fresh `App` around the same surface (e.g.
+    /// the web gallery swapping demos without recreating the canvas).
+    pub fn into_backend(self) -> B {
+        self.backend
+    }
+
     /// Create the root widget with a fill-viewport default style and
     /// register it via [`set_root`][Self::set_root].
     ///
@@ -808,16 +815,32 @@ impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
     {
         use alloc::rc::Rc;
         use core::cell::RefCell;
+        Self::drive_animation_frame(Rc::new(RefCell::new(Some(self.app))));
+    }
+
+    /// Drive a shared, swappable `App` from `requestAnimationFrame`. The
+    /// cell may hold `None` while a host swaps the `App` (e.g. the web
+    /// gallery rebuilding for a new demo); those frames are skipped and
+    /// the loop keeps rescheduling.
+    #[cfg(all(target_arch = "wasm32", feature = "web-canvas"))]
+    pub fn drive_animation_frame(app: alloc::rc::Rc<core::cell::RefCell<Option<App<B, F>>>>)
+    where
+        B: 'static,
+        F: 'static,
+    {
+        use alloc::rc::Rc;
+        use core::cell::RefCell;
         use wasm_bindgen::JsCast;
         use wasm_bindgen::closure::Closure;
 
-        let app = Rc::new(RefCell::new(self.app));
         let holder: Rc<RefCell<Option<Closure<dyn FnMut()>>>> = Rc::new(RefCell::new(None));
         let holder_inner = holder.clone();
 
         *holder.borrow_mut() = Some(Closure::<dyn FnMut()>::new(move || {
-            if app.borrow_mut().tick() {
-                return;
+            if let Some(app) = app.borrow_mut().as_mut() {
+                if app.tick() {
+                    return;
+                }
             }
             let window = web_sys::window().expect("no global `window`");
             window
@@ -861,4 +884,40 @@ fn clone_texture_owned(
         dst.copy_from_slice(src.buf.as_slice());
     }
     owned
+}
+
+#[cfg(test)]
+mod swap_tests {
+    use super::*;
+
+    #[test]
+    fn into_backend_reuse_keeps_systems_bounded() {
+        let mut app = App::headless(64, 64);
+        app.with_default_widgets().with_default_systems();
+        let baseline = app.systems.iter().count();
+        assert!(baseline > 0);
+
+        for _ in 0..5 {
+            let backend = app.into_backend();
+            app = App::new(backend);
+            app.with_default_widgets().with_default_systems();
+            assert_eq!(
+                app.systems.iter().count(),
+                baseline,
+                "rebuilding the App must not accumulate systems",
+            );
+        }
+    }
+
+    #[test]
+    fn into_backend_resets_root() {
+        let mut app = App::headless(64, 64);
+        let root = app.spawn_root().id();
+        app.set_root(root);
+        assert!(app.root.is_some());
+
+        let backend = app.into_backend();
+        let app = App::new(backend);
+        assert!(app.root.is_none());
+    }
 }

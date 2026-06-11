@@ -57,6 +57,43 @@ gallery::register_demos! {
     ("builder_form",         "builder API (no DSL)", "Components",  builder_form,         320, 200),
 }
 
+extern crate alloc;
+
+use alloc::rc::Rc;
+use core::cell::RefCell;
+
+type WebApp = gallery::mirui::app::App<gallery::ActiveSurface, gallery::ActiveFactory>;
+
+thread_local! {
+    static APP: RefCell<Option<Rc<RefCell<Option<WebApp>>>>> = const { RefCell::new(None) };
+}
+
+fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> WebApp {
+    let mut app = gallery::assemble_app(backend, gallery::ActiveFactory::default());
+    set_canvas_size(demo.width, demo.height);
+    let root = {
+        let mut setup = gallery::Setup { app: &mut app };
+        (demo.setup)(&mut setup)
+    };
+    app.set_root(root);
+    app
+}
+
+fn set_canvas_size(w: u16, h: u16) {
+    if let Some(canvas) = web_sys::window()
+        .and_then(|win| win.document())
+        .and_then(|doc| doc.get_element_by_id("mirui"))
+    {
+        let style: web_sys::HtmlElement = wasm_bindgen::JsCast::unchecked_into(canvas);
+        let _ = style
+            .style()
+            .set_property("width", &alloc::format!("{w}px"));
+        let _ = style
+            .style()
+            .set_property("height", &alloc::format!("{h}px"));
+    }
+}
+
 #[wasm_bindgen(start)]
 pub fn start() {
     console_error_panic_hook::set_once();
@@ -64,11 +101,25 @@ pub fn start() {
     let slug = read_demo_query().unwrap_or_else(|| "dsl".to_string());
     let demo =
         lookup_demo(&slug).unwrap_or_else(|| lookup_demo("dsl").expect("dsl demo registered"));
-    let title = alloc::format!("mirui — {}", demo.label);
-    gallery::run(&title, demo.width, demo.height, demo.setup);
+    let app = build_app_for(demo, gallery::grab_canvas());
+    let cell = Rc::new(RefCell::new(Some(app)));
+    APP.with(|slot| *slot.borrow_mut() = Some(cell.clone()));
+    gallery::mirui::app::Runner::<gallery::ActiveSurface, gallery::ActiveFactory>::drive_animation_frame(cell);
 }
 
-extern crate alloc;
+#[wasm_bindgen]
+pub fn switch_demo(slug: &str) {
+    let Some(demo) = lookup_demo(slug) else {
+        return;
+    };
+    let cell = APP.with(|slot| slot.borrow().clone());
+    let Some(cell) = cell else { return };
+    let old = cell.borrow_mut().take();
+    let Some(old) = old else { return };
+    let backend = old.into_backend();
+    let app = build_app_for(demo, backend);
+    *cell.borrow_mut() = Some(app);
+}
 
 fn read_demo_query() -> Option<String> {
     let search = web_sys::window()?.location().search().ok()?;
