@@ -255,6 +255,54 @@ mod child_spawner_tests {
         assert_eq!(world.get::<Children>(grandchild).unwrap().0.len(), 1);
         assert_eq!(world.get::<Parent>(grandchild).unwrap().0, root);
     }
+
+    #[test]
+    fn despawn_subtree_recurses_and_unlinks_parent() {
+        let mut world = World::default();
+        let mut child0 = None;
+        let mut grandchild = None;
+        let root = spawn_children(&mut world, TagBundle(0), |c| {
+            child0 = Some(c.children(TagBundle(1), |gc| {
+                grandchild = Some(gc.spawn(TagBundle(9)));
+            }));
+            c.spawn(TagBundle(2));
+        });
+        let child0 = child0.unwrap();
+        let grandchild = grandchild.unwrap();
+        assert_eq!(world.get::<Children>(root).unwrap().0.len(), 2);
+
+        despawn_subtree(&mut world, child0);
+
+        assert!(!world.is_alive(child0), "subtree root despawned");
+        assert!(
+            !world.is_alive(grandchild),
+            "descendant despawned recursively"
+        );
+        let kids = &world.get::<Children>(root).unwrap().0;
+        assert_eq!(kids.len(), 1, "unlinked from parent's Children");
+        assert!(!kids.contains(&child0));
+    }
+
+    #[test]
+    fn despawn_subtree_clears_named_id() {
+        let mut world = World::default();
+        world.insert_resource(IdMap::new());
+        let e = spawn_children(&mut world, TagBundle(0), |_| {});
+        world.insert(e, NamedId("panel"));
+        world.resource_mut::<IdMap>().unwrap().insert("panel", e);
+
+        despawn_subtree(&mut world, e);
+        assert!(world.resource::<IdMap>().unwrap().get("panel").is_none());
+    }
+
+    #[test]
+    fn despawn_subtree_on_dead_entity_is_noop() {
+        let mut world = World::default();
+        let e = spawn_children(&mut world, TagBundle(0), |_| {});
+        despawn_subtree(&mut world, e);
+        despawn_subtree(&mut world, e); // second call must not panic
+        assert!(!world.is_alive(e));
+    }
 }
 
 /// Resolved post-layout rect (cf. `Style.layout` declarations).
@@ -324,4 +372,50 @@ fn set_position_inner(
     if mark_dirty {
         world.insert(entity, Dirty);
     }
+}
+
+/// Despawn `entity` and its subtree, unlinking from the parent and dropping its
+/// effects / `NamedId` mapping. The vacated region is flagged BEFORE despawn —
+/// `World::despawn` clears the rect, so otherwise the deleted widget leaves
+/// ghost pixels the dirty union never repaints.
+pub fn despawn_subtree(world: &mut crate::ecs::World, entity: crate::ecs::Entity) {
+    use crate::ecs::Entity;
+    use dirty::{Dirty, PrevRect};
+
+    if !world.is_alive(entity) {
+        return;
+    }
+
+    if let Some(parent) = world.get::<Parent>(entity).map(|p| p.0) {
+        if let Some(rect) = world.get::<ComputedRect>(entity).map(|c| c.0) {
+            let merged = match world.get::<PrevRect>(parent) {
+                Some(p) => p.0.union(&rect),
+                None => rect,
+            };
+            world.insert(parent, PrevRect(merged));
+            world.insert(parent, Dirty);
+        }
+        if let Some(children) = world.get_mut::<Children>(parent) {
+            children.0.retain(|&c| c != entity);
+        }
+    }
+
+    fn drop_node(world: &mut crate::ecs::World, e: Entity) {
+        let kids = world
+            .get::<Children>(e)
+            .map(|c| c.0.clone())
+            .unwrap_or_default();
+        for child in kids {
+            drop_node(world, child);
+        }
+        if let Some(name) = world.get::<NamedId>(e).map(|n| n.0)
+            && let Some(map) = world.resource_mut::<IdMap>()
+        {
+            map.remove(name);
+        }
+        crate::state::cleanup_effects_for(e);
+        world.despawn(e);
+    }
+
+    drop_node(world, entity);
 }
