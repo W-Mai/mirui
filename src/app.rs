@@ -555,6 +555,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::trace_span!("frame.systems");
             self.systems.run_all(&mut self.world);
         }
+        crate::state::flush_signal_dirty(&mut self.world);
         self.snapshot_system_perf();
         let systems_end = self.clock_ns();
 
