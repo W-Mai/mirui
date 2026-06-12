@@ -320,11 +320,13 @@ impl Drop for Effect {
     }
 }
 
-/// An effect whose lifetime is associated with a widget entity (for later
-/// despawn cleanup). It still re-runs on dependency change like any effect.
+/// An effect owned by the runtime and tied to a widget entity: it re-runs on
+/// dependency change and lives until the widget is despawned (cleanup later),
+/// not until a returned handle drops. Hence no handle is returned — dropping
+/// one would immediately unregister the effect.
 #[cfg_attr(not(test), allow(dead_code))]
-pub fn effect_with_widget(entity: Entity, f: impl Fn() + 'static) -> Effect {
-    Effect::spawn(f, Some(entity))
+pub fn effect_with_widget(entity: Entity, f: impl Fn() + 'static) {
+    core::mem::forget(Effect::spawn(f, Some(entity)));
 }
 
 // Clone the closure Rc out under the lock, then run it OUTSIDE — running user
@@ -611,11 +613,11 @@ mod tests {
     }
 
     #[test]
-    fn effect_with_widget_records_owner() {
+    fn spawn_records_owner_entity() {
         reset();
         let w = entity(99);
-        let e = effect_with_widget(w, || {});
-        assert_eq!(e.owner(), Some(w));
+        let owned = Effect::spawn(|| {}, Some(w));
+        assert_eq!(owned.owner(), Some(w));
         let standalone = Effect::new(|| {});
         assert_eq!(standalone.owner(), None);
     }

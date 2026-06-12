@@ -35,6 +35,7 @@ pub mod shapes;
 pub mod slider_switch;
 pub mod slider_value_changed;
 pub mod spatial_anim;
+pub mod state_counter;
 pub mod subpixel;
 pub mod tabbar;
 pub mod tabbar_selection;

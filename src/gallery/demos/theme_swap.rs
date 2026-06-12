@@ -214,8 +214,7 @@ mod tests {
         let row = world.get::<crate::widget::Children>(parent).unwrap().0[0];
         let custom_btn = world.get::<crate::widget::Children>(row).unwrap().0[2];
 
-        let h = world.get::<GestureHandler>(custom_btn).unwrap().on_gesture;
-        h(
+        GestureHandler::trigger(
             &mut world,
             custom_btn,
             &GestureEvent::Tap {

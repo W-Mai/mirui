@@ -181,8 +181,7 @@ mod tests {
         let d0 = world.get::<Children>(row).unwrap().0[0];
 
         assert_eq!(world.get::<Diamond>(d0).map(|d| d.color), Some(PALETTE[0]));
-        let h = world.get::<GestureHandler>(d0).unwrap().on_gesture;
-        h(
+        GestureHandler::trigger(
             &mut world,
             d0,
             &GestureEvent::Tap {

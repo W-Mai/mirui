@@ -92,20 +92,17 @@ mod tests {
         fn user_handler(_: &mut World, _: Entity, _: &GestureEvent) -> bool {
             false
         }
-        world.insert(
-            e,
-            GestureHandler {
-                on_gesture: user_handler,
-            },
-        );
+        world.insert(e, GestureHandler::from_fn(user_handler));
 
         attach_handlers_for(&mut world, e);
 
         let h = world.get::<GestureHandler>(e).expect("user handler stays");
-        let installed: *const () = h.on_gesture as *const ();
-        let expected: *const () = user_handler as *const ();
+        let installed = match h.on_gesture {
+            crate::event::GestureCallback::Fn(f) => f as *const (),
+            crate::event::GestureCallback::Closure(_) => panic!("expected the user fn handler"),
+        };
         assert!(
-            core::ptr::eq(installed, expected),
+            core::ptr::eq(installed, user_handler as *const ()),
             "user-supplied GestureHandler stays on the user channel; \
              button internals run on the View internal channel"
         );

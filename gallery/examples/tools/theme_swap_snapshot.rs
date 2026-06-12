@@ -76,9 +76,7 @@ fn main() {
                 normal_color: Color::rgb(40, 50, 70),
                 pressed_color: Color::rgb(20, 25, 35)
             ) [
-                GestureHandler {
-                    on_gesture: dummy_handler,
-                },
+                GestureHandler::from_fn(dummy_handler),
             ] {
                 Text ("Dark")
             }
@@ -90,9 +88,7 @@ fn main() {
                 normal_color: Color::rgb(0, 100, 200),
                 pressed_color: Color::rgb(0, 70, 150)
             ) [
-                GestureHandler {
-                    on_gesture: dummy_handler,
-                },
+                GestureHandler::from_fn(dummy_handler),
             ] {
                 Text ("Light")
             }
@@ -104,9 +100,7 @@ fn main() {
                 normal_color: Color::rgb(255, 105, 180),
                 pressed_color: Color::rgb(200, 70, 140)
             ) [
-                GestureHandler {
-                    on_gesture: dummy_handler,
-                },
+                GestureHandler::from_fn(dummy_handler),
             ] {
                 Text ("Custom")
             }

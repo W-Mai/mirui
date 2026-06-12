@@ -2332,9 +2332,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler {
-                on_gesture: pinch_probe_handler,
-            },
+            crate::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2432,9 +2430,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler {
-                on_gesture: pinch_probe_handler,
-            },
+            crate::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2512,9 +2508,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler {
-                on_gesture: pinch_probe_handler,
-            },
+            crate::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2568,9 +2562,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler {
-                on_gesture: pinch_probe_handler,
-            },
+            crate::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2624,9 +2616,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler {
-                on_gesture: pinch_probe_handler,
-            },
+            crate::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2681,9 +2671,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler {
-                on_gesture: pinch_probe_handler,
-            },
+            crate::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);

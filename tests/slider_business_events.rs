@@ -170,12 +170,7 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, slider) = fresh_world_with_slider();
-        world.insert(
-            slider,
-            GestureHandler {
-                on_gesture: user_gesture_handler,
-            },
-        );
+        world.insert(slider, GestureHandler::from_fn(user_gesture_handler));
 
         bubble_dispatch_at(&mut world, &tap(slider, 50), 100);
 

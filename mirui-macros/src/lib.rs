@@ -372,6 +372,40 @@ struct MatchArm {
     body: Vec<Cmd>,
 }
 
+// A `!signal` / `!{ expr }` attribute: re-applied via a per-widget effect.
+struct ReactiveBind {
+    setter: syn::Ident,
+    expr: proc_macro2::TokenStream,
+}
+
+// Match `!`-prefixed attr values ONLY at the root, never recursively, so a real
+// `!flag` inside an expression isn't mistaken for a reactive bind.
+// `!ident`/`!path` → `{ path.get() }` (sugar); `!{ block }` → the block as-is.
+fn reactive_expr(value: &syn::Expr) -> Option<proc_macro2::TokenStream> {
+    let syn::Expr::Unary(unary) = value else {
+        return None;
+    };
+    if !matches!(unary.op, syn::UnOp::Not(_)) {
+        return None;
+    }
+    match unary.expr.as_ref() {
+        syn::Expr::Path(p) => Some(quote! { #p.get() }),
+        syn::Expr::Block(b) => Some(quote! { #b }),
+        _ => None,
+    }
+}
+
+fn reactive_setter(attr: &str) -> Option<&'static str> {
+    match attr {
+        "text" => Some("reactive_set_text"),
+        "bg_color" => Some("reactive_set_bg_color"),
+        "text_color" => Some("reactive_set_text_color"),
+        "width" => Some("reactive_set_width"),
+        "height" => Some("reactive_set_height"),
+        _ => None,
+    }
+}
+
 struct WidgetCmd {
     name: syn::Ident,
     kind: WidgetKind,
@@ -385,6 +419,7 @@ struct WidgetCmd {
     text_tuple_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
+    reactive_binds: Vec<ReactiveBind>,
     children: Vec<Cmd>,
 }
 
@@ -397,6 +432,7 @@ struct ParsedAttrs {
     text_tuple_value: Option<proc_macro2::TokenStream>,
     id_registrations: Vec<proc_macro2::TokenStream>,
     id_lookups: Vec<(syn::Ident, String)>,
+    reactive_binds: Vec<ReactiveBind>,
     user_set_direction: bool,
 }
 
@@ -448,6 +484,7 @@ impl MiruiRune {
         let mut text_tuple_value: Option<proc_macro2::TokenStream> = None;
         let mut id_registrations = Vec::new();
         let mut id_lookups: Vec<(syn::Ident, String)> = Vec::new();
+        let mut reactive_binds: Vec<ReactiveBind> = Vec::new();
         let mut user_set_direction = false;
 
         let is_text_widget = widget_name == "Text";
@@ -527,6 +564,30 @@ impl MiruiRune {
                 continue;
             }
 
+            // A `!`-prefixed attr value binds the attr to a reactive expression
+            // applied through a per-widget effect, not the static builder chain.
+            if let Some(expr) = reactive_expr(value) {
+                match reactive_setter(&name) {
+                    Some(setter) => {
+                        reactive_binds.push(ReactiveBind {
+                            setter: syn::Ident::new(setter, attr_span),
+                            expr,
+                        });
+                        continue;
+                    }
+                    None => {
+                        errors.push(
+                            syn::Error::new(
+                                attr_span,
+                                format!("`{name}` does not support reactive `!` binding"),
+                            )
+                            .to_compile_error(),
+                        );
+                        continue;
+                    }
+                }
+            }
+
             match name.as_str() {
                 "bg_color" => builder_calls.push(quote! { .bg_color(#value) }),
                 "text" => builder_calls.push(quote! { .text(#value) }),
@@ -588,6 +649,7 @@ impl MiruiRune {
             text_tuple_value,
             id_registrations,
             id_lookups,
+            reactive_binds,
             user_set_direction,
         }
     }
@@ -727,28 +789,28 @@ impl MiruiRune {
         tokens.extend(errors);
 
         if !gesture_arms.is_empty() {
-            let fn_name = syn::Ident::new(
-                &format!("__mirui_on_gesture_{widget_var}"),
-                proc_macro2::Span::call_site(),
-            );
             let mut arms = proc_macro2::TokenStream::new();
             for (event_name, group) in &gesture_arms {
                 arms.extend(emit_event_arm(event_name, group));
             }
+            // A closure (not a fn item) so the body can capture handles like a
+            // Signal from the surrounding scope.
             tokens.extend(quote! {
-                fn #fn_name(
-                    __world: &mut ::mirui::ecs::World,
-                    __entity: ::mirui::ecs::Entity,
-                    __event: &::mirui::event::gesture::GestureEvent,
-                ) -> bool {
-                    match __event {
-                        #arms
-                        _ => false,
-                    }
-                }
                 (#world).insert(
                     #widget_var,
-                    ::mirui::event::GestureHandler { on_gesture: #fn_name },
+                    ::mirui::event::GestureHandler {
+                        on_gesture: ::mirui::event::GestureCallback::Closure(::mirui::__Rc::new(
+                            move |__world: &mut ::mirui::ecs::World,
+                                  __entity: ::mirui::ecs::Entity,
+                                  __event: &::mirui::event::gesture::GestureEvent|
+                                  -> bool {
+                                match __event {
+                                    #arms
+                                    _ => false,
+                                }
+                            },
+                        )),
+                    },
                 );
             });
         }
@@ -818,6 +880,28 @@ impl MiruiRune {
                 #(#child_calls)*
                 .id();
         });
+
+        if !cmd.reactive_binds.is_empty() {
+            let injections: Vec<proc_macro2::TokenStream> = cmd
+                .reactive_binds
+                .iter()
+                .map(|b| {
+                    let setter = &b.setter;
+                    let expr = &b.expr;
+                    quote! {
+                        mirui::state::effect_with_widget(#var, move || {
+                            let __v = #expr;
+                            mirui::widget::reactive_attr::#setter(#var, __v);
+                        });
+                    }
+                })
+                .collect();
+            // with_world_scope makes the effects' first run apply the initial
+            // value now, at construction (outside the per-frame flush).
+            tokens.extend(quote! {
+                mirui::state::with_world_scope(#world, || { #(#injections)* });
+            });
+        }
 
         if cmd.kind == WidgetKind::Component {
             let comp_name = &cmd.name;
@@ -1124,6 +1208,7 @@ impl DsRune for MiruiRune {
             text_tuple_value: parsed.text_tuple_value,
             id_registrations: parsed.id_registrations,
             id_lookups,
+            reactive_binds: parsed.reactive_binds,
             children: my_children,
         });
 

@@ -114,7 +114,7 @@ mod tests {
         let e = WidgetBuilder::new(&mut world).id();
         let count = Signal::new(3i32);
         let countc = count.clone();
-        let _eff = with_world_scope(&mut world, || {
+        with_world_scope(&mut world, || {
             effect_with_widget(e, move || reactive_set_text(e, countc.get()))
         });
         let text = world.get::<crate::components::text::Text>(e).unwrap();

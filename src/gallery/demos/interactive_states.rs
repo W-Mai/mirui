@@ -131,11 +131,7 @@ mod tests {
         let errored_card = world.get::<Children>(row).unwrap().0[2];
 
         assert!(world.get::<UserState>(errored_card).is_none());
-        let h = world
-            .get::<GestureHandler>(errored_card)
-            .unwrap()
-            .on_gesture;
-        h(
+        GestureHandler::trigger(
             &mut world,
             errored_card,
             &GestureEvent::Tap {

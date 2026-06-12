@@ -115,10 +115,48 @@ pub fn entity_or_ancestor_disabled(world: &World, entity: Entity) -> bool {
     false
 }
 
-/// Gesture handler component — a plain fn pointer, no heap allocation.
-/// Returns `true` to stop propagation (event consumed).
+/// Gesture handler callback. `Fn` is a zero-alloc pointer for internal and
+/// hand-written handlers; `Closure` carries an `Rc` so `ui!` handlers can
+/// capture state (e.g. a `Signal`). Returns `true` to consume the event.
+type GestureFn = fn(&mut World, Entity, &GestureEvent) -> bool;
+type GestureClosure = alloc::rc::Rc<dyn Fn(&mut World, Entity, &GestureEvent) -> bool>;
+
+pub enum GestureCallback {
+    Fn(GestureFn),
+    Closure(GestureClosure),
+}
+
+impl GestureCallback {
+    fn call(&self, world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
+        match self {
+            GestureCallback::Fn(f) => f(world, entity, event),
+            GestureCallback::Closure(rc) => rc(world, entity, event),
+        }
+    }
+}
+
 pub struct GestureHandler {
-    pub on_gesture: fn(&mut World, Entity, &GestureEvent) -> bool,
+    pub on_gesture: GestureCallback,
+}
+
+impl GestureHandler {
+    pub fn from_fn(f: GestureFn) -> Self {
+        GestureHandler {
+            on_gesture: GestureCallback::Fn(f),
+        }
+    }
+
+    /// Look up `entity`'s gesture handler and run it. Clones the callback out
+    /// of the borrow before invoking so the closure may touch the World.
+    pub fn trigger(world: &mut World, entity: Entity, event: &GestureEvent) -> Option<bool> {
+        let cb = world
+            .get::<GestureHandler>(entity)
+            .map(|h| match &h.on_gesture {
+                GestureCallback::Fn(f) => GestureCallback::Fn(*f),
+                GestureCallback::Closure(rc) => GestureCallback::Closure(alloc::rc::Rc::clone(rc)),
+            })?;
+        Some(cb.call(world, entity, event))
+    }
 }
 
 /// Aggregated context handed to user `on EventKind` bodies and callback-form fns.
@@ -180,11 +218,8 @@ pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) 
                 return;
             }
         }
-        let handler_fn = world.get::<GestureHandler>(current).map(|h| h.on_gesture);
-        if let Some(f) = handler_fn {
-            if f(world, current, event) {
-                return;
-            }
+        if GestureHandler::trigger(world, current, event) == Some(true) {
+            return;
         }
         match world.get::<Parent>(current) {
             Some(p) => current = p.0,
@@ -318,12 +353,7 @@ mod tests {
             let mut world = World::new();
             world.insert_resource(ViewRegistry::default());
             let e = world.spawn_empty();
-            world.insert(
-                e,
-                GestureHandler {
-                    on_gesture: user_handler,
-                },
-            );
+            world.insert(e, GestureHandler::from_fn(user_handler));
             bubble_dispatch_at(&mut world, &tap_event(e), 0);
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 0);
             assert_eq!(USER_FIRES.load(Ordering::SeqCst), 1);
@@ -350,12 +380,7 @@ mod tests {
             world.insert_resource(registry_with(internal_consume));
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
-            world.insert(
-                e,
-                GestureHandler {
-                    on_gesture: user_handler,
-                },
-            );
+            world.insert(e, GestureHandler::from_fn(user_handler));
             bubble_dispatch_at(&mut world, &tap_event(e), 0);
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
             assert_eq!(
@@ -373,12 +398,7 @@ mod tests {
             world.insert_resource(registry_with(internal_passthrough));
             let e = world.spawn_empty();
             world.insert(e, ChannelMarker);
-            world.insert(
-                e,
-                GestureHandler {
-                    on_gesture: user_handler,
-                },
-            );
+            world.insert(e, GestureHandler::from_fn(user_handler));
             bubble_dispatch_at(&mut world, &tap_event(e), 0);
             assert_eq!(INTERNAL_FIRES.load(Ordering::SeqCst), 1);
             assert_eq!(

@@ -127,18 +127,15 @@ mod tests {
     }
 
     fn tap(world: &mut World, entity: Entity) {
-        let h = world.get::<GestureHandler>(entity).map(|g| g.on_gesture);
-        if let Some(f) = h {
-            f(
-                world,
-                entity,
-                &GestureEvent::Tap {
-                    x: crate::types::Fixed::ZERO,
-                    y: crate::types::Fixed::ZERO,
-                    target: entity,
-                },
-            );
-        }
+        GestureHandler::trigger(
+            world,
+            entity,
+            &GestureEvent::Tap {
+                x: crate::types::Fixed::ZERO,
+                y: crate::types::Fixed::ZERO,
+                target: entity,
+            },
+        );
     }
 
     #[test]

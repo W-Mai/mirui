@@ -47,12 +47,7 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(
-            root,
-            GestureHandler {
-                on_gesture: parent_handler,
-            },
-        );
+        world.insert(root, GestureHandler::from_fn(parent_handler));
 
         let child = ui! {
             :(
@@ -79,12 +74,7 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(
-            root,
-            GestureHandler {
-                on_gesture: parent_handler,
-            },
-        );
+        world.insert(root, GestureHandler::from_fn(parent_handler));
 
         let child = ui! {
             :(
@@ -112,12 +102,7 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(
-            root,
-            GestureHandler {
-                on_gesture: parent_handler,
-            },
-        );
+        world.insert(root, GestureHandler::from_fn(parent_handler));
 
         let child = ui! {
             :(
@@ -141,12 +126,7 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(
-            root,
-            GestureHandler {
-                on_gesture: parent_handler,
-            },
-        );
+        world.insert(root, GestureHandler::from_fn(parent_handler));
 
         let child = ui! {
             :(
@@ -174,12 +154,7 @@ mod tests {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
         reset();
         let (mut world, root) = fresh();
-        world.insert(
-            root,
-            GestureHandler {
-                on_gesture: parent_handler,
-            },
-        );
+        world.insert(root, GestureHandler::from_fn(parent_handler));
 
         let child = ui! {
             :(

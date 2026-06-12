@@ -90,12 +90,8 @@ fn main() {
         )
     };
     app.world.insert(tap_box, TapCount(0));
-    app.world.insert(
-        tap_box,
-        GestureHandler {
-            on_gesture: tap_handler,
-        },
-    );
+    app.world
+        .insert(tap_box, GestureHandler::from_fn(tap_handler));
 
     let drag_box = ui! {
         :(
@@ -113,12 +109,8 @@ fn main() {
             border_radius: 30
         )
     };
-    app.world.insert(
-        drag_box,
-        GestureHandler {
-            on_gesture: drag_handler,
-        },
-    );
+    app.world
+        .insert(drag_box, GestureHandler::from_fn(drag_handler));
 
     app.world.insert_resource(
         SimTimeline::new(vec![

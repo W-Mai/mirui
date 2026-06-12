@@ -104,6 +104,11 @@ pub mod gallery;
 
 pub use mirui_macros::{Component, system, trace_fn, trace_span, ui};
 
+// Re-export so `ui!`-generated code references `Rc` through `mirui`, working in
+// both std and no_std user crates without an `extern crate alloc` of their own.
+#[doc(hidden)]
+pub use alloc::rc::Rc as __Rc;
+
 /// `use mirui::prelude::*;` brings in the types and macros that nearly
 /// every application file needs: `App`, the layout module, `Color` /
 /// `Dimension` / `Fixed`, `Entity` / `World`, the widget builder, theme

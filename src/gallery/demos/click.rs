@@ -108,8 +108,7 @@ mod tests {
         let card = world.get::<Children>(row).unwrap().0[0];
 
         assert_eq!(world.get::<Toggle>(card).map(|t| t.on), Some(false));
-        let h = world.get::<GestureHandler>(card).unwrap().on_gesture;
-        h(
+        GestureHandler::trigger(
             &mut world,
             card,
             &GestureEvent::Tap {

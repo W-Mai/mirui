@@ -122,12 +122,7 @@ mod tests {
         reset();
         let (mut world, root) = fresh_world();
         let bar = build_tabbar(&mut world, root);
-        world.insert(
-            bar,
-            GestureHandler {
-                on_gesture: user_gesture,
-            },
-        );
+        world.insert(bar, GestureHandler::from_fn(user_gesture));
 
         bubble_dispatch_at(&mut world, &tap(bar, 150), 100);
 

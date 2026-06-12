@@ -25,12 +25,7 @@ mod tests {
 
     fn attach_counter(world: &mut World, entity: Entity) {
         world.insert(entity, TapHits(0));
-        world.insert(
-            entity,
-            GestureHandler {
-                on_gesture: count_handler,
-            },
-        );
+        world.insert(entity, GestureHandler::from_fn(count_handler));
     }
 
     fn hits(world: &World, entity: Entity) -> u32 {

@@ -245,8 +245,7 @@ mod tests {
             world.get::<PinchTarget>(target).map(|t| t.pinch_events),
             Some(0)
         );
-        let h = world.get::<GestureHandler>(target).unwrap().on_gesture;
-        h(
+        GestureHandler::trigger(
             &mut world,
             target,
             &GestureEvent::Pinch {

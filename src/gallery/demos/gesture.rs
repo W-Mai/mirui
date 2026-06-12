@@ -137,9 +137,7 @@ mod tests {
     }
 
     fn fire(world: &mut World, entity: Entity, event: &GestureEvent) {
-        if let Some(f) = world.get::<GestureHandler>(entity).map(|g| g.on_gesture) {
-            f(world, entity, event);
-        }
+        GestureHandler::trigger(world, entity, event);
     }
 
     #[test]
