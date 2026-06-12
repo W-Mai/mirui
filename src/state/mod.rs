@@ -23,6 +23,8 @@ pub struct ComputedId(usize);
 
 struct Reactive {
     scope: Option<Subscriber>,
+    // non-null only while an effect runs; lets a Fn() closure reach the World
+    world: *mut World,
     dirty_widgets: VecDeque<Entity>,
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
@@ -33,6 +35,7 @@ impl Reactive {
     const fn new() -> Self {
         Reactive {
             scope: None,
+            world: core::ptr::null_mut(),
             dirty_widgets: VecDeque::new(),
             dirty_effects: VecDeque::new(),
             effects: BTreeMap::new(),
@@ -91,6 +94,42 @@ fn enqueue_effect(id: EffectId) {
     with_reactive(|r| r.dirty_effects.push_back(id));
 }
 
+// Drop clears the World pointer so every flush exit path leaves it null.
+struct WorldGuard;
+
+impl WorldGuard {
+    fn enter(world: &mut World) -> Self {
+        with_reactive(|r| r.world = world as *mut World);
+        WorldGuard
+    }
+}
+
+impl Drop for WorldGuard {
+    fn drop(&mut self) {
+        with_reactive(|r| r.world = core::ptr::null_mut());
+    }
+}
+
+/// Make the World reachable by effect closures while `f` runs — applies a
+/// reactive binding's initial value at `ui!` construction, outside the flush.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
+    let _guard = WorldGuard::enter(world);
+    f()
+}
+
+/// Reach the World the running effect is under; None outside a flush window.
+pub(crate) fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
+    // Copy the pointer out before deref so `f` may re-enter with_reactive.
+    let ptr = with_reactive(|r| r.world);
+    if ptr.is_null() {
+        return None;
+    }
+    // SAFETY: non-null only within flush_signal_dirty / with_world_scope, which
+    // hold a live &mut World; single-threaded, and these windows never nest.
+    Some(f(unsafe { &mut *ptr }))
+}
+
 // An effect re-running may set signals that enqueue more effects/widgets in the
 // same frame; loop until both queues settle. The cap stops a runaway cycle from
 // hanging the frame — real cycle detection lands later.
@@ -101,6 +140,7 @@ const FLUSH_MAX_PASSES: u32 = 32;
 /// entities are skipped (no reverse index; subscriber lists may retain
 /// despawned entities).
 pub fn flush_signal_dirty(world: &mut World) {
+    let _guard = WorldGuard::enter(world);
     for _ in 0..FLUSH_MAX_PASSES {
         let effects: Vec<EffectId> = with_reactive(|r| r.dirty_effects.drain(..).collect());
         for id in &effects {

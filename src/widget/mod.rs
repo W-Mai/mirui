@@ -14,6 +14,7 @@ pub mod dirty;
 pub mod id;
 pub mod niche;
 pub mod offscreen;
+pub mod reactive_attr;
 pub mod render_system;
 pub mod state;
 pub mod style_view;
