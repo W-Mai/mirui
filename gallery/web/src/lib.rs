@@ -42,6 +42,8 @@ gallery::register_demos! {
     ("disabled",             "disabled",             "Interaction", disabled,             480, 320),
     ("pinch_rotate",         "pinch + rotate",       "Interaction", pinch_rotate,         480, 360),
 
+    ("state_counter",        "reactive counter",     "State",       state_counter,        360, 240),
+
     ("scroll",               "scroll",               "Scroll",      scroll,               480, 320),
     ("nested_scroll",        "nested scroll",        "Scroll",      nested_scroll,        480, 400),
     ("lazy_list",            "lazy list",            "Scroll",      lazy_list,            320, 320),
