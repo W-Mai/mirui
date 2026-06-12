@@ -157,6 +157,7 @@ const FLUSH_MAX_PASSES: u32 = 32;
 /// despawned entities).
 pub fn flush_signal_dirty(world: &mut World) {
     let _guard = WorldGuard::enter(world);
+    reclaim_dead_effects(world);
     for _ in 0..FLUSH_MAX_PASSES {
         let effects: Vec<EffectId> = with_reactive(|r| r.dirty_effects.drain(..).collect());
         for id in &effects {
@@ -173,10 +174,53 @@ pub fn flush_signal_dirty(world: &mut World) {
             return;
         }
     }
+    // cap reached = a cycle; debug panics, release stops instead of hanging
     debug_assert!(
         false,
         "reactive flush did not settle in {FLUSH_MAX_PASSES} passes (cycle?)"
     );
+}
+
+// Release cycle warning, wired in once a no_std log facade exists.
+#[cfg_attr(not(test), allow(dead_code))]
+fn warn_cycle_once() {
+    use core::sync::atomic::{AtomicBool, Ordering};
+    static WARNED: AtomicBool = AtomicBool::new(false);
+    if !WARNED.swap(true, Ordering::Relaxed) {
+        // TODO(log): "reactive flush hit the pass cap; cycle suspected"
+    }
+}
+
+// Reclaim effects whose owning widget is gone. No ECS hook — flush holds the
+// World, same lazy-liveness approach as the dirty-widget skip.
+fn reclaim_dead_effects(world: &World) {
+    let dead: Vec<EffectId> = with_reactive(|r| {
+        r.effects
+            .iter()
+            .filter(|(_, e)| e.borrow().owner_entity.is_some_and(|o| !world.is_alive(o)))
+            .map(|(id, _)| *id)
+            .collect()
+    });
+    for id in dead {
+        with_reactive(|r| r.effects.remove(&id));
+    }
+    with_reactive(|r| r.computeds.retain(|_, w| w.strong_count() > 0));
+}
+
+/// Reclaim every effect bound to `entity` now, instead of waiting for the next
+/// flush. For a widget-teardown path to call when it truly despawns a subtree.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn cleanup_effects_for(entity: Entity) {
+    let bound: Vec<EffectId> = with_reactive(|r| {
+        r.effects
+            .iter()
+            .filter(|(_, e)| e.borrow().owner_entity == Some(entity))
+            .map(|(id, _)| *id)
+            .collect()
+    });
+    for id in bound {
+        with_reactive(|r| r.effects.remove(&id));
+    }
 }
 
 struct SignalInner<T> {
@@ -328,6 +372,8 @@ impl Effect {
         Effect { id }
     }
 
+    /// Stop and unregister now (same as dropping the handle); for standalone
+    /// effects — widget-bound ones are reclaimed when their widget despawns.
     pub fn dispose(self) {}
 }
 
@@ -717,5 +763,70 @@ mod tests {
         assert_eq!(b.get(), 20);
         n.set(4);
         assert_eq!(b.get(), 50, "change flows source -> a -> b");
+    }
+
+    fn effect_count() -> usize {
+        with_reactive(|r| r.effects.len())
+    }
+
+    #[test]
+    fn despawned_widget_effect_is_reclaimed_on_flush() {
+        reset();
+        let mut world = World::new();
+        let e = world.spawn_empty();
+        let s = Signal::new(0i32);
+        let sc = s.clone();
+        with_world_scope(&mut world, || {
+            effect_with_widget(e, move || {
+                let _ = sc.get();
+            })
+        });
+        assert_eq!(effect_count(), 1);
+
+        world.despawn(e);
+        // quiet effect: its signal never fires again, only the sweep reclaims it
+        flush_signal_dirty(&mut world);
+        assert_eq!(effect_count(), 0, "sweep drops the dead-owner effect");
+    }
+
+    #[test]
+    fn live_widget_effect_survives_flush() {
+        reset();
+        let mut world = World::new();
+        let e = world.spawn_empty();
+        let s = Signal::new(0i32);
+        let sc = s.clone();
+        with_world_scope(&mut world, || {
+            effect_with_widget(e, move || {
+                let _ = sc.get();
+            })
+        });
+        flush_signal_dirty(&mut world);
+        assert_eq!(effect_count(), 1, "live owner keeps its effect");
+    }
+
+    #[test]
+    fn dispose_unregisters_standalone_effect() {
+        reset();
+        let eff = Effect::new(|| {});
+        assert_eq!(effect_count(), 1);
+        eff.dispose();
+        assert_eq!(effect_count(), 0);
+    }
+
+    #[test]
+    fn self_feeding_effect_terminates_within_cap() {
+        reset();
+        let mut world = World::new();
+        let s = Signal::new(0i32);
+        let sc = s.clone();
+        core::mem::forget(Effect::new(move || {
+            let v = sc.get();
+            if v < 5 {
+                sc.set(v + 1);
+            }
+        }));
+        s.set(1);
+        flush_signal_dirty(&mut world); // must return, not hang
     }
 }
