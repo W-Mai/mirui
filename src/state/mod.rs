@@ -1,7 +1,7 @@
 extern crate alloc;
 
 use alloc::collections::{BTreeMap, VecDeque};
-use alloc::rc::Rc;
+use alloc::rc::{Rc, Weak};
 use alloc::vec::Vec;
 use core::cell::RefCell;
 
@@ -12,16 +12,21 @@ use crate::widget::dirty::Dirty;
 pub enum Subscriber {
     Widget(Entity),
     Effect(EffectId),
+    Computed(ComputedId),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct EffectId(usize);
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct ComputedId(usize);
 
 struct Reactive {
     scope: Option<Subscriber>,
     dirty_widgets: VecDeque<Entity>,
     dirty_effects: VecDeque<EffectId>,
     effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
+    computeds: BTreeMap<ComputedId, Weak<dyn ComputedNode>>,
 }
 
 impl Reactive {
@@ -31,6 +36,7 @@ impl Reactive {
             dirty_widgets: VecDeque::new(),
             dirty_effects: VecDeque::new(),
             effects: BTreeMap::new(),
+            computeds: BTreeMap::new(),
         }
     }
 }
@@ -194,11 +200,32 @@ impl<T: 'static> Signal<T> {
     fn notify(&self) {
         let subs: Vec<Subscriber> = self.inner.borrow().subscribers.clone();
         for sub in subs {
-            match sub {
-                Subscriber::Widget(entity) => enqueue_widget(entity),
-                Subscriber::Effect(id) => enqueue_effect(id),
-            }
+            propagate(sub);
         }
+    }
+}
+
+fn propagate(sub: Subscriber) {
+    match sub {
+        Subscriber::Widget(entity) => enqueue_widget(entity),
+        Subscriber::Effect(id) => enqueue_effect(id),
+        Subscriber::Computed(id) => mark_computed_dirty(id),
+    }
+}
+
+// A source changed, so this computed's cache is stale: flag it and propagate to
+// its own subscribers. Pure data mutation (no recompute, no closure) — the
+// actual recompute is lazy, deferred to the next get(). Pulls subscribers out
+// before recursing so a nested computed chain can't hold a borrow across calls.
+fn mark_computed_dirty(id: ComputedId) {
+    let node = with_reactive(|r| r.computeds.get(&id).and_then(Weak::upgrade));
+    let Some(node) = node else { return };
+    let already_dirty = node.mark_dirty_take_was_dirty();
+    if already_dirty {
+        return;
+    }
+    for sub in node.subscribers() {
+        propagate(sub);
     }
 }
 
@@ -269,6 +296,103 @@ fn run_effect(id: EffectId) {
     }
 }
 
+// Type-erased view of a Computed so the runtime registry can hold mixed `T`
+// without a generic. Only the non-generic propagation hooks are exposed.
+trait ComputedNode {
+    fn mark_dirty_take_was_dirty(&self) -> bool;
+    fn subscribers(&self) -> Vec<Subscriber>;
+}
+
+struct ComputedInner<T> {
+    value: Option<T>,
+    compute: alloc::boxed::Box<dyn Fn() -> T>,
+    subscribers: Vec<Subscriber>,
+    dirty: bool,
+}
+
+impl<T> ComputedNode for RefCell<ComputedInner<T>> {
+    fn mark_dirty_take_was_dirty(&self) -> bool {
+        let was = self.borrow().dirty;
+        self.borrow_mut().dirty = true;
+        was
+    }
+
+    fn subscribers(&self) -> Vec<Subscriber> {
+        self.borrow().subscribers.clone()
+    }
+}
+
+/// A lazily-recomputed derived value. Reads its sources through `get()`, so it
+/// subscribes to them; when a source changes the cached value is invalidated
+/// and recomputed on the next `get()`. Cheap to clone (shared handle).
+pub struct Computed<T: 'static> {
+    inner: Rc<RefCell<ComputedInner<T>>>,
+}
+
+impl<T: 'static> Clone for Computed<T> {
+    fn clone(&self) -> Self {
+        Computed {
+            inner: Rc::clone(&self.inner),
+        }
+    }
+}
+
+impl<T: 'static> Computed<T> {
+    pub fn new(f: impl Fn() -> T + 'static) -> Self {
+        let inner = Rc::new(RefCell::new(ComputedInner {
+            value: None,
+            compute: alloc::boxed::Box::new(f),
+            subscribers: Vec::new(),
+            dirty: true,
+        }));
+        let id = ComputedId(Rc::as_ptr(&inner) as *const () as usize);
+        let node: Rc<dyn ComputedNode> = inner.clone();
+        with_reactive(|r| {
+            r.computeds.insert(id, Rc::downgrade(&node));
+        });
+        Computed { inner }
+    }
+
+    fn id(&self) -> ComputedId {
+        ComputedId(Rc::as_ptr(&self.inner) as *const () as usize)
+    }
+
+    pub fn get(&self) -> T
+    where
+        T: Clone,
+    {
+        let id = self.id();
+        if let Some(sub) = current_scope() {
+            let mut inner = self.inner.borrow_mut();
+            if !inner.subscribers.contains(&sub) {
+                inner.subscribers.push(sub);
+            }
+        }
+        if self.inner.borrow().dirty {
+            // Recompute in this computed's scope so its sources subscribe IT,
+            // not whatever outer consumer triggered the read.
+            let value = with_scope(Subscriber::Computed(id), || (self.inner.borrow().compute)());
+            let mut inner = self.inner.borrow_mut();
+            inner.value = Some(value);
+            inner.dirty = false;
+        }
+        self.inner
+            .borrow()
+            .value
+            .clone()
+            .expect("computed value populated after recompute")
+    }
+}
+
+impl<T: 'static> Drop for Computed<T> {
+    fn drop(&mut self) {
+        let id = self.id();
+        with_reactive(|r| {
+            r.computeds.remove(&id);
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -281,6 +405,7 @@ mod tests {
             r.dirty_widgets.clear();
             r.dirty_effects.clear();
             r.effects.clear();
+            r.computeds.clear();
         });
     }
 
@@ -470,5 +595,69 @@ mod tests {
         trigger.set(5);
         drain_effects();
         assert_eq!(target.get_untracked(), 10);
+    }
+
+    #[test]
+    fn computed_derives_and_recomputes() {
+        reset();
+        let n = Signal::new(2i32);
+        let nc = n.clone();
+        let doubled = Computed::new(move || nc.get() * 2);
+        assert_eq!(doubled.get(), 4);
+        n.set(5);
+        assert_eq!(doubled.get(), 10);
+    }
+
+    #[test]
+    fn computed_is_lazy_until_get() {
+        reset();
+        let n = Signal::new(1i32);
+        let calls = Rc::new(RefCell::new(0));
+        let (nc, cc) = (n.clone(), Rc::clone(&calls));
+        let c = Computed::new(move || {
+            *cc.borrow_mut() += 1;
+            nc.get()
+        });
+        assert_eq!(*calls.borrow(), 0, "no compute before first get");
+        let _ = c.get();
+        assert_eq!(*calls.borrow(), 1);
+        let _ = c.get();
+        assert_eq!(*calls.borrow(), 1, "clean re-get does not recompute");
+        n.set(2);
+        let _ = c.get();
+        assert_eq!(*calls.borrow(), 2, "recompute only after a source change");
+    }
+
+    #[test]
+    fn computed_source_change_dirties_subscribing_widget() {
+        reset();
+        let n = Signal::new(0i32);
+        let nc = n.clone();
+        let c = Computed::new(move || nc.get() + 1);
+        let w = entity(7);
+        with_scope(Subscriber::Widget(w), || {
+            let _ = c.get();
+        });
+        n.set(9);
+        with_reactive(|r| {
+            assert!(
+                r.dirty_widgets.contains(&w),
+                "source change cascades to widget via computed"
+            );
+            r.dirty_widgets.clear();
+        });
+    }
+
+    #[test]
+    fn chained_computeds_propagate() {
+        reset();
+        let n = Signal::new(1i32);
+        let nc = n.clone();
+        let a = Computed::new(move || nc.get() + 1);
+        let ac = a.clone();
+        let b = Computed::new(move || ac.get() * 10);
+        assert_eq!(b.get(), 20);
+        n.set(4);
+        assert_eq!(b.get(), 50, "change flows source -> a -> b");
     }
 }
