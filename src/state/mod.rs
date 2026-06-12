@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use alloc::collections::VecDeque;
+use alloc::collections::{BTreeMap, VecDeque};
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 use core::cell::RefCell;
@@ -11,11 +11,17 @@ use crate::widget::dirty::Dirty;
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Subscriber {
     Widget(Entity),
+    Effect(EffectId),
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub struct EffectId(usize);
 
 struct Reactive {
     scope: Option<Subscriber>,
     dirty_widgets: VecDeque<Entity>,
+    dirty_effects: VecDeque<EffectId>,
+    effects: BTreeMap<EffectId, Rc<RefCell<EffectInner>>>,
 }
 
 impl Reactive {
@@ -23,6 +29,8 @@ impl Reactive {
         Reactive {
             scope: None,
             dirty_widgets: VecDeque::new(),
+            dirty_effects: VecDeque::new(),
+            effects: BTreeMap::new(),
         }
     }
 }
@@ -40,9 +48,17 @@ fn with_reactive<R>(f: impl FnOnce(&mut Reactive) -> R) -> R {
     }
     #[cfg(not(feature = "std"))]
     {
-        static RT: critical_section::Mutex<RefCell<Reactive>> =
-            critical_section::Mutex::new(RefCell::new(Reactive::new()));
-        critical_section::with(|cs| f(&mut RT.borrow_ref_mut(cs)))
+        // Single-core: critical_section serializes access, so the &mut is
+        // unique for the section. static mut (vs Mutex<RefCell>) carries no
+        // Send/Sync bound, so the Rc-handle effect registry can live here.
+        // Same pattern as perf::with_state.
+        static mut RT: Reactive = Reactive::new();
+        critical_section::with(|_| {
+            #[allow(static_mut_refs)]
+            unsafe {
+                f(&mut RT)
+            }
+        })
     }
 }
 
@@ -65,16 +81,40 @@ fn enqueue_widget(entity: Entity) {
     with_reactive(|r| r.dirty_widgets.push_back(entity));
 }
 
-/// Drain queued signal-driven dirties into the world. Call once per frame
-/// after systems, before render. Dead entities are skipped (no reverse
-/// index; subscriber lists may retain despawned entities).
+fn enqueue_effect(id: EffectId) {
+    with_reactive(|r| r.dirty_effects.push_back(id));
+}
+
+// An effect re-running may set signals that enqueue more effects/widgets in the
+// same frame; loop until both queues settle. The cap stops a runaway cycle from
+// hanging the frame — real cycle detection lands later.
+const FLUSH_MAX_PASSES: u32 = 32;
+
+/// Drain queued reactive work once per frame, after systems and before render:
+/// re-run dirty effects (which may dirty more), then mark dirty widgets. Dead
+/// entities are skipped (no reverse index; subscriber lists may retain
+/// despawned entities).
 pub fn flush_signal_dirty(world: &mut World) {
-    let drained: Vec<Entity> = with_reactive(|r| r.dirty_widgets.drain(..).collect());
-    for entity in drained {
-        if world.is_alive(entity) {
-            world.insert(entity, Dirty);
+    for _ in 0..FLUSH_MAX_PASSES {
+        let effects: Vec<EffectId> = with_reactive(|r| r.dirty_effects.drain(..).collect());
+        for id in &effects {
+            run_effect(*id);
+        }
+        let widgets: Vec<Entity> = with_reactive(|r| r.dirty_widgets.drain(..).collect());
+        for entity in &widgets {
+            if world.is_alive(*entity) {
+                world.insert(*entity, Dirty);
+            }
+        }
+        let settled = with_reactive(|r| r.dirty_effects.is_empty() && r.dirty_widgets.is_empty());
+        if effects.is_empty() && widgets.is_empty() && settled {
+            return;
         }
     }
+    debug_assert!(
+        false,
+        "reactive flush did not settle in {FLUSH_MAX_PASSES} passes (cycle?)"
+    );
 }
 
 struct SignalInner<T> {
@@ -156,8 +196,76 @@ impl<T: 'static> Signal<T> {
         for sub in subs {
             match sub {
                 Subscriber::Widget(entity) => enqueue_widget(entity),
+                Subscriber::Effect(id) => enqueue_effect(id),
             }
         }
+    }
+}
+
+struct EffectInner {
+    run: Rc<dyn Fn()>,
+    owner_entity: Option<Entity>,
+}
+
+/// A reactive side effect. Runs its closure once on creation to subscribe to
+/// the signals it reads, then re-runs whenever any of them changes. Drop or
+/// [`Effect::dispose`] to stop and unregister it.
+pub struct Effect {
+    id: EffectId,
+}
+
+impl Effect {
+    pub fn new(f: impl Fn() + 'static) -> Effect {
+        Self::spawn(f, None)
+    }
+
+    /// The widget this effect is bound to, if created via [`effect_with_widget`].
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub(crate) fn owner(&self) -> Option<Entity> {
+        with_reactive(|r| {
+            r.effects
+                .get(&self.id)
+                .and_then(|e| e.borrow().owner_entity)
+        })
+    }
+
+    fn spawn(f: impl Fn() + 'static, owner_entity: Option<Entity>) -> Effect {
+        let inner = Rc::new(RefCell::new(EffectInner {
+            run: Rc::new(f),
+            owner_entity,
+        }));
+        let id = EffectId(Rc::as_ptr(&inner) as *const () as usize);
+        with_reactive(|r| {
+            r.effects.insert(id, inner);
+        });
+        run_effect(id);
+        Effect { id }
+    }
+
+    pub fn dispose(self) {}
+}
+
+impl Drop for Effect {
+    fn drop(&mut self) {
+        with_reactive(|r| {
+            r.effects.remove(&self.id);
+        });
+    }
+}
+
+/// An effect whose lifetime is associated with a widget entity (for later
+/// despawn cleanup). It still re-runs on dependency change like any effect.
+#[cfg_attr(not(test), allow(dead_code))]
+pub fn effect_with_widget(entity: Entity, f: impl Fn() + 'static) -> Effect {
+    Effect::spawn(f, Some(entity))
+}
+
+// Clone the closure Rc out under the lock, then run it OUTSIDE — running user
+// code while holding the no_std critical_section would re-enter and deadlock.
+fn run_effect(id: EffectId) {
+    let run = with_reactive(|r| r.effects.get(&id).map(|e| Rc::clone(&e.borrow().run)));
+    if let Some(run) = run {
+        with_scope(Subscriber::Effect(id), || run());
     }
 }
 
@@ -171,11 +279,25 @@ mod tests {
         with_reactive(|r| {
             r.scope = None;
             r.dirty_widgets.clear();
+            r.dirty_effects.clear();
+            r.effects.clear();
         });
     }
 
     fn entity(id: u32) -> Entity {
         Entity { id, generation: 0 }
+    }
+
+    fn drain_effects() {
+        loop {
+            let batch: Vec<EffectId> = with_reactive(|r| r.dirty_effects.drain(..).collect());
+            if batch.is_empty() {
+                break;
+            }
+            for id in batch {
+                run_effect(id);
+            }
+        }
     }
 
     #[test]
@@ -281,5 +403,72 @@ mod tests {
             s_inner.inner.borrow().subscribers,
             alloc::vec![Subscriber::Widget(inner)]
         );
+    }
+
+    #[test]
+    fn effect_runs_once_on_creation() {
+        reset();
+        let runs = Rc::new(RefCell::new(0));
+        let r = Rc::clone(&runs);
+        let _e = Effect::new(move || *r.borrow_mut() += 1);
+        assert_eq!(*runs.borrow(), 1);
+    }
+
+    #[test]
+    fn effect_reruns_on_dependency_change() {
+        reset();
+        let s = Signal::new(0i32);
+        let seen = Rc::new(RefCell::new(alloc::vec::Vec::<i32>::new()));
+        let (sc, seenc) = (s.clone(), Rc::clone(&seen));
+        let _e = Effect::new(move || seenc.borrow_mut().push(sc.get()));
+        assert_eq!(*seen.borrow(), alloc::vec![0]);
+
+        s.set(7);
+        drain_effects();
+        assert_eq!(*seen.borrow(), alloc::vec![0, 7]);
+    }
+
+    #[test]
+    fn disposed_effect_stops_rerunning() {
+        reset();
+        let s = Signal::new(0i32);
+        let runs = Rc::new(RefCell::new(0));
+        let (sc, rc) = (s.clone(), Rc::clone(&runs));
+        let e = Effect::new(move || {
+            let _ = sc.get();
+            *rc.borrow_mut() += 1;
+        });
+        assert_eq!(*runs.borrow(), 1);
+        e.dispose();
+        s.set(1);
+        drain_effects();
+        assert_eq!(*runs.borrow(), 1, "disposed effect must not re-run");
+    }
+
+    #[test]
+    fn effect_with_widget_records_owner() {
+        reset();
+        let w = entity(99);
+        let e = effect_with_widget(w, || {});
+        assert_eq!(e.owner(), Some(w));
+        let standalone = Effect::new(|| {});
+        assert_eq!(standalone.owner(), None);
+    }
+
+    #[test]
+    fn effect_setting_signal_during_flush_does_not_deadlock() {
+        reset();
+        let trigger = Signal::new(0i32);
+        let target = Signal::new(0i32);
+        let (tc, gc) = (trigger.clone(), target.clone());
+        let _e = Effect::new(move || {
+            let v = tc.get();
+            if v > 0 {
+                gc.set(v * 2);
+            }
+        });
+        trigger.set(5);
+        drain_effects();
+        assert_eq!(target.get_untracked(), 10);
     }
 }
