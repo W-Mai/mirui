@@ -43,6 +43,10 @@ gallery::register_demos! {
     ("pinch_rotate",         "pinch + rotate",       "Interaction", pinch_rotate,         480, 360),
 
     ("state_counter",        "reactive counter",     "State",       state_counter,        360, 240),
+    ("state_computed",       "reactive computed",    "State",       state_computed,       360, 240),
+    ("state_effect",         "reactive effect",      "State",       state_effect,         360, 260),
+    ("state_form",           "reactive form",        "State",       state_form,           360, 280),
+    ("state_todo",           "reactive todo",        "State",       state_todo,           320, 280),
 
     ("scroll",               "scroll",               "Scroll",      scroll,               480, 320),
     ("nested_scroll",        "nested scroll",        "Scroll",      nested_scroll,        480, 400),

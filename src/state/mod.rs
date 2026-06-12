@@ -47,12 +47,14 @@ impl Reactive {
 // Ambient runtime: `Signal::get()` is parameterless, so it finds the current
 // consumer here rather than via a passed context. Storage is sealed in this fn
 // — std uses a per-thread cell (tests isolate, no lock), no_std a critical_section.
+#[cfg(feature = "std")]
+std::thread_local! {
+    static RT: RefCell<Reactive> = const { RefCell::new(Reactive::new()) };
+}
+
 fn with_reactive<R>(f: impl FnOnce(&mut Reactive) -> R) -> R {
     #[cfg(feature = "std")]
     {
-        std::thread_local! {
-            static RT: RefCell<Reactive> = const { RefCell::new(Reactive::new()) };
-        }
         RT.with(|rt| f(&mut rt.borrow_mut()))
     }
     #[cfg(not(feature = "std"))]
@@ -68,6 +70,20 @@ fn with_reactive<R>(f: impl FnOnce(&mut Reactive) -> R) -> R {
                 f(&mut RT)
             }
         })
+    }
+}
+
+// Drop impls run during thread-local destruction (a leaked effect holding a
+// Signal/Computed gets dropped when the runtime cell tears down), when `RT` is
+// no longer accessible. Use this from Drop so teardown silently no-ops.
+fn try_with_reactive<R>(f: impl FnOnce(&mut Reactive) -> R) -> Option<R> {
+    #[cfg(feature = "std")]
+    {
+        RT.try_with(|rt| f(&mut rt.borrow_mut())).ok()
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        Some(with_reactive(f))
     }
 }
 
@@ -259,7 +275,10 @@ fn propagate(sub: Subscriber) {
 // before recursing so a nested computed chain can't hold a borrow across calls.
 fn mark_computed_dirty(id: ComputedId) {
     let node = with_reactive(|r| r.computeds.get(&id).and_then(Weak::upgrade));
-    let Some(node) = node else { return };
+    let Some(node) = node else {
+        try_with_reactive(|r| r.computeds.remove(&id));
+        return;
+    };
     let already_dirty = node.mark_dirty_take_was_dirty();
     if already_dirty {
         return;
@@ -314,7 +333,7 @@ impl Effect {
 
 impl Drop for Effect {
     fn drop(&mut self) {
-        with_reactive(|r| {
+        try_with_reactive(|r| {
             r.effects.remove(&self.id);
         });
     }
@@ -426,14 +445,11 @@ impl<T: 'static> Computed<T> {
     }
 }
 
-impl<T: 'static> Drop for Computed<T> {
-    fn drop(&mut self) {
-        let id = self.id();
-        with_reactive(|r| {
-            r.computeds.remove(&id);
-        });
-    }
-}
+// No Drop unregister: the registry holds a Weak, and clones share one
+// allocation, so removing on any clone's drop would unregister a Computed
+// other clones still use. The Weak dangles once the last clone drops; stale
+// entries are skipped on upgrade (and cleared opportunistically in
+// mark_computed_dirty).
 
 #[cfg(test)]
 mod tests {
