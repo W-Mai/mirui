@@ -29,7 +29,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             justify: JustifyContent::Center,
             padding: Padding::all(16)
         ) {
-            View (text: !{ alloc::format!("n^2 = {}", label.get()) }, height: 40)
+            View (text: ${ alloc::format!("n^2 = {}", label.get()) }, height: 40)
             View (
                 bg_color: Color::rgb(63, 185, 80),
                 width: 120,

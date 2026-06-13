@@ -25,7 +25,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             justify: JustifyContent::Center,
             padding: Padding::all(16)
         ) {
-            View (text: !{ alloc::format!("Count: {}", label.get()) }, height: 40)
+            View (text: ${ alloc::format!("Count: {}", label.get()) }, height: 40)
             Row (padding: Padding::all(8)) {
                 View (
                     bg_color: Color::rgb(220, 80, 80),

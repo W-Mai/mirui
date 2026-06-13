@@ -44,7 +44,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             padding: Padding::all(16)
         ) {
             View (
-                bg_color: !{ on_off(name_bg.get()) },
+                bg_color: ${ on_off(name_bg.get()) },
                 width: 200,
                 height: 36,
                 border_radius: 6,
@@ -53,7 +53,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 toggle_name.update(|v| *v = !*v);
             }
             View (
-                bg_color: !{ on_off(agree_bg.get()) },
+                bg_color: ${ on_off(agree_bg.get()) },
                 width: 200,
                 height: 36,
                 border_radius: 6,
@@ -62,7 +62,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 toggle_agree.update(|v| *v = !*v);
             }
             View (
-                bg_color: !{ on_off(submit_bg.get()) },
+                bg_color: ${ on_off(submit_bg.get()) },
                 width: 200,
                 height: 40,
                 border_radius: 8,

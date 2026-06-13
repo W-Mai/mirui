@@ -49,7 +49,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         :)
 
         summary_label (
-            text: !{ alloc::format!("{} remaining", summary.get()) },
+            text: ${ alloc::format!("{} remaining", summary.get()) },
             height: 32
         )
     };
@@ -65,7 +65,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             :)
 
             row (
-                bg_color: !{ row_color(bg.get()) },
+                bg_color: ${ row_color(bg.get()) },
                 width: 220,
                 height: 32,
                 border_radius: 6,

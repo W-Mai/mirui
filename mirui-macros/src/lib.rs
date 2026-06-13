@@ -379,25 +379,6 @@ struct ReactiveBind {
     expr: proc_macro2::TokenStream,
 }
 
-// Match `!`-prefixed attr values ONLY at the root, never recursively, so a real
-// `!flag` inside an expression isn't mistaken for a reactive bind.
-// `!ident`/`!path` → `{ path.get() }` (sugar); `!{ block }` → the block as-is.
-fn reactive_expr(value: &syn::Expr) -> Option<proc_macro2::TokenStream> {
-    let syn::Expr::Unary(unary) = value else {
-        return None;
-    };
-    if !matches!(unary.op, syn::UnOp::Not(_)) {
-        return None;
-    }
-    match unary.expr.as_ref() {
-        syn::Expr::Path(p) => Some(quote! { #p.get() }),
-        syn::Expr::Block(b) => Some(quote! { #b }),
-        _ => None,
-    }
-}
-
-// Control-flow `$` already stripped by xrune; turn the inner expr into a read:
-// a bare path gets `.get()`, a `${ block }` is used verbatim.
 fn reactive_read(value: &syn::Expr) -> proc_macro2::TokenStream {
     match value {
         syn::Expr::Path(p) => quote! { #p.get() },
@@ -580,14 +561,13 @@ impl MiruiRune {
                 continue;
             }
 
-            // A `!`-prefixed attr value binds the attr to a reactive expression
-            // applied through a per-widget effect, not the static builder chain.
-            if let Some(expr) = reactive_expr(value) {
+            // Reactive attrs run through a per-widget effect, not the static builder chain.
+            if attr.reactive {
                 match reactive_setter(&name) {
                     Some(setter) => {
                         reactive_binds.push(ReactiveBind {
                             setter: syn::Ident::new(setter, attr_span),
-                            expr,
+                            expr: reactive_read(value),
                         });
                         continue;
                     }
@@ -595,7 +575,7 @@ impl MiruiRune {
                         errors.push(
                             syn::Error::new(
                                 attr_span,
-                                format!("`{name}` does not support reactive `!` binding"),
+                                format!("`{name}` does not support reactive `$` binding"),
                             )
                             .to_compile_error(),
                         );

@@ -34,8 +34,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             justify: JustifyContent::Center,
             padding: Padding::all(16)
         ) {
-            View (text: !{ alloc::format!("value = {}", vlabel.get()) }, height: 32)
-            View (text: !{ alloc::format!("effect ran {} times", clabel.get()) }, height: 32)
+            View (text: ${ alloc::format!("value = {}", vlabel.get()) }, height: 32)
+            View (text: ${ alloc::format!("effect ran {} times", clabel.get()) }, height: 32)
             View (
                 bg_color: Color::rgb(88, 166, 255),
                 width: 120,
