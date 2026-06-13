@@ -47,6 +47,7 @@ gallery::register_demos! {
     ("state_effect",         "reactive effect",      "State",       state_effect,         360, 260),
     ("state_form",           "reactive form",        "State",       state_form,           360, 280),
     ("state_todo",           "reactive todo",        "State",       state_todo,           320, 280),
+    ("state_show",           "reactive if / match",  "State",       state_show,           320, 240),
 
     ("scroll",               "scroll",               "Scroll",      scroll,               480, 320),
     ("nested_scroll",        "nested scroll",        "Scroll",      nested_scroll,        480, 400),

@@ -363,7 +363,8 @@ struct NicheCmd {
 }
 
 struct MatchCmd {
-    scrutinee: proc_macro2::TokenStream,
+    scrutinee: syn::Expr,
+    reactive: bool,
     arms: Vec<MatchArm>,
 }
 
@@ -392,6 +393,16 @@ fn reactive_expr(value: &syn::Expr) -> Option<proc_macro2::TokenStream> {
         syn::Expr::Path(p) => Some(quote! { #p.get() }),
         syn::Expr::Block(b) => Some(quote! { #b }),
         _ => None,
+    }
+}
+
+// Control-flow `$` already stripped by xrune; turn the inner expr into a read:
+// a bare path gets `.get()`, a `${ block }` is used verbatim.
+fn reactive_read(value: &syn::Expr) -> proc_macro2::TokenStream {
+    match value {
+        syn::Expr::Path(p) => quote! { #p.get() },
+        syn::Expr::Block(b) => quote! { #b },
+        other => quote! { #other },
     }
 }
 
@@ -443,7 +454,12 @@ struct IterCmd {
 }
 
 struct IfCmd {
-    condition: proc_macro2::TokenStream,
+    branches: Vec<Branch>,
+    reactive: bool,
+}
+
+struct Branch {
+    cond: Option<syn::Expr>,
     body: Vec<Cmd>,
 }
 
@@ -979,6 +995,67 @@ impl MiruiRune {
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
+        if cmd.reactive {
+            let read = reactive_read(&cmd.scrutinee);
+            Self::emit_match_reactive(cmd, &read, world, parent_var)
+        } else {
+            Self::emit_match_static(cmd, world, parent_var)
+        }
+    }
+
+    fn emit_match_reactive(
+        cmd: &MatchCmd,
+        read: &proc_macro2::TokenStream,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let select_arms = cmd.arms.iter().map(|arm| {
+            let pat = &arm.pat;
+            let builder = Self::build_branch(&arm.body);
+            quote! { #pat => (#builder)(__w, __parent_e), }
+        });
+        quote! {
+            {
+                let __mounted = mirui::__Rc::new(mirui::__Cell::new(
+                    ::core::option::Option::<mirui::ecs::Entity>::None,
+                ));
+                let __parent_e = #parent_var;
+                mirui::state::with_world_scope(#world, || {
+                    mirui::state::effect_with_widget(__parent_e, move || {
+                        let __sel = #read;
+                        mirui::state::with_world(|__w| {
+                            let __old = __mounted.take();
+                            let __idx = __old.and_then(|o| {
+                                __w.get::<mirui::widget::Children>(__parent_e)
+                                    .and_then(|c| c.0.iter().position(|&e| e == o))
+                            });
+                            if let Some(__o) = __old {
+                                mirui::widget::despawn_subtree(__w, __o);
+                            }
+                            let __root: ::core::option::Option<mirui::ecs::Entity> = match __sel {
+                                #(#select_arms)*
+                            };
+                            if let Some(__r) = __root {
+                                if let Some(children) =
+                                    __w.get_mut::<mirui::widget::Children>(__parent_e)
+                                {
+                                    let __pos = __idx.unwrap_or(children.0.len()).min(children.0.len());
+                                    children.0.insert(__pos, __r);
+                                }
+                            }
+                            __mounted.set(__root);
+                        });
+                    });
+                });
+            }
+        }
+    }
+
+    fn emit_match_static(
+        cmd: &MatchCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
         let scrutinee = &cmd.scrutinee;
         let arm_tokens = cmd.arms.iter().map(|arm| {
             let pat = &arm.pat;
@@ -1096,10 +1173,20 @@ impl MiruiRune {
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
-        let condition = &cmd.condition;
+        if cmd.reactive {
+            Self::emit_if_reactive(cmd, world, parent_var)
+        } else {
+            Self::emit_if_static(cmd, world, parent_var)
+        }
+    }
 
+    fn emit_branch_body_inline(
+        body: &[Cmd],
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
         let mut body_tokens = proc_macro2::TokenStream::new();
-        for child in &cmd.body {
+        for child in body {
             body_tokens.extend(Self::emit_cmd(child, world, parent_var));
             if let Cmd::Widget(w) = child {
                 let child_var = &w.var;
@@ -1114,10 +1201,143 @@ impl MiruiRune {
                 });
             }
         }
+        body_tokens
+    }
+
+    fn emit_if_static(
+        cmd: &IfCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let mut chain = proc_macro2::TokenStream::new();
+        for (i, br) in cmd.branches.iter().enumerate() {
+            let body = Self::emit_branch_body_inline(&br.body, world, parent_var);
+            match (&br.cond, i) {
+                (Some(c), 0) => chain.extend(quote! { if #c { #body } }),
+                (Some(c), _) => chain.extend(quote! { else if #c { #body } }),
+                (None, _) => chain.extend(quote! { else { #body } }),
+            }
+        }
+        chain
+    }
+
+    fn collect_children(&mut self, children: &[DsTreeRef]) -> Vec<Cmd> {
+        self.stack.push(Vec::new());
+        for child in children {
+            decipher(child, self);
+        }
+        self.stack.pop().unwrap()
+    }
+
+    // A reactive control-flow branch built on demand: returns the first top
+    // widget (single-root) as the mount root, parented but NOT pushed into the
+    // parent's Children — the effect inserts it positionally so a branch swap
+    // keeps its index. Non-root top widgets push normally.
+    fn build_branch(body: &[Cmd]) -> proc_macro2::TokenStream {
+        let w = quote! { __w };
+        let p = quote! { __parent };
+        let mut stmts = proc_macro2::TokenStream::new();
+        let mut root: Option<proc_macro2::TokenStream> = None;
+        for child in body {
+            stmts.extend(Self::emit_cmd(child, &w, &p));
+            if let Cmd::Widget(cw) = child {
+                let cv = &cw.var;
+                if root.is_none() {
+                    stmts.extend(quote! {
+                        (#w).insert(#cv, mirui::widget::Parent(#p));
+                    });
+                    root = Some(quote! { #cv });
+                } else {
+                    stmts.extend(quote! {
+                        {
+                            use mirui::widget::{Children, Parent};
+                            (#w).insert(#cv, Parent(#p));
+                            if let Some(children) = (#w).get_mut::<Children>(#p) {
+                                children.0.push(#cv);
+                            }
+                        }
+                    });
+                }
+            }
+        }
+        let ret = match root {
+            Some(v) => quote! { Some(#v) },
+            None => quote! { None },
+        };
+        quote! {
+            |__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity|
+                -> Option<mirui::ecs::Entity> {
+                #stmts
+                #ret
+            }
+        }
+    }
+
+    fn emit_if_reactive(
+        cmd: &IfCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let builder_idents: Vec<syn::Ident> = (0..cmd.branches.len())
+            .map(|i| syn::Ident::new(&format!("__br{i}"), proc_macro2::Span::call_site()))
+            .collect();
+        let let_builders = cmd.branches.iter().zip(&builder_idents).map(|(b, id)| {
+            let builder = Self::build_branch(&b.body);
+            quote! { let #id = #builder; }
+        });
+
+        let mut cascade = proc_macro2::TokenStream::new();
+        let mut first = true;
+        let mut has_else = false;
+        for (br, id) in cmd.branches.iter().zip(&builder_idents) {
+            match &br.cond {
+                Some(cond) => {
+                    let read = reactive_read(cond);
+                    let head = if first { quote!(if) } else { quote!(else if) };
+                    cascade.extend(quote! { #head (#read) { (#id)(__w, __parent_e) } });
+                    first = false;
+                }
+                None => {
+                    cascade.extend(quote! { else { (#id)(__w, __parent_e) } });
+                    has_else = true;
+                }
+            }
+        }
+        if !has_else {
+            cascade.extend(quote! { else { ::core::option::Option::None } });
+        }
 
         quote! {
-            if #condition {
-                #body_tokens
+            {
+                let __mounted = mirui::__Rc::new(mirui::__Cell::new(
+                    ::core::option::Option::<mirui::ecs::Entity>::None,
+                ));
+                let __parent_e = #parent_var;
+                #(#let_builders)*
+                mirui::state::with_world_scope(#world, || {
+                    mirui::state::effect_with_widget(__parent_e, move || {
+                        mirui::state::with_world(|__w| {
+                            let __old = __mounted.take();
+                            let __idx = __old.and_then(|o| {
+                                __w.get::<mirui::widget::Children>(__parent_e)
+                                    .and_then(|c| c.0.iter().position(|&e| e == o))
+                            });
+                            if let Some(__o) = __old {
+                                mirui::widget::despawn_subtree(__w, __o);
+                            }
+                            let __root: ::core::option::Option<mirui::ecs::Entity> = #cascade;
+                            if let Some(__r) = __root {
+                                if let Some(children) =
+                                    __w.get_mut::<mirui::widget::Children>(__parent_e)
+                                {
+                                    let __pos = __idx.unwrap_or(children.0.len()).min(children.0.len());
+                                    children.0.insert(__pos, __r);
+                                }
+                            }
+                            __mounted.set(__root);
+                        });
+                    });
+                });
             }
         }
     }
@@ -1215,18 +1435,36 @@ impl DsRune for MiruiRune {
         self.stack.last_mut().unwrap().push(cmd);
     }
 
-    fn inscribe_if(&mut self, condition: &syn::Expr, children: &[DsTreeRef]) {
-        self.stack.push(Vec::new());
-        for child in children {
-            decipher(child, self);
+    fn inscribe_if(
+        &mut self,
+        condition: &syn::Expr,
+        reactive: bool,
+        children: &[DsTreeRef],
+        else_branch: Option<&DsTreeRef>,
+    ) {
+        use xrune::ds_node::node_enum::DsNode;
+
+        let mut branches = vec![Branch {
+            cond: Some(condition.clone()),
+            body: self.collect_children(children),
+        }];
+
+        let mut next = else_branch.cloned();
+        while let Some(tree) = next {
+            let node_children = tree.borrow().get_children().to_vec();
+            let chain_next = tree.borrow().get_else_branch().cloned();
+            let cond = match tree.borrow().get_node() {
+                DsNode::If(if_node) => Some(if_node.get_condition().clone()),
+                _ => None,
+            };
+            branches.push(Branch {
+                cond,
+                body: self.collect_children(&node_children),
+            });
+            next = chain_next;
         }
-        let body = self.stack.pop().unwrap();
 
-        let cmd = Cmd::If(IfCmd {
-            condition: quote! { #condition },
-            body,
-        });
-
+        let cmd = Cmd::If(IfCmd { branches, reactive });
         self.stack.last_mut().unwrap().push(cmd);
     }
 
@@ -1234,6 +1472,7 @@ impl DsRune for MiruiRune {
         &mut self,
         iterable: &syn::Expr,
         variable: &syn::Ident,
+        _reactive: bool,
         children: &[DsTreeRef],
     ) {
         self.stack.push(Vec::new());
@@ -1268,6 +1507,7 @@ impl DsRune for MiruiRune {
     fn inscribe_match(
         &mut self,
         scrutinee: &syn::Expr,
+        reactive: bool,
         arms: &[xrune::ds_node::ds_match::DsMatchArm],
     ) {
         let mut arm_cmds = Vec::with_capacity(arms.len());
@@ -1284,7 +1524,8 @@ impl DsRune for MiruiRune {
         }
 
         let cmd = Cmd::Match(MatchCmd {
-            scrutinee: quote! { #scrutinee },
+            scrutinee: scrutinee.clone(),
+            reactive,
             arms: arm_cmds,
         });
         self.stack.last_mut().unwrap().push(cmd);

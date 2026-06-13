@@ -135,7 +135,8 @@ pub fn with_world_scope<R>(world: &mut World, f: impl FnOnce() -> R) -> R {
 }
 
 /// Reach the World the running effect is under; None outside a flush window.
-pub(crate) fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
+/// Public so `ui!`-generated reactive control flow can reach it from user crates.
+pub fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
     // Copy the pointer out before deref so `f` may re-enter with_reactive.
     let ptr = with_reactive(|r| r.world);
     if ptr.is_null() {

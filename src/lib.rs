@@ -108,6 +108,8 @@ pub use mirui_macros::{Component, system, trace_fn, trace_span, ui};
 // both std and no_std user crates without an `extern crate alloc` of their own.
 #[doc(hidden)]
 pub use alloc::rc::Rc as __Rc;
+#[doc(hidden)]
+pub use core::cell::Cell as __Cell;
 
 /// `use mirui::prelude::*;` brings in the types and macros that nearly
 /// every application file needs: `App`, the layout module, `Color` /
