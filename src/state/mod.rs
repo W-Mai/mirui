@@ -110,19 +110,21 @@ fn enqueue_effect(id: EffectId) {
     with_reactive(|r| r.dirty_effects.push_back(id));
 }
 
-// Drop clears the World pointer so every flush exit path leaves it null.
-struct WorldGuard;
+struct WorldGuard {
+    prev: *mut World,
+}
 
 impl WorldGuard {
     fn enter(world: &mut World) -> Self {
-        with_reactive(|r| r.world = world as *mut World);
-        WorldGuard
+        let prev = with_reactive(|r| core::mem::replace(&mut r.world, world as *mut World));
+        WorldGuard { prev }
     }
 }
 
 impl Drop for WorldGuard {
     fn drop(&mut self) {
-        with_reactive(|r| r.world = core::ptr::null_mut());
+        let prev = self.prev;
+        with_reactive(|r| r.world = prev);
     }
 }
 
@@ -143,7 +145,9 @@ pub fn with_world<R>(f: impl FnOnce(&mut World) -> R) -> Option<R> {
         return None;
     }
     // SAFETY: non-null only within flush_signal_dirty / with_world_scope, which
-    // hold a live &mut World; single-threaded, and these windows never nest.
+    // hold a live &mut World; single-threaded. Windows may nest (a reactive
+    // walk/if/match re-run enters another scope); WorldGuard saves/restores the
+    // previous pointer LIFO, so the innermost live &mut World always wins.
     Some(f(unsafe { &mut *ptr }))
 }
 
@@ -829,5 +833,22 @@ mod tests {
         }));
         s.set(1);
         flush_signal_dirty(&mut world); // must return, not hang
+    }
+
+    #[test]
+    fn nested_world_scope_restores_outer_pointer() {
+        reset();
+        let mut outer = World::new();
+        with_world_scope(&mut outer, || {
+            let mut inner = World::new();
+            with_world_scope(&mut inner, || {
+                assert!(with_world(|_| ()).is_some(), "inner scope sees a world");
+            });
+            assert!(
+                with_world(|_| ()).is_some(),
+                "outer scope still reachable after inner drops",
+            );
+        });
+        assert!(with_world(|_| ()).is_none(), "no world outside any scope");
     }
 }
