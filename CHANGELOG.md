@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-06-14
+
+A reactive state layer lands: signals, computed values, and effects drive
+widget attributes and structure declaratively from the `ui!` macro. A `$`
+sigil marks a value or control-flow head as reactive; when the signals it
+reads change, the bound attribute updates and `if` / `match` / `walk`
+re-evaluate in place. Six State demos showcase the layer, plus a Conway's
+Game of Life demo.
+
+### Added
+
+- **Reactive primitives** — `Signal<T>` holds state with subscription tracking; `Computed<T>` derives a value lazily and recomputes only when its inputs change; `Effect` re-runs a closure when the signals it read change. `flush_signal_dirty` drains the dirty set once per frame.
+- **Reactive attributes** — an attribute value prefixed with `$` binds through a per-widget effect: `text: $signal` reads and formats on change, `bg_color: ${ pick(state.get()) }` runs a block. Supported on `text`, `bg_color`, `text_color`, `width`, `height`.
+- **Reactive control flow** — `if $cond { … }` / `elif` / `else`, `match $expr { … }`, and `walk $items with x { … }` rebuild their subtree when the head's signals change. `if`/`match` swap a single-root branch in place; `walk` reconciles its rows by index — new tail rows are built and appended, dropped tail rows are despawned, surviving rows keep their entity and position.
+- **`if` / `elif` / `else` in `ui!`** — conditional branches gain an `elif <cond>` chain (a single keyword) and a terminal `else`.
+- **State demos** — reactive counter, computed, effect, form, todo, and a scrollable list that walks a `Vec` of structs; each runs in the web gallery and on the desktop backends.
+- **Conway's Game of Life demo** — a per-cell grid stepped by a branchless update, rendered through theme tokens.
+- **`despawn_subtree`** — recursively despawns an entity and its descendants, unlinking from the parent's `Children`, clearing id maps, and marking the vacated region dirty.
+
+### Changed
+
+- **`GestureHandler.on_gesture` is a `GestureCallback`** (breaking) — the field changed from a bare `fn(&mut World, Entity, &GestureEvent) -> bool` to a `GestureCallback` enum so handlers can be plain function pointers or closures that capture state. Construct with `GestureHandler::from_fn(f)` for a function pointer; the `ui!` `on` clause builds a capturing closure. Code that set `on_gesture` to a `fn` directly must switch to `from_fn`.
+
 ## [0.28.3] - 2026-06-11
 
 The web gallery becomes an interactive showcase: each demo's source is
