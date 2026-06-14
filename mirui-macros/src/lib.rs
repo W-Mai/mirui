@@ -172,15 +172,6 @@ fn emit_business_handler(
     world: &proc_macro2::TokenStream,
 ) -> proc_macro2::TokenStream {
     let handler_path: syn::Path = syn::parse_str(handler_component).unwrap();
-    let suffix: String = handler_component
-        .rsplit("::")
-        .next()
-        .unwrap_or("Handler")
-        .to_lowercase();
-    let fn_name = syn::Ident::new(
-        &format!("__mirui_on_{suffix}_{widget_var}"),
-        proc_macro2::Span::call_site(),
-    );
 
     let mut arms = proc_macro2::TokenStream::new();
     for (entry, on_cmd) in group {
@@ -227,20 +218,22 @@ fn emit_business_handler(
     };
 
     quote! {
-        fn #fn_name(
-            __world: &mut ::mirui::ecs::World,
-            __entity: ::mirui::ecs::Entity,
-            __event: &#event_ty,
-        ) -> bool {
-            match __event {
-                #arms
-                #[allow(unreachable_patterns)]
-                _ => false,
-            }
-        }
         (#world).insert(
             #widget_var,
-            #handler_path { on_event: #fn_name },
+            #handler_path {
+                on_event: ::mirui::event::BusinessCallback::Closure(::mirui::__Rc::new(
+                    move |__world: &mut ::mirui::ecs::World,
+                          __entity: ::mirui::ecs::Entity,
+                          __event: &#event_ty|
+                          -> bool {
+                        match __event {
+                            #arms
+                            #[allow(unreachable_patterns)]
+                            _ => false,
+                        }
+                    },
+                )),
+            },
         );
     }
 }

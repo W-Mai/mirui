@@ -2,6 +2,7 @@ use crate::anim::{Motion, MotionComponent, Spring, run_motion};
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
+use crate::event::BusinessCallback;
 use crate::event::gesture::GestureEvent;
 use crate::types::{Color, Fixed, Rect};
 use crate::widget::ComputedRect;
@@ -15,7 +16,7 @@ pub enum SwitchEvent {
 }
 
 pub struct SwitchHandler {
-    pub on_event: fn(&mut World, Entity, &SwitchEvent) -> bool,
+    pub on_event: BusinessCallback<SwitchEvent>,
 }
 
 #[derive(crate::Component)]
@@ -83,7 +84,9 @@ impl SwitchBuilder {
     }
 
     pub fn on_change(mut self, on_event: fn(&mut World, Entity, &SwitchEvent) -> bool) -> Self {
-        self.handler = Some(SwitchHandler { on_event });
+        self.handler = Some(SwitchHandler {
+            on_event: BusinessCallback::Fn(on_event),
+        });
         self
     }
 
@@ -324,9 +327,11 @@ pub(crate) fn switch_handler(world: &mut World, entity: Entity, event: &GestureE
 }
 
 fn emit_switch_event(world: &mut World, entity: Entity, event: &SwitchEvent) {
-    let cb = world.get::<SwitchHandler>(entity).map(|h| h.on_event);
-    if let Some(f) = cb {
-        f(world, entity, event);
+    let cb = world
+        .get::<SwitchHandler>(entity)
+        .map(|h| h.on_event.clone_out());
+    if let Some(cb) = cb {
+        cb.call(world, entity, event);
     }
 }
 
@@ -404,5 +409,33 @@ mod tests {
             "ON knob must move right as the track widens so resize tracks the edge",
         );
         assert_eq!(off_thumb_x(&wide), off_thumb_x(&narrow));
+    }
+
+    #[test]
+    fn closure_handler_captures_and_updates_state() {
+        use crate::state::Signal;
+
+        let mut world = World::new();
+        let switched = Signal::new(false);
+        let captured = switched.clone();
+        let e = world.spawn_empty();
+        world.insert(
+            e,
+            SwitchHandler {
+                on_event: BusinessCallback::Closure(alloc::rc::Rc::new(
+                    move |_w, _e, ev: &SwitchEvent| {
+                        let SwitchEvent::Toggled { now } = ev;
+                        captured.set(*now);
+                        true
+                    },
+                )),
+            },
+        );
+
+        emit_switch_event(&mut world, e, &SwitchEvent::Toggled { now: true });
+        assert!(
+            switched.get(),
+            "closure handler updated the captured Signal"
+        );
     }
 }

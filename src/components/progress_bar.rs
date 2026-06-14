@@ -1,6 +1,7 @@
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
+use crate::event::BusinessCallback;
 use crate::event::gesture::GestureEvent;
 use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
@@ -14,7 +15,7 @@ pub enum ProgressBarEvent {
 }
 
 pub struct ProgressBarHandler {
-    pub on_event: fn(&mut World, Entity, &ProgressBarEvent) -> bool,
+    pub on_event: BusinessCallback<ProgressBarEvent>,
 }
 
 #[derive(crate::Component)]
@@ -74,7 +75,9 @@ impl ProgressBarBuilder {
         mut self,
         on_event: fn(&mut World, Entity, &ProgressBarEvent) -> bool,
     ) -> Self {
-        self.handler = Some(ProgressBarHandler { on_event });
+        self.handler = Some(ProgressBarHandler {
+            on_event: BusinessCallback::Fn(on_event),
+        });
         self
     }
 
@@ -192,9 +195,11 @@ fn progress_bar_handler(world: &mut World, entity: Entity, event: &GestureEvent)
 }
 
 fn emit_progress_bar_event(world: &mut World, entity: Entity, event: &ProgressBarEvent) {
-    let cb = world.get::<ProgressBarHandler>(entity).map(|h| h.on_event);
-    if let Some(f) = cb {
-        f(world, entity, event);
+    let cb = world
+        .get::<ProgressBarHandler>(entity)
+        .map(|h| h.on_event.clone_out());
+    if let Some(cb) = cb {
+        cb.call(world, entity, event);
     }
 }
 

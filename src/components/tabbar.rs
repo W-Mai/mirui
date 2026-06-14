@@ -2,6 +2,7 @@ use crate::anim::Tween;
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
+use crate::event::BusinessCallback;
 use crate::event::gesture::GestureEvent;
 use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
@@ -15,7 +16,7 @@ pub enum TabBarEvent {
 }
 
 pub struct TabBarHandler {
-    pub on_event: fn(&mut World, Entity, &TabBarEvent) -> bool,
+    pub on_event: BusinessCallback<TabBarEvent>,
 }
 
 pub(crate) const INDICATOR_TWEEN_MS: u16 = 220;
@@ -89,7 +90,9 @@ impl TabBarBuilder {
     }
 
     pub fn on_change(mut self, on_event: fn(&mut World, Entity, &TabBarEvent) -> bool) -> Self {
-        self.handler = Some(TabBarHandler { on_event });
+        self.handler = Some(TabBarHandler {
+            on_event: BusinessCallback::Fn(on_event),
+        });
         self
     }
 
@@ -209,9 +212,11 @@ pub(crate) fn tabbar_handler(world: &mut World, entity: Entity, event: &GestureE
 }
 
 fn emit_tabbar_event(world: &mut World, entity: Entity, event: &TabBarEvent) {
-    let cb = world.get::<TabBarHandler>(entity).map(|h| h.on_event);
-    if let Some(f) = cb {
-        f(world, entity, event);
+    let cb = world
+        .get::<TabBarHandler>(entity)
+        .map(|h| h.on_event.clone_out());
+    if let Some(cb) = cb {
+        cb.call(world, entity, event);
     }
 }
 

@@ -159,6 +159,40 @@ impl GestureHandler {
     }
 }
 
+/// Business-event callback, generic over the widget's event type. `Closure`
+/// carries an `Rc` so a `ui!` handler can capture state such as a `Signal`.
+pub type BusinessFn<E> = fn(&mut World, Entity, &E) -> bool;
+pub type BusinessClosure<E> = alloc::rc::Rc<dyn Fn(&mut World, Entity, &E) -> bool>;
+
+pub enum BusinessCallback<E> {
+    Fn(BusinessFn<E>),
+    Closure(BusinessClosure<E>),
+}
+
+impl<E> BusinessCallback<E> {
+    pub fn call(&self, world: &mut World, entity: Entity, event: &E) -> bool {
+        match self {
+            BusinessCallback::Fn(f) => f(world, entity, event),
+            BusinessCallback::Closure(rc) => rc(world, entity, event),
+        }
+    }
+
+    /// Clone the callback out of a component borrow so it can run while the
+    /// World is mutably borrowed (same pattern as `GestureHandler::trigger`).
+    pub fn clone_out(&self) -> Self {
+        match self {
+            BusinessCallback::Fn(f) => BusinessCallback::Fn(*f),
+            BusinessCallback::Closure(rc) => BusinessCallback::Closure(alloc::rc::Rc::clone(rc)),
+        }
+    }
+}
+
+impl<E> From<BusinessFn<E>> for BusinessCallback<E> {
+    fn from(f: BusinessFn<E>) -> Self {
+        BusinessCallback::Fn(f)
+    }
+}
+
 /// Aggregated context handed to user `on EventKind` bodies and callback-form fns.
 pub struct HandlerCtx<'a, E> {
     pub world: &'a mut World,

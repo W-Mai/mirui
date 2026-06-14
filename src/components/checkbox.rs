@@ -1,6 +1,7 @@
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
+use crate::event::BusinessCallback;
 use crate::event::gesture::GestureEvent;
 use crate::types::Rect;
 use crate::widget::dirty::Dirty;
@@ -13,7 +14,7 @@ pub enum CheckboxEvent {
 }
 
 pub struct CheckboxHandler {
-    pub on_event: fn(&mut World, Entity, &CheckboxEvent) -> bool,
+    pub on_event: BusinessCallback<CheckboxEvent>,
 }
 
 #[derive(crate::Component)]
@@ -74,7 +75,9 @@ impl CheckboxBuilder {
     }
 
     pub fn on_change(mut self, on_event: fn(&mut World, Entity, &CheckboxEvent) -> bool) -> Self {
-        self.handler = Some(CheckboxHandler { on_event });
+        self.handler = Some(CheckboxHandler {
+            on_event: BusinessCallback::Fn(on_event),
+        });
         self
     }
 
@@ -156,9 +159,11 @@ pub(crate) fn checkbox_handler(world: &mut World, entity: Entity, event: &Gestur
 }
 
 fn emit_checkbox_event(world: &mut World, entity: Entity, event: &CheckboxEvent) {
-    let cb = world.get::<CheckboxHandler>(entity).map(|h| h.on_event);
-    if let Some(f) = cb {
-        f(world, entity, event);
+    let cb = world
+        .get::<CheckboxHandler>(entity)
+        .map(|h| h.on_event.clone_out());
+    if let Some(cb) = cb {
+        cb.call(world, entity, event);
     }
 }
 

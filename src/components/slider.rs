@@ -1,6 +1,7 @@
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
+use crate::event::BusinessCallback;
 use crate::event::gesture::GestureEvent;
 use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
@@ -16,7 +17,7 @@ pub enum SliderEvent {
 }
 
 pub struct SliderHandler {
-    pub on_event: fn(&mut World, Entity, &SliderEvent) -> bool,
+    pub on_event: BusinessCallback<SliderEvent>,
 }
 
 #[derive(crate::Component)]
@@ -97,7 +98,9 @@ impl SliderBuilder {
     }
 
     pub fn on_change(mut self, on_event: fn(&mut World, Entity, &SliderEvent) -> bool) -> Self {
-        self.handler = Some(SliderHandler { on_event });
+        self.handler = Some(SliderHandler {
+            on_event: BusinessCallback::Fn(on_event),
+        });
         self
     }
 
@@ -270,9 +273,11 @@ pub(crate) fn slider_handler(world: &mut World, entity: Entity, event: &GestureE
 }
 
 fn emit_slider_event(world: &mut World, entity: Entity, event: &SliderEvent) {
-    let cb = world.get::<SliderHandler>(entity).map(|h| h.on_event);
-    if let Some(f) = cb {
-        f(world, entity, event);
+    let cb = world
+        .get::<SliderHandler>(entity)
+        .map(|h| h.on_event.clone_out());
+    if let Some(cb) = cb {
+        cb.call(world, entity, event);
     }
 }
 
@@ -329,7 +334,7 @@ mod tests {
         world.insert(
             e,
             SliderHandler {
-                on_event: record_handler,
+                on_event: BusinessCallback::Fn(record_handler),
             },
         );
         EVENTS.lock().unwrap_or_else(|x| x.into_inner()).clear();
