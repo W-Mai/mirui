@@ -67,7 +67,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             justify: JustifyContent::Center,
             padding: Padding::all(12)
         ) {
-            View (text: ${ alloc::format!("{} fruits", label.with(|f| f.len())) }, height: 32)
+            View (text: ${ alloc::format!("{} fruits", label.with(| f | f.len())) }, height: 32)
             Row (height: 52, padding: Padding::all(8)) {
                 View (
                     bg_color: ColorToken::Error,

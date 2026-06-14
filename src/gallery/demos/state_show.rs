@@ -83,9 +83,24 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                         justify: JustifyContent::SpaceBetween,
                         align: AlignItems::Center
                     ) {
-                        View (width: 60, height: 60, border_radius: 8, bg_color: Color::rgb(220, 80, 80))
-                        View (width: 60, height: 60, border_radius: 8, bg_color: Color::rgb(63, 185, 80))
-                        View (width: 60, height: 60, border_radius: 8, bg_color: Color::rgb(88, 166, 255))
+                        View (
+                            width: 60,
+                            height: 60,
+                            border_radius: 8,
+                            bg_color: Color::rgb(220, 80, 80)
+                        )
+                        View (
+                            width: 60,
+                            height: 60,
+                            border_radius: 8,
+                            bg_color: Color::rgb(63, 185, 80)
+                        )
+                        View (
+                            width: 60,
+                            height: 60,
+                            border_radius: 8,
+                            bg_color: Color::rgb(88, 166, 255)
+                        )
                     }
                 }
                 _ => {
