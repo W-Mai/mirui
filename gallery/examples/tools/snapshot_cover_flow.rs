@@ -147,8 +147,8 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
                 direction: ScrollAxis::Horizontal,
                 elastic: true,
                 content_width: Fixed::from_int(
-                WINDOW_W + (CARD_W + CARD_GAP) * (CARD_COUNT - 1),
-            ),
+                    WINDOW_W + (CARD_W + CARD_GAP) * (CARD_COUNT - 1),
+                ),
                 content_height: Fixed::ZERO,
             },
         ] {

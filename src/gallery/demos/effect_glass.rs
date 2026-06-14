@@ -163,13 +163,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             GlassSlide { elapsed_ms: 0 },
             GaussRadius(
                 Tween::new(
-                Fixed::from_int(0),
-                Fixed::from_int(3),
-                GLASS_PERIOD_MS,
-                ease::ease_in_out_cubic,
-                PlayMode::PingPong,
-            )
-                .into(),
+                        Fixed::from_int(0),
+                        Fixed::from_int(3),
+                        GLASS_PERIOD_MS,
+                        ease::ease_in_out_cubic,
+                        PlayMode::PingPong,
+                    )
+                    .into(),
             ),
         ]
     };

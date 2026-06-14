@@ -51,9 +51,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             Text (
                 ${
                     format!(
-                    "value: {}   changes: {}   drags started/ended: {}", s_read.get().last_value,
-                    s_read.get().changes, s_read.get().drags
-                )
+                        "value: {}   changes: {}   drags started/ended: {}", s_read.get().last_value,
+                        s_read.get().changes, s_read.get().drags
+                    )
                 },
                 id: "stats_label",
                 height: 30
