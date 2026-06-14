@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.3] - 2026-06-14
+
+### Fixed
+
+- **Business-event handlers can capture state** — `on Toggled` / `on ValueChanged` and the other widget business events stored a bare function pointer, so a handler body could not capture a `Signal`. Switch / Checkbox / Slider / ProgressBar / TabBar handlers now hold a `BusinessCallback` (function pointer or capturing closure), and a `ui!` handler body is emitted as a closure.
+- **Reactive `text` works on `Text` and component widgets** — a reactive `text` (`Text (${ … })`) was consumed by the static text path before the reactive check, so it showed the initial value and never updated. The reactive check now runs first, and the text component is seeded before the reactive effect's first run so the initial value is not clobbered by the empty default.
+
 ## [0.29.2] - 2026-06-14
 
 ### Added
