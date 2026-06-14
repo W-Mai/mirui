@@ -5,11 +5,12 @@ use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
+use crate::state::Signal;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::Fixed;
 use crate::widget::IdMap;
-use crate::widget::dirty::Dirty;
+
 use alloc::format;
 
 #[derive(Clone, Copy, Default)]
@@ -35,6 +36,10 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         world.insert_resource(Stats::default());
     }
 
+    let stats = Signal::new(Stats::default());
+    let (s_read, s_value, s_drag_started, s_drag_ended) =
+        (stats.clone(), stats.clone(), stats.clone(), stats.clone());
+
     //~focus-start
     ui! {
         :(
@@ -44,28 +49,33 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
         Column (grow: 1.0, padding: Padding::all(20)) {
             Text (
-                "value: 0   changes: 0   drags started/ended: 0",
+                ${
+                    format!(
+                    "value: {}   changes: {}   drags started/ended: {}", s_read.get().last_value,
+                    s_read.get().changes, s_read.get().drags
+                )
+                },
                 id: "stats_label",
                 height: 30
             )
             Slider (width: 600, height: 24) on ValueChanged {
                 let new_value = new.to_int();
                 let _ = old;
-                if let Some(s) = ctx.world.resource_mut::<Stats>() {
-                    s.last_value = new_value;
-                    s.changes += 1;
-                }
-                refresh_label(ctx.world);
+                s_value
+                    .update(|s| {
+                        s.last_value = new_value;
+                        s.changes += 1;
+                    });
             } on DragStarted {
-                if let Some(s) = ctx.world.resource_mut::<Stats>() {
-                    s.drags += 1;
-                }
-                refresh_label(ctx.world);
+                s_drag_started
+                    .update(|s| {
+                        s.drags += 1;
+                    });
             } on DragEnded {
-                if let Some(s) = ctx.world.resource_mut::<Stats>() {
-                    s.drags += 1;
-                }
-                refresh_label(ctx.world);
+                s_drag_ended
+                    .update(|s| {
+                        s.drags += 1;
+                    });
             }
         }
     };
@@ -91,22 +101,6 @@ where
     build_widgets(&mut app.world, parent);
 }
 
-fn refresh_label(world: &mut World) {
-    let stats = world.resource::<Stats>().copied().unwrap_or_default();
-    let text = format!(
-        "value: {}   changes: {}   drags started/ended: {}",
-        stats.last_value, stats.changes, stats.drags,
-    );
-    let label = match world.find_by_id("stats_label") {
-        Some(e) => e,
-        None => return,
-    };
-    if let Some(t) = world.get_mut::<Text>(label) {
-        t.0 = text.into_bytes();
-    }
-    world.insert(label, Dirty);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,5 +117,11 @@ mod tests {
                 .is_some_and(|c| !c.0.is_empty())
         );
         assert!(world.resource::<Stats>().is_some());
+
+        // The reactive Text's first run must seed real content at build time,
+        // not leave the label empty until the first event.
+        let label = world.find_by_id("stats_label").expect("stats_label exists");
+        let text = world.get::<Text>(label).expect("label has Text");
+        assert!(!text.0.is_empty(), "reactive Text shows its initial value");
     }
 }

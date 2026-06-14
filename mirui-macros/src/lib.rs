@@ -539,24 +539,8 @@ impl MiruiRune {
                 .map(|n| n.span())
                 .unwrap_or_else(|| syn::spanned::Spanned::span(&attr.value));
 
-            if is_text_widget && name == "text" {
-                text_tuple_value = Some(quote! { #value });
-                continue;
-            }
-
-            if is_text_input_widget && TEXT_INPUT_FIELDS.contains(&name.as_str()) {
-                let field_ident = syn::Ident::new(&name, attr_span);
-                component_fields.push(quote! { #field_ident: (#value).into() });
-                continue;
-            }
-
-            if widget_kind == WidgetKind::Component && name == "text" {
-                let field_ident = syn::Ident::new(&name, attr_span);
-                component_fields.push(quote! { #field_ident: (#value).into() });
-                continue;
-            }
-
-            // Reactive attrs run through a per-widget effect, not the static builder chain.
+            // Must run before the Text / Component `text` routes below, or a
+            // reactive `text` gets frozen as static content instead of bound.
             if attr.reactive {
                 match reactive_setter(&name) {
                     Some(setter) => {
@@ -577,6 +561,23 @@ impl MiruiRune {
                         continue;
                     }
                 }
+            }
+
+            if is_text_widget && name == "text" {
+                text_tuple_value = Some(quote! { #value });
+                continue;
+            }
+
+            if is_text_input_widget && TEXT_INPUT_FIELDS.contains(&name.as_str()) {
+                let field_ident = syn::Ident::new(&name, attr_span);
+                component_fields.push(quote! { #field_ident: (#value).into() });
+                continue;
+            }
+
+            if widget_kind == WidgetKind::Component && name == "text" {
+                let field_ident = syn::Ident::new(&name, attr_span);
+                component_fields.push(quote! { #field_ident: (#value).into() });
+                continue;
             }
 
             match name.as_str() {
@@ -872,38 +873,20 @@ impl MiruiRune {
                 .id();
         });
 
-        if !cmd.reactive_binds.is_empty() {
-            let injections: Vec<proc_macro2::TokenStream> = cmd
-                .reactive_binds
-                .iter()
-                .map(|b| {
-                    let setter = &b.setter;
-                    let expr = &b.expr;
-                    quote! {
-                        mirui::state::effect_with_widget(#var, move || {
-                            let __v = #expr;
-                            mirui::widget::reactive_attr::#setter(#var, __v);
-                        });
-                    }
-                })
-                .collect();
-            // with_world_scope makes the effects' first run apply the initial
-            // value now, at construction (outside the per-frame flush).
-            tokens.extend(quote! {
-                mirui::state::with_world_scope(#world, || { #(#injections)* });
-            });
-        }
-
+        // Must precede the reactive-bind injection: an effect's first run writes
+        // into the component, so seeding it after would clobber that value.
         if cmd.kind == WidgetKind::Component {
             let comp_name = &cmd.name;
-            if cmd.name == "Text"
-                && let Some(text_value) = &cmd.text_tuple_value
-            {
+            if cmd.name == "Text" {
+                // Text is a tuple struct with no Default; seed it explicitly.
+                // A reactive `text` leaves text_tuple_value None; the effect's
+                // first run fills the real content via reactive_set_text.
+                let init = match &cmd.text_tuple_value {
+                    Some(text_value) => quote! { (#text_value).as_bytes().to_vec() },
+                    None => quote! { ::mirui::__Vec::new() },
+                };
                 tokens.extend(quote! {
-                    (#world).insert(
-                        #var,
-                        #comp_name((#text_value).as_bytes().to_vec()),
-                    );
+                    (#world).insert(#var, #comp_name(#init));
                 });
             } else if cmd.name == "Image" {
                 let comp_fields = &cmd.component_fields;
@@ -928,6 +911,28 @@ impl MiruiRune {
 
             tokens.extend(quote! {
                 mirui::event::widget_input::attach_handlers_for(#world, #var);
+            });
+        }
+
+        if !cmd.reactive_binds.is_empty() {
+            let injections: Vec<proc_macro2::TokenStream> = cmd
+                .reactive_binds
+                .iter()
+                .map(|b| {
+                    let setter = &b.setter;
+                    let expr = &b.expr;
+                    quote! {
+                        mirui::state::effect_with_widget(#var, move || {
+                            let __v = #expr;
+                            mirui::widget::reactive_attr::#setter(#var, __v);
+                        });
+                    }
+                })
+                .collect();
+            // with_world_scope makes the effects' first run apply the initial
+            // value now, at construction (outside the per-frame flush).
+            tokens.extend(quote! {
+                mirui::state::with_world_scope(#world, || { #(#injections)* });
             });
         }
 

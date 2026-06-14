@@ -1,15 +1,14 @@
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{Checkbox, Switch, Text};
+use crate::components::{Checkbox, Switch};
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
+use crate::state::{Computed, Signal};
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::widget::IdMap;
-use crate::widget::dirty::Dirty;
-use alloc::format;
 
 #[derive(Clone, Copy, Default)]
 pub struct ToggleStats {
@@ -31,9 +30,26 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     if world.resource::<IdMap>().is_none() {
         world.insert_resource(IdMap::new());
     }
-    if world.resource::<ToggleStats>().is_none() {
-        world.insert_resource(ToggleStats::default());
-    }
+
+    let stats = Signal::new(ToggleStats::default());
+    let (s_stats_r, s_checkbox, s_switch) = (stats.clone(), stats.clone(), stats.clone());
+    let stats_text = Computed::new(move || {
+        format!(
+            "switch: {} ({} flips)   checkbox: {} ({} flips)",
+            if s_stats_r.get().switch_on {
+                "ON"
+            } else {
+                "OFF"
+            },
+            s_stats_r.get().switch_changes,
+            if s_stats_r.get().checkbox_checked {
+                "[x]"
+            } else {
+                "[ ]"
+            },
+            s_stats_r.get().checkbox_changes
+        )
+    });
 
     //~focus-start
     ui! {
@@ -43,25 +59,24 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         :)
 
         Column (grow: 1.0, padding: Padding::all(20)) {
-            Text (
-                "switch: OFF (0 flips)   checkbox: [ ] (0 flips)",
-                id: "toggle_label",
+            View (
+                text: $stats_text,
                 height: 30
             )
             Row (grow: 1.0, justify: JustifyContent::SpaceEvenly, align: AlignItems::Center) {
                 Switch (width: 60, height: 32) on Toggled {
-                    if let Some(s) = ctx.world.resource_mut::<ToggleStats>() {
-                        s.switch_on = *now;
-                        s.switch_changes += 1;
-                    }
-                    refresh_label(ctx.world);
+                    s_switch
+                        .update(|s| {
+                            s.switch_on = *now;
+                            s.switch_changes += 1;
+                        });
                 }
                 Checkbox (width: 32, height: 32) on Toggled {
-                    if let Some(s) = ctx.world.resource_mut::<ToggleStats>() {
-                        s.checkbox_checked = *now;
-                        s.checkbox_changes += 1;
-                    }
-                    refresh_label(ctx.world);
+                    s_checkbox
+                        .update(|s| {
+                            s.checkbox_checked = *now;
+                            s.checkbox_changes += 1;
+                        });
                 }
             }
         }
@@ -79,25 +94,6 @@ where
     build_widgets(&mut app.world, parent);
 }
 
-fn refresh_label(world: &mut World) {
-    let stats = world.resource::<ToggleStats>().copied().unwrap_or_default();
-    let text = format!(
-        "switch: {} ({} flips)   checkbox: {} ({} flips)",
-        if stats.switch_on { "ON" } else { "OFF" },
-        stats.switch_changes,
-        if stats.checkbox_checked { "[x]" } else { "[ ]" },
-        stats.checkbox_changes,
-    );
-    let label = match world.find_by_id("toggle_label") {
-        Some(e) => e,
-        None => return,
-    };
-    if let Some(t) = world.get_mut::<Text>(label) {
-        t.0 = text.into_bytes();
-    }
-    world.insert(label, Dirty);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -113,6 +109,5 @@ mod tests {
                 .get::<Children>(parent)
                 .is_some_and(|c| !c.0.is_empty())
         );
-        assert!(world.resource::<ToggleStats>().is_some());
     }
 }
