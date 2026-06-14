@@ -186,16 +186,6 @@ pub fn flush_signal_dirty(world: &mut World) {
     );
 }
 
-// Release cycle warning, wired in once a no_std log facade exists.
-#[allow(dead_code)]
-fn warn_cycle_once() {
-    use core::sync::atomic::{AtomicBool, Ordering};
-    static WARNED: AtomicBool = AtomicBool::new(false);
-    if !WARNED.swap(true, Ordering::Relaxed) {
-        // TODO(log): "reactive flush hit the pass cap; cycle suspected"
-    }
-}
-
 // Reclaim effects whose owning widget is gone. No ECS hook — flush holds the
 // World, same lazy-liveness approach as the dirty-widget skip.
 fn reclaim_dead_effects(world: &World) {
