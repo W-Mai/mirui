@@ -70,4 +70,37 @@ mod tests {
         let texts = world.query::<Text>().collect();
         assert!(texts.is_empty());
     }
+
+    #[test]
+    fn match_picks_error_arm() {
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        let state = LoadState::Error;
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            match state {
+                LoadState::Loading => {
+                    Text("loading...") {}
+                }
+                LoadState::Ready(s) => {
+                    Text(s) {}
+                }
+                LoadState::Error => {
+                    Text("error") {}
+                }
+            }
+        };
+
+        let texts = world.query::<Text>().collect();
+        assert_eq!(texts.len(), 1);
+        let text = world.get::<Text>(texts[0]).unwrap();
+        assert_eq!(text.0, b"error");
+    }
 }
