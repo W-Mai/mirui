@@ -432,6 +432,7 @@ struct IterCmd {
     iterable: proc_macro2::TokenStream,
     variable: syn::Ident,
     body: Vec<Cmd>,
+    reactive: bool,
 }
 
 struct IfCmd {
@@ -1119,14 +1120,24 @@ impl MiruiRune {
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
+        if cmd.reactive {
+            Self::emit_iter_reactive(cmd, world, parent_var)
+        } else {
+            Self::emit_iter_static(cmd, world, parent_var)
+        }
+    }
+
+    fn emit_iter_static(
+        cmd: &IterCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
         let iterable = &cmd.iterable;
         let variable = &cmd.variable;
 
-        // Generate loop body — each widget in body attaches to parent_var
         let mut body_tokens = proc_macro2::TokenStream::new();
         for child in &cmd.body {
             body_tokens.extend(Self::emit_cmd(child, world, parent_var));
-            // Attach each top-level widget in loop body to parent
             if let Cmd::Widget(w) = child {
                 let child_var = &w.var;
                 body_tokens.extend(quote! {
@@ -1253,6 +1264,16 @@ impl MiruiRune {
         }
     }
 
+    fn build_row_builder(body: &[Cmd], variable: &syn::Ident) -> proc_macro2::TokenStream {
+        let inner = Self::build_branch(body);
+        quote! {
+            |__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity, #variable|
+                -> Option<mirui::ecs::Entity> {
+                (#inner)(__w, __parent)
+            }
+        }
+    }
+
     fn emit_if_reactive(
         cmd: &IfCmd,
         world: &proc_macro2::TokenStream,
@@ -1315,6 +1336,60 @@ impl MiruiRune {
                                 }
                             }
                             __mounted.set(__root);
+                        });
+                    });
+                });
+            }
+        }
+    }
+
+    fn emit_iter_reactive(
+        cmd: &IterCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let iterable = &cmd.iterable;
+        let variable = &cmd.variable;
+        let row_builder = Self::build_row_builder(&cmd.body, variable);
+
+        quote! {
+            {
+                let __rows = mirui::__Rc::new(mirui::__RefCell::new(
+                    mirui::__Vec::<mirui::ecs::Entity>::new(),
+                ));
+                let __parent_e = #parent_var;
+                let __build_row = #row_builder;
+                mirui::state::with_world_scope(#world, || {
+                    mirui::state::effect_with_widget(__parent_e, move || {
+                        let __items: mirui::__Vec<_> = (#iterable).into_iter().collect();
+                        mirui::state::with_world(|__w| {
+                            let __n_new = __items.len();
+                            let __n_old = __rows.borrow().len();
+                            if __n_new < __n_old {
+                                for __e in __rows.borrow_mut().drain(__n_new..) {
+                                    let __pos = __w
+                                        .get::<mirui::widget::Children>(__parent_e)
+                                        .and_then(|c| c.0.iter().position(|&x| x == __e));
+                                    if let Some(__p) = __pos {
+                                        if let Some(children) =
+                                            __w.get_mut::<mirui::widget::Children>(__parent_e)
+                                        {
+                                            children.0.remove(__p);
+                                        }
+                                    }
+                                    mirui::widget::despawn_subtree(__w, __e);
+                                }
+                            }
+                            for __item in __items.into_iter().skip(__n_old) {
+                                if let Some(__r) = __build_row(__w, __parent_e, __item) {
+                                    if let Some(children) =
+                                        __w.get_mut::<mirui::widget::Children>(__parent_e)
+                                    {
+                                        children.0.push(__r);
+                                    }
+                                    __rows.borrow_mut().push(__r);
+                                }
+                            }
                         });
                     });
                 });
@@ -1452,7 +1527,7 @@ impl DsRune for MiruiRune {
         &mut self,
         iterable: &syn::Expr,
         variable: &syn::Ident,
-        _reactive: bool,
+        reactive: bool,
         children: &[DsTreeRef],
     ) {
         self.stack.push(Vec::new());
@@ -1465,6 +1540,7 @@ impl DsRune for MiruiRune {
             iterable: quote! { #iterable },
             variable: variable.clone(),
             body,
+            reactive,
         });
 
         self.stack.last_mut().unwrap().push(cmd);
