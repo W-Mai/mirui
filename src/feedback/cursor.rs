@@ -213,7 +213,6 @@ pub fn view() -> View {
 mod tests {
     use super::*;
     use crate::draw::texture::ColorFormat;
-    use crate::feedback::CursorFeedback;
     use crate::layout::LayoutStyle;
     use crate::surface::DisplayInfo;
     use crate::types::Dimension;

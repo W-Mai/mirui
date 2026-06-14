@@ -126,11 +126,6 @@ mod tests {
     use crate::widget::IdMap;
     use crate::widget::builder::WidgetBuilder;
 
-    fn col_child_count(world: &World, parent: Entity) -> usize {
-        let col = world.get::<Children>(parent).unwrap().0[0];
-        world.get::<Children>(col).unwrap().0.len()
-    }
-
     #[test]
     fn reactive_if_else_swaps_branch() {
         use crate::components::text::Text;

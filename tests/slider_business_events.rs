@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use mirui::components::Slider;
-    use mirui::components::slider::{SliderEvent, SliderHandler};
+    use mirui::components::slider::SliderHandler;
     use mirui::ecs::{Entity, World};
     use mirui::event::GestureHandler;
     use mirui::event::bubble_dispatch_at;
@@ -31,18 +31,6 @@ mod tests {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .push(name);
-    }
-
-    fn slider_event_recorder(_w: &mut World, _e: Entity, ev: &SliderEvent) -> bool {
-        match ev {
-            SliderEvent::ValueChanged { new, .. } => {
-                LAST_NEW.store(new.to_int() as i64, Ordering::SeqCst);
-                log_event("ValueChanged");
-            }
-            SliderEvent::DragStarted => log_event("DragStarted"),
-            SliderEvent::DragEnded => log_event("DragEnded"),
-        }
-        true
     }
 
     fn user_gesture_handler(_w: &mut World, _e: Entity, _ev: &GestureEvent) -> bool {

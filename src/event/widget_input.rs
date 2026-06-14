@@ -41,7 +41,6 @@ mod tests {
     use super::*;
     use crate::components::button::Button;
     use crate::components::checkbox::{Checkbox, checkbox_handler};
-    use crate::components::progress_bar::ProgressBar;
     use crate::components::tabbar::{TabBar, tabbar_handler};
     use crate::components::text_input::TextInput;
     use crate::event::GestureHandler;

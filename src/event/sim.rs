@@ -1135,7 +1135,6 @@ mod tests {
     use super::*;
     use crate::ecs::time::{MonoClock, mock};
     use crate::types::Point;
-    use crate::widget::ComputedRect;
 
     fn setup_world() -> World {
         let mut world = World::default();
@@ -1705,11 +1704,8 @@ mod tests {
     use crate::components::switch::Switch;
     use crate::components::tab_pages::{TabContent, tab_pages_system};
     use crate::components::tabbar::TabBar;
-    use crate::draw::texture::ColorFormat;
     use crate::event::dispatch_input;
-    use crate::event::focus::FocusState;
     use crate::event::hit_test::hit_test;
-    use crate::event::scroll::ScrollSpring;
     use crate::layout::{AlignItems, FlexDirection, JustifyContent, LayoutStyle};
     use crate::surface::InputEvent;
     use crate::types::Dimension;

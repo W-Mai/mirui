@@ -187,7 +187,7 @@ pub fn flush_signal_dirty(world: &mut World) {
 }
 
 // Release cycle warning, wired in once a no_std log facade exists.
-#[cfg_attr(not(test), allow(dead_code))]
+#[allow(dead_code)]
 fn warn_cycle_once() {
     use core::sync::atomic::{AtomicBool, Ordering};
     static WARNED: AtomicBool = AtomicBool::new(false);
