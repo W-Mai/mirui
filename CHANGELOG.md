@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.2] - 2026-06-14
+
+### Added
+
+- **Keyed reactive `walk`** — `walk $items with x by x.id { … }` reconciles list rows by key instead of by position. When the list reorders, a row keeps its entity (and any per-widget state) and just moves, rather than being rebuilt in place; vanished keys are despawned and new keys are built. Rows are matched by key equality. A `walk` without the `by` clause keeps the existing index-based behaviour. Requires xrune 1.9.
+
 ## [0.29.1] - 2026-06-14
 
 ### Fixed
