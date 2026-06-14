@@ -12,7 +12,7 @@ publish = true
 proc-macro = true
 
 [dependencies]
-xrune = "1.8"
+xrune = "1.9"
 syn = { version = "2", features = ["full", "visit-mut"] }
 quote = "1"
 proc-macro2 = "1"

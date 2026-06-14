@@ -39,6 +39,7 @@ pub mod state_computed;
 pub mod state_counter;
 pub mod state_effect;
 pub mod state_form;
+pub mod state_keyed;
 pub mod state_list;
 pub mod state_show;
 pub mod state_todo;

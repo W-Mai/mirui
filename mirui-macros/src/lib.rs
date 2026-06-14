@@ -433,6 +433,7 @@ struct IterCmd {
     variable: syn::Ident,
     body: Vec<Cmd>,
     reactive: bool,
+    key: Option<proc_macro2::TokenStream>,
 }
 
 struct IfCmd {
@@ -1342,6 +1343,18 @@ impl MiruiRune {
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
+        if cmd.key.is_some() {
+            Self::emit_iter_reactive_keyed(cmd, world, parent_var)
+        } else {
+            Self::emit_iter_reactive_indexed(cmd, world, parent_var)
+        }
+    }
+
+    fn emit_iter_reactive_indexed(
+        cmd: &IterCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
         let iterable = &cmd.iterable;
         let variable = &cmd.variable;
         let row_body = Self::branch_body(&cmd.body);
@@ -1386,6 +1399,62 @@ impl MiruiRune {
                                     __rows.borrow_mut().push(__r);
                                 }
                             }
+                        });
+                    });
+                });
+            }
+        }
+    }
+
+    fn emit_iter_reactive_keyed(
+        cmd: &IterCmd,
+        world: &proc_macro2::TokenStream,
+        parent_var: &proc_macro2::TokenStream,
+    ) -> proc_macro2::TokenStream {
+        let iterable = &cmd.iterable;
+        let variable = &cmd.variable;
+        let key_expr = cmd.key.as_ref().unwrap();
+        let row_body = Self::branch_body(&cmd.body);
+
+        quote! {
+            {
+                let __rows = mirui::__Rc::new(mirui::__RefCell::new(mirui::__Vec::new()));
+                let __parent_e = #parent_var;
+                mirui::state::with_world_scope(#world, || {
+                    mirui::state::effect_with_widget(__parent_e, move || {
+                        let __items: mirui::__Vec<_> = (#iterable).into_iter().collect();
+                        mirui::state::with_world(|__w| {
+                            let mut __old: mirui::__Vec<_> = __rows.borrow_mut().drain(..).collect();
+                            let mut __new = mirui::__Vec::new();
+                            let mut __kept: mirui::__Vec<mirui::ecs::Entity> = mirui::__Vec::new();
+                            for #variable in __items {
+                                let __k = #key_expr;
+                                if let Some(__i) = __old.iter().position(|(__ok, _)| *__ok == __k) {
+                                    let (_, __e) = __old.remove(__i);
+                                    __kept.push(__e);
+                                    __new.push((__k, __e));
+                                } else {
+                                    let __r = (|__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity| -> Option<mirui::ecs::Entity> {
+                                        #row_body
+                                    })(__w, __parent_e);
+                                    if let Some(__r) = __r {
+                                        __kept.push(__r);
+                                        __new.push((__k, __r));
+                                    }
+                                }
+                            }
+                            for (_, __e) in __old.drain(..) {
+                                mirui::widget::despawn_subtree(__w, __e);
+                            }
+                            // retain-then-append reorders the rows to match the new
+                            // key order while leaving any static siblings in place.
+                            if let Some(children) = __w.get_mut::<mirui::widget::Children>(__parent_e) {
+                                children.0.retain(|e| !__kept.contains(e));
+                                for __e in &__kept {
+                                    children.0.push(*__e);
+                                }
+                            }
+                            *__rows.borrow_mut() = __new;
                         });
                     });
                 });
@@ -1524,6 +1593,7 @@ impl DsRune for MiruiRune {
         iterable: &syn::Expr,
         variable: &syn::Ident,
         reactive: bool,
+        key: Option<&syn::Expr>,
         children: &[DsTreeRef],
     ) {
         self.stack.push(Vec::new());
@@ -1537,6 +1607,7 @@ impl DsRune for MiruiRune {
             variable: variable.clone(),
             body,
             reactive,
+            key: key.map(|k| quote! { #k }),
         });
 
         self.stack.last_mut().unwrap().push(cmd);
