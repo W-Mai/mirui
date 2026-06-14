@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.1] - 2026-06-14
+
+### Fixed
+
+- **Cross-compiles on no-atomic targets again** — a cycle-warning stub used `AtomicBool::swap`, which `riscv32imc-unknown-none-elf` (RV32IMC, no atomic extension) does not provide, breaking the build on such targets. The stub was never wired up and is removed; a future log facade can reintroduce the warning without an atomic read-modify-write.
+
 ## [0.29.0] - 2026-06-14
 
 A reactive state layer lands: signals, computed values, and effects drive
