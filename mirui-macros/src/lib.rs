@@ -1224,7 +1224,7 @@ impl MiruiRune {
     // widget (single-root) as the mount root, parented but NOT pushed into the
     // parent's Children — the effect inserts it positionally so a branch swap
     // keeps its index. Non-root top widgets push normally.
-    fn build_branch(body: &[Cmd]) -> proc_macro2::TokenStream {
+    fn branch_body(body: &[Cmd]) -> proc_macro2::TokenStream {
         let w = quote! { __w };
         let p = quote! { __parent };
         let mut stmts = proc_macro2::TokenStream::new();
@@ -1255,21 +1255,15 @@ impl MiruiRune {
             Some(v) => quote! { Some(#v) },
             None => quote! { None },
         };
+        quote! { #stmts #ret }
+    }
+
+    fn build_branch(body: &[Cmd]) -> proc_macro2::TokenStream {
+        let inner = Self::branch_body(body);
         quote! {
             |__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity|
                 -> Option<mirui::ecs::Entity> {
-                #stmts
-                #ret
-            }
-        }
-    }
-
-    fn build_row_builder(body: &[Cmd], variable: &syn::Ident) -> proc_macro2::TokenStream {
-        let inner = Self::build_branch(body);
-        quote! {
-            |__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity, #variable|
-                -> Option<mirui::ecs::Entity> {
-                (#inner)(__w, __parent)
+                #inner
             }
         }
     }
@@ -1350,7 +1344,7 @@ impl MiruiRune {
     ) -> proc_macro2::TokenStream {
         let iterable = &cmd.iterable;
         let variable = &cmd.variable;
-        let row_builder = Self::build_row_builder(&cmd.body, variable);
+        let row_body = Self::branch_body(&cmd.body);
 
         quote! {
             {
@@ -1358,7 +1352,6 @@ impl MiruiRune {
                     mirui::__Vec::<mirui::ecs::Entity>::new(),
                 ));
                 let __parent_e = #parent_var;
-                let __build_row = #row_builder;
                 mirui::state::with_world_scope(#world, || {
                     mirui::state::effect_with_widget(__parent_e, move || {
                         let __items: mirui::__Vec<_> = (#iterable).into_iter().collect();
@@ -1380,8 +1373,11 @@ impl MiruiRune {
                                     mirui::widget::despawn_subtree(__w, __e);
                                 }
                             }
-                            for __item in __items.into_iter().skip(__n_old) {
-                                if let Some(__r) = __build_row(__w, __parent_e, __item) {
+                            for #variable in __items.into_iter().skip(__n_old) {
+                                let __r = (|__w: &mut mirui::ecs::World, __parent: mirui::ecs::Entity| -> Option<mirui::ecs::Entity> {
+                                    #row_body
+                                })(__w, __parent_e);
+                                if let Some(__r) = __r {
                                     if let Some(children) =
                                         __w.get_mut::<mirui::widget::Children>(__parent_e)
                                     {

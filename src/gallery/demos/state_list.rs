@@ -11,11 +11,48 @@ use crate::surface::Surface;
 
 const ROW_H: i32 = 28;
 
+#[derive(Clone)]
+struct Fruit {
+    name: &'static str,
+    color: ColorToken,
+}
+
+const PALETTE: [Fruit; 6] = [
+    Fruit {
+        name: "Apple",
+        color: ColorToken::Error,
+    },
+    Fruit {
+        name: "Lime",
+        color: ColorToken::Success,
+    },
+    Fruit {
+        name: "Plum",
+        color: ColorToken::Primary,
+    },
+    Fruit {
+        name: "Mango",
+        color: ColorToken::Secondary,
+    },
+    Fruit {
+        name: "Berry",
+        color: ColorToken::Tertiary,
+    },
+    Fruit {
+        name: "Pear",
+        color: ColorToken::SurfaceVariant,
+    },
+];
+
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    let count = Signal::new(3i32);
-    let (dec, inc, label) = (count.clone(), count.clone(), count.clone());
-    let rows = count.clone();
-    let content = count.clone();
+    let fruits = Signal::new(alloc::vec![
+        PALETTE[0].clone(),
+        PALETTE[1].clone(),
+        PALETTE[2].clone(),
+    ]);
+    let (dec, inc, label) = (fruits.clone(), fruits.clone(), fruits.clone());
+    let rows = fruits.clone();
+    let content = fruits.clone();
 
     //~focus-start
     ui! {
@@ -30,7 +67,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             justify: JustifyContent::Center,
             padding: Padding::all(12)
         ) {
-            View (text: ${ alloc::format!("{} rows", label.get()) }, height: 32)
+            View (text: ${ alloc::format!("{} fruits", label.with(|f| f.len())) }, height: 32)
             Row (height: 52, padding: Padding::all(8)) {
                 View (
                     bg_color: ColorToken::Error,
@@ -40,7 +77,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     border_radius: 8,
                     text: "-"
                 ) on Tap {
-                    dec.update(|n| *n = (*n - 1).max(0));
+                    dec.update(|f| {
+                        f.pop();
+                    });
                 }
                 View (
                     bg_color: ColorToken::Primary,
@@ -50,7 +89,10 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     border_radius: 8,
                     text: "+"
                 ) on Tap {
-                    inc.update(|n| *n += 1);
+                    inc.update(|f| {
+                        let next = PALETTE[f.len() % PALETTE.len()].clone();
+                        f.push(next);
+                    });
                 }
             }
             Column (
@@ -72,14 +114,14 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     content_width: Fixed::ZERO,
                 },
             ] {
-                walk ${ 0..rows.get() } with i {
+                walk ${ rows.get() } with fruit {
                     View (
-                        bg_color: ColorToken::SurfaceVariant,
-                        text_color: ColorToken::OnSurfaceVariant,
+                        bg_color: fruit.color,
+                        text_color: ColorToken::OnPrimary,
                         width: 168,
                         height: 28,
                         border_radius: 6,
-                        text: ${ alloc::format!("row {}", i) }
+                        text: fruit.name
                     )
                 }
             }
@@ -91,7 +133,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         World::find_by_id(world, "state_list_scroll").expect("scroll container id registered");
     crate::state::with_world_scope(world, || {
         crate::state::effect_with_widget(scroll, move || {
-            let n = content.get().max(0);
+            let n = content.with(|f| f.len()) as i32;
             crate::state::with_world(|w| {
                 if let Some(cfg) = w.get_mut::<ScrollConfig>(scroll) {
                     cfg.content_height = Fixed::from_int(n * ROW_H);
