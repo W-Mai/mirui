@@ -93,6 +93,7 @@ pub mod layout;
 pub mod perf;
 pub mod plugin;
 pub mod plugins;
+pub mod resource;
 pub mod state;
 pub mod surface;
 pub mod timer;
