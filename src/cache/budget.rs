@@ -2,6 +2,7 @@
 pub enum MaxSize {
     Count(usize),
     Bytes(usize),
+    Unbound,
     Disabled,
 }
 
@@ -13,6 +14,7 @@ impl MaxSize {
     pub fn limit(&self) -> usize {
         match self {
             MaxSize::Count(n) | MaxSize::Bytes(n) => *n,
+            MaxSize::Unbound => usize::MAX,
             MaxSize::Disabled => 0,
         }
     }

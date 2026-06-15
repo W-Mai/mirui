@@ -11,7 +11,7 @@ pub mod lookup;
 pub mod stats;
 
 pub use self::core::{Cache, CacheBuilder, Entry, OccupiedEntry, VacantEntry};
-pub use algorithm::{Algorithm, Lru};
+pub use algorithm::{Algorithm, Lru, NoEvict};
 pub use budget::{HasSize, MaxSize};
 pub use error::CacheError;
 pub use factory::WithFactory;
@@ -23,3 +23,4 @@ pub use stats::CacheStats;
 pub type LruCache<K, V> = Cache<K, V, Lru, HashLookup<K>>;
 pub type LruBTreeCache<K, V> = Cache<K, V, Lru, OrdLookup<K>>;
 pub type LruLinearCache<K, V> = Cache<K, V, Lru, LinearLookup<K>>;
+pub type UnboundCache<K, V> = Cache<K, V, NoEvict, HashLookup<K>>;

@@ -207,6 +207,7 @@ where
     fn ensure_room(&mut self, needed_size: usize) -> bool {
         match self.max_size {
             MaxSize::Disabled => false,
+            MaxSize::Unbound => true,
             MaxSize::Count(0) => false,
             MaxSize::Count(limit) => {
                 while self.index.len() >= limit && self.evict_one_for_reserve() {}
@@ -485,6 +486,7 @@ impl<T> Slab<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache::NoEvict;
 
     #[test]
     fn count_mode_evicts_lru_on_capacity_overflow() {
@@ -600,6 +602,21 @@ mod tests {
         assert!(h.is_invalid(), "detached handle must be invalid");
         assert_eq!(cache.len(), 0);
         assert!(cache.acquire(&1).is_none());
+    }
+
+    #[test]
+    fn unbound_never_evicts_and_keeps_all_handles_valid() {
+        let mut cache: Cache<u32, u32, NoEvict, HashLookup<u32>> =
+            CacheBuilder::default().max_size(MaxSize::Unbound).build();
+        let mut handles = alloc::vec::Vec::new();
+        for k in 0..1000u32 {
+            handles.push(cache.entry(k).or_insert_with(|| k));
+        }
+        assert_eq!(cache.len(), 1000);
+        assert_eq!(cache.stats().evict_count, 0);
+        assert!(handles.iter().all(|h| !h.is_invalid()));
+        assert_eq!(*cache.acquire(&0).unwrap(), 0);
+        assert_eq!(*cache.acquire(&999).unwrap(), 999);
     }
 
     #[test]

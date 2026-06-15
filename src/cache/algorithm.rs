@@ -9,6 +9,22 @@ pub trait Algorithm {
     fn pick_victim(state: &Self::State) -> Option<NodeId>;
 }
 
+// Pairs with MaxSize::Unbound: no recency state, pick_victim never fires,
+// so the cache keeps every entry with zero bookkeeping.
+#[derive(Default)]
+pub struct NoEvict;
+
+impl Algorithm for NoEvict {
+    type State = ();
+
+    fn on_access(_: &mut (), _: NodeId) {}
+    fn on_insert(_: &mut (), _: NodeId) {}
+    fn on_remove(_: &mut (), _: NodeId) {}
+    fn pick_victim(_: &()) -> Option<NodeId> {
+        None
+    }
+}
+
 #[derive(Default)]
 pub struct Lru;
 
