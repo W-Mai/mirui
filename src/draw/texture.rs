@@ -113,6 +113,26 @@ impl HasSize for Texture<'_> {
     }
 }
 
+impl Clone for Texture<'static> {
+    fn clone(&self) -> Self {
+        let buf = match &self.buf {
+            TexBuf::Ref(s) => TexBuf::Ref(s),
+            TexBuf::Owned(v) => TexBuf::Owned(v.clone()),
+            TexBuf::Mut(_) => {
+                unreachable!("Texture<'static> with TexBuf::Mut is not constructible")
+            }
+        };
+        Self {
+            buf,
+            width: self.width,
+            height: self.height,
+            format: self.format,
+            stride: self.stride,
+            alpha_mode: self.alpha_mode,
+        }
+    }
+}
+
 impl<'a> Texture<'a> {
     pub const fn from_static(buf: &'a [u8], width: u16, height: u16, format: ColorFormat) -> Self {
         let stride = width as usize * format.bytes_per_pixel();
@@ -341,6 +361,12 @@ impl From<mirx::ParseError> for MirxLoadError {
     }
 }
 
+impl From<core::num::TryFromIntError> for MirxLoadError {
+    fn from(_: core::num::TryFromIntError) -> Self {
+        MirxLoadError::DimensionOverflow
+    }
+}
+
 fn map_mirx_format(fmt: mirx::ColorFormat) -> Result<ColorFormat, MirxLoadError> {
     match fmt {
         mirx::ColorFormat::RGB565 => Ok(ColorFormat::RGB565),
@@ -366,12 +392,8 @@ impl Texture<'static> {
             }
         };
         let format = map_mirx_format(format)?;
-        let width: u16 = width
-            .try_into()
-            .map_err(|_| MirxLoadError::DimensionOverflow)?;
-        let height: u16 = height
-            .try_into()
-            .map_err(|_| MirxLoadError::DimensionOverflow)?;
+        let width: u16 = width.try_into()?;
+        let height: u16 = height.try_into()?;
         Ok(Texture {
             buf: TexBuf::Ref(main),
             width,
@@ -406,6 +428,56 @@ impl crate::resource::HasProbe for Texture<'static> {
             height: self.height,
             format: self.format,
         }
+    }
+}
+
+impl From<MirxLoadError> for crate::resource::LoadError {
+    fn from(err: MirxLoadError) -> Self {
+        crate::resource::LoadError::Failed(match err {
+            MirxLoadError::Parse(_) => "mirx parse failed",
+            MirxLoadError::UnsupportedFormat(_) => "mirx format not supported by mirui",
+            MirxLoadError::NoImageChunk => "mirx file has no IMAGE chunk",
+            MirxLoadError::DimensionOverflow => "mirx image dimensions exceed u16",
+        })
+    }
+}
+
+/// Looks up mirx bytes by token via `fetch`; `None` lets the chain continue.
+pub struct MirxLoader<F> {
+    fetch: F,
+}
+
+impl<F> MirxLoader<F>
+where
+    F: Fn(&str) -> Option<&'static [u8]> + 'static,
+{
+    pub fn new(fetch: F) -> Self {
+        Self { fetch }
+    }
+}
+
+impl<F> crate::resource::Loader<Texture<'static>> for MirxLoader<F>
+where
+    F: Fn(&str) -> Option<&'static [u8]> + 'static,
+{
+    fn try_load(&self, token: &str) -> Result<Texture<'static>, crate::resource::LoadError> {
+        let bytes = (self.fetch)(token).ok_or(crate::resource::LoadError::NotMine)?;
+        Texture::from_mirx(bytes).map_err(Into::into)
+    }
+}
+
+impl crate::resource::ResourceManager<Texture<'static>> {
+    /// Register `bytes` under `token`. Peeks meta eagerly so layout queries
+    /// skip the full decode path.
+    pub fn add_mirx_bytes(
+        &self,
+        token: impl Into<alloc::borrow::Cow<'static, str>>,
+        bytes: &'static [u8],
+    ) -> Result<(), MirxLoadError> {
+        use crate::resource::HasProbe;
+        let meta = Texture::from_mirx(bytes)?.extract_meta();
+        self.add_probed_factory(token, meta, move || Texture::from_mirx(bytes).ok());
+        Ok(())
     }
 }
 
@@ -560,5 +632,80 @@ mod tests {
         assert_eq!(meta.width, 2);
         assert_eq!(meta.height, 1);
         assert_eq!(meta.format, ColorFormat::RGB565);
+    }
+
+    use crate::cache::MaxSize;
+    use crate::resource::{Loader, ResourceManager};
+
+    fn texture_manager() -> ResourceManager<Texture<'static>> {
+        let m = ResourceManager::<Texture<'static>>::new(
+            MaxSize::Bytes(1024),
+            Texture::from_mirx(build_flat_rgb565_2x1()).unwrap(),
+        );
+        m.enable_probes(
+            MaxSize::Count(8),
+            TextureMeta {
+                width: 0,
+                height: 0,
+                format: ColorFormat::RGB565,
+            },
+        );
+        m
+    }
+
+    #[test]
+    fn add_mirx_bytes_populates_probe_and_value() {
+        let m = texture_manager();
+        let bytes = build_flat_rgb565_2x1();
+        m.add_mirx_bytes("logo", bytes).expect("register ok");
+
+        assert_eq!(
+            m.probe("logo"),
+            Some(TextureMeta {
+                width: 2,
+                height: 1,
+                format: ColorFormat::RGB565,
+            })
+        );
+
+        let tex = m.resolve("logo");
+        assert_eq!(tex.width, 2);
+        assert_eq!(tex.format, ColorFormat::RGB565);
+    }
+
+    #[test]
+    fn add_mirx_bytes_rejects_bad_input() {
+        let m = texture_manager();
+        let bad: &'static [u8] = Box::leak(Box::new([0u8; 8]));
+        let err = m.add_mirx_bytes("bad", bad).unwrap_err();
+        assert!(matches!(
+            err,
+            MirxLoadError::Parse(mirx::ParseError::BadMagic)
+        ));
+    }
+
+    #[test]
+    fn mirx_loader_resolves_via_chain() {
+        let m = texture_manager();
+        let bytes = build_flat_rgb565_2x1();
+        m.add_loader(MirxLoader::new(move |t| {
+            if t == "via-loader" { Some(bytes) } else { None }
+        }));
+
+        let tex = m.resolve("via-loader");
+        assert_eq!(tex.width, 2);
+        assert_eq!(tex.format, ColorFormat::RGB565);
+    }
+
+    #[test]
+    fn mirx_loader_returns_not_mine_when_fetch_misses() {
+        let m = texture_manager();
+        let bytes = build_flat_rgb565_2x1();
+        m.add_loader(MirxLoader::new(move |t| {
+            if t == "logo" { Some(bytes) } else { None }
+        }));
+
+        let tex = m.resolve("nope");
+        assert_eq!(tex.width, 2, "unhandled tokens fall through to fallback");
     }
 }
