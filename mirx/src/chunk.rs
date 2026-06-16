@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use crate::crc32;
 use crate::error::ParseError;
-use crate::format::PixelFormat;
+use crate::format::ColorFormat;
 use crate::header::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkEntry, ChunkFileHeader, FILE_HEADER_LEN,
     FileHeader, ImageChunkHeader, Layout, VERSION_MAJOR, VERSION_MINOR, chunk_type,
@@ -25,7 +25,7 @@ pub struct ChunkFile<'a> {
 pub struct ImageChunk<'a> {
     pub width: u32,
     pub height: u32,
-    pub format: PixelFormat,
+    pub format: ColorFormat,
     pub stride: u32,
     /// Main pixel stream; for RGB565A8 this is the RGB565 stream and the
     /// A8 plane lives in `extra`.
@@ -38,7 +38,7 @@ pub struct ImageChunk<'a> {
 pub struct ImageChunkInput<'a> {
     pub width: u32,
     pub height: u32,
-    pub format: PixelFormat,
+    pub format: ColorFormat,
     pub stride: u32,
     pub main: &'a [u8],
     pub extra: Option<&'a [u8]>,
@@ -170,7 +170,7 @@ fn parse_image_chunk<'a>(buf: &'a [u8], entry: &ChunkEntry) -> Result<ImageChunk
     }
 
     let format =
-        PixelFormat::from_u8(format_byte).ok_or(ParseError::UnknownColorFormat(format_byte))?;
+        ColorFormat::from_u8(format_byte).ok_or(ParseError::UnknownColorFormat(format_byte))?;
 
     let main_size = data_size
         .checked_sub(extra_data_size)
@@ -276,7 +276,7 @@ mod tests {
         let input = ImageChunkInput {
             width: 4,
             height: 4,
-            format: PixelFormat::Rgb565,
+            format: ColorFormat::RGB565,
             stride: 8,
             main: &pixels,
             extra: None,
@@ -287,7 +287,7 @@ mod tests {
         assert_eq!(parsed.header.primary_chunk_type, chunk_type::IMAGE);
         assert_eq!(
             parsed.header.primary_color_format,
-            PixelFormat::Rgb565.to_u8()
+            ColorFormat::RGB565.to_u8()
         );
         assert_eq!(parsed.header.primary_width, 4);
         assert_eq!(parsed.header.primary_height, 4);
@@ -296,7 +296,7 @@ mod tests {
         let img = parsed.primary_image.unwrap();
         assert_eq!(img.width, 4);
         assert_eq!(img.height, 4);
-        assert_eq!(img.format, PixelFormat::Rgb565);
+        assert_eq!(img.format, ColorFormat::RGB565);
         assert_eq!(img.stride, 8);
         assert_eq!(img.data, pixels.as_slice());
         assert!(img.extra.is_none());
@@ -309,7 +309,7 @@ mod tests {
         let input = ImageChunkInput {
             width: 4,
             height: 4,
-            format: PixelFormat::Rgb565a8,
+            format: ColorFormat::RGB565A8,
             stride: 8,
             main: &main,
             extra: Some(&alpha),
@@ -327,7 +327,7 @@ mod tests {
         let input = ImageChunkInput {
             width: 2,
             height: 2,
-            format: PixelFormat::Rgb565,
+            format: ColorFormat::RGB565,
             stride: 4,
             main: &pixels,
             extra: None,
@@ -349,7 +349,7 @@ mod tests {
         let input = ImageChunkInput {
             width: 2,
             height: 2,
-            format: PixelFormat::Rgb565,
+            format: ColorFormat::RGB565,
             stride: 4,
             main: &pixels,
             extra: None,
@@ -365,7 +365,7 @@ mod tests {
         let input = ImageChunkInput {
             width: 2,
             height: 2,
-            format: PixelFormat::Rgb565,
+            format: ColorFormat::RGB565,
             stride: 4,
             main: &pixels,
             extra: None,
@@ -384,7 +384,7 @@ mod tests {
         let input = ImageChunkInput {
             width: 2,
             height: 2,
-            format: PixelFormat::Rgb565,
+            format: ColorFormat::RGB565,
             stride: 4,
             main: &pixels,
             extra: None,

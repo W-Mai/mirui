@@ -13,7 +13,7 @@ pub use chunk::{ChunkFile, ImageChunk, ImageChunkInput, encode_chunk_image, pars
 pub use crc32::compute as crc32;
 pub use error::ParseError;
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
-pub use format::{PRIMARY_FORMAT_NONE, PixelFormat};
+pub use format::{ColorFormat, PRIMARY_FORMAT_NONE};
 pub use header::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkEntry, ChunkFileHeader, FILE_HEADER_LEN,
     FLAT_HEADER_LEN, FileHeader, FlatHeader, ImageChunkHeader, Layout, MAGIC, VERSION_MAJOR,

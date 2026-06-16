@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use crate::crc32;
 use crate::error::ParseError;
-use crate::format::PixelFormat;
+use crate::format::ColorFormat;
 use crate::header::{
     FILE_HEADER_LEN, FLAT_HEADER_LEN, FileHeader, Layout, VERSION_MAJOR, VERSION_MINOR,
 };
@@ -13,7 +13,7 @@ pub struct FlatImage<'a> {
     pub width: u32,
     pub height: u32,
     pub stride: u32,
-    pub format: PixelFormat,
+    pub format: ColorFormat,
     /// Main pixel stream (`stride * height` bytes); for RGB565A8 this is
     /// just the RGB565 stream and the A8 plane lives in `extra`.
     pub main: &'a [u8],
@@ -26,7 +26,7 @@ pub struct FlatImageInput<'a> {
     pub width: u32,
     pub height: u32,
     pub stride: u32,
-    pub format: PixelFormat,
+    pub format: ColorFormat,
     pub main: &'a [u8],
     pub extra: Option<&'a [u8]>,
 }
@@ -47,7 +47,7 @@ pub fn parse_flat(buf: &[u8]) -> Result<FlatImage<'_>, ParseError> {
 
     let format_byte = buf[8];
     let format =
-        PixelFormat::from_u8(format_byte).ok_or(ParseError::UnknownColorFormat(format_byte))?;
+        ColorFormat::from_u8(format_byte).ok_or(ParseError::UnknownColorFormat(format_byte))?;
     let width = u32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]]);
     let height = u32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
     let stride = u32::from_le_bytes([buf[20], buf[21], buf[22], buf[23]]);
@@ -154,7 +154,7 @@ mod tests {
             width: 2,
             height: 1,
             stride: 4,
-            format: PixelFormat::Rgb565,
+            format: ColorFormat::RGB565,
             main: &RGB565_2X1,
             extra: None,
         }
@@ -168,7 +168,7 @@ mod tests {
         assert_eq!(parsed.width, 2);
         assert_eq!(parsed.height, 1);
         assert_eq!(parsed.stride, 4);
-        assert_eq!(parsed.format, PixelFormat::Rgb565);
+        assert_eq!(parsed.format, ColorFormat::RGB565);
         assert_eq!(parsed.main, input.main);
         assert!(parsed.extra.is_none());
     }
@@ -183,13 +183,13 @@ mod tests {
             width: 8,
             height: 1,
             stride: 4,
-            format: PixelFormat::I4,
+            format: ColorFormat::I4,
             main: &PIXELS,
             extra: Some(&PALETTE),
         };
         let encoded = encode_flat(&input);
         let parsed = parse_flat(&encoded).unwrap();
-        assert_eq!(parsed.format, PixelFormat::I4);
+        assert_eq!(parsed.format, ColorFormat::I4);
         assert_eq!(parsed.main, &PIXELS);
         assert_eq!(parsed.extra, Some(&PALETTE[..]));
     }
@@ -204,13 +204,13 @@ mod tests {
             width: 4,
             height: 2,
             stride: 8,
-            format: PixelFormat::Rgb565a8,
+            format: ColorFormat::RGB565A8,
             main: &main,
             extra: Some(&alpha),
         };
         let encoded = encode_flat(&input);
         let parsed = parse_flat(&encoded).unwrap();
-        assert_eq!(parsed.format, PixelFormat::Rgb565a8);
+        assert_eq!(parsed.format, ColorFormat::RGB565A8);
         assert_eq!(parsed.main, main.as_slice());
         assert_eq!(parsed.extra, Some(alpha.as_slice()));
     }
