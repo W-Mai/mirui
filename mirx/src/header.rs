@@ -1,14 +1,12 @@
 use crate::error::ParseError;
 
-/// Magic bytes at offset 0..4 of every MIRX file: ASCII `"MIRX"`.
 pub const MAGIC: [u8; 4] = *b"MIRX";
 
-/// Major version of the format this crate implements. Reader rejects files
-/// whose major differs (cross-major changes are breaking by definition).
+/// Reader rejects files whose major differs (cross-major is breaking).
 pub const VERSION_MAJOR: u8 = 1;
 
-/// Minor version this crate emits. Readers tolerate higher minors as long as
-/// the higher minor only adds new chunks / fields the reader skips.
+/// Higher minors are tolerated as long as they only add chunks/fields the
+/// reader can skip.
 pub const VERSION_MINOR: u8 = 0;
 
 pub const FILE_HEADER_LEN: usize = 8;
@@ -16,7 +14,6 @@ pub const FLAT_HEADER_LEN: usize = 28;
 pub const CHUNK_FILE_HEADER_LEN: usize = 44;
 pub const CHUNK_TABLE_ENTRY_LEN: usize = 16;
 
-/// `layout` byte at offset 6.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Layout {
@@ -38,7 +35,6 @@ impl Layout {
     }
 }
 
-/// Common 8-byte prefix shared by FLAT and CHUNK files.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileHeader {
     pub version_major: u8,
@@ -48,8 +44,6 @@ pub struct FileHeader {
 }
 
 impl FileHeader {
-    /// Read the 8-byte common prefix, validating magic, version major, and
-    /// the layout byte.
     pub fn parse(buf: &[u8]) -> Result<Self, ParseError> {
         if buf.len() < FILE_HEADER_LEN {
             return Err(ParseError::Truncated);
@@ -75,7 +69,6 @@ impl FileHeader {
         })
     }
 
-    /// Serialize the 8-byte prefix.
     pub fn write_into(&self, out: &mut [u8; FILE_HEADER_LEN]) {
         out[0..4].copy_from_slice(&MAGIC);
         out[4] = self.version_major;
@@ -85,8 +78,6 @@ impl FileHeader {
     }
 }
 
-/// FLAT-mode 28-byte header (8 common + 20 layout-specific). Pixel data
-/// follows immediately at offset 28.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FlatHeader {
     pub file: FileHeader,
@@ -97,8 +88,6 @@ pub struct FlatHeader {
     pub header_crc32: u32,
 }
 
-/// CHUNK-mode 44-byte header (8 common + 36 layout-specific including hint
-/// fields and CRC32).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkFileHeader {
     pub file: FileHeader,
@@ -113,7 +102,6 @@ pub struct ChunkFileHeader {
     pub header_crc32: u32,
 }
 
-/// One entry in the CHUNK-mode chunk table. 16 bytes on disk.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ChunkEntry {
     pub chunk_type: u16,
@@ -123,9 +111,7 @@ pub struct ChunkEntry {
 }
 
 impl ChunkEntry {
-    /// `chunk_flags` bit 0: when set, readers that don't recognise
-    /// [`ChunkEntry::chunk_type`] must reject the file rather than skip the
-    /// chunk. Mirrors PNG's ancillary/critical chunk distinction.
+    /// Bit 0 marks critical chunks; unknown critical chunks must be rejected.
     pub const FLAG_CRITICAL: u16 = 1 << 0;
 
     pub const fn is_critical(&self) -> bool {
@@ -133,9 +119,6 @@ impl ChunkEntry {
     }
 }
 
-/// Standard `chunk_type` IDs. v1 only fully implements [`Self::IMAGE`]; the
-/// rest are reserved on disk so readers can recognise (and skip / reject)
-/// chunks emitted by future writers.
 pub mod chunk_type {
     pub const IMAGE: u16 = 0x0001;
     pub const FRAMES: u16 = 0x0002;
@@ -144,8 +127,6 @@ pub mod chunk_type {
     pub const PALETTE: u16 = 0x0080;
 }
 
-/// IMAGE-chunk inner-header (the 32 bytes that start at the chunk's
-/// `chunk_offset`, before any padding-to-`data_offset`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ImageChunkHeader {
     pub width: u32,

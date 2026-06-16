@@ -1,6 +1,4 @@
-/// Pixel format byte stored at offset 8 in the FLAT header and at offset 8
-/// in the IMAGE chunk inner header. Values are byte-stable on disk; once a
-/// format ships with a given value, the value is frozen.
+/// On-disk discriminants are byte-stable once shipped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum PixelFormat {
@@ -49,7 +47,6 @@ impl PixelFormat {
         self as u8
     }
 
-    /// Number of palette entries for indexed formats; `None` for everything else.
     pub const fn palette_entries(self) -> Option<u32> {
         match self {
             Self::I1 => Some(2),
@@ -60,16 +57,8 @@ impl PixelFormat {
         }
     }
 
-    /// FLAT-mode `extra` region size in bytes for a given format and (when
-    /// relevant) image dimensions / main-region stride. Returns `None` on
-    /// arithmetic overflow.
-    ///
-    /// - Indexed (I1/I2/I4/I8): palette = `entries * 4` (ARGB8888 entries).
-    /// - RGB565A8: `stride_alpha * height` where `stride_alpha` is derived
-    ///   from the main stride alignment unit (`stride / 2`, rounded up to
-    ///   `width`). The simplification used here matches the spec's "no
-    ///   padding" case: `stride_alpha = width`.
-    /// - All other formats: `0`.
+    /// FLAT extra bytes; RGB565A8 intentionally uses the v1 no-padding alpha
+    /// plane, so `stride` is ignored.
     pub const fn extra_size(self, width: u32, height: u32, _stride: u32) -> Option<u32> {
         match self {
             Self::I1 | Self::I2 | Self::I4 | Self::I8 => {
