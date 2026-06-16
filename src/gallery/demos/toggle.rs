@@ -1,3 +1,6 @@
+extern crate alloc;
+use alloc::format;
+
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::{Checkbox, Switch};

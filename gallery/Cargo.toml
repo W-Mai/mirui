@@ -12,6 +12,7 @@ wgpu = ["mirui/wgpu"]
 web-canvas = ["mirui/web-canvas", "dep:wasm-bindgen", "dep:web-sys"]
 linux-fb = ["mirui/linux-fb"]
 linux-drm = ["mirui/linux-drm"]
+perf = ["mirui/perf"]
 
 [dependencies]
 mirui = { path = "..", default-features = false, features = ["quad-aa", "gallery"] }
