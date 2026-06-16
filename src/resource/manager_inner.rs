@@ -7,7 +7,7 @@ use core::cell::RefCell;
 
 use hashbrown::{HashMap, HashSet};
 
-use crate::cache::{HasSize, LruCache, MaxSize};
+use crate::cache::{HasSize, LruLinearCache, MaxSize};
 use crate::resource::loader::{LoadError, Loader, ProbeLoader};
 use crate::resource::probe::HasProbe;
 use crate::state::Signal;
@@ -54,7 +54,7 @@ impl<T: 'static> Entry<T> {
 }
 
 pub struct ManagerInner<T: HasSize + Clone + 'static> {
-    values: LruCache<Cow<'static, str>, T>,
+    values: LruLinearCache<Cow<'static, str>, Rc<T>>,
     by_token: HashMap<Cow<'static, str>, Entry<T>>,
     loaders: Vec<Box<dyn Loader<T>>>,
     fallback: Rc<T>,
@@ -66,7 +66,7 @@ pub struct ManagerInner<T: HasSize + Clone + 'static> {
 impl<T: HasSize + Clone + 'static> ManagerInner<T> {
     pub(crate) fn new(values_budget: MaxSize, fallback: T) -> Self {
         Self {
-            values: LruCache::new(values_budget),
+            values: LruLinearCache::new(values_budget),
             by_token: HashMap::new(),
             loaders: Vec::new(),
             fallback: Rc::new(fallback),
@@ -160,17 +160,23 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
     // Acquire a token from the values cache and clone it into an owned Rc<T>
     // for the caller. Returns None if there's no cached value.
     pub(crate) fn try_acquire_value_clone(&mut self, token: &str) -> Option<Rc<T>> {
-        let h = self.values.acquire(&Cow::Owned(token.into()))?;
-        Some(Rc::new((*h).clone()))
+        let h = self.values.acquire(&Cow::Borrowed(unsafe {
+            // SAFETY: `acquire` borrows the key only for the linear scan
+            // (PartialEq on Cow deref's to str); never stored or cloned.
+            core::mem::transmute::<&str, &'static str>(token)
+        }))?;
+        Some((*h).clone())
     }
 
-    // Insert `value` into the values cache (or return the already-cached
-    // entry if a concurrent path beat us). Notifies the per-token signal.
     pub(crate) fn insert_value(&mut self, token: Cow<'static, str>, value: T) -> Rc<T> {
-        let handle = self.values.entry(token.clone()).or_insert_with(|| value);
-        let rc = Rc::new((*handle).clone());
+        let rc = Rc::new(value);
+        let handle = self
+            .values
+            .entry(token.clone())
+            .or_insert_with(|| rc.clone());
+        let result = (*handle).clone();
         self.notify(&token);
-        rc
+        result
     }
 }
 

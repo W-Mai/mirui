@@ -66,6 +66,12 @@ impl<T: HasSize> HasSize for core::cell::RefCell<T> {
     }
 }
 
+impl<T: HasSize> HasSize for alloc::rc::Rc<T> {
+    fn cache_size(&self) -> usize {
+        T::cache_size(self)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReserveCond {
     Ok,
