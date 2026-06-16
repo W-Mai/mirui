@@ -204,7 +204,7 @@ impl<T: HasSize + HasProbe + Clone + 'static> ResourceManager<T> {
         // The outer `Option<...>` from with_sidecar_mut is None when the
         // sidecar isn't installed at all — also treated as fall-through.
         if let Some(Some(answer)) = self.with_sidecar_mut(|side| {
-            if let Some(h) = side.probes.acquire(&Cow::Owned(token.into())) {
+            if let Some(h) = side.probes.acquire(token) {
                 return Some(Some((*h).clone()));
             }
             if side.failed_probes.contains(token) {

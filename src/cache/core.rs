@@ -1,3 +1,5 @@
+use core::borrow::Borrow;
+use core::hash::Hash;
 use core::marker::PhantomData;
 
 #[cfg(not(feature = "sync-cache"))]
@@ -88,7 +90,11 @@ where
         self.name
     }
 
-    pub fn acquire(&mut self, key: &K) -> Option<Handle<V>> {
+    pub fn acquire<Q>(&mut self, key: &Q) -> Option<Handle<V>>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         let node_id_opt = crate::trace_span!("cache.index_get", { self.index.get(key) });
         let Some(node_id) = node_id_opt else {
             self.stats.miss_count += 1;
@@ -104,7 +110,11 @@ where
         Some(Handle { inner })
     }
 
-    pub fn drop(&mut self, key: &K) -> bool {
+    pub fn drop<Q>(&mut self, key: &Q) -> bool
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.remove_internal(key, RemoveReason::Drop).is_some()
     }
 
@@ -112,11 +122,11 @@ where
         let ids: alloc::vec::Vec<NodeId> = self.nodes.iter_ids().collect();
         for id in ids {
             let node = self.nodes.remove(id);
-            self.index.remove(&node.key);
             A::on_remove(&mut self.order, id);
             node.entry.invalid_set(true);
             self.stats.drop_count += 1;
         }
+        self.index.clear();
         self.current_size = 0;
     }
 
@@ -138,15 +148,19 @@ where
     A: Algorithm,
     L: Lookup<K>,
 {
-    /// `K: Clone` because the algorithm only tracks `NodeId`; eviction
-    /// has to fish the key out of the slab to drive `remove_internal`.
-    pub fn evict_one(&mut self) -> Option<Handle<V>> {
+    pub fn evict_one(&mut self) -> Option<Handle<V>>
+    where
+        K: Hash + Eq,
+    {
         let victim_id = A::pick_victim(&self.order)?;
         let key = self.nodes.get(victim_id).key.clone();
         self.remove_internal(&key, RemoveReason::Evict)
     }
 
-    fn evict_one_for_reserve(&mut self) -> bool {
+    fn evict_one_for_reserve(&mut self) -> bool
+    where
+        K: Hash + Eq,
+    {
         self.evict_one().is_some()
     }
 }
@@ -156,14 +170,16 @@ where
     A: Algorithm,
     L: Lookup<K>,
 {
-    fn remove_internal(&mut self, key: &K, reason: RemoveReason) -> Option<Handle<V>> {
+    fn remove_internal<Q>(&mut self, key: &Q, reason: RemoveReason) -> Option<Handle<V>>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         let node_id = self.index.remove(key)?;
         A::on_remove(&mut self.order, node_id);
         let node = self.nodes.remove(node_id);
         self.current_size = self.current_size.saturating_sub(node.size);
         node.entry.invalid_set(true);
-        // on_evict fires only on algorithm-driven removal; user-initiated
-        // drop / clear are silent because the caller already knows.
         match reason {
             RemoveReason::Drop => self.stats.drop_count += 1,
             RemoveReason::Evict => {
@@ -185,7 +201,7 @@ enum RemoveReason {
 
 impl<K, V, A, L> Cache<K, V, A, L>
 where
-    K: Clone,
+    K: Clone + Hash + Eq,
     A: Algorithm,
     L: Lookup<K>,
 {
@@ -281,7 +297,7 @@ where
 
 impl<'a, K, V, A: Algorithm, L: Lookup<K>> Entry<'a, K, V, A, L>
 where
-    K: Clone,
+    K: Clone + Hash + Eq,
     V: HasSize,
 {
     pub fn or_insert_with<F: FnOnce() -> V>(self, factory: F) -> Handle<V> {
@@ -332,7 +348,7 @@ where
 
 impl<'a, K, V, A: Algorithm, L: Lookup<K>> VacantEntry<'a, K, V, A, L>
 where
-    K: Clone,
+    K: Clone + Hash + Eq,
     V: HasSize,
 {
     /// On Disabled / Count(0) / Bytes(0), or when the value alone exceeds
@@ -548,13 +564,19 @@ mod tests {
         cache.entry(1).or_insert_with(|| "a".into());
         cache.entry(2).or_insert_with(|| "b".into());
         cache.drop(&1);
-        assert!(log.borrow().is_empty(), "drop must not fire on_evict");
+        assert!(
+            ::core::cell::RefCell::borrow(&log).is_empty(),
+            "drop must not fire on_evict"
+        );
         cache.clear();
-        assert!(log.borrow().is_empty(), "clear must not fire on_evict");
+        assert!(
+            ::core::cell::RefCell::borrow(&log).is_empty(),
+            "clear must not fire on_evict"
+        );
         cache.entry(10).or_insert_with(|| "x".into());
         cache.entry(11).or_insert_with(|| "y".into());
         cache.entry(12).or_insert_with(|| "z".into()); // evicts 10
-        let entries = log.borrow();
+        let entries = ::core::cell::RefCell::borrow(&log);
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0], (10, "x".into()));
     }
@@ -699,5 +721,41 @@ mod tests {
         assert!(cache.acquire(&8).is_some());
         assert!(cache.acquire(&9).is_some());
         assert!(cache.acquire(&7).is_none());
+    }
+
+    #[test]
+    fn cow_keyed_cache_queries_with_borrowed_str() {
+        use alloc::borrow::Cow;
+        let mut cache: Cache<Cow<'static, str>, u32, Lru, HashLookup<Cow<'static, str>>> =
+            Cache::builder().max_size(MaxSize::Count(4)).build();
+        cache.entry(Cow::Borrowed("alpha")).or_insert_with(|| 1);
+        cache.entry(Cow::Owned("beta".into())).or_insert_with(|| 2);
+
+        assert!(cache.acquire("alpha").is_some());
+        assert_eq!(*cache.acquire("alpha").unwrap(), 1);
+        assert!(cache.acquire("beta").is_some());
+        assert_eq!(*cache.acquire("beta").unwrap(), 2);
+        assert!(cache.acquire("missing").is_none());
+
+        assert!(cache.drop("alpha"));
+        assert!(cache.acquire("alpha").is_none());
+        assert!(!cache.drop("missing"));
+    }
+
+    #[test]
+    fn cow_keyed_linear_cache_queries_with_borrowed_str() {
+        use crate::cache::LinearLookup;
+        use alloc::borrow::Cow;
+        let mut cache: Cache<Cow<'static, str>, u32, Lru, LinearLookup<Cow<'static, str>>> =
+            CacheBuilder::default().max_size(MaxSize::Count(4)).build();
+        cache.entry(Cow::Borrowed("alpha")).or_insert_with(|| 1);
+        cache.entry(Cow::Owned("beta".into())).or_insert_with(|| 2);
+
+        assert_eq!(*cache.acquire("alpha").unwrap(), 1);
+        assert_eq!(*cache.acquire("beta").unwrap(), 2);
+        assert!(cache.acquire("missing").is_none());
+
+        assert!(cache.drop("beta"));
+        assert!(cache.acquire("beta").is_none());
     }
 }

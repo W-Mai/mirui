@@ -134,7 +134,7 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
     pub(crate) fn unregister(&mut self, token: &str) {
         self.by_token.remove(token);
         self.failed_values.remove(token);
-        self.values.drop(&Cow::Owned(token.into()));
+        self.values.drop(token);
         self.signals.remove(token);
     }
 
@@ -158,15 +158,8 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
 
     // ---- value cache helpers ----
 
-    // Acquire a token from the values cache and clone it into an owned Rc<T>
-    // for the caller. Returns None if there's no cached value.
     pub(crate) fn try_acquire_value_clone(&mut self, token: &str) -> Option<Rc<T>> {
-        let key: Cow<'static, str> = unsafe {
-            // SAFETY: `acquire` borrows the key only for the linear scan
-            // (PartialEq on Cow deref's to str); never stored or cloned.
-            Cow::Borrowed(core::mem::transmute::<&str, &'static str>(token))
-        };
-        let h = crate::trace_span!("res.cache_acquire", { self.values.acquire(&key)? });
+        let h = crate::trace_span!("res.cache_acquire", { self.values.acquire(token)? });
         let rc = crate::trace_span!("res.rc_clone", { (*h).clone() });
         Some(rc)
     }

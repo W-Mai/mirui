@@ -17,10 +17,9 @@ pub use error::CacheError;
 pub use factory::WithFactory;
 pub use handle::Handle;
 pub use inspect::{CacheInspect, CacheRegistry, CacheStatsSnapshot, InspectCaches};
-pub use lookup::{HashLookup, LinearLookup, Lookup, NodeId, OrdLookup};
+pub use lookup::{HashLookup, LinearLookup, Lookup, NodeId};
 pub use stats::CacheStats;
 
 pub type LruCache<K, V> = Cache<K, V, Lru, HashLookup<K>>;
-pub type LruBTreeCache<K, V> = Cache<K, V, Lru, OrdLookup<K>>;
 pub type LruLinearCache<K, V> = Cache<K, V, Lru, LinearLookup<K>>;
 pub type UnboundCache<K, V> = Cache<K, V, NoEvict, HashLookup<K>>;

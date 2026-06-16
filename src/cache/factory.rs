@@ -1,3 +1,6 @@
+use ::core::borrow::Borrow;
+use ::core::hash::Hash;
+
 use super::algorithm::Algorithm;
 use super::budget::HasSize;
 use super::core::{self, Cache};
@@ -20,11 +23,18 @@ where
         Self { cache, ctor }
     }
 
-    pub fn acquire(&mut self, key: &K) -> Option<Handle<V>> {
+    pub fn acquire<Q>(&mut self, key: &Q) -> Option<Handle<V>>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.cache.acquire(key)
     }
 
-    pub fn entry(&mut self, key: K) -> Entry<'_, K, V, A, L, F> {
+    pub fn entry(&mut self, key: K) -> Entry<'_, K, V, A, L, F>
+    where
+        K: Hash + Eq,
+    {
         match self.cache.entry(key) {
             core::Entry::Occupied(o) => Entry::Occupied(OccupiedEntry {
                 inner: o,
@@ -97,7 +107,7 @@ where
 // Case 2: ctor takes only `&K`, no extra context.
 impl<'a, K, V, A, L, F, E> Entry<'a, K, V, A, L, F>
 where
-    K: Clone,
+    K: Clone + Hash + Eq,
     V: HasSize,
     A: Algorithm,
     L: Lookup<K>,
@@ -138,7 +148,7 @@ pub enum EntryStatus {
 // scope and threading it into ctor.
 impl<'a, K, V, A, L, F> Entry<'a, K, V, A, L, F>
 where
-    K: Clone,
+    K: Clone + Hash + Eq,
     V: HasSize,
     A: Algorithm,
     L: Lookup<K>,
@@ -189,7 +199,7 @@ where
 
 impl<'a, K, V, A, L, F> VacantEntry<'a, K, V, A, L, F>
 where
-    K: Clone,
+    K: Clone + Hash + Eq,
     V: HasSize,
     A: Algorithm,
     L: Lookup<K>,

@@ -1,47 +1,27 @@
+use core::borrow::Borrow;
 use core::hash::Hash;
 use rustc_hash::FxBuildHasher;
 
 pub type NodeId = usize;
 
 pub trait Lookup<K> {
-    fn get(&self, key: &K) -> Option<NodeId>;
+    fn get<Q>(&self, key: &Q) -> Option<NodeId>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
+
     fn insert(&mut self, key: K, node: NodeId);
-    fn remove(&mut self, key: &K) -> Option<NodeId>;
+
+    fn remove<Q>(&mut self, key: &Q) -> Option<NodeId>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized;
+
     fn len(&self) -> usize;
     fn is_empty(&self) -> bool {
         self.len() == 0
     }
     fn clear(&mut self);
-}
-
-pub struct OrdLookup<K: Ord> {
-    map: alloc::collections::BTreeMap<K, NodeId>,
-}
-
-impl<K: Ord> Default for OrdLookup<K> {
-    fn default() -> Self {
-        Self {
-            map: alloc::collections::BTreeMap::new(),
-        }
-    }
-}
-
-impl<K: Ord> Lookup<K> for OrdLookup<K> {
-    fn get(&self, key: &K) -> Option<NodeId> {
-        self.map.get(key).copied()
-    }
-    fn insert(&mut self, key: K, node: NodeId) {
-        self.map.insert(key, node);
-    }
-    fn remove(&mut self, key: &K) -> Option<NodeId> {
-        self.map.remove(key)
-    }
-    fn len(&self) -> usize {
-        self.map.len()
-    }
-    fn clear(&mut self) {
-        self.map.clear();
-    }
 }
 
 pub struct HashLookup<K: Hash + Eq> {
@@ -57,13 +37,21 @@ impl<K: Hash + Eq> Default for HashLookup<K> {
 }
 
 impl<K: Hash + Eq> Lookup<K> for HashLookup<K> {
-    fn get(&self, key: &K) -> Option<NodeId> {
+    fn get<Q>(&self, key: &Q) -> Option<NodeId>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.map.get(key).copied()
     }
     fn insert(&mut self, key: K, node: NodeId) {
         self.map.insert(key, node);
     }
-    fn remove(&mut self, key: &K) -> Option<NodeId> {
+    fn remove<Q>(&mut self, key: &Q) -> Option<NodeId>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.map.remove(key)
     }
     fn len(&self) -> usize {
@@ -87,8 +75,15 @@ impl<K: PartialEq> Default for LinearLookup<K> {
 }
 
 impl<K: PartialEq> Lookup<K> for LinearLookup<K> {
-    fn get(&self, key: &K) -> Option<NodeId> {
-        self.entries.iter().find(|(k, _)| k == key).map(|(_, n)| *n)
+    fn get<Q>(&self, key: &Q) -> Option<NodeId>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        self.entries
+            .iter()
+            .find(|(k, _)| k.borrow() == key)
+            .map(|(_, n)| *n)
     }
     fn insert(&mut self, key: K, node: NodeId) {
         if let Some(slot) = self.entries.iter_mut().find(|(k, _)| *k == key) {
@@ -97,8 +92,12 @@ impl<K: PartialEq> Lookup<K> for LinearLookup<K> {
             self.entries.push((key, node));
         }
     }
-    fn remove(&mut self, key: &K) -> Option<NodeId> {
-        let idx = self.entries.iter().position(|(k, _)| k == key)?;
+    fn remove<Q>(&mut self, key: &Q) -> Option<NodeId>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
+        let idx = self.entries.iter().position(|(k, _)| k.borrow() == key)?;
         Some(self.entries.swap_remove(idx).1)
     }
     fn len(&self) -> usize {
@@ -127,15 +126,29 @@ mod tests {
     }
 
     #[test]
-    fn ord_lookup_basic() {
-        check::<OrdLookup<u32>>();
-    }
-    #[test]
     fn hash_lookup_basic() {
         check::<HashLookup<u32>>();
     }
     #[test]
     fn linear_lookup_basic() {
         check::<LinearLookup<u32>>();
+    }
+
+    #[test]
+    fn hash_lookup_borrowed_str_query() {
+        let mut l = HashLookup::<alloc::string::String>::default();
+        l.insert("foo".into(), 7);
+        assert_eq!(l.get("foo"), Some(7));
+        assert_eq!(l.remove("foo"), Some(7));
+        assert_eq!(l.get("foo"), None);
+    }
+
+    #[test]
+    fn linear_lookup_borrowed_str_query() {
+        let mut l = LinearLookup::<alloc::string::String>::default();
+        l.insert("foo".into(), 7);
+        assert_eq!(l.get("foo"), Some(7));
+        assert_eq!(l.remove("foo"), Some(7));
+        assert_eq!(l.get("foo"), None);
     }
 }
