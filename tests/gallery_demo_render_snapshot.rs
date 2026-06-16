@@ -24,6 +24,7 @@ fn render_demo<F: FnOnce(&mut World, mirui::ecs::Entity)>(
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
     app.add_plugin(mirui::plugins::StdInstantClockPlugin);
+    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
     let parent = WidgetBuilder::new(&mut app.world)
         .layout(mirui::layout::LayoutStyle {
             direction: mirui::layout::FlexDirection::Column,

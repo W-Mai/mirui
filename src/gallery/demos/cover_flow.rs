@@ -2,7 +2,6 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::assets::IMG_THUMBS_UP;
 use crate::components::{Image, WidgetTransform3D};
 use crate::ecs::{Entity, World};
 use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
@@ -208,7 +207,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
                             top: (card_h - 64) / 2,
                             width: 64,
                             height: 64,
-                            image: Image::new(&IMG_THUMBS_UP)
+                            image: Image::new("thumbs_up")
                         )
                     }
                 }
@@ -227,7 +226,8 @@ where
     let info = app.backend.display_info();
     app.add_system(layout_system::system())
         .add_plugin(StdInstantClockPlugin)
-        .add_plugin(FpsSummaryPlugin::default());
+        .add_plugin(FpsSummaryPlugin::default())
+        .add_plugin(crate::plugins::ImageResourcesPlugin::default());
     build_widgets(&mut app.world, parent, info.width, info.height);
 }
 

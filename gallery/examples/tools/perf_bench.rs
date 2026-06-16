@@ -111,7 +111,7 @@ fn main() {
                 ..Default::default()
             })
             .id();
-        app.world.insert(c, Image::new(&IMG_THUMBS_UP));
+        app.world.insert(c, Image::new("thumbs_up"));
         children.push(c);
     }
 
@@ -124,7 +124,8 @@ fn main() {
 
     app.set_root(root);
     app.add_plugin(StdInstantClockPlugin)
-        .add_plugin(FpsSummaryPlugin::default());
+        .add_plugin(FpsSummaryPlugin::default())
+        .add_plugin(mirui::plugins::ImageResourcesPlugin::default());
 
     use mirui::surface::{InputEvent, Surface};
     let start = std::time::Instant::now();

@@ -635,7 +635,7 @@ mod tests {
     }
 
     use crate::cache::MaxSize;
-    use crate::resource::{Loader, ResourceManager};
+    use crate::resource::ResourceManager;
 
     fn texture_manager() -> ResourceManager<Texture<'static>> {
         let m = ResourceManager::<Texture<'static>>::new(

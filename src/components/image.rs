@@ -1,23 +1,26 @@
+use alloc::borrow::Cow;
+
 use crate::draw::command::DrawCommand;
 use crate::draw::renderer::Renderer;
 use crate::draw::texture::Texture;
 use crate::ecs::{Entity, World};
+use crate::resource::ResourceManager;
 use crate::types::{Point, Rect};
 use crate::widget::view::{View, ViewCtx};
 
 #[derive(crate::Component)]
 pub struct Image {
-    pub texture: &'static Texture<'static>,
+    pub src: Cow<'static, str>,
 }
 
 impl Image {
-    pub fn new(texture: &'static Texture<'static>) -> Self {
-        Self { texture }
+    pub fn new(src: impl Into<Cow<'static, str>>) -> Self {
+        Self { src: src.into() }
     }
 
-    pub fn build(texture: &'static Texture<'static>) -> ImageBuilder {
+    pub fn build(src: impl Into<Cow<'static, str>>) -> ImageBuilder {
         ImageBuilder {
-            image: Image::new(texture),
+            image: Image::new(src),
             style: None,
         }
     }
@@ -58,6 +61,10 @@ fn image_render(
     let Some(img) = world.get::<Image>(entity) else {
         return;
     };
+    let Some(mgr) = world.resource::<ResourceManager<Texture<'static>>>() else {
+        return;
+    };
+    let rc = mgr.resolve(&img.src);
     renderer.draw(
         &DrawCommand::Blit {
             pos: Point {
@@ -70,7 +77,7 @@ fn image_render(
             },
             transform: ctx.transform,
             quad: ctx.quad,
-            texture: img.texture,
+            texture: &rc,
         },
         ctx.clip,
     );
@@ -87,7 +94,7 @@ mod tests {
     #[test]
     fn build_spawns_image_with_style() {
         let mut world = World::new();
-        let e = Image::build(&crate::components::assets::IMG_THUMBS_UP)
+        let e = Image::build("thumbs_up")
             .style(crate::widget::Style::default())
             .spawn(&mut world);
         assert!(world.has::<Image>(e));
@@ -98,8 +105,17 @@ mod tests {
     #[test]
     fn build_without_style_omits_it() {
         let mut world = World::new();
-        let e = Image::build(&crate::components::assets::IMG_THUMBS_UP).spawn(&mut world);
+        let e = Image::build("thumbs_up").spawn(&mut world);
         assert!(world.has::<Image>(e));
         assert!(!world.has::<crate::widget::Style>(e));
+    }
+
+    #[test]
+    fn new_accepts_str_and_string() {
+        let a = Image::new("static");
+        assert_eq!(a.src, "static");
+        let owned: alloc::string::String = "owned".into();
+        let b = Image::new(owned);
+        assert_eq!(b.src, "owned");
     }
 }

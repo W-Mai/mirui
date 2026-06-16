@@ -10,6 +10,7 @@ fn main() {
     let backend = SdlSurface::new("mirui sdl smoke", 480, 320);
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
+    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))
@@ -48,7 +49,7 @@ fn main() {
                 }
             }
             Image (
-                texture: &IMG_THUMBS_UP,
+                src: "thumbs_up",
                 width: IMG_THUMBS_UP.width as i32 * 4,
                 height: IMG_THUMBS_UP.height as i32 * 4
             )

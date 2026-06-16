@@ -2,7 +2,6 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::assets::*;
 use crate::components::{Image, WidgetTransform};
 use crate::ecs::{Entity, World};
 use crate::prelude::*;
@@ -67,7 +66,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         })
         .rotate(0)
         .id();
-    world.insert(spinning_img, Image::new(&IMG_THUMBS_UP));
+    world.insert(spinning_img, Image::new("thumbs_up"));
     world.insert(
         spinning_img,
         Spinner {
@@ -91,6 +90,7 @@ where
     F: RendererFactory<B>,
 {
     app.add_system(spin_system::system());
+    app.add_plugin(crate::plugins::ImageResourcesPlugin::default());
     build_widgets(&mut app.world, parent);
 }
 

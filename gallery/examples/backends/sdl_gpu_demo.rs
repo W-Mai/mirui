@@ -74,7 +74,7 @@ fn main() {
             ..Default::default()
         })
         .id();
-    app.world.insert(img, Image::new(&IMG_THUMBS_UP));
+    app.world.insert(img, Image::new("thumbs_up"));
 
     let drag = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgba(240, 120, 60, 230))
@@ -102,6 +102,7 @@ fn main() {
     app.set_root(root);
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default())
+        .add_plugin(mirui::plugins::ImageResourcesPlugin::default())
         .add_plugin(CacheReportPlugin::new(120))
         .add_plugin(DragPlugin {
             target: drag,

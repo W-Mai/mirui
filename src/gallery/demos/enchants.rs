@@ -1,7 +1,6 @@
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::components::Image;
-use crate::components::assets::*;
 use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
@@ -23,7 +22,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 top: 150,
                 width: 16,
                 height: 16,
-                image: Image::new(&IMG_THUMBS_UP)
+                image: Image::new("thumbs_up")
             )
         }
     };
@@ -36,6 +35,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.add_plugin(crate::plugins::ImageResourcesPlugin::default());
     build_widgets(&mut app.world, parent);
 }
 

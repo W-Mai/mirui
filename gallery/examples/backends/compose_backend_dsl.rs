@@ -204,7 +204,7 @@ fn main() {
                     top: d.1,
                     width: iw,
                     height: ih,
-                    image: Image::new(&IMG_THUMBS_UP)
+                    image: Image::new("thumbs_up")
                 ) [
                     Drift {
                         t: 0.0,
@@ -224,7 +224,8 @@ fn main() {
     // std::Instant; FpsSummaryPlugin consumes those ns and prints avg
     // render cost every 60 frames.
     app.add_plugin(StdInstantClockPlugin::default())
-        .add_plugin(FpsSummaryPlugin::default());
+        .add_plugin(FpsSummaryPlugin::default())
+        .add_plugin(mirui::plugins::ImageResourcesPlugin::default());
 
     app.run();
 

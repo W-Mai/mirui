@@ -25,7 +25,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             View (
                 width: IMG_THUMBS_UP.width as i32,
                 height: IMG_THUMBS_UP.height as i32,
-                image: Image::new(&IMG_THUMBS_UP)
+                image: Image::new("thumbs_up")
             )
         }
     };
@@ -38,6 +38,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
+    app.add_plugin(crate::plugins::ImageResourcesPlugin::default());
     build_widgets(&mut app.world, parent);
 }
 

@@ -14,6 +14,7 @@ fn main() {
     let factory = WgpuRendererFactory::new();
     let mut app = App::with_factory(backend, factory);
     app.with_default_widgets().with_default_systems();
+    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))
@@ -58,7 +59,7 @@ fn main() {
                 width: IMG_THUMBS_UP.width as i32 * 4,
                 height: IMG_THUMBS_UP.height as i32 * 4
             ) [
-                Image::new(&IMG_THUMBS_UP),
+                Image::new("thumbs_up"),
             ]
             View (
                 bg_color: Color::rgb(50, 50, 70),

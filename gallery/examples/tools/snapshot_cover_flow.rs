@@ -10,7 +10,6 @@ use std::fs::File;
 use std::io::Write;
 use std::rc::Rc;
 
-use mirui::components::assets::IMG_THUMBS_UP;
 use mirui::components::{Image, WidgetTransform3D};
 use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::surface::framebuf::FramebufSurface;
@@ -102,6 +101,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
     });
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
+    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
 
     app.add_system(layout_system::system());
 
@@ -173,7 +173,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
                             top: (CARD_H - 64) / 2,
                             width: 64,
                             height: 64,
-                            image: Image::new(&IMG_THUMBS_UP)
+                            image: Image::new("thumbs_up")
                         )
                     }
                 }

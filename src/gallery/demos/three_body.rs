@@ -344,7 +344,7 @@ pub fn build_widgets(
                 top: pos.1.to_int() - ih / 2,
                 width: iw,
                 height: ih,
-                image: Image::new(&IMG_THUMBS_UP)
+                image: Image::new("thumbs_up")
             ) [
                 PhysicsBody { x: pos.0, y: pos.1 },
                 Velocity { vx: pos.2, vy: pos.3 },
@@ -362,6 +362,7 @@ where
 {
     let info = app.backend.display_info();
     app.add_plugin(StdInstantClockPlugin);
+    app.add_plugin(crate::plugins::ImageResourcesPlugin::default());
     app.add_system(physics_tick_system::system());
     app.add_system(kick_system::system());
     app.add_system(sync_layout_system::system());
