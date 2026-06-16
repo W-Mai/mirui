@@ -324,6 +324,91 @@ impl<'a> Texture<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MirxLoadError {
+    Parse(mirx::ParseError),
+    /// Format mirx writes but mirui can't render (indexed, alpha-only, luma, RGB565A8).
+    UnsupportedFormat(mirx::ColorFormat),
+    /// Parsed OK but no IMAGE chunk (e.g. VECTOR-only file).
+    NoImageChunk,
+    /// `width` or `height` exceeds `u16`.
+    DimensionOverflow,
+}
+
+impl From<mirx::ParseError> for MirxLoadError {
+    fn from(err: mirx::ParseError) -> Self {
+        MirxLoadError::Parse(err)
+    }
+}
+
+fn map_mirx_format(fmt: mirx::ColorFormat) -> Result<ColorFormat, MirxLoadError> {
+    match fmt {
+        mirx::ColorFormat::RGB565 => Ok(ColorFormat::RGB565),
+        mirx::ColorFormat::RGB565Swapped => Ok(ColorFormat::RGB565Swapped),
+        mirx::ColorFormat::RGB888 => Ok(ColorFormat::RGB888),
+        // XRGB and RGBA share byte layout; opaque-vs-blend lives in AlphaMode.
+        mirx::ColorFormat::XRGB8888 | mirx::ColorFormat::RGBA8888 => Ok(ColorFormat::RGBA8888),
+        mirx::ColorFormat::BGRA8888 => Ok(ColorFormat::BGRA8888),
+        other => Err(MirxLoadError::UnsupportedFormat(other)),
+    }
+}
+
+impl Texture<'static> {
+    /// Decode mirx bytes into a `Texture<'static>`. Pixels stay borrowed
+    /// from `bytes` (zero-copy) when the source IMAGE chunk is uncompressed.
+    pub fn from_mirx(bytes: &'static [u8]) -> Result<Self, MirxLoadError> {
+        let parsed = mirx::parse(bytes)?;
+        let (width, height, stride, format, main) = match parsed {
+            mirx::MirxFile::Flat(img) => (img.width, img.height, img.stride, img.format, img.main),
+            mirx::MirxFile::Chunk(file) => {
+                let img = file.primary_image.ok_or(MirxLoadError::NoImageChunk)?;
+                (img.width, img.height, img.stride, img.format, img.data)
+            }
+        };
+        let format = map_mirx_format(format)?;
+        let width: u16 = width
+            .try_into()
+            .map_err(|_| MirxLoadError::DimensionOverflow)?;
+        let height: u16 = height
+            .try_into()
+            .map_err(|_| MirxLoadError::DimensionOverflow)?;
+        Ok(Texture {
+            buf: TexBuf::Ref(main),
+            width,
+            height,
+            format,
+            stride: stride as usize,
+            alpha_mode: AlphaMode::Opaque,
+        })
+    }
+}
+
+/// Cheap geometry snapshot used as [`HasProbe::Meta`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TextureMeta {
+    pub width: u16,
+    pub height: u16,
+    pub format: ColorFormat,
+}
+
+impl HasSize for TextureMeta {
+    fn cache_size(&self) -> usize {
+        1
+    }
+}
+
+impl crate::resource::HasProbe for Texture<'static> {
+    type Meta = TextureMeta;
+
+    fn extract_meta(&self) -> TextureMeta {
+        TextureMeta {
+            width: self.width,
+            height: self.height,
+            format: self.format,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,5 +509,56 @@ mod tests {
             (sum as i32 - 255).abs() <= 12,
             "total coverage sum={sum} should be ~255 (±12 for 24.8 precision)"
         );
+    }
+
+    use crate::resource::HasProbe;
+
+    fn build_flat_rgb565_2x1() -> &'static [u8] {
+        let input = mirx::FlatImageInput {
+            width: 2,
+            height: 1,
+            stride: 4,
+            format: mirx::ColorFormat::RGB565,
+            main: &[0xAA, 0xBB, 0xCC, 0xDD],
+            extra: None,
+        };
+        Box::leak(mirx::encode_flat(&input).into_boxed_slice())
+    }
+
+    #[test]
+    fn from_mirx_flat_rgb565_round_trip() {
+        let tex = Texture::from_mirx(build_flat_rgb565_2x1()).expect("flat parse");
+        assert_eq!(tex.width, 2);
+        assert_eq!(tex.height, 1);
+        assert_eq!(tex.format, ColorFormat::RGB565);
+        assert_eq!(tex.alpha_mode, AlphaMode::Opaque);
+        assert_eq!(tex.buf.as_slice(), &[0xAA, 0xBB, 0xCC, 0xDD]);
+    }
+
+    #[test]
+    fn from_mirx_zero_copy_borrow() {
+        let bytes = build_flat_rgb565_2x1();
+        let tex = Texture::from_mirx(bytes).unwrap();
+        let pix_ptr = tex.buf.as_slice().as_ptr();
+        let buf_ptr = bytes.as_ptr();
+        assert_eq!(pix_ptr as usize - buf_ptr as usize, 28);
+    }
+
+    #[test]
+    fn from_mirx_bad_magic_propagates_parse_error() {
+        let bad: &'static [u8] = Box::leak(Box::new([0u8; 8]));
+        assert!(matches!(
+            Texture::from_mirx(bad),
+            Err(MirxLoadError::Parse(mirx::ParseError::BadMagic))
+        ));
+    }
+
+    #[test]
+    fn extract_meta_returns_geometry() {
+        let tex = Texture::from_mirx(build_flat_rgb565_2x1()).unwrap();
+        let meta = tex.extract_meta();
+        assert_eq!(meta.width, 2);
+        assert_eq!(meta.height, 1);
+        assert_eq!(meta.format, ColorFormat::RGB565);
     }
 }
