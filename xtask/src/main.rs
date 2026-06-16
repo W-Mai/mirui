@@ -511,7 +511,7 @@ fn cmd_bump(level: &str) -> Result {
     //    deps still need a version pin for cargo publish; the root
     //    Cargo.toml carries `mirui-macros = { version = "X.Y.Z", path = ... }`
     //    and that string has to track the bumped [package].version.
-    let workspace_deps = ["mirui-macros"];
+    let workspace_deps = ["mirui-macros", "mirx"];
     let cargo_toml_paths = [
         format!("{root}/Cargo.toml"),
         format!("{root}/gallery/Cargo.toml"),
@@ -696,7 +696,7 @@ fn cmd_publish(dry_run: bool) -> Result {
         return Err("working tree not clean".into());
     }
 
-    for package in ["mirui-macros", "mirui"] {
+    for package in ["mirx", "mirui-macros", "mirui"] {
         let mut args = vec!["publish", "-p", package, "--no-verify"];
         if dry_run {
             args.push("--dry-run");
