@@ -1,4 +1,5 @@
 use core::hash::Hash;
+use rustc_hash::FxBuildHasher;
 
 pub type NodeId = usize;
 
@@ -44,13 +45,13 @@ impl<K: Ord> Lookup<K> for OrdLookup<K> {
 }
 
 pub struct HashLookup<K: Hash + Eq> {
-    map: hashbrown::HashMap<K, NodeId>,
+    map: hashbrown::HashMap<K, NodeId, FxBuildHasher>,
 }
 
 impl<K: Hash + Eq> Default for HashLookup<K> {
     fn default() -> Self {
         Self {
-            map: hashbrown::HashMap::new(),
+            map: hashbrown::HashMap::default(),
         }
     }
 }

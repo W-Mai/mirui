@@ -6,8 +6,9 @@ use core::any::Any;
 use core::cell::RefCell;
 
 use hashbrown::{HashMap, HashSet};
+use rustc_hash::FxBuildHasher;
 
-use crate::cache::{HasSize, LruLinearCache, MaxSize};
+use crate::cache::{HasSize, LruCache, MaxSize};
 use crate::resource::loader::{LoadError, Loader, ProbeLoader};
 use crate::resource::probe::HasProbe;
 use crate::state::Signal;
@@ -54,25 +55,25 @@ impl<T: 'static> Entry<T> {
 }
 
 pub struct ManagerInner<T: HasSize + Clone + 'static> {
-    values: LruLinearCache<Cow<'static, str>, Rc<T>>,
-    by_token: HashMap<Cow<'static, str>, Entry<T>>,
+    values: LruCache<Cow<'static, str>, Rc<T>>,
+    by_token: HashMap<Cow<'static, str>, Entry<T>, FxBuildHasher>,
     loaders: Vec<Box<dyn Loader<T>>>,
     fallback: Rc<T>,
-    failed_values: HashSet<Cow<'static, str>>,
-    signals: HashMap<Cow<'static, str>, Rc<Signal<()>>>,
-    refcounts: HashMap<Cow<'static, str>, u32>,
+    failed_values: HashSet<Cow<'static, str>, FxBuildHasher>,
+    signals: HashMap<Cow<'static, str>, Rc<Signal<()>>, FxBuildHasher>,
+    refcounts: HashMap<Cow<'static, str>, u32, FxBuildHasher>,
 }
 
 impl<T: HasSize + Clone + 'static> ManagerInner<T> {
     pub(crate) fn new(values_budget: MaxSize, fallback: T) -> Self {
         Self {
-            values: LruLinearCache::new(values_budget),
-            by_token: HashMap::new(),
+            values: LruCache::new(values_budget),
+            by_token: HashMap::default(),
             loaders: Vec::new(),
             fallback: Rc::new(fallback),
-            failed_values: HashSet::new(),
-            signals: HashMap::new(),
-            refcounts: HashMap::new(),
+            failed_values: HashSet::default(),
+            signals: HashMap::default(),
+            refcounts: HashMap::default(),
         }
     }
 
