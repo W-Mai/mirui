@@ -89,15 +89,19 @@ where
     }
 
     pub fn acquire(&mut self, key: &K) -> Option<Handle<V>> {
-        let Some(node_id) = self.index.get(key) else {
+        let node_id_opt = crate::trace_span!("cache.index_get", { self.index.get(key) });
+        let Some(node_id) = node_id_opt else {
             self.stats.miss_count += 1;
             return None;
         };
-        A::on_access(&mut self.order, node_id);
+        crate::trace_span!("cache.on_access", {
+            A::on_access(&mut self.order, node_id)
+        });
         self.stats.hit_count += 1;
-        Some(Handle {
-            inner: self.nodes.get(node_id).entry.clone(),
-        })
+        let inner = crate::trace_span!("cache.entry_clone", {
+            self.nodes.get(node_id).entry.clone()
+        });
+        Some(Handle { inner })
     }
 
     pub fn drop(&mut self, key: &K) -> bool {

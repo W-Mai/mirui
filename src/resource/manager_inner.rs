@@ -160,12 +160,14 @@ impl<T: HasSize + Clone + 'static> ManagerInner<T> {
     // Acquire a token from the values cache and clone it into an owned Rc<T>
     // for the caller. Returns None if there's no cached value.
     pub(crate) fn try_acquire_value_clone(&mut self, token: &str) -> Option<Rc<T>> {
-        let h = self.values.acquire(&Cow::Borrowed(unsafe {
+        let key: Cow<'static, str> = unsafe {
             // SAFETY: `acquire` borrows the key only for the linear scan
             // (PartialEq on Cow deref's to str); never stored or cloned.
-            core::mem::transmute::<&str, &'static str>(token)
-        }))?;
-        Some((*h).clone())
+            Cow::Borrowed(core::mem::transmute::<&str, &'static str>(token))
+        };
+        let h = crate::trace_span!("res.cache_acquire", { self.values.acquire(&key)? });
+        let rc = crate::trace_span!("res.rc_clone", { (*h).clone() });
+        Some(rc)
     }
 
     pub(crate) fn insert_value(&mut self, token: Cow<'static, str>, value: T) -> Rc<T> {
@@ -195,8 +197,10 @@ pub(crate) fn resolve<T: HasSize + Clone + 'static>(
 ) -> ResolveOutcome<T> {
     // Step 1: values cache hit
     {
-        let mut inner = rc.borrow_mut();
-        if let Some(v) = inner.try_acquire_value_clone(token) {
+        let mut inner = crate::trace_span!("res.borrow_mut", { rc.borrow_mut() });
+        let acquired =
+            crate::trace_span!("res.try_acquire", { inner.try_acquire_value_clone(token) });
+        if let Some(v) = acquired {
             return ResolveOutcome::CacheHit(v);
         }
         // Step 2: known-failed

@@ -58,29 +58,34 @@ fn image_render(
     rect: &Rect,
     ctx: &mut ViewCtx,
 ) {
-    let Some(img) = world.get::<Image>(entity) else {
-        return;
-    };
-    let Some(mgr) = world.resource::<ResourceManager<Texture<'static>>>() else {
-        return;
-    };
-    let rc = mgr.resolve(&img.src);
-    renderer.draw(
-        &DrawCommand::Blit {
-            pos: Point {
-                x: rect.x,
-                y: rect.y,
-            },
-            size: Point {
-                x: rect.w,
-                y: rect.h,
-            },
-            transform: ctx.transform,
-            quad: ctx.quad,
-            texture: &rc,
-        },
-        ctx.clip,
-    );
+    crate::trace_span!("image.render", {
+        let img = crate::trace_span!("image.world_get", { world.get::<Image>(entity) });
+        let Some(img) = img else { return };
+        let mgr = crate::trace_span!("image.world_resource", {
+            world.resource::<ResourceManager<Texture<'static>>>()
+        });
+        let Some(mgr) = mgr else { return };
+        let rc = crate::trace_span!("image.resolve", { mgr.resolve(&img.src) });
+        crate::trace_span!("image.blit", {
+            renderer.draw(
+                &DrawCommand::Blit {
+                    pos: Point {
+                        x: rect.x,
+                        y: rect.y,
+                    },
+                    size: Point {
+                        x: rect.w,
+                        y: rect.h,
+                    },
+                    transform: ctx.transform,
+                    quad: ctx.quad,
+                    texture: &rc,
+                },
+                ctx.clip,
+            );
+        });
+        crate::trace_span!("image.rc_drop", { drop(rc) });
+    });
 }
 
 pub fn view() -> View {
