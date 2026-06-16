@@ -21,6 +21,7 @@ mirui-macros = { version = "0.29.3", path = "mirui-macros" }
 mirx = { version = "0.29.3", path = "mirx" }
 critical-section = { version = "1.2", default-features = false }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
+rustc-hash = { version = "2", default-features = false }
 
 [features]
 default = ["quad-aa"]

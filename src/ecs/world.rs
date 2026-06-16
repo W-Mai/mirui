@@ -1,6 +1,7 @@
 use alloc::boxed::Box;
 use core::any::{Any, TypeId};
 use hashbrown::HashMap;
+use rustc_hash::FxBuildHasher;
 
 use super::entity::{Entity, EntityAllocator};
 use super::sparse_set::SparseSet;
@@ -33,16 +34,16 @@ impl<T: 'static> ComponentStorage for SparseSet<T> {
 
 pub struct World {
     allocator: EntityAllocator,
-    storages: HashMap<TypeId, Box<dyn ComponentStorage>>,
-    resources: HashMap<TypeId, Box<dyn Any>>,
+    storages: HashMap<TypeId, Box<dyn ComponentStorage>, FxBuildHasher>,
+    resources: HashMap<TypeId, Box<dyn Any>, FxBuildHasher>,
 }
 
 impl Default for World {
     fn default() -> Self {
         Self {
             allocator: EntityAllocator::new(),
-            storages: HashMap::new(),
-            resources: HashMap::new(),
+            storages: HashMap::default(),
+            resources: HashMap::default(),
         }
     }
 }
