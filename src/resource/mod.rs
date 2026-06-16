@@ -1,244 +1,375 @@
-use alloc::boxed::Box;
-use alloc::vec::Vec;
-use core::marker::PhantomData;
+//! Generic resource manager. Token-string identification, [`core::cell::RefCell`]
+//! interior mutability for [`&World`]-only access from render code, and an
+//! optional probe sidecar gated on [`HasProbe`].
+//!
+//! See `.local/specs/1.0-resource-management/design.md` for the full design.
 
-use hashbrown::HashMap;
+extern crate alloc;
 
-use crate::cache::{Handle, HasSize, LruCache, MaxSize, UnboundCache};
-use crate::state::Signal;
+mod handle;
+mod loader;
+mod manager;
+mod manager_inner;
+mod probe;
 
-#[derive(Clone, Copy, Hash, Eq, PartialEq, Debug)]
-pub struct ResourceHandle(u32);
-
-pub struct Resource<T: 'static> {
-    handle: ResourceHandle,
-    // None = ready at creation (static/eager); Some = lazy, flipped true once loaded.
-    ready: Option<Signal<bool>>,
-    _phantom: PhantomData<T>,
-}
-
-impl<T: 'static> Clone for Resource<T> {
-    fn clone(&self) -> Self {
-        Resource {
-            handle: self.handle,
-            ready: self.ready.clone(),
-            _phantom: PhantomData,
-        }
-    }
-}
-
-impl<T: 'static> Resource<T> {
-    pub fn handle(&self) -> ResourceHandle {
-        self.handle
-    }
-
-    // Reads the ready Signal inside an effect/render scope, so the caller subscribes.
-    pub fn is_ready(&self) -> bool {
-        self.ready.as_ref().is_none_or(|s| s.get())
-    }
-}
-
-pub trait ResourceLoader<T> {
-    fn can_load(&self, key: &str) -> bool;
-    fn load(&self, key: &str) -> Option<T>;
-}
-
-type Factory<T> = Box<dyn FnOnce() -> T>;
-
-pub struct ResourceManager<T: HasSize + 'static> {
-    statics: UnboundCache<ResourceHandle, T>,
-    cache: LruCache<ResourceHandle, T>,
-    factories: HashMap<ResourceHandle, Factory<T>>,
-    keys: HashMap<ResourceHandle, &'static str>,
-    loaders: Vec<Box<dyn ResourceLoader<T>>>,
-    by_key: HashMap<&'static str, ResourceHandle>,
-    ready: HashMap<ResourceHandle, Signal<bool>>,
-    next: u32,
-}
-
-impl<T: HasSize + 'static> ResourceManager<T> {
-    pub fn new(budget: MaxSize) -> Self {
-        ResourceManager {
-            statics: UnboundCache::new(MaxSize::Unbound),
-            cache: LruCache::new(budget),
-            factories: HashMap::new(),
-            keys: HashMap::new(),
-            loaders: Vec::new(),
-            by_key: HashMap::new(),
-            ready: HashMap::new(),
-            next: 0,
-        }
-    }
-
-    fn alloc_handle(&mut self) -> ResourceHandle {
-        let h = ResourceHandle(self.next);
-        self.next += 1;
-        h
-    }
-
-    pub fn register_loader<L: ResourceLoader<T> + 'static>(&mut self, loader: L) {
-        self.loaders.push(Box::new(loader));
-    }
-
-    pub fn load_static(&mut self, key: &'static str, value: T) -> Resource<T> {
-        let handle = self.alloc_handle();
-        self.statics.entry(handle).or_insert_with(|| value);
-        self.by_key.insert(key, handle);
-        Resource {
-            handle,
-            ready: None,
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn load_lazy(
-        &mut self,
-        key: &'static str,
-        factory: impl FnOnce() -> T + 'static,
-    ) -> Resource<T> {
-        let handle = self.alloc_handle();
-        let ready = Signal::new(false);
-        self.factories.insert(handle, Box::new(factory));
-        self.ready.insert(handle, ready.clone());
-        self.by_key.insert(key, handle);
-        Resource {
-            handle,
-            ready: Some(ready),
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn load_keyed(&mut self, key: &'static str) -> Resource<T> {
-        let handle = self.alloc_handle();
-        let ready = Signal::new(false);
-        self.keys.insert(handle, key);
-        self.ready.insert(handle, ready.clone());
-        self.by_key.insert(key, handle);
-        Resource {
-            handle,
-            ready: Some(ready),
-            _phantom: PhantomData,
-        }
-    }
-
-    pub fn get(&mut self, h: ResourceHandle) -> Option<Handle<T>> {
-        if let Some(handle) = self.statics.acquire(&h) {
-            return Some(handle);
-        }
-        if let Some(handle) = self.cache.acquire(&h) {
-            return Some(handle);
-        }
-        self.materialise(h)
-    }
-
-    pub fn evict(&mut self, h: ResourceHandle) {
-        if self.cache.drop(&h) {
-            if let Some(sig) = self.ready.get(&h) {
-                sig.set(false);
-            }
-        }
-    }
-
-    fn materialise(&mut self, h: ResourceHandle) -> Option<Handle<T>> {
-        let value = if let Some(factory) = self.factories.remove(&h) {
-            factory()
-        } else {
-            let key = self.keys.get(&h)?;
-            self.run_loaders(key)?
-        };
-        let handle = self.cache.entry(h).or_insert_with(|| value);
-        if let Some(sig) = self.ready.get(&h) {
-            sig.set(true);
-        }
-        Some(handle)
-    }
-
-    fn run_loaders(&self, key: &str) -> Option<T> {
-        self.loaders
-            .iter()
-            .find(|l| l.can_load(key))
-            .and_then(|l| l.load(key))
-    }
-}
+pub use handle::ResourceHandle;
+pub use loader::{LoadError, Loader, ProbeLoader};
+pub use manager::ResourceManager;
+pub use probe::HasProbe;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cache::{HasSize, MaxSize};
     use alloc::rc::Rc;
-    use alloc::string::String;
-    use core::cell::Cell;
+    use alloc::string::{String, ToString};
 
-    #[test]
-    fn static_resource_reads_back() {
-        let mut rm: ResourceManager<u32> = ResourceManager::new(MaxSize::Count(4));
-        let r = rm.load_static("n", 42u32);
-        assert!(r.is_ready());
-        assert_eq!(rm.get(r.handle()).map(|h| *h), Some(42));
+    #[derive(Clone, Debug, PartialEq)]
+    struct Note(String);
+
+    impl HasSize for Note {
+        fn cache_size(&self) -> usize {
+            self.0.len().max(1)
+        }
     }
 
-    #[test]
-    fn lazy_runs_factory_once_and_flips_ready() {
-        let mut rm: ResourceManager<u32> = ResourceManager::new(MaxSize::Count(4));
-        let runs = Rc::new(Cell::new(0));
-        let runs2 = runs.clone();
-        let r = rm.load_lazy("v", move || {
-            runs2.set(runs2.get() + 1);
-            7u32
-        });
-        assert!(!r.is_ready());
-        assert_eq!(rm.get(r.handle()).map(|h| *h), Some(7));
-        assert!(r.is_ready());
-        assert_eq!(rm.get(r.handle()).map(|h| *h), Some(7));
-        assert_eq!(runs.get(), 1);
+    fn fb_note() -> Note {
+        Note("FALLBACK".into())
     }
 
-    #[test]
-    fn evict_then_reresolve_runs_loader_again() {
-        struct Loader;
-        impl ResourceLoader<u32> for Loader {
-            fn can_load(&self, key: &str) -> bool {
-                key == "img"
-            }
-            fn load(&self, _key: &str) -> Option<u32> {
-                Some(99u32)
+    #[derive(Clone, Debug, PartialEq)]
+    struct Img {
+        bytes: String,
+        w: u16,
+        h: u16,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    struct ImgMeta {
+        w: u16,
+        h: u16,
+    }
+
+    impl HasSize for Img {
+        fn cache_size(&self) -> usize {
+            self.bytes.len().max(1)
+        }
+    }
+
+    impl HasSize for ImgMeta {
+        fn cache_size(&self) -> usize {
+            1
+        }
+    }
+
+    impl HasProbe for Img {
+        type Meta = ImgMeta;
+        fn extract_meta(&self) -> ImgMeta {
+            ImgMeta {
+                w: self.w,
+                h: self.h,
             }
         }
-        let mut rm: ResourceManager<u32> = ResourceManager::new(MaxSize::Count(4));
-        rm.register_loader(Loader);
-        let r = rm.load_keyed("img");
-        assert_eq!(rm.get(r.handle()).map(|h| *h), Some(99));
-        assert!(r.is_ready());
-        rm.evict(r.handle());
-        assert!(!r.is_ready());
-        assert_eq!(rm.get(r.handle()).map(|h| *h), Some(99));
+    }
+
+    fn fb_img() -> Img {
+        Img {
+            bytes: "FALLBACK".into(),
+            w: 16,
+            h: 16,
+        }
+    }
+
+    fn fb_meta() -> ImgMeta {
+        ImgMeta { w: 16, h: 16 }
     }
 
     #[test]
-    fn lru_evicts_oldest_static_stays() {
-        let mut rm: ResourceManager<String> = ResourceManager::new(MaxSize::Count(2));
-        let s = rm.load_static("s", String::from("keep"));
-        let a = rm.load_lazy("a", || String::from("a"));
-        let b = rm.load_lazy("b", || String::from("b"));
-        let c = rm.load_lazy("c", || String::from("c"));
-        assert_eq!(rm.get(a.handle()).as_deref().map(String::as_str), Some("a"));
-        assert_eq!(rm.get(b.handle()).as_deref().map(String::as_str), Some("b"));
-        assert_eq!(rm.get(c.handle()).as_deref().map(String::as_str), Some("c"));
-        // `a` was the oldest evictable entry under Count(2); it fell out.
-        assert!(rm.cache.acquire(&a.handle()).is_none());
+    fn add_static_then_resolve_returns_value() {
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        m.add_static("greeting", Note("hi".into()));
+        let rc = m.resolve("greeting");
+        assert_eq!(*rc, Note("hi".into()));
+    }
+
+    #[test]
+    fn unknown_token_returns_fallback() {
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        let rc = m.resolve("nonexistent");
+        assert_eq!(*rc, fb_note());
+    }
+
+    #[test]
+    fn add_factory_runs_lazily_once() {
+        use core::cell::Cell;
+
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        let runs = Rc::new(Cell::new(0u32));
+        let runs2 = runs.clone();
+        m.add_factory("page", move || {
+            runs2.set(runs2.get() + 1);
+            Some(Note("page-content".into()))
+        });
+        assert_eq!(runs.get(), 0, "factory should not run before resolve");
+
+        let a = m.resolve("page");
+        assert_eq!(*a, Note("page-content".into()));
+        assert_eq!(runs.get(), 1);
+
+        let b = m.resolve("page");
+        assert_eq!(*b, Note("page-content".into()));
         assert_eq!(
-            rm.get(s.handle()).as_deref().map(String::as_str),
-            Some("keep")
+            runs.get(),
+            1,
+            "second resolve must hit cache, not re-run factory"
         );
     }
 
     #[test]
-    fn handle_survives_eviction_as_invalid() {
-        let mut rm: ResourceManager<u32> = ResourceManager::new(MaxSize::Count(4));
-        let r = rm.load_lazy("v", || 5u32);
-        let handle = rm.get(r.handle()).unwrap();
-        assert!(!handle.is_invalid());
-        rm.evict(r.handle());
-        assert!(handle.is_invalid());
-        assert_eq!(*handle, 5);
+    fn closure_loader_chain_first_match_wins() {
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        m.add_loader(|t: &str| -> Result<Note, LoadError> {
+            if t.starts_with("first/") {
+                Ok(Note(format!("from-first:{}", t).to_string()))
+            } else {
+                Err(LoadError::NotMine)
+            }
+        });
+        m.add_loader(|t: &str| -> Result<Note, LoadError> {
+            if t.starts_with("second/") {
+                Ok(Note(format!("from-second:{}", t).to_string()))
+            } else {
+                Err(LoadError::NotMine)
+            }
+        });
+
+        assert_eq!(*m.resolve("first/x"), Note("from-first:first/x".into()));
+        assert_eq!(*m.resolve("second/y"), Note("from-second:second/y".into()));
+        assert_eq!(*m.resolve("unhandled"), fb_note());
+    }
+
+    #[test]
+    fn loader_failed_short_circuits_chain_and_marks_failed() {
+        use core::cell::Cell;
+
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        let later_calls = Rc::new(Cell::new(0u32));
+        let later2 = later_calls.clone();
+        m.add_loader(|_t: &str| -> Result<Note, LoadError> { Err(LoadError::Failed("bad token")) });
+        m.add_loader(move |_t: &str| -> Result<Note, LoadError> {
+            later2.set(later2.get() + 1);
+            Ok(Note("late".into()))
+        });
+
+        let r = m.resolve("anything");
+        assert_eq!(
+            *r,
+            fb_note(),
+            "Failed should short-circuit and return fallback"
+        );
+        assert_eq!(
+            later_calls.get(),
+            0,
+            "later loaders should not run after Failed"
+        );
+
+        let _ = m.resolve("anything");
+        assert_eq!(
+            later_calls.get(),
+            0,
+            "failed-set must prevent re-running loaders on repeat resolve",
+        );
+    }
+
+    #[test]
+    fn handle_keeps_token_alive_via_load() {
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        m.add_static("greeting", Note("hi".into()));
+
+        let h = m.load("greeting");
+        let v: Rc<Note> = h.get();
+        assert_eq!(*v, Note("hi".into()));
+        assert_eq!(h.token(), "greeting");
+    }
+
+    #[test]
+    fn handle_get_after_manager_dropped_returns_fallback() {
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        m.add_static("greeting", Note("hi".into()));
+        let h = m.load("greeting");
+        drop(m);
+        let v = h.get();
+        assert_eq!(*v, fb_note());
+    }
+
+    #[test]
+    fn remove_token_drops_factory_but_existing_rcs_survive() {
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        m.add_static("a", Note("alpha".into()));
+
+        let still_held = m.resolve("a");
+        m.remove_token("a");
+
+        assert_eq!(
+            *still_held,
+            Note("alpha".into()),
+            "existing Rc<T> survives unregistration",
+        );
+
+        let after = m.resolve("a");
+        assert_eq!(*after, fb_note(), "new resolve falls back after unregister");
+    }
+
+    #[test]
+    fn subscribe_returns_signal_for_token() {
+        let m = ResourceManager::<Note>::new(MaxSize::Bytes(1024), fb_note());
+        let s1 = m.subscribe("foo");
+        let s2 = m.subscribe("foo");
+        assert!(
+            Rc::ptr_eq(&s1, &s2),
+            "subscribe is idempotent for the same token"
+        );
+    }
+
+    fn img_manager() -> ResourceManager<Img> {
+        let m = ResourceManager::<Img>::new(MaxSize::Bytes(1024), fb_img());
+        m.enable_probes(MaxSize::Count(64), fb_meta());
+        m
+    }
+
+    #[test]
+    fn probe_via_static_extracts_meta_without_full_decode() {
+        let m = img_manager();
+        m.add_static(
+            "hero",
+            Img {
+                bytes: "long-decoded-pixel-data".into(),
+                w: 128,
+                h: 64,
+            },
+        );
+
+        let meta = m.probe("hero");
+        assert_eq!(meta, Some(ImgMeta { w: 128, h: 64 }));
+    }
+
+    #[test]
+    fn probe_via_factory_returns_none_without_probe_path() {
+        let m = img_manager();
+        m.add_factory("dyn", || {
+            Some(Img {
+                bytes: "ran".into(),
+                w: 32,
+                h: 32,
+            })
+        });
+        assert_eq!(
+            m.probe("dyn"),
+            None,
+            "plain Factory cannot answer probe without running the factory",
+        );
+    }
+
+    #[test]
+    fn add_probed_factory_answers_probe_without_running_factory() {
+        use core::cell::Cell;
+        let m = img_manager();
+        let runs = Rc::new(Cell::new(0u32));
+        let runs2 = runs.clone();
+        m.add_probed_factory("logo", ImgMeta { w: 256, h: 128 }, move || {
+            runs2.set(runs2.get() + 1);
+            Some(Img {
+                bytes: "decoded".into(),
+                w: 256,
+                h: 128,
+            })
+        });
+
+        assert_eq!(m.probe("logo"), Some(ImgMeta { w: 256, h: 128 }));
+        assert_eq!(runs.get(), 0, "probe should not run the factory");
+
+        let v = m.resolve("logo");
+        assert_eq!(v.w, 256);
+        assert_eq!(runs.get(), 1, "resolve runs factory once");
+    }
+
+    #[test]
+    fn resolve_mirrors_meta_into_probes_cache() {
+        let m = img_manager();
+        m.add_static(
+            "hero",
+            Img {
+                bytes: "data".into(),
+                w: 100,
+                h: 50,
+            },
+        );
+        let _ = m.resolve("hero");
+        let meta = m.probe("hero");
+        assert_eq!(meta, Some(ImgMeta { w: 100, h: 50 }));
+    }
+
+    #[test]
+    fn probe_loader_chain_returns_meta_only() {
+        let m = img_manager();
+        m.add_loader(|t: &str| -> Result<Img, LoadError> {
+            if let Some(rest) = t.strip_prefix("img/") {
+                Ok(Img {
+                    bytes: format!("decoded:{}", rest).to_string(),
+                    w: 24,
+                    h: 24,
+                })
+            } else {
+                Err(LoadError::NotMine)
+            }
+        });
+
+        let meta = m.probe("img/foo");
+        assert_eq!(meta, Some(ImgMeta { w: 24, h: 24 }));
+    }
+
+    #[test]
+    fn unknown_token_probe_returns_none() {
+        let m = img_manager();
+        assert_eq!(m.probe("nope"), None);
+    }
+
+    #[test]
+    fn builder_with_chain_initializes_full_manager() {
+        let m = ResourceManager::<Img>::new(MaxSize::Bytes(1024), fb_img())
+            .with_probes(MaxSize::Count(64), fb_meta())
+            .with_static(
+                "logo",
+                Img {
+                    bytes: "static-logo".into(),
+                    w: 64,
+                    h: 64,
+                },
+            )
+            .with_probed_factory("hero", ImgMeta { w: 256, h: 128 }, || {
+                Some(Img {
+                    bytes: "hero-decoded".into(),
+                    w: 256,
+                    h: 128,
+                })
+            })
+            .with_loader(|t: &str| -> Result<Img, LoadError> {
+                if t == "fallback-route" {
+                    Ok(Img {
+                        bytes: "loader-out".into(),
+                        w: 8,
+                        h: 8,
+                    })
+                } else {
+                    Err(LoadError::NotMine)
+                }
+            });
+
+        assert_eq!(m.probe("logo"), Some(ImgMeta { w: 64, h: 64 }));
+        assert_eq!(m.resolve("logo").w, 64);
+
+        assert_eq!(m.probe("hero"), Some(ImgMeta { w: 256, h: 128 }));
+
+        assert_eq!(m.resolve("fallback-route").w, 8);
     }
 }
