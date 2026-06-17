@@ -4,7 +4,7 @@
 //! first upload; dynamic buffers naturally miss every frame and fall
 //! back to re-upload, same cost as the uncached path.
 
-use crate::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
+use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 use crate::render::texture::{ColorFormat, Texture};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -506,7 +506,7 @@ impl<T> Slab<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::NoEvict;
+    use crate::core::cache::NoEvict;
 
     #[test]
     fn count_mode_evicts_lru_on_capacity_overflow() {
@@ -744,7 +744,7 @@ mod tests {
 
     #[test]
     fn cow_keyed_linear_cache_queries_with_borrowed_str() {
-        use crate::cache::LinearLookup;
+        use crate::core::cache::LinearLookup;
         use alloc::borrow::Cow;
         let mut cache: Cache<Cow<'static, str>, u32, Lru, LinearLookup<Cow<'static, str>>> =
             CacheBuilder::default().max_size(MaxSize::Count(4)).build();

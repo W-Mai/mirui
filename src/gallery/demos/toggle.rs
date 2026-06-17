@@ -3,11 +3,11 @@ use alloc::format;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
+use crate::core::reactive::{Computed, Signal};
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
-use crate::state::{Computed, Signal};
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::ui::IdMap;

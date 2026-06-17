@@ -34,7 +34,7 @@ use crate::render::renderer::Renderer;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
-use crate::cache::{CacheInspect, InspectCaches};
+use crate::core::cache::{CacheInspect, InspectCaches};
 use crate::surface::{DisplayInfo, InputEvent, Surface, logical_from_physical};
 
 /// macOS trackpad pinch / rotate is delivered by SDL as `MultiGesture`,

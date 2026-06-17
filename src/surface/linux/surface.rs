@@ -11,7 +11,7 @@ use memmap2::{MmapMut, MmapOptions};
 
 use super::input::{EvdevInput, detect_keyboard_device, detect_pointer_device};
 use super::ioctl;
-use crate::cache::InspectCaches;
+use crate::core::cache::InspectCaches;
 use crate::event::input::InputEvent;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::surface::scale::{ScaleMode, compute_scale};

@@ -2,9 +2,9 @@ use alloc::borrow::Cow;
 use alloc::rc::{Rc, Weak};
 use core::cell::RefCell;
 
-use crate::cache::HasSize;
-use crate::resource::manager_inner::{self, ManagerInner, ResolveOutcome};
-use crate::resource::probe::HasProbe;
+use crate::core::cache::HasSize;
+use crate::core::resource::manager_inner::{self, ManagerInner, ResolveOutcome};
+use crate::core::resource::probe::HasProbe;
 
 /// Lease on a token registered with a [`ResourceManager`]. Holding a handle
 /// bumps the manager's per-token refcount; cloning bumps it again, dropping
@@ -51,7 +51,7 @@ impl<T: HasSize + Clone + 'static> ResourceHandle<T> {
 impl<T: HasSize + HasProbe + Clone + 'static> ResourceHandle<T> {
     pub fn probe_via_manager(
         &self,
-        manager: &crate::resource::manager::ResourceManager<T>,
+        manager: &crate::core::resource::manager::ResourceManager<T>,
     ) -> Option<T::Meta> {
         manager.probe(&self.token)
     }

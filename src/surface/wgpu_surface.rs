@@ -16,7 +16,7 @@ use winit::platform::pump_events::EventLoopExtPumpEvents;
 use winit::window::{Window, WindowId};
 
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface, logical_from_physical};
-use crate::cache::InspectCaches;
+use crate::core::cache::InspectCaches;
 use crate::render::texture::ColorFormat;
 use crate::types::{Fixed, Rect};
 

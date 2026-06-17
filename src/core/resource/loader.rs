@@ -1,4 +1,4 @@
-use crate::resource::probe::HasProbe;
+use crate::core::resource::probe::HasProbe;
 
 /// Outcome of [`Loader::try_load`] (and [`ProbeLoader::try_probe`]) when the
 /// loader did not return a value.
@@ -9,7 +9,7 @@ pub enum LoadError {
     NotMine,
     /// The loader claimed the token but failed to produce a value. The
     /// manager logs the message once and marks the token as failed (no retry
-    /// until [`crate::resource::ResourceManager::clear_failed`] is called).
+    /// until [`crate::core::resource::ResourceManager::clear_failed`] is called).
     Failed(&'static str),
 }
 
@@ -59,8 +59,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::HasSize;
-    use crate::resource::probe::HasProbe;
+    use crate::core::cache::HasSize;
+    use crate::core::resource::probe::HasProbe;
     use alloc::string::{String, ToString};
 
     #[derive(Clone, Debug, PartialEq)]

@@ -2,10 +2,10 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
+use crate::core::reactive::Signal;
 use crate::ecs::{Entity, World};
 use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
-use crate::state::Signal;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 
@@ -131,10 +131,10 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     let scroll =
         World::find_by_id(world, "state_list_scroll").expect("scroll container id registered");
-    crate::state::with_world_scope(world, || {
-        crate::state::effect_with_widget(scroll, move || {
+    crate::core::reactive::with_world_scope(world, || {
+        crate::core::reactive::effect_with_widget(scroll, move || {
             let n = content.with(|f| f.len()) as i32;
-            crate::state::with_world(|w| {
+            crate::core::reactive::with_world(|w| {
                 if let Some(cfg) = w.get_mut::<ScrollConfig>(scroll) {
                     cfg.content_height = Fixed::from_int(n * ROW_H);
                 }
@@ -157,9 +157,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::reactive::flush_signal_dirty;
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
-    use crate::state::flush_signal_dirty;
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::builder::WidgetBuilder;

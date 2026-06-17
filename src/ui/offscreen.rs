@@ -47,7 +47,7 @@
 //! - Entity cannot also carry `WidgetTransform3D`.
 //! - `OffscreenRender` cannot nest.
 
-use crate::cache::{Handle, LruCache, MaxSize, WithFactory};
+use crate::core::cache::{Handle, LruCache, MaxSize, WithFactory};
 use crate::ecs::{Entity, World};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::Fixed;

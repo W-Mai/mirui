@@ -20,7 +20,7 @@ pub use probe::HasProbe;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::{HasSize, MaxSize};
+    use crate::core::cache::{HasSize, MaxSize};
     use alloc::rc::Rc;
     use alloc::string::{String, ToString};
 

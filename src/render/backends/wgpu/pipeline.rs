@@ -5,7 +5,7 @@
 
 use bytemuck::{Pod, Zeroable};
 
-use crate::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
+use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum ShaderKind {

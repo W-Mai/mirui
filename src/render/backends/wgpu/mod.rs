@@ -349,7 +349,7 @@ impl WgpuRenderer<'_> {
         }
 
         let key = TextureKey::from(src);
-        let tex_handle: crate::cache::Handle<CachedTexture> = {
+        let tex_handle: crate::core::cache::Handle<CachedTexture> = {
             let state = self
                 .surface
                 .state()
@@ -958,7 +958,7 @@ impl WgpuRenderer<'_> {
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
         let key = TextureKey::from(src);
-        let tex_handle: crate::cache::Handle<CachedTexture> = {
+        let tex_handle: crate::core::cache::Handle<CachedTexture> = {
             let state = self
                 .surface
                 .state()

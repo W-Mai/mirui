@@ -42,10 +42,10 @@ impl<S: Surface> SlowSurface<S> {
     }
 }
 
-impl<S: Surface> crate::cache::InspectCaches for SlowSurface<S> {
+impl<S: Surface> crate::core::cache::InspectCaches for SlowSurface<S> {
     fn inspect_caches(
         &self,
-    ) -> impl Iterator<Item = (&'static str, &dyn crate::cache::CacheInspect)> + '_ {
+    ) -> impl Iterator<Item = (&'static str, &dyn crate::core::cache::CacheInspect)> + '_ {
         self.inner.inspect_caches()
     }
 }

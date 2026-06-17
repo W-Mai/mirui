@@ -1,10 +1,10 @@
 use alloc::borrow::Cow;
 
+use crate::core::resource::ResourceManager;
 use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
-use crate::resource::ResourceManager;
 use crate::types::{Point, Rect};
 use crate::ui::view::{View, ViewCtx};
 

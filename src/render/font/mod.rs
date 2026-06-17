@@ -18,8 +18,8 @@ pub use bitmap_8x8::{CHAR_H, CHAR_W, FONT_8X8, glyph};
 use alloc::boxed::Box;
 use alloc::collections::BTreeMap;
 
+use crate::core::resource::HasProbe;
 use crate::ecs::World;
-use crate::resource::HasProbe;
 
 /// One glyph as the framework consumes it.
 ///
@@ -135,7 +135,7 @@ fn bitmap_8x8_glyph(ch: char) -> Option<Glyph> {
     })
 }
 
-impl crate::cache::HasSize for FontMetrics {
+impl crate::core::cache::HasSize for FontMetrics {
     fn cache_size(&self) -> usize {
         core::mem::size_of::<Self>()
     }

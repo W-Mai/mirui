@@ -415,7 +415,7 @@ pub fn despawn_subtree(world: &mut crate::ecs::World, entity: crate::ecs::Entity
         {
             map.remove(name);
         }
-        crate::state::cleanup_effects_for(e);
+        crate::core::reactive::cleanup_effects_for(e);
         world.despawn(e);
     }
 

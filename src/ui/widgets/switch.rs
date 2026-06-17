@@ -413,7 +413,7 @@ mod tests {
 
     #[test]
     fn closure_handler_captures_and_updates_state() {
-        use crate::state::Signal;
+        use crate::core::reactive::Signal;
 
         let mut world = World::new();
         let switched = Signal::new(false);

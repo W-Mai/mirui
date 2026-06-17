@@ -8,10 +8,10 @@ use core::cell::RefCell;
 use hashbrown::{HashMap, HashSet};
 use rustc_hash::FxBuildHasher;
 
-use crate::cache::{HasSize, LruCache, MaxSize};
-use crate::resource::loader::{LoadError, Loader, ProbeLoader};
-use crate::resource::probe::HasProbe;
-use crate::state::Signal;
+use crate::core::cache::{HasSize, LruCache, MaxSize};
+use crate::core::reactive::Signal;
+use crate::core::resource::loader::{LoadError, Loader, ProbeLoader};
+use crate::core::resource::probe::HasProbe;
 
 /// Per-token registration. `FactoryWithProbe` carries a precomputed probe
 /// blob so `probe()` can answer without ever running the factory; the blob

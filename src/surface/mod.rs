@@ -70,7 +70,7 @@ pub enum BackbufferPersistence {
 /// without `FramebufferAccess`. CPU raster backends additionally
 /// implement [`FramebufferAccess`] to expose their framebuffer to
 /// `SwRendererFactory`.
-pub trait Surface: crate::cache::InspectCaches {
+pub trait Surface: crate::core::cache::InspectCaches {
     fn display_info(&self) -> DisplayInfo;
 
     /// Present the given **physical-pixel** region of the backing surface.
@@ -155,7 +155,7 @@ mod tests {
     use super::*;
 
     struct NoOpBackend;
-    impl crate::cache::InspectCaches for NoOpBackend {}
+    impl crate::core::cache::InspectCaches for NoOpBackend {}
     impl Surface for NoOpBackend {
         fn display_info(&self) -> DisplayInfo {
             DisplayInfo {

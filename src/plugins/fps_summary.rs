@@ -48,7 +48,7 @@ impl StageTotals {
 /// "could-go" rate ignoring idle skips and pacing. `wall_ns` is
 /// `None` if no `MonoClock` resource is installed.
 ///
-/// Sinks that want per-span detail call `crate::perf::drain_events()`
+/// Sinks that want per-span detail call `crate::core::perf::drain_events()`
 /// explicitly — the plugin doesn't pre-drain, because that single
 /// global stream is also where `PerfReportPlugin` reads from.
 pub struct FpsSummary<'a> {

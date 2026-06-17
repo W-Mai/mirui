@@ -2,9 +2,9 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
+use crate::core::reactive::{Effect, Signal};
 use crate::ecs::{Entity, World};
 use crate::prelude::*;
-use crate::state::{Effect, Signal};
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 
@@ -64,9 +64,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::reactive::flush_signal_dirty;
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
-    use crate::state::flush_signal_dirty;
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::builder::WidgetBuilder;

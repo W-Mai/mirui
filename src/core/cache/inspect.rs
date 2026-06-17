@@ -87,7 +87,7 @@ impl CacheRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::{HashLookup, Lru, MaxSize as M};
+    use crate::core::cache::{HashLookup, Lru, MaxSize as M};
     use alloc::vec::Vec;
 
     #[test]

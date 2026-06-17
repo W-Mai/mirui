@@ -21,7 +21,7 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::render::{Canvas as SdlCanvas, Texture as SdlTexture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
-use crate::cache::{HasSize, LruCache, MaxSize, WithFactory};
+use crate::core::cache::{HasSize, LruCache, MaxSize, WithFactory};
 use crate::render::SwRenderer;
 use crate::render::canvas::Canvas as _;
 use crate::render::font::{CHAR_H, CHAR_W};
@@ -162,7 +162,7 @@ impl LabelCache {
     /// Read-only `CacheInspect` view onto the underlying cache. Used by
     /// `SdlGpuSurface` to surface label-cache stats without exposing
     /// the private `LabelKey` / `CachedTexture` types.
-    pub(super) fn as_inspect(&self) -> &dyn crate::cache::CacheInspect {
+    pub(super) fn as_inspect(&self) -> &dyn crate::core::cache::CacheInspect {
         self.cache.cache()
     }
 

@@ -2,10 +2,10 @@ use alloc::borrow::Cow;
 use alloc::boxed::Box;
 
 use crate::app::{App, RendererFactory};
-use crate::cache::MaxSize;
+use crate::core::cache::MaxSize;
+use crate::core::resource::ResourceManager;
 use crate::plugin::Plugin;
 use crate::render::texture::{ColorFormat, Texture, TextureMeta};
-use crate::resource::ResourceManager;
 use crate::surface::Surface;
 use crate::ui::widgets::assets::IMG_THUMBS_UP;
 
@@ -173,7 +173,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::resource::HasProbe;
+    use crate::core::resource::HasProbe;
 
     fn rebuild_into_manager(
         plugin: &mut ImageResourcesPlugin,

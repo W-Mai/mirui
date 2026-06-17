@@ -227,7 +227,7 @@ fn rotate_scale_around(p: &mut (f32, f32), cx: f32, cy: f32, theta: f32, scale: 
     p.1 = cy + ry;
 }
 
-impl crate::cache::InspectCaches for SdlSurface {}
+impl crate::core::cache::InspectCaches for SdlSurface {}
 
 impl Surface for SdlSurface {
     fn display_info(&self) -> DisplayInfo {

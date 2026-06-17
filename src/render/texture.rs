@@ -1,4 +1,4 @@
-use crate::cache::HasSize;
+use crate::core::cache::HasSize;
 use crate::types::{Color, Fixed};
 use alloc::vec::Vec;
 
@@ -419,7 +419,7 @@ impl HasSize for TextureMeta {
     }
 }
 
-impl crate::resource::HasProbe for Texture<'static> {
+impl crate::core::resource::HasProbe for Texture<'static> {
     type Meta = TextureMeta;
 
     fn extract_meta(&self) -> TextureMeta {
@@ -431,9 +431,9 @@ impl crate::resource::HasProbe for Texture<'static> {
     }
 }
 
-impl From<MirxLoadError> for crate::resource::LoadError {
+impl From<MirxLoadError> for crate::core::resource::LoadError {
     fn from(err: MirxLoadError) -> Self {
-        crate::resource::LoadError::Failed(match err {
+        crate::core::resource::LoadError::Failed(match err {
             MirxLoadError::Parse(_) => "mirx parse failed",
             MirxLoadError::UnsupportedFormat(_) => "mirx format not supported by mirui",
             MirxLoadError::NoImageChunk => "mirx file has no IMAGE chunk",
@@ -456,17 +456,17 @@ where
     }
 }
 
-impl<F> crate::resource::Loader<Texture<'static>> for MirxLoader<F>
+impl<F> crate::core::resource::Loader<Texture<'static>> for MirxLoader<F>
 where
     F: Fn(&str) -> Option<&'static [u8]> + 'static,
 {
-    fn try_load(&self, token: &str) -> Result<Texture<'static>, crate::resource::LoadError> {
-        let bytes = (self.fetch)(token).ok_or(crate::resource::LoadError::NotMine)?;
+    fn try_load(&self, token: &str) -> Result<Texture<'static>, crate::core::resource::LoadError> {
+        let bytes = (self.fetch)(token).ok_or(crate::core::resource::LoadError::NotMine)?;
         Texture::from_mirx(bytes).map_err(Into::into)
     }
 }
 
-impl crate::resource::ResourceManager<Texture<'static>> {
+impl crate::core::resource::ResourceManager<Texture<'static>> {
     /// Register `bytes` under `token`. Peeks meta eagerly so layout queries
     /// skip the full decode path.
     pub fn add_mirx_bytes(
@@ -474,7 +474,7 @@ impl crate::resource::ResourceManager<Texture<'static>> {
         token: impl Into<alloc::borrow::Cow<'static, str>>,
         bytes: &'static [u8],
     ) -> Result<(), MirxLoadError> {
-        use crate::resource::HasProbe;
+        use crate::core::resource::HasProbe;
         let meta = Texture::from_mirx(bytes)?.extract_meta();
         self.add_probed_factory(token, meta, move || Texture::from_mirx(bytes).ok());
         Ok(())
@@ -583,7 +583,7 @@ mod tests {
         );
     }
 
-    use crate::resource::HasProbe;
+    use crate::core::resource::HasProbe;
 
     fn build_flat_rgb565_2x1() -> &'static [u8] {
         let input = mirx::FlatImageInput {
@@ -634,8 +634,8 @@ mod tests {
         assert_eq!(meta.format, ColorFormat::RGB565);
     }
 
-    use crate::cache::MaxSize;
-    use crate::resource::ResourceManager;
+    use crate::core::cache::MaxSize;
+    use crate::core::resource::ResourceManager;
 
     fn texture_manager() -> ResourceManager<Texture<'static>> {
         let m = ResourceManager::<Texture<'static>>::new(

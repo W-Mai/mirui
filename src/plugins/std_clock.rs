@@ -16,7 +16,7 @@ fn std_clock_ns() -> u64 {
 ///
 /// **Inserts**
 /// - resource: `MonoClock`
-/// - global: calls `crate::perf::set_clock` so `trace_span!` records
+/// - global: calls `crate::core::perf::set_clock` so `trace_span!` records
 ///   on `no_std` builds (no-op on `std` since the std imp uses
 ///   `Instant` directly)
 #[derive(Default)]
@@ -32,6 +32,6 @@ where
         app.world.insert_resource(MonoClock::new(std_clock_ns));
         // std `perf` imp uses Instant directly, so this is a no-op
         // there; calling it keeps API symmetry with no_std clock plugins.
-        crate::perf::set_clock(std_clock_ns);
+        crate::core::perf::set_clock(std_clock_ns);
     }
 }

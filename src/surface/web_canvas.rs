@@ -18,7 +18,7 @@ use web_sys::{
 };
 
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface};
-use crate::cache::InspectCaches;
+use crate::core::cache::InspectCaches;
 use crate::event::input::{
     KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
 };

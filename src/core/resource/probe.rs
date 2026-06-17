@@ -1,4 +1,4 @@
-use crate::cache::HasSize;
+use crate::core::cache::HasSize;
 
 /// Dual of [`HasSize`]: [`HasSize`] quantifies a value's byte cost so the
 /// cache can evict by bytes; [`HasProbe`] extracts a cheap metadata snapshot

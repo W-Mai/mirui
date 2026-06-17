@@ -1,5 +1,5 @@
 use crate::app::{App, RendererFactory};
-use crate::cache::{CacheRegistry, CacheStatsSnapshot};
+use crate::core::cache::{CacheRegistry, CacheStatsSnapshot};
 use crate::ecs::World;
 use crate::plugin::Plugin;
 use crate::surface::Surface;

@@ -6,7 +6,7 @@ use super::fb::FbDevice;
 use super::input::{KeyInput, TouchInput};
 use super::log::{error, warn};
 use super::{fb_path_for_display, signal};
-use crate::cache::InspectCaches;
+use crate::core::cache::InspectCaches;
 use crate::event::input::InputEvent;
 use crate::render::texture::Texture;
 use crate::surface::scale::{ScaleMode, compute_scale};

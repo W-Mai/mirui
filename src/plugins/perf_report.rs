@@ -7,8 +7,8 @@
 //! per-name span totals plus per-system scheduler timings.
 
 use crate::app::{App, RendererFactory};
+use crate::core::perf::StageStat;
 use crate::ecs::World;
-use crate::perf::StageStat;
 use crate::plugin::Plugin;
 use crate::surface::Surface;
 
@@ -114,11 +114,11 @@ where
         // Opt-in flag for App::snapshot_system_perf.
         app.world.insert_resource(SystemPerfSnapshot::default());
         // Opens the trace_span!/trace_fn recording path.
-        crate::perf::set_enabled(true);
+        crate::core::perf::set_enabled(true);
     }
 
     fn post_render(&mut self, world: &mut World, _render_nanos: u64) {
-        let events = crate::perf::drain_events();
+        let events = crate::core::perf::drain_events();
 
         if let Some(sink) = self.perfetto_line_sink.as_mut() {
             // The sink may be expensive per call on `no_std` targets
@@ -128,7 +128,7 @@ where
             let mut line = alloc::string::String::with_capacity(128);
             for ev in &events {
                 line.clear();
-                if crate::perf::format_chrome_event(ev, &mut line).is_ok() {
+                if crate::core::perf::format_chrome_event(ev, &mut line).is_ok() {
                     frame_buf.push_str(&line);
                     frame_buf.push('\n');
                 }

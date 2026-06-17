@@ -25,7 +25,7 @@ impl<T: alloc::string::ToString> IntoText for T {
 
 pub fn reactive_set_text(entity: Entity, value: impl IntoText) {
     let text = value.into_text();
-    crate::state::with_world(|w| {
+    crate::core::reactive::with_world(|w| {
         w.insert(
             entity,
             crate::ui::widgets::text::Text(Vec::from(text.as_bytes())),
@@ -36,7 +36,7 @@ pub fn reactive_set_text(entity: Entity, value: impl IntoText) {
 
 pub fn reactive_set_bg_color(entity: Entity, value: impl Into<ThemedColor>) {
     let color = value.into();
-    crate::state::with_world(|w| {
+    crate::core::reactive::with_world(|w| {
         if let Some(style) = w.get_mut::<Style>(entity) {
             style.bg_color = Some(color);
         }
@@ -46,7 +46,7 @@ pub fn reactive_set_bg_color(entity: Entity, value: impl Into<ThemedColor>) {
 
 pub fn reactive_set_text_color(entity: Entity, value: impl Into<ThemedColor>) {
     let color = value.into();
-    crate::state::with_world(|w| {
+    crate::core::reactive::with_world(|w| {
         if let Some(style) = w.get_mut::<Style>(entity) {
             style.text_color = color;
         }
@@ -56,7 +56,7 @@ pub fn reactive_set_text_color(entity: Entity, value: impl Into<ThemedColor>) {
 
 pub fn reactive_set_width(entity: Entity, value: impl Into<Dimension>) {
     let dim = value.into();
-    crate::state::with_world(|w| {
+    crate::core::reactive::with_world(|w| {
         if let Some(style) = w.get_mut::<Style>(entity) {
             style.layout.width = dim;
         }
@@ -66,7 +66,7 @@ pub fn reactive_set_width(entity: Entity, value: impl Into<Dimension>) {
 
 pub fn reactive_set_height(entity: Entity, value: impl Into<Dimension>) {
     let dim = value.into();
-    crate::state::with_world(|w| {
+    crate::core::reactive::with_world(|w| {
         if let Some(style) = w.get_mut::<Style>(entity) {
             style.layout.height = dim;
         }
@@ -77,8 +77,8 @@ pub fn reactive_set_height(entity: Entity, value: impl Into<Dimension>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::reactive::{Signal, effect_with_widget, with_world_scope};
     use crate::ecs::World;
-    use crate::state::{Signal, effect_with_widget, with_world_scope};
     use crate::ui::builder::WidgetBuilder;
 
     #[test]

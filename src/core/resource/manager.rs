@@ -6,12 +6,12 @@ use core::cell::RefCell;
 
 use hashbrown::HashSet;
 
-use crate::cache::{HasSize, LruCache, MaxSize};
-use crate::resource::handle::ResourceHandle;
-use crate::resource::loader::Loader;
-use crate::resource::manager_inner::{self, Entry, EntryKind, ManagerInner, ResolveOutcome};
-use crate::resource::probe::HasProbe;
-use crate::state::Signal;
+use crate::core::cache::{HasSize, LruCache, MaxSize};
+use crate::core::reactive::Signal;
+use crate::core::resource::handle::ResourceHandle;
+use crate::core::resource::loader::Loader;
+use crate::core::resource::manager_inner::{self, Entry, EntryKind, ManagerInner, ResolveOutcome};
+use crate::core::resource::probe::HasProbe;
 
 /// Optional probe state held alongside [`ManagerInner`]. The user opts in by
 /// calling [`ResourceManager::enable_probes`] (or [`ResourceManager::with_probes`]).

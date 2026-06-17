@@ -1,10 +1,10 @@
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
+use crate::core::reactive::Signal;
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
-use crate::state::Signal;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::Fixed;

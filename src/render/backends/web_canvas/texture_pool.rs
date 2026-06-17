@@ -7,7 +7,7 @@ use wasm_bindgen::Clamped;
 use wasm_bindgen::JsCast;
 use web_sys::{ImageData, OffscreenCanvas, OffscreenCanvasRenderingContext2d};
 
-use crate::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
+use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 use crate::render::texture::{ColorFormat, Texture};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

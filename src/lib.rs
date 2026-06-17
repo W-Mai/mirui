@@ -83,18 +83,14 @@ extern crate self as mirui;
 
 pub mod anim;
 pub mod app;
-pub mod cache;
+pub mod core;
 pub mod ecs;
 pub mod event;
 pub mod feedback;
-pub mod perf;
 pub mod plugin;
 pub mod plugins;
 pub mod render;
-pub mod resource;
-pub mod state;
 pub mod surface;
-pub mod timer;
 pub mod types;
 pub mod ui;
 
@@ -106,13 +102,13 @@ pub use mirui_macros::{Component, system, trace_fn, trace_span, ui};
 // Re-export so `ui!`-generated code references `Rc` through `mirui`, working in
 // both std and no_std user crates without an `extern crate alloc` of their own.
 #[doc(hidden)]
+pub use ::core::cell::Cell as __Cell;
+#[doc(hidden)]
+pub use ::core::cell::RefCell as __RefCell;
+#[doc(hidden)]
 pub use alloc::rc::Rc as __Rc;
 #[doc(hidden)]
 pub use alloc::vec::Vec as __Vec;
-#[doc(hidden)]
-pub use core::cell::Cell as __Cell;
-#[doc(hidden)]
-pub use core::cell::RefCell as __RefCell;
 
 /// `use mirui::prelude::*;` brings in the types and macros that nearly
 /// every application file needs: `App`, the layout module, `Color` /
@@ -122,6 +118,7 @@ pub use core::cell::RefCell as __RefCell;
 /// doesn't pin a platform choice.
 pub mod prelude {
     pub use crate::app::App;
+    pub use crate::core::reactive::{Computed, Effect, Signal};
     pub use crate::ecs::{Entity, World};
     pub use crate::types::{Color, Dimension, Fixed, Point, Rect};
     pub use crate::ui::builder::WidgetBuilder;

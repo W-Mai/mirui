@@ -215,7 +215,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::{HashLookup, Lru, MaxSize};
+    use crate::core::cache::{HashLookup, Lru, MaxSize};
     use ::core::cell::Cell;
 
     #[test]

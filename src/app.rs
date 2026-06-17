@@ -182,7 +182,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     pub fn with_default_systems(&mut self) -> &mut Self {
         self.add_system(crate::anim::sync_delta_time_ms::system());
-        self.add_system(crate::timer::timer_system::system());
+        self.add_system(crate::core::timer::timer_system::system());
         self.add_system(crate::event::scroll::system::scroll_inertia_system::system());
         self.add_system(crate::ui::state::hover_system::system());
         self.add_system(crate::ui::state::press_system::system());
@@ -345,11 +345,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.world.insert_resource(stats);
 
         // Publish after FrameTimings so a single post_render sees both.
-        let snapshots = crate::cache::InspectCaches::inspect_caches(&self.backend)
-            .map(|(_, c)| crate::cache::CacheStatsSnapshot::capture(c))
+        let snapshots = crate::core::cache::InspectCaches::inspect_caches(&self.backend)
+            .map(|(_, c)| crate::core::cache::CacheStatsSnapshot::capture(c))
             .collect();
         self.world
-            .insert_resource(crate::cache::CacheRegistry::from_snapshots(snapshots));
+            .insert_resource(crate::core::cache::CacheRegistry::from_snapshots(snapshots));
     }
 
     /// Get the dirty region in **logical pixels** after event processing,
@@ -476,7 +476,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             crate::trace_span!("frame.systems");
             self.systems.run_all(&mut self.world);
         }
-        crate::state::flush_signal_dirty(&mut self.world);
+        crate::core::reactive::flush_signal_dirty(&mut self.world);
         self.snapshot_system_perf();
         let systems_end = self.clock_ns();
 

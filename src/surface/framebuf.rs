@@ -64,7 +64,7 @@ impl<F: FnMut(&[u8], &Rect)> FramebufSurface<F> {
     }
 }
 
-impl<F: FnMut(&[u8], &Rect)> crate::cache::InspectCaches for FramebufSurface<F> {}
+impl<F: FnMut(&[u8], &Rect)> crate::core::cache::InspectCaches for FramebufSurface<F> {}
 
 impl<F: FnMut(&[u8], &Rect)> Surface for FramebufSurface<F> {
     fn display_info(&self) -> DisplayInfo {
