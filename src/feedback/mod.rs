@@ -1,6 +1,6 @@
 //! Cursor + rotary input feedback overlays.
 //!
-//! Two ECS entities live under [`crate::widget::WidgetRoot`], one per
+//! Two ECS entities live under [`crate::ui::WidgetRoot`], one per
 //! overlay kind. They are spawned by [`InputFeedbackPlugin`] (cursor
 //! lazily, on first [`crate::event::PointerCursor`]) and dirty-tracked
 //! through the standard per-entity `Dirty` + `PrevRect` mechanism.
@@ -133,7 +133,7 @@ pub(crate) fn write_overlay_layout(
     entity: crate::ecs::Entity,
     rect: Rect,
 ) {
-    if let Some(style) = world.get_mut::<crate::widget::Style>(entity) {
+    if let Some(style) = world.get_mut::<crate::ui::Style>(entity) {
         style.layout.left = crate::types::Dimension::Px(rect.x);
         style.layout.top = crate::types::Dimension::Px(rect.y);
         style.layout.width = crate::types::Dimension::Px(rect.w);

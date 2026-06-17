@@ -8,8 +8,8 @@ use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui::dirty::Dirty;
 use crate::widget;
-use crate::widget::dirty::Dirty;
 
 pub struct TapCount(pub u32);
 
@@ -116,9 +116,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;

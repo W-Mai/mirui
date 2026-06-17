@@ -6,7 +6,7 @@ use alloc::vec::Vec;
 use core::cell::RefCell;
 
 use crate::ecs::{Entity, World};
-use crate::widget::dirty::Dirty;
+use crate::ui::dirty::Dirty;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Subscriber {

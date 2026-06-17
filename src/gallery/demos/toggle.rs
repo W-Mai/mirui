@@ -3,7 +3,6 @@ use alloc::format;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{Checkbox, Switch};
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
@@ -11,7 +10,8 @@ use crate::prelude::*;
 use crate::state::{Computed, Signal};
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::IdMap;
+use crate::ui::IdMap;
+use crate::ui::widgets::{Checkbox, Switch};
 
 #[derive(Clone, Copy, Default)]
 pub struct ToggleStats {
@@ -100,7 +100,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
+    use crate::ui::Children;
 
     #[test]
     fn build_widgets_smoke() {

@@ -2,16 +2,16 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::Image;
-use crate::components::assets::*;
 use crate::ecs::{Entity, MonoClock, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui::root_viewport;
+use crate::ui::widgets::Image;
+use crate::ui::widgets::assets::*;
 use crate::widget;
-use crate::widget::root_viewport;
 use alloc::vec::Vec;
 
 pub struct Velocity {
@@ -379,9 +379,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

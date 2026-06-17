@@ -2,14 +2,14 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{Image, WidgetTransform};
 use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::Transform;
-use crate::widget::dirty::Dirty;
-use crate::widget::{Children, Parent};
+use crate::ui::dirty::Dirty;
+use crate::ui::widgets::{Image, WidgetTransform};
+use crate::ui::{Children, Parent};
 
 pub struct Spinner {
     pub angle: Fixed,
@@ -97,8 +97,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

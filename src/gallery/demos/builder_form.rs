@@ -5,24 +5,24 @@
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{ProgressBar, Slider, Switch};
 use crate::ecs::{Entity, World};
-use crate::layout::{FlexDirection, LayoutStyle};
 #[cfg(feature = "std")]
 use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::{Dimension, Fixed};
-use crate::widget::Style;
-use crate::widget::spawn_children;
-use crate::widget::theme::ColorToken;
+use crate::ui::Style;
+use crate::ui::layout::{FlexDirection, LayoutStyle};
+use crate::ui::spawn_children;
+use crate::ui::theme::ColorToken;
+use crate::ui::widgets::{ProgressBar, Slider, Switch};
 
 fn column_style() -> Style {
     Style {
         layout: LayoutStyle {
             direction: FlexDirection::Column,
             grow: Fixed::from_int(1),
-            padding: crate::layout::Padding {
+            padding: crate::ui::layout::Padding {
                 top: Dimension::px(12),
                 left: Dimension::px(12),
                 right: Dimension::px(12),
@@ -57,8 +57,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     });
     //~focus-end
 
-    world.insert(column, crate::widget::Parent(parent));
-    if let Some(children) = world.get_mut::<crate::widget::Children>(parent) {
+    world.insert(column, crate::ui::Parent(parent));
+    if let Some(children) = world.get_mut::<crate::ui::Children>(parent) {
         children.0.push(column);
     }
 }
@@ -77,9 +77,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

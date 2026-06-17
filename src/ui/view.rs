@@ -12,8 +12,8 @@ use crate::ecs::{Entity, World};
 use crate::event::gesture::GestureEvent;
 use crate::render::renderer::Renderer;
 use crate::types::{Point, Rect, Transform};
-use crate::widget::Style;
-use crate::widget::theme::WidgetState;
+use crate::ui::Style;
+use crate::ui::theme::WidgetState;
 
 /// Boxed as a struct so adding fields later doesn't change the
 /// `ViewRender` fn-pointer signature (which would break user views).
@@ -29,12 +29,12 @@ pub struct ViewCtx<'a> {
 }
 
 impl ViewCtx<'_> {
-    /// Active [`crate::widget::Theme`]. Lazy lookup so render fns
+    /// Active [`crate::ui::Theme`]. Lazy lookup so render fns
     /// that don't need fallback colors pay nothing. `App::new`
     /// guarantees the resource is present.
-    pub fn theme<'w>(&self, world: &'w World) -> &'w crate::widget::Theme {
+    pub fn theme<'w>(&self, world: &'w World) -> &'w crate::ui::Theme {
         world
-            .resource::<crate::widget::Theme>()
+            .resource::<crate::ui::Theme>()
             .expect("App::new must insert Theme; missing means a test fixture skipped App")
     }
 }
@@ -166,20 +166,20 @@ impl ViewRegistry {
     pub fn with_builtins() -> Self {
         let mut reg = Self::default();
         reg.insert(super::style_view::view());
-        reg.insert(crate::components::button::view());
-        reg.insert(crate::components::checkbox::view());
-        reg.insert(crate::components::progress_bar::view());
-        reg.insert(crate::components::tabbar::view());
-        reg.insert(crate::components::text_input::view());
-        reg.insert(crate::components::image::view());
-        reg.insert(crate::components::text::view());
-        reg.insert(crate::components::slider::view());
-        reg.insert(crate::components::switch::view());
-        reg.insert(crate::components::tab_pages::view());
-        reg.insert(crate::components::lazy_list::view());
-        reg.insert(crate::components::mirror::view());
-        reg.insert(crate::components::temporal_mix::view());
-        reg.insert(crate::components::background_blur::view());
+        reg.insert(crate::ui::widgets::button::view());
+        reg.insert(crate::ui::widgets::checkbox::view());
+        reg.insert(crate::ui::widgets::progress_bar::view());
+        reg.insert(crate::ui::widgets::tabbar::view());
+        reg.insert(crate::ui::widgets::text_input::view());
+        reg.insert(crate::ui::widgets::image::view());
+        reg.insert(crate::ui::widgets::text::view());
+        reg.insert(crate::ui::widgets::slider::view());
+        reg.insert(crate::ui::widgets::switch::view());
+        reg.insert(crate::ui::widgets::tab_pages::view());
+        reg.insert(crate::ui::widgets::lazy_list::view());
+        reg.insert(crate::ui::widgets::mirror::view());
+        reg.insert(crate::ui::widgets::temporal_mix::view());
+        reg.insert(crate::ui::widgets::background_blur::view());
         reg
     }
 
@@ -328,8 +328,8 @@ mod tests {
 
     #[test]
     fn theme_accessor_returns_world_resource() {
-        use crate::widget::Theme;
-        use crate::widget::theme::ColorToken;
+        use crate::ui::Theme;
+        use crate::ui::theme::ColorToken;
         let mut world = World::new();
         world.insert_resource(Theme::light());
         let style = Style::default();

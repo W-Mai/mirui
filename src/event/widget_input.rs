@@ -1,14 +1,14 @@
 use crate::ecs::{Entity, World};
 
 // Backwards-compat re-export; canonical path is components::text_input.
-pub use crate::components::text_input::{CursorBlinkPhase, cursor_blink_system};
+pub use crate::ui::widgets::text_input::{CursorBlinkPhase, cursor_blink_system};
 
 // Snapshot ViewAttach fn pointers so the borrow on ViewRegistry
 // drops before each fn gets &mut World. The mut-borrow conflict
 // is the reason for the two-step copy instead of streaming.
 pub fn attach_handlers_for(world: &mut World, entity: Entity) {
-    let mut pending: alloc::vec::Vec<crate::widget::view::ViewAttach> = alloc::vec::Vec::new();
-    if let Some(reg) = world.resource::<crate::widget::view::ViewRegistry>() {
+    let mut pending: alloc::vec::Vec<crate::ui::view::ViewAttach> = alloc::vec::Vec::new();
+    if let Some(reg) = world.resource::<crate::ui::view::ViewRegistry>() {
         for v in reg.iter() {
             if let Some(f) = v.auto_attach() {
                 pending.push(f);
@@ -27,7 +27,7 @@ pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
     let mut stack = alloc::vec::Vec::with_capacity(16);
     stack.push(root);
     while let Some(entity) = stack.pop() {
-        if let Some(children) = world.get::<crate::widget::Children>(entity) {
+        if let Some(children) = world.get::<crate::ui::Children>(entity) {
             for &child in &children.0 {
                 stack.push(child);
             }
@@ -39,15 +39,15 @@ pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::button::Button;
-    use crate::components::checkbox::{Checkbox, checkbox_handler};
-    use crate::components::tabbar::{TabBar, tabbar_handler};
-    use crate::components::text_input::TextInput;
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
     use crate::types::{Fixed, Rect};
-    use crate::widget::ComputedRect;
-    use crate::widget::view::ViewRegistry;
+    use crate::ui::ComputedRect;
+    use crate::ui::view::ViewRegistry;
+    use crate::ui::widgets::button::Button;
+    use crate::ui::widgets::checkbox::{Checkbox, checkbox_handler};
+    use crate::ui::widgets::tabbar::{TabBar, tabbar_handler};
+    use crate::ui::widgets::text_input::TextInput;
 
     #[test]
     fn tabbar_tap_picks_correct_tab() {
@@ -72,7 +72,7 @@ mod tests {
 
     #[test]
     fn registry_carries_button_internal_gesture() {
-        let view = crate::components::button::view();
+        let view = crate::ui::widgets::button::view();
         assert!(
             view.internal_gesture().is_some(),
             "Button view must expose an internal gesture handler"
@@ -83,7 +83,7 @@ mod tests {
     fn user_gesture_handler_coexists_with_button_internal() {
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
-        reg.insert(crate::components::button::view());
+        reg.insert(crate::ui::widgets::button::view());
         world.insert_resource(reg);
 
         let e = world.spawn_empty();
@@ -113,7 +113,7 @@ mod tests {
 
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
-        reg.insert(crate::components::text_input::view());
+        reg.insert(crate::ui::widgets::text_input::view());
         world.insert_resource(reg);
 
         let e = world.spawn_empty();
@@ -124,7 +124,7 @@ mod tests {
         assert!(world.get::<Focusable>(e).is_some());
         assert!(world.get::<KeyHandler>(e).is_some());
         assert!(
-            crate::components::text_input::view()
+            crate::ui::widgets::text_input::view()
                 .internal_gesture()
                 .is_some(),
             "TextInput view must expose internal gesture for focus + tap-to-focus"
@@ -133,7 +133,7 @@ mod tests {
 
     #[test]
     fn registry_carries_progress_bar_internal_gesture() {
-        let view = crate::components::progress_bar::view();
+        let view = crate::ui::widgets::progress_bar::view();
         assert!(
             view.internal_gesture().is_some(),
             "ProgressBar view must expose an internal gesture handler"
@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn registry_carries_checkbox_internal_gesture() {
-        let view = crate::components::checkbox::view();
+        let view = crate::ui::widgets::checkbox::view();
         assert!(
             view.internal_gesture().is_some(),
             "Checkbox view must expose an internal gesture handler"
@@ -153,7 +153,7 @@ mod tests {
     fn checkbox_tap_toggles_checked() {
         let mut world = World::default();
         let mut reg = ViewRegistry::default();
-        reg.insert(crate::components::checkbox::view());
+        reg.insert(crate::ui::widgets::checkbox::view());
         world.insert_resource(reg);
 
         let e = world.spawn_empty();

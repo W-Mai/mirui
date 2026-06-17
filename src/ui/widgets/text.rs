@@ -4,7 +4,7 @@ use crate::ecs::{Entity, World};
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Point, Rect};
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::view::{View, ViewCtx};
 
 #[derive(crate::Component)]
 pub struct Text(pub Vec<u8>);
@@ -20,11 +20,11 @@ impl Text {
 
 pub struct TextBuilder {
     text: Text,
-    style: Option<crate::widget::Style>,
+    style: Option<crate::ui::Style>,
 }
 
 impl TextBuilder {
-    pub fn style(mut self, style: crate::widget::Style) -> Self {
+    pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
     }
@@ -81,11 +81,11 @@ mod tests {
     fn build_spawns_text_with_style() {
         let mut world = World::new();
         let e = Text::build("hi")
-            .style(crate::widget::Style::default())
+            .style(crate::ui::Style::default())
             .spawn(&mut world);
         assert_eq!(world.get::<Text>(e).unwrap().0, b"hi".to_vec());
-        assert!(world.has::<crate::widget::Style>(e));
-        assert!(world.has::<crate::widget::Widget>(e));
+        assert!(world.has::<crate::ui::Style>(e));
+        assert!(world.has::<crate::ui::Widget>(e));
     }
 
     #[test]
@@ -93,6 +93,6 @@ mod tests {
         let mut world = World::new();
         let e = Text::build("hi").spawn(&mut world);
         assert!(world.has::<Text>(e));
-        assert!(!world.has::<crate::widget::Style>(e));
+        assert!(!world.has::<crate::ui::Style>(e));
     }
 }

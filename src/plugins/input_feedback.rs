@@ -12,8 +12,8 @@ use crate::event::input::InputEvent;
 use crate::feedback::{InputFeedback, InputFeedbackInput, cursor, input as feedback_input, rotary};
 use crate::plugin::Plugin;
 use crate::surface::Surface;
-use crate::widget::WidgetRoot;
-use crate::widget::view::ViewRegistry;
+use crate::ui::WidgetRoot;
+use crate::ui::view::ViewRegistry;
 
 /// Cursor + rotary visual feedback overlays. Default off; opt-in via
 /// `app.add_plugin(InputFeedbackPlugin::new())`.
@@ -86,8 +86,8 @@ mod tests {
     use super::*;
     use crate::ecs::Entity;
     use crate::feedback::{OverlayCursor, OverlayRotary};
-    use crate::widget::view::ViewRegistry;
-    use crate::widget::{Children, WidgetRoot};
+    use crate::ui::view::ViewRegistry;
+    use crate::ui::{Children, WidgetRoot};
 
     fn make_app() -> App<crate::surface::framebuf::FramebufSurface<fn(&[u8], &crate::types::Rect)>>
     {
@@ -142,8 +142,8 @@ mod tests {
     fn pre_render_lazy_spawns_rotary_after_root_set() {
         let mut app = make_app();
         let root = app.world.spawn_empty();
-        app.world.insert(root, crate::widget::Widget);
-        app.world.insert(root, crate::widget::Style::default());
+        app.world.insert(root, crate::ui::Widget);
+        app.world.insert(root, crate::ui::Style::default());
         app.world.insert_resource(WidgetRoot(root));
         app.add_plugin(InputFeedbackPlugin::new());
         // build() runs immediately on add_plugin, but plugin's pre_render hasn't
@@ -162,8 +162,8 @@ mod tests {
         // ESP rotary-only path leaks an unused entity into every frame.
         let mut app = make_app();
         let root = app.world.spawn_empty();
-        app.world.insert(root, crate::widget::Widget);
-        app.world.insert(root, crate::widget::Style::default());
+        app.world.insert(root, crate::ui::Widget);
+        app.world.insert(root, crate::ui::Style::default());
         app.world.insert_resource(WidgetRoot(root));
         app.add_plugin(InputFeedbackPlugin::new());
         let mut plugin = InputFeedbackPlugin::new();

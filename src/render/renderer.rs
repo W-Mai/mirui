@@ -8,7 +8,7 @@ pub trait Renderer {
     fn flush(&mut self);
 
     /// Whether this backend serves
-    /// [`crate::widget::OffscreenRender`] entities through the SW
+    /// [`crate::ui::OffscreenRender`] entities through the SW
     /// pipeline: an inner `SwRenderer` over an owned buffer, blit'd
     /// back via [`Self::draw`] with `DrawCommand::Blit`. Returning
     /// `false` makes the render walker skip the offscreen path

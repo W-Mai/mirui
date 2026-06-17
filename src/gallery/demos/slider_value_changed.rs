@@ -1,6 +1,5 @@
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{Slider, Text};
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
@@ -9,7 +8,8 @@ use crate::state::Signal;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::Fixed;
-use crate::widget::IdMap;
+use crate::ui::IdMap;
+use crate::ui::widgets::{Slider, Text};
 
 use alloc::format;
 
@@ -104,7 +104,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
+    use crate::ui::Children;
 
     #[test]
     fn build_widgets_smoke() {

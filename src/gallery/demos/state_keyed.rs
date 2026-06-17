@@ -117,9 +117,9 @@ mod tests {
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
     use crate::state::flush_signal_dirty;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     fn tap(world: &mut World, e: Entity) {
         GestureHandler::trigger(

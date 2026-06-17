@@ -8,10 +8,10 @@ use crate::feedback::{
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect};
-use crate::widget::dirty::Dirty;
-use crate::widget::render_system::LastDirtyRegions;
-use crate::widget::view::{View, ViewCtx};
-use crate::widget::{Children, ComputedRect, IgnoreHitTest, Parent, Style, Widget, WidgetRoot};
+use crate::ui::dirty::Dirty;
+use crate::ui::render_system::LastDirtyRegions;
+use crate::ui::view::{View, ViewCtx};
+use crate::ui::{Children, ComputedRect, IgnoreHitTest, Parent, Style, Widget, WidgetRoot};
 
 const PRIMARY: Color = Color::rgb(88, 166, 255);
 
@@ -212,11 +212,11 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::LayoutStyle;
     use crate::render::texture::ColorFormat;
     use crate::surface::DisplayInfo;
     use crate::types::Dimension;
-    use crate::widget::Style;
+    use crate::ui::Style;
+    use crate::ui::layout::LayoutStyle;
 
     fn make_world() -> World {
         let mut app = crate::app::App::headless(128, 128);
@@ -272,7 +272,7 @@ mod tests {
             },
         );
         world.insert_resource(WidgetRoot(root));
-        crate::widget::render_system::update_layout(
+        crate::ui::render_system::update_layout(
             world,
             root,
             &crate::types::Viewport::new(128, 128, Fixed::ONE),
@@ -400,22 +400,20 @@ mod tests {
 
         // Layout-motion signal that triggers the gate: a published
         // shift on the previous frame.
-        use crate::widget::dirty::{DirtyRegions, RegionShift};
-        world.insert_resource(crate::widget::render_system::LastDirtyRegions(
-            DirtyRegions {
-                rects: alloc::vec![],
-                shifts: alloc::vec![RegionShift {
-                    area: crate::types::Rect::new(
-                        Fixed::ZERO,
-                        Fixed::ZERO,
-                        Fixed::from_int(128),
-                        Fixed::from_int(128),
-                    ),
-                    dx: Fixed::ZERO,
-                    dy: Fixed::from_int(-4),
-                }],
-            },
-        ));
+        use crate::ui::dirty::{DirtyRegions, RegionShift};
+        world.insert_resource(crate::ui::render_system::LastDirtyRegions(DirtyRegions {
+            rects: alloc::vec![],
+            shifts: alloc::vec![RegionShift {
+                area: crate::types::Rect::new(
+                    Fixed::ZERO,
+                    Fixed::ZERO,
+                    Fixed::from_int(128),
+                    Fixed::from_int(128),
+                ),
+                dx: Fixed::ZERO,
+                dy: Fixed::from_int(-4),
+            }],
+        }));
         cursor_feedback_system(&mut world);
         let new_target = world
             .resource::<InputFeedback>()

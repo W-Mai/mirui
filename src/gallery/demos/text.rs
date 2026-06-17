@@ -59,9 +59,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

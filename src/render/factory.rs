@@ -24,7 +24,7 @@ pub trait RendererFactory<B: Surface> {
     fn mirror_and_advance(
         &mut self,
         _backend: &mut B,
-        _plan: &crate::widget::dirty::DirtyRegions,
+        _plan: &crate::ui::dirty::DirtyRegions,
         _transform: &Viewport,
     ) {
     }
@@ -50,7 +50,7 @@ impl<B: FramebufferAccess> RendererFactory<B> for SwRendererFactory {
     fn mirror_and_advance(
         &mut self,
         backend: &mut B,
-        plan: &crate::widget::dirty::DirtyRegions,
+        plan: &crate::ui::dirty::DirtyRegions,
         transform: &Viewport,
     ) {
         if backend.buffer_count() <= 1 {

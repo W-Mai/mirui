@@ -17,10 +17,10 @@ use crate::render::renderer::Renderer;
 use crate::render::sw::mix::mix_inplace;
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Point, Rect};
-use crate::widget::offscreen::{
+use crate::ui::offscreen::{
     OffscreenAlphaMode, OffscreenAutoAdded, WidgetTextureAccess, WidgetTextureRef,
 };
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::view::{View, ViewCtx};
 
 pub struct TemporalMix {
     pub source: Entity,
@@ -94,11 +94,8 @@ fn temporal_mix_attach(world: &mut World, entity: Entity) {
     if world.get::<WidgetTextureRef>(entity).is_none() {
         world.insert(entity, WidgetTextureRef(source));
     }
-    if world
-        .get::<crate::widget::OffscreenRender>(source)
-        .is_none()
-    {
-        world.insert(source, crate::widget::OffscreenRender::default());
+    if world.get::<crate::ui::OffscreenRender>(source).is_none() {
+        world.insert(source, crate::ui::OffscreenRender::default());
         world.insert(source, OffscreenAutoAdded);
     }
     if world.get::<OffscreenAlphaMode>(source).is_none() {
@@ -107,11 +104,8 @@ fn temporal_mix_attach(world: &mut World, entity: Entity) {
     // The widget's own offscreen buffer stores the previous output
     // for the IIR feedback. clear_transparent keeps initialisation
     // from picking up framebuffer pixels under the widget rect.
-    if world
-        .get::<crate::widget::OffscreenRender>(entity)
-        .is_none()
-    {
-        world.insert(entity, crate::widget::OffscreenRender::default());
+    if world.get::<crate::ui::OffscreenRender>(entity).is_none() {
+        world.insert(entity, crate::ui::OffscreenRender::default());
         world.insert(entity, OffscreenAutoAdded);
     }
     if world.get::<OffscreenAlphaMode>(entity).is_none() {

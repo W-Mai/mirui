@@ -46,7 +46,7 @@ impl World {
     /// Allocate an entity and let `bundle` unfold its components onto it.
     pub fn spawn<B: IntoBundle>(&mut self, bundle: B) -> Entity {
         let entity = self.spawn_empty();
-        self.insert(entity, crate::widget::Widget);
+        self.insert(entity, crate::ui::Widget);
         bundle.spawn_into(self, entity);
         entity
     }

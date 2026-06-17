@@ -11,7 +11,7 @@ use alloc::vec::Vec;
 pub struct Dirty;
 
 pub fn mark_subtree_dirty(world: &mut World, root: Entity) {
-    use crate::widget::{Children, Hidden};
+    use crate::ui::{Children, Hidden};
     let mut stack = alloc::vec![root];
     while let Some(e) = stack.pop() {
         // Skip Hidden: the walker won't descend into it, so a marker
@@ -31,7 +31,7 @@ pub fn mark_subtree_dirty(world: &mut World, root: Entity) {
 /// subtree so the marker doesn't strand once the walker stops
 /// descending through it.
 pub fn clear_subtree_dirty(world: &mut World, root: Entity) {
-    use crate::widget::Children;
+    use crate::ui::Children;
     let mut stack = alloc::vec![root];
     while let Some(e) = stack.pop() {
         world.remove::<Dirty>(e);
@@ -165,7 +165,7 @@ impl DirtyRegions {
 mod tests {
     use super::*;
     use crate::ecs::World;
-    use crate::widget::Children;
+    use crate::ui::Children;
 
     #[test]
     fn mark_subtree_walks_descendants() {

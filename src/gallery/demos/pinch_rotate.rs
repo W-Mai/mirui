@@ -4,7 +4,6 @@ extern crate alloc;
 use crate::anim::ease;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{Text, WidgetTransform};
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
 use crate::event::sim::{SimAction, SimTimeline, sim_timeline_system};
@@ -14,7 +13,8 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::{Fixed64, Transform};
-use crate::widget::dirty::Dirty;
+use crate::ui::dirty::Dirty;
+use crate::ui::widgets::{Text, WidgetTransform};
 use alloc::format;
 #[cfg(feature = "std")]
 use alloc::vec;
@@ -212,9 +212,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;

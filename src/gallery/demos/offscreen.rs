@@ -2,7 +2,6 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::Text;
 use crate::ecs::{Entity, FrameTimings, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
@@ -10,10 +9,11 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 #[cfg(feature = "std")]
-use crate::widget::Theme;
-use crate::widget::dirty::Dirty;
-use crate::widget::theme::ColorToken;
-use crate::widget::{Children, OffscreenRender};
+use crate::ui::Theme;
+use crate::ui::dirty::Dirty;
+use crate::ui::theme::ColorToken;
+use crate::ui::widgets::Text;
+use crate::ui::{Children, OffscreenRender};
 
 const WIN_W: i32 = 360;
 const WIN_H: i32 = 360;
@@ -228,8 +228,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

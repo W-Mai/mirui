@@ -6,9 +6,9 @@ use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui::root_viewport;
+use crate::ui::{Children, Parent};
 use crate::widget;
-use crate::widget::root_viewport;
-use crate::widget::{Children, Parent};
 use alloc::vec::Vec;
 
 const BAR_W: i32 = 50;
@@ -137,8 +137,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

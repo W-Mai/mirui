@@ -4,9 +4,9 @@ use crate::render::command::DrawCommand;
 use crate::render::membrane::{MagneticMembrane, MagneticMembraneState};
 use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect, Viewport};
-use crate::widget::dirty::Dirty;
-use crate::widget::view::{View, ViewCtx};
-use crate::widget::{Children, IgnoreHitTest, Parent, Style, Widget};
+use crate::ui::dirty::Dirty;
+use crate::ui::view::{View, ViewCtx};
+use crate::ui::{Children, IgnoreHitTest, Parent, Style, Widget};
 
 const PRIMARY: Color = Color::rgb(88, 166, 255);
 /// Track width on the right edge. Wide enough for the membrane to swell
@@ -195,7 +195,7 @@ pub fn view() -> View {
 mod tests {
     use super::*;
     use crate::ecs::DeltaTimeMs;
-    use crate::widget::WidgetRoot;
+    use crate::ui::WidgetRoot;
 
     fn make_world() -> World {
         let mut app = crate::app::App::headless(64, 64);

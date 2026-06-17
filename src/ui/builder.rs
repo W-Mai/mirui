@@ -1,8 +1,8 @@
-use crate::components::transform::WidgetTransform;
-use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::ecs::{Entity, World};
-use crate::layout::LayoutStyle;
 use crate::types::{Fixed, Transform, Transform3D};
+use crate::ui::layout::LayoutStyle;
+use crate::ui::widgets::transform::WidgetTransform;
+use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
 
 use super::{Children, Parent, Style, Widget};
 
@@ -20,7 +20,7 @@ impl<'a> WidgetBuilder<'a> {
         Self { world, entity }
     }
 
-    pub fn bg_color(self, color: impl Into<crate::widget::theme::ThemedColor>) -> Self {
+    pub fn bg_color(self, color: impl Into<crate::ui::theme::ThemedColor>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
             style.bg_color = Some(color.into());
         }
@@ -36,7 +36,7 @@ impl<'a> WidgetBuilder<'a> {
 
     pub fn border(
         self,
-        color: impl Into<crate::widget::theme::ThemedColor>,
+        color: impl Into<crate::ui::theme::ThemedColor>,
         width: impl Into<crate::types::Fixed>,
     ) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
@@ -70,17 +70,17 @@ impl<'a> WidgetBuilder<'a> {
     pub fn text(self, t: &str) -> Self {
         self.world.insert(
             self.entity,
-            crate::components::text::Text(alloc::vec::Vec::from(t.as_bytes())),
+            crate::ui::widgets::text::Text(alloc::vec::Vec::from(t.as_bytes())),
         );
         self
     }
 
-    pub fn image(self, img: crate::components::image::Image) -> Self {
+    pub fn image(self, img: crate::ui::widgets::image::Image) -> Self {
         self.world.insert(self.entity, img);
         self
     }
 
-    pub fn text_color(self, color: impl Into<crate::widget::theme::ThemedColor>) -> Self {
+    pub fn text_color(self, color: impl Into<crate::ui::theme::ThemedColor>) -> Self {
         if let Some(style) = self.world.get_mut::<Style>(self.entity) {
             style.text_color = color.into();
         }

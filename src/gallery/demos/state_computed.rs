@@ -58,13 +58,13 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::text::Text;
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
     use crate::state::flush_signal_dirty;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
+    use crate::ui::widgets::text::Text;
 
     fn label_text(world: &World, label: Entity) -> alloc::string::String {
         let t = world.get::<Text>(label).expect("label has Text");

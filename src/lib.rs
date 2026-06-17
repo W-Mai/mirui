@@ -84,21 +84,19 @@ extern crate self as mirui;
 pub mod anim;
 pub mod app;
 pub mod cache;
-pub mod components;
-pub mod render;
 pub mod ecs;
 pub mod event;
 pub mod feedback;
-pub mod layout;
 pub mod perf;
 pub mod plugin;
 pub mod plugins;
+pub mod render;
 pub mod resource;
 pub mod state;
 pub mod surface;
 pub mod timer;
 pub mod types;
-pub mod widget;
+pub mod ui;
 
 #[cfg(feature = "gallery")]
 pub mod gallery;
@@ -125,11 +123,11 @@ pub use core::cell::RefCell as __RefCell;
 pub mod prelude {
     pub use crate::app::App;
     pub use crate::ecs::{Entity, World};
-    pub use crate::layout::*;
     pub use crate::types::{Color, Dimension, Fixed, Point, Rect};
-    pub use crate::widget::builder::WidgetBuilder;
-    pub use crate::widget::theme::{ColorToken, ThemedColor};
-    pub use crate::widget::{Style, Widget};
+    pub use crate::ui::builder::WidgetBuilder;
+    pub use crate::ui::layout::*;
+    pub use crate::ui::theme::{ColorToken, ThemedColor};
+    pub use crate::ui::{Style, Widget};
 
     pub use mirui_macros::ui;
 }

@@ -12,6 +12,7 @@
 pub mod builder;
 pub mod dirty;
 pub mod id;
+pub mod layout;
 pub mod niche;
 pub mod offscreen;
 pub mod reactive_attr;
@@ -21,6 +22,7 @@ pub mod style_view;
 pub mod theme;
 pub mod view;
 pub mod visibility;
+pub mod widgets;
 
 pub use id::{IdMap, NamedId};
 pub use niche::NicheMap;
@@ -36,8 +38,8 @@ pub use visibility::{Hidden, IgnoreHitTest};
 
 use alloc::vec::Vec;
 
-use crate::layout::LayoutStyle;
 use crate::types::Fixed;
+use crate::ui::layout::LayoutStyle;
 
 pub struct Widget;
 
@@ -109,7 +111,7 @@ impl Style {
     pub fn absolute_at(rect: crate::types::Rect) -> Self {
         Self {
             layout: LayoutStyle {
-                position: crate::layout::Position::Absolute,
+                position: crate::ui::layout::Position::Absolute,
                 left: crate::types::Dimension::Px(rect.x),
                 top: crate::types::Dimension::Px(rect.y),
                 width: crate::types::Dimension::Px(rect.w),

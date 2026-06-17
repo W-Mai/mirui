@@ -1,9 +1,9 @@
 use crate::anim::Tween;
-use crate::components::tabbar::{INDICATOR_TWEEN_MS, TabBar, TabBarPrev, TabIndicatorTween};
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
-use crate::widget::dirty::Dirty;
-use crate::widget::{Hidden, Parent};
+use crate::ui::dirty::Dirty;
+use crate::ui::widgets::tabbar::{INDICATOR_TWEEN_MS, TabBar, TabBarPrev, TabIndicatorTween};
+use crate::ui::{Hidden, Parent};
 use alloc::vec::Vec;
 
 /// Marker placed on each tab's content widget. The `tab_pages_system`
@@ -98,7 +98,7 @@ fn apply_visibility(world: &mut World) {
                 // get swept; clear the subtree's leftover markers and
                 // push Dirty up to the parent whose rect still covers
                 // the freshly-hidden area.
-                crate::widget::dirty::clear_subtree_dirty(world, e);
+                crate::ui::dirty::clear_subtree_dirty(world, e);
                 if let Some(parent) = world.get::<Parent>(e).map(|p| p.0) {
                     world.insert(parent, Dirty);
                 }
@@ -112,15 +112,15 @@ fn apply_visibility(world: &mut World) {
                 // descendants and any cached offscreen buffers with
                 // stale data. Marking the subtree on unhide bumps
                 // every `OffscreenGeneration` inside.
-                crate::widget::dirty::mark_subtree_dirty(world, e);
+                crate::ui::dirty::mark_subtree_dirty(world, e);
             }
             _ => {}
         }
     }
 }
 
-pub fn view() -> crate::widget::view::View {
-    crate::widget::view::View::systems_only("TabPages", const { &[tab_pages_system::system()] })
+pub fn view() -> crate::ui::view::View {
+    crate::ui::view::View::systems_only("TabPages", const { &[tab_pages_system::system()] })
 }
 
 #[cfg(test)]
@@ -203,8 +203,8 @@ mod tests {
     /// descendants keep their stale cached buffers.
     #[test]
     fn unhide_marks_whole_subtree_dirty() {
-        use crate::widget::Children;
-        use crate::widget::dirty::mark_subtree_dirty;
+        use crate::ui::Children;
+        use crate::ui::dirty::mark_subtree_dirty;
 
         let mut world = World::default();
         let bar = make_bar(&mut world, 2);
@@ -212,7 +212,7 @@ mod tests {
         let p1 = make_content(&mut world, bar, 1);
         // Give p1 a child so we can verify subtree-wide Dirty marking.
         let p1_child = world.spawn_empty();
-        world.insert(p1_child, crate::widget::Parent(p1));
+        world.insert(p1_child, crate::ui::Parent(p1));
         world.insert(p1, Children(alloc::vec![p1_child]));
 
         // Initial selection = 0 → p1 + p1_child get Hidden.

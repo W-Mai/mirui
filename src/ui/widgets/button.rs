@@ -3,9 +3,9 @@ use crate::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::Rect;
-use crate::widget::dirty::Dirty;
-use crate::widget::theme::{ColorToken, ThemedColor};
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::dirty::Dirty;
+use crate::ui::theme::{ColorToken, ThemedColor};
+use crate::ui::view::{View, ViewCtx};
 
 #[derive(crate::Component)]
 pub struct Button {
@@ -49,11 +49,11 @@ impl Button {
 
 pub struct ButtonBuilder {
     button: Button,
-    style: Option<crate::widget::Style>,
+    style: Option<crate::ui::Style>,
 }
 
 impl ButtonBuilder {
-    pub fn style(mut self, style: crate::widget::Style) -> Self {
+    pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
     }
@@ -155,11 +155,11 @@ mod tests {
     fn build_spawns_button_with_style() {
         let mut world = World::new();
         let e = Button::build()
-            .style(crate::widget::Style::default())
+            .style(crate::ui::Style::default())
             .spawn(&mut world);
         assert!(world.has::<Button>(e));
-        assert!(world.has::<crate::widget::Style>(e));
-        assert!(world.has::<crate::widget::Widget>(e));
+        assert!(world.has::<crate::ui::Style>(e));
+        assert!(world.has::<crate::ui::Widget>(e));
     }
 
     #[test]
@@ -167,6 +167,6 @@ mod tests {
         let mut world = World::new();
         let e = Button::build().spawn(&mut world);
         assert!(world.has::<Button>(e));
-        assert!(!world.has::<crate::widget::Style>(e));
+        assert!(!world.has::<crate::ui::Style>(e));
     }
 }

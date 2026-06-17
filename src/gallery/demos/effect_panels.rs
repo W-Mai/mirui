@@ -2,16 +2,16 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{BackgroundBlur, MirrorOf, TemporalMix, WidgetTransform};
 use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::Transform;
 #[cfg(feature = "std")]
-use crate::widget::Theme;
-use crate::widget::dirty::Dirty;
-use crate::widget::root_viewport;
+use crate::ui::Theme;
+use crate::ui::dirty::Dirty;
+use crate::ui::root_viewport;
+use crate::ui::widgets::{BackgroundBlur, MirrorOf, TemporalMix, WidgetTransform};
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 360);
 
@@ -45,7 +45,7 @@ pub fn panel_layout_system(world: &mut World) {
                 a.base_y + if a.from_half_h { half_h } else { 0 },
             )
         };
-        crate::widget::set_position(world, e, Fixed::from_int(x), Fixed::from_int(y));
+        crate::ui::set_position(world, e, Fixed::from_int(x), Fixed::from_int(y));
     }
 }
 
@@ -86,7 +86,7 @@ pub struct ColorFlash {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn animate_color_flash(world: &mut World) {
-    use crate::widget::Style;
+    use crate::ui::Style;
     let mut entities = alloc::vec::Vec::new();
     world.query::<ColorFlash>().collect_into(&mut entities);
     for e in entities {
@@ -364,9 +364,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

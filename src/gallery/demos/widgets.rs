@@ -4,8 +4,6 @@ extern crate alloc;
 use crate::anim::ease;
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{LazyList, LazyListBinder, LazyListPool};
-use crate::components::{ProgressBar, Slider, Switch, TabBar, TabContent, Text};
 use crate::ecs::{Entity, World};
 use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 #[cfg(feature = "std")]
@@ -17,9 +15,11 @@ use crate::prelude::*;
 use crate::surface::Surface;
 #[cfg(feature = "std")]
 use crate::types::DimPoint;
-use crate::widget::dirty::Dirty;
-use crate::widget::theme::{self, ColorToken};
-use crate::widget::{Children, OffscreenRender, Theme};
+use crate::ui::dirty::Dirty;
+use crate::ui::theme::{self, ColorToken};
+use crate::ui::widgets::{LazyList, LazyListBinder, LazyListPool};
+use crate::ui::widgets::{ProgressBar, Slider, Switch, TabBar, TabContent, Text};
+use crate::ui::{Children, OffscreenRender, Theme};
 use alloc::format;
 #[cfg(feature = "std")]
 use alloc::vec;
@@ -414,8 +414,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

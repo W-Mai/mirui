@@ -6,7 +6,7 @@ use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
 use crate::resource::ResourceManager;
 use crate::types::{Point, Rect};
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::view::{View, ViewCtx};
 
 #[derive(crate::Component)]
 pub struct Image {
@@ -28,11 +28,11 @@ impl Image {
 
 pub struct ImageBuilder {
     image: Image,
-    style: Option<crate::widget::Style>,
+    style: Option<crate::ui::Style>,
 }
 
 impl ImageBuilder {
-    pub fn style(mut self, style: crate::widget::Style) -> Self {
+    pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
     }
@@ -100,11 +100,11 @@ mod tests {
     fn build_spawns_image_with_style() {
         let mut world = World::new();
         let e = Image::build("thumbs_up")
-            .style(crate::widget::Style::default())
+            .style(crate::ui::Style::default())
             .spawn(&mut world);
         assert!(world.has::<Image>(e));
-        assert!(world.has::<crate::widget::Style>(e));
-        assert!(world.has::<crate::widget::Widget>(e));
+        assert!(world.has::<crate::ui::Style>(e));
+        assert!(world.has::<crate::ui::Widget>(e));
     }
 
     #[test]
@@ -112,7 +112,7 @@ mod tests {
         let mut world = World::new();
         let e = Image::build("thumbs_up").spawn(&mut world);
         assert!(world.has::<Image>(e));
-        assert!(!world.has::<crate::widget::Style>(e));
+        assert!(!world.has::<crate::ui::Style>(e));
     }
 
     #[test]

@@ -10,8 +10,8 @@
 use crate::ecs::{Entity, World};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Point, Rect};
-use crate::widget::offscreen::{WidgetTextureAccess, WidgetTextureRef};
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::offscreen::{WidgetTextureAccess, WidgetTextureRef};
+use crate::ui::view::{View, ViewCtx};
 
 pub struct MirrorOf {
     pub source: Entity,
@@ -146,12 +146,9 @@ fn mirror_attach(world: &mut World, entity: Entity) {
     // texture_of(source) hits cache; maintain_widget_texture_refs
     // does the same on its first tick, but that tick runs after the
     // initial render.
-    use crate::widget::offscreen::{OffscreenAlphaMode, OffscreenAutoAdded};
-    if world
-        .get::<crate::widget::OffscreenRender>(source)
-        .is_none()
-    {
-        world.insert(source, crate::widget::OffscreenRender::default());
+    use crate::ui::offscreen::{OffscreenAlphaMode, OffscreenAutoAdded};
+    if world.get::<crate::ui::OffscreenRender>(source).is_none() {
+        world.insert(source, crate::ui::OffscreenRender::default());
         world.insert(source, OffscreenAutoAdded);
     }
     // Skip framebuffer pre-seed: pre-seeded pixels outside the

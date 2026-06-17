@@ -356,7 +356,7 @@ pub fn maintain_widget_texture_refs(world: &mut World) {
             .unwrap_or(0);
         let source_dirty = world.get::<super::dirty::Dirty>(source).is_some();
         let source_transform = world
-            .get::<crate::components::WidgetTransform>(source)
+            .get::<crate::ui::widgets::WidgetTransform>(source)
             .copied();
         if g_now != g_prev || source_dirty {
             // `g_now != g_prev` catches buffer-content changes; the
@@ -378,7 +378,7 @@ pub fn maintain_widget_texture_refs(world: &mut World) {
             if let Some(tf) = source_transform {
                 world.insert(consumer, tf);
             } else {
-                world.remove::<crate::components::WidgetTransform>(consumer);
+                world.remove::<crate::ui::widgets::WidgetTransform>(consumer);
             }
         }
     }

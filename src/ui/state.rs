@@ -2,8 +2,8 @@ use crate::ecs::{Entity, World};
 use crate::event::hit_test::hit_test;
 use crate::surface::DisplayInfo;
 use crate::types::Fixed;
-use crate::widget::WidgetRoot;
-use crate::widget::dirty::Dirty;
+use crate::ui::WidgetRoot;
+use crate::ui::dirty::Dirty;
 
 /// Skip hover/press hit_test when PointerCursor hasn't moved since last
 /// frame. Without this, idle frames pay a full hit_test walk twice per
@@ -90,7 +90,7 @@ pub fn press_system(world: &mut World) {
             .iter()
             .find_map(|(e, s)| matches!(s, InteractionState::Pressed).then_some(e));
         if let Some(p) = prev_pressed
-            && let Some(rect) = world.get::<crate::widget::ComputedRect>(p).map(|r| r.0)
+            && let Some(rect) = world.get::<crate::ui::ComputedRect>(p).map(|r| r.0)
             && snap.x >= rect.x
             && snap.x < rect.x + rect.w
             && snap.y >= rect.y
@@ -204,14 +204,14 @@ mod tests {
         let mut world = World::new();
         let e = world.spawn_empty();
         world.insert(e, InteractionState::Hovered);
-        assert!(world.get::<crate::widget::dirty::Dirty>(e).is_none());
+        assert!(world.get::<crate::ui::dirty::Dirty>(e).is_none());
         swap_marker(
             &mut world,
             Some(e),
             |s| matches!(s, InteractionState::Hovered),
             || InteractionState::Hovered,
         );
-        assert!(world.get::<crate::widget::dirty::Dirty>(e).is_none());
+        assert!(world.get::<crate::ui::dirty::Dirty>(e).is_none());
     }
 }
 
@@ -220,10 +220,10 @@ mod hover_press_e2e {
     extern crate std;
     use super::*;
     use crate::event::PointerCursor;
-    use crate::layout::LayoutStyle;
     use crate::types::{Dimension, Fixed};
-    use crate::widget::Style;
-    use crate::widget::Widget;
+    use crate::ui::Style;
+    use crate::ui::Widget;
+    use crate::ui::layout::LayoutStyle;
 
     fn make_world_with_button() -> (World, Entity) {
         let mut app = crate::app::App::headless(64, 64);
@@ -243,7 +243,7 @@ mod hover_press_e2e {
             },
         );
         world.insert_resource(WidgetRoot(root));
-        crate::widget::render_system::update_layout(
+        crate::ui::render_system::update_layout(
             &mut world,
             root,
             &crate::types::Viewport::new(64, 64, Fixed::ONE),

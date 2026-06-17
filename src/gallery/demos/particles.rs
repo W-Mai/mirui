@@ -8,10 +8,10 @@ use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui::dirty::Dirty;
+use crate::ui::root_viewport;
+use crate::ui::{Children, Parent, Style};
 use crate::widget;
-use crate::widget::dirty::Dirty;
-use crate::widget::root_viewport;
-use crate::widget::{Children, Parent, Style};
 use alloc::vec::Vec;
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
@@ -324,8 +324,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

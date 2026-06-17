@@ -8,8 +8,8 @@ use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::dirty::Dirty;
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::dirty::Dirty;
+use crate::ui::view::{View, ViewCtx};
 
 pub struct Diamond {
     pub color: Color,
@@ -144,10 +144,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
-    use crate::widget::view::ViewRegistry;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
+    use crate::ui::view::ViewRegistry;
 
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;

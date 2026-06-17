@@ -2,8 +2,6 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::Text;
-use crate::components::{LazyList, LazyListBinder, LazyListPool};
 use crate::ecs::{Entity, World};
 use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 #[cfg(feature = "std")]
@@ -11,6 +9,8 @@ use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui::widgets::Text;
+use crate::ui::widgets::{LazyList, LazyListBinder, LazyListPool};
 
 const ROW_H: i32 = 32;
 const POOL_SIZE: usize = 12;
@@ -67,7 +67,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     //~focus-end
 
     let pool: alloc::vec::Vec<Entity> = world
-        .get::<crate::widget::Children>(list)
+        .get::<crate::ui::Children>(list)
         .map(|c| c.0.clone())
         .unwrap_or_default();
     // Absolute children resolve Auto width to 0; force Percent so rows track list width.
@@ -92,9 +92,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

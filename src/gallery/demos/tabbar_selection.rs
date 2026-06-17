@@ -1,14 +1,14 @@
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{TabBar, Text};
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::IdMap;
-use crate::widget::dirty::Dirty;
+use crate::ui::IdMap;
+use crate::ui::dirty::Dirty;
+use crate::ui::widgets::{TabBar, Text};
 use alloc::format;
 
 #[derive(Clone, Copy, Default)]
@@ -99,7 +99,7 @@ fn refresh_label(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
+    use crate::ui::Children;
 
     #[test]
     fn build_widgets_smoke() {

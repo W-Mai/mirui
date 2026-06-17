@@ -4,8 +4,8 @@ use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Style;
-use crate::widget::dirty::Dirty;
+use crate::ui::Style;
+use crate::ui::dirty::Dirty;
 
 pub struct Toggle {
     pub on: bool,
@@ -78,9 +78,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;

@@ -5,10 +5,10 @@ use crate::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
-use crate::widget::ComputedRect;
-use crate::widget::dirty::Dirty;
-use crate::widget::theme::{ColorToken, ThemedColor};
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::ComputedRect;
+use crate::ui::dirty::Dirty;
+use crate::ui::theme::{ColorToken, ThemedColor};
+use crate::ui::view::{View, ViewCtx};
 
 #[derive(Clone, Debug)]
 pub enum TabBarEvent {
@@ -79,12 +79,12 @@ impl TabBar {
 
 pub struct TabBarBuilder {
     tab_bar: TabBar,
-    style: Option<crate::widget::Style>,
+    style: Option<crate::ui::Style>,
     handler: Option<TabBarHandler>,
 }
 
 impl TabBarBuilder {
-    pub fn style(mut self, style: crate::widget::Style) -> Self {
+    pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
     }
@@ -267,13 +267,13 @@ mod tests {
         }
         let mut world = World::new();
         let e = TabBar::build(3)
-            .style(crate::widget::Style::default())
+            .style(crate::ui::Style::default())
             .on_change(h)
             .spawn(&mut world);
         assert!(world.get::<TabBar>(e).is_some());
-        assert!(world.get::<crate::widget::Style>(e).is_some());
+        assert!(world.get::<crate::ui::Style>(e).is_some());
         assert!(world.get::<TabBarHandler>(e).is_some());
-        assert!(world.get::<crate::widget::Widget>(e).is_some());
+        assert!(world.get::<crate::ui::Widget>(e).is_some());
     }
 
     #[test]
@@ -281,7 +281,7 @@ mod tests {
         let mut world = World::new();
         let e = TabBar::build(3).spawn(&mut world);
         assert!(world.get::<TabBar>(e).is_some());
-        assert!(world.get::<crate::widget::Style>(e).is_none());
+        assert!(world.get::<crate::ui::Style>(e).is_none());
         assert!(world.get::<TabBarHandler>(e).is_none());
     }
 }

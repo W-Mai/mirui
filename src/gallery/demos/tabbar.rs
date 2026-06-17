@@ -2,13 +2,13 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{TabBar, TabContent};
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
 use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui::widgets::{TabBar, TabContent};
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     //~focus-start
@@ -118,9 +118,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

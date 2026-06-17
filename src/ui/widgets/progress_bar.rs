@@ -4,10 +4,10 @@ use crate::event::gesture::GestureEvent;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
-use crate::widget::ComputedRect;
-use crate::widget::dirty::Dirty;
-use crate::widget::theme::{ColorToken, ThemedColor};
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::ComputedRect;
+use crate::ui::dirty::Dirty;
+use crate::ui::theme::{ColorToken, ThemedColor};
+use crate::ui::view::{View, ViewCtx};
 
 #[derive(Clone, Debug)]
 pub enum ProgressBarEvent {
@@ -61,12 +61,12 @@ impl ProgressBar {
 
 pub struct ProgressBarBuilder {
     progress_bar: ProgressBar,
-    style: Option<crate::widget::Style>,
+    style: Option<crate::ui::Style>,
     handler: Option<ProgressBarHandler>,
 }
 
 impl ProgressBarBuilder {
-    pub fn style(mut self, style: crate::widget::Style) -> Self {
+    pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
     }
@@ -227,13 +227,13 @@ mod tests {
     fn build_spawns_progress_bar_with_style_and_handler() {
         let mut world = World::new();
         let e = ProgressBar::build()
-            .style(crate::widget::Style::default())
+            .style(crate::ui::Style::default())
             .on_change(h)
             .spawn(&mut world);
         assert!(world.has::<ProgressBar>(e));
-        assert!(world.has::<crate::widget::Style>(e));
+        assert!(world.has::<crate::ui::Style>(e));
         assert!(world.has::<ProgressBarHandler>(e));
-        assert!(world.has::<crate::widget::Widget>(e));
+        assert!(world.has::<crate::ui::Widget>(e));
     }
 
     #[test]
@@ -242,6 +242,6 @@ mod tests {
         let e = ProgressBar::build().spawn(&mut world);
         assert!(world.has::<ProgressBar>(e));
         assert!(!world.has::<ProgressBarHandler>(e));
-        assert!(!world.has::<crate::widget::Style>(e));
+        assert!(!world.has::<crate::ui::Style>(e));
     }
 }

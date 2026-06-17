@@ -2,13 +2,13 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
 use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::Theme;
-use crate::widget::theme::{self, ColorToken};
+use crate::ui::Theme;
+use crate::ui::theme::{self, ColorToken};
+use crate::ui::widgets::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
 use alloc::vec::Vec;
 
 pub struct ThemeChoice(pub Theme);
@@ -184,8 +184,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
@@ -199,7 +199,7 @@ mod tests {
         build_widgets(&mut world, parent);
         assert!(
             world
-                .get::<crate::widget::Children>(parent)
+                .get::<crate::ui::Children>(parent)
                 .is_some_and(|c| !c.0.is_empty())
         );
     }
@@ -211,8 +211,8 @@ mod tests {
         world.insert_resource(dark_with_accent());
         let parent = WidgetBuilder::new(&mut world).id();
         build_widgets(&mut world, parent);
-        let row = world.get::<crate::widget::Children>(parent).unwrap().0[0];
-        let custom_btn = world.get::<crate::widget::Children>(row).unwrap().0[2];
+        let row = world.get::<crate::ui::Children>(parent).unwrap().0[0];
+        let custom_btn = world.get::<crate::ui::Children>(row).unwrap().0[2];
 
         GestureHandler::trigger(
             &mut world,

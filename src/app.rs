@@ -10,10 +10,10 @@ use crate::plugin::Plugin;
 use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::Rect;
-use crate::widget::Theme;
-use crate::widget::offscreen::OffscreenBufferPool;
-use crate::widget::render_system;
-use crate::widget::view::{View, ViewRegistry};
+use crate::ui::Theme;
+use crate::ui::offscreen::OffscreenBufferPool;
+use crate::ui::render_system;
+use crate::ui::view::{View, ViewRegistry};
 
 pub use crate::render::factory::{RendererFactory, SwRendererFactory};
 
@@ -72,7 +72,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(ViewRegistry::default());
         world.insert_resource(Theme::default());
         world.insert_resource(OffscreenBufferPool::default());
-        world.insert_resource(crate::widget::IdMap::new());
+        world.insert_resource(crate::ui::IdMap::new());
         Self {
             world,
             backend,
@@ -107,7 +107,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// rendering on every frame.
     ///
     /// Replaces the existing pool, so call before any frame renders
-    /// an [`crate::widget::OffscreenRender`] entity.
+    /// an [`crate::ui::OffscreenRender`] entity.
     pub fn with_offscreen_pool_budget(&mut self, budget_bytes: usize) -> &mut Self {
         self.world
             .insert_resource(OffscreenBufferPool::with_budget(budget_bytes));
@@ -116,7 +116,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// Runtime counterpart to `with_theme`: also forces a full-tree repaint.
     pub fn set_theme(&mut self, theme: Theme) {
-        crate::widget::theme::set_theme(&mut self.world, theme);
+        crate::ui::theme::set_theme(&mut self.world, theme);
     }
 
     /// Owned snapshot of the entity's rendered output. One-off cost:
@@ -129,8 +129,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         &mut self,
         entity: crate::ecs::Entity,
     ) -> Option<crate::render::texture::Texture<'static>> {
-        use crate::widget::OffscreenRender;
-        use crate::widget::offscreen::{OffscreenAutoAdded, WidgetTextureAccess};
+        use crate::ui::OffscreenRender;
+        use crate::ui::offscreen::{OffscreenAutoAdded, WidgetTextureAccess};
 
         if let Some(snap) = self.world.texture_of(entity) {
             return Some(clone_texture_owned(&snap.borrow()));
@@ -184,9 +184,9 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.add_system(crate::anim::sync_delta_time_ms::system());
         self.add_system(crate::timer::timer_system::system());
         self.add_system(crate::event::scroll::system::scroll_inertia_system::system());
-        self.add_system(crate::widget::state::hover_system::system());
-        self.add_system(crate::widget::state::press_system::system());
-        self.add_system(crate::widget::offscreen::maintain_widget_texture_refs::system());
+        self.add_system(crate::ui::state::hover_system::system());
+        self.add_system(crate::ui::state::press_system::system());
+        self.add_system(crate::ui::offscreen::maintain_widget_texture_refs::system());
         self
     }
 
@@ -213,7 +213,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     pub fn set_root(&mut self, root: Entity) {
         self.root = Some(root);
-        self.world.insert_resource(crate::widget::WidgetRoot(root));
+        self.world.insert_resource(crate::ui::WidgetRoot(root));
         crate::event::widget_input::attach_widget_input_handlers(&mut self.world, root);
         crate::event::sim::set_sim_root(&mut self.world, root);
     }
@@ -229,8 +229,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// register it via [`set_root`][Self::set_root].
     ///
     /// Defaults: `grow: Fixed::ONE` (fills the viewport), background
-    /// [`ColorToken::Surface`][crate::widget::theme::ColorToken::Surface],
-    /// and [`FlexDirection::Column`][crate::layout::FlexDirection::Column].
+    /// [`ColorToken::Surface`][crate::ui::theme::ColorToken::Surface],
+    /// and [`FlexDirection::Column`][crate::ui::layout::FlexDirection::Column].
     /// Chain [`RootBuilder::bg_color`] / [`RootBuilder::layout`] to
     /// override, then [`RootBuilder::id`] to finish:
     ///
@@ -240,10 +240,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// let root = app.spawn_root().bg_color(ColorToken::Primary).id();
     /// ```
     pub fn spawn_root(&mut self) -> RootBuilder<'_, B, F> {
-        let entity = crate::widget::builder::WidgetBuilder::new(&mut self.world)
-            .bg_color(crate::widget::theme::ColorToken::Surface)
-            .layout(crate::layout::LayoutStyle {
-                direction: crate::layout::FlexDirection::Column,
+        let entity = crate::ui::builder::WidgetBuilder::new(&mut self.world)
+            .bg_color(crate::ui::theme::ColorToken::Surface)
+            .layout(crate::ui::layout::LayoutStyle {
+                direction: crate::ui::layout::FlexDirection::Column,
                 grow: crate::types::Fixed::ONE,
                 ..Default::default()
             })
@@ -553,7 +553,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         let force_full = self.needs_full_first_frame && self.backend.buffer_count() > 1;
         let plan = if force_full {
             let (lw, lh) = transform.logical_size();
-            crate::widget::dirty::DirtyRegions {
+            crate::ui::dirty::DirtyRegions {
                 rects: alloc::vec![Rect::new(0, 0, lw, lh)],
                 shifts: alloc::vec::Vec::new(),
             }
@@ -576,7 +576,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             };
 
             self.world
-                .insert_resource(crate::widget::render_system::LastDirtyRegions(plan.clone()));
+                .insert_resource(crate::ui::render_system::LastDirtyRegions(plan.clone()));
             for sop in &plan.shifts {
                 renderer.scroll_target_region(&sop.area, sop.dx, sop.dy);
             }
@@ -586,7 +586,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             if let Some(union_rect) = plan.rects.iter().copied().reduce(|a, b| a.union(&b)) {
                 if let Some(snapshot) = self
                     .world
-                    .resource::<crate::widget::render_system::LayoutSnapshot>()
+                    .resource::<crate::ui::render_system::LayoutSnapshot>()
                 {
                     render_system::render_region_cached(
                         &self.world,
@@ -646,7 +646,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         // feedback, perf-plan-probe) can distinguish "this frame
         // produced no shift" from "stale plan from N frames ago".
         self.world
-            .insert_resource(crate::widget::render_system::LastDirtyRegions::default());
+            .insert_resource(crate::ui::render_system::LastDirtyRegions::default());
 
         let render_end = self.clock_ns();
         self.last_render_ns = render_end.saturating_sub(layout_end);
@@ -681,9 +681,9 @@ pub struct RootBuilder<'a, B: Surface, F: RendererFactory<B>> {
 
 impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
     /// Override the root background, replacing the
-    /// [`ColorToken::Surface`][crate::widget::theme::ColorToken::Surface] default.
-    pub fn bg_color(self, color: impl Into<crate::widget::theme::ThemedColor>) -> Self {
-        if let Some(style) = self.app.world.get_mut::<crate::widget::Style>(self.entity) {
+    /// [`ColorToken::Surface`][crate::ui::theme::ColorToken::Surface] default.
+    pub fn bg_color(self, color: impl Into<crate::ui::theme::ThemedColor>) -> Self {
+        if let Some(style) = self.app.world.get_mut::<crate::ui::Style>(self.entity) {
             style.bg_color = Some(color.into());
         }
         self
@@ -691,8 +691,8 @@ impl<B: Surface, F: RendererFactory<B>> RootBuilder<'_, B, F> {
 
     /// Replace the root layout wholesale, dropping the
     /// fill-viewport `Column` default.
-    pub fn layout(self, layout: crate::layout::LayoutStyle) -> Self {
-        if let Some(style) = self.app.world.get_mut::<crate::widget::Style>(self.entity) {
+    pub fn layout(self, layout: crate::ui::layout::LayoutStyle) -> Self {
+        if let Some(style) = self.app.world.get_mut::<crate::ui::Style>(self.entity) {
             style.layout = layout;
         }
         self

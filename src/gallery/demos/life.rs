@@ -10,9 +10,9 @@ use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget::dirty::Dirty;
-use crate::widget::theme::ColorToken;
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::dirty::Dirty;
+use crate::ui::theme::ColorToken;
+use crate::ui::view::{View, ViewCtx};
 
 const PX_PER_CELL: i32 = 1;
 
@@ -238,7 +238,7 @@ pub fn life_step_system(world: &mut World) {
     world.query::<LifeBoard>().collect_into(&mut boards);
     for e in boards {
         // re-grid to the laid-out size: cell count tracks the canvas, no stretch
-        if let Some(rect) = world.get::<crate::widget::ComputedRect>(e).map(|c| c.0) {
+        if let Some(rect) = world.get::<crate::ui::ComputedRect>(e).map(|c| c.0) {
             let (cols, rows) = dims_from_px(rect.w.to_int(), rect.h.to_int());
             if let Some(b) = world.get_mut::<LifeBoard>(e) {
                 b.resize(cols, rows);

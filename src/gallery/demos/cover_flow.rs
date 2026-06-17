@@ -2,7 +2,6 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::{Image, WidgetTransform3D};
 use crate::ecs::{Entity, World};
 use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 #[cfg(feature = "std")]
@@ -11,9 +10,10 @@ use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::{Dimension, Transform3D};
+use crate::ui::dirty::Dirty;
+use crate::ui::root_viewport;
+use crate::ui::widgets::{Image, WidgetTransform3D};
 use crate::widget;
-use crate::widget::dirty::Dirty;
-use crate::widget::root_viewport;
 
 pub const DEFAULT_VIEW: (u16, u16) = (640, 360);
 const CARD_COUNT: i32 = 5;
@@ -234,9 +234,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {
@@ -255,8 +255,8 @@ mod tests {
     #[test]
     fn layout_system_tracks_live_viewport() {
         use crate::types::Viewport;
-        use crate::widget::Style;
-        use crate::widget::render_system::update_layout;
+        use crate::ui::Style;
+        use crate::ui::render_system::update_layout;
 
         let mut app = crate::app::App::headless(640, 360);
         app.with_default_widgets().with_default_systems();

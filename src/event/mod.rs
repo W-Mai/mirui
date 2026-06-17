@@ -9,7 +9,7 @@ pub mod widget_input;
 
 use crate::ecs::{Entity, World};
 use crate::types::Fixed;
-use crate::widget::{Parent, UserState};
+use crate::ui::{Parent, UserState};
 
 use focus::key_dispatch;
 use gesture::{GestureEvent, GestureSystem};
@@ -265,8 +265,8 @@ pub fn bubble_dispatch_at(world: &mut World, event: &GestureEvent, now_ms: u32) 
 fn collect_internal_handlers(
     world: &World,
     entity: Entity,
-) -> alloc::vec::Vec<crate::widget::view::ViewInternalGesture> {
-    let Some(registry) = world.resource::<crate::widget::view::ViewRegistry>() else {
+) -> alloc::vec::Vec<crate::ui::view::ViewInternalGesture> {
+    let Some(registry) = world.resource::<crate::ui::view::ViewRegistry>() else {
         return alloc::vec::Vec::new();
     };
     registry
@@ -324,7 +324,7 @@ mod tests {
     mod dual_channel {
         use super::*;
         use crate::types::Fixed;
-        use crate::widget::view::{View, ViewRegistry};
+        use crate::ui::view::{View, ViewRegistry};
         use core::sync::atomic::{AtomicU8, Ordering};
         use std::sync::Mutex;
 
@@ -360,7 +360,7 @@ mod tests {
                 _w: &World,
                 _e: Entity,
                 _rect: &crate::types::Rect,
-                _ctx: &mut crate::widget::view::ViewCtx,
+                _ctx: &mut crate::ui::view::ViewCtx,
             ) {
             }
             let mut reg = ViewRegistry::default();

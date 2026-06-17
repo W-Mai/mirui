@@ -3,11 +3,11 @@ use alloc::boxed::Box;
 
 use crate::app::{App, RendererFactory};
 use crate::cache::MaxSize;
-use crate::components::assets::IMG_THUMBS_UP;
 use crate::plugin::Plugin;
 use crate::render::texture::{ColorFormat, Texture, TextureMeta};
 use crate::resource::ResourceManager;
 use crate::surface::Surface;
+use crate::ui::widgets::assets::IMG_THUMBS_UP;
 
 /// Default values-cache byte budget. 256 KiB covers a few small icons + a
 /// hero-size RGBA8888 texture without touching the LRU on a typical

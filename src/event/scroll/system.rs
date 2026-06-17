@@ -175,7 +175,7 @@ pub fn scroll_system(
             let config = world.get::<ScrollConfig>(target);
             let dir = config.map(|c| c.direction).unwrap_or(ScrollAxis::Vertical);
             let elastic = config.map(|c| c.elastic).unwrap_or(true);
-            let computed = world.get::<crate::widget::ComputedRect>(target);
+            let computed = world.get::<crate::ui::ComputedRect>(target);
             let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
             let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
             let content_h: Fixed = config.map(|c| c.content_height).unwrap_or(container_h);
@@ -221,7 +221,7 @@ pub fn scroll_system(
             // Stuck-at-edge drags translate to zero applied delta; no
             // need to redraw a frame whose pixels didn't move.
             if applied_dx != Fixed::ZERO || applied_dy != Fixed::ZERO {
-                world.insert(target, crate::widget::dirty::Dirty);
+                world.insert(target, crate::ui::dirty::Dirty);
             }
 
             let dir = world
@@ -272,7 +272,7 @@ pub fn scroll_system(
 
             let (max_x, max_y) = {
                 let cfg = world.get::<ScrollConfig>(target_entity);
-                let computed = world.get::<crate::widget::ComputedRect>(target_entity);
+                let computed = world.get::<crate::ui::ComputedRect>(target_entity);
                 let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
                 let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
                 let content_h = cfg.map(|c| c.content_height).unwrap_or(container_h);
@@ -348,7 +348,7 @@ pub fn scroll_system(
                     }
                 }
                 accumulate_scroll_delta(world, target, applied_dx, applied_dy);
-                world.insert(target, crate::widget::dirty::Dirty);
+                world.insert(target, crate::ui::dirty::Dirty);
             }
         }
         InputEvent::Wheel { dx, dy, x, y } => {
@@ -375,7 +375,7 @@ pub fn scroll_system(
 
             let (axis, max_x, max_y, elastic) = {
                 let cfg = world.get::<ScrollConfig>(target);
-                let computed = world.get::<crate::widget::ComputedRect>(target);
+                let computed = world.get::<crate::ui::ComputedRect>(target);
                 let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
                 let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
                 let content_h = cfg.map(|c| c.content_height).unwrap_or(container_h);
@@ -487,7 +487,7 @@ pub fn scroll_inertia_system(world: &mut World) {
 
     let (max_x, max_y, elastic) = {
         let config = world.get::<ScrollConfig>(target);
-        let computed = world.get::<crate::widget::ComputedRect>(target);
+        let computed = world.get::<crate::ui::ComputedRect>(target);
         let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
         let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
         let content_h = config.map(|c| c.content_height).unwrap_or(container_h);
@@ -564,7 +564,7 @@ pub fn scroll_inertia_system(world: &mut World) {
     }
     if changed {
         accumulate_scroll_delta(world, target, applied_dx, applied_dy);
-        world.insert(target, crate::widget::dirty::Dirty);
+        world.insert(target, crate::ui::dirty::Dirty);
     }
 
     if done {
@@ -605,7 +605,7 @@ fn find_scroll_target_for_direction(
                 }
             }
         }
-        if let Some(parent) = world.get::<crate::widget::Parent>(current) {
+        if let Some(parent) = world.get::<crate::ui::Parent>(current) {
             current = parent.0;
         } else {
             break;
@@ -625,7 +625,7 @@ mod tests {
         use crate::ecs::World;
         use crate::event::input::InputEvent;
         use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
-        use crate::widget::{ComputedRect, Widget};
+        use crate::ui::{ComputedRect, Widget};
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
         let target = world.spawn_empty();
@@ -694,7 +694,7 @@ mod tests {
         use crate::ecs::World;
         use crate::event::input::InputEvent;
         use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
-        use crate::widget::{ComputedRect, Widget};
+        use crate::ui::{ComputedRect, Widget};
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
         let target = world.spawn_empty();
@@ -755,7 +755,7 @@ mod tests {
     fn find_scroll_target_walks_to_matching_axis() {
         use crate::ecs::World;
         use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
-        use crate::widget::{ComputedRect, Widget};
+        use crate::ui::{ComputedRect, Widget};
         let mut world = World::new();
         let target = world.spawn_empty();
         world.insert(target, Widget);
@@ -801,7 +801,7 @@ mod tests {
         use crate::event::scroll::components::{
             ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset,
         };
-        use crate::widget::{ComputedRect, Widget};
+        use crate::ui::{ComputedRect, Widget};
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
         let target = world.spawn_empty();
@@ -896,7 +896,7 @@ fn is_at_boundary(world: &World, entity: Entity, delta_x: Fixed, delta_y: Fixed)
         return false;
     };
     let config = world.get::<ScrollConfig>(entity);
-    let computed = world.get::<crate::widget::ComputedRect>(entity);
+    let computed = world.get::<crate::ui::ComputedRect>(entity);
     let container_h = computed.map(|c| c.0.h).unwrap_or(Fixed::ZERO);
     let container_w = computed.map(|c| c.0.w).unwrap_or(Fixed::ZERO);
     let content_h = config.map(|c| c.content_height).unwrap_or(container_h);

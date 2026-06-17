@@ -8,7 +8,7 @@ use super::gesture::GestureSystem;
 use super::hit_test::hit_test;
 use super::input::InputEvent;
 use crate::types::Point;
-use crate::widget::ComputedRect;
+use crate::ui::ComputedRect;
 
 /// `None` when the entity isn't in the live layout (Hidden, detached,
 /// not yet mounted). Caller treats this as "retry next frame".
@@ -1551,12 +1551,8 @@ mod tests {
         );
     }
 
-    fn spawn_widget(
-        world: &mut World,
-        parent: Option<Entity>,
-        style: crate::widget::Style,
-    ) -> Entity {
-        use crate::widget::{Children, Parent, Widget};
+    fn spawn_widget(world: &mut World, parent: Option<Entity>, style: crate::ui::Style) -> Entity {
+        use crate::ui::{Children, Parent, Widget};
         let e = world.spawn_empty();
         world.insert(e, Widget);
         world.insert(e, style);
@@ -1572,12 +1568,12 @@ mod tests {
     }
 
     fn install_root(world: &mut World) -> Entity {
-        use crate::layout::LayoutStyle;
         use crate::types::Dimension;
+        use crate::ui::layout::LayoutStyle;
         let root = spawn_widget(
             world,
             None,
-            crate::widget::Style {
+            crate::ui::Style {
                 layout: LayoutStyle {
                     width: Dimension::Px(Fixed::from_int(128)),
                     height: Dimension::Px(Fixed::from_int(128)),
@@ -1592,15 +1588,15 @@ mod tests {
 
     #[test]
     fn tap_on_resolves_to_entity_centre() {
-        use crate::layout::{LayoutStyle, Position};
         use crate::types::{Dimension, Viewport};
+        use crate::ui::layout::{LayoutStyle, Position};
         let _g = mock::lock();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
             &mut world,
             Some(root),
-            crate::widget::Style {
+            crate::ui::Style {
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(40)),
@@ -1613,7 +1609,7 @@ mod tests {
             },
         );
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::tap(DimPoint::CENTER).on(target),
@@ -1649,15 +1645,15 @@ mod tests {
 
     #[test]
     fn drag_on_anchors_endpoints_to_entity() {
-        use crate::layout::{LayoutStyle, Position};
         use crate::types::{Dimension, Viewport};
+        use crate::ui::layout::{LayoutStyle, Position};
         let _g = mock::lock();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
             &mut world,
             Some(root),
-            crate::widget::Style {
+            crate::ui::Style {
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(10)),
@@ -1670,7 +1666,7 @@ mod tests {
             },
         );
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::drag(
@@ -1700,17 +1696,17 @@ mod tests {
     // job is to reproduce ESP-side behaviours (cycle drift,
     // hit_test mis-routing, lost toggles) deterministically on host.
 
-    use crate::components::slider::Slider;
-    use crate::components::switch::Switch;
-    use crate::components::tab_pages::{TabContent, tab_pages_system};
-    use crate::components::tabbar::TabBar;
     use crate::event::dispatch_input;
     use crate::event::hit_test::hit_test;
-    use crate::layout::{AlignItems, FlexDirection, JustifyContent, LayoutStyle};
     use crate::surface::InputEvent;
     use crate::types::Dimension;
-    use crate::widget::builder::WidgetBuilder;
-    use crate::widget::{Children, Parent};
+    use crate::ui::builder::WidgetBuilder;
+    use crate::ui::layout::{AlignItems, FlexDirection, JustifyContent, LayoutStyle};
+    use crate::ui::widgets::slider::Slider;
+    use crate::ui::widgets::switch::Switch;
+    use crate::ui::widgets::tab_pages::{TabContent, tab_pages_system};
+    use crate::ui::widgets::tabbar::TabBar;
+    use crate::ui::{Children, Parent};
 
     fn build_widget_world() -> (World, Entity, Entity, Entity) {
         let mut app = crate::app::App::headless(128, 128);
@@ -1846,7 +1842,7 @@ mod tests {
     #[test]
     fn hit_test_skips_hidden_subtree_scroll_offset() {
         use crate::event::scroll::ScrollOffset;
-        use crate::widget::{Children, Hidden, Parent};
+        use crate::ui::{Children, Hidden, Parent};
         let mut world = World::new();
         let mk = |w: &mut World, h: i32| {
             WidgetBuilder::new(w)
@@ -1903,8 +1899,8 @@ mod tests {
     #[test]
     fn hit_test_clips_scrolled_child_to_container_rect() {
         use crate::event::scroll::ScrollOffset;
-        use crate::layout::Position;
-        use crate::widget::{Children, Parent};
+        use crate::ui::layout::Position;
+        use crate::ui::{Children, Parent};
         let mut world = World::new();
         let mk = |w: &mut World, width: i32, h: i32| {
             WidgetBuilder::new(w)
@@ -2115,10 +2111,10 @@ mod tests {
     /// either edge. Floor at left, ceiling at right, no overflow.
     #[test]
     fn slider_handler_clamps_ratio_at_boundaries() {
-        use crate::components::slider::{Slider, slider_handler};
         use crate::event::gesture::GestureEvent;
         use crate::types::Rect;
-        use crate::widget::ComputedRect;
+        use crate::ui::ComputedRect;
+        use crate::ui::widgets::slider::{Slider, slider_handler};
 
         let mut world = World::new();
         let e = world.spawn_empty();
@@ -2228,7 +2224,7 @@ mod tests {
         let total_frames: u64 = (cycle_ms * 25 / 10) / step; // ~2.5 cycles
 
         let viewport = crate::types::Viewport::new(128, 128, Fixed::ONE);
-        crate::widget::render_system::update_layout(&mut world, _root, &viewport);
+        crate::ui::render_system::update_layout(&mut world, _root, &viewport);
 
         let mut cycle1_toggles = 0u32;
         let mut cycle2_toggles = 0u32;
@@ -2238,10 +2234,10 @@ mod tests {
             sim_timeline_system(&mut world);
             crate::event::scroll::scroll_inertia_system(&mut world);
             tab_pages_system(&mut world);
-            crate::components::switch::switch_init_system(&mut world);
-            crate::components::switch::animate_switch_bg_t_system(&mut world);
-            crate::components::switch::animate_thumb_x_system(&mut world);
-            crate::widget::render_system::update_layout(&mut world, _root, &viewport);
+            crate::ui::widgets::switch::switch_init_system(&mut world);
+            crate::ui::widgets::switch::animate_switch_bg_t_system(&mut world);
+            crate::ui::widgets::switch::animate_thumb_x_system(&mut world);
+            crate::ui::render_system::update_layout(&mut world, _root, &viewport);
 
             let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
             if on != last_on {
@@ -2306,15 +2302,15 @@ mod tests {
 
     #[test]
     fn pinch_two_rounds_handler_scale_is_continuous() {
-        use crate::layout::{LayoutStyle, Position};
         use crate::types::{Dimension, Viewport};
+        use crate::ui::layout::{LayoutStyle, Position};
         let _g = mock::lock();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
             &mut world,
             Some(root),
-            crate::widget::Style {
+            crate::ui::Style {
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(20)),
@@ -2332,7 +2328,7 @@ mod tests {
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
         let center = Point {
             x: Fixed::from_int(64),
@@ -2404,15 +2400,15 @@ mod tests {
 
     #[test]
     fn pinch_demo_timeline_emits_expand_and_shrink_deltas() {
-        use crate::layout::{LayoutStyle, Position};
         use crate::types::{Dimension, Viewport};
+        use crate::ui::layout::{LayoutStyle, Position};
         let _g = mock::lock();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
             &mut world,
             Some(root),
-            crate::widget::Style {
+            crate::ui::Style {
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(20)),
@@ -2430,7 +2426,7 @@ mod tests {
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
         let center = Point {
             x: Fixed::from_int(64),
@@ -2482,15 +2478,15 @@ mod tests {
 
     #[test]
     fn anchored_pinch_clamps_span_to_target_rect() {
-        use crate::layout::{LayoutStyle, Position};
         use crate::types::{Dimension, Viewport};
+        use crate::ui::layout::{LayoutStyle, Position};
         let _g = mock::lock();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
             &mut world,
             Some(root),
-            crate::widget::Style {
+            crate::ui::Style {
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(20)),
@@ -2508,7 +2504,7 @@ mod tests {
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::pinch(
@@ -2536,15 +2532,15 @@ mod tests {
 
     #[test]
     fn anchored_pinch_recenters_outside_local_center() {
-        use crate::layout::{LayoutStyle, Position};
         use crate::types::{Dimension, Viewport};
+        use crate::ui::layout::{LayoutStyle, Position};
         let _g = mock::lock();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
             &mut world,
             Some(root),
-            crate::widget::Style {
+            crate::ui::Style {
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(20)),
@@ -2562,7 +2558,7 @@ mod tests {
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::pinch(
@@ -2590,15 +2586,15 @@ mod tests {
 
     #[test]
     fn anchored_rotate_gesture_clamps_radius_to_target_rect() {
-        use crate::layout::{LayoutStyle, Position};
         use crate::types::{Dimension, Viewport};
+        use crate::ui::layout::{LayoutStyle, Position};
         let _g = mock::lock();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
             &mut world,
             Some(root),
-            crate::widget::Style {
+            crate::ui::Style {
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(20)),
@@ -2616,7 +2612,7 @@ mod tests {
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
         world.insert_resource(SimTimeline::new(alloc::vec![
             SimAction::rotate_gesture(
@@ -2645,15 +2641,15 @@ mod tests {
 
     #[test]
     fn pinch_rotate_demo_loop_expands_shrinks_and_rotates() {
-        use crate::layout::{LayoutStyle, Position};
         use crate::types::{Dimension, Viewport};
+        use crate::ui::layout::{LayoutStyle, Position};
         let _g = mock::lock();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
             &mut world,
             Some(root),
-            crate::widget::Style {
+            crate::ui::Style {
                 layout: LayoutStyle {
                     position: Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(20)),
@@ -2671,7 +2667,7 @@ mod tests {
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
-        crate::widget::render_system::update_layout(&mut world, root, &viewport);
+        crate::ui::render_system::update_layout(&mut world, root, &viewport);
 
         let center = Point {
             x: Fixed::from_int(64),

@@ -1,12 +1,12 @@
 use alloc::vec::Vec;
 
-use crate::components::transform::WidgetTransform;
-use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::ecs::{Entity, World};
-use crate::layout::{LayoutNode, compute_layout};
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D, Viewport};
+use crate::ui::layout::{LayoutNode, compute_layout};
+use crate::ui::widgets::transform::WidgetTransform;
+use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
 
 use super::dirty::{DirtyRegions, RegionShift};
 use super::state::{InteractionState, UserState};
@@ -216,9 +216,9 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
 
 // FIXME: not the full solution.
 pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
-    use crate::components::text::Text;
     use crate::render::font::{CHAR_H, CHAR_W};
     use crate::types::Dimension;
+    use crate::ui::widgets::text::Text;
 
     let Some(text) = world.get::<Text>(entity) else {
         return;
@@ -1411,7 +1411,7 @@ pub fn collect_dirty_regions(
 
 fn collect_overlay_rects(world: &World) -> Vec<Rect> {
     use crate::feedback::{OverlayCursor, OverlayRotary};
-    use crate::widget::ComputedRect;
+    use crate::ui::ComputedRect;
     let mut rects = Vec::new();
     if let Some(storage) = world.storage::<OverlayCursor>() {
         for (e, _) in storage.iter() {
@@ -1438,11 +1438,11 @@ fn collect_overlay_rects(world: &World) -> Vec<Rect> {
 mod clip_children_check {
     extern crate std;
     use super::*;
-    use crate::layout::{LayoutStyle, Position};
     use crate::render::sw::SwRenderer;
     use crate::render::texture::{ColorFormat, Texture};
     use crate::types::{Color, Dimension, Viewport};
-    use crate::widget::{Children, Parent, Style, Widget};
+    use crate::ui::layout::{LayoutStyle, Position};
+    use crate::ui::{Children, Parent, Style, Widget};
 
     fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
         let e = world.spawn_empty();
@@ -1667,9 +1667,9 @@ mod clip_children_check {
 
     #[test]
     fn dirty_region_uses_2d_transform_bbox() {
-        use crate::components::transform::WidgetTransform;
         use crate::types::Transform;
-        use crate::widget::dirty::Dirty;
+        use crate::ui::dirty::Dirty;
+        use crate::ui::widgets::transform::WidgetTransform;
 
         let mut world = make_world();
         let root = spawn_widget(
@@ -1715,9 +1715,9 @@ mod clip_children_check {
 
     #[test]
     fn seeded_prev_rect_uses_2d_transform_bbox() {
-        use crate::components::transform::WidgetTransform;
         use crate::types::Transform;
-        use crate::widget::dirty::Dirty;
+        use crate::ui::dirty::Dirty;
+        use crate::ui::widgets::transform::WidgetTransform;
 
         let mut world = make_world();
         let root = spawn_widget(
@@ -1765,9 +1765,9 @@ mod clip_children_check {
 
     #[test]
     fn dirty_render_clears_pixels_from_previous_2d_transform() {
-        use crate::components::transform::WidgetTransform;
         use crate::types::Transform;
-        use crate::widget::dirty::Dirty;
+        use crate::ui::dirty::Dirty;
+        use crate::ui::widgets::transform::WidgetTransform;
 
         let mut world = make_world();
         let root = spawn_widget(
@@ -1834,9 +1834,9 @@ mod clip_children_check {
 
     #[test]
     fn dirty_region_covers_rotated_2d_transform_pixels() {
-        use crate::components::transform::WidgetTransform;
         use crate::types::Transform;
-        use crate::widget::dirty::Dirty;
+        use crate::ui::dirty::Dirty;
+        use crate::ui::widgets::transform::WidgetTransform;
 
         let mut world = make_world();
         let root = spawn_widget(
@@ -1910,11 +1910,11 @@ mod clip_children_check {
 mod hidden_check {
     extern crate std;
     use super::*;
-    use crate::layout::LayoutStyle;
     use crate::render::sw::SwRenderer;
     use crate::render::texture::{ColorFormat, Texture};
     use crate::types::{Color, Dimension, Viewport};
-    use crate::widget::{Children, Hidden, Parent, Style, Widget};
+    use crate::ui::layout::LayoutStyle;
+    use crate::ui::{Children, Hidden, Parent, Style, Widget};
 
     fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
         let e = world.spawn_empty();
@@ -1991,12 +1991,12 @@ mod hidden_check {
 mod disabled_state_check {
     extern crate std;
     use super::*;
-    use crate::layout::LayoutStyle;
     use crate::render::sw::SwRenderer;
     use crate::render::texture::{ColorFormat, Texture};
     use crate::types::{Color, Dimension, Viewport};
-    use crate::widget::theme::{Theme, WidgetState};
-    use crate::widget::{Children, Parent, Style, UserState, Widget};
+    use crate::ui::layout::LayoutStyle;
+    use crate::ui::theme::{Theme, WidgetState};
+    use crate::ui::{Children, Parent, Style, UserState, Widget};
 
     fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
         let e = world.spawn_empty();
@@ -2074,12 +2074,12 @@ mod disabled_state_check {
 mod offscreen_render_check {
     extern crate std;
     use super::*;
-    use crate::layout::LayoutStyle;
     use crate::render::sw::SwRenderer;
     use crate::render::texture::{ColorFormat, Texture};
     use crate::types::{Color, Dimension, Viewport};
-    use crate::widget::offscreen::BufferKey;
-    use crate::widget::{Children, OffscreenBufferPool, OffscreenRender, Parent, Style, Widget};
+    use crate::ui::layout::LayoutStyle;
+    use crate::ui::offscreen::BufferKey;
+    use crate::ui::{Children, OffscreenBufferPool, OffscreenRender, Parent, Style, Widget};
 
     fn spawn(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
         let e = world.spawn_empty();
@@ -2270,7 +2270,7 @@ mod offscreen_render_check {
                 layout: LayoutStyle {
                     width: Dimension::Px(Fixed::from_int(40)),
                     height: Dimension::Px(Fixed::from_int(20)),
-                    position: crate::layout::Position::Absolute,
+                    position: crate::ui::layout::Position::Absolute,
                     left: Dimension::Px(Fixed::from_int(5)),
                     top: Dimension::Px(Fixed::from_int(5)),
                     ..Default::default()
@@ -2356,8 +2356,8 @@ mod offscreen_render_check {
     /// offscreen raster paths is most likely to surface.
     #[test]
     fn offscreen_render_red_panel_with_child_matches_inline_across_frames() {
-        use crate::widget::dirty::Dirty;
-        use crate::widget::{Children, Parent, Theme};
+        use crate::ui::dirty::Dirty;
+        use crate::ui::{Children, Parent, Theme};
 
         const FB_W: u16 = 128;
         const FB_H: u16 = 128;
@@ -2399,7 +2399,7 @@ mod offscreen_render_check {
                     layout: LayoutStyle {
                         width: Dimension::Px(Fixed::from_int(8)),
                         height: Dimension::Px(Fixed::from_int(8)),
-                        position: crate::layout::Position::Absolute,
+                        position: crate::ui::layout::Position::Absolute,
                         left: Dimension::Px(Fixed::from_int(4)),
                         top: Dimension::Px(Fixed::from_int(4)),
                         ..Default::default()
@@ -2451,8 +2451,8 @@ mod offscreen_render_check {
     /// rendered both inline and offscreen, asserted byte-equal.
     #[test]
     fn offscreen_render_with_widget_transform_matches_inline() {
-        use crate::components::transform::WidgetTransform;
-        use crate::widget::{Children, Parent, Theme};
+        use crate::ui::widgets::transform::WidgetTransform;
+        use crate::ui::{Children, Parent, Theme};
 
         const FB_W: u16 = 128;
         const FB_H: u16 = 128;
@@ -2493,7 +2493,7 @@ mod offscreen_render_check {
                     layout: LayoutStyle {
                         width: Dimension::Px(Fixed::from_int(8)),
                         height: Dimension::Px(Fixed::from_int(8)),
-                        position: crate::layout::Position::Absolute,
+                        position: crate::ui::layout::Position::Absolute,
                         left: Dimension::Px(Fixed::from_int(4)),
                         top: Dimension::Px(Fixed::from_int(4)),
                         ..Default::default()
@@ -2574,10 +2574,10 @@ mod offscreen_render_check {
     /// render, switch toggle, and slider mutation.
     #[test]
     fn offscreen_render_form_page_subtree_matches_inline() {
-        use crate::components::{ProgressBar, Slider, Switch, Text};
-        use crate::layout::{AlignItems, FlexDirection, Padding};
-        use crate::widget::theme::ColorToken;
-        use crate::widget::{Children, Parent, Theme};
+        use crate::ui::layout::{AlignItems, FlexDirection, Padding};
+        use crate::ui::theme::ColorToken;
+        use crate::ui::widgets::{ProgressBar, Slider, Switch, Text};
+        use crate::ui::{Children, Parent, Theme};
 
         const FB_W: u16 = 128;
         const FB_H: u16 = 128;
@@ -2758,9 +2758,9 @@ mod offscreen_render_check {
         let (mut w_a, fp_a, sw_a, sl_a) = build(Mark::OnPanel);
         let (mut w_b, fp_b, sw_b, sl_b) = build(Mark::OnSwitch);
 
-        crate::widget::dirty::mark_subtree_dirty(&mut w_ref, fp_ref);
-        crate::widget::dirty::mark_subtree_dirty(&mut w_a, fp_a);
-        crate::widget::dirty::mark_subtree_dirty(&mut w_b, fp_b);
+        crate::ui::dirty::mark_subtree_dirty(&mut w_ref, fp_ref);
+        crate::ui::dirty::mark_subtree_dirty(&mut w_a, fp_a);
+        crate::ui::dirty::mark_subtree_dirty(&mut w_b, fp_b);
 
         assert_eq!(
             render_into(&mut w_ref, fp_ref),
@@ -2780,7 +2780,7 @@ mod offscreen_render_check {
             if let Some(s) = w.get_mut::<Switch>(sw) {
                 s.on = true;
             }
-            crate::widget::dirty::mark_subtree_dirty(w, fp);
+            crate::ui::dirty::mark_subtree_dirty(w, fp);
         };
         flip_on(&mut w_ref, fp_ref, sw_ref);
         flip_on(&mut w_a, fp_a, sw_a);
@@ -2800,7 +2800,7 @@ mod offscreen_render_check {
             if let Some(s) = w.get_mut::<Slider>(sl) {
                 s.value = s.max;
             }
-            crate::widget::dirty::mark_subtree_dirty(w, fp);
+            crate::ui::dirty::mark_subtree_dirty(w, fp);
         };
         slider_max(&mut w_ref, fp_ref, sl_ref);
         slider_max(&mut w_a, fp_a, sl_a);
@@ -2822,7 +2822,7 @@ mod offscreen_render_check {
     /// can't reach.
     #[test]
     fn offscreen_render_on_single_switch_widget_matches_inline_rgb565sw() {
-        use crate::components::Switch;
+        use crate::ui::widgets::Switch;
 
         let pix_at = |buf: &[u8], x: usize, y: usize| -> [u8; 2] {
             let i = (y * 128 + x) * 2;
@@ -2891,7 +2891,7 @@ mod offscreen_render_check {
     /// the outer framebuffer.
     #[test]
     fn offscreen_render_on_single_switch_widget_matches_inline() {
-        use crate::components::Switch;
+        use crate::ui::widgets::Switch;
 
         let blue_at = |buf: &[u8], x: usize, y: usize| -> (u8, u8, u8) {
             let i = (y * 64 + x) * 4;
@@ -3089,9 +3089,9 @@ mod offscreen_render_check {
     /// `try_draw_offscreen` cull bug would skip render here.
     #[test]
     fn offscreen_render_with_in_bounds_transform_still_renders() {
-        use crate::components::transform::WidgetTransform;
         use crate::types::Transform;
-        use crate::widget::dirty::Dirty;
+        use crate::ui::dirty::Dirty;
+        use crate::ui::widgets::transform::WidgetTransform;
 
         const FB_W: u16 = 64;
         const FB_H: u16 = 64;
@@ -3163,9 +3163,9 @@ mod offscreen_render_check {
     /// skipped raster + blit and the entity vanished.
     #[test]
     fn offscreen_render_with_transform_translating_partially_off_screen_still_renders() {
-        use crate::components::transform::WidgetTransform;
         use crate::types::Transform;
-        use crate::widget::dirty::Dirty;
+        use crate::ui::dirty::Dirty;
+        use crate::ui::widgets::transform::WidgetTransform;
 
         const FB_W: u16 = 64;
         const FB_H: u16 = 64;
@@ -3336,8 +3336,8 @@ mod offscreen_render_check {
     fn snapshot_widget_does_not_pollute_source_components() {
         use crate::app::App;
         use crate::types::{Color, Dimension};
-        use crate::widget::offscreen::OffscreenAutoAdded;
-        use crate::widget::{OffscreenRender, Widget};
+        use crate::ui::offscreen::OffscreenAutoAdded;
+        use crate::ui::{OffscreenRender, Widget};
 
         let mut app = App::headless(64, 64);
         app.with_default_widgets()
@@ -3686,8 +3686,8 @@ mod offscreen_render_check {
     #[test]
     #[should_panic(expected = "OffscreenRender + WidgetTransform3D")]
     fn offscreen_render_panics_on_3d_transform() {
-        use crate::components::transform_3d::WidgetTransform3D;
         use crate::types::Transform3D;
+        use crate::ui::widgets::transform_3d::WidgetTransform3D;
         let mut world = make_world();
         let panel = spawn(
             &mut world,
@@ -3817,7 +3817,7 @@ mod offscreen_render_check {
         // An OffscreenRender entity that's also Hidden should not
         // create a buffer — collect_entities_preorder skips Hidden
         // entirely so the dispatch never reaches try_draw_offscreen.
-        use crate::widget::Hidden;
+        use crate::ui::Hidden;
         let mut world = make_world();
         let panel = spawn(
             &mut world,
@@ -3856,8 +3856,8 @@ mod offscreen_render_check {
     /// pixels (proves the view fn ran end-to-end).
     #[test]
     fn mirror_of_paints_into_its_own_rect() {
-        use crate::components::MirrorOf;
-        use crate::widget::dirty::mark_subtree_dirty;
+        use crate::ui::dirty::mark_subtree_dirty;
+        use crate::ui::widgets::MirrorOf;
 
         let mut world = make_world();
         let root = spawn(
@@ -3880,7 +3880,7 @@ mod offscreen_render_check {
             Style {
                 bg_color: Some(Color::rgb(255, 0, 0).into()),
                 layout: LayoutStyle {
-                    position: crate::layout::Position::Absolute,
+                    position: crate::ui::layout::Position::Absolute,
                     left: Dimension::Px(Fixed::ZERO),
                     top: Dimension::Px(Fixed::ZERO),
                     width: Dimension::Px(Fixed::from_int(16)),
@@ -3896,7 +3896,7 @@ mod offscreen_render_check {
             Some(root),
             Style {
                 layout: LayoutStyle {
-                    position: crate::layout::Position::Absolute,
+                    position: crate::ui::layout::Position::Absolute,
                     left: Dimension::Px(Fixed::ZERO),
                     top: Dimension::Px(Fixed::from_int(16)),
                     width: Dimension::Px(Fixed::from_int(16)),
@@ -3910,7 +3910,7 @@ mod offscreen_render_check {
 
         // auto_attach won't run on its own outside the App lifecycle,
         // so plant the WidgetTextureRef manually for the test.
-        world.insert(mirror, crate::widget::offscreen::WidgetTextureRef(source));
+        world.insert(mirror, crate::ui::offscreen::WidgetTextureRef(source));
         super::super::offscreen::maintain_widget_texture_refs(&mut world);
 
         let viewport = Viewport::new(32, 32, Fixed::ONE);
@@ -3952,7 +3952,7 @@ mod offscreen_render_check {
     /// backends) and erase the silhouette.
     #[test]
     fn offscreen_alpha_mode_clear_zeros_buffer_outside_source() {
-        use crate::widget::offscreen::OffscreenAlphaMode;
+        use crate::ui::offscreen::OffscreenAlphaMode;
 
         let mut world = make_world();
         // Source is a 6×6 widget centered in a 12×12 buffer area
@@ -4005,9 +4005,9 @@ mod offscreen_render_check {
     /// buffer keeps painting in the previous theme's colours.
     #[test]
     fn unhide_after_global_event_invalidates_offscreen_descendants() {
-        use crate::widget::Hidden;
-        use crate::widget::dirty::{Dirty, mark_subtree_dirty};
-        use crate::widget::offscreen::OffscreenGeneration;
+        use crate::ui::Hidden;
+        use crate::ui::dirty::{Dirty, mark_subtree_dirty};
+        use crate::ui::offscreen::OffscreenGeneration;
 
         let mut world = make_world();
         let root = spawn(
@@ -4062,7 +4062,7 @@ mod offscreen_render_check {
         // Hide the tab and clear any leftover Dirty in the subtree
         // (mirrors `tab_pages_system`'s hide branch).
         world.insert(tab_content, Hidden);
-        crate::widget::dirty::clear_subtree_dirty(&mut world, tab_content);
+        crate::ui::dirty::clear_subtree_dirty(&mut world, tab_content);
 
         // Global event: theme swap walks from `root`, hitting Hidden
         // along the way. The offscreen grandchild does not get Dirty.
@@ -4167,10 +4167,10 @@ mod scroll_plan_check {
     extern crate std;
     use super::*;
     use crate::event::scroll::components::{ScrollDelta, ScrollOffset};
-    use crate::layout::LayoutStyle;
     use crate::types::Dimension;
-    use crate::widget::dirty::Dirty;
-    use crate::widget::{Children, Parent, Style, Widget};
+    use crate::ui::dirty::Dirty;
+    use crate::ui::layout::LayoutStyle;
+    use crate::ui::{Children, Parent, Style, Widget};
 
     fn spawn_widget(world: &mut World, parent: Option<Entity>, style: Style) -> Entity {
         let e = world.spawn_empty();
@@ -4587,7 +4587,7 @@ mod scroll_plan_check {
     }
 
     fn absolute_style(left: i32, top: i32, w: i32, h: i32) -> Style {
-        use crate::layout::Position;
+        use crate::ui::layout::Position;
         Style {
             layout: LayoutStyle {
                 position: Position::Absolute,
@@ -4744,15 +4744,15 @@ mod scroll_plan_check {
                 height: Dimension::Px(Fixed::from_int(h)),
                 ..Default::default()
             },
-            bg_color: Some(crate::widget::theme::ThemedColor::Raw(
+            bg_color: Some(crate::ui::theme::ThemedColor::Raw(
                 crate::types::Color::rgb(255, 0, 0),
             )),
             ..Default::default()
         };
 
         let mut world = World::new();
-        world.insert_resource(crate::widget::view::ViewRegistry::with_builtins());
-        world.insert_resource(crate::widget::theme::Theme::default());
+        world.insert_resource(crate::ui::view::ViewRegistry::with_builtins());
+        world.insert_resource(crate::ui::theme::Theme::default());
         let root = spawn_widget(&mut world, None, styled(64, 64));
         let child = spawn_widget(&mut world, Some(root), styled(32, 32));
         world.insert(child, Dirty);

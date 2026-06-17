@@ -2,12 +2,12 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::components::ProgressBar;
 use crate::ecs::{Entity, World};
 use crate::prelude::*;
 use crate::state::Signal;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui::widgets::ProgressBar;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     let shown = Signal::new(false);
@@ -137,13 +137,13 @@ mod tests {
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
     use crate::state::flush_signal_dirty;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn reactive_if_else_swaps_branch() {
-        use crate::components::text::Text;
+        use crate::ui::widgets::text::Text;
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn reactive_match_swaps_arm() {
-        use crate::components::text::Text;
+        use crate::ui::widgets::text::Text;
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
@@ -247,7 +247,7 @@ mod tests {
 
     #[test]
     fn reactive_branch_keeps_index_between_static_siblings() {
-        use crate::components::text::Text;
+        use crate::ui::widgets::text::Text;
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();

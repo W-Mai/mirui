@@ -29,7 +29,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     let summary = remaining.clone();
 
     let root = WidgetBuilder::new(world)
-        .layout(crate::layout::LayoutStyle {
+        .layout(crate::ui::layout::LayoutStyle {
             direction: FlexDirection::Column,
             align: AlignItems::Center,
             padding: Padding::all(12),
@@ -37,8 +37,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             ..Default::default()
         })
         .id();
-    world.insert(root, crate::widget::Parent(parent));
-    if let Some(c) = world.get_mut::<crate::widget::Children>(parent) {
+    world.insert(root, crate::ui::Parent(parent));
+    if let Some(c) = world.get_mut::<crate::ui::Children>(parent) {
         c.0.push(root);
     }
 
@@ -91,12 +91,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::components::text::Text;
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
     use crate::state::flush_signal_dirty;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::widgets::text::Text;
 
     fn label_text(world: &World, label: Entity) -> alloc::string::String {
         let t = world.get::<Text>(label).expect("label has Text");

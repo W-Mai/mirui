@@ -7,9 +7,9 @@ use crate::event::input::{
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Point, Rect};
-use crate::widget::dirty::Dirty;
-use crate::widget::theme::{ColorToken, ThemedColor};
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::dirty::Dirty;
+use crate::ui::theme::{ColorToken, ThemedColor};
+use crate::ui::view::{View, ViewCtx};
 
 /// Caret on/off, toggled by `cursor_blink_system` every ~500 ms.
 #[derive(Default, Clone, Copy)]
@@ -170,12 +170,12 @@ impl Default for TextInput {
 
 pub struct TextInputBuilder {
     text_input: TextInput,
-    style: Option<crate::widget::Style>,
+    style: Option<crate::ui::Style>,
     placeholder: Option<&'static str>,
 }
 
 impl TextInputBuilder {
-    pub fn style(mut self, style: crate::widget::Style) -> Self {
+    pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
         self
     }
@@ -522,13 +522,13 @@ mod tests {
     fn builder_inserts_all() {
         let mut world = World::new();
         let e = TextInput::build()
-            .style(crate::widget::Style::default())
+            .style(crate::ui::Style::default())
             .placeholder("hi")
             .spawn(&mut world);
         assert!(world.get::<TextInput>(e).is_some());
-        assert!(world.get::<crate::widget::Style>(e).is_some());
+        assert!(world.get::<crate::ui::Style>(e).is_some());
         assert!(world.get::<Placeholder>(e).is_some());
-        assert!(world.get::<crate::widget::Widget>(e).is_some());
+        assert!(world.get::<crate::ui::Widget>(e).is_some());
     }
 
     #[test]
@@ -536,7 +536,7 @@ mod tests {
         let mut world = World::new();
         let e = TextInput::build().spawn(&mut world);
         assert!(world.get::<TextInput>(e).is_some());
-        assert!(world.get::<crate::widget::Style>(e).is_none());
+        assert!(world.get::<crate::ui::Style>(e).is_none());
         assert!(world.get::<Placeholder>(e).is_none());
     }
 }

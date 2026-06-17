@@ -160,9 +160,9 @@ mod tests {
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
     use crate::state::flush_signal_dirty;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::builder::WidgetBuilder;
 
     fn row_count(world: &World, list: Entity) -> usize {
         world.get::<Children>(list).map(|c| c.0.len()).unwrap_or(0)

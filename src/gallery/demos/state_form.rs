@@ -90,12 +90,12 @@ mod tests {
     use crate::event::GestureHandler;
     use crate::event::gesture::GestureEvent;
     use crate::state::flush_signal_dirty;
-    use crate::widget::Children;
-    use crate::widget::IdMap;
-    use crate::widget::Style;
-    use crate::widget::builder::WidgetBuilder;
+    use crate::ui::Children;
+    use crate::ui::IdMap;
+    use crate::ui::Style;
+    use crate::ui::builder::WidgetBuilder;
 
-    fn bg(world: &World, e: Entity) -> Option<crate::widget::theme::ThemedColor> {
+    fn bg(world: &World, e: Entity) -> Option<crate::ui::theme::ThemedColor> {
         world.get::<Style>(e).and_then(|s| s.bg_color)
     }
 
@@ -124,8 +124,8 @@ mod tests {
         let agree = world.get::<Children>(col).unwrap().0[1];
         let submit = world.get::<Children>(col).unwrap().0[2];
 
-        let off = crate::widget::theme::ThemedColor::Raw(Color::rgb(80, 80, 96));
-        let on = crate::widget::theme::ThemedColor::Raw(Color::rgb(63, 185, 80));
+        let off = crate::ui::theme::ThemedColor::Raw(Color::rgb(80, 80, 96));
+        let on = crate::ui::theme::ThemedColor::Raw(Color::rgb(63, 185, 80));
 
         assert_eq!(bg(&world, submit), Some(off), "starts disabled");
         tap(&mut world, name);

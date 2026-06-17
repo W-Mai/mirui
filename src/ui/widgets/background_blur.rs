@@ -7,7 +7,7 @@ use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
 use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
 use crate::types::{Fixed, Point, Rect};
-use crate::widget::view::{View, ViewCtx};
+use crate::ui::view::{View, ViewCtx};
 
 pub struct BackgroundBlur {
     /// Pixels of Gaussian-equivalent blur radius. `Fixed` (not `u8`)

@@ -1,6 +1,6 @@
 use crate::ecs::{Entity, World};
 use crate::surface::InputEvent;
-use crate::widget::Parent;
+use crate::ui::Parent;
 
 use super::gesture::GestureEvent;
 
@@ -77,7 +77,7 @@ pub fn key_dispatch(world: &mut World, event: &InputEvent) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::widget::UserState;
+    use crate::ui::UserState;
 
     #[test]
     fn focus_skips_disabled_subtree() {

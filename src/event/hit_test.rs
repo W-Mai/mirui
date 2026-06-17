@@ -1,13 +1,13 @@
 use alloc::vec;
 use alloc::vec::Vec;
 
-use crate::components::transform::WidgetTransform;
-use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
 use crate::ecs::{Entity, World};
 use crate::event::scroll::ScrollOffset;
-use crate::layout::{LayoutNode, compute_layout};
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
-use crate::widget::{Children, Hidden, IgnoreHitTest, Style, Widget};
+use crate::ui::layout::{LayoutNode, compute_layout};
+use crate::ui::widgets::transform::WidgetTransform;
+use crate::ui::widgets::transform_3d::{TransformOrigin, WidgetTransform3D};
+use crate::ui::{Children, Hidden, IgnoreHitTest, Style, Widget};
 
 // INVARIANT: every recursive walker in this module — build_rects,
 // compute_scroll_offsets, compute_transforms, compute_transforms_3d —
@@ -36,7 +36,7 @@ fn build_rects(
             }
             if let Some(style) = world.get::<Style>(child) {
                 let mut child_node = LayoutNode::new(style.layout);
-                crate::widget::render_system::apply_text_intrinsic(world, child, &mut child_node);
+                crate::ui::render_system::apply_text_intrinsic(world, child, &mut child_node);
                 build_rects(
                     world,
                     child,

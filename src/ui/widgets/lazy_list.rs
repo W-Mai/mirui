@@ -1,8 +1,8 @@
 use crate::ecs::{Entity, World};
 use crate::event::scroll::ScrollOffset;
 use crate::types::Fixed;
-use crate::widget::ComputedRect;
-use crate::widget::dirty::Dirty;
+use crate::ui::ComputedRect;
+use crate::ui::dirty::Dirty;
 use alloc::vec::Vec;
 
 /// Virtual scroll over a fixed-height row list.
@@ -165,17 +165,17 @@ fn apply_bindings(world: &mut World, entity: Entity, ctx: ListContext) -> bool {
         // Reveal a slot that was previously Hidden (item_count grew
         // back, or this slot was unbound at startup with
         // pool_size > item_count and is now reused).
-        if world.get::<crate::widget::Hidden>(slot).is_some() {
-            world.remove::<crate::widget::Hidden>(slot);
+        if world.get::<crate::ui::Hidden>(slot).is_some() {
+            world.remove::<crate::ui::Hidden>(slot);
             any_changed = true;
         }
         // Reposition-only slots ride the container's self-blit; only
         // rebound slots need a Dirty redraw at their new position.
         let y = ctx.item_height * Fixed::from_int(target as i32);
         if rebound {
-            crate::widget::set_position(world, slot, Fixed::ZERO, y);
+            crate::ui::set_position(world, slot, Fixed::ZERO, y);
         } else {
-            crate::widget::set_position_quiet(world, slot, Fixed::ZERO, y);
+            crate::ui::set_position_quiet(world, slot, Fixed::ZERO, y);
         }
     }
     if let Some(pool) = world.get_mut::<LazyListPool>(entity) {
@@ -261,13 +261,13 @@ fn clear_extra_slots(world: &mut World, entity: Entity, ctx: &ListContext) -> bo
             continue;
         }
         let slot = ctx.items[i];
-        if world.get::<crate::widget::Hidden>(slot).is_some() {
+        if world.get::<crate::ui::Hidden>(slot).is_some() {
             continue;
         }
         *bound = u32::MAX;
         any_cleared = true;
         // Hide via Hidden marker: layout / render / hit-test all skip.
-        world.insert(slot, crate::widget::Hidden);
+        world.insert(slot, crate::ui::Hidden);
     }
     if any_cleared {
         if let Some(pool) = world.get_mut::<LazyListPool>(entity) {
@@ -277,16 +277,16 @@ fn clear_extra_slots(world: &mut World, entity: Entity, ctx: &ListContext) -> bo
     any_cleared
 }
 
-pub fn view() -> crate::widget::view::View {
-    crate::widget::view::View::systems_only("LazyList", const { &[lazy_list_system::system()] })
+pub fn view() -> crate::ui::view::View {
+    crate::ui::view::View::systems_only("LazyList", const { &[lazy_list_system::system()] })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::layout::{LayoutStyle, Position};
     use crate::types::Dimension;
-    use crate::widget::{Style, Widget};
+    use crate::ui::layout::{LayoutStyle, Position};
+    use crate::ui::{Style, Widget};
 
     #[test]
     fn pool_starts_unbound() {
@@ -327,7 +327,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        world.insert(e, crate::widget::Parent(list));
+        world.insert(e, crate::ui::Parent(list));
         e
     }
 
@@ -422,13 +422,13 @@ mod tests {
 
         for &slot in &pool[..3] {
             assert!(
-                world.get::<crate::widget::Hidden>(slot).is_none(),
+                world.get::<crate::ui::Hidden>(slot).is_none(),
                 "first 3 slots must be visible (bound)"
             );
         }
         for &slot in &pool[3..] {
             assert!(
-                world.get::<crate::widget::Hidden>(slot).is_some(),
+                world.get::<crate::ui::Hidden>(slot).is_some(),
                 "extra slots beyond item_count must be Hidden"
             );
         }
@@ -473,9 +473,9 @@ mod tests {
             &alloc::vec![0u32, 1, 2, u32::MAX, u32::MAX],
             "rows 3 / 4 must be cleared from bound_indices",
         );
-        assert!(world.get::<crate::widget::Hidden>(pool[3]).is_some());
-        assert!(world.get::<crate::widget::Hidden>(pool[4]).is_some());
-        assert!(world.get::<crate::widget::Hidden>(pool[0]).is_none());
+        assert!(world.get::<crate::ui::Hidden>(pool[3]).is_some());
+        assert!(world.get::<crate::ui::Hidden>(pool[4]).is_some());
+        assert!(world.get::<crate::ui::Hidden>(pool[0]).is_none());
     }
 
     #[test]
@@ -496,8 +496,8 @@ mod tests {
         world.insert_resource(BindTrace(alloc::vec::Vec::new()));
 
         lazy_list_system(&mut world);
-        assert!(world.get::<crate::widget::Hidden>(pool[3]).is_some());
-        assert!(world.get::<crate::widget::Hidden>(pool[4]).is_some());
+        assert!(world.get::<crate::ui::Hidden>(pool[3]).is_some());
+        assert!(world.get::<crate::ui::Hidden>(pool[4]).is_some());
 
         if let Some(l) = world.get_mut::<LazyList>(list) {
             l.item_count = 5;
@@ -506,7 +506,7 @@ mod tests {
 
         for &slot in &pool {
             assert!(
-                world.get::<crate::widget::Hidden>(slot).is_none(),
+                world.get::<crate::ui::Hidden>(slot).is_none(),
                 "all slots should be visible once item_count grows back",
             );
         }
@@ -515,7 +515,7 @@ mod tests {
     fn set_list_height(world: &mut World, list: Entity, h: i32) {
         world.insert(
             list,
-            crate::widget::ComputedRect(crate::types::Rect {
+            crate::ui::ComputedRect(crate::types::Rect {
                 x: Fixed::ZERO,
                 y: Fixed::ZERO,
                 w: Fixed::from_int(100),
@@ -526,7 +526,7 @@ mod tests {
 
     fn visible_count(world: &World, pool: &[Entity]) -> usize {
         pool.iter()
-            .filter(|&&s| world.get::<crate::widget::Hidden>(s).is_none())
+            .filter(|&&s| world.get::<crate::ui::Hidden>(s).is_none())
             .count()
     }
 
