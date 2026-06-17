@@ -1,5 +1,6 @@
 pub mod canvas;
 pub mod command;
+pub mod factory;
 pub mod font;
 pub mod membrane;
 pub mod painter;
@@ -18,6 +19,7 @@ pub mod wgpu_render;
 
 pub use canvas::Canvas;
 pub use command::DrawCommand;
+pub use factory::{RendererFactory, SwRendererFactory};
 pub use renderer::Renderer;
 pub use sw::SwRenderer;
 #[cfg(feature = "perf")]

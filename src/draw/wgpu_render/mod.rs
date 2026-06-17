@@ -7,9 +7,9 @@ mod texture_pool;
 
 use wgpu::util::DeviceExt;
 
-use crate::app::RendererFactory;
 use crate::draw::canvas::Canvas;
 use crate::draw::command::DrawCommand;
+use crate::draw::factory::RendererFactory;
 use crate::draw::path::Path;
 use crate::draw::renderer::Renderer;
 use crate::draw::texture::Texture;

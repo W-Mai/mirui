@@ -26,9 +26,9 @@ use sdl2::video::Window;
 
 use self::label_cache::LabelCache;
 use self::tessellation::TessellationCache;
-use crate::app::RendererFactory;
 use crate::draw::canvas::Canvas;
 use crate::draw::command::DrawCommand;
+use crate::draw::factory::RendererFactory;
 use crate::draw::path::Path;
 use crate::draw::renderer::Renderer;
 use crate::draw::texture::{ColorFormat, Texture};

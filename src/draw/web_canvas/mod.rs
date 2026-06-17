@@ -10,9 +10,9 @@ use alloc::string::String;
 use web_sys::CanvasRenderingContext2d;
 
 use self::texture_pool::{TextureKey, TexturePool, new_pool};
-use crate::app::RendererFactory;
 use crate::draw::canvas::Canvas;
 use crate::draw::command::DrawCommand;
+use crate::draw::factory::RendererFactory;
 use crate::draw::path::{Path, PathCmd};
 use crate::draw::renderer::Renderer;
 use crate::draw::texture::Texture;
