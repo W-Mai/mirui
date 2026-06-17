@@ -5,6 +5,90 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] - 2026-06-17
+
+A token-based image resource system lands. `Image` widgets reference
+textures by `&str` token and `ImageResourcesPlugin` resolves them through
+a `ResourceManager<Texture<'static>>`; the manager backs into the same
+generic cache the offscreen pool uses, so user code can register static
+textures, MIRX byte blobs, or custom loaders behind one API. Companion
+binary format `mirx` gets its first reader/writer pair (FLAT and CHUNK
+layouts, IEEE CRC32 header guard) and is published as a sibling crate so
+host tools can share the on-disk schema.
+
+The hot path is allocator-free on a cache hit: cached values are
+`Rc<Texture>`, lookups query the index by borrowed `&str` (no `Cow::Owned`
+roundtrip), and World maps switch from foldhash to FxHash for cheaper
+TypeId hashing. Adds finer `trace_span!` landmarks around image render
+and cache acquire so a Perfetto profile reads the per-Image fanout
+without re-instrumenting.
+
+### Added
+
+- **`mirx` crate** — sibling workspace member shipping the binary image
+  format mirui consumes via `Texture::from_mirx`. FLAT layout for a
+  single image, CHUNK layout for multi-image archives. IEEE CRC32 over
+  the file header rejects truncation and bit-flips; the inner image
+  header validates reserved bytes, dimension overflow, and `extra <= main`
+  data sizing. Zero-copy: parsed `data`/`extra` slices borrow the input.
+- **`ResourceManager<T>`** — generic resource store backed by an
+  `LruCache<Cow<'static,str>, Rc<T>>` plus a probe sidecar for cheap
+  metadata-only queries. Builder API (`with_static` / `with_factory` /
+  `with_loader` / `with_probes`) keeps the store inert when not used.
+- **`ImageResourcesPlugin`** — installs a `ResourceManager<Texture<'static>>`
+  into the World with a 256 KiB value budget, 1024-entry probe budget,
+  a magenta-on-black checkerboard fallback for missing tokens, and a
+  built-in `"thumbs_up"` registration. `::empty()` opts out of the
+  built-in asset.
+- **`Image::new(token)` token API** — `Image` holds a
+  `Cow<'static, str>` source token; `image_render` resolves through
+  `ResourceManager` so widgets render the current asset for that token
+  without compile-time pinning.
+- **`Loader<T>` trait + `MirxLoader<F>`** — loaders return `NotMine` to
+  let the manager keep walking the chain or `Failed(&'static str)` to
+  hard-fail. `Fn(&str) -> Result<T, LoadError>` is a blanket `Loader<T>`,
+  so simple registrations can be plain closures. `MirxLoader` wraps a
+  fetch closure that maps tokens to `&'static [u8]` mirx bytes.
+- **`add_mirx_bytes(token, bytes)`** — sugar for the common case:
+  registers a probe (eager) and a value factory (lazy) for one mirx blob.
+- **`HasProbe` trait** — opt-in cheap-metadata projection so layout
+  systems can read pixel dimensions without decoding the value.
+- **Perf tooling** — `gallery/examples/tools/perf_bench` reports
+  per-stage wall time for image-heavy / image-light / no-image scenes;
+  `trace_span!` landmarks added on the image render and cache acquire
+  paths so chrome-trace dumps surface the per-Image fanout directly.
+
+### Changed
+
+- **`Lookup::get` / `Lookup::remove` accept borrowed key types**
+  (breaking) — the trait methods are now generic over `Q` where
+  `K: Borrow<Q>` and `Q: Hash + Eq + ?Sized`. `Cache::acquire` /
+  `Cache::drop` / `WithFactory::acquire` propagate the borrow form, so a
+  `LruCache<Cow<'static,str>, V>` can be queried with `&str` directly.
+  `Cache::evict_one` and the `Entry`/`VacantEntry::insert` helpers gain
+  a `K: Hash + Eq` requirement to support the new index API.
+- **World maps use `FxBuildHasher`** — `World::storages` and
+  `World::resources` are `HashMap<TypeId, _, FxBuildHasher>`. TypeId
+  hashing on the per-entity render walk gets noticeably cheaper on
+  architectures without fast 64-bit ops.
+- **Resource cache stores `Rc<T>`** — values cache holds `Rc<T>`, so a
+  cache hit is a refcount bump instead of a struct memcpy + fresh
+  `Rc::new` allocation. `HasSize` is implemented for `Rc<T>` by
+  delegation; the cache budget tracks the inner `T` size.
+- **`MirrorOf` accepts a primary attribute** — `ui!` lets `MirrorOf`
+  take a positional `source` argument like `Text`/`Image` already do.
+- **`effect_glass` rewrite** — the demo's slide phase clock is now an
+  `animate!(GlassX, Tween::…)` component instead of a hand-rolled system
+  + per-entity phase struct. The slide range derives from the canvas
+  width as it always should have.
+
+### Removed
+
+- **`OrdLookup` / `LruBTreeCache`** (breaking) — the `BTreeMap`-backed
+  Lookup impl had no internal callers and could not unify its `Q: Ord`
+  query bound with the new `Q: Hash + Eq` trait method shape. Use
+  `LruCache` (HashLookup) or `LruLinearCache` (LinearLookup) instead.
+
 ## [0.29.3] - 2026-06-14
 
 ### Fixed
