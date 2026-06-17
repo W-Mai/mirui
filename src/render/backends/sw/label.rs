@@ -1,5 +1,5 @@
 use super::SwRenderer;
-use crate::render::font::{CHAR_H, CHAR_W, glyph};
+use crate::render::font::Font;
 use crate::types::{Color, Fixed, Point, Rect};
 
 impl SwRenderer<'_> {
@@ -7,6 +7,7 @@ impl SwRenderer<'_> {
         &mut self,
         pos: &Point,
         text: &[u8],
+        font: &Font,
         clip: &Rect,
         color: &Color,
         opa: u8,
@@ -16,12 +17,16 @@ impl SwRenderer<'_> {
         let scale = self.viewport.scale().to_int().max(1);
         let (clip_x, clip_y, clip_x2, clip_y2) = phys_clip.pixel_bounds();
         let (mut cx, cy) = phys_pos.floor();
-        let advance = CHAR_W as i32 * scale;
+        let metrics = font.metrics();
+        let char_h = metrics.line_height as i32;
         for &ch in text {
-            let bitmap = glyph(ch);
-            for row in 0..CHAR_H as i32 {
-                let byte = bitmap[row as usize];
-                for col in 0..CHAR_W as i32 {
+            let Some(g) = font.glyph(ch as char) else {
+                continue;
+            };
+            let advance = g.advance as i32 * scale;
+            for row in 0..char_h.min(g.bitmap.len() as i32) {
+                let byte = g.bitmap[row as usize];
+                for col in 0..8 {
                     if byte & (0x80 >> col) == 0 {
                         continue;
                     }

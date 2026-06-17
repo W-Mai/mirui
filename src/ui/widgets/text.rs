@@ -54,6 +54,9 @@ fn text_render(
         return;
     };
     let color = ctx.style.text_color.resolve_in(ctx.theme(world), ctx.state);
+    let Some(font) = crate::render::font::resolve_or_default(world, &ctx.style.font_token) else {
+        return;
+    };
     renderer.draw(
         &DrawCommand::Label {
             pos: Point {
@@ -62,6 +65,7 @@ fn text_render(
             },
             transform: ctx.transform,
             text: &text.0,
+            font: &font,
             color,
             opa: 255,
         },

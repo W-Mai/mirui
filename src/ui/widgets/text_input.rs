@@ -237,6 +237,9 @@ fn text_input_render(
     let Some(ti) = world.get::<TextInput>(entity) else {
         return;
     };
+    let Some(font) = crate::render::font::resolve_or_default(world, &ctx.style.font_token) else {
+        return;
+    };
     let theme = ctx.theme(world);
     let text_color = ti.text_color.resolve_in(theme, ctx.state);
     let placeholder_color = ti.placeholder_color.resolve_in(theme, ctx.state);
@@ -270,6 +273,7 @@ fn text_input_render(
                     },
                     transform: ctx.transform,
                     text: ph.0.as_bytes(),
+                    font: &font,
                     color: placeholder_color,
                     opa: 255,
                 },
@@ -285,6 +289,7 @@ fn text_input_render(
                 },
                 transform: ctx.transform,
                 text: &ti.buffer[..ti.len as usize],
+                font: &font,
                 color: text_color,
                 opa: 255,
             },

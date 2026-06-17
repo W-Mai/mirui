@@ -1,5 +1,5 @@
 error: method `blit` routed more than once (also at earlier position)
-  --> tests/compose_backend_fail/duplicate_route.rs:25:9
+  --> tests/compose_backend_fail/duplicate_route.rs:26:9
    |
-25 |         blit => sw,
+26 |         blit => sw,
    |         ^^^^

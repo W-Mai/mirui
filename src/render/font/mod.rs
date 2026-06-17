@@ -1,39 +1,33 @@
-//! Font resource management — registry, token, provider trait.
+//! Font resource management — manager, token, provider trait.
 //!
-//! `FontRegistry` is the World resource that maps a [`FontToken`] to a
-//! concrete [`Font`]. Built-in widgets read text through
-//! `Style.font_token`; layout and render look the token up at draw
-//! time. The bundled provider is the 8x8 ASCII bitmap (the renderer
-//! has always shipped); third-party providers (SDF / TTF) plug in
-//! through [`FontProvider`] behind [`FontBackend::Custom`].
-//!
-//! Resource-management surface only: this module does not implement
-//! glyph rasterization for non-bitmap providers. SDF / TTF rendering
-//! lands as a separate milestone implementing `FontProvider`.
+//! [`FontManager`] (a `ResourceManager<Font>`) is the World resource
+//! that maps a [`FontToken`] cache key to a concrete [`Font`]. Built-in
+//! widgets read text through `Style.font_token`; layout and render look
+//! the token up at draw time. The fallback provider is the 8x8 ASCII
+//! bitmap; third-party providers plug in through [`FontProvider`] behind
+//! [`FontBackend::Custom`].
 
 pub mod bitmap_8x8;
 
 pub use bitmap_8x8::{CHAR_H, CHAR_W, FONT_8X8, glyph};
 
-use alloc::boxed::Box;
-use alloc::collections::BTreeMap;
+use alloc::rc::Rc;
 
-use crate::core::resource::HasProbe;
+use crate::core::resource::{HasProbe, ResourceManager};
 use crate::ecs::World;
 
 /// One glyph as the framework consumes it.
 ///
-/// The 8x8 bitmap renderer reads `bitmap` directly. SDF / TTF
-/// providers extend the type via their own data; built-in widgets
-/// only need `advance` for layout.
+/// The 8x8 bitmap renderer reads `bitmap` directly. Custom providers
+/// extend the type via their own data; built-in widgets only need
+/// `advance` for layout.
 #[derive(Clone, Debug)]
 pub struct Glyph {
     /// Horizontal advance after drawing this glyph, in pixels.
     pub advance: u16,
     /// Bitmap rows (one byte per row, MSB = leftmost pixel) for the
-    /// 8x8 backend. Empty for backends that draw through their own
-    /// path (custom providers ignore this field and read from their
-    /// own state).
+    /// 8x8 backend. Custom providers ignore this and read from their
+    /// own state.
     pub bitmap: &'static [u8],
 }
 
@@ -48,25 +42,23 @@ pub struct FontMetrics {
     pub line_height: u16,
 }
 
-/// Trait for swapping in a glyph provider (SDF, TTF, etc.).
-///
-/// `Bitmap8x8` is the built-in provider; sdf-fonts and other
-/// milestones implement this trait and plug in via
-/// [`FontBackend::Custom`].
+/// A glyph source. Implementors plug into [`FontBackend::Custom`] to
+/// supply glyphs from any rasterization scheme (bitmap, SDF, TTF, …).
 pub trait FontProvider: 'static {
     fn glyph(&self, ch: char) -> Option<Glyph>;
     fn metrics(&self) -> FontMetrics;
 }
 
-/// Glyph source backing a [`Font`].
-///
-/// `Bitmap8x8` ships as the only built-in renderable provider; `Custom`
-/// is the extension point.
+/// Glyph source backing a [`Font`]: the bundled 8x8 bitmap, or a
+/// caller-supplied [`FontProvider`]. `Rc` (not `Box`) so `Font` is
+/// `Clone` — `ResourceManager<Font>` requires it, and a clone is a
+/// refcount bump, never a provider copy.
+#[derive(Clone)]
 pub enum FontBackend {
-    /// The framework's bundled 8x8 ASCII bitmap.
+    /// 8x8 ASCII bitmap, ASCII 32..127.
     Bitmap8x8,
-    /// User- or milestone-supplied provider.
-    Custom(Box<dyn FontProvider>),
+    /// Caller-supplied provider.
+    Custom(Rc<dyn FontProvider>),
 }
 
 impl core::fmt::Debug for FontBackend {
@@ -79,7 +71,7 @@ impl core::fmt::Debug for FontBackend {
 }
 
 /// A font resource: family / size identity + a glyph backend.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Font {
     pub family: &'static str,
     pub size: u16,
@@ -87,8 +79,6 @@ pub struct Font {
 }
 
 impl Font {
-    /// The bundled 8x8 ASCII bitmap font. This is the framework's
-    /// default and the only renderable provider in the bare crate.
     pub fn bitmap_8x8() -> Self {
         Self {
             family: "bitmap8x8",
@@ -97,7 +87,6 @@ impl Font {
         }
     }
 
-    /// Resolve a single glyph through the active backend.
     pub fn glyph(&self, ch: char) -> Option<Glyph> {
         match &self.backend {
             FontBackend::Bitmap8x8 => bitmap_8x8_glyph(ch),
@@ -121,8 +110,6 @@ const BITMAP_8X8_METRICS: FontMetrics = FontMetrics {
 };
 
 fn bitmap_8x8_glyph(ch: char) -> Option<Glyph> {
-    // ASCII 32..127 only; outside range the legacy `glyph(u8)` fn
-    // returns the '?' bitmap, which keeps the renderer always-drawing.
     let byte = if ('\u{20}'..'\u{7f}').contains(&ch) {
         ch as u8
     } else {
@@ -149,9 +136,18 @@ impl HasProbe for Font {
     }
 }
 
-/// Identifier for a font slot in a [`FontRegistry`]. Widget styles
-/// reference a token rather than a concrete `Font` so the visual
-/// theme can swap fonts without touching widgets.
+impl crate::core::cache::HasSize for Font {
+    // Glyph atlases live in flash via &'static slices, not the heap, so
+    // the owned struct size (not the atlas bytes) is the right LRU
+    // weight.
+    fn cache_size(&self) -> usize {
+        core::mem::size_of::<Self>()
+    }
+}
+
+/// Identifier for a font slot, parallel to `ColorToken`. Widget styles
+/// reference a token rather than a concrete `Font` so the theme can
+/// swap fonts without touching widgets.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum FontToken {
     Default,
@@ -160,55 +156,46 @@ pub enum FontToken {
     Custom(&'static str),
 }
 
-/// World resource: maps [`FontToken`] to [`Font`].
+impl FontToken {
+    fn family_key(&self) -> &str {
+        match self {
+            FontToken::Default => "default",
+            FontToken::Heading => "heading",
+            FontToken::Mono => "mono",
+            FontToken::Custom(s) => s,
+        }
+    }
+
+    /// Serialize to the `FontManager` cache key. Centralized here so
+    /// layout and render always produce the same string for one logical
+    /// font — hand-formatting at call sites would split a font across
+    /// two cache entries.
+    pub fn cache_key(&self) -> alloc::borrow::Cow<'static, str> {
+        alloc::borrow::Cow::Owned(alloc::format!("font:{}", self.family_key()))
+    }
+}
+
+/// World resource mapping a [`FontToken`] cache key to a [`Font`].
 ///
-/// `Default` is always populated (falls back to [`Font::bitmap_8x8`]
-/// when not overridden). Any other token resolves to `Default` if not
-/// registered, so widgets never see a missing font.
-pub struct FontRegistry {
-    fonts: BTreeMap<FontToken, Font>,
+/// The manager's fallback is [`Font::bitmap_8x8`], so any unregistered
+/// token resolves to the bundled bitmap — widgets never see a missing
+/// font.
+pub type FontManager = ResourceManager<Font>;
+
+/// Build the default font manager: an unbounded-budget
+/// [`ResourceManager`] whose fallback is the 8x8 bitmap.
+pub fn default_font_manager() -> FontManager {
+    ResourceManager::new(crate::core::cache::MaxSize::Unbound, Font::bitmap_8x8())
 }
 
-impl FontRegistry {
-    /// New registry with `Default` bound to the 8x8 bitmap font.
-    pub fn new() -> Self {
-        let mut fonts = BTreeMap::new();
-        fonts.insert(FontToken::Default, Font::bitmap_8x8());
-        Self { fonts }
-    }
-
-    /// Bind a font to a token.
-    pub fn set(&mut self, token: FontToken, font: Font) -> &mut Self {
-        self.fonts.insert(token, font);
-        self
-    }
-
-    /// Look up a font, falling back to `Default` when the token is
-    /// unbound.
-    pub fn resolve(&self, token: &FontToken) -> &Font {
-        self.fonts
-            .get(token)
-            .or_else(|| self.fonts.get(&FontToken::Default))
-            .expect("FontRegistry::Default invariant")
-    }
-
-    /// Whether a token is explicitly bound (vs. falling through to
-    /// `Default`).
-    pub fn contains(&self, token: &FontToken) -> bool {
-        self.fonts.contains_key(token)
-    }
-}
-
-impl Default for FontRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Convenience: resolve `token` against the World's `FontRegistry`,
-/// installing a default registry if none is present.
-pub fn resolve_or_default<'a>(world: &'a World, token: &FontToken) -> Option<&'a Font> {
-    world.resource::<FontRegistry>().map(|r| r.resolve(token))
+/// Resolve `token` against the World's [`FontManager`], or `None` when
+/// the manager has not been inserted yet. Returns an owned `Rc<Font>`
+/// so the `&World` borrow ends at the call — the render path holds the
+/// `Rc` locally instead of borrowing through the manager's `RefCell`.
+pub fn resolve_or_default(world: &World, token: &FontToken) -> Option<Rc<Font>> {
+    world
+        .resource::<FontManager>()
+        .map(|m| m.resolve(&token.cache_key()))
 }
 
 #[cfg(test)]
@@ -217,64 +204,72 @@ mod tests {
 
     #[test]
     fn default_token_resolves_to_bitmap8x8() {
-        let reg = FontRegistry::new();
-        let f = reg.resolve(&FontToken::Default);
+        let mgr = default_font_manager();
+        let f = mgr.resolve(&FontToken::Default.cache_key());
         assert_eq!(f.family, "bitmap8x8");
         assert_eq!(f.size, 8);
     }
 
     #[test]
-    fn unbound_token_falls_back_to_default() {
-        let reg = FontRegistry::new();
-        let f = reg.resolve(&FontToken::Heading);
+    fn unbound_token_falls_back_to_bitmap() {
+        let mgr = default_font_manager();
+        let f = mgr.resolve(&FontToken::Heading.cache_key());
         assert_eq!(f.family, "bitmap8x8");
-        assert!(!reg.contains(&FontToken::Heading));
     }
 
     #[test]
-    fn set_overrides_token_resolution() {
-        let mut reg = FontRegistry::new();
-        reg.set(
-            FontToken::Heading,
+    fn registered_token_overrides_fallback() {
+        let mgr = default_font_manager();
+        mgr.add_static(
+            FontToken::Heading.cache_key(),
             Font {
                 family: "fake-heading",
                 size: 16,
                 backend: FontBackend::Bitmap8x8,
             },
         );
-        let f = reg.resolve(&FontToken::Heading);
+        let f = mgr.resolve(&FontToken::Heading.cache_key());
         assert_eq!(f.family, "fake-heading");
         assert_eq!(f.size, 16);
-        assert!(reg.contains(&FontToken::Heading));
     }
 
     #[test]
-    fn set_default_overrides_bundled_font() {
-        let mut reg = FontRegistry::new();
-        reg.set(
-            FontToken::Default,
+    fn registering_default_key_overrides_bundled_font() {
+        let mgr = default_font_manager();
+        mgr.add_static(
+            FontToken::Default.cache_key(),
             Font {
                 family: "user-default",
                 size: 12,
                 backend: FontBackend::Bitmap8x8,
             },
         );
-        assert_eq!(reg.resolve(&FontToken::Default).family, "user-default");
+        assert_eq!(
+            mgr.resolve(&FontToken::Default.cache_key()).family,
+            "user-default"
+        );
     }
 
     #[test]
     fn custom_token_resolves_when_registered() {
-        let mut reg = FontRegistry::new();
+        let mgr = default_font_manager();
         let token = FontToken::Custom("brand");
-        reg.set(
-            token.clone(),
+        mgr.add_static(
+            token.cache_key(),
             Font {
                 family: "brand-face",
                 size: 10,
                 backend: FontBackend::Bitmap8x8,
             },
         );
-        assert_eq!(reg.resolve(&token).family, "brand-face");
+        assert_eq!(mgr.resolve(&token.cache_key()).family, "brand-face");
+    }
+
+    #[test]
+    fn cache_key_is_stable_per_token() {
+        assert_eq!(FontToken::Default.cache_key(), "font:default");
+        assert_eq!(FontToken::Heading.cache_key(), "font:heading");
+        assert_eq!(FontToken::Custom("brand").cache_key(), "font:brand");
     }
 
     #[test]
@@ -322,7 +317,7 @@ mod tests {
         let font = Font {
             family: "all-x",
             size: 6,
-            backend: FontBackend::Custom(Box::new(AllX)),
+            backend: FontBackend::Custom(Rc::new(AllX)),
         };
         assert_eq!(font.glyph('A').unwrap().advance, 6);
         assert_eq!(font.metrics().line_height, 6);

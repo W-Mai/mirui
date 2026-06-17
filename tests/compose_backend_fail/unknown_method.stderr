@@ -1,5 +1,5 @@
 error: unknown Canvas method `fil_path` — did you mean `fill_path`?
-  --> tests/compose_backend_fail/unknown_method.rs:23:9
+  --> tests/compose_backend_fail/unknown_method.rs:24:9
    |
-23 |         fil_path => sw,
+24 |         fil_path => sw,
    |         ^^^^^^^^

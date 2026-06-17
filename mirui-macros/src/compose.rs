@@ -33,7 +33,7 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
     (
         "draw_label",
-        "pos: &::mirui::types::Point, text: &[u8], clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
+        "pos: &::mirui::types::Point, text: &[u8], font: &::mirui::render::font::Font, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
         false,
     ),
     ("flush", "", false),
@@ -267,8 +267,8 @@ impl ComposeInput {
                             let src_rect = ::mirui::types::Rect::new(0, 0, texture.width, texture.height);
                             self.blit(texture, &src_rect, *pos, *size, clip);
                         }
-                        ::mirui::render::DrawCommand::Label { pos, text, color, opa, .. } => {
-                            self.draw_label(pos, text, clip, color, *opa);
+                        ::mirui::render::DrawCommand::Label { pos, text, font, color, opa, .. } => {
+                            self.draw_label(pos, text, font, clip, color, *opa);
                         }
                         ::mirui::render::DrawCommand::Line { p1, p2, color, width, opa, .. } => {
                             self.draw_line(*p1, *p2, clip, *width, color, *opa);

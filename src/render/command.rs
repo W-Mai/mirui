@@ -1,3 +1,4 @@
+use crate::render::font::Font;
 use crate::render::path::Path;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
@@ -34,6 +35,7 @@ pub enum DrawCommand<'a> {
         pos: Point,
         transform: Transform,
         text: &'a [u8],
+        font: &'a Font,
         color: Color,
         opa: Opa,
     },

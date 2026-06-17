@@ -24,7 +24,7 @@ use sdl2::video::{Window, WindowContext};
 use crate::core::cache::{HasSize, LruCache, MaxSize, WithFactory};
 use crate::render::SwRenderer;
 use crate::render::canvas::Canvas as _;
-use crate::render::font::{CHAR_H, CHAR_W};
+use crate::render::font::{CHAR_H, CHAR_W, Font};
 use crate::render::texture::{ColorFormat, Texture as MiruiTexture};
 use crate::types::{Color, Fixed, Point, Rect};
 
@@ -57,6 +57,7 @@ type CachedTexture = RefCell<SizedSdlTexture>;
 /// Per-call inputs the rasteriser needs but that aren't part of `LabelKey`.
 struct RasterCtx<'a> {
     text: &'a [u8],
+    font: &'a Font,
     color: &'a Color,
     creator: &'a TextureCreator<WindowContext>,
     raster_buf: &'a mut Vec<u8>,
@@ -96,6 +97,7 @@ impl LabelCache {
         canvas: &mut SdlCanvas<Window>,
         pos: &Point,
         text: &[u8],
+        font: &Font,
         clip: &Rect,
         color: &Color,
         opa: u8,
@@ -133,6 +135,7 @@ impl LabelCache {
         let Ok(handle) = self.cache.entry(key).or_insert_with(|ctor, k| {
             let ctx = RasterCtx {
                 text,
+                font,
                 color,
                 creator,
                 raster_buf,
@@ -196,6 +199,7 @@ fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture,
                 y: Fixed::ZERO,
             },
             ctx.text,
+            ctx.font,
             &area,
             ctx.color,
             255,

@@ -1,5 +1,6 @@
 use crate::types::{Color, Fixed, Point, Rect};
 
+use super::font::Font;
 use super::path::Path;
 use super::texture::Texture;
 
@@ -12,7 +13,15 @@ pub trait Canvas {
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8);
     fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect);
     fn clear(&mut self, area: &Rect, color: &Color);
-    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8);
+    fn draw_label(
+        &mut self,
+        pos: &Point,
+        text: &[u8],
+        font: &Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    );
     fn flush(&mut self);
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {

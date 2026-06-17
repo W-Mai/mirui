@@ -145,8 +145,16 @@ impl<'a> Canvas for SwRenderer<'a> {
         }
     }
 
-    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
-        self.draw_label_inner(pos, text, clip, color, opa);
+    fn draw_label(
+        &mut self,
+        pos: &Point,
+        text: &[u8],
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.draw_label_inner(pos, text, font, clip, color, opa);
     }
 
     fn flush(&mut self) {}
@@ -307,6 +315,7 @@ impl SwRenderer<'_> {
         &mut self,
         pos: &Point,
         text: &[u8],
+        font: &crate::render::font::Font,
         color: &Color,
         opa: u8,
         tx: Fixed,
@@ -316,7 +325,7 @@ impl SwRenderer<'_> {
         #[cfg(feature = "perf")]
         let t0 = self.perf.as_ref().map(|p| (p.clock)());
         let pos = offset_point(pos, tx, ty);
-        self.draw_label(&pos, text, clip, color, opa);
+        self.draw_label(&pos, text, font, clip, color, opa);
         #[cfg(feature = "perf")]
         if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
             p.label += (p.clock)() - t0;
@@ -470,12 +479,13 @@ impl Renderer for SwRenderer<'_> {
             DrawCommand::Label {
                 pos,
                 text,
+                font,
                 color,
                 opa,
                 ..
             } => {
                 crate::trace_span!("sw.label");
-                self.dispatch_label(pos, text, color, *opa, tx, ty, clip);
+                self.dispatch_label(pos, text, font, color, *opa, tx, ty, clip);
             }
             DrawCommand::Line {
                 p1,
@@ -969,7 +979,16 @@ mod tests {
             y: Fixed::from_int(1),
         };
         let clip = Rect::new(0, 0, 32, 16);
-        Canvas::draw_label(&mut backend, &pos, b"A", &clip, &Color::rgb(255, 0, 0), 255);
+        let font = crate::render::font::Font::bitmap_8x8();
+        Canvas::draw_label(
+            &mut backend,
+            &pos,
+            b"A",
+            &font,
+            &clip,
+            &Color::rgb(255, 0, 0),
+            255,
+        );
 
         let mut found = false;
         for y in 0..16 {
@@ -1240,6 +1259,7 @@ mod tests {
         let clip = Rect::new(0, 0, 32, 16);
 
         {
+            let font = crate::render::font::Font::bitmap_8x8();
             let mut painter = Painter::new(&mut backend);
             painter.draw_text(
                 &Point {
@@ -1247,6 +1267,7 @@ mod tests {
                     y: Fixed::from_int(1),
                 },
                 b"B",
+                &font,
                 &clip,
                 &Color::rgb(200, 100, 50),
                 255,

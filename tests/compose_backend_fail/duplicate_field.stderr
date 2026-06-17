@@ -1,5 +1,5 @@
 error: field `sw` declared more than once
-  --> tests/compose_backend_fail/duplicate_field.rs:20:9
+  --> tests/compose_backend_fail/duplicate_field.rs:21:9
    |
-20 |         sw: Dummy,
+21 |         sw: Dummy,
    |         ^^

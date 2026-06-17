@@ -1068,7 +1068,15 @@ impl WgpuRenderer<'_> {
         });
     }
 
-    fn draw_label_inner(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
+    fn draw_label_inner(
+        &mut self,
+        pos: &Point,
+        text: &[u8],
+        _font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
         if text.is_empty() {
             return;
         }
@@ -1349,12 +1357,13 @@ impl Renderer for WgpuRenderer<'_> {
             DrawCommand::Label {
                 pos,
                 text,
+                font,
                 color,
                 opa,
                 ..
             } => {
                 let pos = offset_point(pos, tx, ty);
-                self.draw_label_inner(&pos, text, clip, color, *opa);
+                self.draw_label_inner(&pos, text, font, clip, color, *opa);
             }
         }
     }
@@ -1460,8 +1469,16 @@ impl Canvas for WgpuRenderer<'_> {
         self.fill_rect_inner(area, area, color, Fixed::ZERO, 255);
     }
 
-    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
-        self.draw_label_inner(pos, text, clip, color, opa);
+    fn draw_label(
+        &mut self,
+        pos: &Point,
+        text: &[u8],
+        font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.draw_label_inner(pos, text, font, clip, color, opa);
     }
 
     fn flush(&mut self) {

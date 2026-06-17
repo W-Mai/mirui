@@ -53,7 +53,15 @@ impl Canvas for Dummy {
     fn clear(&mut self, _: &Rect, _: &Color) {
         self.counts.clear.set(self.counts.clear.get() + 1);
     }
-    fn draw_label(&mut self, _: &Point, _: &[u8], _: &Rect, _: &Color, _: u8) {
+    fn draw_label(
+        &mut self,
+        _: &Point,
+        _: &[u8],
+        _: &mirui::render::font::Font,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+    ) {
         self.counts.draw_label.set(self.counts.draw_label.get() + 1);
     }
     fn flush(&mut self) {
@@ -124,7 +132,8 @@ fn default_methods_route_to_sw() {
 
     h.fill_path(&path, &rect, &color, 255);
     h.stroke_path(&path, &rect, Fixed::ONE, &color, 255);
-    h.draw_label(&Point::ZERO, b"x", &rect, &color, 255);
+    let font = mirui::render::font::Font::bitmap_8x8();
+    h.draw_label(&Point::ZERO, b"x", &font, &rect, &color, 255);
     h.flush();
 
     assert_eq!(h.sw.counts.fill_path.get(), 1);
@@ -216,7 +225,16 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect) {}
     fn clear(&mut self, _: &Rect, _: &Color) {}
-    fn draw_label(&mut self, _: &Point, _: &[u8], _: &Rect, _: &Color, _: u8) {}
+    fn draw_label(
+        &mut self,
+        _: &Point,
+        _: &[u8],
+        _: &mirui::render::font::Font,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+    ) {
+    }
     fn flush(&mut self) {}
 }
 
@@ -226,7 +244,16 @@ impl Canvas for PlainDummy {
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect) {}
     fn clear(&mut self, _: &Rect, _: &Color) {}
-    fn draw_label(&mut self, _: &Point, _: &[u8], _: &Rect, _: &Color, _: u8) {}
+    fn draw_label(
+        &mut self,
+        _: &Point,
+        _: &[u8],
+        _: &mirui::render::font::Font,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+    ) {
+    }
     fn flush(&mut self) {}
 }
 

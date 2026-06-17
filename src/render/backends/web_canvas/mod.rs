@@ -489,11 +489,12 @@ impl Renderer for WebCanvasRenderer<'_> {
             DrawCommand::Label {
                 pos,
                 text,
+                font,
                 color,
                 opa,
                 ..
             } => {
-                self.draw_label(pos, text, clip, color, *opa);
+                self.draw_label(pos, text, font, clip, color, *opa);
             }
         }
 
@@ -595,7 +596,15 @@ impl Canvas for WebCanvasRenderer<'_> {
         ctx.restore();
     }
 
-    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
+    fn draw_label(
+        &mut self,
+        pos: &Point,
+        text: &[u8],
+        _font: &crate::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
         let Ok(s) = core::str::from_utf8(text) else {
             return;
         };

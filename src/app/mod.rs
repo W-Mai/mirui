@@ -74,6 +74,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(info);
         world.insert_resource(ViewRegistry::default());
         world.insert_resource(Theme::default());
+        world.insert_resource(crate::render::font::default_font_manager());
         world.insert_resource(OffscreenBufferPool::default());
         world.insert_resource(crate::ui::IdMap::new());
         Self {
@@ -97,6 +98,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Replace the active [`Theme`]. Defaults to [`Theme::dark`].
     pub fn with_theme(&mut self, theme: Theme) -> &mut Self {
         self.world.insert_resource(theme);
+        self
+    }
+
+    /// The default manager falls back to the bundled 8x8 bitmap for any
+    /// unregistered token; passing a custom manager replaces it.
+    pub fn with_fonts(&mut self, fonts: crate::render::font::FontManager) -> &mut Self {
+        self.world.insert_resource(fonts);
         self
     }
 

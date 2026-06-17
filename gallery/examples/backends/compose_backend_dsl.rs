@@ -48,8 +48,16 @@ impl<B: Canvas> Canvas for Logging<B> {
         *self.calls.borrow_mut() += 1;
         self.inner.clear(area, color);
     }
-    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
-        self.inner.draw_label(pos, text, clip, color, opa);
+    fn draw_label(
+        &mut self,
+        pos: &Point,
+        text: &[u8],
+        font: &mirui::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.inner.draw_label(pos, text, font, clip, color, opa);
     }
     fn flush(&mut self) {
         self.inner.flush();

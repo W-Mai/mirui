@@ -1,4 +1,5 @@
 use super::SdlGpuRenderer;
+use crate::render::font::Font;
 use crate::types::{Color, Point, Rect};
 
 impl SdlGpuRenderer<'_> {
@@ -6,6 +7,7 @@ impl SdlGpuRenderer<'_> {
         &mut self,
         pos: &Point,
         text: &[u8],
+        font: &Font,
         clip: &Rect,
         color: &Color,
         opa: u8,
@@ -16,6 +18,7 @@ impl SdlGpuRenderer<'_> {
             self.canvas,
             &phys_pos,
             text,
+            font,
             &phys_clip,
             color,
             opa,

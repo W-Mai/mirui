@@ -55,9 +55,17 @@ impl<B: Canvas> Canvas for Logging<B> {
         self.log("clear");
         self.inner.clear(area, color);
     }
-    fn draw_label(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
+    fn draw_label(
+        &mut self,
+        pos: &Point,
+        text: &[u8],
+        font: &mirui::render::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
         self.log("draw_label");
-        self.inner.draw_label(pos, text, clip, color, opa);
+        self.inner.draw_label(pos, text, font, clip, color, opa);
     }
     fn flush(&mut self) {
         self.log("flush");

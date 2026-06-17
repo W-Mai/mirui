@@ -1,5 +1,5 @@
 error: field `gpuu` not declared in struct body
-  --> tests/compose_backend_fail/unknown_field.rs:23:17
+  --> tests/compose_backend_fail/unknown_field.rs:24:17
    |
-23 |         blit => gpuu,
+24 |         blit => gpuu,
    |                 ^^^^

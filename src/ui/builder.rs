@@ -87,6 +87,13 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
+    pub fn font(self, token: impl Into<crate::render::font::FontToken>) -> Self {
+        if let Some(style) = self.world.get_mut::<Style>(self.entity) {
+            style.font_token = token.into();
+        }
+        self
+    }
+
     pub fn child(self, child: Entity) -> Self {
         self.world.insert(child, Parent(self.entity));
         if let Some(children) = self.world.get_mut::<Children>(self.entity) {

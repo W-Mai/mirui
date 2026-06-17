@@ -33,6 +33,7 @@ const STYLE_ATTRS: &[&str] = &[
     "border_radius",
     "border_width",
     "clip_children",
+    "font",
 ];
 
 const RESERVED_LAYOUT_NAMES: &[&str] = &["View", "Row", "Column"];
@@ -589,6 +590,7 @@ impl MiruiRune {
                 "clip_children" => builder_calls.push(quote! { .clip_children(#value) }),
                 "border_color" => builder_calls.push(quote! { .border(#value, 1) }),
                 "border_width" => builder_calls.push(quote! { .border_width(#value) }),
+                "font" => builder_calls.push(quote! { .font(#value) }),
                 "width" => layout_fields.push(quote! { width: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value as i32)) }),
                 "height" => layout_fields.push(quote! { height: mirui::types::Dimension::Px(mirui::types::Fixed::from_int(#value as i32)) }),
                 "grow" => layout_fields.push(quote! { grow: mirui::types::Fixed::from_f32(#value) }),

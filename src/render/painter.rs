@@ -41,8 +41,16 @@ impl<'a, B: Canvas> Painter<'a, B> {
         self.backend.blit(src, src_rect, dst, dst_size, clip);
     }
 
-    pub fn draw_text(&mut self, pos: &Point, text: &[u8], clip: &Rect, color: &Color, opa: u8) {
-        self.backend.draw_label(pos, text, clip, color, opa);
+    pub fn draw_text(
+        &mut self,
+        pos: &Point,
+        text: &[u8],
+        font: &super::font::Font,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+    ) {
+        self.backend.draw_label(pos, text, font, clip, color, opa);
     }
 
     pub fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
