@@ -12,6 +12,7 @@ gallery::register_demos! {
     ("image",                "image",                "Basics",      image,                480, 320),
     ("enchants",             "enchants",             "Basics",      enchants,             480, 320),
     ("app_demo",             "app demo",             "Basics",      app_demo,             480, 320),
+    ("font_token",           "font token",           "Basics",      font_token,           480, 320),
 
     ("animation",            "tween + ping pong",    "Animation",   animation,            320, 180),
     ("three_body",           "three body",           "Animation",   three_body,           480, 320),

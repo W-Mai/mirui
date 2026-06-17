@@ -14,6 +14,7 @@ pub mod effect_glass;
 pub mod effect_panels;
 pub mod enchants;
 pub mod flip_card;
+pub mod font_token;
 pub mod gesture;
 pub mod hello;
 pub mod hover_tour;

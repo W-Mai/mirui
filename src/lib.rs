@@ -127,6 +127,7 @@ pub mod prelude {
     pub use crate::app::{App, RendererFactory};
     pub use crate::core::reactive::{Computed, Effect, Signal};
     pub use crate::ecs::{Component, Entity, IntoBundle, MonoClock, World};
+    pub use crate::render::font::FontToken;
     pub use crate::surface::Surface;
     pub use crate::types::{Color, Dimension, Fixed, Point, Rect};
     pub use crate::ui::builder::WidgetBuilder;
