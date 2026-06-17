@@ -5,8 +5,8 @@
 
 use mirui::components::Image;
 use mirui::components::assets::IMG_THUMBS_UP;
-use mirui::draw::wgpu_render::WgpuRendererFactory;
 use mirui::prelude::*;
+use mirui::render::wgpu::WgpuRendererFactory;
 use mirui::surface::wgpu_surface::WgpuSurface;
 
 fn main() {

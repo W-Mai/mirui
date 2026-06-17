@@ -1,4 +1,4 @@
-use crate::draw::texture::Texture;
+use crate::render::texture::Texture;
 
 /// Same-position physical-pixel copy between two framebuffer slots.
 /// Bounds must come from `Viewport::rect_to_physical_pixel_bounds`.

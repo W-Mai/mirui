@@ -85,7 +85,7 @@ pub mod anim;
 pub mod app;
 pub mod cache;
 pub mod components;
-pub mod draw;
+pub mod render;
 pub mod ecs;
 pub mod event;
 pub mod feedback;

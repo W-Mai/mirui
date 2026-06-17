@@ -1,9 +1,9 @@
 use crate::anim::{Motion, MotionComponent, Spring, run_motion};
-use crate::draw::command::DrawCommand;
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::BusinessCallback;
 use crate::event::gesture::GestureEvent;
+use crate::render::command::DrawCommand;
+use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect};
 use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;

@@ -124,7 +124,7 @@ macro_rules! register_demos {
 #[cfg(all(feature = "web-canvas", target_arch = "wasm32"))]
 mod backend {
     use super::*;
-    use mirui::draw::web_canvas::WebCanvasRendererFactory;
+    use mirui::render::web_canvas::WebCanvasRendererFactory;
     use mirui::surface::web_canvas::WebCanvasSurface;
     use wasm_bindgen::JsCast;
 
@@ -181,7 +181,7 @@ pub use backend::{assemble_app, grab_canvas};
 ))]
 mod backend {
     use super::*;
-    use mirui::draw::wgpu_render::WgpuRendererFactory;
+    use mirui::render::wgpu::WgpuRendererFactory;
     use mirui::surface::wgpu_surface::WgpuSurface;
 
     pub type ActiveSurface = WgpuSurface;
@@ -203,7 +203,7 @@ mod backend {
 ))]
 mod backend {
     use super::*;
-    use mirui::draw::sdl_gpu::SdlGpuFactory;
+    use mirui::render::sdl_gpu::SdlGpuFactory;
     use mirui::surface::sdl_gpu::SdlGpuSurface;
 
     pub type ActiveSurface = SdlGpuSurface;

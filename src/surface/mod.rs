@@ -25,7 +25,7 @@ pub mod web_canvas;
 #[cfg(feature = "wgpu")]
 pub mod wgpu_surface;
 
-use crate::draw::texture::Texture;
+use crate::render::texture::Texture;
 use crate::types::{Fixed, Rect, Viewport};
 
 /// Display information reported by a backend. `width` / `height` are in
@@ -35,7 +35,7 @@ pub struct DisplayInfo {
     pub width: u16,
     pub height: u16,
     pub scale: Fixed,
-    pub format: crate::draw::texture::ColorFormat,
+    pub format: crate::render::texture::ColorFormat,
 }
 
 impl DisplayInfo {
@@ -162,7 +162,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 scale: Fixed::ONE,
-                format: crate::draw::texture::ColorFormat::RGBA8888,
+                format: crate::render::texture::ColorFormat::RGBA8888,
             }
         }
         fn flush(&mut self, _area: &Rect) {}

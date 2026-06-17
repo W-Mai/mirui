@@ -1,5 +1,5 @@
-use mirui::draw::texture::{ColorFormat, Texture};
-use mirui::draw::{DrawCommand, Renderer, SwRenderer};
+use mirui::render::texture::{ColorFormat, Texture};
+use mirui::render::{DrawCommand, Renderer, SwRenderer};
 use mirui::types::{Color, Fixed, Rect, Transform};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;

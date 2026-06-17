@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use super::{DisplayInfo, FramebufferAccess, InputEvent, Surface, logical_from_physical};
-use crate::draw::texture::{ColorFormat, Texture};
+use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Rect};
 
 /// Owns a physical-pixel-sized byte buffer and calls the user flush

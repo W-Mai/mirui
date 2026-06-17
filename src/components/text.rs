@@ -1,8 +1,8 @@
 use alloc::vec::Vec;
 
-use crate::draw::command::DrawCommand;
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
+use crate::render::command::DrawCommand;
+use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Point, Rect};
 use crate::widget::view::{View, ViewCtx};
 

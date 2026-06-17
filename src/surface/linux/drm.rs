@@ -16,8 +16,8 @@ use drm_ffi::wait_vblank;
 
 use super::input::{EvdevInput, detect_keyboard_device, detect_pointer_device};
 use crate::cache::InspectCaches;
-use crate::draw::texture::{ColorFormat, Texture};
 use crate::event::input::InputEvent;
+use crate::render::texture::{ColorFormat, Texture};
 use crate::surface::scale::{ScaleMode, compute_scale};
 use crate::surface::{BackbufferPersistence, DisplayInfo, FramebufferAccess, Surface};
 use crate::types::{Fixed, Rect};

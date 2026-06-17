@@ -2,10 +2,10 @@ use alloc::vec::Vec;
 
 use crate::components::transform::WidgetTransform;
 use crate::components::transform_3d::{TransformOrigin, WidgetTransform3D};
-use crate::draw::command::DrawCommand;
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::layout::{LayoutNode, compute_layout};
+use crate::render::command::DrawCommand;
+use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D, Viewport};
 
 use super::dirty::{DirtyRegions, RegionShift};
@@ -217,7 +217,7 @@ fn build_layout_tree(world: &World, entity: Entity) -> Option<LayoutNode> {
 // FIXME: not the full solution.
 pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
     use crate::components::text::Text;
-    use crate::draw::font::{CHAR_H, CHAR_W};
+    use crate::render::font::{CHAR_H, CHAR_W};
     use crate::types::Dimension;
 
     let Some(text) = world.get::<Text>(entity) else {
@@ -419,9 +419,9 @@ fn try_draw_offscreen(
     outer_tf: &Transform,
     outer_quad: Option<[Point; 4]>,
 ) -> bool {
-    use crate::draw::canvas::Canvas;
-    use crate::draw::sw::SwRenderer;
-    use crate::draw::texture::Texture;
+    use crate::render::canvas::Canvas;
+    use crate::render::sw::SwRenderer;
+    use crate::render::texture::Texture;
     use crate::types::Point;
 
     let backend_format = match renderer.offscreen_format() {
@@ -431,12 +431,15 @@ fn try_draw_offscreen(
     let needs_alpha = world
         .get::<super::OffscreenAlphaMode>(entity)
         .is_some_and(|m| m.clear_transparent);
-    let format =
-        if needs_alpha && !matches!(backend_format, crate::draw::texture::ColorFormat::RGBA8888) {
-            crate::draw::texture::ColorFormat::RGBA8888
-        } else {
-            backend_format
-        };
+    let format = if needs_alpha
+        && !matches!(
+            backend_format,
+            crate::render::texture::ColorFormat::RGBA8888
+        ) {
+        crate::render::texture::ColorFormat::RGBA8888
+    } else {
+        backend_format
+    };
 
     // Caller's cull already used the transform-applied bbox; reusing
     // shifted_rect (untransformed) here would skip render when the
@@ -510,9 +513,9 @@ fn try_draw_offscreen(
         // accumulation so the silhouette stays meaningful for
         // downstream samplers (DropShadow, Mirror, etc).
         let alpha_mode = if clear_transparent {
-            crate::draw::sw::AlphaMode::Blend
+            crate::render::sw::AlphaMode::Blend
         } else {
-            crate::draw::sw::AlphaMode::Opaque
+            crate::render::sw::AlphaMode::Opaque
         };
         let mut inner = SwRenderer::new(inner_tex).with_alpha_mode(alpha_mode);
         inner.viewport = Viewport::new(buf_w, buf_h, scale);
@@ -1435,9 +1438,9 @@ fn collect_overlay_rects(world: &World) -> Vec<Rect> {
 mod clip_children_check {
     extern crate std;
     use super::*;
-    use crate::draw::sw::SwRenderer;
-    use crate::draw::texture::{ColorFormat, Texture};
     use crate::layout::{LayoutStyle, Position};
+    use crate::render::sw::SwRenderer;
+    use crate::render::texture::{ColorFormat, Texture};
     use crate::types::{Color, Dimension, Viewport};
     use crate::widget::{Children, Parent, Style, Widget};
 
@@ -1907,9 +1910,9 @@ mod clip_children_check {
 mod hidden_check {
     extern crate std;
     use super::*;
-    use crate::draw::sw::SwRenderer;
-    use crate::draw::texture::{ColorFormat, Texture};
     use crate::layout::LayoutStyle;
+    use crate::render::sw::SwRenderer;
+    use crate::render::texture::{ColorFormat, Texture};
     use crate::types::{Color, Dimension, Viewport};
     use crate::widget::{Children, Hidden, Parent, Style, Widget};
 
@@ -1988,9 +1991,9 @@ mod hidden_check {
 mod disabled_state_check {
     extern crate std;
     use super::*;
-    use crate::draw::sw::SwRenderer;
-    use crate::draw::texture::{ColorFormat, Texture};
     use crate::layout::LayoutStyle;
+    use crate::render::sw::SwRenderer;
+    use crate::render::texture::{ColorFormat, Texture};
     use crate::types::{Color, Dimension, Viewport};
     use crate::widget::theme::{Theme, WidgetState};
     use crate::widget::{Children, Parent, Style, UserState, Widget};
@@ -2071,9 +2074,9 @@ mod disabled_state_check {
 mod offscreen_render_check {
     extern crate std;
     use super::*;
-    use crate::draw::sw::SwRenderer;
-    use crate::draw::texture::{ColorFormat, Texture};
     use crate::layout::LayoutStyle;
+    use crate::render::sw::SwRenderer;
+    use crate::render::texture::{ColorFormat, Texture};
     use crate::types::{Color, Dimension, Viewport};
     use crate::widget::offscreen::BufferKey;
     use crate::widget::{Children, OffscreenBufferPool, OffscreenRender, Parent, Style, Widget};
@@ -4723,8 +4726,8 @@ mod scroll_plan_check {
 
     #[test]
     fn render_region_cached_matches_fresh_output() {
-        use crate::draw::command::DrawCommand;
-        use crate::draw::renderer::Renderer;
+        use crate::render::command::DrawCommand;
+        use crate::render::renderer::Renderer;
 
         struct Recorder(std::vec::Vec<core::mem::Discriminant<DrawCommand<'static>>>);
         impl Renderer for Recorder {
@@ -4788,9 +4791,9 @@ mod scroll_plan_check {
 mod scroll_blit_visual_check {
     extern crate std;
     use super::*;
-    use crate::draw::renderer::Renderer;
-    use crate::draw::sw::SwRenderer;
-    use crate::draw::texture::{ColorFormat, Texture};
+    use crate::render::renderer::Renderer;
+    use crate::render::sw::SwRenderer;
+    use crate::render::texture::{ColorFormat, Texture};
 
     /// End-to-end check: scroll-blit + strip repaint matches a full
     /// repaint of the post-scroll state. Covers the `Rect` arithmetic

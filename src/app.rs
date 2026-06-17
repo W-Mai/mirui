@@ -1,13 +1,13 @@
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, System, SystemScheduler, World};
 use crate::event::bubble_dispatch_at;
 use crate::event::focus::{FocusState, focus_on_tap};
 use crate::event::gesture::GestureSystem;
 use crate::event::scroll::{ScrollDragState, ScrollSpring};
 use crate::plugin::Plugin;
+use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::Rect;
 use crate::widget::Theme;
@@ -15,7 +15,7 @@ use crate::widget::offscreen::OffscreenBufferPool;
 use crate::widget::render_system;
 use crate::widget::view::{View, ViewRegistry};
 
-pub use crate::draw::factory::{RendererFactory, SwRendererFactory};
+pub use crate::render::factory::{RendererFactory, SwRendererFactory};
 
 /// Main application entry point — ties World + Surface + Renderer factory together
 pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
@@ -26,7 +26,7 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     pub systems: SystemScheduler,
     plugins: Vec<Box<dyn Plugin<B, F>>>,
     #[cfg(feature = "perf")]
-    pub perf: Option<crate::draw::PerfCtx>,
+    pub perf: Option<crate::render::PerfCtx>,
     last_layout_ns: u64,
     last_render_ns: u64,
     last_flush_ns: u64,
@@ -128,7 +128,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn snapshot_widget(
         &mut self,
         entity: crate::ecs::Entity,
-    ) -> Option<crate::draw::texture::Texture<'static>> {
+    ) -> Option<crate::render::texture::Texture<'static>> {
         use crate::widget::OffscreenRender;
         use crate::widget::offscreen::{OffscreenAutoAdded, WidgetTextureAccess};
 
@@ -804,9 +804,9 @@ impl<B: Surface, F: RendererFactory<B>> Runner<B, F> {
 }
 
 fn clone_texture_owned(
-    src: &crate::draw::texture::Texture<'static>,
-) -> crate::draw::texture::Texture<'static> {
-    use crate::draw::texture::{TexBuf, Texture};
+    src: &crate::render::texture::Texture<'static>,
+) -> crate::render::texture::Texture<'static> {
+    use crate::render::texture::{TexBuf, Texture};
     let mut owned = Texture::owned(src.width, src.height, src.format);
     if let TexBuf::Owned(ref mut dst) = owned.buf {
         dst.copy_from_slice(src.buf.as_slice());

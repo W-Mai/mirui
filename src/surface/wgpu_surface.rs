@@ -17,7 +17,7 @@ use winit::window::{Window, WindowId};
 
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface, logical_from_physical};
 use crate::cache::InspectCaches;
-use crate::draw::texture::ColorFormat;
+use crate::render::texture::ColorFormat;
 use crate::types::{Fixed, Rect};
 
 /// Live wgpu state — only present after the first `pump_app_events`
@@ -351,7 +351,7 @@ fn create_msaa(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> wg
             depth_or_array_layers: 1,
         },
         mip_level_count: 1,
-        sample_count: crate::draw::wgpu_render::MSAA_SAMPLES,
+        sample_count: crate::render::wgpu::MSAA_SAMPLES,
         dimension: wgpu::TextureDimension::D2,
         format: config.format,
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,

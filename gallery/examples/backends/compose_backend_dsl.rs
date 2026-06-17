@@ -13,11 +13,11 @@ use std::rc::Rc;
 use mirui::app::{App, RendererFactory};
 use mirui::components::Image;
 use mirui::components::assets::*;
-use mirui::draw::canvas::Canvas;
-use mirui::draw::path::Path;
-use mirui::draw::sw::SwRenderer;
-use mirui::draw::texture::Texture;
 use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::render::canvas::Canvas;
+use mirui::render::path::Path;
+use mirui::render::sw::SwRenderer;
+use mirui::render::texture::Texture;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Point, Rect, Viewport};
 use mirui_macros::{compose_backend, ui};
@@ -112,7 +112,7 @@ impl<B: mirui::surface::FramebufferAccess> RendererFactory<B> for HybridFactory 
 
 /// Read the ColorFormat from an already-constructed SwRenderer so the gpu
 /// side framebuffer matches the sw side byte layout without hard-coding.
-fn tex_format(sw: &SwRenderer<'_>) -> mirui::draw::texture::ColorFormat {
+fn tex_format(sw: &SwRenderer<'_>) -> mirui::render::texture::ColorFormat {
     sw.target.format
 }
 

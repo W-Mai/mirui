@@ -4,8 +4,8 @@ use alloc::boxed::Box;
 use crate::app::{App, RendererFactory};
 use crate::cache::MaxSize;
 use crate::components::assets::IMG_THUMBS_UP;
-use crate::draw::texture::{ColorFormat, Texture, TextureMeta};
 use crate::plugin::Plugin;
+use crate::render::texture::{ColorFormat, Texture, TextureMeta};
 use crate::resource::ResourceManager;
 use crate::surface::Surface;
 
@@ -43,12 +43,12 @@ const fn checkerboard_pixels() -> [u8; 16 * 16 * 4] {
 }
 
 static FALLBACK_TEXTURE: Texture<'static> = Texture {
-    buf: crate::draw::texture::TexBuf::Ref(&CHECKERBOARD_PIXELS),
+    buf: crate::render::texture::TexBuf::Ref(&CHECKERBOARD_PIXELS),
     width: 16,
     height: 16,
     format: ColorFormat::RGBA8888,
     stride: 64,
-    alpha_mode: crate::draw::texture::AlphaMode::Opaque,
+    alpha_mode: crate::render::texture::AlphaMode::Opaque,
 };
 
 const FALLBACK_META: TextureMeta = TextureMeta {

@@ -1,6 +1,6 @@
-use crate::draw::command::DrawCommand;
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
+use crate::render::command::DrawCommand;
+use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
 
 use super::Style;

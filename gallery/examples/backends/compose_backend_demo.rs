@@ -7,10 +7,10 @@
 use mirui::prelude::*;
 use std::cell::RefCell;
 
-use mirui::draw::canvas::Canvas;
-use mirui::draw::path::Path;
-use mirui::draw::sw::SwRenderer;
-use mirui::draw::texture::{ColorFormat, Texture};
+use mirui::render::canvas::Canvas;
+use mirui::render::path::Path;
+use mirui::render::sw::SwRenderer;
+use mirui::render::texture::{ColorFormat, Texture};
 use mirui_macros::compose_backend;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;

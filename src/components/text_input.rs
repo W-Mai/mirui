@@ -1,11 +1,11 @@
-use crate::draw::command::DrawCommand;
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::focus::{FocusState, Focusable, KeyHandler};
 use crate::event::gesture::GestureEvent;
 use crate::event::input::{
     InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT,
 };
+use crate::render::command::DrawCommand;
+use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Point, Rect};
 use crate::widget::dirty::Dirty;
 use crate::widget::theme::{ColorToken, ThemedColor};

@@ -12,7 +12,7 @@ use sdl2::render::{Canvas, Texture as SdlTexture, TextureCreator};
 use sdl2::video::{Window, WindowContext};
 
 use super::{DisplayInfo, FramebufferAccess, InputEvent, Surface, logical_from_physical};
-use crate::draw::texture::{ColorFormat, Texture};
+use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Fixed, Rect};
 
 /// macOS trackpad pinch / rotate is delivered by SDL as `MultiGesture`,

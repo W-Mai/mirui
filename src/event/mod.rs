@@ -356,7 +356,7 @@ mod tests {
 
         fn registry_with(internal: fn(&mut World, Entity, &GestureEvent) -> bool) -> ViewRegistry {
             fn dummy_render(
-                _r: &mut dyn crate::draw::renderer::Renderer,
+                _r: &mut dyn crate::render::renderer::Renderer,
                 _w: &World,
                 _e: Entity,
                 _rect: &crate::types::Rect,

@@ -14,14 +14,14 @@
 
 use mirui::components::Image;
 use mirui::components::assets::*;
-use mirui::draw::command::DrawCommand;
-use mirui::draw::renderer::Renderer;
-use mirui::draw::sw::SwRenderer;
-use mirui::draw::texture::Texture;
 use mirui::ecs::Entity;
 use mirui::perf::{self, PerfEvent};
 use mirui::plugins::StdInstantClockPlugin;
 use mirui::prelude::*;
+use mirui::render::command::DrawCommand;
+use mirui::render::renderer::Renderer;
+use mirui::render::sw::SwRenderer;
+use mirui::render::texture::Texture;
 use mirui::resource::ResourceManager;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::surface::{FramebufferAccess, Surface};

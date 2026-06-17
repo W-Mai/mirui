@@ -1146,7 +1146,7 @@ mod tests {
             width: 128,
             height: 128,
             scale: crate::types::Fixed::ONE,
-            format: crate::draw::texture::ColorFormat::RGBA8888,
+            format: crate::render::texture::ColorFormat::RGBA8888,
         });
         let root = world.spawn_empty();
         world.insert_resource(SimRootFallback(root));

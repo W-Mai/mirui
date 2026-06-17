@@ -1,5 +1,3 @@
-use crate::draw::command::DrawCommand;
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::PointerCursor;
 use crate::event::hit_test::hit_test;
@@ -7,6 +5,8 @@ use crate::event::scroll::ScrollDelta;
 use crate::feedback::{
     CursorFeedbackMode, CursorVisual, InputFeedback, OverlayCursor, write_overlay_layout,
 };
+use crate::render::command::DrawCommand;
+use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect};
 use crate::widget::dirty::Dirty;
 use crate::widget::render_system::LastDirtyRegions;
@@ -212,8 +212,8 @@ pub fn view() -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::texture::ColorFormat;
     use crate::layout::LayoutStyle;
+    use crate::render::texture::ColorFormat;
     use crate::surface::DisplayInfo;
     use crate::types::Dimension;
     use crate::widget::Style;

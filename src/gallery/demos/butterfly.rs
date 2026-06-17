@@ -5,13 +5,13 @@ extern crate alloc;
 
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
-use crate::draw::command::DrawCommand;
-use crate::draw::path::Path;
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, MonoClock, World};
 #[cfg(feature = "std")]
 use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
+use crate::render::command::DrawCommand;
+use crate::render::path::Path;
+use crate::render::renderer::Renderer;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::widget::dirty::Dirty;

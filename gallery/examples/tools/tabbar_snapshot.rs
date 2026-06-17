@@ -7,7 +7,7 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 
 use mirui::components::{TabBar, TabContent};
-use mirui::draw::texture::ColorFormat;
+use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 
 fn main() {
@@ -132,7 +132,7 @@ fn main() {
 
     app.set_root(root);
 
-    use mirui::draw::sw::SwRenderer;
+    use mirui::render::sw::SwRenderer;
     use mirui::types::Viewport;
     use mirui::widget::render_system;
 

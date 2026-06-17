@@ -2,10 +2,10 @@
 //! Must come after the content it blurs in children-array order;
 //! skips silently when the renderer can't sample its own target.
 
-use crate::draw::command::DrawCommand;
-use crate::draw::renderer::Renderer;
-use crate::draw::sw::blur::{alpha_for_radius, iir_blur_inplace};
 use crate::ecs::{Entity, World};
+use crate::render::command::DrawCommand;
+use crate::render::renderer::Renderer;
+use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
 use crate::types::{Fixed, Point, Rect};
 use crate::widget::view::{View, ViewCtx};
 

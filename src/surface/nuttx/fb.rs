@@ -5,7 +5,7 @@ use std::io;
 use libc::{O_RDWR, close, ioctl, open};
 
 use super::ioctl::*;
-use crate::draw::texture::ColorFormat;
+use crate::render::texture::ColorFormat;
 
 pub(super) struct FbDevice {
     fd: c_int,

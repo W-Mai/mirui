@@ -1,8 +1,8 @@
-use crate::draw::command::DrawCommand;
-use crate::draw::membrane::{MagneticMembrane, MagneticMembraneState};
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::feedback::{InputFeedback, InputFeedbackInput, OverlayRotary, write_overlay_layout};
+use crate::render::command::DrawCommand;
+use crate::render::membrane::{MagneticMembrane, MagneticMembraneState};
+use crate::render::renderer::Renderer;
 use crate::types::{Color, Fixed, Rect, Viewport};
 use crate::widget::dirty::Dirty;
 use crate::widget::view::{View, ViewCtx};

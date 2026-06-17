@@ -3,7 +3,7 @@
 //! host. `std` only — bare metal has no `thread::sleep`.
 
 use super::{BackbufferPersistence, DisplayInfo, FramebufferAccess, InputEvent, Surface};
-use crate::draw::texture::Texture;
+use crate::render::texture::Texture;
 use crate::types::Rect;
 use core::time::Duration;
 

@@ -8,9 +8,9 @@
 use alloc::vec::Vec;
 use core::any::TypeId;
 
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::gesture::GestureEvent;
+use crate::render::renderer::Renderer;
 use crate::types::{Point, Rect, Transform};
 use crate::widget::Style;
 use crate::widget::theme::WidgetState;
@@ -219,7 +219,7 @@ impl IntoIterator for ViewRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::draw::command::DrawCommand;
+    use crate::render::command::DrawCommand;
     use crate::types::Fixed;
 
     fn dummy_render(

@@ -11,8 +11,8 @@ use std::path::PathBuf;
 
 use mirui::components::Text;
 use mirui::components::lazy_list::{LazyList, LazyListBinder, LazyListPool, lazy_list_system};
-use mirui::draw::texture::ColorFormat;
 use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 
 const ROW_H: i32 = 32;
@@ -143,7 +143,7 @@ fn main() {
 
     app.set_root(root);
 
-    use mirui::draw::sw::SwRenderer;
+    use mirui::render::sw::SwRenderer;
     use mirui::surface::FramebufferAccess;
     use mirui::types::Viewport;
     use mirui::widget::render_system;

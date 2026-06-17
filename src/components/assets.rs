@@ -1,4 +1,4 @@
-use crate::draw::texture::{ColorFormat, TexBuf, Texture};
+use crate::render::texture::{ColorFormat, TexBuf, Texture};
 
 /// Built-in thumbs-up image (16x16 RGBA)
 const IMG_THUMBS_UP_DATA: &[u8] = &[
@@ -60,5 +60,5 @@ pub static IMG_THUMBS_UP: Texture<'static> = Texture {
     height: 16,
     format: ColorFormat::RGBA8888,
     stride: 64,
-    alpha_mode: crate::draw::texture::AlphaMode::Opaque,
+    alpha_mode: crate::render::texture::AlphaMode::Opaque,
 };

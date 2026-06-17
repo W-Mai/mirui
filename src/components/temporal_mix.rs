@@ -11,11 +11,11 @@
 //! widget's own offscreen buffer holds last frame's output and is
 //! reused as `prev_output` next frame.
 
-use crate::draw::command::DrawCommand;
-use crate::draw::renderer::Renderer;
-use crate::draw::sw::mix::mix_inplace;
-use crate::draw::texture::{ColorFormat, Texture};
 use crate::ecs::{Entity, World};
+use crate::render::command::DrawCommand;
+use crate::render::renderer::Renderer;
+use crate::render::sw::mix::mix_inplace;
+use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Point, Rect};
 use crate::widget::offscreen::{
     OffscreenAlphaMode, OffscreenAutoAdded, WidgetTextureAccess, WidgetTextureRef,
@@ -57,7 +57,7 @@ fn temporal_mix_render(
     }
 
     let mut tmp = Texture::owned(curr.width, curr.height, ColorFormat::RGBA8888);
-    if let crate::draw::texture::TexBuf::Owned(ref mut dst) = tmp.buf {
+    if let crate::render::texture::TexBuf::Owned(ref mut dst) = tmp.buf {
         dst.copy_from_slice(curr.buf.as_slice());
     }
     drop(curr);

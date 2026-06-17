@@ -48,8 +48,8 @@
 //! - `OffscreenRender` cannot nest.
 
 use crate::cache::{Handle, LruCache, MaxSize, WithFactory};
-use crate::draw::texture::{ColorFormat, Texture};
 use crate::ecs::{Entity, World};
+use crate::render::texture::{ColorFormat, Texture};
 use crate::types::Fixed;
 use core::cell::{Ref, RefCell};
 

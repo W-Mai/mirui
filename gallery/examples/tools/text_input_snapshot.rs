@@ -11,7 +11,7 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 
 use mirui::components::{Placeholder, TextInput};
-use mirui::draw::texture::ColorFormat;
+use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 
 fn write_png(out_path: &std::path::Path, pixels: &[u8], width: u16, height: u16, stride: usize) {
@@ -115,7 +115,7 @@ fn main() {
 
     app.set_root(root);
 
-    use mirui::draw::sw::SwRenderer;
+    use mirui::render::sw::SwRenderer;
     use mirui::surface::FramebufferAccess;
     use mirui::types::Viewport;
     use mirui::widget::render_system;

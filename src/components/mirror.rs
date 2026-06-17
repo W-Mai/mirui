@@ -7,8 +7,8 @@
 //! isn't available yet (first frame, or source out of order), the
 //! mirror skips silently.
 
-use crate::draw::texture::{ColorFormat, Texture};
 use crate::ecs::{Entity, World};
+use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Point, Rect};
 use crate::widget::offscreen::{WidgetTextureAccess, WidgetTextureRef};
 use crate::widget::view::{View, ViewCtx};
@@ -57,12 +57,12 @@ fn flip_into(
     fade: u8,
     renderer: &mut dyn Renderer,
 ) {
-    use crate::draw::command::DrawCommand;
+    use crate::render::command::DrawCommand;
 
     let w = src.width;
     let h = src.height;
     let mut tmp = Texture::owned(w, h, ColorFormat::RGBA8888);
-    if let crate::draw::texture::TexBuf::Owned(ref mut dst_buf) = tmp.buf {
+    if let crate::render::texture::TexBuf::Owned(ref mut dst_buf) = tmp.buf {
         let dst_stride = w as usize * 4;
         match src.format {
             ColorFormat::RGBA8888 => flip_rgba8888(src, dst_buf, dst_stride, fade),
@@ -168,4 +168,4 @@ pub fn view() -> View {
         .with_attach(mirror_attach)
 }
 
-use crate::draw::renderer::Renderer;
+use crate::render::renderer::Renderer;

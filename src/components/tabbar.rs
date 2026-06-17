@@ -1,9 +1,9 @@
 use crate::anim::Tween;
-use crate::draw::command::DrawCommand;
-use crate::draw::renderer::Renderer;
 use crate::ecs::{Entity, World};
 use crate::event::BusinessCallback;
 use crate::event::gesture::GestureEvent;
+use crate::render::command::DrawCommand;
+use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Rect};
 use crate::widget::ComputedRect;
 use crate::widget::dirty::Dirty;
