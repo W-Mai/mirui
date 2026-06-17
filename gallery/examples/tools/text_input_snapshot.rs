@@ -10,9 +10,9 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use mirui::components::{Placeholder, TextInput};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
+use mirui::ui::widgets::{Placeholder, TextInput};
 
 fn write_png(out_path: &std::path::Path, pixels: &[u8], width: u16, height: u16, stride: usize) {
     let ppm_path = out_path.with_extension("ppm");
@@ -111,14 +111,14 @@ fn main() {
     // Deterministic cursor: pin the blink phase ON so the snapshot
     // doesn't flicker by wall-clock timing.
     app.world
-        .insert_resource(mirui::event::widget_input::CursorBlinkPhase(true));
+        .insert_resource(mirui::input::event::widget_input::CursorBlinkPhase(true));
 
     app.set_root(root);
 
     use mirui::render::sw::SwRenderer;
     use mirui::surface::FramebufferAccess;
     use mirui::types::Viewport;
-    use mirui::widget::render_system;
+    use mirui::ui::render_system;
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
     render_system::update_layout(&mut app.world, root, &viewport);

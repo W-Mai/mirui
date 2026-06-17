@@ -4,10 +4,10 @@
 //! that non-macro users (and the macro itself) lower to.
 
 #[cfg(feature = "std")]
+use crate::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
-#[cfg(feature = "std")]
-use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 #[cfg(feature = "std")]
 use crate::surface::Surface;
 use crate::types::{Dimension, Fixed};

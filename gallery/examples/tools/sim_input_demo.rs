@@ -1,12 +1,12 @@
 use mirui::anim::ease;
-use mirui::event::GestureHandler;
-use mirui::event::gesture::GestureEvent;
-use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
-use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use mirui::input::event::GestureHandler;
+use mirui::input::event::gesture::GestureEvent;
+use mirui::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, DimPoint, Dimension, Fixed};
-use mirui::widget::dirty::Dirty;
+use mirui::ui::dirty::Dirty;
 
 extern crate alloc;
 
@@ -28,7 +28,7 @@ fn tap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool 
             Color::rgb(88, 166, 255),
             Color::rgb(255, 200, 50),
         ];
-        if let Some(style) = world.get_mut::<mirui::widget::Style>(entity) {
+        if let Some(style) = world.get_mut::<mirui::ui::Style>(entity) {
             style.set_bg_color(colors[(count as usize) % colors.len()]);
         }
         world.insert(entity, Dirty);
@@ -41,7 +41,7 @@ fn tap_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool 
 fn drag_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool {
     match event {
         GestureEvent::DragMove { dx, dy, .. } => {
-            mirui::widget::set_position(
+            mirui::ui::set_position(
                 world,
                 entity,
                 Fixed::from_int(140) + *dx,
@@ -50,7 +50,7 @@ fn drag_handler(world: &mut World, entity: Entity, event: &GestureEvent) -> bool
             true
         }
         GestureEvent::DragEnd { .. } => {
-            mirui::widget::set_position(world, entity, Fixed::from_int(140), Fixed::from_int(90));
+            mirui::ui::set_position(world, entity, Fixed::from_int(140), Fixed::from_int(90));
             true
         }
         _ => false,

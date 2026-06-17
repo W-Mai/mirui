@@ -1,17 +1,17 @@
 extern crate alloc;
 
 #[cfg(feature = "std")]
+use crate::app::plugins::StdInstantClockPlugin;
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, MonoClock, World};
-#[cfg(feature = "std")]
-use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui;
 use crate::ui::dirty::Dirty;
 use crate::ui::root_viewport;
 use crate::ui::{Children, Parent, Style};
-use crate::widget;
 use alloc::vec::Vec;
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
@@ -79,7 +79,7 @@ pub fn particle_system(world: &mut World) {
             }
             (p.x, p.y)
         };
-        widget::set_position(world, e, new_x, new_y);
+        ui::set_position(world, e, new_x, new_y);
     }
 }
 //~focus-end
@@ -145,7 +145,7 @@ pub fn bar_system(world: &mut World) {
                 (bar.pos, Fixed::from_int(4))
             }
         };
-        widget::set_position(world, e, new_x, new_y);
+        ui::set_position(world, e, new_x, new_y);
     }
 }
 

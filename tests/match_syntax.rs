@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use mirui::components::Text;
     use mirui::ecs::World;
     use mirui::ui;
-    use mirui::widget::IdMap;
-    use mirui::widget::builder::WidgetBuilder;
+    use mirui::ui::IdMap;
+    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::widgets::Text;
 
     enum LoadState {
         Loading,

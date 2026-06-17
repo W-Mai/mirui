@@ -6,9 +6,9 @@ use crate::ecs::{Entity, World};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui;
 use crate::ui::root_viewport;
 use crate::ui::{Children, Parent};
-use crate::widget;
 use alloc::vec::Vec;
 
 const BAR_W: i32 = 50;
@@ -65,7 +65,7 @@ pub fn bar_move_system(world: &mut World) {
             )
         };
         if changed {
-            widget::set_position(world, e, new_x, new_y);
+            ui::set_position(world, e, new_x, new_y);
         }
     }
 }

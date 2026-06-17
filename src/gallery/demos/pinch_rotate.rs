@@ -3,12 +3,12 @@ extern crate alloc;
 #[cfg(feature = "std")]
 use crate::anim::ease;
 #[cfg(feature = "std")]
+use crate::app::plugins::StdInstantClockPlugin;
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
-use crate::event::sim::{SimAction, SimTimeline, sim_timeline_system};
-#[cfg(feature = "std")]
-use crate::plugins::StdInstantClockPlugin;
+use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
@@ -216,8 +216,8 @@ mod tests {
     use crate::ui::IdMap;
     use crate::ui::builder::WidgetBuilder;
 
-    use crate::event::GestureHandler;
-    use crate::event::gesture::GestureEvent;
+    use crate::input::event::GestureHandler;
+    use crate::input::event::gesture::GestureEvent;
 
     #[test]
     fn build_widgets_smoke() {

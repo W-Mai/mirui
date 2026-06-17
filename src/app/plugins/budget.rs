@@ -1,6 +1,6 @@
+use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::ecs::World;
-use crate::plugin::Plugin;
 use crate::surface::Surface;
 
 /// Watches `FrameStats` and fires a sink whenever avg or p99

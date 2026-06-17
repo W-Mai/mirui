@@ -7,7 +7,7 @@
 #[cfg(all(feature = "linux-fb", target_os = "linux"))]
 fn main() {
     gallery::run("mirui linux fbdev", 800, 600, |setup| {
-        let parent = mirui::widget::builder::WidgetBuilder::new(&mut setup.app.world).id();
+        let parent = mirui::ui::builder::WidgetBuilder::new(&mut setup.app.world).id();
         mirui::gallery::demos::hello::setup_app(setup.app, parent);
         parent
     });

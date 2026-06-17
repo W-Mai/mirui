@@ -6,9 +6,9 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use mirui::components::{TabBar, TabContent};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
+use mirui::ui::widgets::{TabBar, TabContent};
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -134,12 +134,12 @@ fn main() {
 
     use mirui::render::sw::SwRenderer;
     use mirui::types::Viewport;
-    use mirui::widget::render_system;
+    use mirui::ui::render_system;
 
     // Tick once so tab_pages_system applies the initial Hidden flags +
     // seeds indicator_offset for the chosen selected tab.
     let world = &mut app.world;
-    mirui::components::tab_pages::tab_pages_system(world);
+    mirui::ui::widgets::tab_pages::tab_pages_system(world);
 
     let viewport = Viewport::new(width, height, Fixed::ONE);
     render_system::update_layout(world, root, &viewport);

@@ -1,9 +1,9 @@
 #[cfg(feature = "std")]
+use crate::app::plugins::StdInstantClockPlugin;
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::core::reactive::Signal;
 use crate::ecs::{Entity, World};
-#[cfg(feature = "std")]
-use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;

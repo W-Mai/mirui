@@ -19,7 +19,7 @@ use web_sys::{
 
 use super::{BackbufferPersistence, DisplayInfo, InputEvent, Surface};
 use crate::core::cache::InspectCaches;
-use crate::event::input::{
+use crate::input::event::input::{
     KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_ESCAPE, KEY_HOME, KEY_LEFT, KEY_RETURN, KEY_RIGHT,
 };
 use crate::render::texture::ColorFormat;

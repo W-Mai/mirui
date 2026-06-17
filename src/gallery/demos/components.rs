@@ -111,7 +111,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.add_plugin(crate::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
     build_widgets(&mut app.world, parent);
 }
 

@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use mirui::components::{Button, Checkbox};
     use mirui::ecs::World;
     use mirui::ui;
-    use mirui::widget::IdMap;
-    use mirui::widget::builder::WidgetBuilder;
+    use mirui::ui::IdMap;
+    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::widgets::{Button, Checkbox};
 
     #[test]
     fn capital_name_inserts_component() {
@@ -19,7 +19,7 @@ mod tests {
             :)
 
             Button (
-                normal_color: mirui::widget::ColorToken::Surface,
+                normal_color: mirui::ui::ColorToken::Surface,
             ) {}
         };
 
@@ -28,7 +28,7 @@ mod tests {
         let btn = world.get::<Button>(entities[0]).unwrap();
         assert!(matches!(
             btn.normal_color,
-            mirui::widget::ThemedColor::Token(mirui::widget::ColorToken::Surface)
+            mirui::ui::ThemedColor::Token(mirui::ui::ColorToken::Surface)
         ));
     }
 
@@ -55,7 +55,7 @@ mod tests {
 
     #[test]
     fn text_widget_uses_tuple_init() {
-        use mirui::components::Text;
+        use mirui::ui::widgets::Text;
 
         let mut world = World::new();
         world.insert_resource(IdMap::new());
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn text_input_text_color_routes_to_field() {
-        use mirui::components::TextInput;
+        use mirui::ui::widgets::TextInput;
 
         let mut world = World::new();
         world.insert_resource(IdMap::new());
@@ -91,7 +91,7 @@ mod tests {
             :)
 
             TextInput (
-                text_color: mirui::widget::ColorToken::Primary,
+                text_color: mirui::ui::ColorToken::Primary,
             ) {}
         };
 
@@ -100,13 +100,13 @@ mod tests {
         let ti = world.get::<TextInput>(entities[0]).unwrap();
         assert!(matches!(
             ti.text_color,
-            mirui::widget::ThemedColor::Token(mirui::widget::ColorToken::Primary)
+            mirui::ui::ThemedColor::Token(mirui::ui::ColorToken::Primary)
         ));
     }
 
     #[test]
     fn text_widget_supports_positional_arg() {
-        use mirui::components::Text;
+        use mirui::ui::widgets::Text;
 
         let mut world = World::new();
         world.insert_resource(IdMap::new());
@@ -129,8 +129,8 @@ mod tests {
 
     #[test]
     fn row_widget_implies_row_direction() {
-        use mirui::layout::FlexDirection;
-        use mirui::widget::Style;
+        use mirui::ui::Style;
+        use mirui::ui::layout::FlexDirection;
 
         let mut world = World::new();
         world.insert_resource(IdMap::new());
@@ -163,8 +163,8 @@ mod tests {
 
     #[test]
     fn column_widget_implies_column_direction() {
-        use mirui::layout::FlexDirection;
-        use mirui::widget::Style;
+        use mirui::ui::Style;
+        use mirui::ui::layout::FlexDirection;
 
         let mut world = World::new();
         world.insert_resource(IdMap::new());
@@ -208,7 +208,7 @@ mod tests {
             :)
 
             row (
-                direction: mirui::layout::FlexDirection::Row,
+                direction: mirui::ui::layout::FlexDirection::Row,
                 width: 100
             ) {}
         };

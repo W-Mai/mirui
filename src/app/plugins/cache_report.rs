@@ -1,7 +1,7 @@
+use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::core::cache::{CacheRegistry, CacheStatsSnapshot};
 use crate::ecs::World;
-use crate::plugin::Plugin;
 use crate::surface::Surface;
 
 /// Calls a sink with the latest [`CacheRegistry`] snapshot every N

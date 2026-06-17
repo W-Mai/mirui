@@ -1,16 +1,16 @@
 #[cfg(test)]
 mod tests {
-    use mirui::components::TabBar;
     use mirui::ecs::{Entity, World};
-    use mirui::event::GestureHandler;
-    use mirui::event::bubble_dispatch_at;
-    use mirui::event::gesture::GestureEvent;
-    use mirui::event::multi_tap::MultiTapTracker;
+    use mirui::input::event::GestureHandler;
+    use mirui::input::event::bubble_dispatch_at;
+    use mirui::input::event::gesture::GestureEvent;
+    use mirui::input::event::multi_tap::MultiTapTracker;
     use mirui::types::{Fixed, Rect};
     use mirui::ui;
-    use mirui::widget::builder::WidgetBuilder;
-    use mirui::widget::view::ViewRegistry;
-    use mirui::widget::{ComputedRect, IdMap};
+    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::view::ViewRegistry;
+    use mirui::ui::widgets::TabBar;
+    use mirui::ui::{ComputedRect, IdMap};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 

@@ -10,16 +10,16 @@
 //!   cargo run --release -p gallery --example perf_collect
 
 use mirui::anim::ease;
-use mirui::components::Text;
-use mirui::components::{LazyList, LazyListBinder, LazyListPool};
-use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-use mirui::event::sim::{SimAction, SimTimeline, sim_timeline_system};
-use mirui::plugins::{PerfReportPlugin, StdInstantClockPlugin};
+use mirui::app::plugins::{PerfReportPlugin, StdInstantClockPlugin};
+use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use mirui::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::surface::slow::SlowSurface;
 use mirui::types::{Color, DimPoint, Dimension, Fixed};
-use mirui::widget::Children;
+use mirui::ui::Children;
+use mirui::ui::widgets::Text;
+use mirui::ui::widgets::{LazyList, LazyListBinder, LazyListPool};
 
 const ROW_H: i32 = 24;
 const POOL_SIZE: usize = 16; // 320 / 24 = 13.3 visible, +3 buffer

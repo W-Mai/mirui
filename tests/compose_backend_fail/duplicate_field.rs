@@ -1,6 +1,6 @@
-use mirui::draw::canvas::Canvas;
-use mirui::draw::path::Path;
-use mirui::draw::texture::Texture;
+use mirui::render::canvas::Canvas;
+use mirui::render::path::Path;
+use mirui::render::texture::Texture;
 use mirui::types::{Color, Fixed, Point, Rect};
 use mirui_macros::compose_backend;
 

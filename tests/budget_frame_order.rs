@@ -9,8 +9,8 @@
 use std::cell::Cell;
 
 use mirui::app::App;
+use mirui::app::plugins::{BudgetReportPlugin, BudgetViolation};
 use mirui::ecs::Entity;
-use mirui::plugins::{BudgetReportPlugin, BudgetViolation};
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Rect;
 

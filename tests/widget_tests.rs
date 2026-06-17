@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
-    use mirui::draw::{DrawCommand, Renderer};
-    use mirui::layout::*;
+    use mirui::render::{DrawCommand, Renderer};
     use mirui::types::{Color, Dimension, Fixed, Rect, Viewport};
-    use mirui::widget::builder::WidgetBuilder;
-    use mirui::widget::render_system;
+    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::layout::*;
+    use mirui::ui::render_system;
 
     struct RecordingRenderer {
         commands: Vec<(Rect, Color)>,

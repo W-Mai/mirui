@@ -20,7 +20,7 @@
 //! ```no_run
 //! use mirui::prelude::*;
 //! use mirui::surface::framebuf::FramebufSurface;
-//! use mirui::draw::texture::ColorFormat;
+//! use mirui::render::texture::ColorFormat;
 //! use mirui::types::Rect;
 //!
 //! let backend = FramebufSurface::with_format(
@@ -76,7 +76,7 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
-// Lets `trace_span!` / `trace_fn` expand to `mirui::perf::enter(...)`
+// Lets `trace_span!` / `trace_fn` expand to `mirui::core::perf::enter(...)`
 // uniformly — the crate has to be able to refer to itself by name
 // for the absolute path to resolve in our own modules.
 extern crate self as mirui;
@@ -85,10 +85,7 @@ pub mod anim;
 pub mod app;
 pub mod core;
 pub mod ecs;
-pub mod event;
-pub mod feedback;
-pub mod plugin;
-pub mod plugins;
+pub mod input;
 pub mod render;
 pub mod surface;
 pub mod types;

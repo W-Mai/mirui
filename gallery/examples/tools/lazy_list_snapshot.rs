@@ -9,11 +9,11 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
 
-use mirui::components::Text;
-use mirui::components::lazy_list::{LazyList, LazyListBinder, LazyListPool, lazy_list_system};
-use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
+use mirui::ui::widgets::Text;
+use mirui::ui::widgets::lazy_list::{LazyList, LazyListBinder, LazyListPool, lazy_list_system};
 
 const ROW_H: i32 = 32;
 const POOL_SIZE: usize = 12;
@@ -127,7 +127,7 @@ fn main() {
 
     let pool: alloc::vec::Vec<Entity> = app
         .world
-        .get::<mirui::widget::Children>(list)
+        .get::<mirui::ui::Children>(list)
         .map(|c| c.0.clone())
         .unwrap_or_default();
     app.world.insert(list, LazyListPool::new(pool));
@@ -146,7 +146,7 @@ fn main() {
     use mirui::render::sw::SwRenderer;
     use mirui::surface::FramebufferAccess;
     use mirui::types::Viewport;
-    use mirui::widget::render_system;
+    use mirui::ui::render_system;
 
     lazy_list_system(&mut app.world);
 

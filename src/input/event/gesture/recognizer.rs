@@ -1,5 +1,5 @@
 use crate::ecs::Entity;
-use crate::event::input::InputEvent;
+use crate::input::event::input::InputEvent;
 use crate::types::{Fixed, Fixed64};
 
 use super::event::GestureEvent;

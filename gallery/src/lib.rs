@@ -357,7 +357,7 @@ where
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(120);
         if cap > 0 {
-            app.add_plugin(mirui::plugins::FrameRateCapPlugin::new(cap));
+            app.add_plugin(mirui::app::plugins::FrameRateCapPlugin::new(cap));
         }
     }
 

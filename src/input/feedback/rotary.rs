@@ -1,5 +1,7 @@
 use crate::ecs::{Entity, World};
-use crate::feedback::{InputFeedback, InputFeedbackInput, OverlayRotary, write_overlay_layout};
+use crate::input::feedback::{
+    InputFeedback, InputFeedbackInput, OverlayRotary, write_overlay_layout,
+};
 use crate::render::command::DrawCommand;
 use crate::render::membrane::{MagneticMembrane, MagneticMembraneState};
 use crate::render::renderer::Renderer;

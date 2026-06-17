@@ -1,15 +1,15 @@
 extern crate alloc;
 
 #[cfg(feature = "std")]
+use crate::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
-#[cfg(feature = "std")]
-use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui;
 use crate::ui::dirty::Dirty;
-use crate::widget;
 
 pub struct TapCount(pub u32);
 
@@ -50,7 +50,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     })
                     .unwrap_or(0);
                 let color = TAP_COLORS[(count as usize) % TAP_COLORS.len()];
-                if let Some(style) = ctx.world.get_mut::<widget::Style>(ctx.entity) {
+                if let Some(style) = ctx.world.get_mut::<ui::Style>(ctx.entity) {
                     style.set_bg_color(color);
                 }
                 ctx.world.insert(ctx.entity, Dirty);
@@ -64,19 +64,14 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 50,
                 border_radius: 25
             ) on DragMove {
-                widget::set_position(
+                ui::set_position(
                     ctx.world,
                     ctx.entity,
                     Fixed::from_int(90) + *dx,
                     Fixed::from_int(90) + *dy,
                 );
             } on DragEnd {
-                widget::set_position(
-                    ctx.world,
-                    ctx.entity,
-                    Fixed::from_int(90),
-                    Fixed::from_int(90),
-                );
+                ui::set_position(ctx.world, ctx.entity, Fixed::from_int(90), Fixed::from_int(90));
             }
             View (
                 bg_color: Color::rgb(210, 168, 255),
@@ -87,12 +82,12 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 80,
                 border_radius: 12
             ) on LongPress {
-                if let Some(style) = ctx.world.get_mut::<widget::Style>(ctx.entity) {
+                if let Some(style) = ctx.world.get_mut::<ui::Style>(ctx.entity) {
                     style.set_bg_color(Color::rgb(255, 50, 50));
                 }
                 ctx.world.insert(ctx.entity, Dirty);
             } on Tap {
-                if let Some(style) = ctx.world.get_mut::<widget::Style>(ctx.entity) {
+                if let Some(style) = ctx.world.get_mut::<ui::Style>(ctx.entity) {
                     style.set_bg_color(Color::rgb(210, 168, 255));
                 }
                 ctx.world.insert(ctx.entity, Dirty);
@@ -120,8 +115,8 @@ mod tests {
     use crate::ui::IdMap;
     use crate::ui::builder::WidgetBuilder;
 
-    use crate::event::GestureHandler;
-    use crate::event::gesture::GestureEvent;
+    use crate::input::event::GestureHandler;
+    use crate::input::event::gesture::GestureEvent;
 
     #[test]
     fn build_widgets_smoke() {
@@ -182,7 +177,7 @@ mod tests {
                 target: drag_box,
             },
         );
-        let style = world.get::<widget::Style>(drag_box).unwrap();
+        let style = world.get::<ui::Style>(drag_box).unwrap();
         assert_eq!(
             style.layout.left.resolve_or(Fixed::ZERO, Fixed::ZERO),
             Fixed::from_int(120)

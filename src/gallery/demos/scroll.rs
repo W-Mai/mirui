@@ -1,7 +1,7 @@
 #[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
-use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;

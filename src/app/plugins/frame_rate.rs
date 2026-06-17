@@ -1,6 +1,6 @@
+use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::ecs::MonoClock;
-use crate::plugin::Plugin;
 use crate::surface::Surface;
 
 /// Sleeps in `post_render` to cap `App::run` at a target FPS. Needed

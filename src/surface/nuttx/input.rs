@@ -8,7 +8,7 @@ use std::io;
 use libc::{O_NONBLOCK, O_RDONLY, close, open, read};
 
 use super::ioctl::*;
-use crate::event::input::InputEvent;
+use crate::input::event::input::InputEvent;
 use crate::surface::input_state::{InputAxis, PointerState};
 
 pub(super) struct TouchInput {
@@ -176,7 +176,7 @@ impl Drop for KeyInput {
 /// NuttX's keyboard upper half emits X11 keysyms. Unmapped keys pass
 /// through as the raw keysym so user dispatch can still match literals.
 fn x11_keysym_to_mirui(code: u32) -> u32 {
-    use crate::event::input::*;
+    use crate::input::event::input::*;
     match code {
         0xFF0D => KEY_RETURN,    // XK_Return
         0xFF1B => KEY_ESCAPE,    // XK_Escape

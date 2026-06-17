@@ -2,17 +2,17 @@ extern crate alloc;
 
 use crate::anim::{BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
 #[cfg(feature = "std")]
+use crate::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{DeltaTimeMs, Entity, World};
-#[cfg(feature = "std")]
-use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget;
+use crate::ui;
 
 mirui_macros::animate!(AnimateTweenY, |world, entity, value| {
-    widget::set_position(world, entity, Fixed::from_int(50), value);
+    ui::set_position(world, entity, Fixed::from_int(50), value);
 });
 
 pub struct SpringBall {
@@ -40,7 +40,7 @@ pub fn spring_system(world: &mut World) {
                 sb.x,
             )
         };
-        widget::set_position(world, e, x, pos);
+        ui::set_position(world, e, x, pos);
         if settled && let Some(sb) = world.get_mut::<SpringBall>(e) {
             let new_target = if target.to_int() > 150 {
                 Fixed::from_int(30)

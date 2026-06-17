@@ -1,15 +1,15 @@
 //! Per-frame perf reporting.
 //!
-//! Drains span events from [`crate::perf`] each frame, optionally
+//! Drains span events from [`crate::core::perf`] each frame, optionally
 //! streams them as chrome-JSON lines through a user-supplied sink
 //! (open the captured stream in <https://ui.perfetto.dev>), and
 //! periodically emits an aggregated `PerfReport` containing
 //! per-name span totals plus per-system scheduler timings.
 
+use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::core::perf::StageStat;
 use crate::ecs::World;
-use crate::plugin::Plugin;
 use crate::surface::Surface;
 
 /// Snapshot of per-system perf counters written by `App::run` after
@@ -50,7 +50,7 @@ pub struct PerfReport {
 /// - system: none
 /// - view: none
 /// - entity: none
-/// - hooks: `post_render` (drains `crate::perf` events; emits report at window boundary)
+/// - hooks: `post_render` (drains `crate::core::perf` events; emits report at window boundary)
 pub struct PerfReportPlugin {
     frames_per_report: u32,
     frame_count: u32,

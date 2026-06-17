@@ -8,13 +8,13 @@
 //!     -- /tmp/effect-snap.ppm
 //! ```
 
-use mirui::components::{BackgroundBlur, MirrorOf, TemporalMix};
 use mirui::prelude::*;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform};
-use mirui::widget::Theme;
-use mirui::widget::dirty::Dirty;
-use mirui::widget::theme::ColorToken;
+use mirui::ui::Theme;
+use mirui::ui::dirty::Dirty;
+use mirui::ui::theme::ColorToken;
+use mirui::ui::widgets::{BackgroundBlur, MirrorOf, TemporalMix};
 use std::cell::RefCell;
 use std::fs::File;
 use std::io::Write;
@@ -34,7 +34,7 @@ struct AnimX {
 
 #[mirui::system(order = ANIMATION)]
 fn animate_x(world: &mut World) {
-    use mirui::components::WidgetTransform;
+    use mirui::ui::widgets::WidgetTransform;
     let mut entities = alloc::vec::Vec::new();
     world.query::<AnimX>().collect_into(&mut entities);
     for e in entities {
@@ -65,7 +65,7 @@ struct ColorFlash {
 
 #[mirui::system(order = ANIMATION)]
 fn animate_color_flash(world: &mut World) {
-    use mirui::widget::Style;
+    use mirui::ui::Style;
     let mut entities = alloc::vec::Vec::new();
     world.query::<ColorFlash>().collect_into(&mut entities);
     for e in entities {

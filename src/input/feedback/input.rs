@@ -1,6 +1,6 @@
 use crate::ecs::World;
-use crate::event::input::{InputEvent, KEY_ROTARY_PRESS};
-use crate::feedback::{InputFeedback, InputFeedbackInput};
+use crate::input::event::input::{InputEvent, KEY_ROTARY_PRESS};
+use crate::input::feedback::{InputFeedback, InputFeedbackInput};
 
 /// Record a raw input event into [`InputFeedbackInput`] so the rotary
 /// feedback system can consume it on its next run. Called from the

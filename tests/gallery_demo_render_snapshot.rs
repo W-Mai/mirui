@@ -2,15 +2,15 @@
 
 extern crate alloc;
 
-use mirui::draw::sw::SwRenderer;
-use mirui::draw::texture::ColorFormat;
 use mirui::ecs::World;
 use mirui::prelude::*;
+use mirui::render::sw::SwRenderer;
+use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Viewport;
-use mirui::widget::builder::WidgetBuilder;
-use mirui::widget::render_system;
+use mirui::ui::builder::WidgetBuilder;
+use mirui::ui::render_system;
 
 /// Render the demo, return distinct quantized RGB colours encountered.
 /// A collapsed layout shows only the root bg (1 colour); real widget
@@ -23,11 +23,11 @@ fn render_demo<F: FnOnce(&mut World, mirui::ecs::Entity)>(
     let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
-    app.add_plugin(mirui::plugins::StdInstantClockPlugin);
-    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(mirui::app::plugins::StdInstantClockPlugin);
+    app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
     let parent = WidgetBuilder::new(&mut app.world)
-        .layout(mirui::layout::LayoutStyle {
-            direction: mirui::layout::FlexDirection::Column,
+        .layout(mirui::ui::layout::LayoutStyle {
+            direction: mirui::ui::layout::FlexDirection::Column,
             grow: Fixed::ONE,
             ..Default::default()
         })
@@ -194,7 +194,7 @@ fn three_body_renders() {
 
 #[test]
 fn custom_view_renders() {
-    use mirui::widget::view::ViewRegistry;
+    use mirui::ui::view::ViewRegistry;
     let backend = FramebufSurface::with_format(480, 200, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();

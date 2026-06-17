@@ -602,7 +602,7 @@ impl Canvas for WebCanvasRenderer<'_> {
         self.push_clip(clip);
         self.set_fill(color, opa);
         let ctx = self.ctx();
-        // Match `mirui::draw::font::CHAR_H` so layout sizing matches
+        // Match `mirui::render::font::CHAR_H` so layout sizing matches
         // the sw backend; the actual glyph rendering is browser-best-effort.
         let px = (crate::render::font::CHAR_H as f64).max(1.0);
         ctx.set_font(&format!("{px}px monospace"));

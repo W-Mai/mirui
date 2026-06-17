@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use mirui::layout::*;
     use mirui::types::{Dimension, Fixed, Rect};
+    use mirui::ui::layout::*;
 
     #[test]
     fn row_fixed_sizes() {

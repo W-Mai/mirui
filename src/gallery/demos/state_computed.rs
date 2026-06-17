@@ -50,7 +50,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::plugins::StdInstantClockPlugin;
+    use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
     build_widgets(&mut app.world, parent);
 }
@@ -59,8 +59,8 @@ where
 mod tests {
     use super::*;
     use crate::core::reactive::flush_signal_dirty;
-    use crate::event::GestureHandler;
-    use crate::event::gesture::GestureEvent;
+    use crate::input::event::GestureHandler;
+    use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::builder::WidgetBuilder;

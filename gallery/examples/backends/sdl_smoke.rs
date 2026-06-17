@@ -1,16 +1,16 @@
 //! Smoke test for the SDL backend using the shared widget tree.
 
-use mirui::components::Image;
-use mirui::components::Text;
-use mirui::components::assets::IMG_THUMBS_UP;
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
+use mirui::ui::widgets::Image;
+use mirui::ui::widgets::Text;
+use mirui::ui::widgets::assets::IMG_THUMBS_UP;
 
 fn main() {
     let backend = SdlSurface::new("mirui sdl smoke", 480, 320);
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
-    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

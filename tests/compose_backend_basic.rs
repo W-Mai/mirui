@@ -6,9 +6,9 @@
 
 use std::cell::Cell;
 
-use mirui::draw::canvas::Canvas;
-use mirui::draw::path::Path;
-use mirui::draw::texture::{ColorFormat, Texture};
+use mirui::render::canvas::Canvas;
+use mirui::render::path::Path;
+use mirui::render::texture::{ColorFormat, Texture};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
 use mirui_macros::compose_backend;
 
@@ -246,8 +246,8 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
     // Verifies the Renderer impl the macro emits alongside Canvas.
     // Sending a DrawCommand::Blit should reach the field that owns `blit`
     // in the route table.
-    use mirui::draw::DrawCommand;
-    use mirui::draw::renderer::Renderer;
+    use mirui::render::DrawCommand;
+    use mirui::render::renderer::Renderer;
 
     let mut h = fresh_hybrid();
     let mut buf = dummy_texture_buf();

@@ -6,7 +6,7 @@ use std::os::fd::AsRawFd;
 
 use evdev::Device;
 
-use crate::event::input::InputEvent;
+use crate::input::event::input::InputEvent;
 
 pub(super) fn detect_pointer_device() -> Option<alloc::string::String> {
     use alloc::string::String;
@@ -206,7 +206,7 @@ impl EvdevInput {
 }
 
 fn linux_keycode_to_mirui(code: u16) -> u32 {
-    use crate::event::input::*;
+    use crate::input::event::input::*;
     const KEY_ESC: u16 = 1;
     const KEY_BACKSPACE_LX: u16 = 14;
     const KEY_ENTER: u16 = 28;

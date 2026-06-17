@@ -2,7 +2,7 @@ use mirui::prelude::*;
 use mirui::render::texture::{ColorFormat, Texture};
 use mirui::render::{Renderer, SwRenderer};
 use mirui::types::{Color, Dimension, Fixed, Viewport};
-use mirui::widget::render_system;
+use mirui::ui::render_system;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::PixelFormatEnum;

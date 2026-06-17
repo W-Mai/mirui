@@ -1,11 +1,11 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::World;
-    use mirui::layout::*;
     use mirui::types::{Dimension, Fixed, Rect, Viewport};
-    use mirui::widget::builder::WidgetBuilder;
-    use mirui::widget::dirty::{Dirty, PrevRect};
-    use mirui::widget::{Children, Style};
+    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::dirty::{Dirty, PrevRect};
+    use mirui::ui::layout::*;
+    use mirui::ui::{Children, Style};
 
     fn setup_world() -> (World, mirui::ecs::Entity, mirui::ecs::Entity) {
         let mut world = World::new();
@@ -26,7 +26,7 @@ mod tests {
                 ..Default::default()
             })
             .id();
-        world.insert(child, mirui::widget::Parent(root));
+        world.insert(child, mirui::ui::Parent(root));
         if let Some(children) = world.get_mut::<Children>(root) {
             children.0.push(child);
         }
@@ -38,7 +38,7 @@ mod tests {
         let (mut world, _root, child) = setup_world();
 
         // Move from (10, 20) to (15, 25) — pixels change
-        mirui::widget::set_position(&mut world, child, 15, 25);
+        mirui::ui::set_position(&mut world, child, 15, 25);
 
         let prev = world.get::<PrevRect>(child);
         assert!(
@@ -54,7 +54,7 @@ mod tests {
         let (mut world, _root, child) = setup_world();
 
         // Move from (10, 20) to (10, 20) — exact same position
-        mirui::widget::set_position(&mut world, child, 10, 20);
+        mirui::ui::set_position(&mut world, child, 10, 20);
 
         let prev = world.get::<PrevRect>(child);
         assert!(
@@ -68,7 +68,7 @@ mod tests {
         let (mut world, _root, child) = setup_world();
 
         // First move to subpixel position
-        mirui::widget::set_position(
+        mirui::ui::set_position(
             &mut world,
             child,
             Fixed::from_raw(10 * 256 + 200), // 10.78
@@ -88,7 +88,7 @@ mod tests {
         }
 
         // Move from 10.78 to 11.2 — pixel x changes from 10 to 11
-        mirui::widget::set_position(
+        mirui::ui::set_position(
             &mut world,
             child,
             Fixed::from_raw(11 * 256 + 50), // 11.19
@@ -105,15 +105,14 @@ mod tests {
         let (mut world, root, child) = setup_world();
 
         // Move widget
-        mirui::widget::set_position(&mut world, child, 50, 60);
+        mirui::ui::set_position(&mut world, child, 50, 60);
 
         // Verify Dirty is set
         assert!(world.get::<Dirty>(child).is_some());
 
         // Collect dirty region
         let transform = Viewport::new(128, 128, Fixed::ONE);
-        let dirty =
-            mirui::widget::render_system::collect_dirty_region(&mut world, root, &transform);
+        let dirty = mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform);
 
         let area = dirty.expect("should have dirty region");
         let (dx, dy, dw, dh) = area.to_px();
@@ -136,7 +135,7 @@ mod tests {
         let (mut world, root, child) = setup_world();
 
         // Move to subpixel position
-        mirui::widget::set_position(
+        mirui::ui::set_position(
             &mut world,
             child,
             Fixed::from_raw(30 * 256 + 200), // 30.78
@@ -144,8 +143,7 @@ mod tests {
         );
 
         let transform = Viewport::new(128, 128, Fixed::ONE);
-        let dirty =
-            mirui::widget::render_system::collect_dirty_region(&mut world, root, &transform);
+        let dirty = mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform);
 
         let area = dirty.expect("should have dirty region");
         let (dx, dy, dw, dh) = area.to_px();
@@ -203,12 +201,12 @@ mod tests {
                     ..Default::default()
                 })
                 .id();
-            world.insert(child, mirui::widget::Parent(root));
+            world.insert(child, mirui::ui::Parent(root));
             if let Some(children) = world.get_mut::<Children>(root) {
                 children.0.push(child);
             }
 
-            mirui::widget::set_position(&mut world, child, new_x, new_y);
+            mirui::ui::set_position(&mut world, child, new_x, new_y);
 
             if world.get::<Dirty>(child).is_none() {
                 continue;
@@ -216,7 +214,7 @@ mod tests {
 
             let transform = Viewport::new(128, 128, Fixed::ONE);
             let dirty =
-                mirui::widget::render_system::collect_dirty_region(&mut world, root, &transform);
+                mirui::ui::render_system::collect_dirty_region(&mut world, root, &transform);
 
             let Some(area) = dirty else { continue };
             let (dx, dy, dw, dh) = area.to_px();
@@ -271,9 +269,9 @@ mod tests {
 
     #[test]
     fn fuzz_multi_frame_movement_no_residue() {
-        use mirui::draw::SwRenderer;
-        use mirui::draw::texture::{ColorFormat, Texture};
-        use mirui::widget::render_system;
+        use mirui::render::SwRenderer;
+        use mirui::render::texture::{ColorFormat, Texture};
+        use mirui::ui::render_system;
 
         // Simulate multiple frames of movement, then compare with full render.
         // This catches cases where physics jumps multiple pixels per frame.
@@ -316,7 +314,7 @@ mod tests {
                     ..Default::default()
                 })
                 .id();
-            world.insert(child, mirui::widget::Parent(root));
+            world.insert(child, mirui::ui::Parent(root));
             if let Some(children) = world.get_mut::<Children>(root) {
                 children.0.push(child);
             }
@@ -352,7 +350,7 @@ mod tests {
                     .max(Fixed::ZERO)
                     .min(Fixed::from_int((H as i32) - widget_h.to_int()));
 
-                mirui::widget::set_position(&mut world, child, pos_x, pos_y);
+                mirui::ui::set_position(&mut world, child, pos_x, pos_y);
 
                 let dirty = render_system::collect_dirty_region(&mut world, root, &transform);
                 if let Some(area) = dirty {
@@ -395,9 +393,9 @@ mod tests {
 
     #[test]
     fn fuzz_multi_widget_multi_frame_no_residue() {
-        use mirui::draw::SwRenderer;
-        use mirui::draw::texture::{ColorFormat, Texture};
-        use mirui::widget::render_system;
+        use mirui::render::SwRenderer;
+        use mirui::render::texture::{ColorFormat, Texture};
+        use mirui::ui::render_system;
 
         let mut rng_state: u32 = 0xF00D_CAFE;
         let mut rng = || -> i32 {
@@ -448,7 +446,7 @@ mod tests {
                         ..Default::default()
                     })
                     .id();
-                world.insert(child, mirui::widget::Parent(root));
+                world.insert(child, mirui::ui::Parent(root));
                 if let Some(ch) = world.get_mut::<Children>(root) {
                     ch.0.push(child);
                 }
@@ -479,7 +477,7 @@ mod tests {
                     positions[i].1 += velocities[i].1;
                     positions[i].0 = positions[i].0.max(Fixed::ZERO).min(Fixed::from_int(50));
                     positions[i].1 = positions[i].1.max(Fixed::ZERO).min(Fixed::from_int(50));
-                    mirui::widget::set_position(
+                    mirui::ui::set_position(
                         &mut world,
                         children_vec[i],
                         positions[i].0,

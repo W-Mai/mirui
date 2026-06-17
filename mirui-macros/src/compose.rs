@@ -13,17 +13,17 @@ use syn::{Ident, Result, Token, Visibility, braced};
 const METHODS: &[(&str, &str, bool)] = &[
     (
         "fill_path",
-        "path: &::mirui::draw::path::Path, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
+        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
         false,
     ),
     (
         "stroke_path",
-        "path: &::mirui::draw::path::Path, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, color: &::mirui::types::Color, opa: u8",
+        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, color: &::mirui::types::Color, opa: u8",
         false,
     ),
     (
         "blit",
-        "src: &::mirui::draw::texture::Texture, src_rect: &::mirui::types::Rect, dst: ::mirui::types::Point, dst_size: ::mirui::types::Point, clip: &::mirui::types::Rect",
+        "src: &::mirui::render::texture::Texture, src_rect: &::mirui::types::Rect, dst: ::mirui::types::Point, dst_size: ::mirui::types::Point, clip: &::mirui::types::Rect",
         false,
     ),
     (
@@ -239,53 +239,53 @@ impl ComposeInput {
                 #(#struct_fields,)*
             }
 
-            impl<#(#generic_params),*> ::mirui::draw::canvas::Canvas for #name<#(#generic_params),*>
+            impl<#(#generic_params),*> ::mirui::render::canvas::Canvas for #name<#(#generic_params),*>
             where
-                #(#generic_params: ::mirui::draw::canvas::Canvas,)*
+                #(#generic_params: ::mirui::render::canvas::Canvas,)*
             {
                 #(#method_impls)*
             }
 
-            impl<#(#generic_params),*> ::mirui::draw::renderer::Renderer for #name<#(#generic_params),*>
+            impl<#(#generic_params),*> ::mirui::render::renderer::Renderer for #name<#(#generic_params),*>
             where
-                #(#generic_params: ::mirui::draw::canvas::Canvas,)*
+                #(#generic_params: ::mirui::render::canvas::Canvas,)*
             {
-                fn draw(&mut self, cmd: &::mirui::draw::DrawCommand, clip: &::mirui::types::Rect) {
-                    use ::mirui::draw::canvas::Canvas;
+                fn draw(&mut self, cmd: &::mirui::render::DrawCommand, clip: &::mirui::types::Rect) {
+                    use ::mirui::render::canvas::Canvas;
                     assert!(
                         cmd.transform().is_identity(),
                         "widget transform not yet supported"
                     );
                     match cmd {
-                        ::mirui::draw::DrawCommand::Fill { area, color, radius, opa, .. } => {
+                        ::mirui::render::DrawCommand::Fill { area, color, radius, opa, .. } => {
                             self.fill_rect(area, clip, color, *radius, *opa);
                         }
-                        ::mirui::draw::DrawCommand::Border { area, color, width, radius, opa, .. } => {
+                        ::mirui::render::DrawCommand::Border { area, color, width, radius, opa, .. } => {
                             self.stroke_rect(area, clip, *width, color, *radius, *opa);
                         }
-                        ::mirui::draw::DrawCommand::Blit { pos, size, texture, .. } => {
+                        ::mirui::render::DrawCommand::Blit { pos, size, texture, .. } => {
                             let src_rect = ::mirui::types::Rect::new(0, 0, texture.width, texture.height);
                             self.blit(texture, &src_rect, *pos, *size, clip);
                         }
-                        ::mirui::draw::DrawCommand::Label { pos, text, color, opa, .. } => {
+                        ::mirui::render::DrawCommand::Label { pos, text, color, opa, .. } => {
                             self.draw_label(pos, text, clip, color, *opa);
                         }
-                        ::mirui::draw::DrawCommand::Line { p1, p2, color, width, opa, .. } => {
+                        ::mirui::render::DrawCommand::Line { p1, p2, color, width, opa, .. } => {
                             self.draw_line(*p1, *p2, clip, *width, color, *opa);
                         }
-                        ::mirui::draw::DrawCommand::Arc {
+                        ::mirui::render::DrawCommand::Arc {
                             center, radius, start_angle, end_angle, color, width, opa, ..
                         } => {
                             self.draw_arc(*center, *radius, *start_angle, *end_angle, clip, *width, color, *opa);
                         }
-                        ::mirui::draw::DrawCommand::FillPath { path, color, opa, .. } => {
+                        ::mirui::render::DrawCommand::FillPath { path, color, opa, .. } => {
                             self.fill_path(path, clip, color, *opa);
                         }
                     }
                 }
 
                 fn flush(&mut self) {
-                    ::mirui::draw::canvas::Canvas::flush(self);
+                    ::mirui::render::canvas::Canvas::flush(self);
                 }
             }
         }

@@ -273,14 +273,14 @@ mod tests {
     #[test]
     fn plugins_declare_inserts_section() {
         let plugins = [
-            ("perf_report", include_str!("../plugins/perf_report.rs")),
-            ("fps_summary", include_str!("../plugins/fps_summary.rs")),
+            ("perf_report", include_str!("../app/plugins/perf_report.rs")),
+            ("fps_summary", include_str!("../app/plugins/fps_summary.rs")),
             (
                 "input_feedback",
-                include_str!("../plugins/input_feedback.rs"),
+                include_str!("../app/plugins/input_feedback.rs"),
             ),
             #[cfg(feature = "std")]
-            ("std_clock", include_str!("../plugins/std_clock.rs")),
+            ("std_clock", include_str!("../app/plugins/std_clock.rs")),
         ];
         for (name, src) in plugins {
             assert!(

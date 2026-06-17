@@ -47,7 +47,7 @@ impl DisplayInfo {
     }
 }
 
-pub use crate::event::input::{InputEvent, KEY_HW_BUTTON_0, KEY_ROTARY_PRESS};
+pub use crate::input::event::input::{InputEvent, KEY_HW_BUTTON_0, KEY_ROTARY_PRESS};
 
 /// Does the backbuffer survive `flush()`?
 ///

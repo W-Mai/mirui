@@ -1,16 +1,18 @@
 //! Input feedback plugin — wires the cursor and rotary overlay
-//! [`crate::feedback`] systems and views into [`App`].
+//! [`crate::input::feedback`] systems and views into [`App`].
 //!
 //! Cursor entity is lazily spawned by `cursor_feedback_system` on the
 //! first [`PointerCursor`]. Rotary entity is spawned eagerly in this
 //! plugin's `pre_render` once `WidgetRoot` is set, so its absolute
 //! Style is in place before the rotary system runs.
 
+use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::ecs::World;
-use crate::event::input::InputEvent;
-use crate::feedback::{InputFeedback, InputFeedbackInput, cursor, input as feedback_input, rotary};
-use crate::plugin::Plugin;
+use crate::input::event::input::InputEvent;
+use crate::input::feedback::{
+    InputFeedback, InputFeedbackInput, cursor, input as feedback_input, rotary,
+};
 use crate::surface::Surface;
 use crate::ui::WidgetRoot;
 use crate::ui::view::ViewRegistry;
@@ -85,7 +87,7 @@ where
 mod tests {
     use super::*;
     use crate::ecs::Entity;
-    use crate::feedback::{OverlayCursor, OverlayRotary};
+    use crate::input::feedback::{OverlayCursor, OverlayRotary};
     use crate::ui::view::ViewRegistry;
     use crate::ui::{Children, WidgetRoot};
 

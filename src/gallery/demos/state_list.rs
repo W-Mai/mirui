@@ -4,7 +4,7 @@ extern crate alloc;
 use crate::app::{App, RendererFactory};
 use crate::core::reactive::Signal;
 use crate::ecs::{Entity, World};
-use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
@@ -149,7 +149,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::plugins::StdInstantClockPlugin;
+    use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
     build_widgets(&mut app.world, parent);
 }
@@ -158,8 +158,8 @@ where
 mod tests {
     use super::*;
     use crate::core::reactive::flush_signal_dirty;
-    use crate::event::GestureHandler;
-    use crate::event::gesture::GestureEvent;
+    use crate::input::event::GestureHandler;
+    use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::builder::WidgetBuilder;
@@ -208,7 +208,7 @@ mod tests {
         assert_eq!(row_count(&world, list), 3, "starts with 3 rows");
 
         let content_h = |w: &World| {
-            w.get::<crate::event::scroll::ScrollConfig>(list)
+            w.get::<crate::input::event::scroll::ScrollConfig>(list)
                 .unwrap()
                 .content_height
         };

@@ -1,13 +1,13 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::{Entity, World};
-    use mirui::event::gesture::{GestureEvent, GestureEvents, GestureRecognizer};
-    use mirui::event::hit_test::hit_test;
-    use mirui::event::input::InputEvent;
-    use mirui::event::{GestureHandler, bubble_dispatch};
-    use mirui::layout::*;
+    use mirui::input::event::gesture::{GestureEvent, GestureEvents, GestureRecognizer};
+    use mirui::input::event::hit_test::hit_test;
+    use mirui::input::event::input::InputEvent;
+    use mirui::input::event::{GestureHandler, bubble_dispatch};
     use mirui::types::{Color, Dimension, Fixed};
-    use mirui::widget::builder::WidgetBuilder;
+    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::layout::*;
 
     /// Per-entity tap counter so tests don't share static state.
     struct TapHits(u32);

@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
-    use mirui::draw::texture::{ColorFormat, Texture};
-    use mirui::draw::{DrawCommand, Renderer, SwRenderer};
+    use mirui::render::texture::{ColorFormat, Texture};
+    use mirui::render::{DrawCommand, Renderer, SwRenderer};
     use mirui::types::{Color, Fixed, Rect, Transform};
 
     #[test]

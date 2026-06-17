@@ -1091,13 +1091,13 @@ pub fn sim_timeline_system(world: &mut World) {
                     tl.action_elapsed_ms = 0;
                 }
                 let event = InputEvent::Key {
-                    code: crate::event::input::KEY_ROTARY_PRESS,
+                    code: crate::input::event::input::KEY_ROTARY_PRESS,
                     pressed: true,
                 };
                 super::dispatch_input(world, root, &event, now_ms, lw, lh);
             } else if action_elapsed >= 50 {
                 let event = InputEvent::Key {
-                    code: crate::event::input::KEY_ROTARY_PRESS,
+                    code: crate::input::event::input::KEY_ROTARY_PRESS,
                     pressed: false,
                 };
                 super::dispatch_input(world, root, &event, now_ms, lw, lh);
@@ -1138,10 +1138,10 @@ mod tests {
 
     fn setup_world() -> World {
         let mut world = World::default();
-        world.insert_resource(crate::event::scroll::ScrollDragState::default());
-        world.insert_resource(crate::event::scroll::ScrollSpring::default());
+        world.insert_resource(crate::input::event::scroll::ScrollDragState::default());
+        world.insert_resource(crate::input::event::scroll::ScrollSpring::default());
         world.insert_resource(GestureSystem::default());
-        world.insert_resource(crate::event::focus::FocusState::default());
+        world.insert_resource(crate::input::event::focus::FocusState::default());
         world.insert_resource(crate::surface::DisplayInfo {
             width: 128,
             height: 128,
@@ -1177,7 +1177,7 @@ mod tests {
 
         sim_timeline_system(&mut world);
         let cursor = world
-            .resource::<crate::event::PointerCursor>()
+            .resource::<crate::input::event::PointerCursor>()
             .copied()
             .expect("cursor seeded by sim");
         assert_eq!(cursor.x, Fixed::from_int(10));
@@ -1188,7 +1188,7 @@ mod tests {
             sim_timeline_system(&mut world);
         }
         let mid = world
-            .resource::<crate::event::PointerCursor>()
+            .resource::<crate::input::event::PointerCursor>()
             .copied()
             .unwrap();
         assert!(
@@ -1203,7 +1203,7 @@ mod tests {
             sim_timeline_system(&mut world);
         }
         let end = world
-            .resource::<crate::event::PointerCursor>()
+            .resource::<crate::input::event::PointerCursor>()
             .copied()
             .unwrap();
         assert_eq!(end.x, Fixed::from_int(50));
@@ -1379,7 +1379,7 @@ mod tests {
 
         sim_timeline_system(&mut world);
         let initial_seq = world
-            .resource::<crate::event::PointerCursor>()
+            .resource::<crate::input::event::PointerCursor>()
             .map(|c| c.event_seq)
             .unwrap_or(0);
 
@@ -1388,7 +1388,7 @@ mod tests {
             sim_timeline_system(&mut world);
         }
         let final_seq = world
-            .resource::<crate::event::PointerCursor>()
+            .resource::<crate::input::event::PointerCursor>()
             .map(|c| c.event_seq)
             .unwrap_or(0);
         assert_eq!(
@@ -1696,8 +1696,8 @@ mod tests {
     // job is to reproduce ESP-side behaviours (cycle drift,
     // hit_test mis-routing, lost toggles) deterministically on host.
 
-    use crate::event::dispatch_input;
-    use crate::event::hit_test::hit_test;
+    use crate::input::event::dispatch_input;
+    use crate::input::event::hit_test::hit_test;
     use crate::surface::InputEvent;
     use crate::types::Dimension;
     use crate::ui::builder::WidgetBuilder;
@@ -1789,7 +1789,7 @@ mod tests {
             rc.0.push(switch);
         }
 
-        crate::event::widget_input::attach_widget_input_handlers(&mut world, root);
+        crate::input::event::widget_input::attach_widget_input_handlers(&mut world, root);
         super::set_sim_root(&mut world, root);
 
         (world, root, slider, switch)
@@ -1841,7 +1841,7 @@ mod tests {
     /// target's centre hits target.
     #[test]
     fn hit_test_skips_hidden_subtree_scroll_offset() {
-        use crate::event::scroll::ScrollOffset;
+        use crate::input::event::scroll::ScrollOffset;
         use crate::ui::{Children, Hidden, Parent};
         let mut world = World::new();
         let mk = |w: &mut World, h: i32| {
@@ -1898,7 +1898,7 @@ mod tests {
     /// Regression: scrolled-past row must not steal taps from a tabbar above.
     #[test]
     fn hit_test_clips_scrolled_child_to_container_rect() {
-        use crate::event::scroll::ScrollOffset;
+        use crate::input::event::scroll::ScrollOffset;
         use crate::ui::layout::Position;
         use crate::ui::{Children, Parent};
         let mut world = World::new();
@@ -2009,12 +2009,12 @@ mod tests {
             128,
         );
 
-        let pending: Vec<crate::event::gesture::GestureEvent> = world
+        let pending: Vec<crate::input::event::gesture::GestureEvent> = world
             .resource_mut::<GestureSystem>()
             .map(|gs| gs.events.drain().collect())
             .unwrap_or_default();
         for g in &pending {
-            crate::event::bubble_dispatch(&mut world, g);
+            crate::input::event::bubble_dispatch(&mut world, g);
         }
 
         let on = world.get::<Switch>(switch).map(|s| s.on).unwrap_or(false);
@@ -2083,12 +2083,12 @@ mod tests {
             );
             // Drain & bubble pending Tap events the same way
             // sim_timeline_system does at the end of each sim tick.
-            let pending: Vec<crate::event::gesture::GestureEvent> = world
+            let pending: Vec<crate::input::event::gesture::GestureEvent> = world
                 .resource_mut::<GestureSystem>()
                 .map(|gs| gs.events.drain().collect())
                 .unwrap_or_default();
             for g in &pending {
-                crate::event::bubble_dispatch(&mut world, g);
+                crate::input::event::bubble_dispatch(&mut world, g);
             }
             // Gap between taps so the recognizer fully resets.
             mock::advance_ms(150);
@@ -2111,7 +2111,7 @@ mod tests {
     /// either edge. Floor at left, ceiling at right, no overflow.
     #[test]
     fn slider_handler_clamps_ratio_at_boundaries() {
-        use crate::event::gesture::GestureEvent;
+        use crate::input::event::gesture::GestureEvent;
         use crate::types::Rect;
         use crate::ui::ComputedRect;
         use crate::ui::widgets::slider::{Slider, slider_handler};
@@ -2232,7 +2232,7 @@ mod tests {
 
         for frame in 0..total_frames {
             sim_timeline_system(&mut world);
-            crate::event::scroll::scroll_inertia_system(&mut world);
+            crate::input::event::scroll::scroll_inertia_system(&mut world);
             tab_pages_system(&mut world);
             crate::ui::widgets::switch::switch_init_system(&mut world);
             crate::ui::widgets::switch::animate_switch_bg_t_system(&mut world);
@@ -2276,9 +2276,9 @@ mod tests {
     fn pinch_probe_handler(
         world: &mut World,
         _entity: Entity,
-        event: &crate::event::gesture::GestureEvent,
+        event: &crate::input::event::gesture::GestureEvent,
     ) -> bool {
-        if let crate::event::gesture::GestureEvent::Pinch { scale_delta, .. } = event {
+        if let crate::input::event::gesture::GestureEvent::Pinch { scale_delta, .. } = event {
             if let Some(p) = world.resource_mut::<PinchProbe>() {
                 if p.accum_scale == Fixed::ZERO {
                     p.accum_scale = Fixed::ONE;
@@ -2291,7 +2291,7 @@ mod tests {
             }
             return true;
         }
-        if let crate::event::gesture::GestureEvent::Rotate { angle, .. } = event {
+        if let crate::input::event::gesture::GestureEvent::Rotate { angle, .. } = event {
             if let Some(p) = world.resource_mut::<PinchProbe>() {
                 p.rotate_deltas.push(*angle);
             }
@@ -2324,7 +2324,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler::from_fn(pinch_probe_handler),
+            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2422,7 +2422,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler::from_fn(pinch_probe_handler),
+            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2500,7 +2500,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler::from_fn(pinch_probe_handler),
+            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2554,7 +2554,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler::from_fn(pinch_probe_handler),
+            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2608,7 +2608,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler::from_fn(pinch_probe_handler),
+            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);
@@ -2663,7 +2663,7 @@ mod tests {
         );
         world.insert(
             target,
-            crate::event::GestureHandler::from_fn(pinch_probe_handler),
+            crate::input::event::GestureHandler::from_fn(pinch_probe_handler),
         );
         world.insert_resource(PinchProbe::default());
         let viewport = Viewport::new(128, 128, Fixed::ONE);

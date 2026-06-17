@@ -278,7 +278,7 @@ impl Surface for SdlGpuSurface {
                 Event::KeyDown {
                     keycode: Some(kc), ..
                 } => {
-                    use crate::event::input::*;
+                    use crate::input::event::input::*;
                     let code = match kc {
                         Keycode::Backspace => KEY_BACKSPACE,
                         Keycode::Delete => KEY_DELETE,

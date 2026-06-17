@@ -110,8 +110,8 @@ mod tests {
     use crate::ui::IdMap;
     use crate::ui::builder::WidgetBuilder;
 
-    use crate::event::GestureHandler;
-    use crate::event::gesture::GestureEvent;
+    use crate::input::event::GestureHandler;
+    use crate::input::event::gesture::GestureEvent;
 
     #[test]
     fn build_widgets_smoke() {

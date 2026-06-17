@@ -2,7 +2,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::ecs::{Entity, World};
-use crate::event::scroll::ScrollOffset;
+use crate::input::event::scroll::ScrollOffset;
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D};
 use crate::ui::layout::{LayoutNode, compute_layout};
 use crate::ui::widgets::transform::WidgetTransform;
@@ -273,7 +273,7 @@ pub fn hit_test(
         let mut p = parents[i];
         while let Some(idx) = p {
             if world
-                .get::<crate::event::scroll::components::ScrollOffset>(entities[idx])
+                .get::<crate::input::event::scroll::components::ScrollOffset>(entities[idx])
                 .is_some()
             {
                 let r = rects[idx];

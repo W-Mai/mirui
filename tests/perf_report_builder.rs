@@ -6,8 +6,8 @@ use std::cell::Cell;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use mirui::app::App;
+use mirui::app::plugins::{PerfReport, PerfReportPlugin};
 use mirui::ecs::Entity;
-use mirui::plugins::{PerfReport, PerfReportPlugin};
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Rect;
 
@@ -33,7 +33,7 @@ fn report_sink_and_perfetto_line_sink_both_run() {
 
     let line_count: std::rc::Rc<Cell<u32>> = Default::default();
     let line_count_for_sink = std::rc::Rc::clone(&line_count);
-    let line_sink: mirui::plugins::PerfettoLineSink =
+    let line_sink: mirui::app::plugins::PerfettoLineSink =
         Box::new(move |_line: &str| line_count_for_sink.set(line_count_for_sink.get() + 1));
 
     app.add_plugin(

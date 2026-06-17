@@ -79,11 +79,11 @@ thread_local! {
     static DARK: core::cell::Cell<bool> = const { core::cell::Cell::new(true) };
 }
 
-fn current_theme() -> gallery::mirui::widget::Theme {
+fn current_theme() -> gallery::mirui::ui::Theme {
     if DARK.with(|d| d.get()) {
-        gallery::mirui::widget::Theme::dark()
+        gallery::mirui::ui::Theme::dark()
     } else {
-        gallery::mirui::widget::Theme::light()
+        gallery::mirui::ui::Theme::light()
     }
 }
 

@@ -4,8 +4,8 @@
 use mirui::app::App;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Color;
-use mirui::widget::Theme;
-use mirui::widget::theme::ColorToken;
+use mirui::ui::Theme;
+use mirui::ui::theme::ColorToken;
 
 #[test]
 fn app_new_inserts_default_theme() {
@@ -65,8 +65,8 @@ fn user_defined_token_round_trips_through_app() {
 
 #[test]
 fn set_theme_swaps_resource_and_marks_tree_dirty() {
-    use mirui::widget::builder::WidgetBuilder;
-    use mirui::widget::dirty::Dirty;
+    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::dirty::Dirty;
 
     let backend = FramebufSurface::new(64, 64, |_, _| {});
     let mut app = App::new(backend);
@@ -103,8 +103,8 @@ fn set_theme_swaps_resource_and_marks_tree_dirty() {
 
 #[test]
 fn set_root_publishes_widget_root_resource() {
-    use mirui::widget::WidgetRoot;
-    use mirui::widget::builder::WidgetBuilder;
+    use mirui::ui::WidgetRoot;
+    use mirui::ui::builder::WidgetBuilder;
 
     let backend = FramebufSurface::new(64, 64, |_, _| {});
     let mut app = App::new(backend);

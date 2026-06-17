@@ -1,7 +1,7 @@
 use crate::ecs::{Entity, World};
-use crate::event::focus::{FocusState, Focusable, KeyHandler};
-use crate::event::gesture::GestureEvent;
-use crate::event::input::{
+use crate::input::event::focus::{FocusState, Focusable, KeyHandler};
+use crate::input::event::gesture::GestureEvent;
+use crate::input::event::input::{
     InputEvent, KEY_BACKSPACE, KEY_DELETE, KEY_END, KEY_HOME, KEY_LEFT, KEY_RIGHT,
 };
 use crate::render::command::DrawCommand;

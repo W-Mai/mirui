@@ -1,6 +1,6 @@
 use alloc::collections::VecDeque;
 
-use crate::event::input::InputEvent;
+use crate::input::event::input::InputEvent;
 use crate::types::Fixed;
 
 /// Driver-agnostic axis events fed into [`PointerState`]. Each backend

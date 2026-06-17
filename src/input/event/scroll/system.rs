@@ -1,8 +1,8 @@
 use super::components::{ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset};
 use crate::anim::{BOUNCY, SMOOTH, Spring};
 use crate::ecs::{Entity, World};
-use crate::event::hit_test::hit_test;
-use crate::event::input::InputEvent;
+use crate::input::event::hit_test::hit_test;
+use crate::input::event::input::InputEvent;
 use crate::types::Fixed;
 
 fn accumulate_scroll_delta(world: &mut World, target: Entity, dx: Fixed, dy: Fixed) {
@@ -623,8 +623,8 @@ mod tests {
 
     fn run_drag(elastic: bool, init_y: i32, dy_per_frame: i32, frames: usize) -> Fixed {
         use crate::ecs::World;
-        use crate::event::input::InputEvent;
-        use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
+        use crate::input::event::input::InputEvent;
+        use crate::input::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
         use crate::ui::{ComputedRect, Widget};
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
@@ -692,8 +692,8 @@ mod tests {
     #[test]
     fn elastic_false_pointer_up_clamps_inertia_projection() {
         use crate::ecs::World;
-        use crate::event::input::InputEvent;
-        use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
+        use crate::input::event::input::InputEvent;
+        use crate::input::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
         use crate::ui::{ComputedRect, Widget};
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
@@ -754,7 +754,7 @@ mod tests {
     #[test]
     fn find_scroll_target_walks_to_matching_axis() {
         use crate::ecs::World;
-        use crate::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
+        use crate::input::event::scroll::components::{ScrollAxis, ScrollConfig, ScrollOffset};
         use crate::ui::{ComputedRect, Widget};
         let mut world = World::new();
         let target = world.spawn_empty();
@@ -797,8 +797,8 @@ mod tests {
     #[test]
     fn drag_accumulates_scroll_delta_across_frames() {
         use crate::ecs::World;
-        use crate::event::input::InputEvent;
-        use crate::event::scroll::components::{
+        use crate::input::event::input::InputEvent;
+        use crate::input::event::scroll::components::{
             ScrollAxis, ScrollConfig, ScrollDelta, ScrollOffset,
         };
         use crate::ui::{ComputedRect, Widget};

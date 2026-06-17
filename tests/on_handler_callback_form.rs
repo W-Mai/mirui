@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::{Entity, World};
-    use mirui::event::HandlerCtx;
-    use mirui::event::bubble_dispatch_at;
-    use mirui::event::gesture::GestureEvent;
-    use mirui::event::multi_tap::MultiTapTracker;
+    use mirui::input::event::HandlerCtx;
+    use mirui::input::event::bubble_dispatch_at;
+    use mirui::input::event::gesture::GestureEvent;
+    use mirui::input::event::multi_tap::MultiTapTracker;
     use mirui::types::Fixed;
     use mirui::ui;
-    use mirui::widget::IdMap;
-    use mirui::widget::builder::WidgetBuilder;
+    use mirui::ui::IdMap;
+    use mirui::ui::builder::WidgetBuilder;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicI64, Ordering};
 
@@ -53,7 +53,9 @@ mod tests {
 
             View () on Tap(my_callback)
         };
-        let target = world.query::<mirui::event::GestureHandler>().collect();
+        let target = world
+            .query::<mirui::input::event::GestureHandler>()
+            .collect();
         let entity = *target.first().expect("dispatch fn attached");
         bubble_dispatch_at(&mut world, &tap(entity), 100);
         assert_eq!(FIRES.load(Ordering::SeqCst), 1);
@@ -72,7 +74,9 @@ mod tests {
 
             View () on Tap(2, my_callback)
         };
-        let target = world.query::<mirui::event::GestureHandler>().collect();
+        let target = world
+            .query::<mirui::input::event::GestureHandler>()
+            .collect();
         let entity = *target.first().expect("dispatch fn attached");
         bubble_dispatch_at(&mut world, &tap(entity), 100);
         assert_eq!(
@@ -99,7 +103,9 @@ mod tests {
                 on Tap(my_callback)
                 on LongPress { FIRES.fetch_add(10, Ordering::SeqCst); }
         };
-        let target = world.query::<mirui::event::GestureHandler>().collect();
+        let target = world
+            .query::<mirui::input::event::GestureHandler>()
+            .collect();
         let entity = *target.first().expect("dispatch fn attached");
         bubble_dispatch_at(&mut world, &tap(entity), 100);
         assert_eq!(FIRES.load(Ordering::SeqCst), 1, "Tap callback fires");

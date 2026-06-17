@@ -7,9 +7,9 @@
 
 #![cfg(feature = "std")]
 
+use mirui::core::timer::{Timer, TimerMode};
 use mirui::ecs::World;
 use mirui::ecs::time::{MonoClock, mock};
-use mirui::timer::{Timer, TimerMode};
 use mirui_macros::timer;
 
 fn nop(_world: &mut World, _entity: mirui::ecs::Entity) {}

@@ -8,15 +8,15 @@
 //! as `Transient`, so the run loop redraws every frame automatically —
 //! no manual loop here.
 
+use mirui::app::plugin::Plugin;
+use mirui::app::plugins::{CacheReportPlugin, FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::app::{App, RendererFactory};
-use mirui::components::Image;
-use mirui::components::assets::*;
-use mirui::plugin::Plugin;
-use mirui::plugins::{CacheReportPlugin, FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::prelude::*;
 use mirui::surface::sdl_gpu::{SdlGpuFactory, SdlGpuSurface};
 use mirui::surface::{InputEvent, Surface};
-use mirui::widget::{Children, Parent};
+use mirui::ui::widgets::Image;
+use mirui::ui::widgets::assets::*;
+use mirui::ui::{Children, Parent};
 
 const DRAG_W: i32 = 160;
 const DRAG_H: i32 = 60;
@@ -102,7 +102,7 @@ fn main() {
     app.set_root(root);
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default())
-        .add_plugin(mirui::plugins::ImageResourcesPlugin::default())
+        .add_plugin(mirui::app::plugins::ImageResourcesPlugin::default())
         .add_plugin(CacheReportPlugin::new(120))
         .add_plugin(DragPlugin {
             target: drag,
@@ -146,7 +146,7 @@ where
                     let nx = x - ox;
                     let ny = y - oy;
                     self.pos = (nx, ny);
-                    mirui::widget::set_position(world, self.target, nx, ny);
+                    mirui::ui::set_position(world, self.target, nx, ny);
                     return true;
                 }
                 false

@@ -1,12 +1,15 @@
+pub mod plugin;
+pub mod plugins;
+
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 
+use crate::app::plugin::Plugin;
 use crate::ecs::{Entity, System, SystemScheduler, World};
-use crate::event::bubble_dispatch_at;
-use crate::event::focus::{FocusState, focus_on_tap};
-use crate::event::gesture::GestureSystem;
-use crate::event::scroll::{ScrollDragState, ScrollSpring};
-use crate::plugin::Plugin;
+use crate::input::event::bubble_dispatch_at;
+use crate::input::event::focus::{FocusState, focus_on_tap};
+use crate::input::event::gesture::GestureSystem;
+use crate::input::event::scroll::{ScrollDragState, ScrollSpring};
 use crate::render::renderer::Renderer;
 use crate::surface::{FramebufferAccess, InputEvent, Surface};
 use crate::types::Rect;
@@ -183,7 +186,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn with_default_systems(&mut self) -> &mut Self {
         self.add_system(crate::anim::sync_delta_time_ms::system());
         self.add_system(crate::core::timer::timer_system::system());
-        self.add_system(crate::event::scroll::system::scroll_inertia_system::system());
+        self.add_system(crate::input::event::scroll::system::scroll_inertia_system::system());
         self.add_system(crate::ui::state::hover_system::system());
         self.add_system(crate::ui::state::press_system::system());
         self.add_system(crate::ui::offscreen::maintain_widget_texture_refs::system());
@@ -214,8 +217,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn set_root(&mut self, root: Entity) {
         self.root = Some(root);
         self.world.insert_resource(crate::ui::WidgetRoot(root));
-        crate::event::widget_input::attach_widget_input_handlers(&mut self.world, root);
-        crate::event::sim::set_sim_root(&mut self.world, root);
+        crate::input::event::widget_input::attach_widget_input_handlers(&mut self.world, root);
+        crate::input::event::sim::set_sim_root(&mut self.world, root);
     }
 
     /// Reclaim the backend by value, dropping the rest of the `App`.
@@ -411,7 +414,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         // input racing them corrupts the demo.
                         let sim_running = self
                             .world
-                            .resource::<crate::event::sim::SimTimeline>()
+                            .resource::<crate::input::event::sim::SimTimeline>()
                             .is_some_and(|t| t.is_running());
                         if sim_running {
                             continue;
@@ -431,7 +434,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                                 self.backend.display_info().viewport().logical_size()
                             });
                             let now_ms = (self.clock_ns() / 1_000_000) as u32;
-                            crate::event::dispatch_input(
+                            crate::input::event::dispatch_input(
                                 &mut self.world,
                                 root,
                                 &event,
@@ -499,7 +502,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         // PerfReportPlugin::build is the opt-in path for this resource.
         if self
             .world
-            .resource::<crate::plugins::perf_report::SystemPerfSnapshot>()
+            .resource::<crate::app::plugins::perf_report::SystemPerfSnapshot>()
             .is_none()
         {
             return;
@@ -507,18 +510,18 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         let want_reset = self
             .world
-            .resource::<crate::plugins::perf_report::PerfResetFlag>()
+            .resource::<crate::app::plugins::perf_report::PerfResetFlag>()
             .map(|f| f.0)
             .unwrap_or(false);
         if want_reset {
             self.systems.reset_perf();
             self.world
-                .insert_resource(crate::plugins::perf_report::PerfResetFlag(false));
+                .insert_resource(crate::app::plugins::perf_report::PerfResetFlag(false));
         }
 
         let snap = self
             .world
-            .resource_mut::<crate::plugins::perf_report::SystemPerfSnapshot>()
+            .resource_mut::<crate::app::plugins::perf_report::SystemPerfSnapshot>()
             .expect("checked above");
         snap.entries.clear();
         for s in self.systems.iter() {
@@ -527,13 +530,14 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             } else {
                 (s.total_us / s.call_count as u64) as u32
             };
-            snap.entries.push(crate::plugins::perf_report::SystemStat {
-                name: s.name,
-                priority: s.priority,
-                last_us: s.last_us,
-                avg_us: avg,
-                call_count: s.call_count,
-            });
+            snap.entries
+                .push(crate::app::plugins::perf_report::SystemStat {
+                    name: s.name,
+                    priority: s.priority,
+                    last_us: s.last_us,
+                    avg_us: avg,
+                    call_count: s.call_count,
+                });
         }
     }
 

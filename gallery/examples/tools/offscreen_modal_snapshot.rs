@@ -7,12 +7,12 @@
 //!     -- /tmp/modal-snap
 //! ```
 
-use mirui::components::WidgetTransform;
 use mirui::prelude::*;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform};
-use mirui::widget::theme::ColorToken;
-use mirui::widget::{Children, OffscreenRender, Theme};
+use mirui::ui::theme::ColorToken;
+use mirui::ui::widgets::WidgetTransform;
+use mirui::ui::{Children, OffscreenRender, Theme};
 use mirui_macros::ui;
 use std::cell::RefCell;
 use std::fs::File;
@@ -57,7 +57,7 @@ fn slide(world: &mut World) {
         let off_screen = Fixed::from_int(-MODAL_LEFT_FINAL - MODAL_W);
         let tx = off_screen * (Fixed::ONE - next_t);
         world.insert(e, WidgetTransform(Transform::translate(tx, Fixed::ZERO)));
-        world.insert(e, mirui::widget::dirty::Dirty);
+        world.insert(e, mirui::ui::dirty::Dirty);
     }
 }
 

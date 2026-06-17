@@ -1,10 +1,10 @@
 use alloc::borrow::Cow;
 use alloc::boxed::Box;
 
+use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::core::cache::MaxSize;
 use crate::core::resource::ResourceManager;
-use crate::plugin::Plugin;
 use crate::render::texture::{ColorFormat, Texture, TextureMeta};
 use crate::surface::Surface;
 use crate::ui::widgets::assets::IMG_THUMBS_UP;

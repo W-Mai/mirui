@@ -2,25 +2,25 @@ extern crate alloc;
 
 use crate::anim::{PlayMode, Tween, ease};
 #[cfg(feature = "std")]
+use crate::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
-#[cfg(feature = "std")]
-use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
-use crate::widget;
+use crate::ui;
 
 mirui_macros::animate!(AnimateX, |world, entity, value| {
-    widget::set_position(world, entity, value, Fixed::from_int(60));
+    ui::set_position(world, entity, value, Fixed::from_int(60));
 });
 
 mirui_macros::animate!(AnimateColor, |world, entity, value| {
     let r = (value * Fixed::from_int(255)).to_int().clamp(0, 255) as u8;
-    if let Some(style) = world.get_mut::<widget::Style>(entity) {
+    if let Some(style) = world.get_mut::<ui::Style>(entity) {
         style.set_bg_color(Color::rgb(r, 50, 255 - r));
     }
-    world.insert(entity, widget::dirty::Dirty);
+    world.insert(entity, ui::dirty::Dirty);
 });
 
 pub fn build_widgets(world: &mut World, parent: Entity) {

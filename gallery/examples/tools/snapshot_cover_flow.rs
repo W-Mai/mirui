@@ -10,11 +10,11 @@ use std::fs::File;
 use std::io::Write;
 use std::rc::Rc;
 
-use mirui::components::{Image, WidgetTransform3D};
-use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::{Color, Dimension, Fixed, Transform3D};
-use mirui::widget::dirty::Dirty;
+use mirui::ui::dirty::Dirty;
+use mirui::ui::widgets::{Image, WidgetTransform3D};
 
 extern crate alloc;
 
@@ -62,7 +62,7 @@ fn layout_system(world: &mut World) {
         let tx =
             container_center + Fixed::from_int(idx) * slot_stride - Fixed::from_int(CARD_W / 2);
         let ty = Fixed::from_int((WINDOW_H - CARD_H) / 2);
-        mirui::widget::set_position(world, e, tx, ty);
+        mirui::ui::set_position(world, e, tx, ty);
 
         let relative = Fixed::from_int(idx) - offset / slot_stride;
         let tilt = Fixed::ZERO - relative * Fixed::from_int(22);
@@ -101,7 +101,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
     });
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
-    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
 
     app.add_system(layout_system::system());
 

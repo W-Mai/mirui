@@ -90,7 +90,7 @@ where
     F: RendererFactory<B>,
 {
     app.add_system(spin_system::system());
-    app.add_plugin(crate::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
     build_widgets(&mut app.world, parent);
 }
 

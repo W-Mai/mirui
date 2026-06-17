@@ -12,22 +12,22 @@
 //! Compile with `--features perf` so trace_span emits events;
 //! otherwise it's a no-op and the breakdown stays empty.
 
-use mirui::components::Image;
-use mirui::components::assets::*;
+use mirui::app::plugins::StdInstantClockPlugin;
+use mirui::core::perf::{self, PerfEvent};
+use mirui::core::resource::ResourceManager;
 use mirui::ecs::Entity;
-use mirui::perf::{self, PerfEvent};
-use mirui::plugins::StdInstantClockPlugin;
 use mirui::prelude::*;
 use mirui::render::command::DrawCommand;
 use mirui::render::renderer::Renderer;
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::Texture;
-use mirui::resource::ResourceManager;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::surface::{FramebufferAccess, Surface};
 use mirui::types::{Point, Rect, Transform, Viewport};
-use mirui::widget::render_system;
-use mirui::widget::{Children, Parent};
+use mirui::ui::render_system;
+use mirui::ui::widgets::Image;
+use mirui::ui::widgets::assets::*;
+use mirui::ui::{Children, Parent};
 
 use std::collections::BTreeMap;
 use std::time::Instant;
@@ -122,7 +122,7 @@ fn build_image_heavy<B: Surface + FramebufferAccess>(app: &mut App<B>, count: u3
         let row = n / cols;
         let c = WidgetBuilder::new(&mut app.world)
             .layout(LayoutStyle {
-                position: mirui::layout::Position::Absolute,
+                position: mirui::ui::layout::Position::Absolute,
                 left: Dimension::px(col * (iw + 2) + 2),
                 top: Dimension::px(row * (ih + 2) + 2),
                 width: Dimension::px(iw),
@@ -162,7 +162,7 @@ fn build_no_image<B: Surface + FramebufferAccess>(app: &mut App<B>, count: u32) 
         let c = WidgetBuilder::new(&mut app.world)
             .bg_color(Color::rgba(80, 120, 200, 255))
             .layout(LayoutStyle {
-                position: mirui::layout::Position::Absolute,
+                position: mirui::ui::layout::Position::Absolute,
                 left: Dimension::px(col * (iw + 2) + 2),
                 top: Dimension::px(row * (ih + 2) + 2),
                 width: Dimension::px(iw),
@@ -187,7 +187,7 @@ fn run_scene_image_heavy(count: u32, label: &str) {
     let mut app = App::new(backend);
     app.with_default_widgets();
     app.add_plugin(StdInstantClockPlugin);
-    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
 
     let root = build_image_heavy(&mut app, count);
     let info = app.backend.display_info();
@@ -232,7 +232,7 @@ fn run_micro_resolve() {
     let backend = FramebufSurface::new(W, H, |_, _| {});
     let mut app = App::new(backend);
     app.add_plugin(StdInstantClockPlugin);
-    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
     let mgr = app
         .world
         .resource::<ResourceManager<Texture<'static>>>()
@@ -254,7 +254,7 @@ fn run_micro_world_resource() {
     let backend = FramebufSurface::new(W, H, |_, _| {});
     let mut app = App::new(backend);
     app.add_plugin(StdInstantClockPlugin);
-    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
 
     let n_per_frame = 1000u32;
     record_scene("micro_world_resource_x1000", || {

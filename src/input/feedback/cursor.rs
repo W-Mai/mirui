@@ -1,8 +1,8 @@
 use crate::ecs::{Entity, World};
-use crate::event::PointerCursor;
-use crate::event::hit_test::hit_test;
-use crate::event::scroll::ScrollDelta;
-use crate::feedback::{
+use crate::input::event::PointerCursor;
+use crate::input::event::hit_test::hit_test;
+use crate::input::event::scroll::ScrollDelta;
+use crate::input::feedback::{
     CursorFeedbackMode, CursorVisual, InputFeedback, OverlayCursor, write_overlay_layout,
 };
 use crate::render::command::DrawCommand;

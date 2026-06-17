@@ -1,6 +1,6 @@
+use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::ecs::MonoClock;
-use crate::plugin::Plugin;
 use crate::surface::Surface;
 
 use std::sync::OnceLock;

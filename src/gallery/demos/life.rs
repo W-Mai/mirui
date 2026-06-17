@@ -297,7 +297,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+    use crate::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
     let info = app.backend.display_info();
     app.with_widget(life_view())
         .add_plugin(StdInstantClockPlugin)

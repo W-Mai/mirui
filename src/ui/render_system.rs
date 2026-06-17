@@ -372,7 +372,7 @@ fn draw_tree_offset(
     *idx += 1;
 
     let (child_clip, sx, sy) =
-        if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity) {
+        if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
             (
                 intersect_with_self(clip, &shifted_rect),
                 offset_x + scroll.x,
@@ -571,7 +571,7 @@ fn try_draw_offscreen(
         // above), and offsets shift child coords so the entity's
         // origin maps to (0, 0) inside the buffer.
         let (child_clip, sx, sy) =
-            if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity) {
+            if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
                 (
                     inner_clip,
                     inner_offset_x + scroll.x,
@@ -1005,7 +1005,7 @@ fn collect_dirty_walk(
     }
 
     let scroll_delta = world
-        .get::<crate::event::scroll::ScrollDelta>(entity)
+        .get::<crate::input::event::scroll::ScrollDelta>(entity)
         .copied();
     let mut child_inside_scroll = inside_scroll;
     let mut my_scroll_op: Option<RegionShift> = None;
@@ -1033,7 +1033,8 @@ fn collect_dirty_walk(
                 dy: blit_dy,
             });
             child_inside_scroll = true;
-            if let Some(sd_mut) = world.get_mut::<crate::event::scroll::ScrollDelta>(entity) {
+            if let Some(sd_mut) = world.get_mut::<crate::input::event::scroll::ScrollDelta>(entity)
+            {
                 sd_mut.dx -= Fixed::from_int(dx_int);
                 sd_mut.dy -= Fixed::from_int(dy_int);
             }
@@ -1065,12 +1066,12 @@ fn collect_dirty_walk(
         }
     }
 
-    let child_scroll = if let Some(scroll) = world.get::<crate::event::scroll::ScrollOffset>(entity)
-    {
-        (scroll_offset.0 + scroll.x, scroll_offset.1 + scroll.y)
-    } else {
-        scroll_offset
-    };
+    let child_scroll =
+        if let Some(scroll) = world.get::<crate::input::event::scroll::ScrollOffset>(entity) {
+            (scroll_offset.0 + scroll.x, scroll_offset.1 + scroll.y)
+        } else {
+            scroll_offset
+        };
 
     let child_scroll_clip = my_scroll_op.as_ref().map(|s| s.area).or(scroll_clip);
 
@@ -1410,7 +1411,7 @@ pub fn collect_dirty_regions(
 }
 
 fn collect_overlay_rects(world: &World) -> Vec<Rect> {
-    use crate::feedback::{OverlayCursor, OverlayRotary};
+    use crate::input::feedback::{OverlayCursor, OverlayRotary};
     use crate::ui::ComputedRect;
     let mut rects = Vec::new();
     if let Some(storage) = world.storage::<OverlayCursor>() {
@@ -4166,7 +4167,7 @@ mod state_resolve_check {
 mod scroll_plan_check {
     extern crate std;
     use super::*;
-    use crate::event::scroll::components::{ScrollDelta, ScrollOffset};
+    use crate::input::event::scroll::components::{ScrollDelta, ScrollOffset};
     use crate::types::Dimension;
     use crate::ui::dirty::Dirty;
     use crate::ui::layout::LayoutStyle;
@@ -4603,7 +4604,7 @@ mod scroll_plan_check {
 
     #[test]
     fn overlay_over_scroll_emits_overlay_rect_pair_keeps_scroll_op() {
-        use crate::feedback::OverlayCursor;
+        use crate::input::feedback::OverlayCursor;
 
         let mut world = World::new();
         let root = spawn_widget(&mut world, None, px_style(128, 128));
@@ -4657,7 +4658,7 @@ mod scroll_plan_check {
 
     #[test]
     fn overlay_outside_scroll_container_keeps_scroll_op() {
-        use crate::feedback::OverlayCursor;
+        use crate::input::feedback::OverlayCursor;
 
         let mut world = World::new();
         let root = spawn_widget(&mut world, None, px_style(128, 128));

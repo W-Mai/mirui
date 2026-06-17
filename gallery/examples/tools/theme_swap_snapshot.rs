@@ -3,21 +3,21 @@
 
 extern crate alloc;
 
-use mirui::components::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
 use mirui::ecs::World;
-use mirui::event::GestureHandler;
-use mirui::event::gesture::GestureEvent;
-use mirui::layout::FlexDirection;
+use mirui::input::event::GestureHandler;
+use mirui::input::event::gesture::GestureEvent;
 use mirui::prelude::*;
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Viewport;
-use mirui::widget::Theme;
-use mirui::widget::builder::WidgetBuilder;
-use mirui::widget::render_system;
-use mirui::widget::theme;
+use mirui::ui::Theme;
+use mirui::ui::builder::WidgetBuilder;
+use mirui::ui::layout::FlexDirection;
+use mirui::ui::render_system;
+use mirui::ui::theme;
+use mirui::ui::widgets::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
 
 use std::env;
 use std::fs::File;

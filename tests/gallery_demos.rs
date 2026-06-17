@@ -1,8 +1,8 @@
 #![cfg(feature = "gallery")]
 
 use mirui::ecs::World;
-use mirui::widget::Children;
-use mirui::widget::builder::WidgetBuilder;
+use mirui::ui::Children;
+use mirui::ui::builder::WidgetBuilder;
 
 #[test]
 fn all_demos_build_widgets_smoke() {
@@ -70,7 +70,7 @@ fn assert_demo_built(world: &World, parent: mirui::ecs::Entity) {
 
 #[test]
 fn custom_view_demo_smoke() {
-    use mirui::widget::view::ViewRegistry;
+    use mirui::ui::view::ViewRegistry;
     let mut world = World::new();
     let mut reg = ViewRegistry::with_builtins();
     reg.insert(mirui::gallery::demos::custom_view::diamond_view());
@@ -156,7 +156,7 @@ fn subpixel_demo_smoke() {
 
 #[test]
 fn shapes_demo_smoke() {
-    use mirui::widget::view::ViewRegistry;
+    use mirui::ui::view::ViewRegistry;
     let mut world = World::new();
     let mut reg = ViewRegistry::with_builtins();
     reg.insert(mirui::gallery::demos::shapes::shapes_view());
@@ -168,7 +168,7 @@ fn shapes_demo_smoke() {
 
 #[test]
 fn butterfly_demo_smoke() {
-    use mirui::widget::view::ViewRegistry;
+    use mirui::ui::view::ViewRegistry;
     let mut world = World::new();
     let mut reg = ViewRegistry::with_builtins();
     reg.insert(mirui::gallery::demos::butterfly::butterfly_view());

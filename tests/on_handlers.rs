@@ -1,15 +1,15 @@
 #[cfg(test)]
 mod tests {
-    use mirui::components::Button;
     use mirui::ecs::{Entity, World};
-    use mirui::event::GestureHandler;
-    use mirui::event::bubble_dispatch_at;
-    use mirui::event::gesture::GestureEvent;
-    use mirui::event::multi_tap::MultiTapTracker;
+    use mirui::input::event::GestureHandler;
+    use mirui::input::event::bubble_dispatch_at;
+    use mirui::input::event::gesture::GestureEvent;
+    use mirui::input::event::multi_tap::MultiTapTracker;
     use mirui::types::{Color, Fixed};
     use mirui::ui;
-    use mirui::widget::IdMap;
-    use mirui::widget::builder::WidgetBuilder;
+    use mirui::ui::IdMap;
+    use mirui::ui::builder::WidgetBuilder;
+    use mirui::ui::widgets::Button;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicI64, Ordering};
 

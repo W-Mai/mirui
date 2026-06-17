@@ -10,16 +10,16 @@ use mirui::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use mirui::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::app::{App, RendererFactory};
-use mirui::components::Image;
-use mirui::components::assets::*;
-use mirui::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::render::canvas::Canvas;
 use mirui::render::path::Path;
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::Texture;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension, Fixed, Point, Rect, Viewport};
+use mirui::ui::widgets::Image;
+use mirui::ui::widgets::assets::*;
 use mirui_macros::{compose_backend, ui};
 
 const W: u16 = 480;
@@ -139,7 +139,7 @@ fn drift_system(world: &mut World) {
                 Fixed::from_f32((d.t * d.speed * 0.7).cos()) * d.amplitude * Fixed::from_f32(0.5);
             (d.start_x + ox, d.start_y + oy)
         };
-        mirui::widget::set_position(world, e, new_x, new_y);
+        mirui::ui::set_position(world, e, new_x, new_y);
     }
 }
 
@@ -225,7 +225,7 @@ fn main() {
     // render cost every 60 frames.
     app.add_plugin(StdInstantClockPlugin::default())
         .add_plugin(FpsSummaryPlugin::default())
-        .add_plugin(mirui::plugins::ImageResourcesPlugin::default());
+        .add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
 
     app.run();
 

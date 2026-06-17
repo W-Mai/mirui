@@ -1,17 +1,17 @@
 extern crate alloc;
 
 #[cfg(feature = "std")]
+use crate::app::plugins::StdInstantClockPlugin;
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, MonoClock, World};
-#[cfg(feature = "std")]
-use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
+use crate::ui;
 use crate::ui::root_viewport;
 use crate::ui::widgets::Image;
 use crate::ui::widgets::assets::*;
-use crate::widget;
 use alloc::vec::Vec;
 
 pub struct Velocity {
@@ -252,7 +252,7 @@ pub fn sync_layout_system(world: &mut World) {
             .get::<PhysicsBody>(e)
             .map(|b| (b.x - half_w, b.y - half_h))
             .unwrap_or((Fixed::ZERO, Fixed::ZERO));
-        widget::set_position(world, e, bx, by);
+        ui::set_position(world, e, bx, by);
     }
 }
 
@@ -362,7 +362,7 @@ where
 {
     let info = app.backend.display_info();
     app.add_plugin(StdInstantClockPlugin);
-    app.add_plugin(crate::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
     app.add_system(physics_tick_system::system());
     app.add_system(kick_system::system());
     app.add_system(sync_layout_system::system());

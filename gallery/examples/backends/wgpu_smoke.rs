@@ -3,18 +3,18 @@
 //! widget tree, exits when the window is closed. Visual check —
 //! header / row / footer must show up, not just a blank window.
 
-use mirui::components::Image;
-use mirui::components::assets::IMG_THUMBS_UP;
 use mirui::prelude::*;
 use mirui::render::wgpu::WgpuRendererFactory;
 use mirui::surface::wgpu_surface::WgpuSurface;
+use mirui::ui::widgets::Image;
+use mirui::ui::widgets::assets::IMG_THUMBS_UP;
 
 fn main() {
     let backend = WgpuSurface::new("mirui wgpu smoke", 480, 320);
     let factory = WgpuRendererFactory::new();
     let mut app = App::with_factory(backend, factory);
     app.with_default_widgets().with_default_systems();
-    app.add_plugin(mirui::plugins::ImageResourcesPlugin::default());
+    app.add_plugin(mirui::app::plugins::ImageResourcesPlugin::default());
 
     let root = WidgetBuilder::new(&mut app.world)
         .bg_color(Color::rgb(30, 30, 46))

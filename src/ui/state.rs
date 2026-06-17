@@ -1,5 +1,5 @@
 use crate::ecs::{Entity, World};
-use crate::event::hit_test::hit_test;
+use crate::input::event::hit_test::hit_test;
 use crate::surface::DisplayInfo;
 use crate::types::Fixed;
 use crate::ui::WidgetRoot;
@@ -23,7 +23,7 @@ struct PressSnapshot(PointerSnapshot);
 
 fn cursor_snapshot(world: &World) -> PointerSnapshot {
     let cursor = world
-        .resource::<crate::event::PointerCursor>()
+        .resource::<crate::input::event::PointerCursor>()
         .copied()
         .unwrap_or_default();
     PointerSnapshot {
@@ -219,7 +219,7 @@ mod tests {
 mod hover_press_e2e {
     extern crate std;
     use super::*;
-    use crate::event::PointerCursor;
+    use crate::input::event::PointerCursor;
     use crate::types::{Dimension, Fixed};
     use crate::ui::Style;
     use crate::ui::Widget;

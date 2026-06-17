@@ -1,5 +1,5 @@
 use crate::ecs::{Entity, World};
-use crate::event::scroll::ScrollOffset;
+use crate::input::event::scroll::ScrollOffset;
 use crate::types::Fixed;
 use crate::ui::ComputedRect;
 use crate::ui::dirty::Dirty;

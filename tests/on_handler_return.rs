@@ -1,14 +1,14 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::{Entity, World};
-    use mirui::event::GestureHandler;
-    use mirui::event::bubble_dispatch_at;
-    use mirui::event::gesture::GestureEvent;
-    use mirui::event::multi_tap::MultiTapTracker;
+    use mirui::input::event::GestureHandler;
+    use mirui::input::event::bubble_dispatch_at;
+    use mirui::input::event::gesture::GestureEvent;
+    use mirui::input::event::multi_tap::MultiTapTracker;
     use mirui::types::Fixed;
     use mirui::ui;
-    use mirui::widget::IdMap;
-    use mirui::widget::builder::WidgetBuilder;
+    use mirui::ui::IdMap;
+    use mirui::ui::builder::WidgetBuilder;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -136,7 +136,7 @@ mod tests {
 
             View () on Tap {
                 CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
-                ::mirui::event::BubbleControl::Prevent
+                ::mirui::input::event::BubbleControl::Prevent
             }
         };
 
@@ -164,7 +164,7 @@ mod tests {
 
             View () on Tap {
                 CHILD_FIRES.fetch_add(1, Ordering::SeqCst);
-                ::mirui::event::BubbleControl::Allow
+                ::mirui::input::event::BubbleControl::Allow
             }
         };
 

@@ -197,13 +197,13 @@ fn emit_business_handler(
             #pattern => {
                 #bindings
                 #[allow(unused_mut, unused_variables)]
-                let mut ctx = ::mirui::event::HandlerCtx {
+                let mut ctx = ::mirui::input::event::HandlerCtx {
                     world: __world,
                     entity: __entity,
                     event: __event,
                 };
                 let __consumed: bool =
-                    ::mirui::event::HandlerReturn::into_consumed({ #body });
+                    ::mirui::input::event::HandlerReturn::into_consumed({ #body });
                 __consumed
             },
         });
@@ -222,7 +222,7 @@ fn emit_business_handler(
         (#world).insert(
             #widget_var,
             #handler_path {
-                on_event: ::mirui::event::BusinessCallback::Closure(::mirui::__Rc::new(
+                on_event: ::mirui::input::event::BusinessCallback::Closure(::mirui::__Rc::new(
                     move |__world: &mut ::mirui::ecs::World,
                           __entity: ::mirui::ecs::Entity,
                           __event: &#event_ty|
@@ -255,18 +255,18 @@ fn emit_event_arm(event_name: &str, group: &[&OnCmd]) -> proc_macro2::TokenStrea
     let used_idents: Vec<&syn::Ident> = field_idents.iter().collect();
 
     quote! {
-        ::mirui::event::gesture::GestureEvent::#event_ident { #(#field_idents),* } => {
+        ::mirui::input::event::gesture::GestureEvent::#event_ident { #(#field_idents),* } => {
             let _ = ( #( #used_idents ),* );
             #(
                 {
                     #[allow(unused_mut, unused_variables)]
-                    let mut ctx = ::mirui::event::HandlerCtx {
+                    let mut ctx = ::mirui::input::event::HandlerCtx {
                         world: __world,
                         entity: __entity,
                         event: __event,
                     };
                     let __consumed: bool =
-                        ::mirui::event::HandlerReturn::into_consumed({ #bodies });
+                        ::mirui::input::event::HandlerReturn::into_consumed({ #bodies });
                     if __consumed { return true; }
                 }
             )*
@@ -284,13 +284,13 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
             default_arm = Some(quote! {
                 _ => {
                     #[allow(unused_mut, unused_variables)]
-                    let mut ctx = ::mirui::event::HandlerCtx {
+                    let mut ctx = ::mirui::input::event::HandlerCtx {
                         world: __world,
                         entity: __entity,
                         event: __event,
                     };
                     let __consumed: bool =
-                        ::mirui::event::HandlerReturn::into_consumed({ #body });
+                        ::mirui::input::event::HandlerReturn::into_consumed({ #body });
                     return __consumed;
                 }
             });
@@ -299,13 +299,13 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
             count_arms.extend(quote! {
                 __c if __c == (#arg as u8) => {
                     #[allow(unused_mut, unused_variables)]
-                    let mut ctx = ::mirui::event::HandlerCtx {
+                    let mut ctx = ::mirui::input::event::HandlerCtx {
                         world: __world,
                         entity: __entity,
                         event: __event,
                     };
                     let __consumed: bool =
-                        ::mirui::event::HandlerReturn::into_consumed({ #body });
+                        ::mirui::input::event::HandlerReturn::into_consumed({ #body });
                     return __consumed;
                 },
             });
@@ -314,9 +314,9 @@ fn emit_tap_with_count(group: &[&OnCmd], field_idents: &[syn::Ident]) -> proc_ma
     let default = default_arm.unwrap_or_else(|| quote! { _ => return false });
 
     quote! {
-        ::mirui::event::gesture::GestureEvent::Tap { #(#field_idents),* } => {
+        ::mirui::input::event::gesture::GestureEvent::Tap { #(#field_idents),* } => {
             let _ = ( #(#field_idents),* );
-            let __count = ::mirui::event::multi_tap::current_count(__world, __entity);
+            let __count = ::mirui::input::event::multi_tap::current_count(__world, __entity);
             match __count {
                 #count_arms
                 #default
@@ -791,11 +791,11 @@ impl MiruiRune {
             tokens.extend(quote! {
                 (#world).insert(
                     #widget_var,
-                    ::mirui::event::GestureHandler {
-                        on_gesture: ::mirui::event::GestureCallback::Closure(::mirui::__Rc::new(
+                    ::mirui::input::event::GestureHandler {
+                        on_gesture: ::mirui::input::event::GestureCallback::Closure(::mirui::__Rc::new(
                             move |__world: &mut ::mirui::ecs::World,
                                   __entity: ::mirui::ecs::Entity,
-                                  __event: &::mirui::event::gesture::GestureEvent|
+                                  __event: &::mirui::input::event::gesture::GestureEvent|
                                   -> bool {
                                 match __event {
                                     #arms
@@ -860,14 +860,14 @@ impl MiruiRune {
         let layout_call = if layout_fields.is_empty() {
             quote! {}
         } else {
-            quote! { .layout(mirui::layout::LayoutStyle { #(#layout_fields,)* ..Default::default() }) }
+            quote! { .layout(mirui::ui::layout::LayoutStyle { #(#layout_fields,)* ..Default::default() }) }
         };
 
         let child_calls: Vec<proc_macro2::TokenStream> =
             child_vars.iter().map(|c| quote! { .child(#c) }).collect();
 
         tokens.extend(quote! {
-            let #var = mirui::widget::builder::WidgetBuilder::new(#world)
+            let #var = mirui::ui::builder::WidgetBuilder::new(#world)
                 #(#attrs)*
                 #layout_call
                 #(#child_calls)*
@@ -911,7 +911,7 @@ impl MiruiRune {
             }
 
             tokens.extend(quote! {
-                mirui::event::widget_input::attach_handlers_for(#world, #var);
+                mirui::input::event::widget_input::attach_handlers_for(#world, #var);
             });
         }
 
@@ -923,9 +923,9 @@ impl MiruiRune {
                     let setter = &b.setter;
                     let expr = &b.expr;
                     quote! {
-                        mirui::state::effect_with_widget(#var, move || {
+                        mirui::core::reactive::effect_with_widget(#var, move || {
                             let __v = #expr;
-                            mirui::widget::reactive_attr::#setter(#var, __v);
+                            mirui::ui::reactive_attr::#setter(#var, __v);
                         });
                     }
                 })
@@ -933,7 +933,7 @@ impl MiruiRune {
             // with_world_scope makes the effects' first run apply the initial
             // value now, at construction (outside the per-frame flush).
             tokens.extend(quote! {
-                mirui::state::with_world_scope(#world, || { #(#injections)* });
+                mirui::core::reactive::with_world_scope(#world, || { #(#injections)* });
             });
         }
 
@@ -956,8 +956,8 @@ impl MiruiRune {
 
         for id_lit in &cmd.id_registrations {
             tokens.extend(quote! {
-                (#world).insert(#var, mirui::widget::NamedId(#id_lit));
-                if let Some(__map) = (#world).resource_mut::<mirui::widget::IdMap>() {
+                (#world).insert(#var, mirui::ui::NamedId(#id_lit));
+                if let Some(__map) = (#world).resource_mut::<mirui::ui::IdMap>() {
                     __map.insert(#id_lit, #var);
                 }
             });
@@ -1001,24 +1001,24 @@ impl MiruiRune {
                     ::core::option::Option::<mirui::ecs::Entity>::None,
                 ));
                 let __parent_e = #parent_var;
-                mirui::state::with_world_scope(#world, || {
-                    mirui::state::effect_with_widget(__parent_e, move || {
+                mirui::core::reactive::with_world_scope(#world, || {
+                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __sel = #read;
-                        mirui::state::with_world(|__w| {
+                        mirui::core::reactive::with_world(|__w| {
                             let __old = __mounted.take();
                             let __idx = __old.and_then(|o| {
-                                __w.get::<mirui::widget::Children>(__parent_e)
+                                __w.get::<mirui::ui::Children>(__parent_e)
                                     .and_then(|c| c.0.iter().position(|&e| e == o))
                             });
                             if let Some(__o) = __old {
-                                mirui::widget::despawn_subtree(__w, __o);
+                                mirui::ui::despawn_subtree(__w, __o);
                             }
                             let __root: ::core::option::Option<mirui::ecs::Entity> = match __sel {
                                 #(#select_arms)*
                             };
                             if let Some(__r) = __root {
                                 if let Some(children) =
-                                    __w.get_mut::<mirui::widget::Children>(__parent_e)
+                                    __w.get_mut::<mirui::ui::Children>(__parent_e)
                                 {
                                     let __pos = __idx.unwrap_or(children.0.len()).min(children.0.len());
                                     children.0.insert(__pos, __r);
@@ -1047,7 +1047,7 @@ impl MiruiRune {
                     let child_var = &w.var;
                     body_tokens.extend(quote! {
                         {
-                            use mirui::widget::{Children, Parent};
+                            use mirui::ui::{Children, Parent};
                             (#world).insert(#child_var, Parent(#parent_var));
                             if let Some(children) = (#world).get_mut::<Children>(#parent_var) {
                                 children.0.push(#child_var);
@@ -1085,7 +1085,7 @@ impl MiruiRune {
                 let child_var = &w.var;
                 body_tokens.extend(quote! {
                     {
-                        use mirui::widget::{Children, Parent};
+                        use mirui::ui::{Children, Parent};
                         (#world).insert(#child_var, Parent(#niche_var_ts));
                         if let Some(children) = (#world).get_mut::<Children>(#niche_var_ts) {
                             children.0.push(#child_var);
@@ -1097,7 +1097,7 @@ impl MiruiRune {
 
         let widget_label = quote! { stringify!(#parent_var) };
         quote! {
-            let #niche_var = match (#world).get::<mirui::widget::NicheMap>(#parent_var) {
+            let #niche_var = match (#world).get::<mirui::ui::NicheMap>(#parent_var) {
                 Some(map) => match map.get(#niche_name) {
                     Some(e) => e,
                     None => panic!(
@@ -1142,7 +1142,7 @@ impl MiruiRune {
                 let child_var = &w.var;
                 body_tokens.extend(quote! {
                     {
-                        use mirui::widget::{Children, Parent};
+                        use mirui::ui::{Children, Parent};
                         (#world).insert(#child_var, Parent(#parent_var));
                         if let Some(children) = (#world).get_mut::<Children>(#parent_var) {
                             children.0.push(#child_var);
@@ -1183,7 +1183,7 @@ impl MiruiRune {
                 let child_var = &w.var;
                 body_tokens.extend(quote! {
                     {
-                        use mirui::widget::{Children, Parent};
+                        use mirui::ui::{Children, Parent};
                         (#world).insert(#child_var, Parent(#parent_var));
                         if let Some(children) = (#world).get_mut::<Children>(#parent_var) {
                             children.0.push(#child_var);
@@ -1235,13 +1235,13 @@ impl MiruiRune {
                 let cv = &cw.var;
                 if root.is_none() {
                     stmts.extend(quote! {
-                        (#w).insert(#cv, mirui::widget::Parent(#p));
+                        (#w).insert(#cv, mirui::ui::Parent(#p));
                     });
                     root = Some(quote! { #cv });
                 } else {
                     stmts.extend(quote! {
                         {
-                            use mirui::widget::{Children, Parent};
+                            use mirui::ui::{Children, Parent};
                             (#w).insert(#cv, Parent(#p));
                             if let Some(children) = (#w).get_mut::<Children>(#p) {
                                 children.0.push(#cv);
@@ -1309,21 +1309,21 @@ impl MiruiRune {
                 ));
                 let __parent_e = #parent_var;
                 #(#let_builders)*
-                mirui::state::with_world_scope(#world, || {
-                    mirui::state::effect_with_widget(__parent_e, move || {
-                        mirui::state::with_world(|__w| {
+                mirui::core::reactive::with_world_scope(#world, || {
+                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
+                        mirui::core::reactive::with_world(|__w| {
                             let __old = __mounted.take();
                             let __idx = __old.and_then(|o| {
-                                __w.get::<mirui::widget::Children>(__parent_e)
+                                __w.get::<mirui::ui::Children>(__parent_e)
                                     .and_then(|c| c.0.iter().position(|&e| e == o))
                             });
                             if let Some(__o) = __old {
-                                mirui::widget::despawn_subtree(__w, __o);
+                                mirui::ui::despawn_subtree(__w, __o);
                             }
                             let __root: ::core::option::Option<mirui::ecs::Entity> = #cascade;
                             if let Some(__r) = __root {
                                 if let Some(children) =
-                                    __w.get_mut::<mirui::widget::Children>(__parent_e)
+                                    __w.get_mut::<mirui::ui::Children>(__parent_e)
                                 {
                                     let __pos = __idx.unwrap_or(children.0.len()).min(children.0.len());
                                     children.0.insert(__pos, __r);
@@ -1364,25 +1364,25 @@ impl MiruiRune {
                     mirui::__Vec::<mirui::ecs::Entity>::new(),
                 ));
                 let __parent_e = #parent_var;
-                mirui::state::with_world_scope(#world, || {
-                    mirui::state::effect_with_widget(__parent_e, move || {
+                mirui::core::reactive::with_world_scope(#world, || {
+                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __items: mirui::__Vec<_> = (#iterable).into_iter().collect();
-                        mirui::state::with_world(|__w| {
+                        mirui::core::reactive::with_world(|__w| {
                             let __n_new = __items.len();
                             let __n_old = __rows.borrow().len();
                             if __n_new < __n_old {
                                 for __e in __rows.borrow_mut().drain(__n_new..) {
                                     let __pos = __w
-                                        .get::<mirui::widget::Children>(__parent_e)
+                                        .get::<mirui::ui::Children>(__parent_e)
                                         .and_then(|c| c.0.iter().position(|&x| x == __e));
                                     if let Some(__p) = __pos {
                                         if let Some(children) =
-                                            __w.get_mut::<mirui::widget::Children>(__parent_e)
+                                            __w.get_mut::<mirui::ui::Children>(__parent_e)
                                         {
                                             children.0.remove(__p);
                                         }
                                     }
-                                    mirui::widget::despawn_subtree(__w, __e);
+                                    mirui::ui::despawn_subtree(__w, __e);
                                 }
                             }
                             for #variable in __items.into_iter().skip(__n_old) {
@@ -1391,7 +1391,7 @@ impl MiruiRune {
                                 })(__w, __parent_e);
                                 if let Some(__r) = __r {
                                     if let Some(children) =
-                                        __w.get_mut::<mirui::widget::Children>(__parent_e)
+                                        __w.get_mut::<mirui::ui::Children>(__parent_e)
                                     {
                                         children.0.push(__r);
                                     }
@@ -1419,10 +1419,10 @@ impl MiruiRune {
             {
                 let __rows = mirui::__Rc::new(mirui::__RefCell::new(mirui::__Vec::new()));
                 let __parent_e = #parent_var;
-                mirui::state::with_world_scope(#world, || {
-                    mirui::state::effect_with_widget(__parent_e, move || {
+                mirui::core::reactive::with_world_scope(#world, || {
+                    mirui::core::reactive::effect_with_widget(__parent_e, move || {
                         let __items: mirui::__Vec<_> = (#iterable).into_iter().collect();
-                        mirui::state::with_world(|__w| {
+                        mirui::core::reactive::with_world(|__w| {
                             let mut __old: mirui::__Vec<_> = __rows.borrow_mut().drain(..).collect();
                             let mut __new = mirui::__Vec::new();
                             let mut __kept: mirui::__Vec<mirui::ecs::Entity> = mirui::__Vec::new();
@@ -1443,11 +1443,11 @@ impl MiruiRune {
                                 }
                             }
                             for (_, __e) in __old.drain(..) {
-                                mirui::widget::despawn_subtree(__w, __e);
+                                mirui::ui::despawn_subtree(__w, __e);
                             }
                             // retain-then-append reorders the rows to match the new
                             // key order while leaving any static siblings in place.
-                            if let Some(children) = __w.get_mut::<mirui::widget::Children>(__parent_e) {
+                            if let Some(children) = __w.get_mut::<mirui::ui::Children>(__parent_e) {
                                 children.0.retain(|e| !__kept.contains(e));
                                 for __e in &__kept {
                                     children.0.push(*__e);
@@ -1480,14 +1480,15 @@ impl DsRune for MiruiRune {
             let widget_name_str = name.to_string();
             match widget_name_str.as_str() {
                 "Row" => {
-                    parsed
-                        .layout_fields
-                        .insert(0, quote! { direction: mirui::layout::FlexDirection::Row });
+                    parsed.layout_fields.insert(
+                        0,
+                        quote! { direction: mirui::ui::layout::FlexDirection::Row },
+                    );
                 }
                 "Column" => {
                     parsed.layout_fields.insert(
                         0,
-                        quote! { direction: mirui::layout::FlexDirection::Column },
+                        quote! { direction: mirui::ui::layout::FlexDirection::Column },
                     );
                 }
                 _ => {}
@@ -1671,7 +1672,7 @@ impl DsRune for MiruiRune {
                 last_var = Some(var.clone());
                 tokens.extend(quote! {
                     {
-                        use mirui::widget::{Children, Parent};
+                        use mirui::ui::{Children, Parent};
                         (#world).insert(#var, Parent(#parent_entity));
                         if let Some(children) = (#world).get_mut::<Children>(#parent_entity) {
                             children.0.push(#var);
@@ -1828,13 +1829,13 @@ mod timer_impl {
         let closure = &parsed.closure;
 
         let ctor = match &parsed.schedule {
-            Schedule::After(p) => quote! { mirui::timer::Timer::after(#p, __cb) },
-            Schedule::Every(p) => quote! { mirui::timer::Timer::every(#p, __cb) },
+            Schedule::After(p) => quote! { mirui::core::timer::Timer::after(#p, __cb) },
+            Schedule::Every(p) => quote! { mirui::core::timer::Timer::every(#p, __cb) },
             Schedule::Repeat { times, period } => {
-                quote! { mirui::timer::Timer::repeat(#times, #period, __cb) }
+                quote! { mirui::core::timer::Timer::repeat(#times, #period, __cb) }
             }
             Schedule::Until { deadline, period } => {
-                quote! { mirui::timer::Timer::until(#deadline, #period, __cb) }
+                quote! { mirui::core::timer::Timer::until(#deadline, #period, __cb) }
             }
         };
 
@@ -1856,7 +1857,7 @@ mod timer_impl {
 ///
 /// ```rust,ignore
 /// animate!(AnimateX, |world, entity, value| {
-///     mirui::widget::set_position(world, entity, value, Fixed::from_int(2));
+///     mirui::ui::set_position(world, entity, value, Fixed::from_int(2));
 /// });
 ///
 /// // Generated:

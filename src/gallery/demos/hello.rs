@@ -1,8 +1,8 @@
 #[cfg(feature = "std")]
+use crate::app::plugins::input_feedback::InputFeedbackPlugin;
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
-#[cfg(feature = "std")]
-use crate::plugins::input_feedback::InputFeedbackPlugin;
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;

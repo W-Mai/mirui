@@ -7,7 +7,7 @@
 //! line up correctly when an `App` is consumed into a `Runner`.
 
 use mirui::app::{App, Runner};
-use mirui::draw::texture::ColorFormat;
+use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Rect;
 

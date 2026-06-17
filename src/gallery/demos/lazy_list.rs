@@ -1,11 +1,11 @@
 extern crate alloc;
 
 #[cfg(feature = "std")]
+use crate::app::plugins::StdInstantClockPlugin;
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
-use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-#[cfg(feature = "std")]
-use crate::plugins::StdInstantClockPlugin;
+use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;

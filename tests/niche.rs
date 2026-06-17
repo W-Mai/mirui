@@ -2,12 +2,12 @@
 mod tests {
     use mirui::ecs::{Entity, World};
     use mirui::ui;
-    use mirui::widget::IdMap;
-    use mirui::widget::NicheMap;
-    use mirui::widget::Parent;
-    use mirui::widget::View;
-    use mirui::widget::ViewRegistry;
-    use mirui::widget::builder::WidgetBuilder;
+    use mirui::ui::IdMap;
+    use mirui::ui::NicheMap;
+    use mirui::ui::Parent;
+    use mirui::ui::View;
+    use mirui::ui::ViewRegistry;
+    use mirui::ui::builder::WidgetBuilder;
 
     #[derive(Default)]
     pub struct Card;
@@ -29,11 +29,11 @@ mod tests {
     }
 
     fn no_op_render(
-        _: &mut dyn mirui::draw::renderer::Renderer,
+        _: &mut dyn mirui::render::renderer::Renderer,
         _: &World,
         _: Entity,
         _: &mirui::types::Rect,
-        _: &mut mirui::widget::view::ViewCtx,
+        _: &mut mirui::ui::view::ViewCtx,
     ) {
     }
 
@@ -43,7 +43,7 @@ mod tests {
 
     #[test]
     fn niche_resolves_to_anchor() {
-        use mirui::components::Text;
+        use mirui::ui::widgets::Text;
 
         let mut world = World::new();
         world.insert_resource(IdMap::new());

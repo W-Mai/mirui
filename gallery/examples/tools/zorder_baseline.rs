@@ -6,7 +6,7 @@
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
 use mirui::types::{Color, Dimension};
-use mirui::widget::Theme;
+use mirui::ui::Theme;
 
 extern crate alloc;
 
@@ -61,7 +61,7 @@ fn main() {
         )
     };
 
-    if let Some(c) = app.world.get::<mirui::widget::Children>(root) {
+    if let Some(c) = app.world.get::<mirui::ui::Children>(root) {
         eprintln!(
             "children order = {:?} (purple={:?}, white={:?})",
             c.0, purple, white

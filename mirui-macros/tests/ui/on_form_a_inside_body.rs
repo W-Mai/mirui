@@ -1,7 +1,7 @@
 use mirui::ecs::World;
 use mirui::ui;
-use mirui::widget::IdMap;
-use mirui::widget::builder::WidgetBuilder;
+use mirui::ui::IdMap;
+use mirui::ui::builder::WidgetBuilder;
 
 fn main() {
     let mut world = World::new();

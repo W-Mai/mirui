@@ -9,7 +9,7 @@ use alloc::vec::Vec;
 use core::any::TypeId;
 
 use crate::ecs::{Entity, World};
-use crate::event::gesture::GestureEvent;
+use crate::input::event::gesture::GestureEvent;
 use crate::render::renderer::Renderer;
 use crate::types::{Point, Rect, Transform};
 use crate::ui::Style;

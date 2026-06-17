@@ -1,5 +1,5 @@
 use crate::ecs::{Entity, World};
-use crate::event::gesture::GestureEvent;
+use crate::input::event::gesture::GestureEvent;
 
 pub const MULTI_TAP_WINDOW_MS: u32 = 300;
 

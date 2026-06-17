@@ -39,8 +39,8 @@ pub fn attach_widget_input_handlers(world: &mut World, root: Entity) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::GestureHandler;
-    use crate::event::gesture::GestureEvent;
+    use crate::input::event::GestureHandler;
+    use crate::input::event::gesture::GestureEvent;
     use crate::types::{Fixed, Rect};
     use crate::ui::ComputedRect;
     use crate::ui::view::ViewRegistry;
@@ -97,8 +97,10 @@ mod tests {
 
         let h = world.get::<GestureHandler>(e).expect("user handler stays");
         let installed = match h.on_gesture {
-            crate::event::GestureCallback::Fn(f) => f as *const (),
-            crate::event::GestureCallback::Closure(_) => panic!("expected the user fn handler"),
+            crate::input::event::GestureCallback::Fn(f) => f as *const (),
+            crate::input::event::GestureCallback::Closure(_) => {
+                panic!("expected the user fn handler")
+            }
         };
         assert!(
             core::ptr::eq(installed, user_handler as *const ()),
@@ -109,7 +111,7 @@ mod tests {
 
     #[test]
     fn text_input_attach_installs_focus_and_key_handler() {
-        use crate::event::focus::{Focusable, KeyHandler};
+        use crate::input::event::focus::{Focusable, KeyHandler};
 
         let mut world = World::default();
         let mut reg = ViewRegistry::default();

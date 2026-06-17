@@ -10,20 +10,20 @@
 //! render_system::update_layout stops being reachable from `tests/`,
 //! this build breaks — that's the point.
 
-use mirui::components::slider::Slider;
-use mirui::components::switch::Switch;
-use mirui::components::tab_pages::{TabContent, tab_pages_system};
-use mirui::components::tabbar::TabBar;
 use mirui::ecs::{Entity, World};
-use mirui::event::gesture::{GestureEvent, GestureSystem};
-use mirui::event::input::InputEvent;
-use mirui::event::widget_input::attach_widget_input_handlers;
-use mirui::event::{bubble_dispatch, dispatch_input};
-use mirui::layout::{FlexDirection, LayoutStyle, Position};
+use mirui::input::event::gesture::{GestureEvent, GestureSystem};
+use mirui::input::event::input::InputEvent;
+use mirui::input::event::widget_input::attach_widget_input_handlers;
+use mirui::input::event::{bubble_dispatch, dispatch_input};
 use mirui::types::{Dimension, Fixed, Viewport};
-use mirui::widget::builder::WidgetBuilder;
-use mirui::widget::render_system;
-use mirui::widget::{Children, Parent};
+use mirui::ui::builder::WidgetBuilder;
+use mirui::ui::layout::{FlexDirection, LayoutStyle, Position};
+use mirui::ui::render_system;
+use mirui::ui::widgets::slider::Slider;
+use mirui::ui::widgets::switch::Switch;
+use mirui::ui::widgets::tab_pages::{TabContent, tab_pages_system};
+use mirui::ui::widgets::tabbar::TabBar;
+use mirui::ui::{Children, Parent};
 
 const W: u16 = 128;
 const H: u16 = 128;

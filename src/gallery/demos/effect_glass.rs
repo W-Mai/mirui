@@ -17,7 +17,7 @@ const GLASS_PERIOD_MS: u16 = 3000;
 
 //~focus-start
 mirui_macros::animate!(GlassX, |world, entity, value| {
-    mirui::widget::set_position(world, entity, value, Fixed::from_int(50));
+    mirui::ui::set_position(world, entity, value, Fixed::from_int(50));
 });
 
 mirui_macros::animate!(GaussRadius, |world, entity, value| {
@@ -160,7 +160,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::plugins::StdInstantClockPlugin;
+    use crate::app::plugins::StdInstantClockPlugin;
 
     app.add_plugin(StdInstantClockPlugin);
     app.add_system(mirui::ecs::System::new(

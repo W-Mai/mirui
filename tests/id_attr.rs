@@ -2,8 +2,8 @@
 mod tests {
     use mirui::ecs::World;
     use mirui::ui;
-    use mirui::widget::IdMap;
-    use mirui::widget::builder::WidgetBuilder;
+    use mirui::ui::IdMap;
+    use mirui::ui::builder::WidgetBuilder;
 
     #[test]
     fn id_attr_registers_in_idmap() {
@@ -27,7 +27,7 @@ mod tests {
 
     #[test]
     fn id_attr_attaches_named_id_marker() {
-        use mirui::widget::NamedId;
+        use mirui::ui::NamedId;
 
         let mut world = World::new();
         world.insert_resource(IdMap::new());
@@ -62,7 +62,7 @@ mod tests {
                 world: &mut world
             :)
 
-            container (direction: mirui::layout::FlexDirection::Row) {
+            container (direction: mirui::ui::layout::FlexDirection::Row) {
                 src (id: "anchor") {}
                 consumer () [LinkTo(id(anchor))] {}
             }
@@ -88,7 +88,7 @@ mod tests {
                 world: &mut world
             :)
 
-            container (direction: mirui::layout::FlexDirection::Row) {
+            container (direction: mirui::ui::layout::FlexDirection::Row) {
                 src (id: "anchor") {}
                 consumer () [LinkTo(id("anchor"))] {}
             }
@@ -118,7 +118,7 @@ mod tests {
                 world: &mut world
             :)
 
-            row (direction: mirui::layout::FlexDirection::Row) {
+            row (direction: mirui::ui::layout::FlexDirection::Row) {
                 first (id: "shared") {}
                 second (id: "shared") {}
             }

@@ -3,13 +3,13 @@ extern crate alloc;
 #[cfg(feature = "std")]
 use crate::anim::ease;
 #[cfg(feature = "std")]
+use crate::app::plugins::{FpsSummaryPlugin, InputFeedbackPlugin, StdInstantClockPlugin};
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
-use crate::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 #[cfg(feature = "std")]
-use crate::event::sim::{SimAction, SimTimeline, sim_timeline_system};
-#[cfg(feature = "std")]
-use crate::plugins::{FpsSummaryPlugin, InputFeedbackPlugin, StdInstantClockPlugin};
+use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;

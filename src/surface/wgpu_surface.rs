@@ -243,7 +243,7 @@ impl ApplicationHandler for WgpuHandler {
                     },
                 ..
             } => {
-                use crate::event::input::*;
+                use crate::input::event::input::*;
                 if state != ElementState::Pressed {
                     return;
                 }

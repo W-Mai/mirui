@@ -106,7 +106,7 @@ impl HasSize for CachedPipeline {
 
 /// Comfortably above `ShaderKind::COUNT × number-of-swapchain-formats`
 /// so eviction never triggers; the cache effectively becomes a
-/// `(key) -> pipeline` map with `mirui::cache` plumbing for stats.
+/// `(key) -> pipeline` map with `mirui::core::cache` plumbing for stats.
 const PIPELINE_CACHE_LIMIT: usize = 64;
 
 pub struct PipelineCache {

@@ -9,7 +9,7 @@ pub use system::{GestureEvents, GestureSystem};
 #[cfg(test)]
 mod tests {
     use crate::ecs::Entity;
-    use crate::event::input::InputEvent;
+    use crate::input::event::input::InputEvent;
     use crate::types::Fixed;
 
     use super::recognizer::GestureState;

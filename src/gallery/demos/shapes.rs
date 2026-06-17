@@ -3,10 +3,10 @@
 extern crate alloc;
 
 #[cfg(feature = "std")]
+use crate::app::plugins::StdInstantClockPlugin;
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, MonoClock, World};
-#[cfg(feature = "std")]
-use crate::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;

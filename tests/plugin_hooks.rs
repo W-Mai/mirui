@@ -4,9 +4,9 @@
 use std::cell::Cell;
 use std::rc::Rc;
 
+use mirui::app::plugin::Plugin;
 use mirui::app::{App, RendererFactory};
 use mirui::ecs::World;
-use mirui::plugin::Plugin;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::surface::{InputEvent, Surface};
 use mirui::types::Rect;

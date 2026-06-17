@@ -3,12 +3,12 @@ extern crate alloc;
 #[cfg(feature = "std")]
 use crate::anim::ease;
 #[cfg(feature = "std")]
+use crate::app::plugins::StdInstantClockPlugin;
+#[cfg(feature = "std")]
 use crate::app::{App, RendererFactory};
 use crate::ecs::{Entity, World};
 #[cfg(feature = "std")]
-use crate::event::sim::{SimAction, SimTimeline, sim_timeline_system};
-#[cfg(feature = "std")]
-use crate::plugins::StdInstantClockPlugin;
+use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::surface::Surface;
