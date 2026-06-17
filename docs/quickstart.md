@@ -62,7 +62,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-mirui = { version = "0.30", features = ["sdl"] }
+mirui = { version = "0.31", features = ["sdl"] }
 ```
 
 `src/main.rs`:
@@ -154,7 +154,7 @@ The piece that's universal across boards is the mirui side:
 ```rust
 let backend = FramebufSurface::with_format(
     W, H,
-    mirui::draw::texture::ColorFormat::RGB565Swapped,  // or RGB565
+    mirui::render::texture::ColorFormat::RGB565Swapped,  // or RGB565
     |bytes: &[u8], area: &Rect| {
         // Push `bytes` to your LCD over SPI for the window described by `area`.
     },
@@ -222,7 +222,7 @@ default = []
 std = ["mirui/std"]
 
 [dependencies]
-mirui = { version = "0.30", default-features = false, features = ["quad-aa"] }
+mirui = { version = "0.31", default-features = false, features = ["quad-aa"] }
 ```
 
 `app/src/lib.rs`:

@@ -2,13 +2,11 @@ extern crate alloc;
 
 use crate::anim::{BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
 #[cfg(feature = "std")]
-use crate::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
+use crate::app::plugins::StdInstantClockPlugin;
 use crate::ecs::{DeltaTimeMs, Entity, World};
-use crate::prelude::*;
 #[cfg(feature = "std")]
-use crate::surface::Surface;
+use crate::prelude::plugin::FpsSummaryPlugin;
+use crate::prelude::*;
 use crate::ui;
 
 mirui_macros::animate!(AnimateTweenY, |world, entity, value| {
@@ -211,7 +209,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

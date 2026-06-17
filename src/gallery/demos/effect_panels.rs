@@ -1,11 +1,6 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 use crate::types::Transform;
 #[cfg(feature = "std")]
 use crate::ui::Theme;
@@ -86,7 +81,6 @@ pub struct ColorFlash {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn animate_color_flash(world: &mut World) {
-    use crate::ui::Style;
     let mut entities = alloc::vec::Vec::new();
     world.query::<ColorFlash>().collect_into(&mut entities);
     for e in entities {
@@ -366,7 +360,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

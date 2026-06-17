@@ -1,13 +1,7 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::core::reactive::Signal;
-use crate::ecs::{Entity, World};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 
 const ROW_H: i32 = 28;
 
@@ -162,7 +156,6 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     fn row_count(world: &World, list: Entity) -> usize {
         world.get::<Children>(list).map(|c| c.0.len()).unwrap_or(0)

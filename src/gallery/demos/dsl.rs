@@ -1,9 +1,4 @@
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 
 fn header(world: &mut World, parent: Entity) -> Entity {
     //~focus-start
@@ -77,7 +72,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

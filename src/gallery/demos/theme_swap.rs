@@ -1,14 +1,8 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
-use crate::ui::Theme;
-use crate::ui::theme::{self, ColorToken};
 use crate::ui::widgets::{Button, Checkbox, ProgressBar, Slider, Switch, TabBar, Text, TextInput};
+use crate::ui::{Theme, theme};
 use alloc::vec::Vec;
 
 pub struct ThemeChoice(pub Theme);
@@ -185,7 +179,6 @@ where
 mod tests {
     use super::*;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;

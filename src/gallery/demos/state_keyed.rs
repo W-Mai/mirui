@@ -1,12 +1,6 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::core::reactive::Signal;
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 
 use alloc::vec::Vec;
 
@@ -119,7 +113,6 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     fn tap(world: &mut World, e: Entity) {
         GestureHandler::trigger(

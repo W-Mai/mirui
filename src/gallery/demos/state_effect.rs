@@ -1,12 +1,7 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
 use crate::core::reactive::{Effect, Signal};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     let value = Signal::new(0i32);
@@ -69,7 +64,6 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
     use crate::ui::widgets::text::Text;
 
     fn label_text(world: &World, label: Entity) -> alloc::string::String {

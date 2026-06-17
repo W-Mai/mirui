@@ -1,13 +1,7 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
-use crate::ui::widgets::assets::*;
-use crate::ui::widgets::{Button, Checkbox, Image, ProgressBar, Text};
+use crate::ui::widgets::{Button, Checkbox, Image, ProgressBar, Text, assets::*};
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     //~focus-start
@@ -120,7 +114,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

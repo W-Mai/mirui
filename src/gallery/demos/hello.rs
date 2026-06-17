@@ -1,11 +1,7 @@
 #[cfg(feature = "std")]
-use crate::app::plugins::input_feedback::InputFeedbackPlugin;
 #[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
+use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 use crate::ui::widgets::Text;
 
 /// Hello world card layout: a header card and a body card stacked
@@ -64,7 +60,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

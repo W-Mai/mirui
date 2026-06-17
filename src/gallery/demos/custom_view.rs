@@ -1,13 +1,8 @@
 #![allow(clippy::needless_update)]
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 use crate::ui::dirty::Dirty;
 use crate::ui::view::{View, ViewCtx};
 
@@ -146,7 +141,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
     use crate::ui::view::ViewRegistry;
 
     use crate::input::event::GestureHandler;

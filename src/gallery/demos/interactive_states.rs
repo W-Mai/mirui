@@ -1,9 +1,4 @@
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 use crate::ui::UserState;
 use crate::ui::dirty::Dirty;
 
@@ -102,7 +97,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;

@@ -1,13 +1,6 @@
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::core::reactive::Signal;
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
-use crate::types::Fixed;
 use crate::ui::IdMap;
 use crate::ui::widgets::{Slider, Text};
 

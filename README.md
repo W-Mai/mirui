@@ -31,7 +31,7 @@ on top of SDL2 (CPU or hardware-accelerated) on desktop.
 
 ```toml
 [dependencies]
-mirui = { version = "0.30", features = ["sdl"] }
+mirui = { version = "0.31", features = ["sdl"] }
 ```
 
 ```rust
@@ -145,7 +145,7 @@ with `app.with_theme(Theme::light())`, swap at runtime with
 `app.set_theme(...)`.
 
 ```rust
-use mirui::widget::theme::{Theme, ColorToken};
+use mirui::ui::theme::{Theme, ColorToken};
 
 let mut theme = Theme::dark();
 theme.set(ColorToken::Custom("brand_accent"), Color::rgb(255, 105, 180));
@@ -170,7 +170,7 @@ spring.target(Fixed::from_int(100));
 // driven each frame by the animation system
 ```
 
-`#[mirui::animate!(...)]` and `mirui::timer!(...)` macros declare
+`#[mirui::animate!(...)]` and `mirui::core::timer!(...)` macros declare
 motion components that the framework's animation / timer systems
 tick automatically.
 
@@ -191,7 +191,7 @@ Custom plugin:
 
 ```rust
 use mirui::prelude::*;
-use mirui::plugin::Plugin;
+use mirui::app::plugin::Plugin;
 
 /// MyHotkeysPlugin — Esc quits.
 ///
@@ -207,9 +207,9 @@ impl<B, F> Plugin<B, F> for MyHotkeysPlugin
 where B: mirui::surface::Surface, F: mirui::app::RendererFactory<B>
 {
     fn build(&mut self, _app: &mut App<B, F>) {}
-    fn on_event(&mut self, _world: &mut World, event: &mirui::event::input::InputEvent) -> bool {
-        matches!(event, mirui::event::input::InputEvent::Key {
-            code: mirui::event::input::KEY_ESCAPE, pressed: true,
+    fn on_event(&mut self, _world: &mut World, event: &mirui::input::event::input::InputEvent) -> bool {
+        matches!(event, mirui::input::event::input::InputEvent::Key {
+            code: mirui::input::event::input::KEY_ESCAPE, pressed: true,
         })
     }
 }
@@ -220,7 +220,7 @@ app.add_plugin(MyHotkeysPlugin);
 ## ScrollView
 
 ```rust
-use mirui::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
+use mirui::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 
 ui! {
     :(
@@ -321,10 +321,10 @@ threshold.
 Wrap any code with `mirui::trace_span!("name")` or annotate a fn
 with `#[mirui::trace_fn("name")]`. With a clock plugin installed
 (`StdInstantClockPlugin` on desktop, a custom one calling
-`mirui::perf::set_clock` on bare metal), every invocation records
-into a ring buffer that `mirui::perf::drain_events()` returns.
+`mirui::core::perf::set_clock` on bare metal), every invocation records
+into a ring buffer that `mirui::core::perf::drain_events()` returns.
 
-`mirui::perf::format_chrome_event` writes one event as Chrome
+`mirui::core::perf::format_chrome_event` writes one event as Chrome
 trace JSON for [Perfetto](https://ui.perfetto.dev). On `std`
 `PerfReportPlugin::with_perfetto_writer` dumps the stream to a
 file. On ESP, the bundled `mirui-examples/examples/esp32c3-animation`

@@ -2,13 +2,8 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
 use crate::core::reactive::{Computed, Signal};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 
 const ITEMS: &[&str] = &["buy milk", "write docs", "ship release"];
 

@@ -5,6 +5,53 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-06-18
+
+src/ collapses from 18 top-level directories to 9 — `types` / `ecs` /
+`anim` / `core` / `render` / `ui` / `input` / `surface` / `app`, plus
+the optional `gallery` feature. `mirui::prelude` becomes tiered so
+the common path stays short while less common surfaces have their
+own glob.
+
+### Changed
+
+- **Module layout** (breaking) — `draw` → `render` (with concrete
+  backends under `render::backends/` and `wgpu_render` losing its
+  redundant suffix); `widget` → `ui`, `components` → `ui::widgets`,
+  `layout` → `ui::layout`; `cache` / `resource` / `perf` / `timer` /
+  `state` → `core/`, with `state` renamed to `reactive` to match its
+  actual contents (Signal / Computed / Effect); `event` + `feedback`
+  → `input/`; `app.rs` + `plugin.rs` + `plugins/` → `app/`.
+  `surface/` is unchanged.
+- **`prelude` is tiered** — `prelude::*` keeps the application-code
+  surface and now also exports `Surface`, `RendererFactory`,
+  `MonoClock`, `Component`, `IntoBundle`, `Signal` / `Effect` /
+  `Computed`, and the `animate` / `system` / `timer` / `trace_fn` /
+  `trace_span` macros. Three sub-preludes carry the rarer surfaces:
+  - `prelude::backend` — `Surface`, `FramebufferAccess`,
+    `SwRendererFactory`, `ColorFormat`, `Texture`, `InputEvent`.
+  - `prelude::plugin` — `Plugin`, `FpsSummaryPlugin`,
+    `InputFeedbackPlugin`, `FrameStats` / `FrameTimings`, `System` /
+    `SystemScheduler` / `SystemSlot`, and the `perf` namespace.
+  - `prelude::draw` — `Canvas`, `DrawCommand`, `Renderer`, `Path`,
+    `View` / `ViewCtx` / `ViewRegistry`.
+- **`StdInstantClockPlugin` is reachable on its own path**
+  (`mirui::app::plugins::StdInstantClockPlugin`) and is deliberately
+  not in any prelude, so the prelude itself stays unconditional.
+- **Internal `core` module shadows `std::core`** — first-party code
+  refers to the standard library through `::core::cell::RefCell`
+  (with the leading `::`); `crate::core::*` is the local module path.
+- **`RendererFactory`** moves from `app::RendererFactory` to
+  `render::factory::RendererFactory`. `app::RendererFactory`
+  re-exports it.
+
+### Removed
+
+- `mirui::draw`, `mirui::widget`, `mirui::components`, `mirui::layout`,
+  `mirui::cache`, `mirui::resource`, `mirui::perf`, `mirui::timer`,
+  `mirui::state`, `mirui::event`, `mirui::feedback`, `mirui::plugin`,
+  `mirui::plugins` are gone. Use the new paths.
+
 ## [0.30.0] - 2026-06-17
 
 A token-based image resource system lands. `Image` widgets reference

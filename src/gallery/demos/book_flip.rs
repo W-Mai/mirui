@@ -1,11 +1,6 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 use crate::types::Transform3D;
 use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{TransformOrigin, WidgetTransform3D};
@@ -108,7 +103,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

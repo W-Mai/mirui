@@ -1,10 +1,5 @@
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     let colors = [
@@ -59,7 +54,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

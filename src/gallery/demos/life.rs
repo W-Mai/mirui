@@ -2,16 +2,10 @@ extern crate alloc;
 
 use alloc::vec::Vec;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 use crate::ui::dirty::Dirty;
-use crate::ui::theme::ColorToken;
 use crate::ui::view::{View, ViewCtx};
 
 const PX_PER_CELL: i32 = 1;
@@ -297,7 +291,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+    use crate::app::plugins::StdInstantClockPlugin;
+    use crate::prelude::plugin::FpsSummaryPlugin;
     let info = app.backend.display_info();
     app.with_widget(life_view())
         .add_plugin(StdInstantClockPlugin)

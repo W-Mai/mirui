@@ -3,22 +3,20 @@ extern crate alloc;
 #[cfg(feature = "std")]
 use crate::anim::ease;
 #[cfg(feature = "std")]
-use crate::app::plugins::{FpsSummaryPlugin, InputFeedbackPlugin, StdInstantClockPlugin};
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
+use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 #[cfg(feature = "std")]
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
-use crate::prelude::*;
 #[cfg(feature = "std")]
-use crate::surface::Surface;
+use crate::prelude::plugin::{FpsSummaryPlugin, InputFeedbackPlugin};
+use crate::prelude::*;
 #[cfg(feature = "std")]
 use crate::types::DimPoint;
 use crate::ui::dirty::Dirty;
-use crate::ui::theme::{self, ColorToken};
-use crate::ui::widgets::{LazyList, LazyListBinder, LazyListPool};
-use crate::ui::widgets::{ProgressBar, Slider, Switch, TabBar, TabContent, Text};
+use crate::ui::theme;
+use crate::ui::widgets::{
+    LazyList, LazyListBinder, LazyListPool, ProgressBar, Slider, Switch, TabBar, TabContent, Text,
+};
 use crate::ui::{Children, OffscreenRender, Theme};
 use alloc::format;
 #[cfg(feature = "std")]
@@ -415,7 +413,6 @@ where
 mod tests {
     use super::*;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

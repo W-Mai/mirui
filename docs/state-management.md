@@ -5,7 +5,7 @@ that drives widget attributes and structure declaratively from the `ui!`
 macro. Change a signal and the widgets that read it update; no manual
 diffing, no observer wiring.
 
-This guide is the long-form companion to the `mirui::state` API docs and
+This guide is the long-form companion to the `mirui::core::reactive` API docs and
 the State demos in the gallery.
 
 ## Contents
@@ -19,10 +19,10 @@ the State demos in the gallery.
 
 ## Primitives
 
-Three types live in `mirui::state`:
+Three types live in `mirui::core::reactive`:
 
 ```rust
-use mirui::state::{Signal, Computed, Effect};
+use mirui::core::reactive::{Signal, Computed, Effect};
 
 let count = Signal::new(0i32);          // holds a value, tracks readers
 count.set(1);                           // replace

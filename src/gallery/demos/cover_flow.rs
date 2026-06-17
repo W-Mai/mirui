@@ -1,14 +1,11 @@
 extern crate alloc;
 
 #[cfg(feature = "std")]
-use crate::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
+use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-use crate::prelude::*;
 #[cfg(feature = "std")]
-use crate::surface::Surface;
+use crate::prelude::plugin::FpsSummaryPlugin;
+use crate::prelude::*;
 use crate::types::{Dimension, Transform3D};
 use crate::ui;
 use crate::ui::dirty::Dirty;
@@ -236,7 +233,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {
@@ -255,7 +251,6 @@ mod tests {
     #[test]
     fn layout_system_tracks_live_viewport() {
         use crate::types::Viewport;
-        use crate::ui::Style;
         use crate::ui::render_system::update_layout;
 
         let mut app = crate::app::App::headless(640, 360);

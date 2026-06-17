@@ -1,12 +1,6 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::core::reactive::Signal;
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 use crate::ui::widgets::ProgressBar;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
@@ -139,7 +133,6 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn reactive_if_else_swaps_branch() {

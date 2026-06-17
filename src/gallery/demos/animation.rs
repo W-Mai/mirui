@@ -2,13 +2,10 @@ extern crate alloc;
 
 use crate::anim::{PlayMode, Tween, ease};
 #[cfg(feature = "std")]
-use crate::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
+use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
-use crate::ecs::{Entity, World};
+use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 use crate::ui;
 
 mirui_macros::animate!(AnimateX, |world, entity, value| {
@@ -98,7 +95,6 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::builder::WidgetBuilder;
 
     #[test]
     fn build_widgets_smoke() {

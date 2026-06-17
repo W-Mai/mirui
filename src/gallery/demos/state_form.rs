@@ -1,12 +1,7 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
-use crate::app::{App, RendererFactory};
 use crate::core::reactive::{Computed, Signal};
-use crate::ecs::{Entity, World};
 use crate::prelude::*;
-#[cfg(feature = "std")]
-use crate::surface::Surface;
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     let name_filled = Signal::new(false);
@@ -92,8 +87,6 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
-    use crate::ui::Style;
-    use crate::ui::builder::WidgetBuilder;
 
     fn bg(world: &World, e: Entity) -> Option<crate::ui::theme::ThemedColor> {
         world.get::<Style>(e).and_then(|s| s.bg_color)

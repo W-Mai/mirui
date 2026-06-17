@@ -8,7 +8,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! mirui = { version = "0.30", features = ["sdl"] }
+//! mirui = { version = "0.31", features = ["sdl"] }
 //! ```
 //!
 //! The snippet below builds against mirui's default features and is
@@ -62,16 +62,23 @@
 //!
 //! # Module map
 //!
-//! - [`app`]: the [`App`][app::App] entry point and [`Plugin`][plugin::Plugin] trait.
+//! - [`app`]: the [`App`][app::App] entry point, the [`Plugin`][app::plugin::Plugin]
+//!   trait, and bundled plugins.
+//! - [`core`]: cross-cutting infrastructure — cache, resource, the
+//!   [`reactive`][core::reactive] runtime (Signal / Computed / Effect),
+//!   perf tracing, timer.
 //! - [`ecs`]: World, Entity, Component, Resource, Query, System, SystemScheduler.
-//! - [`widget`]: widget tree primitives (Style, ComputedRect, View, Theme, Dirty).
-//! - [`components`]: built-in widgets — buttons, sliders, lazy lists, effects.
-//! - [`draw`]: software rasterizer, paths, textures, draw commands.
-//! - [`surface`]: backend trait + bundled SDL2 / framebuffer / SDL_GPU implementations.
-//! - [`event`]: input dispatch, gestures, hit-testing, focus.
+//! - [`ui`]: widget tree primitives (Style, View, Theme, Dirty),
+//!   [`ui::layout`] (flexbox + absolute positioning), and [`ui::widgets`]
+//!   (built-in widget instances — buttons, sliders, lazy lists, effects).
+//! - [`render`]: software rasterizer, paths, textures, draw commands, font,
+//!   and concrete [`render::backends`] (sw / sdl_gpu / wgpu / web_canvas).
+//! - [`input`]: input dispatch, gestures, hit-testing, focus,
+//!   and visual [`input::feedback`] overlays.
+//! - [`surface`]: backend trait + bundled SDL2 / framebuffer / SDL_GPU /
+//!   wgpu / web_canvas / Linux / NuttX implementations.
 //! - [`anim`]: easing, springs, motion components.
-//! - [`layout`]: flexbox + absolute positioning + dimension types.
-//! - [`plugins`]: bundled `App` plugins (clock, perf, FPS, input feedback).
+//! - [`types`]: Color / Dimension / Fixed / Point / Rect / Transform / Viewport.
 
 #![cfg_attr(not(feature = "std"), no_std)]
 
@@ -107,21 +114,54 @@ pub use alloc::rc::Rc as __Rc;
 #[doc(hidden)]
 pub use alloc::vec::Vec as __Vec;
 
-/// `use mirui::prelude::*;` brings in the types and macros that nearly
-/// every application file needs: `App`, the layout module, `Color` /
-/// `Dimension` / `Fixed`, `Entity` / `World`, the widget builder, theme
-/// tokens, and the `ui!` macro. Surface backends, individual widget
-/// kinds, and plugins stay on their canonical paths so the prelude
-/// doesn't pin a platform choice.
+/// Glob-imports the types and macros nearly every application file
+/// needs. Default prelude — `use mirui::prelude::*;`.
+///
+/// Sub-preludes for less common surfaces:
+///
+/// - [`prelude::plugin`] for writing custom [`Plugin`][app::plugin::Plugin]s
+/// - [`prelude::backend`] for picking / wiring a [`Surface`][surface::Surface]
+/// - [`prelude::draw`] for emitting [`DrawCommand`][render::DrawCommand]s
+///   from a custom widget view
 pub mod prelude {
-    pub use crate::app::App;
+    pub use crate::app::{App, RendererFactory};
     pub use crate::core::reactive::{Computed, Effect, Signal};
-    pub use crate::ecs::{Entity, World};
+    pub use crate::ecs::{Component, Entity, IntoBundle, MonoClock, World};
+    pub use crate::surface::Surface;
     pub use crate::types::{Color, Dimension, Fixed, Point, Rect};
     pub use crate::ui::builder::WidgetBuilder;
-    pub use crate::ui::layout::*;
+    pub use crate::ui::layout::{
+        AlignItems, FlexDirection, JustifyContent, LayoutStyle, Padding, Position,
+    };
     pub use crate::ui::theme::{ColorToken, ThemedColor};
     pub use crate::ui::{Style, Widget};
 
-    pub use mirui_macros::ui;
+    pub use mirui_macros::{animate, system, timer, trace_fn, trace_span, ui};
+
+    /// Surface integration — picking and wiring a backend.
+    pub mod backend {
+        pub use crate::app::RendererFactory;
+        pub use crate::render::SwRendererFactory;
+        pub use crate::render::texture::{ColorFormat, Texture};
+        pub use crate::surface::{FramebufferAccess, InputEvent, Surface};
+    }
+
+    /// Plugin authorship — writing a custom `Plugin` impl.
+    ///
+    /// The `std`-only built-in clock plugin is reachable on its own
+    /// path: `use mirui::app::plugins::StdInstantClockPlugin;`. It
+    /// stays out of this prelude so the prelude itself is unconditional.
+    pub mod plugin {
+        pub use crate::app::plugin::Plugin;
+        pub use crate::app::plugins::{FpsSummaryPlugin, InputFeedbackPlugin};
+        pub use crate::core::perf;
+        pub use crate::ecs::{FrameStats, FrameTimings, System, SystemScheduler, SystemSlot};
+    }
+
+    /// Custom widget / view authorship — emitting `DrawCommand`s.
+    pub mod draw {
+        pub use crate::render::path::Path;
+        pub use crate::render::{Canvas, DrawCommand, Renderer};
+        pub use crate::ui::view::{View, ViewCtx, ViewRegistry};
+    }
 }
