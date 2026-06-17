@@ -58,6 +58,7 @@ fn primary_attr_for(widget_name: &str) -> Option<&'static str> {
     match widget_name {
         "Text" => Some("text"),
         "Image" => Some("texture"),
+        "MirrorOf" => Some("source"),
         _ => None,
     }
 }
