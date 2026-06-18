@@ -123,6 +123,7 @@ pub mod chunk_type {
     pub const IMAGE: u16 = 0x0001;
     pub const FRAMES: u16 = 0x0002;
     pub const VECTOR: u16 = 0x0003;
+    pub const FONT: u16 = 0x0004;
     pub const META: u16 = 0x0010;
     pub const PALETTE: u16 = 0x0080;
 }

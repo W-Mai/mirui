@@ -9,7 +9,9 @@ mod flat;
 mod format;
 mod header;
 
-pub use chunk::{ChunkFile, ImageChunk, ImageChunkInput, encode_chunk_image, parse_chunk};
+pub use chunk::{
+    ChunkFile, ImageChunk, ImageChunkInput, encode_chunk_generic, encode_chunk_image, parse_chunk,
+};
 pub use crc32::compute as crc32;
 pub use error::ParseError;
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};

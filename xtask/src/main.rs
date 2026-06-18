@@ -1,5 +1,7 @@
 use std::process::Command;
 
+mod gen_mirx;
+
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 fn main() {
@@ -27,9 +29,10 @@ fn run() -> Result {
         "release" => cmd_release(),
         "templates-bump" => cmd_templates_bump(),
         "size-gate" => cmd_size_gate(args.get(1).map(|s| s.as_str())),
+        "gen-mirx" => gen_mirx::cmd_gen_mirx(&args[1..]),
         _ => {
             eprintln!(
-                "usage: cargo xtask <ci|build|test|lint|size|wasm-check|wasm-build|web-serve|bump <major|minor|patch>|publish [--dry-run]|release|templates-bump|size-gate <binary>>"
+                "usage: cargo xtask <ci|build|test|lint|size|wasm-check|wasm-build|web-serve|bump <major|minor|patch>|publish [--dry-run]|release|templates-bump|size-gate <binary>|gen-mirx <subcmd> ...>"
             );
             std::process::exit(1);
         }

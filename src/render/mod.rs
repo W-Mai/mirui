@@ -7,7 +7,7 @@ pub mod membrane;
 pub mod painter;
 pub mod partial;
 pub mod path;
-pub(crate) mod raster;
+pub mod raster;
 pub mod renderer;
 pub mod texture;
 

@@ -1,7 +1,10 @@
 [package]
 name = "xtask"
-version = "0.32.0"
+version = "0.31.0"
 edition = "2024"
 publish = false
 
 [dependencies]
+ttf-parser = "0.25"
+mirx = { path = "../mirx" }
+mirui = { path = "..", default-features = false, features = ["std"] }

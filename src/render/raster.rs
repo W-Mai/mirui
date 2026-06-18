@@ -6,7 +6,7 @@ use super::path::{Path, PathCmd};
 
 /// Straight line segment produced by flatten().
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) struct LineSeg {
+pub struct LineSeg {
     pub p1: Point,
     pub p2: Point,
 }
@@ -14,7 +14,7 @@ pub(crate) struct LineSeg {
 /// Polygon fill rule.
 #[allow(dead_code)] // NonZero is used by the ttf-parser path; tests verify both rules.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum FillRule {
+pub enum FillRule {
     /// Pixel is inside if a ray from it crosses an odd number of edges.
     /// Default for SVG / rectangles / shapes that don't self-overlap.
     EvenOdd,
@@ -27,7 +27,7 @@ pub(crate) enum FillRule {
 /// One contiguous subpath produced by flatten_subpaths().
 /// `closed` is true when the subpath ended with a Close command.
 #[derive(Clone, Debug)]
-pub(crate) struct SubPath {
+pub struct SubPath {
     pub segs: Vec<LineSeg>,
     pub closed: bool,
 }
@@ -40,7 +40,7 @@ const CUBIC_STEPS: i32 = 16;
 
 /// Flatten path into a sequence of LineSegs via De Casteljau subdivision.
 /// Degenerate zero-length segments are kept — downstream fill_path handles them.
-pub(crate) fn flatten(path: &Path) -> Vec<LineSeg> {
+pub fn flatten(path: &Path) -> Vec<LineSeg> {
     let mut out = Vec::new();
     let mut subpath_start = Point::ZERO;
     let mut current = Point::ZERO;
@@ -99,7 +99,7 @@ pub(crate) fn flatten(path: &Path) -> Vec<LineSeg> {
 /// Flatten path into per-subpath groups, tracking whether each ended with
 /// Close. stroke_path needs this to decide between offset-ring (closed) and
 /// butt-capped strip (open) handling.
-pub(crate) fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
+pub fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
     let mut out: Vec<SubPath> = Vec::new();
     let mut subpath_start = Point::ZERO;
     let mut current = Point::ZERO;
@@ -187,7 +187,7 @@ const SUB_SCANLINES: i32 = 4;
 
 /// Coverage-based fill rasterizer with 4 sub-scanlines per pixel row.
 /// Emits `cov ∈ [0, 1]` per pixel under the chosen [`FillRule`].
-pub(crate) fn scanline_fill(
+pub fn scanline_fill(
     segs: &[LineSeg],
     px_x0: i32,
     py_y0: i32,

@@ -19,6 +19,18 @@ pub struct ChunkFile<'a> {
     pub primary_image: Option<ImageChunk<'a>>,
 }
 
+impl<'a> ChunkFile<'a> {
+    /// First chunk payload of `chunk_type` referencing the original buffer
+    /// `buf`. Returns `None` if no entry of that type exists or the entry's
+    /// declared offset/size falls outside the buffer.
+    pub fn chunk_payload(&self, buf: &'a [u8], chunk_type: u16) -> Option<&'a [u8]> {
+        let entry = self.entries.iter().find(|e| e.chunk_type == chunk_type)?;
+        let start = entry.chunk_offset as usize;
+        let end = start.checked_add(entry.chunk_size as usize)?;
+        buf.get(start..end)
+    }
+}
+
 /// Only raw (`compress = 0`) IMAGE chunks are decoded; compressed chunks
 /// surface as [`ParseError::UnsupportedCompression`].
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +128,7 @@ pub fn parse_chunk(buf: &[u8]) -> Result<ChunkFile<'_>, ParseError> {
             chunk_size: u32::from_le_bytes([e[8], e[9], e[10], e[11]]),
         };
         if entry.chunk_type != chunk_type::IMAGE
+            && entry.chunk_type != chunk_type::FONT
             && entry.chunk_type != chunk_type::META
             && entry.is_critical()
         {
@@ -261,6 +274,49 @@ pub fn encode_chunk_image(image: &ImageChunkInput<'_>) -> Vec<u8> {
         out[aligned_data_start + main_size..aligned_data_start + main_size + extra_size]
             .copy_from_slice(extra);
     }
+
+    out
+}
+
+/// Single-chunk file with an arbitrary `chunk_type` and a raw payload.
+/// FONT / VECTOR / custom critical chunks all wrap their format-specific
+/// header inside `payload`. The primary header fields (color_format,
+/// width, height, stride) are zeroed because they don't apply.
+///
+/// `payload` is written verbatim; the chunk reader uses
+/// [`ChunkFile::chunk_payload`] to slice it back out.
+pub fn encode_chunk_generic(chunk_type: u16, flags: u16, payload: &[u8]) -> Vec<u8> {
+    let chunk_table_offset = CHUNK_FILE_HEADER_LEN as u32;
+    let chunk_start = chunk_table_offset as usize + CHUNK_TABLE_ENTRY_LEN;
+    let chunk_size = payload.len();
+    let file_size = chunk_start + chunk_size;
+
+    let mut out = vec![0u8; file_size];
+
+    let file_header = FileHeader {
+        version_major: VERSION_MAJOR,
+        version_minor: VERSION_MINOR,
+        layout: Layout::Chunk,
+        flags: 0,
+    };
+    let mut prefix = [0u8; FILE_HEADER_LEN];
+    file_header.write_into(&mut prefix);
+    out[0..FILE_HEADER_LEN].copy_from_slice(&prefix);
+
+    out[8..10].copy_from_slice(&1u16.to_le_bytes());
+    out[12..16].copy_from_slice(&chunk_table_offset.to_le_bytes());
+    out[16..20].copy_from_slice(&(file_size as u32).to_le_bytes());
+    out[20..22].copy_from_slice(&chunk_type.to_le_bytes());
+    let crc = crc32(&out[..40]);
+    out[40..44].copy_from_slice(&crc.to_le_bytes());
+
+    let entry_off = chunk_table_offset as usize;
+    out[entry_off..entry_off + 2].copy_from_slice(&chunk_type.to_le_bytes());
+    out[entry_off + 2..entry_off + 4].copy_from_slice(&flags.to_le_bytes());
+    out[entry_off + 4..entry_off + 8].copy_from_slice(&(chunk_start as u32).to_le_bytes());
+    out[entry_off + 8..entry_off + 12].copy_from_slice(&(chunk_size as u32).to_le_bytes());
+
+    out[chunk_start..chunk_start + chunk_size].copy_from_slice(payload);
 
     out
 }
@@ -422,5 +478,19 @@ mod tests {
             parse_chunk(&encoded),
             Err(ParseError::DimensionOverflow)
         ));
+    }
+
+    #[test]
+    fn generic_chunk_round_trips_font_payload() {
+        let payload: Vec<u8> = (0u8..32).collect();
+        let encoded = encode_chunk_generic(chunk_type::FONT, ChunkEntry::FLAG_CRITICAL, &payload);
+        let parsed = parse_chunk(&encoded).unwrap();
+        assert_eq!(parsed.entries.len(), 1);
+        let entry = parsed.entries[0];
+        assert_eq!(entry.chunk_type, chunk_type::FONT);
+        assert!(entry.is_critical());
+        assert!(parsed.primary_image.is_none());
+        let slice = parsed.chunk_payload(&encoded, chunk_type::FONT).unwrap();
+        assert_eq!(slice, payload.as_slice());
     }
 }
