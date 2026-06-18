@@ -244,6 +244,97 @@ impl FontProvider for SdfFontProvider {
     }
 }
 
+/// Read one packed distance value from `atlas` at integer coordinate
+/// `(x, y)` in `source_size`-pixel space. Returns the raw quantized
+/// distance:
+///
+/// - `bit_depth = 4` → low nibble of byte `(y * stride + x) >> 1`,
+///   high nibble for odd `x` indices. Range `0..=15`.
+/// - `bit_depth = 8` → byte at `(y * stride + x)`. Range `0..=255`.
+///
+/// Out-of-range coordinates clamp to the edge value, so callers can
+/// safely sample at the atlas boundary without bounds-check branches.
+// Allowed dead until the sw label SDF blit path consumes it.
+#[allow(dead_code)]
+#[inline]
+pub(crate) fn read_quantized(atlas: &[u8], source_size: u16, bit_depth: u8, x: i32, y: i32) -> u8 {
+    let s = source_size as i32;
+    let xc = x.clamp(0, s - 1) as usize;
+    let yc = y.clamp(0, s - 1) as usize;
+    let row_idx = yc * s as usize + xc;
+    if bit_depth == 4 {
+        let byte = atlas[row_idx >> 1];
+        if row_idx & 1 == 0 {
+            byte & 0x0F
+        } else {
+            byte >> 4
+        }
+    } else {
+        atlas[row_idx]
+    }
+}
+
+/// Convert a quantized distance to signed source-pixel distance: positive
+/// means inside the glyph, negative means outside, zero is the edge.
+///
+/// `spread` carries from [`AtlasHeader::spread`] (atlas-time choice of how
+/// many pixels of edge band to encode).
+#[inline]
+pub fn quantized_to_signed_px(q: u8, bit_depth: u8, spread: u16) -> crate::types::Fixed {
+    use crate::types::Fixed;
+    // 4-bit: zero crossing at q = 7.5; 8-bit: zero at 127.5. Working in
+    // doubled units (q * 2 - zero_x2) keeps the arithmetic in integers.
+    let (zero_x2, max_q): (i32, i32) = if bit_depth == 4 { (15, 15) } else { (255, 255) };
+    let signed_q_x2 = (q as i32) * 2 - zero_x2;
+    Fixed::from_int(signed_q_x2) * Fixed::from_int(spread as i32) / Fixed::from_int(max_q)
+}
+
+/// Bilinear-sample the SDF atlas at fractional `(sx, sy)` in source-pixel
+/// space and return the signed distance in source pixels (positive inside).
+///
+/// `sx` / `sy` are clamped before sampling; callers can feed any source-
+/// space coordinate without preprocessing.
+// Allowed dead until the sw label SDF blit path consumes it.
+#[allow(dead_code)]
+#[inline]
+pub(crate) fn sample_signed_distance(
+    atlas: &[u8],
+    source_size: u16,
+    bit_depth: u8,
+    spread: u16,
+    sx: crate::types::Fixed,
+    sy: crate::types::Fixed,
+) -> crate::types::Fixed {
+    use crate::types::Fixed;
+    let s = source_size as i32;
+    let max = Fixed::from_int(s - 1);
+    let zero = Fixed::ZERO;
+    let sx = sx.max(zero).min(max);
+    let sy = sy.max(zero).min(max);
+
+    let x0 = sx.to_int();
+    let y0 = sy.to_int();
+    let x1 = (x0 + 1).min(s - 1);
+    let y1 = (y0 + 1).min(s - 1);
+    let fx = sx - Fixed::from_int(x0);
+    let fy = sy - Fixed::from_int(y0);
+    let one = Fixed::ONE;
+
+    let q00 = read_quantized(atlas, source_size, bit_depth, x0, y0);
+    let q10 = read_quantized(atlas, source_size, bit_depth, x1, y0);
+    let q01 = read_quantized(atlas, source_size, bit_depth, x0, y1);
+    let q11 = read_quantized(atlas, source_size, bit_depth, x1, y1);
+
+    let d00 = quantized_to_signed_px(q00, bit_depth, spread);
+    let d10 = quantized_to_signed_px(q10, bit_depth, spread);
+    let d01 = quantized_to_signed_px(q01, bit_depth, spread);
+    let d11 = quantized_to_signed_px(q11, bit_depth, spread);
+
+    let top = d00 * (one - fx) + d10 * fx;
+    let bot = d01 * (one - fx) + d11 * fx;
+    top * (one - fy) + bot * fy
+}
+
 /// Convenience: wrap a parsed [`SdfFontProvider`] into a [`Font`] ready
 /// to register in a `FontRegistry`.
 pub fn font_from_mirx_chunk(
@@ -418,5 +509,96 @@ mod tests {
             SdfFontProvider::from_mirx_chunk(leaked),
             Err(SdfFontError::InvalidBitDepth(5))
         ));
+    }
+
+    #[test]
+    fn read_quantized_unpacks_4bit_low_then_high_nibble() {
+        // pixel 0 in low nibble, pixel 1 in high nibble of byte 0
+        let atlas = [0xAB_u8, 0xCD]; // pixels: 0xB, 0xA, 0xD, 0xC
+        assert_eq!(read_quantized(&atlas, 4, 4, 0, 0), 0xB);
+        assert_eq!(read_quantized(&atlas, 4, 4, 1, 0), 0xA);
+        assert_eq!(read_quantized(&atlas, 4, 4, 2, 0), 0xD);
+        assert_eq!(read_quantized(&atlas, 4, 4, 3, 0), 0xC);
+    }
+
+    #[test]
+    fn read_quantized_unpacks_8bit_one_byte_per_pixel() {
+        let atlas = [0x10, 0x20, 0x30, 0x40];
+        assert_eq!(read_quantized(&atlas, 2, 8, 0, 0), 0x10);
+        assert_eq!(read_quantized(&atlas, 2, 8, 1, 0), 0x20);
+        assert_eq!(read_quantized(&atlas, 2, 8, 0, 1), 0x30);
+        assert_eq!(read_quantized(&atlas, 2, 8, 1, 1), 0x40);
+    }
+
+    #[test]
+    fn read_quantized_clamps_out_of_range() {
+        let atlas = [0xAB_u8, 0xCD];
+        // Off the right edge clamps to x = 3 → high nibble of byte 1 = 0xC.
+        assert_eq!(read_quantized(&atlas, 4, 4, 99, 0), 0xC);
+        // Negative clamps to (0, 0) → low nibble of byte 0 = 0xB.
+        assert_eq!(read_quantized(&atlas, 4, 4, -5, -5), 0xB);
+    }
+
+    #[test]
+    fn quantized_to_signed_px_zero_at_midpoint() {
+        use crate::types::Fixed;
+        // 4-bit: q = 7 → signed_q_x2 = -1, q = 8 → +1. Symmetric around 7.5.
+        let d7 = quantized_to_signed_px(7, 4, 8);
+        let d8 = quantized_to_signed_px(8, 4, 8);
+        assert!(d7 < Fixed::ZERO);
+        assert!(d8 > Fixed::ZERO);
+        assert_eq!(d7 + d8, Fixed::ZERO);
+        // Extremes map to ±spread.
+        assert_eq!(quantized_to_signed_px(0, 4, 8), -Fixed::from_int(8));
+        assert_eq!(quantized_to_signed_px(15, 4, 8), Fixed::from_int(8));
+    }
+
+    #[test]
+    fn quantized_to_signed_px_8bit_zero_at_127_5() {
+        use crate::types::Fixed;
+        let d127 = quantized_to_signed_px(127, 8, 8);
+        let d128 = quantized_to_signed_px(128, 8, 8);
+        assert!(d127 < Fixed::ZERO);
+        assert!(d128 > Fixed::ZERO);
+        assert_eq!(d127 + d128, Fixed::ZERO);
+    }
+
+    #[test]
+    fn sample_at_integer_grid_matches_unpack() {
+        use crate::types::Fixed;
+        // 4×4 atlas, 4-bit; fill quadrant pattern: top-left = 0xF (deep
+        // inside), bottom-right = 0x0 (deep outside).
+        let mut atlas = alloc::vec![0u8; 8];
+        // pixels (x, y) → q. Want: (0,0)=15, (3,3)=0, others mid.
+        let set = |buf: &mut [u8], x: usize, y: usize, q: u8| {
+            let idx = y * 4 + x;
+            let byte_idx = idx >> 1;
+            if idx & 1 == 0 {
+                buf[byte_idx] = (buf[byte_idx] & 0xF0) | (q & 0x0F);
+            } else {
+                buf[byte_idx] = (buf[byte_idx] & 0x0F) | ((q & 0x0F) << 4);
+            }
+        };
+        set(&mut atlas, 0, 0, 15);
+        set(&mut atlas, 3, 3, 0);
+
+        // Sample at exact integer grid: should equal quantized-to-signed of
+        // that pixel.
+        let zero = Fixed::ZERO;
+        let center = sample_signed_distance(&atlas, 4, 4, 8, zero, zero);
+        assert_eq!(center, quantized_to_signed_px(15, 4, 8));
+
+        let far = sample_signed_distance(&atlas, 4, 4, 8, Fixed::from_int(3), Fixed::from_int(3));
+        assert_eq!(far, quantized_to_signed_px(0, 4, 8));
+    }
+
+    #[test]
+    fn sample_clamps_out_of_range_coords() {
+        use crate::types::Fixed;
+        let atlas = alloc::vec![0xFF_u8; 8]; // all q = 0xF
+        // Way out of the atlas — should still return a valid sample by
+        // clamping to the edge.
+        let d = sample_signed_distance(&atlas, 4, 4, 8, Fixed::from_int(99), Fixed::from_int(-99));
+        assert_eq!(d, quantized_to_signed_px(15, 4, 8));
     }
 }
