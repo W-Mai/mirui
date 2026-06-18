@@ -16,19 +16,35 @@ use alloc::rc::Rc;
 use crate::core::resource::{HasProbe, ResourceManager};
 use crate::ecs::World;
 
-/// One glyph as the framework consumes it.
-///
-/// The 8x8 bitmap renderer reads `bitmap` directly. Custom providers
-/// extend the type via their own data; built-in widgets only need
-/// `advance` for layout.
+/// One glyph the renderer consumes: an `advance` for layout and a
+/// [`GlyphKind`] payload that selects the rasterization scheme.
 #[derive(Clone, Debug)]
 pub struct Glyph {
     /// Horizontal advance after drawing this glyph, in pixels.
     pub advance: u16,
-    /// Bitmap rows (one byte per row, MSB = leftmost pixel) for the
-    /// 8x8 backend. Custom providers ignore this and read from their
-    /// own state.
-    pub bitmap: &'static [u8],
+    pub kind: GlyphKind,
+}
+
+/// Rasterization scheme tag — renderers match on this to pick how to
+/// draw the glyph. `non_exhaustive` so new variants stay non-breaking.
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum GlyphKind {
+    /// Bitmap rows, one byte per row, MSB = leftmost pixel.
+    Mono(&'static [u8]),
+    /// Signed-distance-field atlas slice. `atlas` holds packed
+    /// distances at `bit_depth` per pixel, layout
+    /// `source_size × source_size` row-major. The renderer scales to
+    /// the requested target size by sampling.
+    Sdf {
+        atlas: &'static [u8],
+        source_size: u16,
+        bit_depth: u8,
+        bbox_w: u8,
+        bbox_h: u8,
+        bearing_x: i8,
+        bearing_y: i8,
+    },
 }
 
 /// Cheap font metadata that layout reads without touching glyph data.
@@ -118,7 +134,7 @@ fn bitmap_8x8_glyph(ch: char) -> Option<Glyph> {
     let bitmap: &'static [u8; 8] = bitmap_8x8::glyph(byte);
     Some(Glyph {
         advance: bitmap_8x8::CHAR_W as u16,
-        bitmap,
+        kind: GlyphKind::Mono(bitmap),
     })
 }
 
@@ -280,12 +296,19 @@ mod tests {
         assert_eq!(meta.line_height, 8);
     }
 
+    fn unwrap_mono(g: &Glyph) -> &[u8] {
+        match &g.kind {
+            GlyphKind::Mono(b) => b,
+            other => panic!("expected Mono, got {:?}", other),
+        }
+    }
+
     #[test]
     fn glyph_roundtrip_for_ascii() {
         let font = Font::bitmap_8x8();
         let g = font.glyph('A').expect("ASCII glyph");
         assert_eq!(g.advance, 8);
-        assert_eq!(g.bitmap.len(), 8);
+        assert_eq!(unwrap_mono(&g).len(), 8);
     }
 
     #[test]
@@ -293,7 +316,14 @@ mod tests {
         let font = Font::bitmap_8x8();
         let g = font.glyph('日').expect("fallback glyph");
         let q = font.glyph('?').expect("? glyph");
-        assert_eq!(g.bitmap, q.bitmap);
+        assert_eq!(unwrap_mono(&g), unwrap_mono(&q));
+    }
+
+    #[test]
+    fn glyph_returns_mono_for_bitmap_8x8() {
+        let font = Font::bitmap_8x8();
+        let g = font.glyph('A').expect("ASCII glyph");
+        assert!(matches!(g.kind, GlyphKind::Mono(_)));
     }
 
     #[test]
@@ -303,7 +333,7 @@ mod tests {
             fn glyph(&self, _ch: char) -> Option<Glyph> {
                 Some(Glyph {
                     advance: 6,
-                    bitmap: &[0xFF; 8],
+                    kind: GlyphKind::Mono(&[0xFF; 8]),
                 })
             }
             fn metrics(&self) -> FontMetrics {
