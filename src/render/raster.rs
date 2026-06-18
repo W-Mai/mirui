@@ -11,6 +11,19 @@ pub(crate) struct LineSeg {
     pub p2: Point,
 }
 
+/// Polygon fill rule.
+#[allow(dead_code)] // NonZero is used by the ttf-parser path; tests verify both rules.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FillRule {
+    /// Pixel is inside if a ray from it crosses an odd number of edges.
+    /// Default for SVG / rectangles / shapes that don't self-overlap.
+    EvenOdd,
+    /// Pixel is inside if the signed winding count (downward-going edges
+    /// add 1, upward subtract 1) is non-zero. Required for TrueType /
+    /// CFF outlines where the same contour can wrap around itself.
+    NonZero,
+}
+
 /// One contiguous subpath produced by flatten_subpaths().
 /// `closed` is true when the subpath ended with a Close command.
 #[derive(Clone, Debug)]
@@ -172,22 +185,15 @@ pub(crate) fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
 /// without making the rasterizer too heavy on ESP32.
 const SUB_SCANLINES: i32 = 4;
 
-/// Coverage-based fill rasterizer using sub-scanline × horizontal even-odd
-/// accumulation. For each pixel (px, py) emits `cov ∈ [0, 1]` as the fraction
-/// of the pixel covered by the polygon.
-///
-/// Algorithm:
-///   for each pixel row py ∈ [py0, py1):
-///     for each sub-scanline (4 per pixel):
-///       find x-intersections of all segs with this horizontal line,
-///       pair them up (even-odd), and accumulate 1/4 per covered pixel
-///       interval. Partial edge pixels get a fractional contribution.
+/// Coverage-based fill rasterizer with 4 sub-scanlines per pixel row.
+/// Emits `cov ∈ [0, 1]` per pixel under the chosen [`FillRule`].
 pub(crate) fn scanline_fill(
     segs: &[LineSeg],
     px_x0: i32,
     py_y0: i32,
     px_x1: i32,
     py_y1: i32,
+    rule: FillRule,
     mut emit: impl FnMut(i32, i32, Fixed),
 ) {
     if segs.is_empty() || px_x1 <= px_x0 || py_y1 <= py_y0 {
@@ -195,7 +201,8 @@ pub(crate) fn scanline_fill(
     }
     let row_w = (px_x1 - px_x0) as usize;
     let mut acc: Vec<Fixed> = alloc::vec![Fixed::ZERO; row_w];
-    let mut crossings: Vec<Fixed> = Vec::with_capacity(segs.len());
+    // (x_intersection, winding) — winding only consulted for NonZero rule.
+    let mut crossings: Vec<(Fixed, i8)> = Vec::with_capacity(segs.len());
     let sub_weight = Fixed::ONE / SUB_SCANLINES;
 
     for py in py_y0..py_y1 {
@@ -209,10 +216,10 @@ pub(crate) fn scanline_fill(
 
             crossings.clear();
             for s in segs {
-                let (y_lo, y_hi) = if s.p1.y <= s.p2.y {
-                    (s.p1.y, s.p2.y)
+                let (y_lo, y_hi, winding) = if s.p1.y <= s.p2.y {
+                    (s.p1.y, s.p2.y, 1i8)
                 } else {
-                    (s.p2.y, s.p1.y)
+                    (s.p2.y, s.p1.y, -1i8)
                 };
                 if y_sample < y_lo || y_sample >= y_hi {
                     continue;
@@ -223,17 +230,42 @@ pub(crate) fn scanline_fill(
                 }
                 let t = (y_sample - s.p1.y) / dy;
                 let x_cross = s.p1.x + (s.p2.x - s.p1.x) * t;
-                crossings.push(x_cross);
+                crossings.push((x_cross, winding));
             }
 
-            crossings.sort();
+            crossings.sort_by_key(|x| x.0);
 
-            let mut i = 0;
-            while i + 1 < crossings.len() {
-                let xa = crossings[i];
-                let xb = crossings[i + 1];
-                accumulate_interval(&mut acc, px_x0, px_x1, xa, xb, sub_weight);
-                i += 2;
+            match rule {
+                FillRule::EvenOdd => {
+                    let mut i = 0;
+                    while i + 1 < crossings.len() {
+                        let xa = crossings[i].0;
+                        let xb = crossings[i + 1].0;
+                        accumulate_interval(&mut acc, px_x0, px_x1, xa, xb, sub_weight);
+                        i += 2;
+                    }
+                }
+                FillRule::NonZero => {
+                    let mut count: i32 = 0;
+                    let mut span_start: Option<Fixed> = None;
+                    for (x, winding) in crossings.iter() {
+                        let prev = count;
+                        count += *winding as i32;
+                        let was_inside = prev != 0;
+                        let now_inside = count != 0;
+                        match (was_inside, now_inside) {
+                            (false, true) => span_start = Some(*x),
+                            (true, false) => {
+                                if let Some(start) = span_start.take() {
+                                    accumulate_interval(
+                                        &mut acc, px_x0, px_x1, start, *x, sub_weight,
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
             }
         }
 
@@ -881,6 +913,98 @@ mod tests {
             "got {} segs, expected ≥{}",
             segs.len(),
             expected_min
+        );
+    }
+
+    fn rect_segs(x0: i32, y0: i32, x1: i32, y1: i32, ccw: bool) -> Vec<LineSeg> {
+        // Outer ring CW (default) or CCW. Order matters because winding
+        // direction is derived from p1.y vs p2.y in the rasterizer.
+        if ccw {
+            alloc::vec![
+                LineSeg {
+                    p1: pt(x0, y0),
+                    p2: pt(x0, y1)
+                },
+                LineSeg {
+                    p1: pt(x0, y1),
+                    p2: pt(x1, y1)
+                },
+                LineSeg {
+                    p1: pt(x1, y1),
+                    p2: pt(x1, y0)
+                },
+                LineSeg {
+                    p1: pt(x1, y0),
+                    p2: pt(x0, y0)
+                },
+            ]
+        } else {
+            alloc::vec![
+                LineSeg {
+                    p1: pt(x0, y0),
+                    p2: pt(x1, y0)
+                },
+                LineSeg {
+                    p1: pt(x1, y0),
+                    p2: pt(x1, y1)
+                },
+                LineSeg {
+                    p1: pt(x1, y1),
+                    p2: pt(x0, y1)
+                },
+                LineSeg {
+                    p1: pt(x0, y1),
+                    p2: pt(x0, y0)
+                },
+            ]
+        }
+    }
+
+    fn count_filled(segs: &[LineSeg], rule: FillRule) -> i32 {
+        let mut n = 0;
+        scanline_fill(segs, 0, 0, 10, 10, rule, |_, _, cov| {
+            if cov > Fixed::from_int(0) {
+                n += 1;
+            }
+        });
+        n
+    }
+
+    #[test]
+    fn fill_rule_even_odd_carves_inner_ring_to_zero() {
+        // Outer 0..10 + inner 2..8 (same direction). Even-odd makes the
+        // inner ring punch a hole; non-zero would fill solid.
+        let mut segs = rect_segs(0, 0, 10, 10, false);
+        segs.extend(rect_segs(2, 2, 8, 8, false));
+        let lit = count_filled(&segs, FillRule::EvenOdd);
+        assert!(lit > 0, "outer ring still fills with hole");
+        // Inside hole should be 0; only outer band lit.
+        // 10x10 = 100 total, hole 6x6 = 36, ring = 64.
+        assert!(lit < 70, "expected hole, got lit={}", lit);
+    }
+
+    #[test]
+    fn fill_rule_non_zero_fills_overlapping_same_direction_solid() {
+        // Outer + inner same winding. Non-zero stays inside (count = 2),
+        // entire 10x10 should be lit. Even-odd would punch a hole.
+        let mut segs = rect_segs(0, 0, 10, 10, false);
+        segs.extend(rect_segs(2, 2, 8, 8, false));
+        let lit = count_filled(&segs, FillRule::NonZero);
+        assert_eq!(lit, 100, "non-zero with same-winding should fill solid");
+    }
+
+    #[test]
+    fn fill_rule_non_zero_carves_hole_when_inner_reversed() {
+        // Outer CW, inner CCW (opposite winding). Non-zero count cancels
+        // inside the inner — TrueType "even-odd-like via path direction".
+        let mut segs = rect_segs(0, 0, 10, 10, false);
+        segs.extend(rect_segs(2, 2, 8, 8, true));
+        let lit = count_filled(&segs, FillRule::NonZero);
+        // 10x10 = 100, hole 6x6 = 36, ring = 64.
+        assert!(
+            (60..70).contains(&lit),
+            "non-zero with opposite winding should carve a hole, got lit={}",
+            lit
         );
     }
 }

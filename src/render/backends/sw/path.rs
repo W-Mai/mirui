@@ -108,11 +108,19 @@ impl SwRenderer<'_> {
             Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let combined_alpha = opa_norm * color_a_norm;
 
-        raster::scanline_fill(&segs, px_x0, px_y0, px_x1, px_y1, |px, py, cov| {
-            let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
-            if final_alpha > 0 {
-                self.target.blend_pixel_int(px, py, color, final_alpha);
-            }
-        });
+        raster::scanline_fill(
+            &segs,
+            px_x0,
+            px_y0,
+            px_x1,
+            px_y1,
+            raster::FillRule::EvenOdd,
+            |px, py, cov| {
+                let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+                if final_alpha > 0 {
+                    self.target.blend_pixel_int(px, py, color, final_alpha);
+                }
+            },
+        );
     }
 }
