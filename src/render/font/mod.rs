@@ -8,6 +8,8 @@
 //! [`FontBackend::Custom`].
 
 pub mod bitmap_8x8;
+pub mod chunk;
+pub mod sdf;
 
 pub use bitmap_8x8::{CHAR_H, CHAR_W, FONT_8X8, glyph};
 
@@ -40,6 +42,10 @@ pub enum GlyphKind {
         atlas: &'static [u8],
         source_size: u16,
         bit_depth: u8,
+        /// Pixels of zero-distance band encoded around the glyph edge
+        /// (atlas-time choice). Required to convert the quantized
+        /// distance back to source pixels.
+        spread: u16,
         bbox_w: u8,
         bbox_h: u8,
         bearing_x: i8,
