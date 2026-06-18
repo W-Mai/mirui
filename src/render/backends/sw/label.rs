@@ -19,8 +19,14 @@ impl SwRenderer<'_> {
         let (mut cx, cy) = phys_pos.floor();
         let metrics = font.metrics();
         let char_h = metrics.line_height as i32;
-        for &ch in text {
-            let Some(g) = font.glyph(ch as char) else {
+        // Decode the byte stream as UTF-8 so multi-byte CJK glyphs
+        // map to one codepoint each. Invalid bytes fall back to U+FFFD,
+        // which the font is free to skip.
+        let chars = core::str::from_utf8(text)
+            .map(|s| s.chars().collect::<alloc::vec::Vec<_>>())
+            .unwrap_or_else(|_| text.iter().map(|&b| b as char).collect());
+        for ch in chars {
+            let Some(g) = font.glyph(ch) else {
                 continue;
             };
             let advance = g.advance as i32 * scale;

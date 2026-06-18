@@ -17,6 +17,7 @@ perf = ["mirui/perf"]
 [dependencies]
 mirui = { path = "..", default-features = false, features = ["quad-aa", "gallery"] }
 mirui-macros = { path = "../mirui-macros" }
+mirx = { path = "../mirx" }
 sdl2 = { version = "0.37", optional = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -118,3 +119,11 @@ path = "examples/tools/widget_demo.rs"
 [[example]]
 name = "zorder_baseline"
 path = "examples/tools/zorder_baseline.rs"
+
+[[example]]
+name = "sdf_label_snapshot"
+path = "examples/tools/sdf_label_snapshot.rs"
+
+[[example]]
+name = "sdf_cjk_snapshot"
+path = "examples/tools/sdf_cjk_snapshot.rs"
