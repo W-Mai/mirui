@@ -28,9 +28,25 @@ impl SwRenderer<'_> {
                 GlyphKind::Mono(bitmap) => {
                     self.blit_mono_glyph(bitmap, cx, cy, scale, char_h, phys_bounds, color, opa);
                 }
-                GlyphKind::Sdf { .. } => {
-                    // SDF rendering not wired yet; skipping keeps a Sdf
-                    // provider from crashing the renderer.
+                GlyphKind::Sdf {
+                    atlas,
+                    source_size,
+                    bit_depth,
+                    spread,
+                    ..
+                } => {
+                    self.blit_sdf_glyph(
+                        atlas,
+                        *source_size,
+                        *bit_depth,
+                        *spread,
+                        cx,
+                        cy,
+                        scale,
+                        phys_bounds,
+                        color,
+                        opa,
+                    );
                 }
             }
             cx += advance;

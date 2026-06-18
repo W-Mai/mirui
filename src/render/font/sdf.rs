@@ -254,8 +254,6 @@ impl FontProvider for SdfFontProvider {
 ///
 /// Out-of-range coordinates clamp to the edge value, so callers can
 /// safely sample at the atlas boundary without bounds-check branches.
-// Allowed dead until the sw label SDF blit path consumes it.
-#[allow(dead_code)]
 #[inline]
 pub(crate) fn read_quantized(atlas: &[u8], source_size: u16, bit_depth: u8, x: i32, y: i32) -> u8 {
     let s = source_size as i32;
@@ -294,8 +292,6 @@ pub fn quantized_to_signed_px(q: u8, bit_depth: u8, spread: u16) -> crate::types
 ///
 /// `sx` / `sy` are clamped before sampling; callers can feed any source-
 /// space coordinate without preprocessing.
-// Allowed dead until the sw label SDF blit path consumes it.
-#[allow(dead_code)]
 #[inline]
 pub(crate) fn sample_signed_distance(
     atlas: &[u8],

@@ -15,6 +15,7 @@ mod blit_dispatch;
 mod blit_fast;
 pub mod blur;
 mod label;
+mod label_sdf;
 pub mod mix;
 mod path;
 mod quad;
