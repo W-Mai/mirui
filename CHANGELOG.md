@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-06-18
+
+### Added
+
+- **`GlyphKind`** — `Glyph` carries a rasterization-scheme tag the
+  renderer matches on instead of assuming a single bitmap path. `Mono`
+  (8x8 bitmap rows, MSB-first) is the rendering variant; the enum is
+  `#[non_exhaustive]` so further schemes stay non-breaking.
+- **`FillRule`** — `scanline_fill` takes an explicit `EvenOdd` /
+  `NonZero` winding rule instead of hard-coding even-odd, the control
+  glyph outlines and overlapping subpaths need.
+- **`FontToken` in the prelude** — application code writes
+  `font: FontToken::Heading` without reaching for `render::font`; a
+  `font_token` gallery demo exercises the lookup.
+
+### Changed
+
+- **Fonts resolve through `FontManager`** (a `ResourceManager<Font>`)
+  keyed by a `FontToken` cache string, sharing the per-key LRU, lazy
+  factories, and two-stage probe images already use. The token threads
+  through `Style`, the label draw command, the builder, and every
+  backend (sw, sdl_gpu, web_canvas, wgpu). `FontBackend::Custom` holds
+  an `Rc` so `Font` is `Clone`; the manager's fallback is the bundled
+  8x8 bitmap, so an unregistered token never leaves a widget without a
+  font.
+
 ## [0.31.0] - 2026-06-18
 
 src/ collapses from 18 top-level directories to 9 — `types` / `ecs` /
