@@ -210,7 +210,7 @@ pub(crate) fn read_metric_unaligned(buf: &[u8]) -> GlyphMetric {
 impl FontProvider for SdfFontProvider {
     // SDF scales one source atlas to any target, so the request size
     // doesn't select a table here.
-    fn glyph(&self, ch: char) -> Option<Glyph> {
+    fn glyph(&self, ch: char, _requested_size: u16) -> Option<Glyph> {
         let cp = ch as u32;
         let idx = self
             .metrics
@@ -441,7 +441,7 @@ mod tests {
     fn glyph_returns_sdf_kind_with_atlas_slice() {
         let bytes = leak(make_atlas(&[(b'A' as u32, 5, 1, 2)]));
         let provider = SdfFontProvider::from_mirx_chunk(bytes).expect("parse");
-        let g = provider.glyph('A').expect("A glyph");
+        let g = provider.glyph('A', 16).expect("A glyph");
         assert_eq!(g.advance, 5);
         match &g.kind {
             GlyphKind::Sdf {
@@ -463,7 +463,7 @@ mod tests {
     fn missing_codepoint_returns_none() {
         let bytes = leak(make_atlas(&[(b'A' as u32, 5, 0, 0)]));
         let provider = SdfFontProvider::from_mirx_chunk(bytes).expect("parse");
-        assert!(provider.glyph('Z').is_none());
+        assert!(provider.glyph('Z', 16).is_none());
     }
 
     #[test]

@@ -19,6 +19,9 @@ impl SwRenderer<'_> {
         let (mut cx, cy) = phys_pos.floor();
         let metrics = font.metrics();
         let char_h = metrics.line_height as i32;
+        // Target glyph height in physical pixels — lets a multi-table
+        // provider pick the closest fixed-size representation.
+        let requested_size = (font.size as i32 * scale).clamp(1, u16::MAX as i32) as u16;
         // Decode the byte stream as UTF-8 so multi-byte CJK glyphs
         // map to one codepoint each. Invalid bytes fall back to U+FFFD,
         // which the font is free to skip.
@@ -26,12 +29,13 @@ impl SwRenderer<'_> {
             .map(|s| s.chars().collect::<alloc::vec::Vec<_>>())
             .unwrap_or_else(|_| text.iter().map(|&b| b as char).collect());
         for ch in chars {
-            let Some(g) = font.glyph(ch) else {
+            let Some(g) = font.glyph(ch, requested_size) else {
                 continue;
             };
-            let advance = g.advance as i32 * scale;
+            let advance;
             match &g.kind {
                 GlyphKind::Mono(bitmap) => {
+                    advance = g.advance as i32 * scale;
                     self.blit_mono_glyph(bitmap, cx, cy, scale, char_h, phys_bounds, color, opa);
                 }
                 GlyphKind::Sdf {
@@ -41,6 +45,15 @@ impl SwRenderer<'_> {
                     spread,
                     ..
                 } => {
+                    // Render at the Font's requested size, not the atlas
+                    // size: one SDF atlas resamples to whatever font.size
+                    // asks for, so a larger Font grows the glyph smoothly.
+                    // Advance scales by the same resample ratio so the pen
+                    // keeps pace; with font.size == source_size this is
+                    // g.advance × scale, leaving the common path
+                    // byte-identical.
+                    advance =
+                        g.advance as i32 * requested_size as i32 / (*source_size as i32).max(1);
                     self.blit_sdf_glyph(
                         atlas,
                         *source_size,
@@ -48,7 +61,7 @@ impl SwRenderer<'_> {
                         *spread,
                         cx,
                         cy,
-                        scale,
+                        requested_size,
                         phys_bounds,
                         color,
                         opa,

@@ -46,7 +46,7 @@ fn fixture_resolves_ascii_letters_and_digits() {
         'A', 'Z', 'a', 'z', '0', '9', ' ', '.', '!', '?', '@', '#', '&',
     ] {
         let g = provider
-            .glyph(ch)
+            .glyph(ch, 16)
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
         match g.kind {
             GlyphKind::Sdf {
@@ -66,7 +66,7 @@ fn fixture_resolves_ascii_letters_and_digits() {
 fn fixture_misses_codepoint_outside_charset() {
     let provider = open_provider();
     // Chinese char wasn't in the ASCII charset.
-    assert!(provider.glyph('中').is_none());
+    assert!(provider.glyph('中', 16).is_none());
 }
 
 #[test]
@@ -89,7 +89,7 @@ fn fixture_capital_a_atlas_has_distance_gradient() {
     // uniform value — letters have edges, so we expect a spread of
     // quantized distances inside the 512-byte glyph slab.
     let provider = open_provider();
-    let g = provider.glyph('A').expect("A");
+    let g = provider.glyph('A', 16).expect("A");
     let GlyphKind::Sdf { atlas, .. } = g.kind else {
         panic!("expected Sdf");
     };
@@ -116,7 +116,7 @@ fn cjk_fixture_resolves_common_chinese_glyphs() {
     assert_eq!(h.glyph_count, 22);
     for ch in ['我', '你', '是', '不', '中', '人', 'A', '0'] {
         let g = provider
-            .glyph(ch)
+            .glyph(ch, 16)
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
         match g.kind {
             GlyphKind::Sdf { atlas, .. } => {
@@ -134,7 +134,7 @@ fn cjk_fixture_advance_widths_are_nonzero() {
     // square is the typical layout.
     for ch in ['我', '中', '人', '是'] {
         let g = provider
-            .glyph(ch)
+            .glyph(ch, 16)
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
         assert!(g.advance > 0, "{ch:?} has zero advance");
     }

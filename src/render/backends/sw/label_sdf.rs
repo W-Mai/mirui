@@ -5,12 +5,12 @@ use crate::types::{Color, Fixed};
 impl SwRenderer<'_> {
     /// Rasterize one SDF glyph into the current target.
     ///
-    /// `cx`, `cy` are the top-left of the glyph in physical pixels.
-    /// `scale` is the viewport scale factor (1 on standard density,
-    /// 2 on HiDPI). For each output pixel the atlas is bilinear-
-    /// sampled at fractional source coordinates; coverage comes from
-    /// a one-pixel-wide linear ramp around the zero distance, which
-    /// matches one-pixel anti-aliasing without explicit
+    /// `cx`, `cy` are the top-left of the glyph in physical pixels;
+    /// `target_size` is the rendered square size in physical pixels —
+    /// the atlas (`source_size` square) is bilinear-resampled to it, so
+    /// any target works, not just integer multiples. Coverage comes
+    /// from a one-output-pixel-wide linear ramp around the zero
+    /// distance, matching one-pixel anti-aliasing without explicit
     /// super-sampling.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn blit_sdf_glyph(
@@ -21,18 +21,19 @@ impl SwRenderer<'_> {
         spread: u16,
         cx: i32,
         cy: i32,
-        scale: i32,
+        target_size: u16,
         phys_bounds: (i32, i32, i32, i32),
         color: &Color,
         opa: u8,
     ) {
         let (clip_x, clip_y, clip_x2, clip_y2) = phys_bounds;
-        let target_size = source_size as i32 * scale;
-        let inv_scale = Fixed::ONE / Fixed::from_int(scale);
+        let target_size = target_size.max(1) as i32;
+        // Source pixels per output pixel. At an integer N× this is
+        // exactly 1/N, so the integer-scale path stays byte-identical.
+        let inv_scale = Fixed::from_int(source_size as i32) / Fixed::from_int(target_size);
         let half_texel = Fixed::ONE / 2;
-        // Half-width of the AA ramp in source pixels: 0.5 at scale=1
-        // (one output pixel), 0.25 at scale=2.
-        let edge_half = Fixed::ONE / Fixed::from_int(2 * scale);
+        // AA ramp half-width = half an output pixel, in source pixels.
+        let edge_half = inv_scale / 2;
 
         for dy in 0..target_size {
             let py = cy + dy;
@@ -41,10 +42,10 @@ impl SwRenderer<'_> {
             }
             // Output-pixel-center to source-texel-index transform: the
             // -half_texel shift maps texel index i to its centre at
-            // continuous i+0.5, so a 1:1 atlas (scale=1) samples texel
-            // centres exactly. Without it, sampling lands on texel
-            // boundaries and bilinear averages a solid stem's interior
-            // with its outside neighbour, halving the coverage.
+            // continuous i+0.5, so a 1:1 atlas samples texel centres
+            // exactly. Without it, sampling lands on texel boundaries
+            // and bilinear averages a solid stem's interior with its
+            // outside neighbour, halving the coverage.
             let sy = (Fixed::from_int(dy) + half_texel) * inv_scale - half_texel;
 
             for dx in 0..target_size {
@@ -117,7 +118,7 @@ mod tests {
         let atlas = build_inside_outside_atlas();
         let color = Color::rgba(255, 255, 255, 255);
 
-        backend.blit_sdf_glyph(&atlas, 4, 4, 1, 0, 0, 1, (0, 0, 8, 8), &color, 255);
+        backend.blit_sdf_glyph(&atlas, 4, 4, 1, 0, 0, 4, (0, 0, 8, 8), &color, 255);
 
         // Centre of the inside region (source x=1.5..2.5) → opaque.
         assert!(
@@ -175,7 +176,7 @@ mod tests {
         let mut backend = SwRenderer::new(tex);
         let color = Color::rgba(255, 255, 255, 255);
 
-        backend.blit_sdf_glyph(&atlas, 8, 4, spread, 0, 0, 1, (0, 0, 8, 8), &color, 255);
+        backend.blit_sdf_glyph(&atlas, 8, 4, spread, 0, 0, 8, (0, 0, 8, 8), &color, 255);
 
         // The stem column (x=4) must read as solid, not the ~137/255
         // (≈54%) the fixed-ramp produced. Gradient normalization should
@@ -196,11 +197,41 @@ mod tests {
         let atlas = build_inside_outside_atlas();
         let color = Color::rgba(255, 255, 255, 255);
         // Tight clip: only y < 2 allowed.
-        backend.blit_sdf_glyph(&atlas, 4, 4, 1, 0, 0, 1, (0, 0, 8, 2), &color, 255);
+        backend.blit_sdf_glyph(&atlas, 4, 4, 1, 0, 0, 4, (0, 0, 8, 2), &color, 255);
 
         // Pixel below clip stays blank even though the atlas would
         // otherwise paint it opaque.
         assert_eq!(pixel_alpha(&buf, 8, 1, 2), 0);
         assert_eq!(pixel_alpha(&buf, 8, 1, 3), 0);
+    }
+
+    #[test]
+    fn blit_upscales_to_non_integer_target() {
+        // 4px source atlas rendered to a 10px target (2.5×, not an
+        // integer multiple) — the path the zoom animation relies on.
+        // The inside region (source 1..3) maps to roughly target
+        // 2.5..7.5, so the centre is solid and it paints a 10px box.
+        let mut buf = vec![0u8; 16 * 16 * 4];
+        let tex = Texture::new(&mut buf, 16, 16, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let atlas = build_inside_outside_atlas();
+        let color = Color::rgba(255, 255, 255, 255);
+
+        backend.blit_sdf_glyph(&atlas, 4, 4, 1, 0, 0, 10, (0, 0, 16, 16), &color, 255);
+
+        // Centre of the 10px render is deep inside → opaque.
+        assert!(
+            pixel_alpha(&buf, 16, 5, 5) >= 200,
+            "expected solid centre at 2.5x, got {}",
+            pixel_alpha(&buf, 16, 5, 5)
+        );
+        // Far corner is outside → blank.
+        assert_eq!(pixel_alpha(&buf, 16, 0, 0), 0);
+        // Coverage reaches into the lower rows, proving it scaled past
+        // the source's 4px extent.
+        assert!(
+            pixel_alpha(&buf, 16, 5, 7) > 0,
+            "render did not reach 10px tall"
+        );
     }
 }

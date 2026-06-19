@@ -67,7 +67,9 @@ pub struct FontMetrics {
 /// A glyph source. Implementors plug into [`FontBackend::Custom`] to
 /// supply glyphs from any rasterization scheme (bitmap, SDF, TTF, …).
 pub trait FontProvider: 'static {
-    fn glyph(&self, ch: char) -> Option<Glyph>;
+    /// `requested_size` lets a multi-table provider pick the closest
+    /// fixed-size representation; single-table providers ignore it.
+    fn glyph(&self, ch: char, requested_size: u16) -> Option<Glyph>;
     fn metrics(&self) -> FontMetrics;
 }
 
@@ -109,10 +111,10 @@ impl Font {
         }
     }
 
-    pub fn glyph(&self, ch: char) -> Option<Glyph> {
+    pub fn glyph(&self, ch: char, requested_size: u16) -> Option<Glyph> {
         match &self.backend {
             FontBackend::Bitmap8x8 => bitmap_8x8_glyph(ch),
-            FontBackend::Custom(p) => p.glyph(ch),
+            FontBackend::Custom(p) => p.glyph(ch, requested_size),
         }
     }
 
@@ -312,7 +314,7 @@ mod tests {
     #[test]
     fn glyph_roundtrip_for_ascii() {
         let font = Font::bitmap_8x8();
-        let g = font.glyph('A').expect("ASCII glyph");
+        let g = font.glyph('A', 16).expect("ASCII glyph");
         assert_eq!(g.advance, 8);
         assert_eq!(unwrap_mono(&g).len(), 8);
     }
@@ -320,15 +322,15 @@ mod tests {
     #[test]
     fn glyph_falls_back_to_question_mark_outside_ascii() {
         let font = Font::bitmap_8x8();
-        let g = font.glyph('日').expect("fallback glyph");
-        let q = font.glyph('?').expect("? glyph");
+        let g = font.glyph('日', 16).expect("fallback glyph");
+        let q = font.glyph('?', 16).expect("? glyph");
         assert_eq!(unwrap_mono(&g), unwrap_mono(&q));
     }
 
     #[test]
     fn glyph_returns_mono_for_bitmap_8x8() {
         let font = Font::bitmap_8x8();
-        let g = font.glyph('A').expect("ASCII glyph");
+        let g = font.glyph('A', 16).expect("ASCII glyph");
         assert!(matches!(g.kind, GlyphKind::Mono(_)));
     }
 
@@ -336,7 +338,7 @@ mod tests {
     fn custom_provider_routes_through_backend() {
         struct AllX;
         impl FontProvider for AllX {
-            fn glyph(&self, _ch: char) -> Option<Glyph> {
+            fn glyph(&self, _ch: char, _requested_size: u16) -> Option<Glyph> {
                 Some(Glyph {
                     advance: 6,
                     kind: GlyphKind::Mono(&[0xFF; 8]),
@@ -355,7 +357,7 @@ mod tests {
             size: 6,
             backend: FontBackend::Custom(Rc::new(AllX)),
         };
-        assert_eq!(font.glyph('A').unwrap().advance, 6);
+        assert_eq!(font.glyph('A', 16).unwrap().advance, 6);
         assert_eq!(font.metrics().line_height, 6);
     }
 }

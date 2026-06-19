@@ -543,7 +543,7 @@ mod tests {
 
         let provider = SdfFontProvider::from_mirx_chunk(got_payload).unwrap();
         assert_eq!(provider.metrics().len(), 2);
-        assert_eq!(provider.glyph('A').unwrap().advance, 5);
-        assert_eq!(provider.glyph('B').unwrap().advance, 6);
+        assert_eq!(provider.glyph('A', 16).unwrap().advance, 5);
+        assert_eq!(provider.glyph('B', 16).unwrap().advance, 6);
     }
 }
