@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.1] - 2026-06-20
+
+### Added
+
+- **SDF text rendering** — `GlyphKind::Sdf` carries a signed-distance
+  atlas slice; the software label path bilinear-samples it and turns
+  the distance into one-pixel-wide anti-aliased coverage. One source
+  atlas resamples to any target size, so a larger `Font.size` grows the
+  glyph smoothly without re-baking. `SdfFontProvider` reads an atlas
+  from a `chunk_type::FONT` payload behind a `FontChunkHeader` prefix
+  (kind / format / source size), borrowing the distance buffer straight
+  from the `&'static` slice so it stays in flash.
+- **`cargo xtask gen-mirx font`** — bakes an SDF atlas from a TTF/OTF
+  and a charset: rasterizes each outline with a non-zero scanline fill,
+  runs a Euclidean distance transform clamped to `spread`, and
+  quantizes against that spread so the encoder is the exact inverse of
+  the runtime decoder.
+- **UTF-8 label decoding** — the label path decodes its byte stream as
+  UTF-8 so a multi-byte CJK sequence maps to one codepoint; invalid
+  bytes fall back to U+FFFD.
+- **`FontProvider::glyph` takes a `requested_size`** so a provider can
+  pick a representation by size; single-table providers ignore it.
+- A `sdf_zoom` gallery demo sweeps `Font.size` to grow text from a
+  single 24px atlas, plus off-screen SDF snapshot tools and a render
+  byte-hash regression gate.
+
 ## [0.32.0] - 2026-06-18
 
 ### Added
