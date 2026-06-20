@@ -15,6 +15,7 @@ gallery::register_demos! {
     ("font_token",           "font token",           "Basics",      font_token,           480, 320),
 
     ("animation",            "tween + ping pong",    "Animation",   animation,            320, 180),
+    ("sdf_zoom",             "sdf zoom (smooth)",    "Animation",   sdf_zoom,             480, 320),
     ("three_body",           "three body",           "Animation",   three_body,           480, 320),
     ("life",                 "game of life",         "Animation",   life,                 640, 640),
     ("particles",            "particles",            "Animation",   particles,            480, 320),
