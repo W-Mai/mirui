@@ -25,6 +25,7 @@ pub mod input_feedback;
 pub mod interactive_states;
 pub mod lazy_list;
 pub mod life;
+pub mod multi_font;
 pub mod nested_scroll;
 pub mod offscreen;
 pub mod offscreen_modal;
