@@ -3,7 +3,8 @@
 //! A FONT payload starts with a [`FontChunkHeader`] so a reader knows
 //! the rasterization scheme and source size before parsing the
 //! format-specific body. The bytes after the header are the SDF
-//! [`AtlasHeader`](super::sdf::AtlasHeader), decided by `kind`.
+//! [`AtlasHeader`](super::sdf::AtlasHeader) or a grayscale coverage
+//! header, decided by `kind`.
 
 /// Length of the shared prefix every FONT payload starts with.
 pub const FONT_CHUNK_HEADER_LEN: usize = 4;
@@ -12,12 +13,14 @@ pub const FONT_CHUNK_HEADER_LEN: usize = 4;
 /// [`super::GlyphKind`]. Serialized as the first byte of a FONT payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FontChunkKind {
+    Grayscale,
     Sdf,
 }
 
 impl FontChunkKind {
     fn from_u8(b: u8) -> Option<Self> {
         match b {
+            0 => Some(FontChunkKind::Grayscale),
             1 => Some(FontChunkKind::Sdf),
             _ => None,
         }
@@ -25,6 +28,7 @@ impl FontChunkKind {
 
     pub fn to_u8(self) -> u8 {
         match self {
+            FontChunkKind::Grayscale => 0,
             FontChunkKind::Sdf => 1,
         }
     }
@@ -32,12 +36,12 @@ impl FontChunkKind {
 
 /// Shared 4-byte prefix on every FONT chunk payload.
 ///
-/// For SDF (which scales one atlas to any target) `size` carries the
-/// source size the atlas was baked at.
+/// `size` is the fixed pixel height for grayscale tables; for SDF
+/// (which scales one atlas to any target) it carries the source size.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FontChunkHeader {
     pub kind: FontChunkKind,
-    /// bit_depth for SDF.
+    /// bpp for grayscale, bit_depth for SDF.
     pub format: u8,
     pub size: u16,
 }

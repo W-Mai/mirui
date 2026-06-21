@@ -41,7 +41,17 @@ struct Args {
     size: u16,
     bit_depth: u8,
     spread: u16,
+    format: Format,
     out: PathBuf,
+}
+
+/// Which representation to bake. Both carry a `FontChunkHeader`
+/// prefix; `Sdf` packs a quantized distance field, `Gray` a
+/// pre-rasterized coverage table.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Format {
+    Sdf,
+    Gray,
 }
 
 pub fn run(args: &[String]) -> Result {
@@ -94,8 +104,13 @@ pub fn run(args: &[String]) -> Result {
 
         let path = builder.finish();
         let coverage = rasterize_to_coverage(&path, parsed.size);
-        let signed = euclidean_distance_transform(&coverage, parsed.size, parsed.spread);
-        let packed = quantize(&signed, parsed.bit_depth, parsed.spread as f32);
+        let packed = match parsed.format {
+            Format::Sdf => {
+                let signed = euclidean_distance_transform(&coverage, parsed.size, parsed.spread);
+                quantize(&signed, parsed.bit_depth, parsed.spread as f32)
+            }
+            Format::Gray => pack_coverage(&coverage, parsed.bit_depth),
+        };
         debug_assert_eq!(packed.len(), bytes_per_glyph);
         data.extend(packed);
 
@@ -115,12 +130,19 @@ pub fn run(args: &[String]) -> Result {
 
     metrics.sort_by_key(|m| m.codepoint);
 
+    // Both formats carry a FontChunkHeader prefix so a reader (or a
+    // bundle) tells kinds apart by the prefix. Gray uses spread=0 (no
+    // distance band); SDF keeps its spread.
+    let (kind, body_spread) = match parsed.format {
+        Format::Sdf => (FontChunkKind::Sdf, parsed.spread),
+        Format::Gray => (FontChunkKind::Grayscale, 0),
+    };
     let body = pack_payload(
         &metrics,
         &data,
         parsed.size,
         parsed.bit_depth,
-        parsed.spread,
+        body_spread,
         ascender,
         descender,
         line_height,
@@ -128,7 +150,7 @@ pub fn run(args: &[String]) -> Result {
     );
     let mut payload = vec![0u8; FONT_CHUNK_HEADER_LEN + body.len()];
     FontChunkHeader {
-        kind: FontChunkKind::Sdf,
+        kind,
         format: parsed.bit_depth,
         size: parsed.size,
     }
@@ -138,14 +160,18 @@ pub fn run(args: &[String]) -> Result {
         encode_chunk_generic(chunk_type::FONT, mirx::ChunkEntry::FLAG_CRITICAL, &payload);
     fs::write(&parsed.out, &mirx_bytes)?;
 
+    let format_label = match parsed.format {
+        Format::Sdf => "sdf",
+        Format::Gray => "gray",
+    };
     println!(
-        "wrote {} bytes to {} ({} glyphs, source_size={}, bit_depth={}, spread={})",
+        "wrote {} bytes to {} ({} glyphs, format={}, source_size={}, bit_depth={})",
         mirx_bytes.len(),
         parsed.out.display(),
         metrics.len(),
+        format_label,
         parsed.size,
         parsed.bit_depth,
-        parsed.spread,
     );
     if !skipped.is_empty() {
         println!("skipped {} chars not in font: {:?}", skipped.len(), skipped);
@@ -160,6 +186,7 @@ fn parse_args(args: &[String]) -> Result<Args> {
     let mut size: Option<u16> = None;
     let mut bit_depth: u8 = 4;
     let mut spread: Option<u16> = None;
+    let mut format = Format::Sdf;
     let mut out: Option<PathBuf> = None;
 
     let mut i = 0;
@@ -194,6 +221,16 @@ fn parse_args(args: &[String]) -> Result<Args> {
                 spread = Some(v()?.parse()?);
                 i += 2;
             }
+            "--format" => {
+                format = match v()? {
+                    "sdf" => Format::Sdf,
+                    "gray" => Format::Gray,
+                    other => {
+                        return Err(format!("--format must be sdf or gray, got {other}").into());
+                    }
+                };
+                i += 2;
+            }
             "--out" => {
                 out = Some(PathBuf::from(v()?));
                 i += 2;
@@ -210,8 +247,22 @@ fn parse_args(args: &[String]) -> Result<Args> {
     };
 
     let size = size.ok_or("missing --size")?;
-    if !(bit_depth == 4 || bit_depth == 8) {
-        return Err(format!("--bit-depth must be 4 or 8, got {bit_depth}").into());
+    // SDF needs 4/8 (the distance decoder only handles those); grayscale
+    // coverage packs at any of 1/2/4/8 bpp, where 1-bit suits crisp
+    // pixel fonts.
+    let valid = match format {
+        Format::Sdf => bit_depth == 4 || bit_depth == 8,
+        Format::Gray => matches!(bit_depth, 1 | 2 | 4 | 8),
+    };
+    if !valid {
+        return Err(format!(
+            "--bit-depth {bit_depth} invalid for --format {} (sdf: 4|8, gray: 1|2|4|8)",
+            match format {
+                Format::Sdf => "sdf",
+                Format::Gray => "gray",
+            }
+        )
+        .into());
     }
     let spread = spread.unwrap_or((size / 4).max(1));
     Ok(Args {
@@ -220,6 +271,7 @@ fn parse_args(args: &[String]) -> Result<Args> {
         size,
         bit_depth,
         spread,
+        format,
         out: out.ok_or("missing --out")?,
     })
 }
@@ -253,9 +305,12 @@ impl PathBuilder {
 
     fn map(&self, x: f32, y: f32) -> Point {
         // ttf-parser y points up from the baseline; we want y down
-        // from the cell top. Drop the glyph onto the baseline at
-        // 80% down the cell so descenders don't get clipped.
-        let baseline = self.cell_size * 0.8;
+        // from the cell top. Drop the glyph onto the baseline at ~80%
+        // down the cell so descenders don't get clipped. Round the
+        // baseline to a whole pixel — a fractional one (e.g. 9.6 at
+        // 12px) shifts a pixel font off its integer grid and destroys
+        // the crisp stem alignment.
+        let baseline = (self.cell_size * 0.8).round();
         Point {
             x: Fixed::from_f32(x * self.scale),
             y: Fixed::from_f32(baseline - y * self.scale),
@@ -384,6 +439,38 @@ fn quantize(signed: &[f32], bit_depth: u8, spread: f32) -> Vec<u8> {
     out
 }
 
+/// Pack 0..255 coverage to `bpp` bits per pixel, MSB-first and
+/// contiguous (no per-row byte padding) — the layout the runtime
+/// `render::backends::sw::label::read_packed` decoder expects. Note
+/// this is the OPPOSITE nibble order from `quantize` above, which
+/// targets the SDF `read_quantized` decoder; the two readers disagree,
+/// so grayscale must not reuse the SDF packer.
+fn pack_coverage(coverage: &[u8], bpp: u8) -> Vec<u8> {
+    let max_q = (1u16 << bpp) - 1;
+    let total_bits = coverage.len() * bpp as usize;
+    let mut out = vec![0u8; total_bits.div_ceil(8)];
+    let mut bit_pos = 0usize;
+    for &cov in coverage {
+        // Round, not truncate: at 1-bit (max_q=1) plain `cov/255` only
+        // yields 1 when cov is exactly 255, dropping every anti-aliased
+        // edge. Rounding puts the 1-bit threshold at 128. 4/8-bit are
+        // unaffected (8-bit stays identity).
+        let q = ((cov as u16 * max_q + 127) / 255) & max_q;
+        // MSB-first: the field's top bit lands at the most significant
+        // free bit of its starting byte.
+        let byte_idx = bit_pos / 8;
+        let bit_off = bit_pos % 8;
+        let shift = 16 - bit_off - bpp as usize;
+        let placed = (q as u32) << shift;
+        out[byte_idx] |= (placed >> 8) as u8;
+        if byte_idx + 1 < out.len() {
+            out[byte_idx + 1] |= placed as u8;
+        }
+        bit_pos += bpp as usize;
+    }
+    out
+}
+
 #[allow(clippy::too_many_arguments)]
 fn pack_payload(
     metrics: &[GlyphMetric],
@@ -452,6 +539,25 @@ mod tests {
         assert_eq!(q4[0] & 0x0F, 15, "+spread -> 15");
         assert_eq!(q4[0] >> 4, 8, "0 -> round(7.5) = 8");
         assert_eq!(q4[1] >> 4, 0, "-spread -> 0");
+    }
+
+    #[test]
+    fn quantize_decode_is_inverse() {
+        use mirui::render::font::sdf::quantized_to_signed_px;
+        let spread = 4u16;
+        // Decoding a quantized distance must land within one
+        // quantization step of the original (2*spread/15 ≈ 0.53 px
+        // for spread=4) — proves encode and decode share one scale.
+        let step = 2.0 * spread as f32 / 15.0;
+        for &d in &[-3.0_f32, -1.0, 0.0, 1.5, 3.0] {
+            let q = quantize(&[d], 4, spread as f32)[0] & 0x0F;
+            let decoded = quantized_to_signed_px(q, 4, spread);
+            let decoded_f = decoded.to_f32();
+            assert!(
+                (decoded_f - d).abs() <= step,
+                "d={d} decoded={decoded_f} step={step}",
+            );
+        }
     }
 
     #[test]
@@ -524,6 +630,7 @@ mod tests {
         }
 
         let body = pack_payload(&metrics, &data, size, bit_depth, spread, 3, 1, 5, bpg);
+        // Prefix as an Sdf FONT chunk — the reader now requires it.
         let mut payload = vec![0u8; FONT_CHUNK_HEADER_LEN + body.len()];
         FontChunkHeader {
             kind: FontChunkKind::Sdf,
@@ -545,5 +652,79 @@ mod tests {
         assert_eq!(provider.metrics().len(), 2);
         assert_eq!(provider.glyph('A', 16).unwrap().advance, 5);
         assert_eq!(provider.glyph('B', 16).unwrap().advance, 6);
+    }
+
+    // Mirror of the runtime read_packed decoder (MSB-first, contiguous)
+    // so the test pins encode/decode agreement without a runtime dep.
+    fn read_packed(data: &[u8], bit_pos: usize, bpp: u8) -> u16 {
+        let byte_idx = bit_pos / 8;
+        let bit_off = bit_pos % 8;
+        let hi = *data.get(byte_idx).unwrap_or(&0) as u16;
+        let lo = *data.get(byte_idx + 1).unwrap_or(&0) as u16;
+        let window = (hi << 8) | lo;
+        let shift = 16 - bit_off - bpp as usize;
+        let mask = (1u16 << bpp) - 1;
+        (window >> shift) & mask
+    }
+
+    #[test]
+    fn pack_coverage_4bit_round_trips_msb_first() {
+        // 0 / 136 / 255 → 4-bit quantize to 0 / 8 / 15.
+        let cov = [0u8, 136, 255];
+        let packed = pack_coverage(&cov, 4);
+        assert_eq!(read_packed(&packed, 0, 4), 0);
+        assert_eq!(read_packed(&packed, 4, 4), 8);
+        assert_eq!(read_packed(&packed, 8, 4), 15);
+    }
+
+    #[test]
+    fn pack_coverage_8bit_is_identity() {
+        let cov = [0u8, 64, 200, 255];
+        let packed = pack_coverage(&cov, 8);
+        assert_eq!(packed, cov);
+    }
+
+    #[test]
+    fn pack_coverage_1bit_thresholds_at_128() {
+        // 1-bit pixel font: coverage rounds to on/off at the midpoint,
+        // not only at 255. 127 → 0, 128 → 1.
+        let cov = [0u8, 127, 128, 255];
+        let packed = pack_coverage(&cov, 1);
+        assert_eq!(read_packed(&packed, 0, 1), 0);
+        assert_eq!(read_packed(&packed, 1, 1), 0);
+        assert_eq!(read_packed(&packed, 2, 1), 1);
+        assert_eq!(read_packed(&packed, 3, 1), 1);
+    }
+
+    #[test]
+    fn pack_coverage_rows_pack_contiguously() {
+        // Three 4-bit pixels span 12 bits = 1.5 bytes; the 4th starts
+        // mid-byte. Verifies no per-row padding.
+        let cov = [255u8, 0, 255, 0];
+        let packed = pack_coverage(&cov, 4);
+        assert_eq!(packed.len(), 2);
+        assert_eq!(read_packed(&packed, 0, 4), 15);
+        assert_eq!(read_packed(&packed, 4, 4), 0);
+        assert_eq!(read_packed(&packed, 8, 4), 15);
+        assert_eq!(read_packed(&packed, 12, 4), 0);
+    }
+
+    #[test]
+    fn gray_payload_carries_font_chunk_header() {
+        let cov = vec![255u8; 16];
+        let body = pack_coverage(&cov, 4);
+        let mut payload = vec![0u8; FONT_CHUNK_HEADER_LEN + body.len()];
+        FontChunkHeader {
+            kind: FontChunkKind::Grayscale,
+            format: 4,
+            size: 16,
+        }
+        .write(&mut payload[..FONT_CHUNK_HEADER_LEN]);
+        payload[FONT_CHUNK_HEADER_LEN..].copy_from_slice(&body);
+
+        let h = FontChunkHeader::parse(&payload).unwrap();
+        assert_eq!(h.kind, FontChunkKind::Grayscale);
+        assert_eq!(h.format, 4);
+        assert_eq!(h.size, 16);
     }
 }

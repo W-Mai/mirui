@@ -6,7 +6,7 @@
 //! distance bytes (`bytes_per_glyph` per glyph, row-major,
 //! `source_size × source_size`).
 
-use crate::render::font::chunk::{FONT_CHUNK_HEADER_LEN, FontChunkHeader};
+use crate::render::font::chunk::{FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind};
 use crate::render::font::{Font, FontBackend, FontMetrics, FontProvider, Glyph, GlyphKind};
 use alloc::rc::Rc;
 
@@ -68,6 +68,8 @@ const _: () = assert!(core::mem::size_of::<GlyphMetric>() == METRIC_LEN);
 pub enum SdfFontError {
     /// Payload smaller than the chunk prefix + fixed header.
     PayloadTooShort,
+    /// Prefix is missing or its `kind` byte is not Sdf.
+    NotSdf,
     /// Header `version` field doesn't match what this build understands.
     UnsupportedVersion(u16),
     /// `bit_depth` must be 4 or 8.
@@ -100,7 +102,10 @@ impl SdfFontProvider {
     /// payload. The payload starts with a [`FontChunkHeader`] (kind =
     /// Sdf); the [`AtlasHeader`] and body follow it.
     pub fn from_mirx_chunk(payload: &'static [u8]) -> Result<Self, SdfFontError> {
-        FontChunkHeader::parse(payload).ok_or(SdfFontError::PayloadTooShort)?;
+        let prefix = FontChunkHeader::parse(payload).ok_or(SdfFontError::PayloadTooShort)?;
+        if prefix.kind != FontChunkKind::Sdf {
+            return Err(SdfFontError::NotSdf);
+        }
         let body = &payload[FONT_CHUNK_HEADER_LEN..];
         if body.len() < HEADER_LEN {
             return Err(SdfFontError::PayloadTooShort);
@@ -349,7 +354,6 @@ pub fn font_from_mirx_chunk(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::font::chunk::FontChunkKind;
     use alloc::vec::Vec;
 
     fn make_atlas(glyphs: &[(u32, u16, i8, i8)]) -> Vec<u8> {
@@ -504,6 +508,16 @@ mod tests {
         assert!(matches!(
             SdfFontProvider::from_mirx_chunk(leaked),
             Err(SdfFontError::InvalidBitDepth(5))
+        ));
+    }
+
+    #[test]
+    fn rejects_non_sdf_prefix() {
+        let mut bytes = make_atlas(&[(b'A' as u32, 5, 0, 0)]);
+        bytes[0] = FontChunkKind::Grayscale.to_u8();
+        assert!(matches!(
+            SdfFontProvider::from_mirx_chunk(leak(bytes)),
+            Err(SdfFontError::NotSdf)
         ));
     }
 
