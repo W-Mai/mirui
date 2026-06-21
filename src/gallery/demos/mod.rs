@@ -1,6 +1,7 @@
 pub mod absolute;
 pub mod animation;
 pub mod app_demo;
+pub mod atlas_font;
 pub mod book_flip;
 pub mod builder_form;
 pub mod butterfly;

@@ -13,6 +13,7 @@ gallery::register_demos! {
     ("enchants",             "enchants",             "Basics",      enchants,             480, 320),
     ("app_demo",             "app demo",             "Basics",      app_demo,             480, 320),
     ("font_token",           "font token",           "Basics",      font_token,           480, 320),
+    ("atlas_font",           "atlas font (sizes)",   "Basics",      atlas_font,           480, 320),
 
     ("animation",            "tween + ping pong",    "Animation",   animation,            320, 180),
     ("sdf_zoom",             "sdf zoom (smooth)",    "Animation",   sdf_zoom,             480, 320),
