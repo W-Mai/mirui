@@ -9,6 +9,7 @@
 
 pub mod bitmap_8x8;
 pub mod chunk;
+pub mod gray;
 pub mod sdf;
 
 pub use bitmap_8x8::{CHAR_H, CHAR_W, FONT_8X8, glyph};
