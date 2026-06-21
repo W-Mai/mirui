@@ -29,6 +29,25 @@ impl<'a> ChunkFile<'a> {
         let end = start.checked_add(entry.chunk_size as usize)?;
         buf.get(start..end)
     }
+
+    /// Every chunk payload of `chunk_type`, in table order. Lets a
+    /// caller pick among multiple same-typed chunks (e.g. several FONT
+    /// representations) by peeking each payload's own header. Entries
+    /// whose declared range falls outside `buf` are skipped.
+    pub fn chunk_payloads(
+        &self,
+        buf: &'a [u8],
+        chunk_type: u16,
+    ) -> impl Iterator<Item = &'a [u8]> + '_ {
+        self.entries
+            .iter()
+            .filter(move |e| e.chunk_type == chunk_type)
+            .filter_map(move |e| {
+                let start = e.chunk_offset as usize;
+                let end = start.checked_add(e.chunk_size as usize)?;
+                buf.get(start..end)
+            })
+    }
 }
 
 /// Only raw (`compress = 0`) IMAGE chunks are decoded; compressed chunks
@@ -321,6 +340,56 @@ pub fn encode_chunk_generic(chunk_type: u16, flags: u16, payload: &[u8]) -> Vec<
     out
 }
 
+/// Multi-chunk file: writes `chunks` (each `(chunk_type, flags,
+/// payload)`) into one CHUNK-layout buffer, table then payloads. The
+/// reader resolves them via [`ChunkFile::chunk_payload`] /
+/// [`ChunkFile::chunk_payloads`]. Primary header fields stay zeroed —
+/// a multi-chunk file (e.g. several FONT representations) has no single
+/// primary. `encode_chunk_generic` is the one-chunk special case.
+pub fn encode_chunks(chunks: &[(u16, u16, &[u8])]) -> Vec<u8> {
+    let count = chunks.len();
+    let chunk_table_offset = CHUNK_FILE_HEADER_LEN;
+    let payloads_start = chunk_table_offset + count * CHUNK_TABLE_ENTRY_LEN;
+    let total_payload: usize = chunks.iter().map(|(_, _, p)| p.len()).sum();
+    let file_size = payloads_start + total_payload;
+
+    let mut out = vec![0u8; file_size];
+
+    let file_header = FileHeader {
+        version_major: VERSION_MAJOR,
+        version_minor: VERSION_MINOR,
+        layout: Layout::Chunk,
+        flags: 0,
+    };
+    let mut prefix = [0u8; FILE_HEADER_LEN];
+    file_header.write_into(&mut prefix);
+    out[0..FILE_HEADER_LEN].copy_from_slice(&prefix);
+
+    out[8..10].copy_from_slice(&(count as u16).to_le_bytes());
+    out[12..16].copy_from_slice(&(chunk_table_offset as u32).to_le_bytes());
+    out[16..20].copy_from_slice(&(file_size as u32).to_le_bytes());
+    // Primary chunk type points at the first chunk so a reader has a
+    // hint, but no primary IMAGE decode happens for non-IMAGE types.
+    if let Some((first_type, _, _)) = chunks.first() {
+        out[20..22].copy_from_slice(&first_type.to_le_bytes());
+    }
+    let crc = crc32(&out[..40]);
+    out[40..44].copy_from_slice(&crc.to_le_bytes());
+
+    let mut payload_cursor = payloads_start;
+    for (i, (chunk_type, flags, payload)) in chunks.iter().enumerate() {
+        let entry_off = chunk_table_offset + i * CHUNK_TABLE_ENTRY_LEN;
+        out[entry_off..entry_off + 2].copy_from_slice(&chunk_type.to_le_bytes());
+        out[entry_off + 2..entry_off + 4].copy_from_slice(&flags.to_le_bytes());
+        out[entry_off + 4..entry_off + 8].copy_from_slice(&(payload_cursor as u32).to_le_bytes());
+        out[entry_off + 8..entry_off + 12].copy_from_slice(&(payload.len() as u32).to_le_bytes());
+        out[payload_cursor..payload_cursor + payload.len()].copy_from_slice(payload);
+        payload_cursor += payload.len();
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -492,5 +561,42 @@ mod tests {
         assert!(parsed.primary_image.is_none());
         let slice = parsed.chunk_payload(&encoded, chunk_type::FONT).unwrap();
         assert_eq!(slice, payload.as_slice());
+    }
+
+    #[test]
+    fn encode_chunks_round_trips_multiple_font_chunks() {
+        let a: Vec<u8> = (0u8..16).collect();
+        let b: Vec<u8> = (100u8..140).collect();
+        let c: Vec<u8> = vec![0xEE; 8];
+        let encoded = encode_chunks(&[
+            (chunk_type::FONT, ChunkEntry::FLAG_CRITICAL, &a),
+            (chunk_type::FONT, ChunkEntry::FLAG_CRITICAL, &b),
+            (chunk_type::META, 0, &c),
+        ]);
+        let parsed = parse_chunk(&encoded).unwrap();
+        assert_eq!(parsed.entries.len(), 3);
+
+        // Both FONT chunks come back in table order.
+        let fonts: Vec<&[u8]> = parsed.chunk_payloads(&encoded, chunk_type::FONT).collect();
+        assert_eq!(fonts.len(), 2);
+        assert_eq!(fonts[0], a.as_slice());
+        assert_eq!(fonts[1], b.as_slice());
+
+        // chunk_payload still returns the first match.
+        assert_eq!(
+            parsed.chunk_payload(&encoded, chunk_type::FONT).unwrap(),
+            a.as_slice()
+        );
+        assert_eq!(
+            parsed.chunk_payload(&encoded, chunk_type::META).unwrap(),
+            c.as_slice()
+        );
+    }
+
+    #[test]
+    fn encode_chunks_empty_is_valid_header() {
+        let encoded = encode_chunks(&[]);
+        let parsed = parse_chunk(&encoded).unwrap();
+        assert_eq!(parsed.entries.len(), 0);
     }
 }

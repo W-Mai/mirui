@@ -10,7 +10,8 @@ mod format;
 mod header;
 
 pub use chunk::{
-    ChunkFile, ImageChunk, ImageChunkInput, encode_chunk_generic, encode_chunk_image, parse_chunk,
+    ChunkFile, ImageChunk, ImageChunkInput, encode_chunk_generic, encode_chunk_image,
+    encode_chunks, parse_chunk,
 };
 pub use crc32::compute as crc32;
 pub use error::ParseError;
