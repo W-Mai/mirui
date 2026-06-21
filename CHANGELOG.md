@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.3] - 2026-06-21
+
+### Added
+
+- **Multi-representation font bundles** — one `.mirx` can hold several FONT chunks (e.g. a 10px and 12px pixel table plus a 24px SDF). `MultiFontProvider` parses them all and routes each glyph lookup by size through `select_font_chunk`: a pixel table while the request fits the largest baked size, the resizable SDF beyond it. To the caller it stays one `Font` with a size knob; the sub-tables are an enum (no per-representation heap allocation).
+- **`gen-mirx bundle a.mirx b.mirx --out c.mirx`** merges single-font atlases into one bundle. Since every FONT payload already carries its `FontChunkHeader` prefix, the merge is a pure container join — no re-rasterization.
+- **mirx multi-chunk writer** — `encode_chunks` writes several chunks into one file; `ChunkFile::chunk_payloads` enumerates every payload of a type so a reader can pick among same-typed chunks.
+- A `multi_font` gallery demo lays a row of glyphs at ascending sizes from a single bundle, showing the pixel→SDF handoff per glyph.
+
 ## [0.32.2] - 2026-06-21
 
 ### Added
