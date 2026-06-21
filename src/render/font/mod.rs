@@ -51,6 +51,19 @@ pub enum GlyphKind {
         bearing_x: i8,
         bearing_y: i8,
     },
+    /// Pre-rasterized grayscale coverage, `bpp` bits per pixel packed
+    /// MSB-first, `w × h` row-major. The stored value IS the alpha —
+    /// no distance math, no resampling — so this is the crisp path for
+    /// fixed-size small text where SDF undersamples thin stems.
+    /// `bearing_x` / `bearing_y` place the bitmap relative to the pen.
+    Grayscale {
+        coverage: &'static [u8],
+        bpp: u8,
+        w: u8,
+        h: u8,
+        bearing_x: i8,
+        bearing_y: i8,
+    },
 }
 
 /// Cheap font metadata that layout reads without touching glyph data.
