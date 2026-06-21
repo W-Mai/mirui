@@ -67,6 +67,20 @@ pub enum GlyphKind {
     },
 }
 
+/// Which representation a font wants for a given lookup. Used both as
+/// the `format` axis of a font cache key and to tell a multi-table
+/// provider which kind of glyph to hand back.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FontFormat {
+    /// Provider picks: grayscale if a fixed-size table covers the
+    /// requested size, else the scalable SDF table.
+    Auto,
+    /// Force pre-rasterized grayscale coverage.
+    Grayscale,
+    /// Force the scalable signed-distance-field table.
+    Sdf,
+}
+
 /// Cheap font metadata that layout reads without touching glyph data.
 ///
 /// All values in pixels. `line_height` is the recommended vertical
