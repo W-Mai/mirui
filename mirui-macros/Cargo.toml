@@ -1,6 +1,6 @@
 [package]
 name = "mirui-macros"
-version = "0.32.1"
+version = "0.32.2"
 edition = "2024"
 authors = ["Benign X <1341398182@qq.com>"]
 license = "MIT"

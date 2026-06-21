@@ -5,57 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.2] - 2026-06-21
+
+### Added
+
+- **Grayscale / pixel-font rendering** — `GlyphKind::Grayscale` carries a pre-rasterized coverage bitmap (`bpp` bits per pixel, MSB-first, `w × h` row-major) where the stored value is the alpha directly. No distance math or resampling, so it stays crisp for fixed-size small text where an SDF undersamples thin stems. The software label path blits it through `read_packed`, and the glyph cell carries a baked baseline so it lands on the integer pixel grid.
+- **`GrayFontProvider`** reads a coverage atlas from a `Grayscale`-kind `FontChunkHeader` payload, sharing the SDF atlas header and metric layout and borrowing the packed coverage from the `&'static` slice.
+- **`gen-mirx font --format gray`** bakes a coverage table at 1/2/4/8 bpp (1-bit suits crisp pixel fonts); `FontChunkKind` now distinguishes grayscale from SDF by the prefix, and the SDF reader rejects a non-SDF prefix instead of misparsing it.
+- An `atlas_font` gallery demo renders three lines — 10px and 12px 1-bit pixel tables plus a 24px SDF — side by side, and a render byte-hash regression gate covers the coverage blit path.
+
 ## [0.32.1] - 2026-06-20
 
 ### Added
 
-- **SDF text rendering** — `GlyphKind::Sdf` carries a signed-distance
-  atlas slice; the software label path bilinear-samples it and turns
-  the distance into one-pixel-wide anti-aliased coverage. One source
-  atlas resamples to any target size, so a larger `Font.size` grows the
-  glyph smoothly without re-baking. `SdfFontProvider` reads an atlas
-  from a `chunk_type::FONT` payload behind a `FontChunkHeader` prefix
-  (kind / format / source size), borrowing the distance buffer straight
-  from the `&'static` slice so it stays in flash.
-- **`cargo xtask gen-mirx font`** — bakes an SDF atlas from a TTF/OTF
-  and a charset: rasterizes each outline with a non-zero scanline fill,
-  runs a Euclidean distance transform clamped to `spread`, and
-  quantizes against that spread so the encoder is the exact inverse of
-  the runtime decoder.
-- **UTF-8 label decoding** — the label path decodes its byte stream as
-  UTF-8 so a multi-byte CJK sequence maps to one codepoint; invalid
-  bytes fall back to U+FFFD.
-- **`FontProvider::glyph` takes a `requested_size`** so a provider can
-  pick a representation by size; single-table providers ignore it.
-- A `sdf_zoom` gallery demo sweeps `Font.size` to grow text from a
-  single 24px atlas, plus off-screen SDF snapshot tools and a render
-  byte-hash regression gate.
+- **SDF text rendering** — `GlyphKind::Sdf` carries a signed-distance atlas slice; the software label path bilinear-samples it and turns the distance into one-pixel-wide anti-aliased coverage. One source atlas resamples to any target size, so a larger `Font.size` grows the glyph smoothly without re-baking. `SdfFontProvider` reads an atlas from a `chunk_type::FONT` payload behind a `FontChunkHeader` prefix (kind / format / source size), borrowing the distance buffer straight from the `&'static` slice so it stays in flash.
+- **`cargo xtask gen-mirx font`** — bakes an SDF atlas from a TTF/OTF and a charset: rasterizes each outline with a non-zero scanline fill, runs a Euclidean distance transform clamped to `spread`, and quantizes against that spread so the encoder is the exact inverse of the runtime decoder.
+- **UTF-8 label decoding** — the label path decodes its byte stream as UTF-8 so a multi-byte CJK sequence maps to one codepoint; invalid bytes fall back to U+FFFD.
+- **`FontProvider::glyph` takes a `requested_size`** so a provider can pick a representation by size; single-table providers ignore it.
+- A `sdf_zoom` gallery demo sweeps `Font.size` to grow text from a single 24px atlas, plus off-screen SDF snapshot tools and a render byte-hash regression gate.
 
 ## [0.32.0] - 2026-06-18
 
 ### Added
 
-- **`GlyphKind`** — `Glyph` carries a rasterization-scheme tag the
-  renderer matches on instead of assuming a single bitmap path. `Mono`
-  (8x8 bitmap rows, MSB-first) is the rendering variant; the enum is
-  `#[non_exhaustive]` so further schemes stay non-breaking.
-- **`FillRule`** — `scanline_fill` takes an explicit `EvenOdd` /
-  `NonZero` winding rule instead of hard-coding even-odd, the control
-  glyph outlines and overlapping subpaths need.
-- **`FontToken` in the prelude** — application code writes
-  `font: FontToken::Heading` without reaching for `render::font`; a
-  `font_token` gallery demo exercises the lookup.
+- **`GlyphKind`** — `Glyph` carries a rasterization-scheme tag the renderer matches on instead of assuming a single bitmap path. `Mono` (8x8 bitmap rows, MSB-first) is the rendering variant; the enum is `#[non_exhaustive]` so further schemes stay non-breaking.
+- **`FillRule`** — `scanline_fill` takes an explicit `EvenOdd` / `NonZero` winding rule instead of hard-coding even-odd, the control glyph outlines and overlapping subpaths need.
+- **`FontToken` in the prelude** — application code writes `font: FontToken::Heading` without reaching for `render::font`; a `font_token` gallery demo exercises the lookup.
 
 ### Changed
 
-- **Fonts resolve through `FontManager`** (a `ResourceManager<Font>`)
-  keyed by a `FontToken` cache string, sharing the per-key LRU, lazy
-  factories, and two-stage probe images already use. The token threads
-  through `Style`, the label draw command, the builder, and every
-  backend (sw, sdl_gpu, web_canvas, wgpu). `FontBackend::Custom` holds
-  an `Rc` so `Font` is `Clone`; the manager's fallback is the bundled
-  8x8 bitmap, so an unregistered token never leaves a widget without a
-  font.
+- **Fonts resolve through `FontManager`** (a `ResourceManager<Font>`) keyed by a `FontToken` cache string, sharing the per-key LRU, lazy factories, and two-stage probe images already use. The token threads through `Style`, the label draw command, the builder, and every backend (sw, sdl_gpu, web_canvas, wgpu). `FontBackend::Custom` holds an `Rc` so `Font` is `Clone`; the manager's fallback is the bundled 8x8 bitmap, so an unregistered token never leaves a widget without a font.
 
 ## [0.31.0] - 2026-06-18
 
