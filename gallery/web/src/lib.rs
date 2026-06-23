@@ -35,6 +35,7 @@ gallery::register_demos! {
     ("offscreen",            "offscreen render",     "Effects",     offscreen,            360, 360),
     ("offscreen_modal",      "offscreen modal",      "Effects",     offscreen_modal,      360, 360),
     ("custom_view",          "custom view (Diamond)","Effects",     custom_view,          480, 200),
+    ("vector_mandala",       "vector mandala",       "Effects",     vector_mandala,       512, 512),
 
     ("click",                "click colors",         "Interaction", click,                480, 320),
     ("toggle",               "toggle",               "Interaction", toggle,               640, 320),

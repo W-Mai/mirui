@@ -56,5 +56,6 @@ pub mod theme_swap;
 pub mod three_body;
 pub mod toggle;
 pub mod transform;
+pub mod vector_mandala;
 pub mod walk;
 pub mod widgets;
