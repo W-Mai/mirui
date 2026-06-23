@@ -9,6 +9,7 @@
 
 mod bundle;
 mod font;
+mod vector;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -17,9 +18,10 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
     match sub {
         "font" => font::run(&args[1..]),
         "bundle" => bundle::run(&args[1..]),
+        "vector" => vector::run(&args[1..]),
         _ => {
             eprintln!(
-                "usage:\n  cargo xtask gen-mirx font --ttf <f.ttf> --charset <chars> --size <px> \\\n    --bit-depth <1|2|4|8> --format <sdf|gray> --out <atlas.mirx>\n  cargo xtask gen-mirx bundle <a.mirx> <b.mirx> ... --out <bundle.mirx>"
+                "usage:\n  cargo xtask gen-mirx font --ttf <f.ttf> --charset <chars> --size <px> \\\n    --bit-depth <1|2|4|8> --format <sdf|gray> --out <atlas.mirx>\n  cargo xtask gen-mirx bundle <a.mirx> <b.mirx> ... --out <bundle.mirx>\n  cargo xtask gen-mirx vector --in <scene.txt> --out <scene.mirx>"
             );
             std::process::exit(1);
         }
