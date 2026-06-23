@@ -149,6 +149,7 @@ pub fn parse_chunk(buf: &[u8]) -> Result<ChunkFile<'_>, ParseError> {
         if entry.chunk_type != chunk_type::IMAGE
             && entry.chunk_type != chunk_type::FONT
             && entry.chunk_type != chunk_type::META
+            && entry.chunk_type != chunk_type::VECTOR
             && entry.is_critical()
         {
             return Err(ParseError::UnknownCriticalChunk(entry.chunk_type));
@@ -598,5 +599,17 @@ mod tests {
         let encoded = encode_chunks(&[]);
         let parsed = parse_chunk(&encoded).unwrap();
         assert_eq!(parsed.entries.len(), 0);
+    }
+
+    #[test]
+    fn critical_vector_chunk_is_accepted() {
+        let payload: Vec<u8> = (0u8..24).collect();
+        let encoded = encode_chunk_generic(chunk_type::VECTOR, ChunkEntry::FLAG_CRITICAL, &payload);
+        let parsed = parse_chunk(&encoded).unwrap();
+        let entry = parsed.entries[0];
+        assert_eq!(entry.chunk_type, chunk_type::VECTOR);
+        assert!(entry.is_critical());
+        let slice = parsed.chunk_payload(&encoded, chunk_type::VECTOR).unwrap();
+        assert_eq!(slice, payload.as_slice());
     }
 }
