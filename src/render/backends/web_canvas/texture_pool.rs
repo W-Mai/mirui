@@ -55,6 +55,28 @@ pub fn new_pool() -> TexturePool {
         .build()
 }
 
+/// Keys a rendered text label on content only — no clip / position —
+/// so a label keeps hitting the cache while resize reflows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct GlyphKey {
+    pub text_hash: u64,
+    pub family_ptr: usize,
+    pub size: u16,
+    pub color: u32,
+    pub opa: u8,
+    pub scale: u16,
+}
+
+const GLYPH_BUDGET: usize = 8 * 1024 * 1024;
+
+pub type GlyphPool = Cache<GlyphKey, CachedOffscreen, Lru, HashLookup<GlyphKey>>;
+
+pub fn new_glyph_pool() -> GlyphPool {
+    Cache::builder()
+        .max_size(MaxSize::Bytes(GLYPH_BUDGET))
+        .build()
+}
+
 pub fn upload(src: &Texture) -> Option<CachedOffscreen> {
     let rgba = texture_to_rgba8(src)?;
     let canvas = OffscreenCanvas::new(src.width as u32, src.height as u32).ok()?;

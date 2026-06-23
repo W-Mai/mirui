@@ -9,7 +9,7 @@ use alloc::string::String;
 
 use web_sys::CanvasRenderingContext2d;
 
-use self::texture_pool::{TextureKey, TexturePool, new_pool};
+use self::texture_pool::{GlyphKey, GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
 use crate::render::backends::sw::SwRenderer;
 use crate::render::canvas::Canvas;
 use crate::render::command::DrawCommand;
@@ -22,12 +22,14 @@ use crate::types::{Color, Fixed, Point, Rect, Viewport};
 
 pub struct WebCanvasRendererFactory {
     texture_pool: TexturePool,
+    glyph_pool: GlyphPool,
 }
 
 impl WebCanvasRendererFactory {
     pub fn new() -> Self {
         Self {
             texture_pool: new_pool(),
+            glyph_pool: new_glyph_pool(),
         }
     }
 }
@@ -70,6 +72,32 @@ impl WebCanvasRenderer<'_> {
 
     fn dpr(&self) -> f64 {
         self.viewport.scale().to_f32() as f64
+    }
+
+    // Text extent for the offscreen buffer. Must mirror the sw label
+    // path's advance accumulation at scale=1 (the buffer renders with
+    // Viewport scale 1), or the buffer clips the text. +1px row so the
+    // AA bottom edge survives. Placeholder until a layout engine lands.
+    fn measure_text_extent(&self, font: &crate::render::font::Font, text: &[u8]) -> (i32, i32) {
+        use crate::render::font::GlyphKind;
+        let requested = font.size.max(1);
+        let chars = core::str::from_utf8(text)
+            .map(|s| s.chars().collect::<alloc::vec::Vec<_>>())
+            .unwrap_or_else(|_| text.iter().map(|&b| b as char).collect());
+        let mut w: i32 = 0;
+        for ch in chars {
+            let Some(g) = font.glyph(ch, requested) else {
+                continue;
+            };
+            w += match &g.kind {
+                GlyphKind::Sdf { source_size, .. } => {
+                    g.advance as i32 * requested as i32 / (*source_size as i32).max(1)
+                }
+                _ => g.advance as i32,
+            };
+        }
+        let h = (font.metrics().line_height as i32).max(requested as i32) + 1;
+        (w, h)
     }
 
     /// Push a clip rect onto the context state stack. The clip lives
@@ -606,60 +634,85 @@ impl Canvas for WebCanvasRenderer<'_> {
         color: &Color,
         opa: u8,
     ) {
-        // The browser's fillText can't render mirui's SDF / coverage
-        // atlases, so software-render the glyphs into a clip-sized RGBA
-        // buffer (transparent background, so coverage lands in the alpha
-        // channel) and composite that buffer onto the canvas. The result
-        // is pixel-identical to the sw backend.
-        let cw = clip.w.to_int().max(1);
-        let ch = clip.h.to_int().max(1);
-        let mut buf = alloc::vec![0u8; cw as usize * ch as usize * 4];
-        {
-            let mut tex = Texture::new(&mut buf, cw as u16, ch as u16, ColorFormat::RGBA8888);
-            tex.alpha_mode = AlphaMode::Blend;
-            let mut sw = SwRenderer::new(tex);
-            sw.viewport = Viewport::new(cw as u16, ch as u16, Fixed::ONE);
-            // Shift into buffer space: the clip origin becomes (0, 0).
-            let local_pos = Point {
-                x: pos.x - clip.x,
-                y: pos.y - clip.y,
-            };
-            let local_clip = Rect {
-                x: Fixed::ZERO,
-                y: Fixed::ZERO,
-                w: clip.w,
-                h: clip.h,
-            };
-            sw.draw_label(&local_pos, text, font, &local_clip, color, opa);
-        }
-        // sw blends onto a transparent buffer, leaving premultiplied
-        // alpha (edge rgb already scaled by coverage). put_image_data
-        // wants straight alpha, so un-premultiply the AA edges or
-        // draw_image scales them a second time, darkening the fringe.
-        for px in buf.chunks_exact_mut(4) {
-            let a = px[3] as u32;
-            if a != 0 && a != 255 {
-                for c in &mut px[..3] {
-                    *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
-                }
-            }
-        }
-        let tmp = Texture::new(&mut buf, cw as u16, ch as u16, ColorFormat::RGBA8888);
-        let Some(off) = texture_pool::upload(&tmp) else {
+        // fillText can't render mirui's SDF / coverage atlases, so
+        // software-render glyphs into a text-extent-sized RGBA buffer
+        // (transparent bg → coverage in alpha) and composite onto the
+        // canvas. Sized to the text and keyed on content (not clip), so
+        // resize reflows the blit position without rebuilding the glyph.
+        let (tw, th) = self.measure_text_extent(font, text);
+        if tw == 0 || th == 0 {
             return;
+        }
+        let mut text_hash: u64 = 0xcbf2_9ce4_8422_2325;
+        for &b in text {
+            text_hash ^= b as u64;
+            text_hash = text_hash.wrapping_mul(0x100_0000_01b3);
+        }
+        let key = GlyphKey {
+            text_hash,
+            family_ptr: font.family.as_ptr() as usize,
+            size: font.size,
+            color: (color.r as u32) << 24
+                | (color.g as u32) << 16
+                | (color.b as u32) << 8
+                | color.a as u32,
+            opa,
+            scale: self.viewport.scale().to_int().clamp(1, u16::MAX as i32) as u16,
+        };
+        let handle = match self
+            .factory
+            .glyph_pool
+            .entry(key)
+            .or_try_insert_with::<_, ()>(|| {
+                let mut buf = alloc::vec![0u8; tw as usize * th as usize * 4];
+                {
+                    let mut tex =
+                        Texture::new(&mut buf, tw as u16, th as u16, ColorFormat::RGBA8888);
+                    tex.alpha_mode = AlphaMode::Blend;
+                    let mut sw = SwRenderer::new(tex);
+                    sw.viewport = Viewport::new(tw as u16, th as u16, Fixed::ONE);
+                    let origin = Point {
+                        x: Fixed::ZERO,
+                        y: Fixed::ZERO,
+                    };
+                    let full = Rect {
+                        x: Fixed::ZERO,
+                        y: Fixed::ZERO,
+                        w: Fixed::from_int(tw),
+                        h: Fixed::from_int(th),
+                    };
+                    sw.draw_label(&origin, text, font, &full, color, opa);
+                }
+                // sw blends onto a transparent buffer, leaving premultiplied
+                // alpha (edge rgb already scaled by coverage). put_image_data
+                // wants straight alpha, so un-premultiply the AA edges or
+                // draw_image scales them a second time, darkening the fringe.
+                for px in buf.chunks_exact_mut(4) {
+                    let a = px[3] as u32;
+                    if a != 0 && a != 255 {
+                        for c in &mut px[..3] {
+                            *c = ((*c as u32 * 255 + a / 2) / a).min(255) as u8;
+                        }
+                    }
+                }
+                let tmp = Texture::new(&mut buf, tw as u16, th as u16, ColorFormat::RGBA8888);
+                texture_pool::upload(&tmp).ok_or(())
+            }) {
+            Ok(h) => h,
+            Err(_) => return,
         };
         self.push_clip(clip);
         let ctx = self.ctx();
         let _ = ctx.draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
-            &off.canvas,
+            &handle.get().canvas,
             0.0,
             0.0,
-            cw as f64,
-            ch as f64,
-            clip.x.to_f32() as f64,
-            clip.y.to_f32() as f64,
-            cw as f64,
-            ch as f64,
+            tw as f64,
+            th as f64,
+            pos.x.to_f32() as f64,
+            pos.y.to_f32() as f64,
+            tw as f64,
+            th as f64,
         );
         self.pop_clip();
     }
