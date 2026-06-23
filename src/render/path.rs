@@ -1,7 +1,7 @@
 use crate::types::{Fixed, Point, Rect};
 use alloc::vec::Vec;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PathCmd {
     MoveTo(Point),
     LineTo(Point),

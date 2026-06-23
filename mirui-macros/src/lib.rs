@@ -2,6 +2,7 @@ extern crate proc_macro;
 
 mod compose;
 mod diag;
+mod vector;
 mod visit_id;
 
 use proc_macro::TokenStream;
@@ -1723,6 +1724,16 @@ pub fn ui(input: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn compose_backend(input: TokenStream) -> TokenStream {
     compose::expand(input.into()).into()
+}
+
+#[proc_macro]
+pub fn path(input: TokenStream) -> TokenStream {
+    vector::expand_path(input.into()).into()
+}
+
+#[proc_macro]
+pub fn scene(input: TokenStream) -> TokenStream {
+    vector::expand_scene(input.into()).into()
 }
 
 /// ```rust,ignore

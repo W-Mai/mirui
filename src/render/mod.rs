@@ -9,6 +9,7 @@ pub mod partial;
 pub mod path;
 pub mod raster;
 pub mod renderer;
+pub mod scene;
 pub mod texture;
 
 #[cfg(feature = "sdl-gpu")]
