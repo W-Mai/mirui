@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.1] - 2026-06-25
+
+### Added
+
+- **Group opacity in vector scenes** — `SceneOp::GroupBegin`'s `opacity` slot used to round-trip through the codec but get dropped at replay. Replay now maintains a `GroupFrame { transform, alpha }` stack that multiplies the group alpha into every leaf op's `opa` field (u16 intermediate, no overflow at deep nesting). `opacity == 255` and absent `opacity` skip alpha math; `opacity == 0` walks the group depth to the matching `GroupEnd` so nothing reaches the renderer; `0 < N < 255` checks `disjoint_hint` first, then runs `bbox::pairwise_disjoint` if the hint is absent. Overlapping children at non-trivial opacity return `ReplayError::GroupOpacityNeedsOffscreen` rather than rendering with seams.
+- **`Scene::group_alpha_multiply`** as a sibling of `Scene::group_opacity`. Both encode the same wire bytes; the names mark intent at the call site. `group_opacity` is strict SVG `<g opacity>` semantics (would need an offscreen layer for overlapping children) and runs the bbox check at close time so disjoint subtrees auto-set the wire hint. `group_alpha_multiply` is "multiply N into each child's alpha" — what concentric petals or stacked-ring motifs want, where children are intentionally independently transparent.
+- **`scene!` macro `group ... opacity N` token** — folds an opacity byte into the group header alongside the existing `translate / rotate / scale` chain. `group opacity 200` (alone) or `group translate 5 5 opacity 128` (mixed) both parse.
+- **`gen-mirx vector` group accepts optional opacity and disjoint args** — `group <tx> <ty> [<opacity>] [disjoint]`. The literal `disjoint` token sets the wire hint so authors who know their children don't overlap can skip the runtime check.
+- **`SceneOp::GroupBegin.disjoint_hint`** — sixth slot bit (`SLOT_DISJOINT_HINT = 1 << 5`) on the GROUP encoding, no payload byte (presence in `slot_bits` is the value). Lets encoders that can statically prove pairwise-disjoint direct children short-circuit replay's bbox check.
+- **`SceneOp::Blit.opa` and `DrawCommand::Blit.opa`** — Blit was the only `DrawCommand` variant without per-op alpha; both now carry it. Codec uses `FIELD_ALPHA = 1 << 3`, written only when `opa != 255`, so the common opaque case stays the same byte count. Backend pixel-loop alpha multiply for Blit is staged separately; the field plumbing lands first so the field surface is stable.
+- **`Fixed::from_f32` / `Fixed::to_f32` / `Fixed64::from_f32` / `Fixed64::to_f32` are `const fn`** — they were stable-Rust-const-compatible all along (plain integer multiply / cast / divide). Marking them `const` lets a caller write `Fixed::from_f32(1.5)` directly in a `const` initializer instead of falling back to `Fixed::from_raw(384)` with a hand-rolled shift, which was an active source of silent format / scale drift in demos. `Fixed64::to_fixed` stays runtime because it routes through `Ord::clamp`.
+- **`vector_mandala` demo's petal layers** spell their scales as `Fixed::from_f32(1.5)` etc. instead of raw Q24.8 magic numbers, and wrap each petal in `group_alpha_multiply` so the layered translucence actually composites correctly.
+
 ## [0.33.0] - 2026-06-24
 
 ### Added
