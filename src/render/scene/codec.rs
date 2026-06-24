@@ -46,6 +46,8 @@ pub enum CodecError {
     BadUtf8,
     UnbalancedGroup,
     BadSkipOffset,
+    UnsupportedScale(u8),
+    UnknownFlags(u8),
 }
 
 const VERSION: u8 = 1;
@@ -723,8 +725,14 @@ pub fn decode_scene(payload: &[u8]) -> Result<Vec<SceneOp>, CodecError> {
     if version != VERSION {
         return Err(CodecError::UnknownVersion(version));
     }
-    let _scale = head.u8()?;
-    let _flags = head.u8()?;
+    let scale = head.u8()?;
+    if scale != DEFAULT_SCALE {
+        return Err(CodecError::UnsupportedScale(scale));
+    }
+    let flags = head.u8()?;
+    if flags != 0 {
+        return Err(CodecError::UnknownFlags(flags));
+    }
     let stored_crc = head.u32()?;
 
     let body = &payload[VectorChunkHeader::SIZE..];
@@ -795,6 +803,10 @@ pub fn decode_scene(payload: &[u8]) -> Result<Vec<SceneOp>, CodecError> {
                 }
                 depth -= 1;
                 ops.push(SceneOp::GroupEnd);
+            }
+            0x40..=0x7F => {
+                let len = r.varuint()? as usize;
+                let _ = r.take(len)?;
             }
             _ => ops.push(read_op(&mut r, tag)?),
         }
@@ -1121,5 +1133,49 @@ mod tests {
         ];
         assert_eq!(encode_scene(&ops).unwrap(), golden);
         assert_eq!(decode_scene(golden).unwrap(), ops);
+    }
+
+    #[test]
+    fn skippable_extension_op_is_skipped() {
+        let line = vec![SceneOp::Line {
+            p1: Point::ZERO,
+            p2: Point::ZERO,
+            transform: Transform::IDENTITY,
+            color: red(),
+            width: Fixed::from_int(1),
+            opa: 255,
+        }];
+        let mut bytes = encode_scene(&line).unwrap();
+        let body_start = VectorChunkHeader::SIZE;
+        let injected: &[u8] = &[0x40, 0x03, 0xAA, 0xBB, 0xCC];
+        bytes.splice(body_start..body_start, injected.iter().copied());
+        let new_crc = mirx::crc32(&bytes[body_start..]);
+        bytes[4..8].copy_from_slice(&new_crc.to_le_bytes());
+
+        assert_eq!(decode_scene(&bytes).unwrap(), line);
+    }
+
+    #[test]
+    fn unsupported_scale_is_rejected() {
+        let mut bytes = encode_scene(&[]).unwrap();
+        bytes[2] = 7;
+        let new_crc = mirx::crc32(&bytes[VectorChunkHeader::SIZE..]);
+        bytes[4..8].copy_from_slice(&new_crc.to_le_bytes());
+        assert!(matches!(
+            decode_scene(&bytes),
+            Err(CodecError::UnsupportedScale(7))
+        ));
+    }
+
+    #[test]
+    fn unknown_flag_is_rejected() {
+        let mut bytes = encode_scene(&[]).unwrap();
+        bytes[3] = VectorChunkHeader::FLAG_HAS_RESOURCE_TABLE;
+        let new_crc = mirx::crc32(&bytes[VectorChunkHeader::SIZE..]);
+        bytes[4..8].copy_from_slice(&new_crc.to_le_bytes());
+        assert!(matches!(
+            decode_scene(&bytes),
+            Err(CodecError::UnknownFlags(_))
+        ));
     }
 }

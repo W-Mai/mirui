@@ -6,6 +6,7 @@ use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
 use crate::render::path::Path;
+use crate::render::raster::FillRule;
 use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
 use crate::types::{Rect, Transform};
@@ -15,6 +16,7 @@ pub enum ReplayError {
     UnbalancedGroup,
     UnresolvedFont,
     UnresolvedTexture,
+    UnsupportedFillRule,
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -172,8 +174,11 @@ pub fn replay_scene(
                 transform,
                 color,
                 opa,
-                fill_rule: _,
+                fill_rule,
             } => {
+                if !matches!(fill_rule, FillRule::EvenOdd) {
+                    return Err(ReplayError::UnsupportedFillRule);
+                }
                 let p = Path {
                     cmds: path.to_vec(),
                 };
@@ -309,6 +314,29 @@ mod tests {
         assert_eq!(
             replay_scene(&ops, &mut r, &rect(), &NoResolver),
             Err(ReplayError::UnbalancedGroup)
+        );
+    }
+
+    #[test]
+    fn nonzero_fill_rule_is_rejected() {
+        let ops = vec![SceneOp::FillPath {
+            path: alloc::borrow::Cow::Borrowed(&[]),
+            transform: Transform::IDENTITY,
+            color: Color {
+                r: 0,
+                g: 0,
+                b: 0,
+                a: 0,
+            },
+            opa: 0,
+            fill_rule: FillRule::NonZero,
+        }];
+        let mut r = CaptureRenderer {
+            transforms: Vec::new(),
+        };
+        assert_eq!(
+            replay_scene(&ops, &mut r, &rect(), &NoResolver),
+            Err(ReplayError::UnsupportedFillRule)
         );
     }
 }

@@ -116,6 +116,9 @@ pub struct VectorChunkHeader {
 impl VectorChunkHeader {
     pub const MAGIC: u8 = 0x03;
     pub const SIZE: usize = 8;
+    /// Reserved for a not-yet-specified in-VECTOR resource table. Decoders
+    /// in this revision reject any non-zero flag byte, so writers must keep
+    /// this clear until the table format lands.
     pub const FLAG_HAS_RESOURCE_TABLE: u8 = 1 << 0;
 }
 
