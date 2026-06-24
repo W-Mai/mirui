@@ -18,7 +18,10 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y libsdl2-dev libevdev-dev
+      - uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: libsdl2-dev libevdev-dev
+          version: 1.0
       - run: cargo install xrune-fmt
       - run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/W-Mai/Cha/releases/download/v1.14.0/cha-cli-installer.sh | sh
       - run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
