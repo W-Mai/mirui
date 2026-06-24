@@ -2,7 +2,6 @@
 
 extern crate alloc;
 
-use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
 #[cfg(feature = "std")]
@@ -10,9 +9,6 @@ use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::draw::*;
 use crate::prelude::*;
 use crate::render::font::Font;
-use crate::render::path::PathCmd;
-use crate::render::raster::FillRule;
-use crate::render::scene::replay::replay_scene;
 use crate::render::scene::resolver::SliceResolver;
 use crate::render::scene::{Scene, SceneOp};
 use crate::render::texture::Texture;
@@ -42,11 +38,13 @@ const PETAL_MOTIF: &[SceneOp] = scene! {
     rect -3 -118 6 22 3 255 226 138 255 255
 };
 
-const EMBLEM_PATH: &[PathCmd] = path! {
-    M 0 -18;
-    C 10 -10 10 10 0 18;
-    C -10 10 -10 -10 0 -18;
-    Z
+const EMBLEM: &[SceneOp] = scene! {
+    fill_path {
+        M 0 -18;
+        C 10 -10 10 10 0 18;
+        C -10 10 -10 -10 0 -18;
+        Z
+    } 255 226 138 255 255
 };
 
 const RING_DOT: &[SceneOp] = scene! {
@@ -59,7 +57,7 @@ const LAYERS: [(Fixed, u8); 3] = [
     (Fixed::from_raw(140), 220),
 ];
 
-fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Vec<SceneOp> {
+fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
     let n = petals.max(1) as i32;
     let center = Transform::translate(cx, cy);
     let step = Fixed::from_int(360) / Fixed::from_int(n);
@@ -96,15 +94,11 @@ fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Vec<SceneOp
         },
     );
 
-    s.push(SceneOp::FillPath {
-        path: Cow::Borrowed(EMBLEM_PATH),
-        transform: center,
-        color: Color::rgb(255, 226, 138),
-        opa: 255,
-        fill_rule: FillRule::EvenOdd,
+    s.group(center, |s| {
+        s.extend_slice(EMBLEM);
     });
 
-    s.into_ops()
+    s
 }
 
 fn vector_mandala_render(
@@ -127,12 +121,12 @@ fn vector_mandala_render(
     let cx = rect.x + rect.w / Fixed::from_int(2);
     let cy = rect.y + rect.h / Fixed::from_int(2);
 
-    let ops = build_frame(cx, cy, state.petals, spin_deg);
+    let scene = build_frame(cx, cy, state.petals, spin_deg);
 
     let fonts: [(&str, &Font); 0] = [];
     let textures: [(&str, &Texture); 0] = [];
     let resolver = SliceResolver::new(&fonts, &textures);
-    let _ = replay_scene(&ops, renderer, ctx.clip, &resolver);
+    let _ = scene.replay(renderer, ctx.clip, &resolver);
 }
 
 pub fn vector_mandala_view() -> View {
@@ -183,7 +177,6 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::scene::codec;
     use crate::ui::Children;
     use crate::ui::IdMap;
     use crate::ui::view::ViewRegistry;
@@ -206,15 +199,15 @@ mod tests {
 
     #[test]
     fn frame_ops_non_empty_and_group_balanced() {
-        let ops = build_frame(
+        let scene = build_frame(
             Fixed::from_int(240),
             Fixed::from_int(240),
             10,
             Fixed::from_int(30),
         );
-        assert!(!ops.is_empty());
+        assert!(!scene.ops.is_empty());
         let mut depth = 0i32;
-        for op in &ops {
+        for op in &scene.ops {
             match op {
                 SceneOp::GroupBegin { .. } => depth += 1,
                 SceneOp::GroupEnd => {
@@ -229,10 +222,10 @@ mod tests {
 
     #[test]
     fn frame_has_two_level_nesting() {
-        let ops = build_frame(Fixed::ZERO, Fixed::ZERO, 6, Fixed::ZERO);
+        let scene = build_frame(Fixed::ZERO, Fixed::ZERO, 6, Fixed::ZERO);
         let mut depth = 0i32;
         let mut max_depth = 0i32;
-        for op in &ops {
+        for op in &scene.ops {
             match op {
                 SceneOp::GroupBegin { .. } => {
                     depth += 1;
@@ -247,9 +240,9 @@ mod tests {
 
     #[test]
     fn frame_roundtrips_through_codec() {
-        let ops = build_frame(Fixed::ZERO, Fixed::ZERO, 4, Fixed::ZERO);
-        let bytes = codec::encode_scene(&ops).unwrap();
-        let back = codec::decode_scene(&bytes).unwrap();
-        assert_eq!(back, ops);
+        let scene = build_frame(Fixed::ZERO, Fixed::ZERO, 4, Fixed::ZERO);
+        let bytes = scene.encode().unwrap();
+        let back = Scene::decode(&bytes).unwrap();
+        assert_eq!(back.ops, scene.ops);
     }
 }
