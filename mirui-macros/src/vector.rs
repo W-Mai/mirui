@@ -633,6 +633,7 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                     clip: ::core::option::Option::None,
                     mask: ::core::option::Option::None,
                     filter: ::core::option::Option::None,
+                    disjoint_hint: false,
                 }
             }
         }

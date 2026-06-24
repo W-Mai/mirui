@@ -266,6 +266,7 @@ mod tests {
                 clip: None,
                 mask: None,
                 filter: None,
+                disjoint_hint: false,
             },
             fill(child_tf),
             SceneOp::GroupEnd,

@@ -265,6 +265,7 @@ mod tests {
                 clip: None,
                 mask: None,
                 filter: None,
+                disjoint_hint: false,
             },
             rect_op(0, 0, 10, 10),
             rect_op(5, 5, 10, 10),

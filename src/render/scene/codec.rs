@@ -27,6 +27,7 @@ const SLOT_OPACITY: u32 = 1 << 1;
 const SLOT_CLIP: u32 = 1 << 2;
 const SLOT_MASK: u32 = 1 << 3;
 const SLOT_FILTER: u32 = 1 << 4;
+const SLOT_DISJOINT_HINT: u32 = 1 << 5;
 
 const RES_KIND_INDEX: u8 = 0;
 const RES_KIND_TOKEN: u8 = 1;
@@ -653,6 +654,7 @@ pub fn encode_scene(ops: &[SceneOp]) -> Result<Vec<u8>, CodecError> {
                 clip,
                 mask,
                 filter,
+                disjoint_hint,
             } => {
                 body.push(TAG_GROUP_BEGIN);
                 let mut bits = 0u32;
@@ -670,6 +672,9 @@ pub fn encode_scene(ops: &[SceneOp]) -> Result<Vec<u8>, CodecError> {
                 }
                 if filter.is_some() {
                     bits |= SLOT_FILTER;
+                }
+                if *disjoint_hint {
+                    bits |= SLOT_DISJOINT_HINT;
                 }
                 write_varuint(&mut body, bits);
                 let patch_pos = body.len();
@@ -788,6 +793,7 @@ pub fn decode_scene(payload: &[u8]) -> Result<Vec<SceneOp>, CodecError> {
                 } else {
                     None
                 };
+                let disjoint_hint = bits & SLOT_DISJOINT_HINT != 0;
                 depth += 1;
                 ops.push(SceneOp::GroupBegin {
                     transform,
@@ -795,6 +801,7 @@ pub fn decode_scene(payload: &[u8]) -> Result<Vec<SceneOp>, CodecError> {
                     clip,
                     mask,
                     filter,
+                    disjoint_hint,
                 });
             }
             TAG_GROUP_END => {
@@ -1016,6 +1023,7 @@ mod tests {
             clip: None,
             mask: None,
             filter: None,
+            disjoint_hint: false,
         }
     }
 
@@ -1042,6 +1050,7 @@ mod tests {
                 clip: Some(ResourceRef::Index(2)),
                 mask: None,
                 filter: Some(ResourceRef::Token("blur".into())),
+                disjoint_hint: false,
             },
             SceneOp::Line {
                 p1: Point::ZERO,
@@ -1177,5 +1186,32 @@ mod tests {
             decode_scene(&bytes),
             Err(CodecError::UnknownFlags(_))
         ));
+    }
+
+    #[test]
+    fn group_disjoint_hint_roundtrips() {
+        let mk = |hint: bool| {
+            vec![
+                SceneOp::GroupBegin {
+                    transform: None,
+                    opacity: Some(200),
+                    clip: None,
+                    mask: None,
+                    filter: None,
+                    disjoint_hint: hint,
+                },
+                SceneOp::GroupEnd,
+            ]
+        };
+        for hint in [false, true] {
+            let ops = mk(hint);
+            let bytes = encode_scene(&ops).unwrap();
+            let back = decode_scene(&bytes).unwrap();
+            assert_eq!(back, ops);
+            match &back[0] {
+                SceneOp::GroupBegin { disjoint_hint, .. } => assert_eq!(*disjoint_hint, hint),
+                _ => panic!("expected GroupBegin"),
+            }
+        }
     }
 }

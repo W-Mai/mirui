@@ -38,6 +38,7 @@ pub enum SceneOp {
         clip: Option<ResourceRef>,
         mask: Option<ResourceRef>,
         filter: Option<ResourceRef>,
+        disjoint_hint: bool,
     },
     GroupEnd,
     FillPath {
@@ -153,6 +154,7 @@ impl Scene {
             clip: None,
             mask: None,
             filter: None,
+            disjoint_hint: false,
         });
         body(self);
         self.ops.push(SceneOp::GroupEnd);
@@ -171,6 +173,7 @@ impl Scene {
             clip: None,
             mask: None,
             filter: None,
+            disjoint_hint: false,
         });
         body(self);
         self.ops.push(SceneOp::GroupEnd);
@@ -393,6 +396,7 @@ mod tests {
                 clip: None,
                 mask: None,
                 filter: None,
+                disjoint_hint: false,
             },
             SceneOp::GroupBegin {
                 transform: Some(Transform::IDENTITY),
@@ -400,6 +404,7 @@ mod tests {
                 clip: None,
                 mask: None,
                 filter: None,
+                disjoint_hint: false,
             },
             dot,
             SceneOp::GroupEnd,
