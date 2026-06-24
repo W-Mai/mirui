@@ -112,6 +112,7 @@ pub fn record_command(
             transform,
             quad,
             texture,
+            opa: _,
         } => SceneOp::Blit {
             texture: resolver.resolve_texture(texture),
             pos: *pos,

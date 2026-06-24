@@ -612,6 +612,7 @@ fn try_draw_offscreen(
             transform: *outer_tf,
             quad: outer_quad,
             texture: &tex_ref,
+            opa: 255,
         };
         renderer.draw(&blit_cmd, clip);
     }

@@ -65,6 +65,7 @@ pub enum DrawCommand<'a> {
         transform: Transform,
         quad: Option<[Point; 4]>,
         texture: &'a Texture<'a>,
+        opa: Opa,
     },
     /// Fill the closed region described by `path`. Path vertices are in
     /// logical pixels; under non-translate transforms the backend may

@@ -69,6 +69,7 @@ fn background_blur_render(
             transform: ctx.transform,
             quad: ctx.quad,
             texture: &tmp,
+            opa: 255,
         },
         ctx.clip,
     );

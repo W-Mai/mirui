@@ -80,6 +80,7 @@ fn image_render(
                     transform: ctx.transform,
                     quad: ctx.quad,
                     texture: &rc,
+                    opa: 255,
                 },
                 ctx.clip,
             );

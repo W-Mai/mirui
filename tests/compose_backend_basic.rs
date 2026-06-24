@@ -289,6 +289,7 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
             transform: Transform::IDENTITY,
             quad: None,
             texture: &tex,
+            opa: 255,
         },
         &rect,
     );

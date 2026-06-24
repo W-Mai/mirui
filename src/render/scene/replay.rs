@@ -165,6 +165,7 @@ pub fn replay_scene(
                         transform: top.compose(transform),
                         quad: *quad,
                         texture,
+                        opa: 255,
                     },
                     clip,
                 );

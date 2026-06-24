@@ -78,6 +78,7 @@ fn flip_into(
         transform,
         quad: None,
         texture: &tmp,
+        opa: 255,
     };
     renderer.draw(&cmd, clip);
 }
