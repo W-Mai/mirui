@@ -55,9 +55,9 @@ const RING_DOT: &[SceneOp] = scene! {
 };
 
 const LAYERS: [(Fixed, u8); 3] = [
-    (Fixed::from_raw(384), 235),
-    (Fixed::from_raw(256), 255),
-    (Fixed::from_raw(140), 220),
+    (Fixed::from_f32(1.5), 235),
+    (Fixed::from_f32(1.0), 255),
+    (Fixed::from_f32(0.547), 220),
 ];
 
 fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
@@ -73,7 +73,7 @@ fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
             for i in 0..n {
                 let angle = step * Fixed::from_int(i) + layer_phase;
                 let petal = Transform::rotate_deg(angle).compose(&Transform::scale(*scale, *scale));
-                s.group_opacity(petal, *opa, |s| {
+                s.group_alpha_multiply(petal, *opa, |s| {
                     s.extend_from_slice(PETAL_MOTIF);
                 });
             }
