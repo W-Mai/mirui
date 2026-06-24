@@ -65,12 +65,12 @@ impl Fixed {
     }
 
     #[inline]
-    pub fn from_f32(v: f32) -> Self {
+    pub const fn from_f32(v: f32) -> Self {
         Self((v * SCALE as f32) as i32)
     }
 
     #[inline]
-    pub fn to_f32(self) -> f32 {
+    pub const fn to_f32(self) -> f32 {
         self.0 as f32 / SCALE as f32
     }
 
@@ -432,12 +432,12 @@ impl Fixed64 {
     }
 
     #[inline]
-    pub fn from_f32(v: f32) -> Self {
+    pub const fn from_f32(v: f32) -> Self {
         Self((v * SCALE_64 as f32) as i64)
     }
 
     #[inline]
-    pub fn to_f32(self) -> f32 {
+    pub const fn to_f32(self) -> f32 {
         self.0 as f32 / SCALE_64 as f32
     }
 
