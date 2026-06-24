@@ -9,7 +9,7 @@
 //!   arc    <cx> <cy> <radius> <start_deg> <end_deg> <width> <r> <g> <b> <a> <opa>
 //!   label  <token> <x> <y> <r> <g> <b> <a> <opa> <text>
 //!   blit   <token> <px> <py> <sx> <sy>
-//!   group  <tx> <ty>
+//!   group  <tx> <ty> [<opacity>] [disjoint]
 //!   endgroup
 //!
 //! Coordinates are decimal (parsed into 24.8 fixed-point); colours and
@@ -146,16 +146,31 @@ fn parse_op(kind: &str, a: &[&str]) -> Result<SceneOp> {
                 size: point(a, 3)?,
                 transform: Transform::IDENTITY,
                 quad: None,
+                opa: 255,
             })
         }
         "group" => {
-            expect(a, 2, "group")?;
+            if a.len() < 2 || a.len() > 4 {
+                return Err(format!("`group` expects 2..=4 args, got {}", a.len()).into());
+            }
+            let opacity = if a.len() >= 3 {
+                Some(byte(a[2])?)
+            } else {
+                None
+            };
+            let disjoint_hint = a.len() == 4 && a[3] == "disjoint";
+            if a.len() == 4 && !disjoint_hint {
+                return Err(
+                    format!("`group` 4th arg must be literal `disjoint`, got `{}`", a[3]).into(),
+                );
+            }
             Ok(SceneOp::GroupBegin {
                 transform: Some(Transform::translate(fixed(a[0])?, fixed(a[1])?)),
-                opacity: None,
+                opacity,
                 clip: None,
                 mask: None,
                 filter: None,
+                disjoint_hint,
             })
         }
         "endgroup" => {
@@ -257,5 +272,44 @@ blit thumb-1 0 0 16 16
         let payload = encode_scene(&ops).unwrap();
         let back = decode_scene(&payload).unwrap();
         assert_eq!(back, ops);
+    }
+
+    #[test]
+    fn group_opacity_and_disjoint_args_parse() {
+        let text = "\
+group 10 20
+endgroup
+group 10 20 128
+endgroup
+group 10 20 200 disjoint
+endgroup
+";
+        let ops = parse_scene(text).unwrap();
+        let mut idx = 0;
+        for (expected_opacity, expected_hint) in
+            [(None, false), (Some(128u8), false), (Some(200u8), true)]
+        {
+            match &ops[idx] {
+                SceneOp::GroupBegin {
+                    opacity,
+                    disjoint_hint,
+                    ..
+                } => {
+                    assert_eq!(*opacity, expected_opacity);
+                    assert_eq!(*disjoint_hint, expected_hint);
+                }
+                _ => panic!("expected GroupBegin at {idx}"),
+            }
+            idx += 2;
+        }
+
+        let payload = encode_scene(&ops).unwrap();
+        let back = decode_scene(&payload).unwrap();
+        assert_eq!(back, ops);
+    }
+
+    #[test]
+    fn group_rejects_bad_disjoint_token() {
+        assert!(parse_scene("group 10 20 128 wat\n").is_err());
     }
 }
