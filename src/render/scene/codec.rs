@@ -21,6 +21,7 @@ pub const TAG_BLIT: u8 = 0x09;
 const FIELD_TRANSFORM: u8 = 1 << 0;
 const FIELD_QUAD: u8 = 1 << 1;
 const FIELD_RADIUS: u8 = 1 << 2;
+const FIELD_ALPHA: u8 = 1 << 3;
 
 const SLOT_TRANSFORM: u32 = 1 << 0;
 const SLOT_OPACITY: u32 = 1 << 1;
@@ -439,14 +440,21 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
             size,
             transform,
             quad,
+            opa,
         } => {
             out.push(TAG_BLIT);
-            let bits = field_bits(transform, quad, None);
+            let mut bits = field_bits(transform, quad, None);
+            if *opa != 255 {
+                bits |= FIELD_ALPHA;
+            }
             out.push(bits);
             write_resource_ref(out, texture);
             write_point(out, *pos);
             write_point(out, *size);
             write_optional(out, bits, transform, quad, None);
+            if bits & FIELD_ALPHA != 0 {
+                out.push(*opa);
+            }
             Ok(())
         }
     }
@@ -600,12 +608,18 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
             let pos = r.point()?;
             let size = r.point()?;
             let (transform, quad, _) = read_optional(r, bits)?;
+            let opa = if bits & FIELD_ALPHA != 0 {
+                r.u8()?
+            } else {
+                255
+            };
             Ok(SceneOp::Blit {
                 texture,
                 pos,
                 size,
                 transform,
                 quad,
+                opa,
             })
         }
         TAG_GROUP_BEGIN | TAG_GROUP_END => {
@@ -902,6 +916,22 @@ mod tests {
             },
             transform: Transform::IDENTITY,
             quad: Some(q),
+            opa: 255,
+        }]);
+    }
+
+    #[test]
+    fn blit_with_alpha_roundtrips() {
+        roundtrip(vec![SceneOp::Blit {
+            texture: ResourceRef::Index(3),
+            pos: Point::ZERO,
+            size: Point {
+                x: Fixed::from_int(8),
+                y: Fixed::from_int(8),
+            },
+            transform: Transform::IDENTITY,
+            quad: None,
+            opa: 128,
         }]);
     }
 

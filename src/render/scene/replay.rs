@@ -154,6 +154,7 @@ pub fn replay_scene(
                 size,
                 transform,
                 quad,
+                opa,
             } => {
                 let texture = resolver
                     .texture(texture)
@@ -165,7 +166,7 @@ pub fn replay_scene(
                         transform: top.compose(transform),
                         quad: *quad,
                         texture,
-                        opa: 255,
+                        opa: *opa,
                     },
                     clip,
                 );
@@ -297,6 +298,7 @@ mod tests {
             size: Point::ZERO,
             transform: Transform::IDENTITY,
             quad: None,
+            opa: 255,
         }];
         let mut r = CaptureRenderer {
             transforms: Vec::new(),

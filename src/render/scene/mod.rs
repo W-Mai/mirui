@@ -97,6 +97,7 @@ pub enum SceneOp {
         size: Point,
         transform: Transform,
         quad: Option<[Point; 4]>,
+        opa: u8,
     },
 }
 

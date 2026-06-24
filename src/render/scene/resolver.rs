@@ -78,6 +78,7 @@ mod tests {
             size: Point::ZERO,
             transform: Transform::IDENTITY,
             quad: None,
+            opa: 255,
         }
     }
 

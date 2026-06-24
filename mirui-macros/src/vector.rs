@@ -609,6 +609,7 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                     size: #size,
                     transform: ::mirui::types::Transform::IDENTITY,
                     quad: ::core::option::Option::None,
+                    opa: 255,
                 }
             }
         }

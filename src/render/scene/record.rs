@@ -112,13 +112,14 @@ pub fn record_command(
             transform,
             quad,
             texture,
-            opa: _,
+            opa,
         } => SceneOp::Blit {
             texture: resolver.resolve_texture(texture),
             pos: *pos,
             size: *size,
             transform: *transform,
             quad: *quad,
+            opa: *opa,
         },
         DrawCommand::FillPath {
             path,
