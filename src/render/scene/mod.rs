@@ -138,7 +138,7 @@ impl Scene {
         self
     }
 
-    pub fn extend_slice(&mut self, ops: &[SceneOp]) -> &mut Self {
+    pub fn extend_from_slice(&mut self, ops: &[SceneOp]) -> &mut Self {
         self.ops.extend_from_slice(ops);
         self
     }

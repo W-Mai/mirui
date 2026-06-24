@@ -71,7 +71,7 @@ fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
                 let angle = step * Fixed::from_int(i) + layer_phase;
                 let petal = Transform::rotate_deg(angle).compose(&Transform::scale(*scale, *scale));
                 s.group_opacity(petal, *opa, |s| {
-                    s.extend_slice(PETAL_MOTIF);
+                    s.extend_from_slice(PETAL_MOTIF);
                 });
             }
         }
@@ -88,14 +88,14 @@ fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
                 let dx = Fixed::sin_deg(a) * ring_r;
                 let dy = Fixed::ZERO - Fixed::cos_deg(a) * ring_r;
                 s.group(Transform::translate(dx, dy), |s| {
-                    s.extend_slice(RING_DOT);
+                    s.extend_from_slice(RING_DOT);
                 });
             }
         },
     );
 
     s.group(center, |s| {
-        s.extend_slice(EMBLEM);
+        s.extend_from_slice(EMBLEM);
     });
 
     s
