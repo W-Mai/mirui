@@ -110,6 +110,8 @@ pub use ::core::cell::Cell as __Cell;
 #[doc(hidden)]
 pub use ::core::cell::RefCell as __RefCell;
 #[doc(hidden)]
+pub use alloc::borrow::Cow as __Cow;
+#[doc(hidden)]
 pub use alloc::rc::Rc as __Rc;
 #[doc(hidden)]
 pub use alloc::vec::Vec as __Vec;

@@ -244,6 +244,19 @@ enum SceneStmt {
         a: u8,
         opa: u8,
     },
+    Border {
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        width: i32,
+        radius: i32,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+        opa: u8,
+    },
     Line {
         x1: i32,
         y1: i32,
@@ -268,6 +281,32 @@ enum SceneStmt {
         b: u8,
         a: u8,
         opa: u8,
+    },
+    FillPath {
+        steps: Vec<PathStep>,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+        opa: u8,
+    },
+    Label {
+        token: syn::LitStr,
+        x: i32,
+        y: i32,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+        opa: u8,
+        text: syn::LitStr,
+    },
+    Blit {
+        token: syn::LitStr,
+        px: i32,
+        py: i32,
+        sx: i32,
+        sy: i32,
     },
     Group {
         m: [i32; 6],
@@ -315,6 +354,50 @@ impl Parse for SceneStmt {
                 b: raw_byte(input)?,
                 a: raw_byte(input)?,
                 opa: raw_byte(input)?,
+            },
+            "border" => SceneStmt::Border {
+                x: input.parse::<Num>()?.0,
+                y: input.parse::<Num>()?.0,
+                w: input.parse::<Num>()?.0,
+                h: input.parse::<Num>()?.0,
+                width: input.parse::<Num>()?.0,
+                radius: input.parse::<Num>()?.0,
+                r: raw_byte(input)?,
+                g: raw_byte(input)?,
+                b: raw_byte(input)?,
+                a: raw_byte(input)?,
+                opa: raw_byte(input)?,
+            },
+            "fill_path" => {
+                let body;
+                syn::braced!(body in input);
+                let punct: Punctuated<PathStep, Token![;]> = Punctuated::parse_terminated(&body)?;
+                SceneStmt::FillPath {
+                    steps: punct.into_iter().collect(),
+                    r: raw_byte(input)?,
+                    g: raw_byte(input)?,
+                    b: raw_byte(input)?,
+                    a: raw_byte(input)?,
+                    opa: raw_byte(input)?,
+                }
+            }
+            "label" => SceneStmt::Label {
+                token: input.parse::<syn::LitStr>()?,
+                x: input.parse::<Num>()?.0,
+                y: input.parse::<Num>()?.0,
+                r: raw_byte(input)?,
+                g: raw_byte(input)?,
+                b: raw_byte(input)?,
+                a: raw_byte(input)?,
+                opa: raw_byte(input)?,
+                text: input.parse::<syn::LitStr>()?,
+            },
+            "blit" => SceneStmt::Blit {
+                token: input.parse::<syn::LitStr>()?,
+                px: input.parse::<Num>()?.0,
+                py: input.parse::<Num>()?.0,
+                sx: input.parse::<Num>()?.0,
+                sy: input.parse::<Num>()?.0,
             },
             "group" => SceneStmt::Group {
                 m: parse_transform_chain(input)?,
@@ -428,6 +511,104 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                     color: #col,
                     width: #w,
                     opa: #opa,
+                }
+            }
+        }
+        SceneStmt::Border {
+            x,
+            y,
+            w,
+            h,
+            width,
+            radius,
+            r,
+            g,
+            b,
+            a,
+            opa,
+        } => {
+            let (fx, fy, fw, fh) = (fixed(*x), fixed(*y), fixed(*w), fixed(*h));
+            let (wd, rad) = (fixed(*width), fixed(*radius));
+            let col = color_tokens(*r, *g, *b, *a);
+            quote! {
+                ::mirui::render::scene::SceneOp::Border {
+                    area: ::mirui::types::Rect { x: #fx, y: #fy, w: #fw, h: #fh },
+                    transform: ::mirui::types::Transform::IDENTITY,
+                    quad: ::core::option::Option::None,
+                    color: #col,
+                    width: #wd,
+                    radius: #rad,
+                    opa: #opa,
+                }
+            }
+        }
+        SceneStmt::FillPath {
+            steps,
+            r,
+            g,
+            b,
+            a,
+            opa,
+        } => {
+            let cmds = steps.iter().map(path_step_tokens);
+            let col = color_tokens(*r, *g, *b, *a);
+            quote! {
+                ::mirui::render::scene::SceneOp::FillPath {
+                    path: {
+                        const P: &[::mirui::render::path::PathCmd] = &[#(#cmds),*];
+                        ::mirui::__Cow::Borrowed(P)
+                    },
+                    transform: ::mirui::types::Transform::IDENTITY,
+                    color: #col,
+                    opa: #opa,
+                    fill_rule: ::mirui::render::raster::FillRule::EvenOdd,
+                }
+            }
+        }
+        SceneStmt::Label {
+            token,
+            x,
+            y,
+            r,
+            g,
+            b,
+            a,
+            opa,
+            text,
+        } => {
+            let pos = point(*x, *y);
+            let col = color_tokens(*r, *g, *b, *a);
+            quote! {
+                ::mirui::render::scene::SceneOp::Label {
+                    font: ::mirui::render::scene::ResourceRef::Token(
+                        ::mirui::__Cow::Borrowed(#token)
+                    ),
+                    pos: #pos,
+                    transform: ::mirui::types::Transform::IDENTITY,
+                    color: #col,
+                    opa: #opa,
+                    text: ::mirui::__Cow::Borrowed(#text),
+                }
+            }
+        }
+        SceneStmt::Blit {
+            token,
+            px,
+            py,
+            sx,
+            sy,
+        } => {
+            let pos = point(*px, *py);
+            let size = point(*sx, *sy);
+            quote! {
+                ::mirui::render::scene::SceneOp::Blit {
+                    texture: ::mirui::render::scene::ResourceRef::Token(
+                        ::mirui::__Cow::Borrowed(#token)
+                    ),
+                    pos: #pos,
+                    size: #size,
+                    transform: ::mirui::types::Transform::IDENTITY,
+                    quad: ::core::option::Option::None,
                 }
             }
         }

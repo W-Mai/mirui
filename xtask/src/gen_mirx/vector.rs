@@ -3,21 +3,25 @@
 //! Line-based grammar, one op per line, `#` comments and blank lines
 //! ignored:
 //!
-//!   rect  <x> <y> <w> <h> <radius> <r> <g> <b> <a> <opa>
-//!   line  <x1> <y1> <x2> <y2> <width> <r> <g> <b> <a> <opa>
-//!   arc   <cx> <cy> <radius> <start_deg> <end_deg> <width> <r> <g> <b> <a> <opa>
-//!   group <tx> <ty>
+//!   rect   <x> <y> <w> <h> <radius> <r> <g> <b> <a> <opa>
+//!   border <x> <y> <w> <h> <width> <radius> <r> <g> <b> <a> <opa>
+//!   line   <x1> <y1> <x2> <y2> <width> <r> <g> <b> <a> <opa>
+//!   arc    <cx> <cy> <radius> <start_deg> <end_deg> <width> <r> <g> <b> <a> <opa>
+//!   label  <token> <x> <y> <r> <g> <b> <a> <opa> <text>
+//!   blit   <token> <px> <py> <sx> <sy>
+//!   group  <tx> <ty>
 //!   endgroup
 //!
 //! Coordinates are decimal (parsed into 24.8 fixed-point); colours and
-//! opacity are 0-255. `label` / `blit` need a resource table and are not
-//! part of this grammar yet.
+//! opacity are 0-255. `<token>` and `<text>` are single tokens — no
+//! whitespace inside them. `fill_path` stays macro-only because the path
+//! sub-grammar is awkward in a flat line-oriented file.
 
 use std::fs;
 use std::path::PathBuf;
 
-use mirui::render::scene::SceneOp;
 use mirui::render::scene::codec::encode_scene;
+use mirui::render::scene::{ResourceRef, SceneOp};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
 use mirx::{ChunkEntry, chunk_type, encode_chunk_generic};
 
@@ -111,6 +115,39 @@ fn parse_op(kind: &str, a: &[&str]) -> Result<SceneOp> {
                 opa: byte(a[10])?,
             })
         }
+        "border" => {
+            expect(a, 11, "border")?;
+            Ok(SceneOp::Border {
+                area: rect(a, 0)?,
+                transform: Transform::IDENTITY,
+                quad: None,
+                width: fixed(a[4])?,
+                radius: fixed(a[5])?,
+                color: color(a, 6)?,
+                opa: byte(a[10])?,
+            })
+        }
+        "label" => {
+            expect(a, 9, "label")?;
+            Ok(SceneOp::Label {
+                font: ResourceRef::Token(a[0].to_owned().into()),
+                pos: point(a, 1)?,
+                transform: Transform::IDENTITY,
+                color: color(a, 3)?,
+                opa: byte(a[7])?,
+                text: a[8].to_owned().into(),
+            })
+        }
+        "blit" => {
+            expect(a, 5, "blit")?;
+            Ok(SceneOp::Blit {
+                texture: ResourceRef::Token(a[0].to_owned().into()),
+                pos: point(a, 1)?,
+                size: point(a, 3)?,
+                transform: Transform::IDENTITY,
+                quad: None,
+            })
+        }
         "group" => {
             expect(a, 2, "group")?;
             Ok(SceneOp::GroupBegin {
@@ -202,5 +239,23 @@ arc 50 50 20 0 90 2 10 20 30 255 128
     #[test]
     fn unknown_op_is_rejected() {
         assert!(parse_scene("wiggle 1 2 3\n").is_err());
+    }
+
+    #[test]
+    fn border_label_blit_roundtrip() {
+        let text = "\
+border 0 0 64 32 2 4 200 200 200 255 255
+label noto-sans 10 20 0 0 0 255 255 hi
+blit thumb-1 0 0 16 16
+";
+        let ops = parse_scene(text).unwrap();
+        assert_eq!(ops.len(), 3);
+        assert!(matches!(ops[0], SceneOp::Border { .. }));
+        assert!(matches!(ops[1], SceneOp::Label { .. }));
+        assert!(matches!(ops[2], SceneOp::Blit { .. }));
+
+        let payload = encode_scene(&ops).unwrap();
+        let back = decode_scene(&payload).unwrap();
+        assert_eq!(back, ops);
     }
 }

@@ -262,6 +262,25 @@ mod tests {
         assert_eq!(back, OPS);
     }
 
+    #[test]
+    fn scene_macro_supports_border_fillpath_label_blit() {
+        const OPS: &[SceneOp] = mirui::scene! {
+            border 0 0 64 32 2 4 200 200 200 255 255;
+            fill_path { M 0 0; L 8 0; L 8 8; Z } 255 0 0 255 200;
+            label "noto-sans" 10 20 0 0 0 255 255 "hi";
+            blit "thumb-1" 0 0 16 16
+        };
+        assert_eq!(OPS.len(), 4);
+        assert!(matches!(OPS[0], SceneOp::Border { .. }));
+        assert!(matches!(OPS[1], SceneOp::FillPath { .. }));
+        assert!(matches!(OPS[2], SceneOp::Label { .. }));
+        assert!(matches!(OPS[3], SceneOp::Blit { .. }));
+
+        let bytes = codec::encode_scene(OPS).unwrap();
+        let back = codec::decode_scene(&bytes).unwrap();
+        assert_eq!(back, OPS);
+    }
+
     fn group_transform(op: &SceneOp) -> Transform {
         match op {
             SceneOp::GroupBegin { transform, .. } => transform.unwrap(),
