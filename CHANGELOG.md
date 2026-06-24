@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] - 2026-06-24
+
+### Added
+
+- **Vector scene persistence** — a new `chunk_type::VECTOR` mirx chunk + `Scene` op stream that captures `DrawCommand` field-for-field, so a recorded frame round-trips losslessly. The codec covers nine ops (`GroupBegin` / `GroupEnd` plus `FillRect` / `Border` / `Label` / `Line` / `Arc` / `Blit` / `FillPath`), per-payload CRC32, VarUInt-prefixed variable ops, `field_bits` per draw op for optional transform/quad/radius, and back-patched u32 `skip_offset` on GroupEnd so an old reader meeting an unknown slot can skip the whole subtree. Decoders bounds-check every length, validate skip_offsets forward and in-bounds, reject unbalanced groups, reject non-default scale or unknown flag bits, and skip the reserved `0x40..=0x7F` extension-op range content-blind.
+- **`scene!` and `path!` macros** that emit `&'static [SceneOp]` / `&[PathCmd]` usable in `const` / `static`. `scene!` covers all nine ops including `border`, `fill_path { M..L..Q..C..Z } rgba opa`, `label "tok" x y rgba opa "text"`, and `blit "tok" px py sx sy`. The `group` arm accepts a `translate <x> <y> rotate <deg> scale <sx> <sy>` chain that the proc-macro folds at expansion time into a single `Transform` matrix literal — `Fixed::from_f32` and `rotate_deg`/`compose` aren't `const`, so the chain is computed in f64 and rounded into 24.8 fixed-point raws.
+- **`Scene` carries `encode` / `decode` / `replay` / `record` / `record_stream` as inherent methods** alongside a closure-based `group` / `group_opacity` builder that auto-balances `GroupEnd` so callers can't produce an unbalanced op stream.
+- **`SceneRenderer` adapts the `Renderer` trait into Scene capture** — any draw stream that goes through `&mut dyn Renderer` (widgets, View dispatch, `ui!` tree, custom drivers) can be redirected from the screen into a recordable op stream. Errors accumulate on a `Vec<RecordError>` field rather than aborting mid-frame, because `Renderer::draw` can't return `Result` and bailing part-way through a group would desync the caller's `GroupBegin`/`GroupEnd` balance. Lives in `render::backends::scene` alongside `sw`.
+- **`cargo xtask gen-mirx vector --in scene.txt --out scene.mirx`** packs a text scene description into a VECTOR chunk. Grammar covers rect / border / line / arc / label / blit / group / endgroup; `fill_path` stays macro-only because the path sub-grammar is awkward in a flat line-oriented file.
+- **`vector_mandala` gallery demo** — a 512×512 spinning mandala authored as `scene!` rect petals plus a `fill_path` emblem, animated by feeding live elapsed time into nested `Transform::translate ∘ rotate` group transforms across three concentric layers of ten petals each. The centre emblem renders from a hard-coded `EMBLEM_MIRX: &[u8]` byte array decoded through `mirx::parse_chunk` + `Scene::decode` every frame, so the demo doubles as proof that a standalone mirx binary buffer is enough to render — no source ops needed at runtime.
+- **`mirx` accepts `chunk_type::VECTOR` as a critical chunk** alongside IMAGE / FONT / META. The container stays a pure passthrough; payload parsing lives in the consumer crate, the same way FONT does.
+
 ## [0.32.3] - 2026-06-21
 
 ### Added

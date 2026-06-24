@@ -1,6 +1,6 @@
 [package]
 name = "mirx"
-version = "0.32.3"
+version = "0.33.0"
 edition = "2024"
 authors = ["Benign X <1341398182@qq.com>"]
 license = "MIT"
