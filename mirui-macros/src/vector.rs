@@ -82,53 +82,74 @@ fn mat_compose(a: Mat, b: Mat) -> Mat {
     ]
 }
 
-fn parse_transform_chain(input: ParseStream) -> syn::Result<[i32; 6]> {
+fn parse_group_options(input: ParseStream) -> syn::Result<GroupOptions> {
     let mut acc = MAT_ID;
+    let mut opacity: Option<u8> = None;
     while !input.is_empty() && !input.peek(Token![;]) {
-        let op = if input.peek(Ident) {
+        if input.peek(Ident) {
             let kw: Ident = input.parse()?;
             match kw.to_string().as_str() {
-                "translate" => [
-                    1.0,
-                    0.0,
-                    parse_signed_f64(input)?,
-                    0.0,
-                    1.0,
-                    parse_signed_f64(input)?,
-                ],
-                "scale" => [
-                    parse_signed_f64(input)?,
-                    0.0,
-                    0.0,
-                    0.0,
-                    parse_signed_f64(input)?,
-                    0.0,
-                ],
+                "translate" => {
+                    let op = [
+                        1.0,
+                        0.0,
+                        parse_signed_f64(input)?,
+                        0.0,
+                        1.0,
+                        parse_signed_f64(input)?,
+                    ];
+                    acc = mat_compose(acc, op);
+                }
+                "scale" => {
+                    let op = [
+                        parse_signed_f64(input)?,
+                        0.0,
+                        0.0,
+                        0.0,
+                        parse_signed_f64(input)?,
+                        0.0,
+                    ];
+                    acc = mat_compose(acc, op);
+                }
                 "rotate" => {
                     let r = parse_signed_f64(input)?.to_radians();
                     let (s, c) = (r.sin(), r.cos());
-                    [c, -s, 0.0, s, c, 0.0]
+                    acc = mat_compose(acc, [c, -s, 0.0, s, c, 0.0]);
+                }
+                "opacity" => {
+                    opacity = Some(raw_byte(input)?);
                 }
                 other => {
                     return Err(syn::Error::new(
                         kw.span(),
-                        format!("unknown transform `{other}`; expected translate / rotate / scale"),
+                        format!(
+                            "unknown group option `{other}`; expected translate / rotate / scale / opacity"
+                        ),
                     ));
                 }
             }
         } else {
-            [
+            let op = [
                 1.0,
                 0.0,
                 parse_signed_f64(input)?,
                 0.0,
                 1.0,
                 parse_signed_f64(input)?,
-            ]
-        };
-        acc = mat_compose(acc, op);
+            ];
+            acc = mat_compose(acc, op);
+        }
     }
-    Ok(acc.map(|v| (v * (1i32 << FRAC_BITS) as f64).round() as i32))
+    Ok(GroupOptions {
+        m: acc.map(|v| (v * (1i32 << FRAC_BITS) as f64).round() as i32),
+        opacity,
+    })
+}
+
+#[derive(Clone, Copy)]
+struct GroupOptions {
+    m: [i32; 6],
+    opacity: Option<u8>,
 }
 
 fn point(x: i32, y: i32) -> TokenStream {
@@ -309,7 +330,7 @@ enum SceneStmt {
         sy: i32,
     },
     Group {
-        m: [i32; 6],
+        opts: GroupOptions,
     },
     EndGroup,
 }
@@ -400,7 +421,7 @@ impl Parse for SceneStmt {
                 sy: input.parse::<Num>()?.0,
             },
             "group" => SceneStmt::Group {
-                m: parse_transform_chain(input)?,
+                opts: parse_group_options(input)?,
             },
             "endgroup" => SceneStmt::EndGroup,
             other => {
@@ -613,7 +634,8 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                 }
             }
         }
-        SceneStmt::Group { m } => {
+        SceneStmt::Group { opts } => {
+            let m = opts.m;
             let [m00, m01, tx, m10, m11, ty] = [
                 fixed(m[0]),
                 fixed(m[1]),
@@ -622,6 +644,10 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                 fixed(m[4]),
                 fixed(m[5]),
             ];
+            let opacity = match opts.opacity {
+                Some(n) => quote! { ::core::option::Option::Some(#n) },
+                None => quote! { ::core::option::Option::None },
+            };
             quote! {
                 ::mirui::render::scene::SceneOp::GroupBegin {
                     transform: ::core::option::Option::Some(
@@ -630,7 +656,7 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                             m10: #m10, m11: #m11, ty: #ty,
                         }
                     ),
-                    opacity: ::core::option::Option::None,
+                    opacity: #opacity,
                     clip: ::core::option::Option::None,
                     mask: ::core::option::Option::None,
                     filter: ::core::option::Option::None,

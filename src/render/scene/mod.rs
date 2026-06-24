@@ -361,6 +361,29 @@ mod tests {
     }
 
     #[test]
+    fn macro_group_opacity_token_emits_slot() {
+        const OPS: &[SceneOp] = mirui::scene! { group translate 5 5 opacity 128; endgroup };
+        match &OPS[0] {
+            SceneOp::GroupBegin {
+                opacity, transform, ..
+            } => {
+                assert_eq!(*opacity, Some(128));
+                assert!(transform.is_some());
+            }
+            _ => panic!("expected GroupBegin"),
+        }
+    }
+
+    #[test]
+    fn macro_group_opacity_alone_works() {
+        const OPS: &[SceneOp] = mirui::scene! { group opacity 200; endgroup };
+        match &OPS[0] {
+            SceneOp::GroupBegin { opacity, .. } => assert_eq!(*opacity, Some(200)),
+            _ => panic!("expected GroupBegin"),
+        }
+    }
+
+    #[test]
     fn builder_groups_auto_balance_and_match_manual() {
         let t = Transform::translate(Fixed::from_int(5), Fixed::ZERO);
         let dot = SceneOp::FillRect {
