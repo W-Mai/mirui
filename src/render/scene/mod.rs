@@ -179,6 +179,44 @@ impl Scene {
     pub fn into_ops(self) -> Vec<SceneOp> {
         self.ops
     }
+
+    pub fn encode(&self) -> Result<Vec<u8>, codec::CodecError> {
+        codec::encode_scene(&self.ops)
+    }
+
+    pub fn decode(payload: &[u8]) -> Result<Self, codec::CodecError> {
+        codec::decode_scene(payload).map(|ops| Self { ops })
+    }
+
+    pub fn replay(
+        &self,
+        renderer: &mut dyn crate::render::renderer::Renderer,
+        clip: &crate::types::Rect,
+        resolver: &dyn replay::SceneResolver,
+    ) -> Result<(), replay::ReplayError> {
+        replay::replay_scene(&self.ops, renderer, clip, resolver)
+    }
+
+    pub fn record(
+        &mut self,
+        cmd: &crate::render::command::DrawCommand,
+        resolver: &mut dyn record::ResourceResolver,
+    ) -> Result<&mut Self, record::RecordError> {
+        let op = record::record_command(cmd, resolver)?;
+        self.ops.push(op);
+        Ok(self)
+    }
+
+    pub fn record_stream(
+        &mut self,
+        cmds: &[crate::render::command::DrawCommand],
+        resolver: &mut dyn record::ResourceResolver,
+    ) -> Result<&mut Self, record::RecordError> {
+        for cmd in cmds {
+            self.record(cmd, resolver)?;
+        }
+        Ok(self)
+    }
 }
 
 #[cfg(test)]
@@ -367,5 +405,88 @@ mod tests {
             SceneOp::GroupEnd,
         ];
         assert_eq!(built, manual);
+    }
+
+    #[test]
+    fn scene_methods_match_free_fns() {
+        let ops = vec![SceneOp::Line {
+            p1: Point::ZERO,
+            p2: Point {
+                x: Fixed::from_int(4),
+                y: Fixed::from_int(4),
+            },
+            transform: Transform::IDENTITY,
+            color: Color {
+                r: 1,
+                g: 2,
+                b: 3,
+                a: 4,
+            },
+            width: Fixed::from_int(1),
+            opa: 255,
+        }];
+
+        let scene = Scene { ops: ops.clone() };
+        let bytes_method = scene.encode().unwrap();
+        let bytes_fn = codec::encode_scene(&ops).unwrap();
+        assert_eq!(bytes_method, bytes_fn);
+
+        let back = Scene::decode(&bytes_method).unwrap();
+        assert_eq!(back.ops, ops);
+    }
+
+    #[test]
+    fn record_stream_accumulates_a_frame() {
+        use crate::render::command::DrawCommand;
+        use crate::render::font::Font;
+        use crate::render::texture::Texture;
+
+        struct Stub;
+        impl record::ResourceResolver for Stub {
+            fn resolve_font(&mut self, _: &Font) -> ResourceRef {
+                unreachable!()
+            }
+            fn resolve_texture(&mut self, _: &Texture<'_>) -> ResourceRef {
+                unreachable!()
+            }
+        }
+
+        let frame = [
+            DrawCommand::Line {
+                p1: Point::ZERO,
+                p2: Point::ZERO,
+                transform: Transform::IDENTITY,
+                color: Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                },
+                width: Fixed::from_int(1),
+                opa: 0,
+            },
+            DrawCommand::Line {
+                p1: Point::ZERO,
+                p2: Point {
+                    x: Fixed::from_int(1),
+                    y: Fixed::ZERO,
+                },
+                transform: Transform::IDENTITY,
+                color: Color {
+                    r: 0,
+                    g: 0,
+                    b: 0,
+                    a: 0,
+                },
+                width: Fixed::from_int(1),
+                opa: 0,
+            },
+        ];
+
+        let mut scene = Scene::new();
+        scene.record_stream(&frame, &mut Stub).unwrap();
+        assert_eq!(scene.ops.len(), 2);
+        assert!(matches!(scene.ops[0], SceneOp::Line { .. }));
+        assert!(matches!(scene.ops[1], SceneOp::Line { .. }));
     }
 }
