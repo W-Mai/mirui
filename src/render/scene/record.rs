@@ -1,11 +1,9 @@
 //! Record a live `DrawCommand` stream into owned `SceneOp`s.
 
-use super::{ResourceRef, Scene, SceneOp};
+use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
-use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
-use crate::types::Rect;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RecordError {
@@ -136,44 +134,6 @@ pub fn record_command(
     })
 }
 
-/// Records draws into a Scene through the Renderer trait. Errors accumulate
-/// because Renderer::draw can't return Result without desyncing the caller's
-/// group stack.
-pub struct SceneRenderer<'a> {
-    pub scene: &'a mut Scene,
-    pub resolver: &'a mut dyn ResourceResolver,
-    pub errors: alloc::vec::Vec<RecordError>,
-}
-
-impl<'a> SceneRenderer<'a> {
-    pub fn new(scene: &'a mut Scene, resolver: &'a mut dyn ResourceResolver) -> Self {
-        Self {
-            scene,
-            resolver,
-            errors: alloc::vec::Vec::new(),
-        }
-    }
-}
-
-impl Renderer for SceneRenderer<'_> {
-    fn draw(&mut self, cmd: &DrawCommand, _clip: &Rect) {
-        match record_command(cmd, self.resolver) {
-            Ok(op) => {
-                self.scene.push(op);
-            }
-            Err(e) => self.errors.push(e),
-        }
-    }
-
-    fn flush(&mut self) {}
-}
-
-impl Scene {
-    pub fn renderer<'a>(&'a mut self, resolver: &'a mut dyn ResourceResolver) -> SceneRenderer<'a> {
-        SceneRenderer::new(self, resolver)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,74 +214,5 @@ mod tests {
         let bytes = encode_scene(&recorded).unwrap();
         let back = decode_scene(&bytes).unwrap();
         assert_eq!(back, recorded);
-    }
-
-    #[test]
-    fn scene_renderer_captures_a_full_pipeline_to_mirx_and_back() {
-        fn driver(r: &mut dyn Renderer, clip: &Rect) {
-            r.draw(
-                &DrawCommand::Line {
-                    p1: Point::ZERO,
-                    p2: Point {
-                        x: Fixed::from_int(10),
-                        y: Fixed::from_int(10),
-                    },
-                    transform: Transform::IDENTITY,
-                    color: red(),
-                    width: Fixed::from_int(1),
-                    opa: 255,
-                },
-                clip,
-            );
-            r.draw(
-                &DrawCommand::Fill {
-                    area: Rect {
-                        x: Fixed::ZERO,
-                        y: Fixed::ZERO,
-                        w: Fixed::from_int(8),
-                        h: Fixed::from_int(8),
-                    },
-                    transform: Transform::IDENTITY,
-                    quad: None,
-                    color: red(),
-                    radius: Fixed::ZERO,
-                    opa: 200,
-                },
-                clip,
-            );
-            r.flush();
-        }
-
-        let mut scene = Scene::new();
-        let clip = Rect {
-            x: Fixed::ZERO,
-            y: Fixed::ZERO,
-            w: Fixed::from_int(100),
-            h: Fixed::from_int(100),
-        };
-        {
-            let mut r = PanicResolver;
-            let mut sink = scene.renderer(&mut r);
-            driver(&mut sink, &clip);
-            assert!(sink.errors.is_empty());
-        }
-        assert_eq!(scene.ops.len(), 2);
-
-        let payload = scene.encode().unwrap();
-        let mirx_bytes = mirx::encode_chunk_generic(
-            mirx::chunk_type::VECTOR,
-            mirx::ChunkEntry::FLAG_CRITICAL,
-            &payload,
-        );
-
-        let parsed = mirx::parse_chunk(&mirx_bytes).unwrap();
-        let extracted = parsed
-            .chunk_payload(&mirx_bytes, mirx::chunk_type::VECTOR)
-            .unwrap();
-        let back = Scene::decode(extracted).unwrap();
-
-        assert_eq!(back.ops, scene.ops);
-        assert!(matches!(back.ops[0], SceneOp::Line { .. }));
-        assert!(matches!(back.ops[1], SceneOp::FillRect { .. }));
     }
 }
