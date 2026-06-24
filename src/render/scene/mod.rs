@@ -1,5 +1,6 @@
 //! SceneOp — owned/borrowable mirror of DrawCommand for vector persistence.
 
+pub mod bbox;
 pub mod codec;
 pub mod record;
 pub mod replay;
