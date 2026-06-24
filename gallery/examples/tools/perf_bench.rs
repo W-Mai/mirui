@@ -298,6 +298,7 @@ fn run_micro_blit() {
                     transform: Transform::default(),
                     quad: None,
                     texture: &IMG_THUMBS_UP,
+                    opa: 255,
                 };
                 renderer.draw(&cmd, &clip);
             }
