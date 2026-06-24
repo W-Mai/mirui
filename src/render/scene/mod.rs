@@ -162,7 +162,42 @@ impl Scene {
         self
     }
 
+    /// Strict SVG `<g opacity>`: would need offscreen compositing for
+    /// overlapping children, which this build doesn't have, so replay rejects
+    /// overlap rather than seaming. For layered/stacked motifs use
+    /// [`group_alpha_multiply`].
     pub fn group_opacity(
+        &mut self,
+        transform: Transform,
+        opacity: u8,
+        body: impl FnOnce(&mut Self),
+    ) -> &mut Self {
+        let header_idx = self.ops.len();
+        self.ops.push(SceneOp::GroupBegin {
+            transform: Some(transform),
+            opacity: Some(opacity),
+            clip: None,
+            mask: None,
+            filter: None,
+            disjoint_hint: false,
+        });
+        body(self);
+        let inner = &self.ops[header_idx + 1..];
+        let bboxes = bbox::direct_children_bboxes(inner);
+        let disjoint = bbox::pairwise_disjoint(&bboxes);
+        if disjoint {
+            if let Some(SceneOp::GroupBegin { disjoint_hint, .. }) = self.ops.get_mut(header_idx) {
+                *disjoint_hint = true;
+            }
+        }
+        self.ops.push(SceneOp::GroupEnd);
+        self
+    }
+
+    /// Multiplies `opacity` into each child's alpha at replay — children
+    /// stay independently transparent, no implicit flatten. For SVG-style
+    /// "flatten then dim" semantics use [`group_opacity`].
+    pub fn group_alpha_multiply(
         &mut self,
         transform: Transform,
         opacity: u8,
@@ -174,7 +209,7 @@ impl Scene {
             clip: None,
             mask: None,
             filter: None,
-            disjoint_hint: false,
+            disjoint_hint: true,
         });
         body(self);
         self.ops.push(SceneOp::GroupEnd);
@@ -428,7 +463,7 @@ mod tests {
                 clip: None,
                 mask: None,
                 filter: None,
-                disjoint_hint: false,
+                disjoint_hint: true,
             },
             dot,
             SceneOp::GroupEnd,
