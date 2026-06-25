@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.2] - 2026-06-25
+
+### Added
+
+- **`DrawCommand::Blit.opa` now reaches pixels on the software backend.** The blit dispatch routes `opa < 255` through the per-pixel DDA, multiplying `effective_a = (src_a * opa) / 255` into the existing blend ladder. `opa == 255` stays on the per-format fast path with byte-identical output to before.
+- **GPU and Canvas backends consume `Blit.opa` on both axis and quad paths.** sdl_gpu sets `set_alpha_mod` for the axis path and encodes opa into per-vertex `SDL_Color.a` for the `SDL_RenderGeometry` quad path. wgpu's `BlitUniform` gains an `alpha: vec4<f32>` slot (std140-padded to 48 bytes); `BlitQuadVertex` gains an f32 alpha attribute (stride 20 → 24); both shaders multiply `textureSample.a` by the alpha factor. web_canvas brackets `drawImage` with `globalAlpha` save and restore, including the perspective-mesh subdivision used for quad blits.
+- **`OffscreenRender.opacity` plus `with_opacity(u8)` builder** apply group opacity at the boundary where the cached subtree blits onto the outer surface, instead of inside each child draw. The opacity multiplies into the cache's outer `DrawCommand::Blit.opa`, so it reaches all four backends through the same code path. Default 255 keeps the opaque fast path bit-exact. The struct is `#[non_exhaustive]`.
+- **`vector_mandala` orbits six thumbs-up images on a 4-point quad** at opa 140 / 160 / 180 / 200 / 220 / 240. The skewed (non-axis-aligned) quad threads every backend's quad blit path through the demo, so visual checks cover the new plumbing without a separate test surface.
+
 ## [0.33.1] - 2026-06-25
 
 ### Added
