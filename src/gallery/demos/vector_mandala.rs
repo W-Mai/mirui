@@ -10,10 +10,11 @@ use crate::prelude::draw::*;
 use crate::prelude::*;
 use crate::render::font::Font;
 use crate::render::scene::resolver::SliceResolver;
-use crate::render::scene::{Scene, SceneOp};
+use crate::render::scene::{ResourceRef, Scene, SceneOp};
 use crate::render::texture::Texture;
-use crate::types::Transform;
+use crate::types::{Point, Transform};
 use crate::ui::dirty::Dirty;
+use crate::ui::widgets::assets::IMG_THUMBS_UP;
 
 pub struct VectorMandala {
     pub start_ms: u32,
@@ -106,7 +107,43 @@ fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
         s.extend_from_slice(&emblem.ops);
     });
 
+    push_thumbs_ring(&mut s, cx, cy, spin_deg);
+
     s
+}
+
+const THUMB_RING_COUNT: i32 = 6;
+const THUMB_RING_RADIUS: i32 = 110;
+const THUMB_SIZE: i32 = 28;
+
+// Skewed (non-axis-aligned) quad on every thumb forces every
+// backend's quad blit path — this ring exists for backend coverage,
+// not visual design.
+fn push_thumbs_ring(s: &mut Scene, cx: Fixed, cy: Fixed, spin_deg: Fixed) {
+    let step = Fixed::from_int(360) / Fixed::from_int(THUMB_RING_COUNT);
+    for i in 0..THUMB_RING_COUNT {
+        let a = step * Fixed::from_int(i) + spin_deg;
+        let dx = Fixed::sin_deg(a) * Fixed::from_int(THUMB_RING_RADIUS);
+        let dy = Fixed::ZERO - Fixed::cos_deg(a) * Fixed::from_int(THUMB_RING_RADIUS);
+        let opa = 140u8 + (i as u8 * 20);
+        let half = Fixed::from_int(THUMB_SIZE) / Fixed::from_int(2);
+        let skew = Fixed::from_int(THUMB_SIZE) / Fixed::from_int(4);
+        let p0 = Point::new(cx + dx - half, cy + dy - half);
+        let p1 = Point::new(cx + dx + half + skew, cy + dy - half);
+        let p2 = Point::new(cx + dx + half, cy + dy + half);
+        let p3 = Point::new(cx + dx - half - skew, cy + dy + half);
+
+        s.group_alpha_multiply(Transform::IDENTITY, opa, |s| {
+            s.push(SceneOp::Blit {
+                texture: ResourceRef::Token("thumbs_up".into()),
+                pos: Point::ZERO,
+                size: Point::new(Fixed::from_int(THUMB_SIZE), Fixed::from_int(THUMB_SIZE)),
+                transform: Transform::IDENTITY,
+                quad: Some([p0, p1, p2, p3]),
+                opa: 255,
+            });
+        });
+    }
 }
 
 fn vector_mandala_render(
@@ -132,7 +169,7 @@ fn vector_mandala_render(
     let scene = build_frame(cx, cy, state.petals, spin_deg);
 
     let fonts: [(&str, &Font); 0] = [];
-    let textures: [(&str, &Texture); 0] = [];
+    let textures: [(&str, &Texture); 1] = [("thumbs_up", &IMG_THUMBS_UP)];
     let resolver = SliceResolver::new(&fonts, &textures);
     let _ = scene.replay(renderer, ctx.clip, &resolver);
 }
