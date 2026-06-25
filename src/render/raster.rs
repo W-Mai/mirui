@@ -45,7 +45,7 @@ pub fn flatten(path: &Path) -> Vec<LineSeg> {
     let mut subpath_start = Point::ZERO;
     let mut current = Point::ZERO;
 
-    for cmd in &path.cmds {
+    for cmd in path.cmds.iter() {
         match cmd {
             PathCmd::MoveTo(p) => {
                 subpath_start = *p;
@@ -115,7 +115,7 @@ pub fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
         }
     };
 
-    for cmd in &path.cmds {
+    for cmd in path.cmds.iter() {
         match cmd {
             PathCmd::MoveTo(p) => {
                 flush(&mut current_segs, &mut out, false);

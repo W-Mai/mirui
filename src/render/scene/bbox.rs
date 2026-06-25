@@ -9,7 +9,7 @@
 use alloc::vec::Vec;
 
 use super::SceneOp;
-use crate::render::path::Path;
+use crate::render::path::bbox_of_cmds;
 use crate::types::{Fixed, Point, Rect, Transform};
 
 /// Bbox of a single leaf op in its own (post-per-op-transform) coords.
@@ -32,12 +32,7 @@ pub fn op_bbox(op: &SceneOp) -> Option<Rect> {
         } => Some(rect_after(area, transform, quad)),
         SceneOp::FillPath {
             path, transform, ..
-        } => {
-            let p = Path {
-                cmds: path.to_vec(),
-            };
-            p.bbox().map(|r| transform.apply_rect_bbox(r))
-        }
+        } => bbox_of_cmds(path).map(|r| transform.apply_rect_bbox(r)),
         SceneOp::Line {
             p1,
             p2,

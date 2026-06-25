@@ -354,7 +354,7 @@ impl WebCanvasRenderer<'_> {
     fn build_path(&self, path: &Path) {
         let ctx = self.ctx();
         ctx.begin_path();
-        for cmd in &path.cmds {
+        for cmd in path.cmds.iter() {
             match cmd {
                 PathCmd::MoveTo(p) => {
                     ctx.move_to(p.x.to_f32() as f64, p.y.to_f32() as f64);

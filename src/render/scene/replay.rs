@@ -278,9 +278,7 @@ pub fn replay_scene(
                 if !matches!(fill_rule, FillRule::EvenOdd) {
                     return Err(ReplayError::UnsupportedFillRule);
                 }
-                let p = Path {
-                    cmds: path.to_vec(),
-                };
+                let p = Path { cmds: path.clone() };
                 renderer.draw(
                     &DrawCommand::FillPath {
                         path: &p,

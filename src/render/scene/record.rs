@@ -173,7 +173,7 @@ mod tests {
                 x: Fixed::from_int(4),
                 y: Fixed::from_int(4),
             });
-            p.cmds.push(PathCmd::Close);
+            p.cmds.to_mut().push(PathCmd::Close);
             p
         };
         let commands = [

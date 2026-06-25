@@ -67,7 +67,7 @@ fn to_lyon_path(path: &Path) -> LyonPath {
 
     let p = |pt: crate::types::Point| -> LyonPoint { lyon_point(pt.x.to_f32(), pt.y.to_f32()) };
 
-    for cmd in &path.cmds {
+    for cmd in path.cmds.iter() {
         match cmd {
             PathCmd::MoveTo(pt) => {
                 if subpath_open {

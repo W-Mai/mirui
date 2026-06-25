@@ -1,4 +1,5 @@
 use crate::types::{Fixed, Point, Rect};
+use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -19,36 +20,52 @@ pub enum PathCmd {
 
 #[derive(Clone, Debug, Default)]
 pub struct Path {
-    pub cmds: Vec<PathCmd>,
+    pub cmds: Cow<'static, [PathCmd]>,
 }
 
 impl Path {
     pub fn new() -> Self {
-        Self { cmds: Vec::new() }
+        Self {
+            cmds: Cow::Owned(Vec::new()),
+        }
+    }
+
+    pub const fn from_static(cmds: &'static [PathCmd]) -> Self {
+        Self {
+            cmds: Cow::Borrowed(cmds),
+        }
+    }
+
+    pub fn from_owned(cmds: Vec<PathCmd>) -> Self {
+        Self {
+            cmds: Cow::Owned(cmds),
+        }
     }
 
     pub fn move_to(&mut self, p: Point) -> &mut Self {
-        self.cmds.push(PathCmd::MoveTo(p));
+        self.cmds.to_mut().push(PathCmd::MoveTo(p));
         self
     }
 
     pub fn line_to(&mut self, p: Point) -> &mut Self {
-        self.cmds.push(PathCmd::LineTo(p));
+        self.cmds.to_mut().push(PathCmd::LineTo(p));
         self
     }
 
     pub fn quad_to(&mut self, ctrl: Point, end: Point) -> &mut Self {
-        self.cmds.push(PathCmd::QuadTo { ctrl, end });
+        self.cmds.to_mut().push(PathCmd::QuadTo { ctrl, end });
         self
     }
 
     pub fn cubic_to(&mut self, ctrl1: Point, ctrl2: Point, end: Point) -> &mut Self {
-        self.cmds.push(PathCmd::CubicTo { ctrl1, ctrl2, end });
+        self.cmds
+            .to_mut()
+            .push(PathCmd::CubicTo { ctrl1, ctrl2, end });
         self
     }
 
     pub fn close(&mut self) -> &mut Self {
-        self.cmds.push(PathCmd::Close);
+        self.cmds.to_mut().push(PathCmd::Close);
         self
     }
 
@@ -218,55 +235,61 @@ impl Path {
     /// Conservative bounding box (includes Bezier control points, not the
     /// true curve extrema). Returns None for empty paths.
     pub fn bbox(&self) -> Option<Rect> {
-        let mut xmin = Fixed::MAX;
-        let mut ymin = Fixed::MAX;
-        let mut xmax = Fixed::MIN;
-        let mut ymax = Fixed::MIN;
-        let mut seen = false;
+        bbox_of_cmds(&self.cmds)
+    }
+}
 
-        let mut visit = |p: &Point| {
-            seen = true;
-            if p.x < xmin {
-                xmin = p.x;
-            }
-            if p.x > xmax {
-                xmax = p.x;
-            }
-            if p.y < ymin {
-                ymin = p.y;
-            }
-            if p.y > ymax {
-                ymax = p.y;
-            }
-        };
+pub fn bbox_of_cmds(cmds: &[PathCmd]) -> Option<Rect> {
+    let mut xmin = Fixed::MAX;
+    let mut ymin = Fixed::MAX;
+    let mut xmax = Fixed::MIN;
+    let mut ymax = Fixed::MIN;
+    let mut seen = false;
 
-        for cmd in &self.cmds {
-            match cmd {
-                PathCmd::MoveTo(p) | PathCmd::LineTo(p) => visit(p),
-                PathCmd::QuadTo { ctrl, end } => {
-                    visit(ctrl);
-                    visit(end);
-                }
-                PathCmd::CubicTo { ctrl1, ctrl2, end } => {
-                    visit(ctrl1);
-                    visit(ctrl2);
-                    visit(end);
-                }
-                PathCmd::Close => {}
-            }
+    let mut visit = |p: &Point| {
+        seen = true;
+        if p.x < xmin {
+            xmin = p.x;
         }
-
-        if !seen {
-            return None;
+        if p.x > xmax {
+            xmax = p.x;
         }
-        Some(Rect {
-            x: xmin,
-            y: ymin,
-            w: xmax - xmin,
-            h: ymax - ymin,
-        })
+        if p.y < ymin {
+            ymin = p.y;
+        }
+        if p.y > ymax {
+            ymax = p.y;
+        }
+    };
+
+    for cmd in cmds {
+        match cmd {
+            PathCmd::MoveTo(p) | PathCmd::LineTo(p) => visit(p),
+            PathCmd::QuadTo { ctrl, end } => {
+                visit(ctrl);
+                visit(end);
+            }
+            PathCmd::CubicTo { ctrl1, ctrl2, end } => {
+                visit(ctrl1);
+                visit(ctrl2);
+                visit(end);
+            }
+            PathCmd::Close => {}
+        }
     }
 
+    if !seen {
+        return None;
+    }
+    Some(Rect {
+        x: xmin,
+        y: ymin,
+        w: xmax - xmin,
+        h: ymax - ymin,
+    })
+}
+
+impl Path {
     /// Construct a stroked arc path on the circle (center, radius) sweeping
     /// from start_angle to end_angle. Angles are in degrees, CCW from +X axis.
     /// Emits one cubic Bezier per ≤90° segment using k = 4/3 · tan(θ/4).
@@ -494,7 +517,7 @@ mod tests {
         let p = Path::rounded_quad(&q, Fixed::ZERO);
         // Expect MoveTo + 3 × LineTo + Close. No CubicTo.
         let mut has_cubic = false;
-        for c in &p.cmds {
+        for c in p.cmds.iter() {
             if matches!(c, PathCmd::CubicTo { .. }) {
                 has_cubic = true;
             }
@@ -562,5 +585,25 @@ mod tests {
             .filter(|c| matches!(c, PathCmd::CubicTo { .. }))
             .count();
         assert_eq!(cubic_count, 4);
+    }
+
+    // Path::from_static must keep the slice in Cow::Borrowed and never
+    // promote to Owned — that's the whole point of the const path for
+    // icons / path!-emitted statics on heap-constrained MCUs.
+    #[test]
+    fn from_static_stays_borrowed() {
+        use alloc::borrow::Cow;
+        static CMDS: &[PathCmd] = &[
+            PathCmd::MoveTo(Point {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+            }),
+            PathCmd::Close,
+        ];
+        let p = Path::from_static(CMDS);
+        assert!(matches!(p.cmds, Cow::Borrowed(_)));
+        // sanity: iterating doesn't trigger a copy either.
+        assert_eq!(p.cmds.iter().count(), 2);
+        assert!(matches!(p.cmds, Cow::Borrowed(_)));
     }
 }
