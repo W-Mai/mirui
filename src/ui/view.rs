@@ -180,6 +180,7 @@ impl ViewRegistry {
         reg.insert(crate::ui::widgets::mirror::view());
         reg.insert(crate::ui::widgets::temporal_mix::view());
         reg.insert(crate::ui::widgets::background_blur::view());
+        reg.insert(crate::ui::widgets::icon::view());
         reg
     }
 

@@ -2,6 +2,7 @@ pub mod assets;
 pub mod background_blur;
 pub mod button;
 pub mod checkbox;
+pub mod icon;
 pub mod image;
 pub mod lazy_list;
 pub mod mirror;
