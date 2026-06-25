@@ -339,8 +339,11 @@ impl WgpuRenderer<'_> {
         dst_pos: Point,
         dst_size: Point,
         clip: &Rect,
-        _opa: u8,
+        opa: u8,
     ) {
+        if opa == 0 {
+            return;
+        }
         if !self.begin_frame() {
             return;
         }
@@ -417,6 +420,7 @@ impl WgpuRenderer<'_> {
                 (src_rect.x.to_f32() + src_rect.w.to_f32()) / tw,
                 (src_rect.y.to_f32() + src_rect.h.to_f32()) / th,
             ],
+            alpha: [opa as f32 / 255.0, 0.0, 0.0, 0.0],
         };
 
         let blit_buf = state
@@ -900,7 +904,10 @@ impl WgpuRenderer<'_> {
     }
 
     /// Perspective-correct quad blit via `Transform3D::from_quad`.
-    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect) {
+    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect, opa: u8) {
+        if opa == 0 {
+            return;
+        }
         if !self.begin_frame() {
             return;
         }
@@ -924,7 +931,7 @@ impl WgpuRenderer<'_> {
                     y: q[2].y - q[0].y,
                 },
                 clip,
-                255,
+                opa,
             );
         };
 
@@ -937,6 +944,7 @@ impl WgpuRenderer<'_> {
         let sw = src.width as f32;
         let sh = src.height as f32;
 
+        let alpha_f = opa as f32 / 255.0;
         let mut verts = [BlitQuadVertex::default(); 4];
         for (i, (u, v)) in corners.iter().enumerate() {
             let pixel_u = u * sw;
@@ -955,6 +963,7 @@ impl WgpuRenderer<'_> {
             verts[i] = BlitQuadVertex {
                 pos: [q[i].x.to_f32(), q[i].y.to_f32()],
                 uvw: [u * inv_w, v * inv_w, inv_w],
+                alpha: alpha_f,
             };
         }
         let indices: [u16; 6] = [0, 1, 2, 0, 2, 3];
@@ -1263,10 +1272,10 @@ impl Renderer for WgpuRenderer<'_> {
             DrawCommand::Blit {
                 quad: Some(q),
                 texture,
-                opa: _,
+                opa,
                 ..
             } => {
-                self.blit_quad_inner(texture, q, clip);
+                self.blit_quad_inner(texture, q, clip, *opa);
                 return;
             }
             _ => {}

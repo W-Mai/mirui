@@ -11,7 +11,7 @@ impl SwRenderer<'_> {
         dst: Point,
         dst_size: Point,
         clip: &Rect,
-        _opa: u8,
+        opa: u8,
     ) {
         let phys_dst = self.viewport.point_to_physical(dst);
         let phys_dst_size = self.viewport.point_to_physical(dst_size);
@@ -31,6 +31,34 @@ impl SwRenderer<'_> {
         let dw = phys_dst_size.x.to_int();
         let dh = phys_dst_size.y.to_int();
         if dw <= 0 || dh <= 0 || sw == 0 || sh == 0 {
+            return;
+        }
+
+        if opa == 0 {
+            return;
+        }
+
+        // opa < 255 → bypass per-format fast paths and go through the
+        // per-pixel DDA so the alpha gets folded into each blend; the
+        // fast paths' memcpy-ish row copies have no per-pixel hook.
+        if opa < 255 {
+            blit_dda(
+                &mut self.target,
+                src,
+                sx0,
+                sy0,
+                sw,
+                sh,
+                dx0,
+                dy0,
+                dw,
+                dh,
+                clip_x0,
+                clip_y0,
+                clip_x1,
+                clip_y1,
+                opa,
+            );
             return;
         }
 
@@ -84,6 +112,7 @@ impl SwRenderer<'_> {
                 clip_y0,
                 clip_x1,
                 clip_y1,
+                255,
             );
         }
     }

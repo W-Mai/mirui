@@ -13,6 +13,9 @@ struct Blit {
     dst_size: vec2<f32>,
     // Source UV rect [u0, v0, u1, v1].
     uv: vec4<f32>,
+    // `.x` is the group opacity factor (Rust-side `alpha.x = opa/255`);
+    // `.yzw` reserved.
+    alpha: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> view: Viewport;
@@ -46,5 +49,6 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOut {
 
 @fragment
 fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
-    return textureSample(src_tex, src_samp, v.uv);
+    let c = textureSample(src_tex, src_samp, v.uv);
+    return vec4<f32>(c.rgb, c.a * blit.alpha.x);
 }

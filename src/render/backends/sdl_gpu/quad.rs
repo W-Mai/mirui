@@ -64,7 +64,10 @@ impl SdlGpuRenderer<'_> {
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
-    pub(super) fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect) {
+    pub(super) fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect, opa: u8) {
+        if opa == 0 {
+            return;
+        }
         let sdl_fmt = match src.format {
             ColorFormat::RGBA8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
             ColorFormat::BGRA8888 => sdl2::pixels::PixelFormatEnum::BGRA32,
@@ -88,12 +91,14 @@ impl SdlGpuRenderer<'_> {
         let src_width = src.width as u32;
         let src_height = src.height as u32;
 
-        // Quad vertices map to UV corners (0,0) (1,0) (1,1) (0,1) in order.
-        let white = SDL_Color {
+        // SDL_RenderGeometry modulates the texture sample by per-vertex
+        // color, so packing opa into vertex.a applies group opacity over
+        // the full warp without a separate set_alpha_mod call.
+        let tint = SDL_Color {
             r: 255,
             g: 255,
             b: 255,
-            a: 255,
+            a: opa,
         };
         let verts: [SDL_Vertex; 4] = [
             SDL_Vertex {
@@ -101,7 +106,7 @@ impl SdlGpuRenderer<'_> {
                     x: phys_q[0].x.to_f32(),
                     y: phys_q[0].y.to_f32(),
                 },
-                color: white,
+                color: tint,
                 tex_coord: SDL_FPoint { x: 0.0, y: 0.0 },
             },
             SDL_Vertex {
@@ -109,7 +114,7 @@ impl SdlGpuRenderer<'_> {
                     x: phys_q[1].x.to_f32(),
                     y: phys_q[1].y.to_f32(),
                 },
-                color: white,
+                color: tint,
                 tex_coord: SDL_FPoint { x: 1.0, y: 0.0 },
             },
             SDL_Vertex {
@@ -117,7 +122,7 @@ impl SdlGpuRenderer<'_> {
                     x: phys_q[2].x.to_f32(),
                     y: phys_q[2].y.to_f32(),
                 },
-                color: white,
+                color: tint,
                 tex_coord: SDL_FPoint { x: 1.0, y: 1.0 },
             },
             SDL_Vertex {
@@ -125,7 +130,7 @@ impl SdlGpuRenderer<'_> {
                     x: phys_q[3].x.to_f32(),
                     y: phys_q[3].y.to_f32(),
                 },
-                color: white,
+                color: tint,
                 tex_coord: SDL_FPoint { x: 0.0, y: 1.0 },
             },
         ];

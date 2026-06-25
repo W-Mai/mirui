@@ -261,7 +261,10 @@ impl WebCanvasRenderer<'_> {
 
     /// Quad blit via an `MESH_N × MESH_N` affine triangle mesh —
     /// Canvas 2D has no homography, so subdivision approximates one.
-    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect) {
+    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect, opa: u8) {
+        if opa == 0 {
+            return;
+        }
         const MESH_N: i32 = 8;
 
         let key = TextureKey::from(src);
@@ -280,6 +283,8 @@ impl WebCanvasRenderer<'_> {
 
         self.push_clip(clip);
         let ctx = self.ctx();
+        let prev_alpha = ctx.global_alpha();
+        ctx.set_global_alpha(opa as f64 / 255.0);
         let src_w = src.width as f64;
         let src_h = src.height as f64;
         // Quad index order matches `apply_rect`: 0=TL, 1=TR, 2=BR, 3=BL.
@@ -339,6 +344,7 @@ impl WebCanvasRenderer<'_> {
                 );
             }
         }
+        ctx.set_global_alpha(prev_alpha);
         self.pop_clip();
     }
 
@@ -469,15 +475,20 @@ impl Renderer for WebCanvasRenderer<'_> {
             DrawCommand::Blit {
                 quad: Some(q),
                 texture,
+                opa,
                 ..
             } => {
-                self.blit_quad_inner(texture, q, clip);
+                self.blit_quad_inner(texture, q, clip, *opa);
             }
             DrawCommand::Blit {
-                pos, size, texture, ..
+                pos,
+                size,
+                texture,
+                opa,
+                ..
             } => {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                self.blit(texture, &src_rect, *pos, *size, clip);
+                self.blit(texture, &src_rect, *pos, *size, clip, *opa);
             }
             DrawCommand::Line {
                 p1,
@@ -578,7 +589,18 @@ impl Canvas for WebCanvasRenderer<'_> {
         self.pop_clip();
     }
 
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
+    fn blit(
+        &mut self,
+        src: &Texture,
+        src_rect: &Rect,
+        dst: Point,
+        dst_size: Point,
+        clip: &Rect,
+        opa: u8,
+    ) {
+        if opa == 0 {
+            return;
+        }
         let key = TextureKey::from(src);
         let handle = match self
             .factory
@@ -595,6 +617,11 @@ impl Canvas for WebCanvasRenderer<'_> {
 
         self.push_clip(clip);
         let ctx = self.ctx();
+        // Canvas 2D's `globalAlpha` persists across calls; `save/restore`
+        // in `Renderer::draw` captures whatever the previous primitive
+        // left, so blit has to set it explicitly each call.
+        let prev_alpha = ctx.global_alpha();
+        ctx.set_global_alpha(opa as f64 / 255.0);
         let result = ctx
             .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
                 &handle.canvas,
@@ -608,6 +635,7 @@ impl Canvas for WebCanvasRenderer<'_> {
                 dst_size.y.to_f32() as f64,
             );
         let _ = result;
+        ctx.set_global_alpha(prev_alpha);
         self.pop_clip();
     }
 

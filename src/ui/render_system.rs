@@ -612,7 +612,7 @@ fn try_draw_offscreen(
             transform: *outer_tf,
             quad: outer_quad,
             texture: &tex_ref,
-            opa: 255,
+            opa: off.opacity,
         };
         renderer.draw(&blit_cmd, clip);
     }
@@ -3021,6 +3021,49 @@ mod offscreen_render_check {
                 (0, 0, 0),
                 "outside-panel pixel ({x}, {y}) leaked colour ({r}, {g}, {b})"
             );
+        }
+    }
+
+    // Threading test: validates off.opacity reaches the outer blit
+    // cmd's opa byte. Half-red panel proves the plumb without a
+    // per-backend integration harness.
+    #[test]
+    fn offscreen_opacity_dims_outer_blit() {
+        let mut world = make_world();
+        let panel = spawn(
+            &mut world,
+            None,
+            Style {
+                bg_color: Some(Color::rgb(255, 0, 0).into()),
+                layout: LayoutStyle {
+                    width: Dimension::Px(Fixed::from_int(16)),
+                    height: Dimension::Px(Fixed::from_int(16)),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+        );
+        world.insert(panel, OffscreenRender::new().with_opacity(128));
+
+        let mut buf = std::vec![0u8; 32 * 32 * 4];
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let mut renderer = SwRenderer::new(tex);
+        let viewport = Viewport::new(32, 32, Fixed::ONE);
+        super::render(&world, panel, &viewport, &mut renderer);
+
+        let read_r = |x: usize, y: usize| buf[(y * 32 + x) * 4];
+        for (x, y) in [(0, 0), (7, 7), (15, 15), (3, 12)] {
+            let r = read_r(x, y);
+            assert!(
+                (120..=135).contains(&r),
+                "panel pixel ({x},{y}) red = {r}; expected ~128 for opacity=128",
+            );
+        }
+        // Outside the panel must stay zero — opacity must NOT bleed
+        // into untouched pixels.
+        for (x, y) in [(16, 0), (0, 16), (20, 20), (31, 31)] {
+            let r = read_r(x, y);
+            assert_eq!(r, 0, "outside-panel ({x},{y}) leaked red={r}");
         }
     }
 

@@ -1324,11 +1324,11 @@ mod tests {
 
         {
             let mut tex_a = Texture::new(&mut dst_a, 8, 6, ColorFormat::RGBA8888);
-            blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6);
+            blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6, 255);
         }
         {
             let mut tex_b = Texture::new(&mut dst_b, 8, 6, ColorFormat::RGBA8888);
-            blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6);
+            blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6, 255);
         }
 
         assert_eq!(dst_a, dst_b, "dda sampling diverged from divide path");
@@ -1362,7 +1362,7 @@ mod tests {
 
         {
             let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::RGBA8888);
-            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6);
+            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6, 255);
         }
         {
             let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::RGBA8888);
@@ -1398,7 +1398,7 @@ mod tests {
 
         {
             let mut tex = Texture::new(&mut dst_a, 6, 6, ColorFormat::RGB565Swapped);
-            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6);
+            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 0, 0, 6, 6, 255);
         }
         {
             let mut tex = Texture::new(&mut dst_b, 6, 6, ColorFormat::RGB565Swapped);
@@ -1423,7 +1423,7 @@ mod tests {
         let mut dst_b = vec![0u8; 10 * 10 * 2];
         {
             let mut tex = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGB565Swapped);
-            blit_dda(&mut tex, &src, 0, 0, 3, 3, 1, 1, 6, 6, 0, 0, 10, 10);
+            blit_dda(&mut tex, &src, 0, 0, 3, 3, 1, 1, 6, 6, 0, 0, 10, 10, 255);
         }
         {
             let mut tex = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGB565Swapped);
@@ -1518,7 +1518,7 @@ mod tests {
         // Clip covers only the right half of the blit rect.
         {
             let mut tex = Texture::new(&mut dst_a, 8, 8, ColorFormat::RGBA8888);
-            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 3, 0, 8, 8);
+            blit_generic_slow(&mut tex, &src, 0, 0, 4, 4, 1, 1, 4, 4, 3, 0, 8, 8, 255);
         }
         {
             let mut tex = Texture::new(&mut dst_b, 8, 8, ColorFormat::RGBA8888);
@@ -1544,11 +1544,11 @@ mod tests {
         // Clip covers columns 2..7 only.
         {
             let mut tex_a = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGBA8888);
-            blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10);
+            blit_generic_slow(&mut tex_a, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10, 255);
         }
         {
             let mut tex_b = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGBA8888);
-            blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10);
+            blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10, 255);
         }
         assert_eq!(dst_a, dst_b);
     }
@@ -1843,5 +1843,119 @@ mod tests {
         tex.alpha_mode = AlphaMode::Blend;
         tex.blend_pixel_int(0, 0, &Color::rgba(255, 0, 0, 255), 255);
         assert_eq!(tex.get_pixel(0, 0).a, 255);
+    }
+
+    // opa=128, opaque red 4×4 src onto transparent target — dispatch
+    // must route through blit_dda (per-pixel blend), NOT the 1to1
+    // memcpy fast path, else opa would be silently ignored.
+    #[test]
+    fn blit_opa_128_midgray_red_source() {
+        let mut tgt_buf = std::vec![0u8; 4 * 4 * 4];
+        let tgt_tex = Texture::new(&mut tgt_buf, 4, 4, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tgt_tex);
+
+        let mut src_buf = std::vec![0u8; 4 * 4 * 4];
+        for px in src_buf.chunks_exact_mut(4) {
+            px[0] = 255;
+            px[1] = 0;
+            px[2] = 0;
+            px[3] = 255;
+        }
+        let src_tex = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src_rect = Rect::new(0, 0, 4, 4);
+        let dst = Point::new(Fixed::ZERO, Fixed::ZERO);
+        let dst_size = Point::new(Fixed::from_int(4), Fixed::from_int(4));
+        let clip = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(4),
+            h: Fixed::from_int(4),
+        };
+        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, 128);
+
+        // effective_a = (255 * 128) / 255 = 128; source-over onto
+        // transparent dst yields dst.rgb ≈ 128 red. Target is Opaque
+        // mode by default so dst.a stays out of the compositing eqn.
+        for y in 0..4 {
+            for x in 0..4 {
+                let p = backend.target.get_pixel(x, y);
+                assert!(
+                    p.r >= 120 && p.r <= 135,
+                    "({x},{y}) red channel {} not in [120,135]",
+                    p.r,
+                );
+                assert_eq!((p.g, p.b), (0, 0), "({x},{y}) green/blue must stay zero",);
+            }
+        }
+    }
+
+    // opa==0 short-circuits before any pixel write — worst-case
+    // group opacity must keep the fast path's no-op semantics.
+    #[test]
+    fn blit_opa_zero_skips_writes() {
+        let mut tgt_buf = std::vec![0u8; 4 * 4 * 4];
+        let tgt_tex = Texture::new(&mut tgt_buf, 4, 4, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tgt_tex);
+
+        let mut src_buf = std::vec![255u8; 4 * 4 * 4];
+        let src_tex = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+        let src_rect = Rect::new(0, 0, 4, 4);
+        let dst = Point::new(Fixed::ZERO, Fixed::ZERO);
+        let dst_size = Point::new(Fixed::from_int(4), Fixed::from_int(4));
+        let clip = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(4),
+            h: Fixed::from_int(4),
+        };
+        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, 0);
+
+        for y in 0..4 {
+            for x in 0..4 {
+                let p = backend.target.get_pixel(x, y);
+                assert_eq!((p.r, p.g, p.b, p.a), (0, 0, 0, 0));
+            }
+        }
+    }
+
+    // opa==255 must produce byte-identical output to the pre-opa
+    // fast path. 1to1 RGBA→RGBA path exploits `(src_a * 255) / 255
+    // == src_a`, the bit-exact identity the dispatch's `opa < 255`
+    // guard relies on.
+    #[test]
+    fn blit_opa_255_bit_exact_with_fast_path() {
+        let make_target = || {
+            let buf = std::vec![0u8; 4 * 4 * 4];
+            (buf, Vec::<u8>::new())
+        };
+        let (mut tgt_buf_a, _) = make_target();
+        let (mut tgt_buf_b, _) = make_target();
+
+        let mut src_buf = std::vec![0u8; 4 * 4 * 4];
+        for (i, px) in src_buf.chunks_exact_mut(4).enumerate() {
+            px[0] = (i * 16) as u8;
+            px[1] = (255 - i * 8) as u8;
+            px[2] = (i * 4) as u8;
+            px[3] = 255;
+        }
+
+        for (tgt, opa) in [(&mut tgt_buf_a, 255), (&mut tgt_buf_b, 255)] {
+            let tgt_tex = Texture::new(tgt, 4, 4, ColorFormat::RGBA8888);
+            let mut backend = SwRenderer::new(tgt_tex);
+            let src_tex = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+            let src_rect = Rect::new(0, 0, 4, 4);
+            let dst = Point::new(Fixed::ZERO, Fixed::ZERO);
+            let dst_size = Point::new(Fixed::from_int(4), Fixed::from_int(4));
+            let clip = Rect {
+                x: Fixed::ZERO,
+                y: Fixed::ZERO,
+                w: Fixed::from_int(4),
+                h: Fixed::from_int(4),
+            };
+            backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, opa);
+        }
+
+        assert_eq!(tgt_buf_a, tgt_buf_b, "opa==255 must be deterministic");
+        assert_eq!(tgt_buf_a, src_buf, "opa==255 must equal source");
     }
 }

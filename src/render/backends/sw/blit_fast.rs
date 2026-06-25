@@ -16,6 +16,7 @@ pub fn blit_generic_slow(
     clip_y0: i32,
     clip_x1: i32,
     clip_y1: i32,
+    opa: u8,
 ) {
     for drow in 0..dh {
         let iy = dy0 + drow;
@@ -30,13 +31,14 @@ pub fn blit_generic_slow(
             }
             let sx = sx0 + (dcol * sw as i32) / dw;
             let src_color = src.get_pixel(sx, sy);
-            if src_color.a == 0 {
+            let effective_a = ((src_color.a as u16 * opa as u16) / 255) as u8;
+            if effective_a == 0 {
                 continue;
             }
-            if src_color.a == 255 {
+            if effective_a == 255 {
                 dst.set_pixel(ix, iy, &src_color);
             } else {
-                dst.blend_pixel_int(ix, iy, &src_color, src_color.a);
+                dst.blend_pixel_int(ix, iy, &src_color, effective_a);
             }
         }
     }
@@ -106,6 +108,7 @@ pub fn blit_1to1_fast(
             clip_y0,
             clip_x1,
             clip_y1,
+            255,
         ),
     }
 }
@@ -344,6 +347,7 @@ pub fn blit_2to2_fast(
             clip_y0,
             clip_x1,
             clip_y1,
+            255,
         );
         return;
     }
@@ -381,6 +385,7 @@ pub fn blit_2to2_fast(
             clip_y0,
             clip_x1,
             clip_y1,
+            255,
         ),
     }
 }
@@ -649,6 +654,7 @@ pub fn blit_dda(
     clip_y0: i32,
     clip_x1: i32,
     clip_y1: i32,
+    opa: u8,
 ) {
     // Step values in Q16.16 fixed-point. `(sw << 16) / dw` lands the
     // integer portion in the high 16 bits; adding step each iteration
@@ -677,13 +683,14 @@ pub fn blit_dda(
             sx_acc = sx_acc.wrapping_add(sx_step);
 
             let src_color = src.get_pixel(sx, sy);
-            if src_color.a == 0 {
+            let effective_a = ((src_color.a as u16 * opa as u16) / 255) as u8;
+            if effective_a == 0 {
                 continue;
             }
-            if src_color.a == 255 {
+            if effective_a == 255 {
                 dst.set_pixel(ix, iy, &src_color);
             } else {
-                dst.blend_pixel_int(ix, iy, &src_color, src_color.a);
+                dst.blend_pixel_int(ix, iy, &src_color, effective_a);
             }
         }
     }

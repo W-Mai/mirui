@@ -10,8 +10,11 @@ impl SdlGpuRenderer<'_> {
         dst: Point,
         dst_size: Point,
         clip: &Rect,
-        _opa: u8,
+        opa: u8,
     ) {
+        if opa == 0 {
+            return;
+        }
         let sdl_fmt = match src.format {
             ColorFormat::RGBA8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
             ColorFormat::BGRA8888 => sdl2::pixels::PixelFormatEnum::BGRA32,
@@ -62,6 +65,10 @@ impl SdlGpuRenderer<'_> {
                 return;
             }
             tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+            // SDL2 modulates texture sample alpha by alpha_mod/255 in the
+            // copy() path, so set_alpha_mod composes with src.a as the
+            // group opacity multiplier.
+            tex.set_alpha_mod(opa);
 
             canvas.set_clip_rect(sdl_clip);
             let _ = canvas.copy(&tex, Some(src_sdl), Some(dst_sdl));

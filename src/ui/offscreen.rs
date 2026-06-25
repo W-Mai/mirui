@@ -57,14 +57,19 @@ use core::cell::{Ref, RefCell};
 ///
 /// Default ([`Self::new`]) renders at full resolution and only buys
 /// caching. `with_scale(Fixed::HALF)` renders at half resolution and
-/// upscales on present.
+/// upscales on present. `with_opacity(128)` blends the cached subtree
+/// onto the outer surface at the chosen alpha.
 #[derive(Clone, Copy, Debug)]
+#[non_exhaustive]
 pub struct OffscreenRender {
     /// Render scale relative to the entity's `ComputedRect`. 1.0 keeps
     /// the buffer at the entity's drawn size; 0.5 halves both axes (a
     /// quarter of the pixel count). Values below `Fixed::ONE / 8` are
     /// clamped at render time so `buf_w` / `buf_h` never round to 0.
     pub scale: Fixed,
+    /// Group opacity applied when the cached buffer is blitted onto the
+    /// outer surface (not a per-pixel filter inside the subtree).
+    pub opacity: u8,
 }
 
 impl Default for OffscreenRender {
@@ -75,11 +80,22 @@ impl Default for OffscreenRender {
 
 impl OffscreenRender {
     pub const fn new() -> Self {
-        Self { scale: Fixed::ONE }
+        Self {
+            scale: Fixed::ONE,
+            opacity: 255,
+        }
     }
 
     pub const fn with_scale(scale: Fixed) -> Self {
-        Self { scale }
+        Self {
+            scale,
+            opacity: 255,
+        }
+    }
+
+    pub const fn with_opacity(mut self, opacity: u8) -> Self {
+        self.opacity = opacity;
+        self
     }
 }
 
@@ -390,6 +406,24 @@ mod tests {
 
     fn dummy_entity(id: u32) -> Entity {
         Entity { id, generation: 0 }
+    }
+
+    #[test]
+    fn offscreen_render_default_is_fully_opaque() {
+        assert_eq!(OffscreenRender::default().opacity, 255);
+        assert_eq!(OffscreenRender::new().opacity, 255);
+        assert_eq!(OffscreenRender::with_scale(Fixed::HALF).opacity, 255);
+    }
+
+    #[test]
+    fn offscreen_render_with_opacity_chains() {
+        let off = OffscreenRender::new().with_opacity(128);
+        assert_eq!(off.scale, Fixed::ONE);
+        assert_eq!(off.opacity, 128);
+
+        let off2 = OffscreenRender::with_scale(Fixed::HALF).with_opacity(64);
+        assert_eq!(off2.scale, Fixed::HALF);
+        assert_eq!(off2.opacity, 64);
     }
 
     #[test]

@@ -49,6 +49,10 @@ pub struct BlitUniform {
     pub dst_pos: [f32; 2],
     pub dst_size: [f32; 2],
     pub uv: [f32; 4],
+    /// `.x` carries group opacity in [0..1]; `.yzw` reserved.
+    /// Padded to vec4 because std140 rounds the struct end up to its
+    /// largest member alignment (16), matching `RectUniform`'s trick.
+    pub alpha: [f32; 4],
 }
 
 #[repr(C)]
@@ -70,6 +74,7 @@ pub struct LabelVertex {
 pub struct BlitQuadVertex {
     pub pos: [f32; 2],
     pub uvw: [f32; 3],
+    pub alpha: f32,
 }
 
 /// `local_uvw = (lx/w, ly/w, 1/w)` where `(lx, ly)` are widget-local
@@ -303,7 +308,7 @@ fn build_pipeline(
         ],
     };
     let blit_quad_vertex_layout = wgpu::VertexBufferLayout {
-        array_stride: 20,
+        array_stride: 24,
         step_mode: wgpu::VertexStepMode::Vertex,
         attributes: &[
             wgpu::VertexAttribute {
@@ -315,6 +320,11 @@ fn build_pipeline(
                 format: wgpu::VertexFormat::Float32x3,
                 offset: 8,
                 shader_location: 1,
+            },
+            wgpu::VertexAttribute {
+                format: wgpu::VertexFormat::Float32,
+                offset: 20,
+                shader_location: 2,
             },
         ],
     };
@@ -383,14 +393,15 @@ const _: () = {
     // Keep Rust uniform layouts in sync with WGSL structs.
     assert!(core::mem::size_of::<ViewportUniform>() == 16);
     assert!(core::mem::size_of::<RectUniform>() == 48);
-    assert!(core::mem::size_of::<BlitUniform>() == 32);
+    assert!(core::mem::size_of::<BlitUniform>() == 48);
     // Must match `PathTint` in shader/path.wgsl.
     assert!(core::mem::size_of::<PathTintUniform>() == 16);
     // Must match the `LabelVertex` layout in pipeline.rs and the
     // `VertexIn` struct in shader/label.wgsl.
     assert!(core::mem::size_of::<LabelVertex>() == 16);
-    // Must match `VertexIn` in shader/blit_quad.wgsl (vec2 + vec3 = 20).
-    assert!(core::mem::size_of::<BlitQuadVertex>() == 20);
+    // Must match `VertexIn` in shader/blit_quad.wgsl
+    // (vec2 + vec3 + f32 = 24).
+    assert!(core::mem::size_of::<BlitQuadVertex>() == 24);
     assert!(core::mem::size_of::<QuadSdfVertex>() == 20);
     // Must match `QuadSdf` in shader/quad_sdf.wgsl and stay 48 bytes
     // so the fill bind group's binding-1 binding-size covers it.

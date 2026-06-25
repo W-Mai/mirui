@@ -15,6 +15,7 @@ struct Viewport {
 struct VertexIn {
     @location(0) pos: vec2<f32>,
     @location(1) uvw: vec3<f32>,
+    @location(2) alpha: f32,
 };
 
 struct VertexOut {
@@ -22,6 +23,7 @@ struct VertexOut {
     // `linear` opts out of clip-space perspective division; the host
     // already encoded the homography weight into `uvw`.
     @location(0) @interpolate(linear) uvw: vec3<f32>,
+    @location(1) alpha: f32,
 };
 
 @vertex
@@ -33,11 +35,13 @@ fn vs_main(in: VertexIn) -> VertexOut {
     var out: VertexOut;
     out.clip = vec4<f32>(ndc, 0.0, 1.0);
     out.uvw = in.uvw;
+    out.alpha = in.alpha;
     return out;
 }
 
 @fragment
 fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
     let uv = v.uvw.xy / v.uvw.z;
-    return textureSample(src_tex, src_samp, uv);
+    let c = textureSample(src_tex, src_samp, uv);
+    return vec4<f32>(c.rgb, c.a * v.alpha);
 }

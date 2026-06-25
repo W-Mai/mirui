@@ -490,9 +490,10 @@ impl Renderer for SdlGpuRenderer<'_> {
             DrawCommand::Blit {
                 quad: Some(q),
                 texture,
+                opa,
                 ..
             } => {
-                self.blit_quad_inner(texture, q, clip);
+                self.blit_quad_inner(texture, q, clip, *opa);
                 return;
             }
             _ => {}
