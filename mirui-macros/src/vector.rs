@@ -199,18 +199,6 @@ impl Parse for PathStep {
     }
 }
 
-struct PathInput {
-    steps: Punctuated<PathStep, Token![;]>,
-}
-
-impl Parse for PathInput {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        Ok(Self {
-            steps: Punctuated::parse_terminated(input)?,
-        })
-    }
-}
-
 fn path_step_tokens(step: &PathStep) -> TokenStream {
     match step {
         PathStep::MoveTo(x, y) => {
@@ -236,17 +224,455 @@ fn path_step_tokens(step: &PathStep) -> TokenStream {
     }
 }
 
+struct PathMacroInput {
+    steps: Vec<PathStep>,
+}
+
+impl Parse for PathMacroInput {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        // Two equivalent entries: a token form `M 4 12 L 12 4 Z` for
+        // hand-authored constants, and a string-literal form
+        // `"M 4 12 L 12 4 Z"` for paths copy-pasted from SVG. Both
+        // share the same SvgLexer state machine by funneling the
+        // token form through `to_string()` first.
+        let span = input.span();
+        let src = if input.peek(syn::LitStr) {
+            let lit: syn::LitStr = input.parse()?;
+            if !input.is_empty() {
+                return Err(syn::Error::new(
+                    input.span(),
+                    "unexpected token after SVG path string",
+                ));
+            }
+            lit.value()
+        } else {
+            let stream: proc_macro2::TokenStream = input.parse()?;
+            stream.to_string()
+        };
+        let steps = parse_svg_path_string(&src, span)?;
+        Ok(Self { steps })
+    }
+}
+
+/// State machine per SVG 1.1 §8.3: current point + subpath start (for
+/// Z restoring current point). S/T smooth-shorthand state slots are
+/// not tracked — D2=B scope skips that shorthand.
+fn parse_svg_path_string(svg: &str, span: proc_macro2::Span) -> syn::Result<Vec<PathStep>> {
+    let mut lex = SvgLexer { src: svg, pos: 0 };
+    let mut steps = Vec::new();
+    let mut cur_x = 0.0_f64;
+    let mut cur_y = 0.0_f64;
+    let mut sub_x = 0.0_f64;
+    let mut sub_y = 0.0_f64;
+    let mut prev_cmd: Option<char> = None;
+    let mut last_was_close = false;
+
+    let to_raw = |v: f64| (v * (1i32 << FRAC_BITS) as f64).round() as i32;
+
+    loop {
+        lex.skip_ws();
+        if lex.pos >= lex.src.len() {
+            break;
+        }
+        let next = lex.try_cmd();
+        let cmd = match (next, prev_cmd) {
+            (Some(c), _) => {
+                last_was_close = false;
+                c
+            }
+            (None, Some(prev)) => {
+                if last_was_close {
+                    return Err(svg_err(
+                        span,
+                        &lex,
+                        "number after Z is not allowed; start a new subpath with M/m",
+                    ));
+                }
+                // SVG §8.3.2 implicit repeat: after M/m the next coord
+                // pairs are treated as L/l, others repeat themselves.
+                match prev {
+                    'M' => 'L',
+                    'm' => 'l',
+                    other => other,
+                }
+            }
+            (None, None) => {
+                return Err(svg_err(span, &lex, "expected SVG path command"));
+            }
+        };
+        prev_cmd = Some(cmd);
+
+        match cmd {
+            'M' => {
+                let (x, y) = (lex.num(span)?, lex.num(span)?);
+                cur_x = x;
+                cur_y = y;
+                sub_x = x;
+                sub_y = y;
+                steps.push(PathStep::MoveTo(to_raw(x), to_raw(y)));
+            }
+            'm' => {
+                let (dx, dy) = (lex.num(span)?, lex.num(span)?);
+                cur_x += dx;
+                cur_y += dy;
+                sub_x = cur_x;
+                sub_y = cur_y;
+                steps.push(PathStep::MoveTo(to_raw(cur_x), to_raw(cur_y)));
+            }
+            'L' => {
+                let (x, y) = (lex.num(span)?, lex.num(span)?);
+                cur_x = x;
+                cur_y = y;
+                steps.push(PathStep::LineTo(to_raw(x), to_raw(y)));
+            }
+            'l' => {
+                let (dx, dy) = (lex.num(span)?, lex.num(span)?);
+                cur_x += dx;
+                cur_y += dy;
+                steps.push(PathStep::LineTo(to_raw(cur_x), to_raw(cur_y)));
+            }
+            'H' => {
+                cur_x = lex.num(span)?;
+                steps.push(PathStep::LineTo(to_raw(cur_x), to_raw(cur_y)));
+            }
+            'h' => {
+                cur_x += lex.num(span)?;
+                steps.push(PathStep::LineTo(to_raw(cur_x), to_raw(cur_y)));
+            }
+            'V' => {
+                cur_y = lex.num(span)?;
+                steps.push(PathStep::LineTo(to_raw(cur_x), to_raw(cur_y)));
+            }
+            'v' => {
+                cur_y += lex.num(span)?;
+                steps.push(PathStep::LineTo(to_raw(cur_x), to_raw(cur_y)));
+            }
+            'Q' => {
+                let (cx, cy) = (lex.num(span)?, lex.num(span)?);
+                let (x, y) = (lex.num(span)?, lex.num(span)?);
+                cur_x = x;
+                cur_y = y;
+                steps.push(PathStep::QuadTo(
+                    to_raw(cx),
+                    to_raw(cy),
+                    to_raw(x),
+                    to_raw(y),
+                ));
+            }
+            'q' => {
+                let (dcx, dcy) = (lex.num(span)?, lex.num(span)?);
+                let (dx, dy) = (lex.num(span)?, lex.num(span)?);
+                let (cx, cy) = (cur_x + dcx, cur_y + dcy);
+                cur_x += dx;
+                cur_y += dy;
+                steps.push(PathStep::QuadTo(
+                    to_raw(cx),
+                    to_raw(cy),
+                    to_raw(cur_x),
+                    to_raw(cur_y),
+                ));
+            }
+            'C' => {
+                let (c1x, c1y) = (lex.num(span)?, lex.num(span)?);
+                let (c2x, c2y) = (lex.num(span)?, lex.num(span)?);
+                let (x, y) = (lex.num(span)?, lex.num(span)?);
+                cur_x = x;
+                cur_y = y;
+                steps.push(PathStep::CubicTo(
+                    to_raw(c1x),
+                    to_raw(c1y),
+                    to_raw(c2x),
+                    to_raw(c2y),
+                    to_raw(x),
+                    to_raw(y),
+                ));
+            }
+            'c' => {
+                let (dc1x, dc1y) = (lex.num(span)?, lex.num(span)?);
+                let (dc2x, dc2y) = (lex.num(span)?, lex.num(span)?);
+                let (dx, dy) = (lex.num(span)?, lex.num(span)?);
+                let (c1x, c1y) = (cur_x + dc1x, cur_y + dc1y);
+                let (c2x, c2y) = (cur_x + dc2x, cur_y + dc2y);
+                cur_x += dx;
+                cur_y += dy;
+                steps.push(PathStep::CubicTo(
+                    to_raw(c1x),
+                    to_raw(c1y),
+                    to_raw(c2x),
+                    to_raw(c2y),
+                    to_raw(cur_x),
+                    to_raw(cur_y),
+                ));
+            }
+            'Z' | 'z' => {
+                cur_x = sub_x;
+                cur_y = sub_y;
+                steps.push(PathStep::Close);
+                last_was_close = true;
+            }
+            'A' | 'a' => {
+                let rx = lex.num(span)?;
+                let ry = lex.num(span)?;
+                let phi_deg = lex.num(span)?;
+                let large = lex.flag(span)?;
+                let sweep = lex.flag(span)?;
+                let (ex, ey) = (lex.num(span)?, lex.num(span)?);
+                let (end_x, end_y) = if cmd == 'A' {
+                    (ex, ey)
+                } else {
+                    (cur_x + ex, cur_y + ey)
+                };
+                emit_arc(
+                    &mut steps, cur_x, cur_y, end_x, end_y, rx, ry, phi_deg, large, sweep, to_raw,
+                );
+                cur_x = end_x;
+                cur_y = end_y;
+            }
+            other => {
+                return Err(syn::Error::new(
+                    span,
+                    format!(
+                        "unknown SVG path command `{other}` at offset {}",
+                        lex.pos.saturating_sub(1)
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(steps)
+}
+
+struct SvgLexer<'a> {
+    src: &'a str,
+    pos: usize,
+}
+
+impl<'a> SvgLexer<'a> {
+    fn skip_ws(&mut self) {
+        let bytes = self.src.as_bytes();
+        while self.pos < bytes.len() {
+            let b = bytes[self.pos];
+            if b.is_ascii_whitespace() || b == b',' {
+                self.pos += 1;
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn try_cmd(&mut self) -> Option<char> {
+        self.skip_ws();
+        let bytes = self.src.as_bytes();
+        if self.pos < bytes.len() && bytes[self.pos].is_ascii_alphabetic() {
+            let c = bytes[self.pos] as char;
+            self.pos += 1;
+            Some(c)
+        } else {
+            None
+        }
+    }
+
+    fn num(&mut self, span: proc_macro2::Span) -> syn::Result<f64> {
+        self.skip_ws();
+        let bytes = self.src.as_bytes();
+        let start = self.pos;
+        let mut i = start;
+        if i < bytes.len() && (bytes[i] == b'-' || bytes[i] == b'+') {
+            i += 1;
+            // bare-token form stringifies a unary minus as "- 2"; skip
+            // the whitespace so we still see a number after the sign.
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+        }
+        let int_start = i;
+        while i < bytes.len() && bytes[i].is_ascii_digit() {
+            i += 1;
+        }
+        let had_int_digits = i > int_start;
+        let mut had_frac_digits = false;
+        if i < bytes.len() && bytes[i] == b'.' {
+            i += 1;
+            let frac_start = i;
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+            had_frac_digits = i > frac_start;
+        }
+        if !had_int_digits && !had_frac_digits {
+            return Err(svg_err(span, self, "expected number"));
+        }
+        if i < bytes.len() && (bytes[i] == b'e' || bytes[i] == b'E') {
+            i += 1;
+            if i < bytes.len() && (bytes[i] == b'-' || bytes[i] == b'+') {
+                i += 1;
+            }
+            while i < bytes.len() && bytes[i].is_ascii_digit() {
+                i += 1;
+            }
+        }
+        let slice = &self.src[start..i];
+        self.pos = i;
+        slice
+            .parse::<f64>()
+            .map_err(|_| svg_err_with_offset(span, self, start, &format!("bad number `{slice}`")))
+    }
+
+    fn flag(&mut self, span: proc_macro2::Span) -> syn::Result<bool> {
+        self.skip_ws();
+        let bytes = self.src.as_bytes();
+        if self.pos < bytes.len() {
+            let b = bytes[self.pos];
+            if b == b'0' || b == b'1' {
+                self.pos += 1;
+                return Ok(b == b'1');
+            }
+        }
+        Err(svg_err(span, self, "expected arc flag (0 or 1)"))
+    }
+}
+
+/// SVG 1.1 Appendix B.2.4 endpoint → center conversion + cubic-Bezier
+/// approximation, ≤90° per segment with handle = (4/3)·tan(θ/4).
+/// Path::arc proves the math at 0.027% / segment.
+#[allow(clippy::too_many_arguments)]
+fn emit_arc(
+    steps: &mut Vec<PathStep>,
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    mut rx: f64,
+    mut ry: f64,
+    phi_deg: f64,
+    large: bool,
+    sweep: bool,
+    to_raw: impl Fn(f64) -> i32,
+) {
+    rx = rx.abs();
+    ry = ry.abs();
+    if rx < 1e-9 || ry < 1e-9 || (x1 - x2).abs() < 1e-9 && (y1 - y2).abs() < 1e-9 {
+        steps.push(PathStep::LineTo(to_raw(x2), to_raw(y2)));
+        return;
+    }
+    let phi = phi_deg.to_radians();
+    let (cos_p, sin_p) = (phi.cos(), phi.sin());
+
+    let dx = (x1 - x2) * 0.5;
+    let dy = (y1 - y2) * 0.5;
+    let x1p = cos_p * dx + sin_p * dy;
+    let y1p = -sin_p * dx + cos_p * dy;
+
+    let mut lam = (x1p * x1p) / (rx * rx) + (y1p * y1p) / (ry * ry);
+    if lam > 1.0 {
+        let s = lam.sqrt();
+        rx *= s;
+        ry *= s;
+        lam = 1.0;
+    }
+    let num = (1.0 - lam).max(0.0) * (rx * rx) * (ry * ry);
+    let denom = (rx * rx) * (y1p * y1p) + (ry * ry) * (x1p * x1p);
+    let mut coef = if denom > 0.0 {
+        (num / denom).sqrt()
+    } else {
+        0.0
+    };
+    if large == sweep {
+        coef = -coef;
+    }
+    let cxp = coef * (rx * y1p) / ry;
+    let cyp = -coef * (ry * x1p) / rx;
+
+    let cx = cos_p * cxp - sin_p * cyp + (x1 + x2) * 0.5;
+    let cy = sin_p * cxp + cos_p * cyp + (y1 + y2) * 0.5;
+
+    let angle = |ux: f64, uy: f64, vx: f64, vy: f64| -> f64 {
+        let n = (ux * ux + uy * uy).sqrt() * (vx * vx + vy * vy).sqrt();
+        let dot = (ux * vx + uy * vy) / n;
+        let mut a = dot.clamp(-1.0, 1.0).acos();
+        if ux * vy - uy * vx < 0.0 {
+            a = -a;
+        }
+        a
+    };
+    let theta1 = angle(1.0, 0.0, (x1p - cxp) / rx, (y1p - cyp) / ry);
+    let mut delta = angle(
+        (x1p - cxp) / rx,
+        (y1p - cyp) / ry,
+        (-x1p - cxp) / rx,
+        (-y1p - cyp) / ry,
+    );
+    if !sweep && delta > 0.0 {
+        delta -= core::f64::consts::TAU;
+    } else if sweep && delta < 0.0 {
+        delta += core::f64::consts::TAU;
+    }
+
+    let segs = ((delta.abs() / core::f64::consts::FRAC_PI_2).ceil() as usize).max(1);
+    let step = delta / segs as f64;
+    let k = (4.0 / 3.0) * (step / 4.0).tan();
+
+    let mut a = theta1;
+    for _ in 0..segs {
+        let a_next = a + step;
+        let (sa, ca) = a.sin_cos();
+        let (sb, cb) = a_next.sin_cos();
+        let p0x_unit = ca;
+        let p0y_unit = sa;
+        let p3x_unit = cb;
+        let p3y_unit = sb;
+        let p1x_unit = ca - k * sa;
+        let p1y_unit = sa + k * ca;
+        let p2x_unit = cb + k * sb;
+        let p2y_unit = sb - k * cb;
+        let map = |ux: f64, uy: f64| -> (f64, f64) {
+            let px = ux * rx;
+            let py = uy * ry;
+            (cos_p * px - sin_p * py + cx, sin_p * px + cos_p * py + cy)
+        };
+        let (_, _) = map(p0x_unit, p0y_unit); // p0 already emitted via previous cur/MoveTo
+        let (c1x, c1y) = map(p1x_unit, p1y_unit);
+        let (c2x, c2y) = map(p2x_unit, p2y_unit);
+        let (ex, ey) = map(p3x_unit, p3y_unit);
+        steps.push(PathStep::CubicTo(
+            to_raw(c1x),
+            to_raw(c1y),
+            to_raw(c2x),
+            to_raw(c2y),
+            to_raw(ex),
+            to_raw(ey),
+        ));
+        a = a_next;
+    }
+}
+
+fn svg_err(span: proc_macro2::Span, lex: &SvgLexer, msg: &str) -> syn::Error {
+    svg_err_with_offset(span, lex, lex.pos, msg)
+}
+
+fn svg_err_with_offset(
+    span: proc_macro2::Span,
+    lex: &SvgLexer,
+    at: usize,
+    msg: &str,
+) -> syn::Error {
+    let win_start = at.saturating_sub(10);
+    let win_end = (at + 10).min(lex.src.len());
+    let ctx = &lex.src[win_start..win_end];
+    syn::Error::new(span, format!("svg path: {msg} at offset {at} near `{ctx}`"))
+}
+
 pub fn expand_path(input: TokenStream) -> TokenStream {
-    let parsed = match parse2::<PathInput>(input) {
+    let parsed = match parse2::<PathMacroInput>(input) {
         Ok(p) => p,
         Err(e) => return e.to_compile_error(),
     };
     let cmds = parsed.steps.iter().map(path_step_tokens);
     quote! {
-        {
+        ::mirui::render::path::Path::from_static({
             const CMDS: &[::mirui::render::path::PathCmd] = &[#(#cmds),*];
             CMDS
-        }
+        })
     }
 }
 

@@ -127,7 +127,7 @@ pub fn record_command(
             color,
             opa,
         } => SceneOp::FillPath {
-            path: path.cmds.clone().into(),
+            path: path.cmds.clone(),
             transform: *transform,
             color: *color,
             opa: *opa,

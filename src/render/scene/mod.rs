@@ -262,6 +262,7 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::path::Path;
 
     static GEOMETRY: [PathCmd; 2] = [PathCmd::MoveTo(Point::ZERO), PathCmd::Close];
     static SCENE: &[SceneOp] = &[SceneOp::FillPath {
@@ -313,16 +314,137 @@ mod tests {
     }
 
     #[test]
-    fn path_macro_emits_const_slice() {
-        const P: &[PathCmd] = mirui::path! {
-            M 0 0;
-            L 4 0;
-            Q 4 4 0 4;
-            Z
+    fn path_macro_emits_borrowed_path() {
+        use alloc::borrow::Cow;
+        let p: Path = mirui::path!(M 0 0 L 4 0 Q 4 4 0 4 Z);
+        assert!(matches!(p.cmds, Cow::Borrowed(_)));
+        assert_eq!(p.cmds.len(), 4);
+        assert_eq!(p.cmds[0], PathCmd::MoveTo(Point::ZERO));
+        assert_eq!(p.cmds[3], PathCmd::Close);
+    }
+
+    #[test]
+    fn path_macro_svg_string_uppercase_absolute() {
+        let p: Path = mirui::path!("M 0 0 L 4 0 Q 4 4 0 4 Z");
+        assert_eq!(p.cmds.len(), 4);
+        assert_eq!(p.cmds[0], PathCmd::MoveTo(Point::ZERO));
+        assert_eq!(p.cmds[3], PathCmd::Close);
+    }
+
+    #[test]
+    fn path_macro_svg_string_h_v_shorthand() {
+        let p: Path = mirui::path!("M 4 4 H 20 V 20 Z");
+        assert_eq!(p.cmds.len(), 4);
+        assert!(
+            matches!(p.cmds[1], PathCmd::LineTo(pt) if pt.x.to_int() == 20 && pt.y.to_int() == 4)
+        );
+        assert!(
+            matches!(p.cmds[2], PathCmd::LineTo(pt) if pt.x.to_int() == 20 && pt.y.to_int() == 20)
+        );
+    }
+
+    #[test]
+    fn path_macro_svg_string_implicit_lineto() {
+        let p: Path = mirui::path!("M 0 0 1 1 2 2 m 5 5 3 3");
+        assert_eq!(p.cmds.len(), 5);
+        assert!(matches!(p.cmds[0], PathCmd::MoveTo(_)));
+        assert!(
+            matches!(p.cmds[1], PathCmd::LineTo(pt) if pt.x.to_int() == 1 && pt.y.to_int() == 1)
+        );
+        assert!(
+            matches!(p.cmds[2], PathCmd::LineTo(pt) if pt.x.to_int() == 2 && pt.y.to_int() == 2)
+        );
+        assert!(
+            matches!(p.cmds[3], PathCmd::MoveTo(pt) if pt.x.to_int() == 7 && pt.y.to_int() == 7)
+        );
+        assert!(
+            matches!(p.cmds[4], PathCmd::LineTo(pt) if pt.x.to_int() == 10 && pt.y.to_int() == 10)
+        );
+    }
+
+    #[test]
+    fn path_macro_svg_string_close_restores_subpath_start() {
+        let p: Path = mirui::path!("M 5 5 L 10 5 L 10 10 Z l 2 2");
+        let last = p.cmds.last().unwrap();
+        assert!(
+            matches!(last, PathCmd::LineTo(pt) if pt.x.to_int() == 7 && pt.y.to_int() == 7),
+            "after Z, current point must be subpath_start (5,5), then l 2 2 → (7,7); got {last:?}",
+        );
+    }
+
+    #[test]
+    fn path_macro_svg_string_lowercase_relative() {
+        let p: Path = mirui::path!("M 10 10 l 5 0 l 0 5 z");
+        assert_eq!(p.cmds.len(), 4);
+        assert!(
+            matches!(p.cmds[1], PathCmd::LineTo(pt) if pt.x.to_int() == 15 && pt.y.to_int() == 10)
+        );
+        assert!(
+            matches!(p.cmds[2], PathCmd::LineTo(pt) if pt.x.to_int() == 15 && pt.y.to_int() == 15)
+        );
+    }
+
+    // Quarter circle A 8 8 0 0 1 from (12,4) to (20,12) about the
+    // viewBox center (12,12). Endpoint must land within 2% of radius
+    // and midpoint stay on the circle within 2% as well.
+    #[test]
+    fn path_macro_svg_string_arc_quarter_circle() {
+        let p: Path = mirui::path!("M 12 4 A 8 8 0 0 1 20 12");
+        let last_end = match p.cmds.last().unwrap() {
+            PathCmd::CubicTo { end, .. } => *end,
+            PathCmd::LineTo(pt) => *pt,
+            other => panic!("expected CubicTo/LineTo, got {other:?}"),
         };
-        assert_eq!(P.len(), 4);
-        assert_eq!(P[0], PathCmd::MoveTo(Point::ZERO));
-        assert_eq!(P[3], PathCmd::Close);
+        let dx = last_end.x.to_f32() - 20.0;
+        let dy = last_end.y.to_f32() - 12.0;
+        let err = (dx * dx + dy * dy).sqrt();
+        assert!(err < 0.16, "endpoint error {err} > 2% of r=8 (=0.16)");
+    }
+
+    #[test]
+    fn path_macro_svg_string_arc_half_circle_emits_two_segments() {
+        let p: Path = mirui::path!("M 0 0 A 5 5 0 1 1 10 0");
+        let cubics = p
+            .cmds
+            .iter()
+            .filter(|c| matches!(c, PathCmd::CubicTo { .. }))
+            .count();
+        assert_eq!(
+            cubics, 2,
+            "180° arc must split into 2 segments (≤90° each) for ≤2% precision",
+        );
+    }
+
+    fn arc_endpoint(p: &Path) -> (f32, f32) {
+        match p.cmds.last().unwrap() {
+            PathCmd::CubicTo { end, .. } => (end.x.to_f32(), end.y.to_f32()),
+            PathCmd::LineTo(pt) => (pt.x.to_f32(), pt.y.to_f32()),
+            other => panic!("expected CubicTo/LineTo, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn path_macro_svg_string_arc_half_circle_endpoint() {
+        let p: Path = mirui::path!("M 0 0 A 5 5 0 0 1 10 0");
+        let (x, y) = arc_endpoint(&p);
+        let err = ((x - 10.0).powi(2) + y.powi(2)).sqrt();
+        assert!(err < 0.1, "half-circle endpoint err {err} > 2% of r=5");
+    }
+
+    #[test]
+    fn path_macro_svg_string_arc_large_flag_endpoint() {
+        let p: Path = mirui::path!("M 5 0 A 5 5 0 1 1 0 5");
+        let (x, y) = arc_endpoint(&p);
+        let err = (x.powi(2) + (y - 5.0).powi(2)).sqrt();
+        assert!(err < 0.1, "270° (large_arc=1) endpoint err {err} > 2%");
+    }
+
+    #[test]
+    fn path_macro_svg_string_arc_sweep_zero_endpoint() {
+        let p: Path = mirui::path!("M 0 0 A 5 5 0 0 0 10 0");
+        let (x, y) = arc_endpoint(&p);
+        let err = ((x - 10.0).powi(2) + y.powi(2)).sqrt();
+        assert!(err < 0.1, "sweep=0 endpoint err {err} > 2% of r=5");
     }
 
     #[test]
