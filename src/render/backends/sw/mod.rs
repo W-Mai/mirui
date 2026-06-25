@@ -95,6 +95,11 @@ impl<'a> SwRenderer<'a> {
                     &phys_tf,
                 );
             }
+            DrawCommand::FillPath {
+                path, color, opa, ..
+            } => {
+                self.fill_path_transformed(path, phys_clip, &phys_tf, color, *opa);
+            }
             _ => unimplemented!(
                 "sw backend: {:?} under non-axis-aligned transform not yet supported",
                 core::mem::discriminant(cmd)
@@ -1957,5 +1962,40 @@ mod tests {
 
         assert_eq!(tgt_buf_a, tgt_buf_b, "opa==255 must be deterministic");
         assert_eq!(tgt_buf_a, src_buf, "opa==255 must equal source");
+    }
+
+    // FillPath under a scale transform used to panic (sw/sdl_gpu/wgpu
+    // draw_transformed had no FillPath arm). Icon widget needs this
+    // path to render a viewBox-units path scaled to physical pixels.
+    #[test]
+    fn fill_path_scale_transform_renders_without_panic() {
+        use crate::render::command::DrawCommand;
+        use crate::render::renderer::Renderer;
+        use crate::types::Transform;
+
+        let mut buf = vec![0u8; 32 * 32 * 4];
+        let tex = Texture::new(&mut buf, 32, 32, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+
+        // 4×4 unit square; scale(4,4) should fill a 16×16 region at origin.
+        let path = crate::render::path::Path::rect(
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(4),
+            Fixed::from_int(4),
+        );
+        let clip = Rect::new(0, 0, 32, 32);
+        let cmd = DrawCommand::FillPath {
+            path: &path,
+            transform: Transform::scale(Fixed::from_int(4), Fixed::from_int(4)),
+            color: Color::rgb(0, 255, 0),
+            opa: 255,
+        };
+        backend.draw(&cmd, &clip);
+
+        let inside = backend.target.get_pixel(8, 8);
+        assert_eq!(inside.g, 255, "scaled rect interior should be green");
+        let outside = backend.target.get_pixel(20, 20);
+        assert_eq!(outside.g, 0, "outside scaled rect must stay zero");
     }
 }

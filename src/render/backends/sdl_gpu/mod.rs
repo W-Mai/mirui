@@ -496,6 +496,15 @@ impl Renderer for SdlGpuRenderer<'_> {
                 self.blit_quad_inner(texture, q, clip, *opa);
                 return;
             }
+            DrawCommand::FillPath {
+                path,
+                transform,
+                color,
+                opa,
+            } => {
+                self.fill_path_transformed_inner(path, clip, transform, color, *opa);
+                return;
+            }
             _ => {}
         }
 

@@ -602,6 +602,44 @@ fn translate_path(path: &Path, tx: Fixed, ty: Fixed) -> Path {
     Path { cmds }
 }
 
+fn transform_path(path: &Path, tf: &crate::types::Transform) -> Path {
+    use crate::render::path::PathCmd;
+    let apply = |p: &Point| tf.apply_point(*p);
+    let cmds = path
+        .cmds
+        .iter()
+        .map(|c| match c {
+            PathCmd::MoveTo(p) => PathCmd::MoveTo(apply(p)),
+            PathCmd::LineTo(p) => PathCmd::LineTo(apply(p)),
+            PathCmd::QuadTo { ctrl, end } => PathCmd::QuadTo {
+                ctrl: apply(ctrl),
+                end: apply(end),
+            },
+            PathCmd::CubicTo { ctrl1, ctrl2, end } => PathCmd::CubicTo {
+                ctrl1: apply(ctrl1),
+                ctrl2: apply(ctrl2),
+                end: apply(end),
+            },
+            PathCmd::Close => PathCmd::Close,
+        })
+        .collect();
+    Path { cmds }
+}
+
+impl WgpuRenderer<'_> {
+    fn fill_path_transformed_inner(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        cmd_tf: &crate::types::Transform,
+        color: &Color,
+        opa: u8,
+    ) {
+        let transformed = transform_path(path, cmd_tf);
+        self.fill_path_inner(&transformed, clip, color, opa);
+    }
+}
+
 impl WgpuRenderer<'_> {
     fn fill_path_inner(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
         let (verts, indices) = {
@@ -1276,6 +1314,19 @@ impl Renderer for WgpuRenderer<'_> {
                 ..
             } => {
                 self.blit_quad_inner(texture, q, clip, *opa);
+                return;
+            }
+            DrawCommand::FillPath {
+                path,
+                transform,
+                color,
+                opa,
+            } if !matches!(
+                transform.classify(),
+                TransformClass::Identity | TransformClass::Translate
+            ) =>
+            {
+                self.fill_path_transformed_inner(path, clip, transform, color, *opa);
                 return;
             }
             _ => {}
