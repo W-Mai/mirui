@@ -19,6 +19,7 @@ pub mod font_token;
 pub mod gesture;
 pub mod hello;
 pub mod hover_tour;
+pub mod icon;
 pub mod image;
 pub mod image_flip;
 pub mod input_feedback;

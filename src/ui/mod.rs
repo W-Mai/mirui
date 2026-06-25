@@ -11,6 +11,7 @@
 
 pub mod builder;
 pub mod dirty;
+pub mod icons;
 pub mod id;
 pub mod layout;
 pub mod niche;

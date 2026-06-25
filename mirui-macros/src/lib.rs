@@ -49,6 +49,7 @@ const BUILTIN_COMPONENT_NAMES: &[&str] = &[
     "TabBar",
     "TextInput",
     "Image",
+    "Icon",
     "Text",
     "LazyList",
     "MirrorOf",
