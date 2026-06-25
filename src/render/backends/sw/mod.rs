@@ -128,8 +128,16 @@ impl<'a> Canvas for SwRenderer<'a> {
         self.stroke_rect_inner(area, clip, width, color, radius, opa);
     }
 
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
-        self.blit_inner(src, src_rect, dst, dst_size, clip);
+    fn blit(
+        &mut self,
+        src: &Texture,
+        src_rect: &Rect,
+        dst: Point,
+        dst_size: Point,
+        clip: &Rect,
+        opa: u8,
+    ) {
+        self.blit_inner(src, src_rect, dst, dst_size, clip, opa);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
@@ -289,6 +297,7 @@ impl SwRenderer<'_> {
     }
 
     #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
     fn dispatch_blit(
         &mut self,
         pos: &Point,
@@ -297,12 +306,13 @@ impl SwRenderer<'_> {
         tx: Fixed,
         ty: Fixed,
         clip: &Rect,
+        opa: u8,
     ) {
         #[cfg(feature = "perf")]
         let t0 = self.perf.as_ref().map(|p| (p.clock)());
         let src_rect = Rect::new(0, 0, texture.width, texture.height);
         let pos = offset_point(pos, tx, ty);
-        self.blit(texture, &src_rect, pos, size, clip);
+        self.blit(texture, &src_rect, pos, size, clip, opa);
         #[cfg(feature = "perf")]
         if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
             p.blit += (p.clock)() - t0;
@@ -472,10 +482,14 @@ impl Renderer for SwRenderer<'_> {
                 self.dispatch_border(area, color, *width, *radius, *opa, tx, ty, clip);
             }
             DrawCommand::Blit {
-                pos, size, texture, ..
+                pos,
+                size,
+                texture,
+                opa,
+                ..
             } => {
                 crate::trace_span!("sw.blit");
-                self.dispatch_blit(pos, *size, texture, tx, ty, clip);
+                self.dispatch_blit(pos, *size, texture, tx, ty, clip, *opa);
             }
             DrawCommand::Label {
                 pos,
@@ -755,7 +769,7 @@ mod tests {
             w: Fixed::from_int(80),
             h: Fixed::from_int(64),
         };
-        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip);
+        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, 255);
 
         for y in 8..40 {
             for x in 0..8 {
@@ -817,7 +831,7 @@ mod tests {
             w: Fixed::from_int(80),
             h: Fixed::from_int(64),
         };
-        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip);
+        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, 255);
 
         for y in 8..40 {
             for x in 0..8 {

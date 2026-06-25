@@ -11,6 +11,7 @@ impl SwRenderer<'_> {
         dst: Point,
         dst_size: Point,
         clip: &Rect,
+        _opa: u8,
     ) {
         let phys_dst = self.viewport.point_to_physical(dst);
         let phys_dst_size = self.viewport.point_to_physical(dst_size);

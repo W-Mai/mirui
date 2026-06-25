@@ -542,11 +542,15 @@ impl Renderer for SdlGpuRenderer<'_> {
                 self.draw_line(p1, p2, clip, *width, color, *opa)
             }
             DrawCommand::Blit {
-                pos, size, texture, ..
+                pos,
+                size,
+                texture,
+                opa,
+                ..
             } => {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
-                self.blit(texture, &src_rect, pos, *size, clip);
+                self.blit(texture, &src_rect, pos, *size, clip, *opa);
             }
             DrawCommand::Arc {
                 center,
@@ -734,8 +738,16 @@ impl Canvas for SdlGpuRenderer<'_> {
         self.stroke_path_inner(path, clip, width, color, opa);
     }
 
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
-        self.blit_inner(src, src_rect, dst, dst_size, clip);
+    fn blit(
+        &mut self,
+        src: &Texture,
+        src_rect: &Rect,
+        dst: Point,
+        dst_size: Point,
+        clip: &Rect,
+        opa: u8,
+    ) {
+        self.blit_inner(src, src_rect, dst, dst_size, clip, opa);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {

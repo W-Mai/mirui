@@ -11,7 +11,15 @@ use super::texture::Texture;
 pub trait Canvas {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8);
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8);
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect);
+    fn blit(
+        &mut self,
+        src: &Texture,
+        src_rect: &Rect,
+        dst: Point,
+        dst_size: Point,
+        clip: &Rect,
+        opa: u8,
+    );
     fn clear(&mut self, area: &Rect, color: &Color);
     fn draw_label(
         &mut self,

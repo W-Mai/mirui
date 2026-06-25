@@ -37,8 +37,9 @@ impl<'a, B: Canvas> Painter<'a, B> {
         dst: Point,
         dst_size: Point,
         clip: &Rect,
+        opa: u8,
     ) {
-        self.backend.blit(src, src_rect, dst, dst_size, clip);
+        self.backend.blit(src, src_rect, dst, dst_size, clip, opa);
     }
 
     pub fn draw_text(

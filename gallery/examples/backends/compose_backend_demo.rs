@@ -47,9 +47,17 @@ impl<B: Canvas> Canvas for Logging<B> {
         self.log("stroke_path");
         self.inner.stroke_path(path, clip, width, color, opa);
     }
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
+    fn blit(
+        &mut self,
+        src: &Texture,
+        src_rect: &Rect,
+        dst: Point,
+        dst_size: Point,
+        clip: &Rect,
+        opa: u8,
+    ) {
         self.log("blit");
-        self.inner.blit(src, src_rect, dst, dst_size, clip);
+        self.inner.blit(src, src_rect, dst, dst_size, clip, opa);
     }
     fn clear(&mut self, area: &Rect, color: &Color) {
         self.log("clear");
@@ -197,6 +205,7 @@ fn main() {
                     y: Fixed::from(sprite.height),
                 },
                 &clip,
+                255,
             );
         }
 

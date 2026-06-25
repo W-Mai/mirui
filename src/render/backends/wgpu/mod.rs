@@ -339,6 +339,7 @@ impl WgpuRenderer<'_> {
         dst_pos: Point,
         dst_size: Point,
         clip: &Rect,
+        _opa: u8,
     ) {
         if !self.begin_frame() {
             return;
@@ -923,6 +924,7 @@ impl WgpuRenderer<'_> {
                     y: q[2].y - q[0].y,
                 },
                 clip,
+                255,
             );
         };
 
@@ -1261,6 +1263,7 @@ impl Renderer for WgpuRenderer<'_> {
             DrawCommand::Blit {
                 quad: Some(q),
                 texture,
+                opa: _,
                 ..
             } => {
                 self.blit_quad_inner(texture, q, clip);
@@ -1291,11 +1294,15 @@ impl Renderer for WgpuRenderer<'_> {
                 self.fill_rect_inner(&area, clip, color, *radius, *opa);
             }
             DrawCommand::Blit {
-                pos, size, texture, ..
+                pos,
+                size,
+                texture,
+                opa,
+                ..
             } => {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
-                self.blit_inner(texture, &src_rect, pos, *size, clip);
+                self.blit_inner(texture, &src_rect, pos, *size, clip, *opa);
             }
             DrawCommand::Border {
                 area,
@@ -1461,8 +1468,16 @@ impl Canvas for WgpuRenderer<'_> {
         self.stroke_path_inner(path, clip, width, color, opa);
     }
 
-    fn blit(&mut self, src: &Texture, src_rect: &Rect, dst: Point, dst_size: Point, clip: &Rect) {
-        self.blit_inner(src, src_rect, dst, dst_size, clip);
+    fn blit(
+        &mut self,
+        src: &Texture,
+        src_rect: &Rect,
+        dst: Point,
+        dst_size: Point,
+        clip: &Rect,
+        opa: u8,
+    ) {
+        self.blit_inner(src, src_rect, dst, dst_size, clip, opa);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {

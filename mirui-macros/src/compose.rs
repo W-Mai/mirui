@@ -23,7 +23,7 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
     (
         "blit",
-        "src: &::mirui::render::texture::Texture, src_rect: &::mirui::types::Rect, dst: ::mirui::types::Point, dst_size: ::mirui::types::Point, clip: &::mirui::types::Rect",
+        "src: &::mirui::render::texture::Texture, src_rect: &::mirui::types::Rect, dst: ::mirui::types::Point, dst_size: ::mirui::types::Point, clip: &::mirui::types::Rect, opa: u8",
         false,
     ),
     (
@@ -263,9 +263,9 @@ impl ComposeInput {
                         ::mirui::render::DrawCommand::Border { area, color, width, radius, opa, .. } => {
                             self.stroke_rect(area, clip, *width, color, *radius, *opa);
                         }
-                        ::mirui::render::DrawCommand::Blit { pos, size, texture, .. } => {
+                        ::mirui::render::DrawCommand::Blit { pos, size, texture, opa, .. } => {
                             let src_rect = ::mirui::types::Rect::new(0, 0, texture.width, texture.height);
-                            self.blit(texture, &src_rect, *pos, *size, clip);
+                            self.blit(texture, &src_rect, *pos, *size, clip, *opa);
                         }
                         ::mirui::render::DrawCommand::Label { pos, text, font, color, opa, .. } => {
                             self.draw_label(pos, text, font, clip, color, *opa);

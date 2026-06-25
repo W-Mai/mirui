@@ -10,6 +10,7 @@ impl SdlGpuRenderer<'_> {
         dst: Point,
         dst_size: Point,
         clip: &Rect,
+        _opa: u8,
     ) {
         let sdl_fmt = match src.format {
             ColorFormat::RGBA8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
