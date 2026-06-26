@@ -240,13 +240,24 @@ impl Path {
 }
 
 pub fn bbox_of_cmds(cmds: &[PathCmd]) -> Option<Rect> {
+    bbox_of_cmds_transformed(cmds, None)
+}
+
+pub fn bbox_of_cmds_transformed(
+    cmds: &[PathCmd],
+    transform: Option<&crate::types::Transform>,
+) -> Option<Rect> {
     let mut xmin = Fixed::MAX;
     let mut ymin = Fixed::MAX;
     let mut xmax = Fixed::MIN;
     let mut ymax = Fixed::MIN;
     let mut seen = false;
 
-    let mut visit = |p: &Point| {
+    let mut visit = |p: Point| {
+        let p = match transform {
+            Some(tf) => tf.apply_point(p),
+            None => p,
+        };
         seen = true;
         if p.x < xmin {
             xmin = p.x;
@@ -264,15 +275,15 @@ pub fn bbox_of_cmds(cmds: &[PathCmd]) -> Option<Rect> {
 
     for cmd in cmds {
         match cmd {
-            PathCmd::MoveTo(p) | PathCmd::LineTo(p) => visit(p),
+            PathCmd::MoveTo(p) | PathCmd::LineTo(p) => visit(*p),
             PathCmd::QuadTo { ctrl, end } => {
-                visit(ctrl);
-                visit(end);
+                visit(*ctrl);
+                visit(*end);
             }
             PathCmd::CubicTo { ctrl1, ctrl2, end } => {
-                visit(ctrl1);
-                visit(ctrl2);
-                visit(end);
+                visit(*ctrl1);
+                visit(*ctrl2);
+                visit(*end);
             }
             PathCmd::Close => {}
         }

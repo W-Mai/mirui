@@ -31,6 +31,9 @@ pub use crate::render::texture::AlphaMode;
 pub struct SwRenderer<'a> {
     pub target: Texture<'a>,
     pub viewport: Viewport,
+    pub(super) flatten_buf: alloc::vec::Vec<crate::render::raster::LineSeg>,
+    pub(super) stroke_outline: crate::render::path::Path,
+    pub(super) subpath_scratch: alloc::vec::Vec<crate::render::raster::SubPath>,
     #[cfg(feature = "perf")]
     pub perf: Option<PerfCtx>,
 }
@@ -42,6 +45,9 @@ impl<'a> SwRenderer<'a> {
         Self {
             target,
             viewport: Viewport::new(w, h, Fixed::ONE),
+            flatten_buf: alloc::vec::Vec::new(),
+            stroke_outline: crate::render::path::Path::new(),
+            subpath_scratch: alloc::vec::Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
         }

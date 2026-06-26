@@ -1,45 +1,16 @@
 use super::SwRenderer;
-use crate::render::path::{Path, PathCmd};
+use crate::render::path::{self, Path};
 use crate::render::raster;
-use crate::types::{Color, Fixed, Point, Rect, Transform};
+use crate::types::{Color, Fixed, Rect, Transform};
 
 impl SwRenderer<'_> {
-    /// Apply `phys_tf` to every Point inside `path`. Default callers
-    /// pass `viewport.as_transform()` (logical→physical scale);
-    /// transformed callers compose viewport × cmd transform.
-    pub(super) fn scale_path_with_tf(&self, path: &Path, phys_tf: &Transform) -> Path {
-        let apply = |p: &Point| phys_tf.apply_point(*p);
-        let cmds = path
-            .cmds
-            .iter()
-            .map(|c| match c {
-                PathCmd::MoveTo(p) => PathCmd::MoveTo(apply(p)),
-                PathCmd::LineTo(p) => PathCmd::LineTo(apply(p)),
-                PathCmd::QuadTo { ctrl, end } => PathCmd::QuadTo {
-                    ctrl: apply(ctrl),
-                    end: apply(end),
-                },
-                PathCmd::CubicTo { ctrl1, ctrl2, end } => PathCmd::CubicTo {
-                    ctrl1: apply(ctrl1),
-                    ctrl2: apply(ctrl2),
-                    end: apply(end),
-                },
-                PathCmd::Close => PathCmd::Close,
-            })
-            .collect();
-        Path { cmds }
-    }
-
-    pub(super) fn scale_path(&self, path: &Path) -> Path {
-        self.scale_path_with_tf(path, &self.viewport.as_transform())
-    }
-
     pub(super) fn fill_path_inner(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
         if opa == 0 {
             return;
         }
-        let phys_path = self.scale_path(path);
-        self.fill_physical_path(&phys_path, clip, color, opa);
+        let phys_tf = self.viewport.as_transform();
+        let phys_clip = self.viewport.rect_to_physical(*clip);
+        self.fill_path_transformed(path, phys_clip, &phys_tf, color, opa);
     }
 
     pub(super) fn fill_path_transformed(
@@ -53,14 +24,15 @@ impl SwRenderer<'_> {
         if opa == 0 {
             return;
         }
-        let phys_path = self.scale_path_with_tf(path, phys_tf);
-        // phys_clip is already physical — skip the rect_to_physical call
-        // that fill_physical_path does (its callers pass logical clip).
-        let segs = raster::flatten(&phys_path);
-        if segs.is_empty() {
+        raster::flatten_into(&path.cmds, Some(phys_tf), &mut self.flatten_buf);
+        if self.flatten_buf.is_empty() {
             return;
         }
-        let Some(bbox) = phys_path.bbox() else { return };
+        // PathCmd bbox keeps the AA edge pixels at curve extrema that
+        // a tight LineSeg hull would clip.
+        let Some(bbox) = path::bbox_of_cmds_transformed(&path.cmds, Some(phys_tf)) else {
+            return;
+        };
         let screen = Rect::new(0, 0, self.target.width, self.target.height);
         let Some(draw_area) = bbox
             .intersect(&phys_clip)
@@ -75,8 +47,10 @@ impl SwRenderer<'_> {
             Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let combined_alpha = opa_norm * color_a_norm;
 
+        let segs = &self.flatten_buf;
+        let target = &mut self.target;
         raster::scanline_fill(
-            &segs,
+            segs,
             px_x0,
             px_y0,
             px_x1,
@@ -85,7 +59,7 @@ impl SwRenderer<'_> {
             |px, py, cov| {
                 let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
                 if final_alpha > 0 {
-                    self.target.blend_pixel_int(px, py, color, final_alpha);
+                    target.blend_pixel_int(px, py, color, final_alpha);
                 }
             },
         );
@@ -102,15 +76,21 @@ impl SwRenderer<'_> {
         if opa == 0 || width <= Fixed::ZERO {
             return;
         }
-        let phys_path = self.scale_path(path);
+        let phys_tf = self.viewport.as_transform();
         let phys_width = width * self.viewport.scale();
-        let outline = raster::offset_polygon(&phys_path, phys_width);
-        // `outline` is already in physical coords — skip the scale step.
-        self.fill_physical_path(&outline, clip, color, opa);
+        raster::offset_polygon_into(
+            &path.cmds,
+            Some(&phys_tf),
+            phys_width,
+            &mut self.stroke_outline,
+            &mut self.subpath_scratch,
+        );
+        // outline is already in physical pixels.
+        let outline_cmds = core::mem::take(&mut self.stroke_outline);
+        self.fill_physical_path(&outline_cmds, clip, color, opa);
+        self.stroke_outline = outline_cmds;
     }
 
-    /// Rasterize an already-physical-coord path; used by stroke_path to
-    /// avoid re-scaling the offset outline it already produced.
     pub(super) fn fill_physical_path(
         &mut self,
         phys_path: &Path,
@@ -122,8 +102,8 @@ impl SwRenderer<'_> {
             return;
         }
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        let segs = raster::flatten(phys_path);
-        if segs.is_empty() {
+        raster::flatten_into(&phys_path.cmds, None, &mut self.flatten_buf);
+        if self.flatten_buf.is_empty() {
             return;
         }
         let Some(bbox) = phys_path.bbox() else { return };
@@ -141,8 +121,10 @@ impl SwRenderer<'_> {
             Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let combined_alpha = opa_norm * color_a_norm;
 
+        let segs = &self.flatten_buf;
+        let target = &mut self.target;
         raster::scanline_fill(
-            &segs,
+            segs,
             px_x0,
             px_y0,
             px_x1,
@@ -151,7 +133,7 @@ impl SwRenderer<'_> {
             |px, py, cov| {
                 let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
                 if final_alpha > 0 {
-                    self.target.blend_pixel_int(px, py, color, final_alpha);
+                    target.blend_pixel_int(px, py, color, final_alpha);
                 }
             },
         );

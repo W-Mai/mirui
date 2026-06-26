@@ -1,10 +1,12 @@
 use alloc::vec::Vec;
 
-use crate::types::{Fixed, Point};
+use crate::types::{Fixed, Point, Transform};
 
 use super::path::{Path, PathCmd};
 
-/// Straight line segment produced by flatten().
+/// Cap so a pathological path can't pin tens of KB on a 200 KB MCU heap.
+pub const MAX_SEG_CAP: usize = 2048;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LineSeg {
     pub p1: Point,
@@ -38,31 +40,39 @@ pub struct SubPath {
 const QUAD_STEPS: i32 = 8;
 const CUBIC_STEPS: i32 = 16;
 
-/// Flatten path into a sequence of LineSegs via De Casteljau subdivision.
-/// Degenerate zero-length segments are kept — downstream fill_path handles them.
-pub fn flatten(path: &Path) -> Vec<LineSeg> {
-    let mut out = Vec::new();
+/// `transform` folds in at emit time so backends can compose
+/// `viewport × cmd` once and avoid pre-rebuilding the PathCmd stream.
+pub fn flatten_into(cmds: &[PathCmd], transform: Option<&Transform>, out: &mut Vec<LineSeg>) {
+    out.clear();
     let mut subpath_start = Point::ZERO;
     let mut current = Point::ZERO;
 
-    for cmd in path.cmds.iter() {
+    let apply = |p: Point| -> Point {
+        match transform {
+            Some(tf) => tf.apply_point(p),
+            None => p,
+        }
+    };
+
+    for cmd in cmds {
         match cmd {
             PathCmd::MoveTo(p) => {
-                subpath_start = *p;
-                current = *p;
+                let p = apply(*p);
+                subpath_start = p;
+                current = p;
             }
             PathCmd::LineTo(p) => {
-                out.push(LineSeg {
-                    p1: current,
-                    p2: *p,
-                });
-                current = *p;
+                let p = apply(*p);
+                out.push(LineSeg { p1: current, p2: p });
+                current = p;
             }
             PathCmd::QuadTo { ctrl, end } => {
+                let ctrl = apply(*ctrl);
+                let end = apply(*end);
                 let p0 = current;
                 for i in 1..=QUAD_STEPS {
                     let t = Fixed::from_int(i) / Fixed::from_int(QUAD_STEPS);
-                    let next = quad_at(p0, *ctrl, *end, t);
+                    let next = quad_at(p0, ctrl, end, t);
                     out.push(LineSeg {
                         p1: current,
                         p2: next,
@@ -71,10 +81,13 @@ pub fn flatten(path: &Path) -> Vec<LineSeg> {
                 }
             }
             PathCmd::CubicTo { ctrl1, ctrl2, end } => {
+                let ctrl1 = apply(*ctrl1);
+                let ctrl2 = apply(*ctrl2);
+                let end = apply(*end);
                 let p0 = current;
                 for i in 1..=CUBIC_STEPS {
                     let t = Fixed::from_int(i) / Fixed::from_int(CUBIC_STEPS);
-                    let next = cubic_at(p0, *ctrl1, *ctrl2, *end, t);
+                    let next = cubic_at(p0, ctrl1, ctrl2, end, t);
                     out.push(LineSeg {
                         p1: current,
                         p2: next,
@@ -93,18 +106,32 @@ pub fn flatten(path: &Path) -> Vec<LineSeg> {
             }
         }
     }
-    out
+
+    if out.capacity() > MAX_SEG_CAP {
+        out.shrink_to(MAX_SEG_CAP);
+    }
 }
 
 /// Flatten path into per-subpath groups, tracking whether each ended with
 /// Close. stroke_path needs this to decide between offset-ring (closed) and
 /// butt-capped strip (open) handling.
-pub fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
-    let mut out: Vec<SubPath> = Vec::new();
+pub fn flatten_subpaths_into(
+    cmds: &[PathCmd],
+    transform: Option<&Transform>,
+    out: &mut Vec<SubPath>,
+) {
+    out.clear();
     let mut subpath_start = Point::ZERO;
     let mut current = Point::ZERO;
     let mut current_segs: Vec<LineSeg> = Vec::new();
     let mut has_moveto = false;
+
+    let apply = |p: Point| -> Point {
+        match transform {
+            Some(tf) => tf.apply_point(p),
+            None => p,
+        }
+    };
 
     let flush = |segs: &mut Vec<LineSeg>, out: &mut Vec<SubPath>, closed: bool| {
         if !segs.is_empty() {
@@ -115,32 +142,33 @@ pub fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
         }
     };
 
-    for cmd in path.cmds.iter() {
+    for cmd in cmds {
         match cmd {
             PathCmd::MoveTo(p) => {
-                flush(&mut current_segs, &mut out, false);
-                subpath_start = *p;
-                current = *p;
+                flush(&mut current_segs, out, false);
+                let p = apply(*p);
+                subpath_start = p;
+                current = p;
                 has_moveto = true;
             }
             PathCmd::LineTo(p) => {
                 if !has_moveto {
                     continue;
                 }
-                current_segs.push(LineSeg {
-                    p1: current,
-                    p2: *p,
-                });
-                current = *p;
+                let p = apply(*p);
+                current_segs.push(LineSeg { p1: current, p2: p });
+                current = p;
             }
             PathCmd::QuadTo { ctrl, end } => {
                 if !has_moveto {
                     continue;
                 }
+                let ctrl = apply(*ctrl);
+                let end = apply(*end);
                 let p0 = current;
                 for i in 1..=QUAD_STEPS {
                     let t = Fixed::from_int(i) / Fixed::from_int(QUAD_STEPS);
-                    let next = quad_at(p0, *ctrl, *end, t);
+                    let next = quad_at(p0, ctrl, end, t);
                     current_segs.push(LineSeg {
                         p1: current,
                         p2: next,
@@ -152,10 +180,13 @@ pub fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
                 if !has_moveto {
                     continue;
                 }
+                let ctrl1 = apply(*ctrl1);
+                let ctrl2 = apply(*ctrl2);
+                let end = apply(*end);
                 let p0 = current;
                 for i in 1..=CUBIC_STEPS {
                     let t = Fixed::from_int(i) / Fixed::from_int(CUBIC_STEPS);
-                    let next = cubic_at(p0, *ctrl1, *ctrl2, *end, t);
+                    let next = cubic_at(p0, ctrl1, ctrl2, end, t);
                     current_segs.push(LineSeg {
                         p1: current,
                         p2: next,
@@ -171,13 +202,12 @@ pub fn flatten_subpaths(path: &Path) -> Vec<SubPath> {
                     });
                 }
                 current = subpath_start;
-                flush(&mut current_segs, &mut out, true);
+                flush(&mut current_segs, out, true);
                 has_moveto = false;
             }
         }
     }
-    flush(&mut current_segs, &mut out, false);
-    out
+    flush(&mut current_segs, out, false);
 }
 
 /// Vertical supersampling count per pixel row. 4 sub-scanlines gives 5-level
@@ -409,17 +439,23 @@ fn dist_sq_point_to_segment(p: Point, a: Point, b: Point) -> Fixed {
 /// half_width the join degrades to bevel. 4 is the SVG default.
 const MITER_LIMIT: Fixed = Fixed::from_int(4);
 
-/// Build a closed-ring offset polygon around `path` as a new Path.
-/// Each subpath becomes one (open) or two (closed) sub-polygons in the output,
-/// which `fill_path` evaluates with the even-odd rule to produce the stroke.
-pub(crate) fn offset_polygon(path: &Path, width: Fixed) -> Path {
-    let mut out = Path::new();
+/// Note: `build_ring` / `build_open_rail` still allocate `Vec<Point>` per subpath.
+pub(crate) fn offset_polygon_into(
+    cmds: &[PathCmd],
+    transform: Option<&Transform>,
+    width: Fixed,
+    out: &mut Path,
+    subpath_scratch: &mut Vec<SubPath>,
+) {
+    out.cmds.to_mut().clear();
     if width <= Fixed::ZERO {
-        return out;
+        return;
     }
     let half = width / 2;
 
-    for sub in flatten_subpaths(path) {
+    flatten_subpaths_into(cmds, transform, subpath_scratch);
+
+    for sub in subpath_scratch.drain(..) {
         if sub.segs.is_empty() {
             continue;
         }
@@ -428,18 +464,15 @@ pub(crate) fn offset_polygon(path: &Path, width: Fixed) -> Path {
         if sub.closed {
             let left = build_ring(&sub.segs, &n, half, /*left=*/ true);
             let mut right = build_ring(&sub.segs, &n, half, /*left=*/ false);
-            // Flip winding on the right ring so even-odd carves
-            // (outer_area ∖ inner_area) instead of cancelling both regions.
             right.reverse();
-            append_closed_polyline(&mut out, &left);
-            append_closed_polyline(&mut out, &right);
+            append_closed_polyline(out, &left);
+            append_closed_polyline(out, &right);
         } else {
             let left = build_open_rail(&sub.segs, &n, half, /*left=*/ true);
             let right = build_open_rail(&sub.segs, &n, half, /*left=*/ false);
-            append_open_ribbon(&mut out, &left, &right);
+            append_open_ribbon(out, &left, &right);
         }
     }
-    out
 }
 
 /// Per-segment outward unit normal scaled by `half`. `n[i]` corresponds to
@@ -666,16 +699,35 @@ mod tests {
         }
     }
 
+    fn flatten_path(p: &Path) -> Vec<LineSeg> {
+        let mut out = Vec::new();
+        flatten_into(&p.cmds, None, &mut out);
+        out
+    }
+
+    fn flatten_subpaths_path(p: &Path) -> Vec<SubPath> {
+        let mut out = Vec::new();
+        flatten_subpaths_into(&p.cmds, None, &mut out);
+        out
+    }
+
+    fn offset_polygon_path(p: &Path, width: Fixed) -> Path {
+        let mut out = Path::new();
+        let mut scratch = Vec::new();
+        offset_polygon_into(&p.cmds, None, width, &mut out, &mut scratch);
+        out
+    }
+
     #[test]
     fn flatten_empty_path() {
-        assert!(flatten(&Path::new()).is_empty());
+        assert!(flatten_path(&Path::new()).is_empty());
     }
 
     #[test]
     fn flatten_single_line() {
         let mut p = Path::new();
         p.move_to(pt(0, 0)).line_to(pt(10, 0));
-        let segs = flatten(&p);
+        let segs = flatten_path(&p);
         assert_eq!(segs.len(), 1);
         assert_eq!(segs[0].p1, pt(0, 0));
         assert_eq!(segs[0].p2, pt(10, 0));
@@ -688,7 +740,7 @@ mod tests {
             .line_to(pt(10, 0))
             .line_to(pt(5, 10))
             .close();
-        let segs = flatten(&p);
+        let segs = flatten_path(&p);
         // 3 explicit lines + 1 implicit close back to (0,0)
         assert_eq!(segs.len(), 3);
         assert_eq!(segs[2].p2, pt(0, 0));
@@ -701,7 +753,7 @@ mod tests {
             .line_to(pt(10, 0))
             .line_to(pt(0, 0))
             .close();
-        let segs = flatten(&p);
+        let segs = flatten_path(&p);
         // close() sees current == subpath_start, so it must not add a redundant edge
         assert_eq!(segs.len(), 2);
     }
@@ -710,7 +762,7 @@ mod tests {
     fn flatten_quad_emits_n_segments_connected() {
         let mut p = Path::new();
         p.move_to(pt(0, 0)).quad_to(pt(10, 10), pt(20, 0));
-        let segs = flatten(&p);
+        let segs = flatten_path(&p);
         assert_eq!(segs.len(), QUAD_STEPS as usize);
         // Chain: seg[i].p2 == seg[i+1].p1
         for i in 0..segs.len() - 1 {
@@ -724,7 +776,7 @@ mod tests {
         let mut p = Path::new();
         p.move_to(pt(0, 0))
             .cubic_to(pt(0, 10), pt(10, 10), pt(10, 0));
-        let segs = flatten(&p);
+        let segs = flatten_path(&p);
         assert_eq!(segs.len(), CUBIC_STEPS as usize);
         for i in 0..segs.len() - 1 {
             assert_eq!(segs[i].p2, segs[i + 1].p1);
@@ -738,7 +790,7 @@ mod tests {
         let mut p = Path::new();
         p.move_to(pt(0, 0)).line_to(pt(10, 0));
         p.move_to(pt(50, 50)).line_to(pt(60, 50)).close();
-        let segs = flatten(&p);
+        let segs = flatten_path(&p);
         // Subpath 1: 1 line. Subpath 2: 1 explicit + 1 close = 2.
         assert_eq!(segs.len(), 3);
         // Second subpath closes back to (50,50), not (0,0)
@@ -847,7 +899,7 @@ mod tests {
             .line_to(pt(0, 10))
             .close();
         p.move_to(pt(50, 50)).line_to(pt(60, 50));
-        let subs = flatten_subpaths(&p);
+        let subs = flatten_subpaths_path(&p);
         assert_eq!(subs.len(), 2);
         assert!(subs[0].closed);
         assert!(!subs[1].closed);
@@ -863,7 +915,7 @@ mod tests {
             Fixed::from_int(10),
             Fixed::from_int(10),
         );
-        let outline = offset_polygon(&path, Fixed::from_int(2));
+        let outline = offset_polygon_path(&path, Fixed::from_int(2));
         let closes = outline
             .cmds
             .iter()
@@ -877,7 +929,7 @@ mod tests {
         // A single open LineTo should yield a single closed ribbon (butt caps).
         let mut path = Path::new();
         path.move_to(pt(0, 0)).line_to(pt(10, 0));
-        let outline = offset_polygon(&path, Fixed::from_int(2));
+        let outline = offset_polygon_path(&path, Fixed::from_int(2));
         let closes = outline
             .cmds
             .iter()
@@ -890,7 +942,7 @@ mod tests {
     fn offset_polygon_zero_width_is_empty() {
         let mut path = Path::new();
         path.move_to(pt(0, 0)).line_to(pt(10, 0));
-        let outline = offset_polygon(&path, Fixed::ZERO);
+        let outline = offset_polygon_path(&path, Fixed::ZERO);
         assert!(outline.cmds.is_empty());
     }
 
@@ -903,7 +955,7 @@ mod tests {
             Fixed::from_int(20),
             Fixed::from_int(4),
         );
-        let segs = flatten(&p);
+        let segs = flatten_path(&p);
         // rounded_rect = 4 lines + 4 quad corners (N=8 each) + possibly 1 close.
         // Layout: move, line, quad, line, quad, line, quad, line, quad, close.
         // Close may add 0 or 1 edge depending on whether final point equals start.
