@@ -6,7 +6,6 @@ use super::bbox::{direct_children_bboxes, pairwise_disjoint};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
-use crate::render::path::Path;
 use crate::render::raster::FillRule;
 use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
@@ -278,10 +277,9 @@ pub fn replay_scene(
                 if !matches!(fill_rule, FillRule::EvenOdd) {
                     return Err(ReplayError::UnsupportedFillRule);
                 }
-                let p = Path { cmds: path.clone() };
                 renderer.draw(
                     &DrawCommand::FillPath {
-                        path: &p,
+                        path,
                         transform: top.transform.compose(transform),
                         color: *color,
                         opa: mul_alpha(*opa, top.alpha),
@@ -426,7 +424,7 @@ mod tests {
     #[test]
     fn nonzero_fill_rule_is_rejected() {
         let ops = vec![SceneOp::FillPath {
-            path: alloc::borrow::Cow::Borrowed(&[]),
+            path: crate::render::path::Path::new(),
             transform: Transform::IDENTITY,
             color: Color {
                 r: 0,

@@ -309,7 +309,7 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
                 FIELD_TRANSFORM
             };
             out.push(bits);
-            write_path(out, path);
+            write_path(out, &path.cmds);
             write_color(out, *color);
             out.push(*opa);
             out.push(fill_rule_to_u8(*fill_rule));
@@ -506,7 +506,7 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
             let fill_rule = fill_rule_from_u8(r.u8()?)?;
             let transform = read_transform_opt(r, bits)?;
             Ok(SceneOp::FillPath {
-                path: path.into(),
+                path: crate::render::path::Path::from_owned(path),
                 transform,
                 color,
                 opa,
@@ -950,7 +950,7 @@ mod tests {
     #[test]
     fn fill_path_roundtrips() {
         roundtrip(vec![SceneOp::FillPath {
-            path: vec![
+            path: crate::render::path::Path::from_owned(vec![
                 PathCmd::MoveTo(Point::ZERO),
                 PathCmd::LineTo(Point {
                     x: Fixed::from_int(4),
@@ -967,8 +967,7 @@ mod tests {
                     },
                 },
                 PathCmd::Close,
-            ]
-            .into(),
+            ]),
             transform: Transform::IDENTITY,
             color: red(),
             opa: 255,

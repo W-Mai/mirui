@@ -9,7 +9,7 @@ pub mod resolver;
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
-use crate::render::path::PathCmd;
+use crate::render::path::Path;
 use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
@@ -42,7 +42,7 @@ pub enum SceneOp {
     },
     GroupEnd,
     FillPath {
-        path: Cow<'static, [PathCmd]>,
+        path: Path,
         transform: Transform,
         color: Color,
         opa: u8,
@@ -262,11 +262,11 @@ impl Scene {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::path::Path;
+    use crate::render::path::{Path, PathCmd};
 
     static GEOMETRY: [PathCmd; 2] = [PathCmd::MoveTo(Point::ZERO), PathCmd::Close];
     static SCENE: &[SceneOp] = &[SceneOp::FillPath {
-        path: Cow::Borrowed(&GEOMETRY),
+        path: Path::from_static(&GEOMETRY),
         transform: Transform::IDENTITY,
         color: Color {
             r: 255,
@@ -283,7 +283,7 @@ mod tests {
         assert_eq!(SCENE.len(), 1);
         match &SCENE[0] {
             SceneOp::FillPath { path, opa, .. } => {
-                assert_eq!(path.len(), 2);
+                assert_eq!(path.cmds.len(), 2);
                 assert_eq!(*opa, 255);
             }
             _ => panic!("expected FillPath"),
@@ -293,7 +293,7 @@ mod tests {
     #[test]
     fn owned_and_borrowed_geometry_compare_equal() {
         let owned = SceneOp::FillPath {
-            path: Cow::Owned(GEOMETRY.to_vec()),
+            path: Path::from_owned(GEOMETRY.to_vec()),
             transform: Transform::IDENTITY,
             color: Color {
                 r: 255,

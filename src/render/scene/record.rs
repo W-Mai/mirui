@@ -3,6 +3,7 @@
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
+use crate::render::path::Path;
 use crate::render::texture::Texture;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,7 +128,7 @@ pub fn record_command(
             color,
             opa,
         } => SceneOp::FillPath {
-            path: path.cmds.clone(),
+            path: Path::clone(path),
             transform: *transform,
             color: *color,
             opa: *opa,

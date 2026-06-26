@@ -18,7 +18,7 @@ pub enum PathCmd {
     Close,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Path {
     pub cmds: Cow<'static, [PathCmd]>,
 }

@@ -1001,10 +1001,10 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
             let col = color_tokens(*r, *g, *b, *a);
             quote! {
                 ::mirui::render::scene::SceneOp::FillPath {
-                    path: {
+                    path: ::mirui::render::path::Path::from_static({
                         const P: &[::mirui::render::path::PathCmd] = &[#(#cmds),*];
-                        ::mirui::__Cow::Borrowed(P)
-                    },
+                        P
+                    }),
                     transform: ::mirui::types::Transform::IDENTITY,
                     color: #col,
                     opa: #opa,
