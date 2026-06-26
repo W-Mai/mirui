@@ -8,6 +8,7 @@ use lyon::tessellation::{
 };
 
 use crate::render::path::{Path, PathCmd};
+use crate::types::Transform;
 
 pub struct PathTessellator {
     fill_tess: FillTessellator,
@@ -24,10 +25,10 @@ impl PathTessellator {
         }
     }
 
-    pub fn fill(&mut self, path: &Path) -> (&[LyonPoint], &[u32]) {
+    pub fn fill(&mut self, path: &Path, transform: Option<&Transform>) -> (&[LyonPoint], &[u32]) {
         self.buffers.vertices.clear();
         self.buffers.indices.clear();
-        let lyon_path = to_lyon_path(path);
+        let lyon_path = to_lyon_path(path, transform);
         let _ = self.fill_tess.tessellate_path(
             &lyon_path,
             &FillOptions::tolerance(TOLERANCE),
@@ -36,10 +37,15 @@ impl PathTessellator {
         (&self.buffers.vertices, &self.buffers.indices)
     }
 
-    pub fn stroke(&mut self, path: &Path, physical_width: f32) -> (&[LyonPoint], &[u32]) {
+    pub fn stroke(
+        &mut self,
+        path: &Path,
+        transform: Option<&Transform>,
+        physical_width: f32,
+    ) -> (&[LyonPoint], &[u32]) {
         self.buffers.vertices.clear();
         self.buffers.indices.clear();
-        let lyon_path = to_lyon_path(path);
+        let lyon_path = to_lyon_path(path, transform);
         let options = StrokeOptions::tolerance(TOLERANCE).with_line_width(physical_width);
         let _ = self.stroke_tess.tessellate_path(
             &lyon_path,
@@ -61,11 +67,17 @@ impl Default for PathTessellator {
     }
 }
 
-fn to_lyon_path(path: &Path) -> LyonPath {
+fn to_lyon_path(path: &Path, transform: Option<&Transform>) -> LyonPath {
     let mut builder = LyonPath::builder();
     let mut subpath_open = false;
 
-    let p = |pt: crate::types::Point| -> LyonPoint { lyon_point(pt.x.to_f32(), pt.y.to_f32()) };
+    let p = |pt: crate::types::Point| -> LyonPoint {
+        let pt = match transform {
+            Some(tf) => tf.apply_point(pt),
+            None => pt,
+        };
+        lyon_point(pt.x.to_f32(), pt.y.to_f32())
+    };
 
     for cmd in path.cmds.iter() {
         match cmd {

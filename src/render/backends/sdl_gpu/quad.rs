@@ -37,7 +37,7 @@ impl SdlGpuRenderer<'_> {
         ];
         let phys_radius = radius * self.viewport.scale();
         let path = Path::rounded_quad(&phys_q, phys_radius);
-        self.tessellator.fill(&path, color, opa);
+        self.tessellator.fill(&path, None, color, opa);
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 
@@ -60,7 +60,7 @@ impl SdlGpuRenderer<'_> {
         let phys_radius = radius * self.viewport.scale();
         let phys_width = (width * self.viewport.scale()).to_f32().max(1.0);
         let path = Path::rounded_quad(&phys_q, phys_radius);
-        self.tessellator.stroke(&path, phys_width, color, opa);
+        self.tessellator.stroke(&path, None, phys_width, color, opa);
         self.submit_geometry(&phys_clip, opa != 255 || color.a != 255);
     }
 

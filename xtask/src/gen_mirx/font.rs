@@ -27,7 +27,7 @@ use mirui::render::font::sdf::{
     AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION,
 };
 use mirui::render::path::Path as MirPath;
-use mirui::render::raster::{FillRule, flatten, scanline_fill};
+use mirui::render::raster::{FillRule, flatten_into, scanline_fill};
 use mirui::types::{Fixed, Point};
 use mirx::{chunk_type, encode_chunk_generic};
 use ttf_parser::{Face, OutlineBuilder};
@@ -341,7 +341,8 @@ impl OutlineBuilder for PathBuilder {
 /// non-zero winding rule (TrueType / CFF correct). Returns one byte
 /// per pixel where `0xFF` is fully inside and `0` fully outside.
 fn rasterize_to_coverage(path: &MirPath, size: u16) -> Vec<u8> {
-    let segs = flatten(path);
+    let mut segs = Vec::new();
+    flatten_into(&path.cmds[..], None, &mut segs);
     let n = size as i32;
     let mut buf = vec![0u8; (n * n) as usize];
     scanline_fill(&segs, 0, 0, n, n, FillRule::NonZero, |x, y, cov| {

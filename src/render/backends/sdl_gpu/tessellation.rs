@@ -18,7 +18,7 @@ use lyon::tessellation::{
 use sdl2_sys::{SDL_Color, SDL_FPoint, SDL_Vertex};
 
 use crate::render::path::{Path, PathCmd};
-use crate::types::Color;
+use crate::types::{Color, Transform};
 
 /// Holds reusable tessellators and output buffers so path commands don't
 /// re-allocate every frame. One cache per `SdlGpuSurface`.
@@ -41,12 +41,10 @@ impl TessellationCache {
         }
     }
 
-    /// Tessellate `path` (already in physical pixels) as a fill, writing
-    /// `SDL_Vertex` + i32 indices into the cached buffers.
-    pub fn fill(&mut self, path: &Path, color: &Color, opa: u8) {
+    pub fn fill(&mut self, path: &Path, transform: Option<&Transform>, color: &Color, opa: u8) {
         self.lyon_verts.vertices.clear();
         self.lyon_verts.indices.clear();
-        let lyon_path = to_lyon_path(path);
+        let lyon_path = to_lyon_path(path, transform);
         let _ = self.fill_tess.tessellate_path(
             &lyon_path,
             &FillOptions::tolerance(1.0),
@@ -55,12 +53,17 @@ impl TessellationCache {
         self.bake(color, opa);
     }
 
-    /// Same but for a stroke. `physical_width` is the line width in
-    /// physical pixels.
-    pub fn stroke(&mut self, path: &Path, physical_width: f32, color: &Color, opa: u8) {
+    pub fn stroke(
+        &mut self,
+        path: &Path,
+        transform: Option<&Transform>,
+        physical_width: f32,
+        color: &Color,
+        opa: u8,
+    ) {
         self.lyon_verts.vertices.clear();
         self.lyon_verts.indices.clear();
-        let lyon_path = to_lyon_path(path);
+        let lyon_path = to_lyon_path(path, transform);
         let options = StrokeOptions::tolerance(0.5).with_line_width(physical_width);
         let _ = self.stroke_tess.tessellate_path(
             &lyon_path,
@@ -101,11 +104,17 @@ impl Default for TessellationCache {
     }
 }
 
-fn to_lyon_path(path: &Path) -> LyonPath {
+fn to_lyon_path(path: &Path, transform: Option<&Transform>) -> LyonPath {
     let mut builder = LyonPath::builder();
     let mut subpath_open = false;
 
-    let p = |pt: crate::types::Point| -> LyonPoint { lyon_point(pt.x.to_f32(), pt.y.to_f32()) };
+    let p = |pt: crate::types::Point| -> LyonPoint {
+        let pt = match transform {
+            Some(tf) => tf.apply_point(pt),
+            None => pt,
+        };
+        lyon_point(pt.x.to_f32(), pt.y.to_f32())
+    };
 
     for cmd in path.cmds.iter() {
         match cmd {
