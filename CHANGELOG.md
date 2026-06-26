@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] - 2026-06-26
+
+### Added
+
+- **`Icon` widget for vector icons.** `Icon { path: Path, color: ThemedColor, size: Dimension, viewbox: Fixed, scale: Fixed }` renders a path under the FillPath pipeline. `path` is a `Path` whose internal `Cow` is borrowed for `'static` icons emitted by `path!` or the builtin set, so cloning a static icon costs no allocation. `size` accepts `Px / Percent / Auto / Content` (default `Auto` → laid-out width), `viewbox` defaults to 24, and the render fn composes `viewBox → size` scale with the unitless `scale` factor. The split keeps animation off `size`: drive `scale` through `mirui_macros::animate!` and the `Dimension::Percent` / `Auto` variant on `size` survives across motion frames. `#[non_exhaustive]` keeps future fields backward compatible.
+- **`path!` macro accepts an unquoted SVG-style command sequence and returns a `Path`.** `path!(M 4 12 L 12 4 H 20 V 20 Z)` parses at expansion time and emits a `Path` constructed from a `&'static [PathCmd]` slice — the `Cow` stays `Borrowed`, so a `const ICON: Path = path!(...)` lives in `.rodata` and clones for free. A string-literal form `path!("M 4 12 H 20 Z")` is accepted as an alias for paths copy-pasted from SVG. Supports uppercase absolute (M/L/H/V/Q/C/Z), lowercase relative (m/l/h/v/q/c/z), implicit lineto after M/m per SVG 1.1 §8.3.2, Z restoring the current point to the subpath start, and elliptical arcs (A/a) via endpoint→center conversion (Appendix B.2.4) plus cubic-Bezier approximation with handle `(4/3)·tan(θ/4)` split into ≤90° segments.
+- **`FillPath` accepts scale transforms across `sw`, `sdl_gpu`, `wgpu`.** Each backend's `draw_transformed` previously hit `unimplemented!` on non-axis-aligned transforms for path fills; now the cmd transform composes with the viewport scale and the rasterizer consumes the result. `web_canvas` already routed the full cmd transform through the Canvas 2D world matrix and needs no change.
+- **`mirui::ui::icons` ships 20 hand-drawn builtin icons** as `pub static ICON_*: Path` constants — `HOME / CHECK / CROSS / PLUS / MINUS`, the four `ARROW_*` and `CHEVRON_*` directions, `STAR / HEART / CIRCLE / SQUARE`, plus `PLAY / PAUSE / STOP`. Every icon is a 24×24 closed-contour fill so it goes straight through `FillPath`. The `gallery::demos::icon` demo lays them out in a 5×4 grid plus an animation row that drives five icons through a local `animate!`-generated component (heart beat via `Tween` PingPong, breathing circle via `Spring` SMOOTH repeat, bouncing star + plus via `Spring` BOUNCY repeat, beating play). Registers as `icon` under "Effects" in the web gallery.
+
+### Changed
+
+- **`Path.cmds` is `Cow<'static, [PathCmd]>`.** `Path::from_static(&'static [PathCmd])` borrows a const slice with zero allocation — the `path!` macro and Icon's `path` field exercise this. `Path::from_owned(Vec<PathCmd>)` wraps runtime-built paths. Builder methods (`move_to` / `line_to` / etc.) keep their old signatures by routing through `Cow::to_mut`. Field access patterns that worked on `Vec` (slicing, `.iter()`, indexing) continue to work via `Deref`; explicit `for cmd in &path.cmds` becomes `path.cmds.iter()`.
+- **`path!` macro returns a `Path` instead of a `&'static [PathCmd]` slice.** Callers that destructured the old shape (`const P: &[PathCmd] = path!(...)`) become `const P: Path = path!(...)`, and the underlying slice is reachable through `P.cmds`. The semicolon-separated token form (`path! { M 0 0; L 4 0; Z }`) is replaced by the new unquoted command sequence; the string-literal form is still accepted.
+
+### Known limitations
+
+- **`FillPath` under a non-axis-aligned transform allocates one `Vec<PathCmd>` per frame** through the backend's `scale_path` helper (`sw`, `sdl_gpu`, `wgpu`). Existing widgets only triggered the transformed path occasionally, but the Icon widget now hits it on every render — heavy icon counts can amplify the cost. The icon set ships at 24×24 with small command counts to keep per-icon overhead bounded, but the alloc-free render goal is not met yet.
+
 ## [0.33.2] - 2026-06-25
 
 ### Added

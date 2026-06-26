@@ -95,7 +95,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                             size: Dimension::Px(Fixed::from_int(36)),
                             width: 100,
                             grow: 0.0
-                        ) {}
+                        )
                     }
                 }
             }
@@ -106,35 +106,45 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     size: Dimension::Px(Fixed::from_int(48)),
                     width: 100,
                     grow: 0.0
-                ) [ beat() ] {}
+                ) [
+                    beat(),
+                ]
                 Icon (
                     path: ICON_CIRCLE.clone(),
                     color: ThemedColor::Token(ColorToken::Primary),
                     size: Dimension::Px(Fixed::from_int(48)),
                     width: 100,
                     grow: 0.0
-                ) [ breathe() ] {}
+                ) [
+                    breathe(),
+                ]
                 Icon (
                     path: ICON_STAR.clone(),
                     color: ThemedColor::Token(ColorToken::Success),
                     size: Dimension::Px(Fixed::from_int(48)),
                     width: 100,
                     grow: 0.0
-                ) [ bounce() ] {}
+                ) [
+                    bounce(),
+                ]
                 Icon (
                     path: ICON_PLAY.clone(),
                     color: ThemedColor::Token(ColorToken::Primary),
                     size: Dimension::Px(Fixed::from_int(48)),
                     width: 100,
                     grow: 0.0
-                ) [ beat() ] {}
+                ) [
+                    beat(),
+                ]
                 Icon (
                     path: ICON_PLUS.clone(),
                     color: ThemedColor::Token(ColorToken::OnSurface),
                     size: Dimension::Px(Fixed::from_int(48)),
                     width: 100,
                     grow: 0.0
-                ) [ bounce() ] {}
+                ) [
+                    bounce(),
+                ]
             }
         }
     };
