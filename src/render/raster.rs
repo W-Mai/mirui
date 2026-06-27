@@ -217,6 +217,9 @@ const SUB_SCANLINES: i32 = 4;
 
 /// Coverage-based fill rasterizer with 4 sub-scanlines per pixel row.
 /// Emits `cov ∈ [0, 1]` per pixel under the chosen [`FillRule`].
+/// `acc` and `crossings` are caller-owned scratch buffers, reused
+/// across calls so a tight fill loop doesn't allocate per draw.
+#[allow(clippy::too_many_arguments)]
 pub fn scanline_fill(
     segs: &[LineSeg],
     px_x0: i32,
@@ -224,15 +227,16 @@ pub fn scanline_fill(
     px_x1: i32,
     py_y1: i32,
     rule: FillRule,
+    acc: &mut Vec<Fixed>,
+    crossings: &mut Vec<(Fixed, i8)>,
     mut emit: impl FnMut(i32, i32, Fixed),
 ) {
     if segs.is_empty() || px_x1 <= px_x0 || py_y1 <= py_y0 {
         return;
     }
     let row_w = (px_x1 - px_x0) as usize;
-    let mut acc: Vec<Fixed> = alloc::vec![Fixed::ZERO; row_w];
-    // (x_intersection, winding) — winding only consulted for NonZero rule.
-    let mut crossings: Vec<(Fixed, i8)> = Vec::with_capacity(segs.len());
+    acc.clear();
+    acc.resize(row_w, Fixed::ZERO);
     let sub_weight = Fixed::ONE / SUB_SCANLINES;
 
     for py in py_y0..py_y1 {
@@ -271,7 +275,7 @@ pub fn scanline_fill(
                     while i + 1 < crossings.len() {
                         let xa = crossings[i].0;
                         let xb = crossings[i + 1].0;
-                        accumulate_interval(&mut acc, px_x0, px_x1, xa, xb, sub_weight);
+                        accumulate_interval(acc, px_x0, px_x1, xa, xb, sub_weight);
                         i += 2;
                     }
                 }
@@ -287,9 +291,7 @@ pub fn scanline_fill(
                             (false, true) => span_start = Some(*x),
                             (true, false) => {
                                 if let Some(start) = span_start.take() {
-                                    accumulate_interval(
-                                        &mut acc, px_x0, px_x1, start, *x, sub_weight,
-                                    );
+                                    accumulate_interval(acc, px_x0, px_x1, start, *x, sub_weight);
                                 }
                             }
                             _ => {}
@@ -1014,11 +1016,23 @@ mod tests {
 
     fn count_filled(segs: &[LineSeg], rule: FillRule) -> i32 {
         let mut n = 0;
-        scanline_fill(segs, 0, 0, 10, 10, rule, |_, _, cov| {
-            if cov > Fixed::from_int(0) {
-                n += 1;
-            }
-        });
+        let mut acc = Vec::new();
+        let mut crossings = Vec::new();
+        scanline_fill(
+            segs,
+            0,
+            0,
+            10,
+            10,
+            rule,
+            &mut acc,
+            &mut crossings,
+            |_, _, cov| {
+                if cov > Fixed::from_int(0) {
+                    n += 1;
+                }
+            },
+        );
         n
     }
 

@@ -345,13 +345,24 @@ fn rasterize_to_coverage(path: &MirPath, size: u16) -> Vec<u8> {
     flatten_into(&path.cmds[..], None, &mut segs);
     let n = size as i32;
     let mut buf = vec![0u8; (n * n) as usize];
-    scanline_fill(&segs, 0, 0, n, n, FillRule::NonZero, |x, y, cov| {
-        if (0..n).contains(&x) && (0..n).contains(&y) {
-            // Coverage in [0, 1]; map to [0, 255].
-            let v = (cov * Fixed::from_int(255)).to_int().clamp(0, 255) as u8;
-            buf[(y * n + x) as usize] = v;
-        }
-    });
+    let mut acc = Vec::new();
+    let mut crossings = Vec::new();
+    scanline_fill(
+        &segs,
+        0,
+        0,
+        n,
+        n,
+        FillRule::NonZero,
+        &mut acc,
+        &mut crossings,
+        |x, y, cov| {
+            if (0..n).contains(&x) && (0..n).contains(&y) {
+                let v = (cov * Fixed::from_int(255)).to_int().clamp(0, 255) as u8;
+                buf[(y * n + x) as usize] = v;
+            }
+        },
+    );
     buf
 }
 

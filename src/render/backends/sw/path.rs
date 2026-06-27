@@ -49,6 +49,8 @@ impl SwRenderer<'_> {
 
         let segs = &self.flatten_buf;
         let target = &mut self.target;
+        let acc = &mut self.scanline_acc;
+        let crossings = &mut self.scanline_crossings;
         raster::scanline_fill(
             segs,
             px_x0,
@@ -56,6 +58,8 @@ impl SwRenderer<'_> {
             px_x1,
             px_y1,
             raster::FillRule::EvenOdd,
+            acc,
+            crossings,
             |px, py, cov| {
                 let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
                 if final_alpha > 0 {
@@ -123,6 +127,8 @@ impl SwRenderer<'_> {
 
         let segs = &self.flatten_buf;
         let target = &mut self.target;
+        let acc = &mut self.scanline_acc;
+        let crossings = &mut self.scanline_crossings;
         raster::scanline_fill(
             segs,
             px_x0,
@@ -130,6 +136,8 @@ impl SwRenderer<'_> {
             px_x1,
             px_y1,
             raster::FillRule::EvenOdd,
+            acc,
+            crossings,
             |px, py, cov| {
                 let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
                 if final_alpha > 0 {
