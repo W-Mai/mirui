@@ -210,21 +210,17 @@ pub enum FontToken {
 }
 
 impl FontToken {
-    fn family_key(&self) -> &str {
-        match self {
-            FontToken::Default => "default",
-            FontToken::Heading => "heading",
-            FontToken::Mono => "mono",
-            FontToken::Custom(s) => s,
-        }
-    }
-
     /// Serialize to the `FontManager` cache key. Centralized here so
     /// layout and render always produce the same string for one logical
     /// font — hand-formatting at call sites would split a font across
     /// two cache entries.
     pub fn cache_key(&self) -> alloc::borrow::Cow<'static, str> {
-        alloc::borrow::Cow::Owned(alloc::format!("font:{}", self.family_key()))
+        match self {
+            FontToken::Default => alloc::borrow::Cow::Borrowed("font:default"),
+            FontToken::Heading => alloc::borrow::Cow::Borrowed("font:heading"),
+            FontToken::Mono => alloc::borrow::Cow::Borrowed("font:mono"),
+            FontToken::Custom(s) => alloc::borrow::Cow::Owned(alloc::format!("font:{}", s)),
+        }
     }
 }
 
@@ -323,6 +319,18 @@ mod tests {
         assert_eq!(FontToken::Default.cache_key(), "font:default");
         assert_eq!(FontToken::Heading.cache_key(), "font:heading");
         assert_eq!(FontToken::Custom("brand").cache_key(), "font:brand");
+    }
+
+    #[test]
+    fn cache_key_borrows_for_builtin_tokens() {
+        use alloc::borrow::Cow;
+        assert!(matches!(FontToken::Default.cache_key(), Cow::Borrowed(_)));
+        assert!(matches!(FontToken::Heading.cache_key(), Cow::Borrowed(_)));
+        assert!(matches!(FontToken::Mono.cache_key(), Cow::Borrowed(_)));
+        assert!(matches!(
+            FontToken::Custom("brand").cache_key(),
+            Cow::Owned(_)
+        ));
     }
 
     #[test]
