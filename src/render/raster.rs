@@ -441,13 +441,14 @@ fn dist_sq_point_to_segment(p: Point, a: Point, b: Point) -> Fixed {
 /// half_width the join degrades to bevel. 4 is the SVG default.
 const MITER_LIMIT: Fixed = Fixed::from_int(4);
 
-/// Note: `build_ring` / `build_open_rail` still allocate `Vec<Point>` per subpath.
 pub(crate) fn offset_polygon_into(
     cmds: &[PathCmd],
     transform: Option<&Transform>,
     width: Fixed,
     out: &mut Path,
     subpath_scratch: &mut Vec<SubPath>,
+    normals_scratch: &mut Vec<Point>,
+    rail_scratch: &mut Vec<Point>,
 ) {
     out.cmds.to_mut().clear();
     if width <= Fixed::ZERO {
@@ -462,25 +463,53 @@ pub(crate) fn offset_polygon_into(
             continue;
         }
 
-        let n = compute_normals(&sub.segs, half);
+        compute_normals_into(&sub.segs, half, normals_scratch);
         if sub.closed {
-            let left = build_ring(&sub.segs, &n, half, /*left=*/ true);
-            let mut right = build_ring(&sub.segs, &n, half, /*left=*/ false);
-            right.reverse();
-            append_closed_polyline(out, &left);
-            append_closed_polyline(out, &right);
+            build_ring_into(
+                &sub.segs,
+                normals_scratch,
+                half,
+                /*left=*/ true,
+                rail_scratch,
+            );
+            append_closed_polyline(out, rail_scratch);
+            build_ring_into(
+                &sub.segs,
+                normals_scratch,
+                half,
+                /*left=*/ false,
+                rail_scratch,
+            );
+            rail_scratch.reverse();
+            append_closed_polyline(out, rail_scratch);
         } else {
-            let left = build_open_rail(&sub.segs, &n, half, /*left=*/ true);
-            let right = build_open_rail(&sub.segs, &n, half, /*left=*/ false);
-            append_open_ribbon(out, &left, &right);
+            build_open_rail_into(
+                &sub.segs,
+                normals_scratch,
+                half,
+                /*left=*/ true,
+                rail_scratch,
+            );
+            // The ribbon needs both rails alive at once, so the open path
+            // pays a one-off temporary clone of the right rail. Closed
+            // path stays zero-alloc because it appends each rail before
+            // building the next.
+            let left = rail_scratch.clone();
+            build_open_rail_into(
+                &sub.segs,
+                normals_scratch,
+                half,
+                /*left=*/ false,
+                rail_scratch,
+            );
+            append_open_ribbon(out, &left, rail_scratch);
         }
     }
 }
 
-/// Per-segment outward unit normal scaled by `half`. `n[i]` corresponds to
-/// `segs[i]`; it's the "left" normal when walking p1→p2 (perp rotated -90°).
-fn compute_normals(segs: &[LineSeg], half: Fixed) -> Vec<Point> {
-    let mut out = Vec::with_capacity(segs.len());
+fn compute_normals_into(segs: &[LineSeg], half: Fixed, out: &mut Vec<Point>) {
+    out.clear();
+    out.reserve(segs.len());
     for s in segs {
         let dx = s.p2.x - s.p1.x;
         let dy = s.p2.y - s.p1.y;
@@ -494,16 +523,13 @@ fn compute_normals(segs: &[LineSeg], half: Fixed) -> Vec<Point> {
         let ny = dx / len * half;
         out.push(Point { x: nx, y: ny });
     }
-    out
 }
 
-/// Walk the subpath generating one offset rail. For a closed subpath the rail
-/// is itself closed (first point equals last point). `left=true` uses +normal,
-/// false uses -normal. Joins use miter with bevel fallback beyond MITER_LIMIT.
-fn build_ring(segs: &[LineSeg], n: &[Point], half: Fixed, left: bool) -> Vec<Point> {
+fn build_ring_into(segs: &[LineSeg], n: &[Point], half: Fixed, left: bool, out: &mut Vec<Point>) {
+    out.clear();
     let sign = if left { Fixed::ONE } else { -Fixed::ONE };
     let count = segs.len();
-    let mut out = Vec::with_capacity(count + 1);
+    out.reserve(count + 1);
 
     for i in 0..count {
         let prev = if i == 0 { count - 1 } else { i - 1 };
@@ -520,17 +546,20 @@ fn build_ring(segs: &[LineSeg], n: &[Point], half: Fixed, left: bool) -> Vec<Poi
     if let Some(&first) = out.first() {
         out.push(first);
     }
-    out
 }
 
-/// For open subpath: per-segment offset with joins between adjacent pairs, but
-/// endpoints keep the raw p1+/-n and p2+/-n (no join, since there's no partner).
-fn build_open_rail(segs: &[LineSeg], n: &[Point], half: Fixed, left: bool) -> Vec<Point> {
+fn build_open_rail_into(
+    segs: &[LineSeg],
+    n: &[Point],
+    half: Fixed,
+    left: bool,
+    out: &mut Vec<Point>,
+) {
+    out.clear();
     let sign = if left { Fixed::ONE } else { -Fixed::ONE };
     let count = segs.len();
-    let mut out = Vec::with_capacity(count + 1);
+    out.reserve(count + 1);
 
-    // Starting endpoint: no join
     let n0 = scaled(n[0], sign);
     out.push(offset(segs[0].p1, n0));
 
@@ -546,11 +575,8 @@ fn build_open_rail(segs: &[LineSeg], n: &[Point], half: Fixed, left: bool) -> Ve
         out.push(joint);
     }
 
-    // Trailing endpoint: no join
     let n_last = scaled(n[count - 1], sign);
     out.push(offset(segs[count - 1].p2, n_last));
-
-    out
 }
 
 /// Miter join: intersect the two offset lines. If the intersection is beyond
@@ -716,7 +742,17 @@ mod tests {
     fn offset_polygon_path(p: &Path, width: Fixed) -> Path {
         let mut out = Path::new();
         let mut scratch = Vec::new();
-        offset_polygon_into(&p.cmds, None, width, &mut out, &mut scratch);
+        let mut normals = Vec::new();
+        let mut rail = Vec::new();
+        offset_polygon_into(
+            &p.cmds,
+            None,
+            width,
+            &mut out,
+            &mut scratch,
+            &mut normals,
+            &mut rail,
+        );
         out
     }
 

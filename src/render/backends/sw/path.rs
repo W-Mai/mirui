@@ -88,6 +88,8 @@ impl SwRenderer<'_> {
             phys_width,
             &mut self.stroke_outline,
             &mut self.subpath_scratch,
+            &mut self.stroke_normals,
+            &mut self.stroke_rail,
         );
         // outline is already in physical pixels.
         let outline_cmds = core::mem::take(&mut self.stroke_outline);

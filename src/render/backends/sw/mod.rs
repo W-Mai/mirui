@@ -36,6 +36,8 @@ pub struct SwRenderer<'a> {
     pub(super) subpath_scratch: alloc::vec::Vec<crate::render::raster::SubPath>,
     pub(super) scanline_acc: alloc::vec::Vec<Fixed>,
     pub(super) scanline_crossings: alloc::vec::Vec<(Fixed, i8)>,
+    pub(super) stroke_normals: alloc::vec::Vec<crate::types::Point>,
+    pub(super) stroke_rail: alloc::vec::Vec<crate::types::Point>,
     #[cfg(feature = "perf")]
     pub perf: Option<PerfCtx>,
 }
@@ -52,6 +54,8 @@ impl<'a> SwRenderer<'a> {
             subpath_scratch: alloc::vec::Vec::new(),
             scanline_acc: alloc::vec::Vec::new(),
             scanline_crossings: alloc::vec::Vec::new(),
+            stroke_normals: alloc::vec::Vec::new(),
+            stroke_rail: alloc::vec::Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
         }
