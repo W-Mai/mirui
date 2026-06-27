@@ -6,6 +6,7 @@
 //! time-driven components.
 
 pub mod cache;
+pub mod i18n;
 pub mod perf;
 pub mod reactive;
 pub mod resource;

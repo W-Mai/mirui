@@ -75,6 +75,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         world.insert_resource(ViewRegistry::default());
         world.insert_resource(Theme::default());
         world.insert_resource(crate::render::font::default_font_manager());
+        world.insert_resource(crate::core::i18n::I18n::default());
         world.insert_resource(OffscreenBufferPool::default());
         world.insert_resource(crate::ui::IdMap::new());
         Self {
@@ -105,6 +106,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// unregistered token; passing a custom manager replaces it.
     pub fn with_fonts(&mut self, fonts: crate::render::font::FontManager) -> &mut Self {
         self.world.insert_resource(fonts);
+        self
+    }
+
+    pub fn with_i18n(&mut self, i18n: crate::core::i18n::I18n) -> &mut Self {
+        self.world.insert_resource(i18n);
         self
     }
 
@@ -194,6 +200,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn with_default_systems(&mut self) -> &mut Self {
         self.add_system(crate::anim::sync_delta_time_ms::system());
         self.add_system(crate::core::timer::timer_system::system());
+        self.add_system(crate::core::i18n::localized_text_system::system());
         self.add_system(crate::input::event::scroll::system::scroll_inertia_system::system());
         self.add_system(crate::ui::state::hover_system::system());
         self.add_system(crate::ui::state::press_system::system());
