@@ -168,7 +168,7 @@ impl<'a> Canvas for SwRenderer<'a> {
     fn draw_label(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &crate::render::font::Font,
         clip: &Rect,
         color: &Color,
@@ -336,7 +336,7 @@ impl SwRenderer<'_> {
     fn dispatch_label(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &crate::render::font::Font,
         color: &Color,
         opa: u8,
@@ -1009,7 +1009,7 @@ mod tests {
         Canvas::draw_label(
             &mut backend,
             &pos,
-            b"A",
+            "A",
             &font,
             &clip,
             &Color::rgb(255, 0, 0),
@@ -1292,7 +1292,7 @@ mod tests {
                     x: Fixed::from_int(1),
                     y: Fixed::from_int(1),
                 },
-                b"B",
+                "B",
                 &font,
                 &clip,
                 &Color::rgb(200, 100, 50),

@@ -62,17 +62,14 @@ pub fn record_command(
             font,
             color,
             opa,
-        } => {
-            let s = core::str::from_utf8(text).map_err(|_| RecordError::BadUtf8)?;
-            SceneOp::Label {
-                font: resolver.resolve_font(font),
-                pos: *pos,
-                transform: *transform,
-                color: *color,
-                opa: *opa,
-                text: alloc::string::String::from(s).into(),
-            }
-        }
+        } => SceneOp::Label {
+            font: resolver.resolve_font(font),
+            pos: *pos,
+            transform: *transform,
+            color: *color,
+            opa: *opa,
+            text: alloc::string::String::from(*text).into(),
+        },
         DrawCommand::Line {
             p1,
             p2,

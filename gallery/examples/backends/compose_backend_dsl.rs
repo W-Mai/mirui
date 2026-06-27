@@ -59,7 +59,7 @@ impl<B: Canvas> Canvas for Logging<B> {
     fn draw_label(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &mirui::render::font::Font,
         clip: &Rect,
         color: &Color,

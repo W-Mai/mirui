@@ -11,7 +11,7 @@ impl Canvas for Dummy {
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect, _: u8) {}
     fn clear(&mut self, _: &Rect, _: &Color) {}
-    fn draw_label(&mut self, _: &Point, _: &[u8], _: &Font, _: &Rect, _: &Color, _: u8) {}
+    fn draw_label(&mut self, _: &Point, _: &str, _: &Font, _: &Rect, _: &Color, _: u8) {}
     fn flush(&mut self) {}
 }
 

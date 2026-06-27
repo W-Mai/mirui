@@ -6,7 +6,7 @@ impl SdlGpuRenderer<'_> {
     pub(super) fn draw_label_inner(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &Font,
         clip: &Rect,
         color: &Color,

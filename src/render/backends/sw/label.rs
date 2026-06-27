@@ -6,7 +6,7 @@ impl SwRenderer<'_> {
     pub(super) fn draw_label_inner(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &Font,
         clip: &Rect,
         color: &Color,
@@ -19,16 +19,8 @@ impl SwRenderer<'_> {
         let (mut cx, cy) = phys_pos.floor();
         let metrics = font.metrics();
         let char_h = metrics.line_height as i32;
-        // Target glyph height in physical pixels — lets a multi-table
-        // provider pick the closest fixed-size representation.
         let requested_size = (font.size as i32 * scale).clamp(1, u16::MAX as i32) as u16;
-        // Decode the byte stream as UTF-8 so multi-byte CJK glyphs
-        // map to one codepoint each. Invalid bytes fall back to U+FFFD,
-        // which the font is free to skip.
-        let chars = core::str::from_utf8(text)
-            .map(|s| s.chars().collect::<alloc::vec::Vec<_>>())
-            .unwrap_or_else(|_| text.iter().map(|&b| b as char).collect());
-        for ch in chars {
+        for ch in text.chars() {
             let Some(g) = font.glyph(ch, requested_size) else {
                 continue;
             };

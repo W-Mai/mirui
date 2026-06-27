@@ -56,7 +56,7 @@ type CachedTexture = RefCell<SizedSdlTexture>;
 
 /// Per-call inputs the rasteriser needs but that aren't part of `LabelKey`.
 struct RasterCtx<'a> {
-    text: &'a [u8],
+    text: &'a str,
     font: &'a Font,
     color: &'a Color,
     creator: &'a TextureCreator<WindowContext>,
@@ -96,7 +96,7 @@ impl LabelCache {
         &mut self,
         canvas: &mut SdlCanvas<Window>,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &Font,
         clip: &Rect,
         color: &Color,
@@ -107,13 +107,13 @@ impl LabelCache {
             return;
         }
         let key = LabelKey {
-            text_hash: hash_bytes(text),
+            text_hash: hash_bytes(text.as_bytes()),
             color_rgba: pack_rgba(color),
         };
 
         let phys_char_w = (Fixed::from_int(CHAR_W as i32) * scale).to_int().max(1) as u32;
         let phys_char_h = (Fixed::from_int(CHAR_H as i32) * scale).to_int().max(1) as u32;
-        let phys_w = phys_char_w * text.len() as u32;
+        let phys_w = phys_char_w * text.chars().count() as u32;
         let phys_h = phys_char_h;
 
         let dst = sdl2::rect::Rect::new(pos.x.to_int(), pos.y.to_int(), phys_w, phys_h);

@@ -24,7 +24,7 @@ pub trait Canvas {
     fn draw_label(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &Font,
         clip: &Rect,
         color: &Color,

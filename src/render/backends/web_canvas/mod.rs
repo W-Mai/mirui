@@ -78,14 +78,11 @@ impl WebCanvasRenderer<'_> {
     // path's advance accumulation at scale=1 (the buffer renders with
     // Viewport scale 1), or the buffer clips the text. +1px row so the
     // AA bottom edge survives. Placeholder until a layout engine lands.
-    fn measure_text_extent(&self, font: &crate::render::font::Font, text: &[u8]) -> (i32, i32) {
+    fn measure_text_extent(&self, font: &crate::render::font::Font, text: &str) -> (i32, i32) {
         use crate::render::font::GlyphKind;
         let requested = font.size.max(1);
-        let chars = core::str::from_utf8(text)
-            .map(|s| s.chars().collect::<alloc::vec::Vec<_>>())
-            .unwrap_or_else(|_| text.iter().map(|&b| b as char).collect());
         let mut w: i32 = 0;
-        for ch in chars {
+        for ch in text.chars() {
             let Some(g) = font.glyph(ch, requested) else {
                 continue;
             };
@@ -656,7 +653,7 @@ impl Canvas for WebCanvasRenderer<'_> {
     fn draw_label(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &crate::render::font::Font,
         clip: &Rect,
         color: &Color,
@@ -672,7 +669,7 @@ impl Canvas for WebCanvasRenderer<'_> {
             return;
         }
         let mut text_hash: u64 = 0xcbf2_9ce4_8422_2325;
-        for &b in text {
+        for b in text.bytes() {
             text_hash ^= b as u64;
             text_hash = text_hash.wrapping_mul(0x100_0000_01b3);
         }

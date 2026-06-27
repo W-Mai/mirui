@@ -33,7 +33,7 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
     (
         "draw_label",
-        "pos: &::mirui::types::Point, text: &[u8], font: &::mirui::render::font::Font, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
+        "pos: &::mirui::types::Point, text: &str, font: &::mirui::render::font::Font, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
         false,
     ),
     ("flush", "", false),

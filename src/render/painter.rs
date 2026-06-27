@@ -45,7 +45,7 @@ impl<'a, B: Canvas> Painter<'a, B> {
     pub fn draw_text(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &super::font::Font,
         clip: &Rect,
         color: &Color,

@@ -107,7 +107,7 @@ fn text_render(
                 y: rect.y + Fixed::from_int(2),
             },
             transform: ctx.transform,
-            text: s.as_bytes(),
+            text: &s,
             font: &font,
             color,
             opa: 255,

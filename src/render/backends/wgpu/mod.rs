@@ -1055,7 +1055,7 @@ impl WgpuRenderer<'_> {
     fn draw_label_inner(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         _font: &crate::render::font::Font,
         clip: &Rect,
         color: &Color,
@@ -1089,11 +1089,12 @@ impl WgpuRenderer<'_> {
 
         let cell_w = crate::render::font::CHAR_W as f32;
         let cell_h = crate::render::font::CHAR_H as f32;
-        let mut verts = alloc::vec::Vec::with_capacity(text.len() * 4);
-        let mut indices = alloc::vec::Vec::with_capacity(text.len() * 6);
+        let bytes = text.as_bytes();
+        let mut verts = alloc::vec::Vec::with_capacity(bytes.len() * 4);
+        let mut indices = alloc::vec::Vec::with_capacity(bytes.len() * 6);
         let base_x = pos.x.to_f32();
         let base_y = pos.y.to_f32();
-        for (i, &ch) in text.iter().enumerate() {
+        for (i, &ch) in bytes.iter().enumerate() {
             let x0 = base_x + i as f32 * cell_w;
             let y0 = base_y;
             let x1 = x0 + cell_w;
@@ -1482,7 +1483,7 @@ impl Canvas for WgpuRenderer<'_> {
     fn draw_label(
         &mut self,
         pos: &Point,
-        text: &[u8],
+        text: &str,
         font: &crate::render::font::Font,
         clip: &Rect,
         color: &Color,

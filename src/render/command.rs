@@ -34,7 +34,7 @@ pub enum DrawCommand<'a> {
     Label {
         pos: Point,
         transform: Transform,
-        text: &'a [u8],
+        text: &'a str,
         font: &'a Font,
         color: Color,
         opa: Opa,

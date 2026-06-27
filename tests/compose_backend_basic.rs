@@ -56,7 +56,7 @@ impl Canvas for Dummy {
     fn draw_label(
         &mut self,
         _: &Point,
-        _: &[u8],
+        _: &str,
         _: &mirui::render::font::Font,
         _: &Rect,
         _: &Color,
@@ -133,7 +133,7 @@ fn default_methods_route_to_sw() {
     h.fill_path(&path, &rect, &color, 255);
     h.stroke_path(&path, &rect, Fixed::ONE, &color, 255);
     let font = mirui::render::font::Font::bitmap_8x8();
-    h.draw_label(&Point::ZERO, b"x", &font, &rect, &color, 255);
+    h.draw_label(&Point::ZERO, "x", &font, &rect, &color, 255);
     h.flush();
 
     assert_eq!(h.sw.counts.fill_path.get(), 1);
@@ -228,7 +228,7 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
     fn draw_label(
         &mut self,
         _: &Point,
-        _: &[u8],
+        _: &str,
         _: &mirui::render::font::Font,
         _: &Rect,
         _: &Color,
@@ -247,7 +247,7 @@ impl Canvas for PlainDummy {
     fn draw_label(
         &mut self,
         _: &Point,
-        _: &[u8],
+        _: &str,
         _: &mirui::render::font::Font,
         _: &Rect,
         _: &Color,

@@ -196,7 +196,7 @@ pub fn replay_scene(
                     &DrawCommand::Label {
                         pos: *pos,
                         transform: top.transform.compose(transform),
-                        text: text.as_bytes(),
+                        text,
                         font,
                         color: *color,
                         opa: mul_alpha(*opa, top.alpha),

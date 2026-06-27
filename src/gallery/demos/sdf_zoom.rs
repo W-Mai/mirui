@@ -75,7 +75,7 @@ fn zoom_render(
                 y: rect.y + Fixed::from_int(8),
             },
             transform: ctx.transform,
-            text: z.text.as_bytes(),
+            text: z.text,
             font: &font,
             color: Color::rgb(255, 200, 120),
             opa: 255,
