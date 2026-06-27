@@ -32,6 +32,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 fn render_text(text: &str, font_token: FontToken, register_misans: bool) -> Vec<u8> {
+    let text: String = text.into();
     let width: u16 = 240;
     let height: u16 = 48;
     let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});

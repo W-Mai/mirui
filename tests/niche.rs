@@ -80,10 +80,10 @@ mod tests {
         for &t in &text_entities {
             let parent = world.get::<Parent>(t).unwrap().0;
             let text = world.get::<Text>(t).unwrap();
-            let bytes = text.bytes(&world);
-            if &*bytes == b"body content" {
+            let bytes = text.resolve(&world);
+            if &*bytes == "body content" {
                 assert_eq!(parent, body);
-            } else if &*bytes == b"footer text" {
+            } else if &*bytes == "footer text" {
                 assert_eq!(parent, footer);
             } else {
                 panic!("unexpected text: {:?}", bytes);

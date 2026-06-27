@@ -146,8 +146,7 @@ mod tests {
         // reactive branches mount after static siblings: [toggle, cycle, if/else, match]
         let branch_text = |w: &World| {
             let branch = w.get::<Children>(col).unwrap().0[2];
-            alloc::string::String::from_utf8(w.get::<Text>(branch).unwrap().bytes(w).to_vec())
-                .unwrap()
+            w.get::<Text>(branch).unwrap().resolve(w).into_owned()
         };
         assert_eq!(branch_text(&world), "hidden — tap to show");
 
@@ -204,7 +203,7 @@ mod tests {
         let col = world.get::<Children>(parent).unwrap().0[0];
         let arm_text = |w: &World| {
             let arm = w.get::<Children>(col).unwrap().0[0];
-            alloc::string::String::from_utf8(w.get::<Text>(arm).unwrap().bytes(w).to_vec()).unwrap()
+            w.get::<Text>(arm).unwrap().resolve(w).into_owned()
         };
         assert_eq!(arm_text(&world), "zero");
 
@@ -250,7 +249,7 @@ mod tests {
         let col = world.get::<Children>(parent).unwrap().0[0];
         let text_at = |w: &World, i: usize| {
             let e = w.get::<Children>(col).unwrap().0[i];
-            alloc::string::String::from_utf8(w.get::<Text>(e).unwrap().bytes(w).to_vec()).unwrap()
+            w.get::<Text>(e).unwrap().resolve(w).into_owned()
         };
         // static-ordered: top(0), bottom(1), then the reactive branch appends(2)
         assert_eq!(text_at(&world, 0), "top");

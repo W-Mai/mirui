@@ -143,10 +143,8 @@ mod tests {
         assert_eq!(world.get::<ClickCount>(card).map(|c| c.0), Some(0));
         tap(&mut world, card);
         assert_eq!(world.get::<ClickCount>(card).map(|c| c.0), Some(1));
-        assert_eq!(
-            world.get::<Text>(card).map(|t| t.bytes(&world).to_vec()),
-            Some(b"Clicked: 1".to_vec())
-        );
+        let text = world.get::<Text>(card).map(|t| t.resolve(&world));
+        assert_eq!(text.as_deref(), Some("Clicked: 1"));
     }
 
     #[test]

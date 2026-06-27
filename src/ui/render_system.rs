@@ -227,7 +227,7 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
         return;
     }
     let pad: i32 = 4;
-    let bytes = text.bytes(world);
+    let bytes = text.resolve(world);
     let intrinsic_w = Fixed::from_int(bytes.len() as i32 * CHAR_W as i32 + pad);
     let intrinsic_h = Fixed::from_int(CHAR_H as i32 + pad);
     if matches!(node.style.width, Dimension::Auto | Dimension::Content) {

@@ -270,10 +270,10 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(I18n::new(Locale::EnUs).with_translations(TABLE));
         let text = crate::ui::widgets::text::Text::from(t!("welcome"));
-        assert_eq!(&*text.bytes(&world), b"Welcome");
+        assert_eq!(text.resolve(&world), "Welcome");
 
         world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
-        assert_eq!(&*text.bytes(&world), "欢迎".as_bytes());
+        assert_eq!(text.resolve(&world), "欢迎");
     }
 
     #[test]

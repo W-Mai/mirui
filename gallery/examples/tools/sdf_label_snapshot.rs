@@ -85,7 +85,7 @@ fn main() {
         :)
 
         Text (
-            text.as_str(),
+            text.clone(),
             font: FontToken::Heading,
             text_color: Color::rgb(255, 220, 140)
         )

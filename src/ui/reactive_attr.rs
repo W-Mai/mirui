@@ -83,7 +83,7 @@ mod tests {
         let e = WidgetBuilder::new(&mut world).id();
         with_world_scope(&mut world, || reactive_set_text(e, 42i32));
         let text = world.get::<crate::ui::widgets::text::Text>(e).unwrap();
-        assert_eq!(&*text.bytes(&world), b"42");
+        assert_eq!(text.resolve(&world), "42");
         assert!(world.get::<Dirty>(e).is_some(), "attr change marks Dirty");
     }
 
@@ -115,8 +115,8 @@ mod tests {
         });
         let text = world.get::<crate::ui::widgets::text::Text>(e).unwrap();
         assert_eq!(
-            &*text.bytes(&world),
-            b"3",
+            text.resolve(&world),
+            "3",
             "initial value applied during construction scope"
         );
     }

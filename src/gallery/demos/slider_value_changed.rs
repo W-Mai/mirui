@@ -116,7 +116,7 @@ mod tests {
         let label = world.find_by_id("stats_label").expect("stats_label exists");
         let text = world.get::<Text>(label).expect("label has Text");
         assert!(
-            !text.bytes(&world).is_empty(),
+            !text.resolve(&world).is_empty(),
             "reactive Text shows its initial value"
         );
     }

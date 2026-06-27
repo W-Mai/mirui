@@ -1,6 +1,5 @@
 use alloc::borrow::Cow;
 use alloc::string::String;
-use alloc::vec::Vec;
 
 use crate::core::i18n::Localized;
 use crate::ecs::{Entity, World};
@@ -11,7 +10,7 @@ use crate::ui::view::{View, ViewCtx};
 
 #[derive(Clone, Debug, crate::Component)]
 pub enum Text {
-    Owned(Vec<u8>),
+    Owned(Cow<'static, str>),
     Localized(Localized),
 }
 
@@ -23,13 +22,12 @@ impl Text {
         }
     }
 
-    /// Resolve to a byte slice. `Localized` variants look up the active
-    /// `I18n` resource; unresolved keys fall back to the key's own bytes
-    /// so layout / render still see *something* deterministic.
-    pub fn bytes<'a>(&'a self, world: &World) -> Cow<'a, [u8]> {
+    /// Unresolved `Localized` keys fall back to the key itself so render
+    /// always has something to draw.
+    pub fn resolve<'a>(&'a self, world: &World) -> Cow<'a, str> {
         match self {
-            Text::Owned(v) => Cow::Borrowed(v.as_slice()),
-            Text::Localized(loc) => Cow::Borrowed(loc.resolve_or_key(world).as_bytes()),
+            Text::Owned(c) => Cow::Borrowed(c.as_ref()),
+            Text::Localized(loc) => Cow::Borrowed(loc.resolve_or_key(world)),
         }
     }
 
@@ -38,27 +36,21 @@ impl Text {
     }
 }
 
-impl From<&str> for Text {
-    fn from(s: &str) -> Self {
-        Text::Owned(s.as_bytes().to_vec())
+impl From<&'static str> for Text {
+    fn from(s: &'static str) -> Self {
+        Text::Owned(Cow::Borrowed(s))
     }
 }
 
 impl From<String> for Text {
     fn from(s: String) -> Self {
-        Text::Owned(s.into_bytes())
+        Text::Owned(Cow::Owned(s))
     }
 }
 
-impl From<Vec<u8>> for Text {
-    fn from(v: Vec<u8>) -> Self {
-        Text::Owned(v)
-    }
-}
-
-impl From<&[u8]> for Text {
-    fn from(v: &[u8]) -> Self {
-        Text::Owned(v.to_vec())
+impl From<Cow<'static, str>> for Text {
+    fn from(c: Cow<'static, str>) -> Self {
+        Text::Owned(c)
     }
 }
 
@@ -107,7 +99,7 @@ fn text_render(
     let Some(font) = crate::render::font::resolve_or_default(world, &ctx.style.font_token) else {
         return;
     };
-    let bytes = text.bytes(world);
+    let s = text.resolve(world);
     renderer.draw(
         &DrawCommand::Label {
             pos: Point {
@@ -115,7 +107,7 @@ fn text_render(
                 y: rect.y + Fixed::from_int(2),
             },
             transform: ctx.transform,
-            text: &bytes,
+            text: s.as_bytes(),
             font: &font,
             color,
             opa: 255,
@@ -139,7 +131,7 @@ mod tests {
             .style(crate::ui::Style::default())
             .spawn(&mut world);
         let text = world.get::<Text>(e).unwrap();
-        assert_eq!(&*text.bytes(&world), b"hi");
+        assert_eq!(text.resolve(&world), "hi");
         assert!(world.has::<crate::ui::Style>(e));
         assert!(world.has::<crate::ui::Widget>(e));
     }
@@ -153,10 +145,19 @@ mod tests {
     }
 
     #[test]
-    fn from_str_yields_owned() {
+    fn static_str_is_borrowed() {
         let t: Text = "hi".into();
-        assert!(matches!(t, Text::Owned(_)));
-        assert!(!t.is_localized());
+        match t {
+            Text::Owned(Cow::Borrowed(s)) => assert_eq!(s, "hi"),
+            _ => panic!("expected borrowed cow for &'static str"),
+        }
+    }
+
+    #[test]
+    fn string_is_owned() {
+        let s: String = "hi".into();
+        let t: Text = s.into();
+        assert!(matches!(t, Text::Owned(Cow::Owned(_))));
     }
 
     #[test]
