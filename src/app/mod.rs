@@ -200,7 +200,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn with_default_systems(&mut self) -> &mut Self {
         self.add_system(crate::anim::sync_delta_time_ms::system());
         self.add_system(crate::core::timer::timer_system::system());
-        self.add_system(crate::core::i18n::localized_text_system::system());
+        self.add_system(crate::core::i18n::i18n_dirty_system::system());
         self.add_system(crate::input::event::scroll::system::scroll_inertia_system::system());
         self.add_system(crate::ui::state::hover_system::system());
         self.add_system(crate::ui::state::press_system::system());

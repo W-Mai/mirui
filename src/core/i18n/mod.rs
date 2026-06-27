@@ -79,23 +79,21 @@ impl Default for I18n {
     }
 }
 
-#[derive(Copy, Clone, Debug, crate::Component)]
-pub struct LocalizedText(pub Localized);
-
 #[derive(Default)]
-struct LocalizedTextWatch {
+struct LocaleWatch {
     last_locale: Option<Locale>,
 }
 
-// First tick (`last_locale = None`) seeds Text before any locale change.
+// First tick (`last_locale = None`) marks every Localized Text Dirty so
+// the layout pass picks up the resolved string before the first render.
 #[mirui_macros::system]
-pub fn localized_text_system(world: &mut World) {
+pub fn i18n_dirty_system(world: &mut World) {
     let current = match world.resource::<I18n>() {
         Some(i) => i.locale(),
         None => return,
     };
     let force_refresh = {
-        let watch = world.resource::<LocalizedTextWatch>();
+        let watch = world.resource::<LocaleWatch>();
         !matches!(watch, Some(w) if w.last_locale == Some(current))
     };
     if !force_refresh {
@@ -103,22 +101,21 @@ pub fn localized_text_system(world: &mut World) {
     }
 
     let mut entities: Vec<Entity> = Vec::new();
-    world.query::<LocalizedText>().collect_into(&mut entities);
+    world
+        .query::<crate::ui::widgets::text::Text>()
+        .collect_into(&mut entities);
 
     for entity in entities {
-        let key = match world.get::<LocalizedText>(entity) {
-            Some(lt) => lt.0,
-            None => continue,
-        };
-        let resolved = key.resolve_or_key(world);
-        world.insert(
-            entity,
-            crate::ui::widgets::text::Text(alloc::vec::Vec::from(resolved.as_bytes())),
-        );
-        world.insert(entity, crate::ui::dirty::Dirty);
+        let is_localized = world
+            .get::<crate::ui::widgets::text::Text>(entity)
+            .map(|t| t.is_localized())
+            .unwrap_or(false);
+        if is_localized {
+            world.insert(entity, crate::ui::dirty::Dirty);
+        }
     }
 
-    world.insert_resource(LocalizedTextWatch {
+    world.insert_resource(LocaleWatch {
         last_locale: Some(current),
     });
 }
@@ -256,51 +253,54 @@ mod tests {
     }
 
     #[test]
-    fn localized_text_system_seeds_text_on_first_tick() {
+    fn i18n_dirty_system_marks_localized_text_on_first_tick() {
         let mut world = World::new();
         world.insert_resource(I18n::new(Locale::EnUs).with_translations(TABLE));
         let e = world.spawn_empty();
-        world.insert(e, LocalizedText(Localized::new("welcome")));
+        world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
 
-        let sys = localized_text_system::system();
+        let sys = i18n_dirty_system::system();
         (sys.run)(&mut world);
 
-        let text = world
-            .get::<crate::ui::widgets::text::Text>(e)
-            .expect("text inserted");
-        assert_eq!(text.0, b"Welcome");
         assert!(world.has::<crate::ui::dirty::Dirty>(e));
     }
 
     #[test]
-    fn localized_text_system_updates_on_locale_change() {
+    fn localized_text_resolves_to_active_locale() {
+        let mut world = World::new();
+        world.insert_resource(I18n::new(Locale::EnUs).with_translations(TABLE));
+        let text = crate::ui::widgets::text::Text::from(t!("welcome"));
+        assert_eq!(&*text.bytes(&world), b"Welcome");
+
+        world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
+        assert_eq!(&*text.bytes(&world), "欢迎".as_bytes());
+    }
+
+    #[test]
+    fn i18n_dirty_system_marks_on_locale_change() {
         let mut world = World::new();
         world.insert_resource(I18n::new(Locale::EnUs).with_translations(TABLE));
         let e = world.spawn_empty();
-        world.insert(e, LocalizedText(Localized::new("welcome")));
+        world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
 
-        let sys = localized_text_system::system();
+        let sys = i18n_dirty_system::system();
         (sys.run)(&mut world);
         world.remove::<crate::ui::dirty::Dirty>(e);
 
         world.resource::<I18n>().unwrap().set_locale(Locale::ZhCn);
         (sys.run)(&mut world);
 
-        let text = world
-            .get::<crate::ui::widgets::text::Text>(e)
-            .expect("text updated");
-        assert_eq!(text.0, "欢迎".as_bytes());
         assert!(world.has::<crate::ui::dirty::Dirty>(e));
     }
 
     #[test]
-    fn localized_text_system_idempotent_when_locale_unchanged() {
+    fn i18n_dirty_system_idempotent_when_locale_unchanged() {
         let mut world = World::new();
         world.insert_resource(I18n::new(Locale::EnUs).with_translations(TABLE));
         let e = world.spawn_empty();
-        world.insert(e, LocalizedText(Localized::new("welcome")));
+        world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
 
-        let sys = localized_text_system::system();
+        let sys = i18n_dirty_system::system();
         (sys.run)(&mut world);
         world.remove::<crate::ui::dirty::Dirty>(e);
         (sys.run)(&mut world);
@@ -312,12 +312,26 @@ mod tests {
     }
 
     #[test]
-    fn localized_text_system_no_i18n_no_op() {
+    fn i18n_dirty_system_skips_owned_text() {
+        let mut world = World::new();
+        world.insert_resource(I18n::new(Locale::EnUs).with_translations(TABLE));
+        let e = world.spawn_empty();
+        world.insert(e, crate::ui::widgets::text::Text::from("static"));
+        let sys = i18n_dirty_system::system();
+        (sys.run)(&mut world);
+        assert!(
+            !world.has::<crate::ui::dirty::Dirty>(e),
+            "static Text shouldn't be touched"
+        );
+    }
+
+    #[test]
+    fn i18n_dirty_system_no_i18n_no_op() {
         let mut world = World::new();
         let e = world.spawn_empty();
-        world.insert(e, LocalizedText(Localized::new("welcome")));
-        let sys = localized_text_system::system();
+        world.insert(e, crate::ui::widgets::text::Text::from(t!("welcome")));
+        let sys = i18n_dirty_system::system();
         (sys.run)(&mut world);
-        assert!(world.get::<crate::ui::widgets::text::Text>(e).is_none());
+        assert!(!world.has::<crate::ui::dirty::Dirty>(e));
     }
 }
