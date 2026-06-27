@@ -24,9 +24,9 @@ const H: u16 = 320;
 fn row_binder(world: &mut World, entity: Entity, index: u32) {
     let label = alloc::format!("Row {index}");
     if let Some(t) = world.get_mut::<Text>(entity) {
-        t.0 = label.into_bytes();
+        *t = Text::from(label);
     } else {
-        world.insert(entity, Text(label.into_bytes()));
+        world.insert(entity, Text::from(label));
     }
 }
 

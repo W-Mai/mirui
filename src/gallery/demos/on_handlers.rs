@@ -118,7 +118,7 @@ fn refresh_label(world: &mut World) {
         None => return,
     };
     if let Some(t) = world.get_mut::<Text>(label) {
-        t.0 = text.into_bytes();
+        *t = Text::from(text);
     }
     world.insert(label, Dirty);
 }

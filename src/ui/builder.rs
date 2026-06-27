@@ -67,11 +67,8 @@ impl<'a> WidgetBuilder<'a> {
         self
     }
 
-    pub fn text(self, t: &str) -> Self {
-        self.world.insert(
-            self.entity,
-            crate::ui::widgets::text::Text(alloc::vec::Vec::from(t.as_bytes())),
-        );
+    pub fn text(self, t: impl Into<crate::ui::widgets::text::Text>) -> Self {
+        self.world.insert(self.entity, t.into());
         self
     }
 

@@ -62,7 +62,7 @@ mod tests {
 
     fn label_text(world: &World, label: Entity) -> alloc::string::String {
         let t = world.get::<Text>(label).expect("label has Text");
-        alloc::string::String::from_utf8(t.0.clone()).unwrap()
+        alloc::string::String::from_utf8(t.bytes(world).to_vec()).unwrap()
     }
 
     #[test]

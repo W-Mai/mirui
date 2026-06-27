@@ -76,7 +76,7 @@ fn refresh(world: &mut World, entity: Entity) {
         last_pinch.raw(),
     );
     if let Some(status) = world.find_by_id("pinch_status") {
-        world.insert(status, Text(line.into_bytes()));
+        world.insert(status, Text::from(line));
         world.insert(status, Dirty);
     }
 }

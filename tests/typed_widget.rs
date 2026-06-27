@@ -73,7 +73,7 @@ mod tests {
         let entities = world.query::<Text>().collect();
         assert_eq!(entities.len(), 1);
         let text = world.get::<Text>(entities[0]).unwrap();
-        assert_eq!(text.0, b"Hello");
+        assert_eq!(&*text.bytes(&world), b"Hello");
     }
 
     #[test]
@@ -124,7 +124,7 @@ mod tests {
         let entities = world.query::<Text>().collect();
         assert_eq!(entities.len(), 1);
         let text = world.get::<Text>(entities[0]).unwrap();
-        assert_eq!(text.0, b"Positional");
+        assert_eq!(&*text.bytes(&world), b"Positional");
     }
 
     #[test]

@@ -110,7 +110,7 @@ pub fn fps_readout_system(world: &mut World) {
             let avg_us = avg_ns / 1000;
             let mode = if offscreen { "offscreen" } else { "inline   " };
             let label = alloc::format!("MODE={mode}  render avg {avg_us}us");
-            world.insert(e, Text(label.into_bytes()));
+            world.insert(e, Text::from(label));
             world.insert(e, Dirty);
         }
     }
@@ -185,7 +185,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             width: WIN_W - 40,
             height: 24
         ) [
-            Text(b"warming up...".to_vec()),
+            Text::from("warming up..."),
             FpsReadout {
                 counter: 0,
                 accum_render_ns: 0,

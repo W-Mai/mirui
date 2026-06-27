@@ -37,7 +37,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     if let Some(next) = next {
                         let buf = format!("Clicked: {next}");
                         if let Some(t) = ctx.world.get_mut::<Text>(ctx.entity) {
-                            t.0 = buf.into_bytes();
+                            *t = Text::from(buf);
                         }
                         ctx.world.insert(ctx.entity, Dirty);
                     }
@@ -62,7 +62,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     if let Some(next) = next {
                         let buf = format!("Clicked: {next}");
                         if let Some(t) = ctx.world.get_mut::<Text>(ctx.entity) {
-                            t.0 = buf.into_bytes();
+                            *t = Text::from(buf);
                         }
                         ctx.world.insert(ctx.entity, Dirty);
                     }
@@ -144,7 +144,7 @@ mod tests {
         tap(&mut world, card);
         assert_eq!(world.get::<ClickCount>(card).map(|c| c.0), Some(1));
         assert_eq!(
-            world.get::<Text>(card).map(|t| t.0.clone()),
+            world.get::<Text>(card).map(|t| t.bytes(&world).to_vec()),
             Some(b"Clicked: 1".to_vec())
         );
     }

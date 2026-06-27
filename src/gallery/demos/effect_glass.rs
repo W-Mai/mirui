@@ -103,7 +103,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             width: 112,
             height: 14
         ) [
-            Text(b"BlurMeBlurMe".to_vec()),
+            Text::from("BlurMeBlurMe"),
         ]
     };
 

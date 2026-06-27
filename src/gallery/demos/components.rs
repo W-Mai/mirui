@@ -34,7 +34,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     normal_color: Color::rgb(63, 185, 80),
                     pressed_color: Color::rgb(40, 140, 55)
                 ) [
-                    Text(b"OK".to_vec()),
+                    Text::from("OK"),
                 ]
                 Button (
                     border_radius: 6,
@@ -42,7 +42,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     normal_color: Color::rgb(248, 81, 73),
                     pressed_color: Color::rgb(200, 50, 45)
                 ) [
-                    Text(b"Cancel".to_vec()),
+                    Text::from("Cancel"),
                 ]
             }
             Column (

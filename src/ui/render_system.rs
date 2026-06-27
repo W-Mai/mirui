@@ -227,7 +227,8 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
         return;
     }
     let pad: i32 = 4;
-    let intrinsic_w = Fixed::from_int(text.0.len() as i32 * CHAR_W as i32 + pad);
+    let bytes = text.bytes(world);
+    let intrinsic_w = Fixed::from_int(bytes.len() as i32 * CHAR_W as i32 + pad);
     let intrinsic_h = Fixed::from_int(CHAR_H as i32 + pad);
     if matches!(node.style.width, Dimension::Auto | Dimension::Content) {
         node.style.width = Dimension::Px(intrinsic_w);
@@ -2662,7 +2663,7 @@ mod offscreen_render_check {
                     ..Default::default()
                 },
             );
-            w.insert(el, Text(b"Enable".to_vec()));
+            w.insert(el, Text::from("Enable"));
             let sw = spawn_styled(
                 &mut w,
                 Some(er),

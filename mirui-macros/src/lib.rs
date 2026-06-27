@@ -883,15 +883,14 @@ impl MiruiRune {
         if cmd.kind == WidgetKind::Component {
             let comp_name = &cmd.name;
             if cmd.name == "Text" {
-                // Text is a tuple struct with no Default; seed it explicitly.
-                // A reactive `text` leaves text_tuple_value None; the effect's
-                // first run fills the real content via reactive_set_text.
                 let init = match &cmd.text_tuple_value {
-                    Some(text_value) => quote! { (#text_value).as_bytes().to_vec() },
-                    None => quote! { ::mirui::__Vec::new() },
+                    Some(text_value) => {
+                        quote! { ::core::convert::Into::<#comp_name>::into(#text_value) }
+                    }
+                    None => quote! { #comp_name::Owned(::mirui::__Vec::new()) },
                 };
                 tokens.extend(quote! {
-                    (#world).insert(#var, #comp_name(#init));
+                    (#world).insert(#var, #init);
                 });
             } else if cmd.name == "Image" {
                 let comp_fields = &cmd.component_fields;

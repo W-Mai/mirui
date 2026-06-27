@@ -4,7 +4,6 @@
 extern crate alloc;
 
 use alloc::string::String;
-use alloc::vec::Vec;
 
 use crate::ecs::Entity;
 use crate::types::Dimension;
@@ -26,10 +25,7 @@ impl<T: alloc::string::ToString> IntoText for T {
 pub fn reactive_set_text(entity: Entity, value: impl IntoText) {
     let text = value.into_text();
     crate::core::reactive::with_world(|w| {
-        w.insert(
-            entity,
-            crate::ui::widgets::text::Text(Vec::from(text.as_bytes())),
-        );
+        w.insert(entity, crate::ui::widgets::text::Text::from(text));
         w.insert(entity, Dirty);
     });
 }
@@ -87,7 +83,7 @@ mod tests {
         let e = WidgetBuilder::new(&mut world).id();
         with_world_scope(&mut world, || reactive_set_text(e, 42i32));
         let text = world.get::<crate::ui::widgets::text::Text>(e).unwrap();
-        assert_eq!(&text.0, b"42");
+        assert_eq!(&*text.bytes(&world), b"42");
         assert!(world.get::<Dirty>(e).is_some(), "attr change marks Dirty");
     }
 
@@ -119,7 +115,8 @@ mod tests {
         });
         let text = world.get::<crate::ui::widgets::text::Text>(e).unwrap();
         assert_eq!(
-            &text.0, b"3",
+            &*text.bytes(&world),
+            b"3",
             "initial value applied during construction scope"
         );
     }
