@@ -41,6 +41,9 @@ linux-drm = ["dep:drm", "dep:drm-ffi", "dep:evdev", "dep:libc", "dep:signal-hook
 nuttx = ["dep:libc", "std"]
 perf = []
 sync-cache = []
+persistence = ["dep:serde", "dep:postcard"]
+persistence-fs = ["persistence", "std"]
+persistence-web = ["persistence", "web-canvas"]
 # Anti-aliasing for 3D-transformed quads. On `std` this uses a Fixed64
 # signed-distance field for smooth coverage; on `no_std` it degrades to
 # a 2×2 supersample (5 coverage steps). Disable to get the old v0.9.x
@@ -100,6 +103,18 @@ drm-ffi = { version = "0.9", optional = true }
 version = "0.2"
 optional = true
 default-features = false
+
+[dependencies.serde]
+version = "1"
+default-features = false
+features = ["derive", "alloc"]
+optional = true
+
+[dependencies.postcard]
+version = "1"
+default-features = false
+features = ["alloc"]
+optional = true
 
 # wasm32-only deps for the web-canvas backend.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

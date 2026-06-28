@@ -142,4 +142,11 @@ impl World {
             .get_mut(&TypeId::of::<T>())
             .and_then(|v| v.downcast_mut::<T>())
     }
+
+    pub fn remove_resource<T: 'static>(&mut self) -> Option<T> {
+        self.resources
+            .remove(&TypeId::of::<T>())
+            .and_then(|v| v.downcast::<T>().ok())
+            .map(|b| *b)
+    }
 }

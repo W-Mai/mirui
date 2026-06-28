@@ -7,6 +7,7 @@
 
 pub mod cache;
 pub mod i18n;
+pub mod lifecycle;
 pub mod perf;
 pub mod reactive;
 pub mod resource;
