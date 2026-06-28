@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] - 2026-06-27
+
+### Added
+
+- **`Locale` + `I18n` resource + `t!` macro for translation tables.** `Locale::{EnUs, ZhCn, Custom(&'static str)}` names the active locale; `I18n::new(locale).with_translations(&'static [(Locale, key, val)])` installs a flat translation table. `I18n.translate(key)` looks up the active locale (with `Locale::EnUs` fallback for missing entries) and reads through `Signal::get()` so reactive bindings re-fire on `set_locale`. `t!("welcome")` returns a `Localized { key }` handle; `Localized::resolve(&world)` returns `Option<&'static str>` and `impl Display` resolves through `core::reactive::with_world` so `text: ${ t!("welcome") }` works in reactive bindings without extra plumbing. The bundled `localized_text_system` (registered by `with_default_systems`) marks any `Text::Localized` entity `Dirty` on locale change so static-text labels repaint automatically.
+- **`App::with_i18n(I18n)` builder.** `with_factory` inserts `I18n::default()` (EnUs, empty table) so every app has a translator even when `with_i18n` isn't called.
+- **`i18n_demo` in the gallery** demonstrates an EnUs / ZhCn toggle with `text: t!("...")` on every `View`. Bundled `misans_sdf_24.mirx` atlas now includes the demo's CJK glyphs so the labels render on real hardware. The demo registers as `i18n` under "Basics" in the web gallery.
+- **`mirui::gallery::demos::widgets::build_sim_timeline(&World) -> Option<SimTimeline>`** lifts the desktop-only `SimTimeline` construction out of `setup_app` so embedded callers can drive the same scripted input on real hardware. Returns `None` when the expected widgets aren't installed so callers can `if let Some(t) = ... insert_resource(t)` without guard checks.
+
+### Changed
+
+- **`Text` widget is now an enum.** `Text(Vec<u8>)` becomes `enum Text { Owned(Cow<'static, str>), Localized(Localized) }`. `text.bytes()` accessor is gone; `text.resolve(&world) -> Cow<'_, str>` returns the rendered string (the `Localized` arm looks up the active `I18n` resource and falls back to the key itself when unresolved). `From<&'static str>` borrows for zero alloc on literals; `From<String>` and `From<Cow<'static, str>>` cover owning sources. Non-static `&str` no longer converts implicitly — callers passing a borrowed reference clone explicitly through `String::from`. `WidgetBuilder::text` now takes `impl Into<Text>` so `text: t!("welcome")` and `text: "hello"` both work through the same method.
+- **`DrawCommand::Label.text` and `Canvas::draw_label` take `&str` instead of `&[u8]`.** Producers drop their `.as_bytes()` calls; the sw backend's `draw_label` iterates `text.chars()` directly without the previous per-draw `Vec<char>` allocation. `compose_backend!` macro template tracks the new signature, so third-party `Canvas` implementations must update their `draw_label` parameter and the trybuild fixtures' `Dummy::draw_label` shape. The scene codec's record path drops its `from_utf8` validation because the source is already UTF-8; `RecordError::BadUtf8` stays declared as an unreachable variant so the result type isn't a breaking change.
+- **`SceneOp::FillPath.path` holds a `Path` directly instead of a bare `Cow<'static, [PathCmd]>`.** The wire format is unchanged because `Path.cmds` already carries the same `Cow`, but `SceneOp::FillPath { path: Cow::Borrowed(...) }` becomes `SceneOp::FillPath { path: Path::from_static(...) }`; record / replay / codec routes through the `Path` carrier consistently.
+- **`raster::scanline_fill` takes caller-owned `acc` and `crossings` scratch buffers.** Adds two `&mut Vec<...>` parameters between `FillRule` and the emit closure; `SwRenderer` carries `scanline_acc` / `scanline_crossings` fields so every fill reuses one allocation pair within a renderer's lifetime. External callers (the xtask font baker, the raster test fixture) pass their own local Vecs.
+- **`raster::offset_polygon_into` takes caller-owned `normals` and `rail` scratch.** Adds `normals_scratch: &mut Vec<Point>` and `rail_scratch: &mut Vec<Point>` parameters; `compute_normals` / `build_ring` / `build_open_rail` become `_into` variants that clear and refill the caller's buffer instead of returning owned `Vec<Point>`. Closed paths stay zero-alloc; open paths still pay a one-off `clone()` of the left rail because `append_open_ribbon` needs both rails alive at once.
+- **`raster::flatten` / `offset_polygon` replaced by `flatten_into` / `offset_polygon_into`.** Both write into a caller-owned destination so the sw backend can reuse `flatten_buf` and the stroke outline across every draw within one frame. Direct callers (the xtask font baker) construct local destination buffers themselves.
+- **`Text::Owned` holds `Cow<'static, str>` instead of `Vec<u8>`.** Static literals through `text: "Hello"` (or `WidgetBuilder::text`) now stay `Cow::Borrowed` end-to-end with zero allocation. Owning sources still go through `String` or `Cow::Owned`.
+- **`FontToken::cache_key()` returns `Cow::Borrowed` for the three builtin tokens.** `Default` / `Heading` / `Mono` map to fixed `"font:default"` / `"font:heading"` / `"font:mono"` literals; only `Custom(name)` still allocates a `format!`'d `String`. Eliminates one alloc per `Text` widget per frame on the default ESP path.
+
+### Internal
+
+- **sdl_gpu and wgpu tessellators accept an `Option<&Transform>`** that folds into `to_lyon_path`'s point closure, so the four pre-rebuild helpers (`scale_path` / `scale_path_with_tf` in sdl_gpu, `translate_path` / `transform_path` in wgpu) are gone. The previously documented per-frame `Vec<PathCmd>` allocation on transformed `FillPath` draws now lives only inside the tessellator's own vertex buffer, not a separate path copy.
+- **sw `FillPath` translate composes into the transform** instead of materialising a translated `Path`. The translate branch builds `Transform::translate(tx, ty)`, composes it onto the viewport transform, and routes through `fill_path_transformed_inner` — the same flatten-with-transform path the cmd-transformed branch already used.
+
+### Resolved
+
+- **`FillPath` under a non-axis-aligned transform no longer allocates per frame** (the 0.34.0 known limitation). The sw rasterizer flattens with the composed transform in place, sdl_gpu / wgpu fold the transform into the tessellator's point emit, and the sw stroke / scanline paths reuse renderer-owned scratch buffers across draws.
+
 ## [0.34.0] - 2026-06-26
 
 ### Added
