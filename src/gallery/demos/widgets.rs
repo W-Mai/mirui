@@ -1,16 +1,13 @@
 extern crate alloc;
 
-#[cfg(feature = "std")]
 use crate::anim::ease;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
-#[cfg(feature = "std")]
-use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
+use crate::input::event::sim::{SimAction, SimTimeline};
 #[cfg(feature = "std")]
 use crate::prelude::plugin::{FpsSummaryPlugin, InputFeedbackPlugin};
 use crate::prelude::*;
-#[cfg(feature = "std")]
 use crate::types::DimPoint;
 use crate::ui::dirty::Dirty;
 use crate::ui::theme;
@@ -19,7 +16,6 @@ use crate::ui::widgets::{
 };
 use crate::ui::{Children, OffscreenRender, Theme};
 use alloc::format;
-#[cfg(feature = "std")]
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -335,7 +331,7 @@ where
     app.add_plugin(StdInstantClockPlugin);
     app.add_plugin(FpsSummaryPlugin::default());
     app.with_offscreen_pool_budget(512 * 1024);
-    app.add_system(sim_timeline_system::system());
+    app.add_system(crate::input::event::sim::sim_timeline_system::system());
     app.add_system(slider_to_progress_system::system());
 
     app.world.insert_resource(dark_with_accent());
@@ -344,30 +340,39 @@ where
 
     build_widgets(&mut app.world, parent, info.width, info.height);
 
-    let tabs_kids: Vec<Entity> = {
-        let q: Vec<Entity> = app.world.query::<TabBar>().collect();
-        let tab_bar_e = *q.first().expect("TabBar must be installed");
-        app.world
-            .get::<Children>(tab_bar_e)
-            .map(|c| c.0.clone())
-            .unwrap_or_default()
-    };
-    if tabs_kids.len() < 3 {
-        return;
-    }
-    let (tab_list, tab_form, tab_theme) = (tabs_kids[0], tabs_kids[1], tabs_kids[2]);
-    let switches: Vec<Entity> = app.world.query::<Switch>().collect();
-    let switch_e = *switches.first().expect("form Switch must be installed");
-    let sliders: Vec<Entity> = app.world.query::<Slider>().collect();
-    let slider_e = *sliders.first().expect("form Slider must be installed");
-    let lists: Vec<Entity> = app.world.query::<LazyList>().collect();
-    let list_e = *lists.first().expect("List LazyList must be installed");
-
     if std::env::var("MIRUI_SIM_OFF").ok().as_deref() == Some("1") {
         return;
     }
 
-    app.world.insert_resource(
+    if let Some(timeline) = build_sim_timeline(&app.world) {
+        app.world.insert_resource(timeline);
+    }
+}
+
+/// Construct the demo's looping `SimTimeline` from the live widget tree.
+/// Returns `None` when the expected widgets aren't installed (e.g.
+/// `build_widgets` skipped) — callers can `insert_resource` the result
+/// unconditionally and the sim system stays a no-op without a timeline.
+pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
+    let tab_bars: Vec<Entity> = world.query::<TabBar>().collect();
+    let tab_bar_e = *tab_bars.first()?;
+    let tabs_kids: Vec<Entity> = world
+        .get::<Children>(tab_bar_e)
+        .map(|c| c.0.clone())
+        .unwrap_or_default();
+    if tabs_kids.len() < 3 {
+        return None;
+    }
+    let (tab_list, tab_form, tab_theme) = (tabs_kids[0], tabs_kids[1], tabs_kids[2]);
+
+    let switches: Vec<Entity> = world.query::<Switch>().collect();
+    let switch_e = *switches.first()?;
+    let sliders: Vec<Entity> = world.query::<Slider>().collect();
+    let slider_e = *sliders.first()?;
+    let lists: Vec<Entity> = world.query::<LazyList>().collect();
+    let list_e = *lists.first()?;
+
+    Some(
         SimTimeline::new(vec![
             SimAction::wait(800),
             SimAction::tap(DimPoint::CENTER).on(tab_form),
@@ -406,7 +411,7 @@ where
             SimAction::wait(800),
         ])
         .looping(true),
-    );
+    )
 }
 
 #[cfg(test)]
