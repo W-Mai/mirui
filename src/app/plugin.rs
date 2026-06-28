@@ -33,6 +33,12 @@ where
 {
     fn build(&mut self, app: &mut App<B, F>);
 
+    /// Runs once after every registered plugin's `build` finishes, before
+    /// the first frame ticks. Use this for cross-plugin coordination that
+    /// can't safely run inside `build` (where later plugins haven't
+    /// installed their resources yet).
+    fn on_start(&mut self, _world: &mut World) {}
+
     fn pre_render(&mut self, _world: &mut World) {}
 
     /// `render_nanos` covers layout + render walker only; flush and
@@ -46,6 +52,15 @@ where
     fn on_event(&mut self, _world: &mut World, _event: &InputEvent) -> bool {
         false
     }
+
+    /// `App::pause` calls this after flipping `is_paused` to true. The
+    /// pause itself stops further `tick` work; plugins typically use the
+    /// hook to flush state, release timers, or persist to storage.
+    fn on_pause(&mut self, _world: &mut World) {}
+
+    /// Counterpart to `on_pause`; runs when `App::resume` flips `is_paused`
+    /// back to false, before the next tick.
+    fn on_resume(&mut self, _world: &mut World) {}
 
     fn on_quit(&mut self, _world: &mut World) {}
 

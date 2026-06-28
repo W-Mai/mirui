@@ -36,6 +36,8 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     last_seed_prev_ns: u64,
     pending_frame: Option<PendingFrame>,
     needs_full_first_frame: bool,
+    paused: bool,
+    started: bool,
 }
 
 struct PendingFrame {
@@ -93,6 +95,8 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             last_seed_prev_ns: 0,
             pending_frame: None,
             needs_full_first_frame: true,
+            paused: false,
+            started: false,
         }
     }
 
@@ -220,6 +224,28 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         plugin.build(self);
         self.plugins.push(Box::new(plugin));
         self
+    }
+
+    pub fn pause(&mut self) {
+        if !self.paused {
+            self.paused = true;
+            for p in &mut self.plugins {
+                p.on_pause(&mut self.world);
+            }
+        }
+    }
+
+    pub fn resume(&mut self) {
+        if self.paused {
+            self.paused = false;
+            for p in &mut self.plugins {
+                p.on_resume(&mut self.world);
+            }
+        }
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused
     }
 
     fn clock_ns(&self) -> u64 {
@@ -388,6 +414,12 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     /// Systems + render + poll until quit. Persistent backends take the
     /// `render_dirty` fast path; Transient backends render every frame.
     pub fn run(&mut self) {
+        if !self.started {
+            self.started = true;
+            for p in &mut self.plugins {
+                p.on_start(&mut self.world);
+            }
+        }
         self.render();
         loop {
             if self.tick() {
@@ -398,6 +430,25 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// One frame. Returns `true` on `Quit` (after `on_quit` hooks).
     pub fn tick(&mut self) -> bool {
+        if self.paused {
+            loop {
+                match self.poll_event() {
+                    Some(InputEvent::Quit) => {
+                        for p in &mut self.plugins {
+                            p.on_quit(&mut self.world);
+                        }
+                        return true;
+                    }
+                    Some(InputEvent::AppResume) => {
+                        self.resume();
+                        break;
+                    }
+                    Some(_) => continue,
+                    None => return false,
+                }
+            }
+        }
+
         let transient =
             self.backend.persistence() == crate::surface::BackbufferPersistence::Transient;
 
@@ -423,6 +474,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     Some(InputEvent::Quit) => {
                         quit = true;
                         break;
+                    }
+                    Some(InputEvent::AppPause) => {
+                        self.pause();
+                        return false;
+                    }
+                    Some(InputEvent::AppResume) => {
+                        continue;
                     }
                     Some(event) => {
                         // Active sim timelines own PointerCursor; real
@@ -892,5 +950,83 @@ mod swap_tests {
                 .expect("swap must restore the app, never leave None");
             assert!(app.root.is_some(), "rebuilt app must have a root");
         }
+    }
+}
+
+#[cfg(test)]
+mod lifecycle_tests {
+    use super::*;
+    use alloc::rc::Rc;
+    use core::cell::RefCell;
+
+    #[derive(Default, Clone)]
+    struct Trace {
+        on_start: u32,
+        on_pause: u32,
+        on_resume: u32,
+    }
+
+    struct TracePlugin {
+        trace: Rc<RefCell<Trace>>,
+    }
+
+    impl<B, F> Plugin<B, F> for TracePlugin
+    where
+        B: Surface,
+        F: RendererFactory<B>,
+    {
+        fn build(&mut self, _app: &mut App<B, F>) {}
+        fn on_start(&mut self, _world: &mut World) {
+            self.trace.borrow_mut().on_start += 1;
+        }
+        fn on_pause(&mut self, _world: &mut World) {
+            self.trace.borrow_mut().on_pause += 1;
+        }
+        fn on_resume(&mut self, _world: &mut World) {
+            self.trace.borrow_mut().on_resume += 1;
+        }
+    }
+
+    fn fresh() -> (
+        App<crate::surface::framebuf::FramebufSurface<HeadlessFlush>>,
+        Rc<RefCell<Trace>>,
+    ) {
+        let mut app = App::headless(32, 32);
+        let trace = Rc::new(RefCell::new(Trace::default()));
+        app.add_plugin(TracePlugin {
+            trace: trace.clone(),
+        });
+        (app, trace)
+    }
+
+    #[test]
+    fn pause_resume_toggle_fires_hooks_once() {
+        let (mut app, trace) = fresh();
+        app.pause();
+        app.pause();
+        app.resume();
+        app.resume();
+        let t = trace.borrow();
+        assert_eq!(t.on_pause, 1, "duplicate pause must not re-fire");
+        assert_eq!(t.on_resume, 1, "duplicate resume must not re-fire");
+    }
+
+    #[test]
+    fn is_paused_reflects_state() {
+        let (mut app, _) = fresh();
+        assert!(!app.is_paused());
+        app.pause();
+        assert!(app.is_paused());
+        app.resume();
+        assert!(!app.is_paused());
+    }
+
+    #[test]
+    fn tick_short_circuits_while_paused() {
+        let (mut app, _) = fresh();
+        app.pause();
+        let quit = app.tick();
+        assert!(!quit, "paused tick returns without firing on_quit");
+        assert!(app.is_paused(), "tick must not flip the pause state");
     }
 }

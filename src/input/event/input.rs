@@ -60,5 +60,7 @@ pub enum InputEvent {
     CharInput {
         ch: char,
     },
+    AppPause,
+    AppResume,
     Quit,
 }
