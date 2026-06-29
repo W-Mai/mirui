@@ -141,6 +141,7 @@ web-sys = { version = "0.3.99", optional = true, features = [
     "DomRect",
     "EventTarget",
     "Event",
+    "Storage",
     "console",
 ] }
 js-sys = { version = "0.3.99", optional = true }
