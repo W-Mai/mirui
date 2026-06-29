@@ -1,7 +1,7 @@
 extern crate alloc;
 
 #[cfg(feature = "persistence")]
-use crate::core::lifecycle::PersistencePlugin;
+use crate::core::persistence::PersistencePlugin;
 use crate::prelude::*;
 
 pub fn build_widgets(world: &mut World, parent: Entity, count: Signal<i32>) {

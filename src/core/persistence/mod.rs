@@ -257,7 +257,7 @@ where
             && app.world.resource::<crate::ecs::MonoClock>().is_none()
         {
             eprintln!(
-                "[mirui::lifecycle] PersistencePlugin: autosave_every_ms set but no \
+                "[mirui::persistence] PersistencePlugin: autosave_every_ms set but no \
                  MonoClock resource installed; periodic flushes will not fire. \
                  Add a clock plugin (e.g. StdInstantClockPlugin) before this one. \
                  on_suspend / on_quit flushes still work."

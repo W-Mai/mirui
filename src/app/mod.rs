@@ -1,3 +1,4 @@
+pub mod lifecycle;
 pub mod plugin;
 pub mod plugins;
 
@@ -454,11 +455,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             }
             if let Some(req) = self
                 .world
-                .remove_resource::<crate::core::lifecycle::SuspendRequest>()
+                .remove_resource::<crate::app::lifecycle::SuspendRequest>()
             {
                 match req {
-                    crate::core::lifecycle::SuspendRequest::Resume => self.resume(),
-                    crate::core::lifecycle::SuspendRequest::Suspend => {}
+                    crate::app::lifecycle::SuspendRequest::Resume => self.resume(),
+                    crate::app::lifecycle::SuspendRequest::Suspend => {}
                 }
             }
             if self.suspended {
@@ -583,11 +584,11 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
         if let Some(req) = self
             .world
-            .remove_resource::<crate::core::lifecycle::SuspendRequest>()
+            .remove_resource::<crate::app::lifecycle::SuspendRequest>()
         {
             match req {
-                crate::core::lifecycle::SuspendRequest::Suspend => self.suspend(),
-                crate::core::lifecycle::SuspendRequest::Resume => {}
+                crate::app::lifecycle::SuspendRequest::Suspend => self.suspend(),
+                crate::app::lifecycle::SuspendRequest::Resume => {}
             }
         }
 
@@ -1060,11 +1061,11 @@ mod lifecycle_tests {
     fn suspend_request_resource_drives_state() {
         let (mut app, trace) = fresh();
         app.world
-            .insert_resource(crate::core::lifecycle::SuspendRequest::Suspend);
+            .insert_resource(crate::app::lifecycle::SuspendRequest::Suspend);
         app.tick();
         assert!(app.is_suspended(), "Suspend request drained into state");
         app.world
-            .insert_resource(crate::core::lifecycle::SuspendRequest::Resume);
+            .insert_resource(crate::app::lifecycle::SuspendRequest::Resume);
         app.tick();
         assert!(!app.is_suspended(), "Resume request drained into state");
         let t = trace.borrow();

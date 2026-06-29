@@ -7,9 +7,9 @@
 //! glue in user code. Omit it to let `App::suspend` / `App::resume`
 //! stay strictly host-driven.
 
+use crate::app::lifecycle::SuspendRequest;
 use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
-use crate::core::lifecycle::SuspendRequest;
 use crate::ecs::World;
 use crate::input::event::input::InputEvent;
 use crate::surface::Surface;

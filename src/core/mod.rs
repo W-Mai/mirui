@@ -7,8 +7,9 @@
 
 pub mod cache;
 pub mod i18n;
-pub mod lifecycle;
 pub mod perf;
+#[cfg(feature = "persistence")]
+pub mod persistence;
 pub mod reactive;
 pub mod resource;
 pub mod storage;

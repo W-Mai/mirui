@@ -3,7 +3,7 @@
 //! `Storage` is intentionally `&str` → `&[u8]`: no serialization, no
 //! transactions, no async. Backends are free to be in-process maps,
 //! files, browser localStorage, or vendor flash drivers. Typed
-//! convenience layers (e.g. `lifecycle::PersistencePlugin`) live in
+//! convenience layers (e.g. `core::persistence::PersistencePlugin`) live in
 //! their own modules and just feed encoded bytes through this trait.
 
 extern crate alloc;
