@@ -13,6 +13,7 @@ web-canvas = ["mirui/web-canvas", "dep:wasm-bindgen", "dep:web-sys"]
 linux-fb = ["mirui/linux-fb"]
 linux-drm = ["mirui/linux-drm"]
 perf = ["mirui/perf"]
+persistence = ["mirui/persistence"]
 
 [dependencies]
 mirui = { path = "..", default-features = false, features = ["quad-aa", "gallery"] }
@@ -131,3 +132,7 @@ path = "examples/tools/sdf_cjk_snapshot.rs"
 [[example]]
 name = "multi_font_snapshot"
 path = "examples/tools/multi_font_snapshot.rs"
+
+[[example]]
+name = "persistence_counter_demo"
+required-features = ["persistence"]

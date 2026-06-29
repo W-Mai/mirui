@@ -33,6 +33,7 @@ pub mod offscreen;
 pub mod offscreen_modal;
 pub mod on_handlers;
 pub mod particles;
+pub mod persistence_counter;
 pub mod pinch_rotate;
 pub mod rounded;
 pub mod scroll;

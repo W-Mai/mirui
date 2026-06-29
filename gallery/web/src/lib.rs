@@ -57,6 +57,7 @@ gallery::register_demos! {
     ("state_show",           "reactive if / match",  "State",       state_show,           320, 240),
     ("state_list",           "reactive walk list",   "State",       state_list,           320, 320),
     ("state_keyed",          "keyed walk reorder",   "State",       state_keyed,          320, 320),
+    ("persistence_counter",  "persistence counter",  "State",       persistence_counter,  320, 240),
 
     ("scroll",               "scroll",               "Scroll",      scroll,               480, 320),
     ("nested_scroll",        "nested scroll",        "Scroll",      nested_scroll,        480, 400),
