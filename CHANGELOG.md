@@ -5,6 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-06-30
+
+### Added
+
+- **`App::suspend()` / `App::resume()` / `App::is_suspended()` for OS-suspend lifecycle.** Suspend latches a `suspended` flag and fans out `Plugin::on_suspend` to every plugin; resume mirrors the path through `on_resume`. Duplicate calls no-op. While suspended, `App::tick` still fans out `on_event` (so plugins can request resume), skips widget dispatch, fires `on_quit` and returns `true` on `InputEvent::Quit`, and `std::thread::sleep(50 ms)` when `poll_event` returns `None` so the host loop doesn't pin a CPU core. Embedded backends that block in `poll_event` aren't affected.
+- **`Plugin::on_start` / `on_suspend` / `on_resume` default-impl hooks.** `on_start` fires once on the first `App::run` after every plugin's `build` has settled; `on_suspend` / `on_resume` track `App::suspend` / `resume`. All three default to no-op so existing plugins compile unchanged.
+- **`InputEvent::AppSuspend` / `InputEvent::AppResume` variants.** Backends that can detect OS suspend signals feed them through the same input queue; the framebuffer surface continues to ignore them. Exhaustive `match InputEvent` callers gain two arms — see Changed.
+- **`SuspendRequest` plugin → App bridge.** Small `enum { Suspend, Resume }` World resource at `mirui::app::lifecycle::SuspendRequest`. Plugins write it from `on_event` (where they only hold `&mut World`); `App::tick` drains it at frame end and inside the suspended branch, calling `App::suspend` / `App::resume` accordingly. Three trigger paths now share one state machine: host loop calls `app.suspend()` directly, plugins write `SuspendRequest` from `on_event`, or a backend emits `AppSuspend` / `AppResume` which a plugin (e.g. `AutoSuspendPlugin`) forwards through `SuspendRequest`.
+- **`AutoSuspendPlugin` in `mirui::app::plugins`.** Consumes `InputEvent::AppSuspend` / `AppResume` from `on_event` and writes `SuspendRequest` into the World. Returns `true` so widgets don't also see lifecycle events. Plug it in to react to OS signals automatically; omit it to keep suspend strictly host-driven.
+- **SDL backend emits lifecycle events on focus change.** `WindowEvent::FocusLost` / `Hidden` / `Minimized` translate to `InputEvent::AppSuspend`; `FocusGained` / `Shown` / `Restored` translate to `InputEvent::AppResume`. Combine with `AutoSuspendPlugin` for alt-tab / minimize → suspended UI without writing glue code.
+- **`core::storage::Storage` trait + three backends.** `Storage` is a small `&str → &[u8]` KV trait every persistence backend implements. `MemoryStorage` (always available) keeps the framework testable without filesystems. `FileStorage` (std-only) writes one binary file through `write tmp + rename` so a crash or torn write never leaves a half-written state on disk. `LocalStorageStorage` (`web-canvas`, wasm target) namespaces keys under a caller-supplied prefix and round-trips bytes through a small hex codec; constructor returns `None` when the host page rejects storage (private browsing, sandboxed iframe) so callers can degrade to `MemoryStorage`. Shared `core::storage::kv` codec packs / unpacks the on-disk `BTreeMap<String, Vec<u8>>` so future backends (ESP NVS, IndexedDB) only need to hand it a map.
+- **`StorageHandle = Box<dyn Storage>` type alias + `Storage::into_handle()` provided method.** Call sites read `backend.into_handle()` instead of `Box::new(backend) as Box<dyn Storage>`. `StorageHandle` itself implements `Storage` so `PersistencePlugin::new(handle)` accepts it without further boxing.
+- **`core::persistence::PersistencePlugin` (gated by `persistence` feature).** Typed save / restore on top of `Storage`. Builder chain matches the runtime API on `PersistenceRegistry`:
+  ```rust
+  PersistencePlugin::new(storage)
+      .signal("count", count.clone())
+      .resource::<Config>("config")
+      .bytes("custom", save_fn, restore_fn)
+      .autosave_every_ms(5000)
+  ```
+  `signal` / `resource` round-trip through postcard with a one-byte `VALUE_VERSION` prefix for forward migration; missing-key, version-mismatch, and decode failures silently keep the in-memory default so a corrupt or migrated payload never panics the app. `bytes(...)` is an escape hatch that writes verbatim with no framing so external on-disk layouts can be matched exactly. Saves fire on `on_suspend` (checkpoint before sleep), `on_quit` (final flush), and an opt-in `post_render` autosave throttle. `autosave_every_ms` set without a `MonoClock` resource available emits a one-line `eprintln!` warning at `build` time so the throttle going silent is observable; `on_suspend` / `on_quit` flushes don't need the clock and fire either way.
+- **`PersistenceRegistry` World resource for runtime registration.** Live `registry.signal(world, key, sig)` / `resource(...)` / `bytes(...)` endpoints stay reachable after `App::add_plugin` so late-spawned widgets, route-scoped state, and dialog state can register against the same registry the plugin owns. Each register call pulls any existing stored bytes into the target immediately so late arrivals catch up to disk in the same call. `registry.save_all()` flushes every tracked item; `save(key)` flushes one; `remove(key)` drops persisted bytes without un-registering the item (next save repopulates).
+- **`persistence_counter` gallery demo.** Wires a `Signal<i32>` through `PersistencePlugin` against `MemoryStorage` so the counter survives mid-process `App::suspend` / `resume` cycles. Swap in `FileStorage` (desktop) or `LocalStorageStorage` (wasm) for cross-restart persistence with no demo-side change. Registers as `persistence_counter` under "State" in the web gallery; autosave runs every 2 s so the `post_render` throttle path gets exercised too.
+- **`lifecycle_suspend` host-loop demo** (`gallery/examples/tools/lifecycle_suspend.rs`). Standalone — doesn't go through `gallery::run`. Renders current state + tick counter + on_suspend / on_resume fire counts through reactive `Signal`s. ENTER toggles `app.suspend()` / `resume()` directly; alt-tab or minimize threads the same path through `AutoSuspendPlugin` + the SDL backend's focus-event translation.
+- **`World::remove_resource`** alongside `insert_resource` / `resource_mut`, used by `PersistencePlugin`'s flush-and-stamp split-borrow dance.
+
+### Changed
+
+- **`InputEvent` is no longer exhaustively matchable forward-compatibly.** Two new variants land in 0.36.0 (`AppSuspend`, `AppResume`); callers doing `match event { InputEvent::Foo => ... }` without a wildcard arm gain two new arms. Routine `if let` / `matches!` and the bundled widget dispatch paths are unaffected.
+
 ## [0.35.0] - 2026-06-27
 
 ### Added
