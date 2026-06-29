@@ -53,12 +53,12 @@ where
         false
     }
 
-    /// `App::pause` calls this after flipping `is_paused` to true. The
-    /// pause itself stops further `tick` work; plugins typically use the
+    /// `App::suspend` calls this after flipping `is_suspended` to true. The
+    /// suspend itself stops further `tick` work; plugins typically use the
     /// hook to flush state, release timers, or persist to storage.
-    fn on_pause(&mut self, _world: &mut World) {}
+    fn on_suspend(&mut self, _world: &mut World) {}
 
-    /// Counterpart to `on_pause`; runs when `App::resume` flips `is_paused`
+    /// Counterpart to `on_suspend`; runs when `App::resume` flips `is_suspended`
     /// back to false, before the next tick.
     fn on_resume(&mut self, _world: &mut World) {}
 

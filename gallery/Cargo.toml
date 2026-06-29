@@ -134,5 +134,9 @@ name = "multi_font_snapshot"
 path = "examples/tools/multi_font_snapshot.rs"
 
 [[example]]
+name = "lifecycle_suspend"
+path = "examples/tools/lifecycle_suspend.rs"
+
+[[example]]
 name = "persistence_counter_demo"
 required-features = ["persistence"]

@@ -36,7 +36,7 @@ pub struct App<B: Surface, F: RendererFactory<B> = SwRendererFactory> {
     last_seed_prev_ns: u64,
     pending_frame: Option<PendingFrame>,
     needs_full_first_frame: bool,
-    paused: bool,
+    suspended: bool,
     started: bool,
 }
 
@@ -95,7 +95,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             last_seed_prev_ns: 0,
             pending_frame: None,
             needs_full_first_frame: true,
-            paused: false,
+            suspended: false,
             started: false,
         }
     }
@@ -226,26 +226,26 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
-    pub fn pause(&mut self) {
-        if !self.paused {
-            self.paused = true;
+    pub fn suspend(&mut self) {
+        if !self.suspended {
+            self.suspended = true;
             for p in &mut self.plugins {
-                p.on_pause(&mut self.world);
+                p.on_suspend(&mut self.world);
             }
         }
     }
 
     pub fn resume(&mut self) {
-        if self.paused {
-            self.paused = false;
+        if self.suspended {
+            self.suspended = false;
             for p in &mut self.plugins {
                 p.on_resume(&mut self.world);
             }
         }
     }
 
-    pub fn is_paused(&self) -> bool {
-        self.paused
+    pub fn is_suspended(&self) -> bool {
+        self.suspended
     }
 
     fn clock_ns(&self) -> u64 {
@@ -430,7 +430,10 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
 
     /// One frame. Returns `true` on `Quit` (after `on_quit` hooks).
     pub fn tick(&mut self) -> bool {
-        if self.paused {
+        if self.suspended {
+            // Fan-out plugin on_event while suspended so AutoSuspendOnFocus-style
+            // plugins can write SuspendRequest::Resume in response to lifecycle events.
+            // Widget dispatch is skipped — suspended means no UI interaction.
             loop {
                 match self.poll_event() {
                     Some(InputEvent::Quit) => {
@@ -439,14 +442,31 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                         }
                         return true;
                     }
-                    Some(InputEvent::AppResume) => {
-                        self.resume();
-                        break;
+                    Some(event) => {
+                        for p in &mut self.plugins {
+                            if p.on_event(&mut self.world, &event) {
+                                break;
+                            }
+                        }
                     }
-                    Some(_) => continue,
-                    None => return false,
+                    None => break,
                 }
             }
+            if let Some(req) = self
+                .world
+                .remove_resource::<crate::core::lifecycle::SuspendRequest>()
+            {
+                match req {
+                    crate::core::lifecycle::SuspendRequest::Resume => self.resume(),
+                    crate::core::lifecycle::SuspendRequest::Suspend => {}
+                }
+            }
+            if self.suspended {
+                #[cfg(feature = "std")]
+                std::thread::sleep(core::time::Duration::from_millis(50));
+                return false;
+            }
+            // Fell through resume() — continue into the normal frame body.
         }
 
         let transient =
@@ -474,13 +494,6 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
                     Some(InputEvent::Quit) => {
                         quit = true;
                         break;
-                    }
-                    Some(InputEvent::AppPause) => {
-                        self.pause();
-                        return false;
-                    }
-                    Some(InputEvent::AppResume) => {
-                        continue;
                     }
                     Some(event) => {
                         // Active sim timelines own PointerCursor; real
@@ -567,6 +580,16 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
             self.render_dirty();
         }
         self.backend.frame_end();
+
+        if let Some(req) = self
+            .world
+            .remove_resource::<crate::core::lifecycle::SuspendRequest>()
+        {
+            match req {
+                crate::core::lifecycle::SuspendRequest::Suspend => self.suspend(),
+                crate::core::lifecycle::SuspendRequest::Resume => {}
+            }
+        }
 
         false
     }
@@ -962,7 +985,7 @@ mod lifecycle_tests {
     #[derive(Default, Clone)]
     struct Trace {
         on_start: u32,
-        on_pause: u32,
+        on_suspend: u32,
         on_resume: u32,
     }
 
@@ -979,8 +1002,8 @@ mod lifecycle_tests {
         fn on_start(&mut self, _world: &mut World) {
             self.trace.borrow_mut().on_start += 1;
         }
-        fn on_pause(&mut self, _world: &mut World) {
-            self.trace.borrow_mut().on_pause += 1;
+        fn on_suspend(&mut self, _world: &mut World) {
+            self.trace.borrow_mut().on_suspend += 1;
         }
         fn on_resume(&mut self, _world: &mut World) {
             self.trace.borrow_mut().on_resume += 1;
@@ -1000,33 +1023,52 @@ mod lifecycle_tests {
     }
 
     #[test]
-    fn pause_resume_toggle_fires_hooks_once() {
+    fn suspend_resume_toggle_fires_hooks_once() {
         let (mut app, trace) = fresh();
-        app.pause();
-        app.pause();
+        app.suspend();
+        app.suspend();
         app.resume();
         app.resume();
         let t = trace.borrow();
-        assert_eq!(t.on_pause, 1, "duplicate pause must not re-fire");
+        assert_eq!(t.on_suspend, 1, "duplicate suspend must not re-fire");
         assert_eq!(t.on_resume, 1, "duplicate resume must not re-fire");
     }
 
     #[test]
-    fn is_paused_reflects_state() {
+    fn is_suspended_reflects_state() {
         let (mut app, _) = fresh();
-        assert!(!app.is_paused());
-        app.pause();
-        assert!(app.is_paused());
+        assert!(!app.is_suspended());
+        app.suspend();
+        assert!(app.is_suspended());
         app.resume();
-        assert!(!app.is_paused());
+        assert!(!app.is_suspended());
     }
 
     #[test]
-    fn tick_short_circuits_while_paused() {
+    fn tick_short_circuits_while_suspended() {
         let (mut app, _) = fresh();
-        app.pause();
+        app.suspend();
         let quit = app.tick();
-        assert!(!quit, "paused tick returns without firing on_quit");
-        assert!(app.is_paused(), "tick must not flip the pause state");
+        assert!(!quit, "suspended tick returns without firing on_quit");
+        assert!(
+            app.is_suspended(),
+            "tick must not flip the suspend state without a request"
+        );
+    }
+
+    #[test]
+    fn suspend_request_resource_drives_state() {
+        let (mut app, trace) = fresh();
+        app.world
+            .insert_resource(crate::core::lifecycle::SuspendRequest::Suspend);
+        app.tick();
+        assert!(app.is_suspended(), "Suspend request drained into state");
+        app.world
+            .insert_resource(crate::core::lifecycle::SuspendRequest::Resume);
+        app.tick();
+        assert!(!app.is_suspended(), "Resume request drained into state");
+        let t = trace.borrow();
+        assert_eq!(t.on_suspend, 1);
+        assert_eq!(t.on_resume, 1);
     }
 }

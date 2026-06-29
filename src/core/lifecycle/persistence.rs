@@ -249,7 +249,7 @@ where
         }
     }
 
-    fn on_pause(&mut self, world: &mut World) {
+    fn on_suspend(&mut self, world: &mut World) {
         let now_ms = clock_ms(world);
         flush_and_stamp(world, now_ms);
     }

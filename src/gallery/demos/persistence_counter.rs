@@ -60,7 +60,7 @@ where
     app.add_plugin(StdInstantClockPlugin);
 
     // PersistencePlugin must register before widgets spawn so the
-    // Registry sits in the World when on_pause / on_quit fire.
+    // Registry sits in the World when on_suspend / on_quit fire.
     let count = Signal::new(0i32);
     let plugin = PersistencePlugin::new(pick_storage())
         .signal("count", count.clone())

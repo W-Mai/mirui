@@ -10,3 +10,12 @@ pub mod persistence;
 
 #[cfg(feature = "persistence")]
 pub use persistence::{PersistencePlugin, PersistenceRegistry};
+
+/// Plugin → App bridge for triggering suspend / resume from inside an
+/// event handler. Plugins write this resource into the World; `App::tick`
+/// drains it at the end of each frame and calls `App::suspend`/`resume`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SuspendRequest {
+    Suspend,
+    Resume,
+}
