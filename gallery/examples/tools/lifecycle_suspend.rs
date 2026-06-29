@@ -18,7 +18,7 @@ extern crate alloc;
 
 use mirui::app::App;
 use mirui::app::plugin::Plugin;
-use mirui::app::plugins::StdInstantClockPlugin;
+use mirui::app::plugins::{AutoSuspendPlugin, StdInstantClockPlugin};
 use mirui::core::reactive::Signal;
 use mirui::ecs::{Entity, World};
 use mirui::input::event::input::{InputEvent, KEY_ESCAPE, KEY_RETURN};
@@ -113,6 +113,10 @@ fn build_ui(world: &mut World, parent: Entity, counters: LifecycleCounters) {
                 height: 24,
                 text: "ENTER toggle suspend, ESC quit"
             )
+            View (
+                height: 24,
+                text: "alt-tab / minimize to test AutoSuspendPlugin"
+            )
         }
     };
 }
@@ -122,6 +126,7 @@ fn main() {
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
     app.add_plugin(StdInstantClockPlugin);
+    app.add_plugin(AutoSuspendPlugin);
 
     let counters = LifecycleCounters::new();
     app.add_plugin(LifecycleTracePlugin {

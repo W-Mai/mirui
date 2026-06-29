@@ -1,3 +1,4 @@
+pub mod auto_suspend;
 pub mod budget;
 pub mod cache_report;
 pub mod fps_summary;
@@ -8,6 +9,7 @@ pub mod perf_report;
 #[cfg(feature = "std")]
 pub mod std_clock;
 
+pub use auto_suspend::AutoSuspendPlugin;
 pub use budget::{BudgetReportPlugin, BudgetViolation};
 pub use cache_report::{CacheReport, CacheReportPlugin};
 pub use fps_summary::{FpsSummary, FpsSummaryPlugin};
