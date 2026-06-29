@@ -9,7 +9,7 @@ use alloc::format;
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use super::storage::Storage;
+use super::Storage;
 
 pub struct LocalStorageStorage {
     storage: web_sys::Storage,

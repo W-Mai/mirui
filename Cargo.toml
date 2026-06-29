@@ -42,8 +42,6 @@ nuttx = ["dep:libc", "std"]
 perf = []
 sync-cache = []
 persistence = ["dep:serde", "dep:postcard"]
-persistence-fs = ["persistence", "std"]
-persistence-web = ["persistence", "web-canvas"]
 # Anti-aliasing for 3D-transformed quads. On `std` this uses a Fixed64
 # signed-distance field for smooth coverage; on `no_std` it degrades to
 # a 2×2 supersample (5 coverage steps). Disable to get the old v0.9.x

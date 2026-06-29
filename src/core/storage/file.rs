@@ -11,7 +11,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use super::storage::{Storage, decode_kv, encode_kv};
+use super::{Storage, decode_kv, encode_kv};
 
 pub struct FileStorage {
     path: PathBuf,

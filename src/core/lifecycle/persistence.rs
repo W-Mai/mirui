@@ -14,10 +14,9 @@ use serde::de::DeserializeOwned;
 use crate::app::plugin::Plugin;
 use crate::app::{App, RendererFactory};
 use crate::core::reactive::Signal;
+use crate::core::storage::Storage;
 use crate::ecs::World;
 use crate::surface::Surface;
-
-use super::storage::Storage;
 
 const VALUE_VERSION: u8 = 1;
 
@@ -281,7 +280,7 @@ fn flush_and_stamp(world: &mut World, now_ms: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::lifecycle::storage::MemoryStorage;
+    use crate::core::storage::MemoryStorage;
 
     fn fresh_world() -> (World, PersistenceRegistry) {
         let world = World::new();

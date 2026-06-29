@@ -11,4 +11,5 @@ pub mod lifecycle;
 pub mod perf;
 pub mod reactive;
 pub mod resource;
+pub mod storage;
 pub mod timer;
