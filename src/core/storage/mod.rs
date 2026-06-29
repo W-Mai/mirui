@@ -28,6 +28,30 @@ pub trait Storage {
     fn read(&self, key: &str) -> Option<Vec<u8>>;
     fn write(&mut self, key: &str, value: &[u8]);
     fn remove(&mut self, key: &str);
+
+    /// Erase the concrete backend type so a runtime `match` over backends
+    /// can return a uniform [`StorageHandle`].
+    fn into_handle(self) -> StorageHandle
+    where
+        Self: Sized + 'static,
+    {
+        alloc::boxed::Box::new(self)
+    }
+}
+
+/// Type-erased [`Storage`] for backends chosen at runtime.
+pub type StorageHandle = alloc::boxed::Box<dyn Storage>;
+
+impl Storage for StorageHandle {
+    fn read(&self, key: &str) -> Option<Vec<u8>> {
+        (**self).read(key)
+    }
+    fn write(&mut self, key: &str, value: &[u8]) {
+        (**self).write(key, value)
+    }
+    fn remove(&mut self, key: &str) {
+        (**self).remove(key)
+    }
 }
 
 #[derive(Default)]

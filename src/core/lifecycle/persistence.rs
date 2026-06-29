@@ -25,6 +25,9 @@ type SaveFn = Box<dyn FnMut(&World) -> Option<Vec<u8>>>;
 struct TrackedItem {
     key: &'static str,
     save: SaveFn,
+    // `bytes()` escape hatch round-trips verbatim; postcard path gets a
+    // VALUE_VERSION byte for migrations.
+    framed: bool,
 }
 
 /// World resource the plugin installs. Live save/restore endpoints stay
@@ -61,6 +64,7 @@ impl PersistenceRegistry {
             save: Box::new(move |_world: &World| {
                 postcard::to_allocvec(&save_sig.get_untracked()).ok()
             }),
+            framed: true,
         });
         let _ = world;
     }
@@ -83,12 +87,12 @@ impl PersistenceRegistry {
                 let r = world.resource::<T>()?;
                 postcard::to_allocvec(r).ok()
             }),
+            framed: true,
         });
     }
 
-    /// Byte-level escape hatch. Use for types that don't serialize
-    /// through serde, or when the wire format must match an existing
-    /// disk layout.
+    /// Byte-level escape hatch: `save` / `restore` see the user's bytes
+    /// verbatim, no framing.
     pub fn bytes(
         &mut self,
         world: &mut World,
@@ -96,12 +100,13 @@ impl PersistenceRegistry {
         mut save: impl FnMut(&World) -> Option<Vec<u8>> + 'static,
         mut restore: impl FnMut(&mut World, &[u8]) + 'static,
     ) {
-        if let Some(bytes) = read_value(&*self.storage, key) {
+        if let Some(bytes) = self.storage.read(key) {
             restore(world, &bytes);
         }
         self.items.push(TrackedItem {
             key,
             save: Box::new(move |world| save(world)),
+            framed: false,
         });
     }
 
@@ -110,7 +115,11 @@ impl PersistenceRegistry {
     pub fn save_all(&mut self, world: &World) {
         for item in &mut self.items {
             if let Some(bytes) = (item.save)(world) {
-                write_value(&mut *self.storage, item.key, &bytes);
+                if item.framed {
+                    write_value(&mut *self.storage, item.key, &bytes);
+                } else {
+                    self.storage.write(item.key, &bytes);
+                }
             }
         }
     }
@@ -121,7 +130,11 @@ impl PersistenceRegistry {
         for item in &mut self.items {
             if item.key == key {
                 if let Some(bytes) = (item.save)(world) {
-                    write_value(&mut *self.storage, item.key, &bytes);
+                    if item.framed {
+                        write_value(&mut *self.storage, item.key, &bytes);
+                    } else {
+                        self.storage.write(item.key, &bytes);
+                    }
                 }
                 return;
             }
@@ -157,6 +170,16 @@ fn write_value(storage: &mut dyn Storage, key: &str, payload: &[u8]) {
 /// of tracked items by the first `on_start` hook.
 type Pending = Box<dyn FnOnce(&mut PersistenceRegistry, &mut World)>;
 
+/// Typed save / restore on top of a [`Storage`] backend.
+///
+/// **Inserts**
+/// - resource: [`PersistenceRegistry`]
+/// - system:   none
+/// - view:     none
+/// - entity:   none
+/// - hooks:    `build` (installs the registry, restores tracked items)
+///   / `post_render` (autosave when due) / `on_suspend` (flush) /
+///   `on_quit` (flush)
 pub struct PersistencePlugin<S: Storage + 'static> {
     storage: Option<S>,
     pending: Vec<Pending>,
@@ -189,7 +212,6 @@ impl<S: Storage + 'static> PersistencePlugin<S> {
         self.pending.push(Box::new(move |reg, world| {
             reg.resource::<T>(world, key);
         }));
-        // `T` lives inside the closure only, not on the plugin itself.
         let _ = PhantomData::<T>;
         self
     }
@@ -229,6 +251,18 @@ where
             autosave_interval_ms: self.autosave_interval_ms,
             last_save_ms: clock_ms(&app.world),
         };
+        // No MonoClock → autosave never ticks; on_suspend/on_quit still flush.
+        #[cfg(feature = "std")]
+        if self.autosave_interval_ms.is_some()
+            && app.world.resource::<crate::ecs::MonoClock>().is_none()
+        {
+            eprintln!(
+                "[mirui::lifecycle] PersistencePlugin: autosave_every_ms set but no \
+                 MonoClock resource installed; periodic flushes will not fire. \
+                 Add a clock plugin (e.g. StdInstantClockPlugin) before this one. \
+                 on_suspend / on_quit flushes still work."
+            );
+        }
         for register in self.pending.drain(..) {
             register(&mut registry, &mut app.world);
         }
@@ -364,7 +398,8 @@ mod tests {
         let captured: Rc<Cell<u32>> = Rc::new(Cell::new(0));
         let captured_save = captured.clone();
         let captured_restore = captured.clone();
-        reg.storage.write("custom", b"\x01\x00\x00\x00\x05");
+        // Raw bytes — no VALUE_VERSION frame.
+        reg.storage.write("custom", b"\x05");
         reg.bytes(
             &mut world,
             "custom",
@@ -378,8 +413,8 @@ mod tests {
         assert_eq!(captured.get(), 5, "restore ran on register");
         captured.set(9);
         reg.save_all(&world);
-        let stored = read_value(&*reg.storage, "custom").expect("written");
-        assert_eq!(stored, vec![9]);
+        let stored = reg.storage.read("custom").expect("written");
+        assert_eq!(stored, vec![9], "bytes() writes raw user bytes, no frame");
     }
 
     #[test]
