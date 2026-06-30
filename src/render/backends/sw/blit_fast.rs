@@ -695,3 +695,59 @@ pub fn blit_dda(
         }
     }
 }
+
+#[allow(clippy::too_many_arguments)]
+pub fn blit_composite_dda(
+    dst: &mut Texture,
+    src: &Texture,
+    sx0: i32,
+    sy0: i32,
+    sw: u16,
+    sh: u16,
+    dx0: i32,
+    dy0: i32,
+    dw: i32,
+    dh: i32,
+    clip_x0: i32,
+    clip_y0: i32,
+    clip_x1: i32,
+    clip_y1: i32,
+    opa: u8,
+    mode: crate::render::command::CompositeMode,
+) {
+    if matches!(mode, crate::render::command::CompositeMode::SourceOver) {
+        blit_dda(
+            dst, src, sx0, sy0, sw, sh, dx0, dy0, dw, dh, clip_x0, clip_y0, clip_x1, clip_y1, opa,
+        );
+        return;
+    }
+
+    let sx_step = ((sw as u32) << 16) / dw as u32;
+    let sy_step = ((sh as u32) << 16) / dh as u32;
+
+    let mut sy_acc: u32 = 0;
+    for drow in 0..dh {
+        let iy = dy0 + drow;
+        if iy < clip_y0 || iy >= clip_y1 {
+            sy_acc = sy_acc.wrapping_add(sy_step);
+            continue;
+        }
+        let sy = sy0 + (sy_acc >> 16) as i32;
+        sy_acc = sy_acc.wrapping_add(sy_step);
+
+        let mut sx_acc: u32 = 0;
+        for dcol in 0..dw {
+            let ix = dx0 + dcol;
+            if ix < clip_x0 || ix >= clip_x1 {
+                sx_acc = sx_acc.wrapping_add(sx_step);
+                continue;
+            }
+            let sx = sx0 + (sx_acc >> 16) as i32;
+            sx_acc = sx_acc.wrapping_add(sx_step);
+
+            let src_color = src.get_pixel(sx, sy);
+            let effective_a = ((src_color.a as u16 * opa as u16) / 255) as u8;
+            dst.composite_pixel_int(ix, iy, &src_color, effective_a, mode);
+        }
+    }
+}

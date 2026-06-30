@@ -35,6 +35,89 @@ pub enum CompositeMode {
     Difference,
 }
 
+impl CompositeMode {
+    /// Per-channel formula at `src.a == 255`. The caller folds `src.a`
+    /// back via the standard non-premul `out = m * src.a + dst *
+    /// (255 - src.a)` weight, so `src.a == 0` always preserves `dst`
+    /// and `src.a == 255` yields exactly the value returned here.
+    ///
+    /// Internal arithmetic is u32 to keep the 255 × 255 path from
+    /// overflowing; division by 255 uses the `(x + 127) / 255`
+    /// round-to-nearest approximation, exact within ±1 over u8.
+    #[inline]
+    pub fn blend_channel(self, src: u8, dst: u8) -> u8 {
+        let s = src as u32;
+        let d = dst as u32;
+        match self {
+            Self::SourceOver => src,
+            Self::Add => (s + d).min(255) as u8,
+            Self::Screen => {
+                let inv = (255 - s) * (255 - d);
+                (255 - ((inv + 127) / 255)) as u8
+            }
+            Self::Multiply => ((s * d + 127) / 255) as u8,
+            Self::Darken => src.min(dst),
+            Self::Lighten => src.max(dst),
+            Self::Difference => src.abs_diff(dst),
+        }
+    }
+}
+
+#[cfg(test)]
+mod composite_mode_tests {
+    use super::CompositeMode::*;
+
+    #[test]
+    fn source_over_returns_src() {
+        assert_eq!(SourceOver.blend_channel(0, 0), 0);
+        assert_eq!(SourceOver.blend_channel(128, 200), 128);
+        assert_eq!(SourceOver.blend_channel(255, 0), 255);
+    }
+
+    #[test]
+    fn add_saturates_at_255() {
+        assert_eq!(Add.blend_channel(128, 128), 255);
+        assert_eq!(Add.blend_channel(255, 255), 255);
+        assert_eq!(Add.blend_channel(0, 0), 0);
+        assert_eq!(Add.blend_channel(64, 64), 128);
+    }
+
+    #[test]
+    fn screen_is_inverse_multiply_of_inverses() {
+        assert!((190..=192).contains(&Screen.blend_channel(128, 128)));
+        assert_eq!(Screen.blend_channel(255, 0), 255);
+        assert_eq!(Screen.blend_channel(0, 0), 0);
+        assert_eq!(Screen.blend_channel(0, 200), 200);
+    }
+
+    #[test]
+    fn multiply_halves_at_50_percent() {
+        assert!((63..=65).contains(&Multiply.blend_channel(128, 128)));
+        assert_eq!(Multiply.blend_channel(0, 200), 0);
+        assert_eq!(Multiply.blend_channel(255, 200), 200);
+    }
+
+    #[test]
+    fn darken_keeps_smaller() {
+        assert_eq!(Darken.blend_channel(64, 192), 64);
+        assert_eq!(Darken.blend_channel(200, 100), 100);
+        assert_eq!(Darken.blend_channel(128, 128), 128);
+    }
+
+    #[test]
+    fn lighten_keeps_larger() {
+        assert_eq!(Lighten.blend_channel(64, 192), 192);
+        assert_eq!(Lighten.blend_channel(200, 100), 200);
+    }
+
+    #[test]
+    fn difference_is_absolute_diff() {
+        assert_eq!(Difference.blend_channel(192, 64), 128);
+        assert_eq!(Difference.blend_channel(64, 192), 128);
+        assert_eq!(Difference.blend_channel(100, 100), 0);
+    }
+}
+
 /// Draw operation produced by `render_system` and consumed by `Renderer::draw`.
 ///
 /// All coordinate fields (`area`, `pos`, path points, `radius`, `width`) are

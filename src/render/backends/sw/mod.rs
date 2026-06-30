@@ -2055,4 +2055,132 @@ mod tests {
         let outside = backend.target.get_pixel(20, 20);
         assert_eq!(outside.g, 0, "outside scaled rect must stay zero");
     }
+
+    fn run_composite_blit(
+        src_rgba: [u8; 4],
+        dst_rgba: [u8; 4],
+        composite: CompositeMode,
+        opa: u8,
+    ) -> Color {
+        let mut src_buf = std::vec![src_rgba[0], src_rgba[1], src_rgba[2], src_rgba[3]];
+        let src_tex = Texture::new(&mut src_buf, 1, 1, ColorFormat::RGBA8888);
+
+        let mut dst_buf = std::vec![dst_rgba[0], dst_rgba[1], dst_rgba[2], dst_rgba[3]];
+        let mut backend = SwRenderer::new(Texture::new(&mut dst_buf, 1, 1, ColorFormat::RGBA8888));
+        backend.viewport = Viewport::new(1, 1, Fixed::ONE);
+
+        let cmd = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point {
+                x: Fixed::from_int(1),
+                y: Fixed::from_int(1),
+            },
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &src_tex,
+            opa,
+            radius: Fixed::ZERO,
+            composite,
+        };
+        backend.draw(&cmd, &Rect::new(0, 0, 1, 1));
+        backend.target.get_pixel(0, 0)
+    }
+
+    #[test]
+    fn composite_add_saturates_at_full_intensity() {
+        let out = run_composite_blit([128, 0, 0, 255], [128, 0, 0, 255], CompositeMode::Add, 255);
+        assert_eq!(out.r, 255);
+    }
+
+    #[test]
+    fn composite_screen_blends_half_on_half() {
+        let out = run_composite_blit(
+            [128, 0, 0, 255],
+            [128, 0, 0, 255],
+            CompositeMode::Screen,
+            255,
+        );
+        assert!(
+            (190..=192).contains(&out.r),
+            "screen(128,128) = ~191; got {}",
+            out.r
+        );
+    }
+
+    #[test]
+    fn composite_multiply_halves_at_50_percent() {
+        let out = run_composite_blit(
+            [128, 0, 0, 255],
+            [128, 0, 0, 255],
+            CompositeMode::Multiply,
+            255,
+        );
+        assert!(
+            (63..=65).contains(&out.r),
+            "multiply(128,128) = ~64; got {}",
+            out.r
+        );
+    }
+
+    #[test]
+    fn composite_darken_picks_smaller_channel() {
+        let out = run_composite_blit(
+            [64, 0, 0, 255],
+            [192, 0, 0, 255],
+            CompositeMode::Darken,
+            255,
+        );
+        assert_eq!(out.r, 64);
+    }
+
+    #[test]
+    fn composite_lighten_picks_larger_channel() {
+        let out = run_composite_blit(
+            [64, 0, 0, 255],
+            [192, 0, 0, 255],
+            CompositeMode::Lighten,
+            255,
+        );
+        assert_eq!(out.r, 192);
+    }
+
+    #[test]
+    fn composite_difference_is_absolute_diff() {
+        let out = run_composite_blit(
+            [192, 0, 0, 255],
+            [64, 0, 0, 255],
+            CompositeMode::Difference,
+            255,
+        );
+        assert_eq!(out.r, 128);
+    }
+
+    #[test]
+    fn composite_with_zero_src_alpha_preserves_dst() {
+        for mode in [
+            CompositeMode::Add,
+            CompositeMode::Screen,
+            CompositeMode::Multiply,
+            CompositeMode::Darken,
+            CompositeMode::Lighten,
+            CompositeMode::Difference,
+        ] {
+            let out = run_composite_blit([255, 255, 255, 0], [50, 80, 110, 255], mode, 255);
+            assert_eq!(
+                (out.r, out.g, out.b),
+                (50, 80, 110),
+                "mode {mode:?} clobbered dst"
+            );
+        }
+    }
+
+    #[test]
+    fn composite_half_alpha_src_blends_mode_against_dst() {
+        let out = run_composite_blit([128, 0, 0, 128], [128, 0, 0, 255], CompositeMode::Add, 255);
+        assert!(
+            (190..=192).contains(&out.r),
+            "Add half-alpha = ~191; got {}",
+            out.r
+        );
+    }
 }

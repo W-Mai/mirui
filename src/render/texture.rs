@@ -342,6 +342,54 @@ impl<'a> Texture<'a> {
         };
         self.set_pixel(x, y, &out);
     }
+
+    /// Composite-aware pixel write. `src_a` is the effective alpha after
+    /// `src.a × opa` folding; `mode` selects the per-channel formula.
+    /// Falls back to `blend_pixel_int` for SourceOver so the existing
+    /// fast path stays bit-exact.
+    #[inline(always)]
+    pub fn composite_pixel_int(
+        &mut self,
+        x: i32,
+        y: i32,
+        color: &Color,
+        src_a: u8,
+        mode: crate::render::command::CompositeMode,
+    ) {
+        if src_a == 0 {
+            return;
+        }
+        if matches!(mode, crate::render::command::CompositeMode::SourceOver) {
+            self.blend_pixel_int(x, y, color, src_a);
+            return;
+        }
+        let dst = self.get_pixel(x, y);
+        let aa = src_a as u32;
+        let ia = 255 - aa;
+        // out_rgb = mode(src, dst) * src.a + dst * (1 - src.a),  per channel.
+        let fold = |src: u8, dst: u8| -> u8 {
+            let m = mode.blend_channel(src, dst) as u32;
+            let sum = m * aa + dst as u32 * ia + 127;
+            ((sum + (sum >> 8)) >> 8) as u8
+        };
+        let out_a = match self.alpha_mode {
+            AlphaMode::Opaque => 255,
+            AlphaMode::Blend => {
+                // Uniform SourceOver alpha accumulation across modes
+                // (sign-off: dst.a stays mode-agnostic).
+                let dst_a = dst.a as u32;
+                let sum = aa * 255 + dst_a * ia + 127;
+                ((sum + (sum >> 8)) >> 8) as u8
+            }
+        };
+        let out = Color {
+            r: fold(color.r, dst.r),
+            g: fold(color.g, dst.g),
+            b: fold(color.b, dst.b),
+            a: out_a,
+        };
+        self.set_pixel(x, y, &out);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

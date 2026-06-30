@@ -1,5 +1,5 @@
 use super::SwRenderer;
-use super::blit_fast::{blit_1to1_fast, blit_2to2_fast, blit_dda};
+use super::blit_fast::{blit_1to1_fast, blit_2to2_fast, blit_composite_dda, blit_dda};
 use crate::render::command::CompositeMode;
 use crate::render::texture::Texture;
 use crate::types::{Fixed, Point, Rect};
@@ -19,9 +19,6 @@ impl SwRenderer<'_> {
     ) {
         if radius != Fixed::ZERO {
             unimplemented!("sw backend: Blit.radius mask not implemented yet");
-        }
-        if !matches!(composite, CompositeMode::SourceOver) {
-            unimplemented!("sw backend: composite {composite:?} not implemented yet");
         }
         let phys_dst = self.viewport.point_to_physical(dst);
         let phys_dst_size = self.viewport.point_to_physical(dst_size);
@@ -45,6 +42,28 @@ impl SwRenderer<'_> {
         }
 
         if opa == 0 {
+            return;
+        }
+
+        if !matches!(composite, CompositeMode::SourceOver) {
+            blit_composite_dda(
+                &mut self.target,
+                src,
+                sx0,
+                sy0,
+                sw,
+                sh,
+                dx0,
+                dy0,
+                dw,
+                dh,
+                clip_x0,
+                clip_y0,
+                clip_x1,
+                clip_y1,
+                opa,
+                composite,
+            );
             return;
         }
 

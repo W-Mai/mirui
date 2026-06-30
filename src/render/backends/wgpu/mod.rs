@@ -1500,14 +1500,10 @@ impl Canvas for WgpuRenderer<'_> {
         composite: CompositeMode,
     ) {
         if radius != Fixed::ZERO {
-            unimplemented!(
-                "wgpu backend: Blit.radius mask not implemented yet; use SwRenderer",
-            );
+            unimplemented!("wgpu backend: Blit.radius mask not implemented yet; use SwRenderer",);
         }
         if !matches!(composite, CompositeMode::SourceOver) {
-            unimplemented!(
-                "wgpu backend: composite {composite:?} not wired yet; use SwRenderer",
-            );
+            unimplemented!("wgpu backend: composite {composite:?} not wired yet; use SwRenderer",);
         }
         self.blit_inner(src, src_rect, dst, dst_size, clip, opa);
     }
