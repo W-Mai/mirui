@@ -9,6 +9,7 @@ pub mod resolver;
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
 
+use crate::render::command::CompositeMode;
 use crate::render::path::Path;
 use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
@@ -98,6 +99,8 @@ pub enum SceneOp {
         transform: Transform,
         quad: Option<[Point; 4]>,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     },
 }
 

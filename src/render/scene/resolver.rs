@@ -79,6 +79,8 @@ mod tests {
             transform: Transform::IDENTITY,
             quad: None,
             opa: 255,
+            radius: crate::types::Fixed::ZERO,
+            composite: crate::render::command::CompositeMode::SourceOver,
         }
     }
 

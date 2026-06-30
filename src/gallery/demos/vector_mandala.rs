@@ -141,6 +141,8 @@ fn push_thumbs_ring(s: &mut Scene, cx: Fixed, cy: Fixed, spin_deg: Fixed) {
                 transform: Transform::IDENTITY,
                 quad: Some([p0, p1, p2, p3]),
                 opa: 255,
+                radius: Fixed::ZERO,
+                composite: CompositeMode::SourceOver,
             });
         });
     }

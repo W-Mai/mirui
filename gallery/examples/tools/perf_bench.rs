@@ -17,7 +17,7 @@ use mirui::core::perf::{self, PerfEvent};
 use mirui::core::resource::ResourceManager;
 use mirui::ecs::Entity;
 use mirui::prelude::*;
-use mirui::render::command::DrawCommand;
+use mirui::render::command::{CompositeMode, DrawCommand};
 use mirui::render::renderer::Renderer;
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::Texture;
@@ -299,6 +299,8 @@ fn run_micro_blit() {
                     quad: None,
                     texture: &IMG_THUMBS_UP,
                     opa: 255,
+                    radius: Fixed::ZERO,
+                    composite: CompositeMode::SourceOver,
                 };
                 renderer.draw(&cmd, &clip);
             }

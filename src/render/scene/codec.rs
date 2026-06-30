@@ -3,6 +3,7 @@
 use alloc::vec::Vec;
 
 use super::{ResourceRef, SceneOp, VectorChunkHeader};
+use crate::render::command::CompositeMode;
 use crate::render::path::PathCmd;
 use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
@@ -22,6 +23,7 @@ const FIELD_TRANSFORM: u8 = 1 << 0;
 const FIELD_QUAD: u8 = 1 << 1;
 const FIELD_RADIUS: u8 = 1 << 2;
 const FIELD_ALPHA: u8 = 1 << 3;
+const FIELD_COMPOSITE: u8 = 1 << 4;
 
 const SLOT_TRANSFORM: u32 = 1 << 0;
 const SLOT_OPACITY: u32 = 1 << 1;
@@ -35,6 +37,14 @@ const RES_KIND_TOKEN: u8 = 1;
 
 const FILL_RULE_EVEN_ODD: u8 = 0;
 const FILL_RULE_NON_ZERO: u8 = 1;
+
+const COMPOSITE_SOURCE_OVER: u8 = 0;
+const COMPOSITE_ADD: u8 = 1;
+const COMPOSITE_SCREEN: u8 = 2;
+const COMPOSITE_MULTIPLY: u8 = 3;
+const COMPOSITE_DARKEN: u8 = 4;
+const COMPOSITE_LIGHTEN: u8 = 5;
+const COMPOSITE_DIFFERENCE: u8 = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CodecError {
@@ -50,6 +60,7 @@ pub enum CodecError {
     BadSkipOffset,
     UnsupportedScale(u8),
     UnknownFlags(u8),
+    BadComposite(u8),
 }
 
 const VERSION: u8 = 1;
@@ -235,6 +246,31 @@ fn fill_rule_from_u8(b: u8) -> Result<FillRule, CodecError> {
         FILL_RULE_EVEN_ODD => Ok(FillRule::EvenOdd),
         FILL_RULE_NON_ZERO => Ok(FillRule::NonZero),
         other => Err(CodecError::BadFillRule(other)),
+    }
+}
+
+fn composite_to_u8(m: CompositeMode) -> u8 {
+    match m {
+        CompositeMode::SourceOver => COMPOSITE_SOURCE_OVER,
+        CompositeMode::Add => COMPOSITE_ADD,
+        CompositeMode::Screen => COMPOSITE_SCREEN,
+        CompositeMode::Multiply => COMPOSITE_MULTIPLY,
+        CompositeMode::Darken => COMPOSITE_DARKEN,
+        CompositeMode::Lighten => COMPOSITE_LIGHTEN,
+        CompositeMode::Difference => COMPOSITE_DIFFERENCE,
+    }
+}
+
+fn composite_from_u8(b: u8) -> Result<CompositeMode, CodecError> {
+    match b {
+        COMPOSITE_SOURCE_OVER => Ok(CompositeMode::SourceOver),
+        COMPOSITE_ADD => Ok(CompositeMode::Add),
+        COMPOSITE_SCREEN => Ok(CompositeMode::Screen),
+        COMPOSITE_MULTIPLY => Ok(CompositeMode::Multiply),
+        COMPOSITE_DARKEN => Ok(CompositeMode::Darken),
+        COMPOSITE_LIGHTEN => Ok(CompositeMode::Lighten),
+        COMPOSITE_DIFFERENCE => Ok(CompositeMode::Difference),
+        other => Err(CodecError::BadComposite(other)),
     }
 }
 
@@ -441,19 +477,27 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
             transform,
             quad,
             opa,
+            radius,
+            composite,
         } => {
             out.push(TAG_BLIT);
-            let mut bits = field_bits(transform, quad, None);
+            let mut bits = field_bits(transform, quad, Some(*radius));
             if *opa != 255 {
                 bits |= FIELD_ALPHA;
+            }
+            if !matches!(composite, CompositeMode::SourceOver) {
+                bits |= FIELD_COMPOSITE;
             }
             out.push(bits);
             write_resource_ref(out, texture);
             write_point(out, *pos);
             write_point(out, *size);
-            write_optional(out, bits, transform, quad, None);
+            write_optional(out, bits, transform, quad, Some(*radius));
             if bits & FIELD_ALPHA != 0 {
                 out.push(*opa);
+            }
+            if bits & FIELD_COMPOSITE != 0 {
+                out.push(composite_to_u8(*composite));
             }
             Ok(())
         }
@@ -607,11 +651,16 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
             let texture = r.resource_ref()?;
             let pos = r.point()?;
             let size = r.point()?;
-            let (transform, quad, _) = read_optional(r, bits)?;
+            let (transform, quad, radius_opt) = read_optional(r, bits)?;
             let opa = if bits & FIELD_ALPHA != 0 {
                 r.u8()?
             } else {
                 255
+            };
+            let composite = if bits & FIELD_COMPOSITE != 0 {
+                composite_from_u8(r.u8()?)?
+            } else {
+                CompositeMode::SourceOver
             };
             Ok(SceneOp::Blit {
                 texture,
@@ -620,6 +669,8 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
                 transform,
                 quad,
                 opa,
+                radius: radius_opt.unwrap_or(Fixed::ZERO),
+                composite,
             })
         }
         TAG_GROUP_BEGIN | TAG_GROUP_END => {
@@ -917,6 +968,8 @@ mod tests {
             transform: Transform::IDENTITY,
             quad: Some(q),
             opa: 255,
+            radius: Fixed::ZERO,
+            composite: crate::render::command::CompositeMode::SourceOver,
         }]);
     }
 
@@ -932,6 +985,8 @@ mod tests {
             transform: Transform::IDENTITY,
             quad: None,
             opa: 128,
+            radius: Fixed::ZERO,
+            composite: crate::render::command::CompositeMode::SourceOver,
         }]);
     }
 

@@ -3,7 +3,7 @@
 //! skips silently when the renderer can't sample its own target.
 
 use crate::ecs::{Entity, World};
-use crate::render::command::DrawCommand;
+use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::renderer::Renderer;
 use crate::render::sw::blur::{alpha_for_radius, iir_blur_inplace};
 use crate::types::{Fixed, Point, Rect};
@@ -70,6 +70,8 @@ fn background_blur_render(
             quad: ctx.quad,
             texture: &tmp,
             opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
         },
         ctx.clip,
     );

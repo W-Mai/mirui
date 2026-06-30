@@ -12,11 +12,11 @@
 //! reused as `prev_output` next frame.
 
 use crate::ecs::{Entity, World};
-use crate::render::command::DrawCommand;
+use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::renderer::Renderer;
 use crate::render::sw::mix::mix_inplace;
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::{Point, Rect};
+use crate::types::{Fixed, Point, Rect};
 use crate::ui::offscreen::{
     OffscreenAlphaMode, OffscreenAutoAdded, WidgetTextureAccess, WidgetTextureRef,
 };
@@ -82,6 +82,8 @@ fn temporal_mix_render(
             quad: ctx.quad,
             texture: &tmp,
             opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
         },
         ctx.clip,
     );

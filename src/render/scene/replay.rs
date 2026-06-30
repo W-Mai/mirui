@@ -251,6 +251,8 @@ pub fn replay_scene(
                 transform,
                 quad,
                 opa,
+                radius,
+                composite,
             } => {
                 let texture = resolver
                     .texture(texture)
@@ -263,6 +265,8 @@ pub fn replay_scene(
                         quad: *quad,
                         texture,
                         opa: mul_alpha(*opa, top.alpha),
+                        radius: *radius,
+                        composite: *composite,
                     },
                     clip,
                 );
@@ -397,6 +401,8 @@ mod tests {
             transform: Transform::IDENTITY,
             quad: None,
             opa: 255,
+            radius: crate::types::Fixed::ZERO,
+            composite: crate::render::command::CompositeMode::SourceOver,
         }];
         let mut r = CaptureRenderer {
             transforms: Vec::new(),

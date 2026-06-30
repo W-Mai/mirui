@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use crate::ecs::{Entity, World};
-use crate::render::command::DrawCommand;
+use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::renderer::Renderer;
 use crate::types::{Fixed, Point, Rect, Transform, Transform3D, Viewport};
 use crate::ui::layout::{LayoutNode, compute_layout};
@@ -614,6 +614,8 @@ fn try_draw_offscreen(
             quad: outer_quad,
             texture: &tex_ref,
             opa: off.opacity,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
         };
         renderer.draw(&blit_cmd, clip);
     }

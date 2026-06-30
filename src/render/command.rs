@@ -3,6 +3,38 @@ use crate::render::path::Path;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 
+/// Non-premultiplied alpha: `src` channels are multiplied by `src.a / 255`
+/// before the per-variant formula and folded back onto `dst` via the
+/// standard `(1 - src.a)` weight, so `src.a == 0` leaves `dst` untouched
+/// for every variant.
+///
+/// | mode | SwRenderer | wgpu | sdl_gpu | web_canvas |
+/// |---|---|---|---|---|
+/// | SourceOver / Add | full | full | full (native) | full |
+/// | Screen / Multiply / Darken / Lighten / Difference | full | full | per-mode `unimplemented!()` when no `SDL_ComposeCustomBlendMode` factor combination matches | full |
+///
+/// `radius > 0` on `Blit` is only implemented by `SwRenderer` and `wgpu`;
+/// `sdl_gpu` and `web_canvas` `unimplemented!()` and the panic message
+/// points at the supported backends.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CompositeMode {
+    /// `out = src*src.a + dst*(1 - src.a)`. Default; matches v0.36.0.
+    #[default]
+    SourceOver,
+    /// `out = saturate(src*src.a + dst)`. LED glow / fire / additive sprites.
+    Add,
+    /// `out = 1 - (1 - src*src.a)*(1 - dst)`. Soft glow / DropGlow halo.
+    Screen,
+    /// `out = (src*src.a)*dst/255 + dst*(1 - src.a)`. Tint / shading.
+    Multiply,
+    /// `out = min(src*src.a, dst) + dst*(1 - src.a)`. Photoshop Darken.
+    Darken,
+    /// `out = max(src*src.a, dst) + dst*(1 - src.a)`. Photoshop Lighten.
+    Lighten,
+    /// `out = |src*src.a - dst| + dst*(1 - src.a)`. Inversion / creative.
+    Difference,
+}
+
 /// Draw operation produced by `render_system` and consumed by `Renderer::draw`.
 ///
 /// All coordinate fields (`area`, `pos`, path points, `radius`, `width`) are
@@ -59,6 +91,9 @@ pub enum DrawCommand<'a> {
         opa: Opa,
     },
     /// Blit `texture` at `pos`, scaling (nearest) to `size` logical pixels.
+    /// `radius > 0` clips to a rounded rectangle via SDF coverage (only
+    /// supported by `SwRenderer` / `wgpu`). `composite` selects the blend
+    /// formula — see [`CompositeMode`] for per-mode backend support.
     Blit {
         pos: Point,
         size: Point,
@@ -66,6 +101,8 @@ pub enum DrawCommand<'a> {
         quad: Option<[Point; 4]>,
         texture: &'a Texture<'a>,
         opa: Opa,
+        radius: Fixed,
+        composite: CompositeMode,
     },
     /// Fill the closed region described by `path`. Path vertices are in
     /// logical pixels; under non-translate transforms the backend may

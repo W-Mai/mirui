@@ -290,6 +290,8 @@ fn hybrid_is_a_renderer_and_dispatches_drawcommands() {
             quad: None,
             texture: &tex,
             opa: 255,
+            radius: Fixed::ZERO,
+            composite: mirui::render::CompositeMode::SourceOver,
         },
         &rect,
     );

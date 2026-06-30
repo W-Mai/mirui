@@ -9,7 +9,7 @@
 
 use crate::ecs::{Entity, World};
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::{Point, Rect};
+use crate::types::{Fixed, Point, Rect};
 use crate::ui::offscreen::{WidgetTextureAccess, WidgetTextureRef};
 use crate::ui::view::{View, ViewCtx};
 
@@ -57,7 +57,7 @@ fn flip_into(
     fade: u8,
     renderer: &mut dyn Renderer,
 ) {
-    use crate::render::command::DrawCommand;
+    use crate::render::command::{CompositeMode, DrawCommand};
 
     let w = src.width;
     let h = src.height;
@@ -79,6 +79,8 @@ fn flip_into(
         quad: None,
         texture: &tmp,
         opa: 255,
+        radius: Fixed::ZERO,
+        composite: CompositeMode::SourceOver,
     };
     renderer.draw(&cmd, clip);
 }

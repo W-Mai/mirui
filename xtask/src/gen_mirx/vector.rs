@@ -20,6 +20,7 @@
 use std::fs;
 use std::path::PathBuf;
 
+use mirui::render::command::CompositeMode;
 use mirui::render::scene::codec::encode_scene;
 use mirui::render::scene::{ResourceRef, SceneOp};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
@@ -147,6 +148,8 @@ fn parse_op(kind: &str, a: &[&str]) -> Result<SceneOp> {
                 transform: Transform::IDENTITY,
                 quad: None,
                 opa: 255,
+                radius: Fixed::ZERO,
+                composite: CompositeMode::SourceOver,
             })
         }
         "group" => {
