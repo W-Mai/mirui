@@ -2026,7 +2026,7 @@ mod tests {
     // path to render a viewBox-units path scaled to physical pixels.
     #[test]
     fn fill_path_scale_transform_renders_without_panic() {
-        use crate::render::command::{CompositeMode, DrawCommand};
+        use crate::render::command::DrawCommand;
         use crate::render::renderer::Renderer;
         use crate::types::Transform;
 
@@ -2182,5 +2182,68 @@ mod tests {
             "Add half-alpha = ~191; got {}",
             out.r
         );
+    }
+
+    #[test]
+    fn blit_radius_mask_clips_corner_pixels() {
+        let mut src_buf = vec![255u8; 8 * 8 * 4];
+        let src_tex = Texture::new(&mut src_buf, 8, 8, ColorFormat::RGBA8888);
+
+        let mut dst_buf = vec![0u8; 8 * 8 * 4];
+        let mut backend = SwRenderer::new(Texture::new(&mut dst_buf, 8, 8, ColorFormat::RGBA8888));
+        backend.viewport = Viewport::new(8, 8, Fixed::ONE);
+
+        let cmd = DrawCommand::Blit {
+            pos: Point::ZERO,
+            size: Point {
+                x: Fixed::from_int(8),
+                y: Fixed::from_int(8),
+            },
+            transform: Transform::IDENTITY,
+            quad: None,
+            texture: &src_tex,
+            opa: 255,
+            radius: Fixed::from_int(3),
+            composite: CompositeMode::SourceOver,
+        };
+        backend.draw(&cmd, &Rect::new(0, 0, 8, 8));
+
+        let corner = backend.target.get_pixel(0, 0);
+        assert_eq!(corner.r, 0, "rounded corner must clip top-left pixel");
+        let center = backend.target.get_pixel(4, 4);
+        assert_eq!(center.r, 255, "rect interior unaffected by mask");
+    }
+
+    #[test]
+    fn blit_zero_radius_matches_unmasked_path() {
+        let mut src_buf = vec![200u8; 4 * 4 * 4];
+        let src_tex = Texture::new(&mut src_buf, 4, 4, ColorFormat::RGBA8888);
+
+        let mut dst_no_radius = vec![0u8; 4 * 4 * 4];
+        let mut dst_zero_radius = vec![0u8; 4 * 4 * 4];
+
+        for (buf, radius) in [
+            (&mut dst_no_radius, Fixed::ZERO),
+            (&mut dst_zero_radius, Fixed::ZERO),
+        ] {
+            let mut backend = SwRenderer::new(Texture::new(buf, 4, 4, ColorFormat::RGBA8888));
+            backend.viewport = Viewport::new(4, 4, Fixed::ONE);
+            let cmd = DrawCommand::Blit {
+                pos: Point::ZERO,
+                size: Point {
+                    x: Fixed::from_int(4),
+                    y: Fixed::from_int(4),
+                },
+                transform: Transform::IDENTITY,
+                quad: None,
+                texture: &src_tex,
+                opa: 255,
+                radius,
+                composite: CompositeMode::SourceOver,
+            };
+            backend.draw(&cmd, &Rect::new(0, 0, 4, 4));
+        }
+
+        assert_eq!(dst_no_radius, dst_zero_radius);
     }
 }

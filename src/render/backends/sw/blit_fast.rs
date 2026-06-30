@@ -714,8 +714,12 @@ pub fn blit_composite_dda(
     clip_y1: i32,
     opa: u8,
     mode: crate::render::command::CompositeMode,
+    phys_radius: crate::types::Fixed,
 ) {
-    if matches!(mode, crate::render::command::CompositeMode::SourceOver) {
+    use crate::types::Fixed;
+
+    let has_radius = phys_radius != Fixed::ZERO;
+    if matches!(mode, crate::render::command::CompositeMode::SourceOver) && !has_radius {
         blit_dda(
             dst, src, sx0, sy0, sw, sh, dx0, dy0, dw, dh, clip_x0, clip_y0, clip_x1, clip_y1, opa,
         );
@@ -724,6 +728,8 @@ pub fn blit_composite_dda(
 
     let sx_step = ((sw as u32) << 16) / dw as u32;
     let sy_step = ((sh as u32) << 16) / dh as u32;
+    let dst_w_logical = Fixed::from_int(dw);
+    let dst_h_logical = Fixed::from_int(dh);
 
     let mut sy_acc: u32 = 0;
     for drow in 0..dh {
@@ -746,7 +752,19 @@ pub fn blit_composite_dda(
             sx_acc = sx_acc.wrapping_add(sx_step);
 
             let src_color = src.get_pixel(sx, sy);
-            let effective_a = ((src_color.a as u16 * opa as u16) / 255) as u8;
+            let mut effective_a = ((src_color.a as u16 * opa as u16) / 255) as u8;
+            if has_radius {
+                let cov = super::rect_fill::rounded_rect_coverage(
+                    Fixed::from_int(dcol),
+                    Fixed::from_int(drow),
+                    dst_w_logical,
+                    dst_h_logical,
+                    phys_radius,
+                );
+                effective_a = (cov * Fixed::from_int(effective_a as i32))
+                    .to_int()
+                    .clamp(0, 255) as u8;
+            }
             dst.composite_pixel_int(ix, iy, &src_color, effective_a, mode);
         }
     }

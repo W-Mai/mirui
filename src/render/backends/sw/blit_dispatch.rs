@@ -17,12 +17,10 @@ impl SwRenderer<'_> {
         radius: Fixed,
         composite: CompositeMode,
     ) {
-        if radius != Fixed::ZERO {
-            unimplemented!("sw backend: Blit.radius mask not implemented yet");
-        }
         let phys_dst = self.viewport.point_to_physical(dst);
         let phys_dst_size = self.viewport.point_to_physical(dst_size);
         let phys_clip = self.viewport.rect_to_physical(*clip);
+        let phys_radius = radius * self.viewport.scale();
         let (sx0, sy0, sw, sh) = src_rect.to_px();
         // Negative clip x flowing through to the byte-offset math
         // (`dx0 as usize * 4`) wraps; clamp to target bounds first.
@@ -45,7 +43,9 @@ impl SwRenderer<'_> {
             return;
         }
 
-        if !matches!(composite, CompositeMode::SourceOver) {
+        let needs_composite_path =
+            !matches!(composite, CompositeMode::SourceOver) || phys_radius != Fixed::ZERO;
+        if needs_composite_path {
             blit_composite_dda(
                 &mut self.target,
                 src,
@@ -63,6 +63,7 @@ impl SwRenderer<'_> {
                 clip_y1,
                 opa,
                 composite,
+                phys_radius,
             );
             return;
         }
