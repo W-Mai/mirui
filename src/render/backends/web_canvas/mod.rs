@@ -605,12 +605,7 @@ impl Canvas for WebCanvasRenderer<'_> {
             return;
         }
         if radius != Fixed::ZERO {
-            unimplemented!("web_canvas backend: Blit.radius mask not implemented; use SwRenderer",);
-        }
-        if !matches!(composite, CompositeMode::SourceOver) {
-            unimplemented!(
-                "web_canvas backend: composite {composite:?} not yet wired; use SwRenderer",
-            );
+            unimplemented!("web_canvas backend: Blit.radius mask not implemented; use SwRenderer");
         }
         let key = TextureKey::from(src);
         let handle = match self
@@ -628,11 +623,22 @@ impl Canvas for WebCanvasRenderer<'_> {
 
         self.push_clip(clip);
         let ctx = self.ctx();
-        // Canvas 2D's `globalAlpha` persists across calls; `save/restore`
-        // in `Renderer::draw` captures whatever the previous primitive
-        // left, so blit has to set it explicitly each call.
+        // Canvas 2D's `globalAlpha` and `globalCompositeOperation` are
+        // persistent state across draws; capture both and restore them
+        // before pop_clip so the next primitive starts from a known baseline.
         let prev_alpha = ctx.global_alpha();
+        let prev_composite = ctx.global_composite_operation().unwrap_or_default();
         ctx.set_global_alpha(opa as f64 / 255.0);
+        let op = match composite {
+            CompositeMode::SourceOver => "source-over",
+            CompositeMode::Add => "lighter",
+            CompositeMode::Screen => "screen",
+            CompositeMode::Multiply => "multiply",
+            CompositeMode::Darken => "darken",
+            CompositeMode::Lighten => "lighten",
+            CompositeMode::Difference => "difference",
+        };
+        let _ = ctx.set_global_composite_operation(op);
         let result = ctx
             .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
                 &handle.canvas,
@@ -647,6 +653,7 @@ impl Canvas for WebCanvasRenderer<'_> {
             );
         let _ = result;
         ctx.set_global_alpha(prev_alpha);
+        let _ = ctx.set_global_composite_operation(&prev_composite);
         self.pop_clip();
     }
 
