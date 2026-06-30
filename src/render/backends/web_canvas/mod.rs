@@ -74,6 +74,20 @@ impl WebCanvasRenderer<'_> {
         self.viewport.scale().to_f32() as f64
     }
 
+    /// `None` when OOB — `getImageData` would silently return transparent
+    /// black for the out-of-canvas portion (W3C spec).
+    fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
+        let phys = self.viewport.rect_to_physical(*src);
+        let (pw, ph) = self.viewport.physical_size();
+        let target = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(pw as i32),
+            h: Fixed::from_int(ph as i32),
+        };
+        phys.intersect(&target)
+    }
+
     // Text extent for the offscreen buffer. Must mirror the sw label
     // path's advance accumulation at scale=1 (the buffer renders with
     // Viewport scale 1), or the buffer clips the text. +1px row so the
@@ -384,19 +398,83 @@ impl WebCanvasRenderer<'_> {
 }
 
 impl Renderer for WebCanvasRenderer<'_> {
-    fn sample_target_region(
-        &self,
-        _src: &Rect,
-    ) -> Option<crate::render::texture::Texture<'static>> {
-        None
+    fn supports_offscreen(&self) -> bool {
+        true
+    }
+
+    fn offscreen_format(&self) -> Option<ColorFormat> {
+        Some(ColorFormat::RGBA8888)
+    }
+
+    fn sample_target_region(&self, src: &Rect) -> Option<crate::render::texture::Texture<'static>> {
+        let phys = self.physical_clip_rect(src)?;
+        let img = self
+            .ctx()
+            .get_image_data(
+                phys.x.to_f32() as f64,
+                phys.y.to_f32() as f64,
+                phys.w.to_f32() as f64,
+                phys.h.to_f32() as f64,
+            )
+            .ok()?;
+        let w = phys.w.to_int() as u16;
+        let h = phys.h.to_int() as u16;
+        let data = img.data();
+        let mut tex = crate::render::texture::Texture::owned(w, h, ColorFormat::RGBA8888);
+        if let crate::render::texture::TexBuf::Owned(ref mut dst) = tex.buf {
+            dst.copy_from_slice(&data.0);
+        }
+        Some(tex)
+    }
+
+    fn read_target_region(&self, src: &Rect, dst: &mut crate::render::texture::Texture) {
+        let Some(phys) = self.physical_clip_rect(src) else {
+            return;
+        };
+        let Ok(img) = self.ctx().get_image_data(
+            phys.x.to_f32() as f64,
+            phys.y.to_f32() as f64,
+            phys.w.to_f32() as f64,
+            phys.h.to_f32() as f64,
+        ) else {
+            return;
+        };
+        let src_bytes = &img.data().0;
+        let dst_bytes = match &mut dst.buf {
+            crate::render::texture::TexBuf::Owned(v) => v.as_mut_slice(),
+            _ => return,
+        };
+        let copy_len = src_bytes.len().min(dst_bytes.len());
+        dst_bytes[..copy_len].copy_from_slice(&src_bytes[..copy_len]);
     }
 
     fn modify_target_region(
         &mut self,
-        _src: &Rect,
-        _f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+        src: &Rect,
+        f: &mut dyn FnMut(&mut crate::render::texture::Texture),
     ) -> bool {
-        false
+        let Some(mut tex) = self.sample_target_region(src) else {
+            return false;
+        };
+        f(&mut tex);
+        let Some(phys) = self.physical_clip_rect(src) else {
+            return false;
+        };
+        let bytes = match &tex.buf {
+            crate::render::texture::TexBuf::Owned(v) => v.as_slice(),
+            _ => return false,
+        };
+        let mut buf: alloc::vec::Vec<u8> = bytes.into();
+        let Ok(img) = web_sys::ImageData::new_with_u8_clamped_array_and_sh(
+            wasm_bindgen::Clamped(&mut buf),
+            tex.width as u32,
+            tex.height as u32,
+        ) else {
+            return false;
+        };
+        self.ctx()
+            .put_image_data(&img, phys.x.to_f32() as f64, phys.y.to_f32() as f64)
+            .is_ok()
     }
 
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {

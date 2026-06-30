@@ -1470,11 +1470,29 @@ impl Renderer for WgpuRenderer<'_> {
         frame.surface_texture.present();
     }
 
+    fn supports_offscreen(&self) -> bool {
+        true
+    }
+
+    fn offscreen_format(&self) -> Option<crate::render::texture::ColorFormat> {
+        Some(crate::render::texture::ColorFormat::RGBA8888)
+    }
+
+    // Framebuffer readback needs to flush deferred draws first; the
+    // trait's `&self` receiver can't reach `frame.ops`. Effect widgets
+    // routed through `texture_of` (subtree buffer reads) don't need
+    // this and keep working; BackgroundBlur on wgpu silent-skips.
     fn sample_target_region(
         &self,
         _src: &Rect,
     ) -> Option<crate::render::texture::Texture<'static>> {
         None
+    }
+
+    fn read_target_region(&self, _src: &Rect, _dst: &mut crate::render::texture::Texture) {
+        // No-op: same blocker as sample_target_region. Offscreen
+        // pre-seed leaves the buffer at its allocated clear colour
+        // until effects supply their own pixels.
     }
 
     fn modify_target_region(

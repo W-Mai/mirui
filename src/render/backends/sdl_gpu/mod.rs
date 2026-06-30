@@ -427,6 +427,22 @@ pub struct SdlGpuRenderer<'a> {
 }
 
 impl SdlGpuRenderer<'_> {
+    fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
+        let phys = self.viewport.rect_to_physical(*src);
+        let (pw, ph) = self.viewport.physical_size();
+        let target = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(pw as i32),
+            h: Fixed::from_int(ph as i32),
+        };
+        let clipped = phys.intersect(&target)?;
+        if clipped.w <= Fixed::ZERO || clipped.h <= Fixed::ZERO {
+            return None;
+        }
+        Some(clipped)
+    }
+
     pub(super) fn submit_geometry(&mut self, phys_clip: &Rect, needs_blend: bool) {
         if self.tessellator.indices.is_empty() {
             return;
@@ -626,19 +642,102 @@ impl Renderer for SdlGpuRenderer<'_> {
 
     fn flush(&mut self) {}
 
-    fn sample_target_region(
-        &self,
-        _src: &Rect,
-    ) -> Option<crate::render::texture::Texture<'static>> {
-        None
+    fn supports_offscreen(&self) -> bool {
+        true
+    }
+
+    fn offscreen_format(&self) -> Option<crate::render::texture::ColorFormat> {
+        Some(crate::render::texture::ColorFormat::RGBA8888)
+    }
+
+    fn sample_target_region(&self, src: &Rect) -> Option<crate::render::texture::Texture<'static>> {
+        let phys = self.physical_clip_rect(src)?;
+        let sdl_rect = sdl2::rect::Rect::new(
+            phys.x.to_int(),
+            phys.y.to_int(),
+            phys.w.to_int() as u32,
+            phys.h.to_int() as u32,
+        );
+        let bytes = self
+            .canvas
+            .read_pixels(Some(sdl_rect), sdl2::pixels::PixelFormatEnum::RGBA32)
+            .ok()?;
+        let w = phys.w.to_int() as u16;
+        let h = phys.h.to_int() as u16;
+        let mut tex = crate::render::texture::Texture::owned(
+            w,
+            h,
+            crate::render::texture::ColorFormat::RGBA8888,
+        );
+        if let crate::render::texture::TexBuf::Owned(ref mut dst) = tex.buf {
+            let copy = dst.len().min(bytes.len());
+            dst[..copy].copy_from_slice(&bytes[..copy]);
+        }
+        Some(tex)
+    }
+
+    fn read_target_region(&self, src: &Rect, dst: &mut crate::render::texture::Texture) {
+        let Some(phys) = self.physical_clip_rect(src) else {
+            return;
+        };
+        let sdl_rect = sdl2::rect::Rect::new(
+            phys.x.to_int(),
+            phys.y.to_int(),
+            phys.w.to_int() as u32,
+            phys.h.to_int() as u32,
+        );
+        let Ok(bytes) = self
+            .canvas
+            .read_pixels(Some(sdl_rect), sdl2::pixels::PixelFormatEnum::RGBA32)
+        else {
+            return;
+        };
+        if let crate::render::texture::TexBuf::Owned(ref mut buf) = dst.buf {
+            let copy = buf.len().min(bytes.len());
+            buf[..copy].copy_from_slice(&bytes[..copy]);
+        }
     }
 
     fn modify_target_region(
         &mut self,
-        _src: &Rect,
-        _f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+        src: &Rect,
+        f: &mut dyn FnMut(&mut crate::render::texture::Texture),
     ) -> bool {
-        false
+        let Some(mut tex) = self.sample_target_region(src) else {
+            return false;
+        };
+        f(&mut tex);
+        let Some(phys) = self.physical_clip_rect(src) else {
+            return false;
+        };
+        let w = tex.width as u32;
+        let h = tex.height as u32;
+        let bytes = match &tex.buf {
+            crate::render::texture::TexBuf::Owned(v) => v.clone(),
+            _ => return false,
+        };
+        let stride = tex.stride;
+        let canvas = &mut *self.canvas;
+        let mut ok = true;
+        self.label_cache.with_creator(|creator| {
+            let mut sdl_tex =
+                match creator.create_texture_streaming(sdl2::pixels::PixelFormatEnum::RGBA32, w, h)
+                {
+                    Ok(t) => t,
+                    Err(_) => {
+                        ok = false;
+                        return;
+                    }
+                };
+            if sdl_tex.update(None, &bytes, stride).is_err() {
+                ok = false;
+                return;
+            }
+            sdl_tex.set_blend_mode(sdl2::render::BlendMode::None);
+            let dst_rect = sdl2::rect::Rect::new(phys.x.to_int(), phys.y.to_int(), w, h);
+            let _ = canvas.copy(&sdl_tex, None, Some(dst_rect));
+        });
+        ok
     }
 }
 
