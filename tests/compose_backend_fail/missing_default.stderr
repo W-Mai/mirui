@@ -1,17 +1,5 @@
 error: compose_backend! requires a `default => <field>` route
-  --> tests/compose_backend_fail/missing_default.rs:19:16
+  --> tests/compose_backend_fail/missing_default.rs:20:16
    |
-19 |     pub struct Broken {
+20 |     pub struct Broken {
    |                ^^^^^^
-
-error[E0050]: method `blit` has 7 parameters but the declaration in trait `blit` has 9
-  --> tests/compose_backend_fail/missing_default.rs:12:13
-   |
-12 |     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect, _: u8) {}
-   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected 9 parameters, found 7
-   |
-   = note: `blit` from trait: `fn(&mut Self, &Texture<'_>, &Rect, Point, Point, &Rect, u8, Fixed, CompositeMode)`
-help: add the missing parameters from the trait
-   |
-12 |     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect, _: u8, radius: Fixed, composite: CompositeMode) {}
-   |                                                                                  +++++++++++++++++++++++++++++++++++++++++
