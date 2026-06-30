@@ -152,6 +152,74 @@ struct GroupOptions {
     opacity: Option<u8>,
 }
 
+#[derive(Clone, Copy)]
+enum BlitComposite {
+    SourceOver,
+    Add,
+    Screen,
+    Multiply,
+    Darken,
+    Lighten,
+    Difference,
+}
+
+impl BlitComposite {
+    fn from_ident(name: &str) -> Option<Self> {
+        Some(match name {
+            "source_over" | "source-over" | "sourceover" => Self::SourceOver,
+            "add" => Self::Add,
+            "screen" => Self::Screen,
+            "multiply" => Self::Multiply,
+            "darken" => Self::Darken,
+            "lighten" => Self::Lighten,
+            "difference" => Self::Difference,
+            _ => return None,
+        })
+    }
+
+    fn tokens(self) -> TokenStream {
+        match self {
+            Self::SourceOver => quote!(::mirui::render::command::CompositeMode::SourceOver),
+            Self::Add => quote!(::mirui::render::command::CompositeMode::Add),
+            Self::Screen => quote!(::mirui::render::command::CompositeMode::Screen),
+            Self::Multiply => quote!(::mirui::render::command::CompositeMode::Multiply),
+            Self::Darken => quote!(::mirui::render::command::CompositeMode::Darken),
+            Self::Lighten => quote!(::mirui::render::command::CompositeMode::Lighten),
+            Self::Difference => quote!(::mirui::render::command::CompositeMode::Difference),
+        }
+    }
+}
+
+fn parse_blit_options(input: ParseStream) -> syn::Result<(i32, BlitComposite)> {
+    let mut radius = 0;
+    let mut composite = BlitComposite::SourceOver;
+    while !input.is_empty() && !input.peek(Token![;]) {
+        if !input.peek(Ident) {
+            break;
+        }
+        let kw: Ident = input.parse()?;
+        match kw.to_string().as_str() {
+            "radius" => radius = input.parse::<Num>()?.0,
+            "composite" => {
+                let mode_id: Ident = input.parse()?;
+                composite = BlitComposite::from_ident(&mode_id.to_string()).ok_or_else(|| {
+                    syn::Error::new(
+                        mode_id.span(),
+                        "unknown composite mode; expected source_over / add / screen / multiply / darken / lighten / difference",
+                    )
+                })?;
+            }
+            other => {
+                return Err(syn::Error::new(
+                    kw.span(),
+                    format!("unknown blit option `{other}`; expected radius / composite"),
+                ));
+            }
+        }
+    }
+    Ok((radius, composite))
+}
+
 fn point(x: i32, y: i32) -> TokenStream {
     let (x, y) = (fixed(x), fixed(y));
     quote! { ::mirui::types::Point { x: #x, y: #y } }
@@ -754,6 +822,8 @@ enum SceneStmt {
         py: i32,
         sx: i32,
         sy: i32,
+        radius: i32,
+        composite: BlitComposite,
     },
     Group {
         opts: GroupOptions,
@@ -839,13 +909,23 @@ impl Parse for SceneStmt {
                 opa: raw_byte(input)?,
                 text: input.parse::<syn::LitStr>()?,
             },
-            "blit" => SceneStmt::Blit {
-                token: input.parse::<syn::LitStr>()?,
-                px: input.parse::<Num>()?.0,
-                py: input.parse::<Num>()?.0,
-                sx: input.parse::<Num>()?.0,
-                sy: input.parse::<Num>()?.0,
-            },
+            "blit" => {
+                let token = input.parse::<syn::LitStr>()?;
+                let px = input.parse::<Num>()?.0;
+                let py = input.parse::<Num>()?.0;
+                let sx = input.parse::<Num>()?.0;
+                let sy = input.parse::<Num>()?.0;
+                let (radius, composite) = parse_blit_options(input)?;
+                SceneStmt::Blit {
+                    token,
+                    px,
+                    py,
+                    sx,
+                    sy,
+                    radius,
+                    composite,
+                }
+            }
             "group" => SceneStmt::Group {
                 opts: parse_group_options(input)?,
             },
@@ -1044,9 +1124,13 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
             py,
             sx,
             sy,
+            radius,
+            composite,
         } => {
             let pos = point(*px, *py);
             let size = point(*sx, *sy);
+            let rad = fixed(*radius);
+            let comp = composite.tokens();
             quote! {
                 ::mirui::render::scene::SceneOp::Blit {
                     texture: ::mirui::render::scene::ResourceRef::Token(
@@ -1057,8 +1141,8 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                     transform: ::mirui::types::Transform::IDENTITY,
                     quad: ::core::option::Option::None,
                     opa: 255,
-                    radius: ::mirui::types::Fixed::ZERO,
-                    composite: ::mirui::render::command::CompositeMode::SourceOver,
+                    radius: #rad,
+                    composite: #comp,
                 }
             }
         }

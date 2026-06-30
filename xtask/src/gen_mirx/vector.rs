@@ -8,7 +8,8 @@
 //!   line   <x1> <y1> <x2> <y2> <width> <r> <g> <b> <a> <opa>
 //!   arc    <cx> <cy> <radius> <start_deg> <end_deg> <width> <r> <g> <b> <a> <opa>
 //!   label  <token> <x> <y> <r> <g> <b> <a> <opa> <text>
-//!   blit   <token> <px> <py> <sx> <sy>
+//!   blit   <token> <px> <py> <sx> <sy> [opa <0-255>] [radius <r>] [composite <mode>]
+//!          mode is one of: source-over (default) / add / screen / multiply / darken / lighten / difference
 //!   group  <tx> <ty> [<opacity>] [disjoint]
 //!   endgroup
 //!
@@ -140,16 +141,38 @@ fn parse_op(kind: &str, a: &[&str]) -> Result<SceneOp> {
             })
         }
         "blit" => {
-            expect(a, 5, "blit")?;
+            if a.len() < 5 {
+                return Err(format!("`blit` expects ≥5 args, got {}", a.len()).into());
+            }
+            let texture = ResourceRef::Token(a[0].to_owned().into());
+            let pos = point(a, 1)?;
+            let size = point(a, 3)?;
+            let mut opa = 255u8;
+            let mut radius = Fixed::ZERO;
+            let mut composite = CompositeMode::SourceOver;
+            let mut i = 5;
+            while i < a.len() {
+                let key = a[i];
+                let val = a
+                    .get(i + 1)
+                    .ok_or_else(|| format!("`blit {key}` expects a value"))?;
+                match key {
+                    "opa" => opa = byte(val)?,
+                    "radius" => radius = fixed(val)?,
+                    "composite" => composite = composite_from_token(val)?,
+                    other => return Err(format!("unknown blit option `{other}`").into()),
+                }
+                i += 2;
+            }
             Ok(SceneOp::Blit {
-                texture: ResourceRef::Token(a[0].to_owned().into()),
-                pos: point(a, 1)?,
-                size: point(a, 3)?,
+                texture,
+                pos,
+                size,
                 transform: Transform::IDENTITY,
                 quad: None,
-                opa: 255,
-                radius: Fixed::ZERO,
-                composite: CompositeMode::SourceOver,
+                opa,
+                radius,
+                composite,
             })
         }
         "group" => {
@@ -221,6 +244,19 @@ fn color(a: &[&str], i: usize) -> Result<Color> {
         g: byte(a[i + 1])?,
         b: byte(a[i + 2])?,
         a: byte(a[i + 3])?,
+    })
+}
+
+fn composite_from_token(s: &str) -> Result<CompositeMode> {
+    Ok(match s {
+        "source-over" | "source_over" | "sourceover" => CompositeMode::SourceOver,
+        "add" => CompositeMode::Add,
+        "screen" => CompositeMode::Screen,
+        "multiply" => CompositeMode::Multiply,
+        "darken" => CompositeMode::Darken,
+        "lighten" => CompositeMode::Lighten,
+        "difference" => CompositeMode::Difference,
+        other => return Err(format!("unknown composite mode `{other}`").into()),
     })
 }
 

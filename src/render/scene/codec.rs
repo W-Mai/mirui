@@ -990,6 +990,73 @@ mod tests {
         }]);
     }
 
+    fn blit_with(radius: Fixed, composite: crate::render::command::CompositeMode) -> SceneOp {
+        SceneOp::Blit {
+            texture: ResourceRef::Index(3),
+            pos: Point::ZERO,
+            size: Point {
+                x: Fixed::from_int(8),
+                y: Fixed::from_int(8),
+            },
+            transform: Transform::IDENTITY,
+            quad: None,
+            opa: 255,
+            radius,
+            composite,
+        }
+    }
+
+    #[test]
+    fn blit_with_radius_roundtrips() {
+        roundtrip(vec![blit_with(
+            Fixed::from_int(4),
+            crate::render::command::CompositeMode::SourceOver,
+        )]);
+    }
+
+    #[test]
+    fn blit_per_composite_mode_roundtrips() {
+        use crate::render::command::CompositeMode;
+        for m in [
+            CompositeMode::Add,
+            CompositeMode::Screen,
+            CompositeMode::Multiply,
+            CompositeMode::Darken,
+            CompositeMode::Lighten,
+            CompositeMode::Difference,
+        ] {
+            roundtrip(vec![blit_with(Fixed::ZERO, m)]);
+        }
+    }
+
+    #[test]
+    fn blit_default_does_not_set_radius_composite_or_alpha_bits() {
+        use crate::render::command::CompositeMode;
+        let default_blit = SceneOp::Blit {
+            texture: ResourceRef::Index(0),
+            pos: Point::ZERO,
+            size: Point::ZERO,
+            transform: Transform::IDENTITY,
+            quad: None,
+            opa: 255,
+            radius: Fixed::ZERO,
+            composite: CompositeMode::SourceOver,
+        };
+        let bytes = encode_scene(&[default_blit.clone()]).unwrap();
+        let back = decode_scene(&bytes).unwrap();
+        assert_eq!(back, vec![default_blit]);
+        let bits_byte = bytes
+            .iter()
+            .copied()
+            .skip_while(|&b| b != TAG_BLIT)
+            .nth(1)
+            .expect("field bits byte follows TAG_BLIT");
+        assert_eq!(
+            bits_byte & (FIELD_RADIUS | FIELD_COMPOSITE | FIELD_ALPHA),
+            0,
+        );
+    }
+
     #[test]
     fn label_with_token_roundtrips() {
         roundtrip(vec![SceneOp::Label {
