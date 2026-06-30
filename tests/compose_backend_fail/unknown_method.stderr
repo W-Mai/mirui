@@ -11,3 +11,7 @@ error[E0050]: method `blit` has 7 parameters but the declaration in trait `blit`
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected 9 parameters, found 7
    |
    = note: `blit` from trait: `fn(&mut Self, &Texture<'_>, &Rect, Point, Point, &Rect, u8, Fixed, CompositeMode)`
+help: add the missing parameters from the trait
+   |
+12 |     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect, _: u8, radius: Fixed, composite: CompositeMode) {}
+   |                                                                                  +++++++++++++++++++++++++++++++++++++++++
