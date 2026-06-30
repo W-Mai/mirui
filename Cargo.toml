@@ -1,6 +1,6 @@
 [package]
 name = "mirui"
-version = "0.36.0"
+version = "0.37.0"
 edition = "2024"
 authors = ["Benign X <1341398182@qq.com>"]
 license = "MIT"
@@ -17,8 +17,8 @@ rust-version = "1.85"
 members = [".", "xtask", "mirui-macros", "mirx", "gallery", "gallery/web"]
 
 [dependencies]
-mirui-macros = { version = "0.36.0", path = "mirui-macros" }
-mirx = { version = "0.36.0", path = "mirx" }
+mirui-macros = { version = "0.37.0", path = "mirui-macros" }
+mirx = { version = "0.37.0", path = "mirx" }
 critical-section = { version = "1.2", default-features = false }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 rustc-hash = { version = "2", default-features = false }
