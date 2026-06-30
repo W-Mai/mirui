@@ -16,7 +16,7 @@ use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 /// `radius > 0` on `Blit` is only implemented by `SwRenderer` and `wgpu`;
 /// `sdl_gpu` and `web_canvas` `unimplemented!()` and the panic message
 /// points at the supported backends.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum CompositeMode {
     /// `out = src*src.a + dst*(1 - src.a)`. Default; matches v0.36.0.
     #[default]

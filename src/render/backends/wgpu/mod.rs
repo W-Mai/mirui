@@ -317,6 +317,7 @@ impl WgpuRenderer<'_> {
             PipelineKey {
                 shader: ShaderKind::Fill,
                 format: state.config.format,
+                composite: CompositeMode::SourceOver,
             },
         );
 
@@ -332,6 +333,7 @@ impl WgpuRenderer<'_> {
         });
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn blit_inner(
         &mut self,
         src: &Texture,
@@ -340,6 +342,7 @@ impl WgpuRenderer<'_> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        composite: CompositeMode,
     ) {
         if opa == 0 {
             return;
@@ -459,6 +462,7 @@ impl WgpuRenderer<'_> {
             PipelineKey {
                 shader: ShaderKind::Blit,
                 format: state.config.format,
+                composite,
             },
         );
 
@@ -695,6 +699,7 @@ impl WgpuRenderer<'_> {
             PipelineKey {
                 shader: ShaderKind::Path,
                 format: state.config.format,
+                composite: CompositeMode::SourceOver,
             },
         );
 
@@ -861,6 +866,7 @@ impl WgpuRenderer<'_> {
             PipelineKey {
                 shader: ShaderKind::QuadSdf,
                 format: state.config.format,
+                composite: CompositeMode::SourceOver,
             },
         );
 
@@ -877,7 +883,14 @@ impl WgpuRenderer<'_> {
     }
 
     /// Perspective-correct quad blit via `Transform3D::from_quad`.
-    fn blit_quad_inner(&mut self, src: &Texture, q: &[Point; 4], clip: &Rect, opa: u8) {
+    fn blit_quad_inner(
+        &mut self,
+        src: &Texture,
+        q: &[Point; 4],
+        clip: &Rect,
+        opa: u8,
+        composite: CompositeMode,
+    ) {
         if opa == 0 {
             return;
         }
@@ -905,6 +918,7 @@ impl WgpuRenderer<'_> {
                 },
                 clip,
                 opa,
+                composite,
             );
         };
 
@@ -1037,6 +1051,7 @@ impl WgpuRenderer<'_> {
             PipelineKey {
                 shader: ShaderKind::BlitQuad,
                 format: state.config.format,
+                composite,
             },
         );
 
@@ -1195,6 +1210,7 @@ impl WgpuRenderer<'_> {
             PipelineKey {
                 shader: ShaderKind::Label,
                 format: state.config.format,
+                composite: CompositeMode::SourceOver,
             },
         );
 
@@ -1256,12 +1272,7 @@ impl Renderer for WgpuRenderer<'_> {
                         "wgpu backend: Blit.radius mask not implemented; use SwRenderer",
                     );
                 }
-                if !matches!(composite, CompositeMode::SourceOver) {
-                    unimplemented!(
-                        "wgpu backend: composite {composite:?} not yet wired; use SwRenderer",
-                    );
-                }
-                self.blit_quad_inner(texture, q, clip, *opa);
+                self.blit_quad_inner(texture, q, clip, *opa, *composite);
                 return;
             }
             DrawCommand::FillPath {
@@ -1315,14 +1326,9 @@ impl Renderer for WgpuRenderer<'_> {
                         "wgpu backend: Blit.radius mask not implemented; use SwRenderer",
                     );
                 }
-                if !matches!(composite, CompositeMode::SourceOver) {
-                    unimplemented!(
-                        "wgpu backend: composite {composite:?} not yet wired; use SwRenderer",
-                    );
-                }
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
-                self.blit_inner(texture, &src_rect, pos, *size, clip, *opa);
+                self.blit_inner(texture, &src_rect, pos, *size, clip, *opa, *composite);
             }
             DrawCommand::Border {
                 area,
@@ -1500,12 +1506,9 @@ impl Canvas for WgpuRenderer<'_> {
         composite: CompositeMode,
     ) {
         if radius != Fixed::ZERO {
-            unimplemented!("wgpu backend: Blit.radius mask not implemented yet; use SwRenderer",);
+            unimplemented!("wgpu backend: Blit.radius mask not implemented yet; use SwRenderer");
         }
-        if !matches!(composite, CompositeMode::SourceOver) {
-            unimplemented!("wgpu backend: composite {composite:?} not wired yet; use SwRenderer",);
-        }
-        self.blit_inner(src, src_rect, dst, dst_size, clip, opa);
+        self.blit_inner(src, src_rect, dst, dst_size, clip, opa, composite);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {

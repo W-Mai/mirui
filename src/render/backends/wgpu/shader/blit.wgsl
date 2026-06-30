@@ -50,5 +50,10 @@ fn vs_main(@builtin(vertex_index) idx: u32) -> VertexOut {
 @fragment
 fn fs_main(v: VertexOut) -> @location(0) vec4<f32> {
     let c = textureSample(src_tex, src_samp, v.uv);
-    return vec4<f32>(c.rgb, c.a * blit.alpha.x);
+    // Premultiplied output: the host configures the pipeline blend factors
+    // assuming `rgb` is already scaled by `a`, so RGB-only composite modes
+    // (Source-over / Add / Screen / Multiply / Darken / Lighten) all share
+    // this fragment path.
+    let a = c.a * blit.alpha.x;
+    return vec4<f32>(c.rgb * a, a);
 }

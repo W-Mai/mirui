@@ -21,6 +21,10 @@ pub enum ShaderKind {
 pub struct PipelineKey {
     pub shader: ShaderKind,
     pub format: wgpu::TextureFormat,
+    /// Only meaningful for `ShaderKind::Blit` / `BlitQuad`; other shader
+    /// kinds always fold `CompositeMode::SourceOver` in so they share a
+    /// single pipeline regardless of what the caller passes.
+    pub composite: crate::render::command::CompositeMode,
 }
 
 #[repr(C)]
@@ -360,7 +364,7 @@ fn build_pipeline(
             compilation_options: wgpu::PipelineCompilationOptions::default(),
             targets: &[Some(wgpu::ColorTargetState {
                 format: key.format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                blend: Some(blend_state_for(key.shader, key.composite)),
                 write_mask: wgpu::ColorWrites::ALL,
             })],
         }),
@@ -387,6 +391,74 @@ fn build_pipeline(
 /// 4× MSAA — best compromise between quality and bandwidth on the
 /// integrated GPUs the wgpu backend targets first.
 pub const MSAA_SAMPLES: u32 = 4;
+
+/// Pick a `BlendState` for a given shader + composite mode. Blit-family
+/// shaders honour every supported mode; everything else stays on
+/// `ALPHA_BLENDING` regardless of the composite argument because they
+/// have no alpha-bearing texture sample to fold.
+///
+/// The fragment shader emits **premultiplied** RGBA, so SourceOver / Add
+/// / Screen / Multiply all reduce to standard hardware blend factors and
+/// stay bit-exact against the algebraic formula. Darken / Lighten use
+/// `BlendOperation::Min` / `Max` with One/One factors: this is exact at
+/// `src.a == 1.0` and diverges from `SwRenderer`'s fold-back at lower
+/// alpha (notably, `src.a == 0` writes `0` instead of preserving `dst`).
+/// Callers that need bit-exact Darken / Lighten at partial alpha should
+/// stick to `SwRenderer`. `Difference` panics — WebGPU has no fragment
+/// access to `dst`, so the formula needs a separate readback path that
+/// the wgpu backend does not host yet.
+pub fn blend_state_for(
+    shader: ShaderKind,
+    composite: crate::render::command::CompositeMode,
+) -> wgpu::BlendState {
+    use crate::render::command::CompositeMode;
+    use wgpu::{BlendComponent, BlendFactor, BlendOperation, BlendState};
+
+    if !matches!(shader, ShaderKind::Blit | ShaderKind::BlitQuad) {
+        return BlendState::ALPHA_BLENDING;
+    }
+
+    let color = match composite {
+        CompositeMode::SourceOver => BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::OneMinusSrcAlpha,
+            operation: BlendOperation::Add,
+        },
+        CompositeMode::Add => BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Add,
+        },
+        CompositeMode::Screen => BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::OneMinusSrc,
+            operation: BlendOperation::Add,
+        },
+        CompositeMode::Multiply => BlendComponent {
+            src_factor: BlendFactor::Dst,
+            dst_factor: BlendFactor::OneMinusSrcAlpha,
+            operation: BlendOperation::Add,
+        },
+        CompositeMode::Darken => BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Min,
+        },
+        CompositeMode::Lighten => BlendComponent {
+            src_factor: BlendFactor::One,
+            dst_factor: BlendFactor::One,
+            operation: BlendOperation::Max,
+        },
+        CompositeMode::Difference => panic!(
+            "wgpu backend: Difference needs fragment-fetch-dst; use SwRenderer for this composite mode"
+        ),
+    };
+
+    BlendState {
+        color,
+        alpha: BlendComponent::OVER,
+    }
+}
 
 #[allow(dead_code)]
 const _: () = {
