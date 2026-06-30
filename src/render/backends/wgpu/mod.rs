@@ -132,6 +132,10 @@ struct Frame {
     path_bind_group: Option<wgpu::BindGroup>,
     /// Encoded into one render pass on `flush`.
     ops: alloc::vec::Vec<DrawOp>,
+    /// Tracks whether a render pass has already cleared/written the
+    /// swapchain target so the next partial flush picks `LoadOp::Load`
+    /// instead of clearing the already-written pixels.
+    has_committed_pass: bool,
 }
 
 /// 1 MiB / 256 B = 4096 draws per frame before the arena overflows.
@@ -230,8 +234,98 @@ impl WgpuRenderer<'_> {
             fill_bind_group: None,
             path_bind_group: None,
             ops: alloc::vec::Vec::new(),
+            has_committed_pass: false,
         });
         true
+    }
+
+    /// `present=false` submits the recorded ops but keeps the swapchain
+    /// texture so a follow-up `copy_texture_to_buffer` can read this
+    /// frame's pixels mid-walk.
+    fn flush_ops_to_swapchain(&mut self, present: bool) {
+        let Some(frame) = self.frame.as_mut() else {
+            return;
+        };
+        if frame.ops.is_empty() && !present && frame.has_committed_pass {
+            return;
+        }
+        let state = match self.surface.state() {
+            Some(s) => s,
+            None => return,
+        };
+        let load = if frame.has_committed_pass {
+            wgpu::LoadOp::Load
+        } else {
+            wgpu::LoadOp::Clear(if frame.ops.is_empty() {
+                wgpu::Color::BLACK
+            } else {
+                wgpu::Color::TRANSPARENT
+            })
+        };
+        {
+            let mut pass = frame
+                .encoder
+                .begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("mirui-frame-pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &frame.msaa_view,
+                        resolve_target: Some(&frame.swapchain_view),
+                        depth_slice: None,
+                        ops: wgpu::Operations {
+                            load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
+                    multiview_mask: None,
+                })
+                .forget_lifetime();
+            for op in &frame.ops {
+                pass.set_scissor_rect(op.scissor[0], op.scissor[1], op.scissor[2], op.scissor[3]);
+                pass.set_pipeline(&op.pipeline);
+                let bg: &wgpu::BindGroup = match &op.bind_group {
+                    BindGroupRef::Owned(bg) => bg,
+                    BindGroupRef::Shared(0) => frame
+                        .fill_bind_group
+                        .as_ref()
+                        .expect("fill bind group must be created before any Shared(0) op"),
+                    BindGroupRef::Shared(1) => frame
+                        .path_bind_group
+                        .as_ref()
+                        .expect("path bind group must be created before any Shared(1) op"),
+                    BindGroupRef::Shared(other) => panic!("unknown shared bind group id {}", other),
+                };
+                match op.dynamic_offset {
+                    Some(o) => pass.set_bind_group(0, bg, &[o]),
+                    None => pass.set_bind_group(0, bg, &[]),
+                }
+                if let Some(vb) = &op.vertex_buf {
+                    pass.set_vertex_buffer(0, vb.slice(..));
+                }
+                if let Some(ib) = &op.index_buf {
+                    pass.set_index_buffer(ib.slice(..), op.index_format);
+                    pass.draw_indexed(0..op.count, 0, 0..1);
+                } else {
+                    pass.draw(0..op.count, 0..1);
+                }
+            }
+        }
+        let new_encoder = state
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("mirui-wgpu-encoder"),
+            });
+        let old_encoder = core::mem::replace(&mut frame.encoder, new_encoder);
+        state.queue.submit(Some(old_encoder.finish()));
+        frame.ops.clear();
+        frame.has_committed_pass = true;
+
+        if present {
+            let frame = self.frame.take().expect("frame present taken");
+            frame.surface_texture.present();
+        }
     }
 
     /// Append a uniform to the frame's arena. Returns the dynamic
@@ -577,6 +671,101 @@ impl WgpuRenderer<'_> {
         };
         self.draw_path_mesh(&verts, &indices, clip, color, opa);
     }
+}
+
+impl WgpuRenderer<'_> {
+    fn physical_clip_rect(&self, src: &Rect) -> Option<Rect> {
+        let phys = self.viewport.rect_to_physical(*src);
+        let state = self.surface.state()?;
+        let target = Rect {
+            x: Fixed::ZERO,
+            y: Fixed::ZERO,
+            w: Fixed::from_int(state.config.width as i32),
+            h: Fixed::from_int(state.config.height as i32),
+        };
+        let clipped = phys.intersect(&target)?;
+        if clipped.w <= Fixed::ZERO || clipped.h <= Fixed::ZERO {
+            return None;
+        }
+        Some(clipped)
+    }
+}
+
+/// wgpu's `bytes_per_row` for `copy_texture_to_buffer` must be aligned
+/// to 256 bytes (`COPY_BYTES_PER_ROW_ALIGNMENT`). The caller's rect has
+/// the natural `w * 4` row size; the staging buffer needs the padded
+/// stride, and the per-row copy strips the padding back out.
+#[cfg(not(target_arch = "wasm32"))]
+fn wgpu_readback_rgba8(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &wgpu::Texture,
+    x: u32,
+    y: u32,
+    w: u32,
+    h: u32,
+) -> Option<alloc::vec::Vec<u8>> {
+    if w == 0 || h == 0 {
+        return None;
+    }
+    const ALIGN: u32 = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let unpadded = w * 4;
+    let padded = unpadded.div_ceil(ALIGN) * ALIGN;
+    let buf_size = (padded as u64) * (h as u64);
+
+    let staging = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("mirui-wgpu-readback"),
+        size: buf_size,
+        usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("mirui-wgpu-readback-encoder"),
+    });
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d { x, y, z: 0 },
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &staging,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded),
+                rows_per_image: Some(h),
+            },
+        },
+        wgpu::Extent3d {
+            width: w,
+            height: h,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(Some(encoder.finish()));
+
+    let slice = staging.slice(..);
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        let _ = sender.send(r);
+    });
+    let _ = device.poll(wgpu::PollType::Wait {
+        timeout: None,
+        submission_index: None,
+    });
+    receiver.recv().ok()?.ok()?;
+
+    let data = slice.get_mapped_range();
+    let mut out = alloc::vec::Vec::with_capacity((unpadded as usize) * (h as usize));
+    for row in 0..h {
+        let start = (row * padded) as usize;
+        let end = start + unpadded as usize;
+        out.extend_from_slice(&data[start..end]);
+    }
+    drop(data);
+    staging.unmap();
+    Some(out)
 }
 
 impl WgpuRenderer<'_> {
@@ -1402,72 +1591,10 @@ impl Renderer for WgpuRenderer<'_> {
     }
 
     fn flush(&mut self) {
-        let Some(mut frame) = self.frame.take() else {
+        if self.frame.is_none() {
             return;
-        };
-        // Empty frames still need a clear or transient backbuffers
-        // show stale pixels from the previous swap.
-        let load = wgpu::LoadOp::Clear(if frame.ops.is_empty() {
-            wgpu::Color::BLACK
-        } else {
-            wgpu::Color::TRANSPARENT
-        });
-        {
-            let mut pass = frame
-                .encoder
-                .begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("mirui-frame-pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &frame.msaa_view,
-                        resolve_target: Some(&frame.swapchain_view),
-                        depth_slice: None,
-                        ops: wgpu::Operations {
-                            load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
-                    multiview_mask: None,
-                })
-                .forget_lifetime();
-            for op in &frame.ops {
-                pass.set_scissor_rect(op.scissor[0], op.scissor[1], op.scissor[2], op.scissor[3]);
-                pass.set_pipeline(&op.pipeline);
-                let bg: &wgpu::BindGroup = match &op.bind_group {
-                    BindGroupRef::Owned(bg) => bg,
-                    BindGroupRef::Shared(0) => frame
-                        .fill_bind_group
-                        .as_ref()
-                        .expect("fill bind group must be created before any Shared(0) op"),
-                    BindGroupRef::Shared(1) => frame
-                        .path_bind_group
-                        .as_ref()
-                        .expect("path bind group must be created before any Shared(1) op"),
-                    BindGroupRef::Shared(other) => panic!("unknown shared bind group id {}", other),
-                };
-                match op.dynamic_offset {
-                    Some(o) => pass.set_bind_group(0, bg, &[o]),
-                    None => pass.set_bind_group(0, bg, &[]),
-                }
-                if let Some(vb) = &op.vertex_buf {
-                    pass.set_vertex_buffer(0, vb.slice(..));
-                }
-                if let Some(ib) = &op.index_buf {
-                    pass.set_index_buffer(ib.slice(..), op.index_format);
-                    pass.draw_indexed(0..op.count, 0, 0..1);
-                } else {
-                    pass.draw(0..op.count, 0..1);
-                }
-            }
         }
-        let state = self
-            .surface
-            .state()
-            .expect("WgpuSurface state missing in flush");
-        state.queue.submit(Some(frame.encoder.finish()));
-        frame.surface_texture.present();
+        self.flush_ops_to_swapchain(true);
     }
 
     fn supports_offscreen(&self) -> bool {
@@ -1478,10 +1605,41 @@ impl Renderer for WgpuRenderer<'_> {
         Some(crate::render::texture::ColorFormat::RGBA8888)
     }
 
-    // Framebuffer readback needs to flush deferred draws first; the
-    // trait's `&self` receiver can't reach `frame.ops`. Effect widgets
-    // routed through `texture_of` (subtree buffer reads) don't need
-    // this and keep working; BackgroundBlur on wgpu silent-skips.
+    fn prepare_readback(&mut self, _src: &Rect) {
+        if self.frame.is_some() {
+            self.flush_ops_to_swapchain(false);
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn sample_target_region(&self, src: &Rect) -> Option<crate::render::texture::Texture<'static>> {
+        let phys = self.physical_clip_rect(src)?;
+        let w = phys.w.to_int() as u32;
+        let h = phys.h.to_int() as u32;
+        let frame = self.frame.as_ref()?;
+        let state = self.surface.state()?;
+        let bytes = wgpu_readback_rgba8(
+            &state.device,
+            &state.queue,
+            &frame.surface_texture.texture,
+            phys.x.to_int() as u32,
+            phys.y.to_int() as u32,
+            w,
+            h,
+        )?;
+        let mut tex = crate::render::texture::Texture::owned(
+            w as u16,
+            h as u16,
+            crate::render::texture::ColorFormat::RGBA8888,
+        );
+        if let crate::render::texture::TexBuf::Owned(ref mut dst) = tex.buf {
+            let copy = dst.len().min(bytes.len());
+            dst[..copy].copy_from_slice(&bytes[..copy]);
+        }
+        Some(tex)
+    }
+
+    #[cfg(target_arch = "wasm32")]
     fn sample_target_region(
         &self,
         _src: &Rect,
@@ -1489,12 +1647,93 @@ impl Renderer for WgpuRenderer<'_> {
         None
     }
 
-    fn read_target_region(&self, _src: &Rect, _dst: &mut crate::render::texture::Texture) {
-        // No-op: same blocker as sample_target_region. Offscreen
-        // pre-seed leaves the buffer at its allocated clear colour
-        // until effects supply their own pixels.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn read_target_region(&self, src: &Rect, dst: &mut crate::render::texture::Texture) {
+        let Some(phys) = self.physical_clip_rect(src) else {
+            return;
+        };
+        let w = phys.w.to_int() as u32;
+        let h = phys.h.to_int() as u32;
+        let Some(frame) = self.frame.as_ref() else {
+            return;
+        };
+        let Some(state) = self.surface.state() else {
+            return;
+        };
+        let Some(bytes) = wgpu_readback_rgba8(
+            &state.device,
+            &state.queue,
+            &frame.surface_texture.texture,
+            phys.x.to_int() as u32,
+            phys.y.to_int() as u32,
+            w,
+            h,
+        ) else {
+            return;
+        };
+        if let crate::render::texture::TexBuf::Owned(ref mut buf) = dst.buf {
+            let copy = buf.len().min(bytes.len());
+            buf[..copy].copy_from_slice(&bytes[..copy]);
+        }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn read_target_region(&self, _src: &Rect, _dst: &mut crate::render::texture::Texture) {}
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn modify_target_region(
+        &mut self,
+        src: &Rect,
+        f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+    ) -> bool {
+        let Some(mut tex) = self.sample_target_region(src) else {
+            return false;
+        };
+        f(&mut tex);
+        let Some(phys) = self.physical_clip_rect(src) else {
+            return false;
+        };
+        let frame = match self.frame.as_ref() {
+            Some(f) => f,
+            None => return false,
+        };
+        let state = match self.surface.state() {
+            Some(s) => s,
+            None => return false,
+        };
+        let w = tex.width as u32;
+        let h = tex.height as u32;
+        let bytes = match &tex.buf {
+            crate::render::texture::TexBuf::Owned(v) => v.as_slice(),
+            _ => return false,
+        };
+        state.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &frame.surface_texture.texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d {
+                    x: phys.x.to_int() as u32,
+                    y: phys.y.to_int() as u32,
+                    z: 0,
+                },
+                aspect: wgpu::TextureAspect::All,
+            },
+            bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(w * 4),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+        true
+    }
+
+    #[cfg(target_arch = "wasm32")]
     fn modify_target_region(
         &mut self,
         _src: &Rect,

@@ -44,6 +44,11 @@ fn background_blur_render(
     let sample_rect = ctx.transform.apply_rect_bbox(*rect);
     let alpha = alpha_for_radius(bg.radius);
 
+    // Deferred backends (wgpu) need pending draws submitted before
+    // any sample/modify call sees this frame's pixels; eager backends
+    // ignore this.
+    renderer.prepare_readback(&sample_rect);
+
     // Identity / translate-only with no 3D quad can blur in place,
     // skipping the alloc + sample-copy + blit-back round-trip. Rotated
     // or projected widgets still need the intermediate sample so the

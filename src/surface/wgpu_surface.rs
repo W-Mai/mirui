@@ -124,7 +124,12 @@ impl ApplicationHandler for WgpuHandler {
             .unwrap_or(surface_caps.formats[0]);
 
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            // COPY_SRC lets `copy_texture_to_buffer` read the live
+            // frame for effect widgets; COPY_DST lets `write_texture`
+            // push modified pixels back (BackgroundBlur in-place path).
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
             format: surface_format,
             width: size.width.max(1),
             height: size.height.max(1),

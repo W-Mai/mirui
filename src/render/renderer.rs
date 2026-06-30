@@ -58,6 +58,13 @@ pub trait Renderer {
         unimplemented!("Renderer::modify_target_region not implemented for this backend")
     }
 
+    /// Backends that defer draws (currently only `wgpu`) need to submit
+    /// pending work before a `sample_target_region` / `read_target_region`
+    /// call can see this frame's pixels. Eager backends keep the default
+    /// no-op. Callers running readback should invoke this immediately
+    /// before the read; idempotent if no work is pending.
+    fn prepare_readback(&mut self, _src: &Rect) {}
+
     /// Whether this backend implements `scroll_target_region`. The
     /// dirty walker checks this before emitting a `RegionShift`.
     fn supports_scroll_blit(&self) -> bool {

@@ -1,9 +1,3 @@
-//! Gate flip on a non-SwRenderer outer routes OffscreenRender
-//! subtrees through the SW-island. Mirrors what sdl_gpu / wgpu /
-//! web_canvas pay for by overriding `supports_offscreen` /
-//! `offscreen_format` — the outer receives a Blit of the inner SW
-//! raster's output instead of inline draws from the subtree.
-
 use core::cell::RefCell;
 
 use mirui::ecs::World;
