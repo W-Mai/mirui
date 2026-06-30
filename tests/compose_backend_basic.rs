@@ -7,6 +7,7 @@
 use std::cell::Cell;
 
 use mirui::render::canvas::Canvas;
+use mirui::render::command::CompositeMode;
 use mirui::render::path::Path;
 use mirui::render::texture::{ColorFormat, Texture};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
@@ -47,7 +48,17 @@ impl Canvas for Dummy {
             .stroke_path
             .set(self.counts.stroke_path.get() + 1);
     }
-    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect, _: u8) {
+    fn blit(
+        &mut self,
+        _: &Texture,
+        _: &Rect,
+        _: Point,
+        _: Point,
+        _: &Rect,
+        _: u8,
+        _: Fixed,
+        _: CompositeMode,
+    ) {
         self.counts.blit.set(self.counts.blit.get() + 1);
     }
     fn clear(&mut self, _: &Rect, _: &Color) {
@@ -151,7 +162,16 @@ fn explicit_routes_go_to_gpu() {
     let rect = zero_rect();
     let color = Color::rgb(0, 0, 0);
 
-    h.blit(&tex, &rect, Point::ZERO, Point::ZERO, &rect, 255);
+    h.blit(
+        &tex,
+        &rect,
+        Point::ZERO,
+        Point::ZERO,
+        &rect,
+        255,
+        Fixed::ZERO,
+        CompositeMode::SourceOver,
+    );
     h.clear(&rect, &color);
     h.fill_rect(&rect, &rect, &color, Fixed::ZERO, 255);
 
@@ -223,7 +243,18 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         self.fills.set(self.fills.get() + 1);
     }
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
-    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect, _: u8) {}
+    fn blit(
+        &mut self,
+        _: &Texture,
+        _: &Rect,
+        _: Point,
+        _: Point,
+        _: &Rect,
+        _: u8,
+        _: Fixed,
+        _: CompositeMode,
+    ) {
+    }
     fn clear(&mut self, _: &Rect, _: &Color) {}
     fn draw_label(
         &mut self,
@@ -242,7 +273,18 @@ struct PlainDummy;
 impl Canvas for PlainDummy {
     fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {}
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
-    fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect, _: u8) {}
+    fn blit(
+        &mut self,
+        _: &Texture,
+        _: &Rect,
+        _: Point,
+        _: Point,
+        _: &Rect,
+        _: u8,
+        _: Fixed,
+        _: CompositeMode,
+    ) {
+    }
     fn clear(&mut self, _: &Rect, _: &Color) {}
     fn draw_label(
         &mut self,

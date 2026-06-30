@@ -1,6 +1,7 @@
 use crate::types::{Color, Fixed, Point, Rect};
 
 use super::canvas::Canvas;
+use super::command::CompositeMode;
 use super::path::Path;
 use super::texture::Texture;
 
@@ -39,7 +40,16 @@ impl<'a, B: Canvas> Painter<'a, B> {
         clip: &Rect,
         opa: u8,
     ) {
-        self.backend.blit(src, src_rect, dst, dst_size, clip, opa);
+        self.backend.blit(
+            src,
+            src_rect,
+            dst,
+            dst_size,
+            clip,
+            opa,
+            Fixed::ZERO,
+            CompositeMode::SourceOver,
+        );
     }
 
     pub fn draw_text(

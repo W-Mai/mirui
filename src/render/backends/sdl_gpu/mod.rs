@@ -27,7 +27,7 @@ use sdl2::video::Window;
 use self::label_cache::LabelCache;
 use self::tessellation::TessellationCache;
 use crate::render::canvas::Canvas;
-use crate::render::command::DrawCommand;
+use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
 use crate::render::renderer::Renderer;
@@ -556,11 +556,32 @@ impl Renderer for SdlGpuRenderer<'_> {
                 size,
                 texture,
                 opa,
+                radius,
+                composite,
                 ..
             } => {
+                if *radius != Fixed::ZERO {
+                    unimplemented!(
+                        "sdl_gpu backend: Blit.radius mask not implemented; use SwRenderer",
+                    );
+                }
+                if !matches!(composite, CompositeMode::SourceOver) {
+                    unimplemented!(
+                        "sdl_gpu backend: composite {composite:?} not yet wired; use SwRenderer",
+                    );
+                }
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
-                self.blit(texture, &src_rect, pos, *size, clip, *opa);
+                self.blit(
+                    texture,
+                    &src_rect,
+                    pos,
+                    *size,
+                    clip,
+                    *opa,
+                    Fixed::ZERO,
+                    CompositeMode::SourceOver,
+                );
             }
             DrawCommand::Arc {
                 center,
@@ -708,7 +729,17 @@ impl Canvas for SdlGpuRenderer<'_> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     ) {
+        if radius != Fixed::ZERO {
+            unimplemented!("sdl_gpu backend: Blit.radius mask not implemented; use SwRenderer",);
+        }
+        if !matches!(composite, CompositeMode::SourceOver) {
+            unimplemented!(
+                "sdl_gpu backend: composite {composite:?} not yet wired; use SwRenderer",
+            );
+        }
         self.blit_inner(src, src_rect, dst, dst_size, clip, opa);
     }
 

@@ -12,7 +12,7 @@ use web_sys::CanvasRenderingContext2d;
 use self::texture_pool::{GlyphKey, GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
 use crate::render::backends::sw::SwRenderer;
 use crate::render::canvas::Canvas;
-use crate::render::command::DrawCommand;
+use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
 use crate::render::renderer::Renderer;
@@ -482,10 +482,14 @@ impl Renderer for WebCanvasRenderer<'_> {
                 size,
                 texture,
                 opa,
+                radius,
+                composite,
                 ..
             } => {
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
-                self.blit(texture, &src_rect, *pos, *size, clip, *opa);
+                self.blit(
+                    texture, &src_rect, *pos, *size, clip, *opa, *radius, *composite,
+                );
             }
             DrawCommand::Line {
                 p1,
@@ -594,9 +598,19 @@ impl Canvas for WebCanvasRenderer<'_> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     ) {
         if opa == 0 {
             return;
+        }
+        if radius != Fixed::ZERO {
+            unimplemented!("web_canvas backend: Blit.radius mask not implemented; use SwRenderer",);
+        }
+        if !matches!(composite, CompositeMode::SourceOver) {
+            unimplemented!(
+                "web_canvas backend: composite {composite:?} not yet wired; use SwRenderer",
+            );
         }
         let key = TextureKey::from(src);
         let handle = match self

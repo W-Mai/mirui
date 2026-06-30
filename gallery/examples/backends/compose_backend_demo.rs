@@ -8,6 +8,7 @@ use mirui::prelude::*;
 use std::cell::RefCell;
 
 use mirui::render::canvas::Canvas;
+use mirui::render::command::CompositeMode;
 use mirui::render::path::Path;
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::{ColorFormat, Texture};
@@ -55,9 +56,12 @@ impl<B: Canvas> Canvas for Logging<B> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     ) {
         self.log("blit");
-        self.inner.blit(src, src_rect, dst, dst_size, clip, opa);
+        self.inner
+            .blit(src, src_rect, dst, dst_size, clip, opa, radius, composite);
     }
     fn clear(&mut self, area: &Rect, color: &Color) {
         self.log("clear");
@@ -206,6 +210,8 @@ fn main() {
                 },
                 &clip,
                 255,
+                Fixed::ZERO,
+                CompositeMode::SourceOver,
             );
         }
 

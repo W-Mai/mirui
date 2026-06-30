@@ -1,3 +1,4 @@
+use crate::render::command::CompositeMode;
 use crate::types::{Color, Fixed, Point, Rect};
 
 use super::font::Font;
@@ -11,6 +12,7 @@ use super::texture::Texture;
 pub trait Canvas {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8);
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8);
+    #[allow(clippy::too_many_arguments)]
     fn blit(
         &mut self,
         src: &Texture,
@@ -19,6 +21,8 @@ pub trait Canvas {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     );
     fn clear(&mut self, area: &Rect, color: &Color);
     fn draw_label(

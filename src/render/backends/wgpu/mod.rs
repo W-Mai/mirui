@@ -8,7 +8,7 @@ mod texture_pool;
 use wgpu::util::DeviceExt;
 
 use crate::render::canvas::Canvas;
-use crate::render::command::DrawCommand;
+use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
 use crate::render::renderer::Renderer;
@@ -1247,8 +1247,20 @@ impl Renderer for WgpuRenderer<'_> {
                 quad: Some(q),
                 texture,
                 opa,
+                radius,
+                composite,
                 ..
             } => {
+                if *radius != Fixed::ZERO {
+                    unimplemented!(
+                        "wgpu backend: Blit.radius mask not implemented; use SwRenderer",
+                    );
+                }
+                if !matches!(composite, CompositeMode::SourceOver) {
+                    unimplemented!(
+                        "wgpu backend: composite {composite:?} not yet wired; use SwRenderer",
+                    );
+                }
                 self.blit_quad_inner(texture, q, clip, *opa);
                 return;
             }
@@ -1294,8 +1306,20 @@ impl Renderer for WgpuRenderer<'_> {
                 size,
                 texture,
                 opa,
+                radius,
+                composite,
                 ..
             } => {
+                if *radius != Fixed::ZERO {
+                    unimplemented!(
+                        "wgpu backend: Blit.radius mask not implemented; use SwRenderer",
+                    );
+                }
+                if !matches!(composite, CompositeMode::SourceOver) {
+                    unimplemented!(
+                        "wgpu backend: composite {composite:?} not yet wired; use SwRenderer",
+                    );
+                }
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
                 self.blit_inner(texture, &src_rect, pos, *size, clip, *opa);
@@ -1472,7 +1496,19 @@ impl Canvas for WgpuRenderer<'_> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     ) {
+        if radius != Fixed::ZERO {
+            unimplemented!(
+                "wgpu backend: Blit.radius mask not implemented yet; use SwRenderer",
+            );
+        }
+        if !matches!(composite, CompositeMode::SourceOver) {
+            unimplemented!(
+                "wgpu backend: composite {composite:?} not wired yet; use SwRenderer",
+            );
+        }
         self.blit_inner(src, src_rect, dst, dst_size, clip, opa);
     }
 

@@ -1,9 +1,11 @@
 use super::SwRenderer;
 use super::blit_fast::{blit_1to1_fast, blit_2to2_fast, blit_dda};
+use crate::render::command::CompositeMode;
 use crate::render::texture::Texture;
-use crate::types::{Point, Rect};
+use crate::types::{Fixed, Point, Rect};
 
 impl SwRenderer<'_> {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn blit_inner(
         &mut self,
         src: &Texture,
@@ -12,7 +14,15 @@ impl SwRenderer<'_> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     ) {
+        if radius != Fixed::ZERO {
+            unimplemented!("sw backend: Blit.radius mask not implemented yet");
+        }
+        if !matches!(composite, CompositeMode::SourceOver) {
+            unimplemented!("sw backend: composite {composite:?} not implemented yet");
+        }
         let phys_dst = self.viewport.point_to_physical(dst);
         let phys_dst_size = self.viewport.point_to_physical(dst_size);
         let phys_clip = self.viewport.rect_to_physical(*clip);

@@ -3,3 +3,11 @@ error: unknown Canvas method `fil_path` — did you mean `fill_path`?
    |
 24 |         fil_path => sw,
    |         ^^^^^^^^
+
+error[E0050]: method `blit` has 7 parameters but the declaration in trait `blit` has 9
+  --> tests/compose_backend_fail/unknown_method.rs:12:13
+   |
+12 |     fn blit(&mut self, _: &Texture, _: &Rect, _: Point, _: Point, _: &Rect, _: u8) {}
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected 9 parameters, found 7
+   |
+   = note: `blit` from trait: `fn(&mut Self, &Texture<'_>, &Rect, Point, Point, &Rect, u8, Fixed, CompositeMode)`

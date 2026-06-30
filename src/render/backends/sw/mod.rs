@@ -1,7 +1,7 @@
 use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
 use crate::render::canvas::Canvas;
-use crate::render::command::DrawCommand;
+use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::path::Path;
 use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
@@ -91,8 +91,23 @@ impl<'a> SwRenderer<'a> {
                 fill_rect_transformed(&mut self.target, *area, phys_clip, &phys_tf, color, *opa);
             }
             DrawCommand::Blit {
-                pos, size, texture, ..
+                pos,
+                size,
+                texture,
+                radius,
+                composite,
+                ..
             } => {
+                if *radius != Fixed::ZERO {
+                    unimplemented!(
+                        "sw backend: Blit.radius mask under non-axis-aligned transform not yet implemented",
+                    );
+                }
+                if !matches!(composite, CompositeMode::SourceOver) {
+                    unimplemented!(
+                        "sw backend: composite {composite:?} under non-axis-aligned transform not yet implemented",
+                    );
+                }
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let dst = Rect {
                     x: pos.x,
@@ -155,8 +170,10 @@ impl<'a> Canvas for SwRenderer<'a> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     ) {
-        self.blit_inner(src, src_rect, dst, dst_size, clip, opa);
+        self.blit_inner(src, src_rect, dst, dst_size, clip, opa, radius, composite);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
@@ -224,7 +241,22 @@ impl SwRenderer<'_> {
     }
 
     #[inline(never)]
-    fn dispatch_blit_quad(&mut self, q: &[Point; 4], texture: &Texture, clip: &Rect) {
+    fn dispatch_blit_quad(
+        &mut self,
+        q: &[Point; 4],
+        texture: &Texture,
+        clip: &Rect,
+        radius: Fixed,
+        composite: CompositeMode,
+    ) {
+        if radius != Fixed::ZERO {
+            unimplemented!("sw backend: Blit.radius mask under quad path not yet implemented",);
+        }
+        if !matches!(composite, CompositeMode::SourceOver) {
+            unimplemented!(
+                "sw backend: composite {composite:?} under quad path not yet implemented",
+            );
+        }
         #[cfg(feature = "perf")]
         let t0 = quad_perf::now();
         let phys_clip = self.viewport.rect_to_physical(*clip);
@@ -326,12 +358,14 @@ impl SwRenderer<'_> {
         ty: Fixed,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     ) {
         #[cfg(feature = "perf")]
         let t0 = self.perf.as_ref().map(|p| (p.clock)());
         let src_rect = Rect::new(0, 0, texture.width, texture.height);
         let pos = offset_point(pos, tx, ty);
-        self.blit(texture, &src_rect, pos, size, clip, opa);
+        self.blit(texture, &src_rect, pos, size, clip, opa, radius, composite);
         #[cfg(feature = "perf")]
         if let (Some(t0), Some(p)) = (t0, self.perf.as_mut()) {
             p.blit += (p.clock)() - t0;
@@ -445,11 +479,13 @@ impl Renderer for SwRenderer<'_> {
         if let DrawCommand::Blit {
             quad: Some(q),
             texture,
+            radius,
+            composite,
             ..
         } = cmd
         {
             crate::trace_span!("sw.blit_quad");
-            self.dispatch_blit_quad(q, texture, clip);
+            self.dispatch_blit_quad(q, texture, clip, *radius, *composite);
             return;
         }
         if let DrawCommand::Border {
@@ -505,10 +541,12 @@ impl Renderer for SwRenderer<'_> {
                 size,
                 texture,
                 opa,
+                radius,
+                composite,
                 ..
             } => {
                 crate::trace_span!("sw.blit");
-                self.dispatch_blit(pos, *size, texture, tx, ty, clip, *opa);
+                self.dispatch_blit(pos, *size, texture, tx, ty, clip, *opa, *radius, *composite);
             }
             DrawCommand::Label {
                 pos,
@@ -748,7 +786,16 @@ mod tests {
             w: Fixed::from_int(80),
             h: Fixed::from_int(64),
         };
-        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, 255);
+        backend.blit(
+            &src_tex,
+            &src_rect,
+            dst,
+            dst_size,
+            &clip,
+            255,
+            Fixed::ZERO,
+            CompositeMode::SourceOver,
+        );
 
         for y in 8..40 {
             for x in 0..8 {
@@ -810,7 +857,16 @@ mod tests {
             w: Fixed::from_int(80),
             h: Fixed::from_int(64),
         };
-        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, 255);
+        backend.blit(
+            &src_tex,
+            &src_rect,
+            dst,
+            dst_size,
+            &clip,
+            255,
+            Fixed::ZERO,
+            CompositeMode::SourceOver,
+        );
 
         for y in 8..40 {
             for x in 0..8 {
@@ -1850,7 +1906,16 @@ mod tests {
             w: Fixed::from_int(4),
             h: Fixed::from_int(4),
         };
-        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, 128);
+        backend.blit(
+            &src_tex,
+            &src_rect,
+            dst,
+            dst_size,
+            &clip,
+            128,
+            Fixed::ZERO,
+            CompositeMode::SourceOver,
+        );
 
         // effective_a = (255 * 128) / 255 = 128; source-over onto
         // transparent dst yields dst.rgb ≈ 128 red. Target is Opaque
@@ -1887,7 +1952,16 @@ mod tests {
             w: Fixed::from_int(4),
             h: Fixed::from_int(4),
         };
-        backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, 0);
+        backend.blit(
+            &src_tex,
+            &src_rect,
+            dst,
+            dst_size,
+            &clip,
+            0,
+            Fixed::ZERO,
+            CompositeMode::SourceOver,
+        );
 
         for y in 0..4 {
             for x in 0..4 {
@@ -1931,7 +2005,16 @@ mod tests {
                 w: Fixed::from_int(4),
                 h: Fixed::from_int(4),
             };
-            backend.blit(&src_tex, &src_rect, dst, dst_size, &clip, opa);
+            backend.blit(
+                &src_tex,
+                &src_rect,
+                dst,
+                dst_size,
+                &clip,
+                opa,
+                Fixed::ZERO,
+                CompositeMode::SourceOver,
+            );
         }
 
         assert_eq!(tgt_buf_a, tgt_buf_b, "opa==255 must be deterministic");
@@ -1943,7 +2026,7 @@ mod tests {
     // path to render a viewBox-units path scaled to physical pixels.
     #[test]
     fn fill_path_scale_transform_renders_without_panic() {
-        use crate::render::command::DrawCommand;
+        use crate::render::command::{CompositeMode, DrawCommand};
         use crate::render::renderer::Renderer;
         use crate::types::Transform;
 

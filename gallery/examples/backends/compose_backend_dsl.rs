@@ -13,6 +13,7 @@ use std::rc::Rc;
 use mirui::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::app::{App, RendererFactory};
 use mirui::render::canvas::Canvas;
+use mirui::render::command::CompositeMode;
 use mirui::render::path::Path;
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::Texture;
@@ -48,9 +49,12 @@ impl<B: Canvas> Canvas for Logging<B> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        radius: Fixed,
+        composite: CompositeMode,
     ) {
         *self.calls.borrow_mut() += 1;
-        self.inner.blit(src, src_rect, dst, dst_size, clip, opa);
+        self.inner
+            .blit(src, src_rect, dst, dst_size, clip, opa, radius, composite);
     }
     fn clear(&mut self, area: &Rect, color: &Color) {
         *self.calls.borrow_mut() += 1;
