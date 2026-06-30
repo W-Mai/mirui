@@ -7,6 +7,7 @@ pub mod builder_form;
 pub mod butterfly;
 pub mod click;
 pub mod components;
+pub mod composite;
 pub mod cover_flow;
 pub mod custom_view;
 pub mod disabled;

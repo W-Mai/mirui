@@ -892,13 +892,6 @@ impl MiruiRune {
                 tokens.extend(quote! {
                     (#world).insert(#var, #init);
                 });
-            } else if cmd.name == "Image" {
-                let comp_fields = &cmd.component_fields;
-                tokens.extend(quote! {
-                    (#world).insert(#var, #comp_name {
-                        #(#comp_fields,)*
-                    });
-                });
             } else {
                 let comp_fields = &cmd.component_fields;
                 tokens.extend(quote! {

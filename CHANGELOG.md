@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] - Unreleased
+
+### Added
+
+- **`CompositeMode` enum + 7 blend modes for `DrawCommand::Blit`** — `SourceOver` (default, identical to v0.36.0), `Add`, `Screen`, `Multiply`, `Darken`, `Lighten`, `Difference`. Per-channel formulas are spelled out in the variant rustdoc; the enum carries a `blend_channel(src, dst)` helper that returns the per-channel value at `src.a == 255` (callers and backends fold `src.a` back via the standard non-premul `out = m·src.a + dst·(1−src.a)` weight). Algebraic and exact-pixel unit tests cover every mode in `core::render::command` and `render::backends::sw`.
+- **`Blit.radius: Fixed` for rounded-corner blits** — `SwRenderer` clips blits through `rounded_rect_coverage`'s SDF mask, so a single `Blit` cell can render with rounded edges without a separate clip mask. `radius == ZERO` keeps the v0.36.0 fast path bit-exact.
+- **`Image` widget exposes `composite` + `radius`** — `Image::with_composite(mode)` / `Image::with_radius(r)` plus matching `ImageBuilder` methods, and `composite:` / `radius:` attributes in the `ui!` DSL. Defaults stay `SourceOver` / `ZERO` so existing `Image` callers keep their previous render.
+- **`SceneOp::Blit` carries `radius` + `composite`** — vector-scene record / replay / codec all thread the new fields; the codec adds a `FIELD_COMPOSITE` bit and a 7-value mapping. `SourceOver` + `radius=ZERO` defaults encode to zero extra bytes, so existing recorded scenes keep their byte counts.
+- **`scene! { blit ... }` macro and `gen-mirx vector blit` accept `radius N` / `composite Add|Screen|Multiply|Darken|Lighten|Difference`** as trailing optional tokens. Default values omit the tokens and produce identical byte output to v0.36.0.
+- **`gallery::demos::composite` + `composite_demo` example** lay out one cell per composite mode (720 × 240, 7 cells side-by-side) blitting the thumbs-up texture over a mid-grey backdrop for a visual diff. Registered as `composite` under "Effects" in the web gallery.
+
+### Changed
+
+- **BREAKING: `DrawCommand::Blit` gains `radius: Fixed` and `composite: CompositeMode`.** Pattern matches and struct literals must specify both. Migration: append `radius: Fixed::ZERO, composite: CompositeMode::SourceOver` for v0.36.0-equivalent behaviour. All 17 framework / scene / macro / test callers are already updated.
+- **BREAKING: `SceneOp::Blit` gains the same two fields.** Wire-format-compatible at default values (zero-byte encoding), but the in-memory enum literal needs both fields. `CodecError::BadComposite` rejects unknown composite indices on decode.
+- **BREAKING: `Canvas::blit` signature gains `radius: Fixed` and `composite: CompositeMode` parameters.** Custom `Canvas` impls (third-party backends, the `compose_backend!` wrappers, gallery demo logging wrappers, `compose_backend_basic` test fixtures) extend their `blit` method signature to match. `mirui::prelude::draw` re-exports `CompositeMode`.
+
+### Backend support
+
+| backend | composite modes | `Blit.radius` |
+|---|---|---|
+| `SwRenderer` | full 7 modes, per-pixel reference implementation | yes (SDF mask) |
+| `wgpu` | 6 of 7 via native `BlendState`s (premultiplied shader output) — `Difference` `unimplemented!()` (needs fragment-fetch-dst) | not yet |
+| `web_canvas` | full 7 via `globalCompositeOperation` (W3C strings) | not yet |
+| `sdl_gpu` | 3 of 7 via SDL2 native `BlendMode` (`SourceOver` / `Add` / `Multiply`) — `Screen` / `Darken` / `Lighten` / `Difference` `unimplemented!()` (need `SDL_ComposeCustomBlendMode` factor combinations the safe `sdl2` crate doesn't surface) | not yet |
+
+`Darken` / `Lighten` on `wgpu` and `Multiply` on `sdl_gpu` are bit-exact at `src.a == 255` and diverge from the `SwRenderer` reference at partial alpha (notably, `src.a == 0` writes `0` on GPU instead of preserving `dst`). Callers that need bit-exact partial-alpha output for these modes should drive `SwRenderer`.
+
+### Internal
+
+- **`compose_backend!` macro `blit` METHODS entry tracks the new signature**; the generated forwarder threads `radius` and `composite` to the routed backend automatically. Trybuild expected-output fixtures regenerated to track the new argument count in the compile-error stream.
+- **`PipelineKey` (wgpu) gains a `composite: CompositeMode` slot**, lazy-creating one pipeline per `(shader, format, composite)` triple. Non-blit shaders fold `composite` to `SourceOver` so they keep sharing a single pipeline regardless of the caller's argument.
+- **`Texture::composite_pixel_int(x, y, color, src_a, mode)`** is the composite-aware sibling of `blend_pixel_int`. `SourceOver` short-circuits back to `blend_pixel_int` so the existing fast path stays bit-exact; the other 6 modes go through the per-channel `blend_channel` formula and the standard fold-back weight.
+- **`ui!` macro emits all components through one path now** — the special-case `Image` arm that omitted `..Default::default()` is gone, every component literal gets the default-rest spread. `Image` ships a `Default` impl to feed the spread.
+
 ## [0.36.0] - 2026-06-30
 
 ### Added

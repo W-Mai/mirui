@@ -11,11 +11,37 @@ use crate::ui::view::{View, ViewCtx};
 #[derive(crate::Component)]
 pub struct Image {
     pub src: Cow<'static, str>,
+    pub composite: CompositeMode,
+    pub radius: Fixed,
+}
+
+impl Default for Image {
+    fn default() -> Self {
+        Self {
+            src: Cow::Borrowed(""),
+            composite: CompositeMode::SourceOver,
+            radius: Fixed::ZERO,
+        }
+    }
 }
 
 impl Image {
     pub fn new(src: impl Into<Cow<'static, str>>) -> Self {
-        Self { src: src.into() }
+        Self {
+            src: src.into(),
+            composite: CompositeMode::SourceOver,
+            radius: Fixed::ZERO,
+        }
+    }
+
+    pub fn with_composite(mut self, mode: CompositeMode) -> Self {
+        self.composite = mode;
+        self
+    }
+
+    pub fn with_radius(mut self, radius: impl Into<Fixed>) -> Self {
+        self.radius = radius.into();
+        self
     }
 
     pub fn build(src: impl Into<Cow<'static, str>>) -> ImageBuilder {
@@ -34,6 +60,16 @@ pub struct ImageBuilder {
 impl ImageBuilder {
     pub fn style(mut self, style: crate::ui::Style) -> Self {
         self.style = Some(style);
+        self
+    }
+
+    pub fn composite(mut self, mode: CompositeMode) -> Self {
+        self.image.composite = mode;
+        self
+    }
+
+    pub fn radius(mut self, radius: impl Into<Fixed>) -> Self {
+        self.image.radius = radius.into();
         self
     }
 
@@ -81,8 +117,8 @@ fn image_render(
                     quad: ctx.quad,
                     texture: &rc,
                     opa: 255,
-                    radius: Fixed::ZERO,
-                    composite: CompositeMode::SourceOver,
+                    radius: img.radius,
+                    composite: img.composite,
                 },
                 ctx.clip,
             );

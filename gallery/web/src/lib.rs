@@ -38,6 +38,7 @@ gallery::register_demos! {
     ("custom_view",          "custom view (Diamond)","Effects",     custom_view,          480, 200),
     ("vector_mandala",       "vector mandala",       "Effects",     vector_mandala,       512, 512),
     ("icon",                 "icon set",             "Effects",     icon,                 540, 320),
+    ("composite",            "blit composite modes", "Effects",     composite,            720, 240),
 
     ("click",                "click colors",         "Interaction", click,                480, 320),
     ("toggle",               "toggle",               "Interaction", toggle,               640, 320),
