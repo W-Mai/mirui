@@ -625,6 +625,21 @@ impl Renderer for SdlGpuRenderer<'_> {
     }
 
     fn flush(&mut self) {}
+
+    fn sample_target_region(
+        &self,
+        _src: &Rect,
+    ) -> Option<crate::render::texture::Texture<'static>> {
+        None
+    }
+
+    fn modify_target_region(
+        &mut self,
+        _src: &Rect,
+        _f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+    ) -> bool {
+        false
+    }
 }
 
 #[inline]

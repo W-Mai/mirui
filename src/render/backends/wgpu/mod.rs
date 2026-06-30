@@ -1469,6 +1469,21 @@ impl Renderer for WgpuRenderer<'_> {
         state.queue.submit(Some(frame.encoder.finish()));
         frame.surface_texture.present();
     }
+
+    fn sample_target_region(
+        &self,
+        _src: &Rect,
+    ) -> Option<crate::render::texture::Texture<'static>> {
+        None
+    }
+
+    fn modify_target_region(
+        &mut self,
+        _src: &Rect,
+        _f: &mut dyn FnMut(&mut crate::render::texture::Texture),
+    ) -> bool {
+        false
+    }
 }
 
 impl Drop for WgpuRenderer<'_> {
