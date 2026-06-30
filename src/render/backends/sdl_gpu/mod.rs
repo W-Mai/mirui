@@ -565,11 +565,6 @@ impl Renderer for SdlGpuRenderer<'_> {
                         "sdl_gpu backend: Blit.radius mask not implemented; use SwRenderer",
                     );
                 }
-                if !matches!(composite, CompositeMode::SourceOver) {
-                    unimplemented!(
-                        "sdl_gpu backend: composite {composite:?} not yet wired; use SwRenderer",
-                    );
-                }
                 let src_rect = Rect::new(0, 0, texture.width, texture.height);
                 let pos = offset_point(pos, tx, ty);
                 self.blit(
@@ -580,7 +575,7 @@ impl Renderer for SdlGpuRenderer<'_> {
                     clip,
                     *opa,
                     Fixed::ZERO,
-                    CompositeMode::SourceOver,
+                    *composite,
                 );
             }
             DrawCommand::Arc {
@@ -733,14 +728,9 @@ impl Canvas for SdlGpuRenderer<'_> {
         composite: CompositeMode,
     ) {
         if radius != Fixed::ZERO {
-            unimplemented!("sdl_gpu backend: Blit.radius mask not implemented; use SwRenderer",);
+            unimplemented!("sdl_gpu backend: Blit.radius mask not implemented; use SwRenderer");
         }
-        if !matches!(composite, CompositeMode::SourceOver) {
-            unimplemented!(
-                "sdl_gpu backend: composite {composite:?} not yet wired; use SwRenderer",
-            );
-        }
-        self.blit_inner(src, src_rect, dst, dst_size, clip, opa);
+        self.blit_inner(src, src_rect, dst, dst_size, clip, opa, composite);
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {

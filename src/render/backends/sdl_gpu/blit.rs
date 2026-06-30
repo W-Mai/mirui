@@ -2,7 +2,10 @@ use super::{SdlGpuRenderer, sdl_pixel_rect};
 use crate::render::texture::{ColorFormat, Texture};
 use crate::types::{Point, Rect};
 
+use crate::render::command::CompositeMode;
+
 impl SdlGpuRenderer<'_> {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn blit_inner(
         &mut self,
         src: &Texture,
@@ -11,10 +14,26 @@ impl SdlGpuRenderer<'_> {
         dst_size: Point,
         clip: &Rect,
         opa: u8,
+        composite: CompositeMode,
     ) {
         if opa == 0 {
             return;
         }
+        // SDL2's exposed BlendMode set covers SourceOver / Add / Multiply
+        // bit-identically; the other 4 modes need SDL_ComposeCustomBlend
+        // factor combinations the safe `sdl2` crate doesn't expose,
+        // so fall back to a panic that points users at SwRenderer.
+        let sdl_blend = match composite {
+            CompositeMode::SourceOver => sdl2::render::BlendMode::Blend,
+            CompositeMode::Add => sdl2::render::BlendMode::Add,
+            CompositeMode::Multiply => sdl2::render::BlendMode::Mul,
+            CompositeMode::Screen
+            | CompositeMode::Darken
+            | CompositeMode::Lighten
+            | CompositeMode::Difference => unimplemented!(
+                "sdl_gpu backend: composite {composite:?} requires SDL_ComposeCustomBlendMode; use SwRenderer"
+            ),
+        };
         let sdl_fmt = match src.format {
             ColorFormat::RGBA8888 => sdl2::pixels::PixelFormatEnum::RGBA32,
             ColorFormat::BGRA8888 => sdl2::pixels::PixelFormatEnum::BGRA32,
@@ -64,7 +83,7 @@ impl SdlGpuRenderer<'_> {
             if tex.update(None, src_slice, stride).is_err() {
                 return;
             }
-            tex.set_blend_mode(sdl2::render::BlendMode::Blend);
+            tex.set_blend_mode(sdl_blend);
             // SDL2 modulates texture sample alpha by alpha_mod/255 in the
             // copy() path, so set_alpha_mod composes with src.a as the
             // group opacity multiplier.
