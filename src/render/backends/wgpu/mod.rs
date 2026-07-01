@@ -712,15 +712,25 @@ impl WgpuRenderer<'_> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn swapchain_is_bgra(format: wgpu::TextureFormat) -> bool {
+    matches!(
+        format,
+        wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Bgra8UnormSrgb
+    )
+}
+
 /// wgpu's `bytes_per_row` for `copy_texture_to_buffer` must be aligned
 /// to 256 bytes (`COPY_BYTES_PER_ROW_ALIGNMENT`). The caller's rect has
 /// the natural `w * 4` row size; the staging buffer needs the padded
 /// stride, and the per-row copy strips the padding back out.
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(clippy::too_many_arguments)]
 fn wgpu_readback_rgba8(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &wgpu::Texture,
+    format: wgpu::TextureFormat,
     x: u32,
     y: u32,
     w: u32,
@@ -779,10 +789,18 @@ fn wgpu_readback_rgba8(
 
     let data = slice.get_mapped_range();
     let mut out = alloc::vec::Vec::with_capacity((unpadded as usize) * (h as usize));
+    let swap_rb = swapchain_is_bgra(format);
     for row in 0..h {
         let start = (row * padded) as usize;
         let end = start + unpadded as usize;
-        out.extend_from_slice(&data[start..end]);
+        if swap_rb {
+            let src = &data[start..end];
+            for px in src.chunks_exact(4) {
+                out.extend_from_slice(&[px[2], px[1], px[0], px[3]]);
+            }
+        } else {
+            out.extend_from_slice(&data[start..end]);
+        }
     }
     drop(data);
     staging.unmap();
@@ -1643,6 +1661,7 @@ impl Renderer for WgpuRenderer<'_> {
             &state.device,
             &state.queue,
             &frame.surface_texture.texture,
+            state.config.format,
             phys.x.to_int() as u32,
             phys.y.to_int() as u32,
             w,
@@ -1685,6 +1704,7 @@ impl Renderer for WgpuRenderer<'_> {
             &state.device,
             &state.queue,
             &frame.surface_texture.texture,
+            state.config.format,
             phys.x.to_int() as u32,
             phys.y.to_int() as u32,
             w,
