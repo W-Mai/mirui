@@ -6,6 +6,8 @@ pub mod ringbuf;
 pub mod stderr;
 #[cfg(feature = "tracing-bridge")]
 pub mod tracing_bridge;
+#[cfg(all(feature = "log-web-console", target_arch = "wasm32"))]
+pub mod web_console;
 
 #[cfg(feature = "log-bridge")]
 pub use log_bridge::LogBridge;
@@ -15,3 +17,5 @@ pub use ringbuf::{LoggedRecord, RingBufferHandle, RingBufferSink};
 pub use stderr::StderrSink;
 #[cfg(feature = "tracing-bridge")]
 pub use tracing_bridge::TracingBridge;
+#[cfg(all(feature = "log-web-console", target_arch = "wasm32"))]
+pub use web_console::WebConsoleSink;

@@ -78,6 +78,26 @@ pub fn max_level() -> Level {
     }
 }
 
+pub const STATIC_MAX_LEVEL: u8 = static_max_level();
+
+const fn static_max_level() -> u8 {
+    if cfg!(feature = "log-max-level-off") {
+        0
+    } else if cfg!(feature = "log-max-level-error") {
+        Level::Error as u8
+    } else if cfg!(feature = "log-max-level-warn") {
+        Level::Warn as u8
+    } else if cfg!(feature = "log-max-level-info") {
+        Level::Info as u8
+    } else if cfg!(feature = "log-max-level-debug") {
+        Level::Debug as u8
+    } else if cfg!(feature = "log-max-level-trace") {
+        Level::Trace as u8
+    } else {
+        u8::MAX
+    }
+}
+
 #[inline]
 pub fn level_enabled(level: Level, _target: &'static str) -> bool {
     (level as u8) <= MAX_LEVEL.load(Ordering::Relaxed)
@@ -207,7 +227,9 @@ macro_rules! __mirui_log {
             level: $lvl,
             target: $target,
         };
-        if $crate::core::log::level_enabled(META.level, META.target) {
+        if (META.level as u8) <= $crate::core::log::STATIC_MAX_LEVEL
+            && $crate::core::log::level_enabled(META.level, META.target)
+        {
             $crate::core::log::dispatch(&META, ::core::format_args!($($arg)+));
         }
     }};
@@ -216,7 +238,9 @@ macro_rules! __mirui_log {
             level: $lvl,
             target: ::core::module_path!(),
         };
-        if $crate::core::log::level_enabled(META.level, META.target) {
+        if (META.level as u8) <= $crate::core::log::STATIC_MAX_LEVEL
+            && $crate::core::log::level_enabled(META.level, META.target)
+        {
             $crate::core::log::dispatch(&META, ::core::format_args!($($arg)+));
         }
     }};
@@ -302,6 +326,11 @@ mod tests {
         let rows: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         install_sink(Box::new(CaptureSink { rows: rows.clone() }));
         rows
+    }
+
+    #[test]
+    fn static_max_level_default_is_open() {
+        assert_eq!(STATIC_MAX_LEVEL, u8::MAX);
     }
 
     #[test]
