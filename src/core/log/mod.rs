@@ -207,7 +207,7 @@ pub fn dispatch_span(span: &SpanRecord) {
 }
 
 fn clock_now_ns() -> u64 {
-    crate::core::perf::clock_now_ns()
+    crate::core::time::clock_now_ns()
 }
 
 #[macro_export]
