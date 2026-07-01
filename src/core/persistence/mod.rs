@@ -256,11 +256,11 @@ where
         if self.autosave_interval_ms.is_some()
             && app.world.resource::<crate::ecs::MonoClock>().is_none()
         {
-            eprintln!(
-                "[mirui::persistence] PersistencePlugin: autosave_every_ms set but no \
-                 MonoClock resource installed; periodic flushes will not fire. \
-                 Add a clock plugin (e.g. StdInstantClockPlugin) before this one. \
-                 on_suspend / on_quit flushes still work."
+            crate::warn!(
+                target: "mirui::persistence",
+                "PersistencePlugin: autosave_every_ms set but no MonoClock resource installed; \
+                 periodic flushes will not fire. Add a clock plugin (e.g. StdInstantClockPlugin) \
+                 before this one. on_suspend / on_quit flushes still work."
             );
         }
         for register in self.pending.drain(..) {

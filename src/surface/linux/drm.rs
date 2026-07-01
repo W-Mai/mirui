@@ -213,13 +213,15 @@ impl LinuxDrmSurface {
         if let Some(p) = pointer_path {
             match EvdevInput::open_pointer(p, width, height) {
                 Ok(input) => inputs.push(input),
-                Err(err) => eprintln!("mirui::linux-drm: skipping pointer {p}: {err}"),
+                Err(err) => crate::warn!(target: "mirui::linux-drm", "skipping pointer {p}: {err}"),
             }
         }
         if let Some(p) = detect_keyboard_device() {
             match EvdevInput::open_keyboard(&p) {
                 Ok(input) => inputs.push(input),
-                Err(err) => eprintln!("mirui::linux-drm: skipping keyboard {p}: {err}"),
+                Err(err) => {
+                    crate::warn!(target: "mirui::linux-drm", "skipping keyboard {p}: {err}")
+                }
             }
         }
 

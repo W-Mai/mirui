@@ -146,8 +146,9 @@ fn default_summary(report: FpsSummary<'_>) {
         Some(ns) if ns > 0 => f64::from(report.frames) * 1_000_000_000.0 / ns as f64,
         _ => 0.0,
     };
-    eprintln!(
-        "[fps] {} frames | wall {:.1} fps | work {}us ({:.1} fps) = input {} + systems {} + layout {} + render {} + flush {} + seed {}",
+    crate::info!(
+        target: "mirui::fps",
+        "{} frames | wall {:.1} fps | work {}us ({:.1} fps) = input {} + systems {} + layout {} + render {} + flush {} + seed {}",
         report.frames,
         wall_fps,
         report.avg_frame_ns / 1000,
@@ -160,8 +161,9 @@ fn default_summary(report: FpsSummary<'_>) {
         report.avg_seed_prev_ns / 1000,
     );
     if let Some(s) = report.stats {
-        eprintln!(
-            "[fps] window={} min {}us max {}us p99 {}us jitter {}us",
+        crate::info!(
+            target: "mirui::fps",
+            "window={} min {}us max {}us p99 {}us jitter {}us",
             s.len(),
             s.min() / 1000,
             s.max() / 1000,

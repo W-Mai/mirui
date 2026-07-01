@@ -66,8 +66,21 @@ impl App<crate::surface::framebuf::FramebufSurface<HeadlessFlush>, SwRendererFac
     }
 }
 
+#[cfg(feature = "log-stderr")]
+fn install_default_stderr_sink_once() {
+    use std::sync::OnceLock;
+    static INSTALLED: OnceLock<()> = OnceLock::new();
+    INSTALLED.get_or_init(|| {
+        crate::core::log::install_sink(alloc::boxed::Box::new(
+            crate::core::log::sinks::StderrSink::info(),
+        ));
+    });
+}
+
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn with_factory(backend: B, factory: F) -> Self {
+        #[cfg(feature = "log-stderr")]
+        install_default_stderr_sink_once();
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
         world.insert_resource(ScrollSpring::default());

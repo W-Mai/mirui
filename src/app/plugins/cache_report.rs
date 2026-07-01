@@ -72,7 +72,7 @@ fn default_report(report: CacheReport<'_>) {
     if report.snapshots.is_empty() {
         return;
     }
-    eprintln!("[cache] after {} frames", report.frames);
+    crate::info!(target: "mirui::cache", "after {} frames", report.frames);
     for snap in report.snapshots {
         let total = snap.stats.hit_count + snap.stats.miss_count;
         let hit_rate = if total == 0 {
@@ -80,7 +80,8 @@ fn default_report(report: CacheReport<'_>) {
         } else {
             snap.stats.hit_count as f64 * 100.0 / total as f64
         };
-        eprintln!(
+        crate::info!(
+            target: "mirui::cache",
             "  {} entries={} hit={} miss={} ({:.1}%) max={:?}",
             snap.name,
             snap.len,

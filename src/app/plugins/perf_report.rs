@@ -207,7 +207,7 @@ fn collect_system_stats(world: &World) -> alloc::vec::Vec<SystemStat> {
 
 #[cfg(feature = "std")]
 fn default_sink(report: &PerfReport) {
-    eprintln!("[perf] {} frames", report.frames);
+    crate::info!(target: "mirui::perf", "{} frames", report.frames);
     let mut sorted: alloc::vec::Vec<&StageStat> = report.stage_stats.iter().collect();
     sorted.sort_by_key(|s| core::cmp::Reverse(s.total_ns));
     for s in &sorted {
@@ -216,8 +216,9 @@ fn default_sink(report: &PerfReport) {
         } else {
             s.total_ns / s.count as u64
         };
-        eprintln!(
-            "[perf]   {:>26}  n={:<4} total {:>7}µs  avg {:>5}µs  min {:>5}µs  max {:>5}µs",
+        crate::info!(
+            target: "mirui::perf",
+            "  {:>26}  n={:<4} total {:>7}µs  avg {:>5}µs  min {:>5}µs  max {:>5}µs",
             s.name,
             s.count,
             s.total_ns / 1_000,
@@ -230,8 +231,9 @@ fn default_sink(report: &PerfReport) {
         if s.avg_us == 0 && s.last_us == 0 {
             continue;
         }
-        eprintln!(
-            "[perf]   {:>26}  last {:>5}µs  avg {:>5}µs  n={}",
+        crate::info!(
+            target: "mirui::perf",
+            "  {:>26}  last {:>5}µs  avg {:>5}µs  n={}",
             s.name, s.last_us, s.avg_us, s.call_count
         );
     }

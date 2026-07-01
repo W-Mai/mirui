@@ -100,8 +100,9 @@ where
 
 #[cfg(feature = "std")]
 fn default_violation(v: BudgetViolation) {
-    eprintln!(
-        "[budget] avg {}us (budget {}us) p99 {}us (budget {}us) jitter {}us",
+    crate::warn!(
+        target: "mirui::budget",
+        "avg {}us (budget {}us) p99 {}us (budget {}us) jitter {}us",
         v.avg_ns / 1000,
         v.budget_avg_ns / 1000,
         v.p99_ns / 1000,

@@ -119,7 +119,7 @@ impl LinuxFbSurface {
         if let Some(p) = pointer_path {
             match EvdevInput::open_pointer(p, width, height) {
                 Ok(input) => inputs.push(input),
-                Err(err) => eprintln!("mirui::linux: skipping pointer {p}: {err}"),
+                Err(err) => crate::warn!(target: "mirui::linux", "skipping pointer {p}: {err}"),
             }
         }
         // Keyboard on its own fd; Quit comes from SIGINT, not Esc,
@@ -127,7 +127,7 @@ impl LinuxFbSurface {
         if let Some(p) = detect_keyboard_device() {
             match EvdevInput::open_keyboard(&p) {
                 Ok(input) => inputs.push(input),
-                Err(err) => eprintln!("mirui::linux: skipping keyboard {p}: {err}"),
+                Err(err) => crate::warn!(target: "mirui::linux", "skipping keyboard {p}: {err}"),
             }
         }
 

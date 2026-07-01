@@ -24,8 +24,9 @@ hashbrown = { version = "0.15", default-features = false, features = ["default-h
 rustc-hash = { version = "2", default-features = false }
 
 [features]
-default = ["quad-aa"]
+default = ["quad-aa", "log-stderr"]
 std = ["critical-section/std", "dep:web-time"]
+log-stderr = ["std"]
 sdl = ["dep:sdl2", "std"]
 sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
 wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "std"]
