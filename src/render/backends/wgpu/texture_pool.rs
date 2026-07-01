@@ -52,3 +52,25 @@ pub fn new_pool() -> TexturePool {
         .max_size(MaxSize::Bytes(TEXTURE_BUDGET))
         .build()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn key_collides_when_buffer_view_matches() {
+        let buf = [0u8; 16];
+        let a = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
+        let b = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
+        assert_eq!(TextureKey::from(&a), TextureKey::from(&b));
+    }
+
+    #[test]
+    fn transient_flag_survives_texture_construction() {
+        let buf = [0u8; 16];
+        let t = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888).with_transient(true);
+        assert!(t.transient);
+        let default = Texture::from_ref(&buf, 2, 2, ColorFormat::RGBA8888);
+        assert!(!default.transient);
+    }
+}

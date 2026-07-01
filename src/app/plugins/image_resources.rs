@@ -49,6 +49,7 @@ static FALLBACK_TEXTURE: Texture<'static> = Texture {
     format: ColorFormat::RGBA8888,
     stride: 64,
     alpha_mode: crate::render::texture::AlphaMode::Opaque,
+    transient: false,
 };
 
 const FALLBACK_META: TextureMeta = TextureMeta {

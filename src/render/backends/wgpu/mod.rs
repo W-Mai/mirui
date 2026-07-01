@@ -449,41 +449,38 @@ impl WgpuRenderer<'_> {
             return;
         }
 
-        let key = TextureKey::from(src);
-        let tex_handle: crate::core::cache::Handle<CachedTexture> = {
+        let tex_view = {
             let state = self
                 .surface
                 .state()
                 .expect("WgpuSurface state missing in blit");
-            match self
-                .factory
-                .texture_pool
-                .entry(key)
-                .or_try_insert_with::<_, ()>(|| {
-                    let rgba = texture_to_rgba8(src).ok_or(())?;
-                    Ok(CachedTexture(state.device.create_texture_with_data(
-                        &state.queue,
-                        &wgpu::TextureDescriptor {
-                            label: Some("mirui-blit-source"),
-                            size: wgpu::Extent3d {
-                                width: src.width as u32,
-                                height: src.height as u32,
-                                depth_or_array_layers: 1,
-                            },
-                            mip_level_count: 1,
-                            sample_count: 1,
-                            dimension: wgpu::TextureDimension::D2,
-                            format: wgpu::TextureFormat::Rgba8Unorm,
-                            usage: wgpu::TextureUsages::TEXTURE_BINDING
-                                | wgpu::TextureUsages::COPY_DST,
-                            view_formats: &[],
-                        },
-                        wgpu::util::TextureDataOrder::LayerMajor,
-                        &rgba,
-                    )))
-                }) {
-                Ok(h) => h,
-                Err(_) => return,
+            if src.transient {
+                let Some(rgba) = texture_to_rgba8(src) else {
+                    return;
+                };
+                let tex = upload_blit_source(&state.device, &state.queue, src, &rgba);
+                tex.create_view(&wgpu::TextureViewDescriptor::default())
+            } else {
+                let key = TextureKey::from(src);
+                let handle = match self
+                    .factory
+                    .texture_pool
+                    .entry(key)
+                    .or_try_insert_with::<_, ()>(|| {
+                        let rgba = texture_to_rgba8(src).ok_or(())?;
+                        Ok(CachedTexture(upload_blit_source(
+                            &state.device,
+                            &state.queue,
+                            src,
+                            &rgba,
+                        )))
+                    }) {
+                    Ok(h) => h,
+                    Err(_) => return,
+                };
+                handle
+                    .0
+                    .create_view(&wgpu::TextureViewDescriptor::default())
             }
         };
 
@@ -502,9 +499,6 @@ impl WgpuRenderer<'_> {
             .linear_sampler
             .as_ref()
             .expect("linear sampler must be initialised before blit");
-        let tex_view = tex_handle
-            .0
-            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let tw = src.width as f32;
         let th = src.height as f32;
@@ -597,6 +591,33 @@ impl WgpuRenderer<'_> {
         let scale = self.viewport.scale().to_f32().max(1.0);
         clip_to_scissor(clip, scale, state.config.width, state.config.height)
     }
+}
+
+fn upload_blit_source(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    src: &Texture,
+    rgba: &[u8],
+) -> wgpu::Texture {
+    device.create_texture_with_data(
+        queue,
+        &wgpu::TextureDescriptor {
+            label: Some("mirui-blit-source"),
+            size: wgpu::Extent3d {
+                width: src.width as u32,
+                height: src.height as u32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        },
+        wgpu::util::TextureDataOrder::LayerMajor,
+        rgba,
+    )
 }
 
 /// RGB565 formats return `None`; this upload path only handles
@@ -1636,7 +1657,7 @@ impl Renderer for WgpuRenderer<'_> {
             let copy = dst.len().min(bytes.len());
             dst[..copy].copy_from_slice(&bytes[..copy]);
         }
-        Some(tex)
+        Some(tex.with_transient(true))
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -1690,45 +1711,22 @@ impl Renderer for WgpuRenderer<'_> {
             return false;
         };
         f(&mut tex);
-        let Some(phys) = self.physical_clip_rect(src) else {
-            return false;
-        };
-        let frame = match self.frame.as_ref() {
-            Some(f) => f,
-            None => return false,
-        };
-        let state = match self.surface.state() {
-            Some(s) => s,
-            None => return false,
-        };
-        let w = tex.width as u32;
-        let h = tex.height as u32;
-        let bytes = match &tex.buf {
-            crate::render::texture::TexBuf::Owned(v) => v.as_slice(),
-            _ => return false,
-        };
-        state.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &frame.surface_texture.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d {
-                    x: phys.x.to_int() as u32,
-                    y: phys.y.to_int() as u32,
-                    z: 0,
-                },
-                aspect: wgpu::TextureAspect::All,
-            },
-            bytes,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(w * 4),
-                rows_per_image: Some(h),
-            },
-            wgpu::Extent3d {
-                width: w,
-                height: h,
-                depth_or_array_layers: 1,
-            },
+        let tw = tex.width;
+        let th = tex.height;
+        let src_rect = Rect::new(0, 0, tw, th);
+        let dst_pos = Point { x: src.x, y: src.y };
+        let dst_size = Point { x: src.w, y: src.h };
+        // Blit through the render pipeline, not queue.write_texture:
+        // the next pass's LoadOp::Load on the MSAA attachment would
+        // otherwise resolve stale multisample contents over these pixels.
+        self.blit_inner(
+            &tex,
+            &src_rect,
+            dst_pos,
+            dst_size,
+            src,
+            255,
+            CompositeMode::SourceOver,
         );
         true
     }

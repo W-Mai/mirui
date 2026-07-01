@@ -105,6 +105,11 @@ pub struct Texture<'a> {
     pub format: ColorFormat,
     pub stride: usize,
     pub alpha_mode: AlphaMode,
+    /// Bypass GPU-side upload caches keyed by buffer pointer:
+    /// `sample_target_region` drops its `Vec` each frame and the next
+    /// allocation lands in the same slot, faking a cache hit on stale
+    /// pixels.
+    pub transient: bool,
 }
 
 impl HasSize for Texture<'_> {
@@ -129,6 +134,7 @@ impl Clone for Texture<'static> {
             format: self.format,
             stride: self.stride,
             alpha_mode: self.alpha_mode,
+            transient: self.transient,
         }
     }
 }
@@ -143,6 +149,7 @@ impl<'a> Texture<'a> {
             format,
             stride,
             alpha_mode: AlphaMode::Opaque,
+            transient: false,
         }
     }
 
@@ -155,6 +162,7 @@ impl<'a> Texture<'a> {
             format,
             stride,
             alpha_mode: AlphaMode::Opaque,
+            transient: false,
         }
     }
 
@@ -167,6 +175,7 @@ impl<'a> Texture<'a> {
             format,
             stride,
             alpha_mode: AlphaMode::Opaque,
+            transient: false,
         }
     }
 
@@ -180,7 +189,13 @@ impl<'a> Texture<'a> {
             format,
             stride,
             alpha_mode: AlphaMode::Opaque,
+            transient: false,
         }
+    }
+
+    pub fn with_transient(mut self, transient: bool) -> Self {
+        self.transient = transient;
+        self
     }
 
     #[inline(always)]
@@ -449,6 +464,7 @@ impl Texture<'static> {
             format,
             stride: stride as usize,
             alpha_mode: AlphaMode::Opaque,
+            transient: false,
         })
     }
 }

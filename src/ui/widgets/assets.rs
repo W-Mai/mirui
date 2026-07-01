@@ -61,4 +61,5 @@ pub static IMG_THUMBS_UP: Texture<'static> = Texture {
     format: ColorFormat::RGBA8888,
     stride: 64,
     alpha_mode: crate::render::texture::AlphaMode::Opaque,
+    transient: false,
 };

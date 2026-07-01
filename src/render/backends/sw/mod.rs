@@ -667,6 +667,7 @@ impl Renderer for SwRenderer<'_> {
             format: self.target.format,
             stride: target_stride,
             alpha_mode: self.target.alpha_mode,
+            transient: self.target.transient,
         };
         f(&mut view);
         true
