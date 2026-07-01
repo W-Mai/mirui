@@ -3,22 +3,14 @@ use crate::app::{App, RendererFactory};
 use crate::ecs::MonoClock;
 use crate::surface::Surface;
 
-use std::sync::OnceLock;
-use web_time::Instant;
-
-static CLOCK_START: OnceLock<Instant> = OnceLock::new();
-
-fn std_clock_ns() -> u64 {
-    CLOCK_START.get_or_init(Instant::now).elapsed().as_nanos() as u64
-}
-
-/// Backs `MonoClock` with `std::time::Instant`.
+/// Publishes `core::time::clock_now_ns` as the `MonoClock` resource so
+/// ECS systems can read frame timing without knowing about the process
+/// clock. std auto-anchors its epoch on first read even without this
+/// plugin — installing it is only about exposing time to ECS-level
+/// consumers.
 ///
 /// **Inserts**
 /// - resource: `MonoClock`
-/// - global: calls `crate::core::perf::set_clock` so `trace_span!` records
-///   on `no_std` builds (no-op on `std` since the std imp uses
-///   `Instant` directly)
 #[derive(Default)]
 pub struct StdInstantClockPlugin;
 
@@ -28,10 +20,7 @@ where
     F: RendererFactory<B>,
 {
     fn build(&mut self, app: &mut App<B, F>) {
-        CLOCK_START.get_or_init(Instant::now);
-        app.world.insert_resource(MonoClock::new(std_clock_ns));
-        // std `perf` imp uses Instant directly, so this is a no-op
-        // there; calling it keeps API symmetry with no_std clock plugins.
-        crate::core::perf::set_clock(std_clock_ns);
+        app.world
+            .insert_resource(MonoClock::new(crate::core::time::clock_now_ns));
     }
 }

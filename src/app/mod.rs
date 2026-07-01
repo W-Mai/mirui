@@ -273,7 +273,7 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self.world
             .resource::<crate::ecs::MonoClock>()
             .map(|fc| (fc.clock)())
-            .unwrap_or(0)
+            .unwrap_or_else(crate::core::time::clock_now_ns)
     }
 
     pub fn set_root(&mut self, root: Entity) {

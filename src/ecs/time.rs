@@ -129,6 +129,12 @@ impl MonoClock {
         }
     }
 
+    /// Reads `core::time::clock_now_ns` so ECS timestamps stay in
+    /// sync with `mirui::info!` and `trace_span!`.
+    pub fn from_time_source() -> Self {
+        Self::new(crate::core::time::clock_now_ns)
+    }
+
     pub fn now_ns(&self) -> u64 {
         (self.clock)()
     }
