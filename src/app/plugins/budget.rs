@@ -98,7 +98,6 @@ where
     }
 }
 
-#[cfg(feature = "std")]
 fn default_violation(v: BudgetViolation) {
     crate::warn!(
         target: "mirui::budget",
@@ -110,9 +109,6 @@ fn default_violation(v: BudgetViolation) {
         v.jitter_ns / 1000,
     );
 }
-
-#[cfg(not(feature = "std"))]
-fn default_violation(_v: BudgetViolation) {}
 
 #[cfg(test)]
 mod tests {

@@ -205,7 +205,6 @@ fn collect_system_stats(world: &World) -> alloc::vec::Vec<SystemStat> {
         .unwrap_or_default()
 }
 
-#[cfg(feature = "std")]
 fn default_sink(report: &PerfReport) {
     crate::info!(target: "mirui::perf", "{} frames", report.frames);
     let mut sorted: alloc::vec::Vec<&StageStat> = report.stage_stats.iter().collect();
@@ -238,6 +237,3 @@ fn default_sink(report: &PerfReport) {
         );
     }
 }
-
-#[cfg(not(feature = "std"))]
-fn default_sink(_report: &PerfReport) {}

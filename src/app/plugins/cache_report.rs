@@ -67,7 +67,6 @@ where
     }
 }
 
-#[cfg(feature = "std")]
 fn default_report(report: CacheReport<'_>) {
     if report.snapshots.is_empty() {
         return;
@@ -92,6 +91,3 @@ fn default_report(report: CacheReport<'_>) {
         );
     }
 }
-
-#[cfg(not(feature = "std"))]
-fn default_report(_report: CacheReport<'_>) {}

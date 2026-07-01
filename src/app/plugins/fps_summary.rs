@@ -135,7 +135,6 @@ where
     }
 }
 
-#[cfg(feature = "std")]
 fn default_summary(report: FpsSummary<'_>) {
     let work_fps = if report.avg_frame_ns == 0 {
         0.0
@@ -172,6 +171,3 @@ fn default_summary(report: FpsSummary<'_>) {
         );
     }
 }
-
-#[cfg(not(feature = "std"))]
-fn default_summary(_report: FpsSummary<'_>) {}

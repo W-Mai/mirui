@@ -5,11 +5,7 @@ use alloc::collections::VecDeque;
 use alloc::string::String;
 use alloc::sync::Arc;
 use core::fmt::Write;
-
-#[cfg(feature = "std")]
-type LockCell<T> = std::sync::Mutex<T>;
-#[cfg(not(feature = "std"))]
-type LockCell<T> = spin::Mutex<T>;
+use std::sync::Mutex;
 
 #[derive(Clone)]
 pub struct LoggedRecord {
@@ -20,15 +16,16 @@ pub struct LoggedRecord {
 }
 
 pub struct RingBufferSink {
-    inner: Arc<LockCell<VecDeque<LoggedRecord>>>,
+    inner: Arc<Mutex<VecDeque<LoggedRecord>>>,
     cap: usize,
 }
 
 impl RingBufferSink {
     pub fn new(cap: usize) -> Self {
+        let cap = cap.max(1);
         Self {
-            inner: Arc::new(LockCell::new(VecDeque::with_capacity(cap.max(1)))),
-            cap: cap.max(1),
+            inner: Arc::new(Mutex::new(VecDeque::with_capacity(cap))),
+            cap,
         }
     }
 
@@ -49,10 +46,7 @@ impl Sink for RingBufferSink {
             time_ns: event.time_ns,
             message: msg,
         };
-        #[cfg(feature = "std")]
         let mut guard = self.inner.lock().expect("ringbuf poisoned");
-        #[cfg(not(feature = "std"))]
-        let mut guard = self.inner.lock();
         if guard.len() == self.cap {
             guard.pop_front();
         }
@@ -61,30 +55,20 @@ impl Sink for RingBufferSink {
 }
 
 pub struct RingBufferHandle {
-    inner: Arc<LockCell<VecDeque<LoggedRecord>>>,
+    inner: Arc<Mutex<VecDeque<LoggedRecord>>>,
 }
 
 impl RingBufferHandle {
     pub fn records(&self) -> alloc::vec::Vec<LoggedRecord> {
-        #[cfg(feature = "std")]
-        {
-            self.inner
-                .lock()
-                .expect("ringbuf poisoned")
-                .iter()
-                .cloned()
-                .collect()
-        }
-        #[cfg(not(feature = "std"))]
-        {
-            self.inner.lock().iter().cloned().collect()
-        }
+        self.inner
+            .lock()
+            .expect("ringbuf poisoned")
+            .iter()
+            .cloned()
+            .collect()
     }
 
     pub fn clear(&self) {
-        #[cfg(feature = "std")]
         self.inner.lock().expect("ringbuf poisoned").clear();
-        #[cfg(not(feature = "std"))]
-        self.inner.lock().clear();
     }
 }
