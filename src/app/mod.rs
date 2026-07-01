@@ -136,6 +136,13 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         self
     }
 
+    /// Appends a sink to the global log registry — multiple calls
+    /// fan out, never replace.
+    pub fn with_log(&mut self, sink: impl crate::core::log::Sink + 'static) -> &mut Self {
+        crate::core::log::install_sink(alloc::boxed::Box::new(sink));
+        self
+    }
+
     /// Runtime counterpart to `with_theme`: also forces a full-tree repaint.
     pub fn set_theme(&mut self, theme: Theme) {
         crate::ui::theme::set_theme(&mut self.world, theme);
