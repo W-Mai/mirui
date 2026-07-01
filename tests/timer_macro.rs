@@ -7,9 +7,10 @@
 
 #![cfg(feature = "std")]
 
+use mirui::core::time::mock;
 use mirui::core::timer::{Timer, TimerMode};
+use mirui::ecs::MonoClock;
 use mirui::ecs::World;
-use mirui::ecs::time::{MonoClock, mock};
 use mirui_macros::timer;
 
 fn nop(_world: &mut World, _entity: mirui::ecs::Entity) {}
@@ -21,13 +22,13 @@ timer!(MyUntil, until: 999 every: 30, |w, e| nop(w, e));
 
 fn fresh() -> World {
     let mut w = World::new();
-    w.insert_resource(MonoClock::new(mock::clock_fn));
+    w.insert_resource(MonoClock::from_time_source());
     w
 }
 
 #[test]
 fn after_schedule_parses() {
-    let _g = mock::lock();
+    let _g = mock::install();
     let mut w = fresh();
     let e = MyAfter::install(&mut w);
     let t = w.get::<Timer>(e).expect("Timer installed");
@@ -36,7 +37,7 @@ fn after_schedule_parses() {
 
 #[test]
 fn every_schedule_parses() {
-    let _g = mock::lock();
+    let _g = mock::install();
     let mut w = fresh();
     let e = MyEvery::install(&mut w);
     assert_eq!(w.get::<Timer>(e).unwrap().mode(), TimerMode::Every);
@@ -44,7 +45,7 @@ fn every_schedule_parses() {
 
 #[test]
 fn repeat_schedule_carries_count() {
-    let _g = mock::lock();
+    let _g = mock::install();
     let mut w = fresh();
     let e = MyRepeat::install(&mut w);
     assert_eq!(
@@ -55,7 +56,7 @@ fn repeat_schedule_carries_count() {
 
 #[test]
 fn until_schedule_carries_deadline() {
-    let _g = mock::lock();
+    let _g = mock::install();
     let mut w = fresh();
     let e = MyUntil::install(&mut w);
     assert_eq!(

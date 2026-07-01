@@ -106,19 +106,17 @@ pub mod mock {
         *guard = guard.saturating_add(ms.saturating_mul(1_000_000));
     }
 
-    pub fn lock() -> MutexGuard<'static, ()> {
-        SERIAL.lock().unwrap_or_else(|p| p.into_inner())
-    }
-
-    /// Turn the global clock into a mock reader for the guard's
-    /// lifetime. Drop restores the real source.
+    /// Serializes tests against a shared static mutex and routes
+    /// `clock_now_ns` reads to the mock buffer for the guard's
+    /// lifetime. Drop releases both.
     pub fn install() -> MockHandle {
+        let serial = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
         INSTALLED.store(true, Ordering::Release);
-        MockHandle { _priv: () }
+        MockHandle { _serial: serial }
     }
 
     pub struct MockHandle {
-        _priv: (),
+        _serial: MutexGuard<'static, ()>,
     }
 
     impl Drop for MockHandle {
@@ -146,7 +144,6 @@ mod tests {
     #[cfg(feature = "std")]
     #[test]
     fn mock_overrides_when_installed() {
-        let _serial = mock::lock();
         let _guard = mock::install();
         mock::set_ns(42);
         assert_eq!(clock_now_ns(), 42);
@@ -157,7 +154,6 @@ mod tests {
     #[cfg(feature = "std")]
     #[test]
     fn mock_uninstall_restores_real_clock() {
-        let _serial = mock::lock();
         {
             let _guard = mock::install();
             mock::set_ns(123);

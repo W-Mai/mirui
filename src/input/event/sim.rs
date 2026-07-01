@@ -1133,7 +1133,8 @@ pub fn sim_timeline_system(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ecs::time::{MonoClock, mock};
+    use crate::core::time::mock;
+    use crate::ecs::MonoClock;
     use crate::types::Point;
 
     fn setup_world() -> World {
@@ -1150,17 +1151,16 @@ mod tests {
         });
         let root = world.spawn_empty();
         world.insert_resource(SimRootFallback(root));
-        // Caller is expected to hold mock::lock() for the test's
-        // duration so the global mock clock isn't shared with parallel
-        // tests.
+        // Caller must hold mock::install()'s guard for the test's
+        // duration so parallel tests don't share the same mock clock.
         mock::set_ns(0);
-        world.insert_resource(MonoClock::new(mock::clock_fn));
+        world.insert_resource(MonoClock::from_time_source());
         world
     }
 
     #[test]
     fn move_to_emits_pointer_move_without_pressing() {
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::move_to(
             Point {
@@ -1217,7 +1217,7 @@ mod tests {
 
     #[test]
     fn rotate_advances_after_step_ms_per_tick() {
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         // 5 ticks × 20 ms each = 100 ms total.
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate(5, 20)]));
@@ -1253,7 +1253,7 @@ mod tests {
         // Linear ease is the identity timing curve, so rotate_smooth
         // with linear must emit detents at the same relative tempo as
         // the legacy rotate(...).
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate_smooth(
             4,
@@ -1280,7 +1280,7 @@ mod tests {
         // Pin the contract by checking that no detents have fired
         // halfway through total_ms when ease_in_out_cubic is used,
         // while linear would have fired half by then.
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate_smooth(
             4,
@@ -1315,7 +1315,7 @@ mod tests {
 
     #[test]
     fn rotate_smooth_non_divisible_total_rounds_up_step_ms() {
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotate_smooth(
             3,
@@ -1337,7 +1337,7 @@ mod tests {
 
     #[test]
     fn rotary_click_emits_key_pair() {
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::rotary_click()]));
 
@@ -1362,7 +1362,7 @@ mod tests {
 
     #[test]
     fn move_to_does_not_bump_event_seq() {
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::move_to(
             Point {
@@ -1399,7 +1399,7 @@ mod tests {
 
     #[test]
     fn wait_holds_cursor_for_full_duration() {
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         world.insert_resource(SimTimeline::new(alloc::vec![SimAction::Wait(800)]));
 
@@ -1462,7 +1462,7 @@ mod tests {
         // the correct relative duration. Tests that the wrap doesn't
         // collapse a 800-ms Wait into an instant-fire (or stretch it
         // across the full u32 range).
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         // Position the clock 200 ms before u32::MAX-ms wraps. A 800-ms
         // Wait will cross the boundary mid-way.
@@ -1498,7 +1498,7 @@ mod tests {
         // Wait 100, Tap (100), Wait 800, Tap (100), Wait 100. Total
         // 1200 ms per cycle. Looping. Verify cycle 2's per-cursor
         // timings match cycle 1's (no drift in re-run).
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         world.insert_resource(
             SimTimeline::new(alloc::vec![
@@ -1590,7 +1590,7 @@ mod tests {
     fn tap_on_resolves_to_entity_centre() {
         use crate::types::{Dimension, Viewport};
         use crate::ui::layout::{LayoutStyle, Position};
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
@@ -1625,7 +1625,7 @@ mod tests {
 
     #[test]
     fn tap_on_waits_indefinitely_for_computed_rect() {
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         let target = world.spawn_empty();
 
@@ -1647,7 +1647,7 @@ mod tests {
     fn drag_on_anchors_endpoints_to_entity() {
         use crate::types::{Dimension, Viewport};
         use crate::ui::layout::{LayoutStyle, Position};
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
@@ -1800,10 +1800,10 @@ mod tests {
     /// entity, not the TabContent wrapper that hosts it.
     #[test]
     fn hit_test_finds_switch_when_sw_tab_visible() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         let (mut world, root, _slider, switch) = build_widget_world();
-        world.insert_resource(MonoClock::new(mock::clock_fn));
+        world.insert_resource(MonoClock::from_time_source());
 
         let bar = world.query::<TabBar>().collect();
         let bar = bar.first().copied().expect("TabBar entity");
@@ -1961,10 +1961,10 @@ mod tests {
     /// the Switch's centre must run switch_handler and toggle on.
     #[test]
     fn switch_tap_via_dispatch_input_toggles_on() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         let (mut world, root, _slider, switch) = build_widget_world();
-        world.insert_resource(MonoClock::new(mock::clock_fn));
+        world.insert_resource(MonoClock::from_time_source());
 
         let bar = world
             .query::<TabBar>()
@@ -2032,10 +2032,10 @@ mod tests {
     /// systems blocking subsequent toggles.
     #[test]
     fn switch_n_tap_toggles_n_times() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         let (mut world, root, _slider, switch) = build_widget_world();
-        world.insert_resource(MonoClock::new(mock::clock_fn));
+        world.insert_resource(MonoClock::from_time_source());
 
         let bar = world
             .query::<TabBar>()
@@ -2176,10 +2176,10 @@ mod tests {
     /// so it matches the device runtime path 1:1.
     #[test]
     fn cycle_2_switch_toggle_still_works() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         let (mut world, _root, _slider, switch) = build_widget_world();
-        world.insert_resource(MonoClock::new(mock::clock_fn));
+        world.insert_resource(MonoClock::from_time_source());
 
         world.insert_resource(
             SimTimeline::new(alloc::vec![
@@ -2304,7 +2304,7 @@ mod tests {
     fn pinch_two_rounds_handler_scale_is_continuous() {
         use crate::types::{Dimension, Viewport};
         use crate::ui::layout::{LayoutStyle, Position};
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
@@ -2402,7 +2402,7 @@ mod tests {
     fn pinch_demo_timeline_emits_expand_and_shrink_deltas() {
         use crate::types::{Dimension, Viewport};
         use crate::ui::layout::{LayoutStyle, Position};
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
@@ -2480,7 +2480,7 @@ mod tests {
     fn anchored_pinch_clamps_span_to_target_rect() {
         use crate::types::{Dimension, Viewport};
         use crate::ui::layout::{LayoutStyle, Position};
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
@@ -2534,7 +2534,7 @@ mod tests {
     fn anchored_pinch_recenters_outside_local_center() {
         use crate::types::{Dimension, Viewport};
         use crate::ui::layout::{LayoutStyle, Position};
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
@@ -2588,7 +2588,7 @@ mod tests {
     fn anchored_rotate_gesture_clamps_radius_to_target_rect() {
         use crate::types::{Dimension, Viewport};
         use crate::ui::layout::{LayoutStyle, Position};
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(
@@ -2643,7 +2643,7 @@ mod tests {
     fn pinch_rotate_demo_loop_expands_shrinks_and_rotates() {
         use crate::types::{Dimension, Viewport};
         use crate::ui::layout::{LayoutStyle, Position};
-        let _g = mock::lock();
+        let _g = mock::install();
         let mut world = setup_world();
         let root = install_root(&mut world);
         let target = spawn_widget(

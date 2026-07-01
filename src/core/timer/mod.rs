@@ -163,7 +163,7 @@ pub fn timer_system(world: &mut World) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ecs::time::mock;
+    use crate::core::time::mock;
     use crate::ecs::{MonoClock, World};
     use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -177,7 +177,7 @@ mod tests {
 
     fn fresh_world() -> World {
         let mut w = World::new();
-        w.insert_resource(MonoClock::new(mock::clock_fn));
+        w.insert_resource(MonoClock::from_time_source());
         w
     }
 
@@ -188,7 +188,7 @@ mod tests {
 
     #[test]
     fn pause_freezes_then_resume_restores_remaining_period() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
@@ -226,7 +226,7 @@ mod tests {
 
     #[test]
     fn pause_and_resume_are_idempotent() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         let mut w = fresh_world();
         let e = w.spawn_empty();
@@ -250,7 +250,7 @@ mod tests {
         // 49.7-day boundary: u32 ms rolls from u32::MAX to 0 mid-period.
         // The wrapping_sub due-check must still see the timer as due
         // when next_at is just past the wrap and now is just before.
-        let _g = mock::lock();
+        let _g = mock::install();
         let pre_wrap = u32::MAX - 50;
         mock::set_ms(pre_wrap as u64);
         reset_count();
@@ -274,7 +274,7 @@ mod tests {
 
     #[test]
     fn after_fires_once_then_self_removes() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
@@ -294,7 +294,7 @@ mod tests {
 
     #[test]
     fn repeat_fires_n_times_then_self_removes() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
@@ -322,7 +322,7 @@ mod tests {
 
     #[test]
     fn until_stops_once_next_step_would_pass_deadline() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn every_fires_at_each_period_boundary() {
-        let _g = mock::lock();
+        let _g = mock::install();
         mock::set_ms(0);
         reset_count();
         let mut w = fresh_world();
