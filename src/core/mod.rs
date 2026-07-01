@@ -14,4 +14,5 @@ pub mod persistence;
 pub mod reactive;
 pub mod resource;
 pub mod storage;
+pub mod time;
 pub mod timer;
