@@ -87,6 +87,12 @@ mod imp {
                     depth: self.depth,
                 });
             });
+            crate::core::log::dispatch_span(&crate::core::log::SpanRecord {
+                name: self.name,
+                start_ns: self.start_ns,
+                end_ns,
+                depth: self.depth,
+            });
         }
     }
 
@@ -210,10 +216,10 @@ mod imp {
     impl Drop for Guard {
         fn drop(&mut self) {
             let end_ns = read_clock().map(|f| f()).unwrap_or(0);
-            with_state(|s| {
+            let clock_installed = with_state(|s| {
                 s.depth = s.depth.saturating_sub(1);
                 if s.clock == 0 {
-                    return;
+                    return false;
                 }
                 let r = &mut s.ring;
                 r.events[r.head] = PerfEvent {
@@ -226,7 +232,16 @@ mod imp {
                 if r.len < CAP {
                     r.len += 1;
                 }
+                true
             });
+            if clock_installed {
+                crate::core::log::dispatch_span(&crate::core::log::SpanRecord {
+                    name: self.name,
+                    start_ns: self.start_ns,
+                    end_ns,
+                    depth: self.depth,
+                });
+            }
         }
     }
 

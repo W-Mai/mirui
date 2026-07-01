@@ -39,8 +39,23 @@ pub struct Event<'a> {
     pub args: &'a core::fmt::Arguments<'a>,
 }
 
+#[derive(Clone, Copy)]
+pub struct SpanRecord {
+    pub name: &'static str,
+    pub start_ns: u64,
+    pub end_ns: u64,
+    pub depth: u8,
+}
+
+impl SpanRecord {
+    pub fn elapsed_ns(&self) -> u64 {
+        self.end_ns.saturating_sub(self.start_ns)
+    }
+}
+
 pub trait Sink: Send + Sync {
     fn emit(&self, event: &Event<'_>);
+    fn emit_span(&self, _span: &SpanRecord) {}
     fn enabled(&self, _level: Level, _target: &'static str) -> bool {
         true
     }
@@ -95,6 +110,13 @@ mod registry {
             }
         }
     }
+
+    pub fn dispatch_span_to_all(span: &SpanRecord) {
+        let guard = slots().read().expect("log registry poisoned");
+        for sink in guard.iter() {
+            sink.emit_span(span);
+        }
+    }
 }
 
 #[cfg(not(feature = "std"))]
@@ -133,6 +155,14 @@ mod registry {
             }
         });
     }
+
+    pub fn dispatch_span_to_all(span: &SpanRecord) {
+        with_state(|s| {
+            for sink in s.sinks.iter() {
+                sink.emit_span(span);
+            }
+        });
+    }
 }
 
 pub fn install_sink(sink: Box<dyn Sink>) {
@@ -150,6 +180,10 @@ pub fn dispatch(meta: &'static Metadata, args: core::fmt::Arguments<'_>) {
         args: &args,
     };
     registry::dispatch_to_all(&event);
+}
+
+pub fn dispatch_span(span: &SpanRecord) {
+    registry::dispatch_span_to_all(span);
 }
 
 #[cfg(feature = "std")]
@@ -352,6 +386,35 @@ mod tests {
         crate::info!("fan-out {}", 1);
         assert_eq!(a.lock().unwrap().len(), 1);
         assert_eq!(b.lock().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn span_dispatch_reaches_sinks() {
+        let _lock = TEST_MUTEX.lock().unwrap();
+        set_max_level(Level::Info);
+
+        struct SpanCapture(Arc<Mutex<Vec<(&'static str, u64)>>>);
+        impl Sink for SpanCapture {
+            fn emit(&self, _: &Event<'_>) {}
+            fn emit_span(&self, span: &SpanRecord) {
+                self.0.lock().unwrap().push((span.name, span.elapsed_ns()));
+            }
+        }
+
+        clear_sinks();
+        let rows: Arc<Mutex<Vec<(&'static str, u64)>>> = Arc::new(Mutex::new(Vec::new()));
+        install_sink(Box::new(SpanCapture(rows.clone())));
+
+        crate::core::perf::set_enabled(true);
+        {
+            let _g = crate::core::perf::enter("test.span");
+        }
+        crate::core::perf::set_enabled(false);
+        let _ = crate::core::perf::drain_events();
+
+        let captured = rows.lock().unwrap().clone();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(captured[0].0, "test.span");
     }
 
     #[test]
