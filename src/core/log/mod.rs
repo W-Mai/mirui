@@ -206,18 +206,8 @@ pub fn dispatch_span(span: &SpanRecord) {
     registry::dispatch_span_to_all(span);
 }
 
-#[cfg(feature = "std")]
 fn clock_now_ns() -> u64 {
-    use std::sync::OnceLock;
-    use web_time::Instant;
-    static EPOCH: OnceLock<Instant> = OnceLock::new();
-    let inst = EPOCH.get_or_init(Instant::now);
-    inst.elapsed().as_nanos() as u64
-}
-
-#[cfg(not(feature = "std"))]
-fn clock_now_ns() -> u64 {
-    0
+    crate::core::perf::clock_now_ns()
 }
 
 #[macro_export]

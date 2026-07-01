@@ -115,6 +115,10 @@ mod imp {
     /// std imp uses Instant directly; clock injection is a no-op.
     /// Provided for API symmetry with the no_std imp.
     pub fn set_clock(_f: fn() -> u64) {}
+
+    pub fn clock_now_ns() -> u64 {
+        now_ns()
+    }
 }
 
 #[cfg(not(feature = "std"))]
@@ -249,6 +253,10 @@ mod imp {
         Guard::new(name)
     }
 
+    pub fn clock_now_ns() -> u64 {
+        read_clock().map(|f| f()).unwrap_or(0)
+    }
+
     pub fn drain_events() -> alloc::vec::Vec<PerfEvent> {
         // One critical section: copy + reset atomically so a concurrent
         // trace_span! between the reset and the read can't tear or
@@ -282,7 +290,7 @@ mod imp {
     }
 }
 
-pub use imp::{Guard, PerfEvent, drain_events, enter, set_clock, set_enabled};
+pub use imp::{Guard, PerfEvent, clock_now_ns, drain_events, enter, set_clock, set_enabled};
 
 /// One Chrome trace event as JSON, no trailing newline. Wrap the
 /// stream as `[...]` or NDJSON for <https://ui.perfetto.dev>.
