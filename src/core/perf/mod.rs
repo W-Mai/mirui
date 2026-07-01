@@ -1,15 +1,10 @@
 //! Span-based perf tracing. Use [`crate::trace_span!`] /
 //! `#[crate::trace_fn]`; this module is the storage layer.
 //!
-//! On `std` each [`enter`] guard records `(name, start_ns, end_ns,
-//! depth)` into a thread-local `Vec` for chrome-JSON or per-name
-//! aggregation.
-//!
-//! On `no_std` the recorder uses a global ring buffer (256 events,
-//! drops oldest) protected by a `critical_section`. Time source is
-//! injected via [`set_clock`]; clock plugins (e.g. `SystimerClockPlugin`
-//! on ESP) call it during `build`. Without a clock set, `enter` is a
-//! no-op — same as before.
+//! Clock plumbing lives in [`crate::core::time`]. std auto-anchors on
+//! first read; no_std board plugins call `core::time::set_clock` to
+//! wire a hardware timer. Every `enter` guard reads the same clock as
+//! `mirui::info!` and `App::clock_ns`.
 
 #[cfg(feature = "std")]
 mod imp {
@@ -17,7 +12,6 @@ mod imp {
     use core::sync::atomic::{AtomicBool, Ordering};
     use std::cell::RefCell;
     use std::vec::Vec;
-    use web_time::Instant;
 
     // Off by default; PerfReportPlugin::build flips it on.
     static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -29,15 +23,10 @@ mod imp {
     thread_local! {
         static EVENTS: RefCell<Vec<PerfEvent>> = RefCell::new(Vec::with_capacity(2048));
         static DEPTH: RefCell<u8> = const { RefCell::new(0) };
-        static EPOCH: RefCell<Option<Instant>> = const { RefCell::new(None) };
     }
 
     fn now_ns() -> u64 {
-        EPOCH.with(|e| {
-            let mut slot = e.borrow_mut();
-            let inst = slot.get_or_insert_with(Instant::now);
-            inst.elapsed().as_nanos() as u64
-        })
+        crate::core::time::clock_now_ns()
     }
 
     #[derive(Clone, Copy)]
@@ -112,10 +101,6 @@ mod imp {
         EVENTS.with(|e| core::mem::take(&mut *e.borrow_mut()))
     }
 
-    /// std imp uses Instant directly; clock injection is a no-op.
-    /// Provided for API symmetry with the no_std imp.
-    pub fn set_clock(_f: fn() -> u64) {}
-
     pub fn clock_now_ns() -> u64 {
         now_ns()
     }
@@ -135,12 +120,11 @@ mod imp {
         pub depth: u8,
     }
 
-    /// All recorder state lives here; a single critical_section
-    /// guards every read/write because RV32IMC (ESP32-C3) lacks the
-    /// A extension required for hardware atomics on `AtomicUsize`.
-    /// One-target-at-a-time MCUs make this cheap enough.
+    /// Recorder state — depth and the ring alone. Clock lives in
+    /// [`crate::core::time`]. `critical_section` guards access because
+    /// RV32IMC (ESP32-C3) lacks the A extension required for hardware
+    /// atomics on `AtomicUsize`; one-target-at-a-time MCUs make it cheap.
     struct State {
-        clock: usize, // fn() -> u64 stored as usize; 0 = unset
         depth: u8,
         ring: Ring,
     }
@@ -152,7 +136,6 @@ mod imp {
     }
 
     static mut STATE: State = State {
-        clock: 0,
         depth: 0,
         ring: Ring {
             events: [PerfEvent {
@@ -175,12 +158,9 @@ mod imp {
         })
     }
 
-    pub fn set_clock(f: fn() -> u64) {
-        with_state(|s| s.clock = f as usize);
-    }
-
     /// No-op on `no_std`: the ring buffer already drops oldest, and
-    /// `read_clock` short-circuits when no clock was injected.
+    /// clock readback is skipped when no clock is installed via
+    /// `core::time::set_clock`.
     pub fn set_enabled(_on: bool) {}
 
     pub struct Guard {
@@ -189,21 +169,10 @@ mod imp {
         depth: u8,
     }
 
-    fn read_clock() -> Option<fn() -> u64> {
-        let raw = with_state(|s| s.clock);
-        if raw == 0 {
-            None
-        } else {
-            // SAFETY: only `set_clock` writes this slot, only with a
-            // valid `fn() -> u64` cast to usize.
-            Some(unsafe { core::mem::transmute::<usize, fn() -> u64>(raw) })
-        }
-    }
-
     impl Guard {
         fn new(name: &'static str) -> Self {
-            // Clock fn runs outside the critical section.
-            let start_ns = read_clock().map(|f| f()).unwrap_or(0);
+            // Clock read stays outside the critical section.
+            let start_ns = crate::core::time::clock_now_ns();
             let depth = with_state(|s| {
                 let d = s.depth;
                 s.depth = s.depth.saturating_add(1);
@@ -219,11 +188,12 @@ mod imp {
 
     impl Drop for Guard {
         fn drop(&mut self) {
-            let end_ns = read_clock().map(|f| f()).unwrap_or(0);
-            let clock_installed = with_state(|s| {
+            let end_ns = crate::core::time::clock_now_ns();
+            let clock_installed = crate::core::time::is_clock_installed();
+            with_state(|s| {
                 s.depth = s.depth.saturating_sub(1);
-                if s.clock == 0 {
-                    return false;
+                if !clock_installed {
+                    return;
                 }
                 let r = &mut s.ring;
                 r.events[r.head] = PerfEvent {
@@ -236,7 +206,6 @@ mod imp {
                 if r.len < CAP {
                     r.len += 1;
                 }
-                true
             });
             if clock_installed {
                 crate::core::log::dispatch_span(&crate::core::log::SpanRecord {
@@ -254,7 +223,7 @@ mod imp {
     }
 
     pub fn clock_now_ns() -> u64 {
-        read_clock().map(|f| f()).unwrap_or(0)
+        crate::core::time::clock_now_ns()
     }
 
     pub fn drain_events() -> alloc::vec::Vec<PerfEvent> {
@@ -290,7 +259,7 @@ mod imp {
     }
 }
 
-pub use imp::{Guard, PerfEvent, clock_now_ns, drain_events, enter, set_clock, set_enabled};
+pub use imp::{Guard, PerfEvent, clock_now_ns, drain_events, enter, set_enabled};
 
 /// One Chrome trace event as JSON, no trailing newline. Wrap the
 /// stream as `[...]` or NDJSON for <https://ui.perfetto.dev>.
