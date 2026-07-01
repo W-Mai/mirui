@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.1] - 2026-07-01
+
+### Added
+
+- **wgpu / sdl_gpu / web_canvas backends implement `Renderer::sample_target_region` and `modify_target_region`.** BackgroundBlur, MirrorOf, and TemporalMix render on desktop wgpu, hardware-accelerated SDL2, and the browser canvas the same way they render under `SwRenderer`.
+- **`Renderer::prepare_readback(&mut self, &Rect)` trait method (default no-op).** wgpu overrides it to submit pending DrawOps before `copy_texture_to_buffer` reads the swapchain texture. Eager backends skip the flush.
+- **`Texture::transient` flag + `Texture::with_transient()` builder.** GPU backends that hash pixel-buffer pointers to deduplicate uploads treat transient textures as one-shot and skip the pool.
+
+### Fixed
+
+- **wgpu BackgroundBlur was frozen at frame-1 pixels.** `sample_target_region` returns a fresh owned `Vec` each frame; the allocator was handing every frame the same heap slot, so `TextureKey { ptr, len, w, h, format }` collided and returned the previous frame's GPU texture. `sample_target_region` marks its output transient; `blit_inner` splits into a one-shot upload path for transient inputs and a pooled path for reusable textures.
+- **wgpu framebuffer readback returned B/R-inverted bytes on macOS Metal, DX, and most GLES swapchains.** Swapchains resolve to `Bgra8Unorm`, so `copy_texture_to_buffer` produces B,G,R,A order, but the mirui `Texture` API is canonical RGBA8888. `wgpu_readback_rgba8` now inspects `SurfaceConfiguration.format` and swaps byte 0 with byte 2 for BGRA formats during row-strip.
+- **wgpu `modify_target_region` routes through the standard blit pipeline** instead of `queue.write_texture`. Direct writes only touched the resolve target; the next pass's `LoadOp::Load` on the MSAA attachment would re-resolve stale multisample contents over the modified pixels.
+
+### Internal
+
+- **`WgpuSurface` usage flag adds `COPY_SRC | COPY_DST`** — required for `copy_texture_to_buffer` (readback) and the write-back path.
+- **`WgpuRenderer::Frame` tracks `has_committed_pass`** — the second and later render passes in a frame use `LoadOp::Load` instead of `LoadOp::Clear` so partial-flush picks up already-drawn content.
+
 ## [0.37.0] - 2026-06-30
 
 ### Added
