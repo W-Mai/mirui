@@ -27,6 +27,8 @@ rustc-hash = { version = "2", default-features = false }
 default = ["quad-aa", "log-stderr"]
 std = ["critical-section/std", "dep:web-time"]
 log-stderr = ["std"]
+log-bridge = ["std", "dep:log"]
+tracing-bridge = ["std", "dep:tracing"]
 sdl = ["dep:sdl2", "std"]
 sdl-gpu = ["sdl", "dep:sdl2-sys", "dep:lyon"]
 wgpu = ["dep:wgpu", "dep:winit", "dep:bytemuck", "dep:lyon", "dep:pollster", "std"]
@@ -113,6 +115,16 @@ optional = true
 version = "1"
 default-features = false
 features = ["alloc"]
+optional = true
+
+[dependencies.log]
+version = "0.4"
+default-features = false
+optional = true
+
+[dependencies.tracing]
+version = "0.1"
+default-features = false
 optional = true
 
 # wasm32-only deps for the web-canvas backend.
