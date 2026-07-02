@@ -48,6 +48,7 @@ web-canvas = [
     "dep:wasm-bindgen",
     "dep:wasm-bindgen-futures",
     "std",
+    "log-web-console",
 ]
 linux-fb = ["dep:memmap2", "dep:evdev", "dep:libc", "dep:signal-hook", "std"]
 linux-drm = ["dep:drm", "dep:drm-ffi", "dep:evdev", "dep:libc", "dep:signal-hook", "std"]

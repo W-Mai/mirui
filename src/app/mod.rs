@@ -66,35 +66,60 @@ impl App<crate::surface::framebuf::FramebufSurface<HeadlessFlush>, SwRendererFac
     }
 }
 
-/// Picks the platform-appropriate default sink. NuttX must never
-/// touch stderr — libc `write()` on `/dev/console` blocks until the
-/// host drains the CDC endpoint — so it routes through syslog(3);
-/// everything else on `std` gets `eprintln!`.
-#[cfg(any(
-    all(feature = "log-nuttx-syslog", target_os = "nuttx"),
-    all(feature = "log-stderr", not(target_os = "nuttx")),
-))]
+/// Default-sink lookup table. First matching row wins; the three
+/// `not(...)` guards below make the rows mutually exclusive at
+/// compile time. `None` means the user disabled every default-sink
+/// feature and is expected to call [`App::with_log`] themselves.
+///
+///   wasm  →  `WebConsoleSink`
+///   nuttx →  `NuttxSyslogSink`  (stderr would block on /dev/console)
+///   std   →  `StderrSink`
+#[cfg(feature = "std")]
+fn default_log_sink() -> Option<alloc::boxed::Box<dyn crate::core::log::Sink>> {
+    #[cfg(all(feature = "log-web-console", target_arch = "wasm32"))]
+    {
+        return Some(alloc::boxed::Box::new(
+            crate::core::log::sinks::WebConsoleSink::new(),
+        ));
+    }
+    #[cfg(all(
+        feature = "log-nuttx-syslog",
+        target_os = "nuttx",
+        not(target_arch = "wasm32"),
+    ))]
+    {
+        return Some(alloc::boxed::Box::new(
+            crate::core::log::sinks::NuttxSyslogSink::info(),
+        ));
+    }
+    #[cfg(all(
+        feature = "log-stderr",
+        not(target_os = "nuttx"),
+        not(target_arch = "wasm32"),
+    ))]
+    {
+        return Some(alloc::boxed::Box::new(
+            crate::core::log::sinks::StderrSink::info(),
+        ));
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+#[cfg(feature = "std")]
 fn install_default_log_sink_once() {
     use std::sync::OnceLock;
     static INSTALLED: OnceLock<()> = OnceLock::new();
     INSTALLED.get_or_init(|| {
-        #[cfg(all(feature = "log-nuttx-syslog", target_os = "nuttx"))]
-        crate::core::log::install_sink(alloc::boxed::Box::new(
-            crate::core::log::sinks::NuttxSyslogSink::info(),
-        ));
-        #[cfg(all(feature = "log-stderr", not(target_os = "nuttx")))]
-        crate::core::log::install_sink(alloc::boxed::Box::new(
-            crate::core::log::sinks::StderrSink::info(),
-        ));
+        if let Some(sink) = default_log_sink() {
+            crate::core::log::install_sink(sink);
+        }
     });
 }
 
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn with_factory(backend: B, factory: F) -> Self {
-        #[cfg(any(
-            all(feature = "log-nuttx-syslog", target_os = "nuttx"),
-            all(feature = "log-stderr", not(target_os = "nuttx")),
-        ))]
+        #[cfg(feature = "std")]
         install_default_log_sink_once();
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
