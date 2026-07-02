@@ -53,6 +53,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                         }
                         ctx.world.insert(ctx.entity, Dirty);
                     }
+                    mirui::info!("Tapped entity {:?}, new color: {:?}", ctx.entity, new_color);
                 }
             }
         }
