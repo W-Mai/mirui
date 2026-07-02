@@ -30,6 +30,7 @@ pub mod lazy_list;
 pub mod life;
 pub mod multi_font;
 pub mod nested_scroll;
+pub mod niche;
 pub mod offscreen;
 pub mod offscreen_modal;
 pub mod on_handlers;
