@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-07-02
+
+### Added
+
+- **`mirui::core::log` — structured event stream with `format!`-compatible macros.** Five level macros (`error!` / `warn!` / `info!` / `debug!` / `trace!`) accept the same syntax as `format!` / `println!` — positional / named args, precision, hex, `Debug`, any `core::fmt::*` trait — and reach every installed `Sink` via a single `dispatch` fan-out. Filter miss short-circuits the entire `format_args!` expression, so `debug!("x={:?}", expensive())` skips `expensive()` when the level is gated out.
+- **`Sink` trait + registry.** `emit(&Event)`, `emit_span(&SpanRecord)` (default no-op so log-only sinks pay nothing), `enabled(level, target)`, `flush()`. std registry lives behind `OnceLock<RwLock<Vec<Box<dyn Sink>>>>`; no_std uses `critical_section` around a `static mut Vec`.
+- **Built-in sinks.** `StderrSink` (std, `eprintln!` per event), `RingBufferSink` (std, drop-oldest ring for tests and log-panel widgets), `LogBridge` (feature `log-bridge`, forwards to the `log` crate), `TracingBridge` (feature `tracing-bridge`, dispatches to `tracing::{level}!`), `WebConsoleSink` (feature `log-web-console`, `web_sys::console`), `NuttxSyslogSink` (feature `log-nuttx-syslog`, routes through `syslog(3)` to avoid `write()` blocking on `/dev/console`).
+- **Platform-appropriate default sink.** `App::with_factory` installs one sink automatically per target: wasm → `WebConsoleSink`, NuttX → `NuttxSyslogSink`, other std → `StderrSink`. `default = ["quad-aa", "log-stderr"]`; `web-canvas` implies `log-web-console`; `nuttx` implies `log-nuttx-syslog`.
+- **Compile-time max level features.** `log-max-level-{off,error,warn,info,debug,trace}` (mutually exclusive) gate the macros through a `const STATIC_MAX_LEVEL` — LLVM strips the entire log call site for levels above the cap, so release ESP builds ship zero bytes for filtered events.
+- **`App::with_log(sink)` builder shortcut** for user sinks.
+- **`Sink::emit_span(&SpanRecord)`** hooks `trace_span!` / `#[trace_fn]` guards into the log dispatch layer without disturbing the existing perf ring buffer. Sinks that only care about log events keep costing nothing (default `{}`); sinks that want spans override the one method.
+- **`mirui::core::time` — canonical monotonic-clock entry.** std auto-anchors a process-wide `OnceLock<Instant>` on first read (so `mirui::info!` picks up real uptime without any plugin), no_std keeps the fn-ptr `set_clock` hook. Every downstream reader (`core::perf::now_ns`, `core::log::dispatch`, `ecs::MonoClock`, `App::clock_ns`) delegates here. `is_clock_installed` / `try_clock_now_ns` / `clock_now_ns` / `set_clock` are the public surface.
+- **`MonoClock::from_time_source()`** convenience constructor for `MonoClock::new(core::time::clock_now_ns)`.
+- **`core::time::mock` (std / test only).** `install()` returns an RAII guard that serialises tests against a shared mutex and routes every clock read through a mock buffer for the guard's lifetime.
+- **`tests/time_plumbing.rs` integration suite** covering std auto-anchor monotonicity, mock override + restore, and clock installation invariant.
+
+### Fixed
+
+- **wgpu `BackgroundBlur` was frozen at the first frame.** `TextureKey { ptr, len, w, h, format }` hashed the sample buffer pointer; each frame's readback `Vec` dropped and the allocator handed the next frame the same heap slot, so the cache returned the previous frame's GPU texture. `Texture` gained a `transient: bool` field; `sample_target_region` marks its output transient and the wgpu blit path splits into a one-shot upload path that bypasses the pool for those textures.
+- **wgpu framebuffer readback returned B/R-swapped bytes on macOS Metal, DX, and most GLES swapchains.** Swapchains resolve to `Bgra8Unorm`; the readback path now inspects `SurfaceConfiguration.format` and swaps byte 0 with byte 2 for BGRA formats during row-strip. `BackgroundBlur` / `MirrorOf` / `TemporalMix` and user code driving `sample_target_region` all see canonical RGBA.
+- **`mirui::info!` on wasm silently dispatched to zero sinks.** `App::with_factory`'s auto-install only covered stderr and NuttX syslog; `gallery-web` (which uses `default-features = false`) never installed a sink. Fixed via `web-canvas` implying `log-web-console` and a wasm branch in the default-sink lookup.
+- **std log events reported `time_ns = 0` for the first entry** because `core::perf`'s std imp anchored a thread-local `EPOCH` lazily inside `Instant::now`, making the first `elapsed()` ~0. `core::log::clock_now_ns` now delegates to the process-wide `core::time` epoch and the `App::clock_ns` fallback returns uptime even without a `MonoClock` plugin installed.
+
+### Removed
+
+- **`core::perf::set_clock`.** Board plugins must call `core::time::set_clock` instead. mirui-examples' `SystimerClockPlugin` migrated in the same release cycle.
+- **`ecs::time::mock`.** Migrated ~30 call sites (`input/event/sim.rs`, `core/timer/mod.rs`, `tests/timer_macro.rs`) to `core::time::mock`. The new `install()` also acquires the serial mutex internally so tests no longer chain `mock::lock()` + `mock::install()`.
+- **Legacy NuttX log macros** (`__mirui_nuttx_error!` / `warn!` / `info!` / `debug!`) and their `src/surface/nuttx/log.rs` module. `NuttxSyslogSink` catches the same syslog channel through the standard `mirui::info!` surface.
+
+### Internal
+
+- **Nine `eprintln!` sites migrated to `mirui::info!` / `warn!`.** `fps_summary`, `budget`, `cache_report`, `perf_report`, `linux/surface`, `linux/drm`, `core/persistence` all fan out through the dispatch layer. Plugin default sink bodies collapsed from a `#[cfg(feature = "std")]` / `#[cfg(not)]` pair to a single unconditional fn once `crate::info!` became no_std-safe.
+- **`src/core/log/sinks/ringbuf.rs` deduplicated** — the file was already gated at `sinks/mod.rs` level, so every `#[cfg(not(feature = "std"))]` arm inside was dead code.
+- **`src/render/backends/wgpu/mod.rs`**: `WgpuSurface` usage flag now `RENDER_ATTACHMENT | COPY_SRC | COPY_DST` (readback + write-back need both); `Renderer::prepare_readback(&mut self, &Rect)` trait method (default no-op) submits pending draws before `copy_texture_to_buffer` sees this frame's pixels; `Frame.has_committed_pass` flips subsequent render passes to `LoadOp::Load`; `modify_target_region` routes through `blit_inner` instead of `queue.write_texture` so MSAA resolve carries the modified pixels forward.
+
 ## [0.37.1] - 2026-07-01
 
 ### Added
