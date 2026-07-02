@@ -7,7 +7,6 @@
 mod fb;
 mod input;
 mod ioctl;
-pub mod log;
 mod signal;
 mod surface;
 

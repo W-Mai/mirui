@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 
 use super::fb::FbDevice;
 use super::input::{KeyInput, TouchInput};
-use super::log::{error, warn};
+
 use super::{fb_path_for_display, signal};
 use crate::core::cache::InspectCaches;
 use crate::input::event::input::InputEvent;
@@ -86,7 +86,7 @@ impl NuttxFbSurface {
             Some(p) => match TouchInput::open(p, width, height, off_x, off_y) {
                 Ok(t) => Some(t),
                 Err(err) => {
-                    warn!("mirui::nuttx: skipping touch {p}: {err}");
+                    crate::warn!(target: "mirui::nuttx", "skipping touch {p}: {err}");
                     None
                 }
             },
@@ -97,7 +97,7 @@ impl NuttxFbSurface {
             Some(p) => match KeyInput::open(p) {
                 Ok(k) => Some(k),
                 Err(err) => {
-                    warn!("mirui::nuttx: skipping keyboard {p}: {err}");
+                    crate::warn!(target: "mirui::nuttx", "skipping keyboard {p}: {err}");
                     None
                 }
             },
@@ -105,7 +105,7 @@ impl NuttxFbSurface {
         };
 
         if let Err(err) = signal::install() {
-            error!("mirui::nuttx: sigaction install failed: {err}");
+            crate::error!(target: "mirui::nuttx", "sigaction install failed: {err}");
         }
 
         let scale = compute_scale(cfg.scale, fb.xres, fb.yres, 0, 0);

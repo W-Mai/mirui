@@ -66,11 +66,23 @@ impl App<crate::surface::framebuf::FramebufSurface<HeadlessFlush>, SwRendererFac
     }
 }
 
-#[cfg(feature = "log-stderr")]
-fn install_default_stderr_sink_once() {
+/// Picks the platform-appropriate default sink. NuttX must never
+/// touch stderr — libc `write()` on `/dev/console` blocks until the
+/// host drains the CDC endpoint — so it routes through syslog(3);
+/// everything else on `std` gets `eprintln!`.
+#[cfg(any(
+    all(feature = "log-nuttx-syslog", target_os = "nuttx"),
+    all(feature = "log-stderr", not(target_os = "nuttx")),
+))]
+fn install_default_log_sink_once() {
     use std::sync::OnceLock;
     static INSTALLED: OnceLock<()> = OnceLock::new();
     INSTALLED.get_or_init(|| {
+        #[cfg(all(feature = "log-nuttx-syslog", target_os = "nuttx"))]
+        crate::core::log::install_sink(alloc::boxed::Box::new(
+            crate::core::log::sinks::NuttxSyslogSink::info(),
+        ));
+        #[cfg(all(feature = "log-stderr", not(target_os = "nuttx")))]
         crate::core::log::install_sink(alloc::boxed::Box::new(
             crate::core::log::sinks::StderrSink::info(),
         ));
@@ -79,8 +91,11 @@ fn install_default_stderr_sink_once() {
 
 impl<B: Surface, F: RendererFactory<B>> App<B, F> {
     pub fn with_factory(backend: B, factory: F) -> Self {
-        #[cfg(feature = "log-stderr")]
-        install_default_stderr_sink_once();
+        #[cfg(any(
+            all(feature = "log-nuttx-syslog", target_os = "nuttx"),
+            all(feature = "log-stderr", not(target_os = "nuttx")),
+        ))]
+        install_default_log_sink_once();
         let mut world = World::new();
         world.insert_resource(ScrollDragState::default());
         world.insert_resource(ScrollSpring::default());

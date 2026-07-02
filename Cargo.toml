@@ -27,6 +27,7 @@ rustc-hash = { version = "2", default-features = false }
 default = ["quad-aa", "log-stderr"]
 std = ["critical-section/std", "dep:web-time"]
 log-stderr = ["std"]
+log-nuttx-syslog = ["std"]
 log-bridge = ["std", "dep:log"]
 tracing-bridge = ["std", "dep:tracing"]
 # Compile-time max level (pick at most one); anything above the cap
@@ -50,7 +51,7 @@ web-canvas = [
 ]
 linux-fb = ["dep:memmap2", "dep:evdev", "dep:libc", "dep:signal-hook", "std"]
 linux-drm = ["dep:drm", "dep:drm-ffi", "dep:evdev", "dep:libc", "dep:signal-hook", "std"]
-nuttx = ["dep:libc", "std"]
+nuttx = ["dep:libc", "std", "log-nuttx-syslog"]
 perf = []
 sync-cache = []
 persistence = ["dep:serde", "dep:postcard"]
