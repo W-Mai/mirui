@@ -335,6 +335,7 @@ enum Cmd {
     If(IfCmd),
     Niche(NicheCmd),
     Match(MatchCmd),
+    CodeBlock(proc_macro2::TokenStream),
 }
 
 struct OnCmd {
@@ -356,6 +357,7 @@ impl OnCmd {
 
 struct NicheCmd {
     name: syn::Ident,
+    is_declaration: bool,
     body: Vec<Cmd>,
 }
 
@@ -676,6 +678,7 @@ impl MiruiRune {
             Cmd::If(i) => Self::emit_if(i, world, parent_var),
             Cmd::Niche(n) => Self::emit_niche(n, world, parent_var),
             Cmd::Match(m) => Self::emit_match(m, world, parent_var),
+            Cmd::CodeBlock(ts) => quote! { #ts },
         }
     }
 
@@ -854,7 +857,7 @@ impl MiruiRune {
                     tokens.extend(Self::emit_widget(w, world));
                     child_vars.push(&w.var);
                 }
-                Cmd::Iter(_) | Cmd::If(_) | Cmd::Niche(_) | Cmd::Match(_) => {
+                Cmd::Iter(_) | Cmd::If(_) | Cmd::Niche(_) | Cmd::Match(_) | Cmd::CodeBlock(_) => {
                     deferred_iters.push(child);
                 }
             }
@@ -1067,6 +1070,16 @@ impl MiruiRune {
         world: &proc_macro2::TokenStream,
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
+        if cmd.is_declaration {
+            let msg = format!(
+                "ui!: `@@{}` is a slot declaration and belongs inside a template body, not a call site — fill slots with the single-`@` form `@{}` {{ ... }}",
+                cmd.name, cmd.name,
+            );
+            return quote! {
+                compile_error!(#msg);
+            };
+        }
+
         let niche_name = cmd.name.to_string();
         let niche_var = syn::Ident::new(
             &format!("__niche_{}", cmd.name),
@@ -1609,7 +1622,12 @@ impl DsRune for MiruiRune {
         self.stack.last_mut().unwrap().push(cmd);
     }
 
-    fn inscribe_niche(&mut self, name: &syn::Ident, children: &[DsTreeRef]) {
+    fn inscribe_niche(
+        &mut self,
+        name: &syn::Ident,
+        is_declaration: bool,
+        children: &[DsTreeRef],
+    ) {
         self.stack.push(Vec::new());
         for child in children {
             decipher(child, self);
@@ -1618,9 +1636,17 @@ impl DsRune for MiruiRune {
 
         let cmd = Cmd::Niche(NicheCmd {
             name: name.clone(),
+            is_declaration,
             body,
         });
         self.stack.last_mut().unwrap().push(cmd);
+    }
+
+    fn inscribe_code_block(&mut self, tokens: &proc_macro2::TokenStream) {
+        self.stack
+            .last_mut()
+            .unwrap()
+            .push(Cmd::CodeBlock(tokens.clone()));
     }
 
     fn inscribe_match(
