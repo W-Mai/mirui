@@ -1,9 +1,9 @@
 use mirui::ecs::{Entity, World};
 use mirui::mold;
 use mirui::ui;
+use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::widgets::Text;
 use mirui::ui::{IdMap, NicheMap, Parent, ViewRegistry};
-use mirui::ui::builder::WidgetBuilder;
 
 mold!(MoldCard {
     @@header @@body @@footer
@@ -110,23 +110,41 @@ fn mold_body_expands_nested_widget_tree() {
     let header_slot = map.get("header").expect("header slot registered");
     let body_slot = map.get("body").expect("body slot registered");
 
-    let header_parent = world.get::<Parent>(header_slot).expect("header has parent").0;
+    let header_parent = world
+        .get::<Parent>(header_slot)
+        .expect("header has parent")
+        .0;
     let body_parent = world.get::<Parent>(body_slot).expect("body has parent").0;
-    assert_ne!(header_parent, card, "header slot lives under the wrapper View, not the card root");
-    assert_ne!(body_parent, card, "body slot lives under the wrapper View, not the card root");
+    assert_ne!(
+        header_parent, card,
+        "header slot lives under the wrapper View, not the card root"
+    );
+    assert_ne!(
+        body_parent, card,
+        "body slot lives under the wrapper View, not the card root"
+    );
     assert_ne!(
         header_parent, body_parent,
         "header and body sit inside two different wrapper Views"
     );
 
-    let column_parent = world.get::<Parent>(header_parent).expect("wrapper View has parent").0;
-    let column_parent_of_body = world.get::<Parent>(body_parent).expect("wrapper View has parent").0;
+    let column_parent = world
+        .get::<Parent>(header_parent)
+        .expect("wrapper View has parent")
+        .0;
+    let column_parent_of_body = world
+        .get::<Parent>(body_parent)
+        .expect("wrapper View has parent")
+        .0;
     assert_eq!(
         column_parent, column_parent_of_body,
         "both wrapper Views share the Column"
     );
     assert_eq!(
-        world.get::<Parent>(column_parent).expect("column has parent").0,
+        world
+            .get::<Parent>(column_parent)
+            .expect("column has parent")
+            .0,
         card,
         "Column is the direct child of the NestedCard root"
     );
@@ -225,12 +243,7 @@ fn mold_filled_slot_despawns_fallback() {
     let texts: Vec<Entity> = world.query::<Text>().collect();
     let contents: Vec<String> = texts
         .iter()
-        .map(|&t| {
-            (
-                t,
-                world.get::<Text>(t).unwrap().resolve(&world).to_string(),
-            )
-        })
+        .map(|&t| (t, world.get::<Text>(t).unwrap().resolve(&world).to_string()))
         .map(|(_, s)| s)
         .collect();
 
@@ -256,4 +269,59 @@ fn mold_filled_slot_despawns_fallback() {
             other => panic!("unexpected text {other:?}"),
         }
     }
+}
+
+use mirui::types::Fixed;
+use mirui::ui::Style;
+
+mold!(SizedCard(pad: Fixed, radius: Fixed) {
+    View (
+        border_radius: radius,
+        padding: mirui::ui::layout::Padding::all(pad)
+    ) {
+        @@body
+    }
+});
+
+#[test]
+fn mold_param_values_flow_into_body_attrs() {
+    let mut world = World::new();
+    world.insert_resource(IdMap::new());
+    let mut reg = ViewRegistry::default();
+    reg.insert(sized_card_view());
+    world.insert_resource(reg);
+
+    let root = WidgetBuilder::new(&mut world).id();
+
+    ui! {
+        :(
+            parent: root
+            world: &mut world
+        :)
+
+        SizedCard (
+            pad: Fixed::from_int(8),
+            radius: Fixed::from_int(12)
+        ) {
+            @body { Text ("bordered") {} }
+        }
+    };
+
+    let cards: Vec<Entity> = world.query::<SizedCard>().collect();
+    assert_eq!(cards.len(), 1);
+    let card = cards[0];
+
+    let map = world.get::<NicheMap>(card).unwrap();
+    let body = map.get("body").expect("body slot registered");
+
+    let wrapper = world.get::<Parent>(body).expect("body has parent").0;
+    let style = world
+        .get::<Style>(wrapper)
+        .expect("wrapper View has a Style");
+    assert_eq!(
+        style.border_radius,
+        Fixed::from_int(12),
+        "wrapper border_radius should be the radius param, got {:?}",
+        style.border_radius
+    );
 }

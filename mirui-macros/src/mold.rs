@@ -1,6 +1,7 @@
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
+use syn::punctuated::Punctuated;
 
 use xrune::ds_node::{DsTree, DsTreeRef};
 use xrune::ds_rune::DsRune;
@@ -8,14 +9,40 @@ use xrune::ds_rune::decipher::decipher;
 
 use crate::MiruiRune;
 
+pub struct MoldParam {
+    name: syn::Ident,
+    ty: syn::Type,
+}
+
+impl Parse for MoldParam {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let name: syn::Ident = input.parse()?;
+        input.parse::<syn::Token![:]>()?;
+        let ty: syn::Type = input.parse()?;
+        Ok(MoldParam { name, ty })
+    }
+}
+
 pub struct MoldInput {
     name: syn::Ident,
+    params: Vec<MoldParam>,
     children: Vec<DsTreeRef>,
 }
 
 impl Parse for MoldInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let name: syn::Ident = input.parse()?;
+
+        let params = if input.peek(syn::token::Paren) {
+            let param_buf;
+            syn::parenthesized!(param_buf in input);
+            let punctuated: Punctuated<MoldParam, syn::Token![,]> =
+                Punctuated::parse_terminated(&param_buf)?;
+            punctuated.into_iter().collect()
+        } else {
+            Vec::new()
+        };
+
         let body_buf;
         syn::braced!(body_buf in input);
         let mut children = Vec::new();
@@ -30,12 +57,20 @@ impl Parse for MoldInput {
                 "mold! body must declare at least one node (widget tree or `@@slot`)",
             ));
         }
-        Ok(MoldInput { name, children })
+        Ok(MoldInput {
+            name,
+            params,
+            children,
+        })
     }
 }
 
 pub fn expand(input: TokenStream) -> TokenStream {
-    let MoldInput { name, children } = match syn::parse2(input) {
+    let MoldInput {
+        name,
+        params,
+        children,
+    } = match syn::parse2(input) {
         Ok(m) => m,
         Err(e) => return e.to_compile_error(),
     };
@@ -52,19 +87,59 @@ pub fn expand(input: TokenStream) -> TokenStream {
     }
     let body_tokens = rune.seal();
 
+    let (struct_decl, param_binds) = if params.is_empty() {
+        (
+            quote! {
+                #[derive(Default)]
+                pub struct #name;
+            },
+            quote! {},
+        )
+    } else {
+        let field_defs = params.iter().map(|p| {
+            let n = &p.name;
+            let t = &p.ty;
+            quote! { pub #n: #t }
+        });
+        let bind_names: Vec<_> = params.iter().map(|p| &p.name).collect();
+        (
+            quote! {
+                #[derive(Default)]
+                pub struct #name {
+                    #( #field_defs, )*
+                }
+            },
+            quote! {
+                let __mold_params = match world.get::<#name>(entity) {
+                    Some(p) => (#( ::core::clone::Clone::clone(&p.#bind_names), )*),
+                    None => return,
+                };
+                let ( #( #bind_names, )* ) = __mold_params;
+            },
+        )
+    };
+
+    let existence_check = if params.is_empty() {
+        quote! {
+            if world.get::<#name>(entity).is_none() {
+                return;
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     quote! {
-        #[derive(Default)]
-        pub struct #name;
+        #struct_decl
 
         impl ::mirui::ecs::Component for #name {}
 
         fn #attach_fn(world: &mut ::mirui::ecs::World, entity: ::mirui::ecs::Entity) {
-            if world.get::<#name>(entity).is_none() {
-                return;
-            }
+            #existence_check
             if world.get::<::mirui::ui::NicheMap>(entity).is_some() {
                 return;
             }
+            #param_binds
 
             let mut __mold_niche_map = ::mirui::ui::NicheMap::new();
             let _ = #body_tokens;
