@@ -1,106 +1,101 @@
-use crate::ecs::{Component, Entity, World};
+use crate::ecs::{Entity, World};
+use crate::mold;
 use crate::prelude::*;
+use crate::ui::view::View;
 use crate::ui::widgets::Text;
-use crate::ui::{NicheMap, Parent, view::View};
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
 
-/// Container widget with three named slots.
-///
-/// A `Card` reserves `header` / `body` / `footer` [niches](NicheMap) up
-/// front. Call sites populate any subset with `@name { ... }` blocks
-/// inside the `ui!` macro; unused slots stay in the tree but empty.
-#[derive(Default)]
-pub struct Card;
-
-impl Component for Card {}
-
-fn card_attach(world: &mut World, entity: Entity) {
-    if world.get::<NicheMap>(entity).is_some() {
-        return;
+//~focus-start
+mold!(Card {
+    Column (direction: FlexDirection::Column, grow: 1.0) {
+        View (
+            bg_color: ColorToken::Primary,
+            padding: Padding::all(8),
+            height: 32
+        ) {
+            @@header {
+                Text ("(untitled)", text_color: ColorToken::OnPrimary)
+            }
+        }
+        View (
+            bg_color: ColorToken::SurfaceVariant,
+            padding: Padding::all(12),
+            direction: FlexDirection::Column,
+            grow: 1.0
+        ) {
+            @@body {
+                Text (
+                    "no body yet",
+                    text_color: ColorToken::OnSurfaceVariant
+                )
+            }
+        }
+        View (
+            bg_color: ColorToken::Surface,
+            padding: Padding::all(8),
+            direction: FlexDirection::Row,
+            height: 32
+        ) {
+            @@footer
+        }
     }
-    let header = spawn_slot(world, entity);
-    let body = spawn_slot(world, entity);
-    let footer = spawn_slot(world, entity);
-    world.insert(
-        entity,
-        NicheMap::from([("header", header), ("body", body), ("footer", footer)]),
-    );
-}
-
-fn spawn_slot(world: &mut World, parent: Entity) -> Entity {
-    let e = world.spawn_empty();
-    world.insert(e, Parent(parent));
-    e
-}
-
-fn card_render(
-    _: &mut dyn crate::render::renderer::Renderer,
-    _: &World,
-    _: Entity,
-    _: &crate::types::Rect,
-    _: &mut crate::ui::view::ViewCtx,
-) {
-    // Card is a pure container; Style drives the bg / border fill via
-    // the generic style View. Kept as an empty callback so the widget
-    // still registers in the ViewRegistry.
-}
+});
+//~focus-end
 
 pub fn view() -> View {
-    View::new("Card", 60, card_render)
-        .with_filter::<Card>()
-        .with_attach(card_attach)
+    card_view()
 }
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
-    //~focus-start
     ui! {
         :(
             parent: parent
             world: world
         :)
 
-        Column (grow: 1.0, padding: Padding::all(24), direction: FlexDirection::Column) {
-            Card () {
+        Column (
+            grow: 1.0,
+            padding: Padding::all(24),
+            direction: FlexDirection::Column
+        ) {
+            Card (grow: 1.0) {
                 @header {
-                    Text (
-                        "Alert",
-                        text_color: ColorToken::OnPrimary
-                    )
+                    Text ("Alert", text_color: ColorToken::OnPrimary)
                 }
                 @body {
-                    Text (
-                        "@header / @body / @footer are named niches on the Card widget.",
-                        text_color: ColorToken::OnSurface
-                    )
-                    View (height: 6)
-                    Text (
-                        "Only the slots you fill get children; the rest stay empty and pad the layout.",
-                        text_color: ColorToken::OnSurfaceVariant
-                    )
+                    Column (direction: FlexDirection::Column, grow: 1.0) {
+                        Text (
+                            "@header @body @footer",
+                            text_color: ColorToken::OnSurface
+                        )
+                        Text (
+                            "each pick their own slot.",
+                            text_color: ColorToken::OnSurface
+                        )
+                    }
                 }
                 @footer {
-                    View (
-                        bg_color: ColorToken::Primary,
-                        border_radius: 6,
-                        padding: Padding::all(6)
-                    ) {
-                        Text ("Dismiss", text_color: ColorToken::OnPrimary)
-                    }
+                    Text ("dismiss", text_color: ColorToken::OnSurfaceVariant)
                 }
             }
             View (height: 16)
-            Card () {
+            Card (height: 120) {
                 @body {
-                    Text (
-                        "Body-only Card — the header and footer niches exist but are empty.",
-                        text_color: ColorToken::OnSurface
-                    )
+                    Column (direction: FlexDirection::Column, grow: 1.0) {
+                        Text (
+                            "body only. header uses",
+                            text_color: ColorToken::OnSurface
+                        )
+                        Text (
+                            "its @@ fallback content.",
+                            text_color: ColorToken::OnSurface
+                        )
+                    }
                 }
             }
         }
     };
-    //~focus-end
 }
 
 #[cfg(feature = "std")]
@@ -116,9 +111,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::Children;
-    use crate::ui::IdMap;
-    use crate::ui::ViewRegistry;
+    use crate::ui::{IdMap, NicheMap, Parent, ViewRegistry};
 
     #[test]
     fn build_widgets_smoke() {
@@ -140,16 +133,20 @@ mod tests {
             .expect("card_attach registers NicheMap");
         let body = map.get("body").expect("body niche registered");
 
-        // ui! wires slot children with a Parent component (Children is
-        // only maintained by WidgetBuilder-tracked spawns). Walk the
-        // Text query to confirm the @body slot picked something up.
         let texts: Vec<Entity> = world.query::<crate::ui::widgets::Text>().collect();
-        let body_populated = texts
-            .into_iter()
-            .any(|t| world.get::<Parent>(t).is_some_and(|p| p.0 == body));
+        let body_populated = texts.into_iter().any(|t| {
+            let mut cur = Some(t);
+            while let Some(e) = cur {
+                if e == body {
+                    return true;
+                }
+                cur = world.get::<Parent>(e).map(|p| p.0);
+            }
+            false
+        });
         assert!(
             body_populated,
-            "@body slot should have received Text children via Parent",
+            "@body slot subtree should contain at least one Text",
         );
     }
 }
