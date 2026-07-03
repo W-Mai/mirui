@@ -1797,6 +1797,42 @@ impl DsRune for MiruiRune {
     }
 }
 
+/// Declare a composite widget with named slots, or resolve one to a `View`.
+///
+/// Two forms share the same macro name:
+///
+/// ```rust,ignore
+/// // Declaration — emits `struct Name`, `impl Component`, and inherent
+/// // `__view()` / `__attach()` / `__render()` methods on the type.
+/// mold!(Card {
+///     Column (direction: FlexDirection::Column, grow: 1.0) {
+///         View (bg_color: ColorToken::Primary) { @@header }
+///         View (grow: 1.0) { @@body }
+///         View { @@footer }
+///     }
+/// });
+///
+/// // Expression — expands to `<Card>::__view()`; use at registration sites.
+/// app.with_widget(mold!(Card));
+/// ```
+///
+/// Slot syntax inside a mold body:
+///
+/// - `@@name` declares a slot the mold exposes. An optional block after the
+///   name (`@@name { ... }`) becomes the slot's fallback content; if the call
+///   site does not fill the slot, the fallback stays.
+/// - Reserved for call sites: `@name { ... }` fills the slot, replacing any
+///   fallback via `despawn_subtree` before expanding the caller's tree.
+///
+/// A typo at the call site (`@bdoy` instead of `@body`) is caught at compile
+/// time as `no associated item __slot_bdoy found for struct Card`, with a
+/// similar-name hint from rustc.
+///
+/// Parameterised molds (`mold!(Name(field: Ty, ...) { <body> })`) turn the
+/// listed fields into component storage that the mold body can reference by
+/// name in any attribute expression. Field types must implement `Default`
+/// — the standard constraint every component widget already lives under,
+/// because `ui!` fills components with `Component { ..Default::default() }`.
 #[proc_macro]
 pub fn mold(input: TokenStream) -> TokenStream {
     mold::expand(input.into()).into()
