@@ -1,8 +1,9 @@
 use proc_macro2::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 
+use xrune::ds_node::node_enum::DsNode;
 use xrune::ds_node::{DsTree, DsTreeRef};
 use xrune::ds_rune::DsRune;
 use xrune::ds_rune::decipher::decipher;
@@ -93,6 +94,23 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
     }
     let body_tokens = rune.seal();
 
+    let mut slot_names = Vec::new();
+    for child in children {
+        collect_decl_slots(child, &mut slot_names);
+    }
+
+    let slot_methods: Vec<TokenStream> = slot_names
+        .iter()
+        .map(|slot| {
+            let m = format_ident!("__slot_{}", slot);
+            quote! {
+                #[doc(hidden)]
+                #[allow(non_snake_case)]
+                pub fn #m() {}
+            }
+        })
+        .collect();
+
     let (struct_decl, param_binds) = if params.is_empty() {
         (
             quote! {
@@ -141,6 +159,8 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
         impl ::mirui::ecs::Component for #name {}
 
         impl #name {
+            #( #slot_methods )*
+
             #[doc(hidden)]
             pub fn __attach(world: &mut ::mirui::ecs::World, entity: ::mirui::ecs::Entity) {
                 #existence_check
@@ -169,5 +189,20 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
                     .with_attach(Self::__attach)
             }
         }
+    }
+}
+
+fn collect_decl_slots(tree: &DsTreeRef, out: &mut Vec<String>) {
+    let borrowed = tree.borrow();
+    if let DsNode::Niche(n) = borrowed.get_node()
+        && n.is_declaration()
+    {
+        let name = n.get_name().to_string();
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    for child in borrowed.get_children() {
+        collect_decl_slots(child, out);
     }
 }

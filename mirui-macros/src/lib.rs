@@ -361,6 +361,7 @@ struct NicheCmd {
     name: syn::Ident,
     is_declaration: bool,
     mold_slot_var: Option<syn::Ident>,
+    parent_widget: Option<syn::Ident>,
     body: Vec<Cmd>,
 }
 
@@ -452,6 +453,7 @@ struct MiruiRune {
     world_expr: proc_macro2::TokenStream,
     parent_expr: proc_macro2::TokenStream,
     stack: Vec<Vec<Cmd>>,
+    widget_kind_stack: Vec<Option<syn::Ident>>,
     counter: usize,
     mold_mode: bool,
 }
@@ -462,6 +464,7 @@ impl MiruiRune {
             world_expr: quote! { __world },
             parent_expr: quote! { __parent },
             stack: vec![Vec::new()],
+            widget_kind_stack: Vec::new(),
             counter: 0,
             mold_mode: false,
         }
@@ -472,6 +475,7 @@ impl MiruiRune {
             world_expr: world,
             parent_expr: entity,
             stack: vec![Vec::new()],
+            widget_kind_stack: Vec::new(),
             counter: 0,
             mold_mode: true,
         }
@@ -1133,6 +1137,15 @@ impl MiruiRune {
         );
         let niche_var_ts = quote! { #niche_var };
 
+        let slot_check = if let Some(pw) = &cmd.parent_widget {
+            let slot_method = syn::Ident::new(&format!("__slot_{}", cmd.name), cmd.name.span());
+            quote! {
+                let _ = <#pw>::#slot_method;
+            }
+        } else {
+            quote! {}
+        };
+
         let mut body_tokens = proc_macro2::TokenStream::new();
         for child in &cmd.body {
             body_tokens.extend(Self::emit_cmd(child, world, &niche_var_ts));
@@ -1152,6 +1165,7 @@ impl MiruiRune {
 
         let widget_label = quote! { stringify!(#parent_var) };
         quote! {
+            #slot_check
             let #niche_var = match (#world).get::<mirui::ui::NicheMap>(#parent_var) {
                 Some(map) => match map.get(#niche_name) {
                     Some(e) => e,
@@ -1594,8 +1608,15 @@ impl DsRune for MiruiRune {
             .collect();
 
         self.stack.push(Vec::new());
+        let pushed_widget_kind = kind == WidgetKind::Component;
+        if pushed_widget_kind {
+            self.widget_kind_stack.push(Some(name.clone()));
+        }
         for child in children {
             decipher(child, self);
+        }
+        if pushed_widget_kind {
+            self.widget_kind_stack.pop();
         }
         let my_children = self.stack.pop().unwrap();
 
@@ -1678,6 +1699,8 @@ impl DsRune for MiruiRune {
     }
 
     fn inscribe_niche(&mut self, name: &syn::Ident, is_declaration: bool, children: &[DsTreeRef]) {
+        let parent_widget = self.widget_kind_stack.last().and_then(|w| w.clone());
+
         self.stack.push(Vec::new());
         for child in children {
             decipher(child, self);
@@ -1697,6 +1720,7 @@ impl DsRune for MiruiRune {
             name: name.clone(),
             is_declaration,
             mold_slot_var,
+            parent_widget,
             body,
         });
         self.stack.last_mut().unwrap().push(cmd);
