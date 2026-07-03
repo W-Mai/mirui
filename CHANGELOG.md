@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.1] - 2026-07-03
+
+### Added
+
+- **`mold!(Type)` expression form.** `mold!` now takes an identifier alone and expands to `<Type>::__view()`, so registration sites read as one uniform idiom: `app.with_widget(mold!(Card))` / `reg.insert(mold!(Card))`. The generated `pub fn card_view()` free function is gone; `__view` / `__attach` / `__render` sit on the type as inherent methods (doc-hidden except `__view`), no snake_case naming convention leaks through the public surface.
+- **Compile-time `@name` slot typo detection.** `mold!` decl emits a doc-hidden `__slot_<name>()` inherent method per declared slot. `ui!` at the fill site emits one `let _ = <Widget>::__slot_<name>;` sanity call, so `@bdy` on a `Card` becomes `rustc: no associated item __slot_bdy found for struct Card; help: there is an associated function __slot_body with a similar name`, no runtime panic. Non-mold widget types that want to opt into the same check add matching inherent methods.
+- **`mold!` docstring** covering the two forms, `@@` vs `@` sigil semantics, typo behaviour, and the `Default` bound on parameterised molds. Fills the empty entry the crate had on docs.rs.
+
+### Breaking
+
+- **`mold!` decl no longer emits `pub fn <name>_view()`.** Call sites should use the `mold!(Type)` expression form instead of `card_view()`. Non-mold code paths (hand-written `View::new(...).with_attach(...)`) are unaffected.
+- **`ui!`'s `@name` fill inside a Component widget requires `__slot_<name>`.** Hand-written widget types that expose a `NicheMap` and want `ui!` callers to fill slots must add `impl MyWidget { pub fn __slot_<name>() {} }` for every valid slot; otherwise the caller sees a rustc error. Every mold-generated widget already emits these methods.
+
 ## [0.39.0] - 2026-07-03
 
 ### Added
