@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] - 2026-07-03
+
+### Added
+
+- **`mold!` macro — declare a composite widget with named slots the call site fills by name.** `mold!(Card { <body> })` generates a component struct, an attach function, and a `View` wired to a no-op render callback. The body is a full DSL tree — widgets, layouts, `walk`, `if`, `match`, and code blocks all work inside a mold. Wrapping a slot with another widget (`View { @@header }`) puts the slot inside the wrapper's tree, so slot content inherits the wrapper's styling. The generated attach fn expands the body under the entity that carries the mold's component, registers each declared slot in a `NicheMap`, and threads any fallback children through the slot entity.
+- **`@@name` niche declaration sigil inside mold bodies** — the double-`@` form marks a slot the mold exposes. `@@name` accepts an optional block whose children become the slot's fallback content; unfilled slots keep that fallback, filled slots replace it. `@name { ... }` at the call site drops the existing children through `despawn_subtree` and expands the caller's tree.
+- **`${ ... }` code block splice inside `ui!`.** The block captures Rust between the sigil and the matching brace verbatim and pastes it back at the current position in the generated code. Both statement position (inside a widget body) and top-level position work.
+- **Parameterised molds — `mold!(Name(field: Ty, ...) { <body> })`.** Fields become typed struct members; the attach fn clones them off the component and binds them as locals with the same names the caller wrote, so any attribute expression in the mold body can reference them directly. Call sites pass values through the standard `Component { field: value }` path. Parameter types must implement `Default` (the same constraint every built-in widget already lives under).
+
+### Fixed
+
+- **`gallery`'s niche demo previously rendered as three collapsed rectangles.** The hand-written `Card` widget declared `header` / `body` / `footer` niches but spawned bare slot entities with no layout wrapper. Replaced with a `mold!` template whose body wraps each slot in a styled `View`: primary-tinted header strip, surface-variant body panel with column layout, right-justified footer row. The demo call sites now show one Card with all three slots filled and one Card that only fills body — the header slot keeps the mold's `@@header { "(untitled)" }` fallback content.
+- **`xrune-fmt` 1.9.2 collapse of single-statement `on Tap { ... }` bodies** hadn't been applied to eight gallery demo files. Ran the formatter over them.
+
 ## [0.38.0] - 2026-07-02
 
 ### Added
