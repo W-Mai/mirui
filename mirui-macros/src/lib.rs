@@ -9,6 +9,8 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::parse_macro_input;
 
+mod mold;
+
 use xrune::ds_node::ds_attr::DsAttr;
 use xrune::ds_node::{DsRoot, DsTreeRef};
 use xrune::ds_rune::DsRune;
@@ -358,6 +360,7 @@ impl OnCmd {
 struct NicheCmd {
     name: syn::Ident,
     is_declaration: bool,
+    mold_slot_var: Option<syn::Ident>,
     body: Vec<Cmd>,
 }
 
@@ -450,6 +453,7 @@ struct MiruiRune {
     parent_expr: proc_macro2::TokenStream,
     stack: Vec<Vec<Cmd>>,
     counter: usize,
+    mold_mode: bool,
 }
 
 impl MiruiRune {
@@ -459,6 +463,17 @@ impl MiruiRune {
             parent_expr: quote! { __parent },
             stack: vec![Vec::new()],
             counter: 0,
+            mold_mode: false,
+        }
+    }
+
+    fn new_mold(world: proc_macro2::TokenStream, entity: proc_macro2::TokenStream) -> Self {
+        Self {
+            world_expr: world,
+            parent_expr: entity,
+            stack: vec![Vec::new()],
+            counter: 0,
+            mold_mode: true,
         }
     }
 
@@ -1071,8 +1086,39 @@ impl MiruiRune {
         parent_var: &proc_macro2::TokenStream,
     ) -> proc_macro2::TokenStream {
         if cmd.is_declaration {
+            if let Some(slot_var) = &cmd.mold_slot_var {
+                let slot_name = cmd.name.to_string();
+                let slot_var_ts = quote! { #slot_var };
+                let mut fallback = proc_macro2::TokenStream::new();
+                for child in &cmd.body {
+                    fallback.extend(Self::emit_cmd(child, world, &slot_var_ts));
+                    if let Cmd::Widget(w) = child {
+                        let child_var = &w.var;
+                        fallback.extend(quote! {
+                            {
+                                use mirui::ui::{Children, Parent};
+                                (#world).insert(#child_var, Parent(#slot_var_ts));
+                                if let Some(children) = (#world).get_mut::<Children>(#slot_var_ts) {
+                                    children.0.push(#child_var);
+                                }
+                            }
+                        });
+                    }
+                }
+                return quote! {
+                    let #slot_var = ::mirui::ui::builder::WidgetBuilder::new(#world).id();
+                    (#world).insert(#slot_var, ::mirui::ui::Parent(#parent_var));
+                    if let Some(children) = (#world).get_mut::<::mirui::ui::Children>(#parent_var) {
+                        children.0.push(#slot_var);
+                    } else {
+                        (#world).insert(#parent_var, ::mirui::ui::Children(::std::vec![#slot_var]));
+                    }
+                    __mold_niche_map.insert(#slot_name, #slot_var);
+                    #fallback
+                };
+            }
             let msg = format!(
-                "ui!: `@@{}` is a slot declaration and belongs inside a template body, not a call site — fill slots with the single-`@` form `@{}` {{ ... }}",
+                "ui!: `@@{}` is a slot declaration; use it inside `mold!` bodies, not `ui!` — call sites fill slots with the single-`@` form `@{}` {{ ... }}",
                 cmd.name, cmd.name,
             );
             return quote! {
@@ -1120,6 +1166,15 @@ impl MiruiRune {
                     #widget_label
                 ),
             };
+            {
+                let __existing: ::std::vec::Vec<::mirui::ecs::Entity> = (#world)
+                    .get::<::mirui::ui::Children>(#niche_var_ts)
+                    .map(|c| c.0.clone())
+                    .unwrap_or_default();
+                for __e in __existing {
+                    ::mirui::ui::despawn_subtree(#world, __e);
+                }
+            }
             #body_tokens
         }
     }
@@ -1622,21 +1677,26 @@ impl DsRune for MiruiRune {
         self.stack.last_mut().unwrap().push(cmd);
     }
 
-    fn inscribe_niche(
-        &mut self,
-        name: &syn::Ident,
-        is_declaration: bool,
-        children: &[DsTreeRef],
-    ) {
+    fn inscribe_niche(&mut self, name: &syn::Ident, is_declaration: bool, children: &[DsTreeRef]) {
         self.stack.push(Vec::new());
         for child in children {
             decipher(child, self);
         }
         let body = self.stack.pop().unwrap();
 
+        let mold_slot_var = if is_declaration && self.mold_mode {
+            Some(syn::Ident::new(
+                &format!("__mold_slot_{}", name),
+                name.span(),
+            ))
+        } else {
+            None
+        };
+
         let cmd = Cmd::Niche(NicheCmd {
             name: name.clone(),
             is_declaration,
+            mold_slot_var,
             body,
         });
         self.stack.last_mut().unwrap().push(cmd);
@@ -1711,6 +1771,11 @@ impl DsRune for MiruiRune {
             quote! { { #tokens } }
         }
     }
+}
+
+#[proc_macro]
+pub fn mold(input: TokenStream) -> TokenStream {
+    mold::expand(input.into()).into()
 }
 
 #[proc_macro]
