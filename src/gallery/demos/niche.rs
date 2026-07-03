@@ -1,7 +1,6 @@
 use crate::ecs::{Entity, World};
 use crate::mold;
 use crate::prelude::*;
-use crate::ui::view::View;
 use crate::ui::widgets::Text;
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
@@ -42,10 +41,6 @@ mold!(Card {
     }
 });
 //~focus-end
-
-pub fn view() -> View {
-    card_view()
-}
 
 pub fn build_widgets(world: &mut World, parent: Entity) {
     ui! {
@@ -104,7 +99,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_widget(view());
+    app.with_widget(mold!(Card));
     build_widgets(&mut app.world, parent);
 }
 
@@ -118,7 +113,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let mut reg = ViewRegistry::default();
-        reg.insert(view());
+        reg.insert(mold!(Card));
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
 

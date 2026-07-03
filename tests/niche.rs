@@ -1,45 +1,17 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::{Entity, World};
+    use mirui::mold;
     use mirui::ui;
     use mirui::ui::IdMap;
     use mirui::ui::NicheMap;
     use mirui::ui::Parent;
-    use mirui::ui::View;
     use mirui::ui::ViewRegistry;
     use mirui::ui::builder::WidgetBuilder;
 
-    #[derive(Default)]
-    pub struct Card;
-
-    fn card_attach(world: &mut World, entity: Entity) {
-        if world.get::<NicheMap>(entity).is_some() {
-            return;
-        }
-        let header = world.spawn_empty();
-        world.insert(header, Parent(entity));
-        let body = world.spawn_empty();
-        world.insert(body, Parent(entity));
-        let footer = world.spawn_empty();
-        world.insert(footer, Parent(entity));
-        world.insert(
-            entity,
-            NicheMap::from([("header", header), ("body", body), ("footer", footer)]),
-        );
-    }
-
-    fn no_op_render(
-        _: &mut dyn mirui::render::renderer::Renderer,
-        _: &World,
-        _: Entity,
-        _: &mirui::types::Rect,
-        _: &mut mirui::ui::view::ViewCtx,
-    ) {
-    }
-
-    fn card_view() -> View {
-        View::new("Card", 60, no_op_render).with_attach(card_attach)
-    }
+    mold!(Card {
+        @@header @@body @@footer
+    });
 
     #[test]
     fn niche_resolves_to_anchor() {
@@ -48,7 +20,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let mut reg = ViewRegistry::default();
-        reg.insert(card_view());
+        reg.insert(mold!(Card));
         world.insert_resource(reg);
 
         let root = WidgetBuilder::new(&mut world).id();

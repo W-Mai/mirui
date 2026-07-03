@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::quote;
 use syn::parse::{Parse, ParseStream};
 use syn::punctuated::Punctuated;
 
@@ -23,15 +23,22 @@ impl Parse for MoldParam {
     }
 }
 
-pub struct MoldInput {
-    name: syn::Ident,
-    params: Vec<MoldParam>,
-    children: Vec<DsTreeRef>,
+pub enum MoldInput {
+    Decl {
+        name: syn::Ident,
+        params: Vec<MoldParam>,
+        children: Vec<DsTreeRef>,
+    },
+    Expr(syn::Ident),
 }
 
 impl Parse for MoldInput {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let name: syn::Ident = input.parse()?;
+
+        if input.is_empty() {
+            return Ok(MoldInput::Expr(name));
+        }
 
         let params = if input.peek(syn::token::Paren) {
             let param_buf;
@@ -57,7 +64,7 @@ impl Parse for MoldInput {
                 "mold! body must declare at least one node (widget tree or `@@slot`)",
             ));
         }
-        Ok(MoldInput {
+        Ok(MoldInput::Decl {
             name,
             params,
             children,
@@ -66,23 +73,22 @@ impl Parse for MoldInput {
 }
 
 pub fn expand(input: TokenStream) -> TokenStream {
-    let MoldInput {
-        name,
-        params,
-        children,
-    } = match syn::parse2(input) {
-        Ok(m) => m,
-        Err(e) => return e.to_compile_error(),
-    };
+    match syn::parse2::<MoldInput>(input) {
+        Ok(MoldInput::Expr(name)) => quote! { <#name>::__view() },
+        Ok(MoldInput::Decl {
+            name,
+            params,
+            children,
+        }) => expand_decl(name, params, &children),
+        Err(e) => e.to_compile_error(),
+    }
+}
 
-    let attach_fn = format_ident!("{}_attach", to_snake_case(&name.to_string()));
-    let view_fn = format_ident!("{}_view", to_snake_case(&name.to_string()));
-    let render_fn = format_ident!("__{}_render", to_snake_case(&name.to_string()));
-
+fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef]) -> TokenStream {
     let world_expr: TokenStream = quote! { world };
     let entity_expr: TokenStream = quote! { entity };
     let mut rune = MiruiRune::new_mold(world_expr.clone(), entity_expr.clone());
-    for child in &children {
+    for child in children {
         decipher(child, &mut rune);
     }
     let body_tokens = rune.seal();
@@ -134,41 +140,34 @@ pub fn expand(input: TokenStream) -> TokenStream {
 
         impl ::mirui::ecs::Component for #name {}
 
-        fn #attach_fn(world: &mut ::mirui::ecs::World, entity: ::mirui::ecs::Entity) {
-            #existence_check
-            if world.get::<::mirui::ui::NicheMap>(entity).is_some() {
-                return;
+        impl #name {
+            #[doc(hidden)]
+            pub fn __attach(world: &mut ::mirui::ecs::World, entity: ::mirui::ecs::Entity) {
+                #existence_check
+                if world.get::<::mirui::ui::NicheMap>(entity).is_some() {
+                    return;
+                }
+                #param_binds
+
+                let mut __mold_niche_map = ::mirui::ui::NicheMap::new();
+                let _ = #body_tokens;
+                world.insert(entity, __mold_niche_map);
             }
-            #param_binds
 
-            let mut __mold_niche_map = ::mirui::ui::NicheMap::new();
-            let _ = #body_tokens;
-            world.insert(entity, __mold_niche_map);
-        }
+            #[doc(hidden)]
+            pub fn __render(
+                _: &mut dyn ::mirui::render::renderer::Renderer,
+                _: &::mirui::ecs::World,
+                _: ::mirui::ecs::Entity,
+                _: &::mirui::types::Rect,
+                _: &mut ::mirui::ui::view::ViewCtx,
+            ) {}
 
-        fn #render_fn(
-            _: &mut dyn ::mirui::render::renderer::Renderer,
-            _: &::mirui::ecs::World,
-            _: ::mirui::ecs::Entity,
-            _: &::mirui::types::Rect,
-            _: &mut ::mirui::ui::view::ViewCtx,
-        ) {}
-
-        pub fn #view_fn() -> ::mirui::ui::View {
-            ::mirui::ui::View::new(stringify!(#name), 60, #render_fn)
-                .with_filter::<#name>()
-                .with_attach(#attach_fn)
+            pub fn __view() -> ::mirui::ui::View {
+                ::mirui::ui::View::new(stringify!(#name), 60, Self::__render)
+                    .with_filter::<Self>()
+                    .with_attach(Self::__attach)
+            }
         }
     }
-}
-
-fn to_snake_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len() + 4);
-    for (i, ch) in s.char_indices() {
-        if ch.is_uppercase() && i > 0 {
-            out.push('_');
-        }
-        out.extend(ch.to_lowercase());
-    }
-    out
 }

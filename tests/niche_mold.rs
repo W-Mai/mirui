@@ -25,7 +25,7 @@ fn mold_generates_niche_map_via_attach() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(mold_card_view());
+    reg.insert(mold!(MoldCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();
@@ -83,7 +83,7 @@ fn mold_body_expands_nested_widget_tree() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(nested_card_view());
+    reg.insert(mold!(NestedCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();
@@ -177,7 +177,7 @@ fn mold_unfilled_slot_keeps_fallback() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(fallback_card_view());
+    reg.insert(mold!(FallbackCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();
@@ -217,7 +217,7 @@ fn mold_filled_slot_despawns_fallback() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(fallback_card_view());
+    reg.insert(mold!(FallbackCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();
@@ -288,7 +288,7 @@ fn mold_param_values_flow_into_body_attrs() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(sized_card_view());
+    reg.insert(mold!(SizedCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();
