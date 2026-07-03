@@ -31,9 +31,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 40,
                 border_radius: 8,
                 text: "toggle panel"
-            ) on Tap {
-                toggle.update(|v| *v = !*v);
-            }
+            ) on Tap { toggle.update(|v| *v = !*v); }
             if $cond {
                 View (
                     bg_color: Color::rgb(63, 185, 80),
@@ -57,9 +55,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 40,
                 border_radius: 8,
                 text: "cycle mode"
-            ) on Tap {
-                cycle.update(|m| *m = (*m + 1) % 3);
-            }
+            ) on Tap { cycle.update(|m| *m = (*m + 1) % 3); }
             match $sel {
                 0 => {
                     View (

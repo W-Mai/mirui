@@ -65,9 +65,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 32,
                 border_radius: 6,
                 text: text
-            ) on Tap {
-                toggle.update(|d| *d = !*d);
-            }
+            ) on Tap { toggle.update(|d| *d = !*d); }
         };
     }
 }

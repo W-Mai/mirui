@@ -67,9 +67,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                     Fixed::from_int(90) + *dx,
                     Fixed::from_int(90) + *dy,
                 );
-            } on DragEnd {
-                ui::set_position(ctx.world, ctx.entity, Fixed::from_int(90), Fixed::from_int(90));
-            }
+            } on DragEnd { ui::set_position(ctx.world, ctx.entity, Fixed::from_int(90), Fixed::from_int(90)); }
             View (
                 bg_color: Color::rgb(210, 168, 255),
                 position: Position::Absolute,

@@ -28,18 +28,14 @@ pub fn build_widgets(world: &mut World, parent: Entity, count: Signal<i32>) {
                     height: 40,
                     border_radius: 8,
                     text: "-"
-                ) on Tap {
-                    dec.update(|n| *n -= 1);
-                }
+                ) on Tap { dec.update(|n| *n -= 1); }
                 View (
                     bg_color: Color::rgb(63, 185, 80),
                     width: 60,
                     height: 40,
                     border_radius: 8,
                     text: "+"
-                ) on Tap {
-                    inc.update(|n| *n += 1);
-                }
+                ) on Tap { inc.update(|n| *n += 1); }
             }
             View (
                 height: 32,

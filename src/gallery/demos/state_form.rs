@@ -44,18 +44,14 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 36,
                 border_radius: 6,
                 text: "name (tap to fill)"
-            ) on Tap {
-                toggle_name.update(|v| *v = !*v);
-            }
+            ) on Tap { toggle_name.update(|v| *v = !*v); }
             View (
                 bg_color: ${ on_off(agree_bg.get()) },
                 width: 200,
                 height: 36,
                 border_radius: 6,
                 text: "agree (tap to toggle)"
-            ) on Tap {
-                toggle_agree.update(|v| *v = !*v);
-            }
+            ) on Tap { toggle_agree.update(|v| *v = !*v); }
             View (
                 bg_color: ${ on_off(submit_bg.get()) },
                 width: 200,

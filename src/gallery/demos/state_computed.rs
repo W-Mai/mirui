@@ -31,9 +31,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
                 height: 40,
                 border_radius: 8,
                 text: "n + 1"
-            ) on Tap {
-                inc.update(|v| *v += 1);
-            }
+            ) on Tap { inc.update(|v| *v += 1); }
         }
     };
     //~focus-end
