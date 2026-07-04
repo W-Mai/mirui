@@ -1846,29 +1846,79 @@ pub fn ui_scope(attr: TokenStream, item: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn ui(input: TokenStream) -> TokenStream {
-    let root = parse_macro_input!(input as DsRoot);
+    let input2: proc_macro2::TokenStream = input.into();
+
+    if let Some(call) = try_parse_fn_call_form(&input2) {
+        return expand_ui_fn_call(call).into();
+    }
+
+    let root = match syn::parse2::<DsRoot>(input2) {
+        Ok(r) => r,
+        Err(e) => return e.to_compile_error().into(),
+    };
     let mut rune = MiruiRune::new();
 
     let context_attrs = root.get_context_attrs();
-    if let Some(world_attr) = context_attrs
+    let world_override = context_attrs
         .iter()
         .find(|a| a.name.as_ref().is_some_and(|n| n == "world"))
-    {
-        let world_expr = &world_attr.value;
-        rune.world_expr = quote! { #world_expr };
-    } else {
-        return syn::Error::new(proc_macro2::Span::call_site(), "missing `world` in context")
-            .to_compile_error()
-            .into();
-    }
+        .map(|a| {
+            let v = &a.value;
+            quote! { #v }
+        });
+    let parent_override = context_attrs
+        .iter()
+        .find(|a| a.name.as_ref().is_some_and(|n| n == "parent"))
+        .map(|a| {
+            let v = &a.value;
+            quote! { #v }
+        });
 
-    let parent = root.get_parent();
-    rune.parent_expr = quote! { #parent };
+    rune.world_expr = world_override
+        .clone()
+        .unwrap_or_else(|| quote! { cx.world_mut() });
+    rune.parent_expr = quote! { __mirui_parent };
 
     rune.inscribe_root(&root.get_parent());
     let content = root.get_content();
     decipher(&content, &mut rune);
-    TokenStream::from(rune.seal())
+    let body = rune.seal();
+
+    let parent_bind = match parent_override {
+        Some(expr) => quote! { let __mirui_parent: ::mirui::ecs::Entity = #expr; },
+        None => quote! { let __mirui_parent: ::mirui::ecs::Entity = cx.parent(); },
+    };
+
+    TokenStream::from(quote! {
+        {
+            #parent_bind
+            #body
+        }
+    })
+}
+
+fn try_parse_fn_call_form(input: &proc_macro2::TokenStream) -> Option<syn::ExprCall> {
+    let call: syn::ExprCall = syn::parse2(input.clone()).ok()?;
+    let path = match &*call.func {
+        syn::Expr::Path(p) => p,
+        _ => return None,
+    };
+    let last = path.path.segments.last()?;
+    let name = last.ident.to_string();
+    let first_char = name.chars().next()?;
+    if first_char.is_ascii_lowercase() || first_char == '_' {
+        Some(call)
+    } else {
+        None
+    }
+}
+
+fn expand_ui_fn_call(call: syn::ExprCall) -> proc_macro2::TokenStream {
+    let func = &call.func;
+    let args = &call.args;
+    quote! {
+        #func(cx, #args)
+    }
 }
 
 #[proc_macro]
