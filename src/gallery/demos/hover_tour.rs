@@ -7,10 +7,12 @@ use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "std")]
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
+use crate::ui::UiScope;
 #[cfg(feature = "std")]
 use alloc::vec;
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     let card_a = Color::rgb(34, 74, 44);
     let card_b = Color::rgb(82, 38, 38);
     let card_c = Color::rgb(34, 56, 86);
@@ -19,11 +21,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             padding: Padding::all(28)
@@ -97,7 +94,8 @@ where
     app.world.insert_resource(timeline);
     app.add_system(sim_timeline_system::system());
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -111,7 +109,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

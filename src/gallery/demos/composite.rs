@@ -2,6 +2,7 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::render::command::CompositeMode;
+use crate::ui::UiScope;
 use crate::ui::widgets::Image;
 
 const MODES: &[(&str, &str, CompositeMode)] = &[
@@ -18,13 +19,9 @@ const CELL_W: i32 = 96;
 const CELL_H: i32 = 96;
 const FG: i32 = 72;
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             bg_color: ColorToken::Surface,
@@ -96,5 +93,6 @@ where
     use crate::app::plugins::{ImageResourcesPlugin, StdInstantClockPlugin};
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(ImageResourcesPlugin::default());
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }

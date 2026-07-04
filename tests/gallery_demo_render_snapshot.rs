@@ -85,6 +85,19 @@ macro_rules! basic_demo {
     };
 }
 
+macro_rules! basic_demo_scoped {
+    ($name:ident, $w:expr, $h:expr) => {
+        #[test]
+        fn $name() {
+            let cs = render_demo($w, $h, |world, parent| {
+                let mut cx = mirui::ui::UiScope::new(world, parent);
+                mirui::gallery::demos::$name::build_widgets(&mut cx);
+            });
+            assert_renders(stringify!($name), cs);
+        }
+    };
+}
+
 macro_rules! viewport_demo {
     ($name:ident, $w:expr, $h:expr) => {
         #[test]
@@ -129,45 +142,45 @@ macro_rules! viewport_demo_ignored_noargs {
     };
 }
 
-basic_demo!(absolute, 480, 320);
+basic_demo_scoped!(absolute, 480, 320);
 basic_demo!(animation, 320, 180);
-basic_demo!(app_demo, 480, 320);
-basic_demo!(book_flip, 640, 360);
-basic_demo!(click, 480, 320);
-basic_demo!(components, 480, 320);
-basic_demo!(disabled, 480, 320);
+basic_demo_scoped!(app_demo, 480, 320);
+basic_demo_scoped!(book_flip, 640, 360);
+basic_demo_scoped!(click, 480, 320);
+basic_demo_scoped!(components, 480, 320);
+basic_demo_scoped!(disabled, 480, 320);
 basic_demo!(dsl, 480, 320);
-basic_demo!(enchants, 480, 320);
-basic_demo!(gesture, 320, 240);
-basic_demo!(hello, 480, 320);
-basic_demo!(hover_tour, 720, 360);
-basic_demo!(image, 480, 320);
+basic_demo_scoped!(enchants, 480, 320);
+basic_demo_scoped!(gesture, 320, 240);
+basic_demo_scoped!(hello, 480, 320);
+basic_demo_scoped!(hover_tour, 720, 360);
+basic_demo_scoped!(image, 480, 320);
 basic_demo!(image_flip, 480, 320);
-basic_demo!(input_feedback, 640, 360);
-basic_demo!(interactive_states, 720, 420);
+basic_demo_scoped!(input_feedback, 640, 360);
+basic_demo_scoped!(interactive_states, 720, 420);
 // Skip: LazyList pool warm-up needs multi-frame loop.
 // basic_demo!(lazy_list, 320, 320);
-basic_demo!(nested_scroll, 480, 400);
+basic_demo_scoped!(nested_scroll, 480, 400);
 basic_demo!(offscreen, 360, 360);
 basic_demo!(offscreen_modal, 360, 360);
 basic_demo!(on_handlers, 640, 320);
 basic_demo!(pinch_rotate, 480, 360);
-basic_demo!(rounded, 480, 320);
-basic_demo!(scroll, 480, 320);
+basic_demo_scoped!(rounded, 480, 320);
+basic_demo_scoped!(scroll, 480, 320);
 basic_demo!(slider_switch, 320, 200);
 basic_demo!(slider_value_changed, 720, 320);
 basic_demo!(spatial_anim, 400, 300);
-basic_demo!(tabbar, 480, 320);
+basic_demo_scoped!(tabbar, 480, 320);
 basic_demo!(tabbar_selection, 640, 320);
-basic_demo!(text, 480, 320);
-basic_demo!(text_input, 480, 200);
+basic_demo_scoped!(text, 480, 320);
+basic_demo_scoped!(text_input, 480, 200);
 basic_demo!(theme_swap, 480, 320);
 basic_demo!(toggle, 640, 320);
 basic_demo!(transform, 480, 320);
-basic_demo!(walk, 480, 320);
+basic_demo_scoped!(walk, 480, 320);
 
-basic_demo!(effect_panels, 480, 360);
-basic_demo!(effect_glass, 128, 128);
+basic_demo_scoped!(effect_panels, 480, 360);
+basic_demo_scoped!(effect_glass, 128, 128);
 basic_demo!(particles, 480, 320);
 basic_demo!(subpixel, 480, 320);
 viewport_demo!(widgets, 512, 512);
@@ -203,7 +216,9 @@ fn custom_view_renders() {
     }
 
     let parent = WidgetBuilder::new(&mut app.world).id();
-    mirui::gallery::demos::custom_view::build_widgets(&mut app.world, parent);
+    let mut cx = mirui::ui::UiScope::new(&mut app.world, parent);
+    mirui::gallery::demos::custom_view::build_widgets(&mut cx);
+    drop(cx);
 
     let viewport = Viewport::new(480, 200, Fixed::ONE);
     render_system::update_layout(&mut app.world, parent, &viewport);

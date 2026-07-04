@@ -14,6 +14,7 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::render::font::{Font, FontManager, gray, sdf};
+use crate::ui::UiScope;
 use crate::ui::widgets::Text;
 
 const PIXEL_10: &[u8] = include_bytes!("assets/fusion_pixel_10_1bit.mirx");
@@ -48,14 +49,10 @@ pub fn register_font(world: &mut World) {
     mgr.add_static(TOKEN_24.cache_key(), sdf24);
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             padding: Padding::all(8),
@@ -89,7 +86,8 @@ where
     F: RendererFactory<B>,
 {
     register_font(&mut app.world);
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -115,7 +113,8 @@ mod tests {
         world.insert_resource(crate::render::font::default_font_manager());
         register_font(&mut world);
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

@@ -2,8 +2,10 @@ extern crate alloc;
 
 use crate::core::reactive::{Computed, Signal};
 use crate::prelude::*;
+use crate::ui::UiScope;
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     let name_filled = Signal::new(false);
     let agreed = Signal::new(false);
     let can_submit = {
@@ -27,11 +29,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             align: AlignItems::Center,
@@ -72,7 +69,8 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -106,7 +104,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let name = world.get::<Children>(col).unwrap().0[0];

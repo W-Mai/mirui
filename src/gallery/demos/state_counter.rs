@@ -1,18 +1,15 @@
 extern crate alloc;
 
 use crate::prelude::*;
+use crate::ui::UiScope;
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     let count = Signal::new(0i32);
     let (dec, inc, label) = (count.clone(), count.clone(), count.clone());
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             align: AlignItems::Center,
@@ -49,7 +46,8 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -72,7 +70,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let label = world.get::<Children>(col).unwrap().0[0];

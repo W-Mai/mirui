@@ -45,7 +45,10 @@ fn main() {
         .id();
 
     mirui::gallery::demos::multi_font::register_font(&mut app.world);
-    mirui::gallery::demos::multi_font::build_widgets(&mut app.world, root);
+    {
+        let mut cx = mirui::ui::UiScope::new(&mut app.world, root);
+        mirui::gallery::demos::multi_font::build_widgets(&mut cx);
+    }
     app.set_root(root);
 
     let world = &mut app.world;

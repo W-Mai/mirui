@@ -2,6 +2,7 @@ extern crate alloc;
 
 use crate::anim::{PlayMode, Tween, ease};
 use crate::prelude::*;
+use crate::ui::UiScope;
 use crate::ui::widgets::{BackgroundBlur, MirrorOf, Text};
 
 pub const DEFAULT_VIEW: (u16, u16) = (128, 128);
@@ -33,13 +34,9 @@ fn tile_color(row: i32, col: i32) -> Color {
     TILE_COLORS[((row + col) as usize) % TILE_COLORS.len()]
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (grow: 1.0) {
             walk 0..3i32 with row {
                 walk 0..4i32 with col {
@@ -57,11 +54,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
 
     let m_source = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(80, 160, 255),
             position: Position::Absolute,
@@ -73,11 +65,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
 
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             position: Position::Absolute,
             left: 8,
@@ -90,11 +77,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
 
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             text: "BlurMeBlurMe",
             position: Position::Absolute,
@@ -109,11 +91,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgba(255, 255, 255, 50),
             border_radius: Fixed::from_int(6),
@@ -169,7 +146,8 @@ where
         GaussRadius::system(),
     ));
     app.with_offscreen_pool_budget(8 * 1024);
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -183,7 +161,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

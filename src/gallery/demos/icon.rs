@@ -4,6 +4,7 @@ use crate::anim::{BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
 use crate::prelude::*;
 use crate::render::path::Path;
 use crate::ui;
+use crate::ui::UiScope;
 use crate::ui::icons::{
     ICON_ARROW_DOWN, ICON_ARROW_LEFT, ICON_ARROW_RIGHT, ICON_ARROW_UP, ICON_CHECK,
     ICON_CHEVRON_DOWN, ICON_CHEVRON_LEFT, ICON_CHEVRON_RIGHT, ICON_CHEVRON_UP, ICON_CIRCLE,
@@ -77,14 +78,10 @@ fn bounce() -> IconScale {
     )
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     let table = icons();
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0, padding: Padding::all(16)) {
             walk table.chunks(5) with row {
                 Row (height: 56) {
@@ -163,7 +160,8 @@ where
         IconScale::system(),
     ));
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -177,7 +175,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

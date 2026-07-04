@@ -1,6 +1,7 @@
 extern crate alloc;
 
 use crate::prelude::*;
+use crate::ui::UiScope;
 use crate::ui::UserState;
 use crate::ui::dirty::Dirty;
 use crate::ui::widgets::text::Text;
@@ -8,14 +9,10 @@ use alloc::format;
 
 pub struct ClickCount(pub u32);
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0, padding: Padding::all(24)) {
             Row (grow: 1.0) {
                 View (
@@ -95,7 +92,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -112,7 +110,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)
@@ -137,7 +136,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
 
         let card = world.find_by_id("target_card").expect("target_card id");
         assert_eq!(world.get::<ClickCount>(card).map(|c| c.0), Some(0));
@@ -152,7 +152,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
 
         let card = world.find_by_id("target_card").expect("target_card id");
         let column = world.get::<Children>(parent).unwrap().0[0];

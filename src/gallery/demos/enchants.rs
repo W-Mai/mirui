@@ -1,14 +1,11 @@
 use crate::prelude::*;
+use crate::ui::UiScope;
 use crate::ui::widgets::Image;
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0) {
             View (bg_color: Color::rgb(88, 166, 255), height: 40, text: "Enchants Demo")
             View (
@@ -31,7 +28,8 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -45,7 +43,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

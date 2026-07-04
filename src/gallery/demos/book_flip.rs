@@ -2,6 +2,7 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::types::Transform3D;
+use crate::ui::UiScope;
 use crate::ui::dirty::Dirty;
 use crate::ui::widgets::{TransformOrigin, WidgetTransform3D};
 
@@ -37,14 +38,10 @@ pub fn flip_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             position: Position::Absolute,
             left: 0,
@@ -95,7 +92,8 @@ where
     F: RendererFactory<B>,
 {
     app.add_system(flip_system::system());
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -109,7 +107,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

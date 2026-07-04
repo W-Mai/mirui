@@ -1,7 +1,9 @@
 use crate::prelude::*;
+use crate::ui::UiScope;
 use crate::ui::widgets::Text;
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     let colors = [
         Color::rgb(88, 166, 255),
         Color::rgb(63, 185, 80),
@@ -14,11 +16,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0) {
             walk colors.iter() with color {
                 View (bg_color: *color, grow: 1.0, border_radius: 4)
@@ -39,7 +36,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -53,7 +51,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

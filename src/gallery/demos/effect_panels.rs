@@ -4,6 +4,7 @@ use crate::prelude::*;
 use crate::types::Transform;
 #[cfg(feature = "std")]
 use crate::ui::Theme;
+use crate::ui::UiScope;
 use crate::ui::dirty::Dirty;
 use crate::ui::root_viewport;
 use crate::ui::widgets::{BackgroundBlur, MirrorOf, TemporalMix, WidgetTransform};
@@ -114,14 +115,10 @@ fn tile_color(idx: i32) -> Color {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     //~focus-start
     let m_source = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: ColorToken::Primary,
             border_radius: Fixed::from_int(8),
@@ -143,11 +140,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         }
     };
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             position: Position::Absolute,
             left: 30,
@@ -161,11 +153,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     //~focus-end
 
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(220, 60, 60),
             border_radius: Fixed::from_int(8),
@@ -185,11 +172,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         ]
     };
     let tm_source = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(220, 60, 60),
             border_radius: Fixed::from_int(8),
@@ -209,11 +191,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         ]
     };
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             position: Position::Absolute,
             left: 160,
@@ -231,11 +208,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         ]
     };
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             text: "raw flash       TemporalMix",
             text_color: ColorToken::OnSurface,
@@ -255,11 +227,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
 
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             position: Position::Absolute,
             left: 0,
@@ -288,11 +255,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgba(255, 255, 255, 50),
             border_radius: Fixed::from_int(10),
@@ -317,11 +279,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     //~focus-end
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             text: "BackgroundBlur",
             text_color: ColorToken::OnSurface,
@@ -352,7 +309,8 @@ where
         .add_system(panel_layout_system::system())
         .add_system(animate_x::system())
         .add_system(animate_color_flash::system());
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -366,7 +324,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

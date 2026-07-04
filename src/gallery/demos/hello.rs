@@ -2,6 +2,7 @@
 #[cfg(feature = "std")]
 use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
+use crate::ui::UiScope;
 use crate::ui::widgets::Text;
 
 /// Hello world card layout: a header card and a body card stacked
@@ -9,14 +10,10 @@ use crate::ui::widgets::Text;
 ///
 /// # Required plugins
 /// - [`InputFeedbackPlugin`] (for the cursor / rotary feedback overlay)
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0, padding: Padding::all(24)) {
             View (
                 bg_color: Color::rgb(38, 50, 70),
@@ -52,7 +49,8 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(InputFeedbackPlugin::new());
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -66,7 +64,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)

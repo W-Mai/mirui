@@ -1,10 +1,12 @@
 use crate::prelude::*;
+use crate::ui::UiScope;
 use crate::ui::UserState;
 use crate::ui::dirty::Dirty;
 
 pub struct ToggleErrored;
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     let hover_bg = Color::rgb(34, 74, 44);
     let errored_bg = Color::rgb(82, 38, 38);
     let disabled_bg = Color::rgb(34, 56, 86);
@@ -13,11 +15,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             padding: Padding {
@@ -89,7 +86,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -106,7 +104,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)
@@ -119,7 +118,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         let column = world.get::<Children>(parent).unwrap().0[0];
         let row = world.get::<Children>(column).unwrap().0[2];
         let errored_card = world.get::<Children>(row).unwrap().0[2];

@@ -3,6 +3,7 @@
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
+use crate::ui::UiScope;
 use crate::ui::dirty::Dirty;
 use crate::ui::view::{View, ViewCtx};
 
@@ -71,14 +72,10 @@ pub const PALETTE: [Color; 3] = [
     Color::rgb(190, 240, 140),
 ];
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Row (
             justify: JustifyContent::SpaceEvenly,
             align: AlignItems::Center,
@@ -133,7 +130,8 @@ where
     F: RendererFactory<B>,
 {
     app.with_widget(diamond_view());
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -154,7 +152,8 @@ mod tests {
         reg.insert(diamond_view());
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)
@@ -170,7 +169,8 @@ mod tests {
         reg.insert(diamond_view());
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         let row = world.get::<Children>(parent).unwrap().0[0];
         let d0 = world.get::<Children>(row).unwrap().0[0];
 

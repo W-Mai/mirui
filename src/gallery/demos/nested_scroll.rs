@@ -3,8 +3,10 @@ use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 #[cfg(feature = "std")]
 use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
+use crate::ui::UiScope;
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[ui_scope]
+pub fn build_widgets() {
     let colors_outer = [
         Color::rgb(60, 60, 90),
         Color::rgb(70, 50, 80),
@@ -24,11 +26,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             bg_color: Color::rgb(30, 30, 50),
@@ -128,7 +125,8 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(InputFeedbackPlugin::new());
-    build_widgets(&mut app.world, parent);
+    let mut cx = UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -142,7 +140,8 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
         assert!(
             world
                 .get::<Children>(parent)
