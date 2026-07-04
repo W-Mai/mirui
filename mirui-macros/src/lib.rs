@@ -1839,11 +1839,81 @@ pub fn mold(input: TokenStream) -> TokenStream {
     mold::expand(input.into()).into()
 }
 
+/// Inject a `cx: &mut UiScope` first parameter into the annotated function.
+///
+/// The attribute exists to keep infrastructure out of the signature the user
+/// reads:
+///
+/// ```ignore
+/// #[ui_scope]
+/// fn counter_button(sig: Signal<i32>) {
+///     ui! {
+///         View (bg_color: ColorToken::Primary)
+///         on Tap { sig.update(|n| *n += 1); }
+///         { Text($sig) }
+///     };
+/// }
+/// ```
+///
+/// Every `ui!` invocation inside the function body reads `cx.world_mut()` /
+/// `cx.parent()` implicitly; callers pass their existing `cx` through the
+/// paired `ui!(func(args))` form so no site ever spells out `world` and
+/// `parent` again.
+///
+/// The attribute rejects three shapes at expansion time:
+///
+/// - non-function items — annotate a fn, or reach for `mold!(Name { ... })`
+///   when you want a full widget class.
+/// - `async fn` — cross-await UI state is a separate topic (v0.41+).
+/// - generic fn — parameter monomorphisation is deferred to a later release.
+///
+/// It also errors out if the user already declared a parameter named `cx`,
+/// so double-injection can't silently pass through.
 #[proc_macro_attribute]
 pub fn ui_scope(attr: TokenStream, item: TokenStream) -> TokenStream {
     attribute_ui::expand(attr.into(), item.into()).into()
 }
 
+/// Spawn a widget tree, or forward to another `#[ui_scope]` function.
+///
+/// The macro accepts three forms, distinguished by the shape of the input:
+///
+/// - **Body form** (`ui! { <tree> }`) reads `cx` from the enclosing scope
+///   and spawns the DSL tree there:
+///
+///   ```ignore
+///   #[ui_scope]
+///   fn build_root() {
+///       ui! {
+///           Column (grow: 1.0) {
+///               Text("hello")
+///           }
+///       };
+///   }
+///   ```
+///
+///   `world` and `parent` come from `cx.world_mut()` / `cx.parent()` by
+///   default. The legacy header form `ui! { :( parent world :) X }` still
+///   parses and takes precedence over the implicit `cx` lookup — useful
+///   for tests, one-off snapshots, or any code path that isn't inside an
+///   `#[ui_scope]` fn.
+///
+/// - **Fn-call form** (`ui!(func(args))`) rewrites a free-fn call to
+///   `func(cx, args)`, threading the enclosing scope's `cx` into the
+///   callee for you:
+///
+///   ```ignore
+///   #[ui_scope]
+///   fn menu() {
+///       ui!(menu_row("File", &FILE_ICON));
+///       ui!(menu_row("Edit", &EDIT_ICON));
+///   }
+///   ```
+///
+///   The macro routes call-syntax input to this form only when the fn
+///   path segment starts with a lowercase letter or underscore. Names
+///   that start uppercase (`Card(...)`, `Column(...)`) stay on the DSL
+///   parsing path — the same convention the widget grammar uses.
 #[proc_macro]
 pub fn ui(input: TokenStream) -> TokenStream {
     let input2: proc_macro2::TokenStream = input.into();

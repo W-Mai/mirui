@@ -31,12 +31,13 @@ on top of SDL2 (CPU or hardware-accelerated) on desktop.
 
 ```toml
 [dependencies]
-mirui = { version = "0.39", features = ["sdl"] }
+mirui = { version = "0.40", features = ["sdl"] }
 ```
 
 ```rust
 use mirui::prelude::*;
 use mirui::surface::sdl::SdlSurface;
+use mirui::ui::UiScope;
 
 fn main() {
     let backend = SdlSurface::new("hello mirui", 480, 320);
@@ -47,12 +48,16 @@ fn main() {
     // default; chain .bg_color()/.layout() before .id() to override.
     let root = app.spawn_root().id();
 
-    ui! {
-        :(
-            parent: root
-            world: &mut app.world
-        :)
+    let mut cx = UiScope::new(&mut app.world, root);
+    build_root(&mut cx);
+    drop(cx);
 
+    app.run();
+}
+
+#[ui_scope]
+fn build_root() {
+    ui! {
         column (direction: FlexDirection::Column, grow: 1.0) {
             header (
                 bg_color: ColorToken::Primary,
@@ -65,16 +70,20 @@ fn main() {
             footer (height: 30, text: "ECS + DSL") {}
         }
     };
-
-    app.run();
 }
 ```
 
 `mirui::prelude` brings `App`, layout types, `Color` / `Dimension` /
 `Fixed`, `Entity` / `World`, `WidgetBuilder`, theme tokens, and the
-`ui!` macro. Surface backends, plugins, and individual widget kinds
-stay on their canonical paths so the prelude doesn't pin a platform
-or feature choice.
+`ui!` / `ui_scope` macros. Surface backends, plugins, and individual
+widget kinds stay on their canonical paths so the prelude doesn't
+pin a platform or feature choice.
+
+`#[ui_scope]` slips a `cx: &mut UiScope` first parameter into the
+function; every `ui!` invocation inside the body reads that `cx` to
+spawn widgets, so the four-line `:( parent world :)` header from
+earlier releases is no longer needed. Compose helper functions with
+`ui!(helper_fn(args))` — the macro threads `cx` through for you.
 
 ### Other targets
 

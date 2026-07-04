@@ -1,11 +1,28 @@
 use crate::ecs::{Entity, World};
 
+/// The single value every `ui!` macro invocation reads from to spawn widgets.
+///
+/// A `UiScope` bundles the two pieces of framework state each widget needs
+/// to attach itself to a running app — the ECS `World` it lives in and the
+/// `Entity` it should be parented to. User code almost never constructs one
+/// by hand; the `#[ui_scope]` attribute injects it as a `cx` parameter, and
+/// then the `ui!` macro reads `cx.world_mut()` / `cx.parent()` under the hood.
+///
+/// Later releases can grow the bundle with theme, clock, id map, or animation
+/// handles without changing a single user-visible function signature — that
+/// extension path is the reason the type exists.
 pub struct UiScope<'w> {
     world: &'w mut World,
     parent: Entity,
 }
 
 impl<'w> UiScope<'w> {
+    /// Bind a fresh `UiScope` to a specific world and parent entity.
+    ///
+    /// Application startup builds one of these once (typically after
+    /// `spawn_root()`) and hands it to a top-level `#[ui_scope]` function.
+    /// Later widgets read through the injected `cx` parameter instead of
+    /// touching this constructor themselves.
     pub fn new(world: &'w mut World, parent: Entity) -> Self {
         Self { world, parent }
     }
