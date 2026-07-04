@@ -1,5 +1,6 @@
 extern crate proc_macro;
 
+mod attribute_ui;
 mod compose;
 mod diag;
 mod vector;
@@ -1836,6 +1837,11 @@ impl DsRune for MiruiRune {
 #[proc_macro]
 pub fn mold(input: TokenStream) -> TokenStream {
     mold::expand(input.into()).into()
+}
+
+#[proc_macro_attribute]
+pub fn ui_scope(attr: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_ui::expand(attr.into(), item.into()).into()
 }
 
 #[proc_macro]
