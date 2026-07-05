@@ -1111,12 +1111,13 @@ impl MiruiRune {
                     }
                 }
                 return quote! {
+                    let __slot_parent = #parent_var;
                     let #slot_var = ::mirui::ui::builder::WidgetBuilder::new(#world).id();
-                    (#world).insert(#slot_var, ::mirui::ui::Parent(#parent_var));
-                    if let Some(children) = (#world).get_mut::<::mirui::ui::Children>(#parent_var) {
+                    (#world).insert(#slot_var, ::mirui::ui::Parent(__slot_parent));
+                    if let Some(children) = (#world).get_mut::<::mirui::ui::Children>(__slot_parent) {
                         children.0.push(#slot_var);
                     } else {
-                        (#world).insert(#parent_var, ::mirui::ui::Children(::std::vec![#slot_var]));
+                        (#world).insert(__slot_parent, ::mirui::ui::Children(::std::vec![#slot_var]));
                     }
                     __mold_niche_map.insert(#slot_name, #slot_var);
                     #fallback
@@ -1780,8 +1781,9 @@ impl DsRune for MiruiRune {
                 tokens.extend(quote! {
                     {
                         use mirui::ui::{Children, Parent};
-                        (#world).insert(#var, Parent(#parent_entity));
-                        if let Some(children) = (#world).get_mut::<Children>(#parent_entity) {
+                        let __seal_parent = #parent_entity;
+                        (#world).insert(#var, Parent(__seal_parent));
+                        if let Some(children) = (#world).get_mut::<Children>(__seal_parent) {
                             children.0.push(#var);
                         }
                     }

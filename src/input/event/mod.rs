@@ -200,6 +200,30 @@ pub struct HandlerCtx<'a, E> {
     pub event: &'a E,
 }
 
+impl<'a, E> HandlerCtx<'a, E> {
+    /// Run a UI composition rooted at this handler's widget entity.
+    ///
+    /// Builds a fresh [`UiScope`](crate::ui::UiScope) from the handler's
+    /// world and entity and hands it to the closure — the same shape
+    /// [`App::compose`](crate::app::App::compose) uses at startup. Inside
+    /// the closure the `ui!` macro reads its `cx` binding implicitly, so
+    /// `on Tap` bodies can spawn widgets without threading world/parent
+    /// through:
+    ///
+    /// ```ignore
+    /// on Tap {
+    ///     ctx.compose(|cx| ui!(build_widgets()));
+    /// }
+    /// ```
+    pub fn compose<F>(&mut self, f: F)
+    where
+        F: FnOnce(&mut crate::ui::UiScope<'_>),
+    {
+        let mut cx = crate::ui::UiScope::new(&mut *self.world, self.entity);
+        f(&mut cx);
+    }
+}
+
 /// Spelled-out bubble control for `on EventKind` body return values.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BubbleControl {

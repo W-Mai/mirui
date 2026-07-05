@@ -86,9 +86,7 @@ pub fn expand(input: TokenStream) -> TokenStream {
 }
 
 fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef]) -> TokenStream {
-    let world_expr: TokenStream = quote! { world };
-    let entity_expr: TokenStream = quote! { entity };
-    let mut rune = MiruiRune::new_mold(world_expr.clone(), entity_expr.clone());
+    let mut rune = MiruiRune::new_mold(quote! { cx.world_mut() }, quote! { cx.parent() });
     for child in children {
         decipher(child, &mut rune);
     }
@@ -134,7 +132,7 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
                 }
             },
             quote! {
-                let __mold_params = match world.get::<#name>(entity) {
+                let __mold_params = match cx.world_mut().get::<#name>(__mirui_parent) {
                     Some(p) => (#( ::core::clone::Clone::clone(&p.#bind_names), )*),
                     None => return,
                 };
@@ -145,7 +143,7 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
 
     let existence_check = if params.is_empty() {
         quote! {
-            if world.get::<#name>(entity).is_none() {
+            if cx.world_mut().get::<#name>(__mirui_parent).is_none() {
                 return;
             }
         }
@@ -163,15 +161,22 @@ fn expand_decl(name: syn::Ident, params: Vec<MoldParam>, children: &[DsTreeRef])
 
             #[doc(hidden)]
             pub fn __attach(world: &mut ::mirui::ecs::World, entity: ::mirui::ecs::Entity) {
+                let mut cx = ::mirui::ui::UiScope::new(world, entity);
+                Self::__attach_scoped(&mut cx);
+            }
+
+            #[doc(hidden)]
+            pub fn __attach_scoped(cx: &mut ::mirui::ui::UiScope<'_>) {
+                let __mirui_parent: ::mirui::ecs::Entity = cx.parent();
                 #existence_check
-                if world.get::<::mirui::ui::NicheMap>(entity).is_some() {
+                if cx.world_mut().get::<::mirui::ui::NicheMap>(__mirui_parent).is_some() {
                     return;
                 }
                 #param_binds
 
                 let mut __mold_niche_map = ::mirui::ui::NicheMap::new();
                 let _ = #body_tokens;
-                world.insert(entity, __mold_niche_map);
+                cx.world_mut().insert(__mirui_parent, __mold_niche_map);
             }
 
             #[doc(hidden)]
