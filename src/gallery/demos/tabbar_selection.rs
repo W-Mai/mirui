@@ -21,21 +21,17 @@ pub struct SelectionStats {
 /// # Resources auto-inserted
 /// - [`IdMap`] (if absent) — `find_by_id("selection_label")`
 /// - [`SelectionStats`] (if absent) — populated by the handler
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    if world.resource::<IdMap>().is_none() {
-        world.insert_resource(IdMap::new());
+#[compose]
+pub fn build_widgets() {
+    if cx.world_mut().resource::<IdMap>().is_none() {
+        cx.world_mut().insert_resource(IdMap::new());
     }
-    if world.resource::<SelectionStats>().is_none() {
-        world.insert_resource(SelectionStats::default());
+    if cx.world_mut().resource::<SelectionStats>().is_none() {
+        cx.world_mut().insert_resource(SelectionStats::default());
     }
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0, padding: Padding::all(20)) {
             Text (
                 "selected: 0 (was 0, 0 changes)",
@@ -54,9 +50,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     //~focus-end
 
-    let bars = world.query::<TabBar>().collect();
+    let bars = cx.world_mut().query::<TabBar>().collect();
     if let Some(&bar) = bars.first()
-        && let Some(tb) = world.get_mut::<TabBar>(bar)
+        && let Some(tb) = cx.world_mut().get_mut::<TabBar>(bar)
     {
         tb.count = 3;
     }
@@ -69,7 +65,8 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 fn refresh_label(world: &mut World) {
@@ -95,12 +92,15 @@ fn refresh_label(world: &mut World) {
 mod tests {
     use super::*;
     use crate::ui::Children;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

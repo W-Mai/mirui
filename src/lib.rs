@@ -101,7 +101,7 @@ pub mod ui;
 #[cfg(feature = "gallery")]
 pub mod gallery;
 
-pub use mirui_macros::{Component, mold, path, scene, system, trace_fn, trace_span, ui, ui_scope};
+pub use mirui_macros::{Component, compose, mold, path, scene, system, trace_fn, trace_span, ui};
 
 // Re-export so `ui!`-generated code references `Rc` through `mirui`, working in
 // both std and no_std user crates without an `extern crate alloc` of their own.
@@ -140,7 +140,7 @@ pub mod prelude {
     pub use crate::ui::{Style, Widget};
 
     pub use mirui_macros::{
-        animate, mold, path, scene, system, timer, trace_fn, trace_span, ui, ui_scope,
+        animate, compose, mold, path, scene, system, timer, trace_fn, trace_span, ui,
     };
 
     /// Surface integration — picking and wiring a backend.

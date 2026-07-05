@@ -107,19 +107,16 @@ pub fn shapes_anim_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    let now_ms = world
+#[compose]
+pub fn build_widgets() {
+    let now_ms = cx
+        .world_mut()
         .resource::<MonoClock>()
         .map(|c| c.now_ms())
         .unwrap_or(0);
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Shapes (
             start_ms: now_ms,
             grow: 1.0
@@ -137,7 +134,8 @@ where
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(shapes_view());
     app.add_system(shapes_anim_system::system());
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -145,6 +143,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
     use crate::ui::view::ViewRegistry;
 
     #[test]
@@ -155,7 +154,9 @@ mod tests {
         reg.insert(shapes_view());
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

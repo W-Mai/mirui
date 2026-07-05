@@ -38,7 +38,7 @@ pub fn flip_system(world: &mut World) {
     }
 }
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {

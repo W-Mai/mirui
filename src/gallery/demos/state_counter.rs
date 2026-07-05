@@ -3,7 +3,7 @@ extern crate alloc;
 use crate::prelude::*;
 use crate::ui::UiScope;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let count = Signal::new(0i32);
     let (dec, inc, label) = (count.clone(), count.clone(), count.clone());

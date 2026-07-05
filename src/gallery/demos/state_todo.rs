@@ -15,7 +15,9 @@ fn row_color(done: bool) -> Color {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
+    let outer_parent = cx.parent();
     let dones: Vec<Signal<bool>> = ITEMS.iter().map(|_| Signal::new(false)).collect();
     let remaining = {
         let dones = dones.clone();
@@ -23,7 +25,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     let summary = remaining.clone();
 
-    let root = WidgetBuilder::new(world)
+    let root = WidgetBuilder::new(cx.world_mut())
         .layout(crate::ui::layout::LayoutStyle {
             direction: FlexDirection::Column,
             align: AlignItems::Center,
@@ -32,11 +34,12 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             ..Default::default()
         })
         .id();
-    world.insert(root, crate::ui::Parent(parent));
-    if let Some(c) = world.get_mut::<crate::ui::Children>(parent) {
+    cx.world_mut().insert(root, crate::ui::Parent(outer_parent));
+    if let Some(c) = cx.world_mut().get_mut::<crate::ui::Children>(outer_parent) {
         c.0.push(root);
     }
 
+    let world = cx.world_mut();
     let _ = ui! {
         :(
             parent: root
@@ -78,7 +81,8 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -89,6 +93,7 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
     use crate::ui::widgets::text::Text;
 
     fn label_text(world: &World, label: Entity) -> alloc::string::String {
@@ -101,7 +106,9 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
 
         let root = world.get::<Children>(parent).unwrap().0[0];
         let kids = world.get::<Children>(root).unwrap().0.clone();

@@ -72,7 +72,7 @@ pub const PALETTE: [Color; 3] = [
     Color::rgb(190, 240, 140),
 ];
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {

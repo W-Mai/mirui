@@ -8,7 +8,7 @@ use crate::prelude::*;
 use crate::ui::UiScope;
 use crate::ui::widgets::{TabBar, TabContent};
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     let tabs = ui! {

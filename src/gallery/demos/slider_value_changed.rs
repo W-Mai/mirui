@@ -21,12 +21,13 @@ pub struct Stats {
 /// # Resources auto-inserted
 /// - [`IdMap`] (if absent) — `find_by_id("stats_label")`
 /// - [`Stats`] (if absent) — populated by the handlers
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    if world.resource::<IdMap>().is_none() {
-        world.insert_resource(IdMap::new());
+#[compose]
+pub fn build_widgets() {
+    if cx.world_mut().resource::<IdMap>().is_none() {
+        cx.world_mut().insert_resource(IdMap::new());
     }
-    if world.resource::<Stats>().is_none() {
-        world.insert_resource(Stats::default());
+    if cx.world_mut().resource::<Stats>().is_none() {
+        cx.world_mut().insert_resource(Stats::default());
     }
 
     let stats = Signal::new(Stats::default());
@@ -35,11 +36,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0, padding: Padding::all(20)) {
             Text (
                 ${
@@ -74,9 +70,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     //~focus-end
 
-    let sliders = world.query::<Slider>().collect();
+    let sliders = cx.world_mut().query::<Slider>().collect();
     if let Some(&slider_entity) = sliders.first()
-        && let Some(s) = world.get_mut::<Slider>(slider_entity)
+        && let Some(s) = cx.world_mut().get_mut::<Slider>(slider_entity)
     {
         s.min = Fixed::ZERO;
         s.max = Fixed::from_int(100);
@@ -91,19 +87,23 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::Children;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

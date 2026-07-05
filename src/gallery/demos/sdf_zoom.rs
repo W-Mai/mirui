@@ -88,14 +88,10 @@ pub fn zoom_view() -> View {
     View::new("ZoomText", 60, zoom_render)
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
     //~focus-start
     let label = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             grow: 1.0,
             width: 480,
@@ -106,8 +102,8 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     //~focus-end
 
-    world.insert(label, Dirty);
-    world.insert(
+    cx.world_mut().insert(label, Dirty);
+    cx.world_mut().insert(
         label,
         ZoomSize(
             crate::anim::Tween::new(
@@ -137,7 +133,8 @@ where
         ZoomSize::system(),
     ));
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -145,6 +142,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
     use crate::ui::view::ViewRegistry;
 
     #[test]
@@ -157,7 +155,9 @@ mod tests {
         world.insert_resource(crate::render::font::default_font_manager());
         register_font(&mut world);
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         let label = world.get::<Children>(parent).unwrap().0[0];
         assert_eq!(world.get::<ZoomText>(label).map(|z| z.size), Some(16));
     }

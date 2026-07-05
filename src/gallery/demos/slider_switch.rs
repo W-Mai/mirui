@@ -5,14 +5,10 @@ use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;
 use crate::ui::widgets::{Slider, Switch};
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
     //~focus-start
     let slider = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Slider (
             width: 200,
             height: 16,
@@ -20,18 +16,13 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             max: Fixed::from_int(100)
         )
     };
-    if let Some(s) = world.get_mut::<Slider>(slider) {
+    if let Some(s) = cx.world_mut().get_mut::<Slider>(slider) {
         s.value = Fixed::from_int(50);
     }
     //~focus-end
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Switch (width: 50, height: 26)
     };
     //~focus-end
@@ -45,7 +36,8 @@ where
 {
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -53,13 +45,16 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

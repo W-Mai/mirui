@@ -19,14 +19,10 @@ fn row_binder(world: &mut World, entity: Entity, index: u32) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
     //~focus-start
     let list = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         LazyList (
             bg_color: Color::rgb(28, 28, 40),
             grow: 1.0,
@@ -60,17 +56,18 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     //~focus-end
 
-    let pool: alloc::vec::Vec<Entity> = world
+    let pool: alloc::vec::Vec<Entity> = cx
+        .world_mut()
         .get::<crate::ui::Children>(list)
         .map(|c| c.0.clone())
         .unwrap_or_default();
     // Absolute children resolve Auto width to 0; force Percent so rows track list width.
     for &row in &pool {
-        if let Some(style) = world.get_mut::<Style>(row) {
+        if let Some(style) = cx.world_mut().get_mut::<Style>(row) {
             style.layout.width = Dimension::percent(100);
         }
     }
-    world.insert(list, LazyListPool::new(pool));
+    cx.world_mut().insert(list, LazyListPool::new(pool));
 }
 
 #[cfg(feature = "std")]
@@ -80,7 +77,8 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -88,13 +86,16 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

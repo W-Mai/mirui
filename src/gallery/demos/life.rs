@@ -251,7 +251,8 @@ fn dims_from_px(w: i32, h: i32) -> (i32, i32) {
     (cols, rows)
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
+#[compose]
+pub fn build_widgets(view_w: u16, view_h: u16) {
     let (cols, rows) = dims_from_px(view_w as i32, view_h as i32);
     let mut board = LifeBoard::new(cols, rows);
     board.seed((3, 2), GOSPER_GUN);
@@ -259,11 +260,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             bg_color: ColorToken::Surface,
             grow: 1.0,
@@ -297,7 +293,10 @@ where
     app.with_widget(life_view())
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    build_widgets(&mut app.world, parent, info.width, info.height);
+    {
+        let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+        build_widgets(&mut cx, info.width, info.height);
+    }
     LifeTick::install(&mut app.world);
 }
 

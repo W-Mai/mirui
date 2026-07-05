@@ -13,7 +13,7 @@ use crate::ui::UiScope;
 #[cfg(feature = "std")]
 use alloc::vec;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {

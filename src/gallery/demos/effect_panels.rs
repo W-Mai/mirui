@@ -115,7 +115,7 @@ fn tile_color(idx: i32) -> Color {
     }
 }
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     let m_source = ui! {

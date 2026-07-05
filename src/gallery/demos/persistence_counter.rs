@@ -4,16 +4,12 @@ extern crate alloc;
 use crate::core::persistence::PersistencePlugin;
 use crate::prelude::*;
 
-pub fn build_widgets(world: &mut World, parent: Entity, count: Signal<i32>) {
+#[compose]
+pub fn build_widgets(count: Signal<i32>) {
     let (dec, inc, label) = (count.clone(), count.clone(), count);
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             align: AlignItems::Center,
@@ -63,7 +59,8 @@ where
         .autosave_every_ms(2000);
     app.add_plugin(plugin);
 
-    build_widgets(&mut app.world, parent, count);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx, count);
 }
 
 #[cfg(all(
@@ -97,6 +94,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
@@ -104,7 +102,9 @@ mod tests {
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
         let count = Signal::new(0i32);
-        build_widgets(&mut world, parent, count);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx, count);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

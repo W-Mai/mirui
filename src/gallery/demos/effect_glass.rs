@@ -34,7 +34,7 @@ fn tile_color(row: i32, col: i32) -> Color {
     TILE_COLORS[((row + col) as usize) % TILE_COLORS.len()]
 }
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     ui! {
         View (grow: 1.0) {

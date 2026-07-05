@@ -11,7 +11,7 @@ use crate::ui::UiScope;
 #[cfg(feature = "std")]
 use alloc::vec;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let card_a = Color::rgb(34, 74, 44);
     let card_b = Color::rgb(82, 38, 38);

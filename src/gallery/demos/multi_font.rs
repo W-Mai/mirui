@@ -47,7 +47,7 @@ pub fn register_font(world: &mut World) {
     }
 }
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {

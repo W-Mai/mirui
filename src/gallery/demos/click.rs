@@ -8,7 +8,7 @@ pub struct Toggle {
     pub accent: Color,
 }
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let colors = [
         Color::rgb(88, 166, 255),

@@ -4,7 +4,7 @@ use crate::prelude::*;
 use crate::ui::UiScope;
 use crate::ui::widgets::ProgressBar;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let shown = Signal::new(false);
     let toggle = shown.clone();

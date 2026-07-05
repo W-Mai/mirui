@@ -37,14 +37,14 @@ fn all_demos_build_widgets_smoke() {
     }
 
     smoke_scoped!(mirui::gallery::demos::absolute::build_widgets);
-    smoke!(mirui::gallery::demos::animation::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::animation::build_widgets);
     smoke_scoped!(mirui::gallery::demos::app_demo::build_widgets);
     smoke_scoped!(mirui::gallery::demos::book_flip::build_widgets);
     smoke_scoped!(mirui::gallery::demos::click::build_widgets);
     smoke_scoped!(mirui::gallery::demos::components::build_widgets);
 
     smoke_scoped!(mirui::gallery::demos::disabled::build_widgets);
-    smoke!(mirui::gallery::demos::dsl::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::dsl::build_widgets);
 
     smoke_scoped!(mirui::gallery::demos::enchants::build_widgets);
 
@@ -55,22 +55,22 @@ fn all_demos_build_widgets_smoke() {
     smoke!(mirui::gallery::demos::image_flip::build_widgets);
     smoke_scoped!(mirui::gallery::demos::input_feedback::build_widgets);
     smoke_scoped!(mirui::gallery::demos::interactive_states::build_widgets);
-    smoke!(mirui::gallery::demos::lazy_list::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::lazy_list::build_widgets);
     smoke_scoped!(mirui::gallery::demos::nested_scroll::build_widgets);
-    smoke!(mirui::gallery::demos::offscreen::build_widgets);
-    smoke!(mirui::gallery::demos::offscreen_modal::build_widgets);
-    smoke!(mirui::gallery::demos::on_handlers::build_widgets);
-    smoke!(mirui::gallery::demos::pinch_rotate::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::offscreen::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::offscreen_modal::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::on_handlers::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::pinch_rotate::build_widgets);
     smoke_scoped!(mirui::gallery::demos::rounded::build_widgets);
     smoke_scoped!(mirui::gallery::demos::scroll::build_widgets);
-    smoke!(mirui::gallery::demos::slider_switch::build_widgets);
-    smoke!(mirui::gallery::demos::slider_value_changed::build_widgets);
-    smoke!(mirui::gallery::demos::spatial_anim::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::slider_switch::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::slider_value_changed::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::spatial_anim::build_widgets);
     smoke_scoped!(mirui::gallery::demos::tabbar::build_widgets);
-    smoke!(mirui::gallery::demos::tabbar_selection::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::tabbar_selection::build_widgets);
     smoke_scoped!(mirui::gallery::demos::text::build_widgets);
     smoke_scoped!(mirui::gallery::demos::text_input::build_widgets);
-    smoke!(mirui::gallery::demos::toggle::build_widgets);
+    smoke_scoped!(mirui::gallery::demos::toggle::build_widgets);
     smoke!(mirui::gallery::demos::transform::build_widgets);
     smoke_scoped!(mirui::gallery::demos::walk::build_widgets);
 }
@@ -102,7 +102,9 @@ fn widgets_demo_smoke() {
     let (w, h) = mirui::gallery::demos::widgets::DEFAULT_VIEW;
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
-    mirui::gallery::demos::widgets::build_widgets(&mut world, parent, w, h);
+    let mut cx = UiScope::new(&mut world, parent);
+    mirui::gallery::demos::widgets::build_widgets(&mut cx, w, h);
+    drop(cx);
     assert_demo_built(&world, parent);
 }
 
@@ -119,7 +121,9 @@ fn cover_flow_demo_smoke() {
     let (w, h) = mirui::gallery::demos::cover_flow::DEFAULT_VIEW;
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
-    mirui::gallery::demos::cover_flow::build_widgets(&mut world, parent, w, h);
+    let mut cx = UiScope::new(&mut world, parent);
+    mirui::gallery::demos::cover_flow::build_widgets(&mut cx, w, h);
+    drop(cx);
     assert_demo_built(&world, parent);
 }
 
@@ -148,14 +152,9 @@ fn three_body_demo_smoke() {
     use mirui::types::Fixed;
     let mut world = World::new();
     let parent = WidgetBuilder::new(&mut world).id();
-    mirui::gallery::demos::three_body::build_widgets(
-        &mut world,
-        parent,
-        128,
-        128,
-        3,
-        Fixed::from_int(30),
-    );
+    let mut cx = UiScope::new(&mut world, parent);
+    mirui::gallery::demos::three_body::build_widgets(&mut cx, 128, 128, 3, Fixed::from_int(30));
+    drop(cx);
     assert_demo_built(&world, parent);
 }
 
@@ -183,7 +182,9 @@ fn shapes_demo_smoke() {
     reg.insert(mirui::gallery::demos::shapes::shapes_view());
     world.insert_resource(reg);
     let parent = WidgetBuilder::new(&mut world).id();
-    mirui::gallery::demos::shapes::build_widgets(&mut world, parent);
+    let mut cx = UiScope::new(&mut world, parent);
+    mirui::gallery::demos::shapes::build_widgets(&mut cx);
+    drop(cx);
     assert_demo_built(&world, parent);
 }
 
@@ -195,6 +196,8 @@ fn butterfly_demo_smoke() {
     reg.insert(mirui::gallery::demos::butterfly::butterfly_view());
     world.insert_resource(reg);
     let parent = WidgetBuilder::new(&mut world).id();
-    mirui::gallery::demos::butterfly::build_widgets(&mut world, parent);
+    let mut cx = UiScope::new(&mut world, parent);
+    mirui::gallery::demos::butterfly::build_widgets(&mut cx);
+    drop(cx);
     assert_demo_built(&world, parent);
 }

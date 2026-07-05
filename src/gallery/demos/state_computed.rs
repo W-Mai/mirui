@@ -4,7 +4,7 @@ use crate::core::reactive::{Computed, Signal};
 use crate::prelude::*;
 use crate::ui::UiScope;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let n = Signal::new(2i32);
     let squared = {

@@ -1,13 +1,9 @@
 use crate::prelude::*;
 
-fn header(world: &mut World, parent: Entity) -> Entity {
+#[compose]
+fn header() -> Entity {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(88, 166, 255),
             height: 40,
@@ -18,14 +14,10 @@ fn header(world: &mut World, parent: Entity) -> Entity {
     //~focus-end
 }
 
-fn button_row(world: &mut World, parent: Entity) -> Entity {
+#[compose]
+fn button_row() -> Entity {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Row (grow: 1.0) {
             View (bg_color: Color::rgb(63, 185, 80), grow: 1.0, text: "OK", border_radius: 6)
             View (bg_color: Color::rgb(248, 81, 73), grow: 1.0, text: "Cancel", border_radius: 6)
@@ -35,14 +27,10 @@ fn button_row(world: &mut World, parent: Entity) -> Entity {
     //~focus-end
 }
 
-fn footer(world: &mut World, parent: Entity) -> Entity {
+#[compose]
+fn footer() -> Entity {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(50, 50, 70),
             height: 30,
@@ -52,10 +40,11 @@ fn footer(world: &mut World, parent: Entity) -> Entity {
     //~focus-end
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    header(world, parent);
-    button_row(world, parent);
-    footer(world, parent);
+#[compose]
+pub fn build_widgets() {
+    ui!(header());
+    ui!(button_row());
+    ui!(footer());
 }
 
 #[cfg(feature = "std")]
@@ -64,7 +53,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -72,13 +62,16 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

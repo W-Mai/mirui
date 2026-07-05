@@ -2,7 +2,7 @@ use crate::prelude::*;
 use crate::ui::UiScope;
 use crate::ui::widgets::Text;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let colors = [
         Color::rgb(88, 166, 255),

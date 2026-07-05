@@ -5,7 +5,7 @@ use crate::ui::dirty::Dirty;
 
 pub struct ToggleErrored;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let hover_bg = Color::rgb(34, 74, 44);
     let errored_bg = Color::rgb(82, 38, 38);

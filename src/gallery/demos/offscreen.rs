@@ -133,16 +133,13 @@ fn tile_color(idx: i32) -> ColorToken {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    world.insert(parent, ForceDirty);
+#[compose]
+pub fn build_widgets() {
+    let root = cx.parent();
+    cx.world_mut().insert(root, ForceDirty);
 
     //~focus-start
     let panel = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: ColorToken::Surface,
             border_radius: Fixed::from_int(12),
@@ -172,11 +169,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     //~focus-end
 
     let readout = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             text_color: ColorToken::OnSurface,
             position: Position::Absolute,
@@ -193,7 +185,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         ]
     };
 
-    if let Some(children) = world.get_mut::<Children>(parent) {
+    if let Some(children) = cx.world_mut().get_mut::<Children>(root) {
         children.0.clear();
         children.0.push(panel);
         children.0.push(readout);
@@ -217,20 +209,24 @@ where
     app.add_system(force_dirty_system::system());
     app.add_system(fps_readout_system::system());
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

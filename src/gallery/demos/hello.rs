@@ -10,7 +10,7 @@ use crate::ui::widgets::Text;
 ///
 /// # Required plugins
 /// - [`InputFeedbackPlugin`] (for the cursor / rotary feedback overlay)
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {

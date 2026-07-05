@@ -5,7 +5,7 @@ use crate::prelude::plugin::InputFeedbackPlugin;
 use crate::prelude::*;
 use crate::ui::UiScope;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let colors_outer = [
         Color::rgb(60, 60, 90),

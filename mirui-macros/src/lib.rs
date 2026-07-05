@@ -1,7 +1,7 @@
 extern crate proc_macro;
 
-mod attribute_ui;
 mod compose;
+mod compose_attr;
 mod diag;
 mod vector;
 mod visit_id;
@@ -1845,7 +1845,7 @@ pub fn mold(input: TokenStream) -> TokenStream {
 /// reads:
 ///
 /// ```ignore
-/// #[ui_scope]
+/// #[compose]
 /// fn counter_button(sig: Signal<i32>) {
 ///     ui! {
 ///         View (bg_color: ColorToken::Primary)
@@ -1870,11 +1870,11 @@ pub fn mold(input: TokenStream) -> TokenStream {
 /// It also errors out if the user already declared a parameter named `cx`,
 /// so double-injection can't silently pass through.
 #[proc_macro_attribute]
-pub fn ui_scope(attr: TokenStream, item: TokenStream) -> TokenStream {
-    attribute_ui::expand(attr.into(), item.into()).into()
+pub fn compose(attr: TokenStream, item: TokenStream) -> TokenStream {
+    compose_attr::expand(attr.into(), item.into()).into()
 }
 
-/// Spawn a widget tree, or forward to another `#[ui_scope]` function.
+/// Spawn a widget tree, or forward to another `#[compose]` function.
 ///
 /// The macro accepts three forms, distinguished by the shape of the input:
 ///
@@ -1882,7 +1882,7 @@ pub fn ui_scope(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///   and spawns the DSL tree there:
 ///
 ///   ```ignore
-///   #[ui_scope]
+///   #[compose]
 ///   fn build_root() {
 ///       ui! {
 ///           Column (grow: 1.0) {
@@ -1896,14 +1896,14 @@ pub fn ui_scope(attr: TokenStream, item: TokenStream) -> TokenStream {
 ///   default. The legacy header form `ui! { :( parent world :) X }` still
 ///   parses and takes precedence over the implicit `cx` lookup — useful
 ///   for tests, one-off snapshots, or any code path that isn't inside an
-///   `#[ui_scope]` fn.
+///   `#[compose]` fn.
 ///
 /// - **Fn-call form** (`ui!(func(args))`) rewrites a free-fn call to
 ///   `func(cx, args)`, threading the enclosing scope's `cx` into the
 ///   callee for you:
 ///
 ///   ```ignore
-///   #[ui_scope]
+///   #[compose]
 ///   fn menu() {
 ///       ui!(menu_row("File", &FILE_ICON));
 ///       ui!(menu_row("Edit", &EDIT_ICON));

@@ -138,7 +138,8 @@ pub fn layout_system(world: &mut World) {
 }
 //~focus-end
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
+#[compose]
+pub fn build_widgets(view_w: u16, view_h: u16) {
     let bounds = CoverFlowBounds::for_view(view_w, view_h);
     let vw = bounds.view_w;
     let vh = bounds.view_h;
@@ -146,7 +147,7 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
     let card_h = bounds.card_h;
     let content_width = bounds.content_width();
     let initial_offset = (content_width - vw) / 2 - card_w / 4;
-    world.insert_resource(bounds);
+    cx.world_mut().insert_resource(bounds);
 
     let card_colors = [
         Color::rgb(255, 107, 107),
@@ -159,11 +160,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
     let card_colors_ref = &card_colors;
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             position: Position::Absolute,
             left: 0,
@@ -225,7 +221,8 @@ where
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default())
         .add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
-    build_widgets(&mut app.world, parent, info.width, info.height);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx, info.width, info.height);
 }
 
 #[cfg(test)]
@@ -233,13 +230,16 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent, 640, 360);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx, 640, 360);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)
@@ -256,7 +256,10 @@ mod tests {
         let mut app = crate::app::App::headless(640, 360);
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
-        build_widgets(&mut app.world, root, 640, 360);
+        {
+            let mut cx = UiScope::new(&mut app.world, root);
+            build_widgets(&mut cx, 640, 360);
+        }
         app.set_root(root);
 
         let carousel = app.world.query::<Carousel>().collect()[0];

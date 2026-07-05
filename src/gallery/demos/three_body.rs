@@ -250,45 +250,35 @@ pub fn sync_layout_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(
-    world: &mut World,
-    parent: Entity,
-    view_w: u16,
-    view_h: u16,
-    n_bodies: usize,
-    equilibrium: Fixed,
-) {
+#[compose]
+pub fn build_widgets(view_w: u16, view_h: u16, n_bodies: usize, equilibrium: Fixed) {
     let logical_w = view_w as i32;
     let logical_h = view_h as i32;
 
-    let now_ms = world
+    let now_ms = cx
+        .world_mut()
         .resource::<MonoClock>()
         .map(|c| c.now_ms())
         .unwrap_or(0);
-    world.insert_resource(PhysicsTime {
+    cx.world_mut().insert_resource(PhysicsTime {
         last_tick_ms: now_ms,
         accumulator_ms: 0,
     });
-    world.insert_resource(WorldBounds {
+    cx.world_mut().insert_resource(WorldBounds {
         w: logical_w,
         h: logical_h,
     });
-    world.insert_resource(SpringLength(equilibrium));
+    cx.world_mut().insert_resource(SpringLength(equilibrium));
     let n = n_bodies.max(1);
-    world.insert_resource(PhysicsScratch {
+    cx.world_mut().insert_resource(PhysicsScratch {
         entities: Vec::with_capacity(n),
         positions: Vec::with_capacity(n),
         ax: Vec::with_capacity(n),
         ay: Vec::with_capacity(n),
     });
-    world.insert_resource(KickPhase(0));
+    cx.world_mut().insert_resource(KickPhase(0));
 
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0) {
             View (
                 bg_color: Color::rgb(88, 166, 255),
@@ -306,8 +296,8 @@ pub fn build_widgets(
 
     let iw = IMG_THUMBS_UP.width as i32;
     let ih = IMG_THUMBS_UP.height as i32;
-    let cx = Fixed::from_int(logical_w / 2);
-    let cy = Fixed::from_int(logical_h / 2);
+    let center_x = Fixed::from_int(logical_w / 2);
+    let center_y = Fixed::from_int(logical_h / 2);
     let r = Fixed::from_int(logical_w.min(logical_h) * 35 / 100);
     let orbital = Fixed::from_int(2);
 
@@ -317,8 +307,8 @@ pub fn build_widgets(
         let c = Fixed::cos_deg(deg);
         let s = Fixed::sin_deg(deg);
         init_pos.push((
-            cx + c * r,
-            cy + s * r,
+            center_x + c * r,
+            center_y + s * r,
             Fixed::ZERO - s * orbital,
             c * orbital,
         ));
@@ -326,11 +316,6 @@ pub fn build_widgets(
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         walk init_pos.iter() with pos {
             View (
                 position: Position::Absolute,
@@ -360,14 +345,8 @@ where
     app.add_system(physics_tick_system::system());
     app.add_system(kick_system::system());
     app.add_system(sync_layout_system::system());
-    build_widgets(
-        &mut app.world,
-        parent,
-        info.width,
-        info.height,
-        3,
-        Fixed::from_int(30),
-    );
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx, info.width, info.height, 3, Fixed::from_int(30));
 }
 
 #[cfg(test)]
@@ -375,13 +354,16 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent, 128, 128, 3, Fixed::from_int(30));
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx, 128, 128, 3, Fixed::from_int(30));
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

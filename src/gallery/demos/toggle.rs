@@ -24,9 +24,10 @@ pub struct ToggleStats {
 /// # Resources auto-inserted
 /// - [`IdMap`] (if absent) — `find_by_id("toggle_label")`
 /// - [`ToggleStats`] (if absent) — populated by the handlers
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    if world.resource::<IdMap>().is_none() {
-        world.insert_resource(IdMap::new());
+#[compose]
+pub fn build_widgets() {
+    if cx.world_mut().resource::<IdMap>().is_none() {
+        cx.world_mut().insert_resource(IdMap::new());
     }
 
     let stats = Signal::new(ToggleStats::default());
@@ -51,11 +52,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0, padding: Padding::all(20)) {
             View (
                 text: $stats_text,
@@ -89,19 +85,23 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::Children;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

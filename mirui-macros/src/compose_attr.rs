@@ -13,7 +13,7 @@ pub fn expand(_attr: TokenStream, item: TokenStream) -> TokenStream {
         other => {
             return syn::Error::new(
                 other.span(),
-                "`#[ui_scope]` applies to functions only; use `ui!(Name { ... })` macro form for widget classes",
+                "`#[compose]` applies to functions only; use `ui!(Name { ... })` macro form for widget classes",
             )
             .to_compile_error();
         }
@@ -22,7 +22,7 @@ pub fn expand(_attr: TokenStream, item: TokenStream) -> TokenStream {
     if f.sig.asyncness.is_some() {
         return syn::Error::new(
             f.sig.asyncness.span(),
-            "`#[ui_scope]` does not support async fn in v0.40",
+            "`#[compose]` does not support async fn in v0.40",
         )
         .to_compile_error();
     }
@@ -30,7 +30,7 @@ pub fn expand(_attr: TokenStream, item: TokenStream) -> TokenStream {
     if !f.sig.generics.params.is_empty() {
         return syn::Error::new(
             f.sig.generics.span(),
-            "`#[ui_scope]` does not support generic fn in v0.40",
+            "`#[compose]` does not support generic fn in v0.40",
         )
         .to_compile_error();
     }
@@ -42,7 +42,7 @@ pub fn expand(_attr: TokenStream, item: TokenStream) -> TokenStream {
         {
             return syn::Error::new(
                 pat_ident.ident.span(),
-                "`#[ui_scope]` fn cannot have a parameter named `cx` — the attribute injects one for you",
+                "`#[compose]` fn cannot have a parameter named `cx` — the attribute injects one for you",
             )
             .to_compile_error();
         }

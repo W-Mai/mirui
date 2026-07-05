@@ -78,7 +78,7 @@ fn bounce() -> IconScale {
     )
 }
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let table = icons();
     ui! {

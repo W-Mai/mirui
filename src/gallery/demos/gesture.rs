@@ -19,7 +19,7 @@ const TAP_COLORS: [Color; 5] = [
     Color::rgb(255, 200, 50),
 ];
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {

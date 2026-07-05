@@ -2,9 +2,9 @@ use mirui::ecs::{Entity, World};
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::widgets::Text;
 use mirui::ui::{IdMap, Parent, UiScope, ViewRegistry};
-use mirui::{ui, ui_scope};
+use mirui::{compose, ui};
 
-#[ui_scope]
+#[compose]
 fn hello_only() {
     ui! {
         Text("scoped hello") {}
@@ -26,7 +26,7 @@ fn ui_scope_alone_spawns_widget_under_cx_parent() {
     assert_eq!(world.get::<Parent>(texts[0]).unwrap().0, root);
 }
 
-#[ui_scope]
+#[compose]
 fn call_helper() {
     ui!(hello_only());
     ui!(hello_only());

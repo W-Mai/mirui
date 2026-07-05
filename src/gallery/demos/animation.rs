@@ -20,14 +20,10 @@ mirui_macros::animate!(AnimateColor, |world, entity, value| {
     world.insert(entity, ui::dirty::Dirty);
 });
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
     //~focus-start
     let ball = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(255, 50, 100),
             border_radius: 20,
@@ -40,7 +36,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     //~focus-end
 
-    world.insert(
+    cx.world_mut().insert(
         ball,
         AnimateX(
             Tween::new(
@@ -53,7 +49,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             .into(),
         ),
     );
-    world.insert(
+    cx.world_mut().insert(
         ball,
         AnimateColor(
             Tween::new(
@@ -87,7 +83,8 @@ where
     ));
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -95,13 +92,16 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

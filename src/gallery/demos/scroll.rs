@@ -2,7 +2,7 @@ use crate::input::event::scroll::{ScrollAxis, ScrollConfig, ScrollOffset};
 use crate::prelude::*;
 use crate::ui::UiScope;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let colors = [
         ("Item 0", Color::rgb(88, 166, 255)),

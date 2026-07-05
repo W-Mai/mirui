@@ -49,7 +49,7 @@ pub fn register_font(world: &mut World) {
     mgr.add_static(TOKEN_24.cache_key(), sdf24);
 }
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {

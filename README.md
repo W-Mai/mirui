@@ -55,7 +55,7 @@ fn main() {
     app.run();
 }
 
-#[ui_scope]
+#[compose]
 fn build_root() {
     ui! {
         column (direction: FlexDirection::Column, grow: 1.0) {
@@ -75,11 +75,11 @@ fn build_root() {
 
 `mirui::prelude` brings `App`, layout types, `Color` / `Dimension` /
 `Fixed`, `Entity` / `World`, `WidgetBuilder`, theme tokens, and the
-`ui!` / `ui_scope` macros. Surface backends, plugins, and individual
+`ui!` / `compose` macros. Surface backends, plugins, and individual
 widget kinds stay on their canonical paths so the prelude doesn't
 pin a platform or feature choice.
 
-`#[ui_scope]` slips a `cx: &mut UiScope` first parameter into the
+`#[compose]` slips a `cx: &mut UiScope` first parameter into the
 function; every `ui!` invocation inside the body reads that `cx` to
 spawn widgets, so the four-line `:( parent world :)` header from
 earlier releases is no longer needed. Compose helper functions with

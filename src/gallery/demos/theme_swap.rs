@@ -30,14 +30,10 @@ pub fn custom_theme() -> Theme {
     ])
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Row (height: 44, padding: Padding::all(12)) {
             Button (
                 grow: 1.0,
@@ -96,11 +92,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (grow: 1.0) {
             Row (height: 28, align: AlignItems::Center) {
                 View (width: 90) {
@@ -157,9 +148,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     //~focus-end
 
-    let pbs: Vec<Entity> = world.query::<ProgressBar>().collect();
+    let pbs: Vec<Entity> = cx.world_mut().query::<ProgressBar>().collect();
     for pb in pbs {
-        if let Some(p) = world.get_mut::<ProgressBar>(pb) {
+        if let Some(p) = cx.world_mut().get_mut::<ProgressBar>(pb) {
             p.value = 0.6;
         }
     }
@@ -172,13 +163,15 @@ where
     F: RendererFactory<B>,
 {
     app.with_theme(dark_with_accent());
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
@@ -189,7 +182,9 @@ mod tests {
         world.insert_resource(IdMap::new());
         world.insert_resource(dark_with_accent());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<crate::ui::Children>(parent)
@@ -203,7 +198,9 @@ mod tests {
         world.insert_resource(IdMap::new());
         world.insert_resource(dark_with_accent());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         let row = world.get::<crate::ui::Children>(parent).unwrap().0[0];
         let custom_btn = world.get::<crate::ui::Children>(row).unwrap().0[2];
 

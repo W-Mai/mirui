@@ -1,4 +1,4 @@
-use crate::ecs::{Entity, World};
+use crate::ecs::Entity;
 use crate::mold;
 use crate::prelude::*;
 use crate::ui::widgets::Text;
@@ -42,13 +42,9 @@ mold!(Card {
 });
 //~focus-end
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             padding: Padding::all(24),
@@ -100,12 +96,14 @@ where
     F: RendererFactory<B>,
 {
     app.with_widget(mold!(Card));
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ui::UiScope;
     use crate::ui::{IdMap, NicheMap, Parent, ViewRegistry};
 
     #[test]
@@ -117,7 +115,9 @@ mod tests {
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
 
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
 
         let cards: Vec<Entity> = world.query::<Card>().collect();
         assert_eq!(cards.len(), 2, "expected two Card widgets");

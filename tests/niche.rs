@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use mirui::ecs::{Entity, World};
+    use mirui::ecs::World;
     use mirui::mold;
     use mirui::ui;
     use mirui::ui::IdMap;

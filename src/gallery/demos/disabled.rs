@@ -9,7 +9,7 @@ use alloc::format;
 
 pub struct ClickCount(pub u32);
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {

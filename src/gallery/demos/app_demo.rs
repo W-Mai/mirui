@@ -1,7 +1,7 @@
 use crate::prelude::*;
 use crate::ui::UiScope;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     //~focus-start
     ui! {

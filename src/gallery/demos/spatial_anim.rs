@@ -51,13 +51,9 @@ pub fn spring_system(world: &mut World) {
 }
 //~focus-end
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(40, 40, 50),
             position: Position::Absolute,
@@ -69,11 +65,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         )
     };
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(40, 40, 50),
             position: Position::Absolute,
@@ -85,11 +76,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         )
     };
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(40, 40, 50),
             position: Position::Absolute,
@@ -103,11 +89,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     let tween_ball = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(248, 81, 73),
             position: Position::Absolute,
@@ -118,7 +99,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             border_radius: 10
         )
     };
-    world.insert(
+    cx.world_mut().insert(
         tween_ball,
         AnimateTweenY(
             Tween::new(
@@ -135,11 +116,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     let spring_ball = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(63, 185, 80),
             position: Position::Absolute,
@@ -150,7 +126,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             border_radius: 10
         )
     };
-    world.insert(
+    cx.world_mut().insert(
         spring_ball,
         SpringBall {
             spring: Spring::preset(Fixed::from_int(30), Fixed::from_int(250), SMOOTH).repeat(),
@@ -161,11 +137,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     let elastic_ball = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             bg_color: Color::rgb(88, 166, 255),
             position: Position::Absolute,
@@ -176,7 +147,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
             border_radius: 10
         )
     };
-    world.insert(
+    cx.world_mut().insert(
         elastic_ball,
         SpringBall {
             spring: Spring::preset(Fixed::from_int(30), Fixed::from_int(250), BOUNCY).repeat(),
@@ -201,7 +172,8 @@ where
     app.add_system(spring_system::system());
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -209,13 +181,16 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

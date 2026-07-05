@@ -19,7 +19,7 @@ const CELL_W: i32 = 96;
 const CELL_H: i32 = 96;
 const FG: i32 = 72;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     ui! {
         Column (

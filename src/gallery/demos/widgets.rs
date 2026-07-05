@@ -114,7 +114,8 @@ mirui_macros::timer!(Cycle, every: 3_000, |world, entity| {
     theme::set_theme(world, theme);
 });
 
-pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16) {
+#[compose]
+pub fn build_widgets(view_w: u16, view_h: u16) {
     let DemoSize {
         tabbar_h: tabbar_h_,
         row_h: row_h_,
@@ -123,11 +124,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
     //~focus-start
     let tabs = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         TabBar (
             bg_color: ColorToken::SurfaceVariant,
             height: tabbar_h_,
@@ -161,11 +157,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
     //~focus-start
     let list = ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         LazyList (
             bg_color: ColorToken::Surface,
             grow: 1.0,
@@ -202,25 +193,20 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
         }
     };
     //~focus-end
-    let pool: Vec<Entity> = world
+    let pool: Vec<Entity> = cx
+        .world_mut()
         .get::<Children>(list)
         .map(|c| c.0.clone())
         .unwrap_or_default();
-    // Absolute children resolve Auto width to 0; force Percent so rows track list width.
     for &row in &pool {
-        if let Some(style) = world.get_mut::<Style>(row) {
+        if let Some(style) = cx.world_mut().get_mut::<Style>(row) {
             style.layout.width = Dimension::percent(100);
         }
     }
-    world.insert(list, LazyListPool::new(pool));
+    cx.world_mut().insert(list, LazyListPool::new(pool));
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             bg_color: ColorToken::Surface,
             grow: 1.0,
@@ -277,11 +263,6 @@ pub fn build_widgets(world: &mut World, parent: Entity, view_w: u16, view_h: u16
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             bg_color: ColorToken::Surface,
             grow: 1.0,
@@ -338,7 +319,10 @@ where
     let cycle_e = Cycle::install(&mut app.world);
     app.world.insert(cycle_e, ThemeCycleIndex(0));
 
-    build_widgets(&mut app.world, parent, info.width, info.height);
+    {
+        let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+        build_widgets(&mut cx, info.width, info.height);
+    }
 
     if std::env::var("MIRUI_SIM_OFF").ok().as_deref() == Some("1") {
         return;
@@ -418,13 +402,16 @@ pub fn build_sim_timeline(world: &World) -> Option<SimTimeline> {
 mod tests {
     use super::*;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent, DEFAULT_VIEW.0, DEFAULT_VIEW.1);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx, DEFAULT_VIEW.0, DEFAULT_VIEW.1);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)

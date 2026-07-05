@@ -98,12 +98,13 @@ macro_rules! basic_demo_scoped {
     };
 }
 
-macro_rules! viewport_demo {
+macro_rules! viewport_demo_scoped {
     ($name:ident, $w:expr, $h:expr) => {
         #[test]
         fn $name() {
             let cs = render_demo($w, $h, |world, parent| {
-                mirui::gallery::demos::$name::build_widgets(world, parent, $w, $h);
+                let mut cx = mirui::ui::UiScope::new(world, parent);
+                mirui::gallery::demos::$name::build_widgets(&mut cx, $w, $h);
             });
             assert_renders(stringify!($name), cs);
         }
@@ -116,13 +117,14 @@ macro_rules! viewport_demo {
 // They are validated end-to-end via `cargo run -p gallery --example
 // <name>_demo` and ESP feature builds; this snapshot harness only
 // gates the in-place layout fix, which all 40 other demos exercise.
-macro_rules! viewport_demo_ignored {
+macro_rules! viewport_demo_ignored_scoped {
     ($name:ident, $w:expr, $h:expr) => {
         #[test]
         #[ignore = "needs multi-frame example loop, see module note above"]
         fn $name() {
             let cs = render_demo($w, $h, |world, parent| {
-                mirui::gallery::demos::$name::build_widgets(world, parent, $w, $h);
+                let mut cx = mirui::ui::UiScope::new(world, parent);
+                mirui::gallery::demos::$name::build_widgets(&mut cx, $w, $h);
             });
             assert_renders(stringify!($name), cs);
         }
@@ -142,14 +144,28 @@ macro_rules! viewport_demo_ignored_noargs {
     };
 }
 
+macro_rules! viewport_demo_ignored_noargs_scoped {
+    ($name:ident, $w:expr, $h:expr) => {
+        #[test]
+        #[ignore = "needs multi-frame example loop, see module note above"]
+        fn $name() {
+            let cs = render_demo($w, $h, |world, parent| {
+                let mut cx = mirui::ui::UiScope::new(world, parent);
+                mirui::gallery::demos::$name::build_widgets(&mut cx);
+            });
+            assert_renders(stringify!($name), cs);
+        }
+    };
+}
+
 basic_demo_scoped!(absolute, 480, 320);
-basic_demo!(animation, 320, 180);
+basic_demo_scoped!(animation, 320, 180);
 basic_demo_scoped!(app_demo, 480, 320);
 basic_demo_scoped!(book_flip, 640, 360);
 basic_demo_scoped!(click, 480, 320);
 basic_demo_scoped!(components, 480, 320);
 basic_demo_scoped!(disabled, 480, 320);
-basic_demo!(dsl, 480, 320);
+basic_demo_scoped!(dsl, 480, 320);
 basic_demo_scoped!(enchants, 480, 320);
 basic_demo_scoped!(gesture, 320, 240);
 basic_demo_scoped!(hello, 480, 320);
@@ -159,23 +175,23 @@ basic_demo!(image_flip, 480, 320);
 basic_demo_scoped!(input_feedback, 640, 360);
 basic_demo_scoped!(interactive_states, 720, 420);
 // Skip: LazyList pool warm-up needs multi-frame loop.
-// basic_demo!(lazy_list, 320, 320);
+// basic_demo_scoped!(lazy_list, 320, 320);
 basic_demo_scoped!(nested_scroll, 480, 400);
-basic_demo!(offscreen, 360, 360);
-basic_demo!(offscreen_modal, 360, 360);
-basic_demo!(on_handlers, 640, 320);
-basic_demo!(pinch_rotate, 480, 360);
+basic_demo_scoped!(offscreen, 360, 360);
+basic_demo_scoped!(offscreen_modal, 360, 360);
+basic_demo_scoped!(on_handlers, 640, 320);
+basic_demo_scoped!(pinch_rotate, 480, 360);
 basic_demo_scoped!(rounded, 480, 320);
 basic_demo_scoped!(scroll, 480, 320);
-basic_demo!(slider_switch, 320, 200);
-basic_demo!(slider_value_changed, 720, 320);
-basic_demo!(spatial_anim, 400, 300);
+basic_demo_scoped!(slider_switch, 320, 200);
+basic_demo_scoped!(slider_value_changed, 720, 320);
+basic_demo_scoped!(spatial_anim, 400, 300);
 basic_demo_scoped!(tabbar, 480, 320);
-basic_demo!(tabbar_selection, 640, 320);
+basic_demo_scoped!(tabbar_selection, 640, 320);
 basic_demo_scoped!(text, 480, 320);
 basic_demo_scoped!(text_input, 480, 200);
-basic_demo!(theme_swap, 480, 320);
-basic_demo!(toggle, 640, 320);
+basic_demo_scoped!(theme_swap, 480, 320);
+basic_demo_scoped!(toggle, 640, 320);
 basic_demo!(transform, 480, 320);
 basic_demo_scoped!(walk, 480, 320);
 
@@ -183,24 +199,18 @@ basic_demo_scoped!(effect_panels, 480, 360);
 basic_demo_scoped!(effect_glass, 128, 128);
 basic_demo!(particles, 480, 320);
 basic_demo!(subpixel, 480, 320);
-viewport_demo!(widgets, 512, 512);
+viewport_demo_scoped!(widgets, 512, 512);
 
-viewport_demo_ignored_noargs!(butterfly, 480, 480);
-viewport_demo_ignored!(cover_flow, 640, 360);
+viewport_demo_ignored_noargs_scoped!(butterfly, 480, 480);
+viewport_demo_ignored_scoped!(cover_flow, 640, 360);
 viewport_demo_ignored_noargs!(flip_card, 480, 320);
-viewport_demo_ignored_noargs!(shapes, 480, 480);
+viewport_demo_ignored_noargs_scoped!(shapes, 480, 480);
 
 #[test]
 fn three_body_renders() {
     let cs = render_demo(480, 320, |world, parent| {
-        mirui::gallery::demos::three_body::build_widgets(
-            world,
-            parent,
-            480,
-            320,
-            3,
-            Fixed::from_int(30),
-        );
+        let mut cx = mirui::ui::UiScope::new(world, parent);
+        mirui::gallery::demos::three_body::build_widgets(&mut cx, 480, 320, 3, Fixed::from_int(30));
     });
     assert_renders("three_body", cs);
 }

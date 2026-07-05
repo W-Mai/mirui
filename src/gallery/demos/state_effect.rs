@@ -4,7 +4,7 @@ use crate::core::reactive::{Effect, Signal};
 use crate::prelude::*;
 use crate::ui::UiScope;
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let value = Signal::new(0i32);
     // an effect with a side effect: count how many times `value` changed

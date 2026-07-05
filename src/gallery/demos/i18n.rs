@@ -32,17 +32,14 @@ fn register_font(world: &mut World) {
     mgr.add_static(TOKEN_CJK.cache_key(), font);
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    register_font(world);
-    world.insert_resource(I18n::new(Locale::EnUs).with_translations(TRANSLATIONS));
+#[compose]
+pub fn build_widgets() {
+    register_font(cx.world_mut());
+    cx.world_mut()
+        .insert_resource(I18n::new(Locale::EnUs).with_translations(TRANSLATIONS));
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             padding: Padding::all(24),
@@ -82,7 +79,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -90,6 +88,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {
@@ -97,7 +96,9 @@ mod tests {
         world.insert_resource(IdMap::new());
         world.insert_resource(crate::render::font::default_font_manager());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         let column = world
             .get::<Children>(parent)
             .and_then(|c| c.0.first().copied())

@@ -38,7 +38,8 @@ const PALETTE: [Fruit; 6] = [
     },
 ];
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
     let fruits = Signal::new(alloc::vec![
         PALETTE[0].clone(),
         PALETTE[1].clone(),
@@ -50,11 +51,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         Column (
             grow: 1.0,
             align: AlignItems::Center,
@@ -123,9 +119,9 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     };
     //~focus-end
 
-    let scroll =
-        World::find_by_id(world, "state_list_scroll").expect("scroll container id registered");
-    crate::core::reactive::with_world_scope(world, || {
+    let scroll = World::find_by_id(cx.world_mut(), "state_list_scroll")
+        .expect("scroll container id registered");
+    crate::core::reactive::with_world_scope(cx.world_mut(), || {
         crate::core::reactive::effect_with_widget(scroll, move || {
             let n = content.with(|f| f.len()) as i32;
             crate::core::reactive::with_world(|w| {
@@ -145,7 +141,8 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -156,6 +153,7 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     fn row_count(world: &World, list: Entity) -> usize {
         world.get::<Children>(list).map(|c| c.0.len()).unwrap_or(0)
@@ -179,7 +177,9 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
 
         let col = world.get::<Children>(parent).unwrap().0[0];
         let list = world.get::<Children>(col).unwrap().0[2];

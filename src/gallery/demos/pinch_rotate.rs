@@ -81,13 +81,9 @@ fn refresh(world: &mut World, entity: Entity) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
+#[compose]
+pub fn build_widgets() {
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             position: Position::Absolute,
             left: 16,
@@ -102,11 +98,6 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
 
     //~focus-start
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         View (
             position: Position::Absolute,
             left: CENTER_X - BASE_W / 2,
@@ -161,7 +152,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 
     let center = Point {
         x: Fixed::from_int(CENTER_X),
@@ -209,6 +201,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     use crate::input::event::GestureHandler;
     use crate::input::event::gesture::GestureEvent;
@@ -218,7 +211,9 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)
@@ -231,7 +226,9 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         let target = world.get::<Children>(parent).unwrap().0[1];
         let status = world.find_by_id("pinch_status").expect("status id");
 

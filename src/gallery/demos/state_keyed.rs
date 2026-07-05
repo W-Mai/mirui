@@ -37,7 +37,7 @@ fn deck() -> Vec<Card> {
     ]
 }
 
-#[ui_scope]
+#[compose]
 pub fn build_widgets() {
     let cards = Signal::new(deck());
     let rotate = cards.clone();

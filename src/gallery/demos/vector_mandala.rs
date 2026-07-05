@@ -189,18 +189,15 @@ pub fn vector_mandala_anim_system(world: &mut World) {
     }
 }
 
-pub fn build_widgets(world: &mut World, parent: Entity) {
-    let now_ms = world
+#[compose]
+pub fn build_widgets() {
+    let now_ms = cx
+        .world_mut()
         .resource::<MonoClock>()
         .map(|c| c.now_ms())
         .unwrap_or(0);
 
     ui! {
-        :(
-            parent: parent
-            world: world
-        :)
-
         VectorMandala (
             start_ms: now_ms,
             petals: 10,
@@ -218,7 +215,8 @@ where
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(vector_mandala_view());
     app.add_system(vector_mandala_anim_system::system());
-    build_widgets(&mut app.world, parent);
+    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
+    build_widgets(&mut cx);
 }
 
 #[cfg(test)]
@@ -226,6 +224,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
     use crate::ui::view::ViewRegistry;
 
     #[test]
@@ -236,7 +235,9 @@ mod tests {
         reg.insert(vector_mandala_view());
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
-        build_widgets(&mut world, parent);
+        let mut cx = UiScope::new(&mut world, parent);
+        build_widgets(&mut cx);
+        drop(cx);
         assert!(
             world
                 .get::<Children>(parent)
