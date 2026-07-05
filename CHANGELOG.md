@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.2] - 2026-07-05
+
+### Added
+
+- **`UiScope` bundle** at `mirui::ui::UiScope`. One `<'w>` value carries the two handles every `ui!` invocation needs — the mutable `World` and the `Entity` to parent under. Later releases can grow the bundle with theme, clock, id-map, or animation handles without changing a single user-visible function signature; that extension path is the reason the type exists.
+- **`#[compose]` proc-macro attribute** injects `cx: &mut UiScope<'_>` as the first parameter of the annotated function. Users write their own business arguments; framework infrastructure stays out of the signature they read. The attribute rejects non-function items, `async fn`, generic fn, and explicit `cx` parameters at expansion time.
+- **`ui!` header is now optional.** Without `:( parent: p world: w :)` the macro reads `cx.world_mut()` / `cx.parent()` from the enclosing scope — usually the `cx` a `#[compose]` fn just injected. The explicit-header form still parses and takes precedence, so tests and one-off snapshots that build their own world / parent keep working.
+- **`ui!(func(args))` fn-call form** rewrites a free-fn call to `func(cx, args)`, so `#[compose]` fns compose without threading `cx` at every call site. Only free-fn paths whose last segment starts with a lowercase letter (or `_`) route to this form — uppercase names (`Card(...)`, `Column(...)`) stay on the DSL parsing path.
+- **`ui!(compose Name { body })` declaration form** replaces `mold!(Name { body })`. Same `@@slot` / `@slot` semantics, same fallback + despawn behaviour, same compile-time slot typo check. The `compose` keyword disambiguates declaration from spawn at the proc-macro level (token input is identical without it).
+- **`ui!(compose Name)` expression form** replaces `mold!(Name)`. Expands to `<Name>::__view()`.
+- **`App::compose(parent, f)`** wraps the world and a parent entity in a fresh `UiScope` and hands it to the given closure. Pairs with `#[compose]` — one verb, one concept.
+- **`HandlerCtx::compose(|cx| ...)`** mirrors `App::compose` for `on EventKind` bodies. Handlers can't share the `cx` with their enclosing `#[compose]` fn (the handler runs later, under a different borrow), so an explicit entry point lets users opt into a UI scope rooted at the handler's widget entity.
+
+### Changed
+
+- **Gallery: all 55 non-`niche` demos migrated** to `#[compose]` + header-less `ui!`. `build_widgets` drops its `(world, parent)` parameters; `setup_app` calls `app.compose(parent, build_widgets)`. The remaining 5 demos with viewport parameters (`cover_flow` / `life` / `three_body` / `widgets` / `persistence_counter`) wrap the call in a small closure: `app.compose(parent, |cx| build_widgets(cx, w, h))`.
+- **`ui!(compose ...)` body scope unified with `ui!` anon.** Declaration bodies used `world` / `entity` as implicit handles while anon bodies read `cx.world_mut()` / `cx.parent()`. The mismatch meant `ui!(func())` inside a `compose` body's `${ ... }` block failed. Mold codegen now drives the body through the same `cx: &mut UiScope` shape, so `${ ... }` blocks see a consistent `cx` binding.
+
+### Removed
+
+- **`mold!` macro removed.** Both forms route through `ui!` now: `ui!(compose Name { body })` for declaration, `ui!(compose Name)` for expression. The `mold` re-export is gone from the crate root and prelude.
+
+### Notes
+
+- The change is **breaking** for v0.39.0 / v0.39.1 users who wrote `mold!(Card { ... })` or `mold!(Card)`. Migration is textual: `mold!(...)` → `ui!(compose ...)`. No semantic change to slot / fallback / despawn behaviour.
+
 ## [0.39.1] - 2026-07-03
 
 ### Added
