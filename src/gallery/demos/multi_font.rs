@@ -9,7 +9,6 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::render::font::{FontManager, multi};
-use crate::ui::UiScope;
 use crate::ui::widgets::Text;
 
 const BUNDLE: &[u8] = include_bytes!("assets/multi_font_bundle.mirx");
@@ -76,8 +75,7 @@ where
     F: RendererFactory<B>,
 {
     register_font(&mut app.world);
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -85,6 +83,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn bundle_font_reports_a_pixel_default_size() {

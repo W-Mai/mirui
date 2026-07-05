@@ -1,7 +1,6 @@
 extern crate alloc;
 
 use crate::prelude::*;
-use crate::ui::UiScope;
 use crate::ui::widgets::{Button, Checkbox, Image, ProgressBar, Text, assets::*};
 
 #[compose]
@@ -103,8 +102,7 @@ where
     F: RendererFactory<B>,
 {
     app.add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -112,6 +110,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {

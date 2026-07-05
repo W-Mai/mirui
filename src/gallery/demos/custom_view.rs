@@ -3,7 +3,6 @@
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::renderer::Renderer;
-use crate::ui::UiScope;
 use crate::ui::dirty::Dirty;
 use crate::ui::view::{View, ViewCtx};
 
@@ -130,8 +129,7 @@ where
     F: RendererFactory<B>,
 {
     app.with_widget(diamond_view());
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -139,6 +137,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
     use crate::ui::view::ViewRegistry;
 
     use crate::input::event::GestureHandler;

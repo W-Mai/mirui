@@ -152,8 +152,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 
     let center = Point {
         x: Fixed::from_int(CENTER_X),

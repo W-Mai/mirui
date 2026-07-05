@@ -221,8 +221,7 @@ where
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default())
         .add_plugin(crate::app::plugins::ImageResourcesPlugin::default());
-    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx, info.width, info.height);
+    app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
 }
 
 #[cfg(test)]
@@ -256,10 +255,7 @@ mod tests {
         let mut app = crate::app::App::headless(640, 360);
         app.with_default_widgets().with_default_systems();
         let root = app.spawn_root().id();
-        {
-            let mut cx = UiScope::new(&mut app.world, root);
-            build_widgets(&mut cx, 640, 360);
-        }
+        app.compose(root, |cx| build_widgets(cx, 640, 360));
         app.set_root(root);
 
         let carousel = app.world.query::<Carousel>().collect()[0];

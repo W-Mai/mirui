@@ -319,10 +319,7 @@ where
     let cycle_e = Cycle::install(&mut app.world);
     app.world.insert(cycle_e, ThemeCycleIndex(0));
 
-    {
-        let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
-        build_widgets(&mut cx, info.width, info.height);
-    }
+    app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
 
     if std::env::var("MIRUI_SIM_OFF").ok().as_deref() == Some("1") {
         return;

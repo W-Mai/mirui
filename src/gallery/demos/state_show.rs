@@ -1,7 +1,6 @@
 extern crate alloc;
 
 use crate::prelude::*;
-use crate::ui::UiScope;
 use crate::ui::widgets::ProgressBar;
 
 #[compose]
@@ -115,8 +114,7 @@ where
 {
     use crate::app::plugins::StdInstantClockPlugin;
     app.add_plugin(StdInstantClockPlugin);
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -127,6 +125,7 @@ mod tests {
     use crate::input::event::gesture::GestureEvent;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn reactive_if_else_swaps_branch() {

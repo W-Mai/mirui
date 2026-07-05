@@ -36,8 +36,7 @@ where
 {
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]

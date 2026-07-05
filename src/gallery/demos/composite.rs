@@ -2,7 +2,6 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::render::command::CompositeMode;
-use crate::ui::UiScope;
 use crate::ui::widgets::Image;
 
 const MODES: &[(&str, &str, CompositeMode)] = &[
@@ -93,6 +92,5 @@ where
     use crate::app::plugins::{ImageResourcesPlugin, StdInstantClockPlugin};
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(ImageResourcesPlugin::default());
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }

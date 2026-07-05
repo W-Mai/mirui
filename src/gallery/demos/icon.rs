@@ -4,7 +4,6 @@ use crate::anim::{BOUNCY, PlayMode, SMOOTH, Spring, Tween, ease};
 use crate::prelude::*;
 use crate::render::path::Path;
 use crate::ui;
-use crate::ui::UiScope;
 use crate::ui::icons::{
     ICON_ARROW_DOWN, ICON_ARROW_LEFT, ICON_ARROW_RIGHT, ICON_ARROW_UP, ICON_CHECK,
     ICON_CHEVRON_DOWN, ICON_CHEVRON_LEFT, ICON_CHEVRON_RIGHT, ICON_CHEVRON_UP, ICON_CIRCLE,
@@ -160,8 +159,7 @@ where
         IconScale::system(),
     ));
     app.add_plugin(StdInstantClockPlugin);
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -169,6 +167,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {

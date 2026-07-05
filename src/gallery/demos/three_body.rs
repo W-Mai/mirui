@@ -345,8 +345,9 @@ where
     app.add_system(physics_tick_system::system());
     app.add_system(kick_system::system());
     app.add_system(sync_layout_system::system());
-    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx, info.width, info.height, 3, Fixed::from_int(30));
+    app.compose(parent, |cx| {
+        build_widgets(cx, info.width, info.height, 3, Fixed::from_int(30))
+    });
 }
 
 #[cfg(test)]

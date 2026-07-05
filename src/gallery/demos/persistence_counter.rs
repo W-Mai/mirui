@@ -59,8 +59,7 @@ where
         .autosave_every_ms(2000);
     app.add_plugin(plugin);
 
-    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx, count);
+    app.compose(parent, |cx| build_widgets(cx, count));
 }
 
 #[cfg(all(

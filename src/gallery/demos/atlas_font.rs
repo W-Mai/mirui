@@ -14,7 +14,6 @@ extern crate alloc;
 
 use crate::prelude::*;
 use crate::render::font::{Font, FontManager, gray, sdf};
-use crate::ui::UiScope;
 use crate::ui::widgets::Text;
 
 const PIXEL_10: &[u8] = include_bytes!("assets/fusion_pixel_10_1bit.mirx");
@@ -86,8 +85,7 @@ where
     F: RendererFactory<B>,
 {
     register_font(&mut app.world);
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -95,6 +93,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn loads_three_atlases_at_their_sizes() {

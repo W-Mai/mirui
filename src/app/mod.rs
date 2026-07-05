@@ -356,6 +356,28 @@ impl<B: Surface, F: RendererFactory<B>> App<B, F> {
         RootBuilder { app: self, entity }
     }
 
+    /// Run a UI composition against a given parent entity.
+    ///
+    /// Wraps `App::world` and `parent` in a fresh [`UiScope`] and hands it to
+    /// the given closure, so demo entry points can chain the framework
+    /// setup and the widget tree in a single builder call:
+    ///
+    /// ```ignore
+    /// app.add_plugin(InputFeedbackPlugin::new())
+    ///     .compose(root, build_widgets);
+    /// ```
+    ///
+    /// `f` is typically an `#[compose] fn`, which already carries the
+    /// `&mut UiScope` signature this method feeds it.
+    pub fn compose<Func>(&mut self, parent: crate::ecs::Entity, f: Func) -> &mut Self
+    where
+        Func: FnOnce(&mut crate::ui::UiScope<'_>),
+    {
+        let mut cx = crate::ui::UiScope::new(&mut self.world, parent);
+        f(&mut cx);
+        self
+    }
+
     /// Render one frame
     #[mirui::trace_fn("frame.full")]
     pub fn render(&mut self) {

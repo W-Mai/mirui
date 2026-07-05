@@ -2,7 +2,6 @@ extern crate alloc;
 
 use crate::anim::{PlayMode, Tween, ease};
 use crate::prelude::*;
-use crate::ui::UiScope;
 use crate::ui::widgets::{BackgroundBlur, MirrorOf, Text};
 
 pub const DEFAULT_VIEW: (u16, u16) = (128, 128);
@@ -146,8 +145,7 @@ where
         GaussRadius::system(),
     ));
     app.with_offscreen_pool_budget(8 * 1024);
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -155,6 +153,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {

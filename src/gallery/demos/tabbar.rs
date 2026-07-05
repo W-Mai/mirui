@@ -5,7 +5,6 @@ use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "std")]
 use crate::prelude::plugin::FpsSummaryPlugin;
 use crate::prelude::*;
-use crate::ui::UiScope;
 use crate::ui::widgets::{TabBar, TabContent};
 
 #[compose]
@@ -101,8 +100,7 @@ where
 {
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -110,6 +108,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {

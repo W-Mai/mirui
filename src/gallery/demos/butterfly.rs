@@ -292,8 +292,7 @@ where
     app.add_plugin(StdInstantClockPlugin);
     app.with_widget(butterfly_view());
     app.add_system(butterfly_anim_system::system());
-    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]

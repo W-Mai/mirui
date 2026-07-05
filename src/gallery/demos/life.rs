@@ -293,10 +293,7 @@ where
     app.with_widget(life_view())
         .add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
-    {
-        let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
-        build_widgets(&mut cx, info.width, info.height);
-    }
+    app.compose(parent, |cx| build_widgets(cx, info.width, info.height));
     LifeTick::install(&mut app.world);
 }
 

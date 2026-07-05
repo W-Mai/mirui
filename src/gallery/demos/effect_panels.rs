@@ -4,7 +4,6 @@ use crate::prelude::*;
 use crate::types::Transform;
 #[cfg(feature = "std")]
 use crate::ui::Theme;
-use crate::ui::UiScope;
 use crate::ui::dirty::Dirty;
 use crate::ui::root_viewport;
 use crate::ui::widgets::{BackgroundBlur, MirrorOf, TemporalMix, WidgetTransform};
@@ -309,8 +308,7 @@ where
         .add_system(panel_layout_system::system())
         .add_system(animate_x::system())
         .add_system(animate_color_flash::system());
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -318,6 +316,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {

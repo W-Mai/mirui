@@ -7,7 +7,6 @@ use crate::app::plugins::StdInstantClockPlugin;
 #[cfg(feature = "std")]
 use crate::input::event::sim::{SimAction, SimTimeline, sim_timeline_system};
 use crate::prelude::*;
-use crate::ui::UiScope;
 #[cfg(feature = "std")]
 use alloc::vec;
 
@@ -94,8 +93,7 @@ where
     app.world.insert_resource(timeline);
     app.add_system(sim_timeline_system::system());
     app.add_plugin(StdInstantClockPlugin);
-    let mut cx = UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
@@ -103,6 +101,7 @@ mod tests {
     use super::*;
     use crate::ui::Children;
     use crate::ui::IdMap;
+    use crate::ui::UiScope;
 
     #[test]
     fn build_widgets_smoke() {

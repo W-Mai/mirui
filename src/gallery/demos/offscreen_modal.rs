@@ -225,8 +225,7 @@ where
     app.add_system(mode_toggle_system::system());
     app.add_system(fps_readout_system::system());
     app.add_plugin(StdInstantClockPlugin);
-    let mut cx = crate::ui::UiScope::new(&mut app.world, parent);
-    build_widgets(&mut cx);
+    app.compose(parent, build_widgets);
 }
 
 #[cfg(test)]
