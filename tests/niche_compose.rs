@@ -1,15 +1,14 @@
 use mirui::ecs::{Entity, World};
-use mirui::mold;
 use mirui::ui;
 use mirui::ui::builder::WidgetBuilder;
 use mirui::ui::widgets::Text;
 use mirui::ui::{IdMap, NicheMap, Parent, ViewRegistry};
 
-mold!(MoldCard {
+ui!(compose MoldCard {
     @@header @@body @@footer
 });
 
-mold!(NestedCard {
+ui!(compose NestedCard {
     Column () {
         View (height: 20) {
             @@header
@@ -25,7 +24,7 @@ fn mold_generates_niche_map_via_attach() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(mold!(MoldCard));
+    reg.insert(ui!(compose MoldCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();
@@ -83,7 +82,7 @@ fn mold_body_expands_nested_widget_tree() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(mold!(NestedCard));
+    reg.insert(ui!(compose NestedCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();
@@ -163,7 +162,7 @@ fn mold_body_expands_nested_widget_tree() {
     }
 }
 
-mold!(FallbackCard {
+ui!(compose FallbackCard {
     @@header {
         Text ("Default header") {}
     }
@@ -177,7 +176,7 @@ fn mold_unfilled_slot_keeps_fallback() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(mold!(FallbackCard));
+    reg.insert(ui!(compose FallbackCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();
@@ -217,7 +216,7 @@ fn mold_filled_slot_despawns_fallback() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(mold!(FallbackCard));
+    reg.insert(ui!(compose FallbackCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();
@@ -274,7 +273,7 @@ fn mold_filled_slot_despawns_fallback() {
 use mirui::types::Fixed;
 use mirui::ui::Style;
 
-mold!(SizedCard(pad: Fixed, radius: Fixed) {
+ui!(compose SizedCard(pad: Fixed, radius: Fixed) {
     View (
         border_radius: radius,
         padding: mirui::ui::layout::Padding::all(pad)
@@ -288,7 +287,7 @@ fn mold_param_values_flow_into_body_attrs() {
     let mut world = World::new();
     world.insert_resource(IdMap::new());
     let mut reg = ViewRegistry::default();
-    reg.insert(mold!(SizedCard));
+    reg.insert(ui!(compose SizedCard));
     world.insert_resource(reg);
 
     let root = WidgetBuilder::new(&mut world).id();

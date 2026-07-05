@@ -1,12 +1,11 @@
 use crate::ecs::Entity;
-use crate::mold;
 use crate::prelude::*;
 use crate::ui::widgets::Text;
 
 pub const DEFAULT_VIEW: (u16, u16) = (480, 320);
 
 //~focus-start
-mold!(Card {
+ui!(compose Card {
     Column (direction: FlexDirection::Column, grow: 1.0) {
         View (
             bg_color: ColorToken::Primary,
@@ -95,7 +94,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    app.with_widget(mold!(Card));
+    app.with_widget(ui!(compose Card));
     app.compose(parent, build_widgets);
 }
 
@@ -110,7 +109,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let mut reg = ViewRegistry::default();
-        reg.insert(mold!(Card));
+        reg.insert(ui!(compose Card));
         world.insert_resource(reg);
         let parent = WidgetBuilder::new(&mut world).id();
 

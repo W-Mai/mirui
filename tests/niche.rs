@@ -1,7 +1,6 @@
 #[cfg(test)]
 mod tests {
     use mirui::ecs::World;
-    use mirui::mold;
     use mirui::ui;
     use mirui::ui::IdMap;
     use mirui::ui::NicheMap;
@@ -9,7 +8,7 @@ mod tests {
     use mirui::ui::ViewRegistry;
     use mirui::ui::builder::WidgetBuilder;
 
-    mold!(Card {
+    ui!(compose Card {
         @@header @@body @@footer
     });
 
@@ -20,7 +19,7 @@ mod tests {
         let mut world = World::new();
         world.insert_resource(IdMap::new());
         let mut reg = ViewRegistry::default();
-        reg.insert(mold!(Card));
+        reg.insert(ui!(compose Card));
         world.insert_resource(reg);
 
         let root = WidgetBuilder::new(&mut world).id();
