@@ -130,6 +130,7 @@ fn cover_flow_demo_smoke() {
 #[test]
 fn effect_panels_demo_smoke() {
     let mut world = World::new();
+    world.insert_resource(mirui::ui::IdMap::new());
     let parent = WidgetBuilder::new(&mut world).id();
     let mut cx = UiScope::new(&mut world, parent);
     mirui::gallery::demos::effect_panels::build_widgets(&mut cx);
