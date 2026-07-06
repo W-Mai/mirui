@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] - 2026-07-06
+
+### Added
+
+- **`DropShadow` widget** at `mirui::ui::widgets::DropShadow`. Samples another entity's alpha via `texture_of(source)`, blurs it, tints with a `ThemedColor`, blits at a configurable `(dx, dy)` offset with `SourceOver` composite. Builder covers `with_blur_radius` / `with_offset` / `with_color` / `with_opacity`. Auto-attach installs `OffscreenRender` + `OffscreenAlphaMode::clear_transparent` on the source and `WidgetTextureRef` on the effect entity, so callers pass an `Entity` and the plumbing is handled.
+- **`DropGlow` widget** — same pipeline as `DropShadow` but with `Screen` composite and no offset, radiating a halo around the source. Same builder shape minus offset.
+- **`BackgroundBlur.spread` field + `with_spread(px)` builder.** Grows the sample rect symmetrically beyond `radius` so a translucent widget bleeds its blur into surrounding pixels — matches the CSS `filter: drop-shadow(spread)` inflation semantics, gives frosted-glass panes a softer edge.
+- **`Rect::inflate(amount)` helper** at `mirui::types::Rect`. Returns a rect grown by `amount` on every side (x/y shift by `-amount`, w/h grow by `2 * amount`). Used by every effect widget that needs padding around a sample region for blur edge-bleed.
+- **`web_canvas` `Blit.radius` rounded-rect clip.** Was `unimplemented!()` panic before; now builds a `Path2D` from four arcs, `ctx.clip()`, draws, and restores. Any rounded blit on the wasm backend now renders instead of aborting the frame.
+
+### Changed
+
+- **`animate!` macro returns `ecs::System` directly.** Previously `X::system()` handed back a raw `fn(&mut World)`, forcing every call site to wrap it in `ecs::System::new("name", ecs::run_order::ANIMATION, X::system())`. The macro now embeds `stringify!(X)` as the system name and `run_order::ANIMATION` as the slot, so `app.add_system(X::system())` works identically to `#[system]`-generated systems.
+- **Gallery: five demos drop the `System::new` wrapper.** `animation`, `icon`, `sdf_zoom`, `spatial_anim`, `effect_glass` all stop importing `crate::ecs` just to reach `System::new`.
+
+### Fixed
+
+- **`BackgroundBlur` double-translate on sample-then-blit.** `sample_target_region` returns a texture whose coordinates already have `ctx.transform` baked in (screen space), but the subsequent `Blit` passed `ctx.transform` back through, and `SwRenderer::dispatch_blit` applies `offset_point(pos, tx, ty)` on top — every translate accumulated. Barely noticeable on desktop, catastrophic on wasm where `dpr` amplifies the delta. `BackgroundBlur` now blits with `Transform::IDENTITY` + `quad: None` since the sample already sits at its final screen position.
+- **`BackgroundBlur` edge bleed.** IIR Gaussian blur reads transparent-black past the sample buffer's edges, biting a dark halo into the widget's corners. The sample rect is now inflated by `(radius + spread)` so the halo stays inside padding and only the widget interior gets composited back.
+- **`web_canvas` transient-texture stale-cache.** `sample_target_region` allocates a fresh `Vec` per frame; when it drops, the allocator hands the same heap slot back, so `TextureKey` — which hashes `(ptr, len, w, h, format)` — collides across frames and the pool returns the previous frame's already-uploaded `OffscreenCanvas`. The sampled bytes get silently discarded and blur freezes on frame-one pixels. Fix: sampled textures are now marked `.with_transient(true)` and the blit path skips `TexturePool` for them, uploading a one-shot `OffscreenCanvas` per frame. Same bug shape wgpu caught earlier on commit `1a8f20c4`.
+
+### Notes
+
+- **Breaking:** any code that manually wrapped `animate!`-derived systems in `ecs::System::new(...)` needs the wrapper removed — the macro's `system()` now emits the wrapped form.
+
 ## [0.39.2] - 2026-07-05
 
 ### Added
