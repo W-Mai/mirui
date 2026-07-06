@@ -32,7 +32,7 @@ gallery::register_demos! {
     ("flip_card",            "flip card",            "Animation",   flip_card,            480, 320),
     ("book_flip",            "book flip",            "Animation",   book_flip,            640, 360),
 
-    ("effect_panels",        "effect panels",        "Effects",     effect_panels,        480, 360),
+    ("effect_panels",        "effect panels",        "Effects",     effect_panels,        360, 560),
     ("effect_glass",         "effect glass",         "Effects",     effect_glass,         128, 128),
     ("offscreen",            "offscreen render",     "Effects",     offscreen,            360, 360),
     ("offscreen_modal",      "offscreen modal",      "Effects",     offscreen_modal,      360, 360),
