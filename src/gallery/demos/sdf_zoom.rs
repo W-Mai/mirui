@@ -124,7 +124,6 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::ecs;
     app.with_widget(zoom_view());
     register_font(&mut app.world);
     app.add_system(ZoomSize::system());
