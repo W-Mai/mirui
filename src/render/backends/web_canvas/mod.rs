@@ -420,7 +420,8 @@ impl Renderer for WebCanvasRenderer<'_> {
         let w = phys.w.to_int() as u16;
         let h = phys.h.to_int() as u16;
         let data = img.data();
-        let mut tex = crate::render::texture::Texture::owned(w, h, ColorFormat::RGBA8888);
+        let mut tex = crate::render::texture::Texture::owned(w, h, ColorFormat::RGBA8888)
+            .with_transient(true);
         if let crate::render::texture::TexBuf::Owned(ref mut dst) = tex.buf {
             dst.copy_from_slice(&data.0);
         }
@@ -682,28 +683,36 @@ impl Canvas for WebCanvasRenderer<'_> {
         if opa == 0 {
             return;
         }
-        if radius != Fixed::ZERO {
-            unimplemented!("web_canvas backend: Blit.radius mask not implemented; use SwRenderer");
-        }
-        let key = TextureKey::from(src);
-        let handle = match self
-            .factory
-            .texture_pool
-            .entry(key)
-            .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
-        {
-            Ok(h) => h,
-            Err(_) => return,
+        // Transient textures (sample_target_region results) reuse heap
+        // slots, so TextureKey ptr collisions would return a stale
+        // cached OffscreenCanvas. Upload fresh, skip the pool.
+        let transient_up;
+        let pooled_handle;
+        let canvas_ref: &web_sys::OffscreenCanvas = if src.transient {
+            transient_up = match texture_pool::upload(src) {
+                Some(up) => up,
+                None => return,
+            };
+            &transient_up.canvas
+        } else {
+            let key = TextureKey::from(src);
+            pooled_handle = match self
+                .factory
+                .texture_pool
+                .entry(key)
+                .or_try_insert_with::<_, ()>(|| texture_pool::upload(src).ok_or(()))
+            {
+                Ok(h) => h,
+                Err(_) => return,
+            };
+            if pooled_handle.is_invalid() {
+                return;
+            }
+            &pooled_handle.canvas
         };
-        if handle.is_invalid() {
-            return;
-        }
 
         self.push_clip(clip);
         let ctx = self.ctx();
-        // Canvas 2D's `globalAlpha` and `globalCompositeOperation` are
-        // persistent state across draws; capture both and restore them
-        // before pop_clip so the next primitive starts from a known baseline.
         let prev_alpha = ctx.global_alpha();
         let prev_composite = ctx.global_composite_operation().unwrap_or_default();
         ctx.set_global_alpha(opa as f64 / 255.0);
@@ -717,9 +726,53 @@ impl Canvas for WebCanvasRenderer<'_> {
             CompositeMode::Difference => "difference",
         };
         let _ = ctx.set_global_composite_operation(op);
+
+        if radius > Fixed::ZERO {
+            let saved = ctx.get_transform().expect("getTransform");
+            let d = self.dpr();
+            ctx.set_transform(d, 0.0, 0.0, d, 0.0, 0.0)
+                .expect("setTransform(dpr)");
+            ctx.save();
+            ctx.begin_path();
+            let x = dst.x.to_f32() as f64;
+            let y = dst.y.to_f32() as f64;
+            let w = dst_size.x.to_f32() as f64;
+            let h = dst_size.y.to_f32() as f64;
+            let r = radius.to_f32() as f64;
+            let r = r.min(w / 2.0).min(h / 2.0);
+            ctx.move_to(x + r, y);
+            let _ = ctx.arc(x + w - r, y + r, r, -std::f64::consts::FRAC_PI_2, 0.0);
+            let _ = ctx.arc(x + w - r, y + h - r, r, 0.0, std::f64::consts::FRAC_PI_2);
+            let _ = ctx.arc(
+                x + r,
+                y + h - r,
+                r,
+                std::f64::consts::FRAC_PI_2,
+                std::f64::consts::PI,
+            );
+            let _ = ctx.arc(
+                x + r,
+                y + r,
+                r,
+                std::f64::consts::PI,
+                std::f64::consts::FRAC_PI_2 * 3.0,
+            );
+            ctx.close_path();
+            ctx.clip();
+            ctx.set_transform(
+                saved.a(),
+                saved.b(),
+                saved.c(),
+                saved.d(),
+                saved.e(),
+                saved.f(),
+            )
+            .expect("setTransform(restore)");
+        }
+
         let result = ctx
             .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
-                &handle.canvas,
+                canvas_ref,
                 src_rect.x.to_f32() as f64,
                 src_rect.y.to_f32() as f64,
                 src_rect.w.to_f32() as f64,
@@ -730,6 +783,11 @@ impl Canvas for WebCanvasRenderer<'_> {
                 dst_size.y.to_f32() as f64,
             );
         let _ = result;
+
+        if radius > Fixed::ZERO {
+            ctx.restore();
+        }
+
         ctx.set_global_alpha(prev_alpha);
         let _ = ctx.set_global_composite_operation(&prev_composite);
         self.pop_clip();
