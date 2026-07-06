@@ -134,16 +134,8 @@ where
     use crate::app::plugins::StdInstantClockPlugin;
 
     app.add_plugin(StdInstantClockPlugin);
-    app.add_system(mirui::ecs::System::new(
-        "glass_x",
-        mirui::ecs::run_order::ANIMATION,
-        GlassX::system(),
-    ));
-    app.add_system(crate::ecs::System::new(
-        "gauss_radius",
-        crate::ecs::run_order::ANIMATION,
-        GaussRadius::system(),
-    ));
+    app.add_system(GlassX::system());
+    app.add_system(GaussRadius::system());
     app.with_offscreen_pool_budget(8 * 1024);
     app.compose(parent, build_widgets);
 }

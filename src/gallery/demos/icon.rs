@@ -152,12 +152,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::ecs;
-    app.add_system(ecs::System::new(
-        "icon_scale",
-        ecs::run_order::ANIMATION,
-        IconScale::system(),
-    ));
+    app.add_system(IconScale::system());
     app.add_plugin(StdInstantClockPlugin);
     app.compose(parent, build_widgets);
 }

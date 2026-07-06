@@ -127,11 +127,7 @@ where
     use crate::ecs;
     app.with_widget(zoom_view());
     register_font(&mut app.world);
-    app.add_system(ecs::System::new(
-        "zoom_size",
-        ecs::run_order::ANIMATION,
-        ZoomSize::system(),
-    ));
+    app.add_system(ZoomSize::system());
     app.add_plugin(StdInstantClockPlugin);
     app.compose(parent, build_widgets);
 }

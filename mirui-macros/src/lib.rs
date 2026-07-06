@@ -2172,11 +2172,15 @@ mod animate_impl {
             }
 
             impl #name {
-                pub fn system() -> fn(&mut mirui::ecs::World) {
+                pub fn system() -> mirui::ecs::System {
                     fn __sys(world: &mut mirui::ecs::World) {
                         mirui::anim::run_motion::<#name>(world, #closure);
                     }
-                    __sys
+                    mirui::ecs::System::new(
+                        stringify!(#name),
+                        mirui::ecs::run_order::ANIMATION,
+                        __sys,
+                    )
                 }
             }
         }

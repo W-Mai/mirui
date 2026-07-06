@@ -70,17 +70,8 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::ecs;
-    app.add_system(ecs::System::new(
-        "animate_x",
-        ecs::run_order::ANIMATION,
-        AnimateX::system(),
-    ));
-    app.add_system(ecs::System::new(
-        "animate_color",
-        ecs::run_order::ANIMATION,
-        AnimateColor::system(),
-    ));
+    app.add_system(AnimateX::system());
+    app.add_system(AnimateColor::system());
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
     app.compose(parent, build_widgets);

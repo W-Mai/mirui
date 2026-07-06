@@ -163,12 +163,7 @@ where
     B: Surface,
     F: RendererFactory<B>,
 {
-    use crate::ecs;
-    app.add_system(ecs::System::new(
-        "animate_tween_y",
-        ecs::run_order::ANIMATION,
-        AnimateTweenY::system(),
-    ));
+    app.add_system(AnimateTweenY::system());
     app.add_system(spring_system::system());
     app.add_plugin(StdInstantClockPlugin)
         .add_plugin(FpsSummaryPlugin::default());
