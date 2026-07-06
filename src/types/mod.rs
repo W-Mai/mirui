@@ -75,6 +75,15 @@ impl Rect {
         }
     }
 
+    pub fn inflate(&self, amount: Fixed) -> Rect {
+        Rect {
+            x: self.x - amount,
+            y: self.y - amount,
+            w: self.w + amount * Fixed::from_int(2),
+            h: self.h + amount * Fixed::from_int(2),
+        }
+    }
+
     pub fn bounding_quad(q: &[Point; 4]) -> Rect {
         let mut min_x = q[0].x;
         let mut max_x = q[0].x;
