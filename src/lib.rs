@@ -1,5 +1,5 @@
 //! mirui — a `no_std`, ECS-driven UI framework for embedded, desktop,
-//! and (planned) WebAssembly. Renders with 24.8 fixed-point subpixel
+//! and WebAssembly. Renders with 24.8 fixed-point subpixel
 //! precision on a software rasterizer designed for MCUs without an FPU;
 //! optionally runs on top of SDL2 (CPU or hardware-accelerated) on
 //! desktop.

@@ -4,7 +4,7 @@
 [![docs.rs](https://docs.rs/mirui/badge.svg)](https://docs.rs/mirui)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A `no_std`, ECS-driven UI framework for embedded, desktop, and (planned)
+A `no_std`, ECS-driven UI framework for embedded, desktop, and
 WebAssembly. Renders with 24.8 fixed-point subpixel precision on a
 software rasterizer designed for MCUs without an FPU; optionally runs
 on top of SDL2 (CPU or hardware-accelerated) on desktop.
