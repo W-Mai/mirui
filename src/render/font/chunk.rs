@@ -1,92 +1,9 @@
 //! Format-agnostic FONT chunk header + representation selection.
-//!
-//! One `.mirx` font file can hold several FONT chunks — a 16px
-//! grayscale bitmap, a 32px SDF, etc. Each FONT payload begins with a
-//! [`FontChunkHeader`] so a reader can pick the right representation
-//! for a requested size + format without parsing the (format-specific)
-//! body. The bytes after the header are the SDF [`AtlasHeader`] or a
-//! grayscale header, decided by `kind`.
+
+pub use mirx::{FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind};
 
 use super::FontFormat;
 
-/// Length of the shared prefix every FONT payload starts with.
-pub const FONT_CHUNK_HEADER_LEN: usize = 4;
-
-/// Rasterization scheme stored in a FONT chunk, parallel to
-/// [`super::GlyphKind`] / [`FontFormat`]. Serialized as the first byte
-/// of a FONT payload.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FontChunkKind {
-    Grayscale,
-    Sdf,
-}
-
-impl FontChunkKind {
-    fn from_u8(b: u8) -> Option<Self> {
-        match b {
-            0 => Some(FontChunkKind::Grayscale),
-            1 => Some(FontChunkKind::Sdf),
-            _ => None,
-        }
-    }
-
-    pub fn to_u8(self) -> u8 {
-        match self {
-            FontChunkKind::Grayscale => 0,
-            FontChunkKind::Sdf => 1,
-        }
-    }
-}
-
-/// Shared 4-byte prefix on every FONT chunk payload.
-///
-/// `size` is the fixed pixel height for grayscale tables; for SDF
-/// (which scales one atlas to any target) it carries the source size
-/// and selection treats SDF as covering all sizes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FontChunkHeader {
-    pub kind: FontChunkKind,
-    /// bpp for grayscale, bit_depth for SDF.
-    pub format: u8,
-    pub size: u16,
-}
-
-impl FontChunkHeader {
-    pub fn parse(payload: &[u8]) -> Option<Self> {
-        if payload.len() < FONT_CHUNK_HEADER_LEN {
-            return None;
-        }
-        Some(FontChunkHeader {
-            kind: FontChunkKind::from_u8(payload[0])?,
-            format: payload[1],
-            size: u16::from_le_bytes([payload[2], payload[3]]),
-        })
-    }
-
-    pub fn write(&self, out: &mut [u8]) {
-        out[0] = self.kind.to_u8();
-        out[1] = self.format;
-        out[2..4].copy_from_slice(&self.size.to_le_bytes());
-    }
-}
-
-/// Pick the best FONT chunk for `requested_size` + `want`.
-///
-/// Selection rules:
-/// - `FontFormat::Sdf` → first SDF chunk (one atlas serves every size).
-/// - `FontFormat::Grayscale` → grayscale chunk whose `size` is closest
-///   to `requested_size`.
-/// - `FontFormat::Auto` → a grayscale table when the request fits one
-///   (`requested_size` ≤ the largest gray design size), since a fixed
-///   pixel table is crisp there; beyond that it switches to SDF, which
-///   actually resamples. A grayscale glyph renders at its baked cell
-///   size and ignores the request, so picking gray for a far-larger
-///   size would render the wrong size, not just a soft one — hence the
-///   cutoff. Falls back to whichever kind exists if the preferred one
-///   is absent.
-///
-/// `headers` is the parsed header of each candidate, in chunk order;
-/// returns the index of the chosen candidate, or `None` if empty.
 pub fn select_font_chunk(
     headers: &[FontChunkHeader],
     requested_size: u16,
@@ -132,37 +49,13 @@ mod tests {
     }
 
     #[test]
-    fn header_round_trips() {
-        let orig = FontChunkHeader {
-            kind: FontChunkKind::Grayscale,
-            format: 4,
-            size: 16,
-        };
-        let mut buf = [0u8; FONT_CHUNK_HEADER_LEN];
-        orig.write(&mut buf);
-        assert_eq!(FontChunkHeader::parse(&buf), Some(orig));
-    }
-
-    #[test]
-    fn parse_rejects_short_payload() {
-        assert_eq!(FontChunkHeader::parse(&[0, 0, 0]), None);
-    }
-
-    #[test]
-    fn parse_rejects_unknown_kind() {
-        assert_eq!(FontChunkHeader::parse(&[9, 4, 16, 0]), None);
-    }
-
-    #[test]
     fn auto_prefers_closest_grayscale() {
         let hs = vec![
             h(FontChunkKind::Sdf, 32),
             h(FontChunkKind::Grayscale, 12),
             h(FontChunkKind::Grayscale, 16),
         ];
-        // requested 15 → grayscale 16 is closest.
         assert_eq!(select_font_chunk(&hs, 15, FontFormat::Auto), Some(2));
-        // requested 13 → grayscale 12 is closest.
         assert_eq!(select_font_chunk(&hs, 13, FontFormat::Auto), Some(1));
     }
 
@@ -173,10 +66,7 @@ mod tests {
             h(FontChunkKind::Grayscale, 16),
             h(FontChunkKind::Sdf, 24),
         ];
-        // ≤ largest gray (16): a gray table.
         assert_eq!(select_font_chunk(&hs, 16, FontFormat::Auto), Some(1));
-        // Past it (100px) is beyond any pixel table's design size, so
-        // the result is the resizable SDF.
         assert_eq!(select_font_chunk(&hs, 100, FontFormat::Auto), Some(2));
     }
 

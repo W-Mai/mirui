@@ -22,10 +22,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use mirui::render::font::chunk::{FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind};
-use mirui::render::font::sdf::{
-    AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION,
-};
+use mirui::render::font::chunk::FontChunkKind;
+use mirui::render::font::sdf::GlyphMetric;
 use mirui::render::path::Path as MirPath;
 use mirui::render::raster::{FillRule, flatten_into, scanline_fill};
 use mirui::types::{Fixed, Point};
@@ -137,25 +135,42 @@ pub fn run(args: &[String]) -> Result {
         Format::Sdf => (FontChunkKind::Sdf, parsed.spread),
         Format::Gray => (FontChunkKind::Grayscale, 0),
     };
-    let body = pack_payload(
-        &metrics,
-        &data,
-        parsed.size,
-        parsed.bit_depth,
-        body_spread,
-        ascender,
-        descender,
-        line_height,
-        bytes_per_glyph,
-    );
-    let mut payload = vec![0u8; FONT_CHUNK_HEADER_LEN + body.len()];
-    FontChunkHeader {
-        kind,
-        format: parsed.bit_depth,
-        size: parsed.size,
-    }
-    .write(&mut payload[..FONT_CHUNK_HEADER_LEN]);
-    payload[FONT_CHUNK_HEADER_LEN..].copy_from_slice(&body);
+    let font = mirx::Font {
+        chunk_header: mirx::FontChunkHeader {
+            kind: match kind {
+                FontChunkKind::Grayscale => mirx::FontChunkKind::Grayscale,
+                FontChunkKind::Sdf => mirx::FontChunkKind::Sdf,
+            },
+            format: parsed.bit_depth,
+            size: parsed.size,
+        },
+        atlas: mirx::AtlasHeader {
+            version: mirx::SUPPORTED_VERSION,
+            bit_depth: parsed.bit_depth,
+            _pad0: 0,
+            source_size: parsed.size,
+            spread: body_spread,
+            glyph_count: metrics.len() as u32,
+            metric_offset: mirx::HEADER_LEN as u32,
+            data_offset: (mirx::HEADER_LEN + metrics.len() * mirx::METRIC_LEN) as u32,
+            bytes_per_glyph: bytes_per_glyph as u32,
+            ascender: ascender.max(0).min(u16::MAX as i32) as u16,
+            descender: descender.unsigned_abs().min(u16::MAX as u32) as u16,
+            line_height: line_height.max(0).min(u16::MAX as i32) as u16,
+            _pad1: 0,
+        },
+        metrics: metrics
+            .iter()
+            .map(|m| mirx::GlyphMetric {
+                codepoint: m.codepoint,
+                advance: m.advance,
+                bearing_x: m.bearing_x,
+                bearing_y: m.bearing_y,
+            })
+            .collect(),
+        data: data.clone(),
+    };
+    let payload = font.encode();
     let mirx_bytes =
         encode_chunk_generic(chunk_type::FONT, mirx::ChunkEntry::FLAG_CRITICAL, &payload);
     fs::write(&parsed.out, &mirx_bytes)?;
@@ -483,7 +498,8 @@ fn pack_coverage(coverage: &[u8], bpp: u8) -> Vec<u8> {
     out
 }
 
-#[allow(clippy::too_many_arguments)]
+#[cfg(test)]
+#[allow(clippy::too_many_arguments, dead_code)]
 fn pack_payload(
     metrics: &[GlyphMetric],
     data: &[u8],
@@ -495,6 +511,9 @@ fn pack_payload(
     line_height: i32,
     bytes_per_glyph: usize,
 ) -> Vec<u8> {
+    use mirx::{
+        AtlasHeader, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION, write_header, write_metric,
+    };
     let glyph_count = metrics.len();
     let metric_offset = HEADER_LEN as u32;
     let data_offset = metric_offset + (glyph_count * METRIC_LEN) as u32;
@@ -516,17 +535,10 @@ fn pack_payload(
         line_height: line_height.max(0).min(u16::MAX as i32) as u16,
         _pad1: 0,
     };
-    // Soundness: AtlasHeader is `#[repr(C)]` POD; `out` is freshly
-    // allocated and large enough; `write_unaligned` is the safe
-    // bridge between owned struct and untyped bytes.
-    unsafe {
-        std::ptr::write_unaligned(out.as_mut_ptr() as *mut AtlasHeader, header);
-    }
+    write_header(&mut out[..HEADER_LEN], &header);
     for (i, m) in metrics.iter().enumerate() {
         let off = metric_offset as usize + i * METRIC_LEN;
-        unsafe {
-            std::ptr::write_unaligned(out.as_mut_ptr().add(off) as *mut GlyphMetric, *m);
-        }
+        write_metric(&mut out[off..off + METRIC_LEN], m);
     }
     out[data_offset as usize..].copy_from_slice(data);
     out
@@ -536,6 +548,7 @@ fn pack_payload(
 mod tests {
     use super::*;
     use mirui::render::font::FontProvider;
+    use mirui::render::font::chunk::{FONT_CHUNK_HEADER_LEN, FontChunkHeader};
     use mirui::render::font::sdf::SdfFontProvider;
 
     #[test]

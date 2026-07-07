@@ -6,8 +6,12 @@ mod chunk;
 mod crc32;
 mod error;
 mod flat;
+pub mod font;
 mod format;
 mod header;
+pub mod path;
+pub mod scene;
+pub mod types;
 
 pub use chunk::{
     ChunkFile, ImageChunk, ImageChunkInput, encode_chunk_generic, encode_chunk_image,
@@ -16,12 +20,22 @@ pub use chunk::{
 pub use crc32::compute as crc32;
 pub use error::ParseError;
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
+pub use font::{
+    AtlasHeader, FONT_CHUNK_HEADER_LEN, Font, FontChunkHeader, FontChunkKind, FontDecodeError,
+    GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION, read_header, read_metric, write_header,
+    write_metric,
+};
 pub use format::{ColorFormat, PRIMARY_FORMAT_NONE};
 pub use header::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkEntry, ChunkFileHeader, FILE_HEADER_LEN,
     FLAT_HEADER_LEN, FileHeader, FlatHeader, ImageChunkHeader, Layout, MAGIC, VERSION_MAJOR,
     VERSION_MINOR, chunk_type,
 };
+pub use path::{Path, PathCmd};
+pub use scene::{
+    CodecError, CompositeMode, FillRule, ResourceRef, Scene, SceneOp, VectorChunkHeader,
+};
+pub use types::{Color, Fixed, Point, Rect, Transform};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MirxFile<'a> {

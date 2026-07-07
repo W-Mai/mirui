@@ -6,61 +6,15 @@
 //! distance bytes (`bytes_per_glyph` per glyph, row-major,
 //! `source_size × source_size`).
 
-use crate::render::font::chunk::{FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind};
+use crate::render::font::chunk::{FontChunkHeader, FontChunkKind};
 use crate::render::font::{Font, FontBackend, FontMetrics, FontProvider, Glyph, GlyphKind};
 use alloc::rc::Rc;
 
-pub const SUPPORTED_VERSION: u16 = 1;
-pub const HEADER_LEN: usize = 32;
-pub const METRIC_LEN: usize = 8;
+pub const SUPPORTED_VERSION: u16 = mirx::SUPPORTED_VERSION;
+pub const HEADER_LEN: usize = mirx::HEADER_LEN;
+pub const METRIC_LEN: usize = mirx::METRIC_LEN;
 
-/// Header of an SDF atlas chunk payload. `#[repr(C)]` so a parser can
-/// read fields directly off `&[u8]` after a length check.
-///
-/// No magic — the outer mirx file header already validates with CRC32
-/// and the `chunk_type::FONT` discriminator selects this layout.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct AtlasHeader {
-    pub version: u16,
-    /// 4 (4-bit) or 8 (8-bit) — pixels per byte derived from this.
-    pub bit_depth: u8,
-    pub _pad0: u8,
-    /// Square source size, e.g. 32 → 32×32 per glyph.
-    pub source_size: u16,
-    /// Pixels of zero-distance band around the glyph edge. Larger
-    /// `spread` lets the renderer draw thicker outlines / drop shadows
-    /// without sampling outside the atlas.
-    pub spread: u16,
-    pub glyph_count: u32,
-    /// Offset from payload start to `GlyphMetric[0]`.
-    pub metric_offset: u32,
-    /// Offset from payload start to first SDF pixel byte.
-    pub data_offset: u32,
-    /// Byte size of one glyph's distance buffer (e.g.
-    /// `32 × 32 × 4-bit ÷ 8 = 512`).
-    pub bytes_per_glyph: u32,
-    /// Recommended baseline metrics in `source_size` pixels.
-    pub ascender: u16,
-    pub descender: u16,
-    pub line_height: u16,
-    pub _pad1: u16,
-}
-
-/// Per-glyph entry in the metric table. Codepoint sorted so the runtime
-/// finds glyphs with binary search.
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-pub struct GlyphMetric {
-    pub codepoint: u32,
-    /// Advance width in 1/64 px (matches the FreeType convention).
-    pub advance: u16,
-    pub bearing_x: i8,
-    pub bearing_y: i8,
-}
-
-const _: () = assert!(core::mem::size_of::<AtlasHeader>() == HEADER_LEN);
-const _: () = assert!(core::mem::size_of::<GlyphMetric>() == METRIC_LEN);
+pub use mirx::{AtlasHeader, GlyphMetric};
 
 /// Why an atlas payload was rejected. Distinct variants exist so the
 /// caller can log a useful message.
@@ -106,11 +60,11 @@ impl SdfFontProvider {
         if prefix.kind != FontChunkKind::Sdf {
             return Err(SdfFontError::NotSdf);
         }
-        let body = &payload[FONT_CHUNK_HEADER_LEN..];
+        let body = &payload[mirx::FONT_CHUNK_HEADER_LEN..];
         if body.len() < HEADER_LEN {
             return Err(SdfFontError::PayloadTooShort);
         }
-        let header = read_header_unaligned(&body[..HEADER_LEN]);
+        let header = mirx::read_header(&body[..HEADER_LEN]);
 
         if header.version != SUPPORTED_VERSION {
             return Err(SdfFontError::UnsupportedVersion(header.version));
@@ -154,7 +108,7 @@ impl SdfFontProvider {
         let mut metrics = alloc::vec::Vec::with_capacity(header.glyph_count as usize);
         for i in 0..header.glyph_count as usize {
             let off = metric_off + i * METRIC_LEN;
-            metrics.push(read_metric_unaligned(&body[off..off + METRIC_LEN]));
+            metrics.push(mirx::read_metric(&body[off..off + METRIC_LEN]));
         }
         let data = &body[data_off..data_end];
 
@@ -180,35 +134,6 @@ impl SdfFontProvider {
     /// `glyph_index * bytes_per_glyph`.
     pub fn data(&self) -> &'static [u8] {
         self.data
-    }
-}
-
-pub(crate) fn read_header_unaligned(buf: &[u8]) -> AtlasHeader {
-    let u16le = |o: usize| u16::from_le_bytes([buf[o], buf[o + 1]]);
-    let u32le = |o: usize| u32::from_le_bytes([buf[o], buf[o + 1], buf[o + 2], buf[o + 3]]);
-    AtlasHeader {
-        version: u16le(0),
-        bit_depth: buf[2],
-        _pad0: buf[3],
-        source_size: u16le(4),
-        spread: u16le(6),
-        glyph_count: u32le(8),
-        metric_offset: u32le(12),
-        data_offset: u32le(16),
-        bytes_per_glyph: u32le(20),
-        ascender: u16le(24),
-        descender: u16le(26),
-        line_height: u16le(28),
-        _pad1: u16le(30),
-    }
-}
-
-pub(crate) fn read_metric_unaligned(buf: &[u8]) -> GlyphMetric {
-    GlyphMetric {
-        codepoint: u32::from_le_bytes([buf[0], buf[1], buf[2], buf[3]]),
-        advance: u16::from_le_bytes([buf[4], buf[5]]),
-        bearing_x: buf[6] as i8,
-        bearing_y: buf[7] as i8,
     }
 }
 
@@ -354,6 +279,7 @@ pub fn font_from_mirx_chunk(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::font::chunk::FONT_CHUNK_HEADER_LEN;
     use alloc::vec::Vec;
 
     fn make_atlas(glyphs: &[(u32, u16, i8, i8)]) -> Vec<u8> {

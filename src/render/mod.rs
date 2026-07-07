@@ -4,6 +4,7 @@ pub mod command;
 pub mod factory;
 pub mod font;
 pub mod membrane;
+pub mod mirx_convert;
 pub mod painter;
 pub mod partial;
 pub mod path;

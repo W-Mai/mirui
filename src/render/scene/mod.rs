@@ -6,6 +6,8 @@ pub mod record;
 pub mod replay;
 pub mod resolver;
 
+pub use codec::CodecError;
+
 use alloc::borrow::Cow;
 use alloc::vec::Vec;
 

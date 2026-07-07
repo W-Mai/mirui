@@ -10,11 +10,8 @@
 use alloc::rc::Rc;
 use alloc::vec::Vec;
 
-use super::chunk::{FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind};
-use super::sdf::{
-    AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION, read_header_unaligned,
-    read_metric_unaligned,
-};
+use super::chunk::{FontChunkHeader, FontChunkKind};
+use super::sdf::{AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION};
 use super::{Font, FontBackend, FontMetrics, FontProvider, Glyph, GlyphKind};
 
 /// Why a grayscale payload was rejected.
@@ -53,11 +50,11 @@ impl GrayFontProvider {
         if prefix.kind != FontChunkKind::Grayscale {
             return Err(GrayFontError::NotGrayscale);
         }
-        let body = &payload[FONT_CHUNK_HEADER_LEN..];
+        let body = &payload[mirx::FONT_CHUNK_HEADER_LEN..];
         if body.len() < HEADER_LEN {
             return Err(GrayFontError::PayloadTooShort);
         }
-        let header = read_header_unaligned(&body[..HEADER_LEN]);
+        let header = mirx::read_header(&body[..HEADER_LEN]);
 
         if header.version != SUPPORTED_VERSION {
             return Err(GrayFontError::UnsupportedVersion(header.version));
@@ -100,7 +97,7 @@ impl GrayFontProvider {
         let mut metrics = Vec::with_capacity(header.glyph_count as usize);
         for i in 0..header.glyph_count as usize {
             let off = metric_off + i * METRIC_LEN;
-            metrics.push(read_metric_unaligned(&body[off..off + METRIC_LEN]));
+            metrics.push(mirx::read_metric(&body[off..off + METRIC_LEN]));
         }
         let data = &body[data_off..data_end];
 
@@ -170,6 +167,7 @@ pub fn font_from_mirx_chunk(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::font::chunk::FONT_CHUNK_HEADER_LEN;
     use alloc::vec;
 
     // 4x4 source, 4-bit → 8 bytes per glyph. Builds a prefixed
