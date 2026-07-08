@@ -1,5 +1,10 @@
 //! `gen-mirx font` — TTF/OTF → SDF atlas → `chunk_type::FONT` mirx.
 //!
+//! **Deprecated**: TTF→mirx baking has moved to the `icu` tool
+//! (`icu bake-font <ttf> --size N --format sdf`). This xtask stays
+//! for now so existing mirui build scripts keep working; new font
+//! assets should use `icu bake-font`.
+//!
 //! Pipeline:
 //!
 //! 1. Load TTF via `ttf-parser`, walk the outline of every charset
