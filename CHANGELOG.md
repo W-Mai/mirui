@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **`cargo xtask gen-mirx font` and `bundle` are now shims over the `icu` tool.** The 760-line SDF/gray rasterizer and 68-line font bundler previously lived in `xtask/src/gen_mirx/`; they now live in `icu_lib::endecoder::mirui::font_bake` and are driven through `icu bake-font` / `icu merge-fonts`. The xtask entrypoint keeps its old CLI shape (`--ttf X --charset Y --size N --out foo.mirx`) and translates to the icu command, prints it (`→ icu bake-font …`), runs it, then renames the auto-named output back to the caller-specified `--out` path. `icu` must be on `PATH`; missing binary prints an install hint (`cargo install icu_tool`). Old build scripts keep working; new workflows should call `icu` directly.
+- **`ttf-parser` dropped from `xtask/Cargo.toml`.** The workspace no longer pulls it as a build-time dep.
+
 ## [0.40.0] - 2026-07-06
 
 ### Added

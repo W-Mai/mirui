@@ -899,7 +899,7 @@ fn cargo(args: &[&str]) -> Result {
     run_cmd("cargo", args)
 }
 
-fn run_cmd(cmd: &str, args: &[&str]) -> Result {
+pub(crate) fn run_cmd(cmd: &str, args: &[&str]) -> Result {
     println!("  → {cmd} {}", args.join(" "));
     let status = Command::new(cmd)
         .args(args)
