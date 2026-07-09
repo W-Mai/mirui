@@ -5,12 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.41.0] - 2026-07-09
+
+### Added — breaking
+
+- **`StrokePath` variant on `SceneOp` and `DrawCommand`.** Strokes an arbitrary path with a `width` + `LineCap` (Butt / Round / Square) + `LineJoin` (Miter / Round / Bevel) + `miter_limit`. `mirx` gains a wire type (`TAG_STROKE_PATH = 0x0A`) with full codec encode/decode; `LineCap` / `LineJoin` become wire enums re-exported from `mirx`. mirui mirrors the variant in `SceneOp`, `DrawCommand`, the `From` impls in `mirx_convert`, `replay::replay_scene` (dispatches through `DrawCommand::StrokePath` to `SwRenderer::stroke_path_inner` / `stroke_path_transformed`), `scene::bbox::op_bbox` (expands path bbox by `width/2`), and `scene::record::record_command` (maps back to `SceneOp::StrokePath` for live recording). `compose_backend!` macro gets a `StrokePath` arm routing to `Canvas::stroke_path`. **Wire-breaking**: old mirui readers reject v0.41 VECTOR chunks containing StrokePath ops via `UnknownTag`; new mirui reads v0.40 chunks unchanged.
+- **`LineCap` + `LineJoin` wire types** at `mirx::{LineCap, LineJoin}`, re-exported through `mirui::render::command`.
 
 ### Changed
 
+- **`SwRenderer::draw_transformed` covers `StrokePath` under non-axis-aligned transforms.** Previously fell through to `_ => unimplemented!()`; now delegates to `stroke_path_transformed` (existing offset-polygon stroker). Note: the current raster only implements butt cap + miter/bevel join — `LineCap::Round` / `Square` and `LineJoin::Round` are accepted on the wire but degrade to butt/miter visually until the raster is extended.
 - **`cargo xtask gen-mirx font` and `bundle` are now shims over the `icu` tool.** The 760-line SDF/gray rasterizer and 68-line font bundler previously lived in `xtask/src/gen_mirx/`; they now live in `icu_lib::endecoder::mirui::font_bake` and are driven through `icu bake-font` / `icu merge-fonts`. The xtask entrypoint keeps its old CLI shape (`--ttf X --charset Y --size N --out foo.mirx`) and translates to the icu command, prints it (`→ icu bake-font …`), runs it, then renames the auto-named output back to the caller-specified `--out` path. `icu` must be on `PATH`; missing binary prints an install hint (`cargo install icu_tool`). Old build scripts keep working; new workflows should call `icu` directly.
-- **`ttf-parser` dropped from `xtask/Cargo.toml`.** The workspace no longer pulls it as a build-time dep.
+- **`ttf-parser` dropped from `xtask/Cargo.toml`.** The workspace no longer pulls it as a build-time dep; the TTF parser now lives in `icu_lib` and `icu_tool`.
+- **`run_cmd` in `xtask/src/main.rs` is `pub(crate)`.** Lets `gen_mirx/font` and `gen_mirx/bundle` shims share the same `→ cmd args` echo + spawn pattern as the rest of xtask.
+
+### Migration
+
+- **StrokePath is additive on the read path** — v0.40 mirx VECTOR chunks decode unchanged on v0.41. The reverse is not true: v0.41 chunks containing StrokePath ops fail to decode on v0.40 with `UnknownTag(0x0A)`.
+- **Canvas trait method signatures are unchanged** — `fill_path` / `stroke_path` still take `&Color`. StrokePath carries its paint as `Color` on `DrawCommand::StrokePath`; a richer `Paint` enum (gradient/pattern) lands in a later minor.
+- **`cargo xtask gen-mirx font/bundle` callers** need `icu` on `PATH`. CI scripts that bake fixtures should `cargo install icu_tool` once before invoking.
 
 ## [0.40.0] - 2026-07-06
 
