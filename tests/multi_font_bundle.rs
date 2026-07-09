@@ -1,4 +1,4 @@
-//! End-to-end check that a real `gen-mirx bundle` artifact loads and
+//! End-to-end check that a real `icu merge-fonts` artifact loads and
 //! routes by size. The bundle merges a 12px grayscale pixel table and a
 //! 24px SDF table; `MultiFontProvider` must pick gray for small sizes
 //! and SDF once the request outgrows the largest pixel table.

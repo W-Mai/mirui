@@ -5,6 +5,5 @@ edition = "2024"
 publish = false
 
 [dependencies]
-ttf-parser = "0.25"
 mirx = { path = "../mirx" }
 mirui = { path = "..", default-features = false, features = ["std"] }

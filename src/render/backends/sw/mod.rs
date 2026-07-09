@@ -129,6 +129,15 @@ impl<'a> SwRenderer<'a> {
             } => {
                 self.fill_path_transformed(path, phys_clip, &phys_tf, color, *opa);
             }
+            DrawCommand::StrokePath {
+                path,
+                color,
+                width,
+                opa,
+                ..
+            } => {
+                self.stroke_path_transformed(path, phys_clip, &phys_tf, *width, color, *opa);
+            }
             _ => unimplemented!(
                 "sw backend: {:?} under non-axis-aligned transform not yet supported",
                 core::mem::discriminant(cmd)

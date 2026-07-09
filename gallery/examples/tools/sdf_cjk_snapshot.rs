@@ -6,7 +6,7 @@
 //!
 //! Defaults to "我是中国人 Hello!" → `.local/screenshots/sdf-cjk.png`.
 //! The atlas comes from `tests/fixtures/misans_regular_cjk_32_4bit.mirx`,
-//! which the gen-mirx font subcommand bakes from MiSans-Regular.ttf.
+//! baked from MiSans-Regular.ttf via `icu bake-font`.
 
 extern crate alloc;
 
