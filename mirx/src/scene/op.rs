@@ -26,6 +26,20 @@ pub enum CompositeMode {
     Difference,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineCap {
+    Butt,
+    Round,
+    Square,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineJoin {
+    Miter,
+    Round,
+    Bevel,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum SceneOp {
     GroupBegin {
@@ -43,6 +57,16 @@ pub enum SceneOp {
         color: Color,
         opa: u8,
         fill_rule: FillRule,
+    },
+    StrokePath {
+        path: Path,
+        transform: Transform,
+        color: Color,
+        width: Fixed,
+        opa: u8,
+        line_cap: LineCap,
+        line_join: LineJoin,
+        miter_limit: Fixed,
     },
     FillRect {
         area: Rect,

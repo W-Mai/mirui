@@ -32,6 +32,18 @@ pub fn op_bbox(op: &SceneOp) -> Option<Rect> {
         SceneOp::FillPath {
             path, transform, ..
         } => path.bbox().map(|r| transform.apply_rect_bbox(r)),
+        SceneOp::StrokePath {
+            path,
+            transform,
+            width,
+            ..
+        } => path
+            .bbox()
+            .map(|r| {
+                let half = *width / Fixed::from_int(2);
+                Rect::new(r.x - half, r.y - half, r.w + half * 2, r.h + half * 2)
+            })
+            .map(|r| transform.apply_rect_bbox(r)),
         SceneOp::Line {
             p1,
             p2,

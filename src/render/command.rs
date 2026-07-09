@@ -3,6 +3,8 @@ use crate::render::path::Path;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 
+pub use mirx::{LineCap, LineJoin};
+
 /// Non-premultiplied alpha: `src` channels are multiplied by `src.a / 255`
 /// before the per-variant formula and folded back onto `dst` via the
 /// standard `(1 - src.a)` weight, so `src.a == 0` leaves `dst` untouched
@@ -196,6 +198,19 @@ pub enum DrawCommand<'a> {
         color: Color,
         opa: Opa,
     },
+    /// Stroke `path` with `width` logical pixels. Cap/join follow SVG
+    /// semantics; `miter_limit` defaults to 4.0 when omitted by the
+    /// caller. Backends without a path stroker `unimplemented!()`.
+    StrokePath {
+        path: &'a Path,
+        transform: Transform,
+        color: Color,
+        width: Fixed,
+        opa: Opa,
+        line_cap: LineCap,
+        line_join: LineJoin,
+        miter_limit: Fixed,
+    },
 }
 
 impl DrawCommand<'_> {
@@ -208,7 +223,8 @@ impl DrawCommand<'_> {
             | Self::Line { transform, .. }
             | Self::Arc { transform, .. }
             | Self::Blit { transform, .. }
-            | Self::FillPath { transform, .. } => transform,
+            | Self::FillPath { transform, .. }
+            | Self::StrokePath { transform, .. } => transform,
         }
     }
 }

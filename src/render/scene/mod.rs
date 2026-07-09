@@ -16,6 +16,8 @@ use crate::render::path::Path;
 use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
+pub use mirx::{LineCap, LineJoin};
+
 /// Reference to a font / texture / subtree resource.
 ///
 /// `Index` points into the VECTOR chunk's resource table (embedded mode);
@@ -50,6 +52,16 @@ pub enum SceneOp {
         color: Color,
         opa: u8,
         fill_rule: FillRule,
+    },
+    StrokePath {
+        path: Path,
+        transform: Transform,
+        color: Color,
+        width: Fixed,
+        opa: u8,
+        line_cap: LineCap,
+        line_join: LineJoin,
+        miter_limit: Fixed,
     },
     FillRect {
         area: Rect,

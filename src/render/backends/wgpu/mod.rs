@@ -1516,6 +1516,9 @@ impl Renderer for WgpuRenderer<'_> {
                 self.fill_path_transformed_inner(path, clip, transform, color, *opa);
                 return;
             }
+            DrawCommand::StrokePath { .. } => {
+                unimplemented!("wgpu backend: StrokePath not yet implemented");
+            }
             _ => {}
         }
 
@@ -1613,6 +1616,19 @@ impl Renderer for WgpuRenderer<'_> {
                 } else {
                     let translate = crate::types::Transform::translate(tx, ty);
                     self.fill_path_transformed_inner(path, clip, &translate, color, *opa);
+                }
+            }
+            DrawCommand::StrokePath {
+                path,
+                width,
+                color,
+                opa,
+                ..
+            } => {
+                if tx == Fixed::ZERO && ty == Fixed::ZERO {
+                    self.stroke_path_inner(path, clip, *width, color, *opa);
+                } else {
+                    unimplemented!("wgpu backend: StrokePath under translate not yet implemented");
                 }
             }
             DrawCommand::Label {

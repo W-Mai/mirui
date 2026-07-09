@@ -135,6 +135,25 @@ pub fn record_command(
             opa: *opa,
             fill_rule: crate::render::raster::FillRule::EvenOdd,
         },
+        DrawCommand::StrokePath {
+            path,
+            transform,
+            color,
+            width,
+            opa,
+            line_cap,
+            line_join,
+            miter_limit,
+        } => SceneOp::StrokePath {
+            path: Path::clone(path),
+            transform: *transform,
+            color: *color,
+            width: *width,
+            opa: *opa,
+            line_cap: *line_cap,
+            line_join: *line_join,
+            miter_limit: *miter_limit,
+        },
     })
 }
 

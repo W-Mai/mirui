@@ -97,6 +97,33 @@ impl SwRenderer<'_> {
         self.stroke_outline = outline_cmds;
     }
 
+    pub(super) fn stroke_path_transformed(
+        &mut self,
+        path: &Path,
+        phys_clip: Rect,
+        phys_tf: &Transform,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+    ) {
+        if opa == 0 || width <= Fixed::ZERO {
+            return;
+        }
+        let phys_width = width * self.viewport.scale();
+        raster::offset_polygon_into(
+            &path.cmds,
+            Some(phys_tf),
+            phys_width,
+            &mut self.stroke_outline,
+            &mut self.subpath_scratch,
+            &mut self.stroke_normals,
+            &mut self.stroke_rail,
+        );
+        let outline_cmds = core::mem::take(&mut self.stroke_outline);
+        self.fill_physical_path(&outline_cmds, &phys_clip, color, opa);
+        self.stroke_outline = outline_cmds;
+    }
+
     pub(super) fn fill_physical_path(
         &mut self,
         phys_path: &Path,

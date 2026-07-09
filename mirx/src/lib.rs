@@ -33,7 +33,8 @@ pub use header::{
 };
 pub use path::{Path, PathCmd};
 pub use scene::{
-    CodecError, CompositeMode, FillRule, ResourceRef, Scene, SceneOp, VectorChunkHeader,
+    CodecError, CompositeMode, FillRule, LineCap, LineJoin, ResourceRef, Scene, SceneOp,
+    VectorChunkHeader,
 };
 pub use types::{Color, Fixed, Point, Rect, Transform};
 

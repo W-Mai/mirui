@@ -291,6 +291,30 @@ pub fn replay_scene(
                     clip,
                 );
             }
+            SceneOp::StrokePath {
+                path,
+                transform,
+                color,
+                width,
+                opa,
+                line_cap,
+                line_join,
+                miter_limit,
+            } => {
+                renderer.draw(
+                    &DrawCommand::StrokePath {
+                        path,
+                        transform: top.transform.compose(transform),
+                        color: *color,
+                        width: *width,
+                        opa: mul_alpha(*opa, top.alpha),
+                        line_cap: *line_cap,
+                        line_join: *line_join,
+                        miter_limit: *miter_limit,
+                    },
+                    clip,
+                );
+            }
         }
         i += 1;
     }

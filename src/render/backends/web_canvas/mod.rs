@@ -606,6 +606,15 @@ impl Renderer for WebCanvasRenderer<'_> {
             } => {
                 self.fill_path(path, clip, color, *opa);
             }
+            DrawCommand::StrokePath {
+                path,
+                width,
+                color,
+                opa,
+                ..
+            } => {
+                self.stroke_path(path, clip, *width, color, *opa);
+            }
             DrawCommand::Label {
                 pos,
                 text,

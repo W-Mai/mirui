@@ -609,6 +609,25 @@ impl Renderer for SwRenderer<'_> {
                     self.fill_path_transformed(path, phys_clip, &phys_tf, color, *opa);
                 }
             }
+            DrawCommand::StrokePath {
+                path,
+                color,
+                width,
+                opa,
+                ..
+            } => {
+                crate::trace_span!("sw.stroke_path");
+                if tx == Fixed::ZERO && ty == Fixed::ZERO {
+                    self.stroke_path_inner(path, clip, *width, color, *opa);
+                } else {
+                    let phys_tf = self
+                        .viewport
+                        .as_transform()
+                        .compose(&Transform::translate(tx, ty));
+                    let phys_clip = self.viewport.rect_to_physical(*clip);
+                    self.stroke_path_transformed(path, phys_clip, &phys_tf, *width, color, *opa);
+                }
+            }
         }
     }
 

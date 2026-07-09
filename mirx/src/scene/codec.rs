@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use crate::crc32;
 use crate::path::{Path, PathCmd};
 use crate::scene::header::VectorChunkHeader;
-use crate::scene::op::{CompositeMode, FillRule, ResourceRef, Scene, SceneOp};
+use crate::scene::op::{CompositeMode, FillRule, LineCap, LineJoin, ResourceRef, Scene, SceneOp};
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
 pub const TAG_EOF: u8 = 0x00;
@@ -17,6 +17,7 @@ pub const TAG_LABEL: u8 = 0x06;
 pub const TAG_LINE: u8 = 0x07;
 pub const TAG_ARC: u8 = 0x08;
 pub const TAG_BLIT: u8 = 0x09;
+pub const TAG_STROKE_PATH: u8 = 0x0A;
 
 const FIELD_TRANSFORM: u8 = 1 << 0;
 const FIELD_QUAD: u8 = 1 << 1;
@@ -44,6 +45,48 @@ const COMPOSITE_MULTIPLY: u8 = 3;
 const COMPOSITE_DARKEN: u8 = 4;
 const COMPOSITE_LIGHTEN: u8 = 5;
 const COMPOSITE_DIFFERENCE: u8 = 6;
+
+const LINE_CAP_BUTT: u8 = 0;
+const LINE_CAP_ROUND: u8 = 1;
+const LINE_CAP_SQUARE: u8 = 2;
+
+const LINE_JOIN_MITER: u8 = 0;
+const LINE_JOIN_ROUND: u8 = 1;
+const LINE_JOIN_BEVEL: u8 = 2;
+
+fn line_cap_to_u8(c: LineCap) -> u8 {
+    match c {
+        LineCap::Butt => LINE_CAP_BUTT,
+        LineCap::Round => LINE_CAP_ROUND,
+        LineCap::Square => LINE_CAP_SQUARE,
+    }
+}
+
+fn line_cap_from_u8(v: u8) -> Result<LineCap, CodecError> {
+    match v {
+        LINE_CAP_BUTT => Ok(LineCap::Butt),
+        LINE_CAP_ROUND => Ok(LineCap::Round),
+        LINE_CAP_SQUARE => Ok(LineCap::Square),
+        other => Err(CodecError::BadComposite(other)),
+    }
+}
+
+fn line_join_to_u8(j: LineJoin) -> u8 {
+    match j {
+        LineJoin::Miter => LINE_JOIN_MITER,
+        LineJoin::Round => LINE_JOIN_ROUND,
+        LineJoin::Bevel => LINE_JOIN_BEVEL,
+    }
+}
+
+fn line_join_from_u8(v: u8) -> Result<LineJoin, CodecError> {
+    match v {
+        LINE_JOIN_MITER => Ok(LineJoin::Miter),
+        LINE_JOIN_ROUND => Ok(LineJoin::Round),
+        LINE_JOIN_BEVEL => Ok(LineJoin::Bevel),
+        other => Err(CodecError::BadComposite(other)),
+    }
+}
 
 const VERSION: u8 = 1;
 const DEFAULT_SCALE: u8 = 8;
@@ -352,6 +395,35 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
             }
             Ok(())
         }
+        SceneOp::StrokePath {
+            path,
+            transform,
+            color,
+            width,
+            opa,
+            line_cap,
+            line_join,
+            miter_limit,
+        } => {
+            out.push(TAG_STROKE_PATH);
+            let bits = if transform.is_identity() {
+                0
+            } else {
+                FIELD_TRANSFORM
+            };
+            out.push(bits);
+            write_path(out, &path.cmds);
+            write_color(out, *color);
+            write_fixed(out, *width);
+            out.push(*opa);
+            out.push(line_cap_to_u8(*line_cap));
+            out.push(line_join_to_u8(*line_join));
+            write_fixed(out, *miter_limit);
+            if bits & FIELD_TRANSFORM != 0 {
+                write_transform(out, *transform);
+            }
+            Ok(())
+        }
         SceneOp::FillRect {
             area,
             transform,
@@ -553,6 +625,27 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
                 color,
                 opa,
                 fill_rule,
+            })
+        }
+        TAG_STROKE_PATH => {
+            let bits = r.u8()?;
+            let path = Path::from_cmds(read_path(r)?);
+            let color = r.color()?;
+            let width = r.fixed()?;
+            let opa = r.u8()?;
+            let line_cap = line_cap_from_u8(r.u8()?)?;
+            let line_join = line_join_from_u8(r.u8()?)?;
+            let miter_limit = r.fixed()?;
+            let transform = read_transform_opt(r, bits)?;
+            Ok(SceneOp::StrokePath {
+                path,
+                transform,
+                color,
+                width,
+                opa,
+                line_cap,
+                line_join,
+                miter_limit,
             })
         }
         TAG_FILL_RECT => {
@@ -940,6 +1033,28 @@ mod tests {
                 radius: Fixed::ZERO,
                 composite: m,
             }]);
+        }
+    }
+
+    #[test]
+    fn stroke_path_roundtrips() {
+        for cap in [LineCap::Butt, LineCap::Round, LineCap::Square] {
+            for join in [LineJoin::Miter, LineJoin::Round, LineJoin::Bevel] {
+                roundtrip(vec![SceneOp::StrokePath {
+                    path: Path::from_cmds(vec![
+                        PathCmd::MoveTo(Point::new(Fixed::from_int(1), Fixed::from_int(2))),
+                        PathCmd::LineTo(Point::new(Fixed::from_int(10), Fixed::from_int(20))),
+                        PathCmd::Close,
+                    ]),
+                    transform: Transform::IDENTITY,
+                    color: red(),
+                    width: Fixed::from_int(3),
+                    opa: 200,
+                    line_cap: cap,
+                    line_join: join,
+                    miter_limit: Fixed::from_int(4),
+                }]);
+            }
         }
     }
 

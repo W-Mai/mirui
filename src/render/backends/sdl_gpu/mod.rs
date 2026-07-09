@@ -521,6 +521,9 @@ impl Renderer for SdlGpuRenderer<'_> {
                 self.fill_path_transformed_inner(path, clip, transform, color, *opa);
                 return;
             }
+            DrawCommand::StrokePath { .. } => {
+                unimplemented!("sdl_gpu backend: StrokePath not yet implemented");
+            }
             _ => {}
         }
 
@@ -636,6 +639,9 @@ impl Renderer for SdlGpuRenderer<'_> {
                     let translate = Transform::translate(tx, ty);
                     self.fill_path_transformed_inner(path, clip, &translate, color, *opa);
                 }
+            }
+            DrawCommand::StrokePath { .. } => {
+                unimplemented!("sdl_gpu backend: StrokePath not yet implemented");
             }
         }
     }

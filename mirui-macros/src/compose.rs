@@ -281,6 +281,9 @@ impl ComposeInput {
                         ::mirui::render::DrawCommand::FillPath { path, color, opa, .. } => {
                             self.fill_path(path, clip, color, *opa);
                         }
+                        ::mirui::render::DrawCommand::StrokePath { path, width, color, opa, .. } => {
+                            self.stroke_path(path, clip, *width, color, *opa);
+                        }
                     }
                 }
 
