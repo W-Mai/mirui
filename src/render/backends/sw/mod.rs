@@ -173,10 +173,87 @@ impl<'a> SwRenderer<'a> {
                     *miter_limit,
                 );
             }
-            _ => unimplemented!(
-                "sw backend: {:?} under non-axis-aligned transform not yet supported",
-                core::mem::discriminant(cmd)
-            ),
+            DrawCommand::Border {
+                area,
+                color,
+                width,
+                radius,
+                opa,
+                ..
+            } => {
+                let path = crate::render::path::Path::rounded_rect(
+                    area.x + *width / 2,
+                    area.y + *width / 2,
+                    area.w - *width,
+                    area.h - *width,
+                    (*radius - *width / 2).max(Fixed::ZERO),
+                );
+                let paint = Paint::Color((*color).into());
+                self.stroke_path_transformed(
+                    &path,
+                    phys_clip,
+                    &phys_tf,
+                    *width,
+                    &paint,
+                    *opa,
+                    crate::render::raster::LineCap::Butt,
+                    crate::render::raster::LineJoin::Miter,
+                    Fixed::from_int(4),
+                );
+            }
+            DrawCommand::Line {
+                p1,
+                p2,
+                color,
+                width,
+                opa,
+                ..
+            } => {
+                let mut path = crate::render::path::Path::new();
+                path.move_to(*p1).line_to(*p2);
+                let paint = Paint::Color((*color).into());
+                self.stroke_path_transformed(
+                    &path,
+                    phys_clip,
+                    &phys_tf,
+                    *width,
+                    &paint,
+                    *opa,
+                    crate::render::raster::LineCap::Butt,
+                    crate::render::raster::LineJoin::Miter,
+                    Fixed::from_int(4),
+                );
+            }
+            DrawCommand::Arc {
+                center,
+                radius,
+                start_angle,
+                end_angle,
+                color,
+                width,
+                opa,
+                ..
+            } => {
+                let path =
+                    crate::render::path::Path::arc(*center, *radius, *start_angle, *end_angle);
+                let paint = Paint::Color((*color).into());
+                self.stroke_path_transformed(
+                    &path,
+                    phys_clip,
+                    &phys_tf,
+                    *width,
+                    &paint,
+                    *opa,
+                    crate::render::raster::LineCap::Butt,
+                    crate::render::raster::LineJoin::Miter,
+                    Fixed::from_int(4),
+                );
+            }
+            DrawCommand::Label { .. } => {
+                unimplemented!(
+                    "sw backend: Label under non-axis-aligned transform not yet supported"
+                );
+            }
         }
     }
 }
