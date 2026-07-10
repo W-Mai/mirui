@@ -50,7 +50,17 @@ impl Canvas for Dummy {
     ) {
         self.counts.fill_path.set(self.counts.fill_path.get() + 1);
     }
-    fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {
+    fn stroke_path(
+        &mut self,
+        _: &Path,
+        _: &Rect,
+        _: Fixed,
+        _: &Color,
+        _: u8,
+        _: ::mirui::render::raster::LineCap,
+        _: ::mirui::render::raster::LineJoin,
+        _: ::mirui::types::Fixed,
+    ) {
         self.counts
             .stroke_path
             .set(self.counts.stroke_path.get() + 1);
@@ -155,7 +165,16 @@ fn default_methods_route_to_sw() {
         255,
         ::mirui::render::raster::FillRule::EvenOdd,
     );
-    h.stroke_path(&path, &rect, Fixed::ONE, &color, 255);
+    h.stroke_path(
+        &path,
+        &rect,
+        Fixed::ONE,
+        &color,
+        255,
+        ::mirui::render::raster::LineCap::Butt,
+        ::mirui::render::raster::LineJoin::Miter,
+        ::mirui::types::Fixed::from_int(4),
+    );
     let font = mirui::render::font::Font::bitmap_8x8();
     h.draw_label(&Point::ZERO, "x", &font, &rect, &color, 255);
     h.flush();
@@ -262,7 +281,18 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         }
         self.fills.set(self.fills.get() + 1);
     }
-    fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
+    fn stroke_path(
+        &mut self,
+        _: &Path,
+        _: &Rect,
+        _: Fixed,
+        _: &Color,
+        _: u8,
+        _: ::mirui::render::raster::LineCap,
+        _: ::mirui::render::raster::LineJoin,
+        _: ::mirui::types::Fixed,
+    ) {
+    }
     fn blit(
         &mut self,
         _: &Texture,
@@ -300,7 +330,18 @@ impl Canvas for PlainDummy {
         _: ::mirui::render::raster::FillRule,
     ) {
     }
-    fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
+    fn stroke_path(
+        &mut self,
+        _: &Path,
+        _: &Rect,
+        _: Fixed,
+        _: &Color,
+        _: u8,
+        _: ::mirui::render::raster::LineCap,
+        _: ::mirui::render::raster::LineJoin,
+        _: ::mirui::types::Fixed,
+    ) {
+    }
     fn blit(
         &mut self,
         _: &Texture,

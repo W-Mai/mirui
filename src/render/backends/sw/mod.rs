@@ -38,6 +38,7 @@ pub struct SwRenderer<'a> {
     pub(super) scanline_crossings: alloc::vec::Vec<(Fixed, i8)>,
     pub(super) stroke_normals: alloc::vec::Vec<crate::types::Point>,
     pub(super) stroke_rail: alloc::vec::Vec<crate::types::Point>,
+    pub(super) stroke_arc: alloc::vec::Vec<crate::types::Point>,
     #[cfg(feature = "perf")]
     pub perf: Option<PerfCtx>,
 }
@@ -56,6 +57,7 @@ impl<'a> SwRenderer<'a> {
             scanline_crossings: alloc::vec::Vec::new(),
             stroke_normals: alloc::vec::Vec::new(),
             stroke_rail: alloc::vec::Vec::new(),
+            stroke_arc: alloc::vec::Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
         }
@@ -138,9 +140,22 @@ impl<'a> SwRenderer<'a> {
                 color,
                 width,
                 opa,
+                line_cap,
+                line_join,
+                miter_limit,
                 ..
             } => {
-                self.stroke_path_transformed(path, phys_clip, &phys_tf, *width, color, *opa);
+                self.stroke_path_transformed(
+                    path,
+                    phys_clip,
+                    &phys_tf,
+                    *width,
+                    color,
+                    *opa,
+                    *line_cap,
+                    *line_join,
+                    *miter_limit,
+                );
             }
             _ => unimplemented!(
                 "sw backend: {:?} under non-axis-aligned transform not yet supported",
@@ -162,8 +177,18 @@ impl<'a> Canvas for SwRenderer<'a> {
         self.fill_path_inner(path, clip, color, opa, fill_rule);
     }
 
-    fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
-        self.stroke_path_inner(path, clip, width, color, opa);
+    fn stroke_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
+    ) {
+        self.stroke_path_inner(path, clip, width, color, opa, cap, join, miter_limit);
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
@@ -638,18 +663,40 @@ impl Renderer for SwRenderer<'_> {
                 color,
                 width,
                 opa,
+                line_cap,
+                line_join,
+                miter_limit,
                 ..
             } => {
                 crate::trace_span!("sw.stroke_path");
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.stroke_path_inner(path, clip, *width, color, *opa);
+                    self.stroke_path_inner(
+                        path,
+                        clip,
+                        *width,
+                        color,
+                        *opa,
+                        *line_cap,
+                        *line_join,
+                        *miter_limit,
+                    );
                 } else {
                     let phys_tf = self
                         .viewport
                         .as_transform()
                         .compose(&Transform::translate(tx, ty));
                     let phys_clip = self.viewport.rect_to_physical(*clip);
-                    self.stroke_path_transformed(path, phys_clip, &phys_tf, *width, color, *opa);
+                    self.stroke_path_transformed(
+                        path,
+                        phys_clip,
+                        &phys_tf,
+                        *width,
+                        color,
+                        *opa,
+                        *line_cap,
+                        *line_join,
+                        *miter_limit,
+                    );
                 }
             }
         }
@@ -1145,6 +1192,9 @@ mod tests {
             Fixed::from_int(2),
             &Color::rgb(255, 0, 0),
             255,
+            crate::render::raster::LineCap::Butt,
+            crate::render::raster::LineJoin::Miter,
+            Fixed::from_int(4),
         );
 
         assert!(backend.target.get_pixel(8, 8).r > 0);
@@ -1278,7 +1328,16 @@ mod tests {
         });
 
         let clip = Rect::new(0, 0, 8, 8);
-        backend.stroke_path(&path, &clip, Fixed::ZERO, &Color::rgb(255, 0, 0), 255);
+        backend.stroke_path(
+            &path,
+            &clip,
+            Fixed::ZERO,
+            &Color::rgb(255, 0, 0),
+            255,
+            crate::render::raster::LineCap::Butt,
+            crate::render::raster::LineJoin::Miter,
+            Fixed::from_int(4),
+        );
 
         for y in 0..8 {
             for x in 0..8 {

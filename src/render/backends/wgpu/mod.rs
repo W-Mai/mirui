@@ -1804,7 +1804,17 @@ impl Canvas for WgpuRenderer<'_> {
         self.fill_path_inner(path, clip, color, opa);
     }
 
-    fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
+    fn stroke_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+        _cap: crate::render::raster::LineCap,
+        _join: crate::render::raster::LineJoin,
+        _miter_limit: Fixed,
+    ) {
         self.stroke_path_inner(path, clip, width, color, opa);
     }
 

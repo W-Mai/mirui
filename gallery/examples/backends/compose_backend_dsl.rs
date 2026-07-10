@@ -45,8 +45,27 @@ impl<B: Canvas> Canvas for Logging<B> {
     ) {
         self.inner.fill_path(path, clip, color, opa, fill_rule);
     }
-    fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
-        self.inner.stroke_path(path, clip, width, color, opa);
+    fn stroke_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+        _: ::mirui::render::raster::LineCap,
+        _: ::mirui::render::raster::LineJoin,
+        _: ::mirui::types::Fixed,
+    ) {
+        self.inner.stroke_path(
+            path,
+            clip,
+            width,
+            color,
+            opa,
+            ::mirui::render::raster::LineCap::Butt,
+            ::mirui::render::raster::LineJoin::Miter,
+            ::mirui::types::Fixed::from_int(4),
+        );
     }
     fn blit(
         &mut self,

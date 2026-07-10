@@ -615,9 +615,21 @@ impl Renderer for WebCanvasRenderer<'_> {
                 width,
                 color,
                 opa,
+                line_cap,
+                line_join,
+                miter_limit,
                 ..
             } => {
-                self.stroke_path(path, clip, *width, color, *opa);
+                self.stroke_path(
+                    path,
+                    clip,
+                    *width,
+                    color,
+                    *opa,
+                    *line_cap,
+                    *line_join,
+                    *miter_limit,
+                );
             }
             DrawCommand::Label {
                 pos,
@@ -681,7 +693,17 @@ impl Canvas for WebCanvasRenderer<'_> {
         self.pop_clip();
     }
 
-    fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
+    fn stroke_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+        _cap: crate::render::raster::LineCap,
+        _join: crate::render::raster::LineJoin,
+        _miter_limit: Fixed,
+    ) {
         self.push_clip(clip);
         self.set_stroke(color, width, opa);
         self.build_path(path);

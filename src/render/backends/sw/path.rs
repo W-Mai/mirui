@@ -77,6 +77,7 @@ impl SwRenderer<'_> {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn stroke_path_inner(
         &mut self,
         path: &Path,
@@ -84,6 +85,9 @@ impl SwRenderer<'_> {
         width: Fixed,
         color: &Color,
         opa: u8,
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
     ) {
         if opa == 0 || width <= Fixed::ZERO {
             return;
@@ -94,17 +98,21 @@ impl SwRenderer<'_> {
             &path.cmds,
             Some(&phys_tf),
             phys_width,
+            cap,
+            join,
+            miter_limit,
             &mut self.stroke_outline,
             &mut self.subpath_scratch,
             &mut self.stroke_normals,
             &mut self.stroke_rail,
+            &mut self.stroke_arc,
         );
-        // outline is already in physical pixels.
         let outline_cmds = core::mem::take(&mut self.stroke_outline);
         self.fill_physical_path(&outline_cmds, clip, color, opa);
         self.stroke_outline = outline_cmds;
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn stroke_path_transformed(
         &mut self,
         path: &Path,
@@ -113,6 +121,9 @@ impl SwRenderer<'_> {
         width: Fixed,
         color: &Color,
         opa: u8,
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
     ) {
         if opa == 0 || width <= Fixed::ZERO {
             return;
@@ -122,10 +133,14 @@ impl SwRenderer<'_> {
             &path.cmds,
             Some(phys_tf),
             phys_width,
+            cap,
+            join,
+            miter_limit,
             &mut self.stroke_outline,
             &mut self.subpath_scratch,
             &mut self.stroke_normals,
             &mut self.stroke_rail,
+            &mut self.stroke_arc,
         );
         let outline_cmds = core::mem::take(&mut self.stroke_outline);
         self.fill_physical_path(&outline_cmds, &phys_clip, color, opa);

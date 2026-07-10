@@ -4,6 +4,8 @@ use crate::types::{Fixed, Point, Transform};
 
 use super::path::{Path, PathCmd};
 
+pub use mirx::{LineCap, LineJoin};
+
 /// Cap so a pathological path can't pin tens of KB on a 200 KB MCU heap.
 pub const MAX_SEG_CAP: usize = 2048;
 
@@ -437,18 +439,19 @@ fn dist_sq_point_to_segment(p: Point, a: Point, b: Point) -> Fixed {
     dx * dx + dy * dy
 }
 
-/// Miter limit ratio (Fixed). If the miter extension exceeds this multiple of
-/// half_width the join degrades to bevel. 4 is the SVG default.
-const MITER_LIMIT: Fixed = Fixed::from_int(4);
-
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn offset_polygon_into(
     cmds: &[PathCmd],
     transform: Option<&Transform>,
     width: Fixed,
+    cap: LineCap,
+    join: LineJoin,
+    miter_limit: Fixed,
     out: &mut Path,
     subpath_scratch: &mut Vec<SubPath>,
     normals_scratch: &mut Vec<Point>,
     rail_scratch: &mut Vec<Point>,
+    arc_scratch: &mut Vec<Point>,
 ) {
     out.cmds.to_mut().clear();
     if width <= Fixed::ZERO {
@@ -469,16 +472,22 @@ pub(crate) fn offset_polygon_into(
                 &sub.segs,
                 normals_scratch,
                 half,
+                join,
+                miter_limit,
                 /*left=*/ true,
                 rail_scratch,
+                arc_scratch,
             );
             append_closed_polyline(out, rail_scratch);
             build_ring_into(
                 &sub.segs,
                 normals_scratch,
                 half,
+                join,
+                miter_limit,
                 /*left=*/ false,
                 rail_scratch,
+                arc_scratch,
             );
             rail_scratch.reverse();
             append_closed_polyline(out, rail_scratch);
@@ -487,22 +496,24 @@ pub(crate) fn offset_polygon_into(
                 &sub.segs,
                 normals_scratch,
                 half,
+                join,
+                miter_limit,
                 /*left=*/ true,
                 rail_scratch,
+                arc_scratch,
             );
-            // The ribbon needs both rails alive at once, so the open path
-            // pays a one-off temporary clone of the right rail. Closed
-            // path stays zero-alloc because it appends each rail before
-            // building the next.
             let left = rail_scratch.clone();
             build_open_rail_into(
                 &sub.segs,
                 normals_scratch,
                 half,
+                join,
+                miter_limit,
                 /*left=*/ false,
                 rail_scratch,
+                arc_scratch,
             );
-            append_open_ribbon(out, &left, rail_scratch);
+            append_open_ribbon(out, &left, rail_scratch, cap, half);
         }
     }
 }
@@ -525,7 +536,17 @@ fn compute_normals_into(segs: &[LineSeg], half: Fixed, out: &mut Vec<Point>) {
     }
 }
 
-fn build_ring_into(segs: &[LineSeg], n: &[Point], half: Fixed, left: bool, out: &mut Vec<Point>) {
+#[allow(clippy::too_many_arguments)]
+fn build_ring_into(
+    segs: &[LineSeg],
+    n: &[Point],
+    half: Fixed,
+    join: LineJoin,
+    miter_limit: Fixed,
+    left: bool,
+    out: &mut Vec<Point>,
+    arc_scratch: &mut Vec<Point>,
+) {
     out.clear();
     let sign = if left { Fixed::ONE } else { -Fixed::ONE };
     let count = segs.len();
@@ -538,22 +559,35 @@ fn build_ring_into(segs: &[LineSeg], n: &[Point], half: Fixed, left: bool, out: 
         let n_prev = scaled(n[prev], sign);
         let n_curr = scaled(n[i], sign);
 
-        let joint = compute_join(
-            p_prev.p2, p_prev.p1, n_prev, p_curr.p1, p_curr.p2, n_curr, half,
+        compute_join_points(
+            p_prev.p2,
+            p_prev.p1,
+            n_prev,
+            p_curr.p1,
+            p_curr.p2,
+            n_curr,
+            half,
+            join,
+            miter_limit,
+            arc_scratch,
         );
-        out.push(joint);
+        out.extend_from_slice(arc_scratch);
     }
     if let Some(&first) = out.first() {
         out.push(first);
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_open_rail_into(
     segs: &[LineSeg],
     n: &[Point],
     half: Fixed,
+    join: LineJoin,
+    miter_limit: Fixed,
     left: bool,
     out: &mut Vec<Point>,
+    arc_scratch: &mut Vec<Point>,
 ) {
     out.clear();
     let sign = if left { Fixed::ONE } else { -Fixed::ONE };
@@ -569,68 +603,111 @@ fn build_open_rail_into(
         let n_prev = scaled(n[i - 1], sign);
         let n_curr = scaled(n[i], sign);
 
-        let joint = compute_join(
-            p_prev.p2, p_prev.p1, n_prev, p_curr.p1, p_curr.p2, n_curr, half,
+        compute_join_points(
+            p_prev.p2,
+            p_prev.p1,
+            n_prev,
+            p_curr.p1,
+            p_curr.p2,
+            n_curr,
+            half,
+            join,
+            miter_limit,
+            arc_scratch,
         );
-        out.push(joint);
+        out.extend_from_slice(arc_scratch);
     }
 
     let n_last = scaled(n[count - 1], sign);
     out.push(offset(segs[count - 1].p2, n_last));
 }
 
-/// Miter join: intersect the two offset lines. If the intersection is beyond
-/// MITER_LIMIT * half from the shared corner, fall back to bevel (average of
-/// the two offset corner points).
-fn compute_join(
-    // a->b is the incoming segment, c->d is the outgoing. b and c are the
-    // shared corner in original path space (normally b == c but kept separate
-    // for generality).
-    _a: Point,
+#[allow(clippy::too_many_arguments)]
+fn compute_join_points(
+    a: Point,
     b: Point,
     n_prev: Point,
     c: Point,
-    _d: Point,
+    d: Point,
     n_curr: Point,
     half: Fixed,
-) -> Point {
+    join: LineJoin,
+    miter_limit: Fixed,
+    out: &mut Vec<Point>,
+) {
+    out.clear();
     let p_in = offset(b, n_prev);
     let p_out = offset(c, n_curr);
 
-    // If adjacent offset points nearly coincide, no real corner — use one.
     if approx_eq(p_in, p_out) {
-        return p_in;
+        out.push(p_in);
+        return;
     }
 
-    // Miter = intersection of line(p_in, direction of incoming) with
-    // line(p_out, direction of outgoing). Build direction from original segs.
-    let dir_prev = Point {
-        x: b.x - _a.x,
-        y: b.y - _a.y,
-    };
-    let dir_curr = Point {
-        x: _d.x - c.x,
-        y: _d.y - c.y,
-    };
-
-    if let Some(miter) = line_intersect(p_in, dir_prev, p_out, dir_curr) {
-        let corner = Point {
-            x: (b.x + c.x) / 2,
-            y: (b.y + c.y) / 2,
-        };
-        let dx = miter.x - corner.x;
-        let dy = miter.y - corner.y;
-        let dist_sq = dx * dx + dy * dy;
-        let limit = half * MITER_LIMIT;
-        if dist_sq <= limit * limit {
-            return miter;
+    match join {
+        LineJoin::Round => {
+            out.push(p_in);
+            let center = Point {
+                x: (b.x + c.x) / 2,
+                y: (b.y + c.y) / 2,
+            };
+            let steps = arc_steps(half);
+            for i in 1..steps {
+                let t = Fixed::from_int(i as i32) / Fixed::from_int(steps as i32);
+                let p = Point {
+                    x: p_in.x + (p_out.x - p_in.x) * t,
+                    y: p_in.y + (p_out.y - p_in.y) * t,
+                };
+                let dx = p.x - center.x;
+                let dy = p.y - center.y;
+                let len_sq = dx * dx + dy * dy;
+                if len_sq > Fixed::ZERO {
+                    let len = len_sq.sqrt();
+                    let scale = half / len;
+                    out.push(Point {
+                        x: center.x + dx * scale,
+                        y: center.y + dy * scale,
+                    });
+                } else {
+                    out.push(p);
+                }
+            }
+            out.push(p_out);
+        }
+        LineJoin::Miter | LineJoin::Bevel => {
+            if join == LineJoin::Miter {
+                let dir_prev = Point {
+                    x: b.x - a.x,
+                    y: b.y - a.y,
+                };
+                let dir_curr = Point {
+                    x: d.x - c.x,
+                    y: d.y - c.y,
+                };
+                if let Some(miter) = line_intersect(p_in, dir_prev, p_out, dir_curr) {
+                    let corner = Point {
+                        x: (b.x + c.x) / 2,
+                        y: (b.y + c.y) / 2,
+                    };
+                    let dx = miter.x - corner.x;
+                    let dy = miter.y - corner.y;
+                    let dist_sq = dx * dx + dy * dy;
+                    let limit = half * miter_limit;
+                    if dist_sq <= limit * limit {
+                        out.push(miter);
+                        return;
+                    }
+                }
+            }
+            out.push(p_in);
+            out.push(p_out);
         }
     }
-    // Bevel fallback: midpoint of the two offset corner points.
-    Point {
-        x: (p_in.x + p_out.x) / 2,
-        y: (p_in.y + p_out.y) / 2,
-    }
+}
+
+fn arc_steps(half: Fixed) -> usize {
+    let r = half.to_int().max(2) as usize;
+    (r * 3).clamp(4, 32)
 }
 
 /// Solve p1 + t*d1 = p2 + s*d2 for t. Returns the intersection point, or None
@@ -660,19 +737,124 @@ fn append_closed_polyline(out: &mut Path, pts: &[Point]) {
     out.close();
 }
 
-fn append_open_ribbon(out: &mut Path, left: &[Point], right: &[Point]) {
+fn append_open_ribbon(out: &mut Path, left: &[Point], right: &[Point], cap: LineCap, half: Fixed) {
     if left.is_empty() || right.is_empty() {
         return;
     }
-    out.move_to(left[0]);
-    for p in &left[1..] {
-        out.line_to(*p);
+
+    let (start_left, start_right) = (left[0], right.last().copied().unwrap_or(right[0]));
+    let (end_left, end_right) = (left.last().copied().unwrap_or(left[0]), right[0]);
+
+    match cap {
+        LineCap::Butt => {
+            out.move_to(start_left);
+            for p in &left[1..] {
+                out.line_to(*p);
+            }
+            out.line_to(end_left);
+            for p in right.iter().rev() {
+                out.line_to(*p);
+            }
+            out.line_to(start_right);
+            out.close();
+        }
+        LineCap::Square => {
+            let start_dir = direction(start_left, left.get(1).copied().unwrap_or(start_left));
+            let end_dir = direction(
+                end_left,
+                left.get(left.len().wrapping_sub(2))
+                    .copied()
+                    .unwrap_or(end_left),
+            );
+
+            let sl_ext = offset(start_left, start_dir);
+            let sr_ext = offset(start_right, start_dir);
+            let el_ext = offset(end_left, end_dir);
+            let er_ext = offset(end_right, end_dir);
+
+            out.move_to(sl_ext);
+            out.line_to(start_left);
+            for p in &left[1..] {
+                out.line_to(*p);
+            }
+            out.line_to(end_left);
+            out.line_to(el_ext);
+            out.line_to(er_ext);
+            out.line_to(end_right);
+            for p in right.iter().rev() {
+                out.line_to(*p);
+            }
+            out.line_to(start_right);
+            out.line_to(sr_ext);
+            out.close();
+        }
+        LineCap::Round => {
+            out.move_to(start_left);
+            for p in &left[1..] {
+                out.line_to(*p);
+            }
+            out.line_to(end_left);
+            append_arc_cap(out, end_left, end_right, half);
+            for p in right.iter().rev() {
+                out.line_to(*p);
+            }
+            append_arc_cap(out, start_right, start_left, half);
+            out.close();
+        }
     }
-    // Walk right side in reverse so the ribbon stays a simple closed polygon.
-    for p in right.iter().rev() {
-        out.line_to(*p);
+}
+
+fn direction(from: Point, to: Point) -> Point {
+    let dx = to.x - from.x;
+    let dy = to.y - from.y;
+    let len_sq = dx * dx + dy * dy;
+    if len_sq == Fixed::ZERO {
+        return Point::ZERO;
     }
-    out.close();
+    let len = len_sq.sqrt();
+    Point {
+        x: dx / len * (Fixed::ONE / Fixed::from_int(1)),
+        y: dy / len * (Fixed::ONE / Fixed::from_int(1)),
+    }
+}
+
+fn append_arc_cap(out: &mut Path, p1: Point, p2: Point, half: Fixed) {
+    let center = Point {
+        x: (p1.x + p2.x) / 2,
+        y: (p1.y + p2.y) / 2,
+    };
+    let steps = arc_steps(half);
+    out.line_to(p1);
+    for i in 1..steps {
+        let angle =
+            Fixed::from_int(i as i32) * Fixed::from_int(314) / Fixed::from_int(steps as i32 * 100);
+        let (sin_v, cos_v) = sin_cos_approx(angle);
+        let dx = p1.x - center.x;
+        let dy = p1.y - center.y;
+        let nx = dx * cos_v - dy * sin_v;
+        let ny = dx * sin_v + dy * cos_v;
+        out.line_to(Point {
+            x: center.x + nx,
+            y: center.y + ny,
+        });
+    }
+    out.line_to(p2);
+}
+
+fn sin_cos_approx(rad: Fixed) -> (Fixed, Fixed) {
+    #[cfg(feature = "std")]
+    {
+        let f = rad.to_f32();
+        (Fixed::from_f32(f.sin()), Fixed::from_f32(f.cos()))
+    }
+    #[cfg(not(feature = "std"))]
+    {
+        let x = rad.to_f32();
+        let x2 = x * x;
+        let s = x - x * x2 / 6.0 + x * x2 * x2 / 120.0;
+        let c = 1.0 - x2 / 2.0 + x2 * x2 / 24.0;
+        (Fixed::from_f32(s), Fixed::from_f32(c))
+    }
 }
 
 fn scaled(p: Point, s: Fixed) -> Point {
@@ -744,14 +926,19 @@ mod tests {
         let mut scratch = Vec::new();
         let mut normals = Vec::new();
         let mut rail = Vec::new();
+        let mut arc = Vec::new();
         offset_polygon_into(
             &p.cmds,
             None,
             width,
+            LineCap::Butt,
+            LineJoin::Miter,
+            Fixed::from_int(4),
             &mut out,
             &mut scratch,
             &mut normals,
             &mut rail,
+            &mut arc,
         );
         out
     }

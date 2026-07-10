@@ -12,7 +12,18 @@ use super::texture::Texture;
 /// (typically by holding a `Viewport` field).
 pub trait Canvas {
     fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8, fill_rule: FillRule);
-    fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8);
+    #[allow(clippy::too_many_arguments)]
+    fn stroke_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
+    );
     #[allow(clippy::too_many_arguments)]
     fn blit(
         &mut self,
@@ -58,7 +69,16 @@ pub trait Canvas {
             area.h - width,
             (radius - width / 2).max(Fixed::ZERO),
         );
-        self.stroke_path(&path, clip, width, color, opa);
+        self.stroke_path(
+            &path,
+            clip,
+            width,
+            color,
+            opa,
+            crate::render::raster::LineCap::Butt,
+            crate::render::raster::LineJoin::Miter,
+            Fixed::from_int(4),
+        );
     }
 
     fn draw_line(
@@ -72,7 +92,16 @@ pub trait Canvas {
     ) {
         let mut path = Path::new();
         path.move_to(p1).line_to(p2);
-        self.stroke_path(&path, clip, width, color, opa);
+        self.stroke_path(
+            &path,
+            clip,
+            width,
+            color,
+            opa,
+            crate::render::raster::LineCap::Butt,
+            crate::render::raster::LineJoin::Miter,
+            Fixed::from_int(4),
+        );
     }
 
     /// Draw a stroked circular arc. Angles in degrees, CCW from +X axis.
@@ -91,6 +120,15 @@ pub trait Canvas {
         opa: u8,
     ) {
         let path = Path::arc(center, radius, start_angle, end_angle);
-        self.stroke_path(&path, clip, width, color, opa);
+        self.stroke_path(
+            &path,
+            clip,
+            width,
+            color,
+            opa,
+            crate::render::raster::LineCap::Butt,
+            crate::render::raster::LineJoin::Miter,
+            Fixed::from_int(4),
+        );
     }
 }

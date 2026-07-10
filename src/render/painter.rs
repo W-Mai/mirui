@@ -75,8 +75,20 @@ impl<'a, B: Canvas> Painter<'a, B> {
         self.backend.fill_path(path, clip, color, opa, fill_rule);
     }
 
-    pub fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
-        self.backend.stroke_path(path, clip, width, color, opa);
+    #[allow(clippy::too_many_arguments)]
+    pub fn stroke_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        width: Fixed,
+        color: &Color,
+        opa: u8,
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
+    ) {
+        self.backend
+            .stroke_path(path, clip, width, color, opa, cap, join, miter_limit);
     }
 
     pub fn draw_line(

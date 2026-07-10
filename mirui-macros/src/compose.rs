@@ -18,7 +18,7 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
     (
         "stroke_path",
-        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, color: &::mirui::types::Color, opa: u8",
+        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, color: &::mirui::types::Color, opa: u8, cap: ::mirui::render::raster::LineCap, join: ::mirui::render::raster::LineJoin, miter_limit: ::mirui::types::Fixed",
         false,
     ),
     (
@@ -283,8 +283,17 @@ impl ComposeInput {
                         } => {
                             self.fill_path(path, clip, color, *opa, ::mirui::render::raster::FillRule::EvenOdd);
                         }
-                        ::mirui::render::DrawCommand::StrokePath { path, width, color, opa, .. } => {
-                            self.stroke_path(path, clip, *width, color, *opa);
+                        ::mirui::render::DrawCommand::StrokePath {
+                            path,
+                            width,
+                            color,
+                            opa,
+                            line_cap,
+                            line_join,
+                            miter_limit,
+                            ..
+                        } => {
+                            self.stroke_path(path, clip, *width, color, *opa, *line_cap, *line_join, *miter_limit);
                         }
                     }
                 }
