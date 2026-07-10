@@ -1,14 +1,31 @@
 use super::SwRenderer;
+use crate::render::canvas::Paint;
 use crate::render::path::{self, Path};
 use crate::render::raster::{self, FillRule};
 use crate::types::{Color, Fixed, Rect, Transform};
+
+fn paint_color(paint: &Paint) -> Color {
+    match paint {
+        Paint::Color(color) => (*color).into(),
+        Paint::LinearGradient(gradient) => gradient
+            .stops
+            .first()
+            .map(|stop| stop.color.into())
+            .unwrap_or(Color::rgba(0, 0, 0, 0)),
+        Paint::RadialGradient(gradient) => gradient
+            .stops
+            .first()
+            .map(|stop| stop.color.into())
+            .unwrap_or(Color::rgba(0, 0, 0, 0)),
+    }
+}
 
 impl SwRenderer<'_> {
     pub(super) fn fill_path_inner(
         &mut self,
         path: &Path,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         fill_rule: FillRule,
     ) {
@@ -17,7 +34,7 @@ impl SwRenderer<'_> {
         }
         let phys_tf = self.viewport.as_transform();
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        self.fill_path_transformed(path, phys_clip, &phys_tf, color, opa, fill_rule);
+        self.fill_path_transformed(path, phys_clip, &phys_tf, paint, opa, fill_rule);
     }
 
     pub(super) fn fill_path_transformed(
@@ -25,7 +42,7 @@ impl SwRenderer<'_> {
         path: &Path,
         phys_clip: Rect,
         phys_tf: &Transform,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         fill_rule: FillRule,
     ) {
@@ -51,6 +68,7 @@ impl SwRenderer<'_> {
 
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
         let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        let color = paint_color(paint);
         let color_a_norm =
             Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let combined_alpha = opa_norm * color_a_norm;
@@ -71,7 +89,7 @@ impl SwRenderer<'_> {
             |px, py, cov| {
                 let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
                 if final_alpha > 0 {
-                    target.blend_pixel_int(px, py, color, final_alpha);
+                    target.blend_pixel_int(px, py, &color, final_alpha);
                 }
             },
         );
@@ -83,7 +101,7 @@ impl SwRenderer<'_> {
         path: &Path,
         clip: &Rect,
         width: Fixed,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
@@ -108,7 +126,7 @@ impl SwRenderer<'_> {
             &mut self.stroke_arc,
         );
         let outline_cmds = core::mem::take(&mut self.stroke_outline);
-        self.fill_physical_path(&outline_cmds, clip, color, opa);
+        self.fill_physical_path_with_paint(&outline_cmds, clip, paint, opa);
         self.stroke_outline = outline_cmds;
     }
 
@@ -119,7 +137,7 @@ impl SwRenderer<'_> {
         phys_clip: Rect,
         phys_tf: &Transform,
         width: Fixed,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
@@ -143,8 +161,19 @@ impl SwRenderer<'_> {
             &mut self.stroke_arc,
         );
         let outline_cmds = core::mem::take(&mut self.stroke_outline);
-        self.fill_physical_path(&outline_cmds, &phys_clip, color, opa);
+        self.fill_physical_path_with_paint(&outline_cmds, &phys_clip, paint, opa);
         self.stroke_outline = outline_cmds;
+    }
+
+    pub(super) fn fill_physical_path_with_paint(
+        &mut self,
+        phys_path: &Path,
+        clip: &Rect,
+        paint: &Paint,
+        opa: u8,
+    ) {
+        let color = paint_color(paint);
+        self.fill_physical_path(phys_path, clip, &color, opa);
     }
 
     pub(super) fn fill_physical_path(

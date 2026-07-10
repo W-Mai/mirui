@@ -26,7 +26,7 @@ use sdl2::video::Window;
 
 use self::label_cache::LabelCache;
 use self::tessellation::TessellationCache;
-use crate::render::canvas::Canvas;
+use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
@@ -36,6 +36,22 @@ use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
 use crate::core::cache::{CacheInspect, InspectCaches};
 use crate::surface::{DisplayInfo, InputEvent, Surface, logical_from_physical};
+
+fn paint_color(paint: &Paint) -> Color {
+    match paint {
+        Paint::Color(color) => (*color).into(),
+        Paint::LinearGradient(gradient) => gradient
+            .stops
+            .first()
+            .map(|stop| stop.color.into())
+            .unwrap_or(Color::rgba(0, 0, 0, 0)),
+        Paint::RadialGradient(gradient) => gradient
+            .stops
+            .first()
+            .map(|stop| stop.color.into())
+            .unwrap_or(Color::rgba(0, 0, 0, 0)),
+    }
+}
 
 /// macOS trackpad pinch / rotate is delivered by SDL as `MultiGesture`,
 /// which has no "end" sentinel; if no `MultiGesture` arrives within
@@ -515,11 +531,12 @@ impl Renderer for SdlGpuRenderer<'_> {
             DrawCommand::FillPath {
                 path,
                 transform,
-                color,
+                paint,
                 opa,
                 ..
             } => {
-                self.fill_path_transformed_inner(path, clip, transform, color, *opa);
+                let color = paint_color(paint);
+                self.fill_path_transformed_inner(path, clip, transform, &color, *opa);
                 return;
             }
             DrawCommand::StrokePath { .. } => {
@@ -632,13 +649,14 @@ impl Renderer for SdlGpuRenderer<'_> {
                 self.draw_label(&pos, text, font, clip, color, *opa)
             }
             DrawCommand::FillPath {
-                path, color, opa, ..
+                path, paint, opa, ..
             } => {
+                let color = paint_color(paint);
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.fill_path_inner(path, clip, color, *opa);
+                    self.fill_path_inner(path, clip, &color, *opa);
                 } else {
                     let translate = Transform::translate(tx, ty);
-                    self.fill_path_transformed_inner(path, clip, &translate, color, *opa);
+                    self.fill_path_transformed_inner(path, clip, &translate, &color, *opa);
                 }
             }
             DrawCommand::StrokePath { .. } => {
@@ -833,11 +851,12 @@ impl Canvas for SdlGpuRenderer<'_> {
         &mut self,
         path: &Path,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         _fill_rule: crate::render::raster::FillRule,
     ) {
-        self.fill_path_inner(path, clip, color, opa);
+        let color = paint_color(paint);
+        self.fill_path_inner(path, clip, &color, opa);
     }
 
     fn stroke_path(
@@ -845,13 +864,14 @@ impl Canvas for SdlGpuRenderer<'_> {
         path: &Path,
         clip: &Rect,
         width: Fixed,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         _cap: crate::render::raster::LineCap,
         _join: crate::render::raster::LineJoin,
         _miter_limit: Fixed,
     ) {
-        self.stroke_path_inner(path, clip, width, color, opa);
+        let color = paint_color(paint);
+        self.stroke_path_inner(path, clip, width, &color, opa);
     }
 
     fn blit(

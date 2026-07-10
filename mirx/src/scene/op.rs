@@ -1,4 +1,5 @@
 use crate::path::Path;
+use crate::scene::paint::Paint;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 use alloc::string::String;
 use alloc::vec::Vec;
@@ -54,14 +55,14 @@ pub enum SceneOp {
     FillPath {
         path: Path,
         transform: Transform,
-        color: Color,
+        paint: Paint,
         opa: u8,
         fill_rule: FillRule,
     },
     StrokePath {
         path: Path,
         transform: Transform,
-        color: Color,
+        paint: Paint,
         width: Fixed,
         opa: u8,
         line_cap: LineCap,

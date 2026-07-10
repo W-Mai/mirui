@@ -1,4 +1,5 @@
 use crate::ecs::{Entity, World};
+use crate::render::canvas::Paint;
 use crate::render::command::DrawCommand;
 use crate::render::path::Path;
 use crate::render::renderer::Renderer;
@@ -80,12 +81,13 @@ fn icon_render(
         .transform
         .compose(&Transform::translate(rect.x, rect.y))
         .compose(&Transform::scale(effective, effective));
+    let paint = Paint::Color(color.into());
 
     renderer.draw(
         &DrawCommand::FillPath {
             path: &icon.path,
             transform: scaled,
-            color,
+            paint: &paint,
             opa: 255,
             fill_rule: crate::render::raster::FillRule::EvenOdd,
         },

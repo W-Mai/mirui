@@ -57,7 +57,7 @@ mod tests {
     use crate::render::command::CompositeMode;
     use crate::render::path::Path;
     use crate::render::raster::FillRule;
-    use crate::render::scene::ResourceRef;
+    use crate::render::scene::{Paint, ResourceRef};
     use crate::types::{Color, Fixed, Point, Rect, Transform};
     use alloc::vec;
 
@@ -137,7 +137,7 @@ mod tests {
                 crate::render::path::PathCmd::Close,
             ]),
             transform: Transform::IDENTITY,
-            color: red(),
+            paint: Paint::Color(red().into()),
             opa: 255,
             fill_rule: FillRule::NonZero,
         }]);

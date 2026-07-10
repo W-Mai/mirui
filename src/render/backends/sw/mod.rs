@@ -1,6 +1,6 @@
 use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
-use crate::render::canvas::Canvas;
+use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::path::Path;
 use crate::render::renderer::Renderer;
@@ -128,16 +128,16 @@ impl<'a> SwRenderer<'a> {
             }
             DrawCommand::FillPath {
                 path,
-                color,
+                paint,
                 opa,
                 fill_rule,
                 ..
             } => {
-                self.fill_path_transformed(path, phys_clip, &phys_tf, color, *opa, *fill_rule);
+                self.fill_path_transformed(path, phys_clip, &phys_tf, paint, *opa, *fill_rule);
             }
             DrawCommand::StrokePath {
                 path,
-                color,
+                paint,
                 width,
                 opa,
                 line_cap,
@@ -150,7 +150,7 @@ impl<'a> SwRenderer<'a> {
                     phys_clip,
                     &phys_tf,
                     *width,
-                    color,
+                    paint,
                     *opa,
                     *line_cap,
                     *line_join,
@@ -170,11 +170,11 @@ impl<'a> Canvas for SwRenderer<'a> {
         &mut self,
         path: &Path,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         fill_rule: crate::render::raster::FillRule,
     ) {
-        self.fill_path_inner(path, clip, color, opa, fill_rule);
+        self.fill_path_inner(path, clip, paint, opa, fill_rule);
     }
 
     fn stroke_path(
@@ -182,13 +182,13 @@ impl<'a> Canvas for SwRenderer<'a> {
         path: &Path,
         clip: &Rect,
         width: Fixed,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
         miter_limit: Fixed,
     ) {
-        self.stroke_path_inner(path, clip, width, color, opa, cap, join, miter_limit);
+        self.stroke_path_inner(path, clip, width, paint, opa, cap, join, miter_limit);
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
@@ -641,26 +641,26 @@ impl Renderer for SwRenderer<'_> {
             }
             DrawCommand::FillPath {
                 path,
-                color,
+                paint,
                 opa,
                 fill_rule,
                 ..
             } => {
                 crate::trace_span!("sw.fill_path");
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.fill_path_inner(path, clip, color, *opa, *fill_rule);
+                    self.fill_path_inner(path, clip, paint, *opa, *fill_rule);
                 } else {
                     let phys_tf = self
                         .viewport
                         .as_transform()
                         .compose(&Transform::translate(tx, ty));
                     let phys_clip = self.viewport.rect_to_physical(*clip);
-                    self.fill_path_transformed(path, phys_clip, &phys_tf, color, *opa, *fill_rule);
+                    self.fill_path_transformed(path, phys_clip, &phys_tf, paint, *opa, *fill_rule);
                 }
             }
             DrawCommand::StrokePath {
                 path,
-                color,
+                paint,
                 width,
                 opa,
                 line_cap,
@@ -674,7 +674,7 @@ impl Renderer for SwRenderer<'_> {
                         path,
                         clip,
                         *width,
-                        color,
+                        paint,
                         *opa,
                         *line_cap,
                         *line_join,
@@ -691,7 +691,7 @@ impl Renderer for SwRenderer<'_> {
                         phys_clip,
                         &phys_tf,
                         *width,
-                        color,
+                        paint,
                         *opa,
                         *line_cap,
                         *line_join,
@@ -1033,10 +1033,11 @@ mod tests {
             Fixed::from_int(8),
         );
         let clip = Rect::new(0, 0, 16, 16);
+        let paint = Paint::Color(Color::rgb(0, 0, 255).into());
         backend.fill_path(
             &path,
             &clip,
-            &Color::rgb(0, 0, 255),
+            &paint,
             255,
             crate::render::raster::FillRule::EvenOdd,
         );
@@ -1056,10 +1057,11 @@ mod tests {
 
         let path = crate::render::path::Path::new();
         let clip = Rect::new(0, 0, 4, 4);
+        let paint = Paint::Color(Color::rgb(255, 255, 255).into());
         backend.fill_path(
             &path,
             &clip,
-            &Color::rgb(255, 255, 255),
+            &paint,
             255,
             crate::render::raster::FillRule::EvenOdd,
         );
@@ -1084,10 +1086,11 @@ mod tests {
             Fixed::from_int(4),
         );
         let clip = Rect::new(0, 0, 4, 4);
+        let paint = Paint::Color(Color::rgb(255, 0, 0).into());
         backend.fill_path(
             &path,
             &clip,
-            &Color::rgb(255, 0, 0),
+            &paint,
             0,
             crate::render::raster::FillRule::EvenOdd,
         );
@@ -1119,10 +1122,11 @@ mod tests {
         .close();
 
         let clip = Rect::new(0, 0, 16, 16);
+        let paint = Paint::Color(Color::rgb(0, 200, 0).into());
         backend.fill_path(
             &path,
             &clip,
-            &Color::rgb(0, 200, 0),
+            &paint,
             255,
             crate::render::raster::FillRule::EvenOdd,
         );
@@ -1186,11 +1190,12 @@ mod tests {
         });
 
         let clip = Rect::new(0, 0, 16, 16);
+        let paint = Paint::Color(Color::rgb(255, 0, 0).into());
         backend.stroke_path(
             &path,
             &clip,
             Fixed::from_int(2),
-            &Color::rgb(255, 0, 0),
+            &paint,
             255,
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,
@@ -1328,11 +1333,12 @@ mod tests {
         });
 
         let clip = Rect::new(0, 0, 8, 8);
+        let paint = Paint::Color(Color::rgb(255, 0, 0).into());
         backend.stroke_path(
             &path,
             &clip,
             Fixed::ZERO,
-            &Color::rgb(255, 0, 0),
+            &paint,
             255,
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,
@@ -1385,10 +1391,11 @@ mod tests {
                 Fixed::from_int(10),
                 Fixed::from_int(10),
             );
+            let paint = Paint::Color(Color::rgb(255, 0, 0).into());
             painter.fill_path(
                 &path,
                 &clip,
-                &Color::rgb(255, 0, 0),
+                &paint,
                 255,
                 crate::render::raster::FillRule::EvenOdd,
             );
@@ -2175,10 +2182,11 @@ mod tests {
             Fixed::from_int(4),
         );
         let clip = Rect::new(0, 0, 32, 32);
+        let paint = Paint::Color(Color::rgb(0, 255, 0).into());
         let cmd = DrawCommand::FillPath {
             path: &path,
             transform: Transform::scale(Fixed::from_int(4), Fixed::from_int(4)),
-            color: Color::rgb(0, 255, 0),
+            paint: &paint,
             opa: 255,
             fill_rule: crate::render::raster::FillRule::EvenOdd,
         };

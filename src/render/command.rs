@@ -4,7 +4,7 @@ use crate::render::raster::FillRule;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 
-pub use mirx::{LineCap, LineJoin};
+pub use mirx::{LineCap, LineJoin, Paint};
 
 /// Non-premultiplied alpha: `src` channels are multiplied by `src.a / 255`
 /// before the per-variant formula and folded back onto `dst` via the
@@ -196,7 +196,7 @@ pub enum DrawCommand<'a> {
     FillPath {
         path: &'a Path,
         transform: Transform,
-        color: Color,
+        paint: &'a Paint,
         opa: Opa,
         fill_rule: FillRule,
     },
@@ -206,7 +206,7 @@ pub enum DrawCommand<'a> {
     StrokePath {
         path: &'a Path,
         transform: Transform,
-        color: Color,
+        paint: &'a Paint,
         width: Fixed,
         opa: Opa,
         line_cap: LineCap,

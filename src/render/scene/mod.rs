@@ -16,7 +16,10 @@ use crate::render::path::Path;
 use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
-pub use mirx::{LineCap, LineJoin};
+pub use mirx::{
+    Color as MirxColor, Fixed as MirxFixed, GradientStop, GradientUnits, LineCap, LineJoin,
+    LinearGradient, Paint, RadialGradient, SpreadMode,
+};
 
 /// Reference to a font / texture / subtree resource.
 ///
@@ -49,14 +52,14 @@ pub enum SceneOp {
     FillPath {
         path: Path,
         transform: Transform,
-        color: Color,
+        paint: Paint,
         opa: u8,
         fill_rule: FillRule,
     },
     StrokePath {
         path: Path,
         transform: Transform,
-        color: Color,
+        paint: Paint,
         width: Fixed,
         opa: u8,
         line_cap: LineCap,
@@ -285,12 +288,12 @@ mod tests {
     static SCENE: &[SceneOp] = &[SceneOp::FillPath {
         path: Path::from_static(&GEOMETRY),
         transform: Transform::IDENTITY,
-        color: Color {
+        paint: Paint::Color(mirx::Color {
             r: 255,
             g: 0,
             b: 0,
             a: 255,
-        },
+        }),
         opa: 255,
         fill_rule: FillRule::EvenOdd,
     }];
@@ -312,12 +315,12 @@ mod tests {
         let owned = SceneOp::FillPath {
             path: Path::from_owned(GEOMETRY.to_vec()),
             transform: Transform::IDENTITY,
-            color: Color {
+            paint: Paint::Color(mirx::Color {
                 r: 255,
                 g: 0,
                 b: 0,
                 a: 255,
-            },
+            }),
             opa: 255,
             fill_rule: FillRule::EvenOdd,
         };

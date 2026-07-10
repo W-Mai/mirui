@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 use mirui::app::plugins::{FpsSummaryPlugin, StdInstantClockPlugin};
 use mirui::app::{App, RendererFactory};
-use mirui::render::canvas::Canvas;
+use mirui::render::canvas::{Canvas, Paint};
 use mirui::render::command::CompositeMode;
 use mirui::render::path::Path;
 use mirui::render::sw::SwRenderer;
@@ -39,18 +39,18 @@ impl<B: Canvas> Canvas for Logging<B> {
         &mut self,
         path: &Path,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         fill_rule: mirui::render::raster::FillRule,
     ) {
-        self.inner.fill_path(path, clip, color, opa, fill_rule);
+        self.inner.fill_path(path, clip, paint, opa, fill_rule);
     }
     fn stroke_path(
         &mut self,
         path: &Path,
         clip: &Rect,
         width: Fixed,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         _: ::mirui::render::raster::LineCap,
         _: ::mirui::render::raster::LineJoin,
@@ -60,7 +60,7 @@ impl<B: Canvas> Canvas for Logging<B> {
             path,
             clip,
             width,
-            color,
+            paint,
             opa,
             ::mirui::render::raster::LineCap::Butt,
             ::mirui::render::raster::LineJoin::Miter,

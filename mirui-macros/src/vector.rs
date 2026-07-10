@@ -957,6 +957,10 @@ fn color_tokens(r: u8, g: u8, b: u8, a: u8) -> TokenStream {
     quote! { ::mirui::types::Color { r: #r, g: #g, b: #b, a: #a } }
 }
 
+fn mirx_color_tokens(r: u8, g: u8, b: u8, a: u8) -> TokenStream {
+    quote! { ::mirui::render::scene::MirxColor { r: #r, g: #g, b: #b, a: #a } }
+}
+
 fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
     match stmt {
         SceneStmt::Rect {
@@ -1078,7 +1082,7 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
             opa,
         } => {
             let cmds = steps.iter().map(path_step_tokens);
-            let col = color_tokens(*r, *g, *b, *a);
+            let col = mirx_color_tokens(*r, *g, *b, *a);
             quote! {
                 ::mirui::render::scene::SceneOp::FillPath {
                     path: ::mirui::render::path::Path::from_static({
@@ -1086,7 +1090,7 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                         P
                     }),
                     transform: ::mirui::types::Transform::IDENTITY,
-                    color: #col,
+                    paint: ::mirui::render::scene::Paint::Color(#col),
                     opa: #opa,
                     fill_rule: ::mirui::render::raster::FillRule::EvenOdd,
                 }

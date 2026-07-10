@@ -13,12 +13,12 @@ use syn::{Ident, Result, Token, Visibility, braced};
 const METHODS: &[(&str, &str, bool)] = &[
     (
         "fill_path",
-        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8, fill_rule: ::mirui::render::raster::FillRule",
+        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, paint: &::mirui::render::Paint, opa: u8, fill_rule: ::mirui::render::raster::FillRule",
         false,
     ),
     (
         "stroke_path",
-        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, color: &::mirui::types::Color, opa: u8, cap: ::mirui::render::raster::LineCap, join: ::mirui::render::raster::LineJoin, miter_limit: ::mirui::types::Fixed",
+        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, paint: &::mirui::render::Paint, opa: u8, cap: ::mirui::render::raster::LineCap, join: ::mirui::render::raster::LineJoin, miter_limit: ::mirui::types::Fixed",
         false,
     ),
     (
@@ -279,21 +279,21 @@ impl ComposeInput {
                             self.draw_arc(*center, *radius, *start_angle, *end_angle, clip, *width, color, *opa);
                         }
                         ::mirui::render::DrawCommand::FillPath {
-                            path, color, opa, ..
+                            path, paint, opa, ..
                         } => {
-                            self.fill_path(path, clip, color, *opa, ::mirui::render::raster::FillRule::EvenOdd);
+                            self.fill_path(path, clip, paint, *opa, ::mirui::render::raster::FillRule::EvenOdd);
                         }
                         ::mirui::render::DrawCommand::StrokePath {
                             path,
                             width,
-                            color,
+                            paint,
                             opa,
                             line_cap,
                             line_join,
                             miter_limit,
                             ..
                         } => {
-                            self.stroke_path(path, clip, *width, color, *opa, *line_cap, *line_join, *miter_limit);
+                            self.stroke_path(path, clip, *width, paint, *opa, *line_cap, *line_join, *miter_limit);
                         }
                     }
                 }

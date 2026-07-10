@@ -11,7 +11,7 @@ use web_sys::CanvasRenderingContext2d;
 
 use self::texture_pool::{GlyphKey, GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
 use crate::render::backends::sw::SwRenderer;
-use crate::render::canvas::Canvas;
+use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
@@ -19,6 +19,22 @@ use crate::render::renderer::Renderer;
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
 use crate::types::{Color, Fixed, Point, Rect, Viewport};
+
+fn paint_color(paint: &Paint) -> Color {
+    match paint {
+        Paint::Color(color) => (*color).into(),
+        Paint::LinearGradient(gradient) => gradient
+            .stops
+            .first()
+            .map(|stop| stop.color.into())
+            .unwrap_or(Color::rgba(0, 0, 0, 0)),
+        Paint::RadialGradient(gradient) => gradient
+            .stops
+            .first()
+            .map(|stop| stop.color.into())
+            .unwrap_or(Color::rgba(0, 0, 0, 0)),
+    }
+}
 
 pub struct WebCanvasRendererFactory {
     texture_pool: TexturePool,
@@ -168,12 +184,13 @@ impl WebCanvasRenderer<'_> {
         q: &[Point; 4],
         area: &Rect,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         radius: Fixed,
         opa: u8,
     ) {
         self.push_clip(clip);
-        self.set_fill(color, opa);
+        let color = paint_color(paint);
+        self.set_fill(&color, opa);
         if let Some(m) = quad_to_affine(q, area) {
             let ctx = self.ctx();
             let dpr = self.dpr();
@@ -202,12 +219,13 @@ impl WebCanvasRenderer<'_> {
         area: &Rect,
         width: Fixed,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         radius: Fixed,
         opa: u8,
     ) {
         self.push_clip(clip);
-        self.set_stroke(color, width, opa);
+        let color = paint_color(paint);
+        self.set_stroke(&color, width, opa);
         if let Some(m) = quad_to_affine(q, area) {
             let ctx = self.ctx();
             let dpr = self.dpr();
@@ -516,7 +534,8 @@ impl Renderer for WebCanvasRenderer<'_> {
                 opa,
                 ..
             } => {
-                self.fill_quad_inner(q, area, clip, color, *radius, *opa);
+                let paint = Paint::Color((*color).into());
+                self.fill_quad_inner(q, area, clip, &paint, *radius, *opa);
             }
             DrawCommand::Fill {
                 area,
@@ -536,7 +555,8 @@ impl Renderer for WebCanvasRenderer<'_> {
                 opa,
                 ..
             } => {
-                self.stroke_quad_inner(q, area, *width, clip, color, *radius, *opa);
+                let paint = Paint::Color((*color).into());
+                self.stroke_quad_inner(q, area, *width, clip, &paint, *radius, *opa);
             }
             DrawCommand::Border {
                 area,
@@ -603,17 +623,17 @@ impl Renderer for WebCanvasRenderer<'_> {
             }
             DrawCommand::FillPath {
                 path,
-                color,
+                paint,
                 opa,
                 fill_rule,
                 ..
             } => {
-                self.fill_path(path, clip, color, *opa, *fill_rule);
+                self.fill_path(path, clip, paint, *opa, *fill_rule);
             }
             DrawCommand::StrokePath {
                 path,
                 width,
-                color,
+                paint,
                 opa,
                 line_cap,
                 line_join,
@@ -624,7 +644,7 @@ impl Renderer for WebCanvasRenderer<'_> {
                     path,
                     clip,
                     *width,
-                    color,
+                    paint,
                     *opa,
                     *line_cap,
                     *line_join,
@@ -682,12 +702,13 @@ impl Canvas for WebCanvasRenderer<'_> {
         &mut self,
         path: &Path,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         _fill_rule: crate::render::raster::FillRule,
     ) {
+        let color = paint_color(paint);
         self.push_clip(clip);
-        self.set_fill(color, opa);
+        self.set_fill(&color, opa);
         self.build_path(path);
         self.ctx().fill();
         self.pop_clip();
@@ -698,14 +719,15 @@ impl Canvas for WebCanvasRenderer<'_> {
         path: &Path,
         clip: &Rect,
         width: Fixed,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         _cap: crate::render::raster::LineCap,
         _join: crate::render::raster::LineJoin,
         _miter_limit: Fixed,
     ) {
+        let color = paint_color(paint);
         self.push_clip(clip);
-        self.set_stroke(color, width, opa);
+        self.set_stroke(&color, width, opa);
         self.build_path(path);
         self.ctx().stroke();
         self.pop_clip();

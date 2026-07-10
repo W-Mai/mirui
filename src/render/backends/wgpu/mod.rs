@@ -7,7 +7,7 @@ mod texture_pool;
 
 use wgpu::util::DeviceExt;
 
-use crate::render::canvas::Canvas;
+use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::Path;
@@ -25,6 +25,22 @@ use self::pipeline::{
 use self::texture_pool::{CachedTexture, TextureKey, TexturePool, new_pool};
 
 pub use self::pipeline::MSAA_SAMPLES;
+
+fn paint_color(paint: &Paint) -> Color {
+    match paint {
+        Paint::Color(color) => (*color).into(),
+        Paint::LinearGradient(gradient) => gradient
+            .stops
+            .first()
+            .map(|stop| stop.color.into())
+            .unwrap_or(Color::rgba(0, 0, 0, 0)),
+        Paint::RadialGradient(gradient) => gradient
+            .stops
+            .first()
+            .map(|stop| stop.color.into())
+            .unwrap_or(Color::rgba(0, 0, 0, 0)),
+    }
+}
 
 pub struct WgpuRendererFactory {
     cache: Option<PipelineCache>,
@@ -683,14 +699,15 @@ impl WgpuRenderer<'_> {
         path: &Path,
         clip: &Rect,
         cmd_tf: &crate::types::Transform,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
     ) {
+        let color = paint_color(paint);
         let (verts, indices) = {
             let (v, i) = self.factory.tessellator.fill(path, Some(cmd_tf));
             (v.to_vec(), i.to_vec())
         };
-        self.draw_path_mesh(&verts, &indices, clip, color, opa);
+        self.draw_path_mesh(&verts, &indices, clip, &color, opa);
     }
 }
 
@@ -1506,7 +1523,7 @@ impl Renderer for WgpuRenderer<'_> {
             DrawCommand::FillPath {
                 path,
                 transform,
-                color,
+                paint,
                 opa,
                 ..
             } if !matches!(
@@ -1514,7 +1531,7 @@ impl Renderer for WgpuRenderer<'_> {
                 TransformClass::Identity | TransformClass::Translate
             ) =>
             {
-                self.fill_path_transformed_inner(path, clip, transform, color, *opa);
+                self.fill_path_transformed_inner(path, clip, transform, paint, *opa);
                 return;
             }
             DrawCommand::StrokePath { .. } => {
@@ -1610,24 +1627,26 @@ impl Renderer for WgpuRenderer<'_> {
                 self.stroke_path_inner(&path, clip, *width, color, *opa);
             }
             DrawCommand::FillPath {
-                path, color, opa, ..
+                path, paint, opa, ..
             } => {
+                let color = paint_color(paint);
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.fill_path_inner(path, clip, color, *opa);
+                    self.fill_path_inner(path, clip, &color, *opa);
                 } else {
                     let translate = crate::types::Transform::translate(tx, ty);
-                    self.fill_path_transformed_inner(path, clip, &translate, color, *opa);
+                    self.fill_path_transformed_inner(path, clip, &translate, paint, *opa);
                 }
             }
             DrawCommand::StrokePath {
                 path,
                 width,
-                color,
+                paint,
                 opa,
                 ..
             } => {
+                let color = paint_color(paint);
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.stroke_path_inner(path, clip, *width, color, *opa);
+                    self.stroke_path_inner(path, clip, *width, &color, *opa);
                 } else {
                     unimplemented!("wgpu backend: StrokePath under translate not yet implemented");
                 }
@@ -1797,11 +1816,12 @@ impl Canvas for WgpuRenderer<'_> {
         &mut self,
         path: &Path,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         _fill_rule: crate::render::raster::FillRule,
     ) {
-        self.fill_path_inner(path, clip, color, opa);
+        let color = paint_color(paint);
+        self.fill_path_inner(path, clip, &color, opa);
     }
 
     fn stroke_path(
@@ -1809,13 +1829,14 @@ impl Canvas for WgpuRenderer<'_> {
         path: &Path,
         clip: &Rect,
         width: Fixed,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         _cap: crate::render::raster::LineCap,
         _join: crate::render::raster::LineJoin,
         _miter_limit: Fixed,
     ) {
-        self.stroke_path_inner(path, clip, width, color, opa);
+        let color = paint_color(paint);
+        self.stroke_path_inner(path, clip, width, &color, opa);
     }
 
     fn blit(

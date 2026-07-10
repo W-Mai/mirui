@@ -5,6 +5,9 @@ use crate::crc32;
 use crate::path::{Path, PathCmd};
 use crate::scene::header::VectorChunkHeader;
 use crate::scene::op::{CompositeMode, FillRule, LineCap, LineJoin, ResourceRef, Scene, SceneOp};
+use crate::scene::paint::{
+    GradientStop, GradientUnits, LinearGradient, Paint, RadialGradient, SpreadMode,
+};
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
 pub const TAG_EOF: u8 = 0x00;
@@ -249,6 +252,152 @@ fn write_color(out: &mut Vec<u8>, c: Color) {
     out.extend_from_slice(&[c.r, c.g, c.b, c.a]);
 }
 
+const PAINT_KIND_COLOR: u8 = 0;
+const PAINT_KIND_LINEAR: u8 = 1;
+const PAINT_KIND_RADIAL: u8 = 2;
+
+const SPREAD_PAD: u8 = 0;
+const SPREAD_REFLECT: u8 = 1;
+const SPREAD_REPEAT: u8 = 2;
+
+const UNITS_USER: u8 = 0;
+const UNITS_BBOX: u8 = 1;
+
+fn spread_to_u8(s: SpreadMode) -> u8 {
+    match s {
+        SpreadMode::Pad => SPREAD_PAD,
+        SpreadMode::Reflect => SPREAD_REFLECT,
+        SpreadMode::Repeat => SPREAD_REPEAT,
+    }
+}
+
+fn spread_from_u8(v: u8) -> Result<SpreadMode, CodecError> {
+    match v {
+        SPREAD_PAD => Ok(SpreadMode::Pad),
+        SPREAD_REFLECT => Ok(SpreadMode::Reflect),
+        SPREAD_REPEAT => Ok(SpreadMode::Repeat),
+        other => Err(CodecError::BadComposite(other)),
+    }
+}
+
+fn units_to_u8(u: GradientUnits) -> u8 {
+    match u {
+        GradientUnits::UserSpaceOnUse => UNITS_USER,
+        GradientUnits::ObjectBoundingBox => UNITS_BBOX,
+    }
+}
+
+fn units_from_u8(v: u8) -> Result<GradientUnits, CodecError> {
+    match v {
+        UNITS_USER => Ok(GradientUnits::UserSpaceOnUse),
+        UNITS_BBOX => Ok(GradientUnits::ObjectBoundingBox),
+        other => Err(CodecError::BadComposite(other)),
+    }
+}
+
+fn write_gradient_stops(out: &mut Vec<u8>, stops: &[GradientStop]) {
+    out.extend_from_slice(&(stops.len() as u32).to_le_bytes());
+    for s in stops {
+        write_fixed(out, s.offset);
+        write_color(out, s.color);
+    }
+}
+
+fn read_gradient_stops(r: &mut Reader) -> Result<Vec<GradientStop>, CodecError> {
+    let count = r.u32()? as usize;
+    let mut stops = Vec::with_capacity(count);
+    for _ in 0..count {
+        let offset = r.fixed()?;
+        let color = r.color()?;
+        stops.push(GradientStop { offset, color });
+    }
+    Ok(stops)
+}
+
+fn write_paint(out: &mut Vec<u8>, paint: &Paint) {
+    match paint {
+        Paint::Color(c) => {
+            out.push(PAINT_KIND_COLOR);
+            write_color(out, *c);
+        }
+        Paint::LinearGradient(g) => {
+            out.push(PAINT_KIND_LINEAR);
+            write_point(out, g.start);
+            write_point(out, g.end);
+            write_gradient_stops(out, &g.stops);
+            out.push(spread_to_u8(g.spread));
+            out.push(units_to_u8(g.units));
+            write_transform(out, g.transform);
+        }
+        Paint::RadialGradient(g) => {
+            out.push(PAINT_KIND_RADIAL);
+            write_point(out, g.center);
+            write_fixed(out, g.radius);
+            write_point(out, g.focal);
+            write_fixed(out, g.focal_radius);
+            write_gradient_stops(out, &g.stops);
+            out.push(spread_to_u8(g.spread));
+            out.push(units_to_u8(g.units));
+            write_transform(out, g.transform);
+        }
+    }
+}
+
+fn read_paint(r: &mut Reader) -> Result<Paint, CodecError> {
+    let kind = r.u8()?;
+    match kind {
+        PAINT_KIND_COLOR => Ok(Paint::Color(r.color()?)),
+        PAINT_KIND_LINEAR => {
+            let start = r.point()?;
+            let end = r.point()?;
+            let stops = read_gradient_stops(r)?;
+            let spread = spread_from_u8(r.u8()?)?;
+            let units = units_from_u8(r.u8()?)?;
+            let transform = read_transform_raw(r)?;
+            Ok(Paint::LinearGradient(LinearGradient {
+                start,
+                end,
+                stops,
+                spread,
+                units,
+                transform,
+            }))
+        }
+        PAINT_KIND_RADIAL => {
+            let center = r.point()?;
+            let radius = r.fixed()?;
+            let focal = r.point()?;
+            let focal_radius = r.fixed()?;
+            let stops = read_gradient_stops(r)?;
+            let spread = spread_from_u8(r.u8()?)?;
+            let units = units_from_u8(r.u8()?)?;
+            let transform = read_transform_raw(r)?;
+            Ok(Paint::RadialGradient(RadialGradient {
+                center,
+                radius,
+                focal,
+                focal_radius,
+                stops,
+                spread,
+                units,
+                transform,
+            }))
+        }
+        other => Err(CodecError::UnknownTag(other)),
+    }
+}
+
+fn read_transform_raw(r: &mut Reader) -> Result<Transform, CodecError> {
+    Ok(Transform {
+        m00: r.fixed()?,
+        m01: r.fixed()?,
+        tx: r.fixed()?,
+        m10: r.fixed()?,
+        m11: r.fixed()?,
+        ty: r.fixed()?,
+    })
+}
+
 fn write_transform(out: &mut Vec<u8>, t: Transform) {
     for f in [t.m00, t.m01, t.tx, t.m10, t.m11, t.ty] {
         write_fixed(out, f);
@@ -375,7 +524,7 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
         SceneOp::FillPath {
             path,
             transform,
-            color,
+            paint,
             opa,
             fill_rule,
         } => {
@@ -387,7 +536,7 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
             };
             out.push(bits);
             write_path(out, &path.cmds);
-            write_color(out, *color);
+            write_paint(out, paint);
             out.push(*opa);
             out.push(fill_rule_to_u8(*fill_rule));
             if bits & FIELD_TRANSFORM != 0 {
@@ -398,7 +547,7 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
         SceneOp::StrokePath {
             path,
             transform,
-            color,
+            paint,
             width,
             opa,
             line_cap,
@@ -413,7 +562,7 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
             };
             out.push(bits);
             write_path(out, &path.cmds);
-            write_color(out, *color);
+            write_paint(out, paint);
             write_fixed(out, *width);
             out.push(*opa);
             out.push(line_cap_to_u8(*line_cap));
@@ -615,14 +764,14 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
         TAG_FILL_PATH => {
             let bits = r.u8()?;
             let path = Path::from_cmds(read_path(r)?);
-            let color = r.color()?;
+            let paint = read_paint(r)?;
             let opa = r.u8()?;
             let fill_rule = fill_rule_from_u8(r.u8()?)?;
             let transform = read_transform_opt(r, bits)?;
             Ok(SceneOp::FillPath {
                 path,
                 transform,
-                color,
+                paint,
                 opa,
                 fill_rule,
             })
@@ -630,7 +779,7 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
         TAG_STROKE_PATH => {
             let bits = r.u8()?;
             let path = Path::from_cmds(read_path(r)?);
-            let color = r.color()?;
+            let paint = read_paint(r)?;
             let width = r.fixed()?;
             let opa = r.u8()?;
             let line_cap = line_cap_from_u8(r.u8()?)?;
@@ -640,7 +789,7 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
             Ok(SceneOp::StrokePath {
                 path,
                 transform,
-                color,
+                paint,
                 width,
                 opa,
                 line_cap,
@@ -1047,7 +1196,7 @@ mod tests {
                         PathCmd::Close,
                     ]),
                     transform: Transform::IDENTITY,
-                    color: red(),
+                    paint: Paint::Color(red()),
                     width: Fixed::from_int(3),
                     opa: 200,
                     line_cap: cap,

@@ -7,6 +7,7 @@ extern crate alloc;
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::draw::*;
 use crate::prelude::*;
+use crate::render::canvas::Paint;
 use crate::ui::dirty::Dirty;
 
 #[derive(Default)]
@@ -111,11 +112,12 @@ fn fill_wing(
         Color::rgb(50, 80, 170)
     };
     let opa = if inner { 210 } else { 240 };
+    let paint = Paint::Color(color.into());
     renderer.draw(
         &DrawCommand::FillPath {
             path: &path,
             transform,
-            color,
+            paint: &paint,
             opa,
             fill_rule: crate::render::raster::FillRule::EvenOdd,
         },

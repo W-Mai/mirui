@@ -1,6 +1,6 @@
 use crate::types::{Color, Fixed, Point, Rect};
 
-use super::canvas::Canvas;
+use super::canvas::{Canvas, Paint};
 use super::command::CompositeMode;
 use super::path::Path;
 use super::texture::Texture;
@@ -68,11 +68,11 @@ impl<'a, B: Canvas> Painter<'a, B> {
         &mut self,
         path: &Path,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         fill_rule: crate::render::raster::FillRule,
     ) {
-        self.backend.fill_path(path, clip, color, opa, fill_rule);
+        self.backend.fill_path(path, clip, paint, opa, fill_rule);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -81,14 +81,14 @@ impl<'a, B: Canvas> Painter<'a, B> {
         path: &Path,
         clip: &Rect,
         width: Fixed,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
         miter_limit: Fixed,
     ) {
         self.backend
-            .stroke_path(path, clip, width, color, opa, cap, join, miter_limit);
+            .stroke_path(path, clip, width, paint, opa, cap, join, miter_limit);
     }
 
     pub fn draw_line(

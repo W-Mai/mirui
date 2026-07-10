@@ -20,7 +20,7 @@ pub use backends::sw;
 pub use backends::web_canvas;
 #[cfg(feature = "wgpu")]
 pub use backends::wgpu;
-pub use canvas::Canvas;
+pub use canvas::{Canvas, Paint};
 pub use command::{CompositeMode, DrawCommand};
 pub use factory::{RendererFactory, SwRendererFactory};
 pub use renderer::Renderer;

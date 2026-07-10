@@ -195,6 +195,7 @@ pub fn pairwise_disjoint(rects: &[Rect]) -> bool {
 mod tests {
     use super::*;
     use crate::render::raster::FillRule;
+    use crate::render::scene::Paint;
     use crate::types::Color;
 
     fn rect_op(x: i32, y: i32, w: i32, h: i32) -> SceneOp {
@@ -296,12 +297,12 @@ mod tests {
         let op = SceneOp::FillPath {
             path: crate::render::path::Path::from_owned(path),
             transform: Transform::IDENTITY,
-            color: Color {
+            paint: Paint::Color(mirx::Color {
                 r: 0,
                 g: 0,
                 b: 0,
                 a: 255,
-            },
+            }),
             opa: 255,
             fill_rule: FillRule::EvenOdd,
         };

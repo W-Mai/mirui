@@ -273,7 +273,7 @@ pub fn replay_scene(
             SceneOp::FillPath {
                 path,
                 transform,
-                color,
+                paint,
                 opa,
                 fill_rule,
             } => {
@@ -281,7 +281,7 @@ pub fn replay_scene(
                     &DrawCommand::FillPath {
                         path,
                         transform: top.transform.compose(transform),
-                        color: *color,
+                        paint,
                         opa: mul_alpha(*opa, top.alpha),
                         fill_rule: *fill_rule,
                     },
@@ -291,7 +291,7 @@ pub fn replay_scene(
             SceneOp::StrokePath {
                 path,
                 transform,
-                color,
+                paint,
                 width,
                 opa,
                 line_cap,
@@ -302,7 +302,7 @@ pub fn replay_scene(
                     &DrawCommand::StrokePath {
                         path,
                         transform: top.transform.compose(transform),
-                        color: *color,
+                        paint,
                         width: *width,
                         opa: mul_alpha(*opa, top.alpha),
                         line_cap: *line_cap,
@@ -325,6 +325,7 @@ pub fn replay_scene(
 mod tests {
     use super::*;
     use crate::render::command::DrawCommand;
+    use crate::render::scene::Paint;
     use crate::types::{Color, Fixed, Point, Rect};
     use alloc::vec;
 
@@ -453,12 +454,12 @@ mod tests {
         let ops = vec![SceneOp::FillPath {
             path: crate::render::path::Path::new(),
             transform: Transform::IDENTITY,
-            color: Color {
+            paint: Paint::Color(mirx::Color {
                 r: 0,
                 g: 0,
                 b: 0,
                 a: 0,
-            },
+            }),
             opa: 0,
             fill_rule: crate::render::raster::FillRule::NonZero,
         }];

@@ -6,19 +6,21 @@ use super::font::Font;
 use super::path::Path;
 use super::texture::Texture;
 
+pub use mirx::{LineCap, LineJoin, Paint};
+
 /// Rasterization interface. All coordinate parameters (`area`, `clip`,
 /// `pos`, path points, widths, radii, `dst`, `dst_size`) are in
 /// **logical pixels**; implementations convert to physical internally
 /// (typically by holding a `Viewport` field).
 pub trait Canvas {
-    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8, fill_rule: FillRule);
+    fn fill_path(&mut self, path: &Path, clip: &Rect, paint: &Paint, opa: u8, fill_rule: FillRule);
     #[allow(clippy::too_many_arguments)]
     fn stroke_path(
         &mut self,
         path: &Path,
         clip: &Rect,
         width: Fixed,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
@@ -50,7 +52,8 @@ pub trait Canvas {
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         let path = Path::rounded_rect(area.x, area.y, area.w, area.h, radius);
-        self.fill_path(&path, clip, color, opa, FillRule::EvenOdd);
+        let paint = Paint::Color((*color).into());
+        self.fill_path(&path, clip, &paint, opa, FillRule::EvenOdd);
     }
 
     fn stroke_rect(
@@ -69,11 +72,12 @@ pub trait Canvas {
             area.h - width,
             (radius - width / 2).max(Fixed::ZERO),
         );
+        let paint = Paint::Color((*color).into());
         self.stroke_path(
             &path,
             clip,
             width,
-            color,
+            &paint,
             opa,
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,
@@ -92,11 +96,12 @@ pub trait Canvas {
     ) {
         let mut path = Path::new();
         path.move_to(p1).line_to(p2);
+        let paint = Paint::Color((*color).into());
         self.stroke_path(
             &path,
             clip,
             width,
-            color,
+            &paint,
             opa,
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,
@@ -120,11 +125,12 @@ pub trait Canvas {
         opa: u8,
     ) {
         let path = Path::arc(center, radius, start_angle, end_angle);
+        let paint = Paint::Color((*color).into());
         self.stroke_path(
             &path,
             clip,
             width,
-            color,
+            &paint,
             opa,
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,

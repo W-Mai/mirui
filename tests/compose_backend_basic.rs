@@ -6,7 +6,7 @@
 
 use std::cell::Cell;
 
-use mirui::render::canvas::Canvas;
+use mirui::render::canvas::{Canvas, Paint};
 use mirui::render::command::CompositeMode;
 use mirui::render::path::Path;
 use mirui::render::texture::{ColorFormat, Texture};
@@ -44,7 +44,7 @@ impl Canvas for Dummy {
         &mut self,
         _: &Path,
         _: &Rect,
-        _: &Color,
+        _: &Paint,
         _: u8,
         _: ::mirui::render::raster::FillRule,
     ) {
@@ -55,7 +55,7 @@ impl Canvas for Dummy {
         _: &Path,
         _: &Rect,
         _: Fixed,
-        _: &Color,
+        _: &Paint,
         _: u8,
         _: ::mirui::render::raster::LineCap,
         _: ::mirui::render::raster::LineJoin,
@@ -157,11 +157,12 @@ fn default_methods_route_to_sw() {
     let path = Path::new();
     let rect = zero_rect();
     let color = Color::rgb(0, 0, 0);
+    let paint = Paint::Color(color.into());
 
     h.fill_path(
         &path,
         &rect,
-        &color,
+        &paint,
         255,
         ::mirui::render::raster::FillRule::EvenOdd,
     );
@@ -169,7 +170,7 @@ fn default_methods_route_to_sw() {
         &path,
         &rect,
         Fixed::ONE,
-        &color,
+        &paint,
         255,
         ::mirui::render::raster::LineCap::Butt,
         ::mirui::render::raster::LineJoin::Miter,
@@ -269,7 +270,7 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         &mut self,
         _: &Path,
         _: &Rect,
-        _: &Color,
+        _: &Paint,
         _: u8,
         _: ::mirui::render::raster::FillRule,
     ) {
@@ -286,7 +287,7 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         _: &Path,
         _: &Rect,
         _: Fixed,
-        _: &Color,
+        _: &Paint,
         _: u8,
         _: ::mirui::render::raster::LineCap,
         _: ::mirui::render::raster::LineJoin,
@@ -325,7 +326,7 @@ impl Canvas for PlainDummy {
         &mut self,
         _: &Path,
         _: &Rect,
-        _: &Color,
+        _: &Paint,
         _: u8,
         _: ::mirui::render::raster::FillRule,
     ) {
@@ -335,7 +336,7 @@ impl Canvas for PlainDummy {
         _: &Path,
         _: &Rect,
         _: Fixed,
-        _: &Color,
+        _: &Paint,
         _: u8,
         _: ::mirui::render::raster::LineCap,
         _: ::mirui::render::raster::LineJoin,
@@ -425,10 +426,11 @@ fn hybrid_accepts_backend_with_lifetime_parameter() {
 
     let rect = Rect::new(0, 0, 4, 4);
     let path = Path::new();
+    let paint = Paint::Color(Color::rgb(0, 0, 0).into());
     h.fill_path(
         &path,
         &rect,
-        &Color::rgb(0, 0, 0),
+        &paint,
         255,
         ::mirui::render::raster::FillRule::EvenOdd,
     );

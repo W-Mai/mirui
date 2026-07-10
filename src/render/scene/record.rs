@@ -1,6 +1,6 @@
 //! Record a live `DrawCommand` stream into owned `SceneOp`s.
 
-use super::{ResourceRef, SceneOp};
+use super::{Paint, ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
 use crate::render::path::Path;
@@ -126,20 +126,20 @@ pub fn record_command(
         DrawCommand::FillPath {
             path,
             transform,
-            color,
+            paint,
             opa,
             fill_rule,
         } => SceneOp::FillPath {
             path: Path::clone(path),
             transform: *transform,
-            color: *color,
+            paint: Paint::clone(paint),
             opa: *opa,
             fill_rule: *fill_rule,
         },
         DrawCommand::StrokePath {
             path,
             transform,
-            color,
+            paint,
             width,
             opa,
             line_cap,
@@ -148,7 +148,7 @@ pub fn record_command(
         } => SceneOp::StrokePath {
             path: Path::clone(path),
             transform: *transform,
-            color: *color,
+            paint: Paint::clone(paint),
             width: *width,
             opa: *opa,
             line_cap: *line_cap,
@@ -198,6 +198,7 @@ mod tests {
             p.cmds.to_mut().push(PathCmd::Close);
             p
         };
+        let path_paint = Paint::Color(red().into());
         let commands = [
             DrawCommand::Fill {
                 area: Rect {
@@ -226,7 +227,7 @@ mod tests {
             DrawCommand::FillPath {
                 path: &path,
                 transform: Transform::IDENTITY,
-                color: red(),
+                paint: &path_paint,
                 opa: 255,
                 fill_rule: crate::render::raster::FillRule::EvenOdd,
             },

@@ -2,6 +2,7 @@ use crate::ecs::{Entity, World};
 use crate::input::feedback::{
     InputFeedback, InputFeedbackInput, OverlayRotary, write_overlay_layout,
 };
+use crate::render::canvas::Paint;
 use crate::render::command::DrawCommand;
 use crate::render::membrane::{MagneticMembrane, MagneticMembraneState};
 use crate::render::renderer::Renderer;
@@ -178,11 +179,12 @@ fn rotary_render(
         mid_y,
         rotary_membrane_state(&feedback.rotary, &membrane),
     );
+    let paint = Paint::Color(PRIMARY.into());
     renderer.draw(
         &DrawCommand::FillPath {
             path: &path,
             transform: ctx.transform,
-            color: PRIMARY,
+            paint: &paint,
             opa,
             fill_rule: crate::render::raster::FillRule::EvenOdd,
         },
