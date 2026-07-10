@@ -39,8 +39,14 @@ pub struct SwRenderer<'a> {
     pub(super) stroke_normals: alloc::vec::Vec<crate::types::Point>,
     pub(super) stroke_rail: alloc::vec::Vec<crate::types::Point>,
     pub(super) stroke_arc: alloc::vec::Vec<crate::types::Point>,
+    pub(super) clip_stack: alloc::vec::Vec<ClipMask>,
+    pub(super) clip_mask_buf: alloc::vec::Vec<u8>,
     #[cfg(feature = "perf")]
     pub perf: Option<PerfCtx>,
+}
+
+pub(super) struct ClipMask {
+    pub alpha: alloc::vec::Vec<u8>,
 }
 
 impl<'a> SwRenderer<'a> {
@@ -58,6 +64,8 @@ impl<'a> SwRenderer<'a> {
             stroke_normals: alloc::vec::Vec::new(),
             stroke_rail: alloc::vec::Vec::new(),
             stroke_arc: alloc::vec::Vec::new(),
+            clip_stack: alloc::vec::Vec::new(),
+            clip_mask_buf: alloc::vec::Vec::new(),
             #[cfg(feature = "perf")]
             perf: None,
         }
@@ -87,6 +95,14 @@ impl<'a> SwRenderer<'a> {
         let phys_tf = vp.compose(tf);
         let phys_clip = self.viewport.rect_to_physical(*clip);
         match cmd {
+            DrawCommand::PushClip {
+                path, fill_rule, ..
+            } => {
+                self.push_clip_inner(path, &phys_tf, *fill_rule);
+            }
+            DrawCommand::PopClip => {
+                self.pop_clip();
+            }
             DrawCommand::Fill {
                 area, color, opa, ..
             } => {
@@ -193,6 +209,20 @@ impl<'a> Canvas for SwRenderer<'a> {
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         self.fill_rect_inner(area, clip, color, radius, opa);
+    }
+
+    fn push_clip(
+        &mut self,
+        path: &Path,
+        transform: &Transform,
+        fill_rule: crate::render::raster::FillRule,
+    ) {
+        let phys_tf = self.viewport.as_transform().compose(transform);
+        self.push_clip_inner(path, &phys_tf, fill_rule);
+    }
+
+    fn pop_clip(&mut self) {
+        self.clip_stack.pop();
     }
 
     fn stroke_rect(
@@ -560,6 +590,19 @@ impl Renderer for SwRenderer<'_> {
             _ => unreachable!(),
         };
         match cmd {
+            DrawCommand::PushClip {
+                path,
+                transform,
+                fill_rule,
+            } => {
+                crate::trace_span!("sw.push_clip");
+                let phys_tf = self.viewport.as_transform().compose(transform);
+                self.push_clip_inner(path, &phys_tf, *fill_rule);
+            }
+            DrawCommand::PopClip => {
+                crate::trace_span!("sw.pop_clip");
+                self.pop_clip();
+            }
             DrawCommand::Fill {
                 area,
                 color,

@@ -1,4 +1,4 @@
-use crate::types::{Color, Fixed, Point, Rect};
+use crate::types::{Color, Fixed, Point, Rect, Transform};
 
 use super::canvas::{Canvas, Paint};
 use super::command::CompositeMode;
@@ -73,6 +73,19 @@ impl<'a, B: Canvas> Painter<'a, B> {
         fill_rule: crate::render::raster::FillRule,
     ) {
         self.backend.fill_path(path, clip, paint, opa, fill_rule);
+    }
+
+    pub fn push_clip(
+        &mut self,
+        path: &Path,
+        transform: &Transform,
+        fill_rule: crate::render::raster::FillRule,
+    ) {
+        self.backend.push_clip(path, transform, fill_rule);
+    }
+
+    pub fn pop_clip(&mut self) {
+        self.backend.pop_clip();
     }
 
     #[allow(clippy::too_many_arguments)]

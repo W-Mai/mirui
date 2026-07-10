@@ -25,10 +25,11 @@ pub use mirx::{
 ///
 /// `Index` points into the VECTOR chunk's resource table (embedded mode);
 /// `Token` resolves through the runtime `ResourceManager` (token mode).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ResourceRef {
     Token(Cow<'static, str>),
     Index(u32),
+    Inline(Path),
 }
 
 /// One drawing operation. Owned (deser / reactive / recorded) or borrowed
@@ -49,6 +50,12 @@ pub enum SceneOp {
         disjoint_hint: bool,
     },
     GroupEnd,
+    PushClip {
+        path: Path,
+        transform: Transform,
+        fill_rule: FillRule,
+    },
+    PopClip,
     FillPath {
         path: Path,
         transform: Transform,

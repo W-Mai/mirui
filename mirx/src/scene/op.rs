@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 pub enum ResourceRef {
     Token(String),
     Index(u32),
+    Inline(Path),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -52,6 +53,12 @@ pub enum SceneOp {
         disjoint_hint: bool,
     },
     GroupEnd,
+    PushClip {
+        path: Path,
+        transform: Transform,
+        fill_rule: FillRule,
+    },
+    PopClip,
     FillPath {
         path: Path,
         transform: Transform,

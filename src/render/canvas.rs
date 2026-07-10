@@ -1,6 +1,6 @@
 use crate::render::command::CompositeMode;
 use crate::render::raster::FillRule;
-use crate::types::{Color, Fixed, Point, Rect};
+use crate::types::{Color, Fixed, Point, Rect, Transform};
 
 use super::font::Font;
 use super::path::Path;
@@ -49,6 +49,10 @@ pub trait Canvas {
         opa: u8,
     );
     fn flush(&mut self);
+
+    fn push_clip(&mut self, _path: &Path, _transform: &Transform, _fill_rule: FillRule) {}
+
+    fn pop_clip(&mut self) {}
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         let path = Path::rounded_rect(area.x, area.y, area.w, area.h, radius);

@@ -30,6 +30,7 @@ impl SceneResolver for SliceResolver<'_> {
                 .iter()
                 .find(|(n, _)| *n == name.as_ref())
                 .map(|(_, f)| *f),
+            ResourceRef::Inline(_) => None,
         }
     }
 
@@ -41,6 +42,7 @@ impl SceneResolver for SliceResolver<'_> {
                 .iter()
                 .find(|(n, _)| *n == name.as_ref())
                 .map(|(_, t)| *t),
+            ResourceRef::Inline(_) => None,
         }
     }
 }

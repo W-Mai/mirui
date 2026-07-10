@@ -38,6 +38,12 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
     ("flush", "", false),
     (
+        "push_clip",
+        "path: &::mirui::render::path::Path, transform: &::mirui::types::Transform, fill_rule: ::mirui::render::raster::FillRule",
+        true,
+    ),
+    ("pop_clip", "", true),
+    (
         "fill_rect",
         "area: &::mirui::types::Rect, clip: &::mirui::types::Rect, color: &::mirui::types::Color, radius: ::mirui::types::Fixed, opa: u8",
         true,
@@ -283,7 +289,7 @@ impl ComposeInput {
                         } => {
                             self.fill_path(path, clip, paint, *opa, ::mirui::render::raster::FillRule::EvenOdd);
                         }
-                        ::mirui::render::DrawCommand::StrokePath {
+                         ::mirui::render::DrawCommand::StrokePath {
                             path,
                             width,
                             paint,
@@ -294,6 +300,12 @@ impl ComposeInput {
                             ..
                         } => {
                             self.stroke_path(path, clip, *width, paint, *opa, *line_cap, *line_join, *miter_limit);
+                        }
+                        ::mirui::render::DrawCommand::PushClip { path, transform, fill_rule } => {
+                            self.push_clip(path, transform, *fill_rule);
+                        }
+                        ::mirui::render::DrawCommand::PopClip => {
+                            self.pop_clip();
                         }
                     }
                 }

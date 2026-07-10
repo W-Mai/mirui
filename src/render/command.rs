@@ -213,6 +213,12 @@ pub enum DrawCommand<'a> {
         line_join: LineJoin,
         miter_limit: Fixed,
     },
+    PushClip {
+        path: &'a Path,
+        transform: Transform,
+        fill_rule: FillRule,
+    },
+    PopClip,
 }
 
 impl DrawCommand<'_> {
@@ -227,6 +233,7 @@ impl DrawCommand<'_> {
             | Self::Blit { transform, .. }
             | Self::FillPath { transform, .. }
             | Self::StrokePath { transform, .. } => transform,
+            Self::PushClip { .. } | Self::PopClip => Transform::IDENTITY,
         }
     }
 }

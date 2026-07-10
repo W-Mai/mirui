@@ -21,6 +21,8 @@ pub const TAG_LINE: u8 = 0x07;
 pub const TAG_ARC: u8 = 0x08;
 pub const TAG_BLIT: u8 = 0x09;
 pub const TAG_STROKE_PATH: u8 = 0x0A;
+pub const TAG_PUSH_CLIP: u8 = 0x0B;
+pub const TAG_POP_CLIP: u8 = 0x0C;
 
 const FIELD_TRANSFORM: u8 = 1 << 0;
 const FIELD_QUAD: u8 = 1 << 1;
@@ -37,6 +39,7 @@ const SLOT_DISJOINT_HINT: u32 = 1 << 5;
 
 const RES_KIND_INDEX: u8 = 0;
 const RES_KIND_TOKEN: u8 = 1;
+const RES_KIND_INLINE: u8 = 2;
 
 const FILL_RULE_EVEN_ODD: u8 = 0;
 const FILL_RULE_NON_ZERO: u8 = 1;
@@ -212,6 +215,10 @@ impl<'a> Reader<'a> {
                 let bytes = self.take(len)?;
                 let s = core::str::from_utf8(bytes).map_err(|_| CodecError::BadUtf8)?;
                 Ok(ResourceRef::Token(String::from(s)))
+            }
+            RES_KIND_INLINE => {
+                let cmds = read_path(self)?;
+                Ok(ResourceRef::Inline(Path::from_cmds(cmds)))
             }
             other => Err(CodecError::BadResourceKind(other)),
         }
@@ -421,6 +428,10 @@ fn write_resource_ref(out: &mut Vec<u8>, r: &ResourceRef) {
             write_varuint(out, s.len() as u32);
             out.extend_from_slice(s.as_bytes());
         }
+        ResourceRef::Inline(p) => {
+            out.push(RES_KIND_INLINE);
+            write_path(out, &p.cmds);
+        }
     }
 }
 
@@ -571,6 +582,29 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
             if bits & FIELD_TRANSFORM != 0 {
                 write_transform(out, *transform);
             }
+            Ok(())
+        }
+        SceneOp::PushClip {
+            path,
+            transform,
+            fill_rule,
+        } => {
+            out.push(TAG_PUSH_CLIP);
+            let bits = if transform.is_identity() {
+                0
+            } else {
+                FIELD_TRANSFORM
+            };
+            out.push(bits);
+            write_path(out, &path.cmds);
+            out.push(fill_rule_to_u8(*fill_rule));
+            if bits & FIELD_TRANSFORM != 0 {
+                write_transform(out, *transform);
+            }
+            Ok(())
+        }
+        SceneOp::PopClip => {
+            out.push(TAG_POP_CLIP);
             Ok(())
         }
         SceneOp::FillRect {
@@ -797,6 +831,18 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
                 miter_limit,
             })
         }
+        TAG_PUSH_CLIP => {
+            let bits = r.u8()?;
+            let path = Path::from_cmds(read_path(r)?);
+            let fill_rule = fill_rule_from_u8(r.u8()?)?;
+            let transform = read_transform_opt(r, bits)?;
+            Ok(SceneOp::PushClip {
+                path,
+                transform,
+                fill_rule,
+            })
+        }
+        TAG_POP_CLIP => Ok(SceneOp::PopClip),
         TAG_FILL_RECT => {
             let bits = r.u8()?;
             let area = r.rect()?;

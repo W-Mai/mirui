@@ -16,7 +16,10 @@ use crate::types::{Fixed, Point, Rect, Transform};
 /// [`direct_children_bboxes`].
 pub fn op_bbox(op: &SceneOp) -> Option<Rect> {
     match op {
-        SceneOp::GroupBegin { .. } | SceneOp::GroupEnd => None,
+        SceneOp::GroupBegin { .. }
+        | SceneOp::GroupEnd
+        | SceneOp::PushClip { .. }
+        | SceneOp::PopClip => None,
         SceneOp::FillRect {
             area,
             transform,

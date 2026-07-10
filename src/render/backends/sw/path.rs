@@ -21,6 +21,55 @@ fn paint_color(paint: &Paint) -> Color {
 }
 
 impl SwRenderer<'_> {
+    pub(super) fn push_clip_inner(
+        &mut self,
+        path: &Path,
+        phys_tf: &Transform,
+        fill_rule: FillRule,
+    ) {
+        let w = self.target.width as usize;
+        let h = self.target.height as usize;
+        self.clip_mask_buf.clear();
+        self.clip_mask_buf.resize(w * h, 0);
+
+        raster::flatten_into(&path.cmds, Some(phys_tf), &mut self.flatten_buf);
+        if !self.flatten_buf.is_empty() {
+            let screen = Rect::new(0, 0, self.target.width, self.target.height);
+            if let Some(bbox) = path::bbox_of_cmds_transformed(&path.cmds, Some(phys_tf)) {
+                if let Some(draw_area) = bbox.intersect(&screen) {
+                    let (px_x0, px_y0, px_x1, py_y1) = draw_area.pixel_bounds();
+                    let segs = &self.flatten_buf;
+                    let acc = &mut self.scanline_acc;
+                    let crossings = &mut self.scanline_crossings;
+                    let mask = &mut self.clip_mask_buf;
+                    raster::scanline_fill(
+                        segs,
+                        px_x0,
+                        px_y0,
+                        px_x1,
+                        py_y1,
+                        fill_rule,
+                        acc,
+                        crossings,
+                        |px, py, cov| {
+                            let idx = py as usize * w + px as usize;
+                            mask[idx] = cov.map01(255).to_int() as u8;
+                        },
+                    );
+                }
+            }
+        }
+
+        if let Some(prev) = self.clip_stack.last() {
+            for (dst, prev) in self.clip_mask_buf.iter_mut().zip(prev.alpha.iter()) {
+                *dst = (*dst).min(*prev);
+            }
+        }
+
+        let alpha = core::mem::take(&mut self.clip_mask_buf);
+        self.clip_stack.push(super::ClipMask { alpha });
+    }
+
     pub(super) fn fill_path_inner(
         &mut self,
         path: &Path,
@@ -74,6 +123,8 @@ impl SwRenderer<'_> {
         let combined_alpha = opa_norm * color_a_norm;
 
         let segs = &self.flatten_buf;
+        let target_w = self.target.width as usize;
+        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
         let target = &mut self.target;
         let acc = &mut self.scanline_acc;
         let crossings = &mut self.scanline_crossings;
@@ -87,7 +138,11 @@ impl SwRenderer<'_> {
             acc,
             crossings,
             |px, py, cov| {
-                let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+                let base_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+                let clip_alpha = clip_mask
+                    .map(|m| m[py as usize * target_w + px as usize])
+                    .unwrap_or(255);
+                let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
                     target.blend_pixel_int(px, py, &color, final_alpha);
                 }
@@ -207,6 +262,8 @@ impl SwRenderer<'_> {
         let combined_alpha = opa_norm * color_a_norm;
 
         let segs = &self.flatten_buf;
+        let target_w = self.target.width as usize;
+        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
         let target = &mut self.target;
         let acc = &mut self.scanline_acc;
         let crossings = &mut self.scanline_crossings;
@@ -220,7 +277,11 @@ impl SwRenderer<'_> {
             acc,
             crossings,
             |px, py, cov| {
-                let final_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+                let base_alpha = (cov * combined_alpha).map01(255).to_int() as u8;
+                let clip_alpha = clip_mask
+                    .map(|m| m[py as usize * target_w + px as usize])
+                    .unwrap_or(255);
+                let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
                     target.blend_pixel_int(px, py, color, final_alpha);
                 }

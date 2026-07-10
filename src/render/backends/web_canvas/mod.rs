@@ -131,7 +131,7 @@ impl WebCanvasRenderer<'_> {
     /// in logical pixels, so it stays anchored to the screen even when
     /// the caller already pushed a widget transform onto `ctx`.
     /// `pop_clip` undoes both the clip and the transform restoration.
-    fn push_clip(&self, clip: &Rect) {
+    fn push_rect_clip(&self, clip: &Rect) {
         let ctx = self.ctx();
         let saved = ctx
             .get_transform()
@@ -159,7 +159,7 @@ impl WebCanvasRenderer<'_> {
         .expect("setTransform(restore)");
     }
 
-    fn pop_clip(&self) {
+    fn pop_rect_clip(&self) {
         self.ctx().restore();
     }
 
@@ -188,7 +188,7 @@ impl WebCanvasRenderer<'_> {
         radius: Fixed,
         opa: u8,
     ) {
-        self.push_clip(clip);
+        self.push_rect_clip(clip);
         let color = paint_color(paint);
         self.set_fill(&color, opa);
         if let Some(m) = quad_to_affine(q, area) {
@@ -210,7 +210,7 @@ impl WebCanvasRenderer<'_> {
             self.build_path(&Path::rounded_quad(q, radius));
             self.ctx().fill();
         }
-        self.pop_clip();
+        self.pop_rect_clip();
     }
 
     fn stroke_quad_inner(
@@ -223,7 +223,7 @@ impl WebCanvasRenderer<'_> {
         radius: Fixed,
         opa: u8,
     ) {
-        self.push_clip(clip);
+        self.push_rect_clip(clip);
         let color = paint_color(paint);
         self.set_stroke(&color, width, opa);
         if let Some(m) = quad_to_affine(q, area) {
@@ -245,7 +245,7 @@ impl WebCanvasRenderer<'_> {
             self.build_path(&Path::rounded_quad(q, radius));
             self.ctx().stroke();
         }
-        self.pop_clip();
+        self.pop_rect_clip();
     }
 
     fn fill_axis_aligned(&self, area: &Rect, radius: Fixed) {
@@ -310,7 +310,7 @@ impl WebCanvasRenderer<'_> {
             return;
         }
 
-        self.push_clip(clip);
+        self.push_rect_clip(clip);
         let ctx = self.ctx();
         let prev_alpha = ctx.global_alpha();
         ctx.set_global_alpha(opa as f64 / 255.0);
@@ -374,7 +374,7 @@ impl WebCanvasRenderer<'_> {
             }
         }
         ctx.set_global_alpha(prev_alpha);
-        self.pop_clip();
+        self.pop_rect_clip();
     }
 
     /// Walk a `Path` and translate it into Canvas 2D path operations.
@@ -526,6 +526,7 @@ impl Renderer for WebCanvasRenderer<'_> {
         }
 
         match cmd {
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip => {}
             DrawCommand::Fill {
                 area,
                 quad: Some(q),
@@ -673,7 +674,7 @@ impl Renderer for WebCanvasRenderer<'_> {
 
 impl Canvas for WebCanvasRenderer<'_> {
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
-        self.push_clip(clip);
+        self.push_rect_clip(clip);
         self.set_fill(color, opa);
         let x = area.x.to_f32() as f64;
         let y = area.y.to_f32() as f64;
@@ -695,7 +696,7 @@ impl Canvas for WebCanvasRenderer<'_> {
             }
             ctx.fill();
         }
-        self.pop_clip();
+        self.pop_rect_clip();
     }
 
     fn fill_path(
@@ -707,11 +708,11 @@ impl Canvas for WebCanvasRenderer<'_> {
         _fill_rule: crate::render::raster::FillRule,
     ) {
         let color = paint_color(paint);
-        self.push_clip(clip);
+        self.push_rect_clip(clip);
         self.set_fill(&color, opa);
         self.build_path(path);
         self.ctx().fill();
-        self.pop_clip();
+        self.pop_rect_clip();
     }
 
     fn stroke_path(
@@ -726,11 +727,11 @@ impl Canvas for WebCanvasRenderer<'_> {
         _miter_limit: Fixed,
     ) {
         let color = paint_color(paint);
-        self.push_clip(clip);
+        self.push_rect_clip(clip);
         self.set_stroke(&color, width, opa);
         self.build_path(path);
         self.ctx().stroke();
-        self.pop_clip();
+        self.pop_rect_clip();
     }
 
     fn blit(
@@ -775,7 +776,7 @@ impl Canvas for WebCanvasRenderer<'_> {
             &pooled_handle.canvas
         };
 
-        self.push_clip(clip);
+        self.push_rect_clip(clip);
         let ctx = self.ctx();
         let prev_alpha = ctx.global_alpha();
         let prev_composite = ctx.global_composite_operation().unwrap_or_default();
@@ -854,7 +855,7 @@ impl Canvas for WebCanvasRenderer<'_> {
 
         ctx.set_global_alpha(prev_alpha);
         let _ = ctx.set_global_composite_operation(&prev_composite);
-        self.pop_clip();
+        self.pop_rect_clip();
     }
 
     fn clear(&mut self, area: &Rect, color: &Color) {
@@ -947,7 +948,7 @@ impl Canvas for WebCanvasRenderer<'_> {
             Ok(h) => h,
             Err(_) => return,
         };
-        self.push_clip(clip);
+        self.push_rect_clip(clip);
         let ctx = self.ctx();
         let _ = ctx.draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
             &handle.get().canvas,
@@ -960,7 +961,7 @@ impl Canvas for WebCanvasRenderer<'_> {
             tw as f64,
             th as f64,
         );
-        self.pop_clip();
+        self.pop_rect_clip();
     }
 
     fn flush(&mut self) {

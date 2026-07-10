@@ -166,6 +166,7 @@ impl From<mirx::ResourceRef> for ResourceRef {
         match r {
             mirx::ResourceRef::Token(s) => Self::Token(Cow::Owned(s)),
             mirx::ResourceRef::Index(i) => Self::Index(i),
+            mirx::ResourceRef::Inline(p) => Self::Inline(p.into()),
         }
     }
 }
@@ -175,6 +176,7 @@ impl From<ResourceRef> for mirx::ResourceRef {
         match r {
             ResourceRef::Token(s) => Self::Token(s.into_owned()),
             ResourceRef::Index(i) => Self::Index(i),
+            ResourceRef::Inline(p) => Self::Inline(p.into()),
         }
     }
 }
@@ -244,6 +246,16 @@ impl From<mirx::SceneOp> for SceneOp {
                 disjoint_hint,
             },
             mirx::SceneOp::GroupEnd => Self::GroupEnd,
+            mirx::SceneOp::PushClip {
+                path,
+                transform,
+                fill_rule,
+            } => Self::PushClip {
+                path: path.into(),
+                transform: transform.into(),
+                fill_rule: fill_rule.into(),
+            },
+            mirx::SceneOp::PopClip => Self::PopClip,
             mirx::SceneOp::FillPath {
                 path,
                 transform,
@@ -399,6 +411,16 @@ impl From<SceneOp> for mirx::SceneOp {
                 disjoint_hint,
             },
             SceneOp::GroupEnd => Self::GroupEnd,
+            SceneOp::PushClip {
+                path,
+                transform,
+                fill_rule,
+            } => Self::PushClip {
+                path: path.into(),
+                transform: transform.into(),
+                fill_rule: fill_rule.into(),
+            },
+            SceneOp::PopClip => Self::PopClip,
             SceneOp::FillPath {
                 path,
                 transform,

@@ -155,6 +155,16 @@ pub fn record_command(
             line_join: *line_join,
             miter_limit: *miter_limit,
         },
+        DrawCommand::PushClip {
+            path,
+            transform,
+            fill_rule,
+        } => SceneOp::PushClip {
+            path: Path::clone(path),
+            transform: *transform,
+            fill_rule: *fill_rule,
+        },
+        DrawCommand::PopClip => SceneOp::PopClip,
     })
 }
 

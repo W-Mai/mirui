@@ -15,6 +15,7 @@ pub enum ReplayError {
     UnbalancedGroup,
     UnresolvedFont,
     UnresolvedTexture,
+    UnresolvedClip,
     UnsupportedFillRule,
     /// Mid-range group opacity over overlapping children with no
     /// `disjoint_hint`. Flat alpha-multiply would seam; offscreen
@@ -27,6 +28,7 @@ pub enum ReplayError {
 struct GroupFrame {
     transform: Transform,
     alpha: u8,
+    has_clip: bool,
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -69,6 +71,7 @@ pub fn replay_scene(
     let mut stack: Vec<GroupFrame> = alloc::vec![GroupFrame {
         transform: Transform::IDENTITY,
         alpha: 255,
+        has_clip: false,
     }];
     let mut skip_until_depth: Option<usize> = None;
 
@@ -101,6 +104,7 @@ pub fn replay_scene(
             SceneOp::GroupBegin {
                 transform,
                 opacity,
+                clip: group_clip,
                 disjoint_hint,
                 ..
             } => {
@@ -116,6 +120,7 @@ pub fn replay_scene(
                         stack.push(GroupFrame {
                             transform: composed,
                             alpha: 0,
+                            has_clip: false,
                         });
                         i += 1;
                         continue;
@@ -133,16 +138,52 @@ pub fn replay_scene(
                         mul_alpha(top.alpha, *n)
                     }
                 };
+                let has_clip = if let Some(ResourceRef::Inline(path)) = group_clip {
+                    renderer.draw(
+                        &DrawCommand::PushClip {
+                            path,
+                            transform: composed,
+                            fill_rule: crate::render::raster::FillRule::EvenOdd,
+                        },
+                        clip,
+                    );
+                    true
+                } else if group_clip.is_some() {
+                    return Err(ReplayError::UnresolvedClip);
+                } else {
+                    false
+                };
                 stack.push(GroupFrame {
                     transform: composed,
                     alpha: next_alpha,
+                    has_clip,
                 });
             }
             SceneOp::GroupEnd => {
                 if stack.len() <= 1 {
                     return Err(ReplayError::UnbalancedGroup);
                 }
-                stack.pop();
+                let frame = stack.pop().unwrap();
+                if frame.has_clip {
+                    renderer.draw(&DrawCommand::PopClip, clip);
+                }
+            }
+            SceneOp::PushClip {
+                path,
+                transform,
+                fill_rule,
+            } => {
+                renderer.draw(
+                    &DrawCommand::PushClip {
+                        path,
+                        transform: top.transform.compose(transform),
+                        fill_rule: *fill_rule,
+                    },
+                    clip,
+                );
+            }
+            SceneOp::PopClip => {
+                renderer.draw(&DrawCommand::PopClip, clip);
             }
             SceneOp::FillRect {
                 area,
