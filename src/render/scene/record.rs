@@ -128,12 +128,13 @@ pub fn record_command(
             transform,
             color,
             opa,
+            fill_rule,
         } => SceneOp::FillPath {
             path: Path::clone(path),
             transform: *transform,
             color: *color,
             opa: *opa,
-            fill_rule: crate::render::raster::FillRule::EvenOdd,
+            fill_rule: *fill_rule,
         },
         DrawCommand::StrokePath {
             path,
@@ -227,6 +228,7 @@ mod tests {
                 transform: Transform::IDENTITY,
                 color: red(),
                 opa: 255,
+                fill_rule: crate::render::raster::FillRule::EvenOdd,
             },
         ];
 

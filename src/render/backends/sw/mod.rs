@@ -125,9 +125,13 @@ impl<'a> SwRenderer<'a> {
                 );
             }
             DrawCommand::FillPath {
-                path, color, opa, ..
+                path,
+                color,
+                opa,
+                fill_rule,
+                ..
             } => {
-                self.fill_path_transformed(path, phys_clip, &phys_tf, color, *opa);
+                self.fill_path_transformed(path, phys_clip, &phys_tf, color, *opa, *fill_rule);
             }
             DrawCommand::StrokePath {
                 path,
@@ -147,8 +151,15 @@ impl<'a> SwRenderer<'a> {
 }
 
 impl<'a> Canvas for SwRenderer<'a> {
-    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
-        self.fill_path_inner(path, clip, color, opa);
+    fn fill_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        fill_rule: crate::render::raster::FillRule,
+    ) {
+        self.fill_path_inner(path, clip, color, opa, fill_rule);
     }
 
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
@@ -604,18 +615,22 @@ impl Renderer for SwRenderer<'_> {
                 );
             }
             DrawCommand::FillPath {
-                path, color, opa, ..
+                path,
+                color,
+                opa,
+                fill_rule,
+                ..
             } => {
                 crate::trace_span!("sw.fill_path");
                 if tx == Fixed::ZERO && ty == Fixed::ZERO {
-                    self.fill_path_inner(path, clip, color, *opa);
+                    self.fill_path_inner(path, clip, color, *opa, *fill_rule);
                 } else {
                     let phys_tf = self
                         .viewport
                         .as_transform()
                         .compose(&Transform::translate(tx, ty));
                     let phys_clip = self.viewport.rect_to_physical(*clip);
-                    self.fill_path_transformed(path, phys_clip, &phys_tf, color, *opa);
+                    self.fill_path_transformed(path, phys_clip, &phys_tf, color, *opa, *fill_rule);
                 }
             }
             DrawCommand::StrokePath {
@@ -971,7 +986,13 @@ mod tests {
             Fixed::from_int(8),
         );
         let clip = Rect::new(0, 0, 16, 16);
-        backend.fill_path(&path, &clip, &Color::rgb(0, 0, 255), 255);
+        backend.fill_path(
+            &path,
+            &clip,
+            &Color::rgb(0, 0, 255),
+            255,
+            crate::render::raster::FillRule::EvenOdd,
+        );
 
         let c = backend.target.get_pixel(5, 5);
         assert_eq!(c.b, 255);
@@ -988,7 +1009,13 @@ mod tests {
 
         let path = crate::render::path::Path::new();
         let clip = Rect::new(0, 0, 4, 4);
-        backend.fill_path(&path, &clip, &Color::rgb(255, 255, 255), 255);
+        backend.fill_path(
+            &path,
+            &clip,
+            &Color::rgb(255, 255, 255),
+            255,
+            crate::render::raster::FillRule::EvenOdd,
+        );
 
         for y in 0..4 {
             for x in 0..4 {
@@ -1010,7 +1037,13 @@ mod tests {
             Fixed::from_int(4),
         );
         let clip = Rect::new(0, 0, 4, 4);
-        backend.fill_path(&path, &clip, &Color::rgb(255, 0, 0), 0);
+        backend.fill_path(
+            &path,
+            &clip,
+            &Color::rgb(255, 0, 0),
+            0,
+            crate::render::raster::FillRule::EvenOdd,
+        );
 
         assert_eq!(backend.target.get_pixel(2, 2).r, 0);
     }
@@ -1039,7 +1072,13 @@ mod tests {
         .close();
 
         let clip = Rect::new(0, 0, 16, 16);
-        backend.fill_path(&path, &clip, &Color::rgb(0, 200, 0), 255);
+        backend.fill_path(
+            &path,
+            &clip,
+            &Color::rgb(0, 200, 0),
+            255,
+            crate::render::raster::FillRule::EvenOdd,
+        );
 
         assert_eq!(backend.target.get_pixel(2, 2).g, 200);
         assert_eq!(backend.target.get_pixel(8, 8).g, 0);
@@ -1287,7 +1326,13 @@ mod tests {
                 Fixed::from_int(10),
                 Fixed::from_int(10),
             );
-            painter.fill_path(&path, &clip, &Color::rgb(255, 0, 0), 255);
+            painter.fill_path(
+                &path,
+                &clip,
+                &Color::rgb(255, 0, 0),
+                255,
+                crate::render::raster::FillRule::EvenOdd,
+            );
 
             painter.draw_line(
                 Point {
@@ -2076,6 +2121,7 @@ mod tests {
             transform: Transform::scale(Fixed::from_int(4), Fixed::from_int(4)),
             color: Color::rgb(0, 255, 0),
             opa: 255,
+            fill_rule: crate::render::raster::FillRule::EvenOdd,
         };
         backend.draw(&cmd, &clip);
 

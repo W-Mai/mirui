@@ -40,7 +40,14 @@ impl Dummy {
 }
 
 impl Canvas for Dummy {
-    fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {
+    fn fill_path(
+        &mut self,
+        _: &Path,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+        _: ::mirui::render::raster::FillRule,
+    ) {
         self.counts.fill_path.set(self.counts.fill_path.get() + 1);
     }
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {
@@ -141,7 +148,13 @@ fn default_methods_route_to_sw() {
     let rect = zero_rect();
     let color = Color::rgb(0, 0, 0);
 
-    h.fill_path(&path, &rect, &color, 255);
+    h.fill_path(
+        &path,
+        &rect,
+        &color,
+        255,
+        ::mirui::render::raster::FillRule::EvenOdd,
+    );
     h.stroke_path(&path, &rect, Fixed::ONE, &color, 255);
     let font = mirui::render::font::Font::bitmap_8x8();
     h.draw_label(&Point::ZERO, "x", &font, &rect, &color, 255);
@@ -233,7 +246,14 @@ impl<'fb> BorrowedDummy<'fb> {
 }
 
 impl<'fb> Canvas for BorrowedDummy<'fb> {
-    fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {
+    fn fill_path(
+        &mut self,
+        _: &Path,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+        _: ::mirui::render::raster::FillRule,
+    ) {
         // Touch the borrowed buffer so the lifetime actually matters at the
         // call site — otherwise `'fb` could be optimised away and the test
         // would be vacuous.
@@ -271,7 +291,15 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
 
 struct PlainDummy;
 impl Canvas for PlainDummy {
-    fn fill_path(&mut self, _: &Path, _: &Rect, _: &Color, _: u8) {}
+    fn fill_path(
+        &mut self,
+        _: &Path,
+        _: &Rect,
+        _: &Color,
+        _: u8,
+        _: ::mirui::render::raster::FillRule,
+    ) {
+    }
     fn stroke_path(&mut self, _: &Path, _: &Rect, _: Fixed, _: &Color, _: u8) {}
     fn blit(
         &mut self,
@@ -356,7 +384,13 @@ fn hybrid_accepts_backend_with_lifetime_parameter() {
 
     let rect = Rect::new(0, 0, 4, 4);
     let path = Path::new();
-    h.fill_path(&path, &rect, &Color::rgb(0, 0, 0), 255);
+    h.fill_path(
+        &path,
+        &rect,
+        &Color::rgb(0, 0, 0),
+        255,
+        ::mirui::render::raster::FillRule::EvenOdd,
+    );
 
     assert_eq!(h.borrowed.fills.get(), 1);
     // Side effect through the borrowed slice proves the lifetime really is

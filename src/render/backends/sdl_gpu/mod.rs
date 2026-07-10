@@ -517,6 +517,7 @@ impl Renderer for SdlGpuRenderer<'_> {
                 transform,
                 color,
                 opa,
+                ..
             } => {
                 self.fill_path_transformed_inner(path, clip, transform, color, *opa);
                 return;
@@ -828,7 +829,14 @@ impl Canvas for SdlGpuRenderer<'_> {
         self.draw_line_inner(p1, p2, clip, width, color, opa);
     }
 
-    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
+    fn fill_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        _fill_rule: crate::render::raster::FillRule,
+    ) {
         self.fill_path_inner(path, clip, color, opa);
     }
 

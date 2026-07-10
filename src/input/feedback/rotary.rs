@@ -184,6 +184,7 @@ fn rotary_render(
             transform: ctx.transform,
             color: PRIMARY,
             opa,
+            fill_rule: crate::render::raster::FillRule::EvenOdd,
         },
         ctx.clip,
     );

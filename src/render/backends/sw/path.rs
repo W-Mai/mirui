@@ -1,16 +1,23 @@
 use super::SwRenderer;
 use crate::render::path::{self, Path};
-use crate::render::raster;
+use crate::render::raster::{self, FillRule};
 use crate::types::{Color, Fixed, Rect, Transform};
 
 impl SwRenderer<'_> {
-    pub(super) fn fill_path_inner(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
+    pub(super) fn fill_path_inner(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        fill_rule: FillRule,
+    ) {
         if opa == 0 {
             return;
         }
         let phys_tf = self.viewport.as_transform();
         let phys_clip = self.viewport.rect_to_physical(*clip);
-        self.fill_path_transformed(path, phys_clip, &phys_tf, color, opa);
+        self.fill_path_transformed(path, phys_clip, &phys_tf, color, opa, fill_rule);
     }
 
     pub(super) fn fill_path_transformed(
@@ -20,6 +27,7 @@ impl SwRenderer<'_> {
         phys_tf: &Transform,
         color: &Color,
         opa: u8,
+        fill_rule: FillRule,
     ) {
         if opa == 0 {
             return;
@@ -57,7 +65,7 @@ impl SwRenderer<'_> {
             px_y0,
             px_x1,
             px_y1,
-            raster::FillRule::EvenOdd,
+            fill_rule,
             acc,
             crossings,
             |px, py, cov| {
@@ -148,7 +156,7 @@ impl SwRenderer<'_> {
             return;
         };
 
-        let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
+        let (px_x0, px_y0, px_x1, py_y1) = draw_area.pixel_bounds();
         let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let color_a_norm =
             Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
@@ -163,8 +171,8 @@ impl SwRenderer<'_> {
             px_x0,
             px_y0,
             px_x1,
-            px_y1,
-            raster::FillRule::EvenOdd,
+            py_y1,
+            FillRule::EvenOdd,
             acc,
             crossings,
             |px, py, cov| {

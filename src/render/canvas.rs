@@ -1,4 +1,5 @@
 use crate::render::command::CompositeMode;
+use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect};
 
 use super::font::Font;
@@ -10,7 +11,7 @@ use super::texture::Texture;
 /// **logical pixels**; implementations convert to physical internally
 /// (typically by holding a `Viewport` field).
 pub trait Canvas {
-    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8);
+    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8, fill_rule: FillRule);
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8);
     #[allow(clippy::too_many_arguments)]
     fn blit(
@@ -38,7 +39,7 @@ pub trait Canvas {
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
         let path = Path::rounded_rect(area.x, area.y, area.w, area.h, radius);
-        self.fill_path(&path, clip, color, opa);
+        self.fill_path(&path, clip, color, opa, FillRule::EvenOdd);
     }
 
     fn stroke_rect(

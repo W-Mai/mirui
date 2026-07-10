@@ -40,9 +40,16 @@ impl<B: Canvas> Logging<B> {
 }
 
 impl<B: Canvas> Canvas for Logging<B> {
-    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
+    fn fill_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        fill_rule: mirui::render::raster::FillRule,
+    ) {
         self.log("fill_path");
-        self.inner.fill_path(path, clip, color, opa);
+        self.inner.fill_path(path, clip, color, opa, fill_rule);
     }
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
         self.log("stroke_path");
@@ -177,7 +184,13 @@ fn main() {
             Fixed::from_int(120),
             Fixed::from_int(16),
         );
-        hybrid.fill_path(&path, &clip, &Color::rgb(88, 166, 255), 255);
+        hybrid.fill_path(
+            &path,
+            &clip,
+            &Color::rgb(88, 166, 255),
+            255,
+            ::mirui::render::raster::FillRule::EvenOdd,
+        );
         hybrid.draw_line(
             Point {
                 x: Fixed::from_int(40),

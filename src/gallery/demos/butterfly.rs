@@ -117,6 +117,7 @@ fn fill_wing(
             transform,
             color,
             opa,
+            fill_rule: crate::render::raster::FillRule::EvenOdd,
         },
         clip,
     );

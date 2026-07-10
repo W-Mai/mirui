@@ -1508,6 +1508,7 @@ impl Renderer for WgpuRenderer<'_> {
                 transform,
                 color,
                 opa,
+                ..
             } if !matches!(
                 transform.classify(),
                 TransformClass::Identity | TransformClass::Translate
@@ -1792,7 +1793,14 @@ impl Canvas for WgpuRenderer<'_> {
         self.fill_rect_inner(area, clip, color, radius, opa);
     }
 
-    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
+    fn fill_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        _fill_rule: crate::render::raster::FillRule,
+    ) {
         self.fill_path_inner(path, clip, color, opa);
     }
 

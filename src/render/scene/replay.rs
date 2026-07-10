@@ -6,7 +6,6 @@ use super::bbox::{direct_children_bboxes, pairwise_disjoint};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
-use crate::render::raster::FillRule;
 use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
 use crate::types::{Rect, Transform};
@@ -278,15 +277,13 @@ pub fn replay_scene(
                 opa,
                 fill_rule,
             } => {
-                if !matches!(fill_rule, FillRule::EvenOdd) {
-                    return Err(ReplayError::UnsupportedFillRule);
-                }
                 renderer.draw(
                     &DrawCommand::FillPath {
                         path,
                         transform: top.transform.compose(transform),
                         color: *color,
                         opa: mul_alpha(*opa, top.alpha),
+                        fill_rule: *fill_rule,
                     },
                     clip,
                 );
@@ -463,16 +460,13 @@ mod tests {
                 a: 0,
             },
             opa: 0,
-            fill_rule: FillRule::NonZero,
+            fill_rule: crate::render::raster::FillRule::NonZero,
         }];
         let mut r = CaptureRenderer {
             transforms: Vec::new(),
             fill_opas: Vec::new(),
         };
-        assert_eq!(
-            replay_scene(&ops, &mut r, &rect(), &NoResolver),
-            Err(ReplayError::UnsupportedFillRule)
-        );
+        assert!(replay_scene(&ops, &mut r, &rect(), &NoResolver).is_ok());
     }
 
     fn group(opa: Option<u8>, hint: bool) -> SceneOp {

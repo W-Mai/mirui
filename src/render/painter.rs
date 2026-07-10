@@ -64,8 +64,15 @@ impl<'a, B: Canvas> Painter<'a, B> {
         self.backend.draw_label(pos, text, font, clip, color, opa);
     }
 
-    pub fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
-        self.backend.fill_path(path, clip, color, opa);
+    pub fn fill_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        fill_rule: crate::render::raster::FillRule,
+    ) {
+        self.backend.fill_path(path, clip, color, opa, fill_rule);
     }
 
     pub fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {

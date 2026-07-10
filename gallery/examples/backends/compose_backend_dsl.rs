@@ -35,8 +35,15 @@ struct Logging<B: Canvas> {
 }
 
 impl<B: Canvas> Canvas for Logging<B> {
-    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
-        self.inner.fill_path(path, clip, color, opa);
+    fn fill_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        fill_rule: mirui::render::raster::FillRule,
+    ) {
+        self.inner.fill_path(path, clip, color, opa, fill_rule);
     }
     fn stroke_path(&mut self, path: &Path, clip: &Rect, width: Fixed, color: &Color, opa: u8) {
         self.inner.stroke_path(path, clip, width, color, opa);

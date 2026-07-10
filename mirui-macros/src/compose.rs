@@ -13,7 +13,7 @@ use syn::{Ident, Result, Token, Visibility, braced};
 const METHODS: &[(&str, &str, bool)] = &[
     (
         "fill_path",
-        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8",
+        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, color: &::mirui::types::Color, opa: u8, fill_rule: ::mirui::render::raster::FillRule",
         false,
     ),
     (
@@ -278,8 +278,10 @@ impl ComposeInput {
                         } => {
                             self.draw_arc(*center, *radius, *start_angle, *end_angle, clip, *width, color, *opa);
                         }
-                        ::mirui::render::DrawCommand::FillPath { path, color, opa, .. } => {
-                            self.fill_path(path, clip, color, *opa);
+                        ::mirui::render::DrawCommand::FillPath {
+                            path, color, opa, ..
+                        } => {
+                            self.fill_path(path, clip, color, *opa, ::mirui::render::raster::FillRule::EvenOdd);
                         }
                         ::mirui::render::DrawCommand::StrokePath { path, width, color, opa, .. } => {
                             self.stroke_path(path, clip, *width, color, *opa);

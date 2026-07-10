@@ -1,5 +1,6 @@
 use crate::render::font::Font;
 use crate::render::path::Path;
+use crate::render::raster::FillRule;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 
@@ -197,6 +198,7 @@ pub enum DrawCommand<'a> {
         transform: Transform,
         color: Color,
         opa: Opa,
+        fill_rule: FillRule,
     },
     /// Stroke `path` with `width` logical pixels. Cap/join follow SVG
     /// semantics; `miter_limit` defaults to 4.0 when omitted by the

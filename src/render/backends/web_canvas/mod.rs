@@ -602,9 +602,13 @@ impl Renderer for WebCanvasRenderer<'_> {
                 );
             }
             DrawCommand::FillPath {
-                path, color, opa, ..
+                path,
+                color,
+                opa,
+                fill_rule,
+                ..
             } => {
-                self.fill_path(path, clip, color, *opa);
+                self.fill_path(path, clip, color, *opa, *fill_rule);
             }
             DrawCommand::StrokePath {
                 path,
@@ -662,7 +666,14 @@ impl Canvas for WebCanvasRenderer<'_> {
         self.pop_clip();
     }
 
-    fn fill_path(&mut self, path: &Path, clip: &Rect, color: &Color, opa: u8) {
+    fn fill_path(
+        &mut self,
+        path: &Path,
+        clip: &Rect,
+        color: &Color,
+        opa: u8,
+        _fill_rule: crate::render::raster::FillRule,
+    ) {
         self.push_clip(clip);
         self.set_fill(color, opa);
         self.build_path(path);

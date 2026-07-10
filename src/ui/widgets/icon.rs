@@ -87,6 +87,7 @@ fn icon_render(
             transform: scaled,
             color,
             opa: 255,
+            fill_rule: crate::render::raster::FillRule::EvenOdd,
         },
         ctx.clip,
     );
