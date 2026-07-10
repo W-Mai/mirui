@@ -185,6 +185,15 @@ impl Color {
         Color::lerp(self, other, t)
     }
 
+    pub fn scale_alpha(self, factor: u8) -> Color {
+        Color {
+            r: self.r,
+            g: self.g,
+            b: self.b,
+            a: ((self.a as u16 * factor as u16 + 127) / 255) as u8,
+        }
+    }
+
     /// Linear interpolation in 8-bit channel space. `t` is clamped to
     /// [0, 1]; t=0 returns `a`, t=1 returns `b`.
     pub fn lerp(a: Color, b: Color, t: Fixed) -> Color {
