@@ -338,6 +338,7 @@ pub fn replay_scene(
                 line_cap,
                 line_join,
                 miter_limit,
+                dash,
             } => {
                 renderer.draw(
                     &DrawCommand::StrokePath {
@@ -349,6 +350,7 @@ pub fn replay_scene(
                         line_cap: *line_cap,
                         line_join: *line_join,
                         miter_limit: *miter_limit,
+                        dash,
                     },
                     clip,
                 );

@@ -25,6 +25,7 @@ pub trait Canvas {
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
         miter_limit: Fixed,
+        dash: &[Fixed],
     );
     #[allow(clippy::too_many_arguments)]
     fn blit(
@@ -86,6 +87,7 @@ pub trait Canvas {
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,
             Fixed::from_int(4),
+            &[],
         );
     }
 
@@ -110,6 +112,7 @@ pub trait Canvas {
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,
             Fixed::from_int(4),
+            &[],
         );
     }
 
@@ -139,6 +142,7 @@ pub trait Canvas {
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,
             Fixed::from_int(4),
+            &[],
         );
     }
 }

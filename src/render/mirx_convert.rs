@@ -278,6 +278,7 @@ impl From<mirx::SceneOp> for SceneOp {
                 line_cap,
                 line_join,
                 miter_limit,
+                dash,
             } => Self::StrokePath {
                 path: path.into(),
                 transform: transform.into(),
@@ -287,6 +288,7 @@ impl From<mirx::SceneOp> for SceneOp {
                 line_cap,
                 line_join,
                 miter_limit: miter_limit.into(),
+                dash: dash.into_iter().map(Into::into).collect(),
             },
             mirx::SceneOp::FillRect {
                 area,
@@ -443,6 +445,7 @@ impl From<SceneOp> for mirx::SceneOp {
                 line_cap,
                 line_join,
                 miter_limit,
+                dash,
             } => Self::StrokePath {
                 path: path.into(),
                 transform: transform.into(),
@@ -452,6 +455,7 @@ impl From<SceneOp> for mirx::SceneOp {
                 line_cap,
                 line_join,
                 miter_limit: miter_limit.into(),
+                dash: dash.into_iter().map(Into::into).collect(),
             },
             SceneOp::FillRect {
                 area,

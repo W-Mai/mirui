@@ -564,6 +564,7 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
             line_cap,
             line_join,
             miter_limit,
+            dash,
         } => {
             out.push(TAG_STROKE_PATH);
             let bits = if transform.is_identity() {
@@ -579,6 +580,10 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
             out.push(line_cap_to_u8(*line_cap));
             out.push(line_join_to_u8(*line_join));
             write_fixed(out, *miter_limit);
+            out.extend_from_slice(&(dash.len() as u32).to_le_bytes());
+            for d in dash {
+                write_fixed(out, *d);
+            }
             if bits & FIELD_TRANSFORM != 0 {
                 write_transform(out, *transform);
             }
@@ -819,6 +824,11 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
             let line_cap = line_cap_from_u8(r.u8()?)?;
             let line_join = line_join_from_u8(r.u8()?)?;
             let miter_limit = r.fixed()?;
+            let dash_count = r.u32()? as usize;
+            let mut dash = Vec::with_capacity(dash_count);
+            for _ in 0..dash_count {
+                dash.push(r.fixed()?);
+            }
             let transform = read_transform_opt(r, bits)?;
             Ok(SceneOp::StrokePath {
                 path,
@@ -829,6 +839,7 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
                 line_cap,
                 line_join,
                 miter_limit,
+                dash,
             })
         }
         TAG_PUSH_CLIP => {
@@ -1248,6 +1259,7 @@ mod tests {
                     line_cap: cap,
                     line_join: join,
                     miter_limit: Fixed::from_int(4),
+                    dash: Vec::new(),
                 }]);
             }
         }

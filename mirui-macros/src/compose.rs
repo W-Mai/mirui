@@ -18,7 +18,7 @@ const METHODS: &[(&str, &str, bool)] = &[
     ),
     (
         "stroke_path",
-        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, paint: &::mirui::render::Paint, opa: u8, cap: ::mirui::render::raster::LineCap, join: ::mirui::render::raster::LineJoin, miter_limit: ::mirui::types::Fixed",
+        "path: &::mirui::render::path::Path, clip: &::mirui::types::Rect, width: ::mirui::types::Fixed, paint: &::mirui::render::Paint, opa: u8, cap: ::mirui::render::raster::LineCap, join: ::mirui::render::raster::LineJoin, miter_limit: ::mirui::types::Fixed, dash: &[::mirui::types::Fixed]",
         false,
     ),
     (
@@ -297,9 +297,10 @@ impl ComposeInput {
                             line_cap,
                             line_join,
                             miter_limit,
+                            dash,
                             ..
                         } => {
-                            self.stroke_path(path, clip, *width, paint, *opa, *line_cap, *line_join, *miter_limit);
+                            self.stroke_path(path, clip, *width, paint, *opa, *line_cap, *line_join, *miter_limit, dash);
                         }
                         ::mirui::render::DrawCommand::PushClip { path, transform, fill_rule } => {
                             self.push_clip(path, transform, *fill_rule);

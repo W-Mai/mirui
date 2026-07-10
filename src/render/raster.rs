@@ -439,6 +439,86 @@ fn dist_sq_point_to_segment(p: Point, a: Point, b: Point) -> Fixed {
     dx * dx + dy * dy
 }
 
+fn apply_dash_pattern(segs: &[LineSeg], closed: bool, pattern: &[Fixed], out: &mut Vec<SubPath>) {
+    if pattern.is_empty() || segs.is_empty() {
+        out.push(SubPath {
+            segs: segs.to_vec(),
+            closed,
+        });
+        return;
+    }
+
+    let total: Fixed = pattern.iter().fold(Fixed::ZERO, |acc, &v| acc + v);
+    if total <= Fixed::ZERO {
+        out.push(SubPath {
+            segs: segs.to_vec(),
+            closed,
+        });
+        return;
+    }
+
+    let mut remaining = pattern[0];
+    let mut pattern_idx = 0;
+    let mut on = true;
+    let mut current_segs: Vec<LineSeg> = Vec::new();
+
+    let flush = |segs: &mut Vec<LineSeg>, out: &mut Vec<SubPath>| {
+        if !segs.is_empty() {
+            out.push(SubPath {
+                segs: core::mem::take(segs),
+                closed: false,
+            });
+        }
+    };
+
+    let n = segs.len();
+    let limit = if closed { n + 1 } else { n };
+
+    for i in 0..limit {
+        let seg = if i < n { segs[i] } else { segs[0] };
+        let dx = seg.p2.x - seg.p1.x;
+        let dy = seg.p2.y - seg.p1.y;
+        let seg_len = (dx * dx + dy * dy).sqrt();
+
+        if seg_len == Fixed::ZERO {
+            continue;
+        }
+
+        let ux = dx / seg_len;
+        let uy = dy / seg_len;
+        let mut walked = Fixed::ZERO;
+        let p_start = seg.p1;
+
+        while walked < seg_len {
+            let step = (seg_len - walked).min(remaining);
+            let p_end = Point {
+                x: p_start.x + ux * (walked + step),
+                y: p_start.y + uy * (walked + step),
+            };
+            if on {
+                current_segs.push(LineSeg {
+                    p1: Point {
+                        x: p_start.x + ux * walked,
+                        y: p_start.y + uy * walked,
+                    },
+                    p2: p_end,
+                });
+            }
+            walked += step;
+            remaining -= step;
+            if remaining <= Fixed::ZERO {
+                if on {
+                    flush(&mut current_segs, out);
+                }
+                pattern_idx = (pattern_idx + 1) % pattern.len();
+                on = !on;
+                remaining = pattern[pattern_idx];
+            }
+        }
+    }
+    flush(&mut current_segs, out);
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn offset_polygon_into(
     cmds: &[PathCmd],
@@ -447,11 +527,13 @@ pub(crate) fn offset_polygon_into(
     cap: LineCap,
     join: LineJoin,
     miter_limit: Fixed,
+    dash: Option<&[Fixed]>,
     out: &mut Path,
     subpath_scratch: &mut Vec<SubPath>,
     normals_scratch: &mut Vec<Point>,
     rail_scratch: &mut Vec<Point>,
     arc_scratch: &mut Vec<Point>,
+    dash_scratch: &mut Vec<SubPath>,
 ) {
     out.cmds.to_mut().clear();
     if width <= Fixed::ZERO {
@@ -460,6 +542,16 @@ pub(crate) fn offset_polygon_into(
     let half = width / 2;
 
     flatten_subpaths_into(cmds, transform, subpath_scratch);
+
+    if let Some(pattern) = dash {
+        if !pattern.is_empty() {
+            dash_scratch.clear();
+            for sub in subpath_scratch.drain(..) {
+                apply_dash_pattern(&sub.segs, sub.closed, pattern, dash_scratch);
+            }
+            core::mem::swap(subpath_scratch, dash_scratch);
+        }
+    }
 
     for sub in subpath_scratch.drain(..) {
         if sub.segs.is_empty() {
@@ -927,6 +1019,7 @@ mod tests {
         let mut normals = Vec::new();
         let mut rail = Vec::new();
         let mut arc = Vec::new();
+        let mut dash_scratch = Vec::new();
         offset_polygon_into(
             &p.cmds,
             None,
@@ -934,11 +1027,13 @@ mod tests {
             LineCap::Butt,
             LineJoin::Miter,
             Fixed::from_int(4),
+            None,
             &mut out,
             &mut scratch,
             &mut normals,
             &mut rail,
             &mut arc,
+            &mut dash_scratch,
         );
         out
     }

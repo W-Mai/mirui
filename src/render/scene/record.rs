@@ -145,6 +145,7 @@ pub fn record_command(
             line_cap,
             line_join,
             miter_limit,
+            dash,
         } => SceneOp::StrokePath {
             path: Path::clone(path),
             transform: *transform,
@@ -154,6 +155,7 @@ pub fn record_command(
             line_cap: *line_cap,
             line_join: *line_join,
             miter_limit: *miter_limit,
+            dash: dash.to_vec(),
         },
         DrawCommand::PushClip {
             path,

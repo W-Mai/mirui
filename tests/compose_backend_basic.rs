@@ -60,6 +60,7 @@ impl Canvas for Dummy {
         _: ::mirui::render::raster::LineCap,
         _: ::mirui::render::raster::LineJoin,
         _: ::mirui::types::Fixed,
+        _: &[Fixed],
     ) {
         self.counts
             .stroke_path
@@ -175,6 +176,7 @@ fn default_methods_route_to_sw() {
         ::mirui::render::raster::LineCap::Butt,
         ::mirui::render::raster::LineJoin::Miter,
         ::mirui::types::Fixed::from_int(4),
+        &[],
     );
     let font = mirui::render::font::Font::bitmap_8x8();
     h.draw_label(&Point::ZERO, "x", &font, &rect, &color, 255);
@@ -292,6 +294,7 @@ impl<'fb> Canvas for BorrowedDummy<'fb> {
         _: ::mirui::render::raster::LineCap,
         _: ::mirui::render::raster::LineJoin,
         _: ::mirui::types::Fixed,
+        _: &[Fixed],
     ) {
     }
     fn blit(
@@ -341,6 +344,7 @@ impl Canvas for PlainDummy {
         _: ::mirui::render::raster::LineCap,
         _: ::mirui::render::raster::LineJoin,
         _: ::mirui::types::Fixed,
+        _: &[Fixed],
     ) {
     }
     fn blit(

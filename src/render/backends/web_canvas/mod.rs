@@ -639,6 +639,7 @@ impl Renderer for WebCanvasRenderer<'_> {
                 line_cap,
                 line_join,
                 miter_limit,
+                dash,
                 ..
             } => {
                 self.stroke_path(
@@ -650,6 +651,7 @@ impl Renderer for WebCanvasRenderer<'_> {
                     *line_cap,
                     *line_join,
                     *miter_limit,
+                    dash,
                 );
             }
             DrawCommand::Label {
@@ -725,6 +727,7 @@ impl Canvas for WebCanvasRenderer<'_> {
         _cap: crate::render::raster::LineCap,
         _join: crate::render::raster::LineJoin,
         _miter_limit: Fixed,
+        _dash: &[Fixed],
     ) {
         let color = paint_color(paint);
         self.push_rect_clip(clip);

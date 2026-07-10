@@ -253,6 +253,7 @@ impl SwRenderer<'_> {
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
         miter_limit: Fixed,
+        dash: &[Fixed],
     ) {
         if opa == 0 || width <= Fixed::ZERO {
             return;
@@ -266,11 +267,13 @@ impl SwRenderer<'_> {
             cap,
             join,
             miter_limit,
+            if dash.is_empty() { None } else { Some(dash) },
             &mut self.stroke_outline,
             &mut self.subpath_scratch,
             &mut self.stroke_normals,
             &mut self.stroke_rail,
             &mut self.stroke_arc,
+            &mut self.dash_scratch,
         );
         let outline_cmds = core::mem::take(&mut self.stroke_outline);
         self.fill_physical_path_with_paint(&outline_cmds, clip, paint, opa);
@@ -289,6 +292,7 @@ impl SwRenderer<'_> {
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
         miter_limit: Fixed,
+        dash: &[Fixed],
     ) {
         if opa == 0 || width <= Fixed::ZERO {
             return;
@@ -301,11 +305,13 @@ impl SwRenderer<'_> {
             cap,
             join,
             miter_limit,
+            if dash.is_empty() { None } else { Some(dash) },
             &mut self.stroke_outline,
             &mut self.subpath_scratch,
             &mut self.stroke_normals,
             &mut self.stroke_rail,
             &mut self.stroke_arc,
+            &mut self.dash_scratch,
         );
         let outline_cmds = core::mem::take(&mut self.stroke_outline);
         self.fill_physical_path_with_paint(&outline_cmds, &phys_clip, paint, opa);

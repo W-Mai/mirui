@@ -99,9 +99,10 @@ impl<'a, B: Canvas> Painter<'a, B> {
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
         miter_limit: Fixed,
+        dash: &[Fixed],
     ) {
         self.backend
-            .stroke_path(path, clip, width, paint, opa, cap, join, miter_limit);
+            .stroke_path(path, clip, width, paint, opa, cap, join, miter_limit, dash);
     }
 
     pub fn draw_line(

@@ -34,6 +34,7 @@ pub struct SwRenderer<'a> {
     pub(super) flatten_buf: alloc::vec::Vec<crate::render::raster::LineSeg>,
     pub(super) stroke_outline: crate::render::path::Path,
     pub(super) subpath_scratch: alloc::vec::Vec<crate::render::raster::SubPath>,
+    pub(super) dash_scratch: alloc::vec::Vec<crate::render::raster::SubPath>,
     pub(super) scanline_acc: alloc::vec::Vec<Fixed>,
     pub(super) scanline_crossings: alloc::vec::Vec<(Fixed, i8)>,
     pub(super) stroke_normals: alloc::vec::Vec<crate::types::Point>,
@@ -59,6 +60,7 @@ impl<'a> SwRenderer<'a> {
             flatten_buf: alloc::vec::Vec::new(),
             stroke_outline: crate::render::path::Path::new(),
             subpath_scratch: alloc::vec::Vec::new(),
+            dash_scratch: alloc::vec::Vec::new(),
             scanline_acc: alloc::vec::Vec::new(),
             scanline_crossings: alloc::vec::Vec::new(),
             stroke_normals: alloc::vec::Vec::new(),
@@ -159,6 +161,7 @@ impl<'a> SwRenderer<'a> {
                 line_cap,
                 line_join,
                 miter_limit,
+                dash,
                 ..
             } => {
                 self.stroke_path_transformed(
@@ -171,6 +174,7 @@ impl<'a> SwRenderer<'a> {
                     *line_cap,
                     *line_join,
                     *miter_limit,
+                    dash,
                 );
             }
             DrawCommand::Border {
@@ -199,6 +203,7 @@ impl<'a> SwRenderer<'a> {
                     crate::render::raster::LineCap::Butt,
                     crate::render::raster::LineJoin::Miter,
                     Fixed::from_int(4),
+                    &[],
                 );
             }
             DrawCommand::Line {
@@ -222,6 +227,7 @@ impl<'a> SwRenderer<'a> {
                     crate::render::raster::LineCap::Butt,
                     crate::render::raster::LineJoin::Miter,
                     Fixed::from_int(4),
+                    &[],
                 );
             }
             DrawCommand::Arc {
@@ -247,6 +253,7 @@ impl<'a> SwRenderer<'a> {
                     crate::render::raster::LineCap::Butt,
                     crate::render::raster::LineJoin::Miter,
                     Fixed::from_int(4),
+                    &[],
                 );
             }
             DrawCommand::Label { .. } => {
@@ -280,8 +287,9 @@ impl<'a> Canvas for SwRenderer<'a> {
         cap: crate::render::raster::LineCap,
         join: crate::render::raster::LineJoin,
         miter_limit: Fixed,
+        dash: &[Fixed],
     ) {
-        self.stroke_path_inner(path, clip, width, paint, opa, cap, join, miter_limit);
+        self.stroke_path_inner(path, clip, width, paint, opa, cap, join, miter_limit, dash);
     }
 
     fn fill_rect(&mut self, area: &Rect, clip: &Rect, color: &Color, radius: Fixed, opa: u8) {
@@ -786,6 +794,7 @@ impl Renderer for SwRenderer<'_> {
                 line_cap,
                 line_join,
                 miter_limit,
+                dash,
                 ..
             } => {
                 crate::trace_span!("sw.stroke_path");
@@ -799,6 +808,7 @@ impl Renderer for SwRenderer<'_> {
                         *line_cap,
                         *line_join,
                         *miter_limit,
+                        dash,
                     );
                 } else {
                     let phys_tf = self
@@ -816,6 +826,7 @@ impl Renderer for SwRenderer<'_> {
                         *line_cap,
                         *line_join,
                         *miter_limit,
+                        dash,
                     );
                 }
             }
@@ -1320,6 +1331,7 @@ mod tests {
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,
             Fixed::from_int(4),
+            &[],
         );
 
         assert!(backend.target.get_pixel(8, 8).r > 0);
@@ -1463,6 +1475,7 @@ mod tests {
             crate::render::raster::LineCap::Butt,
             crate::render::raster::LineJoin::Miter,
             Fixed::from_int(4),
+            &[],
         );
 
         for y in 0..8 {

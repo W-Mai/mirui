@@ -1836,6 +1836,7 @@ impl Canvas for WgpuRenderer<'_> {
         _cap: crate::render::raster::LineCap,
         _join: crate::render::raster::LineJoin,
         _miter_limit: Fixed,
+        _dash: &[Fixed],
     ) {
         let color = paint_color(paint);
         self.stroke_path_inner(path, clip, width, &color, opa);

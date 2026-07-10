@@ -212,6 +212,7 @@ pub enum DrawCommand<'a> {
         line_cap: LineCap,
         line_join: LineJoin,
         miter_limit: Fixed,
+        dash: &'a [Fixed],
     },
     PushClip {
         path: &'a Path,

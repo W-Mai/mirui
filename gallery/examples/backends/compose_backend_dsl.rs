@@ -55,6 +55,7 @@ impl<B: Canvas> Canvas for Logging<B> {
         _: ::mirui::render::raster::LineCap,
         _: ::mirui::render::raster::LineJoin,
         _: ::mirui::types::Fixed,
+        dash: &[Fixed],
     ) {
         self.inner.stroke_path(
             path,
@@ -65,6 +66,7 @@ impl<B: Canvas> Canvas for Logging<B> {
             ::mirui::render::raster::LineCap::Butt,
             ::mirui::render::raster::LineJoin::Miter,
             ::mirui::types::Fixed::from_int(4),
+            dash,
         );
     }
     fn blit(
