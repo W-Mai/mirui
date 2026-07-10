@@ -18,7 +18,7 @@ use crate::render::path::{Path, PathCmd};
 use crate::render::renderer::Renderer;
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
-use crate::types::{Color, Fixed, Point, Rect, Viewport};
+use crate::types::{Color, Fixed, Point, Rect, Transform, Viewport};
 
 fn paint_color(paint: &Paint) -> Color {
     match paint {
@@ -964,9 +964,22 @@ impl Canvas for WebCanvasRenderer<'_> {
         self.pop_rect_clip();
     }
 
-    fn flush(&mut self) {
-        // Canvas 2D commits when the run-loop yields back to the browser.
+    fn push_clip(
+        &mut self,
+        path: &Path,
+        _transform: &Transform,
+        _fill_rule: crate::render::raster::FillRule,
+    ) {
+        self.ctx().save();
+        self.build_path(path);
+        self.ctx().clip();
     }
+
+    fn pop_clip(&mut self) {
+        self.ctx().restore();
+    }
+
+    fn flush(&mut self) {}
 }
 
 fn css_color(c: &Color) -> String {

@@ -20,6 +20,87 @@ fn paint_color(paint: &Paint) -> Color {
     }
 }
 
+fn sample_gradient(paint: &Paint, px: i32, py: i32) -> Color {
+    match paint {
+        Paint::Color(c) => (*c).into(),
+        Paint::LinearGradient(g) => {
+            let x = Fixed::from_int(px);
+            let y: Fixed = Fixed::from_int(py);
+            let sx: Fixed = g.start.x.into();
+            let sy: Fixed = g.start.y.into();
+            let ex: Fixed = g.end.x.into();
+            let ey: Fixed = g.end.y.into();
+            let dx = ex - sx;
+            let dy = ey - sy;
+            let len_sq = dx * dx + dy * dy;
+            if len_sq == Fixed::ZERO {
+                return g
+                    .stops
+                    .first()
+                    .map(|s| s.color.into())
+                    .unwrap_or(Color::rgba(0, 0, 0, 0));
+            }
+            let t = ((x - sx) * dx + (y - sy) * dy) / len_sq;
+            sample_stops(&g.stops, t)
+        }
+        Paint::RadialGradient(g) => {
+            let x = Fixed::from_int(px);
+            let y = Fixed::from_int(py);
+            let cx: Fixed = g.center.x.into();
+            let cy: Fixed = g.center.y.into();
+            let r: Fixed = g.radius.into();
+            let dx = x - cx;
+            let dy = y - cy;
+            let dist_sq = dx * dx + dy * dy;
+            let dist = dist_sq.sqrt();
+            if r == Fixed::ZERO {
+                return g
+                    .stops
+                    .first()
+                    .map(|s| s.color.into())
+                    .unwrap_or(Color::rgba(0, 0, 0, 0));
+            }
+            let t = dist / r;
+            sample_stops(&g.stops, t)
+        }
+    }
+}
+
+fn sample_stops(stops: &[mirx::GradientStop], t: Fixed) -> Color {
+    if stops.is_empty() {
+        return Color::rgba(0, 0, 0, 0);
+    }
+    let t_raw: Fixed = t;
+    let first_off: Fixed = stops[0].offset.into();
+    let last_off: Fixed = stops[stops.len() - 1].offset.into();
+    if t_raw <= first_off {
+        return stops[0].color.into();
+    }
+    if t_raw >= last_off {
+        return stops[stops.len() - 1].color.into();
+    }
+    for i in 0..stops.len() - 1 {
+        let s0 = &stops[i];
+        let s1 = &stops[i + 1];
+        let o0: Fixed = s0.offset.into();
+        let o1: Fixed = s1.offset.into();
+        if t_raw >= o0 && t_raw <= o1 {
+            let range = o1 - o0;
+            if range == Fixed::ZERO {
+                return s1.color.into();
+            }
+            let local_t = (t_raw - o0) / range;
+            let lt = local_t.to_f32();
+            let r = (s0.color.r as f32 + (s1.color.r as f32 - s0.color.r as f32) * lt) as u8;
+            let g = (s0.color.g as f32 + (s1.color.g as f32 - s0.color.g as f32) * lt) as u8;
+            let b = (s0.color.b as f32 + (s1.color.b as f32 - s0.color.b as f32) * lt) as u8;
+            let a = (s0.color.a as f32 + (s1.color.a as f32 - s0.color.a as f32) * lt) as u8;
+            return Color::rgba(r, g, b, a);
+        }
+    }
+    stops[stops.len() - 1].color.into()
+}
+
 impl SwRenderer<'_> {
     pub(super) fn push_clip_inner(
         &mut self,
@@ -117,9 +198,14 @@ impl SwRenderer<'_> {
 
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
         let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
-        let color = paint_color(paint);
+        let is_gradient = !matches!(paint, Paint::Color(_));
+        let solid_color = if is_gradient {
+            Color::rgba(255, 255, 255, 255)
+        } else {
+            paint_color(paint)
+        };
         let color_a_norm =
-            Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+            Fixed::from_int(solid_color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let combined_alpha = opa_norm * color_a_norm;
 
         let segs = &self.flatten_buf;
@@ -128,6 +214,7 @@ impl SwRenderer<'_> {
         let target = &mut self.target;
         let acc = &mut self.scanline_acc;
         let crossings = &mut self.scanline_crossings;
+        let paint_ref = paint;
         raster::scanline_fill(
             segs,
             px_x0,
@@ -144,7 +231,12 @@ impl SwRenderer<'_> {
                     .unwrap_or(255);
                 let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
-                    target.blend_pixel_int(px, py, &color, final_alpha);
+                    if is_gradient {
+                        let c = sample_gradient(paint_ref, px, py);
+                        target.blend_pixel_int(px, py, &c, final_alpha);
+                    } else {
+                        target.blend_pixel_int(px, py, &solid_color, final_alpha);
+                    }
                 }
             },
         );
@@ -227,15 +319,15 @@ impl SwRenderer<'_> {
         paint: &Paint,
         opa: u8,
     ) {
-        let color = paint_color(paint);
-        self.fill_physical_path(phys_path, clip, &color, opa);
+        let _ = paint_color(paint);
+        self.fill_physical_path(phys_path, clip, paint, opa);
     }
 
     pub(super) fn fill_physical_path(
         &mut self,
         phys_path: &Path,
         clip: &Rect,
-        color: &Color,
+        paint: &Paint,
         opa: u8,
     ) {
         if opa == 0 {
@@ -257,8 +349,14 @@ impl SwRenderer<'_> {
 
         let (px_x0, px_y0, px_x1, py_y1) = draw_area.pixel_bounds();
         let opa_norm = Fixed::from_int(opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+        let is_gradient = !matches!(paint, Paint::Color(_));
+        let solid_color = if is_gradient {
+            Color::rgba(255, 255, 255, 255)
+        } else {
+            paint_color(paint)
+        };
         let color_a_norm =
-            Fixed::from_int(color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+            Fixed::from_int(solid_color.a as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
         let combined_alpha = opa_norm * color_a_norm;
 
         let segs = &self.flatten_buf;
@@ -267,6 +365,7 @@ impl SwRenderer<'_> {
         let target = &mut self.target;
         let acc = &mut self.scanline_acc;
         let crossings = &mut self.scanline_crossings;
+        let paint_ref = paint;
         raster::scanline_fill(
             segs,
             px_x0,
@@ -283,7 +382,12 @@ impl SwRenderer<'_> {
                     .unwrap_or(255);
                 let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
-                    target.blend_pixel_int(px, py, color, final_alpha);
+                    if is_gradient {
+                        let c = sample_gradient(paint_ref, px, py);
+                        target.blend_pixel_int(px, py, &c, final_alpha);
+                    } else {
+                        target.blend_pixel_int(px, py, &solid_color, final_alpha);
+                    }
                 }
             },
         );
