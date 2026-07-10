@@ -7,7 +7,7 @@ mod texture_pool;
 use alloc::format;
 use alloc::string::String;
 
-use web_sys::CanvasRenderingContext2d;
+use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
 use self::texture_pool::{GlyphKey, GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
 use crate::render::backends::sw::SwRenderer;
@@ -15,6 +15,7 @@ use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
 use crate::render::factory::RendererFactory;
 use crate::render::path::{Path, PathCmd};
+use crate::render::raster::{LineCap, LineJoin};
 use crate::render::renderer::Renderer;
 use crate::render::texture::{AlphaMode, ColorFormat, Texture};
 use crate::surface::web_canvas::WebCanvasSurface;
@@ -174,6 +175,86 @@ impl WebCanvasRenderer<'_> {
         ctx.set_global_alpha((color.a as f64 * opa as f64) / (255.0 * 255.0));
         ctx.set_stroke_style_str(&css_color(color));
         ctx.set_line_width((width.to_f32() as f64).max(1.0));
+    }
+
+    fn set_paint_style(&self, paint: &Paint, opa: u8) {
+        let ctx = self.ctx();
+        match paint {
+            Paint::Color(color) => self.set_fill(&(*color).into(), opa),
+            Paint::LinearGradient(gradient) => {
+                ctx.set_global_alpha(1.0);
+                let grad = ctx.create_linear_gradient(
+                    gradient.start.x.to_f32() as f64,
+                    gradient.start.y.to_f32() as f64,
+                    gradient.end.x.to_f32() as f64,
+                    gradient.end.y.to_f32() as f64,
+                );
+                add_gradient_stops(&grad, &gradient.stops, opa);
+                ctx.set_fill_style_canvas_gradient(&grad);
+            }
+            Paint::RadialGradient(gradient) => {
+                ctx.set_global_alpha(1.0);
+                if let Ok(grad) = ctx.create_radial_gradient(
+                    gradient.center.x.to_f32() as f64,
+                    gradient.center.y.to_f32() as f64,
+                    0.0,
+                    gradient.center.x.to_f32() as f64,
+                    gradient.center.y.to_f32() as f64,
+                    gradient.radius.to_f32().max(0.0) as f64,
+                ) {
+                    add_gradient_stops(&grad, &gradient.stops, opa);
+                    ctx.set_fill_style_canvas_gradient(&grad);
+                } else {
+                    self.set_fill(&paint_color(paint), opa);
+                }
+            }
+        }
+    }
+
+    fn set_stroke_style(
+        &self,
+        paint: &Paint,
+        width: Fixed,
+        opa: u8,
+        cap: LineCap,
+        join: LineJoin,
+        miter_limit: Fixed,
+    ) {
+        let ctx = self.ctx();
+        ctx.set_line_width((width.to_f32() as f64).max(1.0));
+        ctx.set_line_cap(line_cap_str(cap));
+        ctx.set_line_join(line_join_str(join));
+        ctx.set_miter_limit(miter_limit.to_f32().max(0.0) as f64);
+        match paint {
+            Paint::Color(color) => self.set_stroke(&(*color).into(), width, opa),
+            Paint::LinearGradient(gradient) => {
+                ctx.set_global_alpha(1.0);
+                let grad = ctx.create_linear_gradient(
+                    gradient.start.x.to_f32() as f64,
+                    gradient.start.y.to_f32() as f64,
+                    gradient.end.x.to_f32() as f64,
+                    gradient.end.y.to_f32() as f64,
+                );
+                add_gradient_stops(&grad, &gradient.stops, opa);
+                ctx.set_stroke_style_canvas_gradient(&grad);
+            }
+            Paint::RadialGradient(gradient) => {
+                ctx.set_global_alpha(1.0);
+                if let Ok(grad) = ctx.create_radial_gradient(
+                    gradient.center.x.to_f32() as f64,
+                    gradient.center.y.to_f32() as f64,
+                    0.0,
+                    gradient.center.x.to_f32() as f64,
+                    gradient.center.y.to_f32() as f64,
+                    gradient.radius.to_f32().max(0.0) as f64,
+                ) {
+                    add_gradient_stops(&grad, &gradient.stops, opa);
+                    ctx.set_stroke_style_canvas_gradient(&grad);
+                } else {
+                    self.set_stroke(&paint_color(paint), width, opa);
+                }
+            }
+        }
     }
 
     /// Affine quads use `setTransform` + `roundRect`; perspective
@@ -707,13 +788,17 @@ impl Canvas for WebCanvasRenderer<'_> {
         clip: &Rect,
         paint: &Paint,
         opa: u8,
-        _fill_rule: crate::render::raster::FillRule,
+        fill_rule: crate::render::raster::FillRule,
     ) {
-        let color = paint_color(paint);
         self.push_rect_clip(clip);
-        self.set_fill(&color, opa);
+        self.set_paint_style(paint, opa);
         self.build_path(path);
-        self.ctx().fill();
+        match fill_rule {
+            crate::render::raster::FillRule::EvenOdd => self
+                .ctx()
+                .fill_with_canvas_winding_rule(CanvasWindingRule::Evenodd),
+            crate::render::raster::FillRule::NonZero => self.ctx().fill(),
+        }
         self.pop_rect_clip();
     }
 
@@ -724,14 +809,13 @@ impl Canvas for WebCanvasRenderer<'_> {
         width: Fixed,
         paint: &Paint,
         opa: u8,
-        _cap: crate::render::raster::LineCap,
-        _join: crate::render::raster::LineJoin,
-        _miter_limit: Fixed,
+        cap: crate::render::raster::LineCap,
+        join: crate::render::raster::LineJoin,
+        miter_limit: Fixed,
         _dash: &[Fixed],
     ) {
-        let color = paint_color(paint);
         self.push_rect_clip(clip);
-        self.set_stroke(&color, width, opa);
+        self.set_stroke_style(paint, width, opa, cap, join, miter_limit);
         self.build_path(path);
         self.ctx().stroke();
         self.pop_rect_clip();
@@ -971,11 +1055,16 @@ impl Canvas for WebCanvasRenderer<'_> {
         &mut self,
         path: &Path,
         _transform: &Transform,
-        _fill_rule: crate::render::raster::FillRule,
+        fill_rule: crate::render::raster::FillRule,
     ) {
         self.ctx().save();
         self.build_path(path);
-        self.ctx().clip();
+        match fill_rule {
+            crate::render::raster::FillRule::EvenOdd => self
+                .ctx()
+                .clip_with_canvas_winding_rule(CanvasWindingRule::Evenodd),
+            crate::render::raster::FillRule::NonZero => self.ctx().clip(),
+        }
     }
 
     fn pop_clip(&mut self) {
@@ -987,6 +1076,43 @@ impl Canvas for WebCanvasRenderer<'_> {
 
 fn css_color(c: &Color) -> String {
     format!("rgb({}, {}, {})", c.r, c.g, c.b)
+}
+
+fn css_color_with_opa(c: impl Into<Color>, opa: u8) -> String {
+    let color = c.into().scale_alpha(opa);
+    format!(
+        "rgba({}, {}, {}, {:.6})",
+        color.r,
+        color.g,
+        color.b,
+        color.a as f64 / 255.0
+    )
+}
+
+fn add_gradient_stops(gradient: &CanvasGradient, stops: &[mirx::GradientStop], opa: u8) {
+    for stop in stops {
+        let offset: Fixed = stop.offset.into();
+        let _ = gradient.add_color_stop(
+            offset.to_f32().clamp(0.0, 1.0),
+            &css_color_with_opa(stop.color, opa),
+        );
+    }
+}
+
+fn line_cap_str(cap: LineCap) -> &'static str {
+    match cap {
+        LineCap::Butt => "butt",
+        LineCap::Round => "round",
+        LineCap::Square => "square",
+    }
+}
+
+fn line_join_str(join: LineJoin) -> &'static str {
+    match join {
+        LineJoin::Miter => "miter",
+        LineJoin::Round => "round",
+        LineJoin::Bevel => "bevel",
+    }
 }
 
 /// Recover the 2D affine `(a, b, c, d, e, f)` (`setTransform` argument
