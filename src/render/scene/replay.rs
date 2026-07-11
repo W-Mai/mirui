@@ -1,5 +1,6 @@
 //! Replay an owned `SceneOp` stream back through a live `Renderer`.
 
+use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
 use super::bbox::{direct_children_bboxes, pairwise_disjoint};

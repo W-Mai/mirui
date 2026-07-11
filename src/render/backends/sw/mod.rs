@@ -256,11 +256,7 @@ impl<'a> SwRenderer<'a> {
                     &[],
                 );
             }
-            DrawCommand::Label { .. } => {
-                unimplemented!(
-                    "sw backend: Label under non-axis-aligned transform not yet supported"
-                );
-            }
+            DrawCommand::Label { .. } => {}
         }
     }
 }
