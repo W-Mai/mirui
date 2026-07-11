@@ -105,6 +105,9 @@ impl<'a> SwRenderer<'a> {
             DrawCommand::PopClip => {
                 self.pop_clip();
             }
+            DrawCommand::ApplyBlur { alpha } => {
+                crate::render::backends::sw::blur::iir_blur_inplace(&mut self.target, *alpha);
+            }
             DrawCommand::Fill {
                 area, color, opa, ..
             } => {
@@ -683,6 +686,10 @@ impl Renderer for SwRenderer<'_> {
             DrawCommand::PopClip => {
                 crate::trace_span!("sw.pop_clip");
                 self.pop_clip();
+            }
+            DrawCommand::ApplyBlur { alpha } => {
+                crate::trace_span!("sw.apply_blur");
+                crate::render::backends::sw::blur::iir_blur_inplace(&mut self.target, *alpha);
             }
             DrawCommand::Fill {
                 area,

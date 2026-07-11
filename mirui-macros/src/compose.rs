@@ -308,6 +308,7 @@ impl ComposeInput {
                         ::mirui::render::DrawCommand::PopClip => {
                             self.pop_clip();
                         }
+                        ::mirui::render::DrawCommand::ApplyBlur { .. } => {}
                     }
                 }
 

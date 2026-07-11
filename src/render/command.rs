@@ -220,6 +220,9 @@ pub enum DrawCommand<'a> {
         fill_rule: FillRule,
     },
     PopClip,
+    ApplyBlur {
+        alpha: Fixed,
+    },
 }
 
 impl DrawCommand<'_> {
@@ -234,7 +237,7 @@ impl DrawCommand<'_> {
             | Self::Blit { transform, .. }
             | Self::FillPath { transform, .. }
             | Self::StrokePath { transform, .. } => transform,
-            Self::PushClip { .. } | Self::PopClip => Transform::IDENTITY,
+            Self::PushClip { .. } | Self::PopClip | Self::ApplyBlur { .. } => Transform::IDENTITY,
         }
     }
 }

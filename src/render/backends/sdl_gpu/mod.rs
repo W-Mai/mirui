@@ -498,7 +498,8 @@ impl Renderer for SdlGpuRenderer<'_> {
         // pre-projected any 3D/2D affine into the 4 quad vertices, so
         // the GPU just needs to tessellate / UV-map them.
         match cmd {
-            DrawCommand::PushClip { .. } | DrawCommand::PopClip => {}
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
+            }
             DrawCommand::Fill {
                 quad: Some(q),
                 radius,
@@ -556,7 +557,8 @@ impl Renderer for SdlGpuRenderer<'_> {
             ),
         };
         match cmd {
-            DrawCommand::PushClip { .. } | DrawCommand::PopClip => {}
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
+            }
             DrawCommand::Fill {
                 area,
                 color,

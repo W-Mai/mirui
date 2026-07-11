@@ -9,7 +9,7 @@ use crate::render::command::DrawCommand;
 use crate::render::font::Font;
 use crate::render::renderer::Renderer;
 use crate::render::texture::Texture;
-use crate::types::{Rect, Transform};
+use crate::types::{Fixed, Rect, Transform};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReplayError {
@@ -25,11 +25,29 @@ pub enum ReplayError {
     GroupOpacityNeedsOffscreen,
 }
 
-#[derive(Clone, Copy)]
+fn parse_blur_filter(filter: &str) -> Option<Fixed> {
+    for part in filter.split(';') {
+        if let Some(rest) = part.strip_prefix("blur:") {
+            let parts: Vec<&str> = rest.split(':').collect();
+            let std_dev = parts
+                .first()
+                .and_then(|s| s.parse::<f32>().ok())
+                .unwrap_or(0.0);
+            if std_dev > 0.0 {
+                let alpha = (std_dev / 10.0).min(0.95);
+                return Some(Fixed::from_f32(alpha));
+            }
+        }
+    }
+    None
+}
+
+#[derive(Clone)]
 struct GroupFrame {
     transform: Transform,
     alpha: u8,
     has_clip: bool,
+    filter: Option<String>,
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -73,6 +91,7 @@ pub fn replay_scene(
         transform: Transform::IDENTITY,
         alpha: 255,
         has_clip: false,
+        filter: None,
     }];
     let mut skip_until_depth: Option<usize> = None;
 
@@ -83,7 +102,7 @@ pub fn replay_scene(
         if let Some(target_depth) = skip_until_depth {
             match op {
                 SceneOp::GroupBegin { .. } => {
-                    stack.push(*stack.last().unwrap());
+                    stack.push(stack.last().unwrap().clone());
                 }
                 SceneOp::GroupEnd => {
                     if stack.len() <= 1 {
@@ -100,13 +119,14 @@ pub fn replay_scene(
             continue;
         }
 
-        let top = *stack.last().ok_or(ReplayError::UnbalancedGroup)?;
+        let top = stack.last().cloned().ok_or(ReplayError::UnbalancedGroup)?;
         match op {
             SceneOp::GroupBegin {
                 transform,
                 opacity,
                 clip: group_clip,
                 disjoint_hint,
+                filter,
                 ..
             } => {
                 let composed = match transform {
@@ -122,6 +142,7 @@ pub fn replay_scene(
                             transform: composed,
                             alpha: 0,
                             has_clip: false,
+                            filter: None,
                         });
                         i += 1;
                         continue;
@@ -158,6 +179,10 @@ pub fn replay_scene(
                     transform: composed,
                     alpha: next_alpha,
                     has_clip,
+                    filter: filter.as_ref().and_then(|r| match r {
+                        ResourceRef::Token(s) => Some(s.to_string()),
+                        ResourceRef::Index(_) | ResourceRef::Inline(_) => None,
+                    }),
                 });
             }
             SceneOp::GroupEnd => {
@@ -167,6 +192,11 @@ pub fn replay_scene(
                 let frame = stack.pop().unwrap();
                 if frame.has_clip {
                     renderer.draw(&DrawCommand::PopClip, clip);
+                }
+                if let Some(filter_str) = &frame.filter {
+                    if let Some(blur_alpha) = parse_blur_filter(filter_str) {
+                        renderer.draw(&DrawCommand::ApplyBlur { alpha: blur_alpha }, clip);
+                    }
                 }
             }
             SceneOp::PushClip {

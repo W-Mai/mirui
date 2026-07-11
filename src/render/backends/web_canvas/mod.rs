@@ -607,7 +607,8 @@ impl Renderer for WebCanvasRenderer<'_> {
         }
 
         match cmd {
-            DrawCommand::PushClip { .. } | DrawCommand::PopClip => {}
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
+            }
             DrawCommand::Fill {
                 area,
                 quad: Some(q),

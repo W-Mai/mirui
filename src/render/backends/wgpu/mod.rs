@@ -1481,7 +1481,8 @@ impl Renderer for WgpuRenderer<'_> {
         // 3D / non-affine widget into 4 corner points, so the GPU only
         // has to draw the resulting quad.
         match cmd {
-            DrawCommand::PushClip { .. } | DrawCommand::PopClip => {}
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
+            }
             DrawCommand::Fill {
                 area,
                 quad: Some(q),
@@ -1552,7 +1553,8 @@ impl Renderer for WgpuRenderer<'_> {
         };
 
         match cmd {
-            DrawCommand::PushClip { .. } | DrawCommand::PopClip => {}
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
+            }
             DrawCommand::Fill {
                 area,
                 color,

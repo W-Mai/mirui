@@ -167,6 +167,7 @@ pub fn record_command(
             fill_rule: *fill_rule,
         },
         DrawCommand::PopClip => SceneOp::PopClip,
+        DrawCommand::ApplyBlur { .. } => SceneOp::GroupEnd,
     })
 }
 
