@@ -41,6 +41,7 @@ pub mod on_handlers;
 pub mod particles;
 pub mod persistence_counter;
 pub mod pinch_rotate;
+pub mod render_showcase;
 pub mod rounded;
 pub mod scroll;
 pub mod sdf_zoom;

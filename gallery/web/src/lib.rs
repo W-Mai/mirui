@@ -45,6 +45,7 @@ gallery::register_demos! {
     ("clip_path",            "clip path",            "Effects",     clip_path,            320, 320),
     ("fill_rules",           "fill rules",           "Effects",     fill_rules,           400, 240),
     ("blur_filter",          "blur filter",          "Effects",     blur_filter,          480, 240),
+    ("render_showcase",      "render showcase",      "Effects",     render_showcase,      640, 660),
 
     ("click",                "click colors",         "Interaction", click,                480, 320),
     ("toggle",               "toggle",               "Interaction", toggle,               640, 320),
