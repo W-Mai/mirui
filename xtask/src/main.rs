@@ -700,7 +700,7 @@ fn cmd_publish(dry_run: bool) -> Result {
     }
 
     for package in ["mirx", "mirui-macros", "mirui"] {
-        let mut args = vec!["publish", "-p", package, "--no-verify"];
+        let mut args = vec!["publish", "-p", package, "--no-verify", "--registry", "crates-io"];
         if dry_run {
             args.push("--dry-run");
         }
