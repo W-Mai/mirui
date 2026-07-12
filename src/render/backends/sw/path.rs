@@ -20,16 +20,73 @@ fn paint_color(paint: &Paint) -> Color {
     }
 }
 
-fn sample_gradient(paint: &Paint, px: i32, py: i32) -> Color {
+fn map_units(c: mirx::Point, units: mirx::GradientUnits, bbox: Rect) -> Fixed {
+    let cx: Fixed = c.x.into();
+    match units {
+        mirx::GradientUnits::UserSpaceOnUse => cx,
+        mirx::GradientUnits::ObjectBoundingBox => bbox.x + cx * bbox.w,
+    }
+}
+
+fn map_units_y(c: mirx::Point, units: mirx::GradientUnits, bbox: Rect) -> Fixed {
+    let cy: Fixed = c.y.into();
+    match units {
+        mirx::GradientUnits::UserSpaceOnUse => cy,
+        mirx::GradientUnits::ObjectBoundingBox => bbox.y + cy * bbox.h,
+    }
+}
+
+fn map_scalar(v: mirx::Fixed, units: mirx::GradientUnits, bbox: Rect, axis_w: bool) -> Fixed {
+    let v: Fixed = v.into();
+    match units {
+        mirx::GradientUnits::UserSpaceOnUse => v,
+        mirx::GradientUnits::ObjectBoundingBox => {
+            if axis_w {
+                v * bbox.w
+            } else {
+                v * bbox.h
+            }
+        }
+    }
+}
+
+fn apply_spread(t: Fixed, spread: mirx::SpreadMode) -> Fixed {
+    match spread {
+        mirx::SpreadMode::Pad => t,
+        mirx::SpreadMode::Repeat => {
+            if t < Fixed::ZERO {
+                let mut r = t;
+                while r < Fixed::ZERO {
+                    r += Fixed::ONE;
+                }
+                r
+            } else {
+                t - t.floor()
+            }
+        }
+        mirx::SpreadMode::Reflect => {
+            let mut r = t;
+            if r < Fixed::ZERO {
+                r = -r;
+            }
+            let floor = r.floor();
+            let frac = r - floor;
+            let period = floor.to_int() % 2;
+            if period == 0 { frac } else { Fixed::ONE - frac }
+        }
+    }
+}
+
+fn sample_gradient(paint: &Paint, px: i32, py: i32, bbox: Rect) -> Color {
     match paint {
         Paint::Color(c) => (*c).into(),
         Paint::LinearGradient(g) => {
+            let sx = map_units(g.start, g.units, bbox);
+            let sy = map_units_y(g.start, g.units, bbox);
+            let ex = map_units(g.end, g.units, bbox);
+            let ey = map_units_y(g.end, g.units, bbox);
             let x = Fixed::from_int(px);
-            let y: Fixed = Fixed::from_int(py);
-            let sx: Fixed = g.start.x.into();
-            let sy: Fixed = g.start.y.into();
-            let ex: Fixed = g.end.x.into();
-            let ey: Fixed = g.end.y.into();
+            let y = Fixed::from_int(py);
             let dx = ex - sx;
             let dy = ey - sy;
             let len_sq = dx * dx + dy * dy;
@@ -41,18 +98,18 @@ fn sample_gradient(paint: &Paint, px: i32, py: i32) -> Color {
                     .unwrap_or(Color::rgba(0, 0, 0, 0));
             }
             let t = ((x - sx) * dx + (y - sy) * dy) / len_sq;
+            let t = apply_spread(t, g.spread);
             sample_stops(&g.stops, t)
         }
         Paint::RadialGradient(g) => {
+            let cx = map_units(g.center, g.units, bbox);
+            let cy = map_units_y(g.center, g.units, bbox);
+            let r = map_scalar(g.radius, g.units, bbox, true);
             let x = Fixed::from_int(px);
             let y = Fixed::from_int(py);
-            let cx: Fixed = g.center.x.into();
-            let cy: Fixed = g.center.y.into();
-            let r: Fixed = g.radius.into();
             let dx = x - cx;
             let dy = y - cy;
-            let dist_sq = dx * dx + dy * dy;
-            let dist = dist_sq.sqrt();
+            let dist = (dx * dx + dy * dy).sqrt();
             if r == Fixed::ZERO {
                 return g
                     .stops
@@ -61,6 +118,7 @@ fn sample_gradient(paint: &Paint, px: i32, py: i32) -> Color {
                     .unwrap_or(Color::rgba(0, 0, 0, 0));
             }
             let t = dist / r;
+            let t = apply_spread(t, g.spread);
             sample_stops(&g.stops, t)
         }
     }
@@ -215,6 +273,7 @@ impl SwRenderer<'_> {
         let acc = &mut self.scanline_acc;
         let crossings = &mut self.scanline_crossings;
         let paint_ref = paint;
+        let grad_bbox = bbox;
         raster::scanline_fill(
             segs,
             px_x0,
@@ -232,7 +291,7 @@ impl SwRenderer<'_> {
                 let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
                     if is_gradient {
-                        let c = sample_gradient(paint_ref, px, py);
+                        let c = sample_gradient(paint_ref, px, py, grad_bbox);
                         target.blend_pixel_int(px, py, &c, final_alpha);
                     } else {
                         target.blend_pixel_int(px, py, &solid_color, final_alpha);
@@ -372,6 +431,7 @@ impl SwRenderer<'_> {
         let acc = &mut self.scanline_acc;
         let crossings = &mut self.scanline_crossings;
         let paint_ref = paint;
+        let grad_bbox = bbox;
         raster::scanline_fill(
             segs,
             px_x0,
@@ -389,13 +449,94 @@ impl SwRenderer<'_> {
                 let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
                 if final_alpha > 0 {
                     if is_gradient {
-                        let c = sample_gradient(paint_ref, px, py);
+                        let c = sample_gradient(paint_ref, px, py, grad_bbox);
                         target.blend_pixel_int(px, py, &c, final_alpha);
                     } else {
                         target.blend_pixel_int(px, py, &solid_color, final_alpha);
                     }
                 }
             },
+        );
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod gradient_tests {
+    extern crate std;
+    use super::*;
+    use crate::prelude::Point;
+    use crate::render::canvas::Canvas;
+    use crate::render::path::Path;
+    use crate::render::texture::{ColorFormat, Texture};
+    use mirx::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
+
+    fn linear_paint_obb() -> Paint {
+        Paint::LinearGradient(LinearGradient {
+            start: mirx::Point {
+                x: Fixed::ZERO.into(),
+                y: Fixed::ZERO.into(),
+            },
+            end: mirx::Point {
+                x: Fixed::ONE.into(),
+                y: Fixed::ONE.into(),
+            },
+            stops: std::vec![
+                GradientStop {
+                    offset: Fixed::ZERO.into(),
+                    color: Color::rgb(50, 120, 255).into()
+                },
+                GradientStop {
+                    offset: Fixed::ONE.into(),
+                    color: Color::rgb(255, 70, 90).into()
+                },
+            ],
+            spread: SpreadMode::Pad,
+            units: GradientUnits::ObjectBoundingBox,
+            transform: Transform::IDENTITY.into(),
+        })
+    }
+
+    #[test]
+    fn linear_object_bounding_box_maps_to_path_bbox() {
+        let mut buf = std::vec![0u8; 64 * 64 * 4];
+        let tex = Texture::new(&mut buf, 64, 64, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let clip = Rect::new(0, 0, 64, 64);
+
+        let mut path = Path::new();
+        path.move_to(Point {
+            x: Fixed::from_int(10),
+            y: Fixed::from_int(10),
+        });
+        path.line_to(Point {
+            x: Fixed::from_int(50),
+            y: Fixed::from_int(10),
+        });
+        path.line_to(Point {
+            x: Fixed::from_int(50),
+            y: Fixed::from_int(50),
+        });
+        path.line_to(Point {
+            x: Fixed::from_int(10),
+            y: Fixed::from_int(50),
+        });
+        path.close();
+
+        let paint = linear_paint_obb();
+        backend.fill_path(&path, &clip, &paint, 255, FillRule::EvenOdd);
+
+        let tl = backend.target.get_pixel(12, 12);
+        let br = backend.target.get_pixel(48, 48);
+        std::eprintln!("tl={:?} br={:?}", tl, br);
+        assert!(
+            tl.b > tl.r,
+            "top-left (near gradient start) should be blue-ish, got {:?}",
+            tl
+        );
+        assert!(
+            br.r > br.b,
+            "bottom-right (near gradient end) should be red-ish, got {:?}",
+            br
         );
     }
 }

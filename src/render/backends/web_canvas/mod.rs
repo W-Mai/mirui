@@ -83,6 +83,43 @@ pub struct WebCanvasRenderer<'a> {
     viewport: Viewport,
 }
 
+fn map_point(c: mirx::Point, units: mirx::GradientUnits, bbox: Option<Rect>) -> (f64, f64) {
+    match units {
+        mirx::GradientUnits::UserSpaceOnUse => (c.x.to_f32() as f64, c.y.to_f32() as f64),
+        mirx::GradientUnits::ObjectBoundingBox => {
+            let b = bbox.unwrap_or(Rect::new(0, 0, Fixed::ONE, Fixed::ONE));
+            let cx: Fixed = c.x.into();
+            let cy: Fixed = c.y.into();
+            (
+                (b.x + cx * b.w).to_f32() as f64,
+                (b.y + cy * b.h).to_f32() as f64,
+            )
+        }
+    }
+}
+
+fn map_scalar_grad(v: mirx::Fixed, units: mirx::GradientUnits, bbox: Option<Rect>) -> f64 {
+    match units {
+        mirx::GradientUnits::UserSpaceOnUse => v.to_f32().max(0.0) as f64,
+        mirx::GradientUnits::ObjectBoundingBox => {
+            let b = bbox.unwrap_or(Rect::new(0, 0, Fixed::ONE, Fixed::ONE));
+            let vf: Fixed = v.into();
+            (vf * b.w).to_f32().max(0.0) as f64
+        }
+    }
+}
+
+fn map_gradient_points(
+    start: mirx::Point,
+    end: mirx::Point,
+    units: mirx::GradientUnits,
+    bbox: Option<Rect>,
+) -> (f64, f64, f64, f64) {
+    let (sx, sy) = map_point(start, units, bbox);
+    let (ex, ey) = map_point(end, units, bbox);
+    (sx, sy, ex, ey)
+}
+
 impl WebCanvasRenderer<'_> {
     fn ctx(&self) -> &CanvasRenderingContext2d {
         self.surface.ctx()
@@ -178,31 +215,23 @@ impl WebCanvasRenderer<'_> {
         ctx.set_line_width((width.to_f32() as f64).max(1.0));
     }
 
-    fn set_paint_style(&self, paint: &Paint, opa: u8) {
+    fn set_paint_style(&self, paint: &Paint, opa: u8, bbox: Option<Rect>) {
         let ctx = self.ctx();
         match paint {
             Paint::Color(color) => self.set_fill(&(*color).into(), opa),
             Paint::LinearGradient(gradient) => {
                 ctx.set_global_alpha(1.0);
-                let grad = ctx.create_linear_gradient(
-                    gradient.start.x.to_f32() as f64,
-                    gradient.start.y.to_f32() as f64,
-                    gradient.end.x.to_f32() as f64,
-                    gradient.end.y.to_f32() as f64,
-                );
+                let (sx, sy, ex, ey) =
+                    map_gradient_points(gradient.start, gradient.end, gradient.units, bbox);
+                let grad = ctx.create_linear_gradient(sx, sy, ex, ey);
                 add_gradient_stops(&grad, &gradient.stops, opa);
                 ctx.set_fill_style_canvas_gradient(&grad);
             }
             Paint::RadialGradient(gradient) => {
                 ctx.set_global_alpha(1.0);
-                if let Ok(grad) = ctx.create_radial_gradient(
-                    gradient.center.x.to_f32() as f64,
-                    gradient.center.y.to_f32() as f64,
-                    0.0,
-                    gradient.center.x.to_f32() as f64,
-                    gradient.center.y.to_f32() as f64,
-                    gradient.radius.to_f32().max(0.0) as f64,
-                ) {
+                let (cx, cy) = map_point(gradient.center, gradient.units, bbox);
+                let r = map_scalar_grad(gradient.radius, gradient.units, bbox);
+                if let Ok(grad) = ctx.create_radial_gradient(cx, cy, 0.0, cx, cy, r) {
                     add_gradient_stops(&grad, &gradient.stops, opa);
                     ctx.set_fill_style_canvas_gradient(&grad);
                 } else {
@@ -220,6 +249,7 @@ impl WebCanvasRenderer<'_> {
         cap: LineCap,
         join: LineJoin,
         miter_limit: Fixed,
+        bbox: Option<Rect>,
     ) {
         let ctx = self.ctx();
         ctx.set_line_width((width.to_f32() as f64).max(1.0));
@@ -230,25 +260,17 @@ impl WebCanvasRenderer<'_> {
             Paint::Color(color) => self.set_stroke(&(*color).into(), width, opa),
             Paint::LinearGradient(gradient) => {
                 ctx.set_global_alpha(1.0);
-                let grad = ctx.create_linear_gradient(
-                    gradient.start.x.to_f32() as f64,
-                    gradient.start.y.to_f32() as f64,
-                    gradient.end.x.to_f32() as f64,
-                    gradient.end.y.to_f32() as f64,
-                );
+                let (sx, sy, ex, ey) =
+                    map_gradient_points(gradient.start, gradient.end, gradient.units, bbox);
+                let grad = ctx.create_linear_gradient(sx, sy, ex, ey);
                 add_gradient_stops(&grad, &gradient.stops, opa);
                 ctx.set_stroke_style_canvas_gradient(&grad);
             }
             Paint::RadialGradient(gradient) => {
                 ctx.set_global_alpha(1.0);
-                if let Ok(grad) = ctx.create_radial_gradient(
-                    gradient.center.x.to_f32() as f64,
-                    gradient.center.y.to_f32() as f64,
-                    0.0,
-                    gradient.center.x.to_f32() as f64,
-                    gradient.center.y.to_f32() as f64,
-                    gradient.radius.to_f32().max(0.0) as f64,
-                ) {
+                let (cx, cy) = map_point(gradient.center, gradient.units, bbox);
+                let r = map_scalar_grad(gradient.radius, gradient.units, bbox);
+                if let Ok(grad) = ctx.create_radial_gradient(cx, cy, 0.0, cx, cy, r) {
                     add_gradient_stops(&grad, &gradient.stops, opa);
                     ctx.set_stroke_style_canvas_gradient(&grad);
                 } else {
@@ -861,7 +883,8 @@ impl Canvas for WebCanvasRenderer<'_> {
         fill_rule: crate::render::raster::FillRule,
     ) {
         self.push_rect_clip(clip);
-        self.set_paint_style(paint, opa);
+        let bbox = path.bbox();
+        self.set_paint_style(paint, opa, bbox);
         self.build_path(path);
         match fill_rule {
             crate::render::raster::FillRule::EvenOdd => self
@@ -885,7 +908,8 @@ impl Canvas for WebCanvasRenderer<'_> {
         _dash: &[Fixed],
     ) {
         self.push_rect_clip(clip);
-        self.set_stroke_style(paint, width, opa, cap, join, miter_limit);
+        let bbox = path.bbox();
+        self.set_stroke_style(paint, width, opa, cap, join, miter_limit, bbox);
         self.build_path(path);
         self.ctx().stroke();
         self.pop_rect_clip();
