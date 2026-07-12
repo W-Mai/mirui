@@ -40,6 +40,11 @@ gallery::register_demos! {
     ("vector_mandala",       "vector mandala",       "Effects",     vector_mandala,       512, 512),
     ("icon",                 "icon set",             "Effects",     icon,                 540, 320),
     ("composite",            "blit composite modes", "Effects",     composite,            720, 240),
+    ("gradient",             "gradient paint",       "Effects",     gradient,             480, 320),
+    ("stroke_styles",        "stroke styles",        "Effects",     stroke_styles,        480, 360),
+    ("clip_path",            "clip path",            "Effects",     clip_path,            320, 320),
+    ("fill_rules",           "fill rules",           "Effects",     fill_rules,           400, 240),
+    ("blur_filter",          "blur filter",          "Effects",     blur_filter,          480, 240),
 
     ("click",                "click colors",         "Interaction", click,                480, 320),
     ("toggle",               "toggle",               "Interaction", toggle,               640, 320),
