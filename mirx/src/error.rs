@@ -21,3 +21,58 @@ pub enum ParseError {
     /// hard reject.
     ReservedNonZero,
 }
+
+use crate::InvalidChunkType;
+
+/// Failures while opening or structurally inspecting MIRX bytes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ReadError {
+    Parse(ParseError),
+    InvalidChunkType,
+}
+
+impl From<ParseError> for ReadError {
+    fn from(value: ParseError) -> Self {
+        Self::Parse(value)
+    }
+}
+
+impl From<InvalidChunkType> for ReadError {
+    fn from(_: InvalidChunkType) -> Self {
+        Self::InvalidChunkType
+    }
+}
+
+/// Failures while constructing an editable document.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum DocumentError {
+    Read(ReadError),
+    AllocationFailed,
+}
+
+impl From<ReadError> for DocumentError {
+    fn from(value: ReadError) -> Self {
+        Self::Read(value)
+    }
+}
+
+/// Failures from an in-memory document mutation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum EditError {
+    InvalidChunkId,
+    InvalidChunkType,
+    ChunkIdExhausted,
+    AllocationFailed,
+}
+
+/// Failures while planning or emitting MIRX bytes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum EncodeError {
+    SizeOverflow,
+    BufferTooSmall { needed: usize, available: usize },
+    AllocationFailed,
+}

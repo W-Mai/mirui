@@ -9,6 +9,7 @@ mod flat;
 pub mod font;
 mod format;
 mod header;
+mod model;
 pub mod path;
 pub mod scene;
 pub mod types;
@@ -18,7 +19,7 @@ pub use chunk::{
     encode_chunks, parse_chunk,
 };
 pub use crc32::compute as crc32;
-pub use error::ParseError;
+pub use error::{DocumentError, EditError, EncodeError, ParseError, ReadError};
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
 pub use font::{
     AtlasHeader, FONT_CHUNK_HEADER_LEN, Font, FontChunkHeader, FontChunkKind, FontDecodeError,
@@ -31,6 +32,7 @@ pub use header::{
     FLAT_HEADER_LEN, FileHeader, FlatHeader, ImageChunkHeader, Layout, MAGIC, VERSION_MAJOR,
     VERSION_MINOR, chunk_type,
 };
+pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType};
 pub use path::{Path, PathCmd};
 pub use scene::{
     CodecError, CompositeMode, FillRule, GradientStop, GradientUnits, LineCap, LineJoin,
