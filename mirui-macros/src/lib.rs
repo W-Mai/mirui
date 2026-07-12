@@ -1132,7 +1132,7 @@ impl MiruiRune {
                     if let Some(children) = (#world).get_mut::<::mirui::ui::Children>(__slot_parent) {
                         children.0.push(#slot_var);
                     } else {
-                        (#world).insert(__slot_parent, ::mirui::ui::Children(::std::vec![#slot_var]));
+                        (#world).insert(__slot_parent, ::mirui::ui::Children(::mirui::__Vec::from([#slot_var])));
                     }
                     __mold_niche_map.insert(#slot_name, #slot_var);
                     #fallback
@@ -1198,7 +1198,7 @@ impl MiruiRune {
                 ),
             };
             {
-                let __existing: ::std::vec::Vec<::mirui::ecs::Entity> = (#world)
+                let __existing: ::mirui::__Vec<::mirui::ecs::Entity> = (#world)
                     .get::<::mirui::ui::Children>(#niche_var_ts)
                     .map(|c| c.0.clone())
                     .unwrap_or_default();

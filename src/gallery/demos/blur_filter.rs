@@ -1,5 +1,9 @@
 #![allow(clippy::needless_update)]
 
+extern crate alloc;
+
+use alloc::vec::Vec;
+
 use crate::prelude::draw::*;
 use crate::prelude::*;
 use crate::render::raster::FillRule;
