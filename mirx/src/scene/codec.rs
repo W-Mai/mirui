@@ -357,7 +357,7 @@ fn read_paint(r: &mut Reader) -> Result<Paint, CodecError> {
         PAINT_KIND_LINEAR => {
             let start = r.point()?;
             let end = r.point()?;
-            let stops = read_gradient_stops(r)?;
+            let stops = alloc::borrow::Cow::Owned(read_gradient_stops(r)?);
             let spread = spread_from_u8(r.u8()?)?;
             let units = units_from_u8(r.u8()?)?;
             let transform = read_transform_raw(r)?;
@@ -375,7 +375,7 @@ fn read_paint(r: &mut Reader) -> Result<Paint, CodecError> {
             let radius = r.fixed()?;
             let focal = r.point()?;
             let focal_radius = r.fixed()?;
-            let stops = read_gradient_stops(r)?;
+            let stops = alloc::borrow::Cow::Owned(read_gradient_stops(r)?);
             let spread = spread_from_u8(r.u8()?)?;
             let units = units_from_u8(r.u8()?)?;
             let transform = read_transform_raw(r)?;
@@ -581,7 +581,7 @@ fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
             out.push(line_join_to_u8(*line_join));
             write_fixed(out, *miter_limit);
             out.extend_from_slice(&(dash.len() as u32).to_le_bytes());
-            for d in dash {
+            for d in dash.iter() {
                 write_fixed(out, *d);
             }
             if bits & FIELD_TRANSFORM != 0 {
@@ -829,6 +829,7 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
             for _ in 0..dash_count {
                 dash.push(r.fixed()?);
             }
+            let dash = alloc::borrow::Cow::Owned(dash);
             let transform = read_transform_opt(r, bits)?;
             Ok(SceneOp::StrokePath {
                 path,
@@ -1259,7 +1260,7 @@ mod tests {
                     line_cap: cap,
                     line_join: join,
                     miter_limit: Fixed::from_int(4),
-                    dash: Vec::new(),
+                    dash: alloc::borrow::Cow::Borrowed(&[]),
                 }]);
             }
         }

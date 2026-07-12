@@ -288,7 +288,12 @@ impl From<mirx::SceneOp> for SceneOp {
                 line_cap,
                 line_join,
                 miter_limit: miter_limit.into(),
-                dash: dash.into_iter().map(Into::into).collect(),
+                dash: dash
+                    .iter()
+                    .copied()
+                    .map(Into::into)
+                    .collect::<alloc::vec::Vec<_>>()
+                    .into(),
             },
             mirx::SceneOp::FillRect {
                 area,
@@ -455,7 +460,12 @@ impl From<SceneOp> for mirx::SceneOp {
                 line_cap,
                 line_join,
                 miter_limit: miter_limit.into(),
-                dash: dash.into_iter().map(Into::into).collect(),
+                dash: dash
+                    .iter()
+                    .copied()
+                    .map(Into::into)
+                    .collect::<alloc::vec::Vec<_>>()
+                    .into(),
             },
             SceneOp::FillRect {
                 area,

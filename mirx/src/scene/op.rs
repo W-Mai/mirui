@@ -1,6 +1,7 @@
 use crate::path::Path;
 use crate::scene::paint::Paint;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
+use alloc::borrow::Cow;
 use alloc::string::String;
 use alloc::vec::Vec;
 
@@ -75,7 +76,7 @@ pub enum SceneOp {
         line_cap: LineCap,
         line_join: LineJoin,
         miter_limit: Fixed,
-        dash: Vec<Fixed>,
+        dash: Cow<'static, [Fixed]>,
     },
     FillRect {
         area: Rect,

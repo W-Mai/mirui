@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::borrow::Cow;
 
 use crate::types::{Color, Fixed, Point, Transform};
 
@@ -13,7 +13,7 @@ pub enum Paint {
 pub struct LinearGradient {
     pub start: Point,
     pub end: Point,
-    pub stops: Vec<GradientStop>,
+    pub stops: Cow<'static, [GradientStop]>,
     pub spread: SpreadMode,
     pub units: GradientUnits,
     pub transform: Transform,
@@ -25,7 +25,7 @@ pub struct RadialGradient {
     pub radius: Fixed,
     pub focal: Point,
     pub focal_radius: Fixed,
-    pub stops: Vec<GradientStop>,
+    pub stops: Cow<'static, [GradientStop]>,
     pub spread: SpreadMode,
     pub units: GradientUnits,
     pub transform: Transform,

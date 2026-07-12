@@ -96,7 +96,7 @@ fn gradient_render(
     let linear = Paint::LinearGradient(LinearGradient {
         start: unit_point(0.0, 0.0),
         end: unit_point(1.0, 1.0),
-        stops: vec![
+        stops: alloc::borrow::Cow::Owned(vec![
             GradientStop {
                 offset: unit(0.0),
                 color: Color::rgb(50, 120, 255).into(),
@@ -109,7 +109,7 @@ fn gradient_render(
                 offset: unit(1.0),
                 color: Color::rgb(255, 70, 90).into(),
             },
-        ],
+        ]),
         spread: SpreadMode::Pad,
         units: GradientUnits::ObjectBoundingBox,
         transform: Transform::IDENTITY.into(),
@@ -135,7 +135,7 @@ fn gradient_render(
         radius: unit(0.7),
         focal: unit_point(0.35, 0.32),
         focal_radius: unit(0.0),
-        stops: vec![
+        stops: alloc::borrow::Cow::Owned(vec![
             GradientStop {
                 offset: unit(0.0),
                 color: Color::rgb(255, 255, 255).into(),
@@ -148,7 +148,7 @@ fn gradient_render(
                 offset: unit(1.0),
                 color: Color::rgb(20, 70, 190).into(),
             },
-        ],
+        ]),
         spread: SpreadMode::Pad,
         units: GradientUnits::ObjectBoundingBox,
         transform: Transform::IDENTITY.into(),

@@ -480,7 +480,7 @@ mod gradient_tests {
                 x: Fixed::ONE.into(),
                 y: Fixed::ONE.into(),
             },
-            stops: std::vec![
+            stops: std::borrow::Cow::Owned(std::vec![
                 GradientStop {
                     offset: Fixed::ZERO.into(),
                     color: Color::rgb(50, 120, 255).into()
@@ -489,7 +489,7 @@ mod gradient_tests {
                     offset: Fixed::ONE.into(),
                     color: Color::rgb(255, 70, 90).into()
                 },
-            ],
+            ]),
             spread: SpreadMode::Pad,
             units: GradientUnits::ObjectBoundingBox,
             transform: Transform::IDENTITY.into(),

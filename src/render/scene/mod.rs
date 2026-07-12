@@ -72,7 +72,7 @@ pub enum SceneOp {
         line_cap: LineCap,
         line_join: LineJoin,
         miter_limit: Fixed,
-        dash: Vec<Fixed>,
+        dash: Cow<'static, [Fixed]>,
     },
     FillRect {
         area: Rect,

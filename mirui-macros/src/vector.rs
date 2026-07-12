@@ -52,6 +52,10 @@ fn fixed(raw: i32) -> TokenStream {
     quote! { ::mirui::types::Fixed::from_raw(#raw) }
 }
 
+fn mirx_fixed(raw: i32) -> TokenStream {
+    quote! { ::mirx::Fixed::from_raw(#raw) }
+}
+
 fn parse_signed_f64(input: ParseStream) -> syn::Result<f64> {
     let neg = input.parse::<Token![-]>().is_ok();
     let lit: Lit = input.parse()?;
@@ -85,6 +89,8 @@ fn mat_compose(a: Mat, b: Mat) -> Mat {
 fn parse_group_options(input: ParseStream) -> syn::Result<GroupOptions> {
     let mut acc = MAT_ID;
     let mut opacity: Option<u8> = None;
+    let mut filter: Option<syn::LitStr> = None;
+    let mut disjoint = false;
     while !input.is_empty() && !input.peek(Token![;]) {
         if input.peek(Ident) {
             let kw: Ident = input.parse()?;
@@ -119,11 +125,17 @@ fn parse_group_options(input: ParseStream) -> syn::Result<GroupOptions> {
                 "opacity" => {
                     opacity = Some(raw_byte(input)?);
                 }
+                "filter" => {
+                    filter = Some(input.parse::<syn::LitStr>()?);
+                }
+                "disjoint" => {
+                    disjoint = true;
+                }
                 other => {
                     return Err(syn::Error::new(
                         kw.span(),
                         format!(
-                            "unknown group option `{other}`; expected translate / rotate / scale / opacity"
+                            "unknown group option `{other}`; expected translate / rotate / scale / opacity / filter / disjoint"
                         ),
                     ));
                 }
@@ -143,13 +155,17 @@ fn parse_group_options(input: ParseStream) -> syn::Result<GroupOptions> {
     Ok(GroupOptions {
         m: acc.map(|v| (v * (1i32 << FRAC_BITS) as f64).round() as i32),
         opacity,
+        filter,
+        disjoint,
     })
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct GroupOptions {
     m: [i32; 6],
     opacity: Option<u8>,
+    filter: Option<syn::LitStr>,
+    disjoint: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -799,12 +815,25 @@ enum SceneStmt {
     },
     FillPath {
         steps: Vec<PathStep>,
-        r: u8,
-        g: u8,
-        b: u8,
-        a: u8,
+        paint: PaintExpr,
         opa: u8,
+        fill_rule: FillRuleNode,
     },
+    StrokePath {
+        steps: Vec<PathStep>,
+        width: i32,
+        paint: PaintExpr,
+        opa: u8,
+        cap: LineCapNode,
+        join: LineJoinNode,
+        miter_limit: i32,
+        dash: Vec<i32>,
+    },
+    PushClip {
+        steps: Vec<PathStep>,
+        fill_rule: FillRuleNode,
+    },
+    PopClip,
     Label {
         token: syn::LitStr,
         x: i32,
@@ -886,18 +915,90 @@ impl Parse for SceneStmt {
                 opa: raw_byte(input)?,
             },
             "fill_path" => {
-                let body;
-                syn::braced!(body in input);
-                let punct: Punctuated<PathStep, Token![;]> = Punctuated::parse_terminated(&body)?;
+                let steps = parse_path_steps_block(input)?;
+                let paint = parse_paint_expr(input)?;
+                let opa = raw_byte(input)?;
+                let mut fill_rule = FillRuleNode::EvenOdd;
+                while !input.is_empty() && !input.peek(Token![;]) {
+                    let k: Ident = input.parse()?;
+                    match k.to_string().as_str() {
+                        "fill_rule" => fill_rule = parse_fill_rule(input)?,
+                        other => {
+                            return Err(syn::Error::new(
+                                k.span(),
+                                format!("unknown fill_path option `{other}`; expected fill_rule"),
+                            ));
+                        }
+                    }
+                }
                 SceneStmt::FillPath {
-                    steps: punct.into_iter().collect(),
-                    r: raw_byte(input)?,
-                    g: raw_byte(input)?,
-                    b: raw_byte(input)?,
-                    a: raw_byte(input)?,
-                    opa: raw_byte(input)?,
+                    steps,
+                    paint,
+                    opa,
+                    fill_rule,
                 }
             }
+            "stroke_path" => {
+                let steps = parse_path_steps_block(input)?;
+                let width = input.parse::<Num>()?.0;
+                let paint = parse_paint_expr(input)?;
+                let opa = raw_byte(input)?;
+                let mut cap = LineCapNode::Butt;
+                let mut join = LineJoinNode::Miter;
+                let mut miter_limit: i32 = 4 << FRAC_BITS;
+                let mut dash: Vec<i32> = Vec::new();
+                while !input.is_empty() && !input.peek(Token![;]) {
+                    let k: Ident = input.parse()?;
+                    match k.to_string().as_str() {
+                        "cap" => cap = parse_line_cap(input)?,
+                        "join" => join = parse_line_join(input)?,
+                        "miter" => miter_limit = input.parse::<Num>()?.0,
+                        "dash" => {
+                            let d;
+                            syn::bracketed!(d in input);
+                            while !d.is_empty() {
+                                dash.push(d.parse::<Num>()?.0);
+                            }
+                        }
+                        other => {
+                            return Err(syn::Error::new(
+                                k.span(),
+                                format!(
+                                    "unknown stroke_path option `{other}`; expected cap / join / miter / dash"
+                                ),
+                            ));
+                        }
+                    }
+                }
+                SceneStmt::StrokePath {
+                    steps,
+                    width,
+                    paint,
+                    opa,
+                    cap,
+                    join,
+                    miter_limit,
+                    dash,
+                }
+            }
+            "push_clip" => {
+                let steps = parse_path_steps_block(input)?;
+                let mut fill_rule = FillRuleNode::EvenOdd;
+                while !input.is_empty() && !input.peek(Token![;]) {
+                    let k: Ident = input.parse()?;
+                    match k.to_string().as_str() {
+                        "fill_rule" => fill_rule = parse_fill_rule(input)?,
+                        other => {
+                            return Err(syn::Error::new(
+                                k.span(),
+                                format!("unknown push_clip option `{other}`; expected fill_rule"),
+                            ));
+                        }
+                    }
+                }
+                SceneStmt::PushClip { steps, fill_rule }
+            }
+            "pop_clip" => SceneStmt::PopClip,
             "label" => SceneStmt::Label {
                 token: input.parse::<syn::LitStr>()?,
                 x: input.parse::<Num>()?.0,
@@ -959,6 +1060,390 @@ fn color_tokens(r: u8, g: u8, b: u8, a: u8) -> TokenStream {
 
 fn mirx_color_tokens(r: u8, g: u8, b: u8, a: u8) -> TokenStream {
     quote! { ::mirui::render::scene::MirxColor { r: #r, g: #g, b: #b, a: #a } }
+}
+
+// ---- Paint expression (solid color or gradient) ----
+
+enum PaintExpr {
+    Solid(u8, u8, u8, u8),
+    LinearGradient {
+        start_x: f64,
+        start_y: f64,
+        end_x: f64,
+        end_y: f64,
+        stops: Vec<(f64, u8, u8, u8, u8)>,
+        spread: SpreadModeNode,
+        units: GradientUnitsNode,
+    },
+    RadialGradient {
+        cx: f64,
+        cy: f64,
+        r: f64,
+        fx: f64,
+        fy: f64,
+        fr: f64,
+        stops: Vec<(f64, u8, u8, u8, u8)>,
+        spread: SpreadModeNode,
+        units: GradientUnitsNode,
+    },
+}
+
+#[derive(Clone, Copy)]
+enum SpreadModeNode {
+    Pad,
+    Reflect,
+    Repeat,
+}
+
+#[derive(Clone, Copy)]
+enum GradientUnitsNode {
+    UserSpaceOnUse,
+    ObjectBoundingBox,
+}
+
+fn parse_f64(input: ParseStream) -> syn::Result<f64> {
+    parse_signed_f64(input)
+}
+
+fn parse_rgba(input: ParseStream) -> syn::Result<(u8, u8, u8, u8)> {
+    Ok((
+        raw_byte(input)?,
+        raw_byte(input)?,
+        raw_byte(input)?,
+        raw_byte(input)?,
+    ))
+}
+
+#[allow(clippy::type_complexity)]
+fn parse_gradient_stops(input: ParseStream) -> syn::Result<Vec<(f64, u8, u8, u8, u8)>> {
+    let mut stops = Vec::new();
+    while !input.is_empty() && !input.peek(syn::token::Bracket) {
+        let offset = parse_f64(input)?;
+        let (r, g, b, a) = parse_rgba(input)?;
+        stops.push((offset, r, g, b, a));
+    }
+    Ok(stops)
+}
+
+fn parse_spread_mode(input: ParseStream) -> syn::Result<SpreadModeNode> {
+    let kw: Ident = input.parse()?;
+    match kw.to_string().as_str() {
+        "pad" => Ok(SpreadModeNode::Pad),
+        "reflect" => Ok(SpreadModeNode::Reflect),
+        "repeat" => Ok(SpreadModeNode::Repeat),
+        other => Err(syn::Error::new(
+            kw.span(),
+            format!("unknown spread mode `{other}`; expected pad / reflect / repeat"),
+        )),
+    }
+}
+
+fn parse_gradient_units(input: ParseStream) -> syn::Result<GradientUnitsNode> {
+    let kw: Ident = input.parse()?;
+    match kw.to_string().as_str() {
+        "user_space" => Ok(GradientUnitsNode::UserSpaceOnUse),
+        "object_bbox" => Ok(GradientUnitsNode::ObjectBoundingBox),
+        other => Err(syn::Error::new(
+            kw.span(),
+            format!("unknown gradient units `{other}`; expected user_space / object_bbox"),
+        )),
+    }
+}
+
+fn parse_paint_expr(input: ParseStream) -> syn::Result<PaintExpr> {
+    if input.peek(syn::token::Brace) {
+        let body;
+        syn::braced!(body in input);
+        let kw: Ident = body.parse()?;
+        match kw.to_string().as_str() {
+            "linear" => {
+                let sx = parse_f64(&body)?;
+                let sy = parse_f64(&body)?;
+                let ex = parse_f64(&body)?;
+                let ey = parse_f64(&body)?;
+                let mut stops = Vec::new();
+                let mut spread = SpreadModeNode::Pad;
+                let mut units = GradientUnitsNode::ObjectBoundingBox;
+                while !body.is_empty() {
+                    let k: Ident = body.parse()?;
+                    match k.to_string().as_str() {
+                        "stops" => {
+                            let s;
+                            syn::bracketed!(s in body);
+                            stops = parse_gradient_stops(&s)?;
+                        }
+                        "spread" => spread = parse_spread_mode(&body)?,
+                        "units" => units = parse_gradient_units(&body)?,
+                        other => {
+                            return Err(syn::Error::new(
+                                k.span(),
+                                format!(
+                                    "unknown linear gradient option `{other}`; expected stops / spread / units"
+                                ),
+                            ));
+                        }
+                    }
+                }
+                Ok(PaintExpr::LinearGradient {
+                    start_x: sx,
+                    start_y: sy,
+                    end_x: ex,
+                    end_y: ey,
+                    stops,
+                    spread,
+                    units,
+                })
+            }
+            "radial" => {
+                let cx = parse_f64(&body)?;
+                let cy = parse_f64(&body)?;
+                let r = parse_f64(&body)?;
+                let fx = parse_f64(&body)?;
+                let fy = parse_f64(&body)?;
+                let fr = parse_f64(&body)?;
+                let mut stops = Vec::new();
+                let mut spread = SpreadModeNode::Pad;
+                let mut units = GradientUnitsNode::ObjectBoundingBox;
+                while !body.is_empty() {
+                    let k: Ident = body.parse()?;
+                    match k.to_string().as_str() {
+                        "stops" => {
+                            let s;
+                            syn::bracketed!(s in body);
+                            stops = parse_gradient_stops(&s)?;
+                        }
+                        "spread" => spread = parse_spread_mode(&body)?,
+                        "units" => units = parse_gradient_units(&body)?,
+                        other => {
+                            return Err(syn::Error::new(
+                                k.span(),
+                                format!(
+                                    "unknown radial gradient option `{other}`; expected stops / spread / units"
+                                ),
+                            ));
+                        }
+                    }
+                }
+                Ok(PaintExpr::RadialGradient {
+                    cx,
+                    cy,
+                    r,
+                    fx,
+                    fy,
+                    fr,
+                    stops,
+                    spread,
+                    units,
+                })
+            }
+            other => Err(syn::Error::new(
+                kw.span(),
+                format!("unknown paint kind `{other}`; expected linear / radial"),
+            )),
+        }
+    } else {
+        let (r, g, b, a) = parse_rgba(input)?;
+        Ok(PaintExpr::Solid(r, g, b, a))
+    }
+}
+
+fn spread_tokens(s: SpreadModeNode) -> TokenStream {
+    match s {
+        SpreadModeNode::Pad => quote! { ::mirui::render::scene::SpreadMode::Pad },
+        SpreadModeNode::Reflect => quote! { ::mirui::render::scene::SpreadMode::Reflect },
+        SpreadModeNode::Repeat => quote! { ::mirui::render::scene::SpreadMode::Repeat },
+    }
+}
+
+fn units_tokens(u: GradientUnitsNode) -> TokenStream {
+    match u {
+        GradientUnitsNode::UserSpaceOnUse => {
+            quote! { ::mirui::render::scene::GradientUnits::UserSpaceOnUse }
+        }
+        GradientUnitsNode::ObjectBoundingBox => {
+            quote! { ::mirui::render::scene::GradientUnits::ObjectBoundingBox }
+        }
+    }
+}
+
+fn stop_tokens(stops: &[(f64, u8, u8, u8, u8)]) -> Vec<TokenStream> {
+    stops
+        .iter()
+        .map(|(off, r, g, b, a)| {
+            let off_raw = (*off * (1i32 << FRAC_BITS) as f64).round() as i32;
+            quote! {
+                ::mirui::render::scene::GradientStop {
+                    offset: ::mirx::Fixed::from_raw(#off_raw),
+                    color: ::mirui::render::scene::MirxColor { r: #r, g: #g, b: #b, a: #a },
+                }
+            }
+        })
+        .collect()
+}
+
+fn paint_expr_tokens(p: &PaintExpr) -> TokenStream {
+    match p {
+        PaintExpr::Solid(r, g, b, a) => {
+            let col = mirx_color_tokens(*r, *g, *b, *a);
+            quote! { ::mirui::render::scene::Paint::Color(#col) }
+        }
+        PaintExpr::LinearGradient {
+            start_x,
+            start_y,
+            end_x,
+            end_y,
+            stops,
+            spread,
+            units,
+        } => {
+            let sx = mirx_fixed((*start_x * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let sy = mirx_fixed((*start_y * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let ex = mirx_fixed((*end_x * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let ey = mirx_fixed((*end_y * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let stops_t = stop_tokens(stops);
+            let spread_t = spread_tokens(*spread);
+            let units_t = units_tokens(*units);
+            quote! {
+                ::mirui::render::scene::Paint::LinearGradient(
+                    ::mirui::render::scene::LinearGradient {
+                        start: ::mirx::Point { x: #sx, y: #sy },
+                        end: ::mirx::Point { x: #ex, y: #ey },
+                        stops: ::mirui::__Cow::Borrowed(&[#(#stops_t),*]),
+                        spread: #spread_t,
+                        units: #units_t,
+                        transform: ::mirx::Transform::IDENTITY,
+                    }
+                )
+            }
+        }
+        PaintExpr::RadialGradient {
+            cx,
+            cy,
+            r,
+            fx,
+            fy,
+            fr,
+            stops,
+            spread,
+            units,
+        } => {
+            let cx_t = mirx_fixed((*cx * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let cy_t = mirx_fixed((*cy * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let r_t = mirx_fixed((*r * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let fx_t = mirx_fixed((*fx * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let fy_t = mirx_fixed((*fy * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let fr_t = mirx_fixed((*fr * (1i32 << FRAC_BITS) as f64).round() as i32);
+            let stops_t = stop_tokens(stops);
+            let spread_t = spread_tokens(*spread);
+            let units_t = units_tokens(*units);
+            quote! {
+                ::mirui::render::scene::Paint::RadialGradient(
+                    ::mirui::render::scene::RadialGradient {
+                        center: ::mirx::Point { x: #cx_t, y: #cy_t },
+                        radius: #r_t,
+                        focal: ::mirx::Point { x: #fx_t, y: #fy_t },
+                        focal_radius: #fr_t,
+                        stops: ::mirui::__Cow::Borrowed(&[#(#stops_t),*]),
+                        spread: #spread_t,
+                        units: #units_t,
+                        transform: ::mirx::Transform::IDENTITY,
+                    }
+                )
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum FillRuleNode {
+    EvenOdd,
+    NonZero,
+}
+
+#[derive(Clone, Copy)]
+enum LineCapNode {
+    Butt,
+    Round,
+    Square,
+}
+
+#[derive(Clone, Copy)]
+enum LineJoinNode {
+    Miter,
+    Round,
+    Bevel,
+}
+
+fn parse_fill_rule(input: ParseStream) -> syn::Result<FillRuleNode> {
+    let kw: Ident = input.parse()?;
+    match kw.to_string().as_str() {
+        "evenodd" => Ok(FillRuleNode::EvenOdd),
+        "nonzero" => Ok(FillRuleNode::NonZero),
+        other => Err(syn::Error::new(
+            kw.span(),
+            format!("unknown fill rule `{other}`; expected evenodd / nonzero"),
+        )),
+    }
+}
+
+fn parse_line_cap(input: ParseStream) -> syn::Result<LineCapNode> {
+    let kw: Ident = input.parse()?;
+    match kw.to_string().as_str() {
+        "butt" => Ok(LineCapNode::Butt),
+        "round" => Ok(LineCapNode::Round),
+        "square" => Ok(LineCapNode::Square),
+        other => Err(syn::Error::new(
+            kw.span(),
+            format!("unknown line cap `{other}`; expected butt / round / square"),
+        )),
+    }
+}
+
+fn parse_line_join(input: ParseStream) -> syn::Result<LineJoinNode> {
+    let kw: Ident = input.parse()?;
+    match kw.to_string().as_str() {
+        "miter" => Ok(LineJoinNode::Miter),
+        "round" => Ok(LineJoinNode::Round),
+        "bevel" => Ok(LineJoinNode::Bevel),
+        other => Err(syn::Error::new(
+            kw.span(),
+            format!("unknown line join `{other}`; expected miter / round / bevel"),
+        )),
+    }
+}
+
+fn fill_rule_tokens(f: FillRuleNode) -> TokenStream {
+    match f {
+        FillRuleNode::EvenOdd => {
+            quote! { ::mirui::render::raster::FillRule::EvenOdd }
+        }
+        FillRuleNode::NonZero => {
+            quote! { ::mirui::render::raster::FillRule::NonZero }
+        }
+    }
+}
+
+fn line_cap_tokens(c: LineCapNode) -> TokenStream {
+    match c {
+        LineCapNode::Butt => quote! { ::mirui::render::scene::LineCap::Butt },
+        LineCapNode::Round => quote! { ::mirui::render::scene::LineCap::Round },
+        LineCapNode::Square => quote! { ::mirui::render::scene::LineCap::Square },
+    }
+}
+
+fn line_join_tokens(j: LineJoinNode) -> TokenStream {
+    match j {
+        LineJoinNode::Miter => quote! { ::mirui::render::scene::LineJoin::Miter },
+        LineJoinNode::Round => quote! { ::mirui::render::scene::LineJoin::Round },
+        LineJoinNode::Bevel => quote! { ::mirui::render::scene::LineJoin::Bevel },
+    }
+}
+
+fn parse_path_steps_block(input: ParseStream) -> syn::Result<Vec<PathStep>> {
+    let body;
+    syn::braced!(body in input);
+    let punct: Punctuated<PathStep, Token![;]> = Punctuated::parse_terminated(&body)?;
+    Ok(punct.into_iter().collect())
 }
 
 fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
@@ -1075,14 +1560,13 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
         }
         SceneStmt::FillPath {
             steps,
-            r,
-            g,
-            b,
-            a,
+            paint,
             opa,
+            fill_rule,
         } => {
             let cmds = steps.iter().map(path_step_tokens);
-            let col = mirx_color_tokens(*r, *g, *b, *a);
+            let paint_t = paint_expr_tokens(paint);
+            let fr = fill_rule_tokens(*fill_rule);
             quote! {
                 ::mirui::render::scene::SceneOp::FillPath {
                     path: ::mirui::render::path::Path::from_static({
@@ -1090,12 +1574,61 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                         P
                     }),
                     transform: ::mirui::types::Transform::IDENTITY,
-                    paint: ::mirui::render::scene::Paint::Color(#col),
+                    paint: #paint_t,
                     opa: #opa,
-                    fill_rule: ::mirui::render::raster::FillRule::EvenOdd,
+                    fill_rule: #fr,
                 }
             }
         }
+        SceneStmt::StrokePath {
+            steps,
+            width,
+            paint,
+            opa,
+            cap,
+            join,
+            miter_limit,
+            dash,
+        } => {
+            let cmds = steps.iter().map(path_step_tokens);
+            let paint_t = paint_expr_tokens(paint);
+            let w = fixed(*width);
+            let cap_t = line_cap_tokens(*cap);
+            let join_t = line_join_tokens(*join);
+            let ml = fixed(*miter_limit);
+            let dash_t: Vec<_> = dash.iter().map(|d| fixed(*d)).collect();
+            quote! {
+                ::mirui::render::scene::SceneOp::StrokePath {
+                    path: ::mirui::render::path::Path::from_static({
+                        const P: &[::mirui::render::path::PathCmd] = &[#(#cmds),*];
+                        P
+                    }),
+                    transform: ::mirui::types::Transform::IDENTITY,
+                    paint: #paint_t,
+                    width: #w,
+                    opa: #opa,
+                    line_cap: #cap_t,
+                    line_join: #join_t,
+                    miter_limit: #ml,
+                    dash: ::mirui::__Cow::Borrowed(&[#(#dash_t),*]),
+                }
+            }
+        }
+        SceneStmt::PushClip { steps, fill_rule } => {
+            let cmds = steps.iter().map(path_step_tokens);
+            let fr = fill_rule_tokens(*fill_rule);
+            quote! {
+                ::mirui::render::scene::SceneOp::PushClip {
+                    path: ::mirui::render::path::Path::from_static({
+                        const P: &[::mirui::render::path::PathCmd] = &[#(#cmds),*];
+                        P
+                    }),
+                    transform: ::mirui::types::Transform::IDENTITY,
+                    fill_rule: #fr,
+                }
+            }
+        }
+        SceneStmt::PopClip => quote! { ::mirui::render::scene::SceneOp::PopClip },
         SceneStmt::Label {
             token,
             x,
@@ -1164,6 +1697,15 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                 Some(n) => quote! { ::core::option::Option::Some(#n) },
                 None => quote! { ::core::option::Option::None },
             };
+            let filter = match &opts.filter {
+                Some(lit) => quote! {
+                    ::core::option::Option::Some(::mirui::render::scene::ResourceRef::Token(
+                        ::mirui::__Cow::Borrowed(#lit)
+                    ))
+                },
+                None => quote! { ::core::option::Option::None },
+            };
+            let disjoint = opts.disjoint;
             quote! {
                 ::mirui::render::scene::SceneOp::GroupBegin {
                     transform: ::core::option::Option::Some(
@@ -1175,8 +1717,8 @@ fn scene_stmt_tokens(stmt: &SceneStmt) -> TokenStream {
                     opacity: #opacity,
                     clip: ::core::option::Option::None,
                     mask: ::core::option::Option::None,
-                    filter: ::core::option::Option::None,
-                    disjoint_hint: false,
+                    filter: #filter,
+                    disjoint_hint: #disjoint,
                 }
             }
         }

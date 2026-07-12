@@ -155,7 +155,7 @@ pub fn record_command(
             line_cap: *line_cap,
             line_join: *line_join,
             miter_limit: *miter_limit,
-            dash: dash.to_vec(),
+            dash: alloc::borrow::Cow::Owned(dash.to_vec()),
         },
         DrawCommand::PushClip {
             path,
