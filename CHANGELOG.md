@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] - 2026-07-12
+
+### Added — breaking
+
+- **`Paint` enum replaces `Color` in `FillPath` / `StrokePath`.** Both `SceneOp` and `DrawCommand` now carry `paint: Paint` instead of `color: Color`. `Paint::Color` wraps the old solid colour; `Paint::LinearGradient` and `Paint::RadialGradient` carry full gradient definitions (start/end/center/focal/radius, stops, spread mode, gradient units, transform). mirx gains `Paint`, `LinearGradient`, `RadialGradient`, `GradientStop`, `SpreadMode` (Pad/Reflect/Repeat), `GradientUnits` (UserSpaceOnUse/ObjectBoundingBox) wire types with codec encode/decode. `Canvas::fill_path` / `stroke_path` signatures take `&Paint`. **Wire-breaking**: old mirui readers reject v0.42 VECTOR chunks containing gradient-bearing ops via `UnknownTag`; v0.41 chunks with solid-colour ops decode unchanged.
+- **`FillRule::NonZero` support.** `Canvas::fill_path` and `DrawCommand::FillPath` carry a `fill_rule: FillRule` parameter (EvenOdd / NonZero). The scanline rasterizer tracks winding direction per subpath. Previously only EvenOdd was implemented; NonZero was silently coerced to EvenOdd.
+- **`PushClip` / `PopClip` scene ops.** Path-based clipping: push a clip mask (arbitrary Path + FillRule + Transform), draw subsequent ops clipped to that mask, then pop. `SwRenderer` rasterises the clip path into a full-screen alpha mask (`clip_stack: Vec<ClipMask>`) and `fill_rect` / `stroke_rect` / `blit` / `draw_label` / `fill_path` / `stroke_path` all multiply per-pixel alpha by the mask. `GroupBegin.clip` accepts a `ResourceRef::Inline(Path)` for group clips; `PushClip` / `PopClip` are the standalone form. `ResourceRef::Inline` is a new variant carrying an owned `Path` for inline clip paths without a token lookup.
+- **Gradient sampler in the software rasterizer.** `fill_path_transformed` and `stroke_path_transformed` sample `LinearGradient` / `RadialGradient` per pixel. `ObjectBoundingBox` units map normalised [0,1] coords onto the path's bbox; `UserSpaceOnUse` uses physical pixel coords. `SpreadMode` (Pad/Reflect/Repeat) applies to the gradient parameter `t` before stop interpolation. `sample_stops` does linear RGBA interpolation between adjacent stops.
+- **Stroke cap / join / miter_limit / dash_array.** `Canvas::stroke_path` takes `line_cap` (Butt/Round/Square), `line_join` (Miter/Round/Bevel), `miter_limit`, and `dash: &[Fixed]`. `offset_polygon_into` expands its signature; `compute_join_points` handles round joins via arc tessellation, `append_open_ribbon` handles round/square caps. `apply_dash_pattern` splits subpaths into dashed segments before stroking.
+- **`Border` / `Line` / `Arc` under rotate transform.** `SwRenderer::draw_transformed` now has arms for these three variants (previously only `Fill` / `FillPath` / `StrokePath` / `Blit` were handled under non-axis-aligned transforms). Border delegates to `stroke_path_transformed` on a rounded-rect path; Line and Arc build their paths and stroke.
+- **`Color::scale_alpha` helper.** Premultiplies a `Color`'s alpha by a coverage factor — used by gradient sampling and clip mask blending.
+- **`ApplyBlur` draw command.** `DrawCommand::ApplyBlur { alpha, region }` triggers an IIR exponential blur over the target. `replay` emits it at `GroupEnd` when the group has `filter: Some("blur:R:R")`. The blur is bounded to `region` (the union bbox of the group's direct children); only that area is affected.
+- **`scene!` macro: gradient paint, `stroke_path`, `push_clip` / `pop_clip`, `filter` / `disjoint` group options, `fill_rule` keyword.** `fill_path` and the new `stroke_path` statement accept a paint expression — either 4 bytes (solid) or a braced gradient body `{ linear sx sy ex ey stops [off r g b a ...] spread pad units object_bbox }` / `{ radial cx cy r fx fy fr stops [...] ... }`. `fill_path` takes an optional `fill_rule evenodd|nonzero`. `stroke_path` takes `cap butt|round|square`, `join miter|round|bevel`, `miter <n>`, `dash [a b ...]`. `group` options extended with `filter "blur:4:4"` and `disjoint`.
+- **`render_showcase` demo.** A single `const SCENE: &[SceneOp] = scene! { ... }` exercising gradient fill + dash stroke, radial gradient, circular clip, blur filter group, EvenOdd vs NonZero stars, three stroke cap/join variants, and six rotated rects.
+
+### Changed — breaking
+
+- **`LinearGradient.stops` / `RadialGradient.stops`: `Vec<GradientStop>` → `Cow<'static, [GradientStop]>`.** Allows `scene!` to emit `Cow::Borrowed(&[...])` so gradient-bearing scenes can still be `const`. Runtime builders use `Cow::Owned(vec![...])`. Codec read wraps in `Cow::Owned`; write uses `.iter()`.
+- **`StrokePath.dash`: `Vec<Fixed>` → `Cow<'static, [Fixed]>`.** Same rationale as stops.
+- **`DrawCommand::ApplyBlur` gains `region: Rect` field.** Callers must pass the blur region; `replay` computes it from the group's child bbox. `SwRenderer` converts to physical coords and passes to `iir_blur_inplace`; `WebCanvasRenderer` creates a region-sized offscreen, `drawImage` with source rect, blurs, clears only the region, draws back.
+- **`iir_blur_inplace` signature: `(&mut Texture, Fixed)` → `(&mut Texture, Fixed, Rect)`.** The region is intersected with the screen; row/column passes only scan inside it. Existing callers (`background_blur` / `drop_shadow` widgets) pass a full-buffer region.
+
+### Changed
+
+- **`SwRenderer` honors `clip_stack` in all dispatch paths.** Previously only `fill_path_transformed` / `stroke_path_transformed` read the clip mask; `fill_rect_inner`, `stroke_rect_inner`, `blit_dda` / `blit_composite_dda`, `draw_label_inner` (mono / SDF / gray glyphs) now multiply per-pixel alpha by the mask value. `draw_line` / `draw_arc` go through `stroke_path` (Canvas default impl) which already honored the mask.
+- **`WebCanvasRenderer` implements `PushClip` / `PopClip` / `ApplyBlur`.** Previously these were no-ops. `PushClip` does `ctx.save()` + `set_transform(dpr×tf)` + `build_path` + `ctx.clip(fill_rule)`; the clip stays on the canvas state stack across subsequent commands. `PopClip` does `ctx.restore()`. `ApplyBlur` creates an offscreen canvas, `set_filter("blur(r)")`, `drawImage` the main canvas onto it (browser-native blur), then clears + draws back. `PushClip` / `PopClip` / `ApplyBlur` early-return before `draw`'s `save` / `restore` wrapper so the clip state persists.
+- **`WebCanvasRenderer` honors `GradientUnits::ObjectBoundingBox`.** `set_paint_style` / `set_stroke_style` take an `Option<Rect>` bbox; `map_point` / `map_scalar_grad` map normalised [0,1] coords onto the path bbox before calling `create_linear_gradient` / `create_radial_gradient`. `fill_path` / `stroke_path` compute `path.bbox()` and pass it down.
+- **Label under rotate silently skips.** `SwRenderer::draw_transformed` for `DrawCommand::Label` returns early instead of `unimplemented!()` panicking. `no_std`-compatible; rotated glyph rasterization is not implemented.
+
+### Migration
+
+- **`FillPath` / `StrokePath` callers** — replace `color: Color` with `paint: Paint::Color(color.into())` for solid fills. For gradients, construct `Paint::LinearGradient(LinearGradient { ... })` / `Paint::RadialGradient(RadialGradient { ... })`.
+- **`Canvas::fill_path` / `stroke_path` trait method signatures** — implementors must take `&Paint` instead of `&Color`, and `fill_path` adds a `fill_rule: FillRule` parameter.
+- **`LinearGradient.stops` / `RadialGradient.stops` / `StrokePath.dash`** — `Vec` → `Cow<'static, [...]>`. `vec![...].into()` or `Cow::Owned(vec![...])` for runtime; `Cow::Borrowed(&[...])` for const.
+- **`DrawCommand::ApplyBlur`** — add `region: Rect` field. Use the group's child bbox or a full-screen rect for whole-canvas blur.
+- **`iir_blur_inplace`** — add `region: Rect` argument. Pass `Rect::new(0, 0, w, h)` for whole-buffer blur.
+- **v0.41 mirx VECTOR chunks** decode unchanged on v0.42 (solid-colour FillPath / StrokePath map to `Paint::Color`). The reverse is not true: v0.42 chunks containing gradient ops or PushClip/PopClip fail to decode on v0.41.
+
 ## [0.41.0] - 2026-07-09
 
 ### Added — breaking
