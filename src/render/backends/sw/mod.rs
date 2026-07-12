@@ -105,8 +105,13 @@ impl<'a> SwRenderer<'a> {
             DrawCommand::PopClip => {
                 self.pop_clip();
             }
-            DrawCommand::ApplyBlur { alpha } => {
-                crate::render::backends::sw::blur::iir_blur_inplace(&mut self.target, *alpha);
+            DrawCommand::ApplyBlur { alpha, region } => {
+                let phys_region = self.viewport.rect_to_physical(*region);
+                crate::render::backends::sw::blur::iir_blur_inplace(
+                    &mut self.target,
+                    *alpha,
+                    phys_region,
+                );
             }
             DrawCommand::Fill {
                 area, color, opa, ..
@@ -687,9 +692,14 @@ impl Renderer for SwRenderer<'_> {
                 crate::trace_span!("sw.pop_clip");
                 self.pop_clip();
             }
-            DrawCommand::ApplyBlur { alpha } => {
+            DrawCommand::ApplyBlur { alpha, region } => {
                 crate::trace_span!("sw.apply_blur");
-                crate::render::backends::sw::blur::iir_blur_inplace(&mut self.target, *alpha);
+                let phys_region = self.viewport.rect_to_physical(*region);
+                crate::render::backends::sw::blur::iir_blur_inplace(
+                    &mut self.target,
+                    *alpha,
+                    phys_region,
+                );
             }
             DrawCommand::Fill {
                 area,

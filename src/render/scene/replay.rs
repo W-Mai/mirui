@@ -3,7 +3,7 @@
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 
-use super::bbox::{direct_children_bboxes, pairwise_disjoint};
+use super::bbox::{direct_children_bboxes, pairwise_disjoint, union_of_children};
 use super::{ResourceRef, SceneOp};
 use crate::render::command::DrawCommand;
 use crate::render::font::Font;
@@ -48,6 +48,7 @@ struct GroupFrame {
     alpha: u8,
     has_clip: bool,
     filter: Option<String>,
+    start_idx: usize,
 }
 
 /// Resolves a persisted `ResourceRef` back to a live borrow for the duration
@@ -92,6 +93,7 @@ pub fn replay_scene(
         alpha: 255,
         has_clip: false,
         filter: None,
+        start_idx: 0,
     }];
     let mut skip_until_depth: Option<usize> = None;
 
@@ -143,6 +145,7 @@ pub fn replay_scene(
                             alpha: 0,
                             has_clip: false,
                             filter: None,
+                            start_idx: i,
                         });
                         i += 1;
                         continue;
@@ -183,6 +186,7 @@ pub fn replay_scene(
                         ResourceRef::Token(s) => Some(s.to_string()),
                         ResourceRef::Index(_) | ResourceRef::Inline(_) => None,
                     }),
+                    start_idx: i,
                 });
             }
             SceneOp::GroupEnd => {
@@ -195,7 +199,15 @@ pub fn replay_scene(
                 }
                 if let Some(filter_str) = &frame.filter {
                     if let Some(blur_alpha) = parse_blur_filter(filter_str) {
-                        renderer.draw(&DrawCommand::ApplyBlur { alpha: blur_alpha }, clip);
+                        let children = &ops[frame.start_idx + 1..i];
+                        let region = union_of_children(children, &frame.transform);
+                        renderer.draw(
+                            &DrawCommand::ApplyBlur {
+                                alpha: blur_alpha,
+                                region,
+                            },
+                            clip,
+                        );
                     }
                 }
             }

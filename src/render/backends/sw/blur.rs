@@ -6,7 +6,7 @@
 //! radius, at a fraction of the cost.
 
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::Fixed;
+use crate::types::{Fixed, Rect};
 
 /// Convert a Gaussian-equivalent radius (in pixels) to the IIR decay
 /// factor α used by [`iir_blur_inplace`]. The mapping `α ≈ exp(-1/r)`
@@ -51,7 +51,7 @@ pub fn alpha_for_radius(radius: Fixed) -> Fixed {
 /// factor `alpha` (typically from [`alpha_for_radius`]). Alpha values
 /// outside `(0, 1)` short-circuit: `<= 0` is a no-op, `>= 1` would
 /// be a degenerate constant — also no-op.
-pub fn iir_blur_inplace(tex: &mut Texture, alpha: Fixed) {
+pub fn iir_blur_inplace(tex: &mut Texture, alpha: Fixed, region: Rect) {
     if alpha <= Fixed::ZERO || alpha >= Fixed::ONE {
         return;
     }
@@ -60,37 +60,58 @@ pub fn iir_blur_inplace(tex: &mut Texture, alpha: Fixed) {
     if w == 0 || h == 0 {
         return;
     }
+    let screen = Rect::new(0, 0, w as i32, h as i32);
+    let Some(r) = region.intersect(&screen) else {
+        return;
+    };
+    let (x0, y0, x1, y1) = r.pixel_bounds();
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
     let alpha_q = alpha.raw().clamp(0, 256);
     let one_minus_q = 256 - alpha_q;
+    let rw = (x1 - x0) as usize;
+    let rh = (y1 - y0) as usize;
 
     match tex.format {
         ColorFormat::RGBA8888 => iir_blur_rgba8888(
             tex.buf.as_mut_slice(),
-            w,
-            h,
+            w as usize,
+            h as usize,
             tex.stride,
             alpha_q,
             one_minus_q,
+            x0 as usize,
+            y0 as usize,
+            rw,
+            rh,
         ),
         ColorFormat::RGB565 => iir_blur_rgb565(
             tex.buf.as_mut_slice(),
-            w,
-            h,
+            w as usize,
+            h as usize,
             tex.stride,
             alpha_q,
             one_minus_q,
             false,
+            x0 as usize,
+            y0 as usize,
+            rw,
+            rh,
         ),
         ColorFormat::RGB565Swapped => iir_blur_rgb565(
             tex.buf.as_mut_slice(),
-            w,
-            h,
+            w as usize,
+            h as usize,
             tex.stride,
             alpha_q,
             one_minus_q,
             true,
+            x0 as usize,
+            y0 as usize,
+            rw,
+            rh,
         ),
-        // RGB888 isn't reachable from any current backend.
         ColorFormat::RGB888 | ColorFormat::BGRA8888 => {}
     }
 }
@@ -130,54 +151,58 @@ fn iir_pass(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn iir_blur_rgba8888(
     buf: &mut [u8],
-    w: u16,
-    h: u16,
+    w: usize,
+    h: usize,
     stride: usize,
     alpha_q: i32,
     one_minus_q: i32,
+    x0: usize,
+    y0: usize,
+    rw: usize,
+    rh: usize,
 ) {
-    let w = w as usize;
-    let h = h as usize;
-    // Row passes: step = 4 bytes (one pixel) so consecutive samples
-    // on the same channel skip the other three channels.
-    for y in 0..h {
-        let row_off = y * stride;
+    let _ = h;
+    for y in 0..rh {
+        let row_off = (y0 + y) * stride + x0 * 4;
         for ch in 0..4 {
-            iir_pass(buf, row_off + ch, w, 4, alpha_q, one_minus_q);
+            iir_pass(buf, row_off + ch, rw, 4, alpha_q, one_minus_q);
         }
     }
-    for x in 0..w {
-        let col_off = x * 4;
+    for x in 0..rw {
+        let col_off = (x0 + x) * 4 + y0 * stride;
         for ch in 0..4 {
-            iir_pass(buf, col_off + ch, h, stride, alpha_q, one_minus_q);
+            iir_pass(buf, col_off + ch, rh, stride, alpha_q, one_minus_q);
         }
     }
+    let _ = w;
 }
 
 /// Pack/unpack an RGB565 word `[r5, g6, b5]` into u8 channels expanded
 /// to the full 0..255 range, blur, then pack back. Doing the IIR on
 /// 5-/6-bit channels directly produces bad rounding artifacts; expand
 /// to 8-bit first.
+#[allow(clippy::too_many_arguments)]
 fn iir_blur_rgb565(
     buf: &mut [u8],
-    w: u16,
-    h: u16,
+    w: usize,
+    h: usize,
     stride: usize,
     alpha_q: i32,
     one_minus_q: i32,
     swapped: bool,
+    x0: usize,
+    y0: usize,
+    rw: usize,
+    rh: usize,
 ) {
-    let w = w as usize;
-    let h = h as usize;
-    // RGB888 scratch: IIR needs 8-bit precision (rounding aliases on
-    // 5/6-bit RGB565 channels) but the alpha channel is dead weight
-    // for opaque pixels — packed 3-byte saves 25% over RGBA8888.
-    let mut tmp: alloc::vec::Vec<u8> = alloc::vec::Vec::with_capacity(w * h * 3);
-    for y in 0..h {
-        for x in 0..w {
-            let i = y * stride + x * 2;
+    let _ = (w, h);
+    let mut tmp: alloc::vec::Vec<u8> = alloc::vec::Vec::with_capacity(rw * rh * 3);
+    for y in 0..rh {
+        for x in 0..rw {
+            let i = (y0 + y) * stride + (x0 + x) * 2;
             let (lo, hi) = if swapped {
                 (buf[i + 1], buf[i])
             } else {
@@ -192,15 +217,15 @@ fn iir_blur_rgb565(
             tmp.push((b5 << 3) | (b5 >> 2));
         }
     }
-    iir_blur_packed_rgb(&mut tmp, w, h, w * 3, 3, alpha_q, one_minus_q);
-    for y in 0..h {
-        for x in 0..w {
-            let ti = (y * w + x) * 3;
+    iir_blur_packed_rgb(&mut tmp, rw, rh, rw * 3, 3, alpha_q, one_minus_q);
+    for y in 0..rh {
+        for x in 0..rw {
+            let ti = (y * rw + x) * 3;
             let r = tmp[ti] >> 3;
             let g = tmp[ti + 1] >> 2;
             let b = tmp[ti + 2] >> 3;
             let pixel = ((r as u16) << 11) | ((g as u16) << 5) | (b as u16);
-            let i = y * stride + x * 2;
+            let i = (y0 + y) * stride + (x0 + x) * 2;
             if swapped {
                 buf[i] = (pixel >> 8) as u8;
                 buf[i + 1] = pixel as u8;
@@ -277,7 +302,15 @@ mod tests {
         }
         let original = buf.clone();
         let mut tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
-        iir_blur_inplace(&mut tex, Fixed::ZERO);
+        {
+            let r = Rect::new(
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(tex.width as i32),
+                Fixed::from_int(tex.height as i32),
+            );
+            iir_blur_inplace(&mut tex, Fixed::ZERO, r);
+        }
         assert_eq!(tex.buf.as_slice(), original.as_slice());
     }
 
@@ -293,7 +326,15 @@ mod tests {
             px[3] = 255;
         }
         let mut tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGBA8888);
-        iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(4)));
+        {
+            let r = Rect::new(
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(tex.width as i32),
+                Fixed::from_int(tex.height as i32),
+            );
+            iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(4)), r);
+        }
         for px in tex.buf.as_slice().chunks_exact(4) {
             assert!((px[0] as i32 - 200).abs() <= 1, "r drifted: {}", px[0]);
             assert!((px[1] as i32 - 100).abs() <= 1, "g drifted: {}", px[1]);
@@ -314,7 +355,15 @@ mod tests {
             .map(|p| p[0] as u64 + p[1] as u64 + p[2] as u64)
             .sum();
         let mut tex = Texture::new(&mut buf, 9, 9, ColorFormat::RGBA8888);
-        iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(2)));
+        {
+            let r = Rect::new(
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(tex.width as i32),
+                Fixed::from_int(tex.height as i32),
+            );
+            iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(2)), r);
+        }
         let after = tex.buf.as_slice();
         let centre_after = after[centre] as i32;
         assert!(centre_after < 255, "centre should have dimmed");
@@ -337,7 +386,15 @@ mod tests {
             buf.push(0xF8);
         }
         let mut tex = Texture::new(&mut buf, 8, 8, ColorFormat::RGB565);
-        iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(3)));
+        {
+            let r = Rect::new(
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(tex.width as i32),
+                Fixed::from_int(tex.height as i32),
+            );
+            iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(3)), r);
+        }
         for px in tex.buf.as_slice().chunks_exact(2) {
             let pixel = ((px[1] as u16) << 8) | (px[0] as u16);
             let r5 = (pixel >> 11) & 0x1F;
@@ -360,7 +417,15 @@ mod tests {
         buf[i] = 0xFF;
         buf[i + 1] = 0xFF;
         let mut tex = Texture::new(&mut buf, 9, 9, ColorFormat::RGB565);
-        iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(2)));
+        {
+            let r = Rect::new(
+                Fixed::ZERO,
+                Fixed::ZERO,
+                Fixed::from_int(tex.width as i32),
+                Fixed::from_int(tex.height as i32),
+            );
+            iir_blur_inplace(&mut tex, alpha_for_radius(Fixed::from_int(2)), r);
+        }
         let after = tex.buf.as_slice();
         let centre_pixel = ((after[i + 1] as u16) << 8) | (after[i] as u16);
         let centre_r5 = (centre_pixel >> 11) & 0x1F;

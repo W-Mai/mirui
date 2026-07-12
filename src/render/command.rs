@@ -222,6 +222,7 @@ pub enum DrawCommand<'a> {
     PopClip,
     ApplyBlur {
         alpha: Fixed,
+        region: Rect,
     },
 }
 

@@ -161,7 +161,15 @@ fn render_drop_effect(
     }
 
     let alpha = alpha_for_radius(blur_radius);
-    iir_blur_inplace(&mut work, alpha);
+    {
+        let r = crate::types::Rect::new(
+            crate::types::Fixed::ZERO,
+            crate::types::Fixed::ZERO,
+            crate::types::Fixed::from_int(work.width as i32),
+            crate::types::Fixed::from_int(work.height as i32),
+        );
+        iir_blur_inplace(&mut work, alpha, r);
+    }
 
     if let TexBuf::Owned(ref mut buf) = work.buf {
         let stride = dst_w as usize * 4;

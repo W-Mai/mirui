@@ -636,36 +636,38 @@ impl Renderer for WebCanvasRenderer<'_> {
                 self.ctx().restore();
                 return;
             }
-            DrawCommand::ApplyBlur { alpha } => {
+            DrawCommand::ApplyBlur { alpha, region } => {
                 let radius_f = (alpha.to_f32() * 10.0).max(0.0);
                 if radius_f > 0.0 {
+                    let dpr = self.dpr();
+                    let rx = region.x.to_f32() as f64 * dpr;
+                    let ry = region.y.to_f32() as f64 * dpr;
+                    let rw = region.w.to_f32() as f64 * dpr;
+                    let rh = region.h.to_f32() as f64 * dpr;
                     let window = web_sys::window().unwrap();
                     let doc = window.document().unwrap();
                     let off = doc
                         .create_element("canvas")
                         .unwrap()
                         .unchecked_into::<web_sys::HtmlCanvasElement>();
-                    let src_canvas = self.surface.canvas();
-                    off.set_width(src_canvas.width());
-                    off.set_height(src_canvas.height());
+                    off.set_width(rw.ceil() as u32);
+                    off.set_height(rh.ceil() as u32);
                     let off_ctx = off
                         .get_context("2d")
                         .unwrap()
                         .unwrap()
                         .unchecked_into::<web_sys::CanvasRenderingContext2d>();
-                    off_ctx.set_filter(&alloc::format!("blur({}px)", radius_f));
+                    off_ctx.set_filter(&alloc::format!("blur({}px)", radius_f as f64 * dpr));
+                    let src_canvas = self.surface.canvas();
                     off_ctx
-                        .draw_image_with_html_canvas_element(src_canvas, 0.0, 0.0)
+                        .draw_image_with_html_canvas_element_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
+                            src_canvas, rx, ry, rw, rh, 0.0, 0.0, rw, rh,
+                        )
                         .unwrap();
                     let ctx = self.ctx();
                     ctx.set_transform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0).unwrap();
-                    ctx.clear_rect(
-                        0.0,
-                        0.0,
-                        src_canvas.width() as f64,
-                        src_canvas.height() as f64,
-                    );
-                    ctx.draw_image_with_html_canvas_element(&off, 0.0, 0.0)
+                    ctx.clear_rect(rx, ry, rw, rh);
+                    ctx.draw_image_with_html_canvas_element(&off, rx, ry)
                         .unwrap();
                 }
                 return;

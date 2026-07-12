@@ -53,7 +53,15 @@ fn background_blur_render(
     let Some(mut tmp) = renderer.sample_target_region(&sample_rect) else {
         return;
     };
-    iir_blur_inplace(&mut tmp, alpha);
+    {
+        let r = crate::types::Rect::new(
+            crate::types::Fixed::ZERO,
+            crate::types::Fixed::ZERO,
+            crate::types::Fixed::from_int(tmp.width as i32),
+            crate::types::Fixed::from_int(tmp.height as i32),
+        );
+        iir_blur_inplace(&mut tmp, alpha, r);
+    }
 
     // sample_rect already has ctx.transform baked in; passing it again would double-translate.
     renderer.draw(

@@ -155,6 +155,22 @@ pub fn direct_children_bboxes(ops: &[SceneOp]) -> Vec<Rect> {
     out
 }
 
+pub fn union_of_children(ops: &[SceneOp], parent_tf: &Transform) -> Rect {
+    let boxes = direct_children_bboxes(ops);
+    let mut acc = Rect::new(Fixed::ZERO, Fixed::ZERO, Fixed::ZERO, Fixed::ZERO);
+    let mut started = false;
+    for b in boxes {
+        let transformed = parent_tf.apply_rect_bbox(b);
+        if !started {
+            acc = transformed;
+            started = true;
+        } else {
+            acc = acc.union(&transformed);
+        }
+    }
+    acc
+}
+
 fn subtree_bbox(ops: &[SceneOp], begin_idx: usize) -> (Option<Rect>, usize) {
     let mut acc: Option<Rect> = None;
     let mut depth = 1usize;
