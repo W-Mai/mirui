@@ -28,25 +28,19 @@ impl SwRenderer<'_> {
     ) {
         let (clip_x, clip_y, clip_x2, clip_y2) = phys_bounds;
         let target_size = target_size.max(1) as i32;
-        // Source pixels per output pixel. At an integer N× this is
-        // exactly 1/N, so the integer-scale path stays byte-identical.
         let inv_scale = Fixed::from_int(source_size as i32) / Fixed::from_int(target_size);
         let half_texel = Fixed::ONE / 2;
-        // AA ramp half-width = half an output pixel, in source pixels.
         let edge_half = inv_scale / 2;
+        let target_w = self.target.width as usize;
+        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
 
         for dy in 0..target_size {
             let py = cy + dy;
             if py < clip_y || py >= clip_y2 {
                 continue;
             }
-            // Output-pixel-center to source-texel-index transform: the
-            // -half_texel shift maps texel index i to its centre at
-            // continuous i+0.5, so a 1:1 atlas samples texel centres
-            // exactly. Without it, sampling lands on texel boundaries
-            // and bilinear averages a solid stem's interior with its
-            // outside neighbour, halving the coverage.
             let sy = (Fixed::from_int(dy) + half_texel) * inv_scale - half_texel;
+            let row_mask_off = py as usize * target_w;
 
             for dx in 0..target_size {
                 let px = cx + dx;
@@ -64,9 +58,22 @@ impl SwRenderer<'_> {
                     (dist + edge_half) / (edge_half * 2)
                 };
 
-                let final_alpha = (cov * Fixed::from_int(opa as i32)).to_int().clamp(0, 255) as u8;
+                let mut final_alpha =
+                    (cov * Fixed::from_int(opa as i32)).to_int().clamp(0, 255) as u8;
                 if final_alpha == 0 {
                     continue;
+                }
+                if let Some(mask) = clip_mask {
+                    let ca = mask[row_mask_off + px as usize];
+                    if ca == 0 {
+                        continue;
+                    }
+                    if ca < 255 {
+                        final_alpha = ((final_alpha as u16 * ca as u16 + 127) / 255) as u8;
+                        if final_alpha == 0 {
+                            continue;
+                        }
+                    }
                 }
                 self.target.blend_pixel_int(px, py, color, final_alpha);
             }

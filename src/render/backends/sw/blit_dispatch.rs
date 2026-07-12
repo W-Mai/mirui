@@ -45,6 +45,7 @@ impl SwRenderer<'_> {
 
         let needs_composite_path =
             !matches!(composite, CompositeMode::SourceOver) || phys_radius != Fixed::ZERO;
+        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
         if needs_composite_path {
             blit_composite_dda(
                 &mut self.target,
@@ -64,6 +65,7 @@ impl SwRenderer<'_> {
                 opa,
                 composite,
                 phys_radius,
+                clip_mask,
             );
             return;
         }
@@ -71,7 +73,7 @@ impl SwRenderer<'_> {
         // opa < 255 → bypass per-format fast paths and go through the
         // per-pixel DDA so the alpha gets folded into each blend; the
         // fast paths' memcpy-ish row copies have no per-pixel hook.
-        if opa < 255 {
+        if opa < 255 || clip_mask.is_some() {
             blit_dda(
                 &mut self.target,
                 src,
@@ -88,6 +90,7 @@ impl SwRenderer<'_> {
                 clip_x1,
                 clip_y1,
                 opa,
+                clip_mask,
             );
             return;
         }
@@ -143,6 +146,7 @@ impl SwRenderer<'_> {
                 clip_x1,
                 clip_y1,
                 255,
+                None,
             );
         }
     }

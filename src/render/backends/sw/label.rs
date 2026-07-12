@@ -37,13 +37,6 @@ impl SwRenderer<'_> {
                     spread,
                     ..
                 } => {
-                    // Render at the Font's requested size, not the atlas
-                    // size: one SDF atlas resamples to whatever font.size
-                    // asks for, so a larger Font grows the glyph smoothly.
-                    // Advance scales by the same resample ratio so the pen
-                    // keeps pace; with font.size == source_size this is
-                    // g.advance × scale, leaving the common path
-                    // byte-identical.
                     advance =
                         g.advance as i32 * requested_size as i32 / (*source_size as i32).max(1);
                     self.blit_sdf_glyph(
@@ -67,12 +60,6 @@ impl SwRenderer<'_> {
                     ..
                 } => {
                     advance = g.advance as i32 * scale;
-                    // The generator bakes the glyph into the cell at a
-                    // fixed baseline (bearings already applied), like the
-                    // SDF cell, so the whole cell blits at the pen origin
-                    // — adding bearing here would double-apply it and
-                    // break baseline alignment. Coverage is at the target
-                    // pixel size, so it blits 1:1 (no HiDPI re-scale).
                     self.blit_gray_glyph(coverage, *bpp, *w, *h, cx, cy, phys_bounds, color, opa);
                 }
             }
@@ -93,6 +80,8 @@ impl SwRenderer<'_> {
         opa: u8,
     ) {
         let (clip_x, clip_y, clip_x2, clip_y2) = phys_bounds;
+        let target_w = self.target.width as usize;
+        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
         for row in 0..char_h.min(bitmap.len() as i32) {
             let byte = bitmap[row as usize];
             for col in 0..8 {
@@ -104,11 +93,21 @@ impl SwRenderer<'_> {
                         let px = cx + col * scale + sx;
                         let py = cy + row * scale + sy;
                         if px >= clip_x && px < clip_x2 && py >= clip_y && py < clip_y2 {
+                            let alpha = match clip_mask {
+                                Some(m) => {
+                                    let ca = m[py as usize * target_w + px as usize];
+                                    if ca == 0 {
+                                        continue;
+                                    }
+                                    ((opa as u16 * ca as u16 + 127) / 255) as u8
+                                }
+                                None => opa,
+                            };
                             self.target.blend_pixel(
                                 Fixed::from_int(px),
                                 Fixed::from_int(py),
                                 color,
-                                opa,
+                                alpha,
                             );
                         }
                     }
@@ -117,13 +116,6 @@ impl SwRenderer<'_> {
         }
     }
 
-    /// Blit a pre-rasterized grayscale glyph: each pixel's stored
-    /// value IS its coverage (alpha), so there's no distance math or
-    /// resampling. `coverage` is `w × h` row-major, `bpp` bits per
-    /// pixel MSB-first; rows are NOT byte-padded (a 5px-wide 4-bit row
-    /// spans 2.5 bytes and the next row packs immediately after). The
-    /// stored coverage scales up to the full 0..255 alpha range so a
-    /// 4-bit `0xF` reads as opaque.
     #[allow(clippy::too_many_arguments)]
     fn blit_gray_glyph(
         &mut self,
@@ -141,6 +133,8 @@ impl SwRenderer<'_> {
         let w = w as usize;
         let h = h as usize;
         let max_q = (1u16 << bpp) - 1;
+        let target_w = self.target.width as usize;
+        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
         let mut bit_cursor = 0usize;
         for row in 0..h {
             for col in 0..w {
@@ -149,16 +143,26 @@ impl SwRenderer<'_> {
                 if q == 0 {
                     continue;
                 }
-                // Scale the bpp-bit coverage to 0..255, then fold in the
-                // caller's opacity: alpha = q/max_q · base_opa.
                 let cov = (q as u32 * 255 / max_q as u32) as u8;
-                let alpha = (cov as u32 * base_opa as u32 / 255) as u8;
+                let mut alpha = (cov as u32 * base_opa as u32 / 255) as u8;
                 if alpha == 0 {
                     continue;
                 }
                 let px = x0 + col as i32;
                 let py = y0 + row as i32;
                 if px >= clip_x && px < clip_x2 && py >= clip_y && py < clip_y2 {
+                    if let Some(mask) = clip_mask {
+                        let ca = mask[py as usize * target_w + px as usize];
+                        if ca == 0 {
+                            continue;
+                        }
+                        if ca < 255 {
+                            alpha = ((alpha as u16 * ca as u16 + 127) / 255) as u8;
+                            if alpha == 0 {
+                                continue;
+                            }
+                        }
+                    }
                     self.target.blend_pixel_int(px, py, color, alpha);
                 }
             }
@@ -166,10 +170,6 @@ impl SwRenderer<'_> {
     }
 }
 
-/// Read a `bpp`-bit big-endian field starting at absolute bit offset
-/// `bit_pos` from a byte slice. `bpp ∈ {1,2,4,8}`; fields never cross
-/// more than two bytes at these widths, but the general two-byte
-/// window handles any `bpp ≤ 8`.
 fn read_packed(data: &[u8], bit_pos: usize, bpp: u8) -> u16 {
     let byte_idx = bit_pos / 8;
     let bit_off = bit_pos % 8;
@@ -194,7 +194,6 @@ mod tests {
 
     #[test]
     fn read_packed_4bit_msb_first() {
-        // byte 0xAB = nibbles A then B (MSB-first).
         let data = [0xAB_u8, 0xCD];
         assert_eq!(read_packed(&data, 0, 4), 0xA);
         assert_eq!(read_packed(&data, 4, 4), 0xB);
@@ -204,12 +203,10 @@ mod tests {
 
     #[test]
     fn read_packed_handles_unaligned_and_cross_byte() {
-        // 2-bit fields walking across the byte boundary.
         let data = [0b11_01_00_10_u8, 0b01_11_00_10];
         assert_eq!(read_packed(&data, 0, 2), 0b11);
         assert_eq!(read_packed(&data, 6, 2), 0b10);
         assert_eq!(read_packed(&data, 8, 2), 0b01);
-        // 8-bit field straddling a byte boundary (bit 4..12).
         assert_eq!(read_packed(&data, 4, 8), 0b0010_0111);
     }
 
@@ -221,7 +218,6 @@ mod tests {
 
     #[test]
     fn gray_full_coverage_is_opaque_zero_is_blank() {
-        // 2x1 4-bit row: pixel0 = 0xF (opaque), pixel1 = 0x0 (blank).
         let coverage = [0xF0_u8];
         let mut buf = vec![0u8; 4 * 4 * 4];
         let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
@@ -236,9 +232,6 @@ mod tests {
 
     #[test]
     fn gray_mid_coverage_scales_to_alpha() {
-        // 4-bit 0x8 ≈ 8/15 of 255 = 136. The target is Opaque mode so
-        // the stored alpha is forced to 255; the coverage shows up in
-        // the blended RGB (white over black), so check the R channel.
         let coverage = [0x80_u8];
         let mut buf = vec![0u8; 4 * 4 * 4];
         let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);
@@ -259,7 +252,6 @@ mod tests {
         let mut backend = SwRenderer::new(tex);
         let color = Color::rgba(255, 255, 255, 255);
 
-        // 4x1 row at y=0, but clip only allows x < 2.
         backend.blit_gray_glyph(&coverage, 4, 4, 1, 0, 0, (0, 0, 2, 4), &color, 255);
 
         assert_eq!(pixel_alpha(&buf, 4, 0, 0), 255);
@@ -269,9 +261,6 @@ mod tests {
 
     #[test]
     fn gray_rows_pack_without_byte_padding() {
-        // 3px-wide 4-bit glyph: row0 = F,0,F (12 bits), row1 starts at
-        // bit 12 = 0,F,0. Verifies rows don't round up to a byte.
-        // bits: F 0 F | 0 F 0  -> 0xF0 0xF0 0xF0
         let coverage = [0xF0_u8, 0xF0, 0xF0];
         let mut buf = vec![0u8; 4 * 4 * 4];
         let tex = Texture::new(&mut buf, 4, 4, ColorFormat::RGBA8888);

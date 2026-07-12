@@ -348,6 +348,7 @@ pub fn blit_2to2_fast(
             clip_x1,
             clip_y1,
             255,
+            None,
         );
         return;
     }
@@ -386,6 +387,7 @@ pub fn blit_2to2_fast(
             clip_x1,
             clip_y1,
             255,
+            None,
         ),
     }
 }
@@ -655,12 +657,11 @@ pub fn blit_dda(
     clip_x1: i32,
     clip_y1: i32,
     opa: u8,
+    clip_mask: Option<&[u8]>,
 ) {
-    // Step values in Q16.16 fixed-point. `(sw << 16) / dw` lands the
-    // integer portion in the high 16 bits; adding step each iteration
-    // is exact modular arithmetic on a u32.
     let sx_step = ((sw as u32) << 16) / dw as u32;
     let sy_step = ((sh as u32) << 16) / dh as u32;
+    let target_w = dst.width as usize;
 
     let mut sy_acc: u32 = 0;
     for drow in 0..dh {
@@ -672,6 +673,7 @@ pub fn blit_dda(
         let sy = sy0 + (sy_acc >> 16) as i32;
         sy_acc = sy_acc.wrapping_add(sy_step);
 
+        let row_mask_off = iy as usize * target_w;
         let mut sx_acc: u32 = 0;
         for dcol in 0..dw {
             let ix = dx0 + dcol;
@@ -683,9 +685,21 @@ pub fn blit_dda(
             sx_acc = sx_acc.wrapping_add(sx_step);
 
             let src_color = src.get_pixel(sx, sy);
-            let effective_a = ((src_color.a as u16 * opa as u16) / 255) as u8;
+            let mut effective_a = ((src_color.a as u16 * opa as u16) / 255) as u8;
             if effective_a == 0 {
                 continue;
+            }
+            if let Some(mask) = clip_mask {
+                let clip_alpha = mask[row_mask_off + ix as usize];
+                if clip_alpha == 0 {
+                    continue;
+                }
+                if clip_alpha < 255 {
+                    effective_a = ((effective_a as u16 * clip_alpha as u16 + 127) / 255) as u8;
+                    if effective_a == 0 {
+                        continue;
+                    }
+                }
             }
             if effective_a == 255 {
                 dst.set_pixel(ix, iy, &src_color);
@@ -715,6 +729,7 @@ pub fn blit_composite_dda(
     opa: u8,
     mode: crate::render::command::CompositeMode,
     phys_radius: crate::types::Fixed,
+    clip_mask: Option<&[u8]>,
 ) {
     use crate::types::Fixed;
 
@@ -722,6 +737,7 @@ pub fn blit_composite_dda(
     if matches!(mode, crate::render::command::CompositeMode::SourceOver) && !has_radius {
         blit_dda(
             dst, src, sx0, sy0, sw, sh, dx0, dy0, dw, dh, clip_x0, clip_y0, clip_x1, clip_y1, opa,
+            clip_mask,
         );
         return;
     }
@@ -730,6 +746,7 @@ pub fn blit_composite_dda(
     let sy_step = ((sh as u32) << 16) / dh as u32;
     let dst_w_logical = Fixed::from_int(dw);
     let dst_h_logical = Fixed::from_int(dh);
+    let target_w = dst.width as usize;
 
     let mut sy_acc: u32 = 0;
     for drow in 0..dh {
@@ -740,6 +757,7 @@ pub fn blit_composite_dda(
         }
         let sy = sy0 + (sy_acc >> 16) as i32;
         sy_acc = sy_acc.wrapping_add(sy_step);
+        let row_mask_off = iy as usize * target_w;
 
         let mut sx_acc: u32 = 0;
         for dcol in 0..dw {
@@ -764,6 +782,18 @@ pub fn blit_composite_dda(
                 effective_a = (cov * Fixed::from_int(effective_a as i32))
                     .to_int()
                     .clamp(0, 255) as u8;
+            }
+            if let Some(mask) = clip_mask {
+                let clip_alpha = mask[row_mask_off + ix as usize];
+                if clip_alpha == 0 {
+                    continue;
+                }
+                if clip_alpha < 255 {
+                    effective_a = ((effective_a as u16 * clip_alpha as u16 + 127) / 255) as u8;
+                }
+            }
+            if effective_a == 0 {
+                continue;
             }
             dst.composite_pixel_int(ix, iy, &src_color, effective_a, mode);
         }

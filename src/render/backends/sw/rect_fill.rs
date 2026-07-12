@@ -27,16 +27,25 @@ impl SwRenderer<'_> {
 
         let r = radius.min(area.w / 2).min(area.h / 2);
         let (px_x0, px_y0, px_x1, px_y1) = draw_area.pixel_bounds();
-        // Fold color.a into opa so every downstream blend treats the
-        // colour as opaque RGB. Mirrors what blend_pixel does internally
-        // before delegating to blend_pixel_int. The fold happens before
-        // coverage instead of after, which can shift a half-transparent
-        // fully-covered pixel by ±1 alpha vs the pre-eb98ecc path; the
-        // difference is below visual threshold and inside the existing
-        // ±2 symmetry tolerance.
         let effective_opa = ((color.a as u16 * opa as u16) / 255) as u8;
         let opa_norm =
             Fixed::from_int(effective_opa as i32).map_range((0, 255), (Fixed::ZERO, Fixed::ONE));
+
+        let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
+        if clip_mask.is_some() {
+            self.fill_rect_masked(
+                area,
+                px_x0,
+                px_y0,
+                px_x1,
+                px_y1,
+                r,
+                color,
+                effective_opa,
+                opa_norm,
+            );
+            return;
+        }
 
         if area.is_aligned() && r == Fixed::ZERO {
             crate::trace_span!("sw.fill_aligned");
@@ -258,6 +267,82 @@ impl SwRenderer<'_> {
                 if final_opa > 0 {
                     // px/py are integers — skip blend_pixel's is_integer dispatch.
                     self.target.blend_pixel_int(px, py, color, final_opa);
+                }
+            }
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn fill_rect_masked(
+        &mut self,
+        area: &Rect,
+        px_x0: i32,
+        px_y0: i32,
+        px_x1: i32,
+        py_y1: i32,
+        r: Fixed,
+        color: &Color,
+        _effective_opa: u8,
+        opa_norm: Fixed,
+    ) {
+        let Some(clip_mask) = self.clip_stack.last().map(|m| m.alpha.as_slice()) else {
+            return;
+        };
+        let target_w = self.target.width as usize;
+        let area_x_end = area.x + area.w;
+        let area_y_end = area.y + area.h;
+        let has_corners = r > Fixed::ZERO;
+
+        for py in px_y0..py_y1 {
+            let pixel_top = Fixed::from_int(py);
+            let pixel_bot = Fixed::from_int(py + 1);
+            let cov_y = if pixel_top >= area.y && pixel_bot <= area_y_end {
+                Fixed::ONE
+            } else {
+                (pixel_bot.min(area_y_end) - pixel_top.max(area.y))
+                    .max(Fixed::ZERO)
+                    .min(Fixed::ONE)
+            };
+            if cov_y <= Fixed::ZERO {
+                continue;
+            }
+            let row_mask_off = py as usize * target_w;
+            for px in px_x0..px_x1 {
+                let clip_alpha = clip_mask[row_mask_off + px as usize];
+                if clip_alpha == 0 {
+                    continue;
+                }
+                let pixel_left = Fixed::from_int(px);
+                let pixel_right = Fixed::from_int(px + 1);
+                let cov_x = if pixel_left >= area.x && pixel_right <= area_x_end {
+                    Fixed::ONE
+                } else {
+                    (pixel_right.min(area_x_end) - pixel_left.max(area.x))
+                        .max(Fixed::ZERO)
+                        .min(Fixed::ONE)
+                };
+                if cov_x <= Fixed::ZERO {
+                    continue;
+                }
+                let corner_cov = if has_corners {
+                    let dx = Fixed::from_int(px) - area.x;
+                    let dy = Fixed::from_int(py) - area.y;
+                    if dx >= r && dx <= area.w - r && dy >= r && dy <= area.h - r {
+                        Fixed::ONE
+                    } else {
+                        rounded_rect_coverage(dx, dy, area.w, area.h, r)
+                    }
+                } else {
+                    Fixed::ONE
+                };
+                let cov = cov_x * cov_y * corner_cov * opa_norm;
+                let base_alpha = cov.map01(255).to_int() as u8;
+                if base_alpha == 0 {
+                    continue;
+                }
+                let final_alpha = ((base_alpha as u16 * clip_alpha as u16 + 127) / 255) as u8;
+                if final_alpha > 0 {
+                    self.target.blend_pixel_int(px, py, color, final_alpha);
                 }
             }
         }
@@ -932,5 +1017,150 @@ mod corner_check {
             "Blend fallback must use folded opa, expected ~{expected}, got {}",
             p.a,
         );
+    }
+}
+
+#[cfg(all(test, feature = "std"))]
+mod clip_mask_check {
+    extern crate std;
+    use super::*;
+    use crate::render::canvas::Canvas;
+    use crate::render::path::Path;
+    use crate::render::raster::FillRule;
+    use crate::types::{Point, Transform};
+
+    fn circle_path(cx: i32, cy: i32, r: i32) -> Path {
+        let k = (r as f32 * 0.552_284_8) as i32;
+        let mut path = Path::new();
+        let cx_f = Fixed::from_int(cx);
+        let cy_f = Fixed::from_int(cy);
+        let r_f = Fixed::from_int(r);
+        let k_f = Fixed::from_int(k);
+        path.move_to(Point {
+            x: cx_f + r_f,
+            y: cy_f,
+        });
+        path.cubic_to(
+            Point {
+                x: cx_f + r_f,
+                y: cy_f + k_f,
+            },
+            Point {
+                x: cx_f + k_f,
+                y: cy_f + r_f,
+            },
+            Point {
+                x: cx_f,
+                y: cy_f + r_f,
+            },
+        );
+        path.cubic_to(
+            Point {
+                x: cx_f - k_f,
+                y: cy_f + r_f,
+            },
+            Point {
+                x: cx_f - r_f,
+                y: cy_f + k_f,
+            },
+            Point {
+                x: cx_f - r_f,
+                y: cy_f,
+            },
+        );
+        path.cubic_to(
+            Point {
+                x: cx_f - r_f,
+                y: cy_f - k_f,
+            },
+            Point {
+                x: cx_f - k_f,
+                y: cy_f - r_f,
+            },
+            Point {
+                x: cx_f,
+                y: cy_f - r_f,
+            },
+        );
+        path.cubic_to(
+            Point {
+                x: cx_f + k_f,
+                y: cy_f - r_f,
+            },
+            Point {
+                x: cx_f + r_f,
+                y: cy_f - k_f,
+            },
+            Point {
+                x: cx_f + r_f,
+                y: cy_f,
+            },
+        );
+        path.close();
+        path
+    }
+
+    #[test]
+    fn fill_rect_inside_circular_clip_masks_outside_pixels() {
+        let w = 32;
+        let h = 32;
+        let mut buf = std::vec![0u8; (w * h * 4) as usize];
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let clip = Rect::new(0, 0, w, h);
+
+        let circle = circle_path(16, 16, 10);
+        backend.push_clip(&circle, &Transform::IDENTITY, FillRule::EvenOdd);
+
+        backend.fill_rect(
+            &Rect::new(0, 0, w, h),
+            &clip,
+            &Color::rgb(255, 0, 0),
+            Fixed::ZERO,
+            255,
+        );
+
+        backend.pop_clip();
+
+        let center = backend.target.get_pixel(16, 16);
+        assert_eq!(
+            center.r, 255,
+            "center pixel (inside circle) should be filled red"
+        );
+
+        let corner = backend.target.get_pixel(0, 0);
+        assert_eq!(
+            corner.r, 0,
+            "corner pixel (outside circle) must be untouched, got r={}",
+            corner.r
+        );
+
+        let edge = backend.target.get_pixel(31, 16);
+        assert_eq!(
+            edge.r, 0,
+            "right-edge pixel (outside circle) must be untouched, got r={}",
+            edge.r
+        );
+    }
+
+    #[test]
+    fn fill_rect_no_clip_stack_unchanged_behavior() {
+        let w = 8;
+        let h = 8;
+        let mut buf = std::vec![0u8; (w * h * 4) as usize];
+        let tex = Texture::new(&mut buf, w as u16, h as u16, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+        let clip = Rect::new(0, 0, w, h);
+
+        backend.fill_rect(
+            &Rect::new(0, 0, w, h),
+            &clip,
+            &Color::rgb(255, 0, 0),
+            Fixed::ZERO,
+            255,
+        );
+
+        assert_eq!(backend.target.get_pixel(0, 0).r, 255);
+        assert_eq!(backend.target.get_pixel(7, 7).r, 255);
     }
 }

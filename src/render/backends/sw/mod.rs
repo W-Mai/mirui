@@ -1639,7 +1639,9 @@ mod tests {
         }
         {
             let mut tex_b = Texture::new(&mut dst_b, 8, 6, ColorFormat::RGBA8888);
-            blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6, 255);
+            blit_dda(
+                &mut tex_b, &src, 0, 0, 4, 4, 0, 0, 7, 5, 0, 0, 8, 6, 255, None,
+            );
         }
 
         assert_eq!(dst_a, dst_b, "dda sampling diverged from divide path");
@@ -1734,7 +1736,9 @@ mod tests {
         let mut dst_b = vec![0u8; 10 * 10 * 2];
         {
             let mut tex = Texture::new(&mut dst_a, 10, 10, ColorFormat::RGB565Swapped);
-            blit_dda(&mut tex, &src, 0, 0, 3, 3, 1, 1, 6, 6, 0, 0, 10, 10, 255);
+            blit_dda(
+                &mut tex, &src, 0, 0, 3, 3, 1, 1, 6, 6, 0, 0, 10, 10, 255, None,
+            );
         }
         {
             let mut tex = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGB565Swapped);
@@ -1859,7 +1863,9 @@ mod tests {
         }
         {
             let mut tex_b = Texture::new(&mut dst_b, 10, 10, ColorFormat::RGBA8888);
-            blit_dda(&mut tex_b, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10, 255);
+            blit_dda(
+                &mut tex_b, &src, 0, 0, 4, 4, 1, 1, 8, 8, 2, 0, 7, 10, 255, None,
+            );
         }
         assert_eq!(dst_a, dst_b);
     }
