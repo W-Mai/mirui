@@ -7,6 +7,7 @@ mod texture_pool;
 use alloc::format;
 use alloc::string::String;
 
+use wasm_bindgen::JsCast;
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
 use self::texture_pool::{GlyphKey, GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
@@ -578,10 +579,78 @@ impl Renderer for WebCanvasRenderer<'_> {
     }
 
     fn draw(&mut self, cmd: &DrawCommand, clip: &Rect) {
-        // `quad: Some(q)` already bakes `cmd.transform()` into its
-        // 4 points; multiplying again would warp twice. Quad branches
-        // paint under DPR-only; the rest stack `dpr × widget_tf`.
         let dpr = self.dpr();
+
+        match cmd {
+            DrawCommand::PushClip {
+                path,
+                transform,
+                fill_rule,
+            } => {
+                let ctx = self.ctx();
+                ctx.save();
+                let tf = transform;
+                ctx.set_transform(
+                    tf.m00.to_f32() as f64 * dpr,
+                    tf.m10.to_f32() as f64 * dpr,
+                    tf.m01.to_f32() as f64 * dpr,
+                    tf.m11.to_f32() as f64 * dpr,
+                    tf.tx.to_f32() as f64 * dpr,
+                    tf.ty.to_f32() as f64 * dpr,
+                )
+                .unwrap();
+                self.build_path(path);
+                match fill_rule {
+                    crate::render::raster::FillRule::EvenOdd => {
+                        ctx.clip_with_canvas_winding_rule(CanvasWindingRule::Evenodd);
+                    }
+                    crate::render::raster::FillRule::NonZero => {
+                        ctx.clip();
+                    }
+                }
+                return;
+            }
+            DrawCommand::PopClip => {
+                self.ctx().restore();
+                return;
+            }
+            DrawCommand::ApplyBlur { alpha } => {
+                let radius_f = (alpha.to_f32() * 10.0).max(0.0);
+                if radius_f > 0.0 {
+                    let window = web_sys::window().unwrap();
+                    let doc = window.document().unwrap();
+                    let off = doc
+                        .create_element("canvas")
+                        .unwrap()
+                        .unchecked_into::<web_sys::HtmlCanvasElement>();
+                    let src_canvas = self.surface.canvas();
+                    off.set_width(src_canvas.width());
+                    off.set_height(src_canvas.height());
+                    let off_ctx = off
+                        .get_context("2d")
+                        .unwrap()
+                        .unwrap()
+                        .unchecked_into::<web_sys::CanvasRenderingContext2d>();
+                    off_ctx.set_filter(&alloc::format!("blur({}px)", radius_f));
+                    off_ctx
+                        .draw_image_with_html_canvas_element(src_canvas, 0.0, 0.0)
+                        .unwrap();
+                    let ctx = self.ctx();
+                    ctx.set_transform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0).unwrap();
+                    ctx.clear_rect(
+                        0.0,
+                        0.0,
+                        src_canvas.width() as f64,
+                        src_canvas.height() as f64,
+                    );
+                    ctx.draw_image_with_html_canvas_element(&off, 0.0, 0.0)
+                        .unwrap();
+                }
+                return;
+            }
+            _ => {}
+        }
+
         let tf = cmd.transform();
         let has_quad = matches!(
             cmd,
@@ -607,8 +676,6 @@ impl Renderer for WebCanvasRenderer<'_> {
         }
 
         match cmd {
-            DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
-            }
             DrawCommand::Fill {
                 area,
                 quad: Some(q),
@@ -745,6 +812,8 @@ impl Renderer for WebCanvasRenderer<'_> {
                 ..
             } => {
                 self.draw_label(pos, text, font, clip, color, *opa);
+            }
+            DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
             }
         }
 
