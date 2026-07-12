@@ -42,10 +42,8 @@ fn find_focusable(world: &World, entity: Entity) -> Option<Entity> {
         if world.get::<Focusable>(cur).is_some() {
             return Some(cur);
         }
-        match world.get::<Parent>(cur) {
-            Some(p) => cur = p.0,
-            None => return None,
-        }
+        let p = world.get::<Parent>(cur)?;
+        cur = p.0;
     }
 }
 

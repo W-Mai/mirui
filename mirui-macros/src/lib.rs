@@ -596,13 +596,13 @@ impl MiruiRune {
 
             if is_text_input_widget && TEXT_INPUT_FIELDS.contains(&name.as_str()) {
                 let field_ident = syn::Ident::new(&name, attr_span);
-                component_fields.push(quote! { #field_ident: (#value).into() });
+                component_fields.push(Self::field_init_tokens(&field_ident, value));
                 continue;
             }
 
             if widget_kind == WidgetKind::Component && name == "text" {
                 let field_ident = syn::Ident::new(&name, attr_span);
-                component_fields.push(quote! { #field_ident: (#value).into() });
+                component_fields.push(Self::field_init_tokens(&field_ident, value));
                 continue;
             }
 
@@ -642,7 +642,7 @@ impl MiruiRune {
                 unknown => match widget_kind {
                     WidgetKind::Component => {
                         let field_ident = syn::Ident::new(unknown, attr_span);
-                        component_fields.push(quote! { #field_ident: (#value).into() });
+                        component_fields.push(Self::field_init_tokens(&field_ident, value));
                     }
                     WidgetKind::Layout | WidgetKind::IllegalLowercase => {
                         let mut msg = format!("unknown widget attribute `{unknown}`");
@@ -682,6 +682,21 @@ impl MiruiRune {
             Some(s.clone())
         } else {
             None
+        }
+    }
+
+    fn field_init_tokens(field_ident: &syn::Ident, value: &syn::Expr) -> proc_macro2::TokenStream {
+        let is_float_literal = matches!(
+            value,
+            syn::Expr::Lit(syn::ExprLit {
+                lit: syn::Lit::Float(_),
+                ..
+            })
+        );
+        if is_float_literal {
+            quote! { #field_ident: #value }
+        } else {
+            quote! { #field_ident: (#value).into() }
         }
     }
 
