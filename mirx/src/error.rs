@@ -29,6 +29,12 @@ use crate::InvalidChunkType;
 #[non_exhaustive]
 pub enum ReadError {
     Parse(ParseError),
+    Truncated { needed: usize, available: usize },
+    BadMagic,
+    UnsupportedVersion { major: u8, minor: u8 },
+    UnknownLayout(u8),
+    ReservedNonZero { offset: usize },
+    HeaderCrcMismatch { expected: u32, actual: u32 },
     InvalidChunkType,
 }
 
