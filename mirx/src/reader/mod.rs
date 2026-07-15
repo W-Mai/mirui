@@ -1,3 +1,4 @@
+use crate::ImageView;
 use crate::ReadError;
 use crate::crc32;
 use crate::header::{
@@ -27,6 +28,7 @@ impl ContainerHeader {
 pub struct Reader<'a> {
     bytes: &'a [u8],
     header: ContainerHeader,
+    flat_image: Option<ImageView<'a>>,
     has_future_semantics: bool,
 }
 
@@ -38,18 +40,26 @@ impl<'a> Reader<'a> {
     pub fn open(bytes: &'a [u8]) -> Result<Self, ReadError> {
         let file = parse_file_header(bytes)?;
         let has_future_semantics = file.version_minor > VERSION_MINOR || file.flags != 0;
-        let header = match file.layout {
+        let (header, flat_image) = match file.layout {
             Layout::Flat => {
-                ContainerHeader::Flat(parse_flat_header(bytes, file, has_future_semantics)?)
+                let header = parse_flat_header(bytes, file, has_future_semantics)?;
+                let image = if has_future_semantics {
+                    None
+                } else {
+                    Some(ImageView::from_flat(bytes, header)?)
+                };
+                (ContainerHeader::Flat(header), image)
             }
-            Layout::Chunk => {
-                ContainerHeader::Chunk(parse_chunk_header(bytes, file, has_future_semantics)?)
-            }
+            Layout::Chunk => (
+                ContainerHeader::Chunk(parse_chunk_header(bytes, file, has_future_semantics)?),
+                None,
+            ),
         };
 
         Ok(Self {
             bytes,
             header,
+            flat_image,
             has_future_semantics,
         })
     }
@@ -72,6 +82,14 @@ impl<'a> Reader<'a> {
 
     pub const fn source(&self) -> &'a [u8] {
         self.bytes
+    }
+
+    /// Returns the validated FLAT image for current container semantics.
+    ///
+    /// Future headers remain source-preservable but are not interpreted as a
+    /// current image payload.
+    pub const fn flat_image(&self) -> Option<ImageView<'a>> {
+        self.flat_image
     }
 }
 
@@ -202,12 +220,18 @@ mod tests {
         bytes[5] = minor;
         bytes[6] = Layout::Flat.to_u8();
         bytes[7] = flags;
-        bytes[8] = 0x42;
-        bytes[12..16].copy_from_slice(&7u32.to_le_bytes());
-        bytes[16..20].copy_from_slice(&5u32.to_le_bytes());
-        bytes[20..24].copy_from_slice(&8u32.to_le_bytes());
+        bytes[8] = crate::ColorFormat::RGB565.to_u8();
+        bytes[12..16].copy_from_slice(&2u32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+        bytes[20..24].copy_from_slice(&4u32.to_le_bytes());
         let checksum = crc32(&bytes[..24]);
         bytes[24..28].copy_from_slice(&checksum.to_le_bytes());
+        bytes
+    }
+
+    fn flat_file(minor: u8, flags: u8) -> alloc::vec::Vec<u8> {
+        let mut bytes = alloc::vec::Vec::from(flat_header(minor, flags));
+        bytes.extend_from_slice(&[0; 4]);
         bytes
     }
 
@@ -233,7 +257,7 @@ mod tests {
 
     #[test]
     fn opens_flat_and_chunk_headers_without_allocation() {
-        let flat = flat_header(VERSION_MINOR, 0);
+        let flat = flat_file(VERSION_MINOR, 0);
         let reader = Reader::open(&flat).unwrap();
         assert_eq!(reader.layout(), Layout::Flat);
         assert_eq!(reader.source().as_ptr(), flat.as_ptr());
@@ -328,14 +352,16 @@ mod tests {
         }
 
         for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-            let mut future = flat_header(minor, flags);
+            let mut future = flat_file(minor, flags);
             future[9] = 0x7f;
+            future[8] = 0xfe;
             let checksum = crc32(&future[..24]);
             future[24..28].copy_from_slice(&checksum.to_le_bytes());
             let reader = Reader::open(&future).unwrap();
             assert!(reader.has_future_semantics());
             assert_eq!(reader.file_header().version_minor, minor);
             assert_eq!(reader.file_header().flags, flags);
+            assert_eq!(reader.flat_image(), None);
         }
     }
 }

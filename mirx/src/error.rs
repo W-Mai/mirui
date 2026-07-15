@@ -35,6 +35,9 @@ pub enum ReadError {
     UnknownLayout(u8),
     ReservedNonZero { offset: usize },
     HeaderCrcMismatch { expected: u32, actual: u32 },
+    UnknownColorFormat(u8),
+    StrideTooSmall { minimum: u32, actual: u32 },
+    SizeOverflow,
     InvalidChunkType,
 }
 

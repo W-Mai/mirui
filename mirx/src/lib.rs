@@ -11,6 +11,7 @@ mod format;
 mod header;
 mod model;
 pub mod path;
+pub mod payload;
 pub mod reader;
 pub mod scene;
 pub mod types;
@@ -36,6 +37,7 @@ pub use header::{
 };
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType};
 pub use path::{Path, PathCmd};
+pub use payload::image::ImageView;
 pub use reader::{ContainerHeader, Reader};
 pub use scene::{
     CodecError, CompositeMode, FillRule, GradientStop, GradientUnits, LineCap, LineJoin,

@@ -71,6 +71,32 @@ impl ColorFormat {
         }
     }
 
+    /// Number of bits used by one pixel in the main plane.
+    ///
+    /// Formats with an extra plane report only their main-plane depth.
+    pub const fn bits_per_pixel(self) -> u8 {
+        match self {
+            Self::I1 | Self::A1 => 1,
+            Self::I2 | Self::A2 => 2,
+            Self::I4 | Self::A4 => 4,
+            Self::I8 | Self::A8 | Self::L8 => 8,
+            Self::RGB565 | Self::RGB565Swapped | Self::RGB565A8 => 16,
+            Self::RGB888 => 24,
+            Self::XRGB8888 | Self::RGBA8888 | Self::BGRA8888 => 32,
+        }
+    }
+
+    /// Smallest valid main-plane stride for one row of `width` pixels.
+    pub const fn minimum_stride(self, width: u32) -> Option<u32> {
+        let bits = width as u64 * self.bits_per_pixel() as u64;
+        let bytes = bits.div_ceil(8);
+        if bytes > u32::MAX as u64 {
+            None
+        } else {
+            Some(bytes as u32)
+        }
+    }
+
     /// FLAT extra bytes; RGB565A8 intentionally uses the v1 no-padding alpha
     /// plane, so `stride` is ignored.
     pub const fn extra_size(self, width: u32, height: u32, _stride: u32) -> Option<u32> {
@@ -144,5 +170,41 @@ mod tests {
         assert_eq!(ColorFormat::RGBA8888.extra_size(1, 1, 4), Some(0));
         assert_eq!(ColorFormat::BGRA8888.extra_size(2, 2, 8), Some(0));
         assert_eq!(ColorFormat::A8.extra_size(8, 8, 8), Some(0));
+    }
+
+    #[test]
+    fn minimum_stride_covers_every_format_family() {
+        assert_eq!(ColorFormat::I1.minimum_stride(9), Some(2));
+        assert_eq!(ColorFormat::A1.minimum_stride(8), Some(1));
+        assert_eq!(ColorFormat::I2.minimum_stride(5), Some(2));
+        assert_eq!(ColorFormat::A2.minimum_stride(4), Some(1));
+        assert_eq!(ColorFormat::I4.minimum_stride(3), Some(2));
+        assert_eq!(ColorFormat::A4.minimum_stride(2), Some(1));
+        assert_eq!(ColorFormat::I8.minimum_stride(7), Some(7));
+        assert_eq!(ColorFormat::A8.minimum_stride(7), Some(7));
+        assert_eq!(ColorFormat::L8.minimum_stride(7), Some(7));
+        assert_eq!(ColorFormat::RGB565.minimum_stride(7), Some(14));
+        assert_eq!(ColorFormat::RGB565Swapped.minimum_stride(7), Some(14));
+        assert_eq!(ColorFormat::RGB565A8.minimum_stride(7), Some(14));
+        assert_eq!(ColorFormat::RGB888.minimum_stride(7), Some(21));
+        assert_eq!(ColorFormat::XRGB8888.minimum_stride(7), Some(28));
+        assert_eq!(ColorFormat::RGBA8888.minimum_stride(7), Some(28));
+        assert_eq!(ColorFormat::BGRA8888.minimum_stride(7), Some(28));
+        assert_eq!(ColorFormat::A8.minimum_stride(u32::MAX), Some(u32::MAX));
+        assert_eq!(ColorFormat::RGBA8888.minimum_stride(u32::MAX), None);
+        assert_eq!(ColorFormat::RGB565.minimum_stride(u32::MAX), None);
+        assert_eq!(ColorFormat::RGB888.minimum_stride(u32::MAX), None);
+    }
+
+    #[test]
+    fn bits_per_pixel_describes_the_main_plane() {
+        assert_eq!(ColorFormat::I1.bits_per_pixel(), 1);
+        assert_eq!(ColorFormat::A2.bits_per_pixel(), 2);
+        assert_eq!(ColorFormat::I4.bits_per_pixel(), 4);
+        assert_eq!(ColorFormat::L8.bits_per_pixel(), 8);
+        assert_eq!(ColorFormat::RGB565.bits_per_pixel(), 16);
+        assert_eq!(ColorFormat::RGB565A8.bits_per_pixel(), 16);
+        assert_eq!(ColorFormat::RGB888.bits_per_pixel(), 24);
+        assert_eq!(ColorFormat::RGBA8888.bits_per_pixel(), 32);
     }
 }
