@@ -1,3 +1,9 @@
+mod entry;
+mod options;
+
+pub use entry::{ChunkRef, EntryIter};
+pub use options::ReadOptions;
+
 use crate::ImageView;
 use crate::ReadError;
 use crate::crc32;
@@ -6,6 +12,7 @@ use crate::header::{
     FlatHeader, Layout, MAGIC, VERSION_MAJOR, VERSION_MINOR,
 };
 use crate::wire::{read_u16_le, read_u32_le, slice};
+use entry::ChunkTableMeta;
 
 /// Parsed MIRX container header without payload allocation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -29,18 +36,24 @@ pub struct Reader<'a> {
     bytes: &'a [u8],
     header: ContainerHeader,
     flat_image: Option<ImageView<'a>>,
+    chunk_table: Option<ChunkTableMeta>,
     has_future_semantics: bool,
 }
 
 impl<'a> Reader<'a> {
-    /// Validates the fixed header and its CRC without allocating.
+    /// Validates the fixed header, CHUNK table, and source payload ranges without
+    /// allocating.
     ///
     /// Higher minor versions and nonzero file flags are retained and marked as
     /// future semantics. Their layout-specific reserved bytes are not interpreted.
     pub fn open(bytes: &'a [u8]) -> Result<Self, ReadError> {
+        Self::open_with(bytes, &ReadOptions::default())
+    }
+
+    pub fn open_with(bytes: &'a [u8], options: &ReadOptions) -> Result<Self, ReadError> {
         let file = parse_file_header(bytes)?;
         let has_future_semantics = file.version_minor > VERSION_MINOR || file.flags != 0;
-        let (header, flat_image) = match file.layout {
+        let (header, flat_image, chunk_table) = match file.layout {
             Layout::Flat => {
                 let header = parse_flat_header(bytes, file, has_future_semantics)?;
                 let image = if has_future_semantics {
@@ -48,18 +61,25 @@ impl<'a> Reader<'a> {
                 } else {
                     Some(ImageView::from_flat(bytes, header)?)
                 };
-                (ContainerHeader::Flat(header), image)
+                (ContainerHeader::Flat(header), image, None)
             }
-            Layout::Chunk => (
-                ContainerHeader::Chunk(parse_chunk_header(bytes, file, has_future_semantics)?),
-                None,
-            ),
+            Layout::Chunk => {
+                let header = parse_chunk_header(bytes, file, has_future_semantics)?;
+                let table = ChunkTableMeta::inspect(
+                    bytes,
+                    header,
+                    !has_future_semantics,
+                    options.max_chunks(),
+                )?;
+                (ContainerHeader::Chunk(header), None, Some(table))
+            }
         };
 
         Ok(Self {
             bytes,
             header,
             flat_image,
+            chunk_table,
             has_future_semantics,
         })
     }
@@ -90,6 +110,13 @@ impl<'a> Reader<'a> {
     /// current image payload.
     pub const fn flat_image(&self) -> Option<ImageView<'a>> {
         self.flat_image
+    }
+
+    pub const fn chunks(&self) -> EntryIter<'a> {
+        match self.chunk_table {
+            Some(table) => EntryIter::new(self.bytes, table),
+            None => EntryIter::empty(self.bytes),
+        }
     }
 }
 
@@ -242,14 +269,9 @@ mod tests {
         bytes[5] = minor;
         bytes[6] = Layout::Chunk.to_u8();
         bytes[7] = flags;
-        bytes[8..10].copy_from_slice(&3u16.to_le_bytes());
+        bytes[8..10].copy_from_slice(&0u16.to_le_bytes());
         bytes[12..16].copy_from_slice(&44u32.to_le_bytes());
-        bytes[16..20].copy_from_slice(&92u32.to_le_bytes());
-        bytes[20..22].copy_from_slice(&2u16.to_le_bytes());
-        bytes[22] = 0x61;
-        bytes[24..28].copy_from_slice(&320u32.to_le_bytes());
-        bytes[28..32].copy_from_slice(&240u32.to_le_bytes());
-        bytes[32..36].copy_from_slice(&1_280u32.to_le_bytes());
+        bytes[16..20].copy_from_slice(&44u32.to_le_bytes());
         let checksum = crc32(&bytes[..40]);
         bytes[40..44].copy_from_slice(&checksum.to_le_bytes());
         bytes

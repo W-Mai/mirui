@@ -38,6 +38,9 @@ pub enum ReadError {
     UnknownColorFormat(u8),
     StrideTooSmall { minimum: u32, actual: u32 },
     SizeOverflow,
+    TooManyChunks { count: u16, limit: u16 },
+    ChunkTableBeforeHeader { offset: u32 },
+    ChunkPayloadOutOfBounds { index: u16, offset: u32, size: u32 },
     InvalidChunkType,
 }
 
