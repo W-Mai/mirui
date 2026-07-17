@@ -35,7 +35,7 @@ pub use header::{
     FLAT_HEADER_LEN, FileHeader, FlatHeader, ImageChunkHeader, Layout, MAGIC, VERSION_MAJOR,
     VERSION_MINOR, chunk_type,
 };
-pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType};
+pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
 pub use payload::image::ImageView;
 pub use reader::{ChunkRef, ContainerHeader, EntryIter, ReadOptions, Reader};

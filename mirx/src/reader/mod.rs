@@ -1,5 +1,6 @@
 mod entry;
 mod options;
+mod primary;
 
 pub use entry::{ChunkRef, EntryIter};
 pub use options::ReadOptions;

@@ -1,3 +1,4 @@
+use crate::ColorFormat;
 use crate::header::{ChunkEntry, chunk_type};
 
 /// Open MIRX chunk type.
@@ -72,6 +73,54 @@ impl ChunkFlags {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ChunkId(u32);
 
+/// Raw display hints stored beside the selected primary chunk.
+///
+/// The color-format byte is retained even when it is not known to this crate.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct PrimaryHints {
+    color_format: u8,
+    width: u32,
+    height: u32,
+    stride: u32,
+}
+
+impl PrimaryHints {
+    pub const ZERO: Self = Self::new(0, 0, 0, 0);
+
+    pub const fn new(color_format: u8, width: u32, height: u32, stride: u32) -> Self {
+        Self {
+            color_format,
+            width,
+            height,
+            stride,
+        }
+    }
+
+    pub const fn color_format_raw(self) -> u8 {
+        self.color_format
+    }
+
+    pub const fn known_color_format(self) -> Option<ColorFormat> {
+        ColorFormat::from_u8(self.color_format)
+    }
+
+    pub const fn width(self) -> u32 {
+        self.width
+    }
+
+    pub const fn height(self) -> u32 {
+        self.height
+    }
+
+    pub const fn stride(self) -> u32 {
+        self.stride
+    }
+
+    pub const fn is_zero(self) -> bool {
+        self.color_format == 0 && self.width == 0 && self.height == 0 && self.stride == 0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -90,5 +139,20 @@ mod tests {
         assert_eq!(flags.bits(), 0xa501);
         assert!(flags.is_critical());
         assert!(!ChunkFlags::NONE.is_critical());
+    }
+
+    #[test]
+    fn primary_hints_retain_raw_color_format() {
+        let known = PrimaryHints::new(ColorFormat::RGB565.to_u8(), 8, 4, 16);
+        assert_eq!(known.known_color_format(), Some(ColorFormat::RGB565));
+        assert_eq!(known.width(), 8);
+        assert_eq!(known.height(), 4);
+        assert_eq!(known.stride(), 16);
+
+        let unknown = PrimaryHints::new(0xfe, 0, 0, 0);
+        assert_eq!(unknown.color_format_raw(), 0xfe);
+        assert_eq!(unknown.known_color_format(), None);
+        assert!(!unknown.is_zero());
+        assert!(PrimaryHints::ZERO.is_zero());
     }
 }
