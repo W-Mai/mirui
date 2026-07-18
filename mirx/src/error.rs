@@ -29,18 +29,49 @@ use crate::InvalidChunkType;
 #[non_exhaustive]
 pub enum ReadError {
     Parse(ParseError),
-    Truncated { needed: usize, available: usize },
+    Truncated {
+        needed: usize,
+        available: usize,
+    },
     BadMagic,
-    UnsupportedVersion { major: u8, minor: u8 },
+    UnsupportedVersion {
+        major: u8,
+        minor: u8,
+    },
     UnknownLayout(u8),
-    ReservedNonZero { offset: usize },
-    HeaderCrcMismatch { expected: u32, actual: u32 },
+    ReservedNonZero {
+        offset: usize,
+    },
+    HeaderCrcMismatch {
+        expected: u32,
+        actual: u32,
+    },
     UnknownColorFormat(u8),
-    StrideTooSmall { minimum: u32, actual: u32 },
+    StrideTooSmall {
+        minimum: u32,
+        actual: u32,
+    },
     SizeOverflow,
-    TooManyChunks { count: u16, limit: u16 },
-    ChunkTableBeforeHeader { offset: u32 },
-    ChunkPayloadOutOfBounds { index: u16, offset: u32, size: u32 },
+    InvalidFileSize {
+        declared: u32,
+        minimum: u32,
+    },
+    TrailingBytes {
+        logical_len: usize,
+        actual_len: usize,
+    },
+    TooManyChunks {
+        count: u16,
+        limit: u16,
+    },
+    ChunkTableBeforeHeader {
+        offset: u32,
+    },
+    ChunkPayloadOutOfBounds {
+        index: u16,
+        offset: u32,
+        size: u32,
+    },
     InvalidChunkType,
 }
 

@@ -1,9 +1,11 @@
 mod entry;
+#[cfg(test)]
+mod length;
 mod options;
 mod primary;
 
 pub use entry::{ChunkRef, EntryIter};
-pub use options::ReadOptions;
+pub use options::{ReadOptions, TrailingBytesPolicy};
 
 use crate::ImageView;
 use crate::ReadError;
@@ -35,6 +37,7 @@ impl ContainerHeader {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Reader<'a> {
     bytes: &'a [u8],
+    logical_len: usize,
     header: ContainerHeader,
     flat_image: Option<ImageView<'a>>,
     chunk_table: Option<ChunkTableMeta>,
@@ -54,30 +57,51 @@ impl<'a> Reader<'a> {
     pub fn open_with(bytes: &'a [u8], options: &ReadOptions) -> Result<Self, ReadError> {
         let file = parse_file_header(bytes)?;
         let has_future_semantics = file.version_minor > VERSION_MINOR || file.flags != 0;
-        let (header, flat_image, chunk_table) = match file.layout {
+        let (header, flat_image, chunk_table, logical_len) = match file.layout {
             Layout::Flat => {
                 let header = parse_flat_header(bytes, file, has_future_semantics)?;
-                let image = if has_future_semantics {
-                    None
+                if has_future_semantics {
+                    (ContainerHeader::Flat(header), None, None, bytes.len())
                 } else {
-                    Some(ImageView::from_flat(bytes, header)?)
-                };
-                (ContainerHeader::Flat(header), image, None)
+                    let (image, logical_len) = ImageView::from_flat(bytes, header)?;
+                    (
+                        ContainerHeader::Flat(header),
+                        Some(image),
+                        None,
+                        logical_len,
+                    )
+                }
             }
             Layout::Chunk => {
                 let header = parse_chunk_header(bytes, file, has_future_semantics)?;
+                let logical_len = chunk_logical_len(header, bytes.len())?;
                 let table = ChunkTableMeta::inspect(
                     bytes,
                     header,
                     !has_future_semantics,
                     options.max_chunks(),
                 )?;
-                (ContainerHeader::Chunk(header), None, Some(table))
+                (
+                    ContainerHeader::Chunk(header),
+                    None,
+                    Some(table),
+                    logical_len,
+                )
             }
         };
 
+        if logical_len < bytes.len()
+            && options.trailing_bytes_policy() == TrailingBytesPolicy::Reject
+        {
+            return Err(ReadError::TrailingBytes {
+                logical_len,
+                actual_len: bytes.len(),
+            });
+        }
+
         Ok(Self {
             bytes,
+            logical_len,
             header,
             flat_image,
             chunk_table,
@@ -105,6 +129,22 @@ impl<'a> Reader<'a> {
         self.bytes
     }
 
+    pub const fn logical_len(&self) -> usize {
+        self.logical_len
+    }
+
+    pub fn logical_source(&self) -> &'a [u8] {
+        &self.bytes[..self.logical_len]
+    }
+
+    pub fn trailing_bytes(&self) -> &'a [u8] {
+        &self.bytes[self.logical_len..]
+    }
+
+    pub const fn has_trailing_bytes(&self) -> bool {
+        self.logical_len < self.bytes.len()
+    }
+
     /// Returns the validated FLAT image for current container semantics.
     ///
     /// Future headers remain source-preservable but are not interpreted as a
@@ -119,6 +159,23 @@ impl<'a> Reader<'a> {
             None => EntryIter::empty(self.bytes),
         }
     }
+}
+
+fn chunk_logical_len(header: ChunkFileHeader, available: usize) -> Result<usize, ReadError> {
+    if header.file_size < CHUNK_FILE_HEADER_LEN as u32 {
+        return Err(ReadError::InvalidFileSize {
+            declared: header.file_size,
+            minimum: CHUNK_FILE_HEADER_LEN as u32,
+        });
+    }
+    let logical_len = usize::try_from(header.file_size).map_err(|_| ReadError::SizeOverflow)?;
+    if available < logical_len {
+        return Err(ReadError::Truncated {
+            needed: logical_len,
+            available,
+        });
+    }
+    Ok(logical_len)
 }
 
 fn parse_file_header(bytes: &[u8]) -> Result<FileHeader, ReadError> {

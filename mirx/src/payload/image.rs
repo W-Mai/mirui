@@ -43,7 +43,10 @@ impl<'a> ImageView<'a> {
         self.extra
     }
 
-    pub(crate) fn from_flat(bytes: &'a [u8], header: FlatHeader) -> Result<Self, ReadError> {
+    pub(crate) fn from_flat(
+        bytes: &'a [u8],
+        header: FlatHeader,
+    ) -> Result<(Self, usize), ReadError> {
         let format = ColorFormat::from_u8(header.color_format)
             .ok_or(ReadError::UnknownColorFormat(header.color_format))?;
         let minimum = format
@@ -93,16 +96,19 @@ impl<'a> ImageView<'a> {
             )
         };
 
-        Ok(Self {
-            meta: ImageMeta {
-                width: header.width,
-                height: header.height,
-                stride: header.stride,
-                format,
+        Ok((
+            Self {
+                meta: ImageMeta {
+                    width: header.width,
+                    height: header.height,
+                    stride: header.stride,
+                    format,
+                },
+                main,
+                extra,
             },
-            main,
-            extra,
-        })
+            needed,
+        ))
     }
 }
 

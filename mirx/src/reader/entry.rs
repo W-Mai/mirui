@@ -269,8 +269,13 @@ mod tests {
     fn rejects_table_bounds_type_zero_and_reserved_bytes_during_open() {
         let valid = encode_chunks(&[(chunk_type::META, 0, b"a"), (chunk_type::FONT, 0, b"b")]);
         let table_end = CHUNK_FILE_HEADER_LEN + 2 * CHUNK_TABLE_ENTRY_LEN;
+        let mut truncated_table = valid[..table_end - 1].to_vec();
+        let truncated_len = truncated_table.len() as u32;
+        truncated_table[16..20].copy_from_slice(&truncated_len.to_le_bytes());
+        let checksum = crc32(&truncated_table[..40]);
+        truncated_table[40..44].copy_from_slice(&checksum.to_le_bytes());
         assert_eq!(
-            Reader::open(&valid[..table_end - 1]),
+            Reader::open(&truncated_table),
             Err(ReadError::Truncated {
                 needed: table_end,
                 available: table_end - 1,
