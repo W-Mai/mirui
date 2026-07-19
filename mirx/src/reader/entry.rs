@@ -55,9 +55,10 @@ impl ChunkTableMeta {
             .checked_add(table_len)
             .ok_or(ReadError::SizeOverflow)?;
         if bytes.len() < table_end {
-            return Err(ReadError::Truncated {
-                needed: table_end,
-                available: bytes.len(),
+            return Err(ReadError::ChunkTableOutOfBounds {
+                offset: header.chunk_table_offset,
+                count: header.chunk_count,
+                file_size: header.file_size,
             });
         }
 
@@ -100,10 +101,42 @@ impl ChunkTableMeta {
                     size: decoded.payload_size,
                 });
             }
+
+            let payload_start =
+                usize::try_from(decoded.payload_offset).map_err(|_| ReadError::SizeOverflow)?;
+            if overlaps_or_points_into(payload_start, payload_end, 0, CHUNK_FILE_HEADER_LEN) {
+                return Err(ReadError::ChunkPayloadOverlapsHeader {
+                    index: index as u16,
+                    offset: decoded.payload_offset,
+                    size: decoded.payload_size,
+                });
+            }
+            if overlaps_or_points_into(payload_start, payload_end, offset, table_end) {
+                return Err(ReadError::ChunkPayloadOverlapsTable {
+                    index: index as u16,
+                    offset: decoded.payload_offset,
+                    size: decoded.payload_size,
+                });
+            }
         }
 
         Ok(Self { offset, count })
     }
+}
+
+fn overlaps_or_points_into(
+    range_start: usize,
+    range_end: usize,
+    structure_start: usize,
+    structure_end: usize,
+) -> bool {
+    if structure_start == structure_end {
+        return false;
+    }
+    if range_start == range_end {
+        return structure_start <= range_start && range_start < structure_end;
+    }
+    range_start < structure_end && structure_start < range_end
 }
 
 /// One source-bound MIRX chunk table record.
@@ -276,9 +309,10 @@ mod tests {
         truncated_table[40..44].copy_from_slice(&checksum.to_le_bytes());
         assert_eq!(
             Reader::open(&truncated_table),
-            Err(ReadError::Truncated {
-                needed: table_end,
-                available: table_end - 1,
+            Err(ReadError::ChunkTableOutOfBounds {
+                offset: CHUNK_FILE_HEADER_LEN as u32,
+                count: 2,
+                file_size: table_end as u32 - 1,
             })
         );
 

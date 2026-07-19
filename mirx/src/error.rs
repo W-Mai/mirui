@@ -67,7 +67,22 @@ pub enum ReadError {
     ChunkTableBeforeHeader {
         offset: u32,
     },
+    ChunkTableOutOfBounds {
+        offset: u32,
+        count: u16,
+        file_size: u32,
+    },
     ChunkPayloadOutOfBounds {
+        index: u16,
+        offset: u32,
+        size: u32,
+    },
+    ChunkPayloadOverlapsHeader {
+        index: u16,
+        offset: u32,
+        size: u32,
+    },
+    ChunkPayloadOverlapsTable {
         index: u16,
         offset: u32,
         size: u32,

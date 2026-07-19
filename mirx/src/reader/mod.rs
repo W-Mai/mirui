@@ -3,6 +3,8 @@ mod entry;
 mod length;
 mod options;
 mod primary;
+#[cfg(test)]
+mod ranges;
 
 pub use entry::{ChunkRef, EntryIter};
 pub use options::{ReadOptions, TrailingBytesPolicy};
@@ -75,8 +77,9 @@ impl<'a> Reader<'a> {
             Layout::Chunk => {
                 let header = parse_chunk_header(bytes, file, has_future_semantics)?;
                 let logical_len = chunk_logical_len(header, bytes.len())?;
+                let logical_bytes = &bytes[..logical_len];
                 let table = ChunkTableMeta::inspect(
-                    bytes,
+                    logical_bytes,
                     header,
                     !has_future_semantics,
                     options.max_chunks(),
@@ -153,10 +156,11 @@ impl<'a> Reader<'a> {
         self.flat_image
     }
 
-    pub const fn chunks(&self) -> EntryIter<'a> {
+    pub fn chunks(&self) -> EntryIter<'a> {
+        let bytes = self.logical_source();
         match self.chunk_table {
-            Some(table) => EntryIter::new(self.bytes, table),
-            None => EntryIter::empty(self.bytes),
+            Some(table) => EntryIter::new(bytes, table),
+            None => EntryIter::empty(bytes),
         }
     }
 }
