@@ -38,7 +38,10 @@ pub use header::{
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
 pub use payload::image::ImageView;
-pub use reader::{ChunkRef, ContainerHeader, EntryIter, ReadOptions, Reader, TrailingBytesPolicy};
+pub use reader::{
+    ChunkRef, ComplianceFinding, ContainerHeader, EntryIter, FindingIter, ReadOptions, Reader,
+    TrailingBytesPolicy,
+};
 pub use scene::{
     CodecError, CompositeMode, FillRule, GradientStop, GradientUnits, LineCap, LineJoin,
     LinearGradient, Paint, RadialGradient, ResourceRef, Scene, SceneOp, SpreadMode,
