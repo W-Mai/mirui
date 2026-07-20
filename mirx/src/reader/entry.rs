@@ -76,9 +76,10 @@ impl ChunkTableMeta {
                     available: bytes.len(),
                 })?;
 
-            if enforce_reserved
-                && let Some(relative) = record[12..16].iter().position(|&byte| byte != 0)
-            {
+            if let (true, Some(relative)) = (
+                enforce_reserved,
+                record[12..16].iter().position(|&byte| byte != 0),
+            ) {
                 return Err(ReadError::ReservedNonZero {
                     offset: record_offset + 12 + relative,
                 });
@@ -269,7 +270,7 @@ mod tests {
 
     #[test]
     fn iterates_source_bound_records_in_both_directions() {
-        let bytes = encode_chunks(&[(0xbeef, 0xa501, b"abc"), (chunk_type::IMAGE, 0, b"xy")]);
+        let bytes = encode_chunks(&[(0xbeef, 0xa500, b"abc"), (chunk_type::IMAGE, 0, b"xy")]);
         let reader = Reader::open(&bytes).unwrap();
         let mut entries = reader.chunks();
         assert_eq!(entries.len(), 2);
@@ -277,7 +278,7 @@ mod tests {
         let first = entries.next().unwrap();
         assert_eq!(first.index(), 0);
         assert_eq!(first.chunk_type().raw(), 0xbeef);
-        assert_eq!(first.flags().bits(), 0xa501);
+        assert_eq!(first.flags().bits(), 0xa500);
         assert_eq!(first.payload(), b"abc");
         assert_eq!(
             first.payload().as_ptr(),
@@ -428,14 +429,11 @@ mod tests {
 
     #[test]
     fn empty_payloads_and_duplicate_types_are_preserved() {
-        let bytes = encode_chunks(&[
-            (chunk_type::META, 0, b""),
-            (chunk_type::META, ChunkFlags::CRITICAL.bits(), b"x"),
-        ]);
+        let bytes = encode_chunks(&[(chunk_type::META, 0, b""), (chunk_type::META, 0x8000, b"x")]);
         let reader = Reader::open(&bytes).unwrap();
         let mut entries = reader.chunks();
         assert_eq!(entries.next().unwrap().payload(), b"");
-        assert!(entries.next().unwrap().flags().is_critical());
+        assert_eq!(entries.next().unwrap().flags().bits(), 0x8000);
     }
 
     #[test]

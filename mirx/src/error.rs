@@ -22,7 +22,8 @@ pub enum ParseError {
     ReservedNonZero,
 }
 
-use crate::InvalidChunkType;
+use crate::model::{ChunkType, InvalidChunkType};
+use crate::reader::PayloadValidationError;
 
 /// Failures while opening or structurally inspecting MIRX bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -86,6 +87,12 @@ pub enum ReadError {
         index: u16,
         offset: u32,
         size: u32,
+    },
+    CriticalPayload(PayloadValidationError),
+    UnknownCriticalChunk {
+        index: u16,
+        chunk_type: ChunkType,
+        payload_offset: u32,
     },
     InvalidChunkType,
 }

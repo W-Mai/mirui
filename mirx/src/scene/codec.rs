@@ -786,14 +786,10 @@ fn write_optional(
     if bits & FIELD_TRANSFORM != 0 {
         write_transform(out, *transform);
     }
-    if bits & FIELD_QUAD != 0
-        && let Some(q) = quad
-    {
+    if let (true, Some(q)) = (bits & FIELD_QUAD != 0, quad) {
         write_quad(out, q);
     }
-    if bits & FIELD_RADIUS != 0
-        && let Some(r) = radius
-    {
+    if let (true, Some(r)) = (bits & FIELD_RADIUS != 0, radius) {
         write_fixed(out, r);
     }
 }

@@ -4,6 +4,7 @@ mod finding;
 mod length;
 mod limits;
 mod options;
+mod preflight;
 mod primary;
 #[cfg(test)]
 mod ranges;
@@ -12,6 +13,7 @@ pub use entry::{ChunkRef, EntryIter};
 pub use finding::{ComplianceFinding, FindingIter};
 pub use limits::PayloadLimits;
 pub use options::{ReadOptions, TrailingBytesPolicy};
+pub use preflight::{PayloadLocation, PayloadValidationError, PayloadValidationFailure};
 
 use crate::ImageView;
 use crate::ReadError;
@@ -51,7 +53,7 @@ pub struct Reader<'a> {
 }
 
 impl<'a> Reader<'a> {
-    /// Validates the fixed header, CHUNK table, and source payload ranges without
+    /// Validates the container structure and critical payload semantics without
     /// allocating.
     ///
     /// Higher minor versions and nonzero file flags are retained and marked as
@@ -106,14 +108,16 @@ impl<'a> Reader<'a> {
             });
         }
 
-        Ok(Self {
+        let reader = Self {
             bytes,
             logical_len,
             header,
             flat_image,
             chunk_table,
             has_future_semantics,
-        })
+        };
+        reader.validate_critical_payloads(&options.payload_limits())?;
+        Ok(reader)
     }
 
     pub const fn header(&self) -> ContainerHeader {
