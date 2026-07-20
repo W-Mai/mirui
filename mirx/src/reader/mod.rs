@@ -2,6 +2,7 @@ mod entry;
 mod finding;
 #[cfg(test)]
 mod length;
+mod limits;
 mod options;
 mod primary;
 #[cfg(test)]
@@ -9,6 +10,7 @@ mod ranges;
 
 pub use entry::{ChunkRef, EntryIter};
 pub use finding::{ComplianceFinding, FindingIter};
+pub use limits::PayloadLimits;
 pub use options::{ReadOptions, TrailingBytesPolicy};
 
 use crate::ImageView;
