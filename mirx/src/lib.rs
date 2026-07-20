@@ -4,6 +4,7 @@ extern crate alloc;
 
 mod chunk;
 mod crc32;
+pub mod document;
 mod error;
 mod flat;
 pub mod font;
@@ -22,6 +23,7 @@ pub use chunk::{
     encode_chunks, parse_chunk,
 };
 pub use crc32::compute as crc32;
+pub use document::{Document, FileMetaRef};
 pub use error::{DocumentError, EditError, EncodeError, ParseError, ReadError};
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
 pub use font::{
