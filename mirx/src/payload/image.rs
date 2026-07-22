@@ -37,6 +37,14 @@ pub struct ImageView<'a> {
 }
 
 impl<'a> ImageView<'a> {
+    pub(crate) const fn from_validated_planes(
+        meta: ImageMeta,
+        main: &'a [u8],
+        extra: Option<&'a [u8]>,
+    ) -> Self {
+        Self { meta, main, extra }
+    }
+
     pub const fn width(&self) -> u32 {
         self.meta.width
     }

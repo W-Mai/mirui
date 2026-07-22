@@ -4,7 +4,11 @@ use alloc::vec::Vec;
 
 use source::{Origin, SourceRange};
 
-use crate::{DocumentError, Layout, ReadError, ReadOptions, Reader, VERSION_MAJOR, VERSION_MINOR};
+use crate::payload::image::ImageMeta;
+use crate::{
+    DocumentError, FLAT_HEADER_LEN, ImageView, Layout, ReadError, ReadOptions, Reader,
+    VERSION_MAJOR, VERSION_MINOR,
+};
 
 const DEFAULT_MAX_CHUNKS: u16 = 256;
 
@@ -57,11 +61,18 @@ impl FileMeta {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FlatRecord {
+    image: ImageMeta,
+    main: SourceRange,
+    extra: Option<SourceRange>,
+}
+
 /// Source layout retained until its editable records are materialized.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum DocumentState {
     NewChunk,
-    SourceFlat,
+    SourceFlat(FlatRecord),
     OpaqueFlat,
     SourceChunk,
 }
@@ -69,7 +80,7 @@ enum DocumentState {
 impl DocumentState {
     const fn layout(self) -> Layout {
         match self {
-            Self::SourceFlat | Self::OpaqueFlat => Layout::Flat,
+            Self::SourceFlat(_) | Self::OpaqueFlat => Layout::Flat,
             Self::NewChunk | Self::SourceChunk => Layout::Chunk,
         }
     }
@@ -128,6 +139,21 @@ impl<'a> Document<'a> {
         self.dirty
     }
 
+    /// Returns the validated image planes of a current-semantics FLAT document.
+    ///
+    /// Future-semantics FLAT sources remain opaque and return `None`.
+    pub fn flat_image(&self) -> Option<ImageView<'_>> {
+        let DocumentState::SourceFlat(record) = self.state else {
+            return None;
+        };
+        let main = self.origin.resolve(record.main)?;
+        let extra = match record.extra {
+            Some(range) => Some(self.origin.resolve(range)?),
+            None => None,
+        };
+        Some(ImageView::from_validated_planes(record.image, main, extra))
+    }
+
     fn from_origin(origin: Origin<'a>) -> Result<Self, DocumentError> {
         let opened = {
             let source = origin
@@ -166,7 +192,7 @@ fn inspect_source(source: &[u8]) -> Result<OpenedDocument, DocumentError> {
     let header = reader.file_header();
     let state = match (reader.layout(), reader.has_future_semantics()) {
         (Layout::Flat, true) => DocumentState::OpaqueFlat,
-        (Layout::Flat, false) => DocumentState::SourceFlat,
+        (Layout::Flat, false) => DocumentState::SourceFlat(inspect_current_flat(&reader)?),
         (Layout::Chunk, _) => DocumentState::SourceChunk,
     };
     Ok(OpenedDocument {
@@ -177,6 +203,44 @@ fn inspect_source(source: &[u8]) -> Result<OpenedDocument, DocumentError> {
             file_flags: header.flags,
         },
         state,
+    })
+}
+
+fn inspect_current_flat(reader: &Reader<'_>) -> Result<FlatRecord, DocumentError> {
+    let image = reader
+        .flat_image()
+        .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
+    let logical_len = reader.logical_len();
+    let main_len = image.main().len();
+    let main = SourceRange::checked(FLAT_HEADER_LEN, main_len, logical_len)
+        .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
+    let extra_start = FLAT_HEADER_LEN
+        .checked_add(main_len)
+        .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
+    let (extra, end) = match image.extra() {
+        Some(bytes) => {
+            let range = SourceRange::checked(extra_start, bytes.len(), logical_len)
+                .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
+            let end = extra_start
+                .checked_add(bytes.len())
+                .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
+            (Some(range), end)
+        }
+        None => (None, extra_start),
+    };
+    if end != logical_len {
+        return Err(DocumentError::Read(ReadError::SizeOverflow));
+    }
+
+    Ok(FlatRecord {
+        image: ImageMeta {
+            width: image.width(),
+            height: image.height(),
+            stride: image.stride(),
+            format: image.format(),
+        },
+        main,
+        extra,
     })
 }
 
@@ -201,6 +265,21 @@ mod tests {
         })
     }
 
+    fn sized_flat_source(format: ColorFormat, width: u32, height: u32, stride: u32) -> Vec<u8> {
+        let main_len = usize::try_from(stride.checked_mul(height).unwrap()).unwrap();
+        let extra_len = usize::try_from(format.extra_size(width, height, stride).unwrap()).unwrap();
+        let main = vec![0x5a; main_len];
+        let extra = vec![0xa5; extra_len];
+        encode_flat(&FlatImageInput {
+            width,
+            height,
+            stride,
+            format,
+            main: &main,
+            extra: if extra.is_empty() { None } else { Some(&extra) },
+        })
+    }
+
     fn take_error(result: Result<Document<'_>, DocumentError>) -> DocumentError {
         match result {
             Ok(_) => panic!("expected document open failure"),
@@ -209,20 +288,30 @@ mod tests {
     }
 
     #[test]
-    fn borrowed_and_owned_open_retain_source_allocations() {
-        let borrowed_source = flat_source();
-        let borrowed_pointer = borrowed_source.as_ptr();
+    fn flat_image_borrows_padded_rgb565_from_borrowed_and_owned_sources() {
+        let borrowed_source = sized_flat_source(ColorFormat::RGB565, 3, 2, 8);
+        let borrowed_pointer = borrowed_source[FLAT_HEADER_LEN..].as_ptr();
         let borrowed = Document::open(&borrowed_source).unwrap();
-        assert_eq!(borrowed.origin.source().unwrap().as_ptr(), borrowed_pointer);
+        let borrowed_image = borrowed.flat_image().unwrap();
+        assert_eq!(borrowed_image.width(), 3);
+        assert_eq!(borrowed_image.height(), 2);
+        assert_eq!(borrowed_image.stride(), 8);
+        assert_eq!(borrowed_image.format(), ColorFormat::RGB565);
+        assert_eq!(borrowed_image.main().len(), 16);
+        assert_eq!(borrowed_image.main().as_ptr(), borrowed_pointer);
+        assert_eq!(borrowed_image.extra(), None);
 
-        let owned_source = flat_source();
-        let owned_pointer = owned_source.as_ptr();
+        let owned_source = sized_flat_source(ColorFormat::RGB565, 3, 2, 8);
+        let owned_pointer = owned_source[FLAT_HEADER_LEN..].as_ptr();
         let owned = Document::from_vec(owned_source).unwrap();
-        assert_eq!(owned.origin.source().unwrap().as_ptr(), owned_pointer);
+        let owned_image = owned.flat_image().unwrap();
+        assert_eq!(owned_image.main().len(), 16);
+        assert_eq!(owned_image.main().as_ptr(), owned_pointer);
+        assert_eq!(owned_image.extra(), None);
 
         assert_eq!(borrowed.layout(), owned.layout());
-        assert_eq!(borrowed.state, DocumentState::SourceFlat);
-        assert_eq!(owned.state, DocumentState::SourceFlat);
+        assert!(matches!(borrowed.state, DocumentState::SourceFlat(_)));
+        assert!(matches!(owned.state, DocumentState::SourceFlat(_)));
         assert_eq!(borrowed.file_meta(), owned.file_meta());
         assert_eq!(borrowed.logical_len, owned.logical_len);
         assert!(!borrowed.is_dirty());
@@ -235,14 +324,60 @@ mod tests {
             document
         }
 
-        let source = flat_source();
-        let pointer = source.as_ptr();
+        let source = sized_flat_source(ColorFormat::RGB565A8, 3, 2, 8);
+        let main_pointer = source[FLAT_HEADER_LEN..FLAT_HEADER_LEN + 16].as_ptr();
+        let extra_pointer = source[FLAT_HEADER_LEN + 16..].as_ptr();
         let document = Document::from_vec(source).unwrap();
-        let range = SourceRange::checked(0, document.logical_len, document.logical_len).unwrap();
         let document = move_document(document);
+        let image = document.flat_image().unwrap();
 
-        assert_eq!(document.origin.source().unwrap().as_ptr(), pointer);
-        assert_eq!(document.origin.resolve(range).unwrap().as_ptr(), pointer);
+        assert_eq!(image.format(), ColorFormat::RGB565A8);
+        assert_eq!(image.main().len(), 16);
+        assert_eq!(image.main().as_ptr(), main_pointer);
+        assert_eq!(image.extra().unwrap().len(), 6);
+        assert_eq!(image.extra().unwrap().as_ptr(), extra_pointer);
+    }
+
+    #[test]
+    fn indexed_flat_image_resolves_main_and_palette_source_ranges() {
+        let source = sized_flat_source(ColorFormat::I4, 3, 2, 2);
+        let main_pointer = source[FLAT_HEADER_LEN..FLAT_HEADER_LEN + 4].as_ptr();
+        let palette_pointer = source[FLAT_HEADER_LEN + 4..].as_ptr();
+        let document = Document::open(&source).unwrap();
+        let image = document.flat_image().unwrap();
+
+        assert_eq!(image.format(), ColorFormat::I4);
+        assert_eq!(image.main().len(), 4);
+        assert_eq!(image.main().as_ptr(), main_pointer);
+        assert_eq!(image.extra().unwrap().len(), 64);
+        assert_eq!(image.extra().unwrap().as_ptr(), palette_pointer);
+    }
+
+    #[test]
+    fn empty_flat_planes_resolve_at_valid_boundaries() {
+        let empty_source = sized_flat_source(ColorFormat::A8, 0, 0, 0);
+        let empty_document = Document::open(&empty_source).unwrap();
+        let empty_image = empty_document.flat_image().unwrap();
+        assert!(empty_image.main().is_empty());
+        assert_eq!(
+            empty_image.main().as_ptr(),
+            empty_source[FLAT_HEADER_LEN..].as_ptr()
+        );
+        assert_eq!(empty_image.extra(), None);
+
+        let palette_source = sized_flat_source(ColorFormat::I4, 3, 0, 2);
+        let palette_document = Document::open(&palette_source).unwrap();
+        let palette_image = palette_document.flat_image().unwrap();
+        assert!(palette_image.main().is_empty());
+        assert_eq!(
+            palette_image.main().as_ptr(),
+            palette_source[FLAT_HEADER_LEN..FLAT_HEADER_LEN].as_ptr()
+        );
+        assert_eq!(palette_image.extra().unwrap().len(), 64);
+        assert_eq!(
+            palette_image.extra().unwrap().as_ptr(),
+            palette_source[FLAT_HEADER_LEN..].as_ptr()
+        );
     }
 
     #[test]
@@ -273,6 +408,7 @@ mod tests {
         assert_eq!(document.logical_len, 0);
         assert!(document.origin.source().is_none());
         assert!(document.origin_contains_logical_source());
+        assert_eq!(document.flat_image(), None);
     }
 
     #[test]
@@ -292,6 +428,7 @@ mod tests {
             assert_eq!(document.file_meta().file_flags(), flags);
             assert!(document.file_meta().has_future_semantics());
             assert_eq!(document.origin.source().unwrap().as_ptr(), source.as_ptr());
+            assert_eq!(document.flat_image(), None);
         }
     }
 
@@ -341,20 +478,22 @@ mod tests {
         assert_eq!(document.state, DocumentState::SourceChunk);
         assert!(!document.is_dirty());
         assert_eq!(document.origin.source().unwrap().as_ptr(), source.as_ptr());
+        assert_eq!(document.flat_image(), None);
     }
 
     #[test]
     fn document_open_uses_exact_length_policy() {
-        let mut source = encode_chunks(&[]);
-        let logical_len = source.len();
-        source.extend_from_slice(&[1, 2, 3]);
+        for mut source in [flat_source(), encode_chunks(&[])] {
+            let logical_len = source.len();
+            source.extend_from_slice(&[1, 2, 3]);
 
-        assert_eq!(
-            take_error(Document::open(&source)),
-            DocumentError::Read(ReadError::TrailingBytes {
-                logical_len,
-                actual_len: source.len(),
-            })
-        );
+            assert_eq!(
+                take_error(Document::open(&source)),
+                DocumentError::Read(ReadError::TrailingBytes {
+                    logical_len,
+                    actual_len: source.len(),
+                })
+            );
+        }
     }
 }
