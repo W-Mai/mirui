@@ -73,6 +73,12 @@ impl ChunkFlags {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct ChunkId(u32);
 
+impl ChunkId {
+    pub(crate) const fn from_session_counter(value: u32) -> Self {
+        Self(value)
+    }
+}
+
 /// Raw display hints stored beside the selected primary chunk.
 ///
 /// The color-format byte is retained even when it is not known to this crate.
