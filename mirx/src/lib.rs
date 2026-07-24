@@ -24,7 +24,9 @@ pub use chunk::{
 };
 pub use crc32::compute as crc32;
 pub use document::{
-    ChunkIter, ChunksOfType, Document, DocumentChunkRef, FileMetaRef, PayloadOrigin,
+    ChunkIter, ChunksOfType, CriticalAssumption, Document, DocumentChunkRef, FileMetaRef,
+    PayloadInput, PayloadOrigin, RawChunkInput, RawChunkPolicy, RelocationAssumption,
+    ReservedBitsPolicy,
 };
 pub use error::{DocumentError, EditError, EncodeError, ParseError, ReadError};
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};

@@ -2,7 +2,7 @@ use core::fmt;
 use core::iter::FusedIterator;
 use core::slice;
 
-use super::{ChunkNode, Document, DocumentState};
+use super::{ChunkNode, Document, DocumentState, PayloadStorage};
 use crate::{ChunkFlags, ChunkId, ChunkType, EncodeError};
 
 /// Logical provenance of a document payload.
@@ -41,7 +41,7 @@ impl fmt::Debug for PayloadOrigin {
 #[derive(Clone, Copy)]
 pub struct DocumentChunkRef<'a> {
     document: &'a Document<'a>,
-    node: &'a ChunkNode,
+    node: &'a ChunkNode<'a>,
 }
 
 impl<'a> DocumentChunkRef<'a> {
@@ -58,20 +58,33 @@ impl<'a> DocumentChunkRef<'a> {
     }
 
     pub const fn payload_origin(&self) -> PayloadOrigin {
-        PayloadOrigin::ORIGINAL_SOURCE
+        match &self.node.payload {
+            PayloadStorage::SourceRange(_) => PayloadOrigin::ORIGINAL_SOURCE,
+            PayloadStorage::Borrowed(_) => PayloadOrigin::BORROWED,
+            PayloadStorage::Owned(_) => PayloadOrigin::OWNED,
+        }
     }
 
     /// Returns the encoded payload bytes when they already exist.
     pub fn payload_bytes(&self) -> Option<&'a [u8]> {
-        self.document.origin.resolve(self.node.payload)
+        match &self.node.payload {
+            PayloadStorage::SourceRange(range) => self.document.origin.resolve(*range),
+            PayloadStorage::Borrowed(bytes) => Some(bytes),
+            PayloadStorage::Owned(bytes) => Some(bytes.as_slice()),
+        }
     }
 
     /// Returns the encoded payload length.
     ///
     /// The fallible result also supports payload representations whose encoded
     /// size must be planned before bytes are materialized.
-    pub const fn payload_len(&self) -> Result<usize, EncodeError> {
-        Ok(self.node.payload.len())
+    pub fn payload_len(&self) -> Result<usize, EncodeError> {
+        let len = match &self.node.payload {
+            PayloadStorage::SourceRange(range) => range.len(),
+            PayloadStorage::Borrowed(bytes) => bytes.len(),
+            PayloadStorage::Owned(bytes) => bytes.len(),
+        };
+        Ok(len)
     }
 }
 
@@ -79,18 +92,18 @@ impl<'a> DocumentChunkRef<'a> {
 #[derive(Clone)]
 pub struct ChunkIter<'a> {
     document: &'a Document<'a>,
-    nodes: slice::Iter<'a, ChunkNode>,
+    nodes: slice::Iter<'a, ChunkNode<'a>>,
 }
 
 impl<'a> ChunkIter<'a> {
-    fn new(document: &'a Document<'a>, nodes: &'a [ChunkNode]) -> Self {
+    fn new(document: &'a Document<'a>, nodes: &'a [ChunkNode<'a>]) -> Self {
         Self {
             document,
             nodes: nodes.iter(),
         }
     }
 
-    fn view(&self, node: &'a ChunkNode) -> DocumentChunkRef<'a> {
+    fn view(&self, node: &'a ChunkNode<'a>) -> DocumentChunkRef<'a> {
         DocumentChunkRef {
             document: self.document,
             node,

@@ -1,7 +1,12 @@
 mod query;
+mod raw;
 mod source;
 
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
+pub use raw::{
+    CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
+    ReservedBitsPolicy,
+};
 
 use alloc::vec::Vec;
 
@@ -71,28 +76,29 @@ struct FlatRecord {
     extra: Option<SourceRange>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct ChunkNode {
+#[derive(Debug, Eq, PartialEq)]
+struct ChunkNode<'a> {
     id: ChunkId,
     chunk_type: ChunkType,
     flags: ChunkFlags,
-    payload: SourceRange,
+    payload: PayloadStorage<'a>,
+    capability: RewriteCapability,
 }
 
 #[derive(Debug, Eq, PartialEq)]
-struct ChunkSet {
-    chunks: Vec<ChunkNode>,
+struct ChunkSet<'a> {
+    chunks: Vec<ChunkNode<'a>>,
     primary: Option<ChunkId>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
-enum DocumentState {
+enum DocumentState<'a> {
     SourceFlat(FlatRecord),
     OpaqueFlat,
-    Chunk(ChunkSet),
+    Chunk(ChunkSet<'a>),
 }
 
-impl DocumentState {
+impl DocumentState<'_> {
     const fn layout(&self) -> Layout {
         match self {
             Self::SourceFlat(_) | Self::OpaqueFlat => Layout::Flat,
@@ -101,11 +107,66 @@ impl DocumentState {
     }
 }
 
-struct OpenedDocument {
+struct OpenedDocument<'a> {
     logical_len: usize,
     file: FileMeta,
-    state: DocumentState,
+    state: DocumentState<'a>,
     next_id: u32,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+enum PayloadStorage<'a> {
+    SourceRange(SourceRange),
+    Borrowed(&'a [u8]),
+    Owned(Vec<u8>),
+}
+
+/// Capabilities established for rewriting one raw payload.
+///
+/// Opened source nodes start preserve-only. Mutation policy upgrades only the
+/// properties that were validated or explicitly assumed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(transparent)]
+struct RewriteCapability(u8);
+
+impl RewriteCapability {
+    const PRESERVE_ONLY: Self = Self(0);
+    const RELOCATABLE: u8 = 1 << 0;
+    const CRITICAL_UNDERSTOOD: u8 = 1 << 1;
+    const PRESERVE_RESERVED_BITS: u8 = 1 << 2;
+
+    const fn new(
+        relocatable: bool,
+        critical_understood: bool,
+        preserve_reserved_bits: bool,
+    ) -> Self {
+        let mut bits = 0;
+        if relocatable {
+            bits |= Self::RELOCATABLE;
+        }
+        if critical_understood {
+            bits |= Self::CRITICAL_UNDERSTOOD;
+        }
+        if preserve_reserved_bits {
+            bits |= Self::PRESERVE_RESERVED_BITS;
+        }
+        Self(bits)
+    }
+
+    #[cfg(test)]
+    const fn is_relocatable(self) -> bool {
+        self.0 & Self::RELOCATABLE != 0
+    }
+
+    #[cfg(test)]
+    const fn critical_understood(self) -> bool {
+        self.0 & Self::CRITICAL_UNDERSTOOD != 0
+    }
+
+    #[cfg(test)]
+    const fn preserves_reserved_bits(self) -> bool {
+        self.0 & Self::PRESERVE_RESERVED_BITS != 0
+    }
 }
 
 /// Source-backed editable MIRX document.
@@ -116,7 +177,7 @@ pub struct Document<'a> {
     origin: Origin<'a>,
     logical_len: usize,
     file: FileMeta,
-    state: DocumentState,
+    state: DocumentState<'a>,
     dirty: bool,
     next_id: u32,
 }
@@ -214,7 +275,7 @@ impl<'a> Document<'a> {
     }
 }
 
-fn inspect_source(source: &[u8]) -> Result<OpenedDocument, DocumentError> {
+fn inspect_source<'document>(source: &[u8]) -> Result<OpenedDocument<'document>, DocumentError> {
     let options = ReadOptions::new().with_max_chunks(DEFAULT_MAX_CHUNKS);
     let reader = Reader::open_with(source, &options)?;
     let header = reader.file_header();
@@ -238,7 +299,9 @@ fn inspect_source(source: &[u8]) -> Result<OpenedDocument, DocumentError> {
     })
 }
 
-fn inspect_chunks(reader: &Reader<'_>) -> Result<(ChunkSet, u32), DocumentError> {
+fn inspect_chunks<'document>(
+    reader: &Reader<'_>,
+) -> Result<(ChunkSet<'document>, u32), DocumentError> {
     let entries = reader.chunks();
     let count = entries.len();
     let primary_index = reader.primary()?.map(|chunk| chunk.index());
@@ -258,7 +321,8 @@ fn inspect_chunks(reader: &Reader<'_>) -> Result<(ChunkSet, u32), DocumentError>
             id,
             chunk_type: chunk.chunk_type(),
             flags: chunk.flags(),
-            payload,
+            payload: PayloadStorage::SourceRange(payload),
+            capability: RewriteCapability::PRESERVE_ONLY,
         });
     }
 
@@ -267,7 +331,7 @@ fn inspect_chunks(reader: &Reader<'_>) -> Result<(ChunkSet, u32), DocumentError>
 }
 
 fn reserve_chunk_nodes(
-    chunks: &mut Vec<ChunkNode>,
+    chunks: &mut Vec<ChunkNode<'_>>,
     additional: usize,
 ) -> Result<(), DocumentError> {
     chunks
@@ -364,10 +428,19 @@ mod tests {
         }
     }
 
-    fn chunk_set<'document>(document: &'document Document<'_>) -> &'document ChunkSet {
+    fn chunk_set<'document, 'source>(
+        document: &'document Document<'source>,
+    ) -> &'document ChunkSet<'source> {
         match &document.state {
             DocumentState::Chunk(chunks) => chunks,
             _ => panic!("expected CHUNK document"),
+        }
+    }
+
+    fn source_range(node: &ChunkNode<'_>) -> SourceRange {
+        match &node.payload {
+            PayloadStorage::SourceRange(range) => *range,
+            _ => panic!("expected source-backed payload"),
         }
     }
 
@@ -632,14 +705,15 @@ mod tests {
         assert_eq!(owned_chunks.primary, borrowed_chunks.primary);
         for (index, node) in borrowed_chunks.chunks.iter().enumerate() {
             assert_eq!(node.id, ChunkId::from_session_counter(index as u32));
-            assert_eq!(node.payload, expected_ranges[index]);
+            assert_eq!(source_range(node), expected_ranges[index]);
+            assert_eq!(node.capability, RewriteCapability::PRESERVE_ONLY);
         }
         assert_eq!(borrowed.next_id, 3);
         assert_eq!(owned.next_id, 3);
         assert_eq!(
             borrowed
                 .origin
-                .resolve(borrowed_chunks.chunks[0].payload)
+                .resolve(source_range(&borrowed_chunks.chunks[0]))
                 .unwrap()
                 .as_ptr(),
             source[table_payload_offset(&source, 0)..].as_ptr()
@@ -647,7 +721,7 @@ mod tests {
         assert_eq!(
             owned
                 .origin
-                .resolve(owned_chunks.chunks[1].payload)
+                .resolve(source_range(&owned_chunks.chunks[1]))
                 .unwrap()
                 .as_ptr(),
             owned_payload_pointer
@@ -664,13 +738,20 @@ mod tests {
         let payload_pointer = source[table_payload_offset(&source, 0)..].as_ptr();
         let document = Document::from_vec(source).unwrap();
         let document = move_document(document);
-        let node = chunk_set(&document).chunks[0];
+        let node = &chunk_set(&document).chunks[0];
 
         assert_eq!(
-            document.origin.resolve(node.payload).unwrap().as_ptr(),
+            document
+                .origin
+                .resolve(source_range(node))
+                .unwrap()
+                .as_ptr(),
             payload_pointer
         );
-        assert_eq!(document.origin.resolve(node.payload).unwrap(), b"payload");
+        assert_eq!(
+            document.origin.resolve(source_range(node)).unwrap(),
+            b"payload"
+        );
     }
 
     #[test]
@@ -708,12 +789,15 @@ mod tests {
         let empty_source =
             encode_chunks(&[(chunk_type::META, 0, b"body"), (chunk_type::FONT, 0, b"")]);
         let empty_document = Document::open(&empty_source).unwrap();
-        let empty_node = chunk_set(&empty_document).chunks[1];
-        assert_eq!(empty_node.payload, table_payload_range(&empty_source, 1));
+        let empty_node = &chunk_set(&empty_document).chunks[1];
+        assert_eq!(
+            source_range(empty_node),
+            table_payload_range(&empty_source, 1)
+        );
         assert!(
             empty_document
                 .origin
-                .resolve(empty_node.payload)
+                .resolve(source_range(empty_node))
                 .unwrap()
                 .is_empty()
         );
@@ -729,14 +813,23 @@ mod tests {
 
         let overlap_document = Document::open(&overlap_source).unwrap();
         let nodes = &chunk_set(&overlap_document).chunks;
-        assert_eq!(nodes[0].payload, first);
-        assert_eq!(nodes[1].payload, table_payload_range(&overlap_source, 1));
+        assert_eq!(source_range(&nodes[0]), first);
         assert_eq!(
-            overlap_document.origin.resolve(nodes[0].payload).unwrap(),
+            source_range(&nodes[1]),
+            table_payload_range(&overlap_source, 1)
+        );
+        assert_eq!(
+            overlap_document
+                .origin
+                .resolve(source_range(&nodes[0]))
+                .unwrap(),
             b"abcd"
         );
         assert_eq!(
-            overlap_document.origin.resolve(nodes[1].payload).unwrap(),
+            overlap_document
+                .origin
+                .resolve(source_range(&nodes[1]))
+                .unwrap(),
             b"bc"
         );
     }

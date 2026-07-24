@@ -23,6 +23,7 @@ pub enum ParseError {
 }
 
 use crate::model::{ChunkType, InvalidChunkType};
+use crate::payload::image::ImagePayloadError;
 use crate::reader::PayloadValidationError;
 
 /// Failures while opening or structurally inspecting MIRX bytes.
@@ -129,8 +130,13 @@ impl From<ReadError> for DocumentError {
 pub enum EditError {
     InvalidChunkId,
     InvalidChunkType,
+    ChunkLayoutRequired,
     ChunkIdExhausted,
     AllocationFailed,
+    RelocationAssumptionRequired { chunk_type: ChunkType },
+    CriticalAssumptionRequired { chunk_type: ChunkType },
+    ReservedFlagBits { bits: u16 },
+    InvalidPayload(ImagePayloadError),
 }
 
 /// Failures while planning or emitting MIRX bytes.
