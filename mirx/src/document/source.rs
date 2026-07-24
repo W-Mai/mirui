@@ -18,6 +18,10 @@ impl SourceRange {
     pub(super) fn get(self, source: &[u8]) -> Option<&[u8]> {
         source.get(self.start..self.end)
     }
+
+    pub(super) const fn len(self) -> usize {
+        self.end - self.start
+    }
 }
 
 /// Ownership of the exact source supplied when a document is opened.

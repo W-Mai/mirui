@@ -1,4 +1,7 @@
+mod query;
 mod source;
+
+pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 
 use alloc::vec::Vec;
 
