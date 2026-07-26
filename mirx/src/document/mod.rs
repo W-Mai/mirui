@@ -5,7 +5,7 @@ mod source;
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub use raw::{
     CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
-    ReservedBitsPolicy,
+    RemovedChunkMeta, ReservedBitsPolicy,
 };
 
 use alloc::vec::Vec;
