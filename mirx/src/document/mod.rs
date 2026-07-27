@@ -1,5 +1,6 @@
 mod query;
 mod raw;
+mod reorder;
 mod source;
 
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
