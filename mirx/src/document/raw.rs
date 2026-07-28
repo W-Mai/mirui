@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
+use super::descriptor::{evaluate_descriptor, evaluate_descriptor_with_flags, evaluate_flags};
 use super::{ChunkNode, Document, DocumentState, PayloadStorage, RewriteCapability};
-use crate::payload::image::ImageView;
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError};
 
 /// Encoded payload bytes supplied to a raw document mutation.
@@ -340,72 +340,18 @@ fn insertion_index(
 }
 
 fn prepare_raw(input: RawChunkInput<'_>) -> Result<PreparedRaw<'_>, EditError> {
-    let reserved_bits = input.flags.bits() & !ChunkFlags::CRITICAL.bits();
-    let preserve_reserved_bits = reserved_bits != 0
-        && matches!(
-            input.policy.reserved_flag_bits,
-            ReservedBitsPolicy::Preserve
-        );
-    let flags = match (reserved_bits, input.policy.reserved_flag_bits) {
-        (0, _) | (_, ReservedBitsPolicy::Preserve) => input.flags,
-        (_, ReservedBitsPolicy::Normalize) => {
-            ChunkFlags::from_bits_retain(input.flags.bits() & ChunkFlags::CRITICAL.bits())
-        }
-        (_, ReservedBitsPolicy::Reject) => {
-            return Err(EditError::ReservedFlagBits {
-                bits: reserved_bits,
-            });
-        }
-    };
-
-    let known_contract = if input.chunk_type == ChunkType::IMAGE {
-        match ImageView::from_chunk_payload(input.payload.as_bytes(), 0) {
-            Ok(_) => true,
-            Err(_)
-                if matches!(
-                    input.policy.relocation,
-                    RelocationAssumption::AssumeRelocatable
-                ) =>
-            {
-                false
-            }
-            Err(error) => return Err(EditError::InvalidPayload(error)),
-        }
-    } else {
-        false
-    };
-
-    let relocatable = known_contract
-        || matches!(
-            input.policy.relocation,
-            RelocationAssumption::AssumeRelocatable
-        );
-    if !relocatable {
-        return Err(EditError::RelocationAssumptionRequired {
-            chunk_type: input.chunk_type,
-        });
-    }
-
-    let critical_understood = known_contract
-        || matches!(
-            input.policy.critical_semantics,
-            CriticalAssumption::AssumeCriticalUnderstood
-        );
-    if flags.is_critical() && !critical_understood {
-        return Err(EditError::CriticalAssumptionRequired {
-            chunk_type: input.chunk_type,
-        });
-    }
+    let descriptor = evaluate_descriptor(
+        input.chunk_type,
+        input.flags,
+        input.payload.as_bytes(),
+        input.policy,
+    )?;
 
     Ok(PreparedRaw {
-        chunk_type: input.chunk_type,
-        flags,
+        chunk_type: descriptor.chunk_type,
+        flags: descriptor.flags,
         payload: input.payload.into_storage(),
-        capability: RewriteCapability::new(
-            relocatable,
-            critical_understood,
-            preserve_reserved_bits,
-        ),
+        capability: descriptor.capability,
     })
 }
 
@@ -415,22 +361,21 @@ fn prepare_replacement(
     payload: PayloadInput<'_>,
     policy: RawChunkPolicy,
 ) -> Result<PreparedRaw<'_>, EditError> {
-    let reserved_bits = flags.bits() & !ChunkFlags::CRITICAL.bits();
-    if reserved_bits != 0 && matches!(policy.reserved_flag_bits, ReservedBitsPolicy::Normalize) {
+    let evaluated_flags = evaluate_flags(flags, policy.reserved_flag_bits)?;
+    if evaluated_flags.flags != flags {
         return Err(EditError::ReservedFlagBits {
-            bits: reserved_bits,
+            bits: flags.bits() & !ChunkFlags::CRITICAL.bits(),
         });
     }
+    let descriptor =
+        evaluate_descriptor_with_flags(chunk_type, evaluated_flags, payload.as_bytes(), policy)?;
 
-    let prepared = prepare_raw(RawChunkInput {
-        chunk_type,
-        flags,
-        payload,
-        policy,
-    })?;
-    debug_assert_eq!(prepared.chunk_type, chunk_type);
-    debug_assert_eq!(prepared.flags, flags);
-    Ok(prepared)
+    Ok(PreparedRaw {
+        chunk_type: descriptor.chunk_type,
+        flags: descriptor.flags,
+        payload: payload.into_storage(),
+        capability: descriptor.capability,
+    })
 }
 
 fn copy_payload(payload: &[u8]) -> Result<Vec<u8>, EditError> {

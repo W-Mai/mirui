@@ -1,3 +1,4 @@
+mod descriptor;
 mod query;
 mod raw;
 mod reorder;
