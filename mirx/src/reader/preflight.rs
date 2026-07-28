@@ -57,7 +57,7 @@ impl PayloadValidationError {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PreflightStatus {
+pub(crate) enum PreflightStatus {
     Validated,
     UnsupportedStandard,
     Custom,
@@ -104,35 +104,36 @@ impl<'a> Reader<'a> {
         limits: &PayloadLimits,
     ) -> Result<(), ReadError> {
         for chunk in self.chunks().filter(|chunk| chunk.flags().is_critical()) {
-            match preflight_chunk(chunk, limits) {
-                Ok(PreflightStatus::Validated) => {}
-                Ok(PreflightStatus::UnsupportedStandard) => {
-                    return Err(ReadError::CriticalPayload(
-                        PayloadValidationError::at_chunk(
-                            chunk,
-                            PayloadValidationFailure::UnsupportedStandardPayload,
-                        ),
-                    ));
-                }
-                Ok(PreflightStatus::Custom) => {
-                    return Err(ReadError::UnknownCriticalChunk {
-                        index: u16::try_from(chunk.index()).expect("validated MIRX chunk count"),
-                        chunk_type: chunk.chunk_type(),
-                        payload_offset: chunk.payload_offset(),
-                    });
-                }
-                Err(failure) => {
-                    return Err(ReadError::CriticalPayload(
-                        PayloadValidationError::at_chunk(chunk, failure),
-                    ));
-                }
-            }
+            require_understood_critical(chunk, preflight_chunk(chunk, limits))?;
         }
         Ok(())
     }
 }
 
-fn preflight_chunk(
+pub(crate) fn require_understood_critical(
+    chunk: ChunkRef<'_>,
+    preflight: Result<PreflightStatus, PayloadValidationFailure>,
+) -> Result<(), ReadError> {
+    match preflight {
+        Ok(PreflightStatus::Validated) => Ok(()),
+        Ok(PreflightStatus::UnsupportedStandard) => Err(ReadError::CriticalPayload(
+            PayloadValidationError::at_chunk(
+                chunk,
+                PayloadValidationFailure::UnsupportedStandardPayload,
+            ),
+        )),
+        Ok(PreflightStatus::Custom) => Err(ReadError::UnknownCriticalChunk {
+            index: u16::try_from(chunk.index()).expect("validated MIRX chunk count"),
+            chunk_type: chunk.chunk_type(),
+            payload_offset: chunk.payload_offset(),
+        }),
+        Err(failure) => Err(ReadError::CriticalPayload(
+            PayloadValidationError::at_chunk(chunk, failure),
+        )),
+    }
+}
+
+pub(crate) fn preflight_chunk(
     chunk: ChunkRef<'_>,
     _limits: &PayloadLimits,
 ) -> Result<PreflightStatus, PayloadValidationFailure> {

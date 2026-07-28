@@ -14,6 +14,7 @@ pub use finding::{ComplianceFinding, FindingIter};
 pub use limits::PayloadLimits;
 pub use options::{ReadOptions, TrailingBytesPolicy};
 pub use preflight::{PayloadLocation, PayloadValidationError, PayloadValidationFailure};
+pub(crate) use preflight::{PreflightStatus, preflight_chunk, require_understood_critical};
 
 use crate::ImageView;
 use crate::ReadError;
@@ -63,6 +64,19 @@ impl<'a> Reader<'a> {
     }
 
     pub fn open_with(bytes: &'a [u8], options: &ReadOptions) -> Result<Self, ReadError> {
+        let reader = Self::open_structural_with(bytes, options)?;
+        reader.validate_critical_payloads(&options.payload_limits())?;
+        Ok(reader)
+    }
+
+    /// Opens a structurally valid source without applying critical-payload policy.
+    ///
+    /// Document opening uses this seam to apply explicit per-type capability
+    /// grants. Public Reader entry points remain strict.
+    pub(crate) fn open_structural_with(
+        bytes: &'a [u8],
+        options: &ReadOptions,
+    ) -> Result<Self, ReadError> {
         let file = parse_file_header(bytes)?;
         let has_future_semantics = file.version_minor > VERSION_MINOR || file.flags != 0;
         let (header, flat_image, chunk_table, logical_len) = match file.layout {
@@ -108,16 +122,14 @@ impl<'a> Reader<'a> {
             });
         }
 
-        let reader = Self {
+        Ok(Self {
             bytes,
             logical_len,
             header,
             flat_image,
             chunk_table,
             has_future_semantics,
-        };
-        reader.validate_critical_payloads(&options.payload_limits())?;
-        Ok(reader)
+        })
     }
 
     pub const fn header(&self) -> ContainerHeader {

@@ -1,9 +1,13 @@
 mod descriptor;
+mod options;
+#[cfg(test)]
+mod policy_tests;
 mod query;
 mod raw;
 mod reorder;
 mod source;
 
+pub use options::{OpenOptions, RawTypePolicy};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub use raw::{
     CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
@@ -12,15 +16,18 @@ pub use raw::{
 
 use alloc::vec::Vec;
 
+use descriptor::grant_open_descriptor;
 use source::{Origin, SourceRange};
 
 use crate::payload::image::ImageMeta;
+use crate::reader::{PreflightStatus, preflight_chunk, require_understood_critical};
 use crate::{
     ChunkFlags, ChunkId, ChunkType, DocumentError, FLAT_HEADER_LEN, ImageView, Layout, ReadError,
     ReadOptions, Reader, VERSION_MAJOR, VERSION_MINOR,
 };
 
-const DEFAULT_MAX_CHUNKS: u16 = 256;
+#[cfg(test)]
+const DEFAULT_MAX_CHUNKS: u16 = OpenOptions::DEFAULT_MAX_CHUNKS;
 
 /// Immutable MIRX file metadata retained by an editable document.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -113,6 +120,7 @@ struct OpenedDocument<'a> {
     logical_len: usize,
     file: FileMeta,
     state: DocumentState<'a>,
+    dirty: bool,
     next_id: u32,
 }
 
@@ -125,13 +133,14 @@ enum PayloadStorage<'a> {
 
 /// Capabilities established for rewriting one raw payload.
 ///
-/// Opened source nodes start preserve-only. Mutation policy upgrades only the
-/// properties that were validated or explicitly assumed.
+/// Opaque opened source nodes default to preserve-only. Typed preflight and
+/// explicit policy grant only the individual properties they establish.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(transparent)]
 struct RewriteCapability(u8);
 
 impl RewriteCapability {
+    #[cfg(test)]
     const PRESERVE_ONLY: Self = Self(0);
     const RELOCATABLE: u8 = 1 << 0;
     const CRITICAL_UNDERSTOOD: u8 = 1 << 1;
@@ -160,7 +169,6 @@ impl RewriteCapability {
         self.0 & Self::RELOCATABLE != 0
     }
 
-    #[cfg(test)]
     const fn critical_understood(self) -> bool {
         self.0 & Self::CRITICAL_UNDERSTOOD != 0
     }
@@ -187,12 +195,33 @@ pub struct Document<'a> {
 impl<'a> Document<'a> {
     /// Opens a document while borrowing its exact source bytes.
     pub fn open(source: &'a [u8]) -> Result<Self, DocumentError> {
-        Self::from_origin(Origin::Borrowed(source))
+        Self::open_with(source, &OpenOptions::new())
+    }
+
+    /// Opens a borrowed document with explicit resource and raw capability policy.
+    ///
+    /// The options are read only during this call. See
+    /// [`OpenOptions::with_raw_type_policies`] for duplicate and reserved-bit
+    /// policy behavior.
+    pub fn open_with(source: &'a [u8], options: &OpenOptions<'_>) -> Result<Self, DocumentError> {
+        Self::from_origin(Origin::Borrowed(source), options)
     }
 
     /// Opens a document by moving its exact source allocation without copying.
     pub fn from_vec(source: Vec<u8>) -> Result<Self, DocumentError> {
-        Self::from_origin(Origin::Owned(source))
+        Self::from_vec_with(source, &OpenOptions::new())
+    }
+
+    /// Opens an owned document with explicit resource and raw capability policy.
+    ///
+    /// The options are read only during this call. See
+    /// [`OpenOptions::with_raw_type_policies`] for duplicate and reserved-bit
+    /// policy behavior.
+    pub fn from_vec_with(
+        source: Vec<u8>,
+        options: &OpenOptions<'_>,
+    ) -> Result<Self, DocumentError> {
+        Self::from_origin(Origin::Owned(source), options)
     }
 
     /// Creates an empty MIRX 1.0 CHUNK document.
@@ -237,19 +266,19 @@ impl<'a> Document<'a> {
         Some(ImageView::from_validated_planes(record.image, main, extra))
     }
 
-    fn from_origin(origin: Origin<'a>) -> Result<Self, DocumentError> {
+    fn from_origin(origin: Origin<'a>, options: &OpenOptions<'_>) -> Result<Self, DocumentError> {
         let opened = {
             let source = origin
                 .source()
                 .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
-            inspect_source(source)?
+            inspect_source(source, options)?
         };
         let document = Self {
             origin,
             logical_len: opened.logical_len,
             file: opened.file,
             state: opened.state,
-            dirty: false,
+            dirty: opened.dirty,
             next_id: opened.next_id,
         };
 
@@ -277,16 +306,25 @@ impl<'a> Document<'a> {
     }
 }
 
-fn inspect_source<'document>(source: &[u8]) -> Result<OpenedDocument<'document>, DocumentError> {
-    let options = ReadOptions::new().with_max_chunks(DEFAULT_MAX_CHUNKS);
-    let reader = Reader::open_with(source, &options)?;
+fn inspect_source<'document>(
+    source: &[u8],
+    options: &OpenOptions<'_>,
+) -> Result<OpenedDocument<'document>, DocumentError> {
+    let read_options = ReadOptions::new()
+        .with_max_chunks(options.max_chunks())
+        .with_payload_limits(options.payload_limits());
+    let reader = Reader::open_structural_with(source, &read_options)?;
     let header = reader.file_header();
-    let (state, next_id) = match (reader.layout(), reader.has_future_semantics()) {
-        (Layout::Flat, true) => (DocumentState::OpaqueFlat, 0),
-        (Layout::Flat, false) => (DocumentState::SourceFlat(inspect_current_flat(&reader)?), 0),
+    let (state, next_id, dirty) = match (reader.layout(), reader.has_future_semantics()) {
+        (Layout::Flat, true) => (DocumentState::OpaqueFlat, 0, false),
+        (Layout::Flat, false) => (
+            DocumentState::SourceFlat(inspect_current_flat(&reader)?),
+            0,
+            false,
+        ),
         (Layout::Chunk, _) => {
-            let (chunks, next_id) = inspect_chunks(&reader)?;
-            (DocumentState::Chunk(chunks), next_id)
+            let (chunks, next_id, dirty) = inspect_chunks(&reader, options)?;
+            (DocumentState::Chunk(chunks), next_id, dirty)
         }
     };
     Ok(OpenedDocument {
@@ -297,13 +335,15 @@ fn inspect_source<'document>(source: &[u8]) -> Result<OpenedDocument<'document>,
             file_flags: header.flags,
         },
         state,
+        dirty,
         next_id,
     })
 }
 
 fn inspect_chunks<'document>(
     reader: &Reader<'_>,
-) -> Result<(ChunkSet<'document>, u32), DocumentError> {
+    options: &OpenOptions<'_>,
+) -> Result<(ChunkSet<'document>, u32, bool), DocumentError> {
     let entries = reader.chunks();
     let count = entries.len();
     let primary_index = reader.primary()?.map(|chunk| chunk.index());
@@ -311,7 +351,22 @@ fn inspect_chunks<'document>(
     reserve_chunk_nodes(&mut chunks, count)?;
 
     let mut next_id = 0;
+    let mut dirty = false;
     for chunk in entries {
+        let preflight = preflight_chunk(chunk, &options.payload_limits());
+        let known_contract = matches!(preflight, Ok(PreflightStatus::Validated));
+        let policy = raw_type_policy(options, chunk.chunk_type());
+        let (descriptor, normalized) = grant_open_descriptor(
+            chunk.chunk_type(),
+            chunk.flags(),
+            known_contract,
+            policy,
+            !reader.has_future_semantics(),
+        );
+        if chunk.flags().is_critical() && !descriptor.capability.critical_understood() {
+            require_understood_critical(chunk, preflight)?;
+        }
+
         let id =
             take_next_chunk_id(&mut next_id).ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
         let payload_start = usize::try_from(chunk.payload_offset())
@@ -321,15 +376,25 @@ fn inspect_chunks<'document>(
                 .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
         chunks.push(ChunkNode {
             id,
-            chunk_type: chunk.chunk_type(),
-            flags: chunk.flags(),
+            chunk_type: descriptor.chunk_type,
+            flags: descriptor.flags,
             payload: PayloadStorage::SourceRange(payload),
-            capability: RewriteCapability::PRESERVE_ONLY,
+            capability: descriptor.capability,
         });
+        dirty |= normalized;
     }
 
     let primary = primary_index.and_then(|index| chunks.get(index).map(|node| node.id));
-    Ok((ChunkSet { chunks, primary }, next_id))
+    Ok((ChunkSet { chunks, primary }, next_id, dirty))
+}
+
+fn raw_type_policy(options: &OpenOptions<'_>, chunk_type: ChunkType) -> Option<RawChunkPolicy> {
+    options
+        .raw_type_policies()
+        .iter()
+        .rev()
+        .find(|entry| entry.chunk_type == chunk_type)
+        .map(|entry| entry.policy)
 }
 
 fn reserve_chunk_nodes(

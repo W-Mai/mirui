@@ -22,6 +22,10 @@ impl SourceRange {
     pub(super) const fn len(self) -> usize {
         self.end - self.start
     }
+
+    pub(super) const fn start(self) -> usize {
+        self.start
+    }
 }
 
 /// Ownership of the exact source supplied when a document is opened.

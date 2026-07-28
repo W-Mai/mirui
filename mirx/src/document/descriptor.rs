@@ -46,8 +46,18 @@ pub(super) fn evaluate_descriptor(
     payload: &[u8],
     policy: RawChunkPolicy,
 ) -> Result<EvaluatedDescriptor, EditError> {
+    evaluate_descriptor_at(chunk_type, flags, payload, 0, policy)
+}
+
+pub(super) fn evaluate_descriptor_at(
+    chunk_type: ChunkType,
+    flags: ChunkFlags,
+    payload: &[u8],
+    payload_offset: u32,
+    policy: RawChunkPolicy,
+) -> Result<EvaluatedDescriptor, EditError> {
     let flags = evaluate_flags(flags, policy.reserved_flag_bits)?;
-    evaluate_descriptor_with_flags(chunk_type, flags, payload, policy)
+    evaluate_descriptor_with_flags_at(chunk_type, flags, payload, payload_offset, policy)
 }
 
 pub(super) fn evaluate_descriptor_with_flags(
@@ -56,9 +66,19 @@ pub(super) fn evaluate_descriptor_with_flags(
     payload: &[u8],
     policy: RawChunkPolicy,
 ) -> Result<EvaluatedDescriptor, EditError> {
+    evaluate_descriptor_with_flags_at(chunk_type, evaluated_flags, payload, 0, policy)
+}
+
+fn evaluate_descriptor_with_flags_at(
+    chunk_type: ChunkType,
+    evaluated_flags: EvaluatedFlags,
+    payload: &[u8],
+    payload_offset: u32,
+    policy: RawChunkPolicy,
+) -> Result<EvaluatedDescriptor, EditError> {
     let flags = evaluated_flags.flags;
     let known_contract = if chunk_type == ChunkType::IMAGE {
-        match ImageView::from_chunk_payload(payload, 0) {
+        match ImageView::from_chunk_payload(payload, payload_offset) {
             Ok(_) => true,
             Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
             Err(error) => return Err(EditError::InvalidPayload(error)),
@@ -93,6 +113,51 @@ pub(super) fn evaluate_descriptor_with_flags(
     })
 }
 
+pub(super) fn grant_open_descriptor(
+    chunk_type: ChunkType,
+    flags: ChunkFlags,
+    known_contract: bool,
+    policy: Option<RawChunkPolicy>,
+    allow_normalize: bool,
+) -> (EvaluatedDescriptor, bool) {
+    let reserved_bits = flags.bits() & !ChunkFlags::CRITICAL.bits();
+    let evaluated_flags = match policy.map(|policy| policy.reserved_flag_bits) {
+        Some(ReservedBitsPolicy::Preserve) if reserved_bits != 0 => {
+            evaluate_flags(flags, ReservedBitsPolicy::Preserve)
+                .expect("preserving reserved bits cannot fail")
+        }
+        Some(ReservedBitsPolicy::Normalize) if reserved_bits != 0 && allow_normalize => {
+            evaluate_flags(flags, ReservedBitsPolicy::Normalize)
+                .expect("normalizing reserved bits cannot fail")
+        }
+        _ => EvaluatedFlags {
+            flags,
+            preserve_reserved_bits: false,
+        },
+    };
+    let policy = policy.unwrap_or_else(RawChunkPolicy::infer);
+    let relocatable =
+        known_contract || matches!(policy.relocation, RelocationAssumption::AssumeRelocatable);
+    let critical_understood = known_contract
+        || matches!(
+            policy.critical_semantics,
+            CriticalAssumption::AssumeCriticalUnderstood
+        );
+    let normalized = evaluated_flags.flags != flags;
+    (
+        EvaluatedDescriptor {
+            chunk_type,
+            flags: evaluated_flags.flags,
+            capability: RewriteCapability::new(
+                relocatable,
+                critical_understood,
+                evaluated_flags.preserve_reserved_bits,
+            ),
+        },
+        normalized,
+    )
+}
+
 impl Document<'_> {
     /// Changes the type of `id` after validating its existing encoded payload.
     pub fn set_type(
@@ -109,12 +174,8 @@ impl Document<'_> {
 
         let candidate = {
             let node = chunk_node(&self.state, index);
-            evaluate_descriptor(
-                chunk_type,
-                node.flags,
-                descriptor_payload_bytes(self, node),
-                policy,
-            )?
+            let (payload, payload_offset) = descriptor_payload(self, node);
+            evaluate_descriptor_at(chunk_type, node.flags, payload, payload_offset, policy)?
         };
         self.apply_descriptor(index, candidate);
         Ok(())
@@ -141,14 +202,44 @@ impl Document<'_> {
         }
         let candidate = {
             let node = chunk_node(&self.state, index);
-            evaluate_descriptor_with_flags(
+            let (payload, payload_offset) = descriptor_payload(self, node);
+            evaluate_descriptor_with_flags_at(
                 node.chunk_type,
                 evaluated_flags,
-                descriptor_payload_bytes(self, node),
+                payload,
+                payload_offset,
                 policy,
             )?
         };
         self.apply_descriptor(index, candidate);
+        Ok(())
+    }
+
+    /// Re-evaluates the rewrite capability of one existing raw node.
+    ///
+    /// Capability-only changes do not alter encoded output and therefore do
+    /// not mark the document dirty. Normalizing reserved flag bits does.
+    pub fn set_raw_policy(&mut self, id: ChunkId, policy: RawChunkPolicy) -> Result<(), EditError> {
+        let index = descriptor_chunk_index(&self.state, id)?;
+        let candidate = {
+            let node = chunk_node(&self.state, index);
+            let (payload, payload_offset) = descriptor_payload(self, node);
+            evaluate_descriptor_at(node.chunk_type, node.flags, payload, payload_offset, policy)?
+        };
+
+        let DocumentState::Chunk(chunks) = &mut self.state else {
+            unreachable!("layout was checked before applying raw policy");
+        };
+        let node = &mut chunks.chunks[index];
+        if node.flags == candidate.flags && node.capability == candidate.capability {
+            return Ok(());
+        }
+        let flags_changed = node.flags != candidate.flags;
+        node.flags = candidate.flags;
+        node.capability = candidate.capability;
+        if flags_changed {
+            self.dirty = true;
+        }
         Ok(())
     }
 
@@ -185,17 +276,20 @@ fn chunk_node<'document, 'source>(
     &chunks.chunks[index]
 }
 
-fn descriptor_payload_bytes<'document>(
+fn descriptor_payload<'document>(
     document: &'document Document<'_>,
     node: &'document ChunkNode<'_>,
-) -> &'document [u8] {
+) -> (&'document [u8], u32) {
     match &node.payload {
-        PayloadStorage::SourceRange(range) => document
-            .origin
-            .resolve(*range)
-            .expect("validated source range must remain resolvable"),
-        PayloadStorage::Borrowed(bytes) => bytes,
-        PayloadStorage::Owned(bytes) => bytes.as_slice(),
+        PayloadStorage::SourceRange(range) => (
+            document
+                .origin
+                .resolve(*range)
+                .expect("validated source range must remain resolvable"),
+            u32::try_from(range.start()).expect("MIRX source offset must fit u32"),
+        ),
+        PayloadStorage::Borrowed(bytes) => (bytes, 0),
+        PayloadStorage::Owned(bytes) => (bytes.as_slice(), 0),
     }
 }
 
