@@ -162,6 +162,7 @@ impl<'a> Document<'a> {
         payload: PayloadInput<'a>,
         policy: RawChunkPolicy,
     ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
         let index = chunk_index(&self.state, id)?;
         let (chunk_type, flags, matches_existing) = {
             let DocumentState::Chunk(chunks) = &self.state else {
@@ -189,6 +190,7 @@ impl<'a> Document<'a> {
 
     /// Removes `id` without materializing its payload bytes.
     pub fn remove(&mut self, id: ChunkId) -> Result<RemovedChunkMeta, EditError> {
+        self.ensure_mutable()?;
         let index = chunk_index(&self.state, id)?;
         let (_, meta) = self.remove_at(index);
         Ok(meta)
@@ -220,13 +222,14 @@ impl<'a> Document<'a> {
     where
         R: FnOnce(&mut Vec<ChunkNode<'a>>) -> Result<(), EditError>,
     {
+        self.ensure_mutable()?;
         let index = insertion_index(&self.state, position)?;
-        let prepared = prepare_raw(input)?;
         let following_id = self
             .next_id
             .checked_add(1)
             .ok_or(EditError::ChunkIdExhausted)?;
         let id = ChunkId::from_session_counter(self.next_id);
+        let prepared = prepare_raw(input)?;
         let node = prepared.into_node(id);
 
         let DocumentState::Chunk(chunks) = &mut self.state else {
@@ -244,6 +247,7 @@ impl<'a> Document<'a> {
     where
         C: FnOnce(&[u8]) -> Result<Vec<u8>, EditError>,
     {
+        self.ensure_mutable()?;
         let index = chunk_index(&self.state, id)?;
         let copied = {
             let DocumentState::Chunk(chunks) = &self.state else {

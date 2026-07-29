@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod compatibility_tests;
 mod descriptor;
 mod options;
 #[cfg(test)]
@@ -7,7 +9,7 @@ mod raw;
 mod reorder;
 mod source;
 
-pub use options::{OpenOptions, RawTypePolicy};
+pub use options::{CompatibilityPolicy, OpenOptions, RawTypePolicy};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub use raw::{
     CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
@@ -22,8 +24,8 @@ use source::{Origin, SourceRange};
 use crate::payload::image::ImageMeta;
 use crate::reader::{PreflightStatus, preflight_chunk, require_understood_critical};
 use crate::{
-    ChunkFlags, ChunkId, ChunkType, DocumentError, FLAT_HEADER_LEN, ImageView, Layout, ReadError,
-    ReadOptions, Reader, VERSION_MAJOR, VERSION_MINOR,
+    ChunkFlags, ChunkId, ChunkType, DocumentError, EditError, FLAT_HEADER_LEN, ImageView, Layout,
+    ReadError, ReadOptions, Reader, VERSION_MAJOR, VERSION_MINOR,
 };
 
 #[cfg(test)]
@@ -107,6 +109,19 @@ enum DocumentState<'a> {
     Chunk(ChunkSet<'a>),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Compatibility {
+    Current,
+    FutureReadOnly,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TrailingState {
+    None,
+    Preserved,
+    Discarded,
+}
+
 impl DocumentState<'_> {
     const fn layout(&self) -> Layout {
         match self {
@@ -120,6 +135,8 @@ struct OpenedDocument<'a> {
     logical_len: usize,
     file: FileMeta,
     state: DocumentState<'a>,
+    compatibility: Compatibility,
+    trailing: TrailingState,
     dirty: bool,
     next_id: u32,
 }
@@ -188,6 +205,8 @@ pub struct Document<'a> {
     logical_len: usize,
     file: FileMeta,
     state: DocumentState<'a>,
+    compatibility: Compatibility,
+    trailing: TrailingState,
     dirty: bool,
     next_id: u32,
 }
@@ -198,11 +217,13 @@ impl<'a> Document<'a> {
         Self::open_with(source, &OpenOptions::new())
     }
 
-    /// Opens a borrowed document with explicit resource and raw capability policy.
+    /// Opens a borrowed document with explicit resource and rewrite policies.
     ///
-    /// The options are read only during this call. See
-    /// [`OpenOptions::with_raw_type_policies`] for duplicate and reserved-bit
-    /// policy behavior.
+    /// The options are read only during this call. Future container semantics,
+    /// trailing bytes, and raw capabilities follow
+    /// [`OpenOptions::with_compatibility`],
+    /// [`OpenOptions::with_trailing_bytes`], and
+    /// [`OpenOptions::with_raw_type_policies`] respectively.
     pub fn open_with(source: &'a [u8], options: &OpenOptions<'_>) -> Result<Self, DocumentError> {
         Self::from_origin(Origin::Borrowed(source), options)
     }
@@ -212,11 +233,13 @@ impl<'a> Document<'a> {
         Self::from_vec_with(source, &OpenOptions::new())
     }
 
-    /// Opens an owned document with explicit resource and raw capability policy.
+    /// Opens an owned document with explicit resource and rewrite policies.
     ///
-    /// The options are read only during this call. See
-    /// [`OpenOptions::with_raw_type_policies`] for duplicate and reserved-bit
-    /// policy behavior.
+    /// The options are read only during this call. Future container semantics,
+    /// trailing bytes, and raw capabilities follow
+    /// [`OpenOptions::with_compatibility`],
+    /// [`OpenOptions::with_trailing_bytes`], and
+    /// [`OpenOptions::with_raw_type_policies`] respectively.
     pub fn from_vec_with(
         source: Vec<u8>,
         options: &OpenOptions<'_>,
@@ -234,6 +257,8 @@ impl<'a> Document<'a> {
                 chunks: Vec::new(),
                 primary: None,
             }),
+            compatibility: Compatibility::Current,
+            trailing: TrailingState::None,
             dirty: true,
             next_id: 0,
         }
@@ -249,6 +274,23 @@ impl<'a> Document<'a> {
 
     pub const fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// Explicitly discards preserved bytes after the logical MIRX boundary.
+    ///
+    /// The source allocation is retained. This removes the trailing-byte edit
+    /// blocker and marks the document for a later rewrite. Future container
+    /// semantics must be normalized while opening before trailing bytes can be
+    /// discarded.
+    pub fn discard_trailing_bytes(&mut self) -> Result<(), EditError> {
+        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
+            return Err(EditError::FutureSemanticsReadOnly);
+        }
+        if matches!(self.trailing, TrailingState::Preserved) {
+            self.trailing = TrailingState::Discarded;
+            self.dirty = true;
+        }
+        Ok(())
     }
 
     /// Returns the validated image planes of a current-semantics FLAT document.
@@ -278,6 +320,8 @@ impl<'a> Document<'a> {
             logical_len: opened.logical_len,
             file: opened.file,
             state: opened.state,
+            compatibility: opened.compatibility,
+            trailing: opened.trailing,
             dirty: opened.dirty,
             next_id: opened.next_id,
         };
@@ -293,6 +337,16 @@ impl<'a> Document<'a> {
             return Err(DocumentError::Read(ReadError::SizeOverflow));
         }
         Ok(document)
+    }
+
+    pub(super) const fn ensure_mutable(&self) -> Result<(), EditError> {
+        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
+            return Err(EditError::FutureSemanticsReadOnly);
+        }
+        if matches!(self.trailing, TrailingState::Preserved) {
+            return Err(EditError::PreservedTrailingBytesReadOnly);
+        }
+        Ok(())
     }
 
     fn origin_contains_logical_source(&self) -> bool {
@@ -312,30 +366,61 @@ fn inspect_source<'document>(
 ) -> Result<OpenedDocument<'document>, DocumentError> {
     let read_options = ReadOptions::new()
         .with_max_chunks(options.max_chunks())
-        .with_payload_limits(options.payload_limits());
-    let reader = Reader::open_structural_with(source, &read_options)?;
+        .with_payload_limits(options.payload_limits())
+        .with_trailing_bytes(options.trailing_bytes_policy());
+    let reader = match options.compatibility_policy() {
+        CompatibilityPolicy::Preserve => Reader::open_structural_with(source, &read_options)?,
+        CompatibilityPolicy::NormalizeToCurrent => {
+            Reader::open_structural_as_current_with(source, &read_options)?
+        }
+    };
     let header = reader.file_header();
-    let (state, next_id, dirty) = match (reader.layout(), reader.has_future_semantics()) {
-        (Layout::Flat, true) => (DocumentState::OpaqueFlat, 0, false),
-        (Layout::Flat, false) => (
-            DocumentState::SourceFlat(inspect_current_flat(&reader)?),
+    let normalize_future = reader.has_future_semantics()
+        && matches!(
+            options.compatibility_policy(),
+            CompatibilityPolicy::NormalizeToCurrent
+        );
+    let compatibility = if reader.has_future_semantics() && !normalize_future {
+        Compatibility::FutureReadOnly
+    } else {
+        Compatibility::Current
+    };
+    let trailing = if reader.has_trailing_bytes() {
+        TrailingState::Preserved
+    } else {
+        TrailingState::None
+    };
+    let (state, next_id, state_dirty) = match (reader.layout(), reader.flat_image()) {
+        (Layout::Flat, None) => (DocumentState::OpaqueFlat, 0, false),
+        (Layout::Flat, Some(image)) => (
+            DocumentState::SourceFlat(inspect_flat_image(image, reader.logical_len())?),
             0,
             false,
         ),
         (Layout::Chunk, _) => {
-            let (chunks, next_id, dirty) = inspect_chunks(&reader, options)?;
+            let (chunks, next_id, dirty) = inspect_chunks(
+                &reader,
+                options,
+                !reader.has_future_semantics() || normalize_future,
+            )?;
             (DocumentState::Chunk(chunks), next_id, dirty)
         }
     };
     Ok(OpenedDocument {
         logical_len: reader.logical_len(),
-        file: FileMeta {
-            version_major: header.version_major,
-            version_minor: header.version_minor,
-            file_flags: header.flags,
+        file: if normalize_future {
+            FileMeta::CURRENT
+        } else {
+            FileMeta {
+                version_major: header.version_major,
+                version_minor: header.version_minor,
+                file_flags: header.flags,
+            }
         },
         state,
-        dirty,
+        compatibility,
+        trailing,
+        dirty: normalize_future || state_dirty,
         next_id,
     })
 }
@@ -343,6 +428,7 @@ fn inspect_source<'document>(
 fn inspect_chunks<'document>(
     reader: &Reader<'_>,
     options: &OpenOptions<'_>,
+    allow_reserved_normalize: bool,
 ) -> Result<(ChunkSet<'document>, u32, bool), DocumentError> {
     let entries = reader.chunks();
     let count = entries.len();
@@ -361,7 +447,7 @@ fn inspect_chunks<'document>(
             chunk.flags(),
             known_contract,
             policy,
-            !reader.has_future_semantics(),
+            allow_reserved_normalize,
         );
         if chunk.flags().is_critical() && !descriptor.capability.critical_understood() {
             require_understood_critical(chunk, preflight)?;
@@ -413,11 +499,10 @@ fn take_next_chunk_id(next_id: &mut u32) -> Option<ChunkId> {
     Some(id)
 }
 
-fn inspect_current_flat(reader: &Reader<'_>) -> Result<FlatRecord, DocumentError> {
-    let image = reader
-        .flat_image()
-        .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
-    let logical_len = reader.logical_len();
+fn inspect_flat_image(
+    image: ImageView<'_>,
+    logical_len: usize,
+) -> Result<FlatRecord, DocumentError> {
     let main_len = image.main().len();
     let main = SourceRange::checked(FLAT_HEADER_LEN, main_len, logical_len)
         .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;

@@ -1,5 +1,25 @@
 use super::RawChunkPolicy;
-use crate::{ChunkType, PayloadLimits};
+use crate::{ChunkType, PayloadLimits, TrailingBytesPolicy};
+
+/// Handling for container fields newer than the implemented MIRX version.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum CompatibilityPolicy {
+    /// Retains higher-minor and nonzero-file-flag semantics byte-for-byte.
+    ///
+    /// The opened document remains queryable, but every mutation reports
+    /// [`EditError::FutureSemanticsReadOnly`](crate::EditError::FutureSemanticsReadOnly).
+    #[default]
+    Preserve,
+    /// Strictly validates the source under the current layout contract.
+    ///
+    /// A successfully normalized future source uses MIRX 1.0 metadata and is
+    /// immediately dirty. Selecting this policy for an already-current source
+    /// is a no-op. Future FLAT content must be fully representable as a current
+    /// image; bytes beyond its computed image boundary remain governed by the
+    /// independently selected trailing-byte policy.
+    NormalizeToCurrent,
+}
 
 /// Type-wide raw capability policy applied while opening a document.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -8,15 +28,18 @@ pub struct RawTypePolicy {
     pub policy: RawChunkPolicy,
 }
 
-/// Limits and per-type capability grants used while opening a document.
+/// Limits, compatibility behavior, and capability grants used during open.
 ///
 /// Raw type policies are searched from the end, so a later duplicate takes
 /// precedence. The policy slice is not retained after opening; evaluated
-/// capabilities are copied into the corresponding document nodes.
+/// capabilities are copied into the corresponding document nodes. All option
+/// fields are read only for the duration of the open call.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OpenOptions<'p> {
     max_chunks: u16,
     payload_limits: PayloadLimits,
+    trailing_bytes: TrailingBytesPolicy,
+    compatibility: CompatibilityPolicy,
     raw_type_policies: &'p [RawTypePolicy],
 }
 
@@ -28,6 +51,8 @@ impl<'p> OpenOptions<'p> {
         Self {
             max_chunks: Self::DEFAULT_MAX_CHUNKS,
             payload_limits: PayloadLimits::EMBEDDED,
+            trailing_bytes: TrailingBytesPolicy::Reject,
+            compatibility: CompatibilityPolicy::Preserve,
             raw_type_policies: &[],
         }
     }
@@ -37,6 +62,8 @@ impl<'p> OpenOptions<'p> {
         Self {
             max_chunks: Self::HOST_MAX_CHUNKS,
             payload_limits: PayloadLimits::HOST,
+            trailing_bytes: TrailingBytesPolicy::Reject,
+            compatibility: CompatibilityPolicy::Preserve,
             raw_type_policies: &[],
         }
     }
@@ -59,6 +86,36 @@ impl<'p> OpenOptions<'p> {
         self.payload_limits
     }
 
+    /// Selects whether bytes after the logical MIRX boundary may be retained.
+    ///
+    /// Preserved trailing bytes keep the document read-only until
+    /// [`Document::discard_trailing_bytes`](super::Document::discard_trailing_bytes)
+    /// is called.
+    pub const fn with_trailing_bytes(mut self, policy: TrailingBytesPolicy) -> Self {
+        self.trailing_bytes = policy;
+        self
+    }
+
+    /// Returns the selected trailing-byte policy.
+    pub const fn trailing_bytes_policy(&self) -> TrailingBytesPolicy {
+        self.trailing_bytes
+    }
+
+    /// Selects preservation or explicit normalization of future semantics.
+    ///
+    /// Future semantics are a higher minor version or nonzero file flags.
+    /// Normalization applies current reserved-field and layout validation before
+    /// constructing an editable document. Current sources are unaffected.
+    pub const fn with_compatibility(mut self, policy: CompatibilityPolicy) -> Self {
+        self.compatibility = policy;
+        self
+    }
+
+    /// Returns the selected future-semantics compatibility policy.
+    pub const fn compatibility_policy(&self) -> CompatibilityPolicy {
+        self.compatibility
+    }
+
     /// Sets the ordered type policies used to classify opened raw nodes.
     ///
     /// For current container semantics,
@@ -67,7 +124,9 @@ impl<'p> OpenOptions<'p> {
     /// [`ReservedBitsPolicy::Normalize`](crate::ReservedBitsPolicy::Normalize)
     /// clears those bits and marks the document dirty. The default reject
     /// policy leaves opened bits unchanged without granting preservation.
-    /// Higher-minor or flagged containers are not normalized by this option.
+    /// Higher-minor or flagged containers remain globally read-only under
+    /// [`CompatibilityPolicy::Preserve`]; descriptor normalization becomes
+    /// effective only with [`CompatibilityPolicy::NormalizeToCurrent`].
     pub const fn with_raw_type_policies(mut self, policies: &'p [RawTypePolicy]) -> Self {
         self.raw_type_policies = policies;
         self
@@ -107,11 +166,18 @@ mod tests {
 
         assert_eq!(DEFAULT.max_chunks(), 256);
         assert_eq!(DEFAULT.payload_limits(), PayloadLimits::EMBEDDED);
+        assert_eq!(DEFAULT.trailing_bytes_policy(), TrailingBytesPolicy::Reject);
+        assert_eq!(
+            DEFAULT.compatibility_policy(),
+            CompatibilityPolicy::Preserve
+        );
         assert!(DEFAULT.raw_type_policies().is_empty());
         assert_eq!(OpenOptions::default(), DEFAULT);
 
         assert_eq!(HOST.max_chunks(), 4_096);
         assert_eq!(HOST.payload_limits(), PayloadLimits::HOST);
+        assert_eq!(HOST.trailing_bytes_policy(), TrailingBytesPolicy::Reject);
+        assert_eq!(HOST.compatibility_policy(), CompatibilityPolicy::Preserve);
         assert!(HOST.raw_type_policies().is_empty());
     }
 
@@ -121,10 +187,20 @@ mod tests {
         const OPTIONS: OpenOptions<'static> = OpenOptions::new()
             .with_max_chunks(17)
             .with_payload_limits(PayloadLimits::HOST)
+            .with_trailing_bytes(TrailingBytesPolicy::Preserve)
+            .with_compatibility(CompatibilityPolicy::NormalizeToCurrent)
             .with_raw_type_policies(&POLICIES);
 
         assert_eq!(OPTIONS.max_chunks(), 17);
         assert_eq!(OPTIONS.payload_limits(), PayloadLimits::HOST);
+        assert_eq!(
+            OPTIONS.trailing_bytes_policy(),
+            TrailingBytesPolicy::Preserve
+        );
+        assert_eq!(
+            OPTIONS.compatibility_policy(),
+            CompatibilityPolicy::NormalizeToCurrent
+        );
         assert_eq!(OPTIONS.raw_type_policies(), &POLICIES);
         assert_eq!(OPTIONS.raw_type_policies().as_ptr(), POLICIES.as_ptr());
         assert!(size_of::<RawTypePolicy>() <= 8);

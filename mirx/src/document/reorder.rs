@@ -48,6 +48,7 @@ impl Document<'_> {
         anchor: ChunkId,
         position: RelativePosition,
     ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
         let plan = plan_reorder(&self.state, id, anchor, position)?;
         if plan.apply(&mut self.state) {
             self.dirty = true;

@@ -166,6 +166,7 @@ impl Document<'_> {
         chunk_type: ChunkType,
         policy: RawChunkPolicy,
     ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
         let index = descriptor_chunk_index(&self.state, id)?;
         let existing_type = chunk_node(&self.state, index).chunk_type;
         if existing_type == chunk_type {
@@ -188,6 +189,7 @@ impl Document<'_> {
         flags: ChunkFlags,
         policy: RawChunkPolicy,
     ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
         let index = descriptor_chunk_index(&self.state, id)?;
         let existing_flags = chunk_node(&self.state, index).flags;
         if existing_flags == flags
@@ -220,6 +222,7 @@ impl Document<'_> {
     /// Capability-only changes do not alter encoded output and therefore do
     /// not mark the document dirty. Normalizing reserved flag bits does.
     pub fn set_raw_policy(&mut self, id: ChunkId, policy: RawChunkPolicy) -> Result<(), EditError> {
+        self.ensure_mutable()?;
         let index = descriptor_chunk_index(&self.state, id)?;
         let candidate = {
             let node = chunk_node(&self.state, index);

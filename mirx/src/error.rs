@@ -128,14 +128,24 @@ impl From<ReadError> for DocumentError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum EditError {
+    /// The source uses future container semantics that were preserved at open.
+    FutureSemanticsReadOnly,
+    /// The source retains bytes after its logical MIRX boundary.
+    PreservedTrailingBytesReadOnly,
     InvalidChunkId,
     InvalidChunkType,
     ChunkLayoutRequired,
     ChunkIdExhausted,
     AllocationFailed,
-    RelocationAssumptionRequired { chunk_type: ChunkType },
-    CriticalAssumptionRequired { chunk_type: ChunkType },
-    ReservedFlagBits { bits: u16 },
+    RelocationAssumptionRequired {
+        chunk_type: ChunkType,
+    },
+    CriticalAssumptionRequired {
+        chunk_type: ChunkType,
+    },
+    ReservedFlagBits {
+        bits: u16,
+    },
     InvalidPayload(ImagePayloadError),
 }
 

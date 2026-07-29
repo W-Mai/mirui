@@ -77,14 +77,33 @@ impl<'a> Reader<'a> {
         bytes: &'a [u8],
         options: &ReadOptions,
     ) -> Result<Self, ReadError> {
+        Self::open_structural_impl(bytes, options, false)
+    }
+
+    /// Opens a structurally valid source while interpreting layout-specific
+    /// fields under the current container contract.
+    ///
+    /// This is restricted to document compatibility normalization. Public
+    /// reader entry points continue to preserve future layout semantics.
+    pub(crate) fn open_structural_as_current_with(
+        bytes: &'a [u8],
+        options: &ReadOptions,
+    ) -> Result<Self, ReadError> {
+        Self::open_structural_impl(bytes, options, true)
+    }
+
+    fn open_structural_impl(
+        bytes: &'a [u8],
+        options: &ReadOptions,
+        interpret_future_as_current: bool,
+    ) -> Result<Self, ReadError> {
         let file = parse_file_header(bytes)?;
         let has_future_semantics = file.version_minor > VERSION_MINOR || file.flags != 0;
+        let enforce_current_semantics = !has_future_semantics || interpret_future_as_current;
         let (header, flat_image, chunk_table, logical_len) = match file.layout {
             Layout::Flat => {
-                let header = parse_flat_header(bytes, file, has_future_semantics)?;
-                if has_future_semantics {
-                    (ContainerHeader::Flat(header), None, None, bytes.len())
-                } else {
+                let header = parse_flat_header(bytes, file, enforce_current_semantics)?;
+                if enforce_current_semantics {
                     let (image, logical_len) = ImageView::from_flat(bytes, header)?;
                     (
                         ContainerHeader::Flat(header),
@@ -92,16 +111,18 @@ impl<'a> Reader<'a> {
                         None,
                         logical_len,
                     )
+                } else {
+                    (ContainerHeader::Flat(header), None, None, bytes.len())
                 }
             }
             Layout::Chunk => {
-                let header = parse_chunk_header(bytes, file, has_future_semantics)?;
+                let header = parse_chunk_header(bytes, file, enforce_current_semantics)?;
                 let logical_len = chunk_logical_len(header, bytes.len())?;
                 let logical_bytes = &bytes[..logical_len];
                 let table = ChunkTableMeta::inspect(
                     logical_bytes,
                     header,
-                    !has_future_semantics,
+                    enforce_current_semantics,
                     options.max_chunks(),
                 )?;
                 (
@@ -229,10 +250,10 @@ fn parse_file_header(bytes: &[u8]) -> Result<FileHeader, ReadError> {
 fn parse_flat_header(
     bytes: &[u8],
     file: FileHeader,
-    has_future_semantics: bool,
+    enforce_current_semantics: bool,
 ) -> Result<FlatHeader, ReadError> {
     require_len(bytes, FLAT_HEADER_LEN)?;
-    if !has_future_semantics {
+    if enforce_current_semantics {
         require_zero(bytes, &[9, 10, 11])?;
     }
     validate_crc(bytes, 24, 24)?;
@@ -250,10 +271,10 @@ fn parse_flat_header(
 fn parse_chunk_header(
     bytes: &[u8],
     file: FileHeader,
-    has_future_semantics: bool,
+    enforce_current_semantics: bool,
 ) -> Result<ChunkFileHeader, ReadError> {
     require_len(bytes, CHUNK_FILE_HEADER_LEN)?;
-    if !has_future_semantics {
+    if enforce_current_semantics {
         require_zero(bytes, &[10, 11, 23, 36, 37, 38, 39])?;
     }
     validate_crc(bytes, 40, 40)?;
