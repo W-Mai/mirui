@@ -1,3 +1,4 @@
+use super::primary::{PrimaryProjection, ensure_primary_projection};
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, PayloadStorage, RewriteCapability};
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageView};
@@ -172,6 +173,11 @@ impl Document<'_> {
         if existing_type == chunk_type {
             return Ok(());
         }
+
+        let DocumentState::Chunk(chunks) = &self.state else {
+            unreachable!("layout checked before projecting descriptor edit");
+        };
+        ensure_primary_projection(chunks, PrimaryProjection::SetType { index, chunk_type })?;
 
         let candidate = {
             let node = chunk_node(&self.state, index);

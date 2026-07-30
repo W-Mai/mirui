@@ -1,3 +1,4 @@
+use super::primary::{PrimaryProjection, ensure_primary_projection};
 use super::{Document, DocumentState};
 use crate::{ChunkId, EditError};
 
@@ -15,6 +16,14 @@ enum ReorderPlan {
 }
 
 impl ReorderPlan {
+    const fn moved_indices(self) -> Option<(usize, usize)> {
+        match self {
+            Self::Noop => None,
+            Self::RotateLeft { start, end } => Some((start, end - 1)),
+            Self::RotateRight { start, end } => Some((end - 1, start)),
+        }
+    }
+
     fn apply(self, state: &mut DocumentState<'_>) -> bool {
         let Self::Noop = self else {
             let DocumentState::Chunk(chunks) = state else {
@@ -50,6 +59,18 @@ impl Document<'_> {
     ) -> Result<(), EditError> {
         self.ensure_mutable()?;
         let plan = plan_reorder(&self.state, id, anchor, position)?;
+        if let Some((source, destination)) = plan.moved_indices() {
+            let DocumentState::Chunk(chunks) = &self.state else {
+                unreachable!("layout checked before projecting chunk reorder");
+            };
+            ensure_primary_projection(
+                chunks,
+                PrimaryProjection::Move {
+                    source,
+                    destination,
+                },
+            )?;
+        }
         if plan.apply(&mut self.state) {
             self.dirty = true;
         }

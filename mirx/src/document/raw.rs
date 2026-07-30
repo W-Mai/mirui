@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 
 use super::descriptor::{evaluate_descriptor, evaluate_descriptor_with_flags, evaluate_flags};
+use super::primary::{PrimaryProjection, ensure_primary_projection};
 use super::{ChunkNode, Document, DocumentState, PayloadStorage, RewriteCapability};
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError};
 
@@ -229,6 +230,16 @@ impl<'a> Document<'a> {
             .checked_add(1)
             .ok_or(EditError::ChunkIdExhausted)?;
         let id = ChunkId::from_session_counter(self.next_id);
+        let DocumentState::Chunk(chunks) = &self.state else {
+            unreachable!("layout checked before projecting insertion");
+        };
+        ensure_primary_projection(
+            chunks,
+            PrimaryProjection::Insert {
+                index,
+                chunk_type: input.chunk_type,
+            },
+        )?;
         let prepared = prepare_raw(input)?;
         let node = prepared.into_node(id);
 
@@ -1401,6 +1412,81 @@ mod tests {
         assert_eq!(ids(&document), before_ids);
         assert_eq!(document.next_id, before_next);
         assert!(!document.is_dirty());
+    }
+
+    #[test]
+    fn primary_projection_precedes_payload_policy_and_node_reserve() {
+        let primary_type = ChunkType::new(0xbeef).unwrap();
+        let mut source = encode_chunks(&[
+            (ChunkType::META.raw(), 0, b"meta"),
+            (primary_type.raw(), 0, b"primary"),
+        ]);
+        set_primary(&mut source, primary_type);
+        let mut document = Document::open(&source).unwrap();
+        let primary = document.primary().unwrap();
+        let before_ids = ids(&document);
+        let before_types = types(&document);
+        let before_next_id = document.next_id;
+        let before_dirty = document.dirty;
+        let (before_pointer, before_capacity, before_nodes) = {
+            let DocumentState::Chunk(chunks) = &document.state else {
+                panic!("expected CHUNK document");
+            };
+            let nodes = chunks
+                .chunks
+                .iter()
+                .map(|node| {
+                    let bytes = payload_bytes(&document.origin, node);
+                    (
+                        node.id,
+                        node.flags,
+                        node.capability,
+                        bytes.as_ptr(),
+                        bytes.len(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            (chunks.chunks.as_ptr(), chunks.chunks.capacity(), nodes)
+        };
+
+        for policy in [RawChunkPolicy::infer(), assumed_policy()] {
+            let result = document.insert_raw_at_with(
+                InsertPosition::Before(primary),
+                raw(
+                    primary_type,
+                    ChunkFlags::NONE,
+                    PayloadInput::Borrowed(b"shadow"),
+                    policy,
+                ),
+                |_| panic!("shadowing insertion must not reserve node capacity"),
+            );
+            assert_eq!(result, Err(EditError::WouldShadowPrimary));
+            assert_eq!(ids(&document), before_ids);
+            assert_eq!(types(&document), before_types);
+            assert_eq!(document.primary(), Some(primary));
+            assert_eq!(document.next_id, before_next_id);
+            assert_eq!(document.dirty, before_dirty);
+            let DocumentState::Chunk(chunks) = &document.state else {
+                panic!("expected CHUNK document");
+            };
+            assert_eq!(chunks.chunks.as_ptr(), before_pointer);
+            assert_eq!(chunks.chunks.capacity(), before_capacity);
+            let nodes = chunks
+                .chunks
+                .iter()
+                .map(|node| {
+                    let bytes = payload_bytes(&document.origin, node);
+                    (
+                        node.id,
+                        node.flags,
+                        node.capability,
+                        bytes.as_ptr(),
+                        bytes.len(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(nodes, before_nodes);
+        }
     }
 
     #[test]

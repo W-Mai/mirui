@@ -210,7 +210,11 @@ fn assert_every_mutation_blocked(document: &mut Document<'_>, id: ChunkId, expec
     assert_eq!(snapshot(document), before);
     assert_eq!(document.move_before(id, id), Err(expected.clone()));
     assert_eq!(snapshot(document), before);
-    assert_eq!(document.move_after(id, id), Err(expected));
+    assert_eq!(document.move_after(id, id), Err(expected.clone()));
+    assert_eq!(snapshot(document), before);
+    assert_eq!(document.set_primary(id), Err(expected.clone()));
+    assert_eq!(snapshot(document), before);
+    assert_eq!(document.clear_primary(), Err(expected));
     assert_eq!(snapshot(document), before);
 }
 

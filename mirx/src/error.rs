@@ -135,6 +135,8 @@ pub enum EditError {
     InvalidChunkId,
     InvalidChunkType,
     ChunkLayoutRequired,
+    /// The edit would place another same-typed node before the primary node.
+    WouldShadowPrimary,
     ChunkIdExhausted,
     AllocationFailed,
     RelocationAssumptionRequired {

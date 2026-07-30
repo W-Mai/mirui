@@ -4,6 +4,7 @@ mod descriptor;
 mod options;
 #[cfg(test)]
 mod policy_tests;
+mod primary;
 mod query;
 mod raw;
 mod reorder;
