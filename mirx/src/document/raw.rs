@@ -106,6 +106,41 @@ struct PreparedRaw<'a> {
     capability: RewriteCapability,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct ChunkIdPlan {
+    first_counter: u32,
+    count: u32,
+    following_counter: u32,
+}
+
+impl ChunkIdPlan {
+    pub(super) const fn id(self, offset: u32) -> Option<ChunkId> {
+        if offset >= self.count {
+            return None;
+        }
+        match self.first_counter.checked_add(offset) {
+            Some(counter) => Some(ChunkId::from_session_counter(counter)),
+            None => None,
+        }
+    }
+
+    pub(super) const fn following_counter(self) -> u32 {
+        self.following_counter
+    }
+}
+
+pub(super) const fn plan_chunk_ids(next_id: u32, count: u32) -> Result<ChunkIdPlan, EditError> {
+    let following_counter = match next_id.checked_add(count) {
+        Some(counter) => counter,
+        None => return Err(EditError::ChunkIdExhausted),
+    };
+    Ok(ChunkIdPlan {
+        first_counter: next_id,
+        count,
+        following_counter,
+    })
+}
+
 impl<'a> PreparedRaw<'a> {
     fn into_node(self, id: ChunkId) -> ChunkNode<'a> {
         ChunkNode {
@@ -245,11 +280,8 @@ impl<'a> Document<'a> {
     {
         self.ensure_mutable()?;
         let index = insertion_index(&self.state, position)?;
-        let following_id = self
-            .next_id
-            .checked_add(1)
-            .ok_or(EditError::ChunkIdExhausted)?;
-        let id = ChunkId::from_session_counter(self.next_id);
+        let ids = plan_chunk_ids(self.next_id, 1)?;
+        let id = ids.id(0).expect("one planned chunk ID must exist");
         let DocumentState::Chunk(chunks) = &self.state else {
             unreachable!("layout checked before projecting insertion");
         };
@@ -269,9 +301,21 @@ impl<'a> Document<'a> {
         reserve(&mut chunks.chunks)?;
         chunks.chunks.insert(index, node);
 
-        self.next_id = following_id;
+        self.next_id = ids.following_counter();
         self.dirty = true;
         Ok(id)
+    }
+
+    #[cfg(test)]
+    pub(super) fn insert_raw_at_end_with<R>(
+        &mut self,
+        input: RawChunkInput<'a>,
+        reserve: R,
+    ) -> Result<ChunkId, EditError>
+    where
+        R: FnOnce(&mut Vec<ChunkNode<'a>>) -> Result<(), EditError>,
+    {
+        self.insert_raw_at_with(InsertPosition::End, input, reserve)
     }
 
     fn remove_to_vec_with<C>(&mut self, id: ChunkId, copy: C) -> Result<Vec<u8>, EditError>
@@ -475,6 +519,38 @@ mod tests {
         let start = u32::from_le_bytes(file[entry + 4..entry + 8].try_into().unwrap()) as usize;
         let len = u32::from_le_bytes(file[entry + 8..entry + 12].try_into().unwrap()) as usize;
         file[start..start + len].to_vec()
+    }
+
+    #[test]
+    fn chunk_id_plans_cover_empty_boundary_and_batch_overflow() {
+        let empty = plan_chunk_ids(u32::MAX, 0).unwrap();
+        assert_eq!(empty.id(0), None);
+        assert_eq!(empty.following_counter(), u32::MAX);
+
+        let last = plan_chunk_ids(u32::MAX - 1, 1).unwrap();
+        assert_eq!(
+            last.id(0),
+            Some(ChunkId::from_session_counter(u32::MAX - 1))
+        );
+        assert_eq!(last.id(1), None);
+        assert_eq!(last.following_counter(), u32::MAX);
+
+        let pair = plan_chunk_ids(u32::MAX - 2, 2).unwrap();
+        assert_eq!(
+            pair.id(0),
+            Some(ChunkId::from_session_counter(u32::MAX - 2))
+        );
+        assert_eq!(
+            pair.id(1),
+            Some(ChunkId::from_session_counter(u32::MAX - 1))
+        );
+        assert_eq!(pair.id(2), None);
+        assert_eq!(pair.following_counter(), u32::MAX);
+
+        assert_eq!(
+            plan_chunk_ids(u32::MAX - 1, 2),
+            Err(EditError::ChunkIdExhausted)
+        );
     }
 
     fn ids(document: &Document<'_>) -> Vec<ChunkId> {

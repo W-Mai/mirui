@@ -1,4 +1,6 @@
 #[cfg(test)]
+mod atomic_tests;
+#[cfg(test)]
 mod compatibility_tests;
 mod descriptor;
 #[cfg(test)]
