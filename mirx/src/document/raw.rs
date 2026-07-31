@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use super::descriptor::{evaluate_descriptor, evaluate_descriptor_with_flags, evaluate_flags};
-use super::primary::{PrimaryProjection, ensure_primary_projection};
+use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::{ChunkNode, Document, DocumentState, PayloadStorage, RewriteCapability};
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError};
 
@@ -165,13 +165,18 @@ impl<'a> Document<'a> {
     ) -> Result<(), EditError> {
         self.ensure_mutable()?;
         let index = chunk_index(&self.state, id)?;
-        let (chunk_type, flags, matches_existing) = {
+        let (chunk_type, flags, matches_existing, is_primary) = {
             let DocumentState::Chunk(chunks) = &self.state else {
                 unreachable!("layout checked before preparing replacement");
             };
             let node = &chunks.chunks[index];
             let existing = payload_bytes(&self.origin, node);
-            (node.chunk_type, node.flags, existing == payload.as_bytes())
+            (
+                node.chunk_type,
+                node.flags,
+                existing == payload.as_bytes(),
+                chunks.primary == Some(node.id),
+            )
         };
 
         if matches_existing {
@@ -179,12 +184,27 @@ impl<'a> Document<'a> {
         }
 
         let prepared = prepare_replacement(chunk_type, flags, payload, policy)?;
+        let primary_hints = if is_primary {
+            let payload = match &prepared.payload {
+                PayloadStorage::Borrowed(bytes) => *bytes,
+                PayloadStorage::Owned(bytes) => bytes.as_slice(),
+                PayloadStorage::SourceRange(_) => {
+                    unreachable!("replacement input cannot produce source-backed storage")
+                }
+            };
+            Some(changed_primary_hint_state(prepared.chunk_type, payload, 0))
+        } else {
+            None
+        };
         let DocumentState::Chunk(chunks) = &mut self.state else {
             unreachable!("layout checked before committing replacement");
         };
         let node = &mut chunks.chunks[index];
         node.payload = prepared.payload;
         node.capability = prepared.capability;
+        if let Some(primary_hints) = primary_hints {
+            chunks.primary_hints = primary_hints;
+        }
         self.dirty = true;
         Ok(())
     }
@@ -295,6 +315,7 @@ impl<'a> Document<'a> {
         let was_primary = chunks.primary == Some(node.id);
         if was_primary {
             chunks.primary = None;
+            chunks.primary_hints = super::PrimaryHintState::Missing;
         }
         let meta = RemovedChunkMeta {
             id: node.id,
@@ -1276,12 +1297,29 @@ mod tests {
         let before_ids = ids(&document);
         let before_primary = document.primary();
         let before_next = document.next_id;
+        let before_primary_hints = document.primary_hints();
+        let before_primary_hint_state = match &document.state {
+            DocumentState::Chunk(chunks) => chunks.primary_hints,
+            DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => {
+                panic!("expected CHUNK document")
+            }
+        };
         let before_bytes = document.get(id).unwrap().payload_bytes().unwrap().to_vec();
         let result = document.remove_to_vec_with(id, |_| Err(EditError::AllocationFailed));
         assert_eq!(result, Err(EditError::AllocationFailed));
         assert_eq!(ids(&document), before_ids);
         assert_eq!(document.primary(), before_primary);
         assert_eq!(document.next_id, before_next);
+        assert_eq!(document.primary_hints(), before_primary_hints);
+        assert_eq!(
+            match &document.state {
+                DocumentState::Chunk(chunks) => chunks.primary_hints,
+                DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => {
+                    panic!("expected CHUNK document")
+                }
+            },
+            before_primary_hint_state
+        );
         assert_eq!(
             document.get(id).unwrap().payload_bytes(),
             Some(before_bytes.as_slice())

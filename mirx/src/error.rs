@@ -137,6 +137,14 @@ pub enum EditError {
     ChunkLayoutRequired,
     /// The edit would place another same-typed node before the primary node.
     WouldShadowPrimary,
+    /// The selected payload cannot provide primary display hints mechanically.
+    PrimaryHintsRequired {
+        chunk_type: ChunkType,
+    },
+    /// Explicit primary hints do not match the selected payload contract.
+    InvalidPrimaryHints {
+        chunk_type: ChunkType,
+    },
     ChunkIdExhausted,
     AllocationFailed,
     RelocationAssumptionRequired {

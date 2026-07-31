@@ -29,6 +29,7 @@ struct DocumentSnapshot {
     dirty: bool,
     next_id: u32,
     primary: Option<ChunkId>,
+    primary_hints: PrimaryHintState,
     vector_pointer: usize,
     vector_capacity: usize,
     nodes: Vec<NodeSnapshot>,
@@ -113,7 +114,7 @@ fn open_error(result: Result<Document<'_>, DocumentError>) -> DocumentError {
 }
 
 fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
-    let (primary, vector_pointer, vector_capacity, nodes) = match &document.state {
+    let (primary, primary_hints, vector_pointer, vector_capacity, nodes) = match &document.state {
         DocumentState::Chunk(chunks) => {
             let nodes = chunks
                 .chunks
@@ -147,12 +148,15 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
                 .collect();
             (
                 chunks.primary,
+                chunks.primary_hints,
                 chunks.chunks.as_ptr() as usize,
                 chunks.chunks.capacity(),
                 nodes,
             )
         }
-        DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat => (None, 0, 0, Vec::new()),
+        DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => {
+            (None, PrimaryHintState::Missing, 0, 0, Vec::new())
+        }
     };
     DocumentSnapshot {
         logical_len: document.logical_len,
@@ -162,6 +166,7 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
         dirty: document.dirty,
         next_id: document.next_id,
         primary,
+        primary_hints,
         vector_pointer,
         vector_capacity,
         nodes,
@@ -213,6 +218,11 @@ fn assert_every_mutation_blocked(document: &mut Document<'_>, id: ChunkId, expec
     assert_eq!(document.move_after(id, id), Err(expected.clone()));
     assert_eq!(snapshot(document), before);
     assert_eq!(document.set_primary(id), Err(expected.clone()));
+    assert_eq!(snapshot(document), before);
+    assert_eq!(
+        document.set_primary_with_hints(id, PrimaryHints::ZERO),
+        Err(expected.clone())
+    );
     assert_eq!(snapshot(document), before);
     assert_eq!(document.clear_primary(), Err(expected));
     assert_eq!(snapshot(document), before);
@@ -429,6 +439,10 @@ fn normalized_future_flat_keeps_extra_bytes_as_an_independent_trailing_region() 
     let mut document =
         Document::open_with(&source, &normalize_and_preserve_trailing_options()).unwrap();
     assert!(matches!(document.state, DocumentState::SourceFlat(_)));
+    assert_eq!(
+        document.primary_hints(),
+        PrimaryHints::new(ColorFormat::A8.to_u8(), 1, 1, 1)
+    );
     assert_eq!(document.compatibility, Compatibility::Current);
     assert_eq!(document.trailing, TrailingState::Preserved);
     assert_eq!(document.logical_len, logical_len);

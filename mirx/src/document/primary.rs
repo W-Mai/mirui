@@ -1,5 +1,108 @@
-use super::{ChunkNode, ChunkSet, Document, DocumentState};
-use crate::{ChunkId, ChunkType, EditError};
+use super::descriptor::descriptor_payload;
+use super::{ChunkNode, ChunkSet, Document, DocumentState, PrimaryHintState};
+use crate::{ChunkId, ChunkType, EditError, ImageView, PRIMARY_FORMAT_NONE, PrimaryHints};
+
+const KNOWN_NON_IMAGE_HINTS: PrimaryHints = PrimaryHints::new(PRIMARY_FORMAT_NONE, 0, 0, 0);
+
+const fn is_known_non_image(chunk_type: ChunkType) -> bool {
+    matches!(
+        chunk_type,
+        ChunkType::FONT | ChunkType::VECTOR | ChunkType::META | ChunkType::PALETTE
+    )
+}
+
+pub(super) const fn open_primary_hint_state(
+    chunk_type: ChunkType,
+    known_contract: bool,
+    preserve_opaque: bool,
+    wire_hints: PrimaryHints,
+) -> PrimaryHintState {
+    if matches!(chunk_type, ChunkType::IMAGE) && known_contract {
+        PrimaryHintState::Derived
+    } else if is_known_non_image(chunk_type) {
+        known_non_image_hint_state(wire_hints)
+    } else if preserve_opaque {
+        PrimaryHintState::PreservedOpaque(wire_hints)
+    } else {
+        PrimaryHintState::Missing
+    }
+}
+
+const fn valid_known_non_image_hints(hints: PrimaryHints) -> bool {
+    hints.color_format_raw() == PRIMARY_FORMAT_NONE
+        && hints.stride() == 0
+        && ((hints.width() == 0 && hints.height() == 0)
+            || (hints.width() != 0 && hints.height() != 0))
+}
+
+const fn known_non_image_hint_state(hints: PrimaryHints) -> PrimaryHintState {
+    if valid_known_non_image_hints(hints) && hints.width() != 0 {
+        PrimaryHintState::Explicit(hints)
+    } else {
+        PrimaryHintState::KnownNonImageDefault
+    }
+}
+
+pub(super) fn changed_primary_hint_state(
+    chunk_type: ChunkType,
+    payload: &[u8],
+    payload_offset: u32,
+) -> PrimaryHintState {
+    if matches!(chunk_type, ChunkType::IMAGE)
+        && ImageView::from_chunk_payload(payload, payload_offset).is_ok()
+    {
+        PrimaryHintState::Derived
+    } else if is_known_non_image(chunk_type) {
+        PrimaryHintState::KnownNonImageDefault
+    } else {
+        PrimaryHintState::Missing
+    }
+}
+
+fn selected_primary_hint_state(
+    chunk_type: ChunkType,
+    payload: &[u8],
+    payload_offset: u32,
+) -> Result<PrimaryHintState, EditError> {
+    let state = changed_primary_hint_state(chunk_type, payload, payload_offset);
+    if matches!(state, PrimaryHintState::Missing) {
+        Err(EditError::PrimaryHintsRequired { chunk_type })
+    } else {
+        Ok(state)
+    }
+}
+
+fn explicit_primary_hint_state(
+    chunk_type: ChunkType,
+    payload: &[u8],
+    payload_offset: u32,
+    hints: PrimaryHints,
+) -> Result<PrimaryHintState, EditError> {
+    if matches!(chunk_type, ChunkType::IMAGE) {
+        return match ImageView::from_chunk_payload(payload, payload_offset) {
+            Ok(image) if image_hints(image) == hints => Ok(PrimaryHintState::Derived),
+            Ok(_) => Err(EditError::InvalidPrimaryHints { chunk_type }),
+            Err(_) => Ok(PrimaryHintState::Explicit(hints)),
+        };
+    }
+    if is_known_non_image(chunk_type) {
+        return if valid_known_non_image_hints(hints) {
+            Ok(known_non_image_hint_state(hints))
+        } else {
+            Err(EditError::InvalidPrimaryHints { chunk_type })
+        };
+    }
+    Ok(PrimaryHintState::Explicit(hints))
+}
+
+fn image_hints(image: ImageView<'_>) -> PrimaryHints {
+    PrimaryHints::new(
+        image.format().to_u8(),
+        image.width(),
+        image.height(),
+        image.stride(),
+    )
+}
 
 /// A structural edit projected onto table order without changing storage.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -99,14 +202,57 @@ pub(super) fn ensure_primary_projection(
 }
 
 impl Document<'_> {
+    /// Returns the effective primary display hints.
+    ///
+    /// Valid IMAGE hints are derived from the validated payload. Known
+    /// non-image primaries use [`PRIMARY_FORMAT_NONE`], zero stride, and either
+    /// explicit suggested dimensions or zero geometry. Future opaque FLAT
+    /// documents expose their preserved raw header hints without interpreting
+    /// the format. Documents without a primary and primaries whose hints are
+    /// missing return [`PrimaryHints::ZERO`].
+    pub fn primary_hints(&self) -> PrimaryHints {
+        let DocumentState::Chunk(chunks) = &self.state else {
+            return match &self.state {
+                DocumentState::SourceFlat(record) => PrimaryHints::new(
+                    record.image.format.to_u8(),
+                    record.image.width,
+                    record.image.height,
+                    record.image.stride,
+                ),
+                DocumentState::OpaqueFlat(hints) => *hints,
+                DocumentState::Chunk(_) => unreachable!("CHUNK handled before FLAT hints"),
+            };
+        };
+        let Some(primary) = chunks.primary else {
+            return PrimaryHints::ZERO;
+        };
+        match chunks.primary_hints {
+            PrimaryHintState::Derived => {
+                let node = chunks
+                    .chunks
+                    .iter()
+                    .find(|node| node.id == primary)
+                    .expect("document primary must identify a live node");
+                let (payload, payload_offset) = descriptor_payload(self, node);
+                let image = ImageView::from_chunk_payload(payload, payload_offset)
+                    .expect("derived primary hints require a validated IMAGE payload");
+                image_hints(image)
+            }
+            PrimaryHintState::Explicit(hints) | PrimaryHintState::PreservedOpaque(hints) => hints,
+            PrimaryHintState::KnownNonImageDefault => KNOWN_NON_IMAGE_HINTS,
+            PrimaryHintState::Missing => PrimaryHints::ZERO,
+        }
+    }
+
     /// Selects a primary chunk by stable identity.
     ///
     /// When an earlier same-typed node exists, the selected node is moved to
     /// that type's first table position without allocating. Other nodes retain
-    /// their relative order.
+    /// their relative order. Opaque IMAGE, FRAMES, and custom payloads require
+    /// [`Document::set_primary_with_hints`].
     pub fn set_primary(&mut self, id: ChunkId) -> Result<(), EditError> {
         self.ensure_mutable()?;
-        let (selected, first_of_type) = {
+        let (selected, first_of_type, primary_hints) = {
             let DocumentState::Chunk(chunks) = &self.state else {
                 return Err(EditError::ChunkLayoutRequired);
             };
@@ -115,16 +261,20 @@ impl Document<'_> {
                 .iter()
                 .position(|node| node.id == id)
                 .ok_or(EditError::InvalidChunkId)?;
-            if chunks.primary == Some(id) {
+            if chunks.primary == Some(id)
+                && !matches!(chunks.primary_hints, PrimaryHintState::Missing)
+            {
                 return Ok(());
             }
             let chunk_type = chunks.chunks[selected].chunk_type;
+            let (payload, payload_offset) = descriptor_payload(self, &chunks.chunks[selected]);
+            let primary_hints = selected_primary_hint_state(chunk_type, payload, payload_offset)?;
             let first_of_type = chunks
                 .chunks
                 .iter()
                 .position(|node| node.chunk_type == chunk_type)
                 .expect("the selected node is a matching type occurrence");
-            (selected, first_of_type)
+            (selected, first_of_type, primary_hints)
         };
 
         let DocumentState::Chunk(chunks) = &mut self.state else {
@@ -134,6 +284,64 @@ impl Document<'_> {
             chunks.chunks[first_of_type..=selected].rotate_right(1);
         }
         chunks.primary = Some(id);
+        chunks.primary_hints = primary_hints;
+        self.dirty = true;
+        Ok(())
+    }
+
+    /// Selects a primary chunk with caller-supplied display hints.
+    ///
+    /// This is the explicit path for payload contracts whose hints cannot be
+    /// derived by this crate. Valid IMAGE payloads accept only their derived
+    /// hints. Known non-image payloads require [`PRIMARY_FORMAT_NONE`], zero
+    /// stride, and either zero geometry or nonzero suggested dimensions. The
+    /// selected node is moved to the first table position of its type without
+    /// allocating.
+    pub fn set_primary_with_hints(
+        &mut self,
+        id: ChunkId,
+        hints: PrimaryHints,
+    ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
+        let (selected, first_of_type, primary_hints) = {
+            let DocumentState::Chunk(chunks) = &self.state else {
+                return Err(EditError::ChunkLayoutRequired);
+            };
+            let selected = chunks
+                .chunks
+                .iter()
+                .position(|node| node.id == id)
+                .ok_or(EditError::InvalidChunkId)?;
+            let node = &chunks.chunks[selected];
+            let (payload, payload_offset) = descriptor_payload(self, node);
+            let primary_hints =
+                explicit_primary_hint_state(node.chunk_type, payload, payload_offset, hints)?;
+            let exact_preserved = matches!(
+                chunks.primary_hints,
+                PrimaryHintState::PreservedOpaque(preserved) if preserved == hints
+            );
+            if chunks.primary == Some(id)
+                && (chunks.primary_hints == primary_hints || exact_preserved)
+            {
+                return Ok(());
+            }
+            let chunk_type = node.chunk_type;
+            let first_of_type = chunks
+                .chunks
+                .iter()
+                .position(|node| node.chunk_type == chunk_type)
+                .expect("the selected node is a matching type occurrence");
+            (selected, first_of_type, primary_hints)
+        };
+
+        let DocumentState::Chunk(chunks) = &mut self.state else {
+            unreachable!("layout was checked before selecting explicit primary hints");
+        };
+        if first_of_type != selected {
+            chunks.chunks[first_of_type..=selected].rotate_right(1);
+        }
+        chunks.primary = Some(id);
+        chunks.primary_hints = primary_hints;
         self.dirty = true;
         Ok(())
     }
@@ -145,6 +353,7 @@ impl Document<'_> {
             return Err(EditError::ChunkLayoutRequired);
         };
         if chunks.primary.take().is_some() {
+            chunks.primary_hints = PrimaryHintState::Missing;
             self.dirty = true;
         }
         Ok(())
@@ -181,6 +390,7 @@ mod tests {
         Some(chunk_type) => chunk_type,
         None => panic!("nonzero chunk type"),
     };
+    const EXPLICIT_HINTS: PrimaryHints = PrimaryHints::new(0xa5, 13, 21, 55);
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct NodeSnapshot {
@@ -203,6 +413,7 @@ mod tests {
         dirty: bool,
         next_id: u32,
         primary: Option<ChunkId>,
+        primary_hints: PrimaryHintState,
         origin_kind: u8,
         origin_pointer: usize,
         origin_len: usize,
@@ -268,7 +479,8 @@ mod tests {
                 Some(bytes.capacity()),
             ),
         };
-        let (primary, vector_pointer, vector_capacity, nodes) = match &document.state {
+        let (primary, primary_hints, vector_pointer, vector_capacity, nodes) = match &document.state
+        {
             DocumentState::Chunk(chunks) => {
                 let nodes = chunks
                     .chunks
@@ -302,12 +514,15 @@ mod tests {
                     .collect();
                 (
                     chunks.primary,
+                    chunks.primary_hints,
                     chunks.chunks.as_ptr() as usize,
                     chunks.chunks.capacity(),
                     nodes,
                 )
             }
-            DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat => (None, 0, 0, Vec::new()),
+            DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => {
+                (None, PrimaryHintState::Missing, 0, 0, Vec::new())
+            }
         };
         DocumentSnapshot {
             logical_len: document.logical_len,
@@ -317,6 +532,7 @@ mod tests {
             dirty: document.dirty,
             next_id: document.next_id,
             primary,
+            primary_hints,
             origin_kind,
             origin_pointer,
             origin_len,
@@ -363,7 +579,9 @@ mod tests {
         let mut document = Document::open(&source).unwrap();
         let before = snapshot(&document);
 
-        document.set_primary(id(4)).unwrap();
+        document
+            .set_primary_with_hints(id(4), EXPLICIT_HINTS)
+            .unwrap();
         let selected = snapshot(&document);
         assert_eq!(document.primary(), Some(id(4)));
         assert_eq!(ids(&document), [id(4), id(0), id(1), id(2), id(3)]);
@@ -372,7 +590,9 @@ mod tests {
 
         document.dirty = false;
         let before_noop = snapshot(&document);
-        document.set_primary(id(4)).unwrap();
+        document
+            .set_primary_with_hints(id(4), EXPLICIT_HINTS)
+            .unwrap();
         assert_eq!(snapshot(&document), before_noop);
 
         document.clear_primary().unwrap();
@@ -415,7 +635,9 @@ mod tests {
             .unwrap();
         mixed.dirty = false;
         let before_mixed = snapshot(&mixed);
-        mixed.set_primary(selected).unwrap();
+        mixed
+            .set_primary_with_hints(selected, EXPLICIT_HINTS)
+            .unwrap();
         let after_mixed = snapshot(&mixed);
         assert_eq!(ids(&mixed), [selected, first, id(1)]);
         assert_only_order_primary_and_dirty_changed(&before_mixed, &after_mixed);
@@ -440,7 +662,9 @@ mod tests {
         let before = snapshot(&document);
         assert_eq!(document.primary(), None);
 
-        document.set_primary(id(4)).unwrap();
+        document
+            .set_primary_with_hints(id(4), EXPLICIT_HINTS)
+            .unwrap();
         let after = snapshot(&document);
         assert_eq!(document.primary(), Some(id(4)));
         assert_eq!(ids(&document), [id(0), id(4), id(1), id(2), id(3)]);

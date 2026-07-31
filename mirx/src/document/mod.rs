@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod compatibility_tests;
 mod descriptor;
+#[cfg(test)]
+mod hint_tests;
 mod options;
 #[cfg(test)]
 mod policy_tests;
@@ -20,13 +22,14 @@ pub use raw::{
 use alloc::vec::Vec;
 
 use descriptor::grant_open_descriptor;
+use primary::open_primary_hint_state;
 use source::{Origin, SourceRange};
 
 use crate::payload::image::ImageMeta;
 use crate::reader::{PreflightStatus, preflight_chunk, require_understood_critical};
 use crate::{
     ChunkFlags, ChunkId, ChunkType, DocumentError, EditError, FLAT_HEADER_LEN, ImageView, Layout,
-    ReadError, ReadOptions, Reader, VERSION_MAJOR, VERSION_MINOR,
+    PrimaryHints, ReadError, ReadOptions, Reader, VERSION_MAJOR, VERSION_MINOR,
 };
 
 #[cfg(test)]
@@ -101,12 +104,22 @@ struct ChunkNode<'a> {
 struct ChunkSet<'a> {
     chunks: Vec<ChunkNode<'a>>,
     primary: Option<ChunkId>,
+    primary_hints: PrimaryHintState,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PrimaryHintState {
+    Derived,
+    Explicit(PrimaryHints),
+    PreservedOpaque(PrimaryHints),
+    KnownNonImageDefault,
+    Missing,
 }
 
 #[derive(Debug, Eq, PartialEq)]
 enum DocumentState<'a> {
     SourceFlat(FlatRecord),
-    OpaqueFlat,
+    OpaqueFlat(PrimaryHints),
     Chunk(ChunkSet<'a>),
 }
 
@@ -126,7 +139,7 @@ enum TrailingState {
 impl DocumentState<'_> {
     const fn layout(&self) -> Layout {
         match self {
-            Self::SourceFlat(_) | Self::OpaqueFlat => Layout::Flat,
+            Self::SourceFlat(_) | Self::OpaqueFlat(_) => Layout::Flat,
             Self::Chunk(_) => Layout::Chunk,
         }
     }
@@ -257,6 +270,7 @@ impl<'a> Document<'a> {
             state: DocumentState::Chunk(ChunkSet {
                 chunks: Vec::new(),
                 primary: None,
+                primary_hints: PrimaryHintState::Missing,
             }),
             compatibility: Compatibility::Current,
             trailing: TrailingState::None,
@@ -392,7 +406,7 @@ fn inspect_source<'document>(
         TrailingState::None
     };
     let (state, next_id, state_dirty) = match (reader.layout(), reader.flat_image()) {
-        (Layout::Flat, None) => (DocumentState::OpaqueFlat, 0, false),
+        (Layout::Flat, None) => (DocumentState::OpaqueFlat(reader.primary_hints()), 0, false),
         (Layout::Flat, Some(image)) => (
             DocumentState::SourceFlat(inspect_flat_image(image, reader.logical_len())?),
             0,
@@ -403,6 +417,7 @@ fn inspect_source<'document>(
                 &reader,
                 options,
                 !reader.has_future_semantics() || normalize_future,
+                !reader.has_future_semantics(),
             )?;
             (DocumentState::Chunk(chunks), next_id, dirty)
         }
@@ -430,15 +445,18 @@ fn inspect_chunks<'document>(
     reader: &Reader<'_>,
     options: &OpenOptions<'_>,
     allow_reserved_normalize: bool,
+    preserve_current_opaque_hints: bool,
 ) -> Result<(ChunkSet<'document>, u32, bool), DocumentError> {
     let entries = reader.chunks();
     let count = entries.len();
     let primary_index = reader.primary()?.map(|chunk| chunk.index());
+    let wire_primary_hints = reader.primary_hints();
     let mut chunks = Vec::new();
     reserve_chunk_nodes(&mut chunks, count)?;
 
     let mut next_id = 0;
     let mut dirty = false;
+    let mut primary_hints = PrimaryHintState::Missing;
     for chunk in entries {
         let preflight = preflight_chunk(chunk, &options.payload_limits());
         let known_contract = matches!(preflight, Ok(PreflightStatus::Validated));
@@ -468,11 +486,31 @@ fn inspect_chunks<'document>(
             payload: PayloadStorage::SourceRange(payload),
             capability: descriptor.capability,
         });
+        if primary_index == Some(chunk.index()) {
+            primary_hints = if allow_reserved_normalize {
+                open_primary_hint_state(
+                    chunk.chunk_type(),
+                    known_contract,
+                    preserve_current_opaque_hints,
+                    wire_primary_hints,
+                )
+            } else {
+                PrimaryHintState::PreservedOpaque(wire_primary_hints)
+            };
+        }
         dirty |= normalized;
     }
 
     let primary = primary_index.and_then(|index| chunks.get(index).map(|node| node.id));
-    Ok((ChunkSet { chunks, primary }, next_id, dirty))
+    Ok((
+        ChunkSet {
+            chunks,
+            primary,
+            primary_hints,
+        },
+        next_id,
+        dirty,
+    ))
 }
 
 fn raw_type_policy(options: &OpenOptions<'_>, chunk_type: ChunkType) -> Option<RawChunkPolicy> {
@@ -730,6 +768,7 @@ mod tests {
             DocumentState::Chunk(ChunkSet {
                 chunks: Vec::new(),
                 primary: None,
+                primary_hints: PrimaryHintState::Missing,
             })
         );
         assert_eq!(
@@ -759,7 +798,10 @@ mod tests {
 
             let document = Document::open(&source).unwrap();
             assert_eq!(document.layout(), Layout::Flat);
-            assert_eq!(document.state, DocumentState::OpaqueFlat);
+            assert_eq!(
+                document.state,
+                DocumentState::OpaqueFlat(PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 1, 2,))
+            );
             assert!(!document.is_dirty());
             assert_eq!(document.file_meta().version_minor(), minor);
             assert_eq!(document.file_meta().file_flags(), flags);

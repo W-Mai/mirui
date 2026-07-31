@@ -1,4 +1,4 @@
-use super::primary::{PrimaryProjection, ensure_primary_projection};
+use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, PayloadStorage, RewriteCapability};
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageView};
@@ -184,7 +184,7 @@ impl Document<'_> {
             let (payload, payload_offset) = descriptor_payload(self, node);
             evaluate_descriptor_at(chunk_type, node.flags, payload, payload_offset, policy)?
         };
-        self.apply_descriptor(index, candidate);
+        self.apply_type_descriptor(index, candidate);
         Ok(())
     }
 
@@ -219,7 +219,7 @@ impl Document<'_> {
                 policy,
             )?
         };
-        self.apply_descriptor(index, candidate);
+        self.apply_flags_descriptor(index, candidate);
         Ok(())
     }
 
@@ -236,14 +236,23 @@ impl Document<'_> {
             evaluate_descriptor_at(node.chunk_type, node.flags, payload, payload_offset, policy)?
         };
 
+        let (exact, flags_changed) = {
+            let DocumentState::Chunk(chunks) = &self.state else {
+                unreachable!("layout was checked before planning raw policy");
+            };
+            let node = &chunks.chunks[index];
+            let exact = node.flags == candidate.flags && node.capability == candidate.capability;
+            let flags_changed = node.flags != candidate.flags;
+            (exact, flags_changed)
+        };
+        if exact {
+            return Ok(());
+        }
+
         let DocumentState::Chunk(chunks) = &mut self.state else {
             unreachable!("layout was checked before applying raw policy");
         };
         let node = &mut chunks.chunks[index];
-        if node.flags == candidate.flags && node.capability == candidate.capability {
-            return Ok(());
-        }
-        let flags_changed = node.flags != candidate.flags;
         node.flags = candidate.flags;
         node.capability = candidate.capability;
         if flags_changed {
@@ -252,7 +261,37 @@ impl Document<'_> {
         Ok(())
     }
 
-    fn apply_descriptor(&mut self, index: usize, candidate: EvaluatedDescriptor) {
+    fn apply_type_descriptor(&mut self, index: usize, candidate: EvaluatedDescriptor) {
+        let primary_hints = {
+            let DocumentState::Chunk(chunks) = &self.state else {
+                unreachable!("layout was checked before planning descriptor edit");
+            };
+            let node = &chunks.chunks[index];
+            if chunks.primary == Some(node.id) {
+                let (payload, payload_offset) = descriptor_payload(self, node);
+                Some(changed_primary_hint_state(
+                    candidate.chunk_type,
+                    payload,
+                    payload_offset,
+                ))
+            } else {
+                None
+            }
+        };
+        let DocumentState::Chunk(chunks) = &mut self.state else {
+            unreachable!("layout was checked before applying descriptor edit");
+        };
+        let node = &mut chunks.chunks[index];
+        node.chunk_type = candidate.chunk_type;
+        node.flags = candidate.flags;
+        node.capability = candidate.capability;
+        if let Some(primary_hints) = primary_hints {
+            chunks.primary_hints = primary_hints;
+        }
+        self.dirty = true;
+    }
+
+    fn apply_flags_descriptor(&mut self, index: usize, candidate: EvaluatedDescriptor) {
         let DocumentState::Chunk(chunks) = &mut self.state else {
             unreachable!("layout was checked before applying descriptor edit");
         };
@@ -285,7 +324,7 @@ fn chunk_node<'document, 'source>(
     &chunks.chunks[index]
 }
 
-fn descriptor_payload<'document>(
+pub(super) fn descriptor_payload<'document>(
     document: &'document Document<'_>,
     node: &'document ChunkNode<'_>,
 ) -> (&'document [u8], u32) {
