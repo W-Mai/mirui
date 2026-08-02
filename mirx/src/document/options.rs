@@ -1,6 +1,50 @@
 use super::RawChunkPolicy;
 use crate::{ChunkType, PayloadLimits, TrailingBytesPolicy};
 
+/// Selection policy for an encoded document layout.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum LayoutPolicy {
+    /// Retains the current layout until an edit requires CHUNK representation.
+    #[default]
+    PreserveOrPromote,
+    /// Selects the smallest layout that can represent the document without loss.
+    SmallestRepresentable,
+    /// Requires a lossless FLAT representation.
+    ForceFlat,
+    /// Requires a CHUNK representation.
+    ForceChunk,
+}
+
+/// Options controlling checked document encoding.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EncodeOptions {
+    layout_policy: LayoutPolicy,
+}
+
+impl EncodeOptions {
+    pub const fn new() -> Self {
+        Self {
+            layout_policy: LayoutPolicy::PreserveOrPromote,
+        }
+    }
+
+    pub const fn with_layout_policy(mut self, policy: LayoutPolicy) -> Self {
+        self.layout_policy = policy;
+        self
+    }
+
+    pub const fn layout_policy(&self) -> LayoutPolicy {
+        self.layout_policy
+    }
+}
+
+impl Default for EncodeOptions {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Handling for container fields newer than the implemented MIRX version.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
@@ -149,6 +193,17 @@ mod tests {
 
     use super::*;
     use crate::{CriticalAssumption, RelocationAssumption, ReservedBitsPolicy};
+
+    #[test]
+    fn encode_options_are_const_and_keep_layout_policy_explicit() {
+        const DEFAULT: EncodeOptions = EncodeOptions::new();
+        const FORCED: EncodeOptions =
+            EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceChunk);
+
+        assert_eq!(DEFAULT.layout_policy(), LayoutPolicy::PreserveOrPromote);
+        assert_eq!(EncodeOptions::default(), DEFAULT);
+        assert_eq!(FORCED.layout_policy(), LayoutPolicy::ForceChunk);
+    }
 
     const POLICY: RawTypePolicy = RawTypePolicy {
         chunk_type: ChunkType::META,

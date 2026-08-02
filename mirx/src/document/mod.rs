@@ -13,8 +13,9 @@ mod query;
 mod raw;
 mod reorder;
 mod source;
+mod writer;
 
-pub use options::{CompatibilityPolicy, OpenOptions, RawTypePolicy};
+pub use options::{CompatibilityPolicy, EncodeOptions, LayoutPolicy, OpenOptions, RawTypePolicy};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub use raw::{
     CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
@@ -197,7 +198,6 @@ impl RewriteCapability {
         Self(bits)
     }
 
-    #[cfg(test)]
     const fn is_relocatable(self) -> bool {
         self.0 & Self::RELOCATABLE != 0
     }
@@ -206,7 +206,6 @@ impl RewriteCapability {
         self.0 & Self::CRITICAL_UNDERSTOOD != 0
     }
 
-    #[cfg(test)]
     const fn preserves_reserved_bits(self) -> bool {
         self.0 & Self::PRESERVE_RESERVED_BITS != 0
     }

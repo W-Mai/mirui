@@ -163,7 +163,44 @@ pub enum EditError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum EncodeError {
+    /// The source uses preserved container semantics newer than MIRX 1.0.
+    FutureSemanticsReadOnly,
+    /// The source retains bytes after its logical MIRX boundary.
+    PreservedTrailingBytesReadOnly,
+    /// The selected output layout cannot represent the document without loss.
+    NotRepresentableAsFlat,
+    /// The document contains more table records than the CHUNK wire field can hold.
+    TooManyChunks {
+        count: usize,
+    },
+    /// The selected primary payload has no serializable display hints.
+    PrimaryHintsRequired {
+        chunk_type: ChunkType,
+    },
+    /// A raw payload has not been declared safe to move during rewrite.
+    RelocationAssumptionRequired {
+        index: u16,
+        chunk_type: ChunkType,
+    },
+    /// A critical raw payload has not been declared semantically understood.
+    CriticalAssumptionRequired {
+        index: u16,
+        chunk_type: ChunkType,
+    },
+    /// Reserved MIRX 1.0 flag bits lack an explicit preservation decision.
+    ReservedFlagBits {
+        index: u16,
+        chunk_type: ChunkType,
+        bits: u16,
+    },
+    /// A structured payload representation violates its own encoded contract.
+    InvalidPayload {
+        chunk_type: ChunkType,
+    },
     SizeOverflow,
-    BufferTooSmall { needed: usize, available: usize },
+    BufferTooSmall {
+        needed: usize,
+        available: usize,
+    },
     AllocationFailed,
 }
