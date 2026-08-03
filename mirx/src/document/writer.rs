@@ -5,10 +5,11 @@ use super::{
     ChunkNode, ChunkSet, Compatibility, Document, DocumentState, EncodeOptions, FlatRecord,
     LayoutPolicy, PayloadStorage, PrimaryHintState, TrailingState,
 };
+use crate::wire::read_u32_le;
 use crate::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFlags, ChunkType, ColorFormat, EncodeError,
-    FILE_HEADER_LEN, FLAT_HEADER_LEN, FileHeader, ImageChunkHeader, Layout, PrimaryHints,
-    VERSION_MAJOR, VERSION_MINOR, crc32,
+    FILE_HEADER_LEN, FLAT_HEADER_LEN, FileHeader, ImageChunkHeader, ImageView, Layout,
+    PrimaryHints, VERSION_MAJOR, VERSION_MINOR, crc32,
 };
 
 const CONTAINER_ALIGNMENT: u32 = 4;
@@ -52,7 +53,7 @@ pub(super) enum PayloadPlan<'a> {
     SegmentedImage(SegmentedImagePlan<'a>),
 }
 
-impl PayloadPlan<'_> {
+impl<'a> PayloadPlan<'a> {
     fn encoded_len(self) -> Result<u32, EncodeError> {
         match self {
             Self::Verbatim(bytes) => checked_payload_len(bytes.len()),
@@ -60,22 +61,55 @@ impl PayloadPlan<'_> {
         }
     }
 
-    fn placement_constraint(self, _chunk_type: ChunkType) -> PlacementConstraint {
-        PlacementConstraint::ChunkStartAligned(CONTAINER_ALIGNMENT)
+    fn placement_constraint(self, chunk_type: ChunkType) -> PlacementConstraint<'a> {
+        match self {
+            Self::Verbatim(payload) if chunk_type == ChunkType::IMAGE => {
+                match read_u32_le(payload, 16) {
+                    Some(data_offset) => PlacementConstraint::RawImageDataAligned {
+                        payload,
+                        data_offset,
+                        alignment: CONTAINER_ALIGNMENT,
+                    },
+                    None => PlacementConstraint::ChunkStartAligned(CONTAINER_ALIGNMENT),
+                }
+            }
+            Self::Verbatim(_) | Self::SegmentedImage(_) => {
+                PlacementConstraint::ChunkStartAligned(CONTAINER_ALIGNMENT)
+            }
+        }
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum PlacementConstraint {
+enum PlacementConstraint<'a> {
     ChunkStartAligned(u32),
+    RawImageDataAligned {
+        payload: &'a [u8],
+        data_offset: u32,
+        alignment: u32,
+    },
 }
 
-impl PlacementConstraint {
+impl PlacementConstraint<'_> {
     fn place(self, cursor: u32) -> Result<u32, EncodeError> {
         match self {
             Self::ChunkStartAligned(alignment) => align_up(cursor, alignment),
+            Self::RawImageDataAligned {
+                payload,
+                data_offset,
+                alignment,
+            } => match align_relative(cursor, data_offset, alignment) {
+                Ok(candidate) if inspect_raw_image_at(payload, candidate).is_some() => {
+                    Ok(candidate)
+                }
+                Ok(_) | Err(_) => align_up(cursor, alignment),
+            },
         }
     }
+}
+
+fn inspect_raw_image_at<'a>(payload: &'a [u8], payload_offset: u32) -> Option<ImageView<'a>> {
+    ImageView::from_chunk_payload(payload, payload_offset).ok()
 }
 
 pub(super) struct FlatLayoutPlan<'a> {
@@ -697,6 +731,15 @@ fn align_up(value: u32, alignment: u32) -> Result<u32, EncodeError> {
     value.checked_add(padding).ok_or(EncodeError::SizeOverflow)
 }
 
+fn align_relative(value: u32, relative: u32, alignment: u32) -> Result<u32, EncodeError> {
+    debug_assert!(alignment.is_power_of_two());
+    let alignment = u64::from(alignment);
+    let remainder = (u64::from(value) % alignment + u64::from(relative) % alignment) % alignment;
+    let padding = (alignment - remainder) % alignment;
+    let padding = u32::try_from(padding).map_err(|_| EncodeError::SizeOverflow)?;
+    value.checked_add(padding).ok_or(EncodeError::SizeOverflow)
+}
+
 #[cfg(test)]
 mod tests {
     use alloc::vec;
@@ -787,6 +830,29 @@ mod tests {
         payload[16..20].copy_from_slice(&data_offset.to_le_bytes());
         payload[20..24].copy_from_slice(&data_size.to_le_bytes());
         payload[usize::try_from(data_offset).unwrap()] = 0x5a;
+        payload
+    }
+
+    fn padded_image_payload(data_offset: u32) -> Vec<u8> {
+        let width = 1u32;
+        let height = 2u32;
+        let format = ColorFormat::A8;
+        let stride = format
+            .minimum_stride(width)
+            .unwrap()
+            .checked_add(3)
+            .unwrap();
+        let data_size = stride.checked_mul(height).unwrap();
+        let payload_len = usize::try_from(data_offset.checked_add(data_size).unwrap()).unwrap();
+        let mut payload = vec![0; payload_len];
+        payload[0..4].copy_from_slice(&width.to_le_bytes());
+        payload[4..8].copy_from_slice(&height.to_le_bytes());
+        payload[8] = format.to_u8();
+        payload[12..16].copy_from_slice(&stride.to_le_bytes());
+        payload[16..20].copy_from_slice(&data_offset.to_le_bytes());
+        payload[20..24].copy_from_slice(&data_size.to_le_bytes());
+        let data_start = usize::try_from(data_offset).unwrap();
+        payload[data_start..].copy_from_slice(&[0x11, 0xa1, 0xa2, 0xa3, 0x22, 0xb1, 0xb2, 0xb3]);
         payload
     }
 
@@ -897,7 +963,7 @@ mod tests {
     }
 
     #[test]
-    fn verbatim_payloads_use_the_extensible_start_alignment_constraint() {
+    fn parseable_raw_images_use_the_minimum_absolute_data_alignment() {
         let payloads = [
             image_payload(32),
             image_payload(33),
@@ -914,19 +980,54 @@ mod tests {
         assert_eq!(plan.table_end(), 108);
         let mut cursor = plan.table_end();
         for (placement, payload) in plan.placements().zip(payloads.iter()) {
+            let data_offset = read_u32_le(payload, 16).unwrap();
+            let expected_offset = align_relative(cursor, data_offset, 4).unwrap();
             assert_eq!(placement.chunk_type, ChunkType::IMAGE);
             assert_eq!(placement.flags, ChunkFlags::NONE);
             assert_eq!(placement.chunk_size as usize, payload.len());
-            assert_eq!(placement.chunk_offset % 4, 0);
-            assert!(placement.chunk_offset >= cursor);
+            assert_eq!(placement.chunk_offset, expected_offset);
+            assert_eq!(
+                placement.chunk_offset.checked_add(data_offset).unwrap() % 4,
+                0
+            );
             assert!(placement.chunk_offset - cursor < 4);
+            for earlier in cursor..placement.chunk_offset {
+                assert_ne!(earlier.checked_add(data_offset).unwrap() % 4, 0);
+            }
             assert_eq!(
                 placement.leading_padding,
                 usize::try_from(cursor).unwrap()..placement.output_range.start
             );
+            assert!(ImageView::from_chunk_payload(payload, placement.chunk_offset).is_ok());
             cursor = u32::try_from(placement.output_range.end).unwrap();
         }
+        let offsets: Vec<_> = plan
+            .placements()
+            .skip(1)
+            .map(|placement| placement.chunk_offset)
+            .collect();
+        assert!(offsets.iter().all(|offset| offset % 4 != 0));
         assert_eq!(plan.file_size(), cursor);
+    }
+
+    #[test]
+    fn raw_image_alignment_covers_every_cursor_and_data_offset_residue() {
+        for cursor in 100..104 {
+            for data_offset in 32..36 {
+                let payload = image_payload(data_offset);
+                let constraint =
+                    PayloadPlan::Verbatim(&payload).placement_constraint(ChunkType::IMAGE);
+                let placed = constraint.place(cursor).unwrap();
+                let expected = align_relative(cursor, data_offset, 4).unwrap();
+
+                assert_eq!(placed, expected);
+                assert!(placed - cursor < 4);
+                assert_eq!(placed.checked_add(data_offset).unwrap() % 4, 0);
+                for earlier in cursor..placed {
+                    assert_ne!(earlier.checked_add(data_offset).unwrap() % 4, 0);
+                }
+            }
+        }
     }
 
     #[test]
@@ -942,6 +1043,8 @@ mod tests {
 
         let plan = chunk_plan(&document, &EncodeOptions::new());
         let placements: Vec<_> = plan.placements().collect();
+        assert_eq!(align_relative(93, 33, 4), Ok(95));
+        assert!(ImageView::from_chunk_payload(&malformed, 95).is_err());
         assert_eq!(placements[0].chunk_offset, 92);
         assert_eq!(placements[0].output_range, 92..93);
         assert_eq!(placements[1].chunk_offset, 96);
@@ -953,6 +1056,14 @@ mod tests {
             panic!("raw IMAGE remains verbatim");
         };
         assert_eq!(bytes, malformed);
+
+        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let reader = Reader::open(&encoded).unwrap();
+        let mut chunks = reader.chunks();
+        assert_eq!(chunks.next().unwrap().payload(), &[7]);
+        assert_eq!(chunks.next().unwrap().payload(), malformed);
+        assert_eq!(chunks.next().unwrap().payload(), &[8, 9, 10]);
+        assert!(chunks.next().is_none());
     }
 
     #[test]
@@ -1133,6 +1244,12 @@ mod tests {
         assert_eq!(align_up(0, 4), Ok(0));
         assert_eq!(align_up(u32::MAX - 3, 4), Ok(u32::MAX - 3));
         assert_eq!(align_up(u32::MAX, 4), Err(EncodeError::SizeOverflow));
+        assert_eq!(align_relative(0, 33, 4), Ok(3));
+        assert_eq!(align_relative(1, 34, 4), Ok(2));
+        assert_eq!(
+            align_relative(u32::MAX, 32, 4),
+            Err(EncodeError::SizeOverflow)
+        );
         assert_eq!(
             checked_payload_end(u32::MAX, 1),
             Err(EncodeError::SizeOverflow)
@@ -1140,6 +1257,13 @@ mod tests {
         assert_eq!(checked_payload_end(u32::MAX - 1, 1), Ok(u32::MAX));
         assert_eq!(
             PlacementConstraint::ChunkStartAligned(4).place(u32::MAX),
+            Err(EncodeError::SizeOverflow)
+        );
+        let image = image_payload(32);
+        assert_eq!(
+            PayloadPlan::Verbatim(&image)
+                .placement_constraint(ChunkType::IMAGE)
+                .place(u32::MAX),
             Err(EncodeError::SizeOverflow)
         );
 
@@ -1251,6 +1375,104 @@ mod tests {
         assert_eq!(chunks.next().unwrap().payload(), first_payload);
         assert_eq!(chunks.next().unwrap().payload(), checksum_payload);
         assert!(chunks.next().is_none());
+    }
+
+    #[test]
+    fn raw_image_alignment_emits_zero_external_padding_and_verbatim_internal_bytes() {
+        let parseable = padded_image_payload(33);
+        let mut opaque = image_payload(32);
+        opaque[10] = 0x7e;
+        let mut frames = vec![0x10, 0x20, 0x30, 0x40, 0x50];
+        let frames_checksum = crc32(&frames);
+        frames.extend_from_slice(&frames_checksum.to_le_bytes());
+
+        let mut document = Document::new_chunk();
+        document
+            .push_raw(raw(ChunkType::IMAGE, &parseable))
+            .unwrap();
+        document.push_raw(raw(ChunkType::IMAGE, &opaque)).unwrap();
+        document.push_raw(raw(ChunkType::FRAMES, &frames)).unwrap();
+
+        let options = EncodeOptions::new();
+        let needed = document.encoded_len_with(&options).unwrap();
+        assert_eq!(needed, 181);
+        let mut out = vec![0xa5; needed + 5];
+        assert_eq!(document.encode_into_with(&mut out, &options), Ok(needed));
+        assert_eq!(&out[needed..], &[0xa5; 5]);
+
+        let encoded = &out[..needed];
+        assert_eq!(read_u32_le(encoded, 16), Some(needed as u32));
+        assert_eq!(&encoded[10..12], &[0, 0]);
+        assert_eq!(encoded[23], 0);
+        assert_eq!(&encoded[36..40], &[0, 0, 0, 0]);
+        for entry in [44usize, 60, 76] {
+            assert_eq!(&encoded[entry + 12..entry + 16], &[0, 0, 0, 0]);
+        }
+
+        assert_eq!(read_u32_le(encoded, 48), Some(95));
+        assert_eq!(read_u32_le(encoded, 64), Some(136));
+        assert_eq!(read_u32_le(encoded, 80), Some(172));
+        assert_eq!(&encoded[92..95], &[0, 0, 0]);
+        assert_eq!(&encoded[95..136], parseable.as_slice());
+        assert_eq!(&encoded[136..169], opaque.as_slice());
+        assert_eq!(&encoded[169..172], &[0, 0, 0]);
+        assert_eq!(&encoded[172..181], frames.as_slice());
+        assert_eq!(read_u32_le(encoded, needed - 4), Some(frames_checksum));
+        assert_eq!(95 + read_u32_le(&parseable, 16).unwrap(), 128);
+        assert_eq!((95 + read_u32_le(&parseable, 16).unwrap()) % 4, 0);
+        assert_ne!(95 % 4, 0);
+
+        let image = ImageView::from_chunk_payload(&encoded[95..136], 95).unwrap();
+        assert_eq!(
+            image.main(),
+            &[0x11, 0xa1, 0xa2, 0xa3, 0x22, 0xb1, 0xb2, 0xb3]
+        );
+
+        let reader = Reader::open(encoded).unwrap();
+        let mut chunks = reader.chunks();
+        let image = chunks.next().unwrap();
+        assert_eq!(image.payload_offset(), 95);
+        assert_eq!(image.payload(), parseable);
+        let opaque_image = chunks.next().unwrap();
+        assert_eq!(opaque_image.payload_offset(), 136);
+        assert_eq!(opaque_image.payload(), opaque);
+        let frames_chunk = chunks.next().unwrap();
+        assert_eq!(frames_chunk.payload_offset(), 172);
+        assert_eq!(frames_chunk.payload(), frames);
+        assert!(chunks.next().is_none());
+
+        let allocated = document.encode_with(&options).unwrap();
+        assert_eq!(allocated, encoded);
+        assert_eq!(allocated.len(), 172 + frames.len());
+    }
+
+    #[test]
+    fn zero_length_payloads_align_without_final_padding() {
+        let mut document = Document::new_chunk();
+        document.push_raw(raw(CUSTOM_A, &[7])).unwrap();
+        document.push_raw(raw(ChunkType::IMAGE, &[])).unwrap();
+        document.push_raw(raw(ChunkType::FRAMES, &[])).unwrap();
+        document.push_raw(raw(CUSTOM_B, &[])).unwrap();
+
+        let plan = chunk_plan(&document, &EncodeOptions::new());
+        let placements: Vec<_> = plan.placements().collect();
+        assert_eq!(plan.table_end(), 108);
+        assert_eq!(placements[0].output_range, 108..109);
+        for placement in &placements[1..] {
+            assert_eq!(placement.chunk_offset, 112);
+            assert_eq!(placement.chunk_offset % 4, 0);
+            assert_eq!(placement.output_range, 112..112);
+        }
+        assert_eq!(plan.file_size(), 112);
+
+        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        assert_eq!(encoded.len(), 112);
+        assert_eq!(&encoded[109..112], &[0, 0, 0]);
+        let reader = Reader::open(&encoded).unwrap();
+        let chunks: Vec<_> = reader.chunks().collect();
+        assert_eq!(chunks.len(), 4);
+        assert_eq!(chunks[0].payload(), &[7]);
+        assert!(chunks[1..].iter().all(|chunk| chunk.payload().is_empty()));
     }
 
     #[test]
