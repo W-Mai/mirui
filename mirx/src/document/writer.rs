@@ -1,8 +1,4 @@
-#![allow(
-    dead_code,
-    reason = "layout plans are replayed by the document emitter"
-)]
-
+use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::{
@@ -11,7 +7,8 @@ use super::{
 };
 use crate::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFlags, ChunkType, ColorFormat, EncodeError,
-    FLAT_HEADER_LEN, ImageChunkHeader, PrimaryHints,
+    FILE_HEADER_LEN, FLAT_HEADER_LEN, FileHeader, ImageChunkHeader, Layout, PrimaryHints,
+    VERSION_MAJOR, VERSION_MINOR, crc32,
 };
 
 const CONTAINER_ALIGNMENT: u32 = 4;
@@ -349,6 +346,42 @@ impl<'source> Document<'source> {
         Ok(self.layout_plan_with(options)?.output_len())
     }
 
+    /// Encodes the document into caller-provided storage.
+    ///
+    /// The output remains unchanged when validation fails or when `out` is too
+    /// short. On success, bytes after the returned encoded length are untouched.
+    pub fn encode_into_with(
+        &self,
+        out: &mut [u8],
+        options: &EncodeOptions,
+    ) -> Result<usize, EncodeError> {
+        let plan = self.layout_plan_with(options)?;
+        let needed = plan.output_len();
+        if out.len() < needed {
+            return Err(EncodeError::BufferTooSmall {
+                needed,
+                available: out.len(),
+            });
+        }
+
+        let target = &mut out[..needed];
+        target.fill(0);
+        emit_layout(&plan, target);
+        Ok(needed)
+    }
+
+    /// Encodes the document into one exactly sized output allocation.
+    pub fn encode_with(&self, options: &EncodeOptions) -> Result<Vec<u8>, EncodeError> {
+        let plan = self.layout_plan_with(options)?;
+        let needed = plan.output_len();
+        let mut out = Vec::new();
+        out.try_reserve_exact(needed)
+            .map_err(|_| EncodeError::AllocationFailed)?;
+        out.resize(needed, 0);
+        emit_layout(&plan, &mut out);
+        Ok(out)
+    }
+
     pub(super) fn layout_plan_with<'document>(
         &'document self,
         options: &EncodeOptions,
@@ -382,6 +415,122 @@ impl<'source> Document<'source> {
             }
         }
     }
+}
+
+fn emit_layout(plan: &LayoutPlan<'_, '_>, out: &mut [u8]) {
+    debug_assert_eq!(out.len(), plan.output_len());
+    match plan {
+        LayoutPlan::Flat(plan) => emit_flat(plan, out),
+        LayoutPlan::Chunk(plan) => emit_chunk(plan, out),
+    }
+}
+
+fn emit_flat(plan: &FlatLayoutPlan<'_>, out: &mut [u8]) {
+    debug_assert_eq!(out.len(), plan.output_len());
+    debug_assert_eq!(usize::try_from(plan.file_size), Ok(out.len()));
+    emit_file_header(Layout::Flat, out);
+
+    let image = plan.image;
+    out[8] = image.format.to_u8();
+    write_u32(out, 12, image.width);
+    write_u32(out, 16, image.height);
+    write_u32(out, 20, image.stride);
+    write_u32(out, 24, crc32(&out[..24]));
+
+    let planes = &mut out[FLAT_HEADER_LEN..];
+    let (main, extra) = planes.split_at_mut(image.main.len());
+    main.copy_from_slice(image.main);
+    match image.extra {
+        Some(source) => extra.copy_from_slice(source),
+        None => debug_assert!(extra.is_empty()),
+    }
+    debug_assert_eq!(usize::try_from(image.main_size), Ok(main.len()));
+    debug_assert_eq!(usize::try_from(image.extra_size), Ok(extra.len()));
+}
+
+fn emit_chunk(plan: &ChunkLayoutPlan<'_, '_>, out: &mut [u8]) {
+    debug_assert_eq!(out.len(), plan.output_len());
+    debug_assert_eq!(usize::try_from(plan.file_size()), Ok(out.len()));
+    debug_assert!(plan.table_end() <= plan.file_size());
+    emit_file_header(Layout::Chunk, out);
+
+    write_u16(out, 8, plan.chunk_count());
+    write_u32(out, 12, plan.chunk_table_offset());
+    write_u32(out, 16, plan.file_size());
+    let primary = plan.primary();
+    write_u16(out, 20, primary.chunk_type);
+    out[22] = primary.hints.color_format_raw();
+    write_u32(out, 24, primary.hints.width());
+    write_u32(out, 28, primary.hints.height());
+    write_u32(out, 32, primary.hints.stride());
+    write_u32(out, 40, crc32(&out[..40]));
+
+    for (expected_index, placement) in plan.placements().enumerate() {
+        debug_assert_eq!(usize::from(placement.index), expected_index);
+        debug_assert!(
+            out[placement.leading_padding.clone()]
+                .iter()
+                .all(|&byte| byte == 0)
+        );
+
+        let entry = placement.table_entry_offset;
+        write_u16(out, entry, placement.chunk_type.raw());
+        write_u16(out, entry + 2, placement.flags.bits());
+        write_u32(out, entry + 4, placement.chunk_offset);
+        write_u32(out, entry + 8, placement.chunk_size);
+
+        let payload = &mut out[placement.output_range];
+        match placement.payload {
+            PayloadPlan::Verbatim(source) => payload.copy_from_slice(source),
+            PayloadPlan::SegmentedImage(image) => emit_segmented_image(image, payload),
+        }
+    }
+}
+
+fn emit_segmented_image(plan: SegmentedImagePlan<'_>, out: &mut [u8]) {
+    debug_assert_eq!(usize::try_from(plan.payload_size), Ok(out.len()));
+    let image = plan.image;
+    write_u32(out, 0, image.width);
+    write_u32(out, 4, image.height);
+    out[8] = image.format.to_u8();
+    write_u32(out, 12, image.stride);
+    write_u32(out, 16, plan.data_offset);
+    write_u32(out, 20, plan.data_size);
+    write_u32(out, 24, image.extra_size);
+
+    let data_offset = usize::try_from(plan.data_offset)
+        .expect("validated segmented IMAGE offset must fit the output address space");
+    let data = &mut out[data_offset..];
+    let data_len = data.len();
+    let (main, extra) = data.split_at_mut(image.main.len());
+    main.copy_from_slice(image.main);
+    match image.extra {
+        Some(source) => extra.copy_from_slice(source),
+        None => debug_assert!(extra.is_empty()),
+    }
+    debug_assert_eq!(usize::try_from(plan.data_size), Ok(data_len));
+    debug_assert_eq!(usize::try_from(image.main_size), Ok(main.len()));
+    debug_assert_eq!(usize::try_from(image.extra_size), Ok(extra.len()));
+}
+
+fn emit_file_header(layout: Layout, out: &mut [u8]) {
+    let header = FileHeader {
+        version_major: VERSION_MAJOR,
+        version_minor: VERSION_MINOR,
+        layout,
+        flags: 0,
+    };
+    let mut prefix = [0; FILE_HEADER_LEN];
+    header.write_into(&mut prefix);
+    out[..FILE_HEADER_LEN].copy_from_slice(&prefix);
+}
+
+fn write_u16(out: &mut [u8], offset: usize, value: u16) {
+    out[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+}
+
+fn write_u32(out: &mut [u8], offset: usize, value: u32) {
+    out[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 fn ensure_rewrite_allowed(document: &Document<'_>) -> Result<(), EncodeError> {
@@ -559,9 +708,10 @@ mod tests {
         CriticalAssumption, OpenOptions, PayloadInput, RawChunkInput, RawChunkPolicy,
         RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
     };
+    use crate::wire::{read_u16_le, read_u32_le};
     use crate::{
-        FlatImageInput, Layout, PRIMARY_FORMAT_NONE, TrailingBytesPolicy, VERSION_MINOR, crc32,
-        encode_chunks, encode_flat,
+        FlatImageInput, ImageView, Layout, PRIMARY_FORMAT_NONE, Reader, TrailingBytesPolicy,
+        VERSION_MINOR, crc32, encode_chunks, encode_flat,
     };
 
     const CUSTOM_A: ChunkType = match ChunkType::new(0xa001) {
@@ -1010,5 +1160,289 @@ mod tests {
             ),
             Err(EncodeError::NotRepresentableAsFlat)
         );
+    }
+
+    #[test]
+    fn empty_chunk_emits_exact_canonical_header() {
+        let document = Document::new_chunk();
+        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+
+        let mut expected = vec![0; CHUNK_FILE_HEADER_LEN];
+        expected[..4].copy_from_slice(b"MIRX");
+        expected[4] = VERSION_MAJOR;
+        expected[5] = VERSION_MINOR;
+        expected[6] = Layout::Chunk.to_u8();
+        expected[12..16].copy_from_slice(&(CHUNK_FILE_HEADER_LEN as u32).to_le_bytes());
+        expected[16..20].copy_from_slice(&(CHUNK_FILE_HEADER_LEN as u32).to_le_bytes());
+        let checksum = crc32(&expected[..40]);
+        expected[40..44].copy_from_slice(&checksum.to_le_bytes());
+
+        assert_eq!(encoded, expected);
+        assert_eq!(Reader::open(&encoded).unwrap().chunks().len(), 0);
+    }
+
+    #[test]
+    fn chunk_emission_is_atomic_canonical_and_verbatim() {
+        let first_payload = [0x7a];
+        let mut checksum_payload = vec![0x10, 0x20, 0x30, 0x40, 0x50];
+        let inner_checksum = crc32(&checksum_payload);
+        checksum_payload.extend_from_slice(&inner_checksum.to_le_bytes());
+        let hints = PrimaryHints::new(0xfe, 17, 9, 23);
+
+        let mut document = Document::new_chunk();
+        let primary = document.push_raw(raw(CUSTOM_A, &first_payload)).unwrap();
+        document
+            .push_raw(RawChunkInput {
+                chunk_type: CUSTOM_B,
+                flags: ChunkFlags::from_bits_retain(0x0002),
+                payload: PayloadInput::Borrowed(&checksum_payload),
+                policy: policy(
+                    RelocationAssumption::AssumeRelocatable,
+                    CriticalAssumption::Infer,
+                    ReservedBitsPolicy::Preserve,
+                ),
+            })
+            .unwrap();
+        document.set_primary_with_hints(primary, hints).unwrap();
+
+        let options = EncodeOptions::new();
+        let needed = document.encoded_len_with(&options).unwrap();
+        assert_eq!(needed, 80 + checksum_payload.len());
+        let mut out = vec![0xa5; needed + 7];
+        assert_eq!(document.encode_into_with(&mut out, &options), Ok(needed));
+        assert!(out[needed..].iter().all(|&byte| byte == 0xa5));
+
+        let encoded = &out[..needed];
+        assert_eq!(FileHeader::parse(encoded).unwrap().layout, Layout::Chunk);
+        assert_eq!(read_u16_le(encoded, 8), Some(2));
+        assert_eq!(read_u32_le(encoded, 12), Some(44));
+        assert_eq!(read_u32_le(encoded, 16), Some(needed as u32));
+        assert_eq!(read_u16_le(encoded, 20), Some(CUSTOM_A.raw()));
+        assert_eq!(encoded[22], hints.color_format_raw());
+        assert_eq!(read_u32_le(encoded, 24), Some(hints.width()));
+        assert_eq!(read_u32_le(encoded, 28), Some(hints.height()));
+        assert_eq!(read_u32_le(encoded, 32), Some(hints.stride()));
+        assert_eq!(read_u32_le(encoded, 40), Some(crc32(&encoded[..40])));
+        assert_eq!(&encoded[10..12], &[0, 0]);
+        assert_eq!(encoded[23], 0);
+        assert_eq!(&encoded[36..40], &[0, 0, 0, 0]);
+
+        assert_eq!(read_u16_le(encoded, 44), Some(CUSTOM_A.raw()));
+        assert_eq!(read_u16_le(encoded, 46), Some(0));
+        assert_eq!(read_u32_le(encoded, 48), Some(76));
+        assert_eq!(read_u32_le(encoded, 52), Some(1));
+        assert_eq!(&encoded[56..60], &[0, 0, 0, 0]);
+        assert_eq!(read_u16_le(encoded, 60), Some(CUSTOM_B.raw()));
+        assert_eq!(read_u16_le(encoded, 62), Some(0x0002));
+        assert_eq!(read_u32_le(encoded, 64), Some(80));
+        assert_eq!(
+            read_u32_le(encoded, 68),
+            Some(u32::try_from(checksum_payload.len()).unwrap())
+        );
+        assert_eq!(&encoded[72..76], &[0, 0, 0, 0]);
+        assert_eq!(&encoded[76..77], &first_payload);
+        assert_eq!(&encoded[77..80], &[0, 0, 0]);
+        assert_eq!(&encoded[80..], checksum_payload.as_slice());
+
+        let allocated = document.encode_with(&options).unwrap();
+        assert_eq!(allocated, encoded);
+        let reader = Reader::open(&allocated).unwrap();
+        let mut chunks = reader.chunks();
+        assert_eq!(chunks.next().unwrap().payload(), first_payload);
+        assert_eq!(chunks.next().unwrap().payload(), checksum_payload);
+        assert!(chunks.next().is_none());
+    }
+
+    #[test]
+    fn overlapping_source_ranges_are_flattened_without_changing_visible_bytes() {
+        let mut source =
+            encode_chunks(&[(CUSTOM_A.raw(), 0, b"abcd"), (CUSTOM_B.raw(), 0, b"wxyz")]);
+        let first_offset = read_u32_le(&source, 48).unwrap();
+        source[64..68].copy_from_slice(&(first_offset + 2).to_le_bytes());
+        source[68..72].copy_from_slice(&2u32.to_le_bytes());
+        let policies = [
+            RawTypePolicy {
+                chunk_type: CUSTOM_A,
+                policy: relocatable_policy(),
+            },
+            RawTypePolicy {
+                chunk_type: CUSTOM_B,
+                policy: relocatable_policy(),
+            },
+        ];
+        let document = Document::open_with(
+            &source,
+            &OpenOptions::new().with_raw_type_policies(&policies),
+        )
+        .unwrap();
+
+        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let reader = Reader::open(&encoded).unwrap();
+        let mut chunks = reader.chunks();
+        let first = chunks.next().unwrap();
+        let second = chunks.next().unwrap();
+        assert_eq!(first.payload(), b"abcd");
+        assert_eq!(second.payload(), b"cd");
+        assert!(
+            first.payload_offset() + u32::try_from(first.payload().len()).unwrap()
+                <= second.payload_offset()
+        );
+        assert!(chunks.next().is_none());
+    }
+
+    #[test]
+    fn encode_into_failures_leave_the_entire_buffer_unchanged() {
+        let mut document = Document::new_chunk();
+        document.push_raw(raw(CUSTOM_A, b"payload")).unwrap();
+        let options = EncodeOptions::new();
+        let needed = document.encoded_len_with(&options).unwrap();
+        let mut short = vec![0x91; needed - 1];
+        let before = short.clone();
+
+        assert_eq!(
+            document.encode_into_with(&mut short, &options),
+            Err(EncodeError::BufferTooSmall {
+                needed,
+                available: needed - 1,
+            })
+        );
+        assert_eq!(short, before);
+
+        let force_flat = EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat);
+        let mut ample = vec![0x63; needed + 16];
+        let before = ample.clone();
+        assert_eq!(
+            document.encode_into_with(&mut ample, &force_flat),
+            Err(EncodeError::NotRepresentableAsFlat)
+        );
+        assert_eq!(ample, before);
+
+        let mut future_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"future")]);
+        set_future_minor(&mut future_source);
+        let future = Document::open(&future_source).unwrap();
+        let mut ample = vec![0x44; future_source.len() + 32];
+        let before = ample.clone();
+        assert_eq!(
+            future.encode_into_with(&mut ample, &options),
+            Err(EncodeError::FutureSemanticsReadOnly)
+        );
+        assert_eq!(ample, before);
+
+        let mut trailing_source = encode_chunks(&[(CUSTOM_B.raw(), 0, b"trailing")]);
+        trailing_source.extend_from_slice(b"tail");
+        let trailing = Document::open_with(
+            &trailing_source,
+            &OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve),
+        )
+        .unwrap();
+        let mut ample = vec![0x25; trailing_source.len() + 32];
+        let before = ample.clone();
+        assert_eq!(
+            trailing.encode_into_with(&mut ample, &options),
+            Err(EncodeError::PreservedTrailingBytesReadOnly)
+        );
+        assert_eq!(ample, before);
+    }
+
+    #[test]
+    fn current_flat_public_encoding_is_canonical_and_suffix_safe() {
+        let format = ColorFormat::I4;
+        let width = 3;
+        let height = 2;
+        let stride = format.minimum_stride(width).unwrap();
+        let main = [1, 2, 3, 4];
+        let palette = [0x3c; 64];
+        let source = encode_flat(&FlatImageInput {
+            width,
+            height,
+            stride,
+            format,
+            main: &main,
+            extra: Some(&palette),
+        });
+        let document = Document::open(&source).unwrap();
+
+        let options = EncodeOptions::new();
+        let mut short = vec![0x7b; source.len() - 1];
+        let before = short.clone();
+        assert_eq!(
+            document.encode_into_with(&mut short, &options),
+            Err(EncodeError::BufferTooSmall {
+                needed: source.len(),
+                available: source.len() - 1,
+            })
+        );
+        assert_eq!(short, before);
+
+        for policy in [
+            LayoutPolicy::PreserveOrPromote,
+            LayoutPolicy::SmallestRepresentable,
+            LayoutPolicy::ForceFlat,
+        ] {
+            let options = EncodeOptions::new().with_layout_policy(policy);
+            assert_eq!(document.encode_with(&options).unwrap(), source);
+
+            let mut out = vec![0xd2; source.len() + 5];
+            assert_eq!(
+                document.encode_into_with(&mut out, &options),
+                Ok(source.len())
+            );
+            assert_eq!(&out[..source.len()], source);
+            assert_eq!(&out[source.len()..], &[0xd2; 5]);
+        }
+    }
+
+    #[test]
+    fn force_chunk_flat_emits_one_canonical_segmented_image() {
+        let format = ColorFormat::RGB565A8;
+        let width = 2;
+        let height = 1;
+        let stride = format.minimum_stride(width).unwrap();
+        let main = [0x00, 0xf8, 0xe0, 0x07];
+        let alpha = [0x40, 0xc0];
+        let source = encode_flat(&FlatImageInput {
+            width,
+            height,
+            stride,
+            format,
+            main: &main,
+            extra: Some(&alpha),
+        });
+        let document = Document::open(&source).unwrap();
+        let options = EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceChunk);
+        let encoded = document.encode_with(&options).unwrap();
+
+        assert_eq!(read_u16_le(&encoded, 8), Some(1));
+        assert_eq!(read_u32_le(&encoded, 12), Some(44));
+        assert_eq!(read_u32_le(&encoded, 16), Some(encoded.len() as u32));
+        assert_eq!(read_u16_le(&encoded, 20), Some(ChunkType::IMAGE.raw()));
+        assert_eq!(encoded[22], format.to_u8());
+        assert_eq!(read_u32_le(&encoded, 24), Some(width));
+        assert_eq!(read_u32_le(&encoded, 28), Some(height));
+        assert_eq!(read_u32_le(&encoded, 32), Some(stride));
+        assert_eq!(read_u32_le(&encoded, 40), Some(crc32(&encoded[..40])));
+        assert_eq!(read_u16_le(&encoded, 44), Some(ChunkType::IMAGE.raw()));
+        assert_eq!(read_u16_le(&encoded, 46), Some(0));
+        assert_eq!(read_u32_le(&encoded, 48), Some(60));
+        assert_eq!(read_u32_le(&encoded, 52), Some(38));
+        assert_eq!(&encoded[56..60], &[0, 0, 0, 0]);
+
+        let payload = &encoded[60..98];
+        assert_eq!(read_u32_le(payload, 0), Some(width));
+        assert_eq!(read_u32_le(payload, 4), Some(height));
+        assert_eq!(payload[8], format.to_u8());
+        assert_eq!(payload[9], 0);
+        assert_eq!(&payload[10..12], &[0, 0]);
+        assert_eq!(read_u32_le(payload, 12), Some(stride));
+        assert_eq!(read_u32_le(payload, 16), Some(32));
+        assert_eq!(read_u32_le(payload, 20), Some(6));
+        assert_eq!(read_u32_le(payload, 24), Some(2));
+        assert_eq!(&payload[28..32], &[0, 0, 0, 0]);
+        assert_eq!(&payload[32..36], &main);
+        assert_eq!(&payload[36..38], &alpha);
+
+        let image = ImageView::from_chunk_payload(payload, 60).unwrap();
+        assert_eq!(image.main(), main);
+        assert_eq!(image.extra(), Some(alpha.as_slice()));
     }
 }
