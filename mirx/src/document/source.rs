@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, vec::Vec};
 
 /// A validated half-open byte range inside a document's original source.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -35,7 +35,7 @@ pub(super) enum Origin<'a> {
     Owned(Vec<u8>),
 }
 
-impl Origin<'_> {
+impl<'a> Origin<'a> {
     pub(super) fn source(&self) -> Option<&[u8]> {
         match self {
             Self::New => None,
@@ -46,6 +46,14 @@ impl Origin<'_> {
 
     pub(super) fn resolve(&self, range: SourceRange) -> Option<&[u8]> {
         range.get(self.source()?)
+    }
+
+    pub(super) fn into_cow(self) -> Option<Cow<'a, [u8]>> {
+        match self {
+            Self::New => None,
+            Self::Borrowed(source) => Some(Cow::Borrowed(source)),
+            Self::Owned(source) => Some(Cow::Owned(source)),
+        }
     }
 }
 

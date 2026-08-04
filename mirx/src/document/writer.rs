@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, vec::Vec};
 use core::ops::Range;
 
 use super::{
@@ -375,6 +375,22 @@ impl LayoutPlan<'_, '_> {
 }
 
 impl<'source> Document<'source> {
+    /// Finishes the document, preserving an unchanged source byte-for-byte.
+    ///
+    /// An unchanged borrowed source remains borrowed, and an unchanged owned
+    /// source returns its original allocation. New or modified documents are
+    /// encoded with the default options.
+    pub fn finish(self) -> Result<Cow<'source, [u8]>, EncodeError> {
+        if !self.dirty && self.origin.source().is_some() {
+            return Ok(self
+                .origin
+                .into_cow()
+                .expect("source-backed origin must yield its exact bytes"));
+        }
+
+        self.encode_with(&EncodeOptions::new()).map(Cow::Owned)
+    }
+
     /// Returns the exact output length after checking the selected layout.
     pub fn encoded_len_with(&self, options: &EncodeOptions) -> Result<usize, EncodeError> {
         Ok(self.layout_plan_with(options)?.output_len())
@@ -748,8 +764,8 @@ mod tests {
 
     use super::*;
     use crate::document::{
-        CriticalAssumption, OpenOptions, PayloadInput, RawChunkInput, RawChunkPolicy,
-        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
+        CompatibilityPolicy, CriticalAssumption, OpenOptions, PayloadInput, RawChunkInput,
+        RawChunkPolicy, RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
     };
     use crate::wire::{read_u16_le, read_u32_le};
     use crate::{
@@ -856,10 +872,30 @@ mod tests {
         payload
     }
 
+    fn flat_source() -> Vec<u8> {
+        let format = ColorFormat::A8;
+        let width = 2;
+        let height = 2;
+        let stride = format.minimum_stride(width).unwrap();
+        let main = [0x10, 0x20, 0x30, 0x40];
+        encode_flat(&FlatImageInput {
+            width,
+            height,
+            stride,
+            format,
+            main: &main,
+            extra: None,
+        })
+    }
+
     fn set_future_minor(source: &mut [u8]) {
         source[5] = VERSION_MINOR + 1;
-        let checksum = crc32(&source[..40]);
-        source[40..44].copy_from_slice(&checksum.to_le_bytes());
+        let checksum_offset = match Layout::from_u8(source[6]).unwrap() {
+            Layout::Flat => 24,
+            Layout::Chunk => 40,
+        };
+        let checksum = crc32(&source[..checksum_offset]);
+        source[checksum_offset..checksum_offset + 4].copy_from_slice(&checksum.to_le_bytes());
     }
 
     fn chunk_set_mut<'document, 'source>(
@@ -1666,5 +1702,227 @@ mod tests {
         let image = ImageView::from_chunk_payload(payload, 60).unwrap();
         assert_eq!(image.main(), main);
         assert_eq!(image.extra(), Some(alpha.as_slice()));
+    }
+
+    #[test]
+    fn finish_clean_borrowed_flat_returns_the_exact_source_slice() {
+        let source = flat_source();
+        let source_pointer = source.as_ptr();
+
+        let document = Document::open(&source).unwrap();
+        assert!(!document.is_dirty());
+        let finished = document.finish().unwrap();
+        let Cow::Borrowed(bytes) = finished else {
+            panic!("unchanged borrowed source must remain borrowed");
+        };
+
+        assert_eq!(bytes, source);
+        assert_eq!(bytes.as_ptr(), source_pointer);
+    }
+
+    #[test]
+    fn finish_clean_owned_moves_the_full_source_allocation() {
+        let mut encoded = encode_chunks(&[(CUSTOM_A.raw(), 0, b"opaque")]);
+        encoded.extend_from_slice(b"preserved-tail");
+        let mut source = Vec::with_capacity(encoded.len() + 37);
+        source.extend_from_slice(&encoded);
+        let source_pointer = source.as_ptr();
+        let source_len = source.len();
+        let source_capacity = source.capacity();
+        let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
+
+        let document = Document::from_vec_with(source, &options).unwrap();
+        assert!(!document.is_dirty());
+        assert!(matches!(document.trailing, TrailingState::Preserved));
+        let finished = document.finish().unwrap();
+        let Cow::Owned(bytes) = finished else {
+            panic!("unchanged owned source must remain owned");
+        };
+
+        assert_eq!(bytes, encoded);
+        assert_eq!(bytes.as_ptr(), source_pointer);
+        assert_eq!(bytes.len(), source_len);
+        assert_eq!(bytes.capacity(), source_capacity);
+        assert!(bytes.ends_with(b"preserved-tail"));
+    }
+
+    #[test]
+    fn finish_clean_passthrough_ignores_future_and_noncanonical_opaque_state() {
+        let mut future_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"future")]);
+        set_future_minor(&mut future_source);
+        let future_pointer = future_source.as_ptr();
+        let future = Document::open(&future_source).unwrap();
+        assert!(!future.is_dirty());
+        assert!(future.file_meta().has_future_semantics());
+        let finished = future.finish().unwrap();
+        let Cow::Borrowed(bytes) = finished else {
+            panic!("unchanged future source must remain borrowed");
+        };
+        assert_eq!(bytes, future_source);
+        assert_eq!(bytes.as_ptr(), future_pointer);
+
+        let mut future_flat_source = flat_source();
+        set_future_minor(&mut future_flat_source);
+        let future_flat_pointer = future_flat_source.as_ptr();
+        let future_flat = Document::open(&future_flat_source).unwrap();
+        assert!(!future_flat.is_dirty());
+        assert!(matches!(future_flat.state, DocumentState::OpaqueFlat(_)));
+        let finished = future_flat.finish().unwrap();
+        let Cow::Borrowed(bytes) = finished else {
+            panic!("unchanged future FLAT source must remain borrowed");
+        };
+        assert_eq!(bytes, future_flat_source);
+        assert_eq!(bytes.as_ptr(), future_flat_pointer);
+
+        let noncanonical = encode_chunks(&[(CUSTOM_A.raw(), 0, b"x"), (CUSTOM_B.raw(), 0, b"yz")]);
+        assert_eq!(read_u32_le(&noncanonical, 48), Some(76));
+        assert_eq!(read_u32_le(&noncanonical, 64), Some(77));
+        let document = Document::open(&noncanonical).unwrap();
+        assert!(!document.is_dirty());
+        let finished = document.finish().unwrap();
+        let Cow::Borrowed(bytes) = finished else {
+            panic!("unchanged opaque source must remain borrowed");
+        };
+        assert_eq!(bytes, noncanonical);
+        assert_eq!(read_u32_le(bytes, 64), Some(77));
+    }
+
+    #[test]
+    fn finish_dirty_and_new_documents_use_default_encoding() {
+        let source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"source")]);
+        let policies = [RawTypePolicy {
+            chunk_type: CUSTOM_A,
+            policy: relocatable_policy(),
+        }];
+        let open_options = OpenOptions::new().with_raw_type_policies(&policies);
+
+        let mut expected_document = Document::open_with(&source, &open_options).unwrap();
+        expected_document
+            .push_raw(raw(CUSTOM_B, b"inserted"))
+            .unwrap();
+        let expected = expected_document
+            .encode_with(&EncodeOptions::new())
+            .unwrap();
+
+        let mut document = Document::open_with(&source, &open_options).unwrap();
+        document.push_raw(raw(CUSTOM_B, b"inserted")).unwrap();
+        assert!(document.is_dirty());
+        let finished = document.finish().unwrap();
+        let Cow::Owned(bytes) = finished else {
+            panic!("modified document must be rewritten into owned bytes");
+        };
+        assert_eq!(bytes, expected);
+
+        let flat_source = flat_source();
+        let expected_flat = Document::open(&flat_source)
+            .unwrap()
+            .encode_with(&EncodeOptions::new())
+            .unwrap();
+        let mut dirty_flat = Document::open(&flat_source).unwrap();
+        dirty_flat.dirty = true;
+        let finished = dirty_flat.finish().unwrap();
+        let Cow::Owned(bytes) = finished else {
+            panic!("dirty FLAT document must be rewritten into owned bytes");
+        };
+        assert_eq!(bytes, expected_flat);
+        assert_eq!(Reader::open(&bytes).unwrap().layout(), Layout::Flat);
+
+        let expected_new = Document::new_chunk()
+            .encode_with(&EncodeOptions::new())
+            .unwrap();
+        let mut clean_new = Document::new_chunk();
+        clean_new.dirty = false;
+        let finished = clean_new.finish().unwrap();
+        let Cow::Owned(bytes) = finished else {
+            panic!("source-free document must be encoded even when marked clean");
+        };
+        assert_eq!(bytes, expected_new);
+    }
+
+    #[test]
+    fn finish_dirty_future_and_trailing_states_keep_default_error_priority() {
+        let mut future_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"future")]);
+        set_future_minor(&mut future_source);
+        future_source.extend_from_slice(b"tail");
+        let preserve_trailing =
+            OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
+        let mut future = Document::open_with(&future_source, &preserve_trailing).unwrap();
+        assert!(matches!(
+            future.compatibility,
+            Compatibility::FutureReadOnly
+        ));
+        assert!(matches!(future.trailing, TrailingState::Preserved));
+        future.dirty = true;
+        assert_eq!(future.finish(), Err(EncodeError::FutureSemanticsReadOnly));
+
+        let mut trailing_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"trailing")]);
+        set_future_minor(&mut trailing_source);
+        trailing_source.extend_from_slice(b"tail");
+        let options = OpenOptions::new()
+            .with_compatibility(CompatibilityPolicy::NormalizeToCurrent)
+            .with_trailing_bytes(TrailingBytesPolicy::Preserve);
+        let trailing = Document::open_with(&trailing_source, &options).unwrap();
+        assert!(trailing.is_dirty());
+        assert!(matches!(trailing.compatibility, Compatibility::Current));
+        assert!(matches!(trailing.trailing, TrailingState::Preserved));
+        assert_eq!(
+            trailing.finish(),
+            Err(EncodeError::PreservedTrailingBytesReadOnly)
+        );
+    }
+
+    #[test]
+    fn finish_after_discarding_trailing_bytes_rewrites_without_the_tail() {
+        let mut source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"source")]);
+        let logical_len = source.len();
+        source.extend_from_slice(b"tail");
+        let policies = [RawTypePolicy {
+            chunk_type: CUSTOM_A,
+            policy: relocatable_policy(),
+        }];
+        let options = OpenOptions::new()
+            .with_trailing_bytes(TrailingBytesPolicy::Preserve)
+            .with_raw_type_policies(&policies);
+        let mut document = Document::open_with(&source, &options).unwrap();
+
+        assert!(!document.is_dirty());
+        document.discard_trailing_bytes().unwrap();
+        assert!(document.is_dirty());
+        assert!(matches!(document.trailing, TrailingState::Discarded));
+        let finished = document.finish().unwrap();
+        let Cow::Owned(bytes) = finished else {
+            panic!("discarded trailing bytes require an owned rewrite");
+        };
+
+        assert_eq!(bytes.len(), logical_len);
+        assert!(!bytes.ends_with(b"tail"));
+        let reader = Reader::open(&bytes).unwrap();
+        assert_eq!(reader.layout(), Layout::Chunk);
+        assert_eq!(reader.logical_len(), bytes.len());
+    }
+
+    #[test]
+    fn finish_dirty_owned_source_uses_a_new_output_allocation() {
+        let encoded = encode_chunks(&[(CUSTOM_A.raw(), 0, b"source")]);
+        let mut source = Vec::with_capacity(encoded.len() + 41);
+        source.extend_from_slice(&encoded);
+        let source_pointer = source.as_ptr();
+        let policies = [RawTypePolicy {
+            chunk_type: CUSTOM_A,
+            policy: relocatable_policy(),
+        }];
+        let open_options = OpenOptions::new().with_raw_type_policies(&policies);
+        let mut document = Document::from_vec_with(source, &open_options).unwrap();
+        assert_eq!(document.origin.source().unwrap().as_ptr(), source_pointer);
+
+        document.push_raw(raw(CUSTOM_B, b"inserted")).unwrap();
+        let expected = document.encode_with(&EncodeOptions::new()).unwrap();
+        let finished = document.finish().unwrap();
+        let Cow::Owned(bytes) = finished else {
+            panic!("modified owned document must return rewritten owned bytes");
+        };
+
+        assert_eq!(bytes, expected);
+        assert_ne!(bytes.as_ptr(), source_pointer);
     }
 }
