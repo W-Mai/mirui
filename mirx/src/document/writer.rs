@@ -5,6 +5,7 @@ use super::{
     ChunkNode, ChunkSet, Compatibility, Document, DocumentState, EncodeOptions, FlatRecord,
     LayoutPolicy, PayloadStorage, PrimaryHintState, TrailingState,
 };
+use crate::payload::image::validate_image_planes;
 use crate::wire::read_u32_le;
 use crate::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFlags, ChunkType, ColorFormat, EncodeError,
@@ -154,7 +155,7 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
 
     fn from_flat(
         document: &'document Document<'source>,
-        record: &FlatRecord,
+        record: &'document FlatRecord<'source>,
     ) -> Result<Self, EncodeError> {
         let image = resolve_flat_image(document, record)?;
         let data_offset = ImageChunkHeader::SIZE as u32;
@@ -440,12 +441,12 @@ impl<'source> Document<'source> {
 
         match (&self.state, options.layout_policy()) {
             (
-                DocumentState::SourceFlat(record),
+                DocumentState::Flat(record),
                 LayoutPolicy::PreserveOrPromote
                 | LayoutPolicy::SmallestRepresentable
                 | LayoutPolicy::ForceFlat,
             ) => Ok(LayoutPlan::Flat(plan_flat(self, record)?)),
-            (DocumentState::SourceFlat(record), LayoutPolicy::ForceChunk) => {
+            (DocumentState::Flat(record), LayoutPolicy::ForceChunk) => {
                 Ok(LayoutPlan::Chunk(ChunkLayoutPlan::from_flat(self, record)?))
             }
             (DocumentState::Chunk(_), LayoutPolicy::ForceFlat) => {
@@ -679,38 +680,25 @@ fn resolve_node_payload<'document>(
 
 fn resolve_flat_image<'document>(
     document: &'document Document<'_>,
-    record: &FlatRecord,
+    record: &'document FlatRecord<'_>,
 ) -> Result<ImageSegments<'document>, EncodeError> {
-    let main = document
-        .origin
-        .resolve(record.main)
+    let main = record
+        .main
+        .resolve(&document.origin)
         .ok_or(EncodeError::SizeOverflow)?;
-    let extra = match record.extra {
-        Some(range) => Some(
-            document
-                .origin
-                .resolve(range)
+    let extra = match &record.extra {
+        Some(plane) => Some(
+            plane
+                .resolve(&document.origin)
                 .ok_or(EncodeError::SizeOverflow)?,
         ),
         None => None,
     };
-    let main_size = record
-        .image
-        .stride
-        .checked_mul(record.image.height)
-        .ok_or(EncodeError::SizeOverflow)?;
-    let extra_size = record
-        .image
-        .format
-        .extra_size(record.image.width, record.image.height, record.image.stride)
-        .ok_or(EncodeError::SizeOverflow)?;
-    let expected_main = usize::try_from(main_size).map_err(|_| EncodeError::SizeOverflow)?;
-    let expected_extra = usize::try_from(extra_size).map_err(|_| EncodeError::SizeOverflow)?;
-    if main.len() != expected_main || extra.map_or(0, <[u8]>::len) != expected_extra {
-        return Err(EncodeError::InvalidPayload {
+    let sizes = validate_image_planes(record.image, main, extra).map_err(|_| {
+        EncodeError::InvalidPayload {
             chunk_type: ChunkType::IMAGE,
-        });
-    }
+        }
+    })?;
 
     Ok(ImageSegments {
         width: record.image.width,
@@ -719,14 +707,14 @@ fn resolve_flat_image<'document>(
         stride: record.image.stride,
         main,
         extra,
-        main_size,
-        extra_size,
+        main_size: sizes.main,
+        extra_size: sizes.extra,
     })
 }
 
 fn plan_flat<'document>(
     document: &'document Document<'_>,
-    record: &FlatRecord,
+    record: &'document FlatRecord<'_>,
 ) -> Result<FlatLayoutPlan<'document>, EncodeError> {
     let image = resolve_flat_image(document, record)?;
     let file_size = (FLAT_HEADER_LEN as u32)

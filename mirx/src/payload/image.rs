@@ -1,8 +1,10 @@
+use alloc::borrow::Cow;
+
 use crate::header::{FLAT_HEADER_LEN, FlatHeader, ImageChunkHeader};
 use crate::wire::{read_u32_le, slice};
 use crate::{ColorFormat, ReadError};
 
-/// Failure while validating a standalone IMAGE chunk payload.
+/// Failure while validating MIRX image metadata, planes, or an IMAGE payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ImagePayloadError {
@@ -17,6 +19,8 @@ pub enum ImagePayloadError {
     ExtraDataSizeMismatch { expected: u32, actual: u32 },
     DataSizeMismatch { expected: u32, actual: u32 },
     PayloadLengthMismatch { expected: usize, actual: usize },
+    MainPlaneLengthMismatch { expected: usize, actual: usize },
+    ExtraPlaneLengthMismatch { expected: usize, actual: usize },
     SizeOverflow,
 }
 
@@ -26,6 +30,135 @@ pub(crate) struct ImageMeta {
     pub(crate) height: u32,
     pub(crate) stride: u32,
     pub(crate) format: ColorFormat,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct ImagePlaneSizes {
+    pub(crate) main: u32,
+    pub(crate) extra: u32,
+}
+
+pub(crate) struct ImageAssetParts<'a> {
+    pub(crate) meta: ImageMeta,
+    pub(crate) main: Cow<'a, [u8]>,
+    pub(crate) extra: Option<Cow<'a, [u8]>>,
+}
+
+/// Editable MIRX image metadata and copy-on-write planes.
+///
+/// Construction does not validate plane lengths. Document mutations validate
+/// the complete asset before changing document state.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ImageAsset<'a> {
+    meta: ImageMeta,
+    main: Cow<'a, [u8]>,
+    extra: Option<Cow<'a, [u8]>>,
+}
+
+impl<'a> ImageAsset<'a> {
+    pub const fn new(
+        width: u32,
+        height: u32,
+        format: ColorFormat,
+        stride: u32,
+        main: Cow<'a, [u8]>,
+        extra: Option<Cow<'a, [u8]>>,
+    ) -> Self {
+        Self {
+            meta: ImageMeta {
+                width,
+                height,
+                stride,
+                format,
+            },
+            main,
+            extra,
+        }
+    }
+
+    pub const fn width(&self) -> u32 {
+        self.meta.width
+    }
+
+    pub const fn height(&self) -> u32 {
+        self.meta.height
+    }
+
+    pub const fn format(&self) -> ColorFormat {
+        self.meta.format
+    }
+
+    pub const fn stride(&self) -> u32 {
+        self.meta.stride
+    }
+
+    pub fn main(&self) -> &[u8] {
+        self.main.as_ref()
+    }
+
+    pub fn extra(&self) -> Option<&[u8]> {
+        self.extra.as_deref()
+    }
+
+    pub(crate) const fn meta(&self) -> ImageMeta {
+        self.meta
+    }
+
+    pub(crate) fn into_parts(self) -> ImageAssetParts<'a> {
+        ImageAssetParts {
+            meta: self.meta,
+            main: self.main,
+            extra: self.extra,
+        }
+    }
+}
+
+pub(crate) fn validate_image_planes(
+    meta: ImageMeta,
+    main: &[u8],
+    extra: Option<&[u8]>,
+) -> Result<ImagePlaneSizes, ImagePayloadError> {
+    let minimum = meta
+        .format
+        .minimum_stride(meta.width)
+        .ok_or(ImagePayloadError::SizeOverflow)?;
+    if meta.stride < minimum {
+        return Err(ImagePayloadError::StrideTooSmall {
+            minimum,
+            actual: meta.stride,
+        });
+    }
+
+    let main_size = meta
+        .stride
+        .checked_mul(meta.height)
+        .ok_or(ImagePayloadError::SizeOverflow)?;
+    let extra_size = meta
+        .format
+        .extra_size(meta.width, meta.height, meta.stride)
+        .ok_or(ImagePayloadError::SizeOverflow)?;
+    let expected_main = usize::try_from(main_size).map_err(|_| ImagePayloadError::SizeOverflow)?;
+    let expected_extra =
+        usize::try_from(extra_size).map_err(|_| ImagePayloadError::SizeOverflow)?;
+
+    if main.len() != expected_main {
+        return Err(ImagePayloadError::MainPlaneLengthMismatch {
+            expected: expected_main,
+            actual: main.len(),
+        });
+    }
+    let actual_extra = extra.map_or(0, <[u8]>::len);
+    if actual_extra != expected_extra {
+        return Err(ImagePayloadError::ExtraPlaneLengthMismatch {
+            expected: expected_extra,
+            actual: actual_extra,
+        });
+    }
+
+    Ok(ImagePlaneSizes {
+        main: main_size,
+        extra: extra_size,
+    })
 }
 
 /// Borrowed view over validated MIRX image planes.

@@ -176,7 +176,7 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
                     nodes,
                 )
             }
-            DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => {
+            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => {
                 (None, PrimaryHintState::Missing, 0, 0, Vec::new())
             }
         };

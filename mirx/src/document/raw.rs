@@ -1376,7 +1376,7 @@ mod tests {
         let before_primary_hints = document.primary_hints();
         let before_primary_hint_state = match &document.state {
             DocumentState::Chunk(chunks) => chunks.primary_hints,
-            DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => {
+            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => {
                 panic!("expected CHUNK document")
             }
         };
@@ -1390,7 +1390,7 @@ mod tests {
         assert_eq!(
             match &document.state {
                 DocumentState::Chunk(chunks) => chunks.primary_hints,
-                DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => {
+                DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => {
                     panic!("expected CHUNK document")
                 }
             },

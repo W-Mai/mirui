@@ -168,7 +168,7 @@ impl<'source> Document<'source> {
     pub fn chunks(&self) -> ChunkIter<'_> {
         let nodes = match &self.state {
             DocumentState::Chunk(chunks) => chunks.chunks.as_slice(),
-            DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => &[],
+            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => &[],
         };
         ChunkIter::new(self, nodes)
     }
@@ -190,7 +190,7 @@ impl<'source> Document<'source> {
     pub const fn primary(&self) -> Option<ChunkId> {
         match &self.state {
             DocumentState::Chunk(chunks) => chunks.primary,
-            DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => None,
+            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => None,
         }
     }
 }

@@ -4,6 +4,8 @@ mod atomic_tests;
 mod compatibility_tests;
 mod descriptor;
 #[cfg(test)]
+mod flat_tests;
+#[cfg(test)]
 mod hint_tests;
 mod options;
 #[cfg(test)]
@@ -22,17 +24,17 @@ pub use raw::{
     RemovedChunkMeta, ReservedBitsPolicy,
 };
 
-use alloc::vec::Vec;
+use alloc::{borrow::Cow, vec::Vec};
 
 use descriptor::grant_open_descriptor;
 use primary::open_primary_hint_state;
 use source::{Origin, SourceRange};
 
-use crate::payload::image::ImageMeta;
+use crate::payload::image::{ImageAssetParts, ImageMeta, validate_image_planes};
 use crate::reader::{PreflightStatus, preflight_chunk, require_understood_critical};
 use crate::{
-    ChunkFlags, ChunkId, ChunkType, DocumentError, EditError, FLAT_HEADER_LEN, ImageView, Layout,
-    PrimaryHints, ReadError, ReadOptions, Reader, VERSION_MAJOR, VERSION_MINOR,
+    ChunkFlags, ChunkId, ChunkType, DocumentError, EditError, FLAT_HEADER_LEN, ImageAsset,
+    ImageView, Layout, PrimaryHints, ReadError, ReadOptions, Reader, VERSION_MAJOR, VERSION_MINOR,
 };
 
 #[cfg(test)]
@@ -87,11 +89,38 @@ impl FileMeta {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct FlatRecord {
+#[derive(Debug, Eq, PartialEq)]
+enum PlaneStorage<'a> {
+    SourceRange(SourceRange),
+    Borrowed(&'a [u8]),
+    Owned(Vec<u8>),
+}
+
+impl<'a> PlaneStorage<'a> {
+    fn from_cow(plane: Cow<'a, [u8]>) -> Self {
+        match plane {
+            Cow::Borrowed(bytes) => Self::Borrowed(bytes),
+            Cow::Owned(bytes) => Self::Owned(bytes),
+        }
+    }
+
+    fn resolve<'document>(
+        &'document self,
+        origin: &'document Origin<'_>,
+    ) -> Option<&'document [u8]> {
+        match self {
+            Self::SourceRange(range) => origin.resolve(*range),
+            Self::Borrowed(bytes) => Some(bytes),
+            Self::Owned(bytes) => Some(bytes.as_slice()),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct FlatRecord<'a> {
     image: ImageMeta,
-    main: SourceRange,
-    extra: Option<SourceRange>,
+    main: PlaneStorage<'a>,
+    extra: Option<PlaneStorage<'a>>,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -121,7 +150,7 @@ enum PrimaryHintState {
 
 #[derive(Debug, Eq, PartialEq)]
 enum DocumentState<'a> {
-    SourceFlat(FlatRecord),
+    Flat(FlatRecord<'a>),
     OpaqueFlat(PrimaryHints),
     Chunk(ChunkSet<'a>),
 }
@@ -142,7 +171,7 @@ enum TrailingState {
 impl DocumentState<'_> {
     const fn layout(&self) -> Layout {
         match self {
-            Self::SourceFlat(_) | Self::OpaqueFlat(_) => Layout::Flat,
+            Self::Flat(_) | Self::OpaqueFlat(_) => Layout::Flat,
             Self::Chunk(_) => Layout::Chunk,
         }
     }
@@ -262,6 +291,24 @@ impl<'a> Document<'a> {
         Self::from_origin(Origin::Owned(source), options)
     }
 
+    /// Creates a MIRX 1.0 FLAT document from validated image metadata and planes.
+    ///
+    /// Borrowed planes remain borrowed and owned planes move into the document
+    /// without changing their allocations.
+    pub fn new_flat(image: ImageAsset<'a>) -> Result<Self, EditError> {
+        let record = prepare_flat_record(image)?;
+        Ok(Self {
+            origin: Origin::New,
+            logical_len: 0,
+            file: FileMeta::CURRENT,
+            state: DocumentState::Flat(record),
+            compatibility: Compatibility::Current,
+            trailing: TrailingState::None,
+            dirty: true,
+            next_id: 0,
+        })
+    }
+
     /// Creates an empty MIRX 1.0 CHUNK document.
     pub const fn new_chunk() -> Self {
         Self {
@@ -292,6 +339,32 @@ impl<'a> Document<'a> {
         self.dirty
     }
 
+    /// Replaces the sole image of a current FLAT document without changing layout.
+    ///
+    /// An image with identical metadata and plane bytes is a no-op that retains
+    /// the original source and plane storage.
+    pub fn replace_flat_image(&mut self, image: ImageAsset<'a>) -> Result<(), EditError> {
+        self.ensure_mutable()?;
+        if !matches!(&self.state, DocumentState::Flat(_)) {
+            return Err(EditError::FlatLayoutRequired);
+        }
+
+        let candidate = prepare_flat_record(image)?;
+        let unchanged = {
+            let DocumentState::Flat(current) = &self.state else {
+                unreachable!("FLAT layout checked before preparing replacement");
+            };
+            flat_records_equal(&self.origin, current, &candidate)
+        };
+        if unchanged {
+            return Ok(());
+        }
+
+        self.state = DocumentState::Flat(candidate);
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Explicitly discards preserved bytes after the logical MIRX boundary.
     ///
     /// The source allocation is retained. This removes the trailing-byte edit
@@ -313,12 +386,12 @@ impl<'a> Document<'a> {
     ///
     /// Future-semantics FLAT sources remain opaque and return `None`.
     pub fn flat_image(&self) -> Option<ImageView<'_>> {
-        let DocumentState::SourceFlat(record) = &self.state else {
+        let DocumentState::Flat(record) = &self.state else {
             return None;
         };
-        let main = self.origin.resolve(record.main)?;
-        let extra = match record.extra {
-            Some(range) => Some(self.origin.resolve(range)?),
+        let main = record.main.resolve(&self.origin)?;
+        let extra = match &record.extra {
+            Some(plane) => Some(plane.resolve(&self.origin)?),
             None => None,
         };
         Some(ImageView::from_validated_planes(record.image, main, extra))
@@ -376,6 +449,48 @@ impl<'a> Document<'a> {
     }
 }
 
+fn prepare_flat_record<'a>(image: ImageAsset<'a>) -> Result<FlatRecord<'a>, EditError> {
+    let sizes = validate_image_planes(image.meta(), image.main(), image.extra())
+        .map_err(EditError::InvalidPayload)?;
+    let ImageAssetParts { meta, main, extra } = image.into_parts();
+    let extra = if sizes.extra == 0 {
+        None
+    } else {
+        Some(PlaneStorage::from_cow(
+            extra.expect("validated nonempty extra plane must be present"),
+        ))
+    };
+    Ok(FlatRecord {
+        image: meta,
+        main: PlaneStorage::from_cow(main),
+        extra,
+    })
+}
+
+fn flat_records_equal(
+    origin: &Origin<'_>,
+    current: &FlatRecord<'_>,
+    candidate: &FlatRecord<'_>,
+) -> bool {
+    if current.image != candidate.image {
+        return false;
+    }
+    match (current.main.resolve(origin), candidate.main.resolve(origin)) {
+        (Some(current), Some(candidate)) if current == candidate => {}
+        _ => return false,
+    }
+    match (&current.extra, &candidate.extra) {
+        (None, None) => true,
+        (Some(current), Some(candidate)) => {
+            match (current.resolve(origin), candidate.resolve(origin)) {
+                (Some(current), Some(candidate)) => current == candidate,
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
 fn inspect_source<'document>(
     source: &[u8],
     options: &OpenOptions<'_>,
@@ -409,7 +524,7 @@ fn inspect_source<'document>(
     let (state, next_id, state_dirty) = match (reader.layout(), reader.flat_image()) {
         (Layout::Flat, None) => (DocumentState::OpaqueFlat(reader.primary_hints()), 0, false),
         (Layout::Flat, Some(image)) => (
-            DocumentState::SourceFlat(inspect_flat_image(image, reader.logical_len())?),
+            DocumentState::Flat(inspect_flat_image(image, reader.logical_len())?),
             0,
             false,
         ),
@@ -539,10 +654,10 @@ fn take_next_chunk_id(next_id: &mut u32) -> Option<ChunkId> {
     Some(id)
 }
 
-fn inspect_flat_image(
+fn inspect_flat_image<'document>(
     image: ImageView<'_>,
     logical_len: usize,
-) -> Result<FlatRecord, DocumentError> {
+) -> Result<FlatRecord<'document>, DocumentError> {
     let main_len = image.main().len();
     let main = SourceRange::checked(FLAT_HEADER_LEN, main_len, logical_len)
         .ok_or(DocumentError::Read(ReadError::SizeOverflow))?;
@@ -571,8 +686,8 @@ fn inspect_flat_image(
             stride: image.stride(),
             format: image.format(),
         },
-        main,
-        extra,
+        main: PlaneStorage::SourceRange(main),
+        extra: extra.map(PlaneStorage::SourceRange),
     })
 }
 
@@ -677,8 +792,8 @@ mod tests {
         assert_eq!(owned_image.extra(), None);
 
         assert_eq!(borrowed.layout(), owned.layout());
-        assert!(matches!(borrowed.state, DocumentState::SourceFlat(_)));
-        assert!(matches!(owned.state, DocumentState::SourceFlat(_)));
+        assert!(matches!(borrowed.state, DocumentState::Flat(_)));
+        assert!(matches!(owned.state, DocumentState::Flat(_)));
         assert_eq!(borrowed.file_meta(), owned.file_meta());
         assert_eq!(borrowed.logical_len, owned.logical_len);
         assert_eq!(borrowed.next_id, 0);

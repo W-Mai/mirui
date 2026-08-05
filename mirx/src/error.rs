@@ -135,6 +135,7 @@ pub enum EditError {
     InvalidChunkId,
     InvalidChunkType,
     ChunkLayoutRequired,
+    FlatLayoutRequired,
     /// The edit would place another same-typed node before the primary node.
     WouldShadowPrimary,
     /// The selected payload cannot provide primary display hints mechanically.

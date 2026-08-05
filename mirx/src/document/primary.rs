@@ -213,7 +213,7 @@ impl Document<'_> {
     pub fn primary_hints(&self) -> PrimaryHints {
         let DocumentState::Chunk(chunks) = &self.state else {
             return match &self.state {
-                DocumentState::SourceFlat(record) => PrimaryHints::new(
+                DocumentState::Flat(record) => PrimaryHints::new(
                     record.image.format.to_u8(),
                     record.image.width,
                     record.image.height,
@@ -520,7 +520,7 @@ mod tests {
                     nodes,
                 )
             }
-            DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => {
+            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => {
                 (None, PrimaryHintState::Missing, 0, 0, Vec::new())
             }
         };

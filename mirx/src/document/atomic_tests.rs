@@ -1,12 +1,13 @@
+use alloc::borrow::Cow;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use super::*;
 use crate::header::CHUNK_FILE_HEADER_LEN;
 use crate::{
-    ColorFormat, CriticalAssumption, FlatImageInput, ImageChunkInput, PayloadInput, RawChunkInput,
-    RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, crc32, encode_chunk_image,
-    encode_chunks, encode_flat,
+    ColorFormat, CriticalAssumption, FlatImageInput, ImageAsset, ImageChunkInput,
+    ImagePayloadError, PayloadInput, RawChunkInput, RelocationAssumption, ReservedBitsPolicy,
+    TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
 };
 
 const TYPE_A: ChunkType = match ChunkType::new(0xa001) {
@@ -67,10 +68,10 @@ struct NodeSnapshot {
 
 #[derive(Debug, Eq, PartialEq)]
 enum StateSnapshot {
-    SourceFlat {
-        record: FlatRecord,
-        main: Vec<u8>,
-        extra: Option<Vec<u8>>,
+    Flat {
+        image: ImageMeta,
+        main: StorageSnapshot,
+        extra: Option<StorageSnapshot>,
     },
     OpaqueFlat {
         hints: PrimaryHints,
@@ -182,18 +183,40 @@ fn storage_snapshot(document: &Document<'_>, payload: &PayloadStorage<'_>) -> St
     }
 }
 
+fn plane_snapshot(document: &Document<'_>, plane: &PlaneStorage<'_>) -> StorageSnapshot {
+    let (kind, bytes, capacity) = match plane {
+        PlaneStorage::SourceRange(range) => (
+            StorageKind::SourceRange(*range),
+            document
+                .origin
+                .resolve(*range)
+                .expect("validated source range must remain resolvable"),
+            None,
+        ),
+        PlaneStorage::Borrowed(bytes) => (StorageKind::Borrowed, *bytes, None),
+        PlaneStorage::Owned(bytes) => {
+            (StorageKind::Owned, bytes.as_slice(), Some(bytes.capacity()))
+        }
+    };
+    StorageSnapshot {
+        kind,
+        pointer: bytes.as_ptr() as usize,
+        len: bytes.len(),
+        capacity,
+        bytes: bytes.to_vec(),
+    }
+}
+
 fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
     let state = match &document.state {
-        DocumentState::SourceFlat(record) => {
-            let image = document
-                .flat_image()
-                .expect("current FLAT state must expose validated planes");
-            StateSnapshot::SourceFlat {
-                record: *record,
-                main: image.main().to_vec(),
-                extra: image.extra().map(<[u8]>::to_vec),
-            }
-        }
+        DocumentState::Flat(record) => StateSnapshot::Flat {
+            image: record.image,
+            main: plane_snapshot(document, &record.main),
+            extra: record
+                .extra
+                .as_ref()
+                .map(|plane| plane_snapshot(document, plane)),
+        },
         DocumentState::OpaqueFlat(hints) => StateSnapshot::OpaqueFlat { hints: *hints },
         DocumentState::Chunk(chunks) => StateSnapshot::Chunk {
             vector_pointer: chunks.chunks.as_ptr() as usize,
@@ -335,6 +358,24 @@ fn complete_snapshot_distinguishes_origin_and_document_state_variants() {
     assert_eq!(new_snapshot.origin.kind, OriginKind::New);
     assert!(matches!(new_snapshot.state, StateSnapshot::Chunk { .. }));
 
+    let authored_main = [1, 2, 3, 4];
+    let authored_flat = Document::new_flat(ImageAsset::new(
+        3,
+        2,
+        ColorFormat::I4,
+        2,
+        Cow::Borrowed(&authored_main),
+        Some(Cow::Owned(vec![0xa5; 64])),
+    ))
+    .unwrap();
+    let authored_snapshot = snapshot(&authored_flat);
+    assert_eq!(authored_snapshot.origin.kind, OriginKind::New);
+    let StateSnapshot::Flat { main, extra, .. } = authored_snapshot.state else {
+        panic!("expected authored FLAT snapshot");
+    };
+    assert_eq!(main.kind, StorageKind::Borrowed);
+    assert_eq!(extra.unwrap().kind, StorageKind::Owned);
+
     let flat_source = encode_flat(&FlatImageInput {
         width: 1,
         height: 1,
@@ -348,7 +389,7 @@ fn complete_snapshot_distinguishes_origin_and_document_state_variants() {
     assert_eq!(borrowed_snapshot.origin.kind, OriginKind::Borrowed);
     assert!(matches!(
         borrowed_snapshot.state,
-        StateSnapshot::SourceFlat { .. }
+        StateSnapshot::Flat { .. }
     ));
 
     let mut future_flat = flat_source;
@@ -644,4 +685,121 @@ fn current_flat_chunk_only_failures_preserve_planes_and_source() {
     assert_atomic_error(&document, &before, result, EditError::ChunkLayoutRequired);
     let result = document.clear_primary();
     assert_atomic_error(&document, &before, result, EditError::ChunkLayoutRequired);
+}
+
+#[test]
+fn flat_replacement_errors_and_noops_preserve_the_complete_snapshot() {
+    let source = encode_flat(&FlatImageInput {
+        width: 2,
+        height: 2,
+        stride: 2,
+        format: ColorFormat::A8,
+        main: &[1, 2, 3, 4],
+        extra: None,
+    });
+    let mut document = Document::open(&source).unwrap();
+    let before = snapshot(&document);
+
+    let result = document.replace_flat_image(ImageAsset::new(
+        2,
+        2,
+        ColorFormat::A8,
+        1,
+        Cow::Owned(vec![0; 2]),
+        None,
+    ));
+    assert_atomic_error(
+        &document,
+        &before,
+        result,
+        EditError::InvalidPayload(ImagePayloadError::StrideTooSmall {
+            minimum: 2,
+            actual: 1,
+        }),
+    );
+
+    let result = document.replace_flat_image(ImageAsset::new(
+        2,
+        2,
+        ColorFormat::A8,
+        2,
+        Cow::Owned(vec![0; 3]),
+        None,
+    ));
+    assert_atomic_error(
+        &document,
+        &before,
+        result,
+        EditError::InvalidPayload(ImagePayloadError::MainPlaneLengthMismatch {
+            expected: 4,
+            actual: 3,
+        }),
+    );
+
+    let result = document.replace_flat_image(ImageAsset::new(
+        3,
+        2,
+        ColorFormat::I4,
+        2,
+        Cow::Owned(vec![0; 4]),
+        None,
+    ));
+    assert_atomic_error(
+        &document,
+        &before,
+        result,
+        EditError::InvalidPayload(ImagePayloadError::ExtraPlaneLengthMismatch {
+            expected: 64,
+            actual: 0,
+        }),
+    );
+
+    document
+        .replace_flat_image(ImageAsset::new(
+            2,
+            2,
+            ColorFormat::A8,
+            2,
+            Cow::Owned(vec![1, 2, 3, 4]),
+            Some(Cow::Owned(Vec::new())),
+        ))
+        .unwrap();
+    assert_eq!(snapshot(&document), before);
+}
+
+#[test]
+fn flat_replacement_blockers_precede_payload_validation_atomically() {
+    let bad_asset = || ImageAsset::new(2, 2, ColorFormat::A8, 2, Cow::Owned(vec![0; 3]), None);
+
+    let mut chunk = Document::new_chunk();
+    let before = snapshot(&chunk);
+    let result = chunk.replace_flat_image(bad_asset());
+    assert_atomic_error(&chunk, &before, result, EditError::FlatLayoutRequired);
+
+    let mut trailing_source = encode_flat(&FlatImageInput {
+        width: 1,
+        height: 1,
+        stride: 1,
+        format: ColorFormat::A8,
+        main: &[7],
+        extra: None,
+    });
+    trailing_source.extend_from_slice(b"tail");
+    let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
+    let mut trailing = Document::open_with(&trailing_source, &options).unwrap();
+    let before = snapshot(&trailing);
+    let result = trailing.replace_flat_image(bad_asset());
+    assert_atomic_error(
+        &trailing,
+        &before,
+        result,
+        EditError::PreservedTrailingBytesReadOnly,
+    );
+
+    let mut future_source = trailing_source;
+    make_future(&mut future_source);
+    let mut future = Document::open_with(&future_source, &options).unwrap();
+    let before = snapshot(&future);
+    let result = future.replace_flat_image(bad_asset());
+    assert_atomic_error(&future, &before, result, EditError::FutureSemanticsReadOnly);
 }

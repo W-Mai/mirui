@@ -154,7 +154,7 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
                 nodes,
             )
         }
-        DocumentState::SourceFlat(_) | DocumentState::OpaqueFlat(_) => {
+        DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => {
             (None, PrimaryHintState::Missing, 0, 0, Vec::new())
         }
     };
@@ -438,7 +438,7 @@ fn normalized_future_flat_keeps_extra_bytes_as_an_independent_trailing_region() 
 
     let mut document =
         Document::open_with(&source, &normalize_and_preserve_trailing_options()).unwrap();
-    assert!(matches!(document.state, DocumentState::SourceFlat(_)));
+    assert!(matches!(document.state, DocumentState::Flat(_)));
     assert_eq!(
         document.primary_hints(),
         PrimaryHints::new(ColorFormat::A8.to_u8(), 1, 1, 1)
