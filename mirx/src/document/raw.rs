@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use super::descriptor::{evaluate_descriptor, evaluate_descriptor_with_flags, evaluate_flags};
-use super::payload::{ResolvedNodePayload, resolve_node_payload};
+use super::payload::{PayloadPlacement, ResolvedNodePayload, resolve_node_payload};
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::{
     ChunkNode, ChunkSet, Document, DocumentState, PayloadStorage, PrimaryHintState,
@@ -243,7 +243,7 @@ impl<'a> Document<'a> {
                 prepared.chunk_type,
                 ResolvedNodePayload::Contiguous {
                     bytes: payload,
-                    absolute_offset: 0,
+                    placement: PayloadPlacement::Unplaced,
                 },
             ))
         } else {

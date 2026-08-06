@@ -103,6 +103,9 @@ fn flat_snapshot(document: &Document<'_>) -> FlatSnapshot {
     let DocumentState::Flat(record) = &document.state else {
         panic!("expected FLAT document");
     };
+    let (main, extra) = record
+        .plane_storage()
+        .expect("promotion snapshots require plane-backed FLAT storage");
     let (origin_pointer, origin_len, origin_capacity) = origin_snapshot(&document.origin);
     FlatSnapshot {
         origin_pointer,
@@ -115,11 +118,8 @@ fn flat_snapshot(document: &Document<'_>) -> FlatSnapshot {
         dirty: document.dirty,
         next_id: document.next_id,
         image: record.image,
-        main: plane_snapshot(document, &record.main),
-        extra: record
-            .extra
-            .as_ref()
-            .map(|plane| plane_snapshot(document, plane)),
+        main: plane_snapshot(document, main),
+        extra: extra.map(|plane| plane_snapshot(document, plane)),
     }
 }
 
@@ -174,7 +174,7 @@ fn borrowed_source_promotion_keeps_plane_pointer_and_chunk_noop_is_exact() {
     let (chunks, record) = promoted(&document);
     assert_eq!(chunks.primary_hints, PrimaryHintState::Derived);
     assert_eq!(
-        plane_snapshot(&document, &record.main).pointer,
+        plane_snapshot(&document, record.main_storage()).pointer,
         main_pointer as usize
     );
     assert_eq!(
@@ -188,14 +188,17 @@ fn borrowed_source_promotion_keeps_plane_pointer_and_chunk_noop_is_exact() {
 
     let before_vector = chunks.chunks.as_ptr();
     let before_capacity = chunks.chunks.capacity();
-    let before_plane = plane_snapshot(&document, &record.main);
+    let before_plane = plane_snapshot(&document, record.main_storage());
     document.dirty = false;
     document.next_id = u32::MAX;
     assert_eq!(document.ensure_chunk_layout(), Ok(None));
     let (chunks, record) = promoted(&document);
     assert_eq!(chunks.chunks.as_ptr(), before_vector);
     assert_eq!(chunks.chunks.capacity(), before_capacity);
-    assert_eq!(plane_snapshot(&document, &record.main), before_plane);
+    assert_eq!(
+        plane_snapshot(&document, record.main_storage()),
+        before_plane
+    );
     assert_eq!(document.next_id, u32::MAX);
     assert!(!document.is_dirty());
 }
@@ -223,11 +226,11 @@ fn borrowed_and_owned_assets_keep_both_plane_allocations() {
     borrowed.ensure_chunk_layout().unwrap();
     let (_, record) = promoted(&borrowed);
     assert_eq!(
-        plane_snapshot(&borrowed, &record.main).pointer,
+        plane_snapshot(&borrowed, record.main_storage()).pointer,
         borrowed_main.as_ptr() as usize
     );
     assert_eq!(
-        plane_snapshot(&borrowed, record.extra.as_ref().unwrap()).pointer,
+        plane_snapshot(&borrowed, record.extra_storage().unwrap()).pointer,
         borrowed_extra.as_ptr() as usize
     );
 
@@ -248,8 +251,8 @@ fn borrowed_and_owned_assets_keep_both_plane_allocations() {
     .unwrap();
     owned.ensure_chunk_layout().unwrap();
     let (_, record) = promoted(&owned);
-    let main = plane_snapshot(&owned, &record.main);
-    let extra = plane_snapshot(&owned, record.extra.as_ref().unwrap());
+    let main = plane_snapshot(&owned, record.main_storage());
+    let extra = plane_snapshot(&owned, record.extra_storage().unwrap());
     assert_eq!(
         (main.pointer, main.capacity),
         (main_pointer as usize, Some(main_capacity))
@@ -286,8 +289,8 @@ fn borrowed_and_owned_assets_keep_both_plane_allocations() {
         .unwrap();
     replaced.ensure_chunk_layout().unwrap();
     let (_, record) = promoted(&replaced);
-    let main = plane_snapshot(&replaced, &record.main);
-    let extra = plane_snapshot(&replaced, record.extra.as_ref().unwrap());
+    let main = plane_snapshot(&replaced, record.main_storage());
+    let extra = plane_snapshot(&replaced, record.extra_storage().unwrap());
     assert_eq!(
         (main.pointer, main.capacity),
         (
@@ -327,11 +330,11 @@ fn opened_borrowed_and_owned_sources_keep_main_extra_and_origin_allocations() {
     borrowed.ensure_chunk_layout().unwrap();
     let (_, record) = promoted(&borrowed);
     assert_eq!(
-        plane_snapshot(&borrowed, &record.main).pointer,
+        plane_snapshot(&borrowed, record.main_storage()).pointer,
         main_pointer as usize
     );
     assert_eq!(
-        plane_snapshot(&borrowed, record.extra.as_ref().unwrap()).pointer,
+        plane_snapshot(&borrowed, record.extra_storage().unwrap()).pointer,
         extra_pointer as usize
     );
 
@@ -349,11 +352,11 @@ fn opened_borrowed_and_owned_sources_keep_main_extra_and_origin_allocations() {
     assert_eq!(origin.capacity(), origin_capacity);
     let (_, record) = promoted(&owned);
     assert_eq!(
-        plane_snapshot(&owned, &record.main).pointer,
+        plane_snapshot(&owned, record.main_storage()).pointer,
         main_pointer as usize
     );
     assert_eq!(
-        plane_snapshot(&owned, record.extra.as_ref().unwrap()).pointer,
+        plane_snapshot(&owned, record.extra_storage().unwrap()).pointer,
         extra_pointer as usize
     );
 }
@@ -395,7 +398,7 @@ fn exact_raw_replacement_keeps_sidecar_but_other_encoding_clears_it() {
     let image_id = document.ensure_chunk_layout().unwrap().unwrap();
     let canonical = document.get(image_id).unwrap().payload_to_vec().unwrap();
     let (_, record) = promoted(&document);
-    let before_plane = plane_snapshot(&document, &record.main);
+    let before_plane = plane_snapshot(&document, record.main_storage());
 
     document.dirty = false;
     document
@@ -407,7 +410,10 @@ fn exact_raw_replacement_keeps_sidecar_but_other_encoding_clears_it() {
         .unwrap();
     assert!(!document.is_dirty());
     let (_, record) = promoted(&document);
-    assert_eq!(plane_snapshot(&document, &record.main), before_plane);
+    assert_eq!(
+        plane_snapshot(&document, record.main_storage()),
+        before_plane
+    );
 
     let mut offset_36 = vec![0; canonical.len() + 4];
     offset_36[..32].copy_from_slice(&canonical[..32]);
@@ -446,7 +452,7 @@ fn promoted_removal_materializes_before_commit_and_clears_sidecar() {
     let before_next = document.next_id;
     let (chunks, record) = promoted(&document);
     let before_vector = chunks.chunks.as_ptr();
-    let before_plane = plane_snapshot(&document, &record.main);
+    let before_plane = plane_snapshot(&document, record.main_storage());
 
     assert_eq!(
         document.remove_to_vec_with(image_id, |payload| {
@@ -457,7 +463,10 @@ fn promoted_removal_materializes_before_commit_and_clears_sidecar() {
     );
     let (chunks, record) = promoted(&document);
     assert_eq!(chunks.chunks.as_ptr(), before_vector);
-    assert_eq!(plane_snapshot(&document, &record.main), before_plane);
+    assert_eq!(
+        plane_snapshot(&document, record.main_storage()),
+        before_plane
+    );
     assert_eq!(document.next_id, before_next);
     assert!(!document.is_dirty());
 
@@ -621,7 +630,7 @@ fn flat_append_pair_plans_ids_reserves_once_and_keeps_positional_edits_explicit(
     assert_eq!(appended.next_id, 2);
     let (_, record) = promoted(&appended);
     assert_eq!(
-        plane_snapshot(&appended, &record.main).pointer,
+        plane_snapshot(&appended, record.main_storage()).pointer,
         source_main_pointer
     );
     assert_eq!(

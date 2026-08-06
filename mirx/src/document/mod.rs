@@ -2,6 +2,9 @@
 mod atomic_tests;
 #[cfg(test)]
 mod compatibility_tests;
+mod demotion;
+#[cfg(test)]
+mod demotion_tests;
 mod descriptor;
 #[cfg(test)]
 mod flat_tests;
@@ -120,10 +123,112 @@ impl<'a> PlaneStorage<'a> {
 }
 
 #[derive(Debug, Eq, PartialEq)]
+enum FlatStorage<'a> {
+    Planes {
+        main: PlaneStorage<'a>,
+        extra: Option<PlaneStorage<'a>>,
+    },
+    Payload {
+        backing: PayloadStorage<'a>,
+        main: SourceRange,
+        extra: Option<SourceRange>,
+    },
+}
+
+impl FlatStorage<'_> {
+    fn resolve_planes<'document>(
+        &'document self,
+        origin: &'document Origin<'_>,
+    ) -> Option<(&'document [u8], Option<&'document [u8]>)> {
+        match self {
+            Self::Planes { main, extra } => {
+                let main = main.resolve(origin)?;
+                let extra = match extra {
+                    Some(plane) => Some(plane.resolve(origin)?),
+                    None => None,
+                };
+                Some((main, extra))
+            }
+            Self::Payload {
+                backing,
+                main,
+                extra,
+            } => {
+                let payload = backing.resolve_contiguous(origin)?;
+                let main = main.get(payload)?;
+                let extra = match extra {
+                    Some(range) => Some(range.get(payload)?),
+                    None => None,
+                };
+                Some((main, extra))
+            }
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq)]
 struct FlatRecord<'a> {
     image: ImageMeta,
-    main: PlaneStorage<'a>,
-    extra: Option<PlaneStorage<'a>>,
+    storage: FlatStorage<'a>,
+}
+
+impl FlatRecord<'_> {
+    fn from_planes<'a>(
+        image: ImageMeta,
+        main: PlaneStorage<'a>,
+        extra: Option<PlaneStorage<'a>>,
+    ) -> FlatRecord<'a> {
+        FlatRecord {
+            image,
+            storage: FlatStorage::Planes { main, extra },
+        }
+    }
+
+    fn from_payload<'a>(
+        image: ImageMeta,
+        backing: PayloadStorage<'a>,
+        main: SourceRange,
+        extra: Option<SourceRange>,
+    ) -> FlatRecord<'a> {
+        debug_assert!(!matches!(backing, PayloadStorage::PromotedFlat));
+        FlatRecord {
+            image,
+            storage: FlatStorage::Payload {
+                backing,
+                main,
+                extra,
+            },
+        }
+    }
+
+    fn resolve_planes<'document>(
+        &'document self,
+        origin: &'document Origin<'_>,
+    ) -> Option<(&'document [u8], Option<&'document [u8]>)> {
+        self.storage.resolve_planes(origin)
+    }
+
+    #[cfg(test)]
+    fn plane_storage(&self) -> Option<(&PlaneStorage<'_>, Option<&PlaneStorage<'_>>)> {
+        match &self.storage {
+            FlatStorage::Planes { main, extra } => Some((main, extra.as_ref())),
+            FlatStorage::Payload { .. } => None,
+        }
+    }
+
+    #[cfg(test)]
+    fn main_storage(&self) -> &PlaneStorage<'_> {
+        self.plane_storage()
+            .expect("expected plane-backed FLAT storage")
+            .0
+    }
+
+    #[cfg(test)]
+    fn extra_storage(&self) -> Option<&PlaneStorage<'_>> {
+        self.plane_storage()
+            .expect("expected plane-backed FLAT storage")
+            .1
+    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -197,6 +302,20 @@ enum PayloadStorage<'a> {
     Borrowed(&'a [u8]),
     Owned(Vec<u8>),
     PromotedFlat,
+}
+
+impl PayloadStorage<'_> {
+    fn resolve_contiguous<'document>(
+        &'document self,
+        origin: &'document Origin<'_>,
+    ) -> Option<&'document [u8]> {
+        match self {
+            Self::SourceRange(range) => origin.resolve(*range),
+            Self::Borrowed(bytes) => Some(bytes),
+            Self::Owned(bytes) => Some(bytes.as_slice()),
+            Self::PromotedFlat => None,
+        }
+    }
 }
 
 /// Capabilities established for rewriting one raw payload.
@@ -453,11 +572,7 @@ impl<'a> Document<'a> {
         let DocumentState::Flat(record) = &self.state else {
             return None;
         };
-        let main = record.main.resolve(&self.origin)?;
-        let extra = match &record.extra {
-            Some(plane) => Some(plane.resolve(&self.origin)?),
-            None => None,
-        };
+        let (main, extra) = record.resolve_planes(&self.origin)?;
         Some(ImageView::from_validated_planes(record.image, main, extra))
     }
 
@@ -563,11 +678,11 @@ fn prepare_flat_record<'a>(image: ImageAsset<'a>) -> Result<FlatRecord<'a>, Edit
             extra.expect("validated nonempty extra plane must be present"),
         ))
     };
-    Ok(FlatRecord {
-        image: meta,
-        main: PlaneStorage::from_cow(main),
+    Ok(FlatRecord::from_planes(
+        meta,
+        PlaneStorage::from_cow(main),
         extra,
-    })
+    ))
 }
 
 fn flat_records_equal(
@@ -578,18 +693,18 @@ fn flat_records_equal(
     if current.image != candidate.image {
         return false;
     }
-    match (current.main.resolve(origin), candidate.main.resolve(origin)) {
-        (Some(current), Some(candidate)) if current == candidate => {}
-        _ => return false,
+    let Some((current_main, current_extra)) = current.resolve_planes(origin) else {
+        return false;
+    };
+    let Some((candidate_main, candidate_extra)) = candidate.resolve_planes(origin) else {
+        return false;
+    };
+    if current_main != candidate_main {
+        return false;
     }
-    match (&current.extra, &candidate.extra) {
+    match (current_extra, candidate_extra) {
         (None, None) => true,
-        (Some(current), Some(candidate)) => {
-            match (current.resolve(origin), candidate.resolve(origin)) {
-                (Some(current), Some(candidate)) => current == candidate,
-                _ => false,
-            }
-        }
+        (Some(current), Some(candidate)) => current == candidate,
         _ => false,
     }
 }
@@ -783,16 +898,16 @@ fn inspect_flat_image<'document>(
         return Err(DocumentError::Read(ReadError::SizeOverflow));
     }
 
-    Ok(FlatRecord {
-        image: ImageMeta {
+    Ok(FlatRecord::from_planes(
+        ImageMeta {
             width: image.width(),
             height: image.height(),
             stride: image.stride(),
             format: image.format(),
         },
-        main: PlaneStorage::SourceRange(main),
-        extra: extra.map(PlaneStorage::SourceRange),
-    })
+        PlaneStorage::SourceRange(main),
+        extra.map(PlaneStorage::SourceRange),
+    ))
 }
 
 #[cfg(test)]

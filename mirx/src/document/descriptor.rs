@@ -1,4 +1,4 @@
-use super::payload::{ResolvedNodePayload, resolve_node_payload};
+use super::payload::{PayloadPlacement, ResolvedNodePayload, resolve_node_payload};
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
@@ -51,23 +51,13 @@ pub(super) fn evaluate_descriptor(
     payload: &[u8],
     policy: RawChunkPolicy,
 ) -> Result<EvaluatedDescriptor, EditError> {
-    evaluate_descriptor_at(chunk_type, flags, payload, 0, policy)
-}
-
-pub(super) fn evaluate_descriptor_at(
-    chunk_type: ChunkType,
-    flags: ChunkFlags,
-    payload: &[u8],
-    payload_offset: u32,
-    policy: RawChunkPolicy,
-) -> Result<EvaluatedDescriptor, EditError> {
     let flags = evaluate_flags(flags, policy.reserved_flag_bits)?;
     evaluate_resolved_descriptor_with_flags(
         chunk_type,
         flags,
         ResolvedNodePayload::Contiguous {
             bytes: payload,
-            absolute_offset: payload_offset,
+            placement: PayloadPlacement::Unplaced,
         },
         policy,
     )
@@ -84,7 +74,7 @@ pub(super) fn evaluate_descriptor_with_flags(
         evaluated_flags,
         ResolvedNodePayload::Contiguous {
             bytes: payload,
-            absolute_offset: 0,
+            placement: PayloadPlacement::Unplaced,
         },
         policy,
     )

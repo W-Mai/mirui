@@ -1,6 +1,7 @@
 use alloc::{borrow::Cow, vec::Vec};
 use core::ops::Range;
 
+use super::demotion::flat_candidate;
 use super::payload::{
     ResolvedImagePlanes, ResolvedNodePayload, encode_error_for_image, resolve_flat_record,
     resolve_node_payload,
@@ -505,17 +506,25 @@ impl<'source> Document<'source> {
             (DocumentState::Flat(record), LayoutPolicy::ForceChunk) => {
                 Ok(LayoutPlan::Chunk(ChunkLayoutPlan::from_flat(self, record)?))
             }
-            (DocumentState::Chunk(_), LayoutPolicy::ForceFlat) => {
-                Err(EncodeError::NotRepresentableAsFlat)
-            }
             (
                 DocumentState::Chunk(chunks),
-                LayoutPolicy::PreserveOrPromote
-                | LayoutPolicy::SmallestRepresentable
-                | LayoutPolicy::ForceChunk,
+                LayoutPolicy::PreserveOrPromote | LayoutPolicy::ForceChunk,
             ) => Ok(LayoutPlan::Chunk(ChunkLayoutPlan::from_nodes(
                 self, chunks,
             )?)),
+            (DocumentState::Chunk(chunks), LayoutPolicy::SmallestRepresentable) => {
+                match flat_candidate(self, chunks) {
+                    Ok(candidate) => Ok(LayoutPlan::Flat(plan_flat_image(candidate.image)?)),
+                    Err(_) => Ok(LayoutPlan::Chunk(ChunkLayoutPlan::from_nodes(
+                        self, chunks,
+                    )?)),
+                }
+            }
+            (DocumentState::Chunk(chunks), LayoutPolicy::ForceFlat) => {
+                let candidate = flat_candidate(self, chunks)
+                    .map_err(|_| EncodeError::NotRepresentableAsFlat)?;
+                Ok(LayoutPlan::Flat(plan_flat_image(candidate.image)?))
+            }
             (DocumentState::OpaqueFlat(_), _) => {
                 debug_assert!(matches!(self.compatibility, Compatibility::FutureReadOnly));
                 Err(EncodeError::FutureSemanticsReadOnly)
@@ -731,6 +740,10 @@ fn plan_flat<'document>(
     record: &'document FlatRecord<'_>,
 ) -> Result<FlatLayoutPlan<'document>, EncodeError> {
     let image = resolve_flat_record(document, record).map_err(encode_error_for_image)?;
+    plan_flat_image(image)
+}
+
+fn plan_flat_image(image: ResolvedImagePlanes<'_>) -> Result<FlatLayoutPlan<'_>, EncodeError> {
     let file_size = (FLAT_HEADER_LEN as u32)
         .checked_add(image.main_size)
         .and_then(|size| size.checked_add(image.extra_size))

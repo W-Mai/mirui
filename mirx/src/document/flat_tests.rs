@@ -166,11 +166,11 @@ fn borrowed_owned_and_mixed_planes_retain_pointer_and_capacity() {
     let DocumentState::Flat(record) = &document.state else {
         panic!("expected FLAT document");
     };
-    let PlaneStorage::Borrowed(main) = &record.main else {
+    let PlaneStorage::Borrowed(main) = record.main_storage() else {
         panic!("main plane must remain borrowed");
     };
     assert_eq!(main.as_ptr(), borrowed_main.as_ptr());
-    let Some(PlaneStorage::Owned(extra)) = &record.extra else {
+    let Some(PlaneStorage::Owned(extra)) = record.extra_storage() else {
         panic!("extra plane must remain owned");
     };
     assert_eq!(extra.as_ptr(), owned_extra_pointer);
@@ -196,12 +196,12 @@ fn borrowed_owned_and_mixed_planes_retain_pointer_and_capacity() {
     let DocumentState::Flat(record) = &document.state else {
         panic!("expected FLAT document");
     };
-    let PlaneStorage::Owned(main) = &record.main else {
+    let PlaneStorage::Owned(main) = record.main_storage() else {
         panic!("main plane must remain owned");
     };
     assert_eq!(main.as_ptr(), owned_main_pointer);
     assert_eq!(main.capacity(), owned_main_capacity);
-    let Some(PlaneStorage::Borrowed(extra)) = &record.extra else {
+    let Some(PlaneStorage::Borrowed(extra)) = record.extra_storage() else {
         panic!("extra plane must remain borrowed");
     };
     assert_eq!(extra.as_ptr(), borrowed_extra.as_ptr());
@@ -243,12 +243,12 @@ fn replacement_moves_owned_planes_without_changing_the_origin_allocation() {
     let DocumentState::Flat(record) = &document.state else {
         panic!("expected FLAT document");
     };
-    let PlaneStorage::Owned(main) = &record.main else {
+    let PlaneStorage::Owned(main) = record.main_storage() else {
         panic!("replacement main must remain owned");
     };
     assert_eq!(main.as_ptr(), main_pointer);
     assert_eq!(main.capacity(), main_capacity);
-    let Some(PlaneStorage::Owned(extra)) = &record.extra else {
+    let Some(PlaneStorage::Owned(extra)) = record.extra_storage() else {
         panic!("replacement extra must remain owned");
     };
     assert_eq!(extra.as_ptr(), extra_pointer);
@@ -270,8 +270,8 @@ fn same_content_replacement_preserves_source_storage_and_noop_finish() {
     let source_pointer = source.as_ptr();
     let mut borrowed = Document::open(&source).unwrap();
     let (main_range, extra_range) = match &borrowed.state {
-        DocumentState::Flat(record) => match (&record.main, &record.extra) {
-            (PlaneStorage::SourceRange(main), Some(PlaneStorage::SourceRange(extra))) => {
+        DocumentState::Flat(record) => match record.plane_storage() {
+            Some((PlaneStorage::SourceRange(main), Some(PlaneStorage::SourceRange(extra)))) => {
                 (*main, *extra)
             }
             _ => panic!("opened planes must remain source-backed"),
@@ -291,8 +291,14 @@ fn same_content_replacement_preserves_source_storage_and_noop_finish() {
     assert!(!borrowed.is_dirty());
     match &borrowed.state {
         DocumentState::Flat(record) => {
-            assert_eq!(record.main, PlaneStorage::SourceRange(main_range));
-            assert_eq!(record.extra, Some(PlaneStorage::SourceRange(extra_range)));
+            assert_eq!(
+                record.main_storage(),
+                &PlaneStorage::SourceRange(main_range)
+            );
+            assert_eq!(
+                record.extra_storage(),
+                Some(&PlaneStorage::SourceRange(extra_range))
+            );
         }
         _ => panic!("expected FLAT document"),
     }
@@ -501,7 +507,7 @@ fn empty_extra_is_normalized_and_zero_sized_images_remain_representable() {
     let DocumentState::Flat(record) = &document.state else {
         panic!("expected FLAT document");
     };
-    assert!(record.extra.is_none());
+    assert!(record.extra_storage().is_none());
     assert_eq!(document.flat_image().unwrap().extra(), None);
     assert_eq!(
         document.encode_with(&EncodeOptions::new()).unwrap().len(),

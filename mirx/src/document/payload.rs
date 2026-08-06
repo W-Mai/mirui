@@ -5,6 +5,12 @@ use crate::payload::image::{ImagePayloadError, validate_image_planes};
 use crate::{ChunkType, ColorFormat, EncodeError, ImageChunkHeader, ImageView, PrimaryHints};
 
 #[derive(Clone, Copy)]
+pub(super) enum PayloadPlacement {
+    Fixed(u32),
+    Unplaced,
+}
+
+#[derive(Clone, Copy)]
 pub(super) struct ResolvedImagePlanes<'a> {
     pub(super) width: u32,
     pub(super) height: u32,
@@ -106,7 +112,7 @@ impl ResolvedImagePlanes<'_> {
 pub(super) enum ResolvedNodePayload<'a> {
     Contiguous {
         bytes: &'a [u8],
-        absolute_offset: u32,
+        placement: PayloadPlacement,
     },
     PromotedImage(ResolvedImagePlanes<'a>),
 }
@@ -167,39 +173,51 @@ impl<'a> ResolvedNodePayload<'a> {
     }
 
     pub(super) fn validate_image_contract(self) -> Result<PrimaryHints, ImagePayloadError> {
+        self.image_planes().map(ResolvedImagePlanes::primary_hints)
+    }
+
+    pub(super) fn image_planes(self) -> Result<ResolvedImagePlanes<'a>, ImagePayloadError> {
         match self {
-            Self::Contiguous {
-                bytes,
-                absolute_offset,
-            } => ImageView::from_chunk_payload(bytes, absolute_offset).map(|image| {
-                PrimaryHints::new(
-                    image.format().to_u8(),
-                    image.width(),
-                    image.height(),
-                    image.stride(),
-                )
-            }),
-            Self::PromotedImage(image) => Ok(image.primary_hints()),
+            Self::Contiguous { bytes, placement } => {
+                let image = match placement {
+                    PayloadPlacement::Fixed(offset) => {
+                        ImageView::from_chunk_payload(bytes, offset)?
+                    }
+                    PayloadPlacement::Unplaced => ImageView::from_unplaced_chunk_payload(bytes)?,
+                };
+                resolved_image_planes(image)
+            }
+            Self::PromotedImage(image) => Ok(image),
         }
     }
+}
+
+fn resolved_image_planes(
+    image: ImageView<'_>,
+) -> Result<ResolvedImagePlanes<'_>, ImagePayloadError> {
+    let main_size =
+        u32::try_from(image.main().len()).map_err(|_| ImagePayloadError::SizeOverflow)?;
+    let extra_size = u32::try_from(image.extra().map_or(0, <[u8]>::len))
+        .map_err(|_| ImagePayloadError::SizeOverflow)?;
+    Ok(ResolvedImagePlanes {
+        width: image.width(),
+        height: image.height(),
+        format: image.format(),
+        stride: image.stride(),
+        main: image.main(),
+        extra: image.extra(),
+        main_size,
+        extra_size,
+    })
 }
 
 pub(super) fn resolve_flat_record<'document>(
     document: &'document Document<'_>,
     record: &'document FlatRecord<'_>,
 ) -> Result<ResolvedImagePlanes<'document>, ImagePayloadError> {
-    let main = record
-        .main
-        .resolve(&document.origin)
+    let (main, extra) = record
+        .resolve_planes(&document.origin)
         .ok_or(ImagePayloadError::SizeOverflow)?;
-    let extra = match &record.extra {
-        Some(plane) => Some(
-            plane
-                .resolve(&document.origin)
-                .ok_or(ImagePayloadError::SizeOverflow)?,
-        ),
-        None => None,
-    };
     let sizes = validate_image_planes(record.image, main, extra)?;
 
     Ok(ResolvedImagePlanes {
@@ -224,16 +242,17 @@ pub(super) fn resolve_node_payload<'document>(
                 .origin
                 .resolve(*range)
                 .ok_or(ImagePayloadError::SizeOverflow)?,
-            absolute_offset: u32::try_from(range.start())
-                .map_err(|_| ImagePayloadError::SizeOverflow)?,
+            placement: PayloadPlacement::Fixed(
+                u32::try_from(range.start()).map_err(|_| ImagePayloadError::SizeOverflow)?,
+            ),
         }),
         PayloadStorage::Borrowed(bytes) => Ok(ResolvedNodePayload::Contiguous {
             bytes,
-            absolute_offset: 0,
+            placement: PayloadPlacement::Unplaced,
         }),
         PayloadStorage::Owned(bytes) => Ok(ResolvedNodePayload::Contiguous {
             bytes: bytes.as_slice(),
-            absolute_offset: 0,
+            placement: PayloadPlacement::Unplaced,
         }),
         PayloadStorage::PromotedFlat => {
             let DocumentState::Chunk(chunks) = &document.state else {

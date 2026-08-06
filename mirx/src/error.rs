@@ -136,6 +136,8 @@ pub enum EditError {
     InvalidChunkType,
     ChunkLayoutRequired,
     FlatLayoutRequired,
+    /// The current CHUNK state cannot be represented as one lossless FLAT image.
+    NotRepresentableAsFlat,
     /// The edit would place another same-typed node before the primary node.
     WouldShadowPrimary,
     /// The selected payload cannot provide primary display hints mechanically.

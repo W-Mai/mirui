@@ -274,6 +274,19 @@ impl<'a> ImageView<'a> {
         payload: &'a [u8],
         payload_offset: u32,
     ) -> Result<Self, ImagePayloadError> {
+        Self::from_chunk_payload_with_placement(payload, Some(payload_offset))
+    }
+
+    pub(crate) fn from_unplaced_chunk_payload(
+        payload: &'a [u8],
+    ) -> Result<Self, ImagePayloadError> {
+        Self::from_chunk_payload_with_placement(payload, None)
+    }
+
+    fn from_chunk_payload_with_placement(
+        payload: &'a [u8],
+        payload_offset: Option<u32>,
+    ) -> Result<Self, ImagePayloadError> {
         let header_len = ImageChunkHeader::SIZE;
         if payload.len() < header_len {
             return Err(ImagePayloadError::Truncated {
@@ -325,13 +338,15 @@ impl<'a> ImageView<'a> {
                 available: payload.len(),
             });
         }
-        let absolute_data_offset = payload_offset
-            .checked_add(data_offset)
-            .ok_or(ImagePayloadError::SizeOverflow)?;
-        if absolute_data_offset % 4 != 0 {
-            return Err(ImagePayloadError::DataOffsetUnaligned {
-                absolute_offset: absolute_data_offset,
-            });
+        if let Some(payload_offset) = payload_offset {
+            let absolute_data_offset = payload_offset
+                .checked_add(data_offset)
+                .ok_or(ImagePayloadError::SizeOverflow)?;
+            if absolute_data_offset % 4 != 0 {
+                return Err(ImagePayloadError::DataOffsetUnaligned {
+                    absolute_offset: absolute_data_offset,
+                });
+            }
         }
         if let Some(relative) = payload[header_len..data_start]
             .iter()

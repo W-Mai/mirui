@@ -45,6 +45,7 @@ struct OriginSnapshot {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum StorageKind {
     SourceRange(SourceRange),
+    PayloadRange(SourceRange),
     Borrowed,
     Owned,
     PromotedFlat,
@@ -72,6 +73,7 @@ struct NodeSnapshot {
 enum StateSnapshot {
     Flat {
         image: ImageMeta,
+        backing: Option<StorageSnapshot>,
         main: StorageSnapshot,
         extra: Option<StorageSnapshot>,
     },
@@ -211,32 +213,68 @@ fn plane_snapshot(document: &Document<'_>, plane: &PlaneStorage<'_>) -> StorageS
     }
 }
 
+fn payload_plane_snapshot(
+    document: &Document<'_>,
+    backing: &PayloadStorage<'_>,
+    range: SourceRange,
+) -> StorageSnapshot {
+    let bytes = range
+        .get(
+            backing
+                .resolve_contiguous(&document.origin)
+                .expect("FLAT payload backing must remain resolvable"),
+        )
+        .expect("validated payload range must remain in bounds");
+    StorageSnapshot {
+        kind: StorageKind::PayloadRange(range),
+        pointer: bytes.as_ptr() as usize,
+        len: bytes.len(),
+        capacity: match backing {
+            PayloadStorage::Owned(bytes) => Some(bytes.capacity()),
+            _ => None,
+        },
+        bytes: bytes.to_vec(),
+    }
+}
+
+fn flat_state_snapshot(document: &Document<'_>, record: &FlatRecord<'_>) -> StateSnapshot {
+    let (backing, main, extra) = match &record.storage {
+        FlatStorage::Planes { main, extra } => (
+            None,
+            plane_snapshot(document, main),
+            extra.as_ref().map(|plane| plane_snapshot(document, plane)),
+        ),
+        FlatStorage::Payload {
+            backing,
+            main,
+            extra,
+        } => (
+            Some(storage_snapshot(document, backing)),
+            payload_plane_snapshot(document, backing, *main),
+            extra.map(|range| payload_plane_snapshot(document, backing, range)),
+        ),
+    };
+    StateSnapshot::Flat {
+        image: record.image,
+        backing,
+        main,
+        extra,
+    }
+}
+
 fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
     let state = match &document.state {
-        DocumentState::Flat(record) => StateSnapshot::Flat {
-            image: record.image,
-            main: plane_snapshot(document, &record.main),
-            extra: record
-                .extra
-                .as_ref()
-                .map(|plane| plane_snapshot(document, plane)),
-        },
+        DocumentState::Flat(record) => flat_state_snapshot(document, record),
         DocumentState::OpaqueFlat(hints) => StateSnapshot::OpaqueFlat { hints: *hints },
         DocumentState::Chunk(chunks) => StateSnapshot::Chunk {
             vector_pointer: chunks.chunks.as_ptr() as usize,
             vector_capacity: chunks.chunks.capacity(),
             primary: chunks.primary,
             primary_hints: chunks.primary_hints,
-            promoted_flat: chunks.promoted_flat.as_ref().map(|record| {
-                Box::new(StateSnapshot::Flat {
-                    image: record.image,
-                    main: plane_snapshot(document, &record.main),
-                    extra: record
-                        .extra
-                        .as_ref()
-                        .map(|plane| plane_snapshot(document, plane)),
-                })
-            }),
+            promoted_flat: chunks
+                .promoted_flat
+                .as_ref()
+                .map(|record| Box::new(flat_state_snapshot(document, record))),
             nodes: chunks
                 .chunks
                 .iter()
@@ -289,9 +327,16 @@ fn promoted_snapshot_includes_the_tag_and_complete_plane_sidecar() {
     assert_eq!(nodes.len(), 1);
     assert_eq!(nodes[0].id, image_id);
     assert_eq!(nodes[0].payload.kind, StorageKind::PromotedFlat);
-    let StateSnapshot::Flat { image, main, extra } = *record else {
+    let StateSnapshot::Flat {
+        image,
+        backing,
+        main,
+        extra,
+    } = *record
+    else {
         panic!("expected promoted FLAT sidecar snapshot");
     };
+    assert_eq!(backing, None);
     assert_eq!(image.format, ColorFormat::A8);
     assert_eq!(
         main.kind,
@@ -851,6 +896,46 @@ fn flat_replacement_errors_and_noops_preserve_the_complete_snapshot() {
         ))
         .unwrap();
     assert_eq!(snapshot(&document), before);
+}
+
+#[test]
+fn payload_backed_flat_failures_preserve_backing_and_plane_ranges() {
+    let mut payload = image_payload(2, 2);
+    payload.splice(32..32, [0; 3]);
+    payload[16..20].copy_from_slice(&35u32.to_le_bytes());
+    let mut document = Document::new_chunk();
+    let image = document
+        .push_raw(raw(
+            ChunkType::IMAGE,
+            ChunkFlags::NONE,
+            PayloadInput::Owned(payload),
+            relocation_only_policy(),
+        ))
+        .unwrap();
+    document.set_primary(image).unwrap();
+    document.try_demote_to_flat().unwrap();
+    let before = snapshot(&document);
+
+    let result = document.ensure_chunk_layout_with(|_, _| Err(EditError::AllocationFailed));
+    assert_atomic_error(&document, &before, result, EditError::AllocationFailed);
+
+    let result = document.replace_flat_image(ImageAsset::new(
+        2,
+        2,
+        ColorFormat::A8,
+        2,
+        Cow::Owned(vec![0; 3]),
+        None,
+    ));
+    assert_atomic_error(
+        &document,
+        &before,
+        result,
+        EditError::InvalidPayload(ImagePayloadError::MainPlaneLengthMismatch {
+            expected: 4,
+            actual: 3,
+        }),
+    );
 }
 
 #[test]

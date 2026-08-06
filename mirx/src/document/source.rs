@@ -1,6 +1,6 @@
 use alloc::{borrow::Cow, vec::Vec};
 
-/// A validated half-open byte range inside a document's original source.
+/// A validated half-open byte range inside one contiguous byte backing.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct SourceRange {
     start: usize,
