@@ -1,9 +1,14 @@
 use alloc::vec::Vec;
 
 use super::descriptor::{evaluate_descriptor, evaluate_descriptor_with_flags, evaluate_flags};
+use super::payload::{ResolvedNodePayload, resolve_node_payload};
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
-use super::{ChunkNode, Document, DocumentState, PayloadStorage, RewriteCapability};
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError};
+use super::{
+    ChunkNode, ChunkSet, Document, DocumentState, PayloadStorage, PrimaryHintState,
+    RewriteCapability, promoted_chunk_set, promoted_flat_node,
+};
+use crate::payload::image::ImagePayloadError;
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, EncodeError};
 
 /// Encoded payload bytes supplied to a raw document mutation.
 #[derive(Debug, Eq, PartialEq)]
@@ -162,6 +167,10 @@ enum InsertPosition {
 
 impl<'a> Document<'a> {
     /// Appends one encoded chunk without copying its payload bytes.
+    ///
+    /// A FLAT document is promoted atomically before the append. The returned
+    /// identity belongs to the appended node; use [`Document::ensure_chunk_layout`]
+    /// when the promoted IMAGE identity is also needed.
     pub fn push_raw(&mut self, input: RawChunkInput<'a>) -> Result<ChunkId, EditError> {
         self.insert_raw_at(InsertPosition::End, input)
     }
@@ -205,11 +214,11 @@ impl<'a> Document<'a> {
                 unreachable!("layout checked before preparing replacement");
             };
             let node = &chunks.chunks[index];
-            let existing = payload_bytes(&self.origin, node);
+            let existing = resolve_node_payload(self, node).map_err(EditError::InvalidPayload)?;
             (
                 node.chunk_type,
                 node.flags,
-                existing == payload.as_bytes(),
+                existing.equals(payload.as_bytes()),
                 chunks.primary == Some(node.id),
             )
         };
@@ -226,8 +235,17 @@ impl<'a> Document<'a> {
                 PayloadStorage::SourceRange(_) => {
                     unreachable!("replacement input cannot produce source-backed storage")
                 }
+                PayloadStorage::PromotedFlat => {
+                    unreachable!("replacement input cannot produce promoted storage")
+                }
             };
-            Some(changed_primary_hint_state(prepared.chunk_type, payload, 0))
+            Some(changed_primary_hint_state(
+                prepared.chunk_type,
+                ResolvedNodePayload::Contiguous {
+                    bytes: payload,
+                    absolute_offset: 0,
+                },
+            ))
         } else {
             None
         };
@@ -235,8 +253,15 @@ impl<'a> Document<'a> {
             unreachable!("layout checked before committing replacement");
         };
         let node = &mut chunks.chunks[index];
+        let replaced_promoted = matches!(node.payload, PayloadStorage::PromotedFlat);
         node.payload = prepared.payload;
         node.capability = prepared.capability;
+        if replaced_promoted {
+            chunks
+                .promoted_flat
+                .take()
+                .expect("promoted payload tag requires its FLAT sidecar");
+        }
         if let Some(primary_hints) = primary_hints {
             chunks.primary_hints = primary_hints;
         }
@@ -276,9 +301,18 @@ impl<'a> Document<'a> {
         reserve: R,
     ) -> Result<ChunkId, EditError>
     where
-        R: FnOnce(&mut Vec<ChunkNode<'a>>) -> Result<(), EditError>,
+        R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
     {
         self.ensure_mutable()?;
+        match (&self.state, position) {
+            (DocumentState::Flat(_), InsertPosition::End) => {
+                return self.insert_raw_into_flat_with(input, reserve);
+            }
+            (DocumentState::Flat(_) | DocumentState::OpaqueFlat(_), _) => {
+                return Err(EditError::ChunkLayoutRequired);
+            }
+            (DocumentState::Chunk(_), _) => {}
+        }
         let index = insertion_index(&self.state, position)?;
         let ids = plan_chunk_ids(self.next_id, 1)?;
         let id = ids.id(0).expect("one planned chunk ID must exist");
@@ -298,7 +332,7 @@ impl<'a> Document<'a> {
         let DocumentState::Chunk(chunks) = &mut self.state else {
             unreachable!("layout checked before preparing insertion");
         };
-        reserve(&mut chunks.chunks)?;
+        reserve(&mut chunks.chunks, 1)?;
         chunks.chunks.insert(index, node);
 
         self.next_id = ids.following_counter();
@@ -313,14 +347,54 @@ impl<'a> Document<'a> {
         reserve: R,
     ) -> Result<ChunkId, EditError>
     where
-        R: FnOnce(&mut Vec<ChunkNode<'a>>) -> Result<(), EditError>,
+        R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
     {
         self.insert_raw_at_with(InsertPosition::End, input, reserve)
     }
 
-    fn remove_to_vec_with<C>(&mut self, id: ChunkId, copy: C) -> Result<Vec<u8>, EditError>
+    fn insert_raw_into_flat_with<R>(
+        &mut self,
+        input: RawChunkInput<'a>,
+        reserve: R,
+    ) -> Result<ChunkId, EditError>
     where
-        C: FnOnce(&[u8]) -> Result<Vec<u8>, EditError>,
+        R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
+    {
+        let ids = plan_chunk_ids(self.next_id, 2)?;
+        let promoted_id = ids.id(0).expect("first planned chunk ID must exist");
+        let inserted_id = ids.id(1).expect("second planned chunk ID must exist");
+        let prepared = prepare_raw(input)?;
+
+        let mut nodes = Vec::new();
+        reserve(&mut nodes, 2)?;
+        nodes.push(promoted_flat_node(promoted_id));
+        nodes.push(prepared.into_node(inserted_id));
+
+        let previous = core::mem::replace(
+            &mut self.state,
+            DocumentState::Chunk(ChunkSet {
+                chunks: Vec::new(),
+                primary: None,
+                primary_hints: PrimaryHintState::Missing,
+                promoted_flat: None,
+            }),
+        );
+        let DocumentState::Flat(record) = previous else {
+            unreachable!("FLAT layout was checked before raw insertion")
+        };
+        self.state = DocumentState::Chunk(promoted_chunk_set(record, nodes, promoted_id));
+        self.next_id = ids.following_counter();
+        self.dirty = true;
+        Ok(inserted_id)
+    }
+
+    pub(super) fn remove_to_vec_with<C>(
+        &mut self,
+        id: ChunkId,
+        copy: C,
+    ) -> Result<Vec<u8>, EditError>
+    where
+        C: FnOnce(ResolvedNodePayload<'_>) -> Result<Vec<u8>, EditError>,
     {
         self.ensure_mutable()?;
         let index = chunk_index(&self.state, id)?;
@@ -330,14 +404,12 @@ impl<'a> Document<'a> {
             };
             match &chunks.chunks[index].payload {
                 PayloadStorage::Owned(_) => None,
-                PayloadStorage::Borrowed(bytes) => Some(copy(bytes)?),
-                PayloadStorage::SourceRange(range) => {
-                    let bytes = self
-                        .origin
-                        .resolve(*range)
-                        .expect("validated source range must remain resolvable");
-                    Some(copy(bytes)?)
-                }
+                PayloadStorage::Borrowed(_)
+                | PayloadStorage::SourceRange(_)
+                | PayloadStorage::PromotedFlat => Some(copy(
+                    resolve_node_payload(self, &chunks.chunks[index])
+                        .map_err(EditError::InvalidPayload)?,
+                )?),
             }
         };
 
@@ -346,6 +418,7 @@ impl<'a> Document<'a> {
             (Some(bytes), PayloadStorage::SourceRange(_) | PayloadStorage::Borrowed(_)) => {
                 Ok(bytes)
             }
+            (Some(bytes), PayloadStorage::PromotedFlat) => Ok(bytes),
             (None, PayloadStorage::Owned(bytes)) => Ok(bytes),
             _ => unreachable!("payload storage cannot change during removal"),
         }
@@ -356,6 +429,12 @@ impl<'a> Document<'a> {
             unreachable!("layout checked before committing removal");
         };
         let node = chunks.chunks.remove(index);
+        if matches!(node.payload, PayloadStorage::PromotedFlat) {
+            chunks
+                .promoted_flat
+                .take()
+                .expect("promoted payload tag requires its FLAT sidecar");
+        }
         let was_primary = chunks.primary == Some(node.id);
         if was_primary {
             chunks.primary = None;
@@ -381,19 +460,6 @@ fn chunk_index(state: &DocumentState<'_>, id: ChunkId) -> Result<usize, EditErro
         .iter()
         .position(|node| node.id == id)
         .ok_or(EditError::InvalidChunkId)
-}
-
-fn payload_bytes<'document>(
-    origin: &'document super::source::Origin<'_>,
-    node: &'document ChunkNode<'_>,
-) -> &'document [u8] {
-    match &node.payload {
-        PayloadStorage::SourceRange(range) => origin
-            .resolve(*range)
-            .expect("validated source range must remain resolvable"),
-        PayloadStorage::Borrowed(bytes) => bytes,
-        PayloadStorage::Owned(bytes) => bytes.as_slice(),
-    }
 }
 
 fn insertion_index(
@@ -458,17 +524,16 @@ fn prepare_replacement(
     })
 }
 
-fn copy_payload(payload: &[u8]) -> Result<Vec<u8>, EditError> {
-    let mut copy = Vec::new();
-    copy.try_reserve_exact(payload.len())
-        .map_err(|_| EditError::AllocationFailed)?;
-    copy.extend_from_slice(payload);
-    Ok(copy)
+fn copy_payload(payload: ResolvedNodePayload<'_>) -> Result<Vec<u8>, EditError> {
+    payload.to_vec().map_err(|error| match error {
+        EncodeError::AllocationFailed => EditError::AllocationFailed,
+        _ => EditError::InvalidPayload(ImagePayloadError::SizeOverflow),
+    })
 }
 
-fn reserve_one_node(chunks: &mut Vec<ChunkNode<'_>>) -> Result<(), EditError> {
+fn reserve_one_node(chunks: &mut Vec<ChunkNode<'_>>, additional: usize) -> Result<(), EditError> {
     chunks
-        .try_reserve(1)
+        .try_reserve_exact(additional)
         .map_err(|_| EditError::AllocationFailed)
 }
 
@@ -1454,16 +1519,17 @@ mod tests {
             extra: None,
         });
         let mut flat = Document::open(&flat_source).unwrap();
-        assert_eq!(
-            flat.push_raw(raw(
+        let appended = flat
+            .push_raw(raw(
                 ChunkType::new(0xbeef).unwrap(),
                 ChunkFlags::NONE,
                 PayloadInput::Borrowed(b"opaque"),
                 assumed_policy(),
-            )),
-            Err(EditError::ChunkLayoutRequired)
-        );
-        assert!(!flat.is_dirty());
+            ))
+            .unwrap();
+        assert_eq!(appended, ChunkId::from_session_counter(1));
+        assert_eq!(ids(&flat), [ChunkId::from_session_counter(0), appended]);
+        assert!(flat.is_dirty());
 
         let mut document = Document::new_chunk();
         let first = document
@@ -1520,7 +1586,7 @@ mod tests {
                 PayloadInput::Owned(vec![1, 2, 3]),
                 assumed_policy(),
             ),
-            |_| Err(EditError::AllocationFailed),
+            |_, _| Err(EditError::AllocationFailed),
         );
         assert_eq!(result, Err(EditError::AllocationFailed));
         assert_eq!(ids(&document), before_ids);
@@ -1550,7 +1616,10 @@ mod tests {
                 .chunks
                 .iter()
                 .map(|node| {
-                    let bytes = payload_bytes(&document.origin, node);
+                    let bytes = resolve_node_payload(&document, node)
+                        .unwrap()
+                        .bytes()
+                        .expect("ordinary CHUNK fixture uses contiguous payloads");
                     (
                         node.id,
                         node.flags,
@@ -1572,7 +1641,7 @@ mod tests {
                     PayloadInput::Borrowed(b"shadow"),
                     policy,
                 ),
-                |_| panic!("shadowing insertion must not reserve node capacity"),
+                |_, _| panic!("shadowing insertion must not reserve node capacity"),
             );
             assert_eq!(result, Err(EditError::WouldShadowPrimary));
             assert_eq!(ids(&document), before_ids);
@@ -1589,7 +1658,10 @@ mod tests {
                 .chunks
                 .iter()
                 .map(|node| {
-                    let bytes = payload_bytes(&document.origin, node);
+                    let bytes = resolve_node_payload(&document, node)
+                        .unwrap()
+                        .bytes()
+                        .expect("ordinary CHUNK fixture uses contiguous payloads");
                     (
                         node.id,
                         node.flags,

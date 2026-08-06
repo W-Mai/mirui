@@ -155,6 +155,7 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
                             PayloadStorage::Owned(bytes) => {
                                 (2, bytes.as_slice(), Some(bytes.capacity()))
                             }
+                            PayloadStorage::PromotedFlat => (3, &[] as &[u8], None),
                         };
                         NodeSnapshot {
                             id: node.id,

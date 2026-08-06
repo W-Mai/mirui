@@ -237,6 +237,7 @@ mod tests {
             super::super::PayloadStorage::Owned(bytes) => {
                 (2, None, bytes.as_slice(), Some(bytes.capacity()))
             }
+            super::super::PayloadStorage::PromotedFlat => (3, None, &[] as &[u8], None),
         };
         NodeSnapshot {
             id: node.id,

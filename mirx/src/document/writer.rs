@@ -1,17 +1,23 @@
 use alloc::{borrow::Cow, vec::Vec};
 use core::ops::Range;
 
-use super::{
-    ChunkNode, ChunkSet, Compatibility, Document, DocumentState, EncodeOptions, FlatRecord,
-    LayoutPolicy, PayloadStorage, PrimaryHintState, TrailingState,
+use super::payload::{
+    ResolvedImagePlanes, ResolvedNodePayload, encode_error_for_image, resolve_flat_record,
+    resolve_node_payload,
 };
-use crate::payload::image::validate_image_planes;
+use super::{
+    ChunkSet, Compatibility, Document, DocumentState, EncodeOptions, FlatRecord, LayoutPolicy,
+    PayloadStorage, PrimaryHintState, TrailingState,
+};
 use crate::wire::read_u32_le;
 use crate::{
-    CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFlags, ChunkType, ColorFormat, EncodeError,
+    CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFlags, ChunkType, EncodeError,
     FILE_HEADER_LEN, FLAT_HEADER_LEN, FileHeader, ImageChunkHeader, ImageView, Layout,
     PrimaryHints, VERSION_MAJOR, VERSION_MINOR, crc32,
 };
+
+#[cfg(test)]
+use crate::ColorFormat;
 
 const CONTAINER_ALIGNMENT: u32 = 4;
 
@@ -28,17 +34,7 @@ impl WirePrimary {
     };
 }
 
-#[derive(Clone, Copy)]
-pub(super) struct ImageSegments<'a> {
-    pub(super) width: u32,
-    pub(super) height: u32,
-    pub(super) format: ColorFormat,
-    pub(super) stride: u32,
-    pub(super) main: &'a [u8],
-    pub(super) extra: Option<&'a [u8]>,
-    pub(super) main_size: u32,
-    pub(super) extra_size: u32,
-}
+pub(super) type ImageSegments<'a> = ResolvedImagePlanes<'a>;
 
 #[derive(Clone, Copy)]
 pub(super) struct SegmentedImagePlan<'a> {
@@ -46,6 +42,25 @@ pub(super) struct SegmentedImagePlan<'a> {
     pub(super) data_offset: u32,
     pub(super) data_size: u32,
     pub(super) payload_size: u32,
+}
+
+impl<'a> SegmentedImagePlan<'a> {
+    fn new(image: ImageSegments<'a>) -> Result<Self, EncodeError> {
+        let data_offset = ImageChunkHeader::SIZE as u32;
+        let data_size = image
+            .main_size
+            .checked_add(image.extra_size)
+            .ok_or(EncodeError::SizeOverflow)?;
+        let payload_size = data_offset
+            .checked_add(data_size)
+            .ok_or(EncodeError::SizeOverflow)?;
+        Ok(Self {
+            image,
+            data_offset,
+            data_size,
+            payload_size,
+        })
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -127,7 +142,9 @@ impl FlatLayoutPlan<'_> {
 
 #[derive(Clone, Copy)]
 enum ChunkPlanSource<'a> {
-    Nodes,
+    Nodes {
+        promoted: Option<SegmentedImagePlan<'a>>,
+    },
     FlatImage(SegmentedImagePlan<'a>),
 }
 
@@ -135,43 +152,61 @@ pub(super) struct ChunkLayoutPlan<'document, 'source> {
     document: &'document Document<'source>,
     source: ChunkPlanSource<'document>,
     chunk_count: u16,
+    promoted_index: u16,
     chunk_table_offset: u32,
     table_end: u32,
     file_size: u32,
-    output_len: usize,
     primary: WirePrimary,
 }
 
 impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
     fn from_nodes(
         document: &'document Document<'source>,
-        chunks: &ChunkSet<'source>,
+        chunks: &'document ChunkSet<'source>,
     ) -> Result<Self, EncodeError> {
         let chunk_count = checked_chunk_count(chunks.chunks.len())?;
-        let primary = lower_primary(document, chunks)?;
+        let tag_index = chunks
+            .chunks
+            .iter()
+            .position(|node| matches!(node.payload, PayloadStorage::PromotedFlat));
+        debug_assert_eq!(chunks.promoted_flat.is_some(), tag_index.is_some());
+        debug_assert_eq!(
+            chunks
+                .chunks
+                .iter()
+                .filter(|node| matches!(node.payload, PayloadStorage::PromotedFlat))
+                .count(),
+            usize::from(chunks.promoted_flat.is_some())
+        );
+        let primary = lower_primary(document, chunks, tag_index)?;
         validate_capabilities(chunks)?;
-        Self::finish(document, ChunkPlanSource::Nodes, chunk_count, primary)
+        let (promoted, promoted_index) = match (chunks.promoted_flat.as_ref(), tag_index) {
+            (Some(record), Some(index)) => {
+                let index = u16::try_from(index)
+                    .expect("chunk count checked before promoted index lowering");
+                let image = resolve_flat_record(document, record)
+                    .map_err(encode_error_for_image)
+                    .and_then(SegmentedImagePlan::new)?;
+                (Some(image), index)
+            }
+            (None, None) => (None, u16::MAX),
+            _ => unreachable!("promoted payload tag and sidecar must exist together"),
+        };
+        Self::finish(
+            document,
+            ChunkPlanSource::Nodes { promoted },
+            chunk_count,
+            primary,
+            promoted_index,
+        )
     }
 
     fn from_flat(
         document: &'document Document<'source>,
         record: &'document FlatRecord<'source>,
     ) -> Result<Self, EncodeError> {
-        let image = resolve_flat_image(document, record)?;
-        let data_offset = ImageChunkHeader::SIZE as u32;
-        let data_size = image
-            .main_size
-            .checked_add(image.extra_size)
-            .ok_or(EncodeError::SizeOverflow)?;
-        let payload_size = data_offset
-            .checked_add(data_size)
-            .ok_or(EncodeError::SizeOverflow)?;
-        let segmented = SegmentedImagePlan {
-            image,
-            data_offset,
-            data_size,
-            payload_size,
-        };
+        let image = resolve_flat_record(document, record).map_err(encode_error_for_image)?;
+        let segmented = SegmentedImagePlan::new(image)?;
         let primary = WirePrimary {
             chunk_type: ChunkType::IMAGE.raw(),
             hints: PrimaryHints::new(
@@ -181,7 +216,13 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
                 image.stride,
             ),
         };
-        Self::finish(document, ChunkPlanSource::FlatImage(segmented), 1, primary)
+        Self::finish(
+            document,
+            ChunkPlanSource::FlatImage(segmented),
+            1,
+            primary,
+            u16::MAX,
+        )
     }
 
     fn finish(
@@ -189,6 +230,7 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
         source: ChunkPlanSource<'document>,
         chunk_count: u16,
         primary: WirePrimary,
+        promoted_index: u16,
     ) -> Result<Self, EncodeError> {
         let chunk_table_offset = CHUNK_FILE_HEADER_LEN as u32;
         let table_size = u32::from(chunk_count)
@@ -201,10 +243,10 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
             document,
             source,
             chunk_count,
+            promoted_index,
             chunk_table_offset,
             table_end,
             file_size: table_end,
-            output_len: 0,
             primary,
         };
 
@@ -214,22 +256,35 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
             cursor = placement.end_offset;
         }
         plan.file_size = cursor;
-        plan.output_len = usize::try_from(cursor).map_err(|_| EncodeError::SizeOverflow)?;
+        usize::try_from(cursor).map_err(|_| EncodeError::SizeOverflow)?;
         Ok(plan)
     }
 
-    fn payload_at<'plan>(&'plan self, index: u16) -> PayloadPlan<'plan> {
+    fn payload_at<'plan>(&'plan self, index: u16) -> Result<PayloadPlan<'plan>, EncodeError> {
         match self.source {
             ChunkPlanSource::FlatImage(image) => {
                 debug_assert_eq!(index, 0);
-                PayloadPlan::SegmentedImage(image)
+                Ok(PayloadPlan::SegmentedImage(image))
             }
-            ChunkPlanSource::Nodes => {
+            ChunkPlanSource::Nodes { promoted } => {
                 let DocumentState::Chunk(chunks) = &self.document.state else {
                     unreachable!("node-backed layout plan requires CHUNK state");
                 };
                 let node = &chunks.chunks[index as usize];
-                PayloadPlan::Verbatim(resolve_node_payload(self.document, node))
+                if matches!(node.payload, PayloadStorage::PromotedFlat) {
+                    let promoted =
+                        promoted.expect("promoted payload tag requires a planned sidecar");
+                    debug_assert_eq!(self.promoted_index, index);
+                    return Ok(PayloadPlan::SegmentedImage(promoted));
+                }
+                match resolve_node_payload(self.document, node).map_err(encode_error_for_image)? {
+                    ResolvedNodePayload::Contiguous { bytes, .. } => {
+                        Ok(PayloadPlan::Verbatim(bytes))
+                    }
+                    ResolvedNodePayload::PromotedImage(_) => {
+                        unreachable!("promoted payload handled from the cached layout plan")
+                    }
+                }
             }
         }
     }
@@ -237,7 +292,7 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
     fn descriptor_at(&self, index: u16) -> (ChunkType, ChunkFlags) {
         match self.source {
             ChunkPlanSource::FlatImage(_) => (ChunkType::IMAGE, ChunkFlags::NONE),
-            ChunkPlanSource::Nodes => {
+            ChunkPlanSource::Nodes { .. } => {
                 let DocumentState::Chunk(chunks) = &self.document.state else {
                     unreachable!("node-backed layout plan requires CHUNK state");
                 };
@@ -252,7 +307,7 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
         index: u16,
         cursor: u32,
     ) -> Result<ChunkPlacement<'plan>, EncodeError> {
-        let payload = self.payload_at(index);
+        let payload = self.payload_at(index)?;
         let (chunk_type, flags) = self.descriptor_at(index);
         let chunk_size = payload.encoded_len()?;
         let chunk_offset = payload.placement_constraint(chunk_type).place(cursor)?;
@@ -285,8 +340,9 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
         })
     }
 
-    pub(super) const fn output_len(&self) -> usize {
-        self.output_len
+    pub(super) fn output_len(&self) -> usize {
+        usize::try_from(self.file_size)
+            .expect("validated CHUNK file size must fit the output address space")
     }
 
     pub(super) const fn chunk_count(&self) -> u16 {
@@ -367,7 +423,7 @@ pub(super) enum LayoutPlan<'document, 'source> {
 }
 
 impl LayoutPlan<'_, '_> {
-    pub(super) const fn output_len(&self) -> usize {
+    pub(super) fn output_len(&self) -> usize {
         match self {
             Self::Flat(plan) => plan.output_len(),
             Self::Chunk(plan) => plan.output_len(),
@@ -541,27 +597,15 @@ fn emit_chunk(plan: &ChunkLayoutPlan<'_, '_>, out: &mut [u8]) {
 fn emit_segmented_image(plan: SegmentedImagePlan<'_>, out: &mut [u8]) {
     debug_assert_eq!(usize::try_from(plan.payload_size), Ok(out.len()));
     let image = plan.image;
-    write_u32(out, 0, image.width);
-    write_u32(out, 4, image.height);
-    out[8] = image.format.to_u8();
-    write_u32(out, 12, image.stride);
-    write_u32(out, 16, plan.data_offset);
-    write_u32(out, 20, plan.data_size);
-    write_u32(out, 24, image.extra_size);
-
-    let data_offset = usize::try_from(plan.data_offset)
-        .expect("validated segmented IMAGE offset must fit the output address space");
-    let data = &mut out[data_offset..];
-    let data_len = data.len();
-    let (main, extra) = data.split_at_mut(image.main.len());
-    main.copy_from_slice(image.main);
-    match image.extra {
-        Some(source) => extra.copy_from_slice(source),
-        None => debug_assert!(extra.is_empty()),
-    }
-    debug_assert_eq!(usize::try_from(plan.data_size), Ok(data_len));
-    debug_assert_eq!(usize::try_from(image.main_size), Ok(main.len()));
-    debug_assert_eq!(usize::try_from(image.extra_size), Ok(extra.len()));
+    debug_assert_eq!(plan.data_offset, ImageChunkHeader::SIZE as u32);
+    debug_assert_eq!(
+        plan.data_size,
+        image
+            .main_size
+            .checked_add(image.extra_size)
+            .expect("planned segmented IMAGE data size")
+    );
+    image.emit_payload(out);
 }
 
 fn emit_file_header(layout: Layout, out: &mut [u8]) {
@@ -609,6 +653,7 @@ fn checked_payload_end(offset: u32, size: u32) -> Result<u32, EncodeError> {
 fn lower_primary(
     document: &Document<'_>,
     chunks: &ChunkSet<'_>,
+    promoted_index: Option<usize>,
 ) -> Result<WirePrimary, EncodeError> {
     let Some(primary) = chunks.primary else {
         return Ok(WirePrimary::NONE);
@@ -631,9 +676,26 @@ fn lower_primary(
             .map(|candidate| candidate.id),
         Some(primary),
     );
+    let hints = if promoted_index.and_then(|index| chunks.chunks.get(index).map(|node| node.id))
+        == Some(primary)
+        && matches!(chunks.primary_hints, PrimaryHintState::Derived)
+    {
+        let record = chunks
+            .promoted_flat
+            .as_ref()
+            .expect("promoted payload tag requires its FLAT sidecar");
+        PrimaryHints::new(
+            record.image.format.to_u8(),
+            record.image.width,
+            record.image.height,
+            record.image.stride,
+        )
+    } else {
+        document.primary_hints()
+    };
     Ok(WirePrimary {
         chunk_type: node.chunk_type.raw(),
-        hints: document.primary_hints(),
+        hints,
     })
 }
 
@@ -664,59 +726,11 @@ fn validate_capabilities(chunks: &ChunkSet<'_>) -> Result<(), EncodeError> {
     Ok(())
 }
 
-fn resolve_node_payload<'document>(
-    document: &'document Document<'_>,
-    node: &'document ChunkNode<'_>,
-) -> &'document [u8] {
-    match &node.payload {
-        PayloadStorage::SourceRange(range) => document
-            .origin
-            .resolve(*range)
-            .expect("validated source range must remain resolvable"),
-        PayloadStorage::Borrowed(bytes) => bytes,
-        PayloadStorage::Owned(bytes) => bytes.as_slice(),
-    }
-}
-
-fn resolve_flat_image<'document>(
-    document: &'document Document<'_>,
-    record: &'document FlatRecord<'_>,
-) -> Result<ImageSegments<'document>, EncodeError> {
-    let main = record
-        .main
-        .resolve(&document.origin)
-        .ok_or(EncodeError::SizeOverflow)?;
-    let extra = match &record.extra {
-        Some(plane) => Some(
-            plane
-                .resolve(&document.origin)
-                .ok_or(EncodeError::SizeOverflow)?,
-        ),
-        None => None,
-    };
-    let sizes = validate_image_planes(record.image, main, extra).map_err(|_| {
-        EncodeError::InvalidPayload {
-            chunk_type: ChunkType::IMAGE,
-        }
-    })?;
-
-    Ok(ImageSegments {
-        width: record.image.width,
-        height: record.image.height,
-        format: record.image.format,
-        stride: record.image.stride,
-        main,
-        extra,
-        main_size: sizes.main,
-        extra_size: sizes.extra,
-    })
-}
-
 fn plan_flat<'document>(
     document: &'document Document<'_>,
     record: &'document FlatRecord<'_>,
 ) -> Result<FlatLayoutPlan<'document>, EncodeError> {
-    let image = resolve_flat_image(document, record)?;
+    let image = resolve_flat_record(document, record).map_err(encode_error_for_image)?;
     let file_size = (FLAT_HEADER_LEN as u32)
         .checked_add(image.main_size)
         .and_then(|size| size.checked_add(image.extra_size))
@@ -913,7 +927,11 @@ mod tests {
         assert_eq!(plan.primary(), WirePrimary::NONE);
         assert_eq!(plan.placements().len(), 0);
         assert!(!needs_drop::<ChunkLayoutPlan<'_, '_>>());
-        assert!(size_of::<ChunkLayoutPlan<'_, '_>>() <= 128);
+        assert!(
+            size_of::<ChunkLayoutPlan<'_, '_>>() <= 128,
+            "layout plan size: {}",
+            size_of::<ChunkLayoutPlan<'_, '_>>()
+        );
     }
 
     #[test]

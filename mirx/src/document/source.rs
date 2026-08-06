@@ -19,10 +19,6 @@ impl SourceRange {
         source.get(self.start..self.end)
     }
 
-    pub(super) const fn len(self) -> usize {
-        self.end - self.start
-    }
-
     pub(super) const fn start(self) -> usize {
         self.start
     }

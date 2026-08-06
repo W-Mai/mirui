@@ -1,7 +1,9 @@
+use alloc::vec::Vec;
 use core::fmt;
 use core::iter::FusedIterator;
 use core::slice;
 
+use super::payload::{encode_error_for_image, resolve_node_payload};
 use super::{ChunkNode, Document, DocumentState, PayloadStorage};
 use crate::{ChunkFlags, ChunkId, ChunkType, EncodeError};
 
@@ -62,16 +64,13 @@ impl<'a> DocumentChunkRef<'a> {
             PayloadStorage::SourceRange(_) => PayloadOrigin::ORIGINAL_SOURCE,
             PayloadStorage::Borrowed(_) => PayloadOrigin::BORROWED,
             PayloadStorage::Owned(_) => PayloadOrigin::OWNED,
+            PayloadStorage::PromotedFlat => PayloadOrigin::SYNTHESIZED,
         }
     }
 
     /// Returns the encoded payload bytes when they already exist.
     pub fn payload_bytes(&self) -> Option<&'a [u8]> {
-        match &self.node.payload {
-            PayloadStorage::SourceRange(range) => self.document.origin.resolve(*range),
-            PayloadStorage::Borrowed(bytes) => Some(bytes),
-            PayloadStorage::Owned(bytes) => Some(bytes.as_slice()),
-        }
+        resolve_node_payload(self.document, self.node).ok()?.bytes()
     }
 
     /// Returns the encoded payload length.
@@ -79,12 +78,26 @@ impl<'a> DocumentChunkRef<'a> {
     /// The fallible result also supports payload representations whose encoded
     /// size must be planned before bytes are materialized.
     pub fn payload_len(&self) -> Result<usize, EncodeError> {
-        let len = match &self.node.payload {
-            PayloadStorage::SourceRange(range) => range.len(),
-            PayloadStorage::Borrowed(bytes) => bytes.len(),
-            PayloadStorage::Owned(bytes) => bytes.len(),
-        };
-        Ok(len)
+        resolve_node_payload(self.document, self.node)
+            .map_err(encode_error_for_image)?
+            .encoded_len()
+    }
+
+    /// Copies the complete encoded payload into caller-provided storage.
+    ///
+    /// The output remains unchanged when validation fails or when `out` is too
+    /// short. Bytes after the returned payload length are untouched.
+    pub fn copy_payload_into(&self, out: &mut [u8]) -> Result<usize, EncodeError> {
+        resolve_node_payload(self.document, self.node)
+            .map_err(encode_error_for_image)?
+            .copy_into(out)
+    }
+
+    /// Materializes the complete encoded payload after computing its full size.
+    pub fn payload_to_vec(&self) -> Result<Vec<u8>, EncodeError> {
+        resolve_node_payload(self.document, self.node)
+            .map_err(encode_error_for_image)?
+            .to_vec()
     }
 }
 

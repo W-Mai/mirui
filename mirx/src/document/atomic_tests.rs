@@ -1,4 +1,5 @@
 use alloc::borrow::Cow;
+use alloc::boxed::Box;
 use alloc::vec;
 use alloc::vec::Vec;
 
@@ -46,6 +47,7 @@ enum StorageKind {
     SourceRange(SourceRange),
     Borrowed,
     Owned,
+    PromotedFlat,
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -81,6 +83,7 @@ enum StateSnapshot {
         vector_capacity: usize,
         primary: Option<ChunkId>,
         primary_hints: PrimaryHintState,
+        promoted_flat: Option<Box<StateSnapshot>>,
         nodes: Vec<NodeSnapshot>,
     },
 }
@@ -173,6 +176,7 @@ fn storage_snapshot(document: &Document<'_>, payload: &PayloadStorage<'_>) -> St
         PayloadStorage::Owned(bytes) => {
             (StorageKind::Owned, bytes.as_slice(), Some(bytes.capacity()))
         }
+        PayloadStorage::PromotedFlat => (StorageKind::PromotedFlat, &[] as &[u8], None),
     };
     StorageSnapshot {
         kind,
@@ -223,6 +227,16 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
             vector_capacity: chunks.chunks.capacity(),
             primary: chunks.primary,
             primary_hints: chunks.primary_hints,
+            promoted_flat: chunks.promoted_flat.as_ref().map(|record| {
+                Box::new(StateSnapshot::Flat {
+                    image: record.image,
+                    main: plane_snapshot(document, &record.main),
+                    extra: record
+                        .extra
+                        .as_ref()
+                        .map(|plane| plane_snapshot(document, plane)),
+                })
+            }),
             nodes: chunks
                 .chunks
                 .iter()
@@ -248,6 +262,78 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
         public_primary_hints: document.primary_hints(),
         state,
     }
+}
+
+#[test]
+fn promoted_snapshot_includes_the_tag_and_complete_plane_sidecar() {
+    let source = encode_flat(&FlatImageInput {
+        width: 2,
+        height: 2,
+        stride: ColorFormat::A8.minimum_stride(2).unwrap(),
+        format: ColorFormat::A8,
+        main: &[1, 2, 3, 4],
+        extra: None,
+    });
+    let mut document = Document::open(&source).unwrap();
+    let image_id = document.ensure_chunk_layout().unwrap().unwrap();
+
+    let snapshot = snapshot(&document);
+    let StateSnapshot::Chunk {
+        promoted_flat: Some(record),
+        nodes,
+        ..
+    } = snapshot.state
+    else {
+        panic!("expected promoted CHUNK snapshot");
+    };
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].id, image_id);
+    assert_eq!(nodes[0].payload.kind, StorageKind::PromotedFlat);
+    let StateSnapshot::Flat { image, main, extra } = *record else {
+        panic!("expected promoted FLAT sidecar snapshot");
+    };
+    assert_eq!(image.format, ColorFormat::A8);
+    assert_eq!(
+        main.kind,
+        StorageKind::SourceRange(SourceRange::checked(FLAT_HEADER_LEN, 4, source.len()).unwrap())
+    );
+    assert_eq!(main.bytes, [1, 2, 3, 4]);
+    assert_eq!(extra, None);
+}
+
+#[test]
+fn promoted_mutation_failures_preserve_the_complete_snapshot() {
+    let source = encode_flat(&FlatImageInput {
+        width: 2,
+        height: 2,
+        stride: ColorFormat::A8.minimum_stride(2).unwrap(),
+        format: ColorFormat::A8,
+        main: &[1, 2, 3, 4],
+        extra: None,
+    });
+    let second_payload = image_payload(2, 2);
+    let mut document = Document::open(&source).unwrap();
+    let promoted = document.ensure_chunk_layout().unwrap().unwrap();
+    let second = document
+        .push_raw(raw(
+            ChunkType::IMAGE,
+            ChunkFlags::NONE,
+            PayloadInput::Borrowed(&second_payload),
+            RawChunkPolicy::infer(),
+        ))
+        .unwrap();
+    let before = snapshot(&document);
+
+    let result = document.move_before(second, promoted);
+    assert_atomic_error(&document, &before, result, EditError::WouldShadowPrimary);
+
+    let result = document.set_type(promoted, TYPE_C, RawChunkPolicy::infer());
+    assert_atomic_error(
+        &document,
+        &before,
+        result,
+        EditError::RelocationAssumptionRequired { chunk_type: TYPE_C },
+    );
 }
 
 fn assert_atomic_error<T>(
@@ -625,7 +711,7 @@ fn raw_descriptor_reserve_and_capability_failures_preserve_full_state() {
             PayloadInput::Borrowed(b"bad-policy"),
             RawChunkPolicy::infer(),
         ),
-        |_| panic!("payload policy failure must precede node reserve"),
+        |_, _| panic!("payload policy failure must precede node reserve"),
     );
     assert_atomic_error(
         &document,
@@ -641,7 +727,7 @@ fn raw_descriptor_reserve_and_capability_failures_preserve_full_state() {
             PayloadInput::Owned(vec![2, 7, 1, 8]),
             explicit_policy(),
         ),
-        |_| Err(EditError::AllocationFailed),
+        |_, _| Err(EditError::AllocationFailed),
     );
     assert_atomic_error(&document, &before, result, EditError::AllocationFailed);
 }

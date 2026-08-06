@@ -76,6 +76,7 @@ fn payload_bytes<'document>(document: &'document Document<'_>, index: usize) -> 
         PayloadStorage::SourceRange(range) => document.origin.resolve(*range).unwrap(),
         PayloadStorage::Borrowed(bytes) => bytes,
         PayloadStorage::Owned(bytes) => bytes.as_slice(),
+        PayloadStorage::PromotedFlat => &[],
     }
 }
 

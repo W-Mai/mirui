@@ -1,6 +1,7 @@
 use super::descriptor::descriptor_payload;
+use super::payload::ResolvedNodePayload;
 use super::{ChunkNode, ChunkSet, Document, DocumentState, PrimaryHintState};
-use crate::{ChunkId, ChunkType, EditError, ImageView, PRIMARY_FORMAT_NONE, PrimaryHints};
+use crate::{ChunkId, ChunkType, EditError, PRIMARY_FORMAT_NONE, PrimaryHints};
 
 const KNOWN_NON_IMAGE_HINTS: PrimaryHints = PrimaryHints::new(PRIMARY_FORMAT_NONE, 0, 0, 0);
 
@@ -45,12 +46,9 @@ const fn known_non_image_hint_state(hints: PrimaryHints) -> PrimaryHintState {
 
 pub(super) fn changed_primary_hint_state(
     chunk_type: ChunkType,
-    payload: &[u8],
-    payload_offset: u32,
+    payload: ResolvedNodePayload<'_>,
 ) -> PrimaryHintState {
-    if matches!(chunk_type, ChunkType::IMAGE)
-        && ImageView::from_chunk_payload(payload, payload_offset).is_ok()
-    {
+    if matches!(chunk_type, ChunkType::IMAGE) && payload.image_hints().is_some() {
         PrimaryHintState::Derived
     } else if is_known_non_image(chunk_type) {
         PrimaryHintState::KnownNonImageDefault
@@ -61,10 +59,9 @@ pub(super) fn changed_primary_hint_state(
 
 fn selected_primary_hint_state(
     chunk_type: ChunkType,
-    payload: &[u8],
-    payload_offset: u32,
+    payload: ResolvedNodePayload<'_>,
 ) -> Result<PrimaryHintState, EditError> {
-    let state = changed_primary_hint_state(chunk_type, payload, payload_offset);
+    let state = changed_primary_hint_state(chunk_type, payload);
     if matches!(state, PrimaryHintState::Missing) {
         Err(EditError::PrimaryHintsRequired { chunk_type })
     } else {
@@ -74,13 +71,12 @@ fn selected_primary_hint_state(
 
 fn explicit_primary_hint_state(
     chunk_type: ChunkType,
-    payload: &[u8],
-    payload_offset: u32,
+    payload: ResolvedNodePayload<'_>,
     hints: PrimaryHints,
 ) -> Result<PrimaryHintState, EditError> {
     if matches!(chunk_type, ChunkType::IMAGE) {
-        return match ImageView::from_chunk_payload(payload, payload_offset) {
-            Ok(image) if image_hints(image) == hints => Ok(PrimaryHintState::Derived),
+        return match payload.validate_image_contract() {
+            Ok(actual) if actual == hints => Ok(PrimaryHintState::Derived),
             Ok(_) => Err(EditError::InvalidPrimaryHints { chunk_type }),
             Err(_) => Ok(PrimaryHintState::Explicit(hints)),
         };
@@ -93,15 +89,6 @@ fn explicit_primary_hint_state(
         };
     }
     Ok(PrimaryHintState::Explicit(hints))
-}
-
-fn image_hints(image: ImageView<'_>) -> PrimaryHints {
-    PrimaryHints::new(
-        image.format().to_u8(),
-        image.width(),
-        image.height(),
-        image.stride(),
-    )
 }
 
 /// A structural edit projected onto table order without changing storage.
@@ -233,10 +220,10 @@ impl Document<'_> {
                     .iter()
                     .find(|node| node.id == primary)
                     .expect("document primary must identify a live node");
-                let (payload, payload_offset) = descriptor_payload(self, node);
-                let image = ImageView::from_chunk_payload(payload, payload_offset)
-                    .expect("derived primary hints require a validated IMAGE payload");
-                image_hints(image)
+                descriptor_payload(self, node)
+                    .expect("derived primary payload must remain resolvable")
+                    .image_hints()
+                    .expect("derived primary hints require a validated IMAGE payload")
             }
             PrimaryHintState::Explicit(hints) | PrimaryHintState::PreservedOpaque(hints) => hints,
             PrimaryHintState::KnownNonImageDefault => KNOWN_NON_IMAGE_HINTS,
@@ -267,8 +254,8 @@ impl Document<'_> {
                 return Ok(());
             }
             let chunk_type = chunks.chunks[selected].chunk_type;
-            let (payload, payload_offset) = descriptor_payload(self, &chunks.chunks[selected]);
-            let primary_hints = selected_primary_hint_state(chunk_type, payload, payload_offset)?;
+            let payload = descriptor_payload(self, &chunks.chunks[selected])?;
+            let primary_hints = selected_primary_hint_state(chunk_type, payload)?;
             let first_of_type = chunks
                 .chunks
                 .iter()
@@ -313,9 +300,8 @@ impl Document<'_> {
                 .position(|node| node.id == id)
                 .ok_or(EditError::InvalidChunkId)?;
             let node = &chunks.chunks[selected];
-            let (payload, payload_offset) = descriptor_payload(self, node);
-            let primary_hints =
-                explicit_primary_hint_state(node.chunk_type, payload, payload_offset, hints)?;
+            let payload = descriptor_payload(self, node)?;
+            let primary_hints = explicit_primary_hint_state(node.chunk_type, payload, hints)?;
             let exact_preserved = matches!(
                 chunks.primary_hints,
                 PrimaryHintState::PreservedOpaque(preserved) if preserved == hints
@@ -499,6 +485,7 @@ mod tests {
                             PayloadStorage::Owned(bytes) => {
                                 (2, bytes.as_slice(), Some(bytes.capacity()))
                             }
+                            PayloadStorage::PromotedFlat => (3, &[] as &[u8], None),
                         };
                         NodeSnapshot {
                             id: node.id,

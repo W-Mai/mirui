@@ -1,7 +1,11 @@
+use super::payload::{ResolvedNodePayload, resolve_node_payload};
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
-use super::{ChunkNode, Document, DocumentState, PayloadStorage, RewriteCapability};
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageView};
+use super::{ChunkNode, Document, DocumentState, RewriteCapability};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError};
+
+#[cfg(test)]
+use super::PayloadStorage;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct EvaluatedDescriptor {
@@ -58,7 +62,15 @@ pub(super) fn evaluate_descriptor_at(
     policy: RawChunkPolicy,
 ) -> Result<EvaluatedDescriptor, EditError> {
     let flags = evaluate_flags(flags, policy.reserved_flag_bits)?;
-    evaluate_descriptor_with_flags_at(chunk_type, flags, payload, payload_offset, policy)
+    evaluate_resolved_descriptor_with_flags(
+        chunk_type,
+        flags,
+        ResolvedNodePayload::Contiguous {
+            bytes: payload,
+            absolute_offset: payload_offset,
+        },
+        policy,
+    )
 }
 
 pub(super) fn evaluate_descriptor_with_flags(
@@ -67,19 +79,26 @@ pub(super) fn evaluate_descriptor_with_flags(
     payload: &[u8],
     policy: RawChunkPolicy,
 ) -> Result<EvaluatedDescriptor, EditError> {
-    evaluate_descriptor_with_flags_at(chunk_type, evaluated_flags, payload, 0, policy)
+    evaluate_resolved_descriptor_with_flags(
+        chunk_type,
+        evaluated_flags,
+        ResolvedNodePayload::Contiguous {
+            bytes: payload,
+            absolute_offset: 0,
+        },
+        policy,
+    )
 }
 
-fn evaluate_descriptor_with_flags_at(
+fn evaluate_resolved_descriptor_with_flags(
     chunk_type: ChunkType,
     evaluated_flags: EvaluatedFlags,
-    payload: &[u8],
-    payload_offset: u32,
+    payload: ResolvedNodePayload<'_>,
     policy: RawChunkPolicy,
 ) -> Result<EvaluatedDescriptor, EditError> {
     let flags = evaluated_flags.flags;
     let known_contract = if chunk_type == ChunkType::IMAGE {
-        match ImageView::from_chunk_payload(payload, payload_offset) {
+        match payload.validate_image_contract() {
             Ok(_) => true,
             Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
             Err(error) => return Err(EditError::InvalidPayload(error)),
@@ -181,8 +200,9 @@ impl Document<'_> {
 
         let candidate = {
             let node = chunk_node(&self.state, index);
-            let (payload, payload_offset) = descriptor_payload(self, node);
-            evaluate_descriptor_at(chunk_type, node.flags, payload, payload_offset, policy)?
+            let payload = descriptor_payload(self, node)?;
+            let flags = evaluate_flags(node.flags, policy.reserved_flag_bits)?;
+            evaluate_resolved_descriptor_with_flags(chunk_type, flags, payload, policy)?
         };
         self.apply_type_descriptor(index, candidate);
         Ok(())
@@ -210,12 +230,11 @@ impl Document<'_> {
         }
         let candidate = {
             let node = chunk_node(&self.state, index);
-            let (payload, payload_offset) = descriptor_payload(self, node);
-            evaluate_descriptor_with_flags_at(
+            let payload = descriptor_payload(self, node)?;
+            evaluate_resolved_descriptor_with_flags(
                 node.chunk_type,
                 evaluated_flags,
                 payload,
-                payload_offset,
                 policy,
             )?
         };
@@ -232,8 +251,9 @@ impl Document<'_> {
         let index = descriptor_chunk_index(&self.state, id)?;
         let candidate = {
             let node = chunk_node(&self.state, index);
-            let (payload, payload_offset) = descriptor_payload(self, node);
-            evaluate_descriptor_at(node.chunk_type, node.flags, payload, payload_offset, policy)?
+            let payload = descriptor_payload(self, node)?;
+            let flags = evaluate_flags(node.flags, policy.reserved_flag_bits)?;
+            evaluate_resolved_descriptor_with_flags(node.chunk_type, flags, payload, policy)?
         };
 
         let (exact, flags_changed) = {
@@ -268,12 +288,9 @@ impl Document<'_> {
             };
             let node = &chunks.chunks[index];
             if chunks.primary == Some(node.id) {
-                let (payload, payload_offset) = descriptor_payload(self, node);
-                Some(changed_primary_hint_state(
-                    candidate.chunk_type,
-                    payload,
-                    payload_offset,
-                ))
+                let payload = descriptor_payload(self, node)
+                    .expect("live document payload must remain resolvable");
+                Some(changed_primary_hint_state(candidate.chunk_type, payload))
             } else {
                 None
             }
@@ -327,18 +344,8 @@ fn chunk_node<'document, 'source>(
 pub(super) fn descriptor_payload<'document>(
     document: &'document Document<'_>,
     node: &'document ChunkNode<'_>,
-) -> (&'document [u8], u32) {
-    match &node.payload {
-        PayloadStorage::SourceRange(range) => (
-            document
-                .origin
-                .resolve(*range)
-                .expect("validated source range must remain resolvable"),
-            u32::try_from(range.start()).expect("MIRX source offset must fit u32"),
-        ),
-        PayloadStorage::Borrowed(bytes) => (bytes, 0),
-        PayloadStorage::Owned(bytes) => (bytes.as_slice(), 0),
-    }
+) -> Result<ResolvedNodePayload<'document>, EditError> {
+    resolve_node_payload(document, node).map_err(EditError::InvalidPayload)
 }
 
 #[cfg(test)]
@@ -459,6 +466,7 @@ mod tests {
             ),
             PayloadStorage::Borrowed(bytes) => (1, None, *bytes, None),
             PayloadStorage::Owned(bytes) => (2, None, bytes.as_slice(), Some(bytes.capacity())),
+            PayloadStorage::PromotedFlat => (3, None, &[] as &[u8], None),
         };
         StorageSnapshot {
             kind,

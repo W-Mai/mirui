@@ -133,6 +133,7 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
                         PayloadStorage::Owned(bytes) => {
                             (2, bytes.as_slice(), Some(bytes.capacity()))
                         }
+                        PayloadStorage::PromotedFlat => (3, &[] as &[u8], None),
                     };
                     NodeSnapshot {
                         id: node.id,
@@ -452,10 +453,9 @@ fn normalized_future_flat_keeps_extra_bytes_as_an_independent_trailing_region() 
     );
     document.discard_trailing_bytes().unwrap();
     assert_eq!(document.trailing, TrailingState::Discarded);
-    assert_eq!(
-        document.push_raw(raw_input(b"new")),
-        Err(EditError::ChunkLayoutRequired)
-    );
+    let added = document.push_raw(raw_input(b"new")).unwrap();
+    assert_eq!(added, ChunkId::from_session_counter(1));
+    assert_eq!(document.layout(), Layout::Chunk);
 }
 
 #[test]
@@ -652,7 +652,7 @@ fn insertion_plans_layout_and_id_before_payload_policy_atomically() {
     let before_flat = snapshot(&flat);
     assert_eq!(
         flat.push_raw(policy_failing_raw_input()),
-        Err(EditError::ChunkLayoutRequired)
+        Err(EditError::ChunkIdExhausted)
     );
     assert_eq!(snapshot(&flat), before_flat);
 }

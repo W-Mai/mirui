@@ -8,9 +8,12 @@ mod flat_tests;
 #[cfg(test)]
 mod hint_tests;
 mod options;
+mod payload;
 #[cfg(test)]
 mod policy_tests;
 mod primary;
+#[cfg(test)]
+mod promotion_tests;
 mod query;
 mod raw;
 mod reorder;
@@ -137,6 +140,7 @@ struct ChunkSet<'a> {
     chunks: Vec<ChunkNode<'a>>,
     primary: Option<ChunkId>,
     primary_hints: PrimaryHintState,
+    promoted_flat: Option<FlatRecord<'a>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -192,6 +196,7 @@ enum PayloadStorage<'a> {
     SourceRange(SourceRange),
     Borrowed(&'a [u8]),
     Owned(Vec<u8>),
+    PromotedFlat,
 }
 
 /// Capabilities established for rewriting one raw payload.
@@ -319,12 +324,71 @@ impl<'a> Document<'a> {
                 chunks: Vec::new(),
                 primary: None,
                 primary_hints: PrimaryHintState::Missing,
+                promoted_flat: None,
             }),
             compatibility: Compatibility::Current,
             trailing: TrailingState::None,
             dirty: true,
             next_id: 0,
         }
+    }
+
+    /// Converts a current FLAT document to an editable CHUNK document.
+    ///
+    /// The image planes remain in their existing source-backed, borrowed, or
+    /// owned storage. A successful conversion returns the stable identity of
+    /// the promoted IMAGE node. A document that already uses CHUNK layout is
+    /// left unchanged and returns `None`.
+    pub fn ensure_chunk_layout(&mut self) -> Result<Option<ChunkId>, EditError> {
+        self.ensure_chunk_layout_with(reserve_promoted_nodes)
+    }
+
+    fn ensure_chunk_layout_with<R>(&mut self, reserve: R) -> Result<Option<ChunkId>, EditError>
+    where
+        R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
+    {
+        self.ensure_mutable()?;
+        match &self.state {
+            DocumentState::Chunk(_) => return Ok(None),
+            DocumentState::Flat(_) => {}
+            DocumentState::OpaqueFlat(_) => {
+                unreachable!("writable FLAT documents must have validated image semantics")
+            }
+        }
+
+        let ids = raw::plan_chunk_ids(self.next_id, 1)?;
+        let id = ids.id(0).expect("one planned chunk ID must exist");
+        let mut nodes = Vec::new();
+        reserve(&mut nodes, 1)?;
+        nodes.push(promoted_flat_node(id));
+
+        let previous = core::mem::replace(
+            &mut self.state,
+            DocumentState::Chunk(ChunkSet {
+                chunks: Vec::new(),
+                primary: None,
+                primary_hints: PrimaryHintState::Missing,
+                promoted_flat: None,
+            }),
+        );
+        let DocumentState::Flat(record) = previous else {
+            unreachable!("FLAT layout was checked before promotion")
+        };
+        self.state = DocumentState::Chunk(promoted_chunk_set(record, nodes, id));
+        self.next_id = ids.following_counter();
+        self.dirty = true;
+        Ok(Some(id))
+    }
+
+    #[cfg(test)]
+    fn ensure_chunk_layout_with_reserve<R>(
+        &mut self,
+        reserve: R,
+    ) -> Result<Option<ChunkId>, EditError>
+    where
+        R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
+    {
+        self.ensure_chunk_layout_with(reserve)
     }
 
     pub const fn layout(&self) -> Layout {
@@ -447,6 +511,45 @@ impl<'a> Document<'a> {
         };
         self.origin.resolve(range).is_some()
     }
+}
+
+fn promoted_flat_node<'a>(id: ChunkId) -> ChunkNode<'a> {
+    ChunkNode {
+        id,
+        chunk_type: ChunkType::IMAGE,
+        flags: ChunkFlags::NONE,
+        payload: PayloadStorage::PromotedFlat,
+        capability: RewriteCapability::new(true, true, false),
+    }
+}
+
+fn promoted_chunk_set<'a>(
+    record: FlatRecord<'a>,
+    chunks: Vec<ChunkNode<'a>>,
+    primary: ChunkId,
+) -> ChunkSet<'a> {
+    debug_assert_eq!(
+        chunks
+            .iter()
+            .filter(|node| matches!(node.payload, PayloadStorage::PromotedFlat))
+            .count(),
+        1
+    );
+    ChunkSet {
+        chunks,
+        primary: Some(primary),
+        primary_hints: PrimaryHintState::Derived,
+        promoted_flat: Some(record),
+    }
+}
+
+fn reserve_promoted_nodes(
+    chunks: &mut Vec<ChunkNode<'_>>,
+    additional: usize,
+) -> Result<(), EditError> {
+    chunks
+        .try_reserve_exact(additional)
+        .map_err(|_| EditError::AllocationFailed)
 }
 
 fn prepare_flat_record<'a>(image: ImageAsset<'a>) -> Result<FlatRecord<'a>, EditError> {
@@ -623,6 +726,7 @@ fn inspect_chunks<'document>(
             chunks,
             primary,
             primary_hints,
+            promoted_flat: None,
         },
         next_id,
         dirty,
@@ -885,6 +989,7 @@ mod tests {
                 chunks: Vec::new(),
                 primary: None,
                 primary_hints: PrimaryHintState::Missing,
+                promoted_flat: None,
             })
         );
         assert_eq!(
