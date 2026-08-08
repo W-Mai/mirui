@@ -2,7 +2,7 @@ use core::iter::FusedIterator;
 
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFileHeader};
 use crate::wire::{read_u16_le, read_u32_le, slice};
-use crate::{ChunkFlags, ChunkType, ReadError};
+use crate::{ChunkFlags, ChunkType, ImagePayloadError, ImageView, ReadError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct EntryRecord {
@@ -169,6 +169,18 @@ impl<'a> ChunkRef<'a> {
 
     pub const fn payload(&self) -> &'a [u8] {
         self.payload
+    }
+
+    /// Returns a borrowed IMAGE view when this record has the IMAGE type.
+    ///
+    /// The payload is validated at its actual file position, including the
+    /// absolute alignment of its pixel data. Other chunk types return
+    /// `Ok(None)` without interpreting their payload bytes.
+    pub fn image(&self) -> Result<Option<ImageView<'a>>, ImagePayloadError> {
+        if self.chunk_type != ChunkType::IMAGE {
+            return Ok(None);
+        }
+        ImageView::open_payload_at(self.payload, self.payload_offset).map(Some)
     }
 }
 

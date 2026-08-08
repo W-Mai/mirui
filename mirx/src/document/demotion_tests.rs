@@ -258,7 +258,7 @@ fn payload_backed_flat_survives_exact_replacement_and_forced_chunk_encoding() {
     assert_eq!(chunks.len(), 1);
     assert_eq!(chunks[0].chunk_type(), ChunkType::IMAGE);
     let image =
-        ImageView::from_chunk_payload(chunks[0].payload(), chunks[0].payload_offset()).unwrap();
+        ImageView::open_payload_at(chunks[0].payload(), chunks[0].payload_offset()).unwrap();
     assert_eq!(image.main(), expected_main);
     assert_eq!(image.extra(), Some(expected_extra.as_slice()));
 }

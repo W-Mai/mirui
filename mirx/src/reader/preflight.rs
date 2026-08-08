@@ -1,5 +1,5 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
-use crate::{ChunkType, ImagePayloadError, ImageView, ReadError};
+use crate::{ChunkType, ImagePayloadError, ReadError};
 
 /// Source location of a payload validation result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -137,9 +137,11 @@ pub(crate) fn preflight_chunk(
     chunk: ChunkRef<'_>,
     _limits: &PayloadLimits,
 ) -> Result<PreflightStatus, PayloadValidationFailure> {
-    if chunk.chunk_type() == ChunkType::IMAGE {
-        ImageView::from_chunk_payload(chunk.payload(), chunk.payload_offset())
-            .map_err(PayloadValidationFailure::Image)?;
+    if chunk
+        .image()
+        .map_err(PayloadValidationFailure::Image)?
+        .is_some()
+    {
         return Ok(PreflightStatus::Validated);
     }
 

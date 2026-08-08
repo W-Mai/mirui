@@ -386,7 +386,7 @@ fn synthesized_query_materializes_one_canonical_image_payload_atomically() {
     assert_eq!(materialized, target[..36]);
     assert_eq!(&materialized[9..12], &[0; 3]);
     assert_eq!(&materialized[28..32], &[0; 4]);
-    let image = ImageView::from_chunk_payload(&materialized, 0).unwrap();
+    let image = ImageView::open_payload_at(&materialized, 0).unwrap();
     assert_eq!(image.main(), &[1, 2, 3, 4]);
     assert_eq!(image.extra(), None);
 }
@@ -419,7 +419,7 @@ fn exact_raw_replacement_keeps_sidecar_but_other_encoding_clears_it() {
     offset_36[..32].copy_from_slice(&canonical[..32]);
     offset_36[16..20].copy_from_slice(&36u32.to_le_bytes());
     offset_36[36..].copy_from_slice(&canonical[32..]);
-    ImageView::from_chunk_payload(&offset_36, 0).unwrap();
+    ImageView::open_payload_at(&offset_36, 0).unwrap();
     document
         .replace_raw(
             image_id,

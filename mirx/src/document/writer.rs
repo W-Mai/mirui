@@ -126,7 +126,7 @@ impl PlacementConstraint<'_> {
 }
 
 fn inspect_raw_image_at<'a>(payload: &'a [u8], payload_offset: u32) -> Option<ImageView<'a>> {
-    ImageView::from_chunk_payload(payload, payload_offset).ok()
+    ImageView::open_payload_at(payload, payload_offset).ok()
 }
 
 pub(super) struct FlatLayoutPlan<'a> {
@@ -1053,7 +1053,7 @@ mod tests {
                 placement.leading_padding,
                 usize::try_from(cursor).unwrap()..placement.output_range.start
             );
-            assert!(ImageView::from_chunk_payload(payload, placement.chunk_offset).is_ok());
+            assert!(ImageView::open_payload_at(payload, placement.chunk_offset).is_ok());
             cursor = u32::try_from(placement.output_range.end).unwrap();
         }
         let offsets: Vec<_> = plan
@@ -1099,7 +1099,7 @@ mod tests {
         let plan = chunk_plan(&document, &EncodeOptions::new());
         let placements: Vec<_> = plan.placements().collect();
         assert_eq!(align_relative(93, 33, 4), Ok(95));
-        assert!(ImageView::from_chunk_payload(&malformed, 95).is_err());
+        assert!(ImageView::open_payload_at(&malformed, 95).is_err());
         assert_eq!(placements[0].chunk_offset, 92);
         assert_eq!(placements[0].output_range, 92..93);
         assert_eq!(placements[1].chunk_offset, 96);
@@ -1477,7 +1477,7 @@ mod tests {
         assert_eq!((95 + read_u32_le(&parseable, 16).unwrap()) % 4, 0);
         assert_ne!(95 % 4, 0);
 
-        let image = ImageView::from_chunk_payload(&encoded[95..136], 95).unwrap();
+        let image = ImageView::open_payload_at(&encoded[95..136], 95).unwrap();
         assert_eq!(
             image.main(),
             &[0x11, 0xa1, 0xa2, 0xa3, 0x22, 0xb1, 0xb2, 0xb3]
@@ -1718,7 +1718,7 @@ mod tests {
         assert_eq!(&payload[32..36], &main);
         assert_eq!(&payload[36..38], &alpha);
 
-        let image = ImageView::from_chunk_payload(payload, 60).unwrap();
+        let image = ImageView::open_payload_at(payload, 60).unwrap();
         assert_eq!(image.main(), main);
         assert_eq!(image.extra(), Some(alpha.as_slice()));
     }

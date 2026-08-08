@@ -385,7 +385,7 @@ fn changed_replacement_stays_flat_and_force_chunk_reuses_segmented_emission() {
     let mut chunks = reader.chunks();
     let chunk = chunks.next().unwrap();
     assert_eq!(chunk.chunk_type(), ChunkType::IMAGE);
-    let image = ImageView::from_chunk_payload(chunk.payload(), chunk.payload_offset()).unwrap();
+    let image = ImageView::open_payload_at(chunk.payload(), chunk.payload_offset()).unwrap();
     assert_eq!(image.main(), main);
     assert_eq!(image.extra(), Some(palette.as_slice()));
     assert!(chunks.next().is_none());

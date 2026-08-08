@@ -180,10 +180,8 @@ impl<'a> ResolvedNodePayload<'a> {
         match self {
             Self::Contiguous { bytes, placement } => {
                 let image = match placement {
-                    PayloadPlacement::Fixed(offset) => {
-                        ImageView::from_chunk_payload(bytes, offset)?
-                    }
-                    PayloadPlacement::Unplaced => ImageView::from_unplaced_chunk_payload(bytes)?,
+                    PayloadPlacement::Fixed(offset) => ImageView::open_payload_at(bytes, offset)?,
+                    PayloadPlacement::Unplaced => ImageView::open_payload(bytes)?,
                 };
                 resolved_image_planes(image)
             }
