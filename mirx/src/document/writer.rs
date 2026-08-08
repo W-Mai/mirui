@@ -10,6 +10,7 @@ use super::{
     ChunkSet, Compatibility, Document, DocumentState, EncodeOptions, FlatRecord, LayoutPolicy,
     PayloadStorage, PrimaryHintState, TrailingState,
 };
+use crate::payload::image::{ImagePayloadError, ImagePayloadPlan};
 use crate::wire::read_u32_le;
 use crate::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFlags, ChunkType, EncodeError,
@@ -39,28 +40,16 @@ pub(super) type ImageSegments<'a> = ResolvedImagePlanes<'a>;
 
 #[derive(Clone, Copy)]
 pub(super) struct SegmentedImagePlan<'a> {
-    pub(super) image: ImageSegments<'a>,
-    pub(super) data_offset: u32,
-    pub(super) data_size: u32,
-    pub(super) payload_size: u32,
+    pub(super) payload: ImagePayloadPlan<'a>,
 }
 
 impl<'a> SegmentedImagePlan<'a> {
     fn new(image: ImageSegments<'a>) -> Result<Self, EncodeError> {
-        let data_offset = ImageChunkHeader::SIZE as u32;
-        let data_size = image
-            .main_size
-            .checked_add(image.extra_size)
-            .ok_or(EncodeError::SizeOverflow)?;
-        let payload_size = data_offset
-            .checked_add(data_size)
-            .ok_or(EncodeError::SizeOverflow)?;
-        Ok(Self {
-            image,
-            data_offset,
-            data_size,
-            payload_size,
-        })
+        let payload = ImagePayloadPlan::from_planes(image).map_err(|error| {
+            debug_assert_eq!(error, ImagePayloadError::SizeOverflow);
+            EncodeError::SizeOverflow
+        })?;
+        Ok(Self { payload })
     }
 }
 
@@ -74,7 +63,7 @@ impl<'a> PayloadPlan<'a> {
     fn encoded_len(self) -> Result<u32, EncodeError> {
         match self {
             Self::Verbatim(bytes) => checked_payload_len(bytes.len()),
-            Self::SegmentedImage(image) => Ok(image.payload_size),
+            Self::SegmentedImage(image) => Ok(image.payload.payload_size()),
         }
     }
 
@@ -604,17 +593,18 @@ fn emit_chunk(plan: &ChunkLayoutPlan<'_, '_>, out: &mut [u8]) {
 }
 
 fn emit_segmented_image(plan: SegmentedImagePlan<'_>, out: &mut [u8]) {
-    debug_assert_eq!(usize::try_from(plan.payload_size), Ok(out.len()));
-    let image = plan.image;
-    debug_assert_eq!(plan.data_offset, ImageChunkHeader::SIZE as u32);
+    let payload = plan.payload;
+    let image = payload.planes();
+    debug_assert_eq!(usize::try_from(payload.payload_size()), Ok(out.len()));
+    debug_assert_eq!(payload.data_offset(), ImageChunkHeader::SIZE as u32);
     debug_assert_eq!(
-        plan.data_size,
+        payload.data_size(),
         image
             .main_size
             .checked_add(image.extra_size)
             .expect("planned segmented IMAGE data size")
     );
-    image.emit_payload(out);
+    payload.emit_payload(out);
 }
 
 fn emit_file_header(layout: Layout, out: &mut [u8]) {
@@ -744,16 +734,20 @@ fn plan_flat<'document>(
 }
 
 fn plan_flat_image(image: ResolvedImagePlanes<'_>) -> Result<FlatLayoutPlan<'_>, EncodeError> {
-    let file_size = (FLAT_HEADER_LEN as u32)
-        .checked_add(image.main_size)
-        .and_then(|size| size.checked_add(image.extra_size))
-        .ok_or(EncodeError::SizeOverflow)?;
+    let file_size = checked_flat_file_size(image.main_size, image.extra_size)?;
     let output_len = usize::try_from(file_size).map_err(|_| EncodeError::SizeOverflow)?;
     Ok(FlatLayoutPlan {
         image,
         file_size,
         output_len,
     })
+}
+
+fn checked_flat_file_size(main_size: u32, extra_size: u32) -> Result<u32, EncodeError> {
+    (FLAT_HEADER_LEN as u32)
+        .checked_add(main_size)
+        .and_then(|size| size.checked_add(extra_size))
+        .ok_or(EncodeError::SizeOverflow)
 }
 
 fn align_up(value: u32, alignment: u32) -> Result<u32, EncodeError> {
@@ -1003,18 +997,19 @@ mod tests {
         let PayloadPlan::SegmentedImage(image) = placement.payload else {
             panic!("expected segmented IMAGE payload");
         };
-        assert_eq!(image.data_offset, ImageChunkHeader::SIZE as u32);
-        assert_eq!(image.data_size, 68);
-        assert_eq!(image.payload_size, 100);
+        assert_eq!(image.payload.data_offset(), ImageChunkHeader::SIZE as u32);
+        assert_eq!(image.payload.data_size(), 68);
+        assert_eq!(image.payload.payload_size(), 100);
+        let planes = image.payload.planes();
+        assert_eq!(planes.main.as_ptr(), source[FLAT_HEADER_LEN..].as_ptr());
         assert_eq!(
-            image.image.main.as_ptr(),
-            source[FLAT_HEADER_LEN..].as_ptr()
-        );
-        assert_eq!(
-            image.image.extra.unwrap().as_ptr(),
+            planes.extra.unwrap().as_ptr(),
             source[FLAT_HEADER_LEN + main.len()..].as_ptr()
         );
-        assert_eq!((placement.chunk_offset + image.data_offset) % 4, 0);
+        assert_eq!(
+            (placement.chunk_offset + image.payload.data_offset()) % 4,
+            0
+        );
     }
 
     #[test]
@@ -1310,6 +1305,13 @@ mod tests {
             Err(EncodeError::SizeOverflow)
         );
         assert_eq!(checked_payload_end(u32::MAX - 1, 1), Ok(u32::MAX));
+        for data_size in u32::MAX - 31..=u32::MAX - 28 {
+            assert!(checked_flat_file_size(data_size, 0).is_ok());
+            assert_eq!(
+                crate::payload::image::checked_image_payload_len(data_size, 0),
+                Err(ImagePayloadError::SizeOverflow)
+            );
+        }
         assert_eq!(
             PlacementConstraint::ChunkStartAligned(4).place(u32::MAX),
             Err(EncodeError::SizeOverflow)

@@ -1,4 +1,4 @@
-use alloc::borrow::Cow;
+use alloc::{borrow::Cow, vec::Vec};
 
 use crate::header::{FLAT_HEADER_LEN, FlatHeader, ImageChunkHeader};
 use crate::wire::{read_u32_le, slice};
@@ -22,6 +22,21 @@ pub enum ImagePayloadError {
     MainPlaneLengthMismatch { expected: usize, actual: usize },
     ExtraPlaneLengthMismatch { expected: usize, actual: usize },
     SizeOverflow,
+}
+
+/// Failure while encoding a canonical MIRX IMAGE payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ImageEncodeError {
+    InvalidPayload(ImagePayloadError),
+    BufferTooSmall { needed: usize, available: usize },
+    AllocationFailed,
+}
+
+impl From<ImagePayloadError> for ImageEncodeError {
+    fn from(value: ImagePayloadError) -> Self {
+        Self::InvalidPayload(value)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -100,6 +115,30 @@ impl<'a> ImageAsset<'a> {
         self.extra.as_deref()
     }
 
+    /// Returns the exact size of this asset's canonical IMAGE payload.
+    pub fn encoded_payload_len(&self) -> Result<usize, ImageEncodeError> {
+        Ok(self.payload_plan()?.encoded_len())
+    }
+
+    /// Encodes a canonical IMAGE payload into the start of `out`.
+    ///
+    /// The complete asset is validated before output capacity is inspected.
+    /// Errors leave `out` unchanged, and success preserves any unused suffix.
+    pub fn encode_payload_into(&self, out: &mut [u8]) -> Result<usize, ImageEncodeError> {
+        self.payload_plan()?.copy_payload_into(out)
+    }
+
+    /// Allocates and encodes one exact-length canonical IMAGE payload.
+    pub fn encode_payload(&self) -> Result<Vec<u8>, ImageEncodeError> {
+        self.payload_plan()?.payload_to_vec()
+    }
+
+    fn payload_plan(&self) -> Result<ImagePayloadPlan<'_>, ImageEncodeError> {
+        let planes = ImagePlanes::new(self.meta, self.main(), self.extra())
+            .map_err(ImageEncodeError::InvalidPayload)?;
+        ImagePayloadPlan::from_planes(planes).map_err(ImageEncodeError::InvalidPayload)
+    }
+
     pub(crate) const fn meta(&self) -> ImageMeta {
         self.meta
     }
@@ -159,6 +198,174 @@ pub(crate) fn validate_image_planes(
         main: main_size,
         extra: extra_size,
     })
+}
+
+pub(crate) fn checked_image_payload_len(
+    main_size: u32,
+    extra_size: u32,
+) -> Result<(u32, u32), ImagePayloadError> {
+    let data_size = main_size
+        .checked_add(extra_size)
+        .ok_or(ImagePayloadError::SizeOverflow)?;
+    let payload_size = (ImageChunkHeader::SIZE as u32)
+        .checked_add(data_size)
+        .ok_or(ImagePayloadError::SizeOverflow)?;
+    usize::try_from(payload_size).map_err(|_| ImagePayloadError::SizeOverflow)?;
+    Ok((data_size, payload_size))
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ImagePlanes<'a> {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) format: ColorFormat,
+    pub(crate) stride: u32,
+    pub(crate) main: &'a [u8],
+    pub(crate) extra: Option<&'a [u8]>,
+    pub(crate) main_size: u32,
+    pub(crate) extra_size: u32,
+}
+
+impl<'a> ImagePlanes<'a> {
+    pub(crate) fn new(
+        meta: ImageMeta,
+        main: &'a [u8],
+        extra: Option<&'a [u8]>,
+    ) -> Result<Self, ImagePayloadError> {
+        let sizes = validate_image_planes(meta, main, extra)?;
+        Ok(Self {
+            width: meta.width,
+            height: meta.height,
+            format: meta.format,
+            stride: meta.stride,
+            main,
+            extra,
+            main_size: sizes.main,
+            extra_size: sizes.extra,
+        })
+    }
+
+    pub(crate) fn from_view(image: ImageView<'a>) -> Result<Self, ImagePayloadError> {
+        let main_size =
+            u32::try_from(image.main.len()).map_err(|_| ImagePayloadError::SizeOverflow)?;
+        let extra_size = u32::try_from(image.extra.map_or(0, <[u8]>::len))
+            .map_err(|_| ImagePayloadError::SizeOverflow)?;
+        Ok(Self {
+            width: image.meta.width,
+            height: image.meta.height,
+            format: image.meta.format,
+            stride: image.meta.stride,
+            main: image.main,
+            extra: image.extra,
+            main_size,
+            extra_size,
+        })
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ImagePayloadPlan<'a> {
+    planes: ImagePlanes<'a>,
+    data_size: u32,
+    payload_size: u32,
+}
+
+impl<'a> ImagePayloadPlan<'a> {
+    pub(crate) fn from_planes(planes: ImagePlanes<'a>) -> Result<Self, ImagePayloadError> {
+        let (data_size, payload_size) =
+            checked_image_payload_len(planes.main_size, planes.extra_size)?;
+        Ok(Self {
+            planes,
+            data_size,
+            payload_size,
+        })
+    }
+
+    pub(crate) const fn planes(self) -> ImagePlanes<'a> {
+        self.planes
+    }
+
+    pub(crate) fn encoded_len(self) -> usize {
+        usize::try_from(self.payload_size).expect("validated IMAGE payload size fits usize")
+    }
+
+    pub(crate) const fn data_offset(self) -> u32 {
+        ImageChunkHeader::SIZE as u32
+    }
+
+    pub(crate) const fn data_size(self) -> u32 {
+        self.data_size
+    }
+
+    pub(crate) const fn payload_size(self) -> u32 {
+        self.payload_size
+    }
+
+    pub(crate) fn copy_payload_into(self, out: &mut [u8]) -> Result<usize, ImageEncodeError> {
+        let needed = self.encoded_len();
+        if out.len() < needed {
+            return Err(ImageEncodeError::BufferTooSmall {
+                needed,
+                available: out.len(),
+            });
+        }
+        self.emit_payload(&mut out[..needed]);
+        Ok(needed)
+    }
+
+    pub(crate) fn payload_to_vec(self) -> Result<Vec<u8>, ImageEncodeError> {
+        let needed = self.encoded_len();
+        let mut out = Vec::new();
+        out.try_reserve_exact(needed)
+            .map_err(|_| ImageEncodeError::AllocationFailed)?;
+        out.resize(needed, 0);
+        self.emit_payload(&mut out);
+        Ok(out)
+    }
+
+    pub(crate) fn equals_payload(self, candidate: &[u8]) -> bool {
+        if candidate.len() != self.encoded_len() {
+            return false;
+        }
+
+        let mut header = [0; ImageChunkHeader::SIZE];
+        self.write_header(&mut header);
+        let planes = self.planes;
+        let main_end = ImageChunkHeader::SIZE + planes.main.len();
+        candidate[..ImageChunkHeader::SIZE] == header
+            && candidate[ImageChunkHeader::SIZE..main_end] == *planes.main
+            && match planes.extra {
+                Some(extra) => candidate[main_end..] == *extra,
+                None => candidate.len() == main_end,
+            }
+    }
+
+    pub(crate) fn emit_payload(self, out: &mut [u8]) {
+        debug_assert_eq!(self.encoded_len(), out.len());
+        out.fill(0);
+        self.write_header(&mut out[..ImageChunkHeader::SIZE]);
+
+        let planes = self.planes;
+        let data = &mut out[ImageChunkHeader::SIZE..];
+        let (main, extra) = data.split_at_mut(planes.main.len());
+        main.copy_from_slice(planes.main);
+        match planes.extra {
+            Some(source) => extra.copy_from_slice(source),
+            None => debug_assert!(extra.is_empty()),
+        }
+    }
+
+    fn write_header(self, out: &mut [u8]) {
+        debug_assert_eq!(out.len(), ImageChunkHeader::SIZE);
+        let planes = self.planes;
+        write_u32(out, 0, planes.width);
+        write_u32(out, 4, planes.height);
+        out[8] = planes.format.to_u8();
+        write_u32(out, 12, planes.stride);
+        write_u32(out, 16, self.data_offset());
+        write_u32(out, 20, self.data_size);
+        write_u32(out, 24, planes.extra_size);
+    }
 }
 
 /// Borrowed view over validated MIRX image planes.
@@ -432,8 +639,13 @@ impl<'a> ImageView<'a> {
     }
 }
 
+fn write_u32(out: &mut [u8], offset: usize, value: u32) {
+    out[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
 #[cfg(test)]
 mod tests {
+    use alloc::borrow::Cow;
     use alloc::vec;
     use alloc::vec::Vec;
 
@@ -461,6 +673,17 @@ mod tests {
         ColorFormat::BGRA8888,
     ];
 
+    fn expected_extra_len(format: ColorFormat) -> usize {
+        match format {
+            ColorFormat::I1 => 8,
+            ColorFormat::I2 => 16,
+            ColorFormat::I4 => 64,
+            ColorFormat::I8 => 1024,
+            ColorFormat::RGB565A8 => 27,
+            _ => 0,
+        }
+    }
+
     fn flat_file(format: ColorFormat, width: u32, height: u32, stride: u32) -> Vec<u8> {
         let main_len = usize::try_from(stride.checked_mul(height).unwrap()).unwrap();
         let extra_len = usize::try_from(format.extra_size(width, height, stride).unwrap()).unwrap();
@@ -486,6 +709,196 @@ mod tests {
             }
         }
         panic!("missing IMAGE chunk")
+    }
+
+    #[test]
+    fn checked_encoder_round_trips_every_format_with_padded_rows() {
+        let width = 9;
+        let height = 3;
+        for format in FORMATS {
+            let stride = format.minimum_stride(width).unwrap() + 2;
+            let main_len = usize::try_from(stride * height).unwrap();
+            let extra_len = expected_extra_len(format);
+            assert_eq!(
+                usize::try_from(format.extra_size(width, height, stride).unwrap()).unwrap(),
+                extra_len,
+                "{format:?}"
+            );
+            let main: Vec<u8> = (0..main_len)
+                .map(|index| (index as u8).wrapping_mul(17).wrapping_add(format.to_u8()))
+                .collect();
+            let extra: Vec<u8> = (0..extra_len)
+                .map(|index| (index as u8).wrapping_mul(29).wrapping_add(3))
+                .collect();
+            let asset = ImageAsset::new(
+                width,
+                height,
+                format,
+                stride,
+                Cow::Borrowed(&main),
+                if extra.is_empty() {
+                    None
+                } else {
+                    Some(Cow::Borrowed(&extra))
+                },
+            );
+            let needed = ImageChunkHeader::SIZE + main_len + extra_len;
+            assert_eq!(asset.encoded_payload_len(), Ok(needed), "{format:?}");
+
+            let encoded = asset.encode_payload().unwrap();
+            let mut output = vec![0xa5; needed + 3];
+            assert_eq!(asset.encode_payload_into(&mut output), Ok(needed));
+            assert_eq!(&output[..needed], encoded, "{format:?}");
+            assert_eq!(&output[needed..], &[0xa5; 3], "{format:?}");
+            assert_eq!(encoded[9], 0, "{format:?}");
+            assert_eq!(&encoded[10..12], &[0; 2], "{format:?}");
+            assert_eq!(&encoded[28..32], &[0; 4], "{format:?}");
+            assert_eq!(read_u32_le(&encoded, 16), Some(32), "{format:?}");
+            assert_eq!(
+                read_u32_le(&encoded, 20),
+                Some(u32::try_from(main_len + extra_len).unwrap()),
+                "{format:?}"
+            );
+            assert_eq!(
+                read_u32_le(&encoded, 24),
+                Some(u32::try_from(extra_len).unwrap()),
+                "{format:?}"
+            );
+            assert_eq!(&encoded[ImageChunkHeader::SIZE..][..main_len], main);
+
+            let image = ImageView::open_payload(&encoded).unwrap();
+            assert_eq!(
+                image,
+                ImageView::open_payload_at(&encoded, 0).unwrap(),
+                "{format:?}"
+            );
+            assert_eq!(image.width(), width, "{format:?}");
+            assert_eq!(image.height(), height, "{format:?}");
+            assert_eq!(image.stride(), stride, "{format:?}");
+            assert_eq!(image.format(), format);
+            assert_eq!(image.main(), main, "{format:?}");
+            assert_eq!(
+                image.extra(),
+                (!extra.is_empty()).then_some(extra.as_slice())
+            );
+        }
+
+        let empty = ImageAsset::new(
+            0,
+            0,
+            ColorFormat::A8,
+            0,
+            Cow::Borrowed(&[]),
+            Some(Cow::Borrowed(&[])),
+        );
+        let encoded = empty.encode_payload().unwrap();
+        assert_eq!(encoded.len(), ImageChunkHeader::SIZE);
+        assert_eq!(ImageView::open_payload(&encoded).unwrap().extra(), None);
+    }
+
+    #[test]
+    fn encode_into_validates_before_capacity_and_is_failure_atomic() {
+        let valid = ImageAsset::new(
+            2,
+            1,
+            ColorFormat::RGB565A8,
+            4,
+            Cow::Borrowed(&[1, 2, 3, 4]),
+            Some(Cow::Borrowed(&[5, 6])),
+        );
+        let needed = valid.encoded_payload_len().unwrap();
+        let mut short = vec![0xa5; needed - 1];
+        let before = short.clone();
+        assert_eq!(
+            valid.encode_payload_into(&mut short),
+            Err(ImageEncodeError::BufferTooSmall {
+                needed,
+                available: needed - 1,
+            })
+        );
+        assert_eq!(short, before);
+
+        let bad_main = ImageAsset::new(
+            2,
+            1,
+            ColorFormat::RGB565A8,
+            4,
+            Cow::Borrowed(&[1, 2, 3]),
+            Some(Cow::Borrowed(&[5, 6])),
+        );
+        let mut output = [0xa5; 8];
+        assert_eq!(
+            bad_main.encode_payload_into(&mut output),
+            Err(ImageEncodeError::InvalidPayload(
+                ImagePayloadError::MainPlaneLengthMismatch {
+                    expected: 4,
+                    actual: 3,
+                }
+            ))
+        );
+        assert_eq!(output, [0xa5; 8]);
+
+        let bad_extra = ImageAsset::new(
+            2,
+            1,
+            ColorFormat::RGB565A8,
+            4,
+            Cow::Borrowed(&[1, 2, 3, 4]),
+            Some(Cow::Borrowed(&[5])),
+        );
+        assert_eq!(
+            bad_extra.encode_payload_into(&mut output),
+            Err(ImageEncodeError::InvalidPayload(
+                ImagePayloadError::ExtraPlaneLengthMismatch {
+                    expected: 2,
+                    actual: 1,
+                }
+            ))
+        );
+        assert_eq!(output, [0xa5; 8]);
+
+        let bad_stride = ImageAsset::new(2, 1, ColorFormat::RGB565, 3, Cow::Borrowed(&[]), None);
+        assert_eq!(
+            bad_stride.encode_payload_into(&mut output),
+            Err(ImageEncodeError::InvalidPayload(
+                ImagePayloadError::StrideTooSmall {
+                    minimum: 4,
+                    actual: 3,
+                }
+            ))
+        );
+        assert_eq!(output, [0xa5; 8]);
+    }
+
+    #[test]
+    fn payload_size_arithmetic_checks_wire_boundaries_without_allocating() {
+        assert_eq!(
+            checked_image_payload_len(u32::MAX - ImageChunkHeader::SIZE as u32, 0),
+            Ok((u32::MAX - ImageChunkHeader::SIZE as u32, u32::MAX))
+        );
+        assert_eq!(
+            checked_image_payload_len(u32::MAX - ImageChunkHeader::SIZE as u32 + 1, 0),
+            Err(ImagePayloadError::SizeOverflow)
+        );
+        assert_eq!(
+            checked_image_payload_len(u32::MAX, 1),
+            Err(ImagePayloadError::SizeOverflow)
+        );
+
+        let geometry_overflow = ImageAsset::new(
+            u32::MAX,
+            1,
+            ColorFormat::RGBA8888,
+            0,
+            Cow::Borrowed(&[]),
+            None,
+        );
+        assert_eq!(
+            geometry_overflow.encoded_payload_len(),
+            Err(ImageEncodeError::InvalidPayload(
+                ImagePayloadError::SizeOverflow
+            ))
+        );
     }
 
     #[test]
