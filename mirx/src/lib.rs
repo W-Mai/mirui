@@ -45,6 +45,7 @@ pub use header::{
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
 pub use payload::image::{ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
+pub use payload::{ColorTableIter, ColorTableView};
 pub use reader::{
     ChunkRef, ComplianceFinding, ContainerHeader, EntryIter, FindingIter, PayloadLimits,
     PayloadLocation, PayloadValidationError, PayloadValidationFailure, ReadOptions, Reader,

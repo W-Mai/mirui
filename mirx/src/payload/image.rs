@@ -1,5 +1,6 @@
 use alloc::{borrow::Cow, vec::Vec};
 
+use super::ColorTableView;
 use crate::header::{FLAT_HEADER_LEN, FlatHeader, ImageChunkHeader};
 use crate::wire::{read_u32_le, slice};
 use crate::{ColorFormat, ReadError};
@@ -409,6 +410,15 @@ impl<'a> ImageView<'a> {
         self.extra
     }
 
+    /// Returns the inline RGBA palette for an indexed image.
+    ///
+    /// I1, I2, I4, and I8 images return their exact borrowed color table.
+    /// Formats without an inline palette, including RGB565A8, return `None`.
+    pub fn inline_palette(&self) -> Option<ColorTableView<'a>> {
+        self.meta.format.palette_entries()?;
+        ColorTableView::from_rgba_bytes(self.extra?)
+    }
+
     pub(crate) fn from_flat(
         bytes: &'a [u8],
         header: FlatHeader,
@@ -652,7 +662,7 @@ mod tests {
     use super::*;
     use crate::crc32;
     use crate::header::{Layout, MAGIC, VERSION_MAJOR, VERSION_MINOR};
-    use crate::{ChunkType, ImageChunkInput, Reader, encode_chunk_image, encode_chunks};
+    use crate::{ChunkType, Color, ImageChunkInput, Reader, encode_chunk_image, encode_chunks};
 
     const FORMATS: [ColorFormat; 16] = [
         ColorFormat::I1,
@@ -899,6 +909,129 @@ mod tests {
                 ImagePayloadError::SizeOverflow
             ))
         );
+    }
+
+    #[test]
+    fn indexed_images_share_borrowed_ordered_inline_palette_views() {
+        for (format, entries) in [
+            (ColorFormat::I1, 2usize),
+            (ColorFormat::I2, 4),
+            (ColorFormat::I4, 16),
+            (ColorFormat::I8, 256),
+        ] {
+            let width = 3;
+            let height = 2;
+            let stride = format.minimum_stride(width).unwrap() + 1;
+            let main = vec![0x5a; usize::try_from(stride * height).unwrap()];
+            assert_eq!(format.palette_entries(), Some(entries as u32));
+            let rgba: Vec<u8> = (0..entries)
+                .flat_map(|index| {
+                    let index = index as u8;
+                    [
+                        index,
+                        index.wrapping_mul(3),
+                        index.wrapping_add(17),
+                        index.wrapping_mul(5),
+                    ]
+                })
+                .collect();
+
+            let asset = ImageAsset::new(
+                width,
+                height,
+                format,
+                stride,
+                Cow::Borrowed(&main),
+                Some(Cow::Borrowed(&rgba)),
+            );
+            let payload = asset.encode_payload().unwrap();
+            let image = ImageView::open_payload(&payload).unwrap();
+            let palette = image.inline_palette().unwrap();
+
+            assert_eq!(palette.len(), entries, "{format:?}");
+            assert_eq!(palette.as_bytes(), rgba, "{format:?}");
+            assert_eq!(palette.as_bytes().as_ptr(), image.extra().unwrap().as_ptr());
+            assert_eq!(
+                palette.get(entries - 1),
+                Some(Color::rgba(
+                    (entries - 1) as u8,
+                    ((entries - 1) as u8).wrapping_mul(3),
+                    ((entries - 1) as u8).wrapping_add(17),
+                    ((entries - 1) as u8).wrapping_mul(5),
+                )),
+                "{format:?}"
+            );
+            assert_eq!(palette.iter().len(), entries, "{format:?}");
+
+            let chunked = encode_chunks(&[(ChunkType::IMAGE.raw(), 0, payload.as_slice())]);
+            let chunk_image = first_image(&chunked);
+            let chunk_palette = chunk_image.inline_palette().unwrap();
+            assert_eq!(chunk_palette, palette, "{format:?}");
+            assert_eq!(
+                chunk_palette.as_bytes().as_ptr(),
+                chunk_image.extra().unwrap().as_ptr(),
+                "{format:?}"
+            );
+
+            let mut flat = flat_file(format, width, height, stride);
+            let extra_start = FLAT_HEADER_LEN + main.len();
+            flat[FLAT_HEADER_LEN..extra_start].copy_from_slice(&main);
+            flat[extra_start..].copy_from_slice(&rgba);
+            let flat_image = Reader::open(&flat).unwrap().flat_image().unwrap();
+            let flat_palette = flat_image.inline_palette().unwrap();
+            assert_eq!(flat_palette.as_bytes(), rgba, "{format:?}");
+            assert_eq!(
+                flat_palette.as_bytes().as_ptr(),
+                flat[extra_start..].as_ptr()
+            );
+
+            let zero = ImageAsset::new(
+                0,
+                0,
+                format,
+                0,
+                Cow::Borrowed(&[]),
+                Some(Cow::Borrowed(&rgba)),
+            );
+            assert_eq!(
+                ImageView::open_payload(&zero.encode_payload().unwrap())
+                    .unwrap()
+                    .inline_palette()
+                    .unwrap()
+                    .len(),
+                entries,
+                "{format:?}"
+            );
+        }
+
+        for format in FORMATS {
+            if format.palette_entries().is_some() {
+                continue;
+            }
+            let width = 2;
+            let height = 2;
+            let stride = format.minimum_stride(width).unwrap();
+            let main = vec![0; usize::try_from(stride * height).unwrap()];
+            let extra = vec![
+                0;
+                usize::try_from(format.extra_size(width, height, stride).unwrap())
+                    .unwrap()
+            ];
+            let asset = ImageAsset::new(
+                width,
+                height,
+                format,
+                stride,
+                Cow::Borrowed(&main),
+                (!extra.is_empty()).then(|| Cow::Borrowed(extra.as_slice())),
+            );
+            let payload = asset.encode_payload().unwrap();
+            let image = ImageView::open_payload(&payload).unwrap();
+            assert_eq!(image.inline_palette(), None, "{format:?}");
+            if format == ColorFormat::RGB565A8 {
+                assert_eq!(image.extra(), Some(extra.as_slice()));
+            }
+        }
     }
 
     #[test]

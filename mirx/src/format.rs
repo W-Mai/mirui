@@ -100,17 +100,10 @@ impl ColorFormat {
     /// FLAT extra bytes; RGB565A8 intentionally uses the v1 no-padding alpha
     /// plane, so `stride` is ignored.
     pub const fn extra_size(self, width: u32, height: u32, _stride: u32) -> Option<u32> {
+        if let Some(entries) = self.palette_entries() {
+            return entries.checked_mul(4);
+        }
         match self {
-            Self::I1 | Self::I2 | Self::I4 | Self::I8 => {
-                let entries = match self {
-                    Self::I1 => 2,
-                    Self::I2 => 4,
-                    Self::I4 => 16,
-                    Self::I8 => 256,
-                    _ => 0,
-                };
-                Some(entries * 4)
-            }
             Self::RGB565A8 => match width.checked_mul(height) {
                 Some(n) => Some(n),
                 None => None,
