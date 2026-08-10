@@ -974,3 +974,92 @@ fn flat_replacement_blockers_precede_payload_validation_atomically() {
     let result = future.replace_flat_image(bad_asset());
     assert_atomic_error(&future, &before, result, EditError::FutureSemanticsReadOnly);
 }
+
+#[test]
+fn typed_image_push_failures_preserve_complete_state() {
+    let stride = ColorFormat::A8.minimum_stride(2).unwrap();
+    let bad_asset = || ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Owned(vec![0; 3]), None);
+
+    let mut chunk = Document::new_chunk();
+    chunk.next_id = u32::MAX;
+    let before = snapshot(&chunk);
+    let result = chunk.push_image(ChunkFlags::from_bits_retain(2), &bad_asset());
+    assert_atomic_error(&chunk, &before, result, EditError::ChunkIdExhausted);
+
+    let flat_main = [1, 2, 3, 4];
+    let mut flat = Document::new_flat(ImageAsset::new(
+        2,
+        2,
+        ColorFormat::A8,
+        stride,
+        Cow::Borrowed(&flat_main),
+        None,
+    ))
+    .unwrap();
+    flat.next_id = u32::MAX - 1;
+    let before = snapshot(&flat);
+    let result = flat.push_image(ChunkFlags::NONE, &bad_asset());
+    assert_atomic_error(&flat, &before, result, EditError::ChunkIdExhausted);
+
+    let mut reserved = Document::new_chunk();
+    let before = snapshot(&reserved);
+    let result = reserved.push_image(ChunkFlags::from_bits_retain(2), &bad_asset());
+    assert_atomic_error(
+        &reserved,
+        &before,
+        result,
+        EditError::ReservedFlagBits { bits: 2 },
+    );
+}
+
+#[test]
+fn typed_image_replace_failures_and_noops_preserve_complete_state() {
+    let stride = ColorFormat::A8.minimum_stride(2).unwrap();
+    let payload = image_payload(2, 2);
+    let source = encode_chunks(&[
+        (ChunkType::IMAGE.raw(), 0, payload.as_slice()),
+        (ChunkType::META.raw(), 0, b"opaque"),
+    ]);
+    let mut document = Document::from_vec(source).unwrap();
+    let before = snapshot(&document);
+    let bad_asset = ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Owned(vec![0; 3]), None);
+
+    let result = document.replace_image(id(99), &bad_asset);
+    assert_atomic_error(&document, &before, result, EditError::InvalidChunkId);
+    let result = document.replace_image(id(1), &bad_asset);
+    assert_atomic_error(&document, &before, result, EditError::InvalidChunkType);
+    let result = document.replace_image(id(0), &bad_asset);
+    assert_atomic_error(
+        &document,
+        &before,
+        result,
+        EditError::InvalidPayload(ImagePayloadError::MainPlaneLengthMismatch {
+            expected: 4,
+            actual: 3,
+        }),
+    );
+
+    let main = [7; 4];
+    document
+        .replace_image(
+            id(0),
+            &ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Borrowed(&main), None),
+        )
+        .unwrap();
+    assert_eq!(snapshot(&document), before);
+
+    let reserved_source = encode_chunks(&[(ChunkType::IMAGE.raw(), 2, payload.as_slice())]);
+    let mut reserved = Document::from_vec(reserved_source).unwrap();
+    let before = snapshot(&reserved);
+    let changed = [8; 4];
+    let result = reserved.replace_image(
+        id(0),
+        &ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Borrowed(&changed), None),
+    );
+    assert_atomic_error(
+        &reserved,
+        &before,
+        result,
+        EditError::ReservedFlagBits { bits: 2 },
+    );
+}

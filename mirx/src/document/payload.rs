@@ -1,7 +1,9 @@
 use alloc::vec::Vec;
 
 use super::{ChunkNode, Document, DocumentState, FlatRecord, PayloadStorage};
-use crate::payload::image::{ImageEncodeError, ImagePayloadError, ImagePayloadPlan, ImagePlanes};
+use crate::payload::image::{
+    ImageEncodeError, ImageMeta, ImagePayloadError, ImagePayloadPlan, ImagePlanes,
+};
 use crate::{ChunkType, EncodeError, ImageView, PrimaryHints};
 
 #[derive(Clone, Copy)]
@@ -86,17 +88,41 @@ impl<'a> ResolvedNodePayload<'a> {
         self.image_planes().map(image_primary_hints)
     }
 
-    pub(super) fn image_planes(self) -> Result<ResolvedImagePlanes<'a>, ImagePayloadError> {
+    pub(super) fn image_view(self) -> Result<ImageView<'a>, ImagePayloadError> {
+        match self {
+            Self::Contiguous { bytes, placement } => match placement {
+                PayloadPlacement::Fixed(offset) => ImageView::open_payload_at(bytes, offset),
+                PayloadPlacement::Unplaced => ImageView::open_payload(bytes),
+            },
+            Self::PromotedImage(image) => Ok(ImageView::from_validated_planes(
+                ImageMeta {
+                    width: image.width,
+                    height: image.height,
+                    stride: image.stride,
+                    format: image.format,
+                },
+                image.main,
+                image.extra,
+            )),
+        }
+    }
+
+    pub(super) fn equals_image_plan(self, candidate: ImagePayloadPlan<'_>) -> bool {
         match self {
             Self::Contiguous { bytes, placement } => {
-                let image = match placement {
-                    PayloadPlacement::Fixed(offset) => ImageView::open_payload_at(bytes, offset)?,
-                    PayloadPlacement::Unplaced => ImageView::open_payload(bytes)?,
+                let aligned = match placement {
+                    PayloadPlacement::Fixed(_) => self.image_view().is_ok(),
+                    PayloadPlacement::Unplaced => true,
                 };
-                resolved_image_planes(image)
+                aligned && candidate.equals_payload(bytes)
             }
-            Self::PromotedImage(image) => Ok(image),
+            Self::PromotedImage(image) => ImagePayloadPlan::from_planes(image)
+                .is_ok_and(|existing| existing.equals_plan(candidate)),
         }
+    }
+
+    pub(super) fn image_planes(self) -> Result<ResolvedImagePlanes<'a>, ImagePayloadError> {
+        resolved_image_planes(self.image_view()?)
     }
 }
 

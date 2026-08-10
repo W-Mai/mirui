@@ -134,7 +134,7 @@ impl<'a> ImageAsset<'a> {
         self.payload_plan()?.payload_to_vec()
     }
 
-    fn payload_plan(&self) -> Result<ImagePayloadPlan<'_>, ImageEncodeError> {
+    pub(crate) fn payload_plan(&self) -> Result<ImagePayloadPlan<'_>, ImageEncodeError> {
         let planes = ImagePlanes::new(self.meta, self.main(), self.extra())
             .map_err(ImageEncodeError::InvalidPayload)?;
         ImagePayloadPlan::from_planes(planes).map_err(ImageEncodeError::InvalidPayload)
@@ -339,6 +339,17 @@ impl<'a> ImagePayloadPlan<'a> {
                 Some(extra) => candidate[main_end..] == *extra,
                 None => candidate.len() == main_end,
             }
+    }
+
+    pub(crate) fn equals_plan(self, candidate: Self) -> bool {
+        let left = self.planes;
+        let right = candidate.planes;
+        left.width == right.width
+            && left.height == right.height
+            && left.format == right.format
+            && left.stride == right.stride
+            && left.main == right.main
+            && left.extra.unwrap_or(&[]) == right.extra.unwrap_or(&[])
     }
 
     pub(crate) fn emit_payload(self, out: &mut [u8]) {

@@ -207,27 +207,123 @@ impl<'a> Document<'a> {
         payload: PayloadInput<'a>,
         policy: RawChunkPolicy,
     ) -> Result<(), EditError> {
+        self.replace_payload_with(
+            id,
+            || Ok(payload),
+            |chunk_type, flags, payload| prepare_replacement(chunk_type, flags, payload, policy),
+        )
+    }
+
+    pub(super) fn replace_typed_owned_with<P, Plan, Equal, Encode>(
+        &mut self,
+        id: ChunkId,
+        chunk_type: ChunkType,
+        plan: Plan,
+        equal: Equal,
+        encode: Encode,
+    ) -> Result<(), EditError>
+    where
+        Plan: FnOnce() -> Result<P, EditError>,
+        for<'payload> Equal: FnOnce(&P, ResolvedNodePayload<'payload>) -> Result<bool, EditError>,
+        Encode: FnOnce(P) -> Result<Vec<u8>, EditError>,
+    {
         self.ensure_mutable()?;
         let index = chunk_index(&self.state, id)?;
-        let (chunk_type, flags, matches_existing, is_primary) = {
+        let (actual_type, flags, capability, is_primary) = {
+            let DocumentState::Chunk(chunks) = &self.state else {
+                unreachable!("layout checked before preparing typed replacement");
+            };
+            let node = &chunks.chunks[index];
+            (
+                node.chunk_type,
+                node.flags,
+                node.capability,
+                chunks.primary == Some(node.id),
+            )
+        };
+        if actual_type != chunk_type {
+            return Err(EditError::InvalidChunkType);
+        }
+
+        let plan = plan()?;
+        let matches_existing = {
+            let DocumentState::Chunk(chunks) = &self.state else {
+                unreachable!("layout checked before comparing typed replacement");
+            };
+            let existing = resolve_node_payload(self, &chunks.chunks[index])
+                .map_err(EditError::InvalidPayload)?;
+            equal(&plan, existing)?
+        };
+        if matches_existing {
+            return Ok(());
+        }
+
+        let reserved_policy = if capability.preserves_reserved_bits() {
+            ReservedBitsPolicy::Preserve
+        } else {
+            ReservedBitsPolicy::Reject
+        };
+        let flags = evaluate_flags(flags, reserved_policy)?.flags;
+        let payload = encode(plan)?;
+        self.commit_prepared_replacement(
+            index,
+            is_primary,
+            PreparedRaw {
+                chunk_type,
+                flags,
+                payload: PayloadStorage::Owned(payload),
+                capability: RewriteCapability::new(
+                    true,
+                    true,
+                    capability.preserves_reserved_bits(),
+                ),
+            },
+        )
+    }
+
+    fn replace_payload_with<C, P>(
+        &mut self,
+        id: ChunkId,
+        candidate: C,
+        prepare: P,
+    ) -> Result<(), EditError>
+    where
+        C: FnOnce() -> Result<PayloadInput<'a>, EditError>,
+        P: FnOnce(ChunkType, ChunkFlags, PayloadInput<'a>) -> Result<PreparedRaw<'a>, EditError>,
+    {
+        self.ensure_mutable()?;
+        let index = chunk_index(&self.state, id)?;
+        let (chunk_type, flags, is_primary) = {
             let DocumentState::Chunk(chunks) = &self.state else {
                 unreachable!("layout checked before preparing replacement");
             };
             let node = &chunks.chunks[index];
-            let existing = resolve_node_payload(self, node).map_err(EditError::InvalidPayload)?;
-            (
-                node.chunk_type,
-                node.flags,
-                existing.equals(payload.as_bytes()),
-                chunks.primary == Some(node.id),
-            )
+            (node.chunk_type, node.flags, chunks.primary == Some(node.id))
+        };
+        let payload = candidate()?;
+        let matches_existing = {
+            let DocumentState::Chunk(chunks) = &self.state else {
+                unreachable!("layout checked before comparing replacement");
+            };
+            resolve_node_payload(self, &chunks.chunks[index])
+                .map_err(EditError::InvalidPayload)?
+                .equals(payload.as_bytes())
         };
 
         if matches_existing {
             return Ok(());
         }
 
-        let prepared = prepare_replacement(chunk_type, flags, payload, policy)?;
+        let prepared = prepare(chunk_type, flags, payload)?;
+        self.commit_prepared_replacement(index, is_primary, prepared)
+    }
+
+    fn commit_prepared_replacement(
+        &mut self,
+        index: usize,
+        is_primary: bool,
+        prepared: PreparedRaw<'a>,
+    ) -> Result<(), EditError> {
         let primary_hints = if is_primary {
             let payload = match &prepared.payload {
                 PayloadStorage::Borrowed(bytes) => *bytes,
@@ -303,10 +399,25 @@ impl<'a> Document<'a> {
     where
         R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
     {
+        let chunk_type = input.chunk_type;
+        self.insert_prepared_at_with(position, chunk_type, || prepare_raw(input), reserve)
+    }
+
+    fn insert_prepared_at_with<P, R>(
+        &mut self,
+        position: InsertPosition,
+        chunk_type: ChunkType,
+        prepare: P,
+        reserve: R,
+    ) -> Result<ChunkId, EditError>
+    where
+        P: FnOnce() -> Result<PreparedRaw<'a>, EditError>,
+        R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
+    {
         self.ensure_mutable()?;
         match (&self.state, position) {
             (DocumentState::Flat(_), InsertPosition::End) => {
-                return self.insert_raw_into_flat_with(input, reserve);
+                return self.insert_prepared_into_flat_with(prepare, reserve);
             }
             (DocumentState::Flat(_) | DocumentState::OpaqueFlat(_), _) => {
                 return Err(EditError::ChunkLayoutRequired);
@@ -319,14 +430,9 @@ impl<'a> Document<'a> {
         let DocumentState::Chunk(chunks) = &self.state else {
             unreachable!("layout checked before projecting insertion");
         };
-        ensure_primary_projection(
-            chunks,
-            PrimaryProjection::Insert {
-                index,
-                chunk_type: input.chunk_type,
-            },
-        )?;
-        let prepared = prepare_raw(input)?;
+        ensure_primary_projection(chunks, PrimaryProjection::Insert { index, chunk_type })?;
+        let prepared = prepare()?;
+        debug_assert_eq!(prepared.chunk_type, chunk_type);
         let node = prepared.into_node(id);
 
         let DocumentState::Chunk(chunks) = &mut self.state else {
@@ -338,6 +444,23 @@ impl<'a> Document<'a> {
         self.next_id = ids.following_counter();
         self.dirty = true;
         Ok(id)
+    }
+
+    pub(super) fn push_typed_owned_with<F>(
+        &mut self,
+        chunk_type: ChunkType,
+        flags: ChunkFlags,
+        encode: F,
+    ) -> Result<ChunkId, EditError>
+    where
+        F: FnOnce() -> Result<Vec<u8>, EditError>,
+    {
+        self.insert_prepared_at_with(
+            InsertPosition::End,
+            chunk_type,
+            || prepare_typed_owned_with(chunk_type, flags, encode),
+            reserve_one_node,
+        )
     }
 
     #[cfg(test)]
@@ -352,18 +475,19 @@ impl<'a> Document<'a> {
         self.insert_raw_at_with(InsertPosition::End, input, reserve)
     }
 
-    fn insert_raw_into_flat_with<R>(
+    fn insert_prepared_into_flat_with<P, R>(
         &mut self,
-        input: RawChunkInput<'a>,
+        prepare: P,
         reserve: R,
     ) -> Result<ChunkId, EditError>
     where
+        P: FnOnce() -> Result<PreparedRaw<'a>, EditError>,
         R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
     {
         let ids = plan_chunk_ids(self.next_id, 2)?;
         let promoted_id = ids.id(0).expect("first planned chunk ID must exist");
         let inserted_id = ids.id(1).expect("second planned chunk ID must exist");
-        let prepared = prepare_raw(input)?;
+        let prepared = prepare()?;
 
         let mut nodes = Vec::new();
         reserve(&mut nodes, 2)?;
@@ -521,6 +645,24 @@ fn prepare_replacement(
         flags: descriptor.flags,
         payload: payload.into_storage(),
         capability: descriptor.capability,
+    })
+}
+
+fn prepare_typed_owned_with<'a, F>(
+    chunk_type: ChunkType,
+    flags: ChunkFlags,
+    encode: F,
+) -> Result<PreparedRaw<'a>, EditError>
+where
+    F: FnOnce() -> Result<Vec<u8>, EditError>,
+{
+    let flags = evaluate_flags(flags, ReservedBitsPolicy::Reject)?.flags;
+    let payload = encode()?;
+    Ok(PreparedRaw {
+        chunk_type,
+        flags,
+        payload: PayloadStorage::Owned(payload),
+        capability: RewriteCapability::new(true, true, false),
     })
 }
 

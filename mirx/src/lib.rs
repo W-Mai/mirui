@@ -29,7 +29,7 @@ pub use document::{
     RawChunkInput, RawChunkPolicy, RawTypePolicy, RelocationAssumption, RemovedChunkMeta,
     ReservedBitsPolicy,
 };
-pub use error::{DocumentError, EditError, EncodeError, ParseError, ReadError};
+pub use error::{DocumentError, EditError, EncodeError, ImageDecodeError, ParseError, ReadError};
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
 pub use font::{
     AtlasHeader, FONT_CHUNK_HEADER_LEN, Font, FontChunkHeader, FontChunkKind, FontDecodeError,

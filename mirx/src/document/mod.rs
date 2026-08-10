@@ -10,6 +10,7 @@ mod descriptor;
 mod flat_tests;
 #[cfg(test)]
 mod hint_tests;
+mod image;
 mod options;
 mod payload;
 #[cfg(test)]

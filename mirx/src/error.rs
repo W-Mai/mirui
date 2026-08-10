@@ -162,6 +162,28 @@ pub enum EditError {
     InvalidPayload(ImagePayloadError),
 }
 
+/// Failures while resolving and decoding an IMAGE node from a document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum ImageDecodeError {
+    /// The container uses preserved semantics newer than this typed accessor.
+    FutureSemanticsUnsupported,
+    /// Stable chunk identities are available only in CHUNK layout.
+    ChunkLayoutRequired,
+    /// The identity does not name a live chunk in this document session.
+    InvalidChunkId,
+    /// The selected chunk is not an IMAGE node.
+    UnexpectedChunkType { actual: ChunkType },
+    /// The selected IMAGE payload violates its typed contract.
+    InvalidPayload(ImagePayloadError),
+}
+
+impl From<ImagePayloadError> for ImageDecodeError {
+    fn from(value: ImagePayloadError) -> Self {
+        Self::InvalidPayload(value)
+    }
+}
+
 /// Failures while planning or emitting MIRX bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
