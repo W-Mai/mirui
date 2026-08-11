@@ -1,11 +1,15 @@
 pub mod atlas;
 pub mod header;
+mod preflight;
 
 use alloc::vec::Vec;
 
 pub use crate::font::atlas::{AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION};
 pub use crate::font::atlas::{read_header, read_metric, write_header, write_metric};
 pub use crate::font::header::{FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind};
+pub use crate::font::preflight::FontReadError;
+use crate::font::preflight::checked_bytes_per_glyph;
+use crate::reader::PayloadLimits;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FontDecodeError {
@@ -26,6 +30,15 @@ pub struct Font {
 }
 
 impl Font {
+    /// Validates one complete FONT payload without allocating.
+    ///
+    /// Glyph count and owned metric/atlas-data bytes are bounded by `limits`.
+    /// Bytes skipped by the payload's explicit offsets are nonsemantic and are
+    /// not scanned.
+    pub fn preflight(payload: &[u8], limits: &PayloadLimits) -> Result<(), FontReadError> {
+        preflight::validate_payload(payload, limits)
+    }
+
     pub fn decode(payload: &[u8]) -> Result<Self, FontDecodeError> {
         let prefix = FontChunkHeader::parse(payload).ok_or(FontDecodeError::PayloadTooShort)?;
         let body = payload
@@ -51,11 +64,11 @@ impl Font {
                 }
             }
         }
-        let source = atlas.source_size as u32;
-        if source == 0 {
+        if atlas.source_size == 0 {
             return Err(FontDecodeError::InvalidGeometry);
         }
-        let expected_per_glyph = (source * source * atlas.bit_depth as u32).div_ceil(8);
+        let expected_per_glyph = checked_bytes_per_glyph(atlas.source_size, atlas.bit_depth)
+            .ok_or(FontDecodeError::InvalidGeometry)?;
         if atlas.bytes_per_glyph != expected_per_glyph {
             return Err(FontDecodeError::InvalidGeometry);
         }
@@ -129,7 +142,7 @@ mod tests {
 
     fn sample_font(kind: FontChunkKind, bit_depth: u8) -> Font {
         let source_size: u16 = 4;
-        let bytes_per_glyph = (source_size as u32 * source_size as u32 * bit_depth as u32) / 8;
+        let bytes_per_glyph = checked_bytes_per_glyph(source_size, bit_depth).unwrap();
         let atlas = AtlasHeader {
             version: SUPPORTED_VERSION,
             bit_depth,
