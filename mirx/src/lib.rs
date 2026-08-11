@@ -33,8 +33,8 @@ pub use error::{DocumentError, EditError, EncodeError, ImageDecodeError, ParseEr
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
 pub use font::{
     AtlasHeader, FONT_CHUNK_HEADER_LEN, Font, FontChunkHeader, FontChunkKind, FontDecodeError,
-    FontReadError, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION, read_header,
-    read_metric, write_header, write_metric,
+    FontEncodeError, FontReadError, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION,
+    read_header, read_metric, write_header, write_metric,
 };
 pub use format::{ColorFormat, PRIMARY_FORMAT_NONE};
 pub use header::{

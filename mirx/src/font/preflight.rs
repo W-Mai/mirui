@@ -1,4 +1,7 @@
-use super::{FONT_CHUNK_HEADER_LEN, FontChunkKind, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION};
+use super::{
+    AtlasHeader, FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind, HEADER_LEN, METRIC_LEN,
+    SUPPORTED_VERSION,
+};
 use crate::font::read_header;
 use crate::reader::PayloadLimits;
 
@@ -95,57 +98,15 @@ pub(super) fn validate_payload(
         });
     }
 
-    let prefix_format = payload[1];
-    let prefix_size = u16::from_le_bytes([payload[2], payload[3]]);
+    let prefix = FontChunkHeader {
+        kind,
+        format: payload[1],
+        size: u16::from_le_bytes([payload[2], payload[3]]),
+    };
     let body = &payload[FONT_CHUNK_HEADER_LEN..];
     let atlas = read_header(&body[..HEADER_LEN]);
 
-    if atlas.version != SUPPORTED_VERSION {
-        return Err(FontReadError::UnsupportedVersion(atlas.version));
-    }
-    if atlas._pad0 != 0 {
-        return Err(FontReadError::ReservedNonZero {
-            offset: FONT_CHUNK_HEADER_LEN + 3,
-        });
-    }
-    if atlas._pad1 != 0 {
-        let offset = FONT_CHUNK_HEADER_LEN + 30 + usize::from(body[30] == 0);
-        return Err(FontReadError::ReservedNonZero { offset });
-    }
-    if !valid_bit_depth(kind, atlas.bit_depth) {
-        return Err(FontReadError::InvalidBitDepth {
-            kind,
-            actual: atlas.bit_depth,
-        });
-    }
-    if atlas.source_size == 0 {
-        return Err(FontReadError::InvalidSourceSize {
-            actual: atlas.source_size,
-        });
-    }
-    let expected_bytes_per_glyph = checked_bytes_per_glyph(atlas.source_size, atlas.bit_depth)
-        .ok_or(FontReadError::SizeOverflow)?;
-    if atlas.bytes_per_glyph != expected_bytes_per_glyph {
-        return Err(FontReadError::BytesPerGlyphMismatch {
-            expected: expected_bytes_per_glyph,
-            actual: atlas.bytes_per_glyph,
-        });
-    }
-    if prefix_format != atlas.bit_depth {
-        return Err(FontReadError::ChunkFormatMismatch {
-            chunk: prefix_format,
-            atlas: atlas.bit_depth,
-        });
-    }
-    if prefix_size != atlas.source_size {
-        return Err(FontReadError::ChunkSizeMismatch {
-            chunk: prefix_size,
-            atlas: atlas.source_size,
-        });
-    }
-    if atlas.glyph_count == 0 {
-        return Err(FontReadError::EmptyGlyphTable);
-    }
+    validate_header_fields(prefix, atlas)?;
 
     validate_offset(atlas.metric_offset, true)?;
     validate_offset(atlas.data_offset, false)?;
@@ -203,7 +164,65 @@ pub(super) fn validate_payload(
     validate_metrics(&body[metric_offset..metric_end])
 }
 
-fn valid_bit_depth(kind: FontChunkKind, bit_depth: u8) -> bool {
+pub(super) fn validate_header_fields(
+    prefix: FontChunkHeader,
+    atlas: AtlasHeader,
+) -> Result<(), FontReadError> {
+    if atlas.version != SUPPORTED_VERSION {
+        return Err(FontReadError::UnsupportedVersion(atlas.version));
+    }
+    if let Some(offset) = reserved_offset(atlas) {
+        return Err(FontReadError::ReservedNonZero { offset });
+    }
+    if !valid_bit_depth(prefix.kind, atlas.bit_depth) {
+        return Err(FontReadError::InvalidBitDepth {
+            kind: prefix.kind,
+            actual: atlas.bit_depth,
+        });
+    }
+    if atlas.source_size == 0 {
+        return Err(FontReadError::InvalidSourceSize {
+            actual: atlas.source_size,
+        });
+    }
+    let expected_bytes_per_glyph = checked_bytes_per_glyph(atlas.source_size, atlas.bit_depth)
+        .ok_or(FontReadError::SizeOverflow)?;
+    if atlas.bytes_per_glyph != expected_bytes_per_glyph {
+        return Err(FontReadError::BytesPerGlyphMismatch {
+            expected: expected_bytes_per_glyph,
+            actual: atlas.bytes_per_glyph,
+        });
+    }
+    if prefix.format != atlas.bit_depth {
+        return Err(FontReadError::ChunkFormatMismatch {
+            chunk: prefix.format,
+            atlas: atlas.bit_depth,
+        });
+    }
+    if prefix.size != atlas.source_size {
+        return Err(FontReadError::ChunkSizeMismatch {
+            chunk: prefix.size,
+            atlas: atlas.source_size,
+        });
+    }
+    if atlas.glyph_count == 0 {
+        return Err(FontReadError::EmptyGlyphTable);
+    }
+    Ok(())
+}
+
+pub(super) fn reserved_offset(atlas: AtlasHeader) -> Option<usize> {
+    if atlas._pad0 != 0 {
+        return Some(FONT_CHUNK_HEADER_LEN + 3);
+    }
+    if atlas._pad1 != 0 {
+        let [low, _high] = atlas._pad1.to_le_bytes();
+        return Some(FONT_CHUNK_HEADER_LEN + 30 + usize::from(low == 0));
+    }
+    None
+}
+
+pub(super) fn valid_bit_depth(kind: FontChunkKind, bit_depth: u8) -> bool {
     match kind {
         FontChunkKind::Sdf => matches!(bit_depth, 4 | 8),
         FontChunkKind::Grayscale => matches!(bit_depth, 1 | 2 | 4 | 8),
@@ -234,25 +253,34 @@ fn validate_offset(offset: u32, metric: bool) -> Result<(), FontReadError> {
     Ok(())
 }
 
-#[allow(clippy::collapsible_if)] // Let chains are newer than Rust 1.85.
 fn validate_metrics(metrics: &[u8]) -> Result<(), FontReadError> {
     let mut previous = None;
     for (index, metric) in metrics.chunks_exact(METRIC_LEN).enumerate() {
         let codepoint = u32::from_le_bytes(metric[..4].try_into().expect("complete metric"));
         let index = u32::try_from(index).map_err(|_| FontReadError::SizeOverflow)?;
-        if char::from_u32(codepoint).is_none() {
-            return Err(FontReadError::InvalidUnicodeScalar { index, codepoint });
-        }
-        if let Some(previous) = previous {
-            if codepoint <= previous {
-                return Err(FontReadError::CodepointsNotStrictlyIncreasing {
-                    index,
-                    previous,
-                    actual: codepoint,
-                });
-            }
-        }
+        validate_metric_codepoint(previous, index, codepoint)?;
         previous = Some(codepoint);
+    }
+    Ok(())
+}
+
+#[allow(clippy::collapsible_if)] // Let chains are newer than Rust 1.85.
+pub(super) fn validate_metric_codepoint(
+    previous: Option<u32>,
+    index: u32,
+    codepoint: u32,
+) -> Result<(), FontReadError> {
+    if char::from_u32(codepoint).is_none() {
+        return Err(FontReadError::InvalidUnicodeScalar { index, codepoint });
+    }
+    if let Some(previous) = previous {
+        if codepoint <= previous {
+            return Err(FontReadError::CodepointsNotStrictlyIncreasing {
+                index,
+                previous,
+                actual: codepoint,
+            });
+        }
     }
     Ok(())
 }

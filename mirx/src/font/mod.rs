@@ -1,4 +1,5 @@
 pub mod atlas;
+mod encoder;
 pub mod header;
 mod preflight;
 
@@ -6,6 +7,7 @@ use alloc::vec::Vec;
 
 pub use crate::font::atlas::{AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION};
 pub use crate::font::atlas::{read_header, read_metric, write_header, write_metric};
+pub use crate::font::encoder::FontEncodeError;
 pub use crate::font::header::{FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind};
 pub use crate::font::preflight::FontReadError;
 use crate::font::preflight::checked_bytes_per_glyph;
