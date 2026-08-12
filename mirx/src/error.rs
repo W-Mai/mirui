@@ -22,6 +22,7 @@ pub enum ParseError {
     ReservedNonZero,
 }
 
+use crate::font::{FontEncodeError, FontReadError};
 use crate::model::{ChunkType, InvalidChunkType};
 use crate::payload::image::ImagePayloadError;
 use crate::reader::PayloadValidationError;
@@ -160,6 +161,53 @@ pub enum EditError {
         bits: u16,
     },
     InvalidPayload(ImagePayloadError),
+    InvalidFont(FontEncodeError),
+    NonContiguousPayload {
+        chunk_type: ChunkType,
+    },
+}
+
+/// Failures while resolving and decoding a FONT node from a document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum FontAccessError {
+    /// The container uses preserved semantics newer than this typed accessor.
+    FutureSemanticsUnsupported,
+    /// Stable chunk identities are available only in CHUNK layout.
+    ChunkLayoutRequired,
+    /// The identity does not name a live chunk in this document session.
+    InvalidChunkId,
+    /// The selected chunk is not a FONT node.
+    UnexpectedChunkType { actual: ChunkType },
+    /// The selected raw node has no contiguous FONT payload representation.
+    NonContiguousPayload,
+    /// The selected FONT payload violates its typed contract.
+    InvalidPayload(FontReadError),
+    /// Owned metric or atlas-data storage could not be reserved.
+    AllocationFailed,
+}
+
+impl From<FontReadError> for FontAccessError {
+    fn from(value: FontReadError) -> Self {
+        match value {
+            FontReadError::AllocationFailed => Self::AllocationFailed,
+            error => Self::InvalidPayload(error),
+        }
+    }
+}
+
+/// Failure from a transactional typed edit with a fallible callback.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum TryEditError<E> {
+    Edit(EditError),
+    Callback(E),
+}
+
+impl<E> From<EditError> for TryEditError<E> {
+    fn from(value: EditError) -> Self {
+        Self::Edit(value)
+    }
 }
 
 /// Failures while resolving and decoding an IMAGE node from a document.

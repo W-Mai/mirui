@@ -2,7 +2,7 @@ use super::payload::{PayloadPlacement, ResolvedNodePayload, resolve_node_payload
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, Font, FontEncodeError, PayloadLimits};
 
 #[cfg(test)]
 use super::PayloadStorage;
@@ -50,6 +50,7 @@ pub(super) fn evaluate_descriptor(
     flags: ChunkFlags,
     payload: &[u8],
     policy: RawChunkPolicy,
+    limits: PayloadLimits,
 ) -> Result<EvaluatedDescriptor, EditError> {
     let flags = evaluate_flags(flags, policy.reserved_flag_bits)?;
     evaluate_resolved_descriptor_with_flags(
@@ -60,6 +61,7 @@ pub(super) fn evaluate_descriptor(
             placement: PayloadPlacement::Unplaced,
         },
         policy,
+        limits,
     )
 }
 
@@ -68,6 +70,7 @@ pub(super) fn evaluate_descriptor_with_flags(
     evaluated_flags: EvaluatedFlags,
     payload: &[u8],
     policy: RawChunkPolicy,
+    limits: PayloadLimits,
 ) -> Result<EvaluatedDescriptor, EditError> {
     evaluate_resolved_descriptor_with_flags(
         chunk_type,
@@ -77,6 +80,7 @@ pub(super) fn evaluate_descriptor_with_flags(
             placement: PayloadPlacement::Unplaced,
         },
         policy,
+        limits,
     )
 }
 
@@ -85,6 +89,7 @@ fn evaluate_resolved_descriptor_with_flags(
     evaluated_flags: EvaluatedFlags,
     payload: ResolvedNodePayload<'_>,
     policy: RawChunkPolicy,
+    limits: PayloadLimits,
 ) -> Result<EvaluatedDescriptor, EditError> {
     let flags = evaluated_flags.flags;
     let known_contract = if chunk_type == ChunkType::IMAGE {
@@ -92,6 +97,26 @@ fn evaluate_resolved_descriptor_with_flags(
             Ok(_) => true,
             Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
             Err(error) => return Err(EditError::InvalidPayload(error)),
+        }
+    } else if chunk_type == ChunkType::FONT {
+        match payload.bytes() {
+            Some(bytes) => match Font::preflight(bytes, &limits) {
+                Ok(()) => true,
+                Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
+                    false
+                }
+                Err(error) => {
+                    return Err(EditError::InvalidFont(FontEncodeError::InvalidPayload(
+                        error,
+                    )));
+                }
+            },
+            None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
+            None => {
+                return Err(EditError::NonContiguousPayload {
+                    chunk_type: ChunkType::FONT,
+                });
+            }
         }
     } else {
         false
@@ -192,7 +217,13 @@ impl Document<'_> {
             let node = chunk_node(&self.state, index);
             let payload = descriptor_payload(self, node)?;
             let flags = evaluate_flags(node.flags, policy.reserved_flag_bits)?;
-            evaluate_resolved_descriptor_with_flags(chunk_type, flags, payload, policy)?
+            evaluate_resolved_descriptor_with_flags(
+                chunk_type,
+                flags,
+                payload,
+                policy,
+                self.payload_limits,
+            )?
         };
         self.apply_type_descriptor(index, candidate);
         Ok(())
@@ -226,6 +257,7 @@ impl Document<'_> {
                 evaluated_flags,
                 payload,
                 policy,
+                self.payload_limits,
             )?
         };
         self.apply_flags_descriptor(index, candidate);
@@ -243,7 +275,13 @@ impl Document<'_> {
             let node = chunk_node(&self.state, index);
             let payload = descriptor_payload(self, node)?;
             let flags = evaluate_flags(node.flags, policy.reserved_flag_bits)?;
-            evaluate_resolved_descriptor_with_flags(node.chunk_type, flags, payload, policy)?
+            evaluate_resolved_descriptor_with_flags(
+                node.chunk_type,
+                flags,
+                payload,
+                policy,
+                self.payload_limits,
+            )?
         };
 
         let (exact, flags_changed) = {
@@ -567,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_image_requires_relocation_and_then_critical_understanding() {
+    fn malformed_known_payloads_report_contract_errors_before_raw_assumptions() {
         let mut document = Document::new_chunk();
         let id = document
             .push_raw(raw(
@@ -580,13 +618,20 @@ mod tests {
         document.dirty = false;
         let before = snapshot(&document);
 
-        for chunk_type in [ChunkType::FONT, ChunkType::new(0xbeef).unwrap()] {
-            assert_eq!(
-                document.set_type(id, chunk_type, RawChunkPolicy::infer()),
-                Err(EditError::RelocationAssumptionRequired { chunk_type })
-            );
-            assert_eq!(snapshot(&document), before);
-        }
+        assert_eq!(
+            document.set_type(id, ChunkType::FONT, RawChunkPolicy::infer()),
+            Err(EditError::InvalidFont(FontEncodeError::InvalidPayload(
+                crate::FontReadError::UnknownChunkKind(b'n')
+            )))
+        );
+        assert_eq!(snapshot(&document), before);
+
+        let custom = ChunkType::new(0xbeef).unwrap();
+        assert_eq!(
+            document.set_type(id, custom, RawChunkPolicy::infer()),
+            Err(EditError::RelocationAssumptionRequired { chunk_type: custom })
+        );
+        assert_eq!(snapshot(&document), before);
 
         assert!(matches!(
             document.set_type(id, ChunkType::IMAGE, RawChunkPolicy::infer()),

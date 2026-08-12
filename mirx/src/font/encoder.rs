@@ -131,6 +131,47 @@ impl<'a> FontPayloadPlan<'a> {
         usize::try_from(self.layout.payload_size).expect("validated FONT payload size fits usize")
     }
 
+    pub(crate) fn equals_payload(self, payload: &[u8]) -> bool {
+        if payload.len() != self.encoded_len() {
+            return false;
+        }
+
+        let font = self.font;
+        let mut chunk_header = [0; FONT_CHUNK_HEADER_LEN];
+        font.chunk_header.write(&mut chunk_header);
+        if payload[..FONT_CHUNK_HEADER_LEN] != chunk_header {
+            return false;
+        }
+
+        let mut atlas = font.atlas;
+        atlas.metric_offset = self.layout.metric_offset;
+        atlas.data_offset = self.layout.data_offset;
+        let mut atlas_bytes = [0; HEADER_LEN];
+        write_header(&mut atlas_bytes, &atlas);
+        let header_end = FONT_CHUNK_HEADER_LEN + HEADER_LEN;
+        if payload[FONT_CHUNK_HEADER_LEN..header_end] != atlas_bytes {
+            return false;
+        }
+
+        let mut metric_start = header_end;
+        for metric in &font.metrics {
+            let mut metric_bytes = [0; METRIC_LEN];
+            write_metric(&mut metric_bytes, metric);
+            if payload[metric_start..metric_start + METRIC_LEN] != metric_bytes {
+                return false;
+            }
+            metric_start += METRIC_LEN;
+        }
+
+        debug_assert_eq!(
+            metric_start,
+            FONT_CHUNK_HEADER_LEN
+                + usize::try_from(self.layout.data_offset)
+                    .expect("validated FONT data offset fits usize")
+        );
+        payload[metric_start..] == font.data
+    }
+
     pub(crate) fn copy_payload_into(self, out: &mut [u8]) -> Result<usize, FontEncodeError> {
         let needed = self.encoded_len();
         if out.len() < needed {
@@ -299,6 +340,29 @@ mod tests {
     }
 
     #[test]
+    fn payload_plan_matches_only_exact_canonical_bytes() {
+        let font = sample_font(FontChunkKind::Sdf, 4);
+        let plan = font.payload_plan().unwrap();
+        let mut payload = font.encode_payload().unwrap();
+
+        assert!(plan.equals_payload(&payload));
+
+        for index in 0..payload.len() {
+            payload[index] ^= 0x80;
+            assert!(
+                !plan.equals_payload(&payload),
+                "changed canonical byte at offset {index}"
+            );
+            payload[index] ^= 0x80;
+        }
+
+        payload.push(0);
+        assert!(!plan.equals_payload(&payload));
+        payload.truncate(plan.encoded_len() - 1);
+        assert!(!plan.equals_payload(&payload));
+    }
+
+    #[test]
     fn decoded_offset_gaps_are_compacted_during_checked_encoding() {
         let font = sample_font(FontChunkKind::Sdf, 4);
         let mut gapped = alloc::vec![0; 76];
@@ -327,7 +391,11 @@ mod tests {
         let decoded = Font::decode(&gapped).unwrap();
         assert_eq!(decoded.atlas.metric_offset, 36);
         assert_eq!(decoded.atlas.data_offset, 56);
-        assert_eq!(decoded.encode_payload().unwrap(), font.encode());
+        let plan = decoded.payload_plan().unwrap();
+        assert!(!plan.equals_payload(&gapped));
+        let canonical = decoded.encode_payload().unwrap();
+        assert!(plan.equals_payload(&canonical));
+        assert_eq!(canonical, font.encode());
     }
 
     #[test]

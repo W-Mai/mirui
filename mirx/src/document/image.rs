@@ -59,6 +59,7 @@ impl Document<'_> {
             || image.payload_plan().map_err(image_plan_error_for_edit),
             |plan, existing| Ok(existing.equals_image_plan(*plan)),
             |plan| plan.payload_to_vec().map_err(image_encode_error_for_edit),
+            EditError::InvalidPayload,
         )
     }
 }

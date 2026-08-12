@@ -76,8 +76,8 @@ pub struct RawTypePolicy {
 ///
 /// Raw type policies are searched from the end, so a later duplicate takes
 /// precedence. The policy slice is not retained after opening; evaluated
-/// capabilities are copied into the corresponding document nodes. All option
-/// fields are read only for the duration of the open call.
+/// capabilities are copied into the corresponding document nodes. Payload
+/// limits are copied into the document for later typed access and edits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OpenOptions<'p> {
     max_chunks: u16,

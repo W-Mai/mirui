@@ -8,6 +8,7 @@ mod demotion_tests;
 mod descriptor;
 #[cfg(test)]
 mod flat_tests;
+mod font;
 #[cfg(test)]
 mod hint_tests;
 mod image;
@@ -41,7 +42,8 @@ use crate::payload::image::{ImageAssetParts, ImageMeta, validate_image_planes};
 use crate::reader::{PreflightStatus, preflight_chunk, require_understood_critical};
 use crate::{
     ChunkFlags, ChunkId, ChunkType, DocumentError, EditError, FLAT_HEADER_LEN, ImageAsset,
-    ImageView, Layout, PrimaryHints, ReadError, ReadOptions, Reader, VERSION_MAJOR, VERSION_MINOR,
+    ImageView, Layout, PayloadLimits, PrimaryHints, ReadError, ReadOptions, Reader, VERSION_MAJOR,
+    VERSION_MINOR,
 };
 
 #[cfg(test)]
@@ -376,6 +378,7 @@ pub struct Document<'a> {
     state: DocumentState<'a>,
     compatibility: Compatibility,
     trailing: TrailingState,
+    payload_limits: PayloadLimits,
     dirty: bool,
     next_id: u32,
 }
@@ -388,8 +391,9 @@ impl<'a> Document<'a> {
 
     /// Opens a borrowed document with explicit resource and rewrite policies.
     ///
-    /// The options are read only during this call. Future container semantics,
-    /// trailing bytes, and raw capabilities follow
+    /// Payload limits are copied into the document for later typed access and
+    /// edits. Future container semantics, trailing bytes, and raw capabilities
+    /// follow
     /// [`OpenOptions::with_compatibility`],
     /// [`OpenOptions::with_trailing_bytes`], and
     /// [`OpenOptions::with_raw_type_policies`] respectively.
@@ -404,8 +408,9 @@ impl<'a> Document<'a> {
 
     /// Opens an owned document with explicit resource and rewrite policies.
     ///
-    /// The options are read only during this call. Future container semantics,
-    /// trailing bytes, and raw capabilities follow
+    /// Payload limits are copied into the document for later typed access and
+    /// edits. Future container semantics, trailing bytes, and raw capabilities
+    /// follow
     /// [`OpenOptions::with_compatibility`],
     /// [`OpenOptions::with_trailing_bytes`], and
     /// [`OpenOptions::with_raw_type_policies`] respectively.
@@ -421,6 +426,14 @@ impl<'a> Document<'a> {
     /// Borrowed planes remain borrowed and owned planes move into the document
     /// without changing their allocations.
     pub fn new_flat(image: ImageAsset<'a>) -> Result<Self, EditError> {
+        Self::new_flat_with_limits(image, PayloadLimits::EMBEDDED)
+    }
+
+    /// Creates a MIRX 1.0 FLAT document with an explicit typed-operation budget.
+    pub fn new_flat_with_limits(
+        image: ImageAsset<'a>,
+        payload_limits: PayloadLimits,
+    ) -> Result<Self, EditError> {
         let record = prepare_flat_record(image)?;
         Ok(Self {
             origin: Origin::New,
@@ -429,6 +442,7 @@ impl<'a> Document<'a> {
             state: DocumentState::Flat(record),
             compatibility: Compatibility::Current,
             trailing: TrailingState::None,
+            payload_limits,
             dirty: true,
             next_id: 0,
         })
@@ -436,6 +450,11 @@ impl<'a> Document<'a> {
 
     /// Creates an empty MIRX 1.0 CHUNK document.
     pub const fn new_chunk() -> Self {
+        Self::new_chunk_with_limits(PayloadLimits::EMBEDDED)
+    }
+
+    /// Creates an empty MIRX 1.0 CHUNK document with an explicit typed-operation budget.
+    pub const fn new_chunk_with_limits(payload_limits: PayloadLimits) -> Self {
         Self {
             origin: Origin::New,
             logical_len: 0,
@@ -448,6 +467,7 @@ impl<'a> Document<'a> {
             }),
             compatibility: Compatibility::Current,
             trailing: TrailingState::None,
+            payload_limits,
             dirty: true,
             next_id: 0,
         }
@@ -523,6 +543,11 @@ impl<'a> Document<'a> {
         self.dirty
     }
 
+    /// Returns the per-payload resource profile used by typed operations.
+    pub const fn payload_limits(&self) -> PayloadLimits {
+        self.payload_limits
+    }
+
     /// Replaces the sole image of a current FLAT document without changing layout.
     ///
     /// An image with identical metadata and plane bytes is a no-op that retains
@@ -591,6 +616,7 @@ impl<'a> Document<'a> {
             state: opened.state,
             compatibility: opened.compatibility,
             trailing: opened.trailing,
+            payload_limits: options.payload_limits(),
             dirty: opened.dirty,
             next_id: opened.next_id,
         };

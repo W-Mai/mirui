@@ -207,25 +207,30 @@ impl<'a> Document<'a> {
         payload: PayloadInput<'a>,
         policy: RawChunkPolicy,
     ) -> Result<(), EditError> {
+        let limits = self.payload_limits;
         self.replace_payload_with(
             id,
             || Ok(payload),
-            |chunk_type, flags, payload| prepare_replacement(chunk_type, flags, payload, policy),
+            |chunk_type, flags, payload| {
+                prepare_replacement(chunk_type, flags, payload, policy, limits)
+            },
         )
     }
 
-    pub(super) fn replace_typed_owned_with<P, Plan, Equal, Encode>(
+    pub(super) fn replace_typed_owned_with<P, Plan, Equal, Encode, ResolveError>(
         &mut self,
         id: ChunkId,
         chunk_type: ChunkType,
         plan: Plan,
         equal: Equal,
         encode: Encode,
+        resolve_error: ResolveError,
     ) -> Result<(), EditError>
     where
         Plan: FnOnce() -> Result<P, EditError>,
         for<'payload> Equal: FnOnce(&P, ResolvedNodePayload<'payload>) -> Result<bool, EditError>,
         Encode: FnOnce(P) -> Result<Vec<u8>, EditError>,
+        ResolveError: FnOnce(ImagePayloadError) -> EditError,
     {
         self.ensure_mutable()?;
         let index = chunk_index(&self.state, id)?;
@@ -250,8 +255,8 @@ impl<'a> Document<'a> {
             let DocumentState::Chunk(chunks) = &self.state else {
                 unreachable!("layout checked before comparing typed replacement");
             };
-            let existing = resolve_node_payload(self, &chunks.chunks[index])
-                .map_err(EditError::InvalidPayload)?;
+            let existing =
+                resolve_node_payload(self, &chunks.chunks[index]).map_err(resolve_error)?;
             equal(&plan, existing)?
         };
         if matches_existing {
@@ -400,7 +405,8 @@ impl<'a> Document<'a> {
         R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
     {
         let chunk_type = input.chunk_type;
-        self.insert_prepared_at_with(position, chunk_type, || prepare_raw(input), reserve)
+        let limits = self.payload_limits;
+        self.insert_prepared_at_with(position, chunk_type, || prepare_raw(input, limits), reserve)
     }
 
     fn insert_prepared_at_with<P, R>(
@@ -609,12 +615,16 @@ fn insertion_index(
     }
 }
 
-fn prepare_raw(input: RawChunkInput<'_>) -> Result<PreparedRaw<'_>, EditError> {
+fn prepare_raw(
+    input: RawChunkInput<'_>,
+    limits: crate::PayloadLimits,
+) -> Result<PreparedRaw<'_>, EditError> {
     let descriptor = evaluate_descriptor(
         input.chunk_type,
         input.flags,
         input.payload.as_bytes(),
         input.policy,
+        limits,
     )?;
 
     Ok(PreparedRaw {
@@ -630,6 +640,7 @@ fn prepare_replacement(
     flags: ChunkFlags,
     payload: PayloadInput<'_>,
     policy: RawChunkPolicy,
+    limits: crate::PayloadLimits,
 ) -> Result<PreparedRaw<'_>, EditError> {
     let evaluated_flags = evaluate_flags(flags, policy.reserved_flag_bits)?;
     if evaluated_flags.flags != flags {
@@ -637,8 +648,13 @@ fn prepare_replacement(
             bits: flags.bits() & !ChunkFlags::CRITICAL.bits(),
         });
     }
-    let descriptor =
-        evaluate_descriptor_with_flags(chunk_type, evaluated_flags, payload.as_bytes(), policy)?;
+    let descriptor = evaluate_descriptor_with_flags(
+        chunk_type,
+        evaluated_flags,
+        payload.as_bytes(),
+        policy,
+        limits,
+    )?;
 
     Ok(PreparedRaw {
         chunk_type: descriptor.chunk_type,

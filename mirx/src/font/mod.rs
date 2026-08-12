@@ -41,6 +41,17 @@ impl Font {
         preflight::validate_payload(payload, limits)
     }
 
+    /// Decodes one complete FONT payload into bounded owned storage.
+    ///
+    /// Structural validation, decoded-byte budgets, and the complete glyph
+    /// metric scan finish before either owned buffer is allocated.
+    pub fn decode_with_limits(
+        payload: &[u8],
+        limits: &PayloadLimits,
+    ) -> Result<Self, FontReadError> {
+        preflight::decode_payload(payload, limits)
+    }
+
     pub fn decode(payload: &[u8]) -> Result<Self, FontDecodeError> {
         let prefix = FontChunkHeader::parse(payload).ok_or(FontDecodeError::PayloadTooShort)?;
         let body = payload

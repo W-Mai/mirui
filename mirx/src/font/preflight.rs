@@ -1,8 +1,10 @@
+use alloc::vec::Vec;
+use core::{mem::size_of, ops::Range};
+
 use super::{
-    AtlasHeader, FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind, HEADER_LEN, METRIC_LEN,
-    SUPPORTED_VERSION,
+    AtlasHeader, FONT_CHUNK_HEADER_LEN, Font, FontChunkHeader, FontChunkKind, GlyphMetric,
+    HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION, read_header, read_metric,
 };
-use crate::font::read_header;
 use crate::reader::PayloadLimits;
 
 /// Failure while validating or reading a MIRX FONT payload.
@@ -75,13 +77,63 @@ pub enum FontReadError {
         previous: u32,
         actual: u32,
     },
+    AllocationFailed,
     SizeOverflow,
+}
+
+struct ValidatedFontPayload {
+    chunk_header: FontChunkHeader,
+    atlas: AtlasHeader,
+    metrics: Range<usize>,
+    data: Range<usize>,
 }
 
 pub(super) fn validate_payload(
     payload: &[u8],
     limits: &PayloadLimits,
 ) -> Result<(), FontReadError> {
+    validate_payload_layout(payload, limits).map(|_| ())
+}
+
+pub(super) fn decode_payload(
+    payload: &[u8],
+    limits: &PayloadLimits,
+) -> Result<Font, FontReadError> {
+    let ValidatedFontPayload {
+        chunk_header,
+        atlas,
+        metrics: metric_range,
+        data: data_range,
+    } = validate_payload_layout(payload, limits)?;
+
+    let glyph_count =
+        usize::try_from(atlas.glyph_count).map_err(|_| FontReadError::SizeOverflow)?;
+    let mut metrics = Vec::new();
+    metrics
+        .try_reserve_exact(glyph_count)
+        .map_err(|_| FontReadError::AllocationFailed)?;
+    for metric in payload[metric_range].chunks_exact(METRIC_LEN) {
+        metrics.push(read_metric(metric));
+    }
+
+    let data_bytes = &payload[data_range];
+    let mut data = Vec::new();
+    data.try_reserve_exact(data_bytes.len())
+        .map_err(|_| FontReadError::AllocationFailed)?;
+    data.extend_from_slice(data_bytes);
+
+    Ok(Font {
+        chunk_header,
+        atlas,
+        metrics,
+        data,
+    })
+}
+
+fn validate_payload_layout(
+    payload: &[u8],
+    limits: &PayloadLimits,
+) -> Result<ValidatedFontPayload, FontReadError> {
     if payload.len() < FONT_CHUNK_HEADER_LEN {
         return Err(FontReadError::Truncated {
             needed: FONT_CHUNK_HEADER_LEN,
@@ -147,9 +199,14 @@ pub(super) fn validate_payload(
             limit: limits.max_font_glyphs(),
         });
     }
-    let decoded_bytes = metric_len
-        .checked_add(data_len)
-        .and_then(|value| usize::try_from(value).ok())
+    let glyph_count =
+        usize::try_from(atlas.glyph_count).map_err(|_| FontReadError::SizeOverflow)?;
+    let decoded_metric_bytes = glyph_count
+        .checked_mul(size_of::<GlyphMetric>())
+        .ok_or(FontReadError::SizeOverflow)?;
+    let decoded_data_bytes = usize::try_from(data_len).map_err(|_| FontReadError::SizeOverflow)?;
+    let decoded_bytes = decoded_metric_bytes
+        .checked_add(decoded_data_bytes)
         .ok_or(FontReadError::SizeOverflow)?;
     if decoded_bytes > limits.max_decoded_bytes() {
         return Err(FontReadError::DecodedBytesLimitExceeded {
@@ -161,7 +218,30 @@ pub(super) fn validate_payload(
     let metric_offset =
         usize::try_from(atlas.metric_offset).map_err(|_| FontReadError::SizeOverflow)?;
     let metric_end = usize::try_from(metric_end).map_err(|_| FontReadError::SizeOverflow)?;
-    validate_metrics(&body[metric_offset..metric_end])
+    validate_metrics(&body[metric_offset..metric_end])?;
+
+    let data_offset =
+        usize::try_from(atlas.data_offset).map_err(|_| FontReadError::SizeOverflow)?;
+    let data_end = usize::try_from(data_end).map_err(|_| FontReadError::SizeOverflow)?;
+    let metric_start = FONT_CHUNK_HEADER_LEN
+        .checked_add(metric_offset)
+        .ok_or(FontReadError::SizeOverflow)?;
+    let metric_end = FONT_CHUNK_HEADER_LEN
+        .checked_add(metric_end)
+        .ok_or(FontReadError::SizeOverflow)?;
+    let data_start = FONT_CHUNK_HEADER_LEN
+        .checked_add(data_offset)
+        .ok_or(FontReadError::SizeOverflow)?;
+    let data_end = FONT_CHUNK_HEADER_LEN
+        .checked_add(data_end)
+        .ok_or(FontReadError::SizeOverflow)?;
+
+    Ok(ValidatedFontPayload {
+        chunk_header: prefix,
+        atlas,
+        metrics: metric_start..metric_end,
+        data: data_start..data_end,
+    })
 }
 
 pub(super) fn validate_header_fields(
@@ -380,7 +460,8 @@ mod tests {
             for &bit_depth in depths {
                 let payload = payload(kind, bit_depth);
                 let bytes_per_glyph = checked_bytes_per_glyph(4, bit_depth).unwrap();
-                let decoded_bytes = 2 * METRIC_LEN + usize::try_from(2 * bytes_per_glyph).unwrap();
+                let decoded_bytes =
+                    2 * size_of::<GlyphMetric>() + usize::try_from(2 * bytes_per_glyph).unwrap();
                 let limits = PayloadLimits::EMBEDDED
                     .with_max_font_glyphs(2)
                     .with_max_decoded_bytes(decoded_bytes);
@@ -555,25 +636,56 @@ mod tests {
     }
 
     #[test]
+    fn bounded_decode_reads_only_validated_metric_and_data_ranges() {
+        let canonical = payload(FontChunkKind::Sdf, 4);
+        let expected = Font::decode(&canonical).unwrap();
+        let mut padded = payload_with_gaps(4, 4);
+        padded[38] = 0xff;
+        padded[58] = 0xee;
+
+        let decoded = Font::decode_with_limits(&padded, &PayloadLimits::HOST).unwrap();
+
+        assert_eq!(decoded.chunk_header, expected.chunk_header);
+        assert_eq!(decoded.metrics, expected.metrics);
+        assert_eq!(decoded.data, expected.data);
+        assert_eq!(decoded.atlas.metric_offset, (HEADER_LEN + 4) as u32);
+        assert_eq!(
+            decoded.atlas.data_offset,
+            (HEADER_LEN + 4 + 2 * METRIC_LEN + 4) as u32
+        );
+    }
+
+    #[test]
     fn enforces_glyph_and_decoded_component_budgets_before_scanning() {
         let payload = payload(FontChunkKind::Sdf, 4);
+        let decoded_bytes = 2 * size_of::<GlyphMetric>() + 16;
         let exact = PayloadLimits::HOST
             .with_max_font_glyphs(2)
-            .with_max_decoded_bytes(32);
+            .with_max_decoded_bytes(decoded_bytes);
         assert_eq!(Font::preflight(&payload, &exact), Ok(()));
+        assert!(Font::decode_with_limits(&payload, &exact).is_ok());
 
-        let glyph_limited = exact.with_max_font_glyphs(1).with_max_decoded_bytes(31);
+        let glyph_limited = exact
+            .with_max_font_glyphs(1)
+            .with_max_decoded_bytes(decoded_bytes - 1);
         assert_eq!(
             Font::preflight(&payload, &glyph_limited),
             Err(FontReadError::TooManyGlyphs { count: 2, limit: 1 })
         );
 
-        let byte_limited = exact.with_max_decoded_bytes(31);
+        let byte_limited = exact.with_max_decoded_bytes(decoded_bytes - 1);
         assert_eq!(
             Font::preflight(&payload, &byte_limited),
             Err(FontReadError::DecodedBytesLimitExceeded {
-                needed: 32,
-                limit: 31,
+                needed: decoded_bytes,
+                limit: decoded_bytes - 1,
+            })
+        );
+        assert_eq!(
+            Font::decode_with_limits(&payload, &byte_limited),
+            Err(FontReadError::DecodedBytesLimitExceeded {
+                needed: decoded_bytes,
+                limit: decoded_bytes - 1,
             })
         );
 
@@ -581,7 +693,7 @@ mod tests {
         assert_eq!(
             Font::preflight(&payload, &zero_bytes),
             Err(FontReadError::DecodedBytesLimitExceeded {
-                needed: 32,
+                needed: decoded_bytes,
                 limit: 0,
             })
         );
