@@ -57,7 +57,7 @@ pub use reader::{
 pub use scene::{
     CodecError, CompositeMode, FillRule, GradientStop, GradientUnits, LineCap, LineJoin,
     LinearGradient, Paint, RadialGradient, ResourceRef, Scene, SceneOp, SpreadMode,
-    VectorChunkHeader,
+    VectorChunkHeader, VectorReadError,
 };
 pub use types::{Color, Fixed, Point, Rect, Transform};
 

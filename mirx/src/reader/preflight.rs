@@ -1,5 +1,5 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
-use crate::{ChunkType, Font, FontReadError, ImagePayloadError, ReadError};
+use crate::{ChunkType, Font, FontReadError, ImagePayloadError, ReadError, Scene, VectorReadError};
 
 /// Source location of a payload validation result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,6 +20,7 @@ pub enum PayloadValidationFailure {
     UnsupportedStandardPayload,
     Image(ImagePayloadError),
     Font(FontReadError),
+    Vector(VectorReadError),
 }
 
 /// A payload validation failure bound to its MIRX source location.
@@ -147,6 +148,10 @@ pub(crate) fn preflight_chunk(
             Font::preflight(chunk.payload(), limits).map_err(PayloadValidationFailure::Font)?;
             Ok(PreflightStatus::Validated)
         }
+        ChunkType::VECTOR => {
+            Scene::preflight(chunk.payload(), limits).map_err(PayloadValidationFailure::Vector)?;
+            Ok(PreflightStatus::Validated)
+        }
         chunk_type if is_standard(chunk_type) => Ok(PreflightStatus::UnsupportedStandard),
         _ => Ok(PreflightStatus::Custom),
     }
@@ -173,7 +178,7 @@ mod tests {
     use crate::{
         AtlasHeader, ChunkFlags, ColorFormat, FlatImageInput, FontChunkHeader, FontChunkKind,
         GlyphMetric, HEADER_LEN, ImageChunkInput, METRIC_LEN, ReadOptions, SUPPORTED_VERSION,
-        TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
+        SceneOp, TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
     };
 
     fn valid_image_payload() -> Vec<u8> {
@@ -248,6 +253,11 @@ mod tests {
     fn font_file(flags: u16) -> Vec<u8> {
         let payload = valid_font_payload();
         encode_chunks(&[(chunk_type::FONT, flags, &payload)])
+    }
+
+    fn vector_file(flags: u16, scene: &Scene) -> Vec<u8> {
+        let payload = scene.encode().unwrap();
+        encode_chunks(&[(chunk_type::VECTOR, flags, &payload)])
     }
 
     fn payload_offset(bytes: &[u8], index: usize) -> u32 {
@@ -428,6 +438,76 @@ mod tests {
                         actual: 'A' as u32,
                     },
                 ),
+            })
+        );
+    }
+
+    #[test]
+    fn valid_critical_vector_passes_open_and_bounded_explicit_preflight() {
+        let scene = Scene::from_ops(alloc::vec![SceneOp::PopClip]);
+        let bytes = vector_file(ChunkFlags::CRITICAL.bits(), &scene);
+        let reader = Reader::open(&bytes).unwrap();
+        assert_eq!(
+            reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
+            Ok(())
+        );
+
+        let decoded_bytes = core::mem::size_of::<SceneOp>();
+        let exact = PayloadLimits::HOST
+            .with_max_scene_ops(1)
+            .with_max_decoded_bytes(decoded_bytes);
+        assert_eq!(reader.validate_known_payloads(&exact), Ok(()));
+        assert!(Reader::open_with(&bytes, &ReadOptions::new().with_payload_limits(exact)).is_ok());
+
+        let limited = exact.with_max_scene_ops(0);
+        assert_eq!(
+            Reader::open_with(&bytes, &ReadOptions::new().with_payload_limits(limited),),
+            Err(ReadError::CriticalPayload(PayloadValidationError {
+                location: PayloadLocation::Chunk {
+                    index: 0,
+                    chunk_type: ChunkType::VECTOR,
+                    payload_offset: payload_offset(&bytes, 0),
+                },
+                failure: PayloadValidationFailure::Vector(VectorReadError::TooManySceneOps {
+                    count: 1,
+                    limit: 0
+                },),
+            }))
+        );
+    }
+
+    #[test]
+    fn malformed_vector_is_strict_only_when_critical_or_explicitly_scanned() {
+        let mut critical = vector_file(ChunkFlags::CRITICAL.bits(), &Scene::default());
+        set_payload_byte(&mut critical, 1, 2);
+        assert_eq!(
+            Reader::open(&critical),
+            Err(ReadError::CriticalPayload(PayloadValidationError {
+                location: PayloadLocation::Chunk {
+                    index: 0,
+                    chunk_type: ChunkType::VECTOR,
+                    payload_offset: payload_offset(&critical, 0),
+                },
+                failure: PayloadValidationFailure::Vector(VectorReadError::Codec(
+                    crate::CodecError::UnknownVersion(2),
+                )),
+            }))
+        );
+
+        let mut noncritical = vector_file(0, &Scene::default());
+        set_payload_byte(&mut noncritical, 1, 2);
+        let reader = Reader::open(&noncritical).unwrap();
+        assert_eq!(
+            reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
+            Err(PayloadValidationError {
+                location: PayloadLocation::Chunk {
+                    index: 0,
+                    chunk_type: ChunkType::VECTOR,
+                    payload_offset: payload_offset(&noncritical, 0),
+                },
+                failure: PayloadValidationFailure::Vector(VectorReadError::Codec(
+                    crate::CodecError::UnknownVersion(2),
+                )),
             })
         );
     }
@@ -622,12 +702,7 @@ mod tests {
 
     #[test]
     fn unsupported_standard_types_are_distinct_from_custom_types() {
-        for raw_type in [
-            chunk_type::FRAMES,
-            chunk_type::VECTOR,
-            chunk_type::META,
-            chunk_type::PALETTE,
-        ] {
+        for raw_type in [chunk_type::FRAMES, chunk_type::META, chunk_type::PALETTE] {
             let critical = encode_chunks(&[(raw_type, ChunkFlags::CRITICAL.bits(), b"opaque")]);
             let chunk_type = ChunkType::new(raw_type).unwrap();
             let expected = PayloadValidationError {
@@ -725,6 +800,27 @@ mod tests {
                     ..
                 }))
             ));
+
+            let mut valid_vector = vector_file(ChunkFlags::CRITICAL.bits(), &Scene::default());
+            valid_vector[5] = minor;
+            valid_vector[7] = flags;
+            refresh_header_crc(&mut valid_vector);
+            assert!(Reader::open(&valid_vector).is_ok());
+
+            let mut malformed_vector = vector_file(ChunkFlags::CRITICAL.bits(), &Scene::default());
+            set_payload_byte(&mut malformed_vector, 1, 2);
+            malformed_vector[5] = minor;
+            malformed_vector[7] = flags;
+            refresh_header_crc(&mut malformed_vector);
+            assert!(matches!(
+                Reader::open(&malformed_vector),
+                Err(ReadError::CriticalPayload(PayloadValidationError {
+                    failure: PayloadValidationFailure::Vector(VectorReadError::Codec(
+                        crate::CodecError::UnknownVersion(2),
+                    )),
+                    ..
+                }))
+            ));
         }
     }
 
@@ -748,6 +844,15 @@ mod tests {
         let mut font = font_file(ChunkFlags::CRITICAL.bits());
         font.extend_from_slice(b"tail");
         let reader = Reader::open_with(&font, &options).unwrap();
+        assert_eq!(reader.trailing_bytes(), b"tail");
+        assert_eq!(
+            reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
+            Ok(())
+        );
+
+        let mut vector = vector_file(ChunkFlags::CRITICAL.bits(), &Scene::default());
+        vector.extend_from_slice(b"tail");
+        let reader = Reader::open_with(&vector, &options).unwrap();
         assert_eq!(reader.trailing_bytes(), b"tail");
         assert_eq!(
             reader.validate_known_payloads(&PayloadLimits::EMBEDDED),

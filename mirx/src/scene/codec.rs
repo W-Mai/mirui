@@ -10,6 +10,10 @@ use crate::scene::paint::{
 };
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
+mod preflight;
+
+pub use preflight::VectorReadError;
+
 pub const TAG_EOF: u8 = 0x00;
 pub const TAG_GROUP_BEGIN: u8 = 0x01;
 pub const TAG_GROUP_END: u8 = 0x02;
