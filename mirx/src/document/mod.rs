@@ -23,6 +23,7 @@ mod query;
 mod raw;
 mod reorder;
 mod source;
+mod vector;
 mod writer;
 
 pub use options::{CompatibilityPolicy, EncodeOptions, LayoutPolicy, OpenOptions, RawTypePolicy};

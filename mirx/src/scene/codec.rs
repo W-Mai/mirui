@@ -212,22 +212,48 @@ impl<'a> Reader<'a> {
     fn quad(&mut self) -> Result<[Point; 4], CodecError> {
         Ok([self.point()?, self.point()?, self.point()?, self.point()?])
     }
+}
 
-    fn resource_ref(&mut self) -> Result<ResourceRef, CodecError> {
-        match self.u8()? {
-            RES_KIND_INDEX => Ok(ResourceRef::Index(self.u32()?)),
-            RES_KIND_TOKEN => {
-                let len = self.varuint()? as usize;
-                let bytes = self.take(len)?;
-                let s = core::str::from_utf8(bytes).map_err(|_| CodecError::BadUtf8)?;
-                Ok(ResourceRef::Token(String::from(s)))
-            }
-            RES_KIND_INLINE => {
-                let cmds = read_path(self)?;
-                Ok(ResourceRef::Inline(Path::from_cmds(cmds)))
-            }
-            other => Err(CodecError::BadResourceKind(other)),
-        }
+trait DecodeAllocator {
+    type Error: From<CodecError>;
+
+    fn reserve<T>(&mut self, values: &mut Vec<T>, additional: usize) -> Result<(), Self::Error>;
+    fn copy_string(&mut self, value: &str) -> Result<String, Self::Error>;
+}
+
+struct LegacyDecodeAllocator;
+
+impl DecodeAllocator for LegacyDecodeAllocator {
+    type Error = CodecError;
+
+    fn reserve<T>(&mut self, values: &mut Vec<T>, additional: usize) -> Result<(), Self::Error> {
+        values.reserve_exact(additional);
+        Ok(())
+    }
+
+    fn copy_string(&mut self, value: &str) -> Result<String, Self::Error> {
+        Ok(String::from(value))
+    }
+}
+
+struct CheckedDecodeAllocator;
+
+impl DecodeAllocator for CheckedDecodeAllocator {
+    type Error = VectorReadError;
+
+    fn reserve<T>(&mut self, values: &mut Vec<T>, additional: usize) -> Result<(), Self::Error> {
+        values
+            .try_reserve_exact(additional)
+            .map_err(|_| VectorReadError::AllocationFailed)
+    }
+
+    fn copy_string(&mut self, value: &str) -> Result<String, Self::Error> {
+        let mut string = String::new();
+        string
+            .try_reserve_exact(value.len())
+            .map_err(|_| VectorReadError::AllocationFailed)?;
+        string.push_str(value);
+        Ok(string)
     }
 }
 
@@ -331,9 +357,13 @@ fn write_gradient_stops<W: ByteSink>(out: &mut W, stops: &[GradientStop]) {
     }
 }
 
-fn read_gradient_stops(r: &mut Reader) -> Result<Vec<GradientStop>, CodecError> {
+fn read_gradient_stops_with<A: DecodeAllocator>(
+    r: &mut Reader,
+    allocator: &mut A,
+) -> Result<Vec<GradientStop>, A::Error> {
     let count = r.u32()? as usize;
-    let mut stops = Vec::with_capacity(count);
+    let mut stops = Vec::new();
+    allocator.reserve(&mut stops, count)?;
     for _ in 0..count {
         let offset = r.fixed()?;
         let color = r.color()?;
@@ -371,14 +401,17 @@ fn write_paint<W: ByteSink>(out: &mut W, paint: &Paint) {
     }
 }
 
-fn read_paint(r: &mut Reader) -> Result<Paint, CodecError> {
+fn read_paint_with<A: DecodeAllocator>(
+    r: &mut Reader,
+    allocator: &mut A,
+) -> Result<Paint, A::Error> {
     let kind = r.u8()?;
     match kind {
         PAINT_KIND_COLOR => Ok(Paint::Color(r.color()?)),
         PAINT_KIND_LINEAR => {
             let start = r.point()?;
             let end = r.point()?;
-            let stops = alloc::borrow::Cow::Owned(read_gradient_stops(r)?);
+            let stops = alloc::borrow::Cow::Owned(read_gradient_stops_with(r, allocator)?);
             let spread = spread_from_u8(r.u8()?)?;
             let units = units_from_u8(r.u8()?)?;
             let transform = read_transform_raw(r)?;
@@ -396,7 +429,7 @@ fn read_paint(r: &mut Reader) -> Result<Paint, CodecError> {
             let radius = r.fixed()?;
             let focal = r.point()?;
             let focal_radius = r.fixed()?;
-            let stops = alloc::borrow::Cow::Owned(read_gradient_stops(r)?);
+            let stops = alloc::borrow::Cow::Owned(read_gradient_stops_with(r, allocator)?);
             let spread = spread_from_u8(r.u8()?)?;
             let units = units_from_u8(r.u8()?)?;
             let transform = read_transform_raw(r)?;
@@ -411,7 +444,7 @@ fn read_paint(r: &mut Reader) -> Result<Paint, CodecError> {
                 transform,
             }))
         }
-        other => Err(CodecError::UnknownTag(other)),
+        other => Err(CodecError::UnknownTag(other).into()),
     }
 }
 
@@ -453,6 +486,25 @@ pub(super) fn write_resource_ref<W: ByteSink>(out: &mut W, r: &ResourceRef) {
             out.push(RES_KIND_INLINE);
             write_path(out, &p.cmds);
         }
+    }
+}
+
+fn read_resource_ref_with<A: DecodeAllocator>(
+    r: &mut Reader,
+    allocator: &mut A,
+) -> Result<ResourceRef, A::Error> {
+    match r.u8()? {
+        RES_KIND_INDEX => Ok(ResourceRef::Index(r.u32()?)),
+        RES_KIND_TOKEN => {
+            let len = r.varuint()? as usize;
+            let bytes = r.take(len)?;
+            let value = core::str::from_utf8(bytes).map_err(|_| CodecError::BadUtf8)?;
+            Ok(ResourceRef::Token(allocator.copy_string(value)?))
+        }
+        RES_KIND_INLINE => Ok(ResourceRef::Inline(Path::from_cmds(read_path_with(
+            r, allocator,
+        )?))),
+        other => Err(CodecError::BadResourceKind(other).into()),
     }
 }
 
@@ -524,9 +576,13 @@ fn write_path<W: ByteSink>(out: &mut W, cmds: &[PathCmd]) {
     }
 }
 
-fn read_path(r: &mut Reader) -> Result<Vec<PathCmd>, CodecError> {
+fn read_path_with<A: DecodeAllocator>(
+    r: &mut Reader,
+    allocator: &mut A,
+) -> Result<Vec<PathCmd>, A::Error> {
     let count = r.varuint()? as usize;
-    let mut cmds = Vec::with_capacity(count);
+    let mut cmds = Vec::new();
+    allocator.reserve(&mut cmds, count)?;
     for _ in 0..count {
         let cmd = match r.u8()? {
             0 => PathCmd::MoveTo(r.point()?),
@@ -541,7 +597,7 @@ fn read_path(r: &mut Reader) -> Result<Vec<PathCmd>, CodecError> {
                 end: r.point()?,
             },
             4 => PathCmd::Close,
-            other => return Err(CodecError::UnknownTag(other)),
+            other => return Err(CodecError::UnknownTag(other).into()),
         };
         cmds.push(cmd);
     }
@@ -815,12 +871,16 @@ fn write_optional<W: ByteSink>(
     }
 }
 
-fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
+fn read_op_with<A: DecodeAllocator>(
+    r: &mut Reader,
+    tag: u8,
+    allocator: &mut A,
+) -> Result<SceneOp, A::Error> {
     match tag {
         TAG_FILL_PATH => {
             let bits = r.u8()?;
-            let path = Path::from_cmds(read_path(r)?);
-            let paint = read_paint(r)?;
+            let path = Path::from_cmds(read_path_with(r, allocator)?);
+            let paint = read_paint_with(r, allocator)?;
             let opa = r.u8()?;
             let fill_rule = fill_rule_from_u8(r.u8()?)?;
             let transform = read_transform_opt(r, bits)?;
@@ -834,15 +894,16 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
         }
         TAG_STROKE_PATH => {
             let bits = r.u8()?;
-            let path = Path::from_cmds(read_path(r)?);
-            let paint = read_paint(r)?;
+            let path = Path::from_cmds(read_path_with(r, allocator)?);
+            let paint = read_paint_with(r, allocator)?;
             let width = r.fixed()?;
             let opa = r.u8()?;
             let line_cap = line_cap_from_u8(r.u8()?)?;
             let line_join = line_join_from_u8(r.u8()?)?;
             let miter_limit = r.fixed()?;
             let dash_count = r.u32()? as usize;
-            let mut dash = Vec::with_capacity(dash_count);
+            let mut dash = Vec::new();
+            allocator.reserve(&mut dash, dash_count)?;
             for _ in 0..dash_count {
                 dash.push(r.fixed()?);
             }
@@ -862,7 +923,7 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
         }
         TAG_PUSH_CLIP => {
             let bits = r.u8()?;
-            let path = Path::from_cmds(read_path(r)?);
+            let path = Path::from_cmds(read_path_with(r, allocator)?);
             let fill_rule = fill_rule_from_u8(r.u8()?)?;
             let transform = read_transform_opt(r, bits)?;
             Ok(SceneOp::PushClip {
@@ -906,15 +967,14 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
         }
         TAG_LABEL => {
             let bits = r.u8()?;
-            let font = r.resource_ref()?;
+            let font = read_resource_ref_with(r, allocator)?;
             let pos = r.point()?;
             let color = r.color()?;
             let opa = r.u8()?;
             let len = r.varuint()? as usize;
             let bytes = r.take(len)?;
-            let text = core::str::from_utf8(bytes)
-                .map_err(|_| CodecError::BadUtf8)
-                .map(String::from)?;
+            let text = core::str::from_utf8(bytes).map_err(|_| CodecError::BadUtf8)?;
+            let text = allocator.copy_string(text)?;
             let transform = read_transform_opt(r, bits)?;
             Ok(SceneOp::Label {
                 font,
@@ -965,7 +1025,7 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
         }
         TAG_BLIT => {
             let bits = r.u8()?;
-            let texture = r.resource_ref()?;
+            let texture = read_resource_ref_with(r, allocator)?;
             let pos = r.point()?;
             let size = r.point()?;
             let (transform, quad, radius_opt) = read_optional(r, bits)?;
@@ -993,7 +1053,7 @@ fn read_op(r: &mut Reader, tag: u8) -> Result<SceneOp, CodecError> {
         TAG_GROUP_BEGIN | TAG_GROUP_END => {
             unreachable!("group tags are dispatched by decode, not read_op")
         }
-        other => Err(CodecError::UnknownTag(other)),
+        other => Err(CodecError::UnknownTag(other).into()),
     }
 }
 
@@ -1022,6 +1082,85 @@ fn read_optional(
         None
     };
     Ok((transform, quad, radius))
+}
+
+fn decode_body_with<A: DecodeAllocator>(
+    body: &[u8],
+    decoded_ops: Option<usize>,
+    allocator: &mut A,
+) -> Result<Scene, A::Error> {
+    let mut r = Reader::new(body);
+    let mut ops = Vec::new();
+    if let Some(count) = decoded_ops {
+        allocator.reserve(&mut ops, count)?;
+    }
+    let mut depth = 0usize;
+    loop {
+        let tag_pos = r.pos;
+        let tag = r.u8()?;
+        match tag {
+            TAG_EOF => {
+                if depth != 0 {
+                    return Err(CodecError::UnbalancedGroup.into());
+                }
+                return Ok(Scene { ops });
+            }
+            TAG_GROUP_BEGIN => {
+                let bits = r.varuint()?;
+                let target = r.u32()? as usize;
+                if target <= tag_pos || target > body.len() || body[target - 1] != TAG_GROUP_END {
+                    return Err(CodecError::BadSkipOffset.into());
+                }
+                let transform = if bits & SLOT_TRANSFORM != 0 {
+                    Some(r.transform()?)
+                } else {
+                    None
+                };
+                let opacity = if bits & SLOT_OPACITY != 0 {
+                    Some(r.u8()?)
+                } else {
+                    None
+                };
+                let clip = if bits & SLOT_CLIP != 0 {
+                    Some(read_resource_ref_with(&mut r, allocator)?)
+                } else {
+                    None
+                };
+                let mask = if bits & SLOT_MASK != 0 {
+                    Some(read_resource_ref_with(&mut r, allocator)?)
+                } else {
+                    None
+                };
+                let filter = if bits & SLOT_FILTER != 0 {
+                    Some(read_resource_ref_with(&mut r, allocator)?)
+                } else {
+                    None
+                };
+                let disjoint_hint = bits & SLOT_DISJOINT_HINT != 0;
+                depth += 1;
+                ops.push(SceneOp::GroupBegin {
+                    transform,
+                    opacity,
+                    clip,
+                    mask,
+                    filter,
+                    disjoint_hint,
+                });
+            }
+            TAG_GROUP_END => {
+                if depth == 0 {
+                    return Err(CodecError::UnbalancedGroup.into());
+                }
+                depth -= 1;
+                ops.push(SceneOp::GroupEnd);
+            }
+            0x40..=0x7F => {
+                let len = r.varuint()? as usize;
+                let _ = r.take(len)?;
+            }
+            _ => ops.push(read_op_with(&mut r, tag, allocator)?),
+        }
+    }
 }
 
 impl Scene {
@@ -1131,76 +1270,7 @@ impl Scene {
             });
         }
 
-        let mut r = Reader::new(body);
-        let mut ops = Vec::new();
-        let mut depth = 0usize;
-        loop {
-            let tag_pos = r.pos;
-            let tag = r.u8()?;
-            match tag {
-                TAG_EOF => {
-                    if depth != 0 {
-                        return Err(CodecError::UnbalancedGroup);
-                    }
-                    return Ok(Scene { ops });
-                }
-                TAG_GROUP_BEGIN => {
-                    let bits = r.varuint()?;
-                    let target = r.u32()? as usize;
-                    if target <= tag_pos || target > body.len() || body[target - 1] != TAG_GROUP_END
-                    {
-                        return Err(CodecError::BadSkipOffset);
-                    }
-                    let transform = if bits & SLOT_TRANSFORM != 0 {
-                        Some(r.transform()?)
-                    } else {
-                        None
-                    };
-                    let opacity = if bits & SLOT_OPACITY != 0 {
-                        Some(r.u8()?)
-                    } else {
-                        None
-                    };
-                    let clip = if bits & SLOT_CLIP != 0 {
-                        Some(r.resource_ref()?)
-                    } else {
-                        None
-                    };
-                    let mask = if bits & SLOT_MASK != 0 {
-                        Some(r.resource_ref()?)
-                    } else {
-                        None
-                    };
-                    let filter = if bits & SLOT_FILTER != 0 {
-                        Some(r.resource_ref()?)
-                    } else {
-                        None
-                    };
-                    let disjoint_hint = bits & SLOT_DISJOINT_HINT != 0;
-                    depth += 1;
-                    ops.push(SceneOp::GroupBegin {
-                        transform,
-                        opacity,
-                        clip,
-                        mask,
-                        filter,
-                        disjoint_hint,
-                    });
-                }
-                TAG_GROUP_END => {
-                    if depth == 0 {
-                        return Err(CodecError::UnbalancedGroup);
-                    }
-                    depth -= 1;
-                    ops.push(SceneOp::GroupEnd);
-                }
-                0x40..=0x7F => {
-                    let len = r.varuint()? as usize;
-                    let _ = r.take(len)?;
-                }
-                _ => ops.push(read_op(&mut r, tag)?),
-            }
-        }
+        decode_body_with(body, None, &mut LegacyDecodeAllocator)
     }
 }
 

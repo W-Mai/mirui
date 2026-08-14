@@ -1,17 +1,17 @@
 use core::{mem::size_of, str};
 
 use super::{
-    CodecError, DEFAULT_SCALE, FIELD_ALPHA, FIELD_COMPOSITE, FIELD_QUAD, FIELD_RADIUS,
-    FIELD_TRANSFORM, PAINT_KIND_COLOR, PAINT_KIND_LINEAR, PAINT_KIND_RADIAL, RES_KIND_INDEX,
-    RES_KIND_INLINE, RES_KIND_TOKEN, SLOT_CLIP, SLOT_FILTER, SLOT_MASK, SLOT_OPACITY,
-    SLOT_TRANSFORM, TAG_ARC, TAG_BLIT, TAG_BORDER, TAG_EOF, TAG_FILL_PATH, TAG_FILL_RECT,
-    TAG_GROUP_BEGIN, TAG_GROUP_END, TAG_LABEL, TAG_LINE, TAG_POP_CLIP, TAG_PUSH_CLIP,
-    TAG_STROKE_PATH, VERSION, composite_from_u8, fill_rule_from_u8, line_cap_from_u8,
-    line_join_from_u8, spread_from_u8, units_from_u8,
+    CheckedDecodeAllocator, CodecError, DEFAULT_SCALE, DecodeAllocator, FIELD_ALPHA,
+    FIELD_COMPOSITE, FIELD_QUAD, FIELD_RADIUS, FIELD_TRANSFORM, PAINT_KIND_COLOR,
+    PAINT_KIND_LINEAR, PAINT_KIND_RADIAL, RES_KIND_INDEX, RES_KIND_INLINE, RES_KIND_TOKEN,
+    SLOT_CLIP, SLOT_FILTER, SLOT_MASK, SLOT_OPACITY, SLOT_TRANSFORM, TAG_ARC, TAG_BLIT, TAG_BORDER,
+    TAG_EOF, TAG_FILL_PATH, TAG_FILL_RECT, TAG_GROUP_BEGIN, TAG_GROUP_END, TAG_LABEL, TAG_LINE,
+    TAG_POP_CLIP, TAG_PUSH_CLIP, TAG_STROKE_PATH, VERSION, composite_from_u8, decode_body_with,
+    fill_rule_from_u8, line_cap_from_u8, line_join_from_u8, spread_from_u8, units_from_u8,
 };
-use crate::path::PathCmd;
+use crate::path::{Path, PathCmd};
 use crate::reader::PayloadLimits;
-use crate::scene::{GradientStop, Scene, SceneOp, VectorChunkHeader};
+use crate::scene::{GradientStop, Paint, ResourceRef, Scene, SceneOp, VectorChunkHeader};
 use crate::types::Fixed;
 
 /// Failure while validating or reading a MIRX VECTOR payload.
@@ -34,6 +34,8 @@ pub enum VectorReadError {
     StringBytesLimitExceeded { needed: usize, limit: usize },
     /// Owned scene components exceeded the aggregate decoded-byte budget.
     DecodedBytesLimitExceeded { needed: usize, limit: usize },
+    /// An owned VECTOR component could not reserve its exact decoded capacity.
+    AllocationFailed,
     /// A count, byte length, or decoded-size calculation overflowed.
     SizeOverflow,
 }
@@ -53,12 +55,39 @@ impl Scene {
     pub fn preflight(payload: &[u8], limits: &PayloadLimits) -> Result<(), VectorReadError> {
         validate_payload(payload, limits)
     }
+
+    /// Validates and decodes one complete VECTOR payload with bounded allocation.
+    ///
+    /// Complete wire and budget validation finishes before any owned scene
+    /// component reserves memory.
+    pub fn decode_with_limits(
+        payload: &[u8],
+        limits: &PayloadLimits,
+    ) -> Result<Self, VectorReadError> {
+        decode_payload(payload, limits)
+    }
+
+    pub(crate) fn validate_limits(&self, limits: &PayloadLimits) -> Result<(), VectorReadError> {
+        validate_scene_limits(self, limits)
+    }
 }
 
 pub(super) fn validate_payload(
     payload: &[u8],
     limits: &PayloadLimits,
 ) -> Result<(), VectorReadError> {
+    validate_payload_layout(payload, limits).map(|_| ())
+}
+
+struct ValidatedVectorPayload<'a> {
+    body: &'a [u8],
+    decoded_ops: usize,
+}
+
+fn validate_payload_layout<'a>(
+    payload: &'a [u8],
+    limits: &PayloadLimits,
+) -> Result<ValidatedVectorPayload<'a>, VectorReadError> {
     let mut header = Cursor::new(payload);
     if header.u8()? != VectorChunkHeader::MAGIC {
         return Err(CodecError::BadMagic.into());
@@ -87,7 +116,26 @@ pub(super) fn validate_payload(
         .into());
     }
 
-    Scanner::new(body, *limits).scan(payload.len())
+    let budget = Scanner::new(body, *limits).scan(payload.len())?;
+    let decoded_ops =
+        usize::try_from(budget.decoded_ops).map_err(|_| VectorReadError::SizeOverflow)?;
+    Ok(ValidatedVectorPayload { body, decoded_ops })
+}
+
+fn decode_payload(payload: &[u8], limits: &PayloadLimits) -> Result<Scene, VectorReadError> {
+    decode_payload_with_allocator(payload, limits, &mut CheckedDecodeAllocator)
+}
+
+fn decode_payload_with_allocator<A>(
+    payload: &[u8],
+    limits: &PayloadLimits,
+    allocator: &mut A,
+) -> Result<Scene, VectorReadError>
+where
+    A: DecodeAllocator<Error = VectorReadError>,
+{
+    let validated = validate_payload_layout(payload, limits)?;
+    decode_body_with(validated.body, Some(validated.decoded_ops), allocator)
 }
 
 #[derive(Clone, Copy)]
@@ -100,6 +148,7 @@ enum ItemKind {
 struct Budget {
     limits: PayloadLimits,
     wire_ops: u32,
+    decoded_ops: u32,
     path_commands: u32,
     gradient_stops: u32,
     dash_elements: u32,
@@ -112,6 +161,7 @@ impl Budget {
         Self {
             limits,
             wire_ops: 0,
+            decoded_ops: 0,
             path_commands: 0,
             gradient_stops: 0,
             dash_elements: 0,
@@ -134,7 +184,13 @@ impl Budget {
     }
 
     fn add_decoded_op(&mut self) -> Result<(), VectorReadError> {
-        self.add_decoded_bytes(size_of::<SceneOp>())
+        let count = self
+            .decoded_ops
+            .checked_add(1)
+            .ok_or(VectorReadError::SizeOverflow)?;
+        self.add_decoded_bytes(size_of::<SceneOp>())?;
+        self.decoded_ops = count;
+        Ok(())
     }
 
     fn add_items(
@@ -205,6 +261,103 @@ impl Budget {
         self.decoded_bytes = needed;
         Ok(())
     }
+}
+
+fn validate_scene_limits(scene: &Scene, limits: &PayloadLimits) -> Result<(), VectorReadError> {
+    let mut budget = Budget::new(*limits);
+    for op in &scene.ops {
+        budget.add_wire_op()?;
+        budget.add_decoded_op()?;
+        match op {
+            SceneOp::GroupBegin {
+                clip, mask, filter, ..
+            } => {
+                if let Some(resource) = clip {
+                    add_resource_ref(&mut budget, resource)?;
+                }
+                if let Some(resource) = mask {
+                    add_resource_ref(&mut budget, resource)?;
+                }
+                if let Some(resource) = filter {
+                    add_resource_ref(&mut budget, resource)?;
+                }
+            }
+            SceneOp::FillPath { path, paint, .. } => {
+                add_path(&mut budget, path)?;
+                add_paint(&mut budget, paint)?;
+            }
+            SceneOp::StrokePath {
+                path, paint, dash, ..
+            } => {
+                add_path(&mut budget, path)?;
+                add_paint(&mut budget, paint)?;
+                add_items(
+                    &mut budget,
+                    ItemKind::DashElement,
+                    dash.len(),
+                    size_of::<Fixed>(),
+                )?;
+            }
+            SceneOp::PushClip { path, .. } => add_path(&mut budget, path)?,
+            SceneOp::Label { font, text, .. } => {
+                add_resource_ref(&mut budget, font)?;
+                budget.add_string_bytes(text.len())?;
+            }
+            SceneOp::Blit { texture, .. } => add_resource_ref(&mut budget, texture)?,
+            SceneOp::GroupEnd
+            | SceneOp::PopClip
+            | SceneOp::FillRect { .. }
+            | SceneOp::Border { .. }
+            | SceneOp::Line { .. }
+            | SceneOp::Arc { .. } => {}
+        }
+    }
+    Ok(())
+}
+
+fn add_resource_ref(budget: &mut Budget, resource: &ResourceRef) -> Result<(), VectorReadError> {
+    match resource {
+        ResourceRef::Token(token) => budget.add_string_bytes(token.len()),
+        ResourceRef::Index(_) => Ok(()),
+        ResourceRef::Inline(path) => add_path(budget, path),
+    }
+}
+
+fn add_path(budget: &mut Budget, path: &Path) -> Result<(), VectorReadError> {
+    add_items(
+        budget,
+        ItemKind::PathCommand,
+        path.cmds.len(),
+        size_of::<PathCmd>(),
+    )
+}
+
+fn add_paint(budget: &mut Budget, paint: &Paint) -> Result<(), VectorReadError> {
+    match paint {
+        Paint::Color(_) => Ok(()),
+        Paint::LinearGradient(gradient) => add_items(
+            budget,
+            ItemKind::GradientStop,
+            gradient.stops.len(),
+            size_of::<GradientStop>(),
+        ),
+        Paint::RadialGradient(gradient) => add_items(
+            budget,
+            ItemKind::GradientStop,
+            gradient.stops.len(),
+            size_of::<GradientStop>(),
+        ),
+    }
+}
+
+fn add_items(
+    budget: &mut Budget,
+    kind: ItemKind,
+    count: usize,
+    item_size: usize,
+) -> Result<(), VectorReadError> {
+    let count = u32::try_from(count).map_err(|_| VectorReadError::SizeOverflow)?;
+    budget.add_items(kind, count, item_size)
 }
 
 struct Cursor<'a> {
@@ -289,7 +442,7 @@ impl<'a> Scanner<'a> {
         }
     }
 
-    fn scan(mut self, payload_len: usize) -> Result<(), VectorReadError> {
+    fn scan(mut self, payload_len: usize) -> Result<Budget, VectorReadError> {
         loop {
             let tag_pos = self.cursor.pos;
             let tag = self.cursor.u8()?;
@@ -307,7 +460,7 @@ impl<'a> Scanner<'a> {
                             actual: payload_len,
                         });
                     }
-                    return Ok(());
+                    return Ok(self.budget);
                 }
                 TAG_GROUP_BEGIN => {
                     self.begin_decoded_op()?;
@@ -772,10 +925,155 @@ mod tests {
         payload[4..8].copy_from_slice(&crc.to_le_bytes());
     }
 
+    #[derive(Default)]
+    struct TrackingAllocator {
+        calls: usize,
+        fail_at: Option<usize>,
+        reserve_requests: Vec<usize>,
+        string_requests: Vec<usize>,
+    }
+
+    impl TrackingAllocator {
+        fn failing_at(call: usize) -> Self {
+            Self {
+                fail_at: Some(call),
+                ..Self::default()
+            }
+        }
+
+        fn begin_call(&mut self) -> Result<(), VectorReadError> {
+            let call = self.calls;
+            self.calls += 1;
+            if self.fail_at == Some(call) {
+                Err(VectorReadError::AllocationFailed)
+            } else {
+                Ok(())
+            }
+        }
+    }
+
+    impl DecodeAllocator for TrackingAllocator {
+        type Error = VectorReadError;
+
+        fn reserve<T>(
+            &mut self,
+            values: &mut Vec<T>,
+            additional: usize,
+        ) -> Result<(), Self::Error> {
+            self.reserve_requests.push(additional);
+            self.begin_call()?;
+            values
+                .try_reserve_exact(additional)
+                .map_err(|_| VectorReadError::AllocationFailed)
+        }
+
+        fn copy_string(&mut self, value: &str) -> Result<String, Self::Error> {
+            self.string_requests.push(value.len());
+            self.begin_call()?;
+            let mut string = String::new();
+            string
+                .try_reserve_exact(value.len())
+                .map_err(|_| VectorReadError::AllocationFailed)?;
+            string.push_str(value);
+            Ok(string)
+        }
+    }
+
     #[test]
     fn accepts_every_shipped_op_and_exact_component_budgets() {
-        let payload = representative_scene().encode().unwrap();
+        let scene = representative_scene();
+        let payload = scene.encode().unwrap();
         assert_eq!(Scene::preflight(&payload, &exact_limits()), Ok(()));
+        assert_eq!(
+            Scene::decode_with_limits(&payload, &exact_limits()),
+            Ok(scene)
+        );
+    }
+
+    #[test]
+    fn typed_scene_validation_uses_the_preflight_budget_model() {
+        let scene = representative_scene();
+        let exact = exact_limits();
+        assert_eq!(scene.validate_limits(&exact), Ok(()));
+        assert_eq!(
+            scene.validate_limits(&exact.with_max_scene_ops(OP_COUNT - 1)),
+            Err(VectorReadError::TooManySceneOps {
+                count: OP_COUNT,
+                limit: OP_COUNT - 1,
+            })
+        );
+        assert_eq!(
+            scene.validate_limits(&exact.with_max_path_commands(PATH_COUNT - 1)),
+            Err(VectorReadError::TooManyPathCommands {
+                count: PATH_COUNT,
+                limit: PATH_COUNT - 1,
+            })
+        );
+        assert_eq!(
+            scene.validate_limits(&exact.with_max_gradient_stops(STOP_COUNT - 1)),
+            Err(VectorReadError::TooManyGradientStops {
+                count: STOP_COUNT,
+                limit: STOP_COUNT - 1,
+            })
+        );
+        assert_eq!(
+            scene.validate_limits(&exact.with_max_dash_elements(DASH_COUNT - 1)),
+            Err(VectorReadError::TooManyDashElements {
+                count: DASH_COUNT,
+                limit: DASH_COUNT - 1,
+            })
+        );
+        assert_eq!(
+            scene.validate_limits(&exact.with_max_string_bytes(STRING_BYTES - 1)),
+            Err(VectorReadError::StringBytesLimitExceeded {
+                needed: STRING_BYTES,
+                limit: STRING_BYTES - 1,
+            })
+        );
+        assert_eq!(
+            scene.validate_limits(&exact.with_max_decoded_bytes(decoded_bytes() - 1)),
+            Err(VectorReadError::DecodedBytesLimitExceeded {
+                needed: decoded_bytes(),
+                limit: decoded_bytes() - 1,
+            })
+        );
+    }
+
+    #[test]
+    fn bounded_decode_reports_each_owned_reserve_failure() {
+        let scene = representative_scene();
+        let payload = scene.encode().unwrap();
+        let mut successful = TrackingAllocator::default();
+        assert_eq!(
+            decode_payload_with_allocator(&payload, &exact_limits(), &mut successful),
+            Ok(scene)
+        );
+        assert!(successful.calls > 1);
+
+        for fail_at in 0..successful.calls {
+            let mut failing = TrackingAllocator::failing_at(fail_at);
+            assert_eq!(
+                decode_payload_with_allocator(&payload, &exact_limits(), &mut failing),
+                Err(VectorReadError::AllocationFailed),
+                "allocation call {fail_at} did not fail"
+            );
+            assert_eq!(failing.calls, fail_at + 1);
+        }
+    }
+
+    #[test]
+    fn bounded_decode_completes_preflight_before_the_first_reserve() {
+        let payload = representative_scene().encode().unwrap();
+        let limits = exact_limits().with_max_scene_ops(OP_COUNT - 1);
+        let mut allocator = TrackingAllocator::failing_at(0);
+        assert_eq!(
+            decode_payload_with_allocator(&payload, &limits, &mut allocator),
+            Err(VectorReadError::TooManySceneOps {
+                count: OP_COUNT,
+                limit: OP_COUNT - 1,
+            })
+        );
+        assert_eq!(allocator.calls, 0);
     }
 
     #[test]
@@ -908,6 +1206,13 @@ mod tests {
             .with_max_scene_ops(2)
             .with_max_decoded_bytes(0);
         assert_eq!(Scene::preflight(&payload, &exact), Ok(()));
+        let mut allocator = TrackingAllocator::default();
+        assert_eq!(
+            decode_payload_with_allocator(&payload, &exact, &mut allocator),
+            Ok(Scene::default())
+        );
+        assert_eq!(allocator.reserve_requests, vec![0]);
+        assert!(allocator.string_requests.is_empty());
         assert_eq!(
             Scene::preflight(&payload, &exact.with_max_scene_ops(1)),
             Err(VectorReadError::TooManySceneOps { count: 2, limit: 1 })

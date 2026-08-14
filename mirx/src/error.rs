@@ -26,6 +26,7 @@ use crate::font::{FontEncodeError, FontReadError};
 use crate::model::{ChunkType, InvalidChunkType};
 use crate::payload::image::ImagePayloadError;
 use crate::reader::PayloadValidationError;
+use crate::scene::{VectorEncodeError, VectorReadError};
 
 /// Failures while opening or structurally inspecting MIRX bytes.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -162,6 +163,7 @@ pub enum EditError {
     },
     InvalidPayload(ImagePayloadError),
     InvalidFont(FontEncodeError),
+    InvalidVector(VectorEncodeError),
     NonContiguousPayload {
         chunk_type: ChunkType,
     },
@@ -191,6 +193,35 @@ impl From<FontReadError> for FontAccessError {
     fn from(value: FontReadError) -> Self {
         match value {
             FontReadError::AllocationFailed => Self::AllocationFailed,
+            error => Self::InvalidPayload(error),
+        }
+    }
+}
+
+/// Failures while resolving and decoding a VECTOR node from a document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum VectorAccessError {
+    /// The container uses preserved semantics newer than this typed accessor.
+    FutureSemanticsUnsupported,
+    /// Stable chunk identities are available only in CHUNK layout.
+    ChunkLayoutRequired,
+    /// The identity does not name a live chunk in this document session.
+    InvalidChunkId,
+    /// The selected chunk is not a VECTOR node.
+    UnexpectedChunkType { actual: ChunkType },
+    /// The selected raw node has no contiguous VECTOR payload representation.
+    NonContiguousPayload,
+    /// The selected VECTOR payload violates its typed contract.
+    InvalidPayload(VectorReadError),
+    /// Owned scene storage could not be reserved.
+    AllocationFailed,
+}
+
+impl From<VectorReadError> for VectorAccessError {
+    fn from(value: VectorReadError) -> Self {
+        match value {
+            VectorReadError::AllocationFailed => Self::AllocationFailed,
             error => Self::InvalidPayload(error),
         }
     }

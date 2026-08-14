@@ -1,0 +1,809 @@
+use core::convert::Infallible;
+
+use super::payload::resolve_node_payload;
+use super::{Compatibility, Document, DocumentState};
+use crate::payload::image::ImagePayloadError;
+use crate::{
+    ChunkFlags, ChunkId, ChunkType, EditError, Scene, TryEditError, VectorAccessError,
+    VectorEncodeError, VectorReadError,
+};
+
+impl Document<'_> {
+    /// Resolves and bounded-decodes one VECTOR node by its stable identity.
+    ///
+    /// The document's retained [`crate::PayloadLimits`] profile bounds every owned
+    /// scene component. Preserved trailing bytes do not block typed reads.
+    pub fn vector(&self, id: ChunkId) -> Result<Scene, VectorAccessError> {
+        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
+            return Err(VectorAccessError::FutureSemanticsUnsupported);
+        }
+        let DocumentState::Chunk(chunks) = &self.state else {
+            return Err(VectorAccessError::ChunkLayoutRequired);
+        };
+        let node = chunks
+            .chunks
+            .iter()
+            .find(|node| node.id == id)
+            .ok_or(VectorAccessError::InvalidChunkId)?;
+        if node.chunk_type != ChunkType::VECTOR {
+            return Err(VectorAccessError::UnexpectedChunkType {
+                actual: node.chunk_type,
+            });
+        }
+
+        let payload = resolve_node_payload(self, node).map_err(vector_access_resolution_error)?;
+        let bytes = payload
+            .bytes()
+            .ok_or(VectorAccessError::NonContiguousPayload)?;
+        Scene::decode_with_limits(bytes, &self.payload_limits).map_err(Into::into)
+    }
+
+    /// Appends one checked VECTOR payload and returns its stable identity.
+    ///
+    /// Structural gates and the document's retained resource profile are
+    /// checked before one canonical payload allocation is committed.
+    pub fn push_vector(&mut self, flags: ChunkFlags, scene: &Scene) -> Result<ChunkId, EditError> {
+        let limits = self.payload_limits;
+        self.push_typed_owned_with(ChunkType::VECTOR, flags, || {
+            let plan = scene.payload_plan().map_err(EditError::InvalidVector)?;
+            scene
+                .validate_limits(&limits)
+                .map_err(invalid_vector_read_error)?;
+            plan.payload_to_vec().map_err(vector_encode_error_for_edit)
+        })
+    }
+
+    /// Replaces one VECTOR payload without changing its identity or descriptor.
+    ///
+    /// Typed replacement is an explicit canonical rewrite. The existing payload
+    /// is not decoded, so malformed or segmented VECTOR nodes can be repaired.
+    pub fn replace_vector(&mut self, id: ChunkId, scene: &Scene) -> Result<(), EditError> {
+        let limits = self.payload_limits;
+        self.replace_typed_owned_with(
+            id,
+            ChunkType::VECTOR,
+            || {
+                let plan = scene.payload_plan().map_err(EditError::InvalidVector)?;
+                scene
+                    .validate_limits(&limits)
+                    .map_err(invalid_vector_read_error)?;
+                Ok(plan)
+            },
+            |_, _| Ok(false),
+            |plan| plan.payload_to_vec().map_err(vector_encode_error_for_edit),
+            vector_edit_resolution_error,
+        )
+    }
+
+    /// Transactionally edits one owned VECTOR working value.
+    ///
+    /// Decode, callback, validation, reserve, or encode failure leaves the
+    /// document node unchanged. Panics and callback side effects are not caught.
+    pub fn edit_vector(
+        &mut self,
+        id: ChunkId,
+        edit: impl FnOnce(&mut Scene),
+    ) -> Result<(), EditError> {
+        match self.try_edit_vector(id, |scene| {
+            edit(scene);
+            Ok::<(), Infallible>(())
+        }) {
+            Ok(()) => Ok(()),
+            Err(TryEditError::Edit(error)) => Err(error),
+            Err(TryEditError::Callback(never)) => match never {},
+        }
+    }
+
+    /// Transactionally edits one VECTOR with a fallible caller callback.
+    ///
+    /// A callback error is returned without post-validation or replacement.
+    pub fn try_edit_vector<E>(
+        &mut self,
+        id: ChunkId,
+        edit: impl FnOnce(&mut Scene) -> Result<(), E>,
+    ) -> Result<(), TryEditError<E>> {
+        self.ensure_mutable()?;
+        let mut scene = self.vector(id).map_err(vector_access_error_for_edit)?;
+        edit(&mut scene).map_err(TryEditError::Callback)?;
+        self.replace_vector(id, &scene).map_err(Into::into)
+    }
+}
+
+fn invalid_vector_read_error(error: VectorReadError) -> EditError {
+    match error {
+        VectorReadError::AllocationFailed => EditError::AllocationFailed,
+        error => EditError::InvalidVector(VectorEncodeError::InvalidPayload(error)),
+    }
+}
+
+fn vector_encode_error_for_edit(error: VectorEncodeError) -> EditError {
+    match error {
+        VectorEncodeError::AllocationFailed
+        | VectorEncodeError::InvalidPayload(VectorReadError::AllocationFailed) => {
+            EditError::AllocationFailed
+        }
+        error => EditError::InvalidVector(error),
+    }
+}
+
+fn vector_access_resolution_error(_: ImagePayloadError) -> VectorAccessError {
+    VectorAccessError::InvalidPayload(VectorReadError::SizeOverflow)
+}
+
+fn vector_edit_resolution_error(_: ImagePayloadError) -> EditError {
+    invalid_vector_read_error(VectorReadError::SizeOverflow)
+}
+
+fn vector_access_error_for_edit(error: VectorAccessError) -> EditError {
+    match error {
+        VectorAccessError::FutureSemanticsUnsupported => EditError::FutureSemanticsReadOnly,
+        VectorAccessError::ChunkLayoutRequired => EditError::ChunkLayoutRequired,
+        VectorAccessError::InvalidChunkId => EditError::InvalidChunkId,
+        VectorAccessError::UnexpectedChunkType { .. } => EditError::InvalidChunkType,
+        VectorAccessError::NonContiguousPayload => EditError::NonContiguousPayload {
+            chunk_type: ChunkType::VECTOR,
+        },
+        VectorAccessError::InvalidPayload(error) => invalid_vector_read_error(error),
+        VectorAccessError::AllocationFailed => EditError::AllocationFailed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::{borrow::Cow, string::String, vec, vec::Vec};
+    use core::{cell::Cell, mem::size_of};
+
+    use super::*;
+    use crate::header::VERSION_MINOR;
+    use crate::path::{Path, PathCmd};
+    use crate::scene::{
+        FillRule, GradientStop, GradientUnits, LineCap, LineJoin, LinearGradient, Paint,
+        ResourceRef, SpreadMode,
+    };
+    use crate::types::{Color, Fixed, Point, Transform};
+    use crate::{
+        ColorFormat, CompatibilityPolicy, CriticalAssumption, EncodeOptions, ImageAsset, Layout,
+        OpenOptions, PayloadInput, PayloadLimits, PayloadOrigin, RawChunkInput, RawChunkPolicy,
+        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, crc32,
+        encode_chunks,
+    };
+
+    fn id(counter: u32) -> ChunkId {
+        ChunkId::from_session_counter(counter)
+    }
+
+    fn point(x: i32, y: i32) -> Point {
+        Point::new(Fixed::from_int(x), Fixed::from_int(y))
+    }
+
+    fn representative_scene() -> Scene {
+        let path = Path::from_cmds(vec![PathCmd::MoveTo(point(1, 2)), PathCmd::Close]);
+        Scene::from_ops(vec![
+            crate::SceneOp::GroupBegin {
+                transform: None,
+                opacity: Some(200),
+                clip: Some(ResourceRef::Token(String::from("clip"))),
+                mask: Some(ResourceRef::Inline(Path::from_cmds(vec![PathCmd::Close]))),
+                filter: None,
+                disjoint_hint: false,
+            },
+            crate::SceneOp::FillPath {
+                path,
+                transform: Transform::IDENTITY,
+                paint: Paint::LinearGradient(LinearGradient {
+                    start: Point::ZERO,
+                    end: point(4, 4),
+                    stops: Cow::Owned(vec![GradientStop {
+                        offset: Fixed::ZERO,
+                        color: Color::rgba(1, 2, 3, 255),
+                    }]),
+                    spread: SpreadMode::Pad,
+                    units: GradientUnits::UserSpaceOnUse,
+                    transform: Transform::IDENTITY,
+                }),
+                opa: 255,
+                fill_rule: FillRule::NonZero,
+            },
+            crate::SceneOp::StrokePath {
+                path: Path::from_cmds(vec![PathCmd::Close]),
+                transform: Transform::IDENTITY,
+                paint: Paint::Color(Color::rgb(4, 5, 6)),
+                width: Fixed::ONE,
+                opa: 240,
+                line_cap: LineCap::Round,
+                line_join: LineJoin::Bevel,
+                miter_limit: Fixed::from_int(4),
+                dash: Cow::Owned(vec![Fixed::ONE, Fixed::from_int(2)]),
+            },
+            crate::SceneOp::Label {
+                font: ResourceRef::Token(String::from("font")),
+                pos: point(2, 3),
+                transform: Transform::IDENTITY,
+                color: Color::rgb(7, 8, 9),
+                opa: 230,
+                text: String::from("hi"),
+            },
+            crate::SceneOp::GroupEnd,
+        ])
+    }
+
+    fn vector_file(payload: &[u8], flags: ChunkFlags) -> Vec<u8> {
+        encode_chunks(&[(ChunkType::VECTOR.raw(), flags.bits(), payload)])
+    }
+
+    fn explicit_policy() -> RawChunkPolicy {
+        RawChunkPolicy {
+            relocation: RelocationAssumption::AssumeRelocatable,
+            critical_semantics: CriticalAssumption::AssumeCriticalUnderstood,
+            reserved_flag_bits: ReservedBitsPolicy::Reject,
+        }
+    }
+
+    fn preserve_policy() -> RawChunkPolicy {
+        RawChunkPolicy {
+            relocation: RelocationAssumption::Infer,
+            critical_semantics: CriticalAssumption::Infer,
+            reserved_flag_bits: ReservedBitsPolicy::Preserve,
+        }
+    }
+
+    fn flat_document() -> Document<'static> {
+        Document::new_flat(ImageAsset::new(
+            2,
+            2,
+            ColorFormat::A8,
+            2,
+            Cow::Borrowed(&[1, 2, 3, 4]),
+            None,
+        ))
+        .unwrap()
+    }
+
+    fn refresh_chunk_header_crc(source: &mut [u8]) {
+        let checksum = crc32(&source[..40]);
+        source[40..44].copy_from_slice(&checksum.to_le_bytes());
+    }
+
+    #[test]
+    fn typed_push_query_and_reopen_round_trip() {
+        let expected = representative_scene();
+        let mut document = Document::new_chunk();
+        let vector_id = document
+            .push_vector(ChunkFlags::CRITICAL, &expected)
+            .unwrap();
+
+        assert_eq!(document.vector(vector_id).unwrap(), expected);
+        assert_eq!(
+            document.get(vector_id).unwrap().payload_origin(),
+            PayloadOrigin::OWNED
+        );
+        let payload = document.get(vector_id).unwrap().payload_bytes().unwrap();
+        assert_eq!(Scene::preflight(payload, &PayloadLimits::EMBEDDED), Ok(()));
+
+        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let reopened = Document::open(&encoded).unwrap();
+        let reopened_id = reopened.chunks().next().unwrap().id();
+        assert_eq!(reopened.vector(reopened_id).unwrap(), expected);
+    }
+
+    #[test]
+    fn typed_push_promotes_flat_without_losing_the_original_image() {
+        let expected = representative_scene();
+        let mut document = flat_document();
+        let image_pointer = document.flat_image().unwrap().main().as_ptr();
+
+        let vector_id = document.push_vector(ChunkFlags::NONE, &expected).unwrap();
+
+        assert_eq!(document.layout(), Layout::Chunk);
+        assert_eq!(document.chunks().len(), 2);
+        let image_id = document.chunks().next().unwrap().id();
+        assert_eq!(
+            document.get(image_id).unwrap().chunk_type(),
+            ChunkType::IMAGE
+        );
+        assert_eq!(
+            document.get(vector_id).unwrap().chunk_type(),
+            ChunkType::VECTOR
+        );
+        assert_eq!(
+            document.image(image_id).unwrap().main().as_ptr(),
+            image_pointer
+        );
+        assert_eq!(document.image(image_id).unwrap().main(), &[1, 2, 3, 4]);
+        assert_eq!(document.vector(vector_id).unwrap(), expected);
+    }
+
+    #[test]
+    fn retained_limits_bound_reads_typed_writes_and_raw_inference() {
+        let expected = representative_scene();
+        let payload = expected.encode_payload().unwrap();
+        let source = vector_file(&payload, ChunkFlags::NONE);
+        let decoded_bytes = 5 * size_of::<crate::SceneOp>()
+            + 4 * size_of::<PathCmd>()
+            + size_of::<GradientStop>()
+            + 2 * size_of::<Fixed>()
+            + 10;
+        let exact = PayloadLimits::HOST
+            .with_max_scene_ops(5)
+            .with_max_path_commands(4)
+            .with_max_gradient_stops(1)
+            .with_max_dash_elements(2)
+            .with_max_string_bytes(10)
+            .with_max_decoded_bytes(decoded_bytes);
+        let cases = [
+            (
+                exact.with_max_scene_ops(4),
+                VectorReadError::TooManySceneOps { count: 5, limit: 4 },
+            ),
+            (
+                exact.with_max_path_commands(3),
+                VectorReadError::TooManyPathCommands { count: 4, limit: 3 },
+            ),
+            (
+                exact.with_max_gradient_stops(0),
+                VectorReadError::TooManyGradientStops { count: 1, limit: 0 },
+            ),
+            (
+                exact.with_max_dash_elements(1),
+                VectorReadError::TooManyDashElements { count: 2, limit: 1 },
+            ),
+            (
+                exact.with_max_string_bytes(9),
+                VectorReadError::StringBytesLimitExceeded {
+                    needed: 10,
+                    limit: 9,
+                },
+            ),
+            (
+                exact.with_max_decoded_bytes(decoded_bytes - 1),
+                VectorReadError::DecodedBytesLimitExceeded {
+                    needed: decoded_bytes,
+                    limit: decoded_bytes - 1,
+                },
+            ),
+        ];
+
+        let exact_options = OpenOptions::new().with_payload_limits(exact);
+        let exact_document = Document::open_with(&source, &exact_options).unwrap();
+        let vector_id = exact_document.chunks().next().unwrap().id();
+        assert_eq!(exact_document.vector(vector_id).unwrap(), expected);
+
+        let mut critical = Document::new_chunk_with_limits(exact);
+        let critical_id = critical
+            .push_raw(RawChunkInput {
+                chunk_type: ChunkType::VECTOR,
+                flags: ChunkFlags::CRITICAL,
+                payload: PayloadInput::Borrowed(&payload),
+                policy: RawChunkPolicy::infer(),
+            })
+            .unwrap();
+        assert_eq!(critical.vector(critical_id).unwrap(), expected);
+
+        let mut malformed = Document::new_chunk_with_limits(exact);
+        assert_eq!(
+            malformed.push_raw(RawChunkInput {
+                chunk_type: ChunkType::VECTOR,
+                flags: ChunkFlags::NONE,
+                payload: PayloadInput::Borrowed(b"\0"),
+                policy: RawChunkPolicy::infer(),
+            }),
+            Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
+                VectorReadError::Codec(crate::CodecError::BadMagic)
+            )))
+        );
+        assert_eq!(malformed.chunks().len(), 0);
+
+        for (limits, error) in cases {
+            let options = OpenOptions::new().with_payload_limits(limits);
+            let document = Document::open_with(&source, &options).unwrap();
+            let vector_id = document.chunks().next().unwrap().id();
+            assert_eq!(
+                document.vector(vector_id),
+                Err(VectorAccessError::InvalidPayload(error))
+            );
+
+            let mut authored = Document::new_chunk_with_limits(limits);
+            assert_eq!(
+                authored.push_vector(ChunkFlags::NONE, &expected),
+                Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
+                    error
+                )))
+            );
+            assert_eq!(authored.chunks().len(), 0);
+        }
+
+        let low = exact.with_max_scene_ops(4);
+        let mut inferred = Document::new_chunk_with_limits(low);
+        assert_eq!(
+            inferred.push_raw(RawChunkInput {
+                chunk_type: ChunkType::VECTOR,
+                flags: ChunkFlags::NONE,
+                payload: PayloadInput::Borrowed(&payload),
+                policy: RawChunkPolicy::infer(),
+            }),
+            Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
+                VectorReadError::TooManySceneOps { count: 5, limit: 4 }
+            )))
+        );
+        let opaque = inferred
+            .push_raw(RawChunkInput {
+                chunk_type: ChunkType::VECTOR,
+                flags: ChunkFlags::NONE,
+                payload: PayloadInput::Borrowed(&payload),
+                policy: explicit_policy(),
+            })
+            .unwrap();
+        assert_eq!(
+            inferred.vector(opaque),
+            Err(VectorAccessError::InvalidPayload(
+                VectorReadError::TooManySceneOps { count: 5, limit: 4 }
+            ))
+        );
+    }
+
+    #[test]
+    fn replacement_is_an_explicit_canonical_rewrite_and_repairs_malformed_payloads() {
+        let expected = representative_scene();
+        let canonical = expected.encode_payload().unwrap();
+        let source = vector_file(&canonical, ChunkFlags::NONE);
+        let mut document = Document::open(&source).unwrap();
+        let vector_id = document.chunks().next().unwrap().id();
+        let original_pointer = document
+            .get(vector_id)
+            .unwrap()
+            .payload_bytes()
+            .unwrap()
+            .as_ptr();
+
+        document.replace_vector(vector_id, &expected).unwrap();
+        assert!(document.is_dirty());
+        assert_eq!(
+            document.get(vector_id).unwrap().payload_origin(),
+            PayloadOrigin::OWNED
+        );
+        assert_ne!(
+            document
+                .get(vector_id)
+                .unwrap()
+                .payload_bytes()
+                .unwrap()
+                .as_ptr(),
+            original_pointer
+        );
+        assert_eq!(
+            document.get(vector_id).unwrap().payload_bytes().unwrap(),
+            canonical
+        );
+
+        let malformed_source = vector_file(b"\0", ChunkFlags::NONE);
+        let mut malformed = Document::open(&malformed_source).unwrap();
+        let vector_id = malformed.chunks().next().unwrap().id();
+        assert!(matches!(
+            malformed.vector(vector_id),
+            Err(VectorAccessError::InvalidPayload(_))
+        ));
+        malformed.replace_vector(vector_id, &expected).unwrap();
+        assert_eq!(malformed.vector(vector_id).unwrap(), expected);
+    }
+
+    #[test]
+    fn edits_commit_only_after_callback_and_validation_succeed() {
+        let expected = representative_scene();
+        let source = vector_file(&expected.encode_payload().unwrap(), ChunkFlags::NONE);
+        let mut document = Document::open(&source).unwrap();
+        let vector_id = document.chunks().next().unwrap().id();
+        let original_pointer = document
+            .get(vector_id)
+            .unwrap()
+            .payload_bytes()
+            .unwrap()
+            .as_ptr();
+
+        assert_eq!(
+            document.try_edit_vector(vector_id, |working| {
+                working.ops.clear();
+                Err("rejected")
+            }),
+            Err(TryEditError::Callback("rejected"))
+        );
+        assert_eq!(
+            document
+                .get(vector_id)
+                .unwrap()
+                .payload_bytes()
+                .unwrap()
+                .as_ptr(),
+            original_pointer
+        );
+        assert!(!document.is_dirty());
+
+        assert_eq!(
+            document.edit_vector(vector_id, |working| {
+                working.ops.push(crate::SceneOp::GroupEnd);
+            }),
+            Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
+                VectorReadError::Codec(crate::CodecError::UnbalancedGroup)
+            )))
+        );
+        assert_eq!(
+            document
+                .get(vector_id)
+                .unwrap()
+                .payload_bytes()
+                .unwrap()
+                .as_ptr(),
+            original_pointer
+        );
+        assert!(!document.is_dirty());
+
+        document
+            .edit_vector(vector_id, |working| {
+                working.ops.insert(0, crate::SceneOp::PopClip);
+            })
+            .unwrap();
+        assert!(document.is_dirty());
+        assert!(matches!(
+            document.vector(vector_id).unwrap().ops.first(),
+            Some(crate::SceneOp::PopClip)
+        ));
+    }
+
+    #[test]
+    fn post_callback_limit_failure_preserves_the_original_payload() {
+        let expected = representative_scene();
+        let source = vector_file(&expected.encode_payload().unwrap(), ChunkFlags::NONE);
+        let limits = PayloadLimits::HOST.with_max_scene_ops(5);
+        let options = OpenOptions::new().with_payload_limits(limits);
+        let mut document = Document::open_with(&source, &options).unwrap();
+        let vector_id = document.chunks().next().unwrap().id();
+        let payload = document.get(vector_id).unwrap().payload_bytes().unwrap();
+        let original_pointer = payload.as_ptr();
+        let original_bytes = payload.to_vec();
+        let calls = Cell::new(0);
+
+        assert_eq!(
+            document.try_edit_vector(vector_id, |working| {
+                calls.set(calls.get() + 1);
+                working.ops.push(crate::SceneOp::PopClip);
+                Ok::<(), ()>(())
+            }),
+            Err(TryEditError::Edit(EditError::InvalidVector(
+                VectorEncodeError::InvalidPayload(VectorReadError::TooManySceneOps {
+                    count: 6,
+                    limit: 5,
+                })
+            )))
+        );
+        assert_eq!(calls.get(), 1);
+        let payload = document.get(vector_id).unwrap().payload_bytes().unwrap();
+        assert_eq!(payload.as_ptr(), original_pointer);
+        assert_eq!(payload, original_bytes);
+        assert!(!document.is_dirty());
+        assert_eq!(document.vector(vector_id).unwrap(), expected);
+    }
+
+    #[test]
+    fn typed_empty_edit_canonicalizes_extension_records_and_crc() {
+        let body = [0x40, 0x01, 0xa5, 0x00];
+        let mut payload = vec![crate::VectorChunkHeader::MAGIC, 1, 8, 0];
+        payload.extend_from_slice(&crc32(&body).to_le_bytes());
+        payload.extend_from_slice(&body);
+        assert_eq!(Scene::preflight(&payload, &PayloadLimits::HOST), Ok(()));
+
+        let source = vector_file(&payload, ChunkFlags::NONE);
+        let mut document = Document::open(&source).unwrap();
+        let vector_id = document.chunks().next().unwrap().id();
+        assert_eq!(document.vector(vector_id).unwrap(), Scene::default());
+
+        document.edit_vector(vector_id, |_| {}).unwrap();
+
+        let canonical = Scene::default().encode_payload().unwrap();
+        let rewritten = document.get(vector_id).unwrap().payload_bytes().unwrap();
+        assert_eq!(rewritten, canonical);
+        assert_ne!(rewritten, payload);
+        assert_eq!(Scene::preflight(rewritten, &PayloadLimits::HOST), Ok(()));
+        assert_eq!(
+            document.get(vector_id).unwrap().payload_origin(),
+            PayloadOrigin::OWNED
+        );
+        assert!(document.is_dirty());
+    }
+
+    #[test]
+    fn access_and_edit_errors_keep_container_payload_and_callback_layers_distinct() {
+        let expected = representative_scene();
+        let payload = expected.encode_payload().unwrap();
+        let source = encode_chunks(&[
+            (ChunkType::META.raw(), 0, b"meta"),
+            (ChunkType::VECTOR.raw(), 0, b"\0"),
+        ]);
+        let mut document = Document::open(&source).unwrap();
+        let mut chunks = document.chunks();
+        let meta = chunks.next().unwrap().id();
+        let malformed = chunks.next().unwrap().id();
+        assert_eq!(
+            document.vector(meta),
+            Err(VectorAccessError::UnexpectedChunkType {
+                actual: ChunkType::META
+            })
+        );
+        assert_eq!(
+            document.vector(id(99)),
+            Err(VectorAccessError::InvalidChunkId)
+        );
+        assert!(matches!(
+            document.vector(malformed),
+            Err(VectorAccessError::InvalidPayload(_))
+        ));
+        let called = Cell::new(false);
+        assert!(matches!(
+            document.edit_vector(malformed, |_| called.set(true)),
+            Err(EditError::InvalidVector(_))
+        ));
+        assert!(!called.get());
+
+        let flat = flat_document();
+        assert_eq!(
+            flat.vector(id(0)),
+            Err(VectorAccessError::ChunkLayoutRequired)
+        );
+
+        let mut trailing_source = vector_file(&payload, ChunkFlags::NONE);
+        trailing_source.extend_from_slice(b"tail");
+        let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
+        let trailing = Document::open_with(&trailing_source, &options).unwrap();
+        let vector_id = trailing.chunks().next().unwrap().id();
+        assert_eq!(trailing.vector(vector_id).unwrap(), expected);
+
+        trailing_source[5] = VERSION_MINOR + 1;
+        refresh_chunk_header_crc(&mut trailing_source);
+        let future = Document::open_with(&trailing_source, &options).unwrap();
+        let vector_id = future.chunks().next().unwrap().id();
+        assert_eq!(
+            future.vector(vector_id),
+            Err(VectorAccessError::FutureSemanticsUnsupported)
+        );
+        let normalized_options =
+            options.with_compatibility(CompatibilityPolicy::NormalizeToCurrent);
+        let normalized = Document::open_with(&trailing_source, &normalized_options).unwrap();
+        let vector_id = normalized.chunks().next().unwrap().id();
+        assert_eq!(normalized.vector(vector_id).unwrap(), expected);
+    }
+
+    #[test]
+    fn segmented_vector_can_be_repaired_without_decode() {
+        let mut document = flat_document();
+        let promoted = document.ensure_chunk_layout().unwrap().unwrap();
+        assert_eq!(
+            document.set_type(promoted, ChunkType::VECTOR, RawChunkPolicy::infer()),
+            Err(EditError::NonContiguousPayload {
+                chunk_type: ChunkType::VECTOR
+            })
+        );
+        assert_eq!(
+            document.get(promoted).unwrap().chunk_type(),
+            ChunkType::IMAGE
+        );
+        document
+            .set_type(promoted, ChunkType::VECTOR, explicit_policy())
+            .unwrap();
+        assert_eq!(
+            document.vector(promoted),
+            Err(VectorAccessError::NonContiguousPayload)
+        );
+        assert_eq!(
+            document.edit_vector(promoted, |_| {}),
+            Err(EditError::NonContiguousPayload {
+                chunk_type: ChunkType::VECTOR
+            })
+        );
+
+        let replacement = representative_scene();
+        document.replace_vector(promoted, &replacement).unwrap();
+        assert_eq!(document.vector(promoted).unwrap(), replacement);
+        assert_eq!(
+            document.get(promoted).unwrap().payload_origin(),
+            PayloadOrigin::OWNED
+        );
+        let DocumentState::Chunk(chunks) = &document.state else {
+            panic!("replacement must retain CHUNK layout")
+        };
+        assert!(chunks.promoted_flat.is_none());
+        assert_eq!(document.layout(), Layout::Chunk);
+    }
+
+    #[test]
+    fn structural_and_reserved_flag_errors_precede_payload_work() {
+        let invalid = Scene::from_ops(vec![crate::SceneOp::GroupEnd]);
+        let mut flat = flat_document();
+        assert_eq!(
+            flat.replace_vector(id(0), &invalid),
+            Err(EditError::ChunkLayoutRequired)
+        );
+
+        let mut chunk = Document::new_chunk();
+        assert_eq!(
+            chunk.replace_vector(id(0), &invalid),
+            Err(EditError::InvalidChunkId)
+        );
+        let meta = chunk
+            .push_raw(RawChunkInput {
+                chunk_type: ChunkType::META,
+                flags: ChunkFlags::NONE,
+                payload: PayloadInput::Borrowed(b"meta"),
+                policy: explicit_policy(),
+            })
+            .unwrap();
+        assert_eq!(
+            chunk.replace_vector(meta, &invalid),
+            Err(EditError::InvalidChunkType)
+        );
+
+        let mut exhausted = Document::new_chunk();
+        exhausted.next_id = u32::MAX;
+        assert_eq!(
+            exhausted.push_vector(ChunkFlags::from_bits_retain(2), &invalid),
+            Err(EditError::ChunkIdExhausted)
+        );
+        assert_eq!(exhausted.chunks().len(), 0);
+
+        let mut reserved = Document::new_chunk();
+        assert_eq!(
+            reserved.push_vector(ChunkFlags::from_bits_retain(2), &invalid),
+            Err(EditError::ReservedFlagBits { bits: 2 })
+        );
+        assert_eq!(reserved.chunks().len(), 0);
+    }
+
+    #[test]
+    fn reserved_vector_flags_require_a_grant_for_typed_rewrite() {
+        let expected = representative_scene();
+        let reserved = ChunkFlags::from_bits_retain(2);
+        let source = vector_file(&expected.encode_payload().unwrap(), reserved);
+        let mut document = Document::open(&source).unwrap();
+        let vector_id = document.chunks().next().unwrap().id();
+        assert_eq!(
+            document.replace_vector(vector_id, &expected),
+            Err(EditError::ReservedFlagBits { bits: 2 })
+        );
+        assert!(!document.is_dirty());
+
+        let policies = [RawTypePolicy {
+            chunk_type: ChunkType::VECTOR,
+            policy: preserve_policy(),
+        }];
+        let options = OpenOptions::new().with_raw_type_policies(&policies);
+        let mut granted = Document::open_with(&source, &options).unwrap();
+        let vector_id = granted.chunks().next().unwrap().id();
+        granted.replace_vector(vector_id, &expected).unwrap();
+        assert!(granted.is_dirty());
+        assert_eq!(granted.get(vector_id).unwrap().flags(), reserved);
+        assert_eq!(granted.vector(vector_id).unwrap(), expected);
+    }
+
+    #[test]
+    fn allocation_failures_map_to_document_level_errors() {
+        assert_eq!(
+            VectorAccessError::from(VectorReadError::AllocationFailed),
+            VectorAccessError::AllocationFailed
+        );
+        assert_eq!(
+            vector_access_error_for_edit(VectorAccessError::AllocationFailed),
+            EditError::AllocationFailed
+        );
+        assert_eq!(
+            invalid_vector_read_error(VectorReadError::AllocationFailed),
+            EditError::AllocationFailed
+        );
+        assert_eq!(
+            vector_encode_error_for_edit(VectorEncodeError::AllocationFailed),
+            EditError::AllocationFailed
+        );
+        assert_eq!(
+            vector_encode_error_for_edit(VectorEncodeError::InvalidPayload(
+                VectorReadError::AllocationFailed,
+            )),
+            EditError::AllocationFailed
+        );
+    }
+}
