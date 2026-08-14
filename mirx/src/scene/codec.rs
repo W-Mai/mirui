@@ -10,8 +10,10 @@ use crate::scene::paint::{
 };
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
+mod encoder;
 mod preflight;
 
+pub use encoder::VectorEncodeError;
 pub use preflight::VectorReadError;
 
 pub const TAG_EOF: u8 = 0x00;
@@ -229,7 +231,22 @@ impl<'a> Reader<'a> {
     }
 }
 
-fn write_varuint(out: &mut Vec<u8>, mut value: u32) {
+pub(super) trait ByteSink {
+    fn push(&mut self, byte: u8);
+    fn extend_from_slice(&mut self, bytes: &[u8]);
+}
+
+impl ByteSink for Vec<u8> {
+    fn push(&mut self, byte: u8) {
+        Vec::push(self, byte);
+    }
+
+    fn extend_from_slice(&mut self, bytes: &[u8]) {
+        Vec::extend_from_slice(self, bytes);
+    }
+}
+
+pub(super) fn write_varuint<W: ByteSink>(out: &mut W, mut value: u32) {
     loop {
         let mut byte = (value & 0x7F) as u8;
         value >>= 7;
@@ -243,23 +260,23 @@ fn write_varuint(out: &mut Vec<u8>, mut value: u32) {
     }
 }
 
-fn write_fixed(out: &mut Vec<u8>, f: Fixed) {
+fn write_fixed<W: ByteSink>(out: &mut W, f: Fixed) {
     out.extend_from_slice(&f.raw().to_le_bytes());
 }
 
-fn write_point(out: &mut Vec<u8>, p: Point) {
+fn write_point<W: ByteSink>(out: &mut W, p: Point) {
     write_fixed(out, p.x);
     write_fixed(out, p.y);
 }
 
-fn write_rect(out: &mut Vec<u8>, r: Rect) {
+fn write_rect<W: ByteSink>(out: &mut W, r: Rect) {
     write_fixed(out, r.x);
     write_fixed(out, r.y);
     write_fixed(out, r.w);
     write_fixed(out, r.h);
 }
 
-fn write_color(out: &mut Vec<u8>, c: Color) {
+fn write_color<W: ByteSink>(out: &mut W, c: Color) {
     out.extend_from_slice(&[c.r, c.g, c.b, c.a]);
 }
 
@@ -306,7 +323,7 @@ fn units_from_u8(v: u8) -> Result<GradientUnits, CodecError> {
     }
 }
 
-fn write_gradient_stops(out: &mut Vec<u8>, stops: &[GradientStop]) {
+fn write_gradient_stops<W: ByteSink>(out: &mut W, stops: &[GradientStop]) {
     out.extend_from_slice(&(stops.len() as u32).to_le_bytes());
     for s in stops {
         write_fixed(out, s.offset);
@@ -325,7 +342,7 @@ fn read_gradient_stops(r: &mut Reader) -> Result<Vec<GradientStop>, CodecError> 
     Ok(stops)
 }
 
-fn write_paint(out: &mut Vec<u8>, paint: &Paint) {
+fn write_paint<W: ByteSink>(out: &mut W, paint: &Paint) {
     match paint {
         Paint::Color(c) => {
             out.push(PAINT_KIND_COLOR);
@@ -409,19 +426,19 @@ fn read_transform_raw(r: &mut Reader) -> Result<Transform, CodecError> {
     })
 }
 
-fn write_transform(out: &mut Vec<u8>, t: Transform) {
+pub(super) fn write_transform<W: ByteSink>(out: &mut W, t: Transform) {
     for f in [t.m00, t.m01, t.tx, t.m10, t.m11, t.ty] {
         write_fixed(out, f);
     }
 }
 
-fn write_quad(out: &mut Vec<u8>, q: &[Point; 4]) {
+fn write_quad<W: ByteSink>(out: &mut W, q: &[Point; 4]) {
     for p in q {
         write_point(out, *p);
     }
 }
 
-fn write_resource_ref(out: &mut Vec<u8>, r: &ResourceRef) {
+pub(super) fn write_resource_ref<W: ByteSink>(out: &mut W, r: &ResourceRef) {
     match r {
         ResourceRef::Index(i) => {
             out.push(RES_KIND_INDEX);
@@ -479,7 +496,7 @@ fn composite_from_u8(b: u8) -> Result<CompositeMode, CodecError> {
     }
 }
 
-fn write_path(out: &mut Vec<u8>, cmds: &[PathCmd]) {
+fn write_path<W: ByteSink>(out: &mut W, cmds: &[PathCmd]) {
     write_varuint(out, cmds.len() as u32);
     for cmd in cmds {
         match cmd {
@@ -531,7 +548,7 @@ fn read_path(r: &mut Reader) -> Result<Vec<PathCmd>, CodecError> {
     Ok(cmds)
 }
 
-fn write_op(out: &mut Vec<u8>, op: &SceneOp) -> Result<(), CodecError> {
+pub(super) fn write_op<W: ByteSink>(out: &mut W, op: &SceneOp) -> Result<(), CodecError> {
     match op {
         SceneOp::GroupBegin { .. } | SceneOp::GroupEnd => {
             unreachable!("group ops are dispatched by encode, not write_op")
@@ -780,8 +797,8 @@ fn field_bits(transform: &Transform, quad: &Option<[Point; 4]>, radius: Option<F
     bits
 }
 
-fn write_optional(
-    out: &mut Vec<u8>,
+fn write_optional<W: ByteSink>(
+    out: &mut W,
     bits: u8,
     transform: &Transform,
     quad: &Option<[Point; 4]>,
