@@ -1,6 +1,7 @@
 //! CRC-32/IEEE (a.k.a. CRC-32/ISO-HDLC), reflected.
 //! Polynomial `0xEDB88320`, init `0xFFFFFFFF`, xorout `0xFFFFFFFF`.
-//! Used by the FLAT and CHUNK file headers; matches `crc32fast` 1.x output.
+//! Used by the FLAT and CHUNK file headers and versioned payload envelopes;
+//! matches `crc32fast` 1.x output.
 
 const POLY: u32 = 0xEDB88320;
 
