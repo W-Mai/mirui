@@ -2,7 +2,10 @@ use core::iter::FusedIterator;
 
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFileHeader};
 use crate::wire::{read_u16_le, read_u32_le, slice};
-use crate::{ChunkFlags, ChunkType, ImagePayloadError, ImageView, ReadError};
+use crate::{
+    ChunkFlags, ChunkType, ImagePayloadError, ImageView, MetaDecodeError, MetaView, PayloadLimits,
+    ReadError,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct EntryRecord {
@@ -181,6 +184,17 @@ impl<'a> ChunkRef<'a> {
             return Ok(None);
         }
         ImageView::open_payload_at(self.payload, self.payload_offset).map(Some)
+    }
+
+    /// Returns a borrowed META view when this record has the META type.
+    ///
+    /// Other chunk types return `Ok(None)` without interpreting their payload
+    /// bytes.
+    pub fn meta(&self, limits: &PayloadLimits) -> Result<Option<MetaView<'a>>, MetaDecodeError> {
+        if self.chunk_type != ChunkType::META {
+            return Ok(None);
+        }
+        MetaView::open_payload(self.payload, limits).map(Some)
     }
 }
 

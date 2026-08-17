@@ -1,5 +1,8 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
-use crate::{ChunkType, Font, FontReadError, ImagePayloadError, ReadError, Scene, VectorReadError};
+use crate::{
+    ChunkType, Font, FontReadError, ImagePayloadError, MetaDecodeError, ReadError, Scene,
+    VectorReadError,
+};
 
 /// Source location of a payload validation result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -21,6 +24,7 @@ pub enum PayloadValidationFailure {
     Image(ImagePayloadError),
     Font(FontReadError),
     Vector(VectorReadError),
+    Meta(MetaDecodeError),
 }
 
 /// A payload validation failure bound to its MIRX source location.
@@ -152,6 +156,10 @@ pub(crate) fn preflight_chunk(
             Scene::preflight(chunk.payload(), limits).map_err(PayloadValidationFailure::Vector)?;
             Ok(PreflightStatus::Validated)
         }
+        ChunkType::META => {
+            chunk.meta(limits).map_err(PayloadValidationFailure::Meta)?;
+            Ok(PreflightStatus::Validated)
+        }
         chunk_type if is_standard(chunk_type) => Ok(PreflightStatus::UnsupportedStandard),
         _ => Ok(PreflightStatus::Custom),
     }
@@ -260,6 +268,14 @@ mod tests {
         encode_chunks(&[(chunk_type::VECTOR, flags, &payload)])
     }
 
+    fn meta_file(flags: u16) -> Vec<u8> {
+        const PAYLOAD: [u8; 18] = [
+            0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x6b, 0x76,
+            0x20, 0x0a, 0xe0, 0xcc,
+        ];
+        encode_chunks(&[(chunk_type::META, flags, &PAYLOAD)])
+    }
+
     fn payload_offset(bytes: &[u8], index: usize) -> u32 {
         let entry = CHUNK_FILE_HEADER_LEN + index * CHUNK_TABLE_ENTRY_LEN;
         u32::from_le_bytes(bytes[entry + 4..entry + 8].try_into().unwrap())
@@ -320,6 +336,21 @@ mod tests {
                     payload_offset: offset,
                 },
                 failure: PayloadValidationFailure::Font(expected),
+            }))
+        );
+    }
+
+    fn assert_critical_meta_failure(bytes: &[u8], expected: MetaDecodeError) {
+        let offset = payload_offset(bytes, 0);
+        assert_eq!(
+            Reader::open(bytes),
+            Err(ReadError::CriticalPayload(PayloadValidationError {
+                location: PayloadLocation::Chunk {
+                    index: 0,
+                    chunk_type: ChunkType::META,
+                    payload_offset: offset,
+                },
+                failure: PayloadValidationFailure::Meta(expected),
             }))
         );
     }
@@ -508,6 +539,61 @@ mod tests {
                 failure: PayloadValidationFailure::Vector(VectorReadError::Codec(
                     crate::CodecError::UnknownVersion(2),
                 )),
+            })
+        );
+    }
+
+    #[test]
+    fn valid_critical_meta_passes_open_explicit_preflight_and_typed_access() {
+        let bytes = meta_file(ChunkFlags::CRITICAL.bits());
+        let limits = PayloadLimits::HOST
+            .with_max_meta_entries(1)
+            .with_max_meta_bytes(2)
+            .with_max_decoded_bytes(0);
+        let reader =
+            Reader::open_with(&bytes, &ReadOptions::new().with_payload_limits(limits)).unwrap();
+        assert_eq!(reader.validate_known_payloads(&limits), Ok(()));
+
+        let chunk = reader.chunks().next().unwrap();
+        let meta = chunk.meta(&limits).unwrap().unwrap();
+        assert_eq!(
+            meta.get_first("k").unwrap().value,
+            crate::MetaValueRef::Text("v")
+        );
+
+        const EXTENSION: [u8; 21] = [
+            0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x80, 0xa5, 0x04, 0x00, 0x00, 0x00, 0x78, 0xde,
+            0xad, 0xbe, 0xef, 0xdd, 0x4a, 0x22, 0xdb,
+        ];
+        let extension =
+            encode_chunks(&[(chunk_type::META, ChunkFlags::CRITICAL.bits(), &EXTENSION)]);
+        assert!(Reader::open(&extension).is_ok());
+    }
+
+    #[test]
+    fn malformed_meta_is_strict_only_when_critical_or_explicitly_scanned() {
+        let mut critical = meta_file(ChunkFlags::CRITICAL.bits());
+        set_payload_byte(&mut critical, 1, 0x80);
+        assert_critical_meta_failure(&critical, MetaDecodeError::UnknownFlags(0x80));
+
+        let mut unsupported = meta_file(ChunkFlags::CRITICAL.bits());
+        set_payload_byte(&mut unsupported, 0, 2);
+        assert_critical_meta_failure(&unsupported, MetaDecodeError::UnsupportedVersion(2));
+
+        let mut noncritical = meta_file(0);
+        set_payload_byte(&mut noncritical, 13, 0xff);
+        let reader = Reader::open(&noncritical).unwrap();
+        assert_eq!(
+            reader.validate_known_payloads(&PayloadLimits::HOST),
+            Err(PayloadValidationError {
+                location: PayloadLocation::Chunk {
+                    index: 0,
+                    chunk_type: ChunkType::META,
+                    payload_offset: payload_offset(&noncritical, 0),
+                },
+                failure: PayloadValidationFailure::Meta(MetaDecodeError::InvalidTextUtf8 {
+                    index: 0,
+                }),
             })
         );
     }
@@ -702,7 +788,7 @@ mod tests {
 
     #[test]
     fn unsupported_standard_types_are_distinct_from_custom_types() {
-        for raw_type in [chunk_type::FRAMES, chunk_type::META, chunk_type::PALETTE] {
+        for raw_type in [chunk_type::FRAMES, chunk_type::PALETTE] {
             let critical = encode_chunks(&[(raw_type, ChunkFlags::CRITICAL.bits(), b"opaque")]);
             let chunk_type = ChunkType::new(raw_type).unwrap();
             let expected = PayloadValidationError {
@@ -775,15 +861,21 @@ mod tests {
             refresh_header_crc(&mut valid);
             assert!(Reader::open(&valid).is_ok());
 
-            let mut unsupported =
-                encode_chunks(&[(chunk_type::META, ChunkFlags::CRITICAL.bits(), b"opaque")]);
-            unsupported[5] = minor;
-            unsupported[7] = flags;
-            refresh_header_crc(&mut unsupported);
+            let mut valid_meta = meta_file(ChunkFlags::CRITICAL.bits());
+            valid_meta[5] = minor;
+            valid_meta[7] = flags;
+            refresh_header_crc(&mut valid_meta);
+            assert!(Reader::open(&valid_meta).is_ok());
+
+            let mut malformed_meta = meta_file(ChunkFlags::CRITICAL.bits());
+            set_payload_byte(&mut malformed_meta, 1, 1);
+            malformed_meta[5] = minor;
+            malformed_meta[7] = flags;
+            refresh_header_crc(&mut malformed_meta);
             assert!(matches!(
-                Reader::open(&unsupported),
+                Reader::open(&malformed_meta),
                 Err(ReadError::CriticalPayload(PayloadValidationError {
-                    failure: PayloadValidationFailure::UnsupportedStandardPayload,
+                    failure: PayloadValidationFailure::Meta(MetaDecodeError::UnknownFlags(1)),
                     ..
                 }))
             ));
