@@ -1,8 +1,12 @@
 use core::{iter::FusedIterator, str};
 
-use super::envelope::{Envelope, EnvelopeError, checked_payload_len};
+use super::envelope::{Envelope, EnvelopeError, ExactEnvelope, checked_payload_len};
 use crate::reader::PayloadLimits;
 use crate::wire::{read_u16_le, read_u32_le};
+
+mod owned;
+
+pub use owned::{Meta, MetaEncodeError, MetaEntry, MetaMutationError, MetaValue};
 
 const HEADER_LEN: usize = 4;
 const ENTRY_HEADER_LEN: usize = 8;
@@ -52,6 +56,11 @@ pub enum MetaDecodeError {
         expected: u32,
         actual: u32,
     },
+    DecodedBytesLimitExceeded {
+        needed: usize,
+        limit: usize,
+    },
+    AllocationFailed,
     SizeOverflow,
 }
 
@@ -88,56 +97,7 @@ impl<'a> MetaView<'a> {
         payload: &'a [u8],
         limits: &PayloadLimits,
     ) -> Result<Self, MetaDecodeError> {
-        let envelope = Envelope::open_v1(payload, HEADER_LEN).map_err(map_envelope_error)?;
-        let covered = envelope.covered();
-        let flags = covered[1];
-        if flags != 0 {
-            return Err(MetaDecodeError::UnknownFlags(flags));
-        }
-
-        let entry_count = read_u16_le(covered, 2).ok_or(MetaDecodeError::SizeOverflow)?;
-        let count = u32::from(entry_count);
-        let minimum_entries_len = usize::from(entry_count)
-            .checked_mul(ENTRY_HEADER_LEN)
-            .ok_or(MetaDecodeError::SizeOverflow)?;
-        let minimum_covered_len = HEADER_LEN
-            .checked_add(minimum_entries_len)
-            .ok_or(MetaDecodeError::SizeOverflow)?;
-        let minimum_payload_len =
-            checked_payload_len(minimum_covered_len).map_err(map_envelope_error)?;
-        if payload.len() < minimum_payload_len {
-            return Err(MetaDecodeError::Truncated {
-                needed: minimum_payload_len,
-                available: payload.len(),
-            });
-        }
-
-        let limit = limits.max_meta_entries();
-        if count > limit {
-            return Err(MetaDecodeError::TooManyEntries { count, limit });
-        }
-
-        let mut offset = HEADER_LEN;
-        let mut meta_bytes = 0usize;
-        for index in 0..entry_count {
-            let scanned = scan_entry(covered, offset, index, meta_bytes, limits)?;
-            offset = scanned.end;
-            meta_bytes = scanned.meta_bytes;
-        }
-
-        let exact = envelope
-            .validate_exact_end(offset)
-            .map_err(map_envelope_error)?;
-        exact.validate_crc().map_err(map_envelope_error)?;
-
-        let entries = covered
-            .get(HEADER_LEN..offset)
-            .ok_or(MetaDecodeError::SizeOverflow)?;
-        Ok(Self {
-            entries,
-            entry_count,
-            meta_bytes,
-        })
+        validate_payload_layout(payload, limits)?.validate_crc()
     }
 
     /// Returns the number of entries in wire order.
@@ -178,12 +138,88 @@ impl<'a> MetaView<'a> {
     {
         self.entries().filter(move |entry| entry.key == key)
     }
+}
 
-    /// Returns the aggregate borrowed key and value bytes for owned planning.
-    #[allow(dead_code)]
+pub(crate) struct ValidatedMetaLayout<'a> {
+    exact: ExactEnvelope<'a>,
+    entries: &'a [u8],
+    entry_count: u16,
+    meta_bytes: usize,
+}
+
+impl<'a> ValidatedMetaLayout<'a> {
+    pub(crate) const fn entry_count(&self) -> u16 {
+        self.entry_count
+    }
+
     pub(crate) const fn meta_bytes(&self) -> usize {
         self.meta_bytes
     }
+
+    pub(crate) fn validate_crc(self) -> Result<MetaView<'a>, MetaDecodeError> {
+        self.exact.validate_crc().map_err(map_envelope_error)?;
+        Ok(MetaView {
+            entries: self.entries,
+            entry_count: self.entry_count,
+            meta_bytes: self.meta_bytes,
+        })
+    }
+}
+
+pub(crate) fn validate_payload_layout<'a>(
+    payload: &'a [u8],
+    limits: &PayloadLimits,
+) -> Result<ValidatedMetaLayout<'a>, MetaDecodeError> {
+    let envelope = Envelope::open_v1(payload, HEADER_LEN).map_err(map_envelope_error)?;
+    let covered = envelope.covered();
+    let flags = covered[1];
+    if flags != 0 {
+        return Err(MetaDecodeError::UnknownFlags(flags));
+    }
+
+    let entry_count = read_u16_le(covered, 2).ok_or(MetaDecodeError::SizeOverflow)?;
+    let count = u32::from(entry_count);
+    let minimum_entries_len = usize::from(entry_count)
+        .checked_mul(ENTRY_HEADER_LEN)
+        .ok_or(MetaDecodeError::SizeOverflow)?;
+    let minimum_covered_len = HEADER_LEN
+        .checked_add(minimum_entries_len)
+        .ok_or(MetaDecodeError::SizeOverflow)?;
+    let minimum_payload_len =
+        checked_payload_len(minimum_covered_len).map_err(map_envelope_error)?;
+    if payload.len() < minimum_payload_len {
+        return Err(MetaDecodeError::Truncated {
+            needed: minimum_payload_len,
+            available: payload.len(),
+        });
+    }
+
+    let limit = limits.max_meta_entries();
+    if count > limit {
+        return Err(MetaDecodeError::TooManyEntries { count, limit });
+    }
+
+    let mut offset = HEADER_LEN;
+    let mut meta_bytes = 0usize;
+    for index in 0..entry_count {
+        let scanned = scan_entry(covered, offset, index, meta_bytes, limits)?;
+        offset = scanned.end;
+        meta_bytes = scanned.meta_bytes;
+    }
+
+    let exact = envelope
+        .validate_exact_end(offset)
+        .map_err(map_envelope_error)?;
+
+    let entries = covered
+        .get(HEADER_LEN..offset)
+        .ok_or(MetaDecodeError::SizeOverflow)?;
+    Ok(ValidatedMetaLayout {
+        exact,
+        entries,
+        entry_count,
+        meta_bytes,
+    })
 }
 
 impl<'a> IntoIterator for MetaView<'a> {
@@ -423,7 +459,7 @@ mod tests {
         let empty = MetaView::open_payload(&EMPTY, &zero).unwrap();
         assert!(empty.is_empty());
         assert_eq!(empty.len(), 0);
-        assert_eq!(empty.meta_bytes(), 0);
+        assert_eq!(empty.meta_bytes, 0);
 
         let text = MetaView::open_payload(&TEXT, &PayloadLimits::HOST).unwrap();
         assert_eq!(
@@ -433,7 +469,7 @@ mod tests {
                 value: MetaValueRef::Text("v"),
             })
         );
-        assert_eq!(text.meta_bytes(), 2);
+        assert_eq!(text.meta_bytes, 2);
 
         let bytes = MetaView::open_payload(&BYTES, &PayloadLimits::HOST).unwrap();
         assert_eq!(
@@ -751,7 +787,7 @@ mod tests {
             .with_max_meta_bytes(8)
             .with_max_decoded_bytes(0);
         let view = MetaView::open_payload(&aggregate_payload, &exact).unwrap();
-        assert_eq!(view.meta_bytes(), 8);
+        assert_eq!(view.meta_bytes, 8);
         assert_eq!(
             MetaView::open_payload(&aggregate_payload, &exact.with_max_meta_bytes(7)),
             Err(MetaDecodeError::MetaBytesLimitExceeded {
