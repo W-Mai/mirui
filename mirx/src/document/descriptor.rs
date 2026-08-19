@@ -3,8 +3,8 @@ use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_prima
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
 use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, Font, FontEncodeError, PayloadLimits, Scene,
-    VectorEncodeError,
+    ChunkFlags, ChunkId, ChunkType, EditError, Font, FontEncodeError, MetaEncodeError, MetaView,
+    PayloadLimits, Scene, VectorEncodeError,
 };
 
 #[cfg(test)]
@@ -138,6 +138,26 @@ fn evaluate_resolved_descriptor_with_flags(
             None => {
                 return Err(EditError::NonContiguousPayload {
                     chunk_type: ChunkType::VECTOR,
+                });
+            }
+        }
+    } else if chunk_type == ChunkType::META {
+        match payload.bytes() {
+            Some(bytes) => match MetaView::open_payload(bytes, &limits) {
+                Ok(_) => true,
+                Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
+                    false
+                }
+                Err(error) => {
+                    return Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
+                        error,
+                    )));
+                }
+            },
+            None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
+            None => {
+                return Err(EditError::NonContiguousPayload {
+                    chunk_type: ChunkType::META,
                 });
             }
         }

@@ -25,6 +25,7 @@ pub enum ParseError {
 use crate::font::{FontEncodeError, FontReadError};
 use crate::model::{ChunkType, InvalidChunkType};
 use crate::payload::image::ImagePayloadError;
+use crate::payload::meta::{MetaDecodeError, MetaEncodeError};
 use crate::reader::PayloadValidationError;
 use crate::scene::{VectorEncodeError, VectorReadError};
 
@@ -164,6 +165,7 @@ pub enum EditError {
     InvalidPayload(ImagePayloadError),
     InvalidFont(FontEncodeError),
     InvalidVector(VectorEncodeError),
+    InvalidMeta(MetaEncodeError),
     NonContiguousPayload {
         chunk_type: ChunkType,
     },
@@ -216,6 +218,30 @@ pub enum VectorAccessError {
     InvalidPayload(VectorReadError),
     /// Owned scene storage could not be reserved.
     AllocationFailed,
+}
+
+/// Failures while resolving and validating a META node from a document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum MetaAccessError {
+    /// The container uses preserved semantics newer than this typed accessor.
+    FutureSemanticsUnsupported,
+    /// Stable chunk identities are available only in CHUNK layout.
+    ChunkLayoutRequired,
+    /// The identity does not name a live chunk in this document session.
+    InvalidChunkId,
+    /// The selected chunk is not a META node.
+    UnexpectedChunkType { actual: ChunkType },
+    /// The selected raw node has no contiguous META payload representation.
+    NonContiguousPayload,
+    /// The selected META payload violates its typed contract.
+    InvalidPayload(MetaDecodeError),
+}
+
+impl From<MetaDecodeError> for MetaAccessError {
+    fn from(value: MetaDecodeError) -> Self {
+        Self::InvalidPayload(value)
+    }
 }
 
 impl From<VectorReadError> for VectorAccessError {

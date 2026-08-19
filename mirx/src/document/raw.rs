@@ -703,8 +703,8 @@ mod tests {
     use super::*;
     use crate::header::{CHUNK_FILE_HEADER_LEN, chunk_type};
     use crate::{
-        ColorFormat, FlatImageInput, ImageChunkInput, PayloadOrigin, encode_chunk_image,
-        encode_chunks, encode_flat,
+        ColorFormat, FlatImageInput, ImageChunkInput, MetaDecodeError, MetaEncodeError,
+        PayloadOrigin, encode_chunk_image, encode_chunks, encode_flat,
     };
 
     const fn assumed_policy() -> RawChunkPolicy {
@@ -1423,9 +1423,9 @@ mod tests {
                 PayloadInput::Borrowed(b"changed"),
                 RawChunkPolicy::infer(),
             ),
-            Err(EditError::RelocationAssumptionRequired {
-                chunk_type: ChunkType::META,
-            })
+            Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
+                MetaDecodeError::UnsupportedVersion(b'c'),
+            )))
         );
         assert_eq!(
             opened.get(id).unwrap().payload_bytes(),

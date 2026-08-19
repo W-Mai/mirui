@@ -12,6 +12,7 @@ mod font;
 #[cfg(test)]
 mod hint_tests;
 mod image;
+mod meta;
 mod options;
 mod payload;
 #[cfg(test)]

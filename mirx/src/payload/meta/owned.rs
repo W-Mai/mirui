@@ -116,6 +116,14 @@ impl Meta {
         decode_payload_with_allocator(payload, limits, &mut CheckedDecodeAllocator)
     }
 
+    pub(crate) fn decode_view_with_limits(
+        view: MetaView<'_>,
+        limits: &PayloadLimits,
+    ) -> Result<Self, MetaDecodeError> {
+        validate_decoded_budget(view.len(), view.meta_bytes, limits)?;
+        decode_view_with_allocator(view, &mut CheckedDecodeAllocator)
+    }
+
     /// Inserts an entry at an exact position, including `len()` for append.
     pub fn insert(&mut self, index: usize, entry: MetaEntry) -> Result<(), MetaMutationError> {
         self.insert_with(index, entry, |entries| {
@@ -444,7 +452,7 @@ impl<'a> MetaPayloadPlan<'a> {
         Ok(needed)
     }
 
-    fn payload_to_vec(self) -> Result<Vec<u8>, MetaEncodeError> {
+    pub(crate) fn payload_to_vec(self) -> Result<Vec<u8>, MetaEncodeError> {
         self.payload_to_vec_with(|out, needed| {
             out.try_reserve_exact(needed)
                 .map_err(|_| MetaEncodeError::AllocationFailed)
