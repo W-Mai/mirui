@@ -1,7 +1,7 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
 use crate::{
-    ChunkType, Font, FontReadError, ImagePayloadError, MetaDecodeError, ReadError, Scene,
-    VectorReadError,
+    ChunkType, Font, FontReadError, ImagePayloadError, MetaDecodeError, PaletteDecodeError,
+    ReadError, Scene, VectorReadError,
 };
 
 /// Source location of a payload validation result.
@@ -25,6 +25,7 @@ pub enum PayloadValidationFailure {
     Font(FontReadError),
     Vector(VectorReadError),
     Meta(MetaDecodeError),
+    Palette(PaletteDecodeError),
 }
 
 /// A payload validation failure bound to its MIRX source location.
@@ -160,6 +161,12 @@ pub(crate) fn preflight_chunk(
             chunk.meta(limits).map_err(PayloadValidationFailure::Meta)?;
             Ok(PreflightStatus::Validated)
         }
+        ChunkType::PALETTE => {
+            chunk
+                .palette(limits)
+                .map_err(PayloadValidationFailure::Palette)?;
+            Ok(PreflightStatus::Validated)
+        }
         chunk_type if is_standard(chunk_type) => Ok(PreflightStatus::UnsupportedStandard),
         _ => Ok(PreflightStatus::Custom),
     }
@@ -276,6 +283,17 @@ mod tests {
         encode_chunks(&[(chunk_type::META, flags, &PAYLOAD)])
     }
 
+    fn palette_file(flags: u16) -> Vec<u8> {
+        let colors = [
+            0x10, 0x20, 0x30, 0x40, 0xaa, 0xbb, 0xcc, 0xdd, 0x10, 0x20, 0x30, 0x40,
+        ];
+        let mut payload = alloc::vec![1, ColorFormat::RGBA8888.to_u8(), 0, 0, 3, 0, 0, 0,];
+        payload.extend_from_slice(&colors);
+        let checksum = crc32(&payload);
+        payload.extend_from_slice(&checksum.to_le_bytes());
+        encode_chunks(&[(chunk_type::PALETTE, flags, &payload)])
+    }
+
     fn payload_offset(bytes: &[u8], index: usize) -> u32 {
         let entry = CHUNK_FILE_HEADER_LEN + index * CHUNK_TABLE_ENTRY_LEN;
         u32::from_le_bytes(bytes[entry + 4..entry + 8].try_into().unwrap())
@@ -351,6 +369,21 @@ mod tests {
                     payload_offset: offset,
                 },
                 failure: PayloadValidationFailure::Meta(expected),
+            }))
+        );
+    }
+
+    fn assert_critical_palette_failure(bytes: &[u8], expected: PaletteDecodeError) {
+        let offset = payload_offset(bytes, 0);
+        assert_eq!(
+            Reader::open(bytes),
+            Err(ReadError::CriticalPayload(PayloadValidationError {
+                location: PayloadLocation::Chunk {
+                    index: 0,
+                    chunk_type: ChunkType::PALETTE,
+                    payload_offset: offset,
+                },
+                failure: PayloadValidationFailure::Palette(expected),
             }))
         );
     }
@@ -599,6 +632,78 @@ mod tests {
     }
 
     #[test]
+    fn valid_critical_palette_passes_bounded_preflight_and_typed_access() {
+        let bytes = palette_file(ChunkFlags::CRITICAL.bits());
+        let limits = PayloadLimits::EMBEDDED
+            .with_max_palette_colors(3)
+            .with_max_decoded_bytes(0);
+        let reader =
+            Reader::open_with(&bytes, &ReadOptions::new().with_payload_limits(limits)).unwrap();
+        assert_eq!(reader.validate_known_payloads(&limits), Ok(()));
+
+        let palette = reader
+            .chunks()
+            .next()
+            .unwrap()
+            .palette(&limits)
+            .unwrap()
+            .unwrap();
+        assert_eq!(palette.len(), 3);
+        assert_eq!(palette.colors().get(0), palette.colors().get(2));
+    }
+
+    #[test]
+    fn malformed_palette_is_strict_only_when_critical_or_explicitly_scanned() {
+        let mut critical = palette_file(ChunkFlags::CRITICAL.bits());
+        set_payload_byte(&mut critical, 1, ColorFormat::BGRA8888.to_u8());
+        assert_critical_palette_failure(
+            &critical,
+            PaletteDecodeError::UnsupportedColorFormat(ColorFormat::BGRA8888.to_u8()),
+        );
+
+        let mut limited = palette_file(ChunkFlags::CRITICAL.bits());
+        set_payload_u32(&mut limited, 4, 4);
+        assert_critical_palette_failure(
+            &limited,
+            PaletteDecodeError::PayloadLengthMismatch {
+                expected: 28,
+                actual: 24,
+            },
+        );
+        assert!(matches!(
+            Reader::open_with(
+                &palette_file(ChunkFlags::CRITICAL.bits()),
+                &ReadOptions::new()
+                    .with_payload_limits(PayloadLimits::EMBEDDED.with_max_palette_colors(2),),
+            ),
+            Err(ReadError::CriticalPayload(PayloadValidationError {
+                failure: PayloadValidationFailure::Palette(PaletteDecodeError::TooManyColors {
+                    count: 3,
+                    limit: 2
+                },),
+                ..
+            }))
+        ));
+
+        let mut noncritical = palette_file(0);
+        set_payload_byte(&mut noncritical, 0, 2);
+        let reader = Reader::open(&noncritical).unwrap();
+        assert_eq!(
+            reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
+            Err(PayloadValidationError {
+                location: PayloadLocation::Chunk {
+                    index: 0,
+                    chunk_type: ChunkType::PALETTE,
+                    payload_offset: payload_offset(&noncritical, 0),
+                },
+                failure: PayloadValidationFailure::Palette(PaletteDecodeError::UnsupportedVersion(
+                    2
+                ),),
+            })
+        );
+    }
+
+    #[test]
     fn current_flat_is_already_validated_but_future_flat_is_unsupported() {
         let pixel = [0];
         let current = encode_flat(&FlatImageInput {
@@ -788,29 +893,27 @@ mod tests {
 
     #[test]
     fn unsupported_standard_types_are_distinct_from_custom_types() {
-        for raw_type in [chunk_type::FRAMES, chunk_type::PALETTE] {
-            let critical = encode_chunks(&[(raw_type, ChunkFlags::CRITICAL.bits(), b"opaque")]);
-            let chunk_type = ChunkType::new(raw_type).unwrap();
-            let expected = PayloadValidationError {
-                location: PayloadLocation::Chunk {
-                    index: 0,
-                    chunk_type,
-                    payload_offset: payload_offset(&critical, 0),
-                },
-                failure: PayloadValidationFailure::UnsupportedStandardPayload,
-            };
-            assert_eq!(
-                Reader::open(&critical),
-                Err(ReadError::CriticalPayload(expected))
-            );
+        let critical =
+            encode_chunks(&[(chunk_type::FRAMES, ChunkFlags::CRITICAL.bits(), b"opaque")]);
+        let expected = PayloadValidationError {
+            location: PayloadLocation::Chunk {
+                index: 0,
+                chunk_type: ChunkType::FRAMES,
+                payload_offset: payload_offset(&critical, 0),
+            },
+            failure: PayloadValidationFailure::UnsupportedStandardPayload,
+        };
+        assert_eq!(
+            Reader::open(&critical),
+            Err(ReadError::CriticalPayload(expected))
+        );
 
-            let noncritical = encode_chunks(&[(raw_type, 0, b"opaque")]);
-            let reader = Reader::open(&noncritical).unwrap();
-            assert_eq!(
-                reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
-                Err(expected)
-            );
-        }
+        let noncritical = encode_chunks(&[(chunk_type::FRAMES, 0, b"opaque")]);
+        let reader = Reader::open(&noncritical).unwrap();
+        assert_eq!(
+            reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
+            Err(expected)
+        );
 
         let custom = encode_chunks(&[(0xbeef, 0, b"opaque")]);
         assert_eq!(
@@ -866,6 +969,12 @@ mod tests {
             valid_meta[7] = flags;
             refresh_header_crc(&mut valid_meta);
             assert!(Reader::open(&valid_meta).is_ok());
+
+            let mut valid_palette = palette_file(ChunkFlags::CRITICAL.bits());
+            valid_palette[5] = minor;
+            valid_palette[7] = flags;
+            refresh_header_crc(&mut valid_palette);
+            assert!(Reader::open(&valid_palette).is_ok());
 
             let mut malformed_meta = meta_file(ChunkFlags::CRITICAL.bits());
             set_payload_byte(&mut malformed_meta, 1, 1);

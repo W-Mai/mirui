@@ -4,5 +4,6 @@ mod color_table;
 pub(crate) mod envelope;
 pub mod image;
 pub mod meta;
+pub mod palette;
 
 pub use color_table::{ColorTableIter, ColorTableView};

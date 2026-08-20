@@ -3,8 +3,8 @@ use core::iter::FusedIterator;
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFileHeader};
 use crate::wire::{read_u16_le, read_u32_le, slice};
 use crate::{
-    ChunkFlags, ChunkType, ImagePayloadError, ImageView, MetaDecodeError, MetaView, PayloadLimits,
-    ReadError,
+    ChunkFlags, ChunkType, ImagePayloadError, ImageView, MetaDecodeError, MetaView,
+    PaletteDecodeError, PaletteView, PayloadLimits, ReadError,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -195,6 +195,20 @@ impl<'a> ChunkRef<'a> {
             return Ok(None);
         }
         MetaView::open_payload(self.payload, limits).map(Some)
+    }
+
+    /// Returns a borrowed PALETTE view when this record has the PALETTE type.
+    ///
+    /// Other chunk types return `Ok(None)` without interpreting their payload
+    /// bytes.
+    pub fn palette(
+        &self,
+        limits: &PayloadLimits,
+    ) -> Result<Option<PaletteView<'a>>, PaletteDecodeError> {
+        if self.chunk_type != ChunkType::PALETTE {
+            return Ok(None);
+        }
+        PaletteView::open_payload(self.payload, limits).map(Some)
     }
 }
 
