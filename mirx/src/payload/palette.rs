@@ -1,8 +1,12 @@
 use super::{
     ColorTableView,
-    envelope::{Envelope, EnvelopeError},
+    envelope::{Envelope, EnvelopeError, ExactEnvelope},
 };
 use crate::{ColorFormat, reader::PayloadLimits, wire::read_u32_le};
+
+mod owned;
+
+pub use owned::{Palette, PaletteEncodeError, PaletteMutationError};
 
 const HEADER_LEN: usize = 8;
 const COLOR_LEN: usize = 4;
@@ -18,6 +22,8 @@ pub enum PaletteDecodeError {
     TooManyColors { count: u32, limit: u32 },
     PayloadLengthMismatch { expected: usize, actual: usize },
     CrcMismatch { expected: u32, actual: u32 },
+    DecodedBytesLimitExceeded { needed: usize, limit: usize },
+    AllocationFailed,
     SizeOverflow,
 }
 
@@ -33,46 +39,7 @@ impl<'a> PaletteView<'a> {
         payload: &'a [u8],
         limits: &PayloadLimits,
     ) -> Result<Self, PaletteDecodeError> {
-        let envelope = Envelope::open_v1(payload, HEADER_LEN).map_err(map_envelope_error)?;
-        let covered = envelope.covered();
-
-        let color_format = covered[1];
-        if color_format != ColorFormat::RGBA8888.to_u8() {
-            return Err(PaletteDecodeError::UnsupportedColorFormat(color_format));
-        }
-
-        let flags = u16::from_le_bytes([covered[2], covered[3]]);
-        if flags != 0 {
-            return Err(PaletteDecodeError::UnknownFlags(flags));
-        }
-
-        let color_count = read_u32_le(covered, 4).ok_or(PaletteDecodeError::SizeOverflow)?;
-        let limit = limits.max_palette_colors();
-        if color_count > limit {
-            return Err(PaletteDecodeError::TooManyColors {
-                count: color_count,
-                limit,
-            });
-        }
-
-        let colors_len = usize::try_from(color_count)
-            .ok()
-            .and_then(|count| count.checked_mul(COLOR_LEN))
-            .ok_or(PaletteDecodeError::SizeOverflow)?;
-        let covered_len = HEADER_LEN
-            .checked_add(colors_len)
-            .ok_or(PaletteDecodeError::SizeOverflow)?;
-        let exact = envelope
-            .validate_exact_end(covered_len)
-            .map_err(map_envelope_error)?;
-        let colors = exact
-            .covered()
-            .get(HEADER_LEN..covered_len)
-            .and_then(ColorTableView::from_rgba_bytes)
-            .ok_or(PaletteDecodeError::SizeOverflow)?;
-        exact.validate_crc().map_err(map_envelope_error)?;
-
-        Ok(Self { colors })
+        validate_payload_layout(payload, limits)?.validate_crc()
     }
 
     /// Returns the number of colors in wire order.
@@ -89,6 +56,69 @@ impl<'a> PaletteView<'a> {
     pub const fn colors(&self) -> ColorTableView<'a> {
         self.colors
     }
+}
+
+pub(crate) struct ValidatedPaletteLayout<'a> {
+    exact: ExactEnvelope<'a>,
+    colors: ColorTableView<'a>,
+}
+
+impl<'a> ValidatedPaletteLayout<'a> {
+    pub(crate) const fn color_count(&self) -> usize {
+        self.colors.len()
+    }
+
+    pub(crate) fn validate_crc(self) -> Result<PaletteView<'a>, PaletteDecodeError> {
+        self.exact.validate_crc().map_err(map_envelope_error)?;
+        Ok(PaletteView {
+            colors: self.colors,
+        })
+    }
+}
+
+pub(crate) fn validate_payload_layout<'a>(
+    payload: &'a [u8],
+    limits: &PayloadLimits,
+) -> Result<ValidatedPaletteLayout<'a>, PaletteDecodeError> {
+    let envelope = Envelope::open_v1(payload, HEADER_LEN).map_err(map_envelope_error)?;
+    let covered = envelope.covered();
+
+    let color_format = covered[1];
+    if color_format != ColorFormat::RGBA8888.to_u8() {
+        return Err(PaletteDecodeError::UnsupportedColorFormat(color_format));
+    }
+
+    let flags = u16::from_le_bytes([covered[2], covered[3]]);
+    if flags != 0 {
+        return Err(PaletteDecodeError::UnknownFlags(flags));
+    }
+
+    let color_count = read_u32_le(covered, 4).ok_or(PaletteDecodeError::SizeOverflow)?;
+    let limit = limits.max_palette_colors();
+    if color_count > limit {
+        return Err(PaletteDecodeError::TooManyColors {
+            count: color_count,
+            limit,
+        });
+    }
+
+    let colors_len = usize::try_from(color_count)
+        .ok()
+        .and_then(|count| count.checked_mul(COLOR_LEN))
+        .ok_or(PaletteDecodeError::SizeOverflow)?;
+    let covered_len = HEADER_LEN
+        .checked_add(colors_len)
+        .ok_or(PaletteDecodeError::SizeOverflow)?;
+    let exact = envelope
+        .validate_exact_end(covered_len)
+        .map_err(map_envelope_error)?;
+    let colors = exact
+        .covered()
+        .get(HEADER_LEN..covered_len)
+        .and_then(ColorTableView::from_rgba_bytes)
+        .ok_or(PaletteDecodeError::SizeOverflow)?;
+
+    Ok(ValidatedPaletteLayout { exact, colors })
 }
 
 fn map_envelope_error(error: EnvelopeError) -> PaletteDecodeError {

@@ -52,7 +52,9 @@ pub use payload::meta::{
     Meta, MetaDecodeError, MetaEncodeError, MetaEntry, MetaEntryIter, MetaEntryRef,
     MetaMutationError, MetaValue, MetaValueRef, MetaView,
 };
-pub use payload::palette::{PaletteDecodeError, PaletteView};
+pub use payload::palette::{
+    Palette, PaletteDecodeError, PaletteEncodeError, PaletteMutationError, PaletteView,
+};
 pub use payload::{ColorTableIter, ColorTableView};
 pub use reader::{
     ChunkRef, ComplianceFinding, ContainerHeader, EntryIter, FindingIter, PayloadLimits,
