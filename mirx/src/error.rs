@@ -26,6 +26,7 @@ use crate::font::{FontEncodeError, FontReadError};
 use crate::model::{ChunkType, InvalidChunkType};
 use crate::payload::image::ImagePayloadError;
 use crate::payload::meta::{MetaDecodeError, MetaEncodeError};
+use crate::payload::palette::{PaletteDecodeError, PaletteEncodeError};
 use crate::reader::PayloadValidationError;
 use crate::scene::{VectorEncodeError, VectorReadError};
 
@@ -166,6 +167,7 @@ pub enum EditError {
     InvalidFont(FontEncodeError),
     InvalidVector(VectorEncodeError),
     InvalidMeta(MetaEncodeError),
+    InvalidPalette(PaletteEncodeError),
     NonContiguousPayload {
         chunk_type: ChunkType,
     },
@@ -240,6 +242,30 @@ pub enum MetaAccessError {
 
 impl From<MetaDecodeError> for MetaAccessError {
     fn from(value: MetaDecodeError) -> Self {
+        Self::InvalidPayload(value)
+    }
+}
+
+/// Failures while resolving and validating a PALETTE node from a document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum PaletteAccessError {
+    /// The container uses preserved semantics newer than this typed accessor.
+    FutureSemanticsUnsupported,
+    /// Stable chunk identities are available only in CHUNK layout.
+    ChunkLayoutRequired,
+    /// The identity does not name a live chunk in this document session.
+    InvalidChunkId,
+    /// The selected chunk is not a PALETTE node.
+    UnexpectedChunkType { actual: ChunkType },
+    /// The selected raw node has no contiguous PALETTE payload representation.
+    NonContiguousPayload,
+    /// The selected PALETTE payload violates its typed contract.
+    InvalidPayload(PaletteDecodeError),
+}
+
+impl From<PaletteDecodeError> for PaletteAccessError {
+    fn from(value: PaletteDecodeError) -> Self {
         Self::InvalidPayload(value)
     }
 }

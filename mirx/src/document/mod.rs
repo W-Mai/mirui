@@ -14,6 +14,7 @@ mod hint_tests;
 mod image;
 mod meta;
 mod options;
+mod palette;
 mod payload;
 #[cfg(test)]
 mod policy_tests;

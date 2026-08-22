@@ -59,7 +59,6 @@ impl Palette {
         decode_payload_with_allocator(payload, limits, &mut CheckedDecodeAllocator)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn decode_view_with_limits(
         view: PaletteView<'_>,
         limits: &PayloadLimits,
@@ -252,7 +251,6 @@ impl<'a> PalettePayloadPlan<'a> {
         self.payload_len
     }
 
-    #[allow(dead_code)]
     pub(crate) fn validate_limits(self, limits: &PayloadLimits) -> Result<(), PaletteDecodeError> {
         if self.color_count > limits.max_palette_colors() {
             return Err(PaletteDecodeError::TooManyColors {
@@ -263,7 +261,6 @@ impl<'a> PalettePayloadPlan<'a> {
         validate_decoded_budget(self.palette.colors.len(), limits)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn equals_payload(self, candidate: &[u8]) -> bool {
         if candidate.len() != self.payload_len {
             return false;

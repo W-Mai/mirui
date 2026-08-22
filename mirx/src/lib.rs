@@ -31,7 +31,7 @@ pub use document::{
 };
 pub use error::{
     DocumentError, EditError, EncodeError, FontAccessError, ImageDecodeError, MetaAccessError,
-    ParseError, ReadError, TryEditError, VectorAccessError,
+    PaletteAccessError, ParseError, ReadError, TryEditError, VectorAccessError,
 };
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
 pub use font::{
