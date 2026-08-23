@@ -1,5 +1,12 @@
 use core::iter::FusedIterator;
 
+mod owned;
+
+pub use owned::{
+    AnimationFrames, AssetFrameIter, AtlasFrames, FramesAsset, FramesEncodeError,
+    FramesMutationError,
+};
+
 use super::envelope::{Envelope, EnvelopeError, ExactEnvelope};
 use super::image::{ImageMeta, ImageView};
 use crate::{ColorFormat, reader::PayloadLimits, wire::read_u32_le};
@@ -546,29 +553,58 @@ fn validate_frame_table(
         let flags = field(entry, 28)?;
         let index = u16::try_from(index).expect("validated FRAMES count");
 
-        if width == 0
-            || height == 0
-            || exceeds(source_x.checked_add(width), atlas_width)
-            || exceeds(source_y.checked_add(height), atlas_height)
-        {
-            return Err(FramesDecodeError::FrameSourceOutOfBounds { index });
-        }
-        match mode {
-            FramesMode::Atlas => {
-                if target_x != 0 || target_y != 0 || duration_ticks != 0 {
-                    return Err(FramesDecodeError::InvalidAtlasFrameFields { index });
-                }
-            }
-            FramesMode::Animation => {
-                if exceeds(target_x.checked_add(width), canvas_width)
-                    || exceeds(target_y.checked_add(height), canvas_height)
-                {
-                    return Err(FramesDecodeError::FrameTargetOutOfBounds { index });
-                }
-            }
-        }
+        validate_frame(
+            Frame {
+                source_x,
+                source_y,
+                width,
+                height,
+                target_x,
+                target_y,
+                duration_ticks,
+            },
+            index,
+            mode,
+            atlas_width,
+            atlas_height,
+            canvas_width,
+            canvas_height,
+        )?;
         if flags != 0 {
             return Err(FramesDecodeError::UnknownFrameFlags { index, flags });
+        }
+    }
+    Ok(())
+}
+
+fn validate_frame(
+    frame: Frame,
+    index: u16,
+    mode: FramesMode,
+    atlas_width: u32,
+    atlas_height: u32,
+    canvas_width: u32,
+    canvas_height: u32,
+) -> Result<(), FramesDecodeError> {
+    if frame.width == 0
+        || frame.height == 0
+        || exceeds(frame.source_x.checked_add(frame.width), atlas_width)
+        || exceeds(frame.source_y.checked_add(frame.height), atlas_height)
+    {
+        return Err(FramesDecodeError::FrameSourceOutOfBounds { index });
+    }
+    match mode {
+        FramesMode::Atlas => {
+            if frame.target_x != 0 || frame.target_y != 0 || frame.duration_ticks != 0 {
+                return Err(FramesDecodeError::InvalidAtlasFrameFields { index });
+            }
+        }
+        FramesMode::Animation => {
+            if exceeds(frame.target_x.checked_add(frame.width), canvas_width)
+                || exceeds(frame.target_y.checked_add(frame.height), canvas_height)
+            {
+                return Err(FramesDecodeError::FrameTargetOutOfBounds { index });
+            }
         }
     }
     Ok(())

@@ -47,7 +47,10 @@ pub use header::{
 };
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
-pub use payload::frames::{Frame, FrameIter, FrameRow, FramesDecodeError, FramesMode, FramesView};
+pub use payload::frames::{
+    AnimationFrames, AssetFrameIter, AtlasFrames, Frame, FrameIter, FrameRow, FramesAsset,
+    FramesDecodeError, FramesEncodeError, FramesMode, FramesMutationError, FramesView,
+};
 pub use payload::image::{ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
 pub use payload::meta::{
     Meta, MetaDecodeError, MetaEncodeError, MetaEntry, MetaEntryIter, MetaEntryRef,
