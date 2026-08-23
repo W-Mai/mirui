@@ -1,4 +1,7 @@
+use core::iter::FusedIterator;
+
 use super::envelope::{Envelope, EnvelopeError, ExactEnvelope};
+use super::image::{ImageMeta, ImageView};
 use crate::{ColorFormat, reader::PayloadLimits, wire::read_u32_le};
 
 const HEADER_LEN: usize = 64;
@@ -56,6 +59,102 @@ pub enum FramesDecodeError {
     PayloadLengthMismatch { expected: usize, actual: usize },
     CrcMismatch { expected: u32, actual: u32 },
     SizeOverflow,
+}
+
+/// One decoded FRAMES table record.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct Frame {
+    pub source_x: u32,
+    pub source_y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub target_x: u32,
+    pub target_y: u32,
+    pub duration_ticks: u32,
+}
+
+/// Iterator that decodes fixed-size frame records without allocating.
+#[derive(Clone, Debug)]
+pub struct FrameIter<'a> {
+    remaining: &'a [u8],
+}
+
+impl Iterator for FrameIter<'_> {
+    type Item = Frame;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let (entry, remaining) = self.remaining.split_at_checked(FRAME_ENTRY_LEN)?;
+        self.remaining = remaining;
+        decode_frame(entry)
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        let offset = match n.checked_mul(FRAME_ENTRY_LEN) {
+            Some(offset) => offset,
+            None => {
+                self.remaining = &[];
+                return None;
+            }
+        };
+        if offset >= self.remaining.len() {
+            self.remaining = &[];
+            return None;
+        }
+        self.remaining = &self.remaining[offset..];
+        self.next()
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.remaining.len() / FRAME_ENTRY_LEN;
+        (len, Some(len))
+    }
+}
+
+impl DoubleEndedIterator for FrameIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let split = self.remaining.len().checked_sub(FRAME_ENTRY_LEN)?;
+        let (remaining, entry) = self.remaining.split_at(split);
+        self.remaining = remaining;
+        decode_frame(entry)
+    }
+
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        if n >= self.len() {
+            self.remaining = &[];
+            return None;
+        }
+        let retained = self.remaining.len() - n * FRAME_ENTRY_LEN;
+        self.remaining = &self.remaining[..retained];
+        self.next_back()
+    }
+}
+
+impl ExactSizeIterator for FrameIter<'_> {}
+impl FusedIterator for FrameIter<'_> {}
+
+/// Borrowed byte windows for one row of one frame rectangle.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FrameRow<'a> {
+    main: &'a [u8],
+    main_bit_offset: u8,
+    alpha: Option<&'a [u8]>,
+}
+
+impl<'a> FrameRow<'a> {
+    /// Returns the smallest main-plane byte window containing the row.
+    pub const fn main(&self) -> &'a [u8] {
+        self.main
+    }
+
+    /// Returns the leading bit offset within the first main-plane byte.
+    pub const fn main_bit_offset(&self) -> u8 {
+        self.main_bit_offset
+    }
+
+    /// Returns the matching tightly packed A8 row for RGB565A8.
+    pub const fn alpha(&self) -> Option<&'a [u8]> {
+        self.alpha
+    }
 }
 
 /// Zero-allocation view over one validated FRAMES payload.
@@ -132,6 +231,88 @@ impl<'a> FramesView<'a> {
 
     pub const fn play_count(&self) -> u32 {
         self.play_count
+    }
+
+    /// Returns the shared atlas as a borrowed image-plane view.
+    pub const fn atlas(&self) -> ImageView<'a> {
+        ImageView::from_validated_planes(
+            ImageMeta {
+                width: self.atlas_width,
+                height: self.atlas_height,
+                stride: self.atlas_stride,
+                format: self.format,
+            },
+            self.main,
+            if self.extra.is_empty() {
+                None
+            } else {
+                Some(self.extra)
+            },
+        )
+    }
+
+    /// Iterates over decoded frame records in table order.
+    pub const fn frames(&self) -> FrameIter<'a> {
+        FrameIter {
+            remaining: self.frame_table,
+        }
+    }
+
+    /// Decodes one frame record by index.
+    pub fn frame(&self, index: usize) -> Option<Frame> {
+        let start = index.checked_mul(FRAME_ENTRY_LEN)?;
+        let end = start.checked_add(FRAME_ENTRY_LEN)?;
+        decode_frame(self.frame_table.get(start..end)?)
+    }
+
+    /// Returns the borrowed pixel windows for one row of one frame.
+    pub fn frame_row(&self, frame_index: usize, row: u32) -> Option<FrameRow<'a>> {
+        let frame = self.frame(frame_index)?;
+        if row >= frame.height {
+            return None;
+        }
+
+        let atlas_y = frame.source_y.checked_add(row)?;
+        let row_start = u64::from(atlas_y) * u64::from(self.atlas_stride);
+        let bits_per_pixel = u64::from(self.format.bits_per_pixel());
+        let start_bit = u64::from(frame.source_x) * bits_per_pixel;
+        let start_byte = start_bit / 8;
+        let main_bit_offset = u8::try_from(start_bit % 8).ok()?;
+        let frame_bits = u64::from(frame.width) * bits_per_pixel;
+        let window_bits = u64::from(main_bit_offset) + frame_bits;
+        let byte_len = window_bits.checked_add(7)? / 8;
+        let main_start = row_start.checked_add(start_byte)?;
+        let main_end = main_start.checked_add(byte_len)?;
+        let main = self
+            .main
+            .get(usize::try_from(main_start).ok()?..usize::try_from(main_end).ok()?)?;
+
+        let alpha = if self.format == ColorFormat::RGB565A8 {
+            let alpha_row = u64::from(atlas_y) * u64::from(self.atlas_width);
+            let alpha_start = alpha_row + u64::from(frame.source_x);
+            let alpha_end = alpha_start + u64::from(frame.width);
+            Some(
+                self.extra
+                    .get(usize::try_from(alpha_start).ok()?..usize::try_from(alpha_end).ok()?)?,
+            )
+        } else {
+            None
+        };
+
+        Some(FrameRow {
+            main,
+            main_bit_offset,
+            alpha,
+        })
+    }
+}
+
+impl<'a> IntoIterator for FramesView<'a> {
+    type Item = Frame;
+    type IntoIter = FrameIter<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.frames()
     }
 }
 
@@ -404,6 +585,18 @@ fn field(bytes: &[u8], offset: usize) -> Result<u32, FramesDecodeError> {
     read_u32_le(bytes, offset).ok_or(FramesDecodeError::SizeOverflow)
 }
 
+fn decode_frame(bytes: &[u8]) -> Option<Frame> {
+    Some(Frame {
+        source_x: read_u32_le(bytes, 0)?,
+        source_y: read_u32_le(bytes, 4)?,
+        width: read_u32_le(bytes, 8)?,
+        height: read_u32_le(bytes, 12)?,
+        target_x: read_u32_le(bytes, 16)?,
+        target_y: read_u32_le(bytes, 20)?,
+        duration_ticks: read_u32_le(bytes, 24)?,
+    })
+}
+
 fn map_envelope_error(error: EnvelopeError) -> FramesDecodeError {
     match error {
         EnvelopeError::Truncated { needed, available } => {
@@ -438,24 +631,49 @@ mod tests {
     }
 
     fn payload(mode: FramesMode, format: ColorFormat) -> Vec<u8> {
-        let stride = format.minimum_stride(ATLAS_WIDTH).unwrap();
-        let main_size = stride * ATLAS_HEIGHT;
+        payload_with_frames(
+            mode,
+            format,
+            ATLAS_WIDTH,
+            ATLAS_HEIGHT,
+            format.minimum_stride(ATLAS_WIDTH).unwrap(),
+            &[Frame {
+                source_x: 0,
+                source_y: 0,
+                width: ATLAS_WIDTH,
+                height: ATLAS_HEIGHT,
+                target_x: 0,
+                target_y: 0,
+                duration_ticks: 0,
+            }],
+        )
+    }
+
+    fn payload_with_frames(
+        mode: FramesMode,
+        format: ColorFormat,
+        atlas_width: u32,
+        atlas_height: u32,
+        stride: u32,
+        frames: &[Frame],
+    ) -> Vec<u8> {
+        let main_size = stride * atlas_height;
         let extra_size = format
-            .extra_size(ATLAS_WIDTH, ATLAS_HEIGHT, stride)
+            .extra_size(atlas_width, atlas_height, stride)
             .unwrap();
-        let data_offset = HEADER_LEN as u32 + FRAME_ENTRY_LEN as u32;
+        let data_offset = HEADER_LEN as u32 + frames.len() as u32 * FRAME_ENTRY_LEN as u32;
         let stored_size = main_size + extra_size;
         let mut bytes = vec![0; data_offset as usize + stored_size as usize];
         bytes[0] = 1;
         bytes[1] = mode as u8;
         bytes[2] = format.to_u8();
-        write_field(&mut bytes, 8, ATLAS_WIDTH);
-        write_field(&mut bytes, 12, ATLAS_HEIGHT);
+        write_field(&mut bytes, 8, atlas_width);
+        write_field(&mut bytes, 12, atlas_height);
         write_field(&mut bytes, 16, stride);
-        write_field(&mut bytes, 28, 1);
+        write_field(&mut bytes, 28, frames.len() as u32);
         if mode == FramesMode::Animation {
-            write_field(&mut bytes, 20, 4);
-            write_field(&mut bytes, 24, 3);
+            write_field(&mut bytes, 20, atlas_width + 1);
+            write_field(&mut bytes, 24, atlas_height + 1);
             write_field(&mut bytes, 32, 60);
             write_field(&mut bytes, 36, 1);
         }
@@ -464,8 +682,16 @@ mod tests {
         write_field(&mut bytes, 52, stored_size);
         write_field(&mut bytes, 56, main_size);
         write_field(&mut bytes, 60, extra_size);
-        write_field(&mut bytes, HEADER_LEN + 8, ATLAS_WIDTH);
-        write_field(&mut bytes, HEADER_LEN + 12, ATLAS_HEIGHT);
+        for (index, frame) in frames.iter().enumerate() {
+            let start = HEADER_LEN + index * FRAME_ENTRY_LEN;
+            write_field(&mut bytes, start, frame.source_x);
+            write_field(&mut bytes, start + 4, frame.source_y);
+            write_field(&mut bytes, start + 8, frame.width);
+            write_field(&mut bytes, start + 12, frame.height);
+            write_field(&mut bytes, start + 16, frame.target_x);
+            write_field(&mut bytes, start + 20, frame.target_y);
+            write_field(&mut bytes, start + 24, frame.duration_ticks);
+        }
         let checksum = crc32(&bytes);
         bytes.extend_from_slice(&checksum.to_le_bytes());
         bytes
@@ -529,6 +755,167 @@ mod tests {
         assert_eq!(view.timescale_hz(), 60);
         assert_eq!(view.default_duration_ticks(), 1);
         assert_eq!(view.play_count(), 7);
+    }
+
+    #[test]
+    fn frame_access_and_iteration_decode_wire_records_lazily() {
+        let records = [
+            Frame {
+                source_x: 0,
+                source_y: 0,
+                width: 1,
+                height: 1,
+                target_x: 2,
+                target_y: 1,
+                duration_ticks: 0,
+            },
+            Frame {
+                source_x: 1,
+                source_y: 0,
+                width: 2,
+                height: 1,
+                target_x: 1,
+                target_y: 2,
+                duration_ticks: 3,
+            },
+            Frame {
+                source_x: 0,
+                source_y: 1,
+                width: 5,
+                height: 2,
+                target_x: 0,
+                target_y: 0,
+                duration_ticks: 4,
+            },
+        ];
+        let bytes = payload_with_frames(FramesMode::Animation, ColorFormat::A8, 5, 3, 5, &records);
+        let view = FramesView::open_payload(&bytes, &PayloadLimits::HOST).unwrap();
+        assert_eq!(view.frame(0), Some(records[0]));
+        assert_eq!(view.frame(2), Some(records[2]));
+        assert_eq!(view.frame(3), None);
+        assert_eq!(view.frame(usize::MAX), None);
+
+        let mut iter = view.frames();
+        let mut clone = iter.clone();
+        assert_eq!(iter.len(), 3);
+        assert_eq!(iter.next(), Some(records[0]));
+        assert_eq!(iter.next_back(), Some(records[2]));
+        assert_eq!(iter.next(), Some(records[1]));
+        assert_eq!(iter.next(), None);
+        assert_eq!(iter.next_back(), None);
+        assert_eq!(clone.nth(1), Some(records[1]));
+        assert_eq!(clone.nth_back(0), Some(records[2]));
+        assert_eq!(view.into_iter().collect::<Vec<_>>(), records);
+
+        fn assert_fused<I: FusedIterator>(_iter: &I) {}
+        assert_fused(&iter);
+    }
+
+    #[test]
+    fn atlas_view_reuses_image_plane_and_palette_access() {
+        let bytes = payload(FramesMode::Atlas, ColorFormat::I4);
+        let view = FramesView::open_payload(&bytes, &PayloadLimits::HOST).unwrap();
+        let atlas = view.atlas();
+        assert_eq!(atlas.width(), ATLAS_WIDTH);
+        assert_eq!(atlas.height(), ATLAS_HEIGHT);
+        assert_eq!(atlas.stride(), 2);
+        assert_eq!(atlas.format(), ColorFormat::I4);
+        assert_eq!(atlas.main().as_ptr(), view.main.as_ptr());
+        assert_eq!(atlas.extra().unwrap().as_ptr(), view.extra.as_ptr());
+        assert_eq!(
+            atlas.inline_palette().unwrap().as_bytes().as_ptr(),
+            view.extra.as_ptr()
+        );
+
+        let rgb = payload(FramesMode::Atlas, ColorFormat::RGB565A8);
+        let atlas = FramesView::open_payload(&rgb, &PayloadLimits::HOST)
+            .unwrap()
+            .atlas();
+        assert!(atlas.extra().is_some());
+        assert_eq!(atlas.inline_palette(), None);
+    }
+
+    #[test]
+    fn frame_rows_borrow_minimal_windows_for_every_pixel_depth() {
+        let formats = [
+            ColorFormat::I1,
+            ColorFormat::I2,
+            ColorFormat::I4,
+            ColorFormat::I8,
+            ColorFormat::A1,
+            ColorFormat::A2,
+            ColorFormat::A4,
+            ColorFormat::A8,
+            ColorFormat::L8,
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+            ColorFormat::RGB565A8,
+            ColorFormat::RGB888,
+            ColorFormat::XRGB8888,
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+        ];
+        let frame = Frame {
+            source_x: 1,
+            source_y: 1,
+            width: 3,
+            height: 2,
+            target_x: 0,
+            target_y: 0,
+            duration_ticks: 0,
+        };
+
+        for format in formats {
+            let stride = format.minimum_stride(5).unwrap() + 2;
+            let mut bytes = payload_with_frames(FramesMode::Atlas, format, 5, 3, stride, &[frame]);
+            let main_start = HEADER_LEN + FRAME_ENTRY_LEN;
+            let main_len = (stride * 3) as usize;
+            for (index, byte) in bytes[main_start..main_start + main_len]
+                .iter_mut()
+                .enumerate()
+            {
+                *byte = index as u8;
+            }
+            let extra_start = main_start + main_len;
+            let extra_end = bytes.len() - 4;
+            for (index, byte) in bytes[extra_start..extra_end].iter_mut().enumerate() {
+                *byte = (0x80 + index) as u8;
+            }
+            refresh_crc(&mut bytes);
+
+            let view = FramesView::open_payload(&bytes, &PayloadLimits::HOST).unwrap();
+            let row = view.frame_row(0, 0).unwrap();
+            let bits_per_pixel = u32::from(format.bits_per_pixel());
+            let start_bit = bits_per_pixel;
+            let start_byte = start_bit / 8;
+            let bit_offset = (start_bit % 8) as u8;
+            let byte_len = (u32::from(bit_offset) + 3 * bits_per_pixel).div_ceil(8);
+            let expected_start = (stride + start_byte) as usize;
+            assert_eq!(row.main_bit_offset(), bit_offset, "{format:?}");
+            assert_eq!(
+                row.main(),
+                &bytes
+                    [main_start + expected_start..main_start + expected_start + byte_len as usize],
+                "{format:?}"
+            );
+            assert_eq!(
+                row.main().as_ptr(),
+                bytes[main_start + expected_start..].as_ptr(),
+                "{format:?}"
+            );
+
+            if format == ColorFormat::RGB565A8 {
+                assert_eq!(row.alpha(), Some(&bytes[extra_start + 6..extra_start + 9]));
+                assert_eq!(
+                    view.frame_row(0, 1).unwrap().alpha(),
+                    Some(&bytes[extra_start + 11..extra_start + 14])
+                );
+            } else {
+                assert_eq!(row.alpha(), None, "{format:?}");
+            }
+            assert_eq!(view.frame_row(0, 2), None);
+            assert_eq!(view.frame_row(1, 0), None);
+        }
     }
 
     #[test]
