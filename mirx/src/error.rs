@@ -24,6 +24,7 @@ pub enum ParseError {
 
 use crate::font::{FontEncodeError, FontReadError};
 use crate::model::{ChunkType, InvalidChunkType};
+use crate::payload::frames::{FramesDecodeError, FramesEncodeError};
 use crate::payload::image::ImagePayloadError;
 use crate::payload::meta::{MetaDecodeError, MetaEncodeError};
 use crate::payload::palette::{PaletteDecodeError, PaletteEncodeError};
@@ -168,6 +169,7 @@ pub enum EditError {
     InvalidVector(VectorEncodeError),
     InvalidMeta(MetaEncodeError),
     InvalidPalette(PaletteEncodeError),
+    InvalidFrames(FramesEncodeError),
     NonContiguousPayload {
         chunk_type: ChunkType,
     },
@@ -266,6 +268,30 @@ pub enum PaletteAccessError {
 
 impl From<PaletteDecodeError> for PaletteAccessError {
     fn from(value: PaletteDecodeError) -> Self {
+        Self::InvalidPayload(value)
+    }
+}
+
+/// Failures while resolving and validating a FRAMES node from a document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum FramesAccessError {
+    /// The container uses preserved semantics newer than this typed accessor.
+    FutureSemanticsUnsupported,
+    /// Stable chunk identities are available only in CHUNK layout.
+    ChunkLayoutRequired,
+    /// The identity does not name a live chunk in this document session.
+    InvalidChunkId,
+    /// The selected chunk is not a FRAMES node.
+    UnexpectedChunkType { actual: ChunkType },
+    /// The selected raw node has no contiguous FRAMES payload representation.
+    NonContiguousPayload,
+    /// The selected FRAMES payload violates its typed contract.
+    InvalidPayload(FramesDecodeError),
+}
+
+impl From<FramesDecodeError> for FramesAccessError {
+    fn from(value: FramesDecodeError) -> Self {
         Self::InvalidPayload(value)
     }
 }

@@ -3,8 +3,9 @@ use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_prima
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
 use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, Font, FontEncodeError, MetaEncodeError, MetaView,
-    PaletteEncodeError, PaletteView, PayloadLimits, Scene, VectorEncodeError,
+    ChunkFlags, ChunkId, ChunkType, EditError, Font, FontEncodeError, FramesEncodeError,
+    FramesView, MetaEncodeError, MetaView, PaletteEncodeError, PaletteView, PayloadLimits, Scene,
+    VectorEncodeError,
 };
 
 #[cfg(test)]
@@ -178,6 +179,26 @@ fn evaluate_resolved_descriptor_with_flags(
             None => {
                 return Err(EditError::NonContiguousPayload {
                     chunk_type: ChunkType::PALETTE,
+                });
+            }
+        }
+    } else if chunk_type == ChunkType::FRAMES {
+        match payload.bytes() {
+            Some(bytes) => match FramesView::open_payload(bytes, &limits) {
+                Ok(_) => true,
+                Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
+                    false
+                }
+                Err(error) => {
+                    return Err(EditError::InvalidFrames(FramesEncodeError::InvalidAsset(
+                        error,
+                    )));
+                }
+            },
+            None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
+            None => {
+                return Err(EditError::NonContiguousPayload {
+                    chunk_type: ChunkType::FRAMES,
                 });
             }
         }

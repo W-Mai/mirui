@@ -9,6 +9,7 @@ mod descriptor;
 #[cfg(test)]
 mod flat_tests;
 mod font;
+mod frames;
 #[cfg(test)]
 mod hint_tests;
 mod image;

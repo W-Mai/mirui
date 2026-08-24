@@ -30,8 +30,8 @@ pub use document::{
     ReservedBitsPolicy,
 };
 pub use error::{
-    DocumentError, EditError, EncodeError, FontAccessError, ImageDecodeError, MetaAccessError,
-    PaletteAccessError, ParseError, ReadError, TryEditError, VectorAccessError,
+    DocumentError, EditError, EncodeError, FontAccessError, FramesAccessError, ImageDecodeError,
+    MetaAccessError, PaletteAccessError, ParseError, ReadError, TryEditError, VectorAccessError,
 };
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
 pub use font::{
