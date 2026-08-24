@@ -348,6 +348,7 @@ mod tests {
                 .duration_ticks,
             90
         );
+        assert!(document.encode_with(&EncodeOptions::new()).is_ok());
 
         let before = document
             .get(frames_id)

@@ -1,12 +1,13 @@
+use alloc::borrow::Cow;
 use alloc::vec;
 use alloc::vec::Vec;
 
 use super::*;
 use crate::header::{CHUNK_FILE_HEADER_LEN, chunk_type};
 use crate::{
-    ColorFormat, CriticalAssumption, ImageChunkInput, PRIMARY_FORMAT_NONE, PayloadInput,
-    RawChunkInput, RelocationAssumption, ReservedBitsPolicy, crc32, encode_chunk_image,
-    encode_chunks,
+    AnimationFrames, AtlasFrames, ColorFormat, CriticalAssumption, Frame, FramesAsset,
+    ImageChunkInput, PRIMARY_FORMAT_NONE, PayloadInput, RawChunkInput, RelocationAssumption,
+    ReservedBitsPolicy, crc32, encode_chunk_image, encode_chunks,
 };
 
 const CUSTOM: ChunkType = match ChunkType::new(0xbeef) {
@@ -88,6 +89,55 @@ fn image_hints(width: u32, height: u32) -> PrimaryHints {
         height,
         ColorFormat::A8.minimum_stride(width).unwrap(),
     )
+}
+
+fn frame(source_x: u32, duration_ticks: u32) -> Frame {
+    Frame {
+        source_x,
+        source_y: 0,
+        width: 1,
+        height: 1,
+        target_x: source_x,
+        target_y: 0,
+        duration_ticks,
+    }
+}
+
+fn atlas_frames(width: u32, height: u32) -> FramesAsset<'static> {
+    let format = ColorFormat::A8;
+    let stride = format.minimum_stride(width).unwrap();
+    let mut first = frame(0, 0);
+    first.target_x = 0;
+    FramesAsset::Atlas(AtlasFrames::new(
+        format,
+        width,
+        height,
+        stride,
+        vec![first],
+        Cow::Owned(vec![0; (stride * height) as usize]),
+        None,
+    ))
+}
+
+fn animation_frames(canvas_width: u32, canvas_height: u32) -> FramesAsset<'static> {
+    let format = ColorFormat::A8;
+    let atlas_width = 2;
+    let atlas_height = 1;
+    let stride = format.minimum_stride(atlas_width).unwrap();
+    FramesAsset::Animation(AnimationFrames::new(
+        format,
+        atlas_width,
+        atlas_height,
+        stride,
+        canvas_width,
+        canvas_height,
+        1_000,
+        40,
+        0,
+        vec![frame(0, 20), frame(1, 30)],
+        Cow::Owned(vec![1, 2]),
+        None,
+    ))
 }
 
 fn raw<'a>(
@@ -268,6 +318,85 @@ fn open_classifies_derived_default_and_opaque_hints_for_borrowed_and_owned_sourc
         );
         assert_eq!(document.primary_hints(), WIRE_HINTS);
     }
+}
+
+#[test]
+fn frames_primary_hints_follow_atlas_and_animation_display_geometry() {
+    let atlas = atlas_frames(3, 2);
+    let atlas_payload = atlas.encode_payload().unwrap();
+    let mut atlas_source = encode_chunks(&[(ChunkType::FRAMES.raw(), 0, &atlas_payload)]);
+    set_wire_primary(&mut atlas_source, ChunkType::FRAMES.raw(), WIRE_HINTS);
+    let mut atlas_document = Document::open(&atlas_source).unwrap();
+    let atlas_id = atlas_document.primary().unwrap();
+    let atlas_hints = PrimaryHints::new(ColorFormat::A8.to_u8(), 3, 2, 3);
+
+    assert_eq!(chunk_hint_state(&atlas_document), PrimaryHintState::Derived);
+    assert_eq!(atlas_document.primary_hints(), atlas_hints);
+    assert_eq!(
+        atlas_document.set_primary_with_hints(atlas_id, OTHER_HINTS),
+        Err(EditError::InvalidPrimaryHints {
+            chunk_type: ChunkType::FRAMES,
+        })
+    );
+
+    let replacement = atlas_frames(4, 1);
+    atlas_document
+        .replace_frames(atlas_id, &replacement)
+        .unwrap();
+    assert_eq!(
+        atlas_document.primary_hints(),
+        PrimaryHints::new(ColorFormat::A8.to_u8(), 4, 1, 4)
+    );
+    let encoded = atlas_document.encode_with(&EncodeOptions::new()).unwrap();
+    assert_eq!(
+        Document::open(&encoded).unwrap().primary_hints(),
+        PrimaryHints::new(ColorFormat::A8.to_u8(), 4, 1, 4)
+    );
+
+    let animation = animation_frames(5, 4);
+    let animation_payload = animation.encode_payload().unwrap();
+    let mut animation_source =
+        encode_chunks(&[(ChunkType::FRAMES.raw(), 0, animation_payload.as_slice())]);
+    set_wire_primary(
+        &mut animation_source,
+        ChunkType::FRAMES.raw(),
+        PrimaryHints::ZERO,
+    );
+    let animation_document = Document::from_vec(animation_source).unwrap();
+    assert_eq!(
+        chunk_hint_state(&animation_document),
+        PrimaryHintState::Derived
+    );
+    assert_eq!(
+        animation_document.primary_hints(),
+        PrimaryHints::new(ColorFormat::A8.to_u8(), 5, 4, 0)
+    );
+}
+
+#[test]
+fn valid_frames_can_be_selected_as_primary_without_explicit_hints() {
+    let mut document = Document::new_chunk();
+    let atlas_id = document
+        .push_frames(ChunkFlags::NONE, &atlas_frames(2, 1))
+        .unwrap();
+    let animation_id = document
+        .push_frames(ChunkFlags::NONE, &animation_frames(6, 3))
+        .unwrap();
+
+    document.clear_primary().unwrap();
+    document.set_primary(animation_id).unwrap();
+    assert_eq!(document.primary(), Some(animation_id));
+    assert_eq!(
+        document.primary_hints(),
+        PrimaryHints::new(ColorFormat::A8.to_u8(), 6, 3, 0)
+    );
+
+    document.set_primary(atlas_id).unwrap();
+    assert_eq!(document.primary(), Some(atlas_id));
+    assert_eq!(
+        document.primary_hints(),
+        PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 1, 2)
+    );
 }
 
 #[test]

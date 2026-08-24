@@ -80,10 +80,6 @@ impl<'a> ResolvedNodePayload<'a> {
         }
     }
 
-    pub(super) fn image_hints(self) -> Option<PrimaryHints> {
-        self.validate_image_contract().ok()
-    }
-
     pub(super) fn validate_image_contract(self) -> Result<PrimaryHints, ImagePayloadError> {
         self.image_planes().map(image_primary_hints)
     }

@@ -1,7 +1,10 @@
 use super::descriptor::descriptor_payload;
 use super::payload::ResolvedNodePayload;
 use super::{ChunkNode, ChunkSet, Document, DocumentState, PrimaryHintState};
-use crate::{ChunkId, ChunkType, EditError, PRIMARY_FORMAT_NONE, PrimaryHints};
+use crate::{
+    ChunkId, ChunkType, EditError, FramesMode, FramesView, PRIMARY_FORMAT_NONE, PayloadLimits,
+    PrimaryHints,
+};
 
 const KNOWN_NON_IMAGE_HINTS: PrimaryHints = PrimaryHints::new(PRIMARY_FORMAT_NONE, 0, 0, 0);
 
@@ -18,7 +21,7 @@ pub(super) const fn open_primary_hint_state(
     preserve_opaque: bool,
     wire_hints: PrimaryHints,
 ) -> PrimaryHintState {
-    if matches!(chunk_type, ChunkType::IMAGE) && known_contract {
+    if matches!(chunk_type, ChunkType::IMAGE | ChunkType::FRAMES) && known_contract {
         PrimaryHintState::Derived
     } else if is_known_non_image(chunk_type) {
         known_non_image_hint_state(wire_hints)
@@ -47,8 +50,9 @@ const fn known_non_image_hint_state(hints: PrimaryHints) -> PrimaryHintState {
 pub(super) fn changed_primary_hint_state(
     chunk_type: ChunkType,
     payload: ResolvedNodePayload<'_>,
+    limits: PayloadLimits,
 ) -> PrimaryHintState {
-    if matches!(chunk_type, ChunkType::IMAGE) && payload.image_hints().is_some() {
+    if derived_primary_hints(chunk_type, payload, limits).is_ok() {
         PrimaryHintState::Derived
     } else if is_known_non_image(chunk_type) {
         PrimaryHintState::KnownNonImageDefault
@@ -60,8 +64,9 @@ pub(super) fn changed_primary_hint_state(
 fn selected_primary_hint_state(
     chunk_type: ChunkType,
     payload: ResolvedNodePayload<'_>,
+    limits: PayloadLimits,
 ) -> Result<PrimaryHintState, EditError> {
-    let state = changed_primary_hint_state(chunk_type, payload);
+    let state = changed_primary_hint_state(chunk_type, payload, limits);
     if matches!(state, PrimaryHintState::Missing) {
         Err(EditError::PrimaryHintsRequired { chunk_type })
     } else {
@@ -73,9 +78,10 @@ fn explicit_primary_hint_state(
     chunk_type: ChunkType,
     payload: ResolvedNodePayload<'_>,
     hints: PrimaryHints,
+    limits: PayloadLimits,
 ) -> Result<PrimaryHintState, EditError> {
-    if matches!(chunk_type, ChunkType::IMAGE) {
-        return match payload.validate_image_contract() {
+    if matches!(chunk_type, ChunkType::IMAGE | ChunkType::FRAMES) {
+        return match derived_primary_hints(chunk_type, payload, limits) {
             Ok(actual) if actual == hints => Ok(PrimaryHintState::Derived),
             Ok(_) => Err(EditError::InvalidPrimaryHints { chunk_type }),
             Err(_) => Ok(PrimaryHintState::Explicit(hints)),
@@ -89,6 +95,35 @@ fn explicit_primary_hint_state(
         };
     }
     Ok(PrimaryHintState::Explicit(hints))
+}
+
+fn derived_primary_hints(
+    chunk_type: ChunkType,
+    payload: ResolvedNodePayload<'_>,
+    limits: PayloadLimits,
+) -> Result<PrimaryHints, ()> {
+    if chunk_type == ChunkType::IMAGE {
+        return payload.validate_image_contract().map_err(|_| ());
+    }
+    if chunk_type != ChunkType::FRAMES {
+        return Err(());
+    }
+    let bytes = payload.bytes().ok_or(())?;
+    let frames = FramesView::open_payload(bytes, &limits).map_err(|_| ())?;
+    Ok(match frames.mode() {
+        FramesMode::Atlas => PrimaryHints::new(
+            frames.format().to_u8(),
+            frames.atlas_width(),
+            frames.atlas_height(),
+            frames.atlas_stride(),
+        ),
+        FramesMode::Animation => PrimaryHints::new(
+            frames.format().to_u8(),
+            frames.canvas_width(),
+            frames.canvas_height(),
+            0,
+        ),
+    })
 }
 
 /// A structural edit projected onto table order without changing storage.
@@ -191,7 +226,7 @@ pub(super) fn ensure_primary_projection(
 impl Document<'_> {
     /// Returns the effective primary display hints.
     ///
-    /// Valid IMAGE hints are derived from the validated payload. Known
+    /// Valid IMAGE and FRAMES hints are derived from the validated payload. Known
     /// non-image primaries use [`PRIMARY_FORMAT_NONE`], zero stride, and either
     /// explicit suggested dimensions or zero geometry. Future opaque FLAT
     /// documents expose their preserved raw header hints without interpreting
@@ -220,10 +255,13 @@ impl Document<'_> {
                     .iter()
                     .find(|node| node.id == primary)
                     .expect("document primary must identify a live node");
-                descriptor_payload(self, node)
-                    .expect("derived primary payload must remain resolvable")
-                    .image_hints()
-                    .expect("derived primary hints require a validated IMAGE payload")
+                derived_primary_hints(
+                    node.chunk_type,
+                    descriptor_payload(self, node)
+                        .expect("derived primary payload must remain resolvable"),
+                    self.payload_limits,
+                )
+                .expect("derived primary hints require a validated typed payload")
             }
             PrimaryHintState::Explicit(hints) | PrimaryHintState::PreservedOpaque(hints) => hints,
             PrimaryHintState::KnownNonImageDefault => KNOWN_NON_IMAGE_HINTS,
@@ -255,7 +293,8 @@ impl Document<'_> {
             }
             let chunk_type = chunks.chunks[selected].chunk_type;
             let payload = descriptor_payload(self, &chunks.chunks[selected])?;
-            let primary_hints = selected_primary_hint_state(chunk_type, payload)?;
+            let primary_hints =
+                selected_primary_hint_state(chunk_type, payload, self.payload_limits)?;
             let first_of_type = chunks
                 .chunks
                 .iter()
@@ -279,11 +318,11 @@ impl Document<'_> {
     /// Selects a primary chunk with caller-supplied display hints.
     ///
     /// This is the explicit path for payload contracts whose hints cannot be
-    /// derived by this crate. Valid IMAGE payloads accept only their derived
-    /// hints. Known non-image payloads require [`PRIMARY_FORMAT_NONE`], zero
-    /// stride, and either zero geometry or nonzero suggested dimensions. The
-    /// selected node is moved to the first table position of its type without
-    /// allocating.
+    /// derived by this crate. Valid IMAGE and FRAMES payloads accept only their
+    /// derived hints. Known non-image payloads require [`PRIMARY_FORMAT_NONE`],
+    /// zero stride, and either zero geometry or nonzero suggested dimensions.
+    /// The selected node is moved to the first table position of its type
+    /// without allocating.
     pub fn set_primary_with_hints(
         &mut self,
         id: ChunkId,
@@ -301,7 +340,8 @@ impl Document<'_> {
                 .ok_or(EditError::InvalidChunkId)?;
             let node = &chunks.chunks[selected];
             let payload = descriptor_payload(self, node)?;
-            let primary_hints = explicit_primary_hint_state(node.chunk_type, payload, hints)?;
+            let primary_hints =
+                explicit_primary_hint_state(node.chunk_type, payload, hints, self.payload_limits)?;
             let exact_preserved = matches!(
                 chunks.primary_hints,
                 PrimaryHintState::PreservedOpaque(preserved) if preserved == hints

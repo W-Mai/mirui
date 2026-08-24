@@ -402,7 +402,11 @@ impl Document<'_> {
             if chunks.primary == Some(node.id) {
                 let payload = descriptor_payload(self, node)
                     .expect("live document payload must remain resolvable");
-                Some(changed_primary_hint_state(candidate.chunk_type, payload))
+                Some(changed_primary_hint_state(
+                    candidate.chunk_type,
+                    payload,
+                    self.payload_limits,
+                ))
             } else {
                 None
             }

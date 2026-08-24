@@ -346,6 +346,7 @@ impl<'a> Document<'a> {
                     bytes: payload,
                     placement: PayloadPlacement::Unplaced,
                 },
+                self.payload_limits,
             ))
         } else {
             None
