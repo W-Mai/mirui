@@ -3,19 +3,23 @@ use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 
-use mirx::{ChunkType, Layout, PayloadLimits, ReadOptions, Reader, TrailingBytesPolicy, crc32};
+use mirx::{
+    ChunkType, Layout, PayloadLimits, PayloadLocation, PayloadValidationError, ReadOptions, Reader,
+    TrailingBytesPolicy, crc32,
+};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
 pub fn run(args: &[String]) -> Result {
     match args.first().map(String::as_str) {
         Some("inspect") => inspect_command(&args[1..]),
+        Some("validate") => validate_command(&args[1..]),
         _ => Err(usage().into()),
     }
 }
 
 fn usage() -> &'static str {
-    "usage: cargo xtask mirx inspect <file>"
+    "usage:\n  cargo xtask mirx inspect <file>\n  cargo xtask mirx validate <file> [--known-payloads]"
 }
 
 fn inspect_command(args: &[String]) -> Result {
@@ -32,6 +36,62 @@ fn inspect_command(args: &[String]) -> Result {
     })?;
     print!("{report}");
     Ok(())
+}
+
+fn validate_command(args: &[String]) -> Result {
+    let (file, known_payloads) = match args {
+        [file] => (file, false),
+        [file, option] if option == "--known-payloads" => (file, true),
+        _ => return Err(usage().into()),
+    };
+    let path = Path::new(file);
+    let bytes = fs::read(path)?;
+    let status = validate_bytes(&bytes, known_payloads)
+        .map_err(|error| format!("validation failed for `{}`: {error}", path.display()))?;
+    print!("{status}");
+    Ok(())
+}
+
+fn validate_bytes(bytes: &[u8], known_payloads: bool) -> std::result::Result<String, String> {
+    let options = ReadOptions::new().with_payload_limits(PayloadLimits::HOST);
+    let reader = Reader::open_with(bytes, &options)
+        .map_err(|error| format!("container error: {error:?}"))?;
+    let mut report = String::new();
+    for finding in reader.compliance_findings() {
+        writeln!(report, "warning: {finding:?}").unwrap();
+    }
+    if known_payloads {
+        reader
+            .validate_known_payloads(&PayloadLimits::HOST)
+            .map_err(format_payload_validation_error)?;
+        writeln!(report, "valid container and known payloads").unwrap();
+    } else {
+        writeln!(report, "valid container").unwrap();
+    }
+    Ok(report)
+}
+
+fn format_payload_validation_error(error: PayloadValidationError) -> String {
+    match error.location() {
+        PayloadLocation::FlatImage => {
+            format!("known payload error at flat image: {:?}", error.failure())
+        }
+        PayloadLocation::Chunk {
+            index,
+            chunk_type,
+            payload_offset,
+        } => format!(
+            "known payload error at chunk index={} type={} offset={}: {:?}",
+            index,
+            type_name(chunk_type),
+            payload_offset,
+            error.failure(),
+        ),
+        _ => format!(
+            "known payload error at unknown location: {:?}",
+            error.failure()
+        ),
+    }
 }
 
 fn inspect_bytes(bytes: &[u8]) -> std::result::Result<String, String> {
@@ -146,6 +206,12 @@ mod tests {
         bytes[40..44].copy_from_slice(&checksum.to_le_bytes());
     }
 
+    fn clear_primary(bytes: &mut [u8]) {
+        bytes[20..36].fill(0);
+        let checksum = crc32(&bytes[..40]);
+        bytes[40..44].copy_from_slice(&checksum.to_le_bytes());
+    }
+
     #[test]
     fn chunk_report_has_stable_indices_occurrences_flags_sizes_and_checksums() {
         let custom = ChunkType::new(0xbeef).unwrap();
@@ -201,5 +267,55 @@ mod tests {
         assert!(inspect_bytes(b"not mirx").unwrap_err().contains("BadMagic"));
         assert_eq!(run(&["inspect".into()]).unwrap_err().to_string(), usage());
         assert_eq!(run(&["unknown".into()]).unwrap_err().to_string(), usage());
+    }
+
+    #[test]
+    fn validation_separates_container_compliance_from_known_payloads() {
+        let mut malformed_meta = encode_chunks(&[(ChunkType::META.raw(), 0, b"bad")]);
+        clear_primary(&mut malformed_meta);
+
+        assert_eq!(
+            validate_bytes(&malformed_meta, false),
+            Ok("valid container\n".into())
+        );
+        let error = validate_bytes(&malformed_meta, true).unwrap_err();
+        assert!(error.contains("chunk index=0"));
+        assert!(error.contains("type=0x0010(META)"));
+        assert!(error.contains("Meta(UnsupportedVersion"), "{error}");
+
+        let mut legacy_hints = encode_chunks(&[(ChunkType::META.raw(), 0, b"bad")]);
+        set_primary(&mut legacy_hints, ChunkType::META, PrimaryHints::ZERO);
+        let report = validate_bytes(&legacy_hints, false).unwrap();
+        assert!(report.contains("warning: LegacyZeroPrimaryHints"));
+        assert!(report.ends_with("valid container\n"));
+    }
+
+    #[test]
+    fn validation_rejects_trailing_and_structurally_invalid_sources() {
+        let valid = encode_flat(&FlatImageInput {
+            width: 1,
+            height: 1,
+            stride: 1,
+            format: ColorFormat::A8,
+            main: &[7],
+            extra: None,
+        });
+        assert_eq!(
+            validate_bytes(&valid, true),
+            Ok("valid container and known payloads\n".into())
+        );
+
+        let mut trailing = valid.clone();
+        trailing.push(0);
+        assert!(
+            validate_bytes(&trailing, false)
+                .unwrap_err()
+                .contains("TrailingBytes")
+        );
+        assert!(
+            validate_bytes(b"MIRX", false)
+                .unwrap_err()
+                .contains("Truncated")
+        );
     }
 }
