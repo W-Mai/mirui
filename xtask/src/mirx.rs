@@ -14,12 +14,13 @@ pub fn run(args: &[String]) -> Result {
     match args.first().map(String::as_str) {
         Some("inspect") => inspect_command(&args[1..]),
         Some("validate") => validate_command(&args[1..]),
+        Some("extract") => extract_command(&args[1..]),
         _ => Err(usage().into()),
     }
 }
 
 fn usage() -> &'static str {
-    "usage:\n  cargo xtask mirx inspect <file>\n  cargo xtask mirx validate <file> [--known-payloads]"
+    "usage:\n  cargo xtask mirx inspect <file>\n  cargo xtask mirx validate <file> [--known-payloads]\n  cargo xtask mirx extract <file> --index <n> --out <payload> [--expect-type <u16>] [--expect-crc <u32>]"
 }
 
 fn inspect_command(args: &[String]) -> Result {
@@ -50,6 +51,119 @@ fn validate_command(args: &[String]) -> Result {
         .map_err(|error| format!("validation failed for `{}`: {error}", path.display()))?;
     print!("{status}");
     Ok(())
+}
+
+fn extract_command(args: &[String]) -> Result {
+    let file = args.first().ok_or_else(usage)?;
+    let mut index = None;
+    let mut out = None;
+    let mut expected_type = None;
+    let mut expected_crc = None;
+    let mut cursor = 1;
+    while cursor < args.len() {
+        let option = args[cursor].as_str();
+        let value = args
+            .get(cursor + 1)
+            .ok_or_else(|| format!("{option} needs a value"))?;
+        match option {
+            "--index" => index = Some(parse_usize(value, "index")?),
+            "--out" => out = Some(value.as_str()),
+            "--expect-type" => expected_type = Some(parse_chunk_type(value)?),
+            "--expect-crc" => expected_crc = Some(parse_u32(value, "CRC")?),
+            _ => return Err(format!("unexpected argument: {option}").into()),
+        }
+        cursor += 2;
+    }
+    let index = index.ok_or("missing --index")?;
+    let out = out.ok_or("missing --out")?;
+    let input_path = Path::new(file);
+    let bytes = fs::read(input_path)?;
+    let payload = extract_payload(&bytes, index, expected_type, expected_crc).map_err(|error| {
+        format!(
+            "cannot extract chunk {index} from `{}`: {error}",
+            input_path.display()
+        )
+    })?;
+    fs::write(out, payload)?;
+    println!(
+        "extracted {} bytes from chunk {} to {}",
+        payload.len(),
+        index,
+        Path::new(out).display()
+    );
+    Ok(())
+}
+
+fn extract_payload(
+    bytes: &[u8],
+    index: usize,
+    expected_type: Option<ChunkType>,
+    expected_crc: Option<u32>,
+) -> std::result::Result<&[u8], String> {
+    let options = ReadOptions::new()
+        .with_payload_limits(PayloadLimits::HOST)
+        .with_trailing_bytes(TrailingBytesPolicy::Preserve);
+    let reader = Reader::open_with(bytes, &options)
+        .map_err(|error| format!("container error: {error:?}"))?;
+    let chunk = reader
+        .chunks()
+        .nth(index)
+        .ok_or_else(|| format!("index out of bounds: {index} >= {}", reader.chunks().len()))?;
+    match expected_type {
+        Some(expected) if chunk.chunk_type() != expected => {
+            return Err(format!(
+                "type mismatch: expected {}, found {}",
+                type_name(expected),
+                type_name(chunk.chunk_type())
+            ));
+        }
+        _ => {}
+    }
+    let actual_crc = crc32(chunk.payload());
+    match expected_crc {
+        Some(expected) if actual_crc != expected => {
+            return Err(format!(
+                "CRC mismatch: expected 0x{expected:08x}, found 0x{actual_crc:08x}"
+            ));
+        }
+        _ => {}
+    }
+    Ok(chunk.payload())
+}
+
+fn parse_chunk_type(value: &str) -> Result<ChunkType> {
+    let raw = parse_u16(value, "chunk type")?;
+    ChunkType::new(raw).ok_or_else(|| "chunk type zero is reserved".into())
+}
+
+fn parse_usize(value: &str, name: &str) -> Result<usize> {
+    value
+        .parse::<usize>()
+        .map_err(|_| format!("invalid {name}: `{value}`").into())
+}
+
+fn parse_u16(value: &str, name: &str) -> Result<u16> {
+    parse_radix(value, name).and_then(|parsed| {
+        u16::try_from(parsed).map_err(|_| format!("{name} out of range: `{value}`").into())
+    })
+}
+
+fn parse_u32(value: &str, name: &str) -> Result<u32> {
+    parse_radix(value, name).and_then(|parsed| {
+        u32::try_from(parsed).map_err(|_| format!("{name} out of range: `{value}`").into())
+    })
+}
+
+fn parse_radix(value: &str, name: &str) -> Result<u64> {
+    let parsed = if let Some(hex) = value
+        .strip_prefix("0x")
+        .or_else(|| value.strip_prefix("0X"))
+    {
+        u64::from_str_radix(hex, 16)
+    } else {
+        value.parse::<u64>()
+    };
+    parsed.map_err(|_| format!("invalid {name}: `{value}`").into())
 }
 
 fn validate_bytes(bytes: &[u8], known_payloads: bool) -> std::result::Result<String, String> {
@@ -317,5 +431,45 @@ mod tests {
                 .unwrap_err()
                 .contains("Truncated")
         );
+    }
+
+    #[test]
+    fn extraction_returns_exact_payload_and_checks_type_and_crc_guards() {
+        let custom = ChunkType::new(0xbeef).unwrap();
+        let bytes = encode_chunks(&[
+            (ChunkType::META.raw(), 0, b"first"),
+            (custom.raw(), 0, b"second"),
+        ]);
+        let expected_crc = crc32(b"second");
+
+        assert_eq!(
+            extract_payload(&bytes, 1, Some(custom), Some(expected_crc)),
+            Ok(b"second".as_slice())
+        );
+        assert!(
+            extract_payload(&bytes, 1, Some(ChunkType::META), None)
+                .unwrap_err()
+                .contains("type mismatch")
+        );
+        assert!(
+            extract_payload(&bytes, 1, None, Some(expected_crc ^ 1))
+                .unwrap_err()
+                .contains("CRC mismatch")
+        );
+        assert!(
+            extract_payload(&bytes, 2, None, None)
+                .unwrap_err()
+                .contains("index out of bounds")
+        );
+    }
+
+    #[test]
+    fn numeric_guards_accept_decimal_and_prefixed_hex() {
+        assert_eq!(parse_chunk_type("16").unwrap(), ChunkType::META);
+        assert_eq!(parse_chunk_type("0x0010").unwrap(), ChunkType::META);
+        assert_eq!(parse_u32("0xdeadbeef", "CRC").unwrap(), 0xdead_beef);
+        assert!(parse_chunk_type("0").is_err());
+        assert!(parse_u16("65536", "chunk type").is_err());
+        assert!(parse_usize("not-a-number", "index").is_err());
     }
 }
