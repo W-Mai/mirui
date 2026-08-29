@@ -6,8 +6,8 @@ use std::path::{Path, PathBuf};
 
 use mirx::{
     ChunkFlags, ChunkType, CriticalAssumption, Document, Layout, OpenOptions, PayloadInput,
-    PayloadLimits, PayloadLocation, PayloadValidationError, RawChunkInput, RawChunkPolicy,
-    RawTypePolicy, ReadOptions, Reader, RelocationAssumption, ReservedBitsPolicy,
+    PayloadLimits, PayloadLocation, PayloadValidationError, PrimaryHints, RawChunkInput,
+    RawChunkPolicy, RawTypePolicy, ReadOptions, Reader, RelocationAssumption, ReservedBitsPolicy,
     TrailingBytesPolicy, crc32,
 };
 
@@ -20,12 +20,16 @@ pub fn run(args: &[String]) -> Result {
         Some("extract") => extract_command(&args[1..]),
         Some("insert") => insert_command(&args[1..]),
         Some("replace") => replace_command(&args[1..]),
+        Some("remove") => remove_command(&args[1..]),
+        Some("move") => move_command(&args[1..]),
+        Some("set-primary") => set_primary_command(&args[1..]),
+        Some("clear-primary") => clear_primary_command(&args[1..]),
         _ => Err(usage().into()),
     }
 }
 
 fn usage() -> &'static str {
-    "usage:\n  cargo xtask mirx inspect <file>\n  cargo xtask mirx validate <file> [--known-payloads]\n  cargo xtask mirx extract <file> --index <n> --out <payload> [--expect-type <u16>] [--expect-crc <u32>]\n  cargo xtask mirx insert <file> --type <u16> --payload <path> [--flags <u16>] [raw policy options]\n  cargo xtask mirx replace <file> --index <n> --payload <path> [--expect-type <u16>] [--expect-crc <u32>] [raw policy options]\nraw policy options:\n  --assume-relocatable --assume-critical-understood\n  --preserve-reserved-flags | --normalize-reserved-flags"
+    "usage:\n  cargo xtask mirx inspect <file>\n  cargo xtask mirx validate <file> [--known-payloads]\n  cargo xtask mirx extract <file> --index <n> --out <payload> [--expect-type <u16>] [--expect-crc <u32>]\n  cargo xtask mirx insert <file> --type <u16> --payload <path> [--flags <u16>] [raw policy options]\n  cargo xtask mirx replace <file> --index <n> --payload <path> [guards] [raw policy options]\n  cargo xtask mirx remove <file> --index <n> [guards] [raw policy options]\n  cargo xtask mirx move <file> --index <n> (--before <n> | --after <n>) [guards] [raw policy options]\n  cargo xtask mirx set-primary <file> --index <n> [--hints <format,width,height,stride>] [guards] [raw policy options]\n  cargo xtask mirx clear-primary <file> [guards] [raw policy options]\nguards:\n  --expect-type <u16> --expect-crc <u32>\nraw policy options:\n  --assume-relocatable --assume-critical-understood\n  --assume-relocatable-type <u16> --assume-critical-type <u16>\n  --preserve-reserved-flags | --normalize-reserved-flags"
 }
 
 fn inspect_command(args: &[String]) -> Result {
@@ -136,11 +140,12 @@ fn extract_payload(
     Ok(chunk.payload())
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct RawPolicyArgs {
     assume_relocatable: bool,
     assume_critical_understood: bool,
     reserved_flag_bits: ReservedBitsPolicy,
+    source_types: Vec<(ChunkType, bool)>,
 }
 
 impl RawPolicyArgs {
@@ -165,7 +170,17 @@ impl RawPolicyArgs {
         Ok(true)
     }
 
-    const fn into_policy(self) -> RawChunkPolicy {
+    fn apply_value_option(&mut self, option: &str, value: &str) -> Result<bool> {
+        let critical = match option {
+            "--assume-relocatable-type" => false,
+            "--assume-critical-type" => true,
+            _ => return Ok(false),
+        };
+        self.source_types.push((parse_chunk_type(value)?, critical));
+        Ok(true)
+    }
+
+    const fn selected_policy(&self) -> RawChunkPolicy {
         RawChunkPolicy {
             relocation: if self.assume_relocatable {
                 RelocationAssumption::AssumeRelocatable
@@ -179,6 +194,24 @@ impl RawPolicyArgs {
             },
             reserved_flag_bits: self.reserved_flag_bits,
         }
+    }
+
+    fn source_policies(&self) -> Vec<RawTypePolicy> {
+        self.source_types
+            .iter()
+            .map(|&(chunk_type, critical)| RawTypePolicy {
+                chunk_type,
+                policy: RawChunkPolicy {
+                    relocation: RelocationAssumption::AssumeRelocatable,
+                    critical_semantics: if critical {
+                        CriticalAssumption::AssumeCriticalUnderstood
+                    } else {
+                        CriticalAssumption::Infer
+                    },
+                    reserved_flag_bits: self.reserved_flag_bits,
+                },
+            })
+            .collect()
     }
 }
 
@@ -198,6 +231,10 @@ fn insert_command(args: &[String]) -> Result {
         let value = args
             .get(cursor + 1)
             .ok_or_else(|| format!("{option} needs a value"))?;
+        if policy.apply_value_option(option, value)? {
+            cursor += 2;
+            continue;
+        }
         match option {
             "--type" => chunk_type = Some(parse_chunk_type(value)?),
             "--flags" => flags = ChunkFlags::from_bits_retain(parse_u16(value, "flags")?),
@@ -212,8 +249,15 @@ fn insert_command(args: &[String]) -> Result {
     let source = fs::read(source_path)?;
     let payload = fs::read(payload_path)?;
     let payload_len = payload.len();
-    let output = insert_raw_bytes(source, chunk_type, flags, payload, policy.into_policy())
-        .map_err(|error| format!("cannot insert into `{}`: {error}", source_path.display()))?;
+    let output = insert_raw_bytes(
+        source,
+        chunk_type,
+        flags,
+        payload,
+        policy.selected_policy(),
+        &policy.source_policies(),
+    )
+    .map_err(|error| format!("cannot insert into `{}`: {error}", source_path.display()))?;
     replace_file_atomically(source_path, &output)?;
     println!(
         "inserted type={} flags=0x{:04x} size={} into {}",
@@ -242,6 +286,10 @@ fn replace_command(args: &[String]) -> Result {
         let value = args
             .get(cursor + 1)
             .ok_or_else(|| format!("{option} needs a value"))?;
+        if policy.apply_value_option(option, value)? {
+            cursor += 2;
+            continue;
+        }
         match option {
             "--index" => index = Some(parse_usize(value, "index")?),
             "--payload" => payload_path = Some(value.as_str()),
@@ -263,7 +311,8 @@ fn replace_command(args: &[String]) -> Result {
         expected_type,
         expected_crc,
         payload,
-        policy.into_policy(),
+        policy.selected_policy(),
+        &policy.source_policies(),
     )
     .map_err(|error| {
         format!(
@@ -281,17 +330,239 @@ fn replace_command(args: &[String]) -> Result {
     Ok(())
 }
 
+fn remove_command(args: &[String]) -> Result {
+    let file = args.first().ok_or_else(usage)?;
+    let mut index = None;
+    let mut expected_type = None;
+    let mut expected_crc = None;
+    let mut policy = RawPolicyArgs::default();
+    let mut cursor = 1;
+    while cursor < args.len() {
+        let option = args[cursor].as_str();
+        if policy.apply_option(option)? {
+            cursor += 1;
+            continue;
+        }
+        let value = args
+            .get(cursor + 1)
+            .ok_or_else(|| format!("{option} needs a value"))?;
+        if policy.apply_value_option(option, value)? {
+            cursor += 2;
+            continue;
+        }
+        match option {
+            "--index" => index = Some(parse_usize(value, "index")?),
+            "--expect-type" => expected_type = Some(parse_chunk_type(value)?),
+            "--expect-crc" => expected_crc = Some(parse_u32(value, "CRC")?),
+            _ => return Err(format!("unexpected argument: {option}").into()),
+        }
+        cursor += 2;
+    }
+    let index = index.ok_or("missing --index")?;
+    let source_path = Path::new(file);
+    let output = remove_chunk_bytes(
+        fs::read(source_path)?,
+        index,
+        expected_type,
+        expected_crc,
+        policy.selected_policy(),
+        &policy.source_policies(),
+    )
+    .map_err(|error| {
+        format!(
+            "cannot remove chunk {index} from `{}`: {error}",
+            source_path.display()
+        )
+    })?;
+    replace_file_atomically(source_path, &output)?;
+    println!("removed chunk {} from {}", index, source_path.display());
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MovePosition {
+    Before(usize),
+    After(usize),
+}
+
+fn move_command(args: &[String]) -> Result {
+    let file = args.first().ok_or_else(usage)?;
+    let mut index = None;
+    let mut position = None;
+    let mut expected_type = None;
+    let mut expected_crc = None;
+    let mut policy = RawPolicyArgs::default();
+    let mut cursor = 1;
+    while cursor < args.len() {
+        let option = args[cursor].as_str();
+        if policy.apply_option(option)? {
+            cursor += 1;
+            continue;
+        }
+        let value = args
+            .get(cursor + 1)
+            .ok_or_else(|| format!("{option} needs a value"))?;
+        if policy.apply_value_option(option, value)? {
+            cursor += 2;
+            continue;
+        }
+        match option {
+            "--index" => index = Some(parse_usize(value, "index")?),
+            "--before" => set_move_position(
+                &mut position,
+                MovePosition::Before(parse_usize(value, "before index")?),
+            )?,
+            "--after" => set_move_position(
+                &mut position,
+                MovePosition::After(parse_usize(value, "after index")?),
+            )?,
+            "--expect-type" => expected_type = Some(parse_chunk_type(value)?),
+            "--expect-crc" => expected_crc = Some(parse_u32(value, "CRC")?),
+            _ => return Err(format!("unexpected argument: {option}").into()),
+        }
+        cursor += 2;
+    }
+    let index = index.ok_or("missing --index")?;
+    let position = position.ok_or("missing --before or --after")?;
+    let source_path = Path::new(file);
+    let output = move_chunk_bytes(
+        fs::read(source_path)?,
+        index,
+        position,
+        expected_type,
+        expected_crc,
+        policy.selected_policy(),
+        &policy.source_policies(),
+    )
+    .map_err(|error| {
+        format!(
+            "cannot move chunk {index} in `{}`: {error}",
+            source_path.display()
+        )
+    })?;
+    replace_file_atomically(source_path, &output)?;
+    println!("moved chunk {} in {}", index, source_path.display());
+    Ok(())
+}
+
+fn set_move_position(target: &mut Option<MovePosition>, value: MovePosition) -> Result {
+    if target.is_some() {
+        return Err("--before and --after are mutually exclusive".into());
+    }
+    *target = Some(value);
+    Ok(())
+}
+
+fn set_primary_command(args: &[String]) -> Result {
+    let file = args.first().ok_or_else(usage)?;
+    let mut index = None;
+    let mut hints = None;
+    let mut expected_type = None;
+    let mut expected_crc = None;
+    let mut policy = RawPolicyArgs::default();
+    let mut cursor = 1;
+    while cursor < args.len() {
+        let option = args[cursor].as_str();
+        if policy.apply_option(option)? {
+            cursor += 1;
+            continue;
+        }
+        let value = args
+            .get(cursor + 1)
+            .ok_or_else(|| format!("{option} needs a value"))?;
+        if policy.apply_value_option(option, value)? {
+            cursor += 2;
+            continue;
+        }
+        match option {
+            "--index" => index = Some(parse_usize(value, "index")?),
+            "--hints" => hints = Some(parse_primary_hints(value)?),
+            "--expect-type" => expected_type = Some(parse_chunk_type(value)?),
+            "--expect-crc" => expected_crc = Some(parse_u32(value, "CRC")?),
+            _ => return Err(format!("unexpected argument: {option}").into()),
+        }
+        cursor += 2;
+    }
+    let index = index.ok_or("missing --index")?;
+    let source_path = Path::new(file);
+    let output = set_primary_bytes(
+        fs::read(source_path)?,
+        index,
+        hints,
+        expected_type,
+        expected_crc,
+        policy.selected_policy(),
+        &policy.source_policies(),
+    )
+    .map_err(|error| {
+        format!(
+            "cannot set chunk {index} as primary in `{}`: {error}",
+            source_path.display()
+        )
+    })?;
+    replace_file_atomically(source_path, &output)?;
+    println!(
+        "selected chunk {} as primary in {}",
+        index,
+        source_path.display()
+    );
+    Ok(())
+}
+
+fn clear_primary_command(args: &[String]) -> Result {
+    let file = args.first().ok_or_else(usage)?;
+    let mut expected_type = None;
+    let mut expected_crc = None;
+    let mut policy = RawPolicyArgs::default();
+    let mut cursor = 1;
+    while cursor < args.len() {
+        let option = args[cursor].as_str();
+        if policy.apply_option(option)? {
+            cursor += 1;
+            continue;
+        }
+        let value = args
+            .get(cursor + 1)
+            .ok_or_else(|| format!("{option} needs a value"))?;
+        if policy.apply_value_option(option, value)? {
+            cursor += 2;
+            continue;
+        }
+        match option {
+            "--expect-type" => expected_type = Some(parse_chunk_type(value)?),
+            "--expect-crc" => expected_crc = Some(parse_u32(value, "CRC")?),
+            _ => return Err(format!("unexpected argument: {option}").into()),
+        }
+        cursor += 2;
+    }
+    let source_path = Path::new(file);
+    let output = clear_primary_bytes(
+        fs::read(source_path)?,
+        expected_type,
+        expected_crc,
+        policy.selected_policy(),
+        &policy.source_policies(),
+    )
+    .map_err(|error| {
+        format!(
+            "cannot clear primary in `{}`: {error}",
+            source_path.display()
+        )
+    })?;
+    replace_file_atomically(source_path, &output)?;
+    println!("cleared primary in {}", source_path.display());
+    Ok(())
+}
+
 fn insert_raw_bytes(
     source: Vec<u8>,
     chunk_type: ChunkType,
     flags: ChunkFlags,
     payload: Vec<u8>,
     policy: RawChunkPolicy,
+    source_policies: &[RawTypePolicy],
 ) -> std::result::Result<Vec<u8>, String> {
-    let raw_policies = [RawTypePolicy { chunk_type, policy }];
-    let open_options = OpenOptions::host_tools().with_raw_type_policies(&raw_policies);
-    let mut document = Document::from_vec_with(source, &open_options)
-        .map_err(|error| format!("container error: {error:?}"))?;
+    let mut document = open_edit_document(source, Some(chunk_type), policy, source_policies)?;
     document
         .push_raw(RawChunkInput {
             chunk_type,
@@ -300,10 +571,7 @@ fn insert_raw_bytes(
             policy,
         })
         .map_err(|error| format!("edit error: {error:?}"))?;
-    document
-        .finish()
-        .map(|bytes| bytes.into_owned())
-        .map_err(|error| format!("encode error: {error:?}"))
+    finish_document(document)
 }
 
 fn replace_raw_bytes(
@@ -313,23 +581,122 @@ fn replace_raw_bytes(
     expected_crc: Option<u32>,
     payload: Vec<u8>,
     policy: RawChunkPolicy,
+    source_policies: &[RawTypePolicy],
 ) -> std::result::Result<Vec<u8>, String> {
-    if matches!(
-        policy.critical_semantics,
-        CriticalAssumption::AssumeCriticalUnderstood
-    ) && expected_type.is_none()
-    {
-        return Err("--assume-critical-understood requires --expect-type".into());
-    }
-    let raw_policy = expected_type.map(|chunk_type| RawTypePolicy { chunk_type, policy });
-    let raw_policies = raw_policy.as_slice();
-    let open_options = OpenOptions::host_tools().with_raw_type_policies(raw_policies);
-    let mut document = Document::from_vec_with(source, &open_options)
-        .map_err(|error| format!("container error: {error:?}"))?;
+    let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
     let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
     document
         .replace_raw(id, PayloadInput::Owned(payload), policy)
         .map_err(|error| format!("edit error: {error:?}"))?;
+    finish_document(document)
+}
+
+fn remove_chunk_bytes(
+    source: Vec<u8>,
+    index: usize,
+    expected_type: Option<ChunkType>,
+    expected_crc: Option<u32>,
+    policy: RawChunkPolicy,
+    source_policies: &[RawTypePolicy],
+) -> std::result::Result<Vec<u8>, String> {
+    let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
+    let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
+    document
+        .remove(id)
+        .map_err(|error| format!("edit error: {error:?}"))?;
+    finish_document(document)
+}
+
+fn move_chunk_bytes(
+    source: Vec<u8>,
+    index: usize,
+    position: MovePosition,
+    expected_type: Option<ChunkType>,
+    expected_crc: Option<u32>,
+    policy: RawChunkPolicy,
+    source_policies: &[RawTypePolicy],
+) -> std::result::Result<Vec<u8>, String> {
+    let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
+    let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
+    let anchor_index = match position {
+        MovePosition::Before(index) | MovePosition::After(index) => index,
+    };
+    let anchor = guarded_document_chunk(&document, anchor_index, None, None)?;
+    let result = match position {
+        MovePosition::Before(_) => document.move_before(id, anchor),
+        MovePosition::After(_) => document.move_after(id, anchor),
+    };
+    result.map_err(|error| format!("edit error: {error:?}"))?;
+    finish_document(document)
+}
+
+fn set_primary_bytes(
+    source: Vec<u8>,
+    index: usize,
+    hints: Option<PrimaryHints>,
+    expected_type: Option<ChunkType>,
+    expected_crc: Option<u32>,
+    policy: RawChunkPolicy,
+    source_policies: &[RawTypePolicy],
+) -> std::result::Result<Vec<u8>, String> {
+    let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
+    let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
+    let result = match hints {
+        Some(hints) => document.set_primary_with_hints(id, hints),
+        None => document.set_primary(id),
+    };
+    result.map_err(|error| format!("edit error: {error:?}"))?;
+    finish_document(document)
+}
+
+fn clear_primary_bytes(
+    source: Vec<u8>,
+    expected_type: Option<ChunkType>,
+    expected_crc: Option<u32>,
+    policy: RawChunkPolicy,
+    source_policies: &[RawTypePolicy],
+) -> std::result::Result<Vec<u8>, String> {
+    let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
+    let primary = document
+        .primary()
+        .ok_or_else(|| "document has no primary chunk".to_owned())?;
+    let chunk = document
+        .get(primary)
+        .ok_or_else(|| "primary chunk is not present".to_owned())?;
+    guard_document_chunk(chunk, expected_type, expected_crc)?;
+    document
+        .clear_primary()
+        .map_err(|error| format!("edit error: {error:?}"))?;
+    finish_document(document)
+}
+
+fn open_edit_document(
+    source: Vec<u8>,
+    grant_type: Option<ChunkType>,
+    policy: RawChunkPolicy,
+    source_policies: &[RawTypePolicy],
+) -> std::result::Result<Document<'static>, String> {
+    if grant_type.is_none() {
+        if matches!(
+            policy.critical_semantics,
+            CriticalAssumption::AssumeCriticalUnderstood
+        ) {
+            return Err("--assume-critical-understood requires --expect-type".into());
+        }
+        if policy != RawChunkPolicy::infer() {
+            return Err("raw policy options require --expect-type".into());
+        }
+    }
+    let mut raw_policies = source_policies.to_vec();
+    if let Some(chunk_type) = grant_type {
+        raw_policies.push(RawTypePolicy { chunk_type, policy });
+    }
+    let open_options = OpenOptions::host_tools().with_raw_type_policies(&raw_policies);
+    Document::from_vec_with(source, &open_options)
+        .map_err(|error| format!("container error: {error:?}"))
+}
+
+fn finish_document(document: Document<'_>) -> std::result::Result<Vec<u8>, String> {
     document
         .finish()
         .map(|bytes| bytes.into_owned())
@@ -348,6 +715,15 @@ fn guarded_document_chunk(
             document.chunks().len()
         )
     })?;
+    guard_document_chunk(chunk, expected_type, expected_crc)?;
+    Ok(chunk.id())
+}
+
+fn guard_document_chunk(
+    chunk: mirx::DocumentChunkRef<'_>,
+    expected_type: Option<ChunkType>,
+    expected_crc: Option<u32>,
+) -> std::result::Result<(), String> {
     match expected_type {
         Some(expected) if chunk.chunk_type() != expected => {
             return Err(format!(
@@ -370,7 +746,24 @@ fn guarded_document_chunk(
         }
         _ => {}
     }
-    Ok(chunk.id())
+    Ok(())
+}
+
+fn parse_primary_hints(value: &str) -> Result<PrimaryHints> {
+    let mut fields = value.split(',');
+    let format = fields.next().ok_or("missing color format")?;
+    let width = fields.next().ok_or("missing hint width")?;
+    let height = fields.next().ok_or("missing hint height")?;
+    let stride = fields.next().ok_or("missing hint stride")?;
+    if fields.next().is_some() {
+        return Err("primary hints need format,width,height,stride".into());
+    }
+    Ok(PrimaryHints::new(
+        parse_u8(format, "color format")?,
+        parse_u32(width, "hint width")?,
+        parse_u32(height, "hint height")?,
+        parse_u32(stride, "hint stride")?,
+    ))
 }
 
 fn replace_file_atomically(path: &Path, bytes: &[u8]) -> io::Result<()> {
@@ -430,6 +823,12 @@ fn parse_usize(value: &str, name: &str) -> Result<usize> {
     value
         .parse::<usize>()
         .map_err(|_| format!("invalid {name}: `{value}`").into())
+}
+
+fn parse_u8(value: &str, name: &str) -> Result<u8> {
+    parse_radix(value, name).and_then(|parsed| {
+        u8::try_from(parsed).map_err(|_| format!("{name} out of range: `{value}`").into())
+    })
 }
 
 fn parse_u16(value: &str, name: &str) -> Result<u16> {
@@ -783,6 +1182,7 @@ mod tests {
             ChunkFlags::NONE,
             b"first".to_vec(),
             relocatable_policy(),
+            &[],
         )
         .unwrap();
         let inserted_reader = Reader::open(&inserted).unwrap();
@@ -800,6 +1200,7 @@ mod tests {
             Some(old_crc),
             b"new".to_vec(),
             relocatable_policy(),
+            &[],
         )
         .unwrap();
         assert_eq!(
@@ -819,6 +1220,7 @@ mod tests {
                 Some(old_crc),
                 b"ignored".to_vec(),
                 relocatable_policy(),
+                &[],
             )
             .unwrap_err()
             .contains("type mismatch")
@@ -840,6 +1242,7 @@ mod tests {
                 None,
                 b"new".to_vec(),
                 critical_policy,
+                &[],
             )
             .unwrap_err()
             .contains("requires --expect-type")
@@ -851,6 +1254,7 @@ mod tests {
             Some(crc32(b"critical")),
             b"new-critical".to_vec(),
             critical_policy,
+            &[],
         )
         .unwrap();
         let raw_policy = [RawTypePolicy {
@@ -874,13 +1278,28 @@ mod tests {
         assert!(args.apply_option("--assume-relocatable").unwrap());
         assert!(args.apply_option("--assume-critical-understood").unwrap());
         assert!(args.apply_option("--preserve-reserved-flags").unwrap());
+        assert!(
+            args.apply_value_option("--assume-relocatable-type", "0xbeef")
+                .unwrap()
+        );
+        assert!(
+            args.apply_value_option("--assume-critical-type", "0xcafe")
+                .unwrap()
+        );
         assert_eq!(
-            args.into_policy(),
+            args.selected_policy(),
             RawChunkPolicy {
                 relocation: RelocationAssumption::AssumeRelocatable,
                 critical_semantics: CriticalAssumption::AssumeCriticalUnderstood,
                 reserved_flag_bits: ReservedBitsPolicy::Preserve,
             }
+        );
+        let source_policies = args.source_policies();
+        assert_eq!(source_policies.len(), 2);
+        assert_eq!(source_policies[0].chunk_type.raw(), 0xbeef);
+        assert_eq!(
+            source_policies[1].policy.critical_semantics,
+            CriticalAssumption::AssumeCriticalUnderstood
         );
 
         let mut conflicting = RawPolicyArgs::default();
@@ -893,6 +1312,115 @@ mod tests {
                 .is_err()
         );
         assert!(!conflicting.apply_option("--payload").unwrap());
+    }
+
+    #[test]
+    fn remove_move_and_primary_edits_use_guarded_table_indices() {
+        let custom = ChunkType::new(0xbeef).unwrap();
+        let policy = relocatable_policy();
+        let mut source = encode_chunks(&[
+            (custom.raw(), 0, b"a"),
+            (custom.raw(), 0, b"b"),
+            (custom.raw(), 0, b"c"),
+        ]);
+        clear_primary(&mut source);
+
+        let moved = move_chunk_bytes(
+            source.clone(),
+            2,
+            MovePosition::Before(0),
+            Some(custom),
+            Some(crc32(b"c")),
+            policy,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            Reader::open(&moved)
+                .unwrap()
+                .chunks()
+                .map(|chunk| chunk.payload())
+                .collect::<Vec<_>>(),
+            [b"c".as_slice(), b"a".as_slice(), b"b".as_slice()]
+        );
+
+        let removed = remove_chunk_bytes(
+            source.clone(),
+            1,
+            Some(custom),
+            Some(crc32(b"b")),
+            policy,
+            &[],
+        )
+        .unwrap();
+        assert_eq!(
+            Reader::open(&removed)
+                .unwrap()
+                .chunks()
+                .map(|chunk| chunk.payload())
+                .collect::<Vec<_>>(),
+            [b"a".as_slice(), b"c".as_slice()]
+        );
+
+        let hints = PrimaryHints::new(0xfe, 320, 240, 640);
+        let selected = set_primary_bytes(
+            source,
+            2,
+            Some(hints),
+            Some(custom),
+            Some(crc32(b"c")),
+            policy,
+            &[],
+        )
+        .unwrap();
+        let selected_reader = Reader::open(&selected).unwrap();
+        assert_eq!(selected_reader.primary_hints(), hints);
+        assert_eq!(selected_reader.primary().unwrap().unwrap().payload(), b"c");
+
+        let cleared =
+            clear_primary_bytes(selected, Some(custom), Some(crc32(b"c")), policy, &[]).unwrap();
+        assert!(Reader::open(&cleared).unwrap().primary().unwrap().is_none());
+
+        let other = ChunkType::new(0xcafe).unwrap();
+        let mut mixed = encode_chunks(&[(custom.raw(), 0, b"left"), (other.raw(), 0, b"right")]);
+        clear_primary(&mut mixed);
+        let source_policies = [RawTypePolicy {
+            chunk_type: custom,
+            policy,
+        }];
+        let mixed = set_primary_bytes(
+            mixed,
+            1,
+            Some(hints),
+            Some(other),
+            Some(crc32(b"right")),
+            policy,
+            &source_policies,
+        )
+        .unwrap();
+        assert_eq!(
+            Reader::open(&mixed)
+                .unwrap()
+                .primary()
+                .unwrap()
+                .unwrap()
+                .payload(),
+            b"right"
+        );
+    }
+
+    #[test]
+    fn move_target_and_primary_hint_syntax_reject_ambiguous_input() {
+        let mut position = None;
+        set_move_position(&mut position, MovePosition::Before(1)).unwrap();
+        assert!(set_move_position(&mut position, MovePosition::After(2)).is_err());
+        assert_eq!(
+            parse_primary_hints("0x23,320,240,0x140").unwrap(),
+            PrimaryHints::new(0x23, 320, 240, 320)
+        );
+        assert!(parse_primary_hints("0x23,320,240").is_err());
+        assert!(parse_primary_hints("0x23,320,240,320,extra").is_err());
+        assert!(parse_primary_hints("0x100,320,240,320").is_err());
     }
 
     #[test]
