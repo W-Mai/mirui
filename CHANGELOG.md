@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **MIRX `Reader` and `Document` APIs.** `Reader` provides strict, zero-allocation FLAT/CHUNK inspection, lazy chunk iteration, primary resolution, compliance findings, and bounded known-payload validation. `Document` provides source-backed copy-on-write editing with stable session-local chunk identities, ordered insert/remove/reorder operations, primary selection, raw capability policies, deterministic encoding, and byte-identical no-op finish.
+- **Typed MIRX payload operations.** IMAGE, FONT, VECTOR, META, PALETTE, and FRAMES support checked add and replace operations. FONT, VECTOR, META, PALETTE, and FRAMES also provide transactional callback editing. Borrowed IMAGE, META, PALETTE, and FRAMES views keep runtime inspection allocation-free.
+- **Guarded `cargo xtask mirx` commands.** `inspect`, `validate`, `extract`, `insert`, `replace`, `remove`, `move`, `set-primary`, and `clear-primary` cover host-side container inspection and raw editing. Optional type and CRC guards protect index-based scripts; file replacement uses a flushed sibling temporary and atomic rename.
+
+### Changed
+
+- **`ColorFormat` exposes canonical pixel-layout helpers.** `bits_per_pixel()` defines main-plane pixel depth, and `minimum_stride(width)` derives the smallest valid byte stride from it for byte-aligned and packed formats.
+
 ## [0.42.0] - 2026-07-12
 
 ### Added — breaking
