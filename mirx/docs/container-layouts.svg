@@ -1,48 +1,45 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="410" viewBox="0 0 960 410" role="img" aria-labelledby="title desc">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-labelledby="title desc">
   <title id="title">MIRX container layouts</title>
-  <desc id="desc">FLAT stores one image after a compact header. CHUNK stores a header, ordered descriptor table, aligned payloads, and optional trailing bytes.</desc>
+  <desc id="desc">FLAT stores one image after a compact header. Canonical CHUNK output stores a header, ordered descriptor table, and aligned payload ranges.</desc>
   <defs>
     <style>
       .bg{fill:#f8fafc}.panel{fill:#fff;stroke:#dbe3ee;stroke-width:1.5}.title{fill:#0f172a;font:700 20px system-ui,sans-serif}.head{fill:#0f172a;font:700 15px system-ui,sans-serif}.body{fill:#64748b;font:12px system-ui,sans-serif}.mono{fill:#334155;font:600 11px ui-monospace,monospace}.guide{stroke:#cbd5e1;stroke-width:1;stroke-dasharray:4 4}.bracket{fill:none;stroke:#64748b;stroke-width:1.5}
       @media(prefers-color-scheme:dark){.bg{fill:#0b1120}.panel{fill:#111827;stroke:#334155}.title,.head{fill:#f8fafc}.body{fill:#94a3b8}.mono{fill:#cbd5e1}.guide{stroke:#475569}.bracket{stroke:#64748b}}
     </style>
   </defs>
-  <rect class="bg" width="960" height="410" rx="24"/>
+  <rect class="bg" width="960" height="430" rx="24"/>
   <text class="title" x="40" y="46">Two layouts, one common header</text>
   <text class="body" x="40" y="69">The first bytes identify MIRX version and layout before either path is interpreted.</text>
 
   <g transform="translate(40 101)">
-    <rect class="panel" width="420" height="268" rx="18"/>
+    <rect class="panel" width="420" height="286" rx="18" data-audit-boundary="flat-panel"/>
     <circle cx="30" cy="30" r="12" fill="#dbeafe"/><text x="25" y="35" fill="#2563eb" font-family="system-ui,sans-serif" font-size="14" font-weight="800">F</text>
     <text class="head" x="52" y="35">FLAT · one image</text>
     <text class="body" x="22" y="66">Compact fixed structure</text>
-    <g transform="translate(22 91)">
-      <rect width="376" height="48" rx="8" fill="#1d4ed8"/><text x="18" y="29" fill="#fff" font-family="ui-monospace,monospace" font-size="12" font-weight="700">FILE + FLAT HEADER</text>
-      <rect y="56" width="270" height="48" rx="8" fill="#60a5fa"/><text x="18" y="85" fill="#0f172a" font-family="ui-monospace,monospace" font-size="12" font-weight="700">MAIN PLANE</text>
-      <rect x="278" y="56" width="120" height="48" rx="8" fill="#bfdbfe"/><text x="295" y="85" fill="#1e3a8a" font-family="ui-monospace,monospace" font-size="11" font-weight="700">EXTRA?</text>
-      <path class="guide" d="M0 126H398"/>
+    <g transform="translate(22 91)" data-audit-contained-by="flat-panel" data-audit-min-inset="0 20 18 20">
+      <g data-audit-align="flat-byte-rows"><rect width="376" height="48" rx="8" fill="#1d4ed8"/><text x="18" y="22" fill="#fff" font-family="ui-monospace,monospace" font-size="11" font-weight="700">FLAT HEADER · 28 B</text><text x="18" y="37" fill="#dbeafe" font-family="ui-monospace,monospace" font-size="10">includes 8 B common header</text></g>
+      <g data-audit-align="flat-byte-rows"><rect y="56" width="248" height="48" rx="8" fill="#60a5fa"/><text x="18" y="85" fill="#0f172a" font-family="ui-monospace,monospace" font-size="12" font-weight="700">MAIN PLANE</text><rect x="256" y="56" width="120" height="48" rx="8" fill="#bfdbfe"/><text x="316" y="80" fill="#1e3a8a" font-family="ui-monospace,monospace" font-size="11" font-weight="700" text-anchor="middle" dominant-baseline="middle">EXTRA?</text></g>
+      <path class="guide" d="M0 126H376"/>
       <text class="mono" x="0" y="148">format · width · height · stride</text>
       <text class="body" x="0" y="171">The optional plane is an inline palette or alpha plane.</text>
     </g>
   </g>
 
   <g transform="translate(500 101)">
-    <rect class="panel" width="420" height="268" rx="18"/>
+    <rect class="panel" width="420" height="286" rx="18" data-audit-boundary="chunk-panel"/>
     <circle cx="30" cy="30" r="12" fill="#ede9fe"/><text x="24" y="35" fill="#7c3aed" font-family="system-ui,sans-serif" font-size="14" font-weight="800">C</text>
     <text class="head" x="52" y="35">CHUNK · ordered payloads</text>
     <text class="body" x="22" y="66">Extensible indexed structure</text>
-    <g transform="translate(22 91)">
-      <rect width="112" height="48" rx="8" fill="#6d28d9"/><text x="14" y="22" fill="#fff" font-family="ui-monospace,monospace" font-size="10" font-weight="700">FILE + CHUNK</text><text x="14" y="36" fill="#ddd6fe" font-family="ui-monospace,monospace" font-size="10">HEADER</text>
-      <rect x="120" width="126" height="48" rx="8" fill="#a78bfa"/><text x="136" y="22" fill="#2e1065" font-family="ui-monospace,monospace" font-size="10" font-weight="700">DESCRIPTORS</text><text x="136" y="36" fill="#4c1d95" font-family="ui-monospace,monospace" font-size="10">ordered table</text>
-      <rect x="254" width="144" height="48" rx="8" fill="#ddd6fe"/><text x="270" y="22" fill="#4c1d95" font-family="ui-monospace,monospace" font-size="10" font-weight="700">PAYLOAD AREA</text><text x="270" y="36" fill="#6d28d9" font-family="ui-monospace,monospace" font-size="10">aligned ranges</text>
-      <g transform="translate(0 62)">
-        <rect width="89" height="38" rx="7" fill="#e0f2fe"/><text x="44.5" y="19" fill="#0369a1" font-family="ui-monospace,monospace" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="middle">IMAGE</text>
-        <rect x="97" width="89" height="38" rx="7" fill="#dcfce7"/><text x="141.5" y="19" fill="#047857" font-family="ui-monospace,monospace" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="middle">FONT</text>
-        <rect x="194" width="89" height="38" rx="7" fill="#fef3c7"/><text x="238.5" y="19" fill="#a16207" font-family="ui-monospace,monospace" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="middle">VECTOR</text>
-        <rect x="291" width="89" height="38" rx="7" fill="#f1f5f9"/><text x="335.5" y="19" fill="#475569" font-family="ui-monospace,monospace" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="middle">CUSTOM</text>
+    <g transform="translate(22 91)" data-audit-contained-by="chunk-panel" data-audit-min-inset="0 20 18 20">
+      <g data-audit-align="chunk-byte-rows"><rect width="106" height="48" rx="8" fill="#6d28d9"/><text x="12" y="22" fill="#fff" font-family="ui-monospace,monospace" font-size="10" font-weight="700">CHUNK HEADER</text><text x="12" y="36" fill="#ddd6fe" font-family="ui-monospace,monospace" font-size="9">44 B · common 8 B</text><rect x="114" width="118" height="48" rx="8" fill="#a78bfa"/><text x="128" y="22" fill="#2e1065" font-family="ui-monospace,monospace" font-size="10" font-weight="700">DESCRIPTORS</text><text x="128" y="36" fill="#4c1d95" font-family="ui-monospace,monospace" font-size="10">16 B each</text><rect x="240" width="136" height="48" rx="8" fill="#ddd6fe"/><text x="254" y="22" fill="#4c1d95" font-family="ui-monospace,monospace" font-size="10" font-weight="700">PAYLOAD RANGES</text><text x="254" y="36" fill="#6d28d9" font-family="ui-monospace,monospace" font-size="10">canonical order</text></g>
+      <g transform="translate(0 62)" data-audit-align="chunk-byte-rows">
+        <rect width="88" height="38" rx="7" fill="#e0f2fe"/><text x="44" y="19" fill="#0369a1" font-family="ui-monospace,monospace" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="middle">IMAGE</text>
+        <rect x="96" width="88" height="38" rx="7" fill="#dcfce7"/><text x="140" y="19" fill="#047857" font-family="ui-monospace,monospace" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="middle">FONT</text>
+        <rect x="192" width="88" height="38" rx="7" fill="#fef3c7"/><text x="236" y="19" fill="#a16207" font-family="ui-monospace,monospace" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="middle">VECTOR</text>
+        <rect x="288" width="88" height="38" rx="7" fill="#f1f5f9"/><text x="332" y="19" fill="#475569" font-family="ui-monospace,monospace" font-size="10" font-weight="700" text-anchor="middle" dominant-baseline="middle">CUSTOM</text>
       </g>
-      <path class="guide" d="M0 116H398"/>
-      <text class="mono" x="0" y="138">type · flags · offset · length</text>
+      <path class="guide" d="M0 116H376"/>
+      <text class="mono" x="0" y="138">type · flags · offset · size</text>
       <text class="body" x="0" y="161">Primary selection and display hints live in the header.</text>
     </g>
   </g>

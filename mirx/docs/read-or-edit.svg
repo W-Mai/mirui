@@ -15,33 +15,25 @@
 
   <g transform="translate(40 132)">
     <rect width="150" height="96" rx="16" fill="#0f172a"/>
-    <text x="24" y="40" fill="#fff" font-family="ui-monospace,monospace" font-size="17" font-weight="700">&amp;[u8]</text>
-    <text x="24" y="64" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="12">MIRX source</text>
+    <text x="24" y="40" fill="#fff" font-family="ui-monospace,monospace" font-size="17" font-weight="700">MIRX bytes</text>
+    <text x="24" y="64" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="12">&amp;[u8] or Vec&lt;u8&gt;</text>
     <text x="24" y="82" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="12">borrowed or owned</text>
   </g>
 
-  <path class="line" d="M200 162C242 162 245 113 286 113"/>
-  <path class="line" d="M200 198C242 198 245 257 286 257"/>
+  <path class="line" d="M200 162C242 162 245 141 286 141"/>
+  <path class="line" d="M200 198C242 198 245 277 286 277"/>
 
   <g transform="translate(294 82)">
-    <rect class="card" width="238" height="118" rx="16"/>
-    <rect x="0" width="7" height="118" rx="3.5" fill="#10b981"/>
-    <text class="label" x="28" y="34">Reader::open</text>
-    <text class="body" x="28" y="60">validate · iterate · inspect</text>
-    <text class="mono green" x="28" y="86">0 heap allocations</text>
-    <text class="body" x="28" y="105">all views borrow source bytes</text>
+    <rect class="card" width="280" height="118" rx="16" data-audit-boundary="reader-path-card"/>
+    <g data-audit-contained-by="reader-path-card" data-audit-min-inset="0 16 10 16"><circle cx="28" cy="30" r="8" fill="#10b981"/><text class="label" x="48" y="35">Reader</text><text class="mono green" x="28" y="59">open · open_with</text><text class="body" x="28" y="81">validate · iterate · inspect</text><text class="body" x="28" y="103">0 heap allocations · borrowed views</text></g>
   </g>
   <g transform="translate(294 218)">
-    <rect class="card" width="238" height="118" rx="16"/>
-    <rect x="0" width="7" height="118" rx="3.5" fill="#8b5cf6"/>
-    <text class="label" x="28" y="34">Document::open</text>
-    <text class="body" x="28" y="60">query · insert · edit · reorder</text>
-    <text class="mono violet" x="28" y="86">O(chunk_count) nodes</text>
-    <text class="body" x="28" y="105">payloads remain source-backed</text>
+    <rect class="card" width="280" height="118" rx="16" data-audit-boundary="document-path-card"/>
+    <g data-audit-contained-by="document-path-card" data-audit-min-inset="0 16 10 16"><circle cx="28" cy="30" r="8" fill="#8b5cf6"/><text class="label" x="48" y="35">Document</text><text class="mono violet" x="28" y="59">open · from_vec</text><text class="body" x="28" y="81">query · insert · edit · reorder</text><text class="body" x="28" y="103">copy-on-write payload storage</text></g>
   </g>
 
-  <path class="line" d="M540 141H594"/>
-  <path class="line" d="M540 277H594"/>
+  <path class="line" d="M582 141H594" data-audit-center-y-with="reader-path-card"/>
+  <path class="line" d="M582 277H594" data-audit-center-y-with="document-path-card"/>
   <g transform="translate(602 82)">
     <rect class="card" width="318" height="118" rx="16"/>
     <text class="label" x="24" y="34">Borrowed runtime values</text>

@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MIRX SVG layout audit</title>
+  <style>
+    :root { color-scheme: light dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    body { margin: 0; background: #0b1120; color: #e2e8f0; }
+    main { width: min(1040px, calc(100% - 32px)); margin: 0 auto; padding: 32px 0 64px; }
+    h1 { margin: 0 0 8px; font: 700 24px system-ui, sans-serif; }
+    .intro { margin: 0 0 24px; color: #94a3b8; font: 14px/1.6 system-ui, sans-serif; }
+    .summary { display: flex; gap: 10px; margin-bottom: 18px; }
+    .badge { border: 1px solid #334155; border-radius: 999px; padding: 6px 10px; font-size: 12px; }
+    .pass { color: #6ee7b7; }
+    .fail { color: #fca5a5; }
+    article { margin: 18px 0; border: 1px solid #334155; border-radius: 16px; background: #111827; overflow: hidden; }
+    header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; }
+    h2 { margin: 0; font-size: 13px; }
+    .canvas { overflow: auto; border-top: 1px solid #334155; background: #020617; }
+    .canvas svg { display: block; max-width: none; }
+    ul { margin: 0; padding: 0 16px 14px 34px; color: #fca5a5; font-size: 12px; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>MIRX SVG layout audit</h1>
+    <p class="intro">Rendered geometry checks for viewport overflow, text collisions, declared edge alignment, centerlines, and minimum panel insets.</p>
+    <div class="summary" id="summary"><span class="badge">Running…</span></div>
+    <section id="results"></section>
+  </main>
+  <script type="module">
+    const files = [
+      "architecture.svg",
+      "reading-path.svg",
+      "read-or-edit.svg",
+      "container-layouts.svg",
+      "payload-families.svg",
+      "document-operations.svg",
+      "copy-on-write.svg",
+      "encode-pipeline.svg",
+    ];
+    const tolerance = 1.5;
+    const geometrySelector = "rect,circle,ellipse,line,polyline,polygon,path,text,image,use,foreignObject";
+    const box = (element) => element.getBoundingClientRect();
+    const overlaps = (a, b) => Math.min(a.right, b.right) - Math.max(a.left, b.left) > tolerance && Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top) > tolerance;
+    const describe = (element) => element.textContent?.trim().replace(/\s+/g, " ").slice(0, 48) || element.tagName;
+
+    function viewportFailures(svg) {
+      const root = box(svg);
+      return [...svg.querySelectorAll(geometrySelector)]
+        .filter((element) => !element.closest("defs") && getComputedStyle(element).display !== "none")
+        .filter((element) => {
+          const rect = box(element);
+          return rect.left < root.left - tolerance || rect.top < root.top - tolerance || rect.right > root.right + tolerance || rect.bottom > root.bottom + tolerance;
+        })
+        .map((element) => `viewport overflow: ${describe(element)}`);
+    }
+
+    function textCollisionFailures(svg) {
+      const texts = [...svg.querySelectorAll("text")].filter((element) => getComputedStyle(element).display !== "none");
+      const failures = [];
+      for (let left = 0; left < texts.length; left += 1) {
+        for (let right = left + 1; right < texts.length; right += 1) {
+          if (overlaps(box(texts[left]), box(texts[right]))) failures.push(`text collision: “${describe(texts[left])}” / “${describe(texts[right])}”`);
+        }
+      }
+      return failures;
+    }
+
+    function alignmentFailures(svg) {
+      const groups = new Map();
+      for (const element of svg.querySelectorAll("[data-audit-align]")) {
+        const name = element.dataset.auditAlign;
+        groups.set(name, [...(groups.get(name) || []), element]);
+      }
+      const failures = [];
+      for (const [name, elements] of groups) {
+        if (elements.length < 2) {
+          failures.push(`alignment ${name}: requires at least two elements`);
+          continue;
+        }
+        const reference = box(elements[0]);
+        for (const element of elements.slice(1)) {
+          const current = box(element);
+          if (Math.abs(current.left - reference.left) > tolerance || Math.abs(current.right - reference.right) > tolerance) failures.push(`alignment ${name}: left/right edges differ by more than ${tolerance}px`);
+        }
+      }
+      return failures;
+    }
+
+    function centerlineFailures(svg) {
+      const failures = [];
+      for (const element of svg.querySelectorAll("[data-audit-center-y-with]")) {
+        const name = element.dataset.auditCenterYWith;
+        const boundary = svg.querySelector(`[data-audit-boundary="${CSS.escape(name)}"]`);
+        if (!boundary) {
+          failures.push(`centerline ${name}: boundary not found`);
+          continue;
+        }
+        const target = box(boundary);
+        const current = box(element);
+        const targetCenter = (target.top + target.bottom) / 2;
+        const currentCenter = (current.top + current.bottom) / 2;
+        if (Math.abs(currentCenter - targetCenter) > tolerance) failures.push(`centerline ${name}: vertical centers differ by ${Math.abs(currentCenter - targetCenter).toFixed(1)}px`);
+      }
+      return failures;
+    }
+
+    function insetFailures(svg) {
+      const failures = [];
+      for (const element of svg.querySelectorAll("[data-audit-contained-by]")) {
+        const name = element.dataset.auditContainedBy;
+        const boundary = svg.querySelector(`[data-audit-boundary="${CSS.escape(name)}"]`);
+        if (!boundary) {
+          failures.push(`inset ${name}: boundary not found`);
+          continue;
+        }
+        const required = (element.dataset.auditMinInset || "0 0 0 0").split(/\s+/).map(Number);
+        const [top, right, bottom, left] = required.length === 4 ? required : [0, 0, 0, 0];
+        const outer = box(boundary);
+        const inner = box(element);
+        const actual = [inner.top - outer.top, outer.right - inner.right, outer.bottom - inner.bottom, inner.left - outer.left];
+        const labels = ["top", "right", "bottom", "left"];
+        actual.forEach((value, index) => {
+          if (value + tolerance < [top, right, bottom, left][index]) failures.push(`inset ${name}: ${labels[index]} is ${value.toFixed(1)}px, expected at least ${[top, right, bottom, left][index]}px`);
+        });
+      }
+      return failures;
+    }
+
+    const assetBase = new URLSearchParams(location.search).get("base") || "../docs/";
+
+    async function audit(file) {
+      const source = await fetch(`${assetBase}${file}`).then((response) => {
+        if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+        return response.text();
+      });
+      const article = document.createElement("article");
+      article.innerHTML = `<header><h2>${file}</h2><span class="badge">Checking…</span></header><div class="canvas"></div>`;
+      document.querySelector("#results").append(article);
+      article.querySelector(".canvas").innerHTML = source;
+      await document.fonts.ready;
+      const svg = article.querySelector("svg");
+      const idPrefix = file.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "");
+      const labelledBy = [];
+      for (const id of ["title", "desc"]) {
+        const label = svg.querySelector(`#${id}`);
+        if (label) {
+          label.id = `${idPrefix}-${id}`;
+          labelledBy.push(label.id);
+        }
+      }
+      svg.setAttribute("aria-labelledby", labelledBy.join(" "));
+      const failures = [...viewportFailures(svg), ...textCollisionFailures(svg), ...alignmentFailures(svg), ...centerlineFailures(svg), ...insetFailures(svg)];
+      const badge = article.querySelector(".badge");
+      badge.textContent = failures.length ? `${failures.length} failures` : "PASS";
+      badge.classList.add(failures.length ? "fail" : "pass");
+      if (failures.length) {
+        const list = document.createElement("ul");
+        list.innerHTML = failures.map((failure) => `<li>${failure}</li>`).join("");
+        article.append(list);
+      }
+      return { file, failures };
+    }
+
+    const results = [];
+    for (const file of files) {
+      try {
+        results.push(await audit(file));
+      } catch (error) {
+        results.push({ file, failures: [`load failed: ${error.message}`] });
+      }
+    }
+    const failureCount = results.reduce((total, result) => total + result.failures.length, 0);
+    document.querySelector("#summary").innerHTML = `<span class="badge ${failureCount ? "fail" : "pass"}">${failureCount ? `${failureCount} failures` : "All checks passed"}</span><span class="badge">${results.length} SVGs</span>`;
+    const report = { complete: true, failureCount, results };
+    document.documentElement.dataset.auditComplete = "true";
+    document.documentElement.dataset.auditFailureCount = String(failureCount);
+    const reportNode = document.createElement("script");
+    reportNode.id = "audit-report";
+    reportNode.type = "application/json";
+    reportNode.textContent = JSON.stringify(report);
+    document.body.append(reportNode);
+  </script>
+</body>
+</html>

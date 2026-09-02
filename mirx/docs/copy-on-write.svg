@@ -18,15 +18,15 @@
     <rect class="source" y="18" width="250" height="56" rx="10"/><text class="mono" x="16" y="51">IMAGE  · borrowed range</text>
     <rect class="source" y="82" width="250" height="56" rx="10"/><text class="mono" x="16" y="115">META   · borrowed range</text>
     <rect class="source" y="146" width="250" height="56" rx="10"/><text class="mono" x="16" y="179">FONT   · borrowed range</text>
-    <text class="small" x="0" y="226">one immutable &amp;[u8]</text>
+    <text class="small" x="0" y="226">Document::open borrows one &amp;[u8]</text>
   </g>
 
   <g transform="translate(354 106)">
     <text class="head" x="0" y="0">Document nodes</text>
-    <rect class="card" y="18" width="210" height="56" rx="10"/><circle cx="26" cy="46" r="7" fill="#0ea5e9"/><text class="mono" x="44" y="50">ChunkId(1)</text>
-    <rect class="card" y="82" width="210" height="56" rx="10"/><circle cx="26" cy="110" r="7" fill="#8b5cf6"/><text class="mono" x="44" y="114">ChunkId(2)</text>
-    <rect class="card" y="146" width="210" height="56" rx="10"/><circle cx="26" cy="174" r="7" fill="#0ea5e9"/><text class="mono" x="44" y="178">ChunkId(3)</text>
-    <text class="small" x="0" y="226">O(chunk_count) allocation</text>
+    <rect class="card" y="18" width="210" height="56" rx="10"/><circle cx="26" cy="46" r="7" fill="#0ea5e9"/><text class="mono" x="44" y="50">ChunkId(0)</text>
+    <rect class="card" y="82" width="210" height="56" rx="10"/><circle cx="26" cy="110" r="7" fill="#8b5cf6"/><text class="mono" x="44" y="114">ChunkId(1)</text>
+    <rect class="card" y="146" width="210" height="56" rx="10"/><circle cx="26" cy="174" r="7" fill="#0ea5e9"/><text class="mono" x="44" y="178">ChunkId(2)</text>
+    <text class="small" x="0" y="226">one O(chunk_count) node table</text>
   </g>
   <path class="borrow" d="M290 152H354"/><path class="borrow" d="M290 216H354"/><path class="borrow" d="M290 280H354"/>
 
@@ -37,7 +37,7 @@
     <text class="head" x="0" y="0">Transactional replacement</text>
     <rect class="owned" y="18" width="274" height="56" rx="10"/><text class="mono" x="16" y="42">1 · decode selected payload</text><text class="small" x="16" y="59">working value owns only META data</text>
     <rect class="owned" y="82" width="274" height="56" rx="10"/><text class="mono" x="16" y="106">2 · run callback + validate</text><text class="small" x="16" y="123">any error discards working state</text>
-    <rect class="ok" y="146" width="274" height="56" rx="10"/><text class="mono" x="16" y="170">3 · encode then commit</text><text class="small" x="16" y="187">node 2 swaps to owned bytes</text>
+    <rect class="ok" y="146" width="274" height="56" rx="10"/><text class="mono" x="16" y="170">3 · encode then commit</text><text class="small" x="16" y="187">node 1 swaps to owned bytes</text>
     <text class="small" x="0" y="226">IMAGE and FONT remain borrowed</text>
   </g>
 

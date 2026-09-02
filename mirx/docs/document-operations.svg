@@ -5,8 +5,8 @@
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0l10 5-10 5z" fill="#64748b"/></marker>
     <style>
       .bg{fill:#f8fafc}.card{fill:#fff;stroke:#dbe3ee;stroke-width:1.5}.doc{fill:#eff6ff;stroke:#93c5fd;stroke-width:1.5}.mut{fill:#f5f3ff;stroke:#c4b5fd;stroke-width:1.5}.line{fill:none;stroke:#64748b;stroke-width:2;marker-end:url(#arrow)}
-      .title{fill:#0f172a;font:700 20px system-ui,sans-serif}.head{fill:#0f172a;font:700 15px system-ui,sans-serif}.body{fill:#64748b;font:12px system-ui,sans-serif}.mono{fill:#334155;font:600 11px ui-monospace,monospace}.blue{fill:#1d4ed8}.violet{fill:#6d28d9}
-      @media(prefers-color-scheme:dark){.bg{fill:#0b1120}.card{fill:#111827;stroke:#334155}.doc{fill:#10203b;stroke:#2563eb}.mut{fill:#21173b;stroke:#7c3aed}.title,.head{fill:#f8fafc}.body{fill:#94a3b8}.mono{fill:#cbd5e1}.blue{fill:#60a5fa}.violet{fill:#a78bfa}}
+      .title{fill:#0f172a;font:700 20px system-ui,sans-serif}.head{fill:#0f172a;font:700 15px system-ui,sans-serif}.body{fill:#64748b;font:12px system-ui,sans-serif}.mono{fill:#334155;font:600 11px ui-monospace,monospace}.api{fill:#334155;font:600 10px ui-monospace,monospace}.blue{fill:#1d4ed8}.violet{fill:#6d28d9}
+      @media(prefers-color-scheme:dark){.bg{fill:#0b1120}.card{fill:#111827;stroke:#334155}.doc{fill:#10203b;stroke:#2563eb}.mut{fill:#21173b;stroke:#7c3aed}.title,.head{fill:#f8fafc}.body{fill:#94a3b8}.mono,.api{fill:#cbd5e1}.blue{fill:#60a5fa}.violet{fill:#a78bfa}}
     </style>
   </defs>
   <rect class="bg" width="960" height="430" rx="24"/>
@@ -14,32 +14,33 @@
   <text class="body" x="40" y="69">Collection-wide verbs stay on Document; one-chunk edits require a scoped mutable handle.</text>
 
   <g transform="translate(40 105)">
-    <rect class="doc" width="360" height="280" rx="18"/>
+    <rect class="doc" width="390" height="294" rx="18"/>
     <circle cx="34" cy="34" r="14" fill="#2563eb"/><path d="M29 27h10v14H29zM32 24h10v14" fill="none" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/>
     <text class="head" x="58" y="39">Document</text>
     <text class="body" x="24" y="72">container + ordered collection</text>
     <g transform="translate(24 94)">
-      <rect class="card" width="148" height="66" rx="10"/><text class="blue" x="14" y="23" font-family="system-ui,sans-serif" font-size="11" font-weight="700">QUERY</text><text class="mono" x="14" y="44">chunks · get</text><text class="mono" x="14" y="58">chunks_of_type</text>
-      <rect class="card" x="164" width="148" height="66" rx="10"/><text class="blue" x="178" y="23" font-family="system-ui,sans-serif" font-size="11" font-weight="700">COLLECTION</text><text class="mono" x="178" y="44">push · insert</text><text class="mono" x="178" y="58">remove · move</text>
-      <rect class="card" y="78" width="148" height="66" rx="10"/><text class="blue" x="14" y="101" font-family="system-ui,sans-serif" font-size="11" font-weight="700">PRIMARY</text><text class="mono" x="14" y="122">set · clear</text><text class="mono" x="14" y="136">display hints</text>
-      <rect class="card" x="164" y="78" width="148" height="66" rx="10"/><text class="blue" x="178" y="101" font-family="system-ui,sans-serif" font-size="11" font-weight="700">LAYOUT</text><text class="mono" x="178" y="122">promote</text><text class="mono" x="178" y="136">demote</text>
+      <rect class="card" width="163" height="72" rx="10"/><text class="blue" x="14" y="21" font-family="system-ui,sans-serif" font-size="11" font-weight="700">QUERY</text><text class="mono" x="14" y="43">chunks · get</text><text class="mono" x="14" y="58">chunks_of_type</text>
+      <rect class="card" x="179" width="163" height="72" rx="10" data-audit-boundary="collection-card"/><g data-audit-contained-by="collection-card" data-audit-min-inset="0 10 8 10"><text class="blue" x="193" y="21" font-family="system-ui,sans-serif" font-size="11" font-weight="700">COLLECTION</text><text class="api" x="193" y="38">push_* · insert_raw_*</text><text class="api" x="193" y="50">remove · move_before</text><text class="api" x="193" y="62">move_after</text></g>
+      <rect class="card" y="84" width="163" height="72" rx="10" data-audit-boundary="primary-card"/><g data-audit-contained-by="primary-card" data-audit-min-inset="0 10 8 10"><text class="blue" x="14" y="105" font-family="system-ui,sans-serif" font-size="11" font-weight="700">PRIMARY</text><text class="api" x="14" y="122">set_primary</text><text class="api" x="14" y="134">set_primary_with_hints</text><text class="api" x="14" y="146">clear_primary</text></g>
+      <rect class="card" x="179" y="84" width="163" height="72" rx="10" data-audit-boundary="layout-card"/><g data-audit-contained-by="layout-card" data-audit-min-inset="0 10 8 10"><text class="blue" x="193" y="105" font-family="system-ui,sans-serif" font-size="11" font-weight="700">LAYOUT</text><text class="api" x="193" y="127">promote_to_chunk</text><text class="api" x="193" y="142">demote_to_flat</text></g>
     </g>
-    <text class="body" x="24" y="260">Stable ChunkId values identify records for this session.</text>
+    <text class="body" x="24" y="274">Stable ChunkId values identify records for this session.</text>
   </g>
 
-  <path class="line" d="M408 214H494"/>
-  <text class="mono" x="418" y="197">get_mut(id)</text>
+  <rect x="430" y="194" width="92" height="50" fill="none" stroke="none" pointer-events="none" data-audit-boundary="handle-gap"/>
+  <g data-audit-contained-by="handle-gap" data-audit-min-inset="0 8 0 8"><text class="api" x="476" y="217" text-anchor="middle">get_mut(id)</text></g>
+  <path class="line" d="M438 235H514" data-audit-center-y-with="descriptor-card"/>
 
-  <g transform="translate(502 105)">
-    <rect class="mut" width="418" height="280" rx="18"/>
+  <g transform="translate(522 105)">
+    <rect class="mut" width="398" height="294" rx="18"/>
     <circle cx="34" cy="34" r="14" fill="#7c3aed"/><path d="M27 39l3-9 10-5 3 3-5 10-9 3zM36 28l4 4" fill="none" stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/>
     <text class="head" x="58" y="39">DocumentChunkMut</text>
     <text class="body" x="24" y="72">one resolved existing chunk</text>
     <g transform="translate(24 94)">
-      <rect class="card" width="174" height="66" rx="10"/><text class="violet" x="14" y="23" font-family="system-ui,sans-serif" font-size="11" font-weight="700">DESCRIPTOR</text><text class="mono" x="14" y="44">set_type</text><text class="mono" x="14" y="58">set_flags</text>
-      <rect class="card" x="190" width="174" height="66" rx="10"/><text class="violet" x="204" y="23" font-family="system-ui,sans-serif" font-size="11" font-weight="700">RAW PAYLOAD</text><text class="mono" x="204" y="44">set_raw_policy</text><text class="mono" x="204" y="58">replace_raw</text>
-      <rect class="card" y="78" width="364" height="66" rx="10"/><text class="violet" x="14" y="101" font-family="system-ui,sans-serif" font-size="11" font-weight="700">TYPED PAYLOAD</text><text class="mono" x="14" y="122">replace_image · edit_meta · try_edit_vector · ...</text><text class="body" x="14" y="139">decode → callback → validate → encode → commit</text>
+      <rect class="card" width="169" height="72" rx="10" data-audit-boundary="descriptor-card"/><g data-audit-contained-by="descriptor-card" data-audit-min-inset="0 10 8 10"><text class="violet" x="14" y="21" font-family="system-ui,sans-serif" font-size="11" font-weight="700">DESCRIPTOR</text><text class="mono" x="14" y="43">set_type</text><text class="mono" x="14" y="58">set_flags</text></g>
+      <rect class="card" x="185" width="169" height="72" rx="10" data-audit-boundary="raw-card"/><g data-audit-contained-by="raw-card" data-audit-min-inset="0 10 8 10"><text class="violet" x="199" y="21" font-family="system-ui,sans-serif" font-size="11" font-weight="700">RAW PAYLOAD</text><text class="mono" x="199" y="43">set_raw_policy</text><text class="mono" x="199" y="58">replace_raw</text></g>
+      <rect class="card" y="84" width="354" height="72" rx="10" data-audit-boundary="typed-card"/><g data-audit-contained-by="typed-card" data-audit-min-inset="0 10 8 10"><text class="violet" x="14" y="105" font-family="system-ui,sans-serif" font-size="11" font-weight="700">TYPED PAYLOAD</text><text class="api" x="14" y="126">replace_image · edit_meta · try_edit_vector · ...</text><text class="body" x="14" y="144">decode → callback → validate → encode → commit</text></g>
     </g>
-    <text class="body" x="24" y="260">The handle cannot accidentally reorder or remove sibling chunks.</text>
+    <text class="body" x="24" y="274">The handle cannot accidentally reorder or remove sibling chunks.</text>
   </g>
 </svg>

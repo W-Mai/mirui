@@ -16,22 +16,22 @@
 
   <g transform="translate(40 116)">
     <g>
-      <rect class="card" width="142" height="112" rx="15"/><circle class="step-blue" cx="28" cy="28" r="14"/><text class="step-blue-text" x="24" y="33" font-family="system-ui,sans-serif" font-size="14" font-weight="800">1</text>
+      <rect class="card" width="142" height="112" rx="15"/><circle class="step-blue" cx="28" cy="28" r="14"/><text class="step-blue-text" x="28" y="28" font-family="system-ui,sans-serif" font-size="14" font-weight="800" text-anchor="middle" dominant-baseline="middle">1</text>
       <text class="head" x="20" y="59">Document state</text><text class="body" x="20" y="80">borrowed + owned</text><text class="mono" x="20" y="99">ordered nodes</text>
     </g>
     <path class="line" d="M150 56H190"/>
     <g transform="translate(198)">
-      <rect class="card" width="142" height="112" rx="15"/><circle class="step-violet" cx="28" cy="28" r="14"/><text class="step-violet-text" x="24" y="33" font-family="system-ui,sans-serif" font-size="14" font-weight="800">2</text>
+      <rect class="card" width="142" height="112" rx="15"/><circle class="step-violet" cx="28" cy="28" r="14"/><text class="step-violet-text" x="28" y="28" font-family="system-ui,sans-serif" font-size="14" font-weight="800" text-anchor="middle" dominant-baseline="middle">2</text>
       <text class="head" x="20" y="59">Policy check</text><text class="body" x="20" y="80">future semantics</text><text class="mono" x="20" y="99">raw capability</text>
     </g>
     <path class="line" d="M348 56H388"/>
     <g transform="translate(396)">
-      <rect class="card" width="142" height="112" rx="15"/><circle class="step-amber" cx="28" cy="28" r="14"/><text class="step-amber-text" x="24" y="33" font-family="system-ui,sans-serif" font-size="14" font-weight="800">3</text>
+      <rect class="card" width="142" height="112" rx="15"/><circle class="step-amber" cx="28" cy="28" r="14"/><text class="step-amber-text" x="28" y="28" font-family="system-ui,sans-serif" font-size="14" font-weight="800" text-anchor="middle" dominant-baseline="middle">3</text>
       <text class="head" x="20" y="59">Layout plan</text><text class="body" x="20" y="80">exact size + offsets</text><text class="mono" x="20" y="99">alignment</text>
     </g>
     <path class="line" d="M546 56H586"/>
     <g transform="translate(594)">
-      <rect class="card" width="142" height="112" rx="15"/><circle class="step-green" cx="28" cy="28" r="14"/><text class="step-green-text" x="24" y="33" font-family="system-ui,sans-serif" font-size="14" font-weight="800">4</text>
+      <rect class="card" width="142" height="112" rx="15"/><circle class="step-green" cx="28" cy="28" r="14"/><text class="step-green-text" x="28" y="28" font-family="system-ui,sans-serif" font-size="14" font-weight="800" text-anchor="middle" dominant-baseline="middle">4</text>
       <text class="head" x="20" y="59">Single emit</text><text class="body" x="20" y="80">headers + payloads</text><text class="mono" x="20" y="99">padding + CRC</text>
     </g>
     <path class="line" d="M744 56H784"/>
@@ -41,10 +41,9 @@
     </g>
   </g>
 
-  <path class="fail" d="M507 236v37H265"/>
-  <rect class="error-card" x="104" y="258" width="160" height="42" rx="10"/>
-  <text class="error-text" x="121" y="276" font-family="system-ui,sans-serif" font-size="11" font-weight="700">ERROR · NO COMMIT</text>
-  <text class="error-text" x="121" y="291" font-family="system-ui,sans-serif" font-size="10">document state is unchanged</text>
+  <path class="fail" d="M507 236v37H325"/>
+  <rect class="error-card" x="104" y="258" width="220" height="42" rx="10" data-audit-boundary="encode-error"/>
+  <g data-audit-contained-by="encode-error" data-audit-min-inset="0 10 0 10"><text class="error-text" x="121" y="276" font-family="system-ui,sans-serif" font-size="11" font-weight="700">ERROR · OUTPUT UNCHANGED</text><text class="error-text" x="121" y="291" font-family="system-ui,sans-serif" font-size="10">caller buffer remains untouched</text></g>
   <text class="body" x="660" y="286">encode_into → caller buffer</text>
   <text class="body" x="660" y="304">encode → one exact allocation</text>
 </svg>

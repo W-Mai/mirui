@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="330" viewBox="0 0 960 330" role="img" aria-labelledby="title desc">
-  <title id="title">MIRX reading path</title>
-  <desc id="desc">A four-step reading path moves from the file model to runtime access, document editing, and checked output.</desc>
+  <title id="title">MIRX documentation path</title>
+  <desc id="desc">A four-step documentation path moves from the file model to runtime access, document editing, and checked output.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
       <path d="M0 0l10 5-10 5z" fill="#94a3b8"/>
@@ -12,8 +12,8 @@
     </style>
   </defs>
   <rect class="bg" width="960" height="330" rx="24"/>
-  <text class="title" x="40" y="46">Read MIRX in four passes</text>
-  <text class="body" x="40" y="69">Each pass answers one question and establishes the vocabulary needed by the next.</text>
+  <text class="title" x="40" y="46">Understand MIRX in four steps</text>
+  <text class="body" x="40" y="69">Each step answers one question and establishes the vocabulary needed by the next.</text>
 
   <g transform="translate(40 108)">
     <g>
@@ -46,7 +46,7 @@
       <circle cx="30" cy="30" r="15" fill="#fef3c7"/><text class="mono" x="30" y="30" fill="#d97706" text-anchor="middle" dominant-baseline="middle">04</text>
       <text class="step" x="22" y="69">Checked output</text>
       <text class="body" x="22" y="93">What makes writes safe?</text>
-      <text x="83" y="124" fill="#a16207" font-family="ui-monospace,monospace" font-size="11" font-weight="650" text-anchor="middle">plan · emit · verify</text>
+      <text x="83" y="124" fill="#a16207" font-family="ui-monospace,monospace" font-size="11" font-weight="650" text-anchor="middle">validate · plan · emit</text>
     </g>
   </g>
 

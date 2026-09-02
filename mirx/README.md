@@ -8,7 +8,7 @@ The crate is `no_std + alloc`, has no external dependencies, and separates the a
 
 ## Reading path
 
-![Four-step MIRX reading path from the file model to checked output](docs/reading-path.svg)
+![Four-step MIRX documentation path from the file model to checked output](docs/reading-path.svg)
 
 **Jump to:** [container model](#container-model) · [runtime reading](#runtime-reading) · [document authoring](#authoring-a-document) · [copy-on-write editing](#copy-on-write-editing) · [checked encoding](#checked-encoding) · [command-line workflow](#command-line-workflow)
 
@@ -27,8 +27,8 @@ The crate is `no_std + alloc`, has no external dependencies, and separates the a
 | Goal | Entry point | Allocation model | Result |
 | --- | --- | --- | --- |
 | Inspect or render | `Reader::open` | Zero allocation | Borrowed container and payload views |
-| Validate untrusted input | `Reader::open_with` | Zero allocation | Bounded structural and typed validation |
-| Modify an existing file | `Document::open` | One CHUNK node table | Source-backed, copy-on-write document |
+| Validate untrusted input | `Reader::open_with` + `validate_known_payloads` | Zero allocation | Bounded structural and typed validation |
+| Modify an existing file | `Document::open` / `from_vec` | CHUNK: one node table | Source-backed, copy-on-write document |
 | Build a new file | `Document::new` / `new_flat` | Owned authoring state | Checked FLAT or CHUNK output |
 
 `Reader` and `Document` enforce the same wire rules. The distinction is intent: runtime code reads; tools and build pipelines author.
@@ -39,11 +39,11 @@ The crate is `no_std + alloc`, has no external dependencies, and separates the a
 
 ### FLAT
 
-FLAT stores exactly one image. Its header carries format, dimensions, stride, and plane lengths, followed by the main image plane and an optional palette or alpha plane. It is the smallest representation for a standalone image.
+FLAT stores exactly one image. Its header carries format, dimensions, and stride; the plane lengths are derived from that geometry. The main image plane follows the header, with an inline palette or alpha plane when required by the format. It is the smallest representation for a standalone image.
 
 ### CHUNK
 
-CHUNK stores an ordered descriptor table followed by aligned payloads. Each descriptor carries a type, flags, offset, and length. A header-level primary selection can expose display hints without decoding every payload.
+Canonical CHUNK output stores an ordered descriptor table followed by aligned payload ranges. Each descriptor carries a type, flags, offset, and size. The reader also accepts valid relocated tables and payload ranges. A header-level primary selection can expose display hints without decoding every payload.
 
 The six standard payload types are `IMAGE`, `FONT`, `VECTOR`, `META`, `PALETTE`, and `FRAMES`. `ChunkType` also represents every nonzero custom `u16`, allowing unknown payloads to be inspected and preserved.
 
@@ -170,7 +170,7 @@ Chunk IDs remain stable across insert, remove, and reorder operations within a d
 
 ![Untouched payloads remain borrowed while one edited payload is materialized and replaced transactionally](docs/copy-on-write.svg)
 
-Opening a CHUNK document allocates one `O(chunk_count)` node table. Payload bytes stay in the source buffer until an operation needs ownership. Typed edits decode only the selected payload, run the callback on a working value, validate and encode its replacement, then commit the change. Any failure leaves the document unchanged.
+Opening a CHUNK document allocates one node table with `O(chunk_count)` entries. Payload bytes stay in the source buffer until an operation needs ownership. Typed edits decode only the selected payload, run the callback on a working value, validate and encode its replacement, then commit the change. Any failure leaves the document unchanged.
 
 ```rust,no_run
 use mirx::{ChunkType, Document, MetaEntry};
@@ -208,7 +208,7 @@ document
 
 Typed `push_*` methods use `ChunkFlags::NONE`. Their `push_*_with_flags(value, flags)` counterparts retain explicit descriptor control.
 
-`Meta`, `Palette`, `FramesAsset`, and `Scene` use conventional ordered collection vocabulary: `push`, `insert`, `replace`, and `remove` where the operation is supported. Palette colors and frame records can also be reordered.
+`Meta` and `Palette` use `push`, `insert`, `replace`, and `remove`. `FramesAsset` exposes the corresponding `push_frame`, `insert_frame`, `replace_frame`, `remove_frame`, and `move_frame` methods; `Scene::push` appends an operation.
 
 ## Composing typed values
 
