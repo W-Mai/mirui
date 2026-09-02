@@ -10,12 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **MIRX `Reader` and `Document` APIs.** `Reader` provides strict, zero-allocation FLAT/CHUNK inspection, lazy chunk iteration, primary resolution, compliance findings, and bounded known-payload validation. `Document` provides source-backed copy-on-write editing with stable session-local chunk identities, ordered insert/remove/reorder operations, primary selection, raw capability policies, deterministic encoding, and byte-identical no-op finish.
-- **Typed MIRX payload operations.** IMAGE, FONT, VECTOR, META, PALETTE, and FRAMES support checked add and replace operations. FONT, VECTOR, META, PALETTE, and FRAMES also provide transactional callback editing. Borrowed IMAGE, META, PALETTE, and FRAMES views keep runtime inspection allocation-free.
+- **`DocumentChunkMut` for existing chunk edits.** `Document::get_mut` returns an exclusive handle for descriptor, raw payload, typed replacement, and transactional callback edits while keeping collection changes on `Document`.
+- **Typed MIRX payload operations.** IMAGE, FONT, VECTOR, META, PALETTE, and FRAMES provide checked construction, append, and replacement. FONT, VECTOR, META, PALETTE, and FRAMES also provide transactional callback editing. Borrowed IMAGE, META, PALETTE, and FRAMES views keep runtime inspection allocation-free.
 - **Guarded `cargo xtask mirx` commands.** `inspect`, `validate`, `extract`, `insert`, `replace`, `remove`, `move`, `set-primary`, and `clear-primary` cover host-side container inspection and raw editing. Optional type and CRC guards protect index-based scripts; file replacement uses a flushed sibling temporary and atomic rename.
 
 ### Changed
 
 - **`ColorFormat` exposes canonical pixel-layout helpers.** `bits_per_pixel()` defines main-plane pixel depth, and `minimum_stride(width)` derives the smallest valid byte stride from it for byte-aligned and packed formats.
+- **MIRX authoring APIs use compact Rust naming and fluent configuration.** Empty CHUNK documents use `Document::new` or `Default`; raw inputs and policies use `new(...).with_*`; typed append defaults to empty flags with explicit `push_*_with_flags` variants; allocating FONT and VECTOR access uses `decode_font` and `decode_vector`; ordered payload collections use `push`, `replace`, and `remove` vocabulary.
 
 ## [0.42.0] - 2026-07-12
 
