@@ -1,0 +1,50 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-labelledby="title desc">
+  <title id="title">MIRX checked encoding pipeline</title>
+  <desc id="desc">A document passes policy validation, exact layout planning, and representability checks before one deterministic emit pass. Failure produces no partial output.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0l10 5-10 5z" fill="#64748b"/></marker>
+    <style>
+      .bg{fill:#f8fafc}.card{fill:#fff;stroke:#dbe3ee;stroke-width:1.5}.line{fill:none;stroke:#64748b;stroke-width:2;marker-end:url(#arrow)}.fail{fill:none;stroke:#ef4444;stroke-width:1.7;stroke-dasharray:5 4;marker-end:url(#arrow)}
+      .step-blue{fill:#e0f2fe}.step-blue-text{fill:#0369a1}.step-violet{fill:#ede9fe}.step-violet-text{fill:#6d28d9}.step-amber{fill:#fef3c7}.step-amber-text{fill:#a16207}.step-green{fill:#d1fae5}.step-green-text{fill:#047857}.error-card{fill:#fee2e2;stroke:#fca5a5}.error-text{fill:#b91c1c}
+      .title{fill:#0f172a;font:700 20px system-ui,sans-serif}.head{fill:#0f172a;font:700 13px system-ui,sans-serif}.body{fill:#64748b;font:11px system-ui,sans-serif}.mono{fill:#334155;font:600 10px ui-monospace,monospace}
+      @media(prefers-color-scheme:dark){.bg{fill:#0b1120}.card{fill:#111827;stroke:#334155}.title,.head{fill:#f8fafc}.body{fill:#94a3b8}.mono{fill:#cbd5e1}.step-blue{fill:#0c4a6e}.step-blue-text{fill:#bae6fd}.step-violet{fill:#4c1d95}.step-violet-text{fill:#ddd6fe}.step-amber{fill:#78350f}.step-amber-text{fill:#fde68a}.step-green{fill:#064e3b}.step-green-text{fill:#a7f3d0}.error-card{fill:#450a0a;stroke:#991b1b}.error-text{fill:#fecaca}}
+    </style>
+  </defs>
+  <rect class="bg" width="960" height="360" rx="24"/>
+  <text class="title" x="40" y="46">Validate and plan before touching output</text>
+  <text class="body" x="40" y="69">Every checked write uses the same sequence; no partial document is observable.</text>
+
+  <g transform="translate(40 116)">
+    <g>
+      <rect class="card" width="142" height="112" rx="15"/><circle class="step-blue" cx="28" cy="28" r="14"/><text class="step-blue-text" x="24" y="33" font-family="system-ui,sans-serif" font-size="14" font-weight="800">1</text>
+      <text class="head" x="20" y="59">Document state</text><text class="body" x="20" y="80">borrowed + owned</text><text class="mono" x="20" y="99">ordered nodes</text>
+    </g>
+    <path class="line" d="M150 56H190"/>
+    <g transform="translate(198)">
+      <rect class="card" width="142" height="112" rx="15"/><circle class="step-violet" cx="28" cy="28" r="14"/><text class="step-violet-text" x="24" y="33" font-family="system-ui,sans-serif" font-size="14" font-weight="800">2</text>
+      <text class="head" x="20" y="59">Policy check</text><text class="body" x="20" y="80">future semantics</text><text class="mono" x="20" y="99">raw capability</text>
+    </g>
+    <path class="line" d="M348 56H388"/>
+    <g transform="translate(396)">
+      <rect class="card" width="142" height="112" rx="15"/><circle class="step-amber" cx="28" cy="28" r="14"/><text class="step-amber-text" x="24" y="33" font-family="system-ui,sans-serif" font-size="14" font-weight="800">3</text>
+      <text class="head" x="20" y="59">Layout plan</text><text class="body" x="20" y="80">exact size + offsets</text><text class="mono" x="20" y="99">alignment</text>
+    </g>
+    <path class="line" d="M546 56H586"/>
+    <g transform="translate(594)">
+      <rect class="card" width="142" height="112" rx="15"/><circle class="step-green" cx="28" cy="28" r="14"/><text class="step-green-text" x="24" y="33" font-family="system-ui,sans-serif" font-size="14" font-weight="800">4</text>
+      <text class="head" x="20" y="59">Single emit</text><text class="body" x="20" y="80">headers + payloads</text><text class="mono" x="20" y="99">padding + CRC</text>
+    </g>
+    <path class="line" d="M744 56H784"/>
+    <g transform="translate(792)">
+      <rect width="88" height="112" rx="15" fill="#0f172a"/><path d="M27 28h34v48H27zM34 37h20M34 46h20M34 55h13" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>
+      <text x="22" y="96" fill="#fff" font-family="ui-monospace,monospace" font-size="10" font-weight="700">MIRX</text>
+    </g>
+  </g>
+
+  <path class="fail" d="M507 236v37H265"/>
+  <rect class="error-card" x="104" y="258" width="160" height="42" rx="10"/>
+  <text class="error-text" x="121" y="276" font-family="system-ui,sans-serif" font-size="11" font-weight="700">ERROR · NO COMMIT</text>
+  <text class="error-text" x="121" y="291" font-family="system-ui,sans-serif" font-size="10">document state is unchanged</text>
+  <text class="body" x="660" y="286">encode_into → caller buffer</text>
+  <text class="body" x="660" y="304">encode → one exact allocation</text>
+</svg>

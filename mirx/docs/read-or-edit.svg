@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" role="img" aria-labelledby="title desc">
+  <title id="title">Reading and editing paths</title>
+  <desc id="desc">MIRX bytes can be opened by Reader for zero-allocation borrowed access or by Document for copy-on-write edits and checked output.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0l10 5-10 5z" fill="#64748b"/></marker>
+    <style>
+      .bg{fill:#f8fafc}.card{fill:#fff;stroke:#dbe2ee;stroke-width:1.5}.line{fill:none;stroke:#64748b;stroke-width:2;marker-end:url(#arrow)}
+      .title{fill:#0f172a;font:700 20px system-ui,sans-serif}.label{fill:#0f172a;font:650 15px system-ui,sans-serif}.body{fill:#64748b;font:12px system-ui,sans-serif}.mono{fill:#334155;font:600 12px ui-monospace,monospace}.green{fill:#059669}.violet{fill:#7c3aed}
+      @media(prefers-color-scheme:dark){.bg{fill:#0b1120}.card{fill:#111827;stroke:#334155}.title,.label{fill:#f8fafc}.body{fill:#94a3b8}.mono{fill:#cbd5e1}}
+    </style>
+  </defs>
+  <rect class="bg" width="960" height="360" rx="24"/>
+  <text class="title" x="40" y="46">Choose by intent</text>
+  <text class="body" x="40" y="69">Both paths enforce the same format rules; only ownership and operations differ.</text>
+
+  <g transform="translate(40 132)">
+    <rect width="150" height="96" rx="16" fill="#0f172a"/>
+    <text x="24" y="40" fill="#fff" font-family="ui-monospace,monospace" font-size="17" font-weight="700">&amp;[u8]</text>
+    <text x="24" y="64" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="12">MIRX source</text>
+    <text x="24" y="82" fill="#94a3b8" font-family="system-ui,sans-serif" font-size="12">borrowed or owned</text>
+  </g>
+
+  <path class="line" d="M200 162C242 162 245 113 286 113"/>
+  <path class="line" d="M200 198C242 198 245 257 286 257"/>
+
+  <g transform="translate(294 82)">
+    <rect class="card" width="238" height="118" rx="16"/>
+    <rect x="0" width="7" height="118" rx="3.5" fill="#10b981"/>
+    <text class="label" x="28" y="34">Reader::open</text>
+    <text class="body" x="28" y="60">validate · iterate · inspect</text>
+    <text class="mono green" x="28" y="86">0 heap allocations</text>
+    <text class="body" x="28" y="105">all views borrow source bytes</text>
+  </g>
+  <g transform="translate(294 218)">
+    <rect class="card" width="238" height="118" rx="16"/>
+    <rect x="0" width="7" height="118" rx="3.5" fill="#8b5cf6"/>
+    <text class="label" x="28" y="34">Document::open</text>
+    <text class="body" x="28" y="60">query · insert · edit · reorder</text>
+    <text class="mono violet" x="28" y="86">O(chunk_count) nodes</text>
+    <text class="body" x="28" y="105">payloads remain source-backed</text>
+  </g>
+
+  <path class="line" d="M540 141H594"/>
+  <path class="line" d="M540 277H594"/>
+  <g transform="translate(602 82)">
+    <rect class="card" width="318" height="118" rx="16"/>
+    <text class="label" x="24" y="34">Borrowed runtime values</text>
+    <g transform="translate(24 54)">
+      <rect width="64" height="30" rx="8" fill="#d1fae5"/><text x="32" y="15" fill="#047857" font-family="ui-monospace,monospace" font-size="10" text-anchor="middle" dominant-baseline="middle">ChunkRef</text>
+      <rect x="72" width="74" height="30" rx="8" fill="#d1fae5"/><text x="109" y="15" fill="#047857" font-family="ui-monospace,monospace" font-size="10" text-anchor="middle" dominant-baseline="middle">ImageView</text>
+      <rect x="154" width="68" height="30" rx="8" fill="#d1fae5"/><text x="188" y="15" fill="#047857" font-family="ui-monospace,monospace" font-size="10" text-anchor="middle" dominant-baseline="middle">MetaView</text>
+      <rect x="230" width="40" height="30" rx="8" fill="#d1fae5"/><text x="250" y="15" fill="#047857" font-family="ui-monospace,monospace" font-size="11" text-anchor="middle" dominant-baseline="middle">…</text>
+    </g>
+    <text class="body" x="24" y="103">ready for rendering or inspection</text>
+  </g>
+  <g transform="translate(602 218)">
+    <rect class="card" width="318" height="118" rx="16"/>
+    <text class="label" x="24" y="34">Checked authored bytes</text>
+    <g transform="translate(23 54)">
+      <rect width="76" height="30" rx="8" fill="#ede9fe"/><text x="38" y="15" fill="#6d28d9" font-family="ui-monospace,monospace" font-size="10" text-anchor="middle" dominant-baseline="middle">finish()</text>
+      <rect x="86" width="96" height="30" rx="8" fill="#ede9fe"/><text x="134" y="15" fill="#6d28d9" font-family="ui-monospace,monospace" font-size="10" text-anchor="middle" dominant-baseline="middle">encode_into</text>
+      <rect x="192" width="80" height="30" rx="8" fill="#ede9fe"/><text x="232" y="15" fill="#6d28d9" font-family="ui-monospace,monospace" font-size="10" text-anchor="middle" dominant-baseline="middle">encode()</text>
+    </g>
+    <text class="body" x="24" y="103">atomic edits · deterministic output</text>
+  </g>
+</svg>

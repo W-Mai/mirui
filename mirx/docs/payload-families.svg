@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="430" viewBox="0 0 960 430" role="img" aria-labelledby="title desc">
+  <title id="title">MIRX payload families</title>
+  <desc id="desc">Six cards show the IMAGE, FONT, VECTOR, META, PALETTE, and FRAMES payload families with their borrowed or decoded access models.</desc>
+  <defs>
+    <style>
+      .bg{fill:#f8fafc}.card{fill:#fff;stroke:#dbe3ee;stroke-width:1.5}.title{fill:#0f172a;font:700 20px system-ui,sans-serif}.head{fill:#0f172a;font:700 14px ui-monospace,monospace}.body{fill:#64748b;font:12px system-ui,sans-serif}.tag{font:650 10px system-ui,sans-serif}.icon{fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+      @media(prefers-color-scheme:dark){.bg{fill:#0b1120}.card{fill:#111827;stroke:#334155}.title,.head{fill:#f8fafc}.body{fill:#94a3b8}}
+    </style>
+  </defs>
+  <rect class="bg" width="960" height="430" rx="24"/>
+  <text class="title" x="40" y="46">Six standard payloads, one open type space</text>
+  <text class="body" x="40" y="69">Known types receive checked views and editors; every nonzero custom type remains representable.</text>
+
+  <g transform="translate(50 102)">
+    <g>
+      <rect class="card" width="274" height="126" rx="16"/>
+      <circle cx="36" cy="34" r="17" fill="#e0f2fe"/><rect x="27" y="27" width="18" height="14" rx="2" class="icon" stroke="#0284c7"/><path d="M28 39l5-5 4 3 3-3 5 5" class="icon" stroke="#0284c7"/>
+      <text class="head" x="64" y="39">IMAGE</text><text class="body" x="24" y="72">pixels · dimensions · row stride</text><text class="body" x="24" y="92">optional inline palette / alpha</text>
+      <rect x="184" y="100" width="66" height="20" rx="10" fill="#e0f2fe"/><text class="tag" x="217" y="110" fill="#0369a1" text-anchor="middle" dominant-baseline="middle">borrowed</text>
+    </g>
+    <g transform="translate(293)">
+      <rect class="card" width="274" height="126" rx="16"/>
+      <circle cx="36" cy="34" r="17" fill="#d1fae5"/><path d="M27 42l7-18h4l7 18M30 35h12" class="icon" stroke="#059669"/>
+      <text class="head" x="64" y="39">FONT</text><text class="body" x="24" y="72">glyph metrics · atlas data</text><text class="body" x="24" y="92">bounded preflight before decode</text>
+      <rect x="188" y="100" width="62" height="20" rx="10" fill="#d1fae5"/><text class="tag" x="219" y="110" fill="#047857" text-anchor="middle" dominant-baseline="middle">decoded</text>
+    </g>
+    <g transform="translate(586)">
+      <rect class="card" width="274" height="126" rx="16"/>
+      <circle cx="36" cy="34" r="17" fill="#fef3c7"/><path d="M27 42c2-11 5-16 10-16 6 0 3 12 10 7M27 42h20" class="icon" stroke="#d97706"/>
+      <text class="head" x="64" y="39">VECTOR</text><text class="body" x="24" y="72">ordered scene operations</text><text class="body" x="24" y="92">bounded preflight before decode</text>
+      <rect x="188" y="100" width="62" height="20" rx="10" fill="#fef3c7"/><text class="tag" x="219" y="110" fill="#a16207" text-anchor="middle" dominant-baseline="middle">decoded</text>
+    </g>
+
+    <g transform="translate(0 146)">
+      <rect class="card" width="274" height="126" rx="16"/>
+      <circle cx="36" cy="34" r="17" fill="#ede9fe"/><path d="M27 27h18M27 34h12M27 41h16" class="icon" stroke="#7c3aed"/>
+      <text class="head" x="64" y="39">META</text><text class="body" x="24" y="72">ordered text · bytes · extensions</text><text class="body" x="24" y="92">duplicate keys remain meaningful</text>
+      <rect x="184" y="100" width="66" height="20" rx="10" fill="#ede9fe"/><text class="tag" x="217" y="110" fill="#6d28d9" text-anchor="middle" dominant-baseline="middle">borrowed</text>
+    </g>
+    <g transform="translate(293 146)">
+      <rect class="card" width="274" height="126" rx="16"/>
+      <circle cx="36" cy="34" r="17" fill="#fce7f3"/><circle cx="30" cy="31" r="5" fill="#ef4444"/><circle cx="40" cy="31" r="5" fill="#22c55e"/><circle cx="35" cy="40" r="5" fill="#3b82f6"/>
+      <text class="head" x="64" y="39">PALETTE</text><text class="body" x="24" y="72">ordered RGBA colors</text><text class="body" x="24" y="92">standalone reusable swatches</text>
+      <rect x="184" y="100" width="66" height="20" rx="10" fill="#fce7f3"/><text class="tag" x="217" y="110" fill="#be185d" text-anchor="middle" dominant-baseline="middle">borrowed</text>
+    </g>
+    <g transform="translate(586 146)">
+      <rect class="card" width="274" height="126" rx="16"/>
+      <circle cx="36" cy="34" r="17" fill="#ccfbf1"/><rect x="27" y="27" width="12" height="12" rx="2" class="icon" stroke="#0f766e"/><rect x="34" y="34" width="12" height="12" rx="2" class="icon" stroke="#0f766e"/>
+      <text class="head" x="64" y="39">FRAMES</text><text class="body" x="24" y="72">atlas regions or animation timing</text><text class="body" x="24" y="92">partitioned copy-on-write storage</text>
+      <rect x="184" y="100" width="66" height="20" rx="10" fill="#ccfbf1"/><text class="tag" x="217" y="110" fill="#0f766e" text-anchor="middle" dominant-baseline="middle">borrowed</text>
+    </g>
+  </g>
+</svg>

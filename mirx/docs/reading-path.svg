@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="330" viewBox="0 0 960 330" role="img" aria-labelledby="title desc">
+  <title id="title">MIRX reading path</title>
+  <desc id="desc">A four-step reading path moves from the file model to runtime access, document editing, and checked output.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0l10 5-10 5z" fill="#94a3b8"/>
+    </marker>
+    <style>
+      .bg{fill:#f8fafc}.card{fill:#fff;stroke:#dbe3ee;stroke-width:1.5}.line{fill:none;stroke:#94a3b8;stroke-width:2;marker-end:url(#arrow)}
+      .title{fill:#0f172a;font:700 20px system-ui,sans-serif}.step{fill:#0f172a;font:700 14px system-ui,sans-serif}.body{fill:#64748b;font:12px system-ui,sans-serif}.mono{font:700 10px ui-monospace,monospace;letter-spacing:.6px}.hint{fill:#94a3b8;font:10px system-ui,sans-serif}
+      @media(prefers-color-scheme:dark){.bg{fill:#0b1120}.card{fill:#111827;stroke:#334155}.title,.step{fill:#f8fafc}.body{fill:#94a3b8}.hint{fill:#64748b}.line{stroke:#475569}}
+    </style>
+  </defs>
+  <rect class="bg" width="960" height="330" rx="24"/>
+  <text class="title" x="40" y="46">Read MIRX in four passes</text>
+  <text class="body" x="40" y="69">Each pass answers one question and establishes the vocabulary needed by the next.</text>
+
+  <g transform="translate(40 108)">
+    <g>
+      <rect class="card" width="190" height="154" rx="16"/>
+      <circle cx="30" cy="30" r="15" fill="#dbeafe"/><text class="mono" x="30" y="30" fill="#2563eb" text-anchor="middle" dominant-baseline="middle">01</text>
+      <text class="step" x="22" y="69">File model</text>
+      <text class="body" x="22" y="93">What lives in the bytes?</text>
+      <rect x="28" y="112" width="58" height="22" rx="11" fill="#eff6ff"/><text x="57" y="123" fill="#1d4ed8" font-family="ui-monospace,monospace" font-size="10" font-weight="650" text-anchor="middle" dominant-baseline="middle">FLAT</text>
+      <rect x="94" y="112" width="68" height="22" rx="11" fill="#f5f3ff"/><text x="128" y="123" fill="#6d28d9" font-family="ui-monospace,monospace" font-size="10" font-weight="650" text-anchor="middle" dominant-baseline="middle">CHUNK</text>
+    </g>
+    <path class="line" d="M198 77H230"/>
+    <g transform="translate(238)">
+      <rect class="card" width="190" height="154" rx="16"/>
+      <circle cx="30" cy="30" r="15" fill="#d1fae5"/><text class="mono" x="30" y="30" fill="#059669" text-anchor="middle" dominant-baseline="middle">02</text>
+      <text class="step" x="22" y="69">Runtime access</text>
+      <text class="body" x="22" y="93">How are bytes inspected?</text>
+      <text x="95" y="124" fill="#047857" font-family="ui-monospace,monospace" font-size="11" font-weight="650" text-anchor="middle">Reader · borrowed views</text>
+    </g>
+    <path class="line" d="M436 77H468"/>
+    <g transform="translate(476)">
+      <rect class="card" width="190" height="154" rx="16"/>
+      <circle cx="30" cy="30" r="15" fill="#ede9fe"/><text class="mono" x="30" y="30" fill="#7c3aed" text-anchor="middle" dominant-baseline="middle">03</text>
+      <text class="step" x="22" y="69">Document edits</text>
+      <text class="body" x="22" y="93">Who owns each operation?</text>
+      <text x="95" y="124" fill="#6d28d9" font-family="ui-monospace,monospace" font-size="11" font-weight="650" text-anchor="middle">COW · typed + raw</text>
+    </g>
+    <path class="line" d="M674 77H706"/>
+    <g transform="translate(714)">
+      <rect class="card" width="166" height="154" rx="16"/>
+      <circle cx="30" cy="30" r="15" fill="#fef3c7"/><text class="mono" x="30" y="30" fill="#d97706" text-anchor="middle" dominant-baseline="middle">04</text>
+      <text class="step" x="22" y="69">Checked output</text>
+      <text class="body" x="22" y="93">What makes writes safe?</text>
+      <text x="83" y="124" fill="#a16207" font-family="ui-monospace,monospace" font-size="11" font-weight="650" text-anchor="middle">plan · emit · verify</text>
+    </g>
+  </g>
+
+  <text class="hint" x="40" y="294">START HERE</text>
+  <path d="M105 291H890" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="4 5"/>
+  <text class="hint" x="899" y="294">USE</text>
+</svg>
