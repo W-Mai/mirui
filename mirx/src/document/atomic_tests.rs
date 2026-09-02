@@ -136,7 +136,7 @@ fn raw<'a>(
 }
 
 fn id(counter: u32) -> ChunkId {
-    ChunkId::from_session_counter(counter)
+    ChunkId::new(counter)
 }
 
 fn origin_snapshot(origin: &Origin<'_>) -> OriginSnapshot {
@@ -315,7 +315,7 @@ fn promoted_snapshot_includes_the_tag_and_complete_plane_sidecar() {
         extra: None,
     });
     let mut document = Document::open(&source).unwrap();
-    let image_id = document.ensure_chunk_layout().unwrap().unwrap();
+    let image_id = document.promote_to_chunk().unwrap().unwrap();
 
     let snapshot = snapshot(&document);
     let StateSnapshot::Chunk {
@@ -360,7 +360,7 @@ fn promoted_mutation_failures_preserve_the_complete_snapshot() {
     });
     let second_payload = image_payload(2, 2);
     let mut document = Document::open(&source).unwrap();
-    let promoted = document.ensure_chunk_layout().unwrap().unwrap();
+    let promoted = document.promote_to_chunk().unwrap().unwrap();
     let second = document
         .push_raw(raw(
             ChunkType::IMAGE,
@@ -915,10 +915,10 @@ fn payload_backed_flat_failures_preserve_backing_and_plane_ranges() {
         ))
         .unwrap();
     document.set_primary(image).unwrap();
-    document.try_demote_to_flat().unwrap();
+    document.demote_to_flat().unwrap();
     let before = snapshot(&document);
 
-    let result = document.ensure_chunk_layout_with(|_, _| Err(EditError::AllocationFailed));
+    let result = document.promote_to_chunk_with(|_, _| Err(EditError::AllocationFailed));
     assert_atomic_error(&document, &before, result, EditError::AllocationFailed);
 
     let result = document.replace_flat_image(ImageAsset::new(

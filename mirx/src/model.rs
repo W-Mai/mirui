@@ -74,7 +74,7 @@ impl ChunkFlags {
 pub struct ChunkId(u32);
 
 impl ChunkId {
-    pub(crate) const fn from_session_counter(value: u32) -> Self {
+    pub(crate) const fn new(value: u32) -> Self {
         Self(value)
     }
 }

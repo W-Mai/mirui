@@ -124,7 +124,7 @@ impl ChunkIdPlan {
             return None;
         }
         match self.first_counter.checked_add(offset) {
-            Some(counter) => Some(ChunkId::from_session_counter(counter)),
+            Some(counter) => Some(ChunkId::new(counter)),
             None => None,
         }
     }
@@ -169,7 +169,7 @@ impl<'a> Document<'a> {
     /// Appends one encoded chunk without copying its payload bytes.
     ///
     /// A FLAT document is promoted atomically before the append. The returned
-    /// identity belongs to the appended node; use [`Document::ensure_chunk_layout`]
+    /// identity belongs to the appended node; use [`Document::promote_to_chunk`]
     /// when the promoted IMAGE identity is also needed.
     pub fn push_raw(&mut self, input: RawChunkInput<'a>) -> Result<ChunkId, EditError> {
         self.insert_raw_at(InsertPosition::End, input)
@@ -752,22 +752,13 @@ mod tests {
         assert_eq!(empty.following_counter(), u32::MAX);
 
         let last = plan_chunk_ids(u32::MAX - 1, 1).unwrap();
-        assert_eq!(
-            last.id(0),
-            Some(ChunkId::from_session_counter(u32::MAX - 1))
-        );
+        assert_eq!(last.id(0), Some(ChunkId::new(u32::MAX - 1)));
         assert_eq!(last.id(1), None);
         assert_eq!(last.following_counter(), u32::MAX);
 
         let pair = plan_chunk_ids(u32::MAX - 2, 2).unwrap();
-        assert_eq!(
-            pair.id(0),
-            Some(ChunkId::from_session_counter(u32::MAX - 2))
-        );
-        assert_eq!(
-            pair.id(1),
-            Some(ChunkId::from_session_counter(u32::MAX - 1))
-        );
+        assert_eq!(pair.id(0), Some(ChunkId::new(u32::MAX - 2)));
+        assert_eq!(pair.id(1), Some(ChunkId::new(u32::MAX - 1)));
         assert_eq!(pair.id(2), None);
         assert_eq!(pair.following_counter(), u32::MAX);
 
@@ -973,8 +964,8 @@ mod tests {
                 assumed_policy(),
             ))
             .unwrap();
-        assert_eq!(first, ChunkId::from_session_counter(2));
-        assert_eq!(second, ChunkId::from_session_counter(3));
+        assert_eq!(first, ChunkId::new(2));
+        assert_eq!(second, ChunkId::new(3));
         assert!(opened.is_dirty());
         assert_eq!(opened.next_id, 4);
 
@@ -987,7 +978,7 @@ mod tests {
                 assumed_policy(),
             ))
             .unwrap();
-        assert_eq!(id, ChunkId::from_session_counter(0));
+        assert_eq!(id, ChunkId::new(0));
         assert!(new.is_dirty());
         assert_eq!(new.get(id).unwrap().payload_bytes(), Some(b"".as_slice()));
     }
@@ -1485,7 +1476,7 @@ mod tests {
                 assumed_policy(),
             ))
             .unwrap();
-        assert_eq!(new_id, ChunkId::from_session_counter(original_next));
+        assert_eq!(new_id, ChunkId::new(original_next));
         assert_eq!(ids(&document), [original_ids[2], new_id]);
     }
 
@@ -1566,7 +1557,7 @@ mod tests {
             extra: None,
         });
         let mut flat = Document::open(&flat_source).unwrap();
-        let invalid = ChunkId::from_session_counter(99);
+        let invalid = ChunkId::new(99);
         assert_eq!(
             flat.replace_raw(
                 invalid,
@@ -1686,8 +1677,8 @@ mod tests {
                 assumed_policy(),
             ))
             .unwrap();
-        assert_eq!(appended, ChunkId::from_session_counter(1));
-        assert_eq!(ids(&flat), [ChunkId::from_session_counter(0), appended]);
+        assert_eq!(appended, ChunkId::new(1));
+        assert_eq!(ids(&flat), [ChunkId::new(0), appended]);
         assert!(flat.is_dirty());
 
         let mut document = Document::new_chunk();
@@ -1702,7 +1693,7 @@ mod tests {
         document.dirty = false;
         let before_ids = ids(&document);
         let before_next = document.next_id;
-        let invalid = ChunkId::from_session_counter(99);
+        let invalid = ChunkId::new(99);
         assert_eq!(
             document.insert_before(
                 invalid,

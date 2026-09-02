@@ -183,7 +183,7 @@ mod tests {
     };
 
     fn id(counter: u32) -> ChunkId {
-        ChunkId::from_session_counter(counter)
+        ChunkId::new(counter)
     }
 
     fn font(kind: FontChunkKind, bit_depth: u8) -> Font {
@@ -299,7 +299,7 @@ mod tests {
                     PayloadOrigin::OWNED
                 );
 
-                let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+                let encoded = document.encode(&EncodeOptions::new()).unwrap();
                 let reopened = Document::open(&encoded).unwrap();
                 let reopened_id = reopened.chunks().next().unwrap().id();
                 assert_eq!(reopened.font(reopened_id).unwrap(), expected);
@@ -756,7 +756,7 @@ mod tests {
             None,
         ))
         .unwrap();
-        let promoted = document.ensure_chunk_layout().unwrap().unwrap();
+        let promoted = document.promote_to_chunk().unwrap().unwrap();
         document
             .set_type(promoted, ChunkType::FONT, explicit_policy())
             .unwrap();

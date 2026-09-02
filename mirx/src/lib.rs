@@ -26,7 +26,7 @@ pub use chunk::{
 pub use crc32::compute as crc32;
 pub use document::{
     ChunkIter, ChunksOfType, CompatibilityPolicy, CriticalAssumption, Document, DocumentChunkRef,
-    EncodeOptions, FileMetaRef, LayoutPolicy, OpenOptions, PayloadInput, PayloadOrigin,
+    EncodeOptions, FileMetadata, LayoutPolicy, OpenOptions, PayloadInput, PayloadOrigin,
     RawChunkInput, RawChunkPolicy, RawTypePolicy, RelocationAssumption, RemovedChunkMeta,
     ReservedBitsPolicy,
 };

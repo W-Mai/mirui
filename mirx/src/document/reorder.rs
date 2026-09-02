@@ -208,11 +208,7 @@ mod tests {
     }
 
     fn expected_ids(indices: &[u32]) -> Vec<ChunkId> {
-        indices
-            .iter()
-            .copied()
-            .map(ChunkId::from_session_counter)
-            .collect()
+        indices.iter().copied().map(ChunkId::new).collect()
     }
 
     fn chunk_nodes<'document, 'source>(
@@ -271,7 +267,7 @@ mod tests {
 
     #[test]
     fn move_before_and_after_cover_both_directions_and_endpoints() {
-        let id = ChunkId::from_session_counter;
+        let id = ChunkId::new;
 
         let mut before_forward = four_chunk_document();
         before_forward.move_before(id(0), id(3)).unwrap();
@@ -302,7 +298,7 @@ mod tests {
     fn self_and_already_adjacent_moves_are_clean_noops() {
         let mut document = four_chunk_document();
         let original = snapshot(&document);
-        let id = ChunkId::from_session_counter;
+        let id = ChunkId::new;
 
         for result in [
             document.move_before(id(1), id(1)),
@@ -395,7 +391,7 @@ mod tests {
     #[test]
     fn reordering_with_id_holes_keeps_the_counter_and_remaining_identities() {
         let mut document = four_chunk_document();
-        let id = ChunkId::from_session_counter;
+        let id = ChunkId::new;
         document.remove(id(1)).unwrap();
         document.dirty = false;
         let next_id = document.next_id;
@@ -411,7 +407,7 @@ mod tests {
     #[test]
     fn invalid_ids_and_flat_layout_leave_the_document_unchanged() {
         let mut document = four_chunk_document();
-        let id = ChunkId::from_session_counter;
+        let id = ChunkId::new;
         let invalid = id(99);
         let original = snapshot(&document);
 

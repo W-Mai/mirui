@@ -439,10 +439,7 @@ fn set_raw_policy_validates_layout_id_and_critical_assumption_before_apply() {
     });
     let mut flat = Document::open(&flat_source).unwrap();
     assert_eq!(
-        flat.set_raw_policy(
-            ChunkId::from_session_counter(0),
-            complete_policy(ReservedBitsPolicy::Reject)
-        ),
+        flat.set_raw_policy(ChunkId::new(0), complete_policy(ReservedBitsPolicy::Reject)),
         Err(EditError::ChunkLayoutRequired)
     );
 
@@ -453,10 +450,7 @@ fn set_raw_policy_validates_layout_id_and_critical_assumption_before_apply() {
     }];
     let mut document = Document::open_with(&source, &options_for(&grants)).unwrap();
     assert_eq!(
-        document.set_raw_policy(
-            ChunkId::from_session_counter(9),
-            complete_policy(ReservedBitsPolicy::Reject)
-        ),
+        document.set_raw_policy(ChunkId::new(9), complete_policy(ReservedBitsPolicy::Reject)),
         Err(EditError::InvalidChunkId)
     );
 

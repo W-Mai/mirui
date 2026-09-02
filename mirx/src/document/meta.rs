@@ -165,7 +165,7 @@ mod tests {
     };
 
     fn id(counter: u32) -> ChunkId {
-        ChunkId::from_session_counter(counter)
+        ChunkId::new(counter)
     }
 
     fn sample_meta() -> Meta {
@@ -228,7 +228,7 @@ mod tests {
             ]
         );
 
-        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reopened = Document::open(&encoded).unwrap();
         let reopened_id = reopened.chunks().next().unwrap().id();
         let view = reopened.meta(reopened_id).unwrap();
@@ -316,12 +316,12 @@ mod tests {
             ]
         );
 
-        let before = document.encode_with(&EncodeOptions::new()).unwrap();
+        let before = document.encode(&EncodeOptions::new()).unwrap();
         assert_eq!(
             document.try_edit_meta(meta_id, |_| Err::<(), _>("stop")),
             Err(TryEditError::Callback("stop"))
         );
-        assert_eq!(document.encode_with(&EncodeOptions::new()).unwrap(), before);
+        assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), before);
 
         assert!(matches!(
             document.edit_meta(meta_id, |meta| {
@@ -331,7 +331,7 @@ mod tests {
                 MetaDecodeError::EmptyKey { .. }
             )))
         ));
-        assert_eq!(document.encode_with(&EncodeOptions::new()).unwrap(), before);
+        assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), before);
 
         let called = Cell::new(false);
         assert_eq!(

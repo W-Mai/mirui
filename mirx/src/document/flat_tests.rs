@@ -103,7 +103,7 @@ fn new_flat_covers_every_color_format_with_padded_stride_and_exact_extra() {
             None => assert_eq!(extra_len, 0),
         }
 
-        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reopened = Reader::open(&encoded).unwrap();
         assert_eq!(reopened.layout(), Layout::Flat);
         let reopened = reopened.flat_image().unwrap();
@@ -370,7 +370,7 @@ fn changed_replacement_stays_flat_and_force_chunk_reuses_segmented_emission() {
         LayoutPolicy::ForceFlat,
     ] {
         let encoded = document
-            .encode_with(&EncodeOptions::new().with_layout_policy(policy))
+            .encode(&EncodeOptions::new().with_layout_policy(policy))
             .unwrap();
         let image = Reader::open(&encoded).unwrap().flat_image().unwrap();
         assert_eq!(image.main(), main);
@@ -378,7 +378,7 @@ fn changed_replacement_stays_flat_and_force_chunk_reuses_segmented_emission() {
     }
 
     let encoded = document
-        .encode_with(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceChunk))
+        .encode(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceChunk))
         .unwrap();
     let reader = Reader::open(&encoded).unwrap();
     assert_eq!(reader.layout(), Layout::Chunk);
@@ -510,7 +510,7 @@ fn empty_extra_is_normalized_and_zero_sized_images_remain_representable() {
     assert!(record.extra_storage().is_none());
     assert_eq!(document.flat_image().unwrap().extra(), None);
     assert_eq!(
-        document.encode_with(&EncodeOptions::new()).unwrap().len(),
+        document.encode(&EncodeOptions::new()).unwrap().len(),
         FLAT_HEADER_LEN
     );
 

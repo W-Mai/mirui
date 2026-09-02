@@ -435,11 +435,11 @@ impl<'source> Document<'source> {
                 .expect("source-backed origin must yield its exact bytes"));
         }
 
-        self.encode_with(&EncodeOptions::new()).map(Cow::Owned)
+        self.encode(&EncodeOptions::new()).map(Cow::Owned)
     }
 
     /// Returns the exact output length after checking the selected layout.
-    pub fn encoded_len_with(&self, options: &EncodeOptions) -> Result<usize, EncodeError> {
+    pub fn encoded_len(&self, options: &EncodeOptions) -> Result<usize, EncodeError> {
         Ok(self.layout_plan_with(options)?.output_len())
     }
 
@@ -447,7 +447,7 @@ impl<'source> Document<'source> {
     ///
     /// The output remains unchanged when validation fails or when `out` is too
     /// short. On success, bytes after the returned encoded length are untouched.
-    pub fn encode_into_with(
+    pub fn encode_into(
         &self,
         out: &mut [u8],
         options: &EncodeOptions,
@@ -468,7 +468,7 @@ impl<'source> Document<'source> {
     }
 
     /// Encodes the document into one exactly sized output allocation.
-    pub fn encode_with(&self, options: &EncodeOptions) -> Result<Vec<u8>, EncodeError> {
+    pub fn encode(&self, options: &EncodeOptions) -> Result<Vec<u8>, EncodeError> {
         let plan = self.layout_plan_with(options)?;
         let needed = plan.output_len();
         let mut out = Vec::new();
@@ -922,10 +922,7 @@ mod tests {
         let options = EncodeOptions::new();
         let plan = chunk_plan(&document, &options);
 
-        assert_eq!(
-            document.encoded_len_with(&options),
-            Ok(CHUNK_FILE_HEADER_LEN)
-        );
+        assert_eq!(document.encoded_len(&options), Ok(CHUNK_FILE_HEADER_LEN));
         assert_eq!(plan.chunk_count(), 0);
         assert_eq!(plan.chunk_table_offset(), CHUNK_FILE_HEADER_LEN as u32);
         assert_eq!(plan.table_end(), CHUNK_FILE_HEADER_LEN as u32);
@@ -1107,7 +1104,7 @@ mod tests {
         };
         assert_eq!(bytes, malformed);
 
-        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reader = Reader::open(&encoded).unwrap();
         let mut chunks = reader.chunks();
         assert_eq!(chunks.next().unwrap().payload(), &[7]);
@@ -1180,9 +1177,7 @@ mod tests {
         set_future_minor(&mut future_source);
         let future = Document::open(&future_source).unwrap();
         assert_eq!(
-            future.encoded_len_with(
-                &EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat)
-            ),
+            future.encoded_len(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat)),
             Err(EncodeError::FutureSemanticsReadOnly)
         );
 
@@ -1194,7 +1189,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            trailing.encoded_len_with(&EncodeOptions::new()),
+            trailing.encoded_len(&EncodeOptions::new()),
             Err(EncodeError::PreservedTrailingBytesReadOnly)
         );
 
@@ -1207,7 +1202,7 @@ mod tests {
         chunks.primary_hints = PrimaryHintState::Missing;
         chunks.chunks[0].capability = super::super::RewriteCapability::PRESERVE_ONLY;
         assert_eq!(
-            missing.encoded_len_with(&EncodeOptions::new()),
+            missing.encoded_len(&EncodeOptions::new()),
             Err(EncodeError::PrimaryHintsRequired {
                 chunk_type: CUSTOM_A,
             })
@@ -1227,7 +1222,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            reserved.encoded_len_with(&EncodeOptions::new()),
+            reserved.encoded_len(&EncodeOptions::new()),
             Err(EncodeError::ReservedFlagBits {
                 index: 0,
                 chunk_type: CUSTOM_A,
@@ -1249,7 +1244,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            relocation.encoded_len_with(&EncodeOptions::new()),
+            relocation.encoded_len(&EncodeOptions::new()),
             Err(EncodeError::RelocationAssumptionRequired {
                 index: 1,
                 chunk_type: CUSTOM_B,
@@ -1262,7 +1257,7 @@ mod tests {
         chunks.chunks[0].flags = ChunkFlags::CRITICAL;
         chunks.chunks[0].capability = super::super::RewriteCapability::new(true, false, false);
         assert_eq!(
-            critical.encoded_len_with(&EncodeOptions::new()),
+            critical.encoded_len(&EncodeOptions::new()),
             Err(EncodeError::CriticalAssumptionRequired {
                 index: 0,
                 chunk_type: CUSTOM_A,
@@ -1273,7 +1268,7 @@ mod tests {
         chunks.chunks[0].flags = ChunkFlags::from_bits_retain(0x0003);
         chunks.chunks[0].capability = super::super::RewriteCapability::PRESERVE_ONLY;
         assert_eq!(
-            critical.encoded_len_with(&EncodeOptions::new()),
+            critical.encoded_len(&EncodeOptions::new()),
             Err(EncodeError::ReservedFlagBits {
                 index: 0,
                 chunk_type: CUSTOM_A,
@@ -1336,9 +1331,7 @@ mod tests {
         let document = Document::new_chunk();
         assert_eq!(document.layout(), Layout::Chunk);
         assert_eq!(
-            document.encoded_len_with(
-                &EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat)
-            ),
+            document.encoded_len(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat)),
             Err(EncodeError::NotRepresentableAsFlat)
         );
     }
@@ -1346,7 +1339,7 @@ mod tests {
     #[test]
     fn empty_chunk_emits_exact_canonical_header() {
         let document = Document::new_chunk();
-        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let encoded = document.encode(&EncodeOptions::new()).unwrap();
 
         let mut expected = vec![0; CHUNK_FILE_HEADER_LEN];
         expected[..4].copy_from_slice(b"MIRX");
@@ -1387,10 +1380,10 @@ mod tests {
         document.set_primary_with_hints(primary, hints).unwrap();
 
         let options = EncodeOptions::new();
-        let needed = document.encoded_len_with(&options).unwrap();
+        let needed = document.encoded_len(&options).unwrap();
         assert_eq!(needed, 80 + checksum_payload.len());
         let mut out = vec![0xa5; needed + 7];
-        assert_eq!(document.encode_into_with(&mut out, &options), Ok(needed));
+        assert_eq!(document.encode_into(&mut out, &options), Ok(needed));
         assert!(out[needed..].iter().all(|&byte| byte == 0xa5));
 
         let encoded = &out[..needed];
@@ -1425,7 +1418,7 @@ mod tests {
         assert_eq!(&encoded[77..80], &[0, 0, 0]);
         assert_eq!(&encoded[80..], checksum_payload.as_slice());
 
-        let allocated = document.encode_with(&options).unwrap();
+        let allocated = document.encode(&options).unwrap();
         assert_eq!(allocated, encoded);
         let reader = Reader::open(&allocated).unwrap();
         let mut chunks = reader.chunks();
@@ -1451,10 +1444,10 @@ mod tests {
         document.push_raw(raw(ChunkType::FRAMES, &frames)).unwrap();
 
         let options = EncodeOptions::new();
-        let needed = document.encoded_len_with(&options).unwrap();
+        let needed = document.encoded_len(&options).unwrap();
         assert_eq!(needed, 181);
         let mut out = vec![0xa5; needed + 5];
-        assert_eq!(document.encode_into_with(&mut out, &options), Ok(needed));
+        assert_eq!(document.encode_into(&mut out, &options), Ok(needed));
         assert_eq!(&out[needed..], &[0xa5; 5]);
 
         let encoded = &out[..needed];
@@ -1498,7 +1491,7 @@ mod tests {
         assert_eq!(frames_chunk.payload(), frames);
         assert!(chunks.next().is_none());
 
-        let allocated = document.encode_with(&options).unwrap();
+        let allocated = document.encode(&options).unwrap();
         assert_eq!(allocated, encoded);
         assert_eq!(allocated.len(), 172 + frames.len());
     }
@@ -1522,7 +1515,7 @@ mod tests {
         }
         assert_eq!(plan.file_size(), 112);
 
-        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let encoded = document.encode(&EncodeOptions::new()).unwrap();
         assert_eq!(encoded.len(), 112);
         assert_eq!(&encoded[109..112], &[0, 0, 0]);
         let reader = Reader::open(&encoded).unwrap();
@@ -1555,7 +1548,7 @@ mod tests {
         )
         .unwrap();
 
-        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reader = Reader::open(&encoded).unwrap();
         let mut chunks = reader.chunks();
         let first = chunks.next().unwrap();
@@ -1574,12 +1567,12 @@ mod tests {
         let mut document = Document::new_chunk();
         document.push_raw(raw(CUSTOM_A, b"payload")).unwrap();
         let options = EncodeOptions::new();
-        let needed = document.encoded_len_with(&options).unwrap();
+        let needed = document.encoded_len(&options).unwrap();
         let mut short = vec![0x91; needed - 1];
         let before = short.clone();
 
         assert_eq!(
-            document.encode_into_with(&mut short, &options),
+            document.encode_into(&mut short, &options),
             Err(EncodeError::BufferTooSmall {
                 needed,
                 available: needed - 1,
@@ -1591,7 +1584,7 @@ mod tests {
         let mut ample = vec![0x63; needed + 16];
         let before = ample.clone();
         assert_eq!(
-            document.encode_into_with(&mut ample, &force_flat),
+            document.encode_into(&mut ample, &force_flat),
             Err(EncodeError::NotRepresentableAsFlat)
         );
         assert_eq!(ample, before);
@@ -1602,7 +1595,7 @@ mod tests {
         let mut ample = vec![0x44; future_source.len() + 32];
         let before = ample.clone();
         assert_eq!(
-            future.encode_into_with(&mut ample, &options),
+            future.encode_into(&mut ample, &options),
             Err(EncodeError::FutureSemanticsReadOnly)
         );
         assert_eq!(ample, before);
@@ -1617,7 +1610,7 @@ mod tests {
         let mut ample = vec![0x25; trailing_source.len() + 32];
         let before = ample.clone();
         assert_eq!(
-            trailing.encode_into_with(&mut ample, &options),
+            trailing.encode_into(&mut ample, &options),
             Err(EncodeError::PreservedTrailingBytesReadOnly)
         );
         assert_eq!(ample, before);
@@ -1645,7 +1638,7 @@ mod tests {
         let mut short = vec![0x7b; source.len() - 1];
         let before = short.clone();
         assert_eq!(
-            document.encode_into_with(&mut short, &options),
+            document.encode_into(&mut short, &options),
             Err(EncodeError::BufferTooSmall {
                 needed: source.len(),
                 available: source.len() - 1,
@@ -1659,13 +1652,10 @@ mod tests {
             LayoutPolicy::ForceFlat,
         ] {
             let options = EncodeOptions::new().with_layout_policy(policy);
-            assert_eq!(document.encode_with(&options).unwrap(), source);
+            assert_eq!(document.encode(&options).unwrap(), source);
 
             let mut out = vec![0xd2; source.len() + 5];
-            assert_eq!(
-                document.encode_into_with(&mut out, &options),
-                Ok(source.len())
-            );
+            assert_eq!(document.encode_into(&mut out, &options), Ok(source.len()));
             assert_eq!(&out[..source.len()], source);
             assert_eq!(&out[source.len()..], &[0xd2; 5]);
         }
@@ -1689,7 +1679,7 @@ mod tests {
         });
         let document = Document::open(&source).unwrap();
         let options = EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceChunk);
-        let encoded = document.encode_with(&options).unwrap();
+        let encoded = document.encode(&options).unwrap();
 
         assert_eq!(read_u16_le(&encoded, 8), Some(1));
         assert_eq!(read_u32_le(&encoded, 12), Some(44));
@@ -1774,7 +1764,7 @@ mod tests {
         let future_pointer = future_source.as_ptr();
         let future = Document::open(&future_source).unwrap();
         assert!(!future.is_dirty());
-        assert!(future.file_meta().has_future_semantics());
+        assert!(future.file_metadata().has_future_semantics());
         let finished = future.finish().unwrap();
         let Cow::Borrowed(bytes) = finished else {
             panic!("unchanged future source must remain borrowed");
@@ -1821,9 +1811,7 @@ mod tests {
         expected_document
             .push_raw(raw(CUSTOM_B, b"inserted"))
             .unwrap();
-        let expected = expected_document
-            .encode_with(&EncodeOptions::new())
-            .unwrap();
+        let expected = expected_document.encode(&EncodeOptions::new()).unwrap();
 
         let mut document = Document::open_with(&source, &open_options).unwrap();
         document.push_raw(raw(CUSTOM_B, b"inserted")).unwrap();
@@ -1837,7 +1825,7 @@ mod tests {
         let flat_source = flat_source();
         let expected_flat = Document::open(&flat_source)
             .unwrap()
-            .encode_with(&EncodeOptions::new())
+            .encode(&EncodeOptions::new())
             .unwrap();
         let mut dirty_flat = Document::open(&flat_source).unwrap();
         dirty_flat.dirty = true;
@@ -1848,9 +1836,7 @@ mod tests {
         assert_eq!(bytes, expected_flat);
         assert_eq!(Reader::open(&bytes).unwrap().layout(), Layout::Flat);
 
-        let expected_new = Document::new_chunk()
-            .encode_with(&EncodeOptions::new())
-            .unwrap();
+        let expected_new = Document::new_chunk().encode(&EncodeOptions::new()).unwrap();
         let mut clean_new = Document::new_chunk();
         clean_new.dirty = false;
         let finished = clean_new.finish().unwrap();
@@ -1937,7 +1923,7 @@ mod tests {
         assert_eq!(document.origin.source().unwrap().as_ptr(), source_pointer);
 
         document.push_raw(raw(CUSTOM_B, b"inserted")).unwrap();
-        let expected = document.encode_with(&EncodeOptions::new()).unwrap();
+        let expected = document.encode(&EncodeOptions::new()).unwrap();
         let finished = document.finish().unwrap();
         let Cow::Owned(bytes) = finished else {
             panic!("modified owned document must return rewritten owned bytes");

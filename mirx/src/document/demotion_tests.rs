@@ -101,7 +101,7 @@ const fn relocatable_policy() -> RawChunkPolicy {
 fn encoded_image_chunk(payload: &[u8]) -> Vec<u8> {
     let mut document = Document::new_chunk();
     push_image(&mut document, PayloadInput::Borrowed(payload));
-    document.encode_with(&EncodeOptions::new()).unwrap()
+    document.encode(&EncodeOptions::new()).unwrap()
 }
 
 fn encoded_layout(bytes: &[u8]) -> Layout {
@@ -121,7 +121,7 @@ fn current_flat_is_an_exact_noop() {
     let mut document = Document::open(&source).unwrap();
     let source_pointer = source.as_ptr();
 
-    assert_eq!(document.try_demote_to_flat(), Ok(false));
+    assert_eq!(document.demote_to_flat(), Ok(false));
     assert!(!document.is_dirty());
     assert_eq!(document.layout(), Layout::Flat);
     let Cow::Borrowed(finished) = document.finish().unwrap() else {
@@ -143,16 +143,16 @@ fn promoted_image_demotes_without_copying_and_ids_are_not_reused() {
     });
     let main_pointer = source[FLAT_HEADER_LEN..].as_ptr();
     let mut document = Document::open(&source).unwrap();
-    let first_id = document.ensure_chunk_layout().unwrap().unwrap();
+    let first_id = document.promote_to_chunk().unwrap().unwrap();
 
-    assert_eq!(document.try_demote_to_flat(), Ok(true));
+    assert_eq!(document.demote_to_flat(), Ok(true));
     assert_eq!(document.layout(), Layout::Flat);
     assert_eq!(document.flat_image().unwrap().main().as_ptr(), main_pointer);
     assert_eq!(document.next_id, 1);
 
-    let second_id = document.ensure_chunk_layout().unwrap().unwrap();
+    let second_id = document.promote_to_chunk().unwrap().unwrap();
     assert_ne!(second_id, first_id);
-    assert_eq!(second_id, ChunkId::from_session_counter(1));
+    assert_eq!(second_id, ChunkId::new(1));
 }
 
 #[test]
@@ -162,7 +162,7 @@ fn borrowed_and_owned_unplaced_payloads_keep_their_storage() {
         let expected_main = borrowed[usize::try_from(data_offset).unwrap()..].as_ptr();
         let mut document = Document::new_chunk();
         push_image(&mut document, PayloadInput::Borrowed(&borrowed));
-        assert_eq!(document.try_demote_to_flat(), Ok(true));
+        assert_eq!(document.demote_to_flat(), Ok(true));
         assert_eq!(
             document.flat_image().unwrap().main().as_ptr(),
             expected_main
@@ -174,7 +174,7 @@ fn borrowed_and_owned_unplaced_payloads_keep_their_storage() {
     let capacity = owned.capacity();
     let mut document = Document::new_chunk();
     push_image(&mut document, PayloadInput::Owned(owned));
-    assert_eq!(document.try_demote_to_flat(), Ok(true));
+    assert_eq!(document.demote_to_flat(), Ok(true));
     let DocumentState::Flat(record) = &document.state else {
         panic!("expected FLAT document");
     };
@@ -209,7 +209,7 @@ fn payload_backed_flat_survives_exact_replacement_and_forced_chunk_encoding() {
     let backing_capacity = payload.capacity();
     let mut document = Document::new_chunk();
     push_image(&mut document, PayloadInput::Owned(payload));
-    assert_eq!(document.try_demote_to_flat(), Ok(true));
+    assert_eq!(document.demote_to_flat(), Ok(true));
 
     document.dirty = false;
     document
@@ -237,11 +237,11 @@ fn payload_backed_flat_survives_exact_replacement_and_forced_chunk_encoding() {
     assert_eq!(backing.capacity(), backing_capacity);
 
     let options = EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceChunk);
-    let needed = document.encoded_len_with(&options).unwrap();
+    let needed = document.encoded_len(&options).unwrap();
     let mut short = vec![0x5a; needed - 1];
     let short_before = short.clone();
     assert_eq!(
-        document.encode_into_with(&mut short, &options),
+        document.encode_into(&mut short, &options),
         Err(EncodeError::BufferTooSmall {
             needed,
             available: needed - 1,
@@ -250,7 +250,7 @@ fn payload_backed_flat_survives_exact_replacement_and_forced_chunk_encoding() {
     assert_eq!(short, short_before);
 
     let mut output = vec![0xcc; needed + 7];
-    assert_eq!(document.encode_into_with(&mut output, &options), Ok(needed));
+    assert_eq!(document.encode_into(&mut output, &options), Ok(needed));
     assert_eq!(&output[needed..], &[0xcc; 7]);
     let reader = Reader::open(&output[..needed]).unwrap();
     assert_eq!(reader.layout(), Layout::Chunk);
@@ -273,7 +273,7 @@ fn opened_source_payloads_keep_origin_allocation_and_exact_plane_ranges() {
     let expected_main = source[main_offset..].as_ptr();
     let mut borrowed = Document::open(&source).unwrap();
 
-    assert_eq!(borrowed.try_demote_to_flat(), Ok(true));
+    assert_eq!(borrowed.demote_to_flat(), Ok(true));
     assert_eq!(
         borrowed.flat_image().unwrap().main().as_ptr(),
         expected_main
@@ -297,7 +297,7 @@ fn opened_source_payloads_keep_origin_allocation_and_exact_plane_ranges() {
     let origin_pointer = owned_source.as_ptr();
     let origin_capacity = owned_source.capacity();
     let mut owned = Document::from_vec(owned_source).unwrap();
-    assert_eq!(owned.try_demote_to_flat(), Ok(true));
+    assert_eq!(owned.demote_to_flat(), Ok(true));
     let Origin::Owned(origin) = &owned.origin else {
         panic!("owned source must remain owned");
     };
@@ -337,7 +337,7 @@ fn source_backed_images_keep_strict_absolute_alignment() {
     };
     assert!(chunks.chunks[0].capability.is_relocatable());
     assert_eq!(
-        document.try_demote_to_flat(),
+        document.demote_to_flat(),
         Err(EditError::NotRepresentableAsFlat)
     );
     assert_eq!(document.layout(), Layout::Chunk);
@@ -359,8 +359,8 @@ fn every_color_format_demotes_and_reopens_with_identical_planes() {
         let mut document = Document::new_chunk();
         push_image(&mut document, PayloadInput::Borrowed(&payload));
 
-        assert_eq!(document.try_demote_to_flat(), Ok(true), "{format:?}");
-        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        assert_eq!(document.demote_to_flat(), Ok(true), "{format:?}");
+        let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reopened = Reader::open(&encoded).unwrap().flat_image().unwrap();
         assert_eq!(reopened.format(), format);
         assert_eq!(reopened.width(), width);
@@ -382,15 +382,15 @@ fn writer_policies_share_the_lossless_candidate_without_mutating_state() {
     let id = push_image(&mut document, PayloadInput::Borrowed(&payload));
     let next_id = document.next_id;
 
-    let preserved = document.encode_with(&EncodeOptions::new()).unwrap();
+    let preserved = document.encode(&EncodeOptions::new()).unwrap();
     let forced_chunk = document
-        .encode_with(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceChunk))
+        .encode(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceChunk))
         .unwrap();
     let smallest = document
-        .encode_with(&EncodeOptions::new().with_layout_policy(LayoutPolicy::SmallestRepresentable))
+        .encode(&EncodeOptions::new().with_layout_policy(LayoutPolicy::SmallestRepresentable))
         .unwrap();
     let forced_flat = document
-        .encode_with(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat))
+        .encode(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat))
         .unwrap();
 
     assert_eq!(encoded_layout(&preserved), Layout::Chunk);
@@ -401,11 +401,8 @@ fn writer_policies_share_the_lossless_candidate_without_mutating_state() {
     assert_eq!(document.primary(), Some(id));
     assert_eq!(document.next_id, next_id);
 
-    assert_eq!(document.try_demote_to_flat(), Ok(true));
-    assert_eq!(
-        document.encode_with(&EncodeOptions::new()).unwrap(),
-        smallest
-    );
+    assert_eq!(document.demote_to_flat(), Ok(true));
+    assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), smallest);
 }
 
 #[test]
@@ -413,7 +410,7 @@ fn structural_and_payload_rejections_are_failure_atomic() {
     let valid = image_payload(ColorFormat::A8, 2, 2, 2, 32);
     let mut empty = Document::new_chunk();
     assert_eq!(
-        empty.try_demote_to_flat(),
+        empty.demote_to_flat(),
         Err(EditError::NotRepresentableAsFlat)
     );
 
@@ -428,7 +425,7 @@ fn structural_and_payload_rejections_are_failure_atomic() {
         .unwrap();
     let next_id = no_primary.next_id;
     assert_eq!(
-        no_primary.try_demote_to_flat(),
+        no_primary.demote_to_flat(),
         Err(EditError::NotRepresentableAsFlat)
     );
     assert_eq!(no_primary.chunks().len(), 1);
@@ -441,7 +438,7 @@ fn structural_and_payload_rejections_are_failure_atomic() {
         let before = document.get(id).unwrap().payload_bytes().unwrap().to_vec();
         let next_id = document.next_id;
         assert_eq!(
-            document.try_demote_to_flat(),
+            document.demote_to_flat(),
             Err(EditError::NotRepresentableAsFlat)
         );
         assert_eq!(document.layout(), Layout::Chunk);
@@ -470,7 +467,7 @@ fn count_type_and_flags_cannot_be_discarded_by_demotion() {
         })
         .unwrap();
     assert_eq!(
-        multiple.try_demote_to_flat(),
+        multiple.demote_to_flat(),
         Err(EditError::NotRepresentableAsFlat)
     );
     assert_eq!(multiple.primary(), Some(primary));
@@ -487,7 +484,7 @@ fn count_type_and_flags_cannot_be_discarded_by_demotion() {
         .unwrap();
     wrong_type.set_primary(id).unwrap();
     assert_eq!(
-        wrong_type.try_demote_to_flat(),
+        wrong_type.demote_to_flat(),
         Err(EditError::NotRepresentableAsFlat)
     );
 
@@ -511,7 +508,7 @@ fn count_type_and_flags_cannot_be_discarded_by_demotion() {
             .unwrap();
         flagged.set_primary(id).unwrap();
         assert_eq!(
-            flagged.try_demote_to_flat(),
+            flagged.demote_to_flat(),
             Err(EditError::NotRepresentableAsFlat)
         );
         assert_eq!(flagged.get(id).unwrap().flags(), flags);
@@ -526,13 +523,13 @@ fn count_type_and_flags_cannot_be_discarded_by_demotion() {
         extra: None,
     });
     let mut promoted = Document::open(&flat).unwrap();
-    let id = promoted.ensure_chunk_layout().unwrap().unwrap();
+    let id = promoted.promote_to_chunk().unwrap().unwrap();
     let DocumentState::Chunk(chunks) = &mut promoted.state else {
         panic!("expected CHUNK document");
     };
     chunks.chunks[0].chunk_type = ChunkType::META;
     assert_eq!(
-        promoted.try_demote_to_flat(),
+        promoted.demote_to_flat(),
         Err(EditError::NotRepresentableAsFlat)
     );
     assert_eq!(promoted.get(id).unwrap().chunk_type(), ChunkType::META);
@@ -607,9 +604,9 @@ fn nonrepresentable_smallest_falls_back_and_force_flat_is_atomic() {
         })
         .unwrap();
 
-    let default = document.encode_with(&EncodeOptions::new()).unwrap();
+    let default = document.encode(&EncodeOptions::new()).unwrap();
     let smallest = document
-        .encode_with(&EncodeOptions::new().with_layout_policy(LayoutPolicy::SmallestRepresentable))
+        .encode(&EncodeOptions::new().with_layout_policy(LayoutPolicy::SmallestRepresentable))
         .unwrap();
     assert_eq!(smallest, default);
 
@@ -617,7 +614,7 @@ fn nonrepresentable_smallest_falls_back_and_force_flat_is_atomic() {
     let mut output = vec![0x5a; default.len() + 16];
     let before = output.clone();
     assert_eq!(
-        document.encode_into_with(&mut output, &options),
+        document.encode_into(&mut output, &options),
         Err(EncodeError::NotRepresentableAsFlat)
     );
     assert_eq!(output, before);
@@ -639,7 +636,7 @@ fn global_write_blockers_precede_layout_and_representability() {
     )
     .unwrap();
     assert_eq!(
-        future.try_demote_to_flat(),
+        future.demote_to_flat(),
         Err(EditError::FutureSemanticsReadOnly)
     );
 
@@ -651,11 +648,11 @@ fn global_write_blockers_precede_layout_and_representability() {
     )
     .unwrap();
     assert_eq!(
-        trailing.try_demote_to_flat(),
+        trailing.demote_to_flat(),
         Err(EditError::PreservedTrailingBytesReadOnly)
     );
     trailing.discard_trailing_bytes().unwrap();
-    assert_eq!(trailing.try_demote_to_flat(), Ok(true));
+    assert_eq!(trailing.demote_to_flat(), Ok(true));
 
     let mut future_source = source;
     future_source[5] = VERSION_MINOR + 1;
@@ -667,7 +664,7 @@ fn global_write_blockers_precede_layout_and_representability() {
     )
     .unwrap();
     assert_eq!(normalized.file, FileMeta::CURRENT);
-    assert_eq!(normalized.try_demote_to_flat(), Ok(true));
+    assert_eq!(normalized.demote_to_flat(), Ok(true));
 
     let mut flat_with_tail = encode_flat(&FlatImageInput {
         width: 1,
@@ -684,7 +681,7 @@ fn global_write_blockers_precede_layout_and_representability() {
     )
     .unwrap();
     assert_eq!(
-        flat.try_demote_to_flat(),
+        flat.demote_to_flat(),
         Err(EditError::PreservedTrailingBytesReadOnly)
     );
 }
@@ -695,7 +692,7 @@ fn zero_geometry_uses_the_existing_format_rules() {
         let payload = image_payload(format, 0, 0, 0, 32);
         let mut document = Document::new_chunk();
         push_image(&mut document, PayloadInput::Borrowed(&payload));
-        assert_eq!(document.try_demote_to_flat(), Ok(true));
+        assert_eq!(document.demote_to_flat(), Ok(true));
         let image = document.flat_image().unwrap();
         assert!(image.main().is_empty());
         assert_eq!(
@@ -718,7 +715,7 @@ fn flat_candidate_uses_payload_metadata_instead_of_stale_hints() {
     let mut document = Document::open(&source).unwrap();
 
     assert!(document.primary().is_some());
-    assert_eq!(document.try_demote_to_flat(), Ok(true));
+    assert_eq!(document.demote_to_flat(), Ok(true));
     assert_eq!(
         document.primary_hints(),
         PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 3, 2)
@@ -730,8 +727,8 @@ fn flat_header_crc_is_recomputed_after_demotion() {
     let payload = image_payload(ColorFormat::A8, 1, 2, 1, 35);
     let mut document = Document::new_chunk();
     push_image(&mut document, PayloadInput::Borrowed(&payload));
-    document.try_demote_to_flat().unwrap();
-    let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+    document.demote_to_flat().unwrap();
+    let encoded = document.encode(&EncodeOptions::new()).unwrap();
     assert_eq!(
         u32::from_le_bytes(encoded[24..28].try_into().unwrap()),
         crc32(&encoded[..24])

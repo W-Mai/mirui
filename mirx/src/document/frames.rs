@@ -182,7 +182,7 @@ mod tests {
     use alloc::{borrow::Cow, vec, vec::Vec};
 
     fn id(counter: u32) -> ChunkId {
-        ChunkId::from_session_counter(counter)
+        ChunkId::new(counter)
     }
 
     fn frame(source_x: u32, duration_ticks: u32) -> Frame {
@@ -258,7 +258,7 @@ mod tests {
             PayloadOrigin::OWNED
         );
 
-        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reopened = Document::open(&encoded).unwrap();
         let ids = reopened
             .chunks()
@@ -348,7 +348,7 @@ mod tests {
                 .duration_ticks,
             90
         );
-        assert!(document.encode_with(&EncodeOptions::new()).is_ok());
+        assert!(document.encode(&EncodeOptions::new()).is_ok());
 
         let before = document
             .get(frames_id)

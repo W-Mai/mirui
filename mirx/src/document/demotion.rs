@@ -34,7 +34,7 @@ impl Document<'_> {
     ///
     /// A successful conversion invalidates the removed CHUNK identity. The
     /// session counter is retained, so a later promotion assigns a fresh ID.
-    pub fn try_demote_to_flat(&mut self) -> Result<bool, EditError> {
+    pub fn demote_to_flat(&mut self) -> Result<bool, EditError> {
         self.ensure_mutable()?;
         match &self.state {
             DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => return Ok(false),

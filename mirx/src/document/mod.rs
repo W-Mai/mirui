@@ -55,13 +55,13 @@ const DEFAULT_MAX_CHUNKS: u16 = OpenOptions::DEFAULT_MAX_CHUNKS;
 
 /// Immutable MIRX file metadata retained by an editable document.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FileMetaRef {
+pub struct FileMetadata {
     version_major: u8,
     version_minor: u8,
     file_flags: u8,
 }
 
-impl FileMetaRef {
+impl FileMetadata {
     pub const fn version_major(self) -> u8 {
         self.version_major
     }
@@ -93,8 +93,8 @@ impl FileMeta {
         file_flags: 0,
     };
 
-    const fn as_ref(self) -> FileMetaRef {
-        FileMetaRef {
+    const fn as_ref(self) -> FileMetadata {
+        FileMetadata {
             version_major: self.version_major,
             version_minor: self.version_minor,
             file_flags: self.file_flags,
@@ -483,11 +483,11 @@ impl<'a> Document<'a> {
     /// owned storage. A successful conversion returns the stable identity of
     /// the promoted IMAGE node. A document that already uses CHUNK layout is
     /// left unchanged and returns `None`.
-    pub fn ensure_chunk_layout(&mut self) -> Result<Option<ChunkId>, EditError> {
-        self.ensure_chunk_layout_with(reserve_promoted_nodes)
+    pub fn promote_to_chunk(&mut self) -> Result<Option<ChunkId>, EditError> {
+        self.promote_to_chunk_with(reserve_promoted_nodes)
     }
 
-    fn ensure_chunk_layout_with<R>(&mut self, reserve: R) -> Result<Option<ChunkId>, EditError>
+    fn promote_to_chunk_with<R>(&mut self, reserve: R) -> Result<Option<ChunkId>, EditError>
     where
         R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
     {
@@ -525,21 +525,18 @@ impl<'a> Document<'a> {
     }
 
     #[cfg(test)]
-    fn ensure_chunk_layout_with_reserve<R>(
-        &mut self,
-        reserve: R,
-    ) -> Result<Option<ChunkId>, EditError>
+    fn promote_to_chunk_with_reserve<R>(&mut self, reserve: R) -> Result<Option<ChunkId>, EditError>
     where
         R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
     {
-        self.ensure_chunk_layout_with(reserve)
+        self.promote_to_chunk_with(reserve)
     }
 
     pub const fn layout(&self) -> Layout {
         self.state.layout()
     }
 
-    pub const fn file_meta(&self) -> FileMetaRef {
+    pub const fn file_metadata(&self) -> FileMetadata {
         self.file.as_ref()
     }
 
@@ -899,7 +896,7 @@ fn reserve_chunk_nodes(
 
 fn take_next_chunk_id(next_id: &mut u32) -> Option<ChunkId> {
     let following = next_id.checked_add(1)?;
-    let id = ChunkId::from_session_counter(*next_id);
+    let id = ChunkId::new(*next_id);
     *next_id = following;
     Some(id)
 }
@@ -1044,7 +1041,7 @@ mod tests {
         assert_eq!(borrowed.layout(), owned.layout());
         assert!(matches!(borrowed.state, DocumentState::Flat(_)));
         assert!(matches!(owned.state, DocumentState::Flat(_)));
-        assert_eq!(borrowed.file_meta(), owned.file_meta());
+        assert_eq!(borrowed.file_metadata(), owned.file_metadata());
         assert_eq!(borrowed.logical_len, owned.logical_len);
         assert_eq!(borrowed.next_id, 0);
         assert_eq!(owned.next_id, 0);
@@ -1139,8 +1136,8 @@ mod tests {
             })
         );
         assert_eq!(
-            document.file_meta(),
-            FileMetaRef {
+            document.file_metadata(),
+            FileMetadata {
                 version_major: VERSION_MAJOR,
                 version_minor: VERSION_MINOR,
                 file_flags: 0,
@@ -1170,9 +1167,9 @@ mod tests {
                 DocumentState::OpaqueFlat(PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 1, 2,))
             );
             assert!(!document.is_dirty());
-            assert_eq!(document.file_meta().version_minor(), minor);
-            assert_eq!(document.file_meta().file_flags(), flags);
-            assert!(document.file_meta().has_future_semantics());
+            assert_eq!(document.file_metadata().version_minor(), minor);
+            assert_eq!(document.file_metadata().file_flags(), flags);
+            assert!(document.file_metadata().has_future_semantics());
             assert_eq!(document.next_id, 0);
             assert_eq!(document.origin.source().unwrap().as_ptr(), source.as_ptr());
             assert_eq!(document.flat_image(), None);
@@ -1192,15 +1189,15 @@ mod tests {
             assert_eq!(document.layout(), Layout::Chunk);
             let chunks = chunk_set(&document);
             assert_eq!(chunks.chunks.len(), 1);
-            assert_eq!(chunks.chunks[0].id, ChunkId::from_session_counter(0));
+            assert_eq!(chunks.chunks[0].id, ChunkId::new(0));
             assert_eq!(chunks.chunks[0].chunk_type.raw(), 0xbeef);
             assert_eq!(chunks.chunks[0].flags.bits(), 0xa500);
-            assert_eq!(chunks.primary, Some(ChunkId::from_session_counter(0)));
+            assert_eq!(chunks.primary, Some(ChunkId::new(0)));
             assert!(!document.is_dirty());
             assert_eq!(document.next_id, 1);
-            assert_eq!(document.file_meta().version_minor(), minor);
-            assert_eq!(document.file_meta().file_flags(), flags);
-            assert!(document.file_meta().has_future_semantics());
+            assert_eq!(document.file_metadata().version_minor(), minor);
+            assert_eq!(document.file_metadata().file_flags(), flags);
+            assert!(document.file_metadata().has_future_semantics());
             assert_eq!(document.origin.source().unwrap().as_ptr(), source.as_ptr());
         }
     }
@@ -1260,13 +1257,10 @@ mod tests {
 
         assert_eq!(borrowed_chunks.chunks, owned_chunks.chunks);
         assert_eq!(borrowed_chunks.chunks.len(), 3);
-        assert_eq!(
-            borrowed_chunks.primary,
-            Some(ChunkId::from_session_counter(0))
-        );
+        assert_eq!(borrowed_chunks.primary, Some(ChunkId::new(0)));
         assert_eq!(owned_chunks.primary, borrowed_chunks.primary);
         for (index, node) in borrowed_chunks.chunks.iter().enumerate() {
-            assert_eq!(node.id, ChunkId::from_session_counter(index as u32));
+            assert_eq!(node.id, ChunkId::new(index as u32));
             assert_eq!(source_range(node), expected_ranges[index]);
             assert_eq!(node.capability, RewriteCapability::PRESERVE_ONLY);
         }
@@ -1327,7 +1321,7 @@ mod tests {
 
         let document = Document::open(&source).unwrap();
         let chunks = chunk_set(&document);
-        assert_eq!(chunks.primary, Some(ChunkId::from_session_counter(1)));
+        assert_eq!(chunks.primary, Some(ChunkId::new(1)));
         assert_eq!(chunks.chunks[1].chunk_type, ChunkType::FONT);
         assert_eq!(chunks.chunks[2].chunk_type, ChunkType::FONT);
     }
@@ -1411,7 +1405,7 @@ mod tests {
         let mut next_id = u32::MAX - 1;
         assert_eq!(
             take_next_chunk_id(&mut next_id),
-            Some(ChunkId::from_session_counter(u32::MAX - 1))
+            Some(ChunkId::new(u32::MAX - 1))
         );
         assert_eq!(next_id, u32::MAX);
         assert_eq!(take_next_chunk_id(&mut next_id), None);

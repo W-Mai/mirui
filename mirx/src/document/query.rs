@@ -263,7 +263,7 @@ mod tests {
         let opaque = Document::open(&opaque_source).unwrap();
 
         let new = Document::new_chunk();
-        let id = ChunkId::from_session_counter(0);
+        let id = ChunkId::new(0);
         for document in [&flat, &opaque, &new] {
             assert_eq!(document.chunks().len(), 0);
             assert_eq!(document.chunks().size_hint(), (0, Some(0)));
@@ -293,12 +293,12 @@ mod tests {
         assert_eq!(chunks[0].payload_len(), Ok(6));
         assert_eq!(chunks[0].payload_origin(), PayloadOrigin::ORIGINAL_SOURCE);
 
-        let expected_ids: Vec<_> = (0..4).map(ChunkId::from_session_counter).collect();
+        let expected_ids: Vec<_> = (0..4).map(ChunkId::new).collect();
         assert_eq!(ids(document.chunks()), expected_ids);
         for (index, id) in expected_ids.iter().copied().enumerate() {
             assert_eq!(document.get(id).unwrap().id(), chunks[index].id());
         }
-        assert!(document.get(ChunkId::from_session_counter(100)).is_none());
+        assert!(document.get(ChunkId::new(100)).is_none());
 
         let fonts: Vec<_> = document.chunks_of_type(ChunkType::FONT).collect();
         assert_eq!(fonts.len(), 2);
@@ -329,19 +329,13 @@ mod tests {
         let mut custom_source = encode_chunks(&chunks);
         set_primary(&mut custom_source, custom.raw());
         let custom_document = Document::open(&custom_source).unwrap();
-        assert_eq!(
-            custom_document.primary(),
-            Some(ChunkId::from_session_counter(1))
-        );
+        assert_eq!(custom_document.primary(), Some(ChunkId::new(1)));
 
         set_future_semantics(&mut custom_source);
         let future_document = Document::open(&custom_source).unwrap();
-        assert!(future_document.file_meta().has_future_semantics());
+        assert!(future_document.file_metadata().has_future_semantics());
         assert_eq!(future_document.chunks().len(), 3);
-        assert_eq!(
-            future_document.primary(),
-            Some(ChunkId::from_session_counter(1))
-        );
+        assert_eq!(future_document.primary(), Some(ChunkId::new(1)));
     }
 
     #[test]
@@ -441,8 +435,8 @@ mod tests {
         ]);
         let borrowed_pointer = source[table_payload_offset(&source, 0)..].as_ptr();
         let borrowed = Document::open(&source).unwrap();
-        let first_id = ChunkId::from_session_counter(0);
-        let empty_id = ChunkId::from_session_counter(2);
+        let first_id = ChunkId::new(0);
+        let empty_id = ChunkId::new(2);
         assert_eq!(
             bytes_from_temporary(&borrowed, first_id).unwrap().as_ptr(),
             borrowed_pointer
@@ -461,7 +455,7 @@ mod tests {
         let owned_source = source.clone();
         let owned_pointer = owned_source[table_payload_offset(&owned_source, 1)..].as_ptr();
         let owned = Document::from_vec(owned_source).unwrap();
-        let second = owned.get(ChunkId::from_session_counter(1)).unwrap();
+        let second = owned.get(ChunkId::new(1)).unwrap();
         assert_eq!(second.payload_bytes().unwrap().as_ptr(), owned_pointer);
         assert_eq!(second.payload_origin(), PayloadOrigin::ORIGINAL_SOURCE);
 
@@ -473,17 +467,11 @@ mod tests {
         overlap_source[second_entry + 8..second_entry + 12].copy_from_slice(&2u32.to_le_bytes());
         let overlap = Document::open(&overlap_source).unwrap();
         assert_eq!(
-            overlap
-                .get(ChunkId::from_session_counter(0))
-                .unwrap()
-                .payload_bytes(),
+            overlap.get(ChunkId::new(0)).unwrap().payload_bytes(),
             Some(b"abcd".as_slice())
         );
         assert_eq!(
-            overlap
-                .get(ChunkId::from_session_counter(1))
-                .unwrap()
-                .payload_bytes(),
+            overlap.get(ChunkId::new(1)).unwrap().payload_bytes(),
             Some(b"bc".as_slice())
         );
     }

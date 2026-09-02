@@ -113,9 +113,9 @@ let image_id = document.push_image(ChunkFlags::NONE, &image).unwrap();
 document.set_primary(image_id).unwrap();
 
 let options = EncodeOptions::new();
-let encoded_len = document.encoded_len_with(&options).unwrap();
+let encoded_len = document.encoded_len(&options).unwrap();
 let mut output = vec![0_u8; encoded_len];
-let written = document.encode_into_with(&mut output, &options).unwrap();
+let written = document.encode_into(&mut output, &options).unwrap();
 assert_eq!(written, encoded_len);
 ```
 
@@ -130,7 +130,7 @@ Common ordered operations:
 - `move_before`, `move_after`
 - `set_type`, `set_flags`, `set_raw_policy`
 - `set_primary`, `set_primary_with_hints`, `clear_primary`
-- `ensure_chunk_layout`, `try_demote_to_flat`
+- `promote_to_chunk`, `demote_to_flat`
 
 Typed payload operations:
 
@@ -153,10 +153,10 @@ is used.
 - `Document::finish()` returns the exact original bytes for an unchanged
   source. A borrowed source stays borrowed; an owned source retains its
   allocation.
-- `encoded_len_with()` validates and computes the exact output size.
-- `encode_into_with()` writes into caller storage without allocating the output
+- `encoded_len()` validates and computes the exact output size.
+- `encode_into()` writes into caller storage without allocating the output
   and preserves the unused suffix.
-- `encode_with()` performs one exact-size output allocation after planning.
+- `encode()` performs one exact-size output allocation after planning.
 - `LayoutPolicy` selects preserve-or-promote, smallest representable, forced
   FLAT, or forced CHUNK output.
 

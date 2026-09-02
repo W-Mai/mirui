@@ -165,8 +165,8 @@ fn borrowed_source_promotion_keeps_plane_pointer_and_chunk_noop_is_exact() {
     let main_pointer = source[FLAT_HEADER_LEN..].as_ptr();
     let mut document = Document::open(&source).unwrap();
 
-    let image_id = document.ensure_chunk_layout().unwrap().unwrap();
-    assert_eq!(image_id, ChunkId::from_session_counter(0));
+    let image_id = document.promote_to_chunk().unwrap().unwrap();
+    assert_eq!(image_id, ChunkId::new(0));
     assert_eq!(document.layout(), Layout::Chunk);
     assert_eq!(document.primary(), Some(image_id));
     assert_eq!(document.next_id, 1);
@@ -191,7 +191,7 @@ fn borrowed_source_promotion_keeps_plane_pointer_and_chunk_noop_is_exact() {
     let before_plane = plane_snapshot(&document, record.main_storage());
     document.dirty = false;
     document.next_id = u32::MAX;
-    assert_eq!(document.ensure_chunk_layout(), Ok(None));
+    assert_eq!(document.promote_to_chunk(), Ok(None));
     let (chunks, record) = promoted(&document);
     assert_eq!(chunks.chunks.as_ptr(), before_vector);
     assert_eq!(chunks.chunks.capacity(), before_capacity);
@@ -223,7 +223,7 @@ fn borrowed_and_owned_assets_keep_both_plane_allocations() {
         Some(Cow::Borrowed(&borrowed_extra)),
     ))
     .unwrap();
-    borrowed.ensure_chunk_layout().unwrap();
+    borrowed.promote_to_chunk().unwrap();
     let (_, record) = promoted(&borrowed);
     assert_eq!(
         plane_snapshot(&borrowed, record.main_storage()).pointer,
@@ -249,7 +249,7 @@ fn borrowed_and_owned_assets_keep_both_plane_allocations() {
         Some(Cow::Owned(owned_extra)),
     ))
     .unwrap();
-    owned.ensure_chunk_layout().unwrap();
+    owned.promote_to_chunk().unwrap();
     let (_, record) = promoted(&owned);
     let main = plane_snapshot(&owned, record.main_storage());
     let extra = plane_snapshot(&owned, record.extra_storage().unwrap());
@@ -287,7 +287,7 @@ fn borrowed_and_owned_assets_keep_both_plane_allocations() {
             Some(Cow::Owned(replacement_extra)),
         ))
         .unwrap();
-    replaced.ensure_chunk_layout().unwrap();
+    replaced.promote_to_chunk().unwrap();
     let (_, record) = promoted(&replaced);
     let main = plane_snapshot(&replaced, record.main_storage());
     let extra = plane_snapshot(&replaced, record.extra_storage().unwrap());
@@ -327,7 +327,7 @@ fn opened_borrowed_and_owned_sources_keep_main_extra_and_origin_allocations() {
     let extra_pointer = source[FLAT_HEADER_LEN + main.len()..].as_ptr();
 
     let mut borrowed = Document::open(&source).unwrap();
-    borrowed.ensure_chunk_layout().unwrap();
+    borrowed.promote_to_chunk().unwrap();
     let (_, record) = promoted(&borrowed);
     assert_eq!(
         plane_snapshot(&borrowed, record.main_storage()).pointer,
@@ -344,7 +344,7 @@ fn opened_borrowed_and_owned_sources_keep_main_extra_and_origin_allocations() {
     let main_pointer = owned_source[FLAT_HEADER_LEN..].as_ptr();
     let extra_pointer = owned_source[FLAT_HEADER_LEN + main.len()..].as_ptr();
     let mut owned = Document::from_vec(owned_source).unwrap();
-    owned.ensure_chunk_layout().unwrap();
+    owned.promote_to_chunk().unwrap();
     let Origin::Owned(origin) = &owned.origin else {
         panic!("expected owned origin");
     };
@@ -365,7 +365,7 @@ fn opened_borrowed_and_owned_sources_keep_main_extra_and_origin_allocations() {
 fn synthesized_query_materializes_one_canonical_image_payload_atomically() {
     let source = a8_source();
     let mut document = Document::open(&source).unwrap();
-    let image_id = document.ensure_chunk_layout().unwrap().unwrap();
+    let image_id = document.promote_to_chunk().unwrap().unwrap();
     let view = document.get(image_id).unwrap();
 
     assert_eq!(view.payload_len(), Ok(36));
@@ -395,7 +395,7 @@ fn synthesized_query_materializes_one_canonical_image_payload_atomically() {
 fn exact_raw_replacement_keeps_sidecar_but_other_encoding_clears_it() {
     let source = a8_source();
     let mut document = Document::open(&source).unwrap();
-    let image_id = document.ensure_chunk_layout().unwrap().unwrap();
+    let image_id = document.promote_to_chunk().unwrap().unwrap();
     let canonical = document.get(image_id).unwrap().payload_to_vec().unwrap();
     let (_, record) = promoted(&document);
     let before_plane = plane_snapshot(&document, record.main_storage());
@@ -446,7 +446,7 @@ fn exact_raw_replacement_keeps_sidecar_but_other_encoding_clears_it() {
 fn promoted_removal_materializes_before_commit_and_clears_sidecar() {
     let source = a8_source();
     let mut document = Document::open(&source).unwrap();
-    let image_id = document.ensure_chunk_layout().unwrap().unwrap();
+    let image_id = document.promote_to_chunk().unwrap().unwrap();
     let canonical = document.get(image_id).unwrap().payload_to_vec().unwrap();
     document.dirty = false;
     let before_next = document.next_id;
@@ -479,10 +479,7 @@ fn promoted_removal_materializes_before_commit_and_clears_sidecar() {
     assert_eq!(chunks.primary, None);
 
     let mut without_materialization = Document::open(&source).unwrap();
-    let image_id = without_materialization
-        .ensure_chunk_layout()
-        .unwrap()
-        .unwrap();
+    let image_id = without_materialization.promote_to_chunk().unwrap().unwrap();
     let removed = without_materialization.remove(image_id).unwrap();
     assert_eq!(removed.id, image_id);
     assert!(removed.was_primary);
@@ -500,7 +497,7 @@ fn promotion_failures_keep_flat_storage_and_global_blocker_priority() {
     exhausted.next_id = u32::MAX;
     let before = flat_snapshot(&exhausted);
     assert_eq!(
-        exhausted.ensure_chunk_layout(),
+        exhausted.promote_to_chunk(),
         Err(EditError::ChunkIdExhausted)
     );
     assert_eq!(flat_snapshot(&exhausted), before);
@@ -508,7 +505,7 @@ fn promotion_failures_keep_flat_storage_and_global_blocker_priority() {
     exhausted.next_id = 0;
     let before = flat_snapshot(&exhausted);
     assert_eq!(
-        exhausted.ensure_chunk_layout_with_reserve(|_, additional| {
+        exhausted.promote_to_chunk_with_reserve(|_, additional| {
             assert_eq!(additional, 1);
             Err(EditError::AllocationFailed)
         }),
@@ -523,7 +520,7 @@ fn promotion_failures_keep_flat_storage_and_global_blocker_priority() {
     let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
     let mut future = Document::open_with(&future_source, &options).unwrap();
     assert_eq!(
-        future.ensure_chunk_layout(),
+        future.promote_to_chunk(),
         Err(EditError::FutureSemanticsReadOnly)
     );
 
@@ -535,7 +532,7 @@ fn promotion_failures_keep_flat_storage_and_global_blocker_priority() {
     let mut future_with_trailing = Document::open_with(&future_chunk, &options).unwrap();
     assert_eq!(future_with_trailing.trailing, TrailingState::Preserved);
     assert_eq!(
-        future_with_trailing.ensure_chunk_layout(),
+        future_with_trailing.promote_to_chunk(),
         Err(EditError::FutureSemanticsReadOnly)
     );
 
@@ -543,7 +540,7 @@ fn promotion_failures_keep_flat_storage_and_global_blocker_priority() {
     trailing_source.extend_from_slice(b"tail");
     let mut trailing = Document::open_with(&trailing_source, &options).unwrap();
     assert_eq!(
-        trailing.ensure_chunk_layout(),
+        trailing.promote_to_chunk(),
         Err(EditError::PreservedTrailingBytesReadOnly)
     );
 }
@@ -571,11 +568,8 @@ fn flat_append_pair_plans_ids_reserves_once_and_keeps_positional_edits_explicit(
     let added = boundary
         .push_raw(raw(CUSTOM, PayloadInput::Borrowed(b"boundary")))
         .unwrap();
-    assert_eq!(
-        promoted_id(&boundary),
-        ChunkId::from_session_counter(u32::MAX - 2)
-    );
-    assert_eq!(added, ChunkId::from_session_counter(u32::MAX - 1));
+    assert_eq!(promoted_id(&boundary), ChunkId::new(u32::MAX - 2));
+    assert_eq!(added, ChunkId::new(u32::MAX - 1));
     assert_eq!(boundary.next_id, u32::MAX);
 
     let mut invalid = Document::open(&source).unwrap();
@@ -625,8 +619,8 @@ fn flat_append_pair_plans_ids_reserves_once_and_keeps_positional_edits_explicit(
         )
         .unwrap();
     assert_eq!(reserve_calls.get(), 1);
-    assert_eq!(added, ChunkId::from_session_counter(1));
-    assert_eq!(promoted_id(&appended), ChunkId::from_session_counter(0));
+    assert_eq!(added, ChunkId::new(1));
+    assert_eq!(promoted_id(&appended), ChunkId::new(0));
     assert_eq!(appended.next_id, 2);
     let (_, record) = promoted(&appended);
     assert_eq!(
@@ -671,7 +665,7 @@ fn flat_append_pair_plans_ids_reserves_once_and_keeps_positional_edits_explicit(
     let before = flat_snapshot(&positional);
     assert_eq!(
         positional.insert_before(
-            ChunkId::from_session_counter(0),
+            ChunkId::new(0),
             raw(CUSTOM, PayloadInput::Borrowed(b"opaque")),
         ),
         Err(EditError::ChunkLayoutRequired)
@@ -683,7 +677,7 @@ fn flat_append_pair_plans_ids_reserves_once_and_keeps_positional_edits_explicit(
 fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
     let source = a8_source();
     let mut document = Document::open(&source).unwrap();
-    let image_id = document.ensure_chunk_layout().unwrap().unwrap();
+    let image_id = document.promote_to_chunk().unwrap().unwrap();
     let meta_id = document
         .push_raw(raw(ChunkType::META, PayloadInput::Borrowed(b"meta")))
         .unwrap();
@@ -741,7 +735,7 @@ fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
     document
         .set_flags(image_id, ChunkFlags::CRITICAL, explicit_policy())
         .unwrap();
-    let custom_encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+    let custom_encoded = document.encode(&EncodeOptions::new()).unwrap();
     let structural = Reader::open_structural_with(&custom_encoded, &ReadOptions::new()).unwrap();
     let custom = structural
         .chunks()
@@ -783,7 +777,7 @@ fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
             .collect::<Vec<_>>(),
         [second, image_id]
     );
-    let second_primary = document.encode_with(&EncodeOptions::new()).unwrap();
+    let second_primary = document.encode(&EncodeOptions::new()).unwrap();
     let second_primary = Reader::open(&second_primary).unwrap();
     assert_eq!(second_primary.primary().unwrap().unwrap().index(), 1);
     let second_primary_chunks = second_primary.chunks().collect::<Vec<_>>();
@@ -805,7 +799,7 @@ fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
     );
     assert_eq!(promoted_id(&document), image_id);
 
-    let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+    let encoded = document.encode(&EncodeOptions::new()).unwrap();
     let reader = Reader::open(&encoded).unwrap();
     let chunks = reader.chunks().collect::<Vec<_>>();
     assert_eq!(chunks[0].chunk_type(), ChunkType::META);
@@ -819,39 +813,36 @@ fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
 fn promoted_writer_policies_share_chunk_output_and_finish_uses_default() {
     let source = a8_source();
     let mut document = Document::open(&source).unwrap();
-    let image_id = document.ensure_chunk_layout().unwrap().unwrap();
+    let image_id = document.promote_to_chunk().unwrap().unwrap();
     let meta_id = document
         .push_raw(raw(ChunkType::META, PayloadInput::Borrowed(b"x")))
         .unwrap();
     document.move_after(image_id, meta_id).unwrap();
 
-    let default = document.encode_with(&EncodeOptions::new()).unwrap();
+    let default = document.encode(&EncodeOptions::new()).unwrap();
     for policy in [
         LayoutPolicy::SmallestRepresentable,
         LayoutPolicy::ForceChunk,
     ] {
         assert_eq!(
             document
-                .encode_with(&EncodeOptions::new().with_layout_policy(policy))
+                .encode(&EncodeOptions::new().with_layout_policy(policy))
                 .unwrap(),
             default
         );
     }
     assert_eq!(
-        document.encode_with(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat)),
+        document.encode(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat)),
         Err(EncodeError::NotRepresentableAsFlat)
     );
     assert_eq!(
-        document.encoded_len_with(&EncodeOptions::new()),
+        document.encoded_len(&EncodeOptions::new()),
         Ok(default.len())
     );
-    assert_eq!(
-        document.encode_with(&EncodeOptions::new()).unwrap(),
-        default
-    );
+    assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), default);
     let mut target = vec![0xcc; default.len() + 4];
     assert_eq!(
-        document.encode_into_with(&mut target, &EncodeOptions::new()),
+        document.encode_into(&mut target, &EncodeOptions::new()),
         Ok(default.len())
     );
     assert_eq!(&target[..default.len()], default.as_slice());
@@ -870,7 +861,7 @@ fn promoted_writer_policies_share_chunk_output_and_finish_uses_default() {
     assert_eq!((chunks[1].payload_offset() + data_offset) % 4, 0);
 
     let mut finished = Document::open(&source).unwrap();
-    let image_id = finished.ensure_chunk_layout().unwrap().unwrap();
+    let image_id = finished.promote_to_chunk().unwrap().unwrap();
     let meta_id = finished
         .push_raw(raw(ChunkType::META, PayloadInput::Borrowed(b"x")))
         .unwrap();

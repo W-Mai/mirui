@@ -347,7 +347,7 @@ fn frames_primary_hints_follow_atlas_and_animation_display_geometry() {
         atlas_document.primary_hints(),
         PrimaryHints::new(ColorFormat::A8.to_u8(), 4, 1, 4)
     );
-    let encoded = atlas_document.encode_with(&EncodeOptions::new()).unwrap();
+    let encoded = atlas_document.encode(&EncodeOptions::new()).unwrap();
     assert_eq!(
         Document::open(&encoded).unwrap().primary_hints(),
         PrimaryHints::new(ColorFormat::A8.to_u8(), 4, 1, 4)

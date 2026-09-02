@@ -947,7 +947,7 @@ mod tests {
             ))
             .unwrap();
         document.dirty = false;
-        let invalid = ChunkId::from_session_counter(99);
+        let invalid = ChunkId::new(99);
         let original = snapshot(&document);
 
         assert_eq!(

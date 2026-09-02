@@ -169,7 +169,7 @@ mod tests {
     };
 
     fn id(counter: u32) -> ChunkId {
-        ChunkId::from_session_counter(counter)
+        ChunkId::new(counter)
     }
 
     fn point(x: i32, y: i32) -> Point {
@@ -280,7 +280,7 @@ mod tests {
         let payload = document.get(vector_id).unwrap().payload_bytes().unwrap();
         assert_eq!(Scene::preflight(payload, &PayloadLimits::EMBEDDED), Ok(()));
 
-        let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+        let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reopened = Document::open(&encoded).unwrap();
         let reopened_id = reopened.chunks().next().unwrap().id();
         assert_eq!(reopened.vector(reopened_id).unwrap(), expected);
@@ -673,7 +673,7 @@ mod tests {
     #[test]
     fn segmented_vector_can_be_repaired_without_decode() {
         let mut document = flat_document();
-        let promoted = document.ensure_chunk_layout().unwrap().unwrap();
+        let promoted = document.promote_to_chunk().unwrap().unwrap();
         assert_eq!(
             document.set_type(promoted, ChunkType::VECTOR, RawChunkPolicy::infer()),
             Err(EditError::NonContiguousPayload {

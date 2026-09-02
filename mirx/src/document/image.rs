@@ -120,7 +120,7 @@ mod tests {
     ];
 
     fn id(counter: u32) -> ChunkId {
-        ChunkId::from_session_counter(counter)
+        ChunkId::new(counter)
     }
 
     fn borrowed_asset<'a>(
@@ -212,7 +212,7 @@ mod tests {
                 "{format:?}"
             );
 
-            let encoded = document.encode_with(&EncodeOptions::new()).unwrap();
+            let encoded = document.encode(&EncodeOptions::new()).unwrap();
             let reopened = Reader::open(&encoded).unwrap();
             let chunk = reopened.chunks().next().unwrap();
             assert_eq!(chunk.flags(), flags, "{format:?}");
@@ -245,7 +245,7 @@ mod tests {
         authored
             .push_image(ChunkFlags::NONE, &a8_asset(&main, 2, 2))
             .unwrap();
-        let source = authored.encode_with(&EncodeOptions::new()).unwrap();
+        let source = authored.encode(&EncodeOptions::new()).unwrap();
         let expected = Reader::open(&source)
             .unwrap()
             .chunks()
@@ -552,7 +552,7 @@ mod tests {
         let original = [1, 2, 3, 4];
         let changed = [9, 8, 7, 6, 5, 4];
         let mut exact_promoted = Document::new_flat(a8_asset(&original, 2, 2)).unwrap();
-        let exact_promoted_id = exact_promoted.ensure_chunk_layout().unwrap().unwrap();
+        let exact_promoted_id = exact_promoted.promote_to_chunk().unwrap().unwrap();
         let exact_pointer = exact_promoted
             .image(exact_promoted_id)
             .unwrap()
@@ -582,7 +582,7 @@ mod tests {
         assert!(exact_chunks.promoted_flat.is_some());
 
         let mut promoted = Document::new_flat(a8_asset(&original, 2, 2)).unwrap();
-        let promoted_id = promoted.ensure_chunk_layout().unwrap().unwrap();
+        let promoted_id = promoted.promote_to_chunk().unwrap().unwrap();
         let original_pointer = promoted.image(promoted_id).unwrap().main().as_ptr();
         promoted
             .replace_image(promoted_id, &a8_asset(&changed, 3, 2))

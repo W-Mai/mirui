@@ -176,7 +176,7 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
 
 fn assert_every_mutation_blocked(document: &mut Document<'_>, id: ChunkId, expected: EditError) {
     let before = snapshot(document);
-    let invalid = ChunkId::from_session_counter(u32::MAX);
+    let invalid = ChunkId::new(u32::MAX);
 
     assert_eq!(document.push_raw(raw_input(b"new")), Err(expected.clone()));
     assert_eq!(snapshot(document), before);
@@ -238,7 +238,7 @@ fn future_chunk_metadata_is_preserved_or_normalized_explicitly() {
         let mut preserved = Document::open(&source).unwrap();
         let id = preserved.chunks().next().unwrap().id();
         assert_eq!(preserved.compatibility, Compatibility::FutureReadOnly);
-        assert!(preserved.file_meta().has_future_semantics());
+        assert!(preserved.file_metadata().has_future_semantics());
         assert!(!preserved.is_dirty());
         assert!(
             source
@@ -454,7 +454,7 @@ fn normalized_future_flat_keeps_extra_bytes_as_an_independent_trailing_region() 
     document.discard_trailing_bytes().unwrap();
     assert_eq!(document.trailing, TrailingState::Discarded);
     let added = document.push_raw(raw_input(b"new")).unwrap();
-    assert_eq!(added, ChunkId::from_session_counter(1));
+    assert_eq!(added, ChunkId::new(1));
     assert_eq!(document.layout(), Layout::Chunk);
 }
 
@@ -607,7 +607,7 @@ fn no_tail_discard_is_a_clean_noop_and_trailing_precedes_flat_layout() {
     });
     flat_source.extend_from_slice(b"tail");
     let mut flat = Document::open_with(&flat_source, &preserve_trailing_options()).unwrap();
-    let invalid = ChunkId::from_session_counter(0);
+    let invalid = ChunkId::new(0);
     assert_every_mutation_blocked(
         &mut flat,
         invalid,

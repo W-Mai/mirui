@@ -79,8 +79,8 @@ fn generated_raw_sequences_rewrite_deterministically_and_reopen_every_payload() 
         let hints = PrimaryHints::new(0xff, seed + 1, count as u32, 0);
         document.set_primary_with_hints(primary.id, hints).unwrap();
 
-        let first = document.encode_with(&Default::default()).unwrap();
-        let second = document.encode_with(&Default::default()).unwrap();
+        let first = document.encode(&Default::default()).unwrap();
+        let second = document.encode(&Default::default()).unwrap();
         assert_eq!(first, second, "seed {seed}");
 
         let reader = Reader::open(&first).unwrap();

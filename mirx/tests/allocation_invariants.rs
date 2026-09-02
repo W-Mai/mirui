@@ -132,11 +132,11 @@ fn borrowed_reads_and_caller_buffer_encoding_allocate_nothing() {
     let (document, document_open_allocations) =
         count_allocations(|| Document::open(&bytes).unwrap());
     assert_eq!(document_open_allocations, 1);
-    let output_len = document.encoded_len_with(&EncodeOptions::new()).unwrap();
+    let output_len = document.encoded_len(&EncodeOptions::new()).unwrap();
     let mut output = vec![0xa5; output_len + 7];
     let (written, encode_allocations) = count_allocations(|| {
         document
-            .encode_into_with(&mut output, &EncodeOptions::new())
+            .encode_into(&mut output, &EncodeOptions::new())
             .unwrap()
     });
     assert_eq!(written, output_len);

@@ -483,7 +483,7 @@ mod tests {
     }
 
     fn id(index: u32) -> ChunkId {
-        ChunkId::from_session_counter(index)
+        ChunkId::new(index)
     }
 
     fn ids(document: &Document<'_>) -> Vec<ChunkId> {
