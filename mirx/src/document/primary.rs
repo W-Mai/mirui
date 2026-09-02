@@ -746,7 +746,7 @@ mod tests {
         assert_eq!(document.primary(), None);
 
         let inserted = document
-            .insert_before(id(0), raw(TYPE_A, b"new", explicit_policy()))
+            .insert_raw_before(id(0), raw(TYPE_A, b"new", explicit_policy()))
             .unwrap();
         assert_eq!(ids(&document), [inserted, id(0), id(1), id(2)]);
         assert_eq!(document.primary(), None);
@@ -777,12 +777,12 @@ mod tests {
         let before = snapshot(&document);
 
         assert_eq!(
-            document.insert_before(id(1), raw(TYPE_A, b"new", RawChunkPolicy::infer())),
+            document.insert_raw_before(id(1), raw(TYPE_A, b"new", RawChunkPolicy::infer())),
             Err(EditError::WouldShadowPrimary)
         );
         assert_eq!(snapshot(&document), before);
         assert_eq!(
-            document.insert_after(id(0), raw(TYPE_A, b"new", RawChunkPolicy::infer())),
+            document.insert_raw_after(id(0), raw(TYPE_A, b"new", RawChunkPolicy::infer())),
             Err(EditError::WouldShadowPrimary)
         );
         assert_eq!(snapshot(&document), before);
@@ -790,14 +790,14 @@ mod tests {
         document.next_id = u32::MAX;
         let exhausted = snapshot(&document);
         assert_eq!(
-            document.insert_before(id(1), raw(TYPE_A, b"new", RawChunkPolicy::infer())),
+            document.insert_raw_before(id(1), raw(TYPE_A, b"new", RawChunkPolicy::infer())),
             Err(EditError::ChunkIdExhausted)
         );
         assert_eq!(snapshot(&document), exhausted);
         document.next_id = before.next_id;
 
         let inserted = document
-            .insert_after(id(1), raw(TYPE_A, b"allowed", explicit_policy()))
+            .insert_raw_after(id(1), raw(TYPE_A, b"allowed", explicit_policy()))
             .unwrap();
         assert_eq!(inserted, id(4));
         assert_eq!(document.primary(), Some(id(1)));

@@ -130,7 +130,7 @@ from the wire format and must not be persisted across reopen.
 Common ordered operations:
 
 - `chunks`, `get`, `chunks_of_type`
-- `push_raw`, `insert_before`, `insert_after`, `replace_raw`, `remove`
+- `push_raw`, `insert_raw_before`, `insert_raw_after`, `replace_raw`, `remove`
 - `move_before`, `move_after`
 - `set_type`, `set_flags`, `set_raw_policy`
 - `set_primary`, `set_primary_with_hints`, `clear_primary`

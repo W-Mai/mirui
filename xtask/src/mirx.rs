@@ -181,19 +181,18 @@ impl RawPolicyArgs {
     }
 
     const fn selected_policy(&self) -> RawChunkPolicy {
-        RawChunkPolicy {
-            relocation: if self.assume_relocatable {
+        RawChunkPolicy::infer()
+            .with_relocation(if self.assume_relocatable {
                 RelocationAssumption::AssumeRelocatable
             } else {
                 RelocationAssumption::Infer
-            },
-            critical_semantics: if self.assume_critical_understood {
+            })
+            .with_critical_semantics(if self.assume_critical_understood {
                 CriticalAssumption::AssumeCriticalUnderstood
             } else {
                 CriticalAssumption::Infer
-            },
-            reserved_flag_bits: self.reserved_flag_bits,
-        }
+            })
+            .with_reserved_bits(self.reserved_flag_bits)
     }
 
     fn source_policies(&self) -> Vec<RawTypePolicy> {
@@ -201,15 +200,14 @@ impl RawPolicyArgs {
             .iter()
             .map(|&(chunk_type, critical)| RawTypePolicy {
                 chunk_type,
-                policy: RawChunkPolicy {
-                    relocation: RelocationAssumption::AssumeRelocatable,
-                    critical_semantics: if critical {
+                policy: RawChunkPolicy::infer()
+                    .with_relocation(RelocationAssumption::AssumeRelocatable)
+                    .with_critical_semantics(if critical {
                         CriticalAssumption::AssumeCriticalUnderstood
                     } else {
                         CriticalAssumption::Infer
-                    },
-                    reserved_flag_bits: self.reserved_flag_bits,
-                },
+                    })
+                    .with_reserved_bits(self.reserved_flag_bits),
             })
             .collect()
     }
@@ -564,12 +562,11 @@ fn insert_raw_bytes(
 ) -> std::result::Result<Vec<u8>, String> {
     let mut document = open_edit_document(source, Some(chunk_type), policy, source_policies)?;
     document
-        .push_raw(RawChunkInput {
-            chunk_type,
-            flags,
-            payload: PayloadInput::Owned(payload),
-            policy,
-        })
+        .push_raw(
+            RawChunkInput::new(chunk_type, payload)
+                .with_flags(flags)
+                .with_policy(policy),
+        )
         .map_err(|error| format!("edit error: {error:?}"))?;
     finish_document(document)
 }

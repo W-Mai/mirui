@@ -33,7 +33,7 @@ pub use options::{CompatibilityPolicy, EncodeOptions, LayoutPolicy, OpenOptions,
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub use raw::{
     CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
-    RemovedChunkMeta, ReservedBitsPolicy,
+    RemovedChunkMetadata, ReservedBitsPolicy,
 };
 
 use alloc::{borrow::Cow, vec::Vec};

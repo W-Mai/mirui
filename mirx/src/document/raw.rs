@@ -18,6 +18,24 @@ pub enum PayloadInput<'a> {
     Owned(Vec<u8>),
 }
 
+impl<'a> From<&'a [u8]> for PayloadInput<'a> {
+    fn from(bytes: &'a [u8]) -> Self {
+        Self::Borrowed(bytes)
+    }
+}
+
+impl<'a, const N: usize> From<&'a [u8; N]> for PayloadInput<'a> {
+    fn from(bytes: &'a [u8; N]) -> Self {
+        Self::Borrowed(bytes)
+    }
+}
+
+impl<'a> From<Vec<u8>> for PayloadInput<'a> {
+    fn from(bytes: Vec<u8>) -> Self {
+        Self::Owned(bytes)
+    }
+}
+
 impl<'a> PayloadInput<'a> {
     fn as_bytes(&self) -> &[u8] {
         match self {
@@ -43,9 +61,31 @@ pub struct RawChunkInput<'a> {
     pub policy: RawChunkPolicy,
 }
 
+impl<'a> RawChunkInput<'a> {
+    /// Creates a raw chunk input with no flags and conservative inference.
+    pub fn new(chunk_type: ChunkType, payload: impl Into<PayloadInput<'a>>) -> Self {
+        Self {
+            chunk_type,
+            flags: ChunkFlags::NONE,
+            payload: payload.into(),
+            policy: RawChunkPolicy::infer(),
+        }
+    }
+
+    pub const fn with_flags(mut self, flags: ChunkFlags) -> Self {
+        self.flags = flags;
+        self
+    }
+
+    pub const fn with_policy(mut self, policy: RawChunkPolicy) -> Self {
+        self.policy = policy;
+        self
+    }
+}
+
 /// Descriptor retained after a chunk is removed from a document.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RemovedChunkMeta {
+pub struct RemovedChunkMetadata {
     pub id: ChunkId,
     pub chunk_type: ChunkType,
     pub flags: ChunkFlags,
@@ -95,6 +135,21 @@ impl RawChunkPolicy {
             critical_semantics: CriticalAssumption::Infer,
             reserved_flag_bits: ReservedBitsPolicy::Reject,
         }
+    }
+
+    pub const fn with_relocation(mut self, relocation: RelocationAssumption) -> Self {
+        self.relocation = relocation;
+        self
+    }
+
+    pub const fn with_critical_semantics(mut self, critical_semantics: CriticalAssumption) -> Self {
+        self.critical_semantics = critical_semantics;
+        self
+    }
+
+    pub const fn with_reserved_bits(mut self, reserved_flag_bits: ReservedBitsPolicy) -> Self {
+        self.reserved_flag_bits = reserved_flag_bits;
+        self
     }
 }
 
@@ -176,7 +231,7 @@ impl<'a> Document<'a> {
     }
 
     /// Inserts one encoded chunk immediately before `anchor`.
-    pub fn insert_before(
+    pub fn insert_raw_before(
         &mut self,
         anchor: ChunkId,
         input: RawChunkInput<'a>,
@@ -185,7 +240,7 @@ impl<'a> Document<'a> {
     }
 
     /// Inserts one encoded chunk immediately after `anchor`.
-    pub fn insert_after(
+    pub fn insert_raw_after(
         &mut self,
         anchor: ChunkId,
         input: RawChunkInput<'a>,
@@ -372,7 +427,7 @@ impl<'a> Document<'a> {
     }
 
     /// Removes `id` without materializing its payload bytes.
-    pub fn remove(&mut self, id: ChunkId) -> Result<RemovedChunkMeta, EditError> {
+    pub fn remove(&mut self, id: ChunkId) -> Result<RemovedChunkMetadata, EditError> {
         self.ensure_mutable()?;
         let index = chunk_index(&self.state, id)?;
         let (_, meta) = self.remove_at(index);
@@ -555,7 +610,7 @@ impl<'a> Document<'a> {
         }
     }
 
-    fn remove_at(&mut self, index: usize) -> (ChunkNode<'a>, RemovedChunkMeta) {
+    fn remove_at(&mut self, index: usize) -> (ChunkNode<'a>, RemovedChunkMetadata) {
         let DocumentState::Chunk(chunks) = &mut self.state else {
             unreachable!("layout checked before committing removal");
         };
@@ -571,7 +626,7 @@ impl<'a> Document<'a> {
             chunks.primary = None;
             chunks.primary_hints = super::PrimaryHintState::Missing;
         }
-        let meta = RemovedChunkMeta {
+        let meta = RemovedChunkMetadata {
             id: node.id,
             chunk_type: node.chunk_type,
             flags: node.flags,
@@ -709,11 +764,7 @@ mod tests {
     };
 
     const fn assumed_policy() -> RawChunkPolicy {
-        RawChunkPolicy {
-            relocation: RelocationAssumption::AssumeRelocatable,
-            critical_semantics: CriticalAssumption::Infer,
-            reserved_flag_bits: ReservedBitsPolicy::Reject,
-        }
+        RawChunkPolicy::infer().with_relocation(RelocationAssumption::AssumeRelocatable)
     }
 
     fn raw<'a>(
@@ -722,12 +773,9 @@ mod tests {
         payload: PayloadInput<'a>,
         policy: RawChunkPolicy,
     ) -> RawChunkInput<'a> {
-        RawChunkInput {
-            chunk_type,
-            flags,
-            payload,
-            policy,
-        }
+        RawChunkInput::new(chunk_type, payload)
+            .with_flags(flags)
+            .with_policy(policy)
     }
 
     fn valid_image_payload() -> Vec<u8> {
@@ -897,7 +945,7 @@ mod tests {
             ))
             .unwrap();
         let before = document
-            .insert_before(
+            .insert_raw_before(
                 original_ids[0],
                 raw(
                     ChunkType::new(1).unwrap(),
@@ -908,7 +956,7 @@ mod tests {
             )
             .unwrap();
         let after = document
-            .insert_after(
+            .insert_raw_after(
                 original_ids[0],
                 raw(
                     ChunkType::FONT,
@@ -1441,7 +1489,7 @@ mod tests {
         let non_primary = document.remove(original_ids[0]).unwrap();
         assert_eq!(
             non_primary,
-            RemovedChunkMeta {
+            RemovedChunkMetadata {
                 id: original_ids[0],
                 chunk_type: ChunkType::META,
                 flags: ChunkFlags::from_bits_retain(0xa500),
@@ -1695,7 +1743,7 @@ mod tests {
         let before_next = document.next_id;
         let invalid = ChunkId::new(99);
         assert_eq!(
-            document.insert_before(
+            document.insert_raw_before(
                 invalid,
                 raw(
                     ChunkType::new(0xbeef).unwrap(),
@@ -1712,7 +1760,7 @@ mod tests {
 
         document.next_id = u32::MAX;
         assert_eq!(
-            document.insert_after(
+            document.insert_raw_after(
                 first,
                 raw(
                     ChunkType::new(0xbeef).unwrap(),
@@ -1831,6 +1879,34 @@ mod tests {
         assert_eq!(RelocationAssumption::default(), RelocationAssumption::Infer);
         assert_eq!(CriticalAssumption::default(), CriticalAssumption::Infer);
         assert_eq!(ReservedBitsPolicy::default(), ReservedBitsPolicy::Reject);
+
+        let borrowed = b"borrowed".as_slice();
+        assert_eq!(
+            PayloadInput::from(borrowed),
+            PayloadInput::Borrowed(borrowed)
+        );
+        assert_eq!(
+            PayloadInput::from(b"owned".to_vec()),
+            PayloadInput::Owned(b"owned".to_vec())
+        );
+
+        let chunk_type = ChunkType::new(0xbeef).unwrap();
+        let flags = ChunkFlags::CRITICAL;
+        let policy = RawChunkPolicy::infer()
+            .with_relocation(RelocationAssumption::AssumeRelocatable)
+            .with_critical_semantics(CriticalAssumption::AssumeCriticalUnderstood)
+            .with_reserved_bits(ReservedBitsPolicy::Preserve);
+        assert_eq!(
+            RawChunkInput::new(chunk_type, b"borrowed")
+                .with_flags(flags)
+                .with_policy(policy),
+            RawChunkInput {
+                chunk_type,
+                flags,
+                payload: PayloadInput::Borrowed(borrowed),
+                policy,
+            }
+        );
 
         let size = core::mem::size_of::<ChunkNode<'_>>();
         match core::mem::size_of::<usize>() {

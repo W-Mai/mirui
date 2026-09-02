@@ -181,12 +181,12 @@ fn assert_every_mutation_blocked(document: &mut Document<'_>, id: ChunkId, expec
     assert_eq!(document.push_raw(raw_input(b"new")), Err(expected.clone()));
     assert_eq!(snapshot(document), before);
     assert_eq!(
-        document.insert_before(invalid, raw_input(b"new")),
+        document.insert_raw_before(invalid, raw_input(b"new")),
         Err(expected.clone())
     );
     assert_eq!(snapshot(document), before);
     assert_eq!(
-        document.insert_after(invalid, raw_input(b"new")),
+        document.insert_raw_after(invalid, raw_input(b"new")),
         Err(expected.clone())
     );
     assert_eq!(snapshot(document), before);
@@ -629,12 +629,12 @@ fn insertion_plans_layout_and_id_before_payload_policy_atomically() {
     );
     assert_eq!(snapshot(&document), before);
     assert_eq!(
-        document.insert_before(anchor, policy_failing_raw_input()),
+        document.insert_raw_before(anchor, policy_failing_raw_input()),
         Err(EditError::ChunkIdExhausted)
     );
     assert_eq!(snapshot(&document), before);
     assert_eq!(
-        document.insert_after(anchor, policy_failing_raw_input()),
+        document.insert_raw_after(anchor, policy_failing_raw_input()),
         Err(EditError::ChunkIdExhausted)
     );
     assert_eq!(snapshot(&document), before);

@@ -664,7 +664,7 @@ fn flat_append_pair_plans_ids_reserves_once_and_keeps_positional_edits_explicit(
     let mut positional = Document::open(&source).unwrap();
     let before = flat_snapshot(&positional);
     assert_eq!(
-        positional.insert_before(
+        positional.insert_raw_before(
             ChunkId::new(0),
             raw(CUSTOM, PayloadInput::Borrowed(b"opaque")),
         ),

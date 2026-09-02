@@ -587,9 +587,9 @@ fn identity_failures_and_exhaustion_precede_payload_policy() {
         )
     };
 
-    let result = document.insert_before(invalid, bad_input());
+    let result = document.insert_raw_before(invalid, bad_input());
     assert_atomic_error(&document, &before, result, EditError::InvalidChunkId);
-    let result = document.insert_after(invalid, bad_input());
+    let result = document.insert_raw_after(invalid, bad_input());
     assert_atomic_error(&document, &before, result, EditError::InvalidChunkId);
     let result = document.replace_raw(
         invalid,
@@ -618,9 +618,9 @@ fn identity_failures_and_exhaustion_precede_payload_policy() {
 
     let result = document.push_raw(bad_input());
     assert_atomic_error(&document, &before, result, EditError::ChunkIdExhausted);
-    let result = document.insert_before(id(0), bad_input());
+    let result = document.insert_raw_before(id(0), bad_input());
     assert_atomic_error(&document, &before, result, EditError::ChunkIdExhausted);
-    let result = document.insert_after(id(0), bad_input());
+    let result = document.insert_raw_after(id(0), bad_input());
     assert_atomic_error(&document, &before, result, EditError::ChunkIdExhausted);
 }
 
@@ -629,7 +629,7 @@ fn primary_shadowing_fails_before_payload_policy_or_reordering() {
     let mut exhausted = duplicate_primary_document();
     exhausted.next_id = u32::MAX;
     let before = snapshot(&exhausted);
-    let result = exhausted.insert_before(
+    let result = exhausted.insert_raw_before(
         id(1),
         raw(
             TYPE_A,
@@ -642,7 +642,7 @@ fn primary_shadowing_fails_before_payload_policy_or_reordering() {
 
     let mut document = duplicate_primary_document();
     let before = snapshot(&document);
-    let result = document.insert_before(
+    let result = document.insert_raw_before(
         id(1),
         raw(
             TYPE_A,
