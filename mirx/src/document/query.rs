@@ -4,7 +4,7 @@ use core::iter::FusedIterator;
 use core::slice;
 
 use super::payload::{encode_error_for_image, resolve_node_payload};
-use super::{ChunkNode, Document, DocumentState, PayloadStorage};
+use super::{ChunkNode, Document, DocumentChunkMut, DocumentState, PayloadStorage};
 use crate::{ChunkFlags, ChunkId, ChunkType, EncodeError};
 
 /// Logical provenance of a document payload.
@@ -191,6 +191,15 @@ impl<'source> Document<'source> {
         self.chunks().find(|chunk| chunk.id() == id)
     }
 
+    /// Looks up a chunk for descriptor or payload editing.
+    pub fn get_mut(&mut self, id: ChunkId) -> Option<DocumentChunkMut<'_, 'source>> {
+        let DocumentState::Chunk(chunks) = &self.state else {
+            return None;
+        };
+        let index = chunks.chunks.iter().position(|node| node.id == id)?;
+        Some(DocumentChunkMut::new(self, index))
+    }
+
     /// Iterates over chunks of `chunk_type` in table order without allocating.
     pub fn chunks_of_type(&self, chunk_type: ChunkType) -> ChunksOfType<'_> {
         ChunksOfType {
@@ -214,7 +223,16 @@ mod tests {
 
     use super::*;
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
-    use crate::{ColorFormat, FlatImageInput, crc32, encode_chunks, encode_flat};
+    use crate::{
+        ColorFormat, CriticalAssumption, EditError, FlatImageInput, PayloadInput, RawChunkInput,
+        RawChunkPolicy, RelocationAssumption, crc32, encode_chunks, encode_flat,
+    };
+
+    fn explicit_policy() -> RawChunkPolicy {
+        RawChunkPolicy::infer()
+            .with_relocation(RelocationAssumption::AssumeRelocatable)
+            .with_critical_semantics(CriticalAssumption::AssumeCriticalUnderstood)
+    }
 
     fn set_primary(source: &mut [u8], chunk_type: u16) {
         source[20..22].copy_from_slice(&chunk_type.to_le_bytes());
@@ -271,6 +289,99 @@ mod tests {
             assert!(document.chunks_of_type(ChunkType::META).next().is_none());
             assert_eq!(document.primary(), None);
         }
+    }
+
+    #[test]
+    fn mutable_lookup_resolves_only_chunk_members() {
+        let flat_source = encode_flat(&FlatImageInput {
+            width: 1,
+            height: 1,
+            stride: 1,
+            format: ColorFormat::A8,
+            main: &[7],
+            extra: None,
+        });
+        let mut flat = Document::open(&flat_source).unwrap();
+        assert!(flat.get_mut(ChunkId::new(0)).is_none());
+
+        let mut document = Document::new();
+        let custom = ChunkType::new(0x8001).unwrap();
+        let id = document
+            .push_raw(
+                RawChunkInput::new(custom, b"payload".as_slice()).with_policy(explicit_policy()),
+            )
+            .unwrap();
+        assert!(document.get_mut(ChunkId::new(99)).is_none());
+        assert_eq!(document.get_mut(id).unwrap().id(), id);
+    }
+
+    #[test]
+    fn mutable_handle_edits_descriptor_and_payload_in_place() {
+        let first_type = ChunkType::new(0x8001).unwrap();
+        let second_type = ChunkType::new(0x8002).unwrap();
+        let source = encode_chunks(&[(first_type.raw(), 0, b"old")]);
+        let mut document = Document::open(&source).unwrap();
+        let id = ChunkId::new(0);
+
+        {
+            let mut chunk = document.get_mut(id).unwrap();
+            assert_eq!(chunk.id(), id);
+            assert_eq!(chunk.chunk_type(), first_type);
+            assert_eq!(chunk.flags(), ChunkFlags::NONE);
+            chunk
+                .set_flags(ChunkFlags::CRITICAL, explicit_policy())
+                .unwrap();
+            chunk.set_type(second_type, explicit_policy()).unwrap();
+            chunk.set_raw_policy(explicit_policy()).unwrap();
+            chunk
+                .replace_raw(PayloadInput::Borrowed(b"new"), explicit_policy())
+                .unwrap();
+            assert_eq!(chunk.chunk_type(), second_type);
+            assert_eq!(chunk.flags(), ChunkFlags::CRITICAL);
+        }
+
+        let chunk = document.get(id).unwrap();
+        assert_eq!(chunk.chunk_type(), second_type);
+        assert_eq!(chunk.flags(), ChunkFlags::CRITICAL);
+        assert_eq!(chunk.payload_bytes(), Some(b"new".as_slice()));
+        assert!(document.is_dirty());
+
+        document.remove(id).unwrap();
+        assert!(document.get(id).is_none());
+    }
+
+    #[test]
+    fn mutable_handle_keeps_failed_and_no_op_edits_atomic() {
+        let custom = ChunkType::new(0x8001).unwrap();
+        let primary_type = ChunkType::new(0x8002).unwrap();
+        let source = encode_chunks(&[
+            (primary_type.raw(), 0, b"primary"),
+            (custom.raw(), 0, b"payload"),
+        ]);
+        let mut document = Document::open(&source).unwrap();
+        let id = ChunkId::new(1);
+
+        {
+            let mut chunk = document.get_mut(id).unwrap();
+            chunk
+                .set_flags(ChunkFlags::NONE, RawChunkPolicy::infer())
+                .unwrap();
+            assert_eq!(chunk.chunk_type(), custom);
+            assert_eq!(chunk.flags(), ChunkFlags::NONE);
+            let result = chunk.set_type(ChunkType::IMAGE, RawChunkPolicy::infer());
+            assert!(
+                matches!(result, Err(EditError::InvalidPayload(_))),
+                "{result:?}"
+            );
+            assert_eq!(chunk.chunk_type(), custom);
+            assert_eq!(chunk.flags(), ChunkFlags::NONE);
+        }
+
+        assert!(!document.is_dirty());
+        assert_eq!(
+            document.get(id).unwrap().payload_bytes(),
+            Some(b"payload".as_slice())
+        );
     }
 
     #[test]

@@ -67,8 +67,9 @@ fn generated_raw_sequences_rewrite_deterministically_and_reopen_every_payload() 
         }
         let replacement = generated_payload(&mut state, 19);
         document
+            .get_mut(expected[0].id)
+            .unwrap()
             .replace_raw(
-                expected[0].id,
                 PayloadInput::Owned(replacement.clone()),
                 relocatable_policy(),
             )

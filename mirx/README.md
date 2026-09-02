@@ -128,12 +128,16 @@ from the wire format and must not be persisted across reopen.
 
 Common ordered operations:
 
-- `chunks`, `get`, `chunks_of_type`
-- `push_raw`, `insert_raw_before`, `insert_raw_after`, `replace_raw`, `remove`
+- `chunks`, `get`, `get_mut`, `chunks_of_type`
+- `push_raw`, `insert_raw_before`, `insert_raw_after`, `remove`
 - `move_before`, `move_after`
-- `set_type`, `set_flags`, `set_raw_policy`
 - `set_primary`, `set_primary_with_hints`, `clear_primary`
 - `promote_to_chunk`, `demote_to_flat`
+
+`Document::get_mut(id)` returns a `DocumentChunkMut` handle for operations that
+target one existing chunk: `set_type`, `set_flags`, `set_raw_policy`, and
+`replace_raw`. The handle exposes the selected chunk's `id`, `chunk_type`, and
+`flags` while keeping document-wide rewrite invariants private.
 
 Typed payload operations:
 

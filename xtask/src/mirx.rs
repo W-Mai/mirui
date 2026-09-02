@@ -583,7 +583,9 @@ fn replace_raw_bytes(
     let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
     let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
     document
-        .replace_raw(id, PayloadInput::Owned(payload), policy)
+        .get_mut(id)
+        .ok_or_else(|| "edit error: invalid chunk ID".to_owned())?
+        .replace_raw(PayloadInput::Owned(payload), policy)
         .map_err(|error| format!("edit error: {error:?}"))?;
     finish_document(document)
 }

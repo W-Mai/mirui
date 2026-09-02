@@ -3,13 +3,15 @@ use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_prima
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
 use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, Font, FontEncodeError, FramesEncodeError,
-    FramesView, MetaEncodeError, MetaView, PaletteEncodeError, PaletteView, PayloadLimits, Scene,
+    ChunkFlags, ChunkType, EditError, Font, FontEncodeError, FramesEncodeError, FramesView,
+    MetaEncodeError, MetaView, PaletteEncodeError, PaletteView, PayloadLimits, Scene,
     VectorEncodeError,
 };
 
 #[cfg(test)]
 use super::PayloadStorage;
+#[cfg(test)]
+use crate::ChunkId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct EvaluatedDescriptor {
@@ -278,8 +280,8 @@ pub(super) fn grant_open_descriptor(
 }
 
 impl Document<'_> {
-    /// Changes the type of `id` after validating its existing encoded payload.
-    pub fn set_type(
+    #[cfg(test)]
+    pub(super) fn set_type(
         &mut self,
         id: ChunkId,
         chunk_type: ChunkType,
@@ -287,6 +289,39 @@ impl Document<'_> {
     ) -> Result<(), EditError> {
         self.ensure_mutable()?;
         let index = descriptor_chunk_index(&self.state, id)?;
+        self.set_type_at(index, chunk_type, policy)
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_flags(
+        &mut self,
+        id: ChunkId,
+        flags: ChunkFlags,
+        policy: RawChunkPolicy,
+    ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
+        let index = descriptor_chunk_index(&self.state, id)?;
+        self.set_flags_at(index, flags, policy)
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_raw_policy(
+        &mut self,
+        id: ChunkId,
+        policy: RawChunkPolicy,
+    ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
+        let index = descriptor_chunk_index(&self.state, id)?;
+        self.set_raw_policy_at(index, policy)
+    }
+
+    pub(super) fn set_type_at(
+        &mut self,
+        index: usize,
+        chunk_type: ChunkType,
+        policy: RawChunkPolicy,
+    ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
         let existing_type = chunk_node(&self.state, index).chunk_type;
         if existing_type == chunk_type {
             return Ok(());
@@ -313,15 +348,13 @@ impl Document<'_> {
         Ok(())
     }
 
-    /// Changes the flags of `id` after validating its existing encoded payload.
-    pub fn set_flags(
+    pub(super) fn set_flags_at(
         &mut self,
-        id: ChunkId,
+        index: usize,
         flags: ChunkFlags,
         policy: RawChunkPolicy,
     ) -> Result<(), EditError> {
         self.ensure_mutable()?;
-        let index = descriptor_chunk_index(&self.state, id)?;
         let existing_flags = chunk_node(&self.state, index).flags;
         if existing_flags == flags
             && !matches!(policy.reserved_flag_bits, ReservedBitsPolicy::Normalize)
@@ -348,13 +381,12 @@ impl Document<'_> {
         Ok(())
     }
 
-    /// Re-evaluates the rewrite capability of one existing raw node.
-    ///
-    /// Capability-only changes do not alter encoded output and therefore do
-    /// not mark the document dirty. Normalizing reserved flag bits does.
-    pub fn set_raw_policy(&mut self, id: ChunkId, policy: RawChunkPolicy) -> Result<(), EditError> {
+    pub(super) fn set_raw_policy_at(
+        &mut self,
+        index: usize,
+        policy: RawChunkPolicy,
+    ) -> Result<(), EditError> {
         self.ensure_mutable()?;
-        let index = descriptor_chunk_index(&self.state, id)?;
         let candidate = {
             let node = chunk_node(&self.state, index);
             let payload = descriptor_payload(self, node)?;
@@ -436,6 +468,7 @@ impl Document<'_> {
     }
 }
 
+#[cfg(test)]
 fn descriptor_chunk_index(state: &DocumentState<'_>, id: ChunkId) -> Result<usize, EditError> {
     let DocumentState::Chunk(chunks) = state else {
         return Err(EditError::ChunkLayoutRequired);

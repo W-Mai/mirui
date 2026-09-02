@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod atomic_tests;
+mod chunk_mut;
 #[cfg(test)]
 mod compatibility_tests;
 mod demotion;
@@ -29,6 +30,7 @@ mod source;
 mod vector;
 mod writer;
 
+pub use chunk_mut::DocumentChunkMut;
 pub use options::{CompatibilityPolicy, EncodeOptions, LayoutPolicy, OpenOptions, RawTypePolicy};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub use raw::{

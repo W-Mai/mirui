@@ -221,6 +221,18 @@ enum InsertPosition {
 }
 
 impl<'a> Document<'a> {
+    #[cfg(test)]
+    pub(super) fn replace_raw(
+        &mut self,
+        id: ChunkId,
+        payload: PayloadInput<'a>,
+        policy: RawChunkPolicy,
+    ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
+        let index = chunk_index(&self.state, id)?;
+        self.replace_raw_at(index, payload, policy)
+    }
+
     /// Appends one encoded chunk without copying its payload bytes.
     ///
     /// A FLAT document is promoted atomically before the append. The returned
@@ -248,23 +260,15 @@ impl<'a> Document<'a> {
         self.insert_raw_at(InsertPosition::After(anchor), input)
     }
 
-    /// Replaces the encoded payload of `id` without changing its descriptor.
-    ///
-    /// An exact byte match is a no-op and retains the existing storage and
-    /// rewrite capability. Otherwise the replacement is checked with the same
-    /// raw-payload policy used by insertion. Because this operation preserves
-    /// the chunk descriptor, [`ReservedBitsPolicy::Normalize`] returns
-    /// [`EditError::ReservedFlagBits`] when the existing flags contain reserved
-    /// bits; use a descriptor edit to clear those bits.
-    pub fn replace_raw(
+    pub(super) fn replace_raw_at(
         &mut self,
-        id: ChunkId,
+        index: usize,
         payload: PayloadInput<'a>,
         policy: RawChunkPolicy,
     ) -> Result<(), EditError> {
         let limits = self.payload_limits;
-        self.replace_payload_with(
-            id,
+        self.replace_payload_at_with(
+            index,
             || Ok(payload),
             |chunk_type, flags, payload| {
                 prepare_replacement(chunk_type, flags, payload, policy, limits)
@@ -341,9 +345,9 @@ impl<'a> Document<'a> {
         )
     }
 
-    fn replace_payload_with<C, P>(
+    fn replace_payload_at_with<C, P>(
         &mut self,
-        id: ChunkId,
+        index: usize,
         candidate: C,
         prepare: P,
     ) -> Result<(), EditError>
@@ -352,7 +356,6 @@ impl<'a> Document<'a> {
         P: FnOnce(ChunkType, ChunkFlags, PayloadInput<'a>) -> Result<PreparedRaw<'a>, EditError>,
     {
         self.ensure_mutable()?;
-        let index = chunk_index(&self.state, id)?;
         let (chunk_type, flags, is_primary) = {
             let DocumentState::Chunk(chunks) = &self.state else {
                 unreachable!("layout checked before preparing replacement");
