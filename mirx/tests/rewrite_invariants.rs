@@ -34,7 +34,7 @@ fn generated_raw_sequences_rewrite_deterministically_and_reopen_every_payload() 
     for seed in 0..128u32 {
         let mut state = seed ^ 0x9e37_79b9;
         let count = (next_random(&mut state) as usize % 15) + 1;
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let mut expected = Vec::with_capacity(count);
 
         for index in 0..count {

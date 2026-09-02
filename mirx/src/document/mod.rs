@@ -453,12 +453,12 @@ impl<'a> Document<'a> {
     }
 
     /// Creates an empty MIRX 1.0 CHUNK document.
-    pub const fn new_chunk() -> Self {
-        Self::new_chunk_with_limits(PayloadLimits::EMBEDDED)
+    pub const fn new() -> Self {
+        Self::new_with_limits(PayloadLimits::EMBEDDED)
     }
 
     /// Creates an empty MIRX 1.0 CHUNK document with an explicit typed-operation budget.
-    pub const fn new_chunk_with_limits(payload_limits: PayloadLimits) -> Self {
+    pub const fn new_with_limits(payload_limits: PayloadLimits) -> Self {
         Self {
             origin: Origin::New,
             logical_len: 0,
@@ -653,6 +653,12 @@ impl<'a> Document<'a> {
             return false;
         };
         self.origin.resolve(range).is_some()
+    }
+}
+
+impl Default for Document<'_> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -1122,8 +1128,8 @@ mod tests {
     }
 
     #[test]
-    fn new_chunk_has_current_editable_dirty_state_without_a_source() {
-        let document = Document::new_chunk();
+    fn new_has_current_editable_dirty_state_without_a_source() {
+        let document = Document::new();
 
         assert_eq!(document.layout(), Layout::Chunk);
         assert_eq!(
@@ -1149,6 +1155,16 @@ mod tests {
         assert!(document.origin.source().is_none());
         assert!(document.origin_contains_logical_source());
         assert_eq!(document.flat_image(), None);
+    }
+
+    #[test]
+    fn default_is_an_empty_chunk_document_with_embedded_limits() {
+        let document = Document::default();
+
+        assert_eq!(document.layout(), Layout::Chunk);
+        assert_eq!(document.chunks().len(), 0);
+        assert_eq!(document.primary(), None);
+        assert_eq!(document.payload_limits(), PayloadLimits::EMBEDDED);
     }
 
     #[test]

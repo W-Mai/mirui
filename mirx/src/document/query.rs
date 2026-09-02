@@ -262,7 +262,7 @@ mod tests {
         opaque_source[24..28].copy_from_slice(&checksum.to_le_bytes());
         let opaque = Document::open(&opaque_source).unwrap();
 
-        let new = Document::new_chunk();
+        let new = Document::new();
         let id = ChunkId::new(0);
         for document in [&flat, &opaque, &new] {
             assert_eq!(document.chunks().len(), 0);

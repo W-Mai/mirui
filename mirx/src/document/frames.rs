@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn typed_push_query_and_reopen_cover_both_modes() {
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let atlas_id = document
             .push_frames(ChunkFlags::CRITICAL, &atlas())
             .unwrap();
@@ -386,8 +386,7 @@ mod tests {
             ))
         ));
 
-        let mut authored =
-            Document::new_chunk_with_limits(PayloadLimits::HOST.with_max_frame_records(1));
+        let mut authored = Document::new_with_limits(PayloadLimits::HOST.with_max_frame_records(1));
         assert!(matches!(
             authored.push_frames(ChunkFlags::NONE, &expected),
             Err(EditError::InvalidFrames(FramesEncodeError::InvalidAsset(
@@ -400,7 +399,7 @@ mod tests {
     #[test]
     fn raw_inference_and_access_failures_are_explicit() {
         let payload = animation().encode_payload().unwrap();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let valid_id = document
             .push_raw(RawChunkInput {
                 chunk_type: ChunkType::FRAMES,

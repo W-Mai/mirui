@@ -617,7 +617,7 @@ fn no_tail_discard_is_a_clean_noop_and_trailing_precedes_flat_layout() {
 
 #[test]
 fn insertion_plans_layout_and_id_before_payload_policy_atomically() {
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     let anchor = document.push_raw(raw_input(b"source")).unwrap();
     document.dirty = false;
     document.next_id = u32::MAX;

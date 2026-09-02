@@ -108,7 +108,7 @@ let image = ImageAsset::new(
     None,
 );
 
-let mut document = Document::new_chunk();
+let mut document = Document::new();
 let image_id = document.push_image(ChunkFlags::NONE, &image).unwrap();
 document.set_primary(image_id).unwrap();
 
@@ -118,6 +118,10 @@ let mut output = vec![0_u8; encoded_len];
 let written = document.encode_into(&mut output, &options).unwrap();
 assert_eq!(written, encoded_len);
 ```
+
+`Document::new()` and `Document::default()` both create an empty CHUNK
+document with the embedded payload limits. Use `Document::new_with_limits()`
+when typed operations need a different resource profile.
 
 Chunk identities returned by `Document` are stable across insert, remove, and
 reorder operations during that document session. They are deliberately absent

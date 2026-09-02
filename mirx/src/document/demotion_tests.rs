@@ -99,7 +99,7 @@ const fn relocatable_policy() -> RawChunkPolicy {
 }
 
 fn encoded_image_chunk(payload: &[u8]) -> Vec<u8> {
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     push_image(&mut document, PayloadInput::Borrowed(payload));
     document.encode(&EncodeOptions::new()).unwrap()
 }
@@ -160,7 +160,7 @@ fn borrowed_and_owned_unplaced_payloads_keep_their_storage() {
     for data_offset in 32..=35 {
         let borrowed = image_payload(ColorFormat::A8, 2, 2, 2, data_offset);
         let expected_main = borrowed[usize::try_from(data_offset).unwrap()..].as_ptr();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         push_image(&mut document, PayloadInput::Borrowed(&borrowed));
         assert_eq!(document.demote_to_flat(), Ok(true));
         assert_eq!(
@@ -172,7 +172,7 @@ fn borrowed_and_owned_unplaced_payloads_keep_their_storage() {
     let owned = image_payload(ColorFormat::I4, 3, 2, 2, 35);
     let pointer = owned.as_ptr();
     let capacity = owned.capacity();
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     push_image(&mut document, PayloadInput::Owned(owned));
     assert_eq!(document.demote_to_flat(), Ok(true));
     let DocumentState::Flat(record) = &document.state else {
@@ -207,7 +207,7 @@ fn payload_backed_flat_survives_exact_replacement_and_forced_chunk_encoding() {
     let expected_extra = payload[39..].to_vec();
     let backing_pointer = payload.as_ptr();
     let backing_capacity = payload.capacity();
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     push_image(&mut document, PayloadInput::Owned(payload));
     assert_eq!(document.demote_to_flat(), Ok(true));
 
@@ -356,7 +356,7 @@ fn every_color_format_demotes_and_reopens_with_identical_planes() {
         let payload = image_payload(format, width, height, stride, 33);
         let expected_main = payload[33..33 + usize::try_from(stride * height).unwrap()].to_vec();
         let expected_extra = payload[33 + expected_main.len()..].to_vec();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         push_image(&mut document, PayloadInput::Borrowed(&payload));
 
         assert_eq!(document.demote_to_flat(), Ok(true), "{format:?}");
@@ -378,7 +378,7 @@ fn every_color_format_demotes_and_reopens_with_identical_planes() {
 #[test]
 fn writer_policies_share_the_lossless_candidate_without_mutating_state() {
     let payload = image_payload(ColorFormat::RGB565A8, 2, 2, 4, 35);
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     let id = push_image(&mut document, PayloadInput::Borrowed(&payload));
     let next_id = document.next_id;
 
@@ -408,13 +408,13 @@ fn writer_policies_share_the_lossless_candidate_without_mutating_state() {
 #[test]
 fn structural_and_payload_rejections_are_failure_atomic() {
     let valid = image_payload(ColorFormat::A8, 2, 2, 2, 32);
-    let mut empty = Document::new_chunk();
+    let mut empty = Document::new();
     assert_eq!(
         empty.demote_to_flat(),
         Err(EditError::NotRepresentableAsFlat)
     );
 
-    let mut no_primary = Document::new_chunk();
+    let mut no_primary = Document::new();
     no_primary
         .push_raw(RawChunkInput {
             chunk_type: ChunkType::IMAGE,
@@ -432,7 +432,7 @@ fn structural_and_payload_rejections_are_failure_atomic() {
     assert_eq!(no_primary.next_id, next_id);
 
     for malformed in malformed_payloads(&valid) {
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let id = push_opaque_image(&mut document, PayloadInput::Owned(malformed));
         let before_pointer = document.get(id).unwrap().payload_bytes().unwrap().as_ptr();
         let before = document.get(id).unwrap().payload_bytes().unwrap().to_vec();
@@ -456,7 +456,7 @@ fn structural_and_payload_rejections_are_failure_atomic() {
 fn count_type_and_flags_cannot_be_discarded_by_demotion() {
     let valid = image_payload(ColorFormat::A8, 1, 1, 1, 32);
 
-    let mut multiple = Document::new_chunk();
+    let mut multiple = Document::new();
     let primary = push_image(&mut multiple, PayloadInput::Borrowed(&valid));
     multiple
         .push_raw(RawChunkInput {
@@ -473,7 +473,7 @@ fn count_type_and_flags_cannot_be_discarded_by_demotion() {
     assert_eq!(multiple.primary(), Some(primary));
     assert_eq!(multiple.chunks().len(), 2);
 
-    let mut wrong_type = Document::new_chunk();
+    let mut wrong_type = Document::new();
     let id = wrong_type
         .push_raw(RawChunkInput {
             chunk_type: ChunkType::META,
@@ -489,7 +489,7 @@ fn count_type_and_flags_cannot_be_discarded_by_demotion() {
     );
 
     for flags in [ChunkFlags::CRITICAL, ChunkFlags::from_bits_retain(0x0002)] {
-        let mut flagged = Document::new_chunk();
+        let mut flagged = Document::new();
         let id = flagged
             .push_raw(RawChunkInput {
                 chunk_type: ChunkType::IMAGE,
@@ -589,7 +589,7 @@ fn malformed_payloads(valid: &[u8]) -> Vec<Vec<u8>> {
 #[test]
 fn nonrepresentable_smallest_falls_back_and_force_flat_is_atomic() {
     let payload = image_payload(ColorFormat::A8, 1, 1, 1, 32);
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     push_image(&mut document, PayloadInput::Borrowed(&payload));
     document
         .push_raw(RawChunkInput {
@@ -690,7 +690,7 @@ fn global_write_blockers_precede_layout_and_representability() {
 fn zero_geometry_uses_the_existing_format_rules() {
     for format in [ColorFormat::A8, ColorFormat::I4, ColorFormat::RGB565A8] {
         let payload = image_payload(format, 0, 0, 0, 32);
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         push_image(&mut document, PayloadInput::Borrowed(&payload));
         assert_eq!(document.demote_to_flat(), Ok(true));
         let image = document.flat_image().unwrap();
@@ -725,7 +725,7 @@ fn flat_candidate_uses_payload_metadata_instead_of_stale_hints() {
 #[test]
 fn flat_header_crc_is_recomputed_after_demotion() {
     let payload = image_payload(ColorFormat::A8, 1, 2, 1, 35);
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     push_image(&mut document, PayloadInput::Borrowed(&payload));
     document.demote_to_flat().unwrap();
     let encoded = document.encode(&EncodeOptions::new()).unwrap();

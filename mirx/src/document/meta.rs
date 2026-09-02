@@ -207,7 +207,7 @@ mod tests {
     #[test]
     fn typed_push_query_and_reopen_preserve_order_duplicates_and_extensions() {
         let expected = sample_meta();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let meta_id = document.push_meta(ChunkFlags::CRITICAL, &expected).unwrap();
 
         assert_eq!(meta_id, id(0));
@@ -381,7 +381,7 @@ mod tests {
         );
         assert!(!called.get());
 
-        let mut authored = Document::new_chunk_with_limits(exact.with_max_meta_entries(2));
+        let mut authored = Document::new_with_limits(exact.with_max_meta_entries(2));
         assert_eq!(
             authored.push_meta(ChunkFlags::NONE, &expected),
             Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
@@ -390,8 +390,7 @@ mod tests {
         );
         assert_eq!(authored.chunks().len(), 0);
 
-        let mut authored =
-            Document::new_chunk_with_limits(exact.with_max_meta_bytes(meta_bytes - 1));
+        let mut authored = Document::new_with_limits(exact.with_max_meta_bytes(meta_bytes - 1));
         assert!(matches!(
             authored.push_meta(ChunkFlags::NONE, &expected),
             Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
@@ -404,7 +403,7 @@ mod tests {
     #[test]
     fn raw_inference_recognizes_valid_meta_and_keeps_invalid_payloads_explicit() {
         let payload = sample_meta().encode_payload().unwrap();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let valid_id = document
             .push_raw(RawChunkInput {
                 chunk_type: ChunkType::META,
@@ -511,7 +510,7 @@ mod tests {
             ))
         );
 
-        let mut wrong_type = Document::new_chunk();
+        let mut wrong_type = Document::new();
         let font_id = wrong_type
             .push_raw(RawChunkInput {
                 chunk_type: ChunkType::FONT,

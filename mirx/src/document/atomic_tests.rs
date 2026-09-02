@@ -486,7 +486,7 @@ fn image_hints(width: u32, height: u32) -> PrimaryHints {
 
 #[test]
 fn complete_snapshot_distinguishes_origin_and_document_state_variants() {
-    let new_document = Document::new_chunk();
+    let new_document = Document::new();
     let new_snapshot = snapshot(&new_document);
     assert_eq!(new_snapshot.origin.kind, OriginKind::New);
     assert!(matches!(new_snapshot.state, StateSnapshot::Chunk { .. }));
@@ -905,7 +905,7 @@ fn payload_backed_flat_failures_preserve_backing_and_plane_ranges() {
     let mut payload = image_payload(2, 2);
     payload.splice(32..32, [0; 3]);
     payload[16..20].copy_from_slice(&35u32.to_le_bytes());
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     let image = document
         .push_raw(raw(
             ChunkType::IMAGE,
@@ -944,7 +944,7 @@ fn payload_backed_flat_failures_preserve_backing_and_plane_ranges() {
 fn flat_replacement_blockers_precede_payload_validation_atomically() {
     let bad_asset = || ImageAsset::new(2, 2, ColorFormat::A8, 2, Cow::Owned(vec![0; 3]), None);
 
-    let mut chunk = Document::new_chunk();
+    let mut chunk = Document::new();
     let before = snapshot(&chunk);
     let result = chunk.replace_flat_image(bad_asset());
     assert_atomic_error(&chunk, &before, result, EditError::FlatLayoutRequired);
@@ -982,7 +982,7 @@ fn typed_image_push_failures_preserve_complete_state() {
     let stride = ColorFormat::A8.minimum_stride(2).unwrap();
     let bad_asset = || ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Owned(vec![0; 3]), None);
 
-    let mut chunk = Document::new_chunk();
+    let mut chunk = Document::new();
     chunk.next_id = u32::MAX;
     let before = snapshot(&chunk);
     let result = chunk.push_image(ChunkFlags::from_bits_retain(2), &bad_asset());
@@ -1003,7 +1003,7 @@ fn typed_image_push_failures_preserve_complete_state() {
     let result = flat.push_image(ChunkFlags::NONE, &bad_asset());
     assert_atomic_error(&flat, &before, result, EditError::ChunkIdExhausted);
 
-    let mut reserved = Document::new_chunk();
+    let mut reserved = Document::new();
     let before = snapshot(&reserved);
     let result = reserved.push_image(ChunkFlags::from_bits_retain(2), &bad_asset());
     assert_atomic_error(

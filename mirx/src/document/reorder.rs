@@ -184,7 +184,7 @@ mod tests {
     }
 
     fn four_chunk_document() -> Document<'static> {
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         for (chunk_type, payload) in [
             (ChunkType::META, b"zero".as_slice()),
             (ChunkType::FONT, b"one".as_slice()),

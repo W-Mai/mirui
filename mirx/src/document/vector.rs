@@ -267,7 +267,7 @@ mod tests {
     #[test]
     fn typed_push_query_and_reopen_round_trip() {
         let expected = representative_scene();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let vector_id = document
             .push_vector(ChunkFlags::CRITICAL, &expected)
             .unwrap();
@@ -368,7 +368,7 @@ mod tests {
         let vector_id = exact_document.chunks().next().unwrap().id();
         assert_eq!(exact_document.vector(vector_id).unwrap(), expected);
 
-        let mut critical = Document::new_chunk_with_limits(exact);
+        let mut critical = Document::new_with_limits(exact);
         let critical_id = critical
             .push_raw(RawChunkInput {
                 chunk_type: ChunkType::VECTOR,
@@ -379,7 +379,7 @@ mod tests {
             .unwrap();
         assert_eq!(critical.vector(critical_id).unwrap(), expected);
 
-        let mut malformed = Document::new_chunk_with_limits(exact);
+        let mut malformed = Document::new_with_limits(exact);
         assert_eq!(
             malformed.push_raw(RawChunkInput {
                 chunk_type: ChunkType::VECTOR,
@@ -402,7 +402,7 @@ mod tests {
                 Err(VectorAccessError::InvalidPayload(error))
             );
 
-            let mut authored = Document::new_chunk_with_limits(limits);
+            let mut authored = Document::new_with_limits(limits);
             assert_eq!(
                 authored.push_vector(ChunkFlags::NONE, &expected),
                 Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
@@ -413,7 +413,7 @@ mod tests {
         }
 
         let low = exact.with_max_scene_ops(4);
-        let mut inferred = Document::new_chunk_with_limits(low);
+        let mut inferred = Document::new_with_limits(low);
         assert_eq!(
             inferred.push_raw(RawChunkInput {
                 chunk_type: ChunkType::VECTOR,
@@ -721,7 +721,7 @@ mod tests {
             Err(EditError::ChunkLayoutRequired)
         );
 
-        let mut chunk = Document::new_chunk();
+        let mut chunk = Document::new();
         assert_eq!(
             chunk.replace_vector(id(0), &invalid),
             Err(EditError::InvalidChunkId)
@@ -739,7 +739,7 @@ mod tests {
             Err(EditError::InvalidChunkType)
         );
 
-        let mut exhausted = Document::new_chunk();
+        let mut exhausted = Document::new();
         exhausted.next_id = u32::MAX;
         assert_eq!(
             exhausted.push_vector(ChunkFlags::from_bits_retain(2), &invalid),
@@ -747,7 +747,7 @@ mod tests {
         );
         assert_eq!(exhausted.chunks().len(), 0);
 
-        let mut reserved = Document::new_chunk();
+        let mut reserved = Document::new();
         assert_eq!(
             reserved.push_vector(ChunkFlags::from_bits_retain(2), &invalid),
             Err(EditError::ReservedFlagBits { bits: 2 })

@@ -790,7 +790,7 @@ mod tests {
         let owned_pointer = owned.as_ptr();
         let owned_len = owned.len();
         let owned_capacity = owned.capacity();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
 
         let borrowed_id = document
             .push_raw(raw(
@@ -969,7 +969,7 @@ mod tests {
         assert!(opened.is_dirty());
         assert_eq!(opened.next_id, 4);
 
-        let mut new = Document::new_chunk();
+        let mut new = Document::new();
         let id = new
             .push_raw(raw(
                 ChunkType::new(1).unwrap(),
@@ -985,7 +985,7 @@ mod tests {
 
     #[test]
     fn raw_type_boundaries_and_flags_are_retained() {
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         for (raw_type, flag_bits) in [(1, 0), (0xbeef, 1), (0xffff, 0xa500)] {
             let reserved_flag_bits = if flag_bits & !ChunkFlags::CRITICAL.bits() == 0 {
                 ReservedBitsPolicy::Reject
@@ -1065,7 +1065,7 @@ mod tests {
     fn reserved_flag_bits_reject_preserve_or_normalize_explicitly() {
         let custom = ChunkType::new(0xbeef).unwrap();
         let flags = ChunkFlags::from_bits_retain(0xa501);
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         assert_eq!(
             document.push_raw(raw(
                 custom,
@@ -1130,7 +1130,7 @@ mod tests {
     fn image_payload_infers_contract_and_rejects_malformed_bytes() {
         let payload = valid_image_payload();
         let pointer = payload.as_ptr();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let id = document
             .push_raw(raw(
                 ChunkType::IMAGE,
@@ -1305,7 +1305,7 @@ mod tests {
     fn replacement_policy_reserved_bits_and_image_validation_are_failure_atomic() {
         let reserved_flags = ChunkFlags::from_bits_retain(0xa500);
         let custom = ChunkType::new(0xbeef).unwrap();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let reserved_id = document
             .push_raw(raw(
                 custom,
@@ -1488,7 +1488,7 @@ mod tests {
         let owned_pointer = owned.as_ptr();
         let owned_len = owned.len();
         let owned_capacity = owned.capacity();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let borrowed_id = document
             .push_raw(raw(
                 ChunkType::META,
@@ -1618,7 +1618,7 @@ mod tests {
         assert!(!document.is_dirty());
 
         let borrowed = [4, 5, 6];
-        let mut borrowed_document = Document::new_chunk();
+        let mut borrowed_document = Document::new();
         let borrowed_id = borrowed_document
             .push_raw(raw(
                 ChunkType::META,
@@ -1681,7 +1681,7 @@ mod tests {
         assert_eq!(ids(&flat), [ChunkId::new(0), appended]);
         assert!(flat.is_dirty());
 
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let first = document
             .push_raw(raw(
                 ChunkType::new(0xbeef).unwrap(),

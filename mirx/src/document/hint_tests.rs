@@ -375,7 +375,7 @@ fn frames_primary_hints_follow_atlas_and_animation_display_geometry() {
 
 #[test]
 fn valid_frames_can_be_selected_as_primary_without_explicit_hints() {
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     let atlas_id = document
         .push_frames(ChunkFlags::NONE, &atlas_frames(2, 1))
         .unwrap();
@@ -526,7 +526,7 @@ fn primary_selection_requires_or_records_hints_without_changing_allocations() {
     let image = image_payload(2, 1, 3);
     let owned_pointer = image.as_ptr();
     let owned_capacity = image.capacity();
-    let mut document = Document::new_chunk();
+    let mut document = Document::new();
     let image_id = document
         .push_raw(raw(
             ChunkType::IMAGE,

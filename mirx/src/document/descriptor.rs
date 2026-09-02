@@ -653,7 +653,7 @@ mod tests {
         let payload = valid_image_payload();
         let payload_pointer = payload.as_ptr();
         let payload_capacity = payload.capacity();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let id = document
             .push_raw(raw(
                 ChunkType::META,
@@ -694,7 +694,7 @@ mod tests {
 
     #[test]
     fn malformed_known_payloads_report_contract_errors_before_raw_assumptions() {
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let id = document
             .push_raw(raw(
                 ChunkType::META,
@@ -767,7 +767,7 @@ mod tests {
     fn reserved_flag_policies_normalize_descriptors_and_replace_capability() {
         let reserved_critical = ChunkFlags::from_bits_retain(0xa501);
         let reserved_only = ChunkFlags::from_bits_retain(0xa500);
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let id = document
             .push_raw(raw(
                 ChunkType::new(0xbeef).unwrap(),
@@ -847,7 +847,7 @@ mod tests {
     fn exact_descriptor_noops_skip_policy_and_normalize_resolves_effective_flags() {
         let flags = ChunkFlags::from_bits_retain(0xa501);
         let chunk_type = ChunkType::new(0xbeef).unwrap();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let id = document
             .push_raw(raw(
                 chunk_type,
@@ -897,7 +897,7 @@ mod tests {
         );
         assert_eq!(snapshot(&document), original);
 
-        let mut normalized_noop = Document::new_chunk();
+        let mut normalized_noop = Document::new();
         let normalized_id = normalized_noop
             .push_raw(raw(
                 chunk_type,
@@ -937,7 +937,7 @@ mod tests {
     #[test]
     fn descriptor_failures_are_atomic_for_ids_layout_and_normalized_flags() {
         let chunk_type = ChunkType::new(0xbeef).unwrap();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let id = document
             .push_raw(raw(
                 chunk_type,

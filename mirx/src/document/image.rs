@@ -180,7 +180,7 @@ mod tests {
             } else {
                 ChunkFlags::CRITICAL
             };
-            let mut document = Document::new_chunk();
+            let mut document = Document::new();
 
             let inserted = {
                 let main = expected_main.clone();
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn typed_query_preserves_borrowed_owned_and_promoted_plane_pointers() {
         let main = [1, 2, 3, 4];
-        let mut authored = Document::new_chunk();
+        let mut authored = Document::new();
         authored
             .push_raw(crate::RawChunkInput {
                 chunk_type: ChunkType::META,
@@ -293,7 +293,7 @@ mod tests {
         let borrowed_payload = a8_asset(&main, 2, 2).encode_payload().unwrap();
         let owned_payload = borrowed_payload.clone();
         let owned_payload_pointer = owned_payload.as_ptr();
-        let mut mixed = Document::new_chunk();
+        let mut mixed = Document::new();
         let borrowed_id = mixed
             .push_raw(crate::RawChunkInput {
                 chunk_type: ChunkType::IMAGE,
@@ -454,7 +454,7 @@ mod tests {
     fn typed_push_preserves_structural_error_priority_and_flat_atomicity() {
         let invalid = invalid_asset();
 
-        let mut chunk = Document::new_chunk();
+        let mut chunk = Document::new();
         chunk.next_id = u32::MAX;
         assert_eq!(
             chunk.push_image(ChunkFlags::from_bits_retain(2), &invalid),
@@ -477,7 +477,7 @@ mod tests {
         );
         assert_eq!(flat.next_id, u32::MAX - 1);
 
-        let mut reserved = Document::new_chunk();
+        let mut reserved = Document::new();
         assert_eq!(
             reserved.push_image(ChunkFlags::from_bits_retain(2), &invalid),
             Err(EditError::ReservedFlagBits { bits: 2 })
@@ -613,7 +613,7 @@ mod tests {
             Err(EditError::ChunkLayoutRequired)
         );
 
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         assert_eq!(
             document.replace_image(id(0), &invalid),
             Err(EditError::InvalidChunkId)

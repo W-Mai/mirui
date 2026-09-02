@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn typed_push_query_and_reopen_preserve_order_duplicates_and_alpha() {
         let expected = sample_palette();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let palette_id = document
             .push_palette(ChunkFlags::CRITICAL, &expected)
             .unwrap();
@@ -337,7 +337,7 @@ mod tests {
         );
         assert!(!called.get());
 
-        let mut authored = Document::new_chunk_with_limits(exact.with_max_palette_colors(2));
+        let mut authored = Document::new_with_limits(exact.with_max_palette_colors(2));
         assert_eq!(
             authored.push_palette(ChunkFlags::NONE, &expected),
             Err(EditError::InvalidPalette(
@@ -349,8 +349,7 @@ mod tests {
         );
         assert_eq!(authored.chunks().len(), 0);
 
-        let mut authored =
-            Document::new_chunk_with_limits(exact.with_max_decoded_bytes(decoded - 1));
+        let mut authored = Document::new_with_limits(exact.with_max_decoded_bytes(decoded - 1));
         assert!(matches!(
             authored.push_palette(ChunkFlags::NONE, &expected),
             Err(EditError::InvalidPalette(
@@ -365,7 +364,7 @@ mod tests {
     #[test]
     fn raw_inference_recognizes_valid_palette_and_keeps_invalid_payloads_explicit() {
         let payload = sample_palette().encode_payload().unwrap();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let valid_id = document
             .push_raw(RawChunkInput {
                 chunk_type: ChunkType::PALETTE,
@@ -478,7 +477,7 @@ mod tests {
             ))
         );
 
-        let mut wrong_type = Document::new_chunk();
+        let mut wrong_type = Document::new();
         let font_id = wrong_type
             .push_raw(RawChunkInput {
                 chunk_type: ChunkType::FONT,

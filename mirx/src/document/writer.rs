@@ -918,7 +918,7 @@ mod tests {
 
     #[test]
     fn empty_chunk_plan_has_canonical_header_and_zero_primary() {
-        let document = Document::new_chunk();
+        let document = Document::new();
         let options = EncodeOptions::new();
         let plan = chunk_plan(&document, &options);
 
@@ -1017,7 +1017,7 @@ mod tests {
             image_payload(34),
             image_payload(35),
         ];
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         for payload in &payloads {
             document.push_raw(raw(ChunkType::IMAGE, payload)).unwrap();
         }
@@ -1081,7 +1081,7 @@ mod tests {
     fn malformed_image_remains_verbatim_and_following_payloads_realign() {
         let mut malformed = [0u8; 20];
         malformed[16..20].copy_from_slice(&33u32.to_le_bytes());
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         document.push_raw(raw(CUSTOM_A, &[7])).unwrap();
         document
             .push_raw(raw(ChunkType::IMAGE, &malformed))
@@ -1116,7 +1116,7 @@ mod tests {
     #[test]
     fn primary_states_lower_without_confusing_explicit_zero_with_missing() {
         let image = image_payload(32);
-        let mut derived = Document::new_chunk();
+        let mut derived = Document::new();
         let image_id = derived
             .push_raw(RawChunkInput {
                 chunk_type: ChunkType::IMAGE,
@@ -1131,7 +1131,7 @@ mod tests {
             PrimaryHints::new(ColorFormat::A8.to_u8(), 1, 1, 1)
         );
 
-        let mut explicit_zero = Document::new_chunk();
+        let mut explicit_zero = Document::new();
         let custom_id = explicit_zero.push_raw(raw(CUSTOM_A, b"custom")).unwrap();
         explicit_zero
             .set_primary_with_hints(custom_id, PrimaryHints::ZERO)
@@ -1144,7 +1144,7 @@ mod tests {
             }
         );
 
-        let mut known = Document::new_chunk();
+        let mut known = Document::new();
         let font = known.push_raw(raw(ChunkType::FONT, b"font")).unwrap();
         known.set_primary(font).unwrap();
         assert_eq!(
@@ -1193,7 +1193,7 @@ mod tests {
             Err(EncodeError::PreservedTrailingBytesReadOnly)
         );
 
-        let mut missing = Document::new_chunk();
+        let mut missing = Document::new();
         let id = missing.push_raw(raw(CUSTOM_A, b"missing")).unwrap();
         missing
             .set_primary_with_hints(id, PrimaryHints::ZERO)
@@ -1251,7 +1251,7 @@ mod tests {
             })
         );
 
-        let mut critical = Document::new_chunk();
+        let mut critical = Document::new();
         critical.push_raw(raw(CUSTOM_A, b"critical")).unwrap();
         let chunks = chunk_set_mut(&mut critical);
         chunks.chunks[0].flags = ChunkFlags::CRITICAL;
@@ -1328,7 +1328,7 @@ mod tests {
 
     #[test]
     fn force_flat_rejects_chunk_without_attempting_demotion() {
-        let document = Document::new_chunk();
+        let document = Document::new();
         assert_eq!(document.layout(), Layout::Chunk);
         assert_eq!(
             document.encoded_len(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat)),
@@ -1338,7 +1338,7 @@ mod tests {
 
     #[test]
     fn empty_chunk_emits_exact_canonical_header() {
-        let document = Document::new_chunk();
+        let document = Document::new();
         let encoded = document.encode(&EncodeOptions::new()).unwrap();
 
         let mut expected = vec![0; CHUNK_FILE_HEADER_LEN];
@@ -1363,7 +1363,7 @@ mod tests {
         checksum_payload.extend_from_slice(&inner_checksum.to_le_bytes());
         let hints = PrimaryHints::new(0xfe, 17, 9, 23);
 
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let primary = document.push_raw(raw(CUSTOM_A, &first_payload)).unwrap();
         document
             .push_raw(RawChunkInput {
@@ -1436,7 +1436,7 @@ mod tests {
         let frames_checksum = crc32(&frames);
         frames.extend_from_slice(&frames_checksum.to_le_bytes());
 
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         document
             .push_raw(raw(ChunkType::IMAGE, &parseable))
             .unwrap();
@@ -1498,7 +1498,7 @@ mod tests {
 
     #[test]
     fn zero_length_payloads_align_without_final_padding() {
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         document.push_raw(raw(CUSTOM_A, &[7])).unwrap();
         document.push_raw(raw(ChunkType::IMAGE, &[])).unwrap();
         document.push_raw(raw(ChunkType::FRAMES, &[])).unwrap();
@@ -1564,7 +1564,7 @@ mod tests {
 
     #[test]
     fn encode_into_failures_leave_the_entire_buffer_unchanged() {
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         document.push_raw(raw(CUSTOM_A, b"payload")).unwrap();
         let options = EncodeOptions::new();
         let needed = document.encoded_len(&options).unwrap();
@@ -1836,8 +1836,8 @@ mod tests {
         assert_eq!(bytes, expected_flat);
         assert_eq!(Reader::open(&bytes).unwrap().layout(), Layout::Flat);
 
-        let expected_new = Document::new_chunk().encode(&EncodeOptions::new()).unwrap();
-        let mut clean_new = Document::new_chunk();
+        let expected_new = Document::new().encode(&EncodeOptions::new()).unwrap();
+        let mut clean_new = Document::new();
         clean_new.dirty = false;
         let finished = clean_new.finish().unwrap();
         let Cow::Owned(bytes) = finished else {

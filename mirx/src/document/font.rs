@@ -284,7 +284,7 @@ mod tests {
         ] {
             for &bit_depth in depths {
                 let expected = font(kind, bit_depth);
-                let mut document = Document::new_chunk();
+                let mut document = Document::new();
                 let flags = if bit_depth == 8 {
                     ChunkFlags::CRITICAL
                 } else {
@@ -334,7 +334,7 @@ mod tests {
             ))
         );
 
-        let mut authored = Document::new_chunk_with_limits(low_glyphs);
+        let mut authored = Document::new_with_limits(low_glyphs);
         assert_eq!(
             authored.push_font(ChunkFlags::NONE, &expected),
             Err(EditError::InvalidFont(FontEncodeError::InvalidPayload(
@@ -343,7 +343,7 @@ mod tests {
         );
         assert_eq!(authored.chunks().len(), 0);
 
-        let mut authored = Document::new_chunk_with_limits(exact);
+        let mut authored = Document::new_with_limits(exact);
         let font_id = authored.push_font(ChunkFlags::NONE, &expected).unwrap();
         assert_eq!(authored.font(font_id).unwrap(), expected);
     }
@@ -352,7 +352,7 @@ mod tests {
     fn raw_font_inference_uses_the_retained_validation_profile() {
         let expected = font(FontChunkKind::Sdf, 4);
         let payload = expected.encode_payload().unwrap();
-        let mut document = Document::new_chunk();
+        let mut document = Document::new();
         let font_id = document
             .push_raw(crate::RawChunkInput {
                 chunk_type: ChunkType::FONT,
@@ -364,7 +364,7 @@ mod tests {
         assert_eq!(document.font(font_id).unwrap(), expected);
 
         let low = PayloadLimits::EMBEDDED.with_max_font_glyphs(1);
-        let mut limited = Document::new_chunk_with_limits(low);
+        let mut limited = Document::new_with_limits(low);
         assert_eq!(
             limited.push_raw(crate::RawChunkInput {
                 chunk_type: ChunkType::FONT,
@@ -535,7 +535,7 @@ mod tests {
         );
         assert!(!called.replace(false));
 
-        let mut wrong_type = Document::new_chunk();
+        let mut wrong_type = Document::new();
         let meta = wrong_type
             .push_raw(crate::RawChunkInput {
                 chunk_type: ChunkType::META,
@@ -809,7 +809,7 @@ mod tests {
             Err(EditError::ChunkLayoutRequired)
         );
 
-        let mut chunk = Document::new_chunk();
+        let mut chunk = Document::new();
         assert_eq!(
             chunk.replace_font(id(0), &invalid),
             Err(EditError::InvalidChunkId)
@@ -833,7 +833,7 @@ mod tests {
         let mut invalid = font(FontChunkKind::Sdf, 4);
         invalid.metrics.clear();
 
-        let mut chunk = Document::new_chunk();
+        let mut chunk = Document::new();
         chunk.next_id = u32::MAX;
         assert_eq!(
             chunk.push_font(ChunkFlags::from_bits_retain(2), &invalid),
@@ -862,7 +862,7 @@ mod tests {
         assert_eq!(flat.flat_image().unwrap().main().as_ptr(), main_pointer);
         assert_eq!(flat.next_id, u32::MAX - 1);
 
-        let mut reserved = Document::new_chunk();
+        let mut reserved = Document::new();
         assert_eq!(
             reserved.push_font(ChunkFlags::from_bits_retain(2), &invalid),
             Err(EditError::ReservedFlagBits { bits: 2 })

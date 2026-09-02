@@ -640,7 +640,7 @@ mod tests {
         let selected_owned = alloc::vec![7, 8, 9, 10];
         let selected_pointer = selected_owned.as_ptr();
         let selected_capacity = selected_owned.capacity();
-        let mut mixed = Document::new_chunk();
+        let mut mixed = Document::new();
         let first = mixed
             .push_raw(RawChunkInput {
                 chunk_type: TYPE_A,
@@ -725,7 +725,7 @@ mod tests {
         assert_eq!(document.set_primary(id(99)), Err(EditError::InvalidChunkId));
         assert_eq!(snapshot(&document), before);
 
-        let mut empty = Document::new_chunk();
+        let mut empty = Document::new();
         empty.dirty = false;
         let before_empty = snapshot(&empty);
         empty.clear_primary().unwrap();
