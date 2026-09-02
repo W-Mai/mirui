@@ -16,6 +16,54 @@ enum ReorderPlan {
 }
 
 impl ReorderPlan {
+    fn new(
+        state: &DocumentState<'_>,
+        id: ChunkId,
+        anchor: ChunkId,
+        position: RelativePosition,
+    ) -> Result<Self, EditError> {
+        let DocumentState::Chunk(chunks) = state else {
+            return Err(EditError::ChunkLayoutRequired);
+        };
+
+        // Resolve both identities before accepting a self move as a no-op.
+        let source_index = chunks
+            .chunks
+            .iter()
+            .position(|node| node.id == id)
+            .ok_or(EditError::InvalidChunkId)?;
+        let anchor_index = chunks
+            .chunks
+            .iter()
+            .position(|node| node.id == anchor)
+            .ok_or(EditError::InvalidChunkId)?;
+
+        if source_index == anchor_index {
+            return Ok(Self::Noop);
+        }
+
+        Ok(match position {
+            RelativePosition::Before if source_index + 1 == anchor_index => Self::Noop,
+            RelativePosition::Before if source_index < anchor_index => Self::RotateLeft {
+                start: source_index,
+                end: anchor_index,
+            },
+            RelativePosition::Before => Self::RotateRight {
+                start: anchor_index,
+                end: source_index + 1,
+            },
+            RelativePosition::After if anchor_index + 1 == source_index => Self::Noop,
+            RelativePosition::After if source_index < anchor_index => Self::RotateLeft {
+                start: source_index,
+                end: anchor_index + 1,
+            },
+            RelativePosition::After => Self::RotateRight {
+                start: anchor_index + 1,
+                end: source_index + 1,
+            },
+        })
+    }
+
     const fn moved_indices(self) -> Option<(usize, usize)> {
         match self {
             Self::Noop => None,
@@ -58,7 +106,7 @@ impl Document<'_> {
         position: RelativePosition,
     ) -> Result<(), EditError> {
         self.ensure_mutable()?;
-        let plan = plan_reorder(&self.state, id, anchor, position)?;
+        let plan = ReorderPlan::new(&self.state, id, anchor, position)?;
         if let Some((source, destination)) = plan.moved_indices() {
             let DocumentState::Chunk(chunks) = &self.state else {
                 unreachable!("layout checked before projecting chunk reorder");
@@ -76,55 +124,6 @@ impl Document<'_> {
         }
         Ok(())
     }
-}
-
-fn plan_reorder(
-    state: &DocumentState<'_>,
-    id: ChunkId,
-    anchor: ChunkId,
-    position: RelativePosition,
-) -> Result<ReorderPlan, EditError> {
-    let DocumentState::Chunk(chunks) = state else {
-        return Err(EditError::ChunkLayoutRequired);
-    };
-
-    // Resolve both identities before accepting a self move as a no-op.
-    let source_index = chunks
-        .chunks
-        .iter()
-        .position(|node| node.id == id)
-        .ok_or(EditError::InvalidChunkId)?;
-    let anchor_index = chunks
-        .chunks
-        .iter()
-        .position(|node| node.id == anchor)
-        .ok_or(EditError::InvalidChunkId)?;
-
-    if source_index == anchor_index {
-        return Ok(ReorderPlan::Noop);
-    }
-
-    let plan = match position {
-        RelativePosition::Before if source_index + 1 == anchor_index => ReorderPlan::Noop,
-        RelativePosition::Before if source_index < anchor_index => ReorderPlan::RotateLeft {
-            start: source_index,
-            end: anchor_index,
-        },
-        RelativePosition::Before => ReorderPlan::RotateRight {
-            start: anchor_index,
-            end: source_index + 1,
-        },
-        RelativePosition::After if anchor_index + 1 == source_index => ReorderPlan::Noop,
-        RelativePosition::After if source_index < anchor_index => ReorderPlan::RotateLeft {
-            start: source_index,
-            end: anchor_index + 1,
-        },
-        RelativePosition::After => ReorderPlan::RotateRight {
-            start: anchor_index + 1,
-            end: source_index + 1,
-        },
-    };
-    Ok(plan)
 }
 
 #[cfg(test)]

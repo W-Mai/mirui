@@ -23,31 +23,7 @@ pub(super) struct EvaluatedDescriptor {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct EvaluatedFlags {
     pub(super) flags: ChunkFlags,
-    preserve_reserved_bits: bool,
-}
-
-pub(super) fn evaluate_flags(
-    flags: ChunkFlags,
-    policy: ReservedBitsPolicy,
-) -> Result<EvaluatedFlags, EditError> {
-    let reserved_bits = flags.bits() & !ChunkFlags::CRITICAL.bits();
-    let (flags, preserve_reserved_bits) = match (reserved_bits, policy) {
-        (0, _) => (flags, false),
-        (_, ReservedBitsPolicy::Preserve) => (flags, true),
-        (_, ReservedBitsPolicy::Normalize) => (
-            ChunkFlags::from_bits_retain(flags.bits() & ChunkFlags::CRITICAL.bits()),
-            false,
-        ),
-        (_, ReservedBitsPolicy::Reject) => {
-            return Err(EditError::ReservedFlagBits {
-                bits: reserved_bits,
-            });
-        }
-    };
-    Ok(EvaluatedFlags {
-        flags,
-        preserve_reserved_bits,
-    })
+    pub(super) preserve_reserved_bits: bool,
 }
 
 /// Evaluates a complete descriptor candidate without changing document state.
@@ -58,7 +34,7 @@ pub(super) fn evaluate_descriptor(
     policy: RawChunkPolicy,
     limits: PayloadLimits,
 ) -> Result<EvaluatedDescriptor, EditError> {
-    let flags = evaluate_flags(flags, policy.reserved_flag_bits)?;
+    let flags = policy.reserved_flag_bits.apply(flags)?;
     evaluate_resolved_descriptor_with_flags(
         chunk_type,
         flags,
@@ -234,49 +210,53 @@ fn evaluate_resolved_descriptor_with_flags(
     })
 }
 
-pub(super) fn grant_open_descriptor(
-    chunk_type: ChunkType,
-    flags: ChunkFlags,
-    known_contract: bool,
-    policy: Option<RawChunkPolicy>,
-    allow_normalize: bool,
-) -> (EvaluatedDescriptor, bool) {
-    let reserved_bits = flags.bits() & !ChunkFlags::CRITICAL.bits();
-    let evaluated_flags = match policy.map(|policy| policy.reserved_flag_bits) {
-        Some(ReservedBitsPolicy::Preserve) if reserved_bits != 0 => {
-            evaluate_flags(flags, ReservedBitsPolicy::Preserve)
-                .expect("preserving reserved bits cannot fail")
-        }
-        Some(ReservedBitsPolicy::Normalize) if reserved_bits != 0 && allow_normalize => {
-            evaluate_flags(flags, ReservedBitsPolicy::Normalize)
-                .expect("normalizing reserved bits cannot fail")
-        }
-        _ => EvaluatedFlags {
-            flags,
-            preserve_reserved_bits: false,
-        },
-    };
-    let policy = policy.unwrap_or_else(RawChunkPolicy::infer);
-    let relocatable =
-        known_contract || matches!(policy.relocation, RelocationAssumption::AssumeRelocatable);
-    let critical_understood = known_contract
-        || matches!(
-            policy.critical_semantics,
-            CriticalAssumption::AssumeCriticalUnderstood
-        );
-    let normalized = evaluated_flags.flags != flags;
-    (
-        EvaluatedDescriptor {
-            chunk_type,
-            flags: evaluated_flags.flags,
-            capability: RewriteCapability::new(
-                relocatable,
-                critical_understood,
-                evaluated_flags.preserve_reserved_bits,
-            ),
-        },
-        normalized,
-    )
+impl EvaluatedDescriptor {
+    pub(super) fn for_open(
+        chunk_type: ChunkType,
+        flags: ChunkFlags,
+        known_contract: bool,
+        policy: Option<RawChunkPolicy>,
+        allow_normalize: bool,
+    ) -> (Self, bool) {
+        let reserved_bits = flags.bits() & !ChunkFlags::CRITICAL.bits();
+        let evaluated_flags = match policy.map(|policy| policy.reserved_flag_bits) {
+            Some(ReservedBitsPolicy::Preserve) if reserved_bits != 0 => {
+                ReservedBitsPolicy::Preserve
+                    .apply(flags)
+                    .expect("preserving reserved bits cannot fail")
+            }
+            Some(ReservedBitsPolicy::Normalize) if reserved_bits != 0 && allow_normalize => {
+                ReservedBitsPolicy::Normalize
+                    .apply(flags)
+                    .expect("normalizing reserved bits cannot fail")
+            }
+            _ => EvaluatedFlags {
+                flags,
+                preserve_reserved_bits: false,
+            },
+        };
+        let policy = policy.unwrap_or_else(RawChunkPolicy::infer);
+        let relocatable =
+            known_contract || matches!(policy.relocation, RelocationAssumption::AssumeRelocatable);
+        let critical_understood = known_contract
+            || matches!(
+                policy.critical_semantics,
+                CriticalAssumption::AssumeCriticalUnderstood
+            );
+        let normalized = evaluated_flags.flags != flags;
+        (
+            Self {
+                chunk_type,
+                flags: evaluated_flags.flags,
+                capability: RewriteCapability::new(
+                    relocatable,
+                    critical_understood,
+                    evaluated_flags.preserve_reserved_bits,
+                ),
+            },
+            normalized,
+        )
+    }
 }
 
 impl Document<'_> {
@@ -335,7 +315,7 @@ impl Document<'_> {
         let candidate = {
             let node = chunk_node(&self.state, index);
             let payload = descriptor_payload(self, node)?;
-            let flags = evaluate_flags(node.flags, policy.reserved_flag_bits)?;
+            let flags = policy.reserved_flag_bits.apply(node.flags)?;
             evaluate_resolved_descriptor_with_flags(
                 chunk_type,
                 flags,
@@ -362,7 +342,7 @@ impl Document<'_> {
             return Ok(());
         }
 
-        let evaluated_flags = evaluate_flags(flags, policy.reserved_flag_bits)?;
+        let evaluated_flags = policy.reserved_flag_bits.apply(flags)?;
         if evaluated_flags.flags == existing_flags {
             return Ok(());
         }
@@ -390,7 +370,7 @@ impl Document<'_> {
         let candidate = {
             let node = chunk_node(&self.state, index);
             let payload = descriptor_payload(self, node)?;
-            let flags = evaluate_flags(node.flags, policy.reserved_flag_bits)?;
+            let flags = policy.reserved_flag_bits.apply(node.flags)?;
             evaluate_resolved_descriptor_with_flags(
                 node.chunk_type,
                 flags,

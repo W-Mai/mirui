@@ -12,6 +12,7 @@ use super::{
 };
 use crate::payload::image::{ImagePayloadError, ImagePayloadPlan};
 use crate::wire::read_u32_le;
+use crate::wire::{write_u16_le, write_u32_le};
 use crate::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFlags, ChunkType, EncodeError,
     FILE_HEADER_LEN, FLAT_HEADER_LEN, FileHeader, ImageChunkHeader, ImageView, Layout,
@@ -537,10 +538,10 @@ fn emit_flat(plan: &FlatLayoutPlan<'_>, out: &mut [u8]) {
 
     let image = plan.image;
     out[8] = image.format.to_u8();
-    write_u32(out, 12, image.width);
-    write_u32(out, 16, image.height);
-    write_u32(out, 20, image.stride);
-    write_u32(out, 24, crc32(&out[..24]));
+    write_u32_le(out, 12, image.width);
+    write_u32_le(out, 16, image.height);
+    write_u32_le(out, 20, image.stride);
+    write_u32_le(out, 24, crc32(&out[..24]));
 
     let planes = &mut out[FLAT_HEADER_LEN..];
     let (main, extra) = planes.split_at_mut(image.main.len());
@@ -559,16 +560,16 @@ fn emit_chunk(plan: &ChunkLayoutPlan<'_, '_>, out: &mut [u8]) {
     debug_assert!(plan.table_end() <= plan.file_size());
     emit_file_header(Layout::Chunk, out);
 
-    write_u16(out, 8, plan.chunk_count());
-    write_u32(out, 12, plan.chunk_table_offset());
-    write_u32(out, 16, plan.file_size());
+    write_u16_le(out, 8, plan.chunk_count());
+    write_u32_le(out, 12, plan.chunk_table_offset());
+    write_u32_le(out, 16, plan.file_size());
     let primary = plan.primary();
-    write_u16(out, 20, primary.chunk_type);
+    write_u16_le(out, 20, primary.chunk_type);
     out[22] = primary.hints.color_format_raw();
-    write_u32(out, 24, primary.hints.width());
-    write_u32(out, 28, primary.hints.height());
-    write_u32(out, 32, primary.hints.stride());
-    write_u32(out, 40, crc32(&out[..40]));
+    write_u32_le(out, 24, primary.hints.width());
+    write_u32_le(out, 28, primary.hints.height());
+    write_u32_le(out, 32, primary.hints.stride());
+    write_u32_le(out, 40, crc32(&out[..40]));
 
     for (expected_index, placement) in plan.placements().enumerate() {
         debug_assert_eq!(usize::from(placement.index), expected_index);
@@ -579,10 +580,10 @@ fn emit_chunk(plan: &ChunkLayoutPlan<'_, '_>, out: &mut [u8]) {
         );
 
         let entry = placement.table_entry_offset;
-        write_u16(out, entry, placement.chunk_type.raw());
-        write_u16(out, entry + 2, placement.flags.bits());
-        write_u32(out, entry + 4, placement.chunk_offset);
-        write_u32(out, entry + 8, placement.chunk_size);
+        write_u16_le(out, entry, placement.chunk_type.raw());
+        write_u16_le(out, entry + 2, placement.flags.bits());
+        write_u32_le(out, entry + 4, placement.chunk_offset);
+        write_u32_le(out, entry + 8, placement.chunk_size);
 
         let payload = &mut out[placement.output_range];
         match placement.payload {
@@ -617,14 +618,6 @@ fn emit_file_header(layout: Layout, out: &mut [u8]) {
     let mut prefix = [0; FILE_HEADER_LEN];
     header.write_into(&mut prefix);
     out[..FILE_HEADER_LEN].copy_from_slice(&prefix);
-}
-
-fn write_u16(out: &mut [u8], offset: usize, value: u16) {
-    out[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
-}
-
-fn write_u32(out: &mut [u8], offset: usize, value: u32) {
-    out[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 fn ensure_rewrite_allowed(document: &Document<'_>) -> Result<(), EncodeError> {

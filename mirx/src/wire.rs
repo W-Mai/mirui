@@ -12,3 +12,11 @@ pub(crate) fn read_u32_le(bytes: &[u8], offset: usize) -> Option<u32> {
     let raw: [u8; 4] = slice(bytes, offset, 4)?.try_into().ok()?;
     Some(u32::from_le_bytes(raw))
 }
+
+pub(crate) fn write_u16_le(bytes: &mut [u8], offset: usize, value: u16) {
+    bytes[offset..offset + 2].copy_from_slice(&value.to_le_bytes());
+}
+
+pub(crate) fn write_u32_le(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}

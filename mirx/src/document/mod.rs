@@ -40,7 +40,7 @@ pub use raw::{
 
 use alloc::{borrow::Cow, vec::Vec};
 
-use descriptor::grant_open_descriptor;
+use descriptor::EvaluatedDescriptor;
 use primary::open_primary_hint_state;
 use source::{Origin, SourceRange};
 
@@ -502,8 +502,8 @@ impl<'a> Document<'a> {
             }
         }
 
-        let ids = raw::plan_chunk_ids(self.next_id, 1)?;
-        let id = ids.id(0).expect("one planned chunk ID must exist");
+        let ids = raw::ChunkIdPlan::new(self.next_id, 1)?;
+        let id = ids.get(0).expect("one planned chunk ID must exist");
         let mut nodes = Vec::new();
         reserve(&mut nodes, 1)?;
         nodes.push(promoted_flat_node(id));
@@ -831,7 +831,7 @@ fn inspect_chunks<'document>(
         let preflight = preflight_chunk(chunk, &options.payload_limits());
         let known_contract = matches!(preflight, Ok(PreflightStatus::Validated));
         let policy = raw_type_policy(options, chunk.chunk_type());
-        let (descriptor, normalized) = grant_open_descriptor(
+        let (descriptor, normalized) = EvaluatedDescriptor::for_open(
             chunk.chunk_type(),
             chunk.flags(),
             known_contract,

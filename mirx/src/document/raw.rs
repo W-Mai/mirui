@@ -1,6 +1,8 @@
 use alloc::vec::Vec;
 
-use super::descriptor::{evaluate_descriptor, evaluate_descriptor_with_flags, evaluate_flags};
+use super::descriptor::{
+    EvaluatedDescriptor, EvaluatedFlags, evaluate_descriptor, evaluate_descriptor_with_flags,
+};
 use super::payload::{PayloadPlacement, ResolvedNodePayload, resolve_node_payload};
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::{
@@ -120,6 +122,29 @@ pub enum ReservedBitsPolicy {
     Normalize,
 }
 
+impl ReservedBitsPolicy {
+    pub(super) fn apply(self, flags: ChunkFlags) -> Result<EvaluatedFlags, EditError> {
+        let reserved_bits = flags.bits() & !ChunkFlags::CRITICAL.bits();
+        let (flags, preserve_reserved_bits) = match (reserved_bits, self) {
+            (0, _) => (flags, false),
+            (_, Self::Preserve) => (flags, true),
+            (_, Self::Normalize) => (
+                ChunkFlags::from_bits_retain(flags.bits() & ChunkFlags::CRITICAL.bits()),
+                false,
+            ),
+            (_, Self::Reject) => {
+                return Err(EditError::ReservedFlagBits {
+                    bits: reserved_bits,
+                });
+            }
+        };
+        Ok(EvaluatedFlags {
+            flags,
+            preserve_reserved_bits,
+        })
+    }
+}
+
 /// Safety policy for accepting an encoded raw payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawChunkPolicy {
@@ -151,6 +176,26 @@ impl RawChunkPolicy {
         self.reserved_flag_bits = reserved_flag_bits;
         self
     }
+
+    fn evaluate(
+        self,
+        chunk_type: ChunkType,
+        flags: ChunkFlags,
+        payload: &[u8],
+        limits: crate::PayloadLimits,
+    ) -> Result<EvaluatedDescriptor, EditError> {
+        evaluate_descriptor(chunk_type, flags, payload, self, limits)
+    }
+
+    fn evaluate_with_flags(
+        self,
+        chunk_type: ChunkType,
+        flags: EvaluatedFlags,
+        payload: &[u8],
+        limits: crate::PayloadLimits,
+    ) -> Result<EvaluatedDescriptor, EditError> {
+        evaluate_descriptor_with_flags(chunk_type, flags, payload, self, limits)
+    }
 }
 
 impl Default for RawChunkPolicy {
@@ -174,7 +219,19 @@ pub(super) struct ChunkIdPlan {
 }
 
 impl ChunkIdPlan {
-    pub(super) const fn id(self, offset: u32) -> Option<ChunkId> {
+    pub(super) const fn new(next_id: u32, count: u32) -> Result<Self, EditError> {
+        let following_counter = match next_id.checked_add(count) {
+            Some(counter) => counter,
+            None => return Err(EditError::ChunkIdExhausted),
+        };
+        Ok(Self {
+            first_counter: next_id,
+            count,
+            following_counter,
+        })
+    }
+
+    pub(super) const fn get(self, offset: u32) -> Option<ChunkId> {
         if offset >= self.count {
             return None;
         }
@@ -187,18 +244,6 @@ impl ChunkIdPlan {
     pub(super) const fn following_counter(self) -> u32 {
         self.following_counter
     }
-}
-
-pub(super) const fn plan_chunk_ids(next_id: u32, count: u32) -> Result<ChunkIdPlan, EditError> {
-    let following_counter = match next_id.checked_add(count) {
-        Some(counter) => counter,
-        None => return Err(EditError::ChunkIdExhausted),
-    };
-    Ok(ChunkIdPlan {
-        first_counter: next_id,
-        count,
-        following_counter,
-    })
 }
 
 impl<'a> PreparedRaw<'a> {
@@ -327,7 +372,7 @@ impl<'a> Document<'a> {
         } else {
             ReservedBitsPolicy::Reject
         };
-        let flags = evaluate_flags(flags, reserved_policy)?.flags;
+        let flags = reserved_policy.apply(flags)?.flags;
         let payload = encode(plan)?;
         self.commit_prepared_replacement(
             index,
@@ -490,8 +535,8 @@ impl<'a> Document<'a> {
             (DocumentState::Chunk(_), _) => {}
         }
         let index = insertion_index(&self.state, position)?;
-        let ids = plan_chunk_ids(self.next_id, 1)?;
-        let id = ids.id(0).expect("one planned chunk ID must exist");
+        let ids = ChunkIdPlan::new(self.next_id, 1)?;
+        let id = ids.get(0).expect("one planned chunk ID must exist");
         let DocumentState::Chunk(chunks) = &self.state else {
             unreachable!("layout checked before projecting insertion");
         };
@@ -549,9 +594,9 @@ impl<'a> Document<'a> {
         P: FnOnce() -> Result<PreparedRaw<'a>, EditError>,
         R: FnOnce(&mut Vec<ChunkNode<'a>>, usize) -> Result<(), EditError>,
     {
-        let ids = plan_chunk_ids(self.next_id, 2)?;
-        let promoted_id = ids.id(0).expect("first planned chunk ID must exist");
-        let inserted_id = ids.id(1).expect("second planned chunk ID must exist");
+        let ids = ChunkIdPlan::new(self.next_id, 2)?;
+        let promoted_id = ids.get(0).expect("first planned chunk ID must exist");
+        let inserted_id = ids.get(1).expect("second planned chunk ID must exist");
         let prepared = prepare()?;
 
         let mut nodes = Vec::new();
@@ -678,11 +723,10 @@ fn prepare_raw(
     input: RawChunkInput<'_>,
     limits: crate::PayloadLimits,
 ) -> Result<PreparedRaw<'_>, EditError> {
-    let descriptor = evaluate_descriptor(
+    let descriptor = input.policy.evaluate(
         input.chunk_type,
         input.flags,
         input.payload.as_bytes(),
-        input.policy,
         limits,
     )?;
 
@@ -701,19 +745,14 @@ fn prepare_replacement(
     policy: RawChunkPolicy,
     limits: crate::PayloadLimits,
 ) -> Result<PreparedRaw<'_>, EditError> {
-    let evaluated_flags = evaluate_flags(flags, policy.reserved_flag_bits)?;
+    let evaluated_flags = policy.reserved_flag_bits.apply(flags)?;
     if evaluated_flags.flags != flags {
         return Err(EditError::ReservedFlagBits {
             bits: flags.bits() & !ChunkFlags::CRITICAL.bits(),
         });
     }
-    let descriptor = evaluate_descriptor_with_flags(
-        chunk_type,
-        evaluated_flags,
-        payload.as_bytes(),
-        policy,
-        limits,
-    )?;
+    let descriptor =
+        policy.evaluate_with_flags(chunk_type, evaluated_flags, payload.as_bytes(), limits)?;
 
     Ok(PreparedRaw {
         chunk_type: descriptor.chunk_type,
@@ -731,7 +770,7 @@ fn prepare_typed_owned_with<'a, F>(
 where
     F: FnOnce() -> Result<Vec<u8>, EditError>,
 {
-    let flags = evaluate_flags(flags, ReservedBitsPolicy::Reject)?.flags;
+    let flags = ReservedBitsPolicy::Reject.apply(flags)?.flags;
     let payload = encode()?;
     Ok(PreparedRaw {
         chunk_type,
@@ -798,23 +837,23 @@ mod tests {
 
     #[test]
     fn chunk_id_plans_cover_empty_boundary_and_batch_overflow() {
-        let empty = plan_chunk_ids(u32::MAX, 0).unwrap();
-        assert_eq!(empty.id(0), None);
+        let empty = ChunkIdPlan::new(u32::MAX, 0).unwrap();
+        assert_eq!(empty.get(0), None);
         assert_eq!(empty.following_counter(), u32::MAX);
 
-        let last = plan_chunk_ids(u32::MAX - 1, 1).unwrap();
-        assert_eq!(last.id(0), Some(ChunkId::new(u32::MAX - 1)));
-        assert_eq!(last.id(1), None);
+        let last = ChunkIdPlan::new(u32::MAX - 1, 1).unwrap();
+        assert_eq!(last.get(0), Some(ChunkId::new(u32::MAX - 1)));
+        assert_eq!(last.get(1), None);
         assert_eq!(last.following_counter(), u32::MAX);
 
-        let pair = plan_chunk_ids(u32::MAX - 2, 2).unwrap();
-        assert_eq!(pair.id(0), Some(ChunkId::new(u32::MAX - 2)));
-        assert_eq!(pair.id(1), Some(ChunkId::new(u32::MAX - 1)));
-        assert_eq!(pair.id(2), None);
+        let pair = ChunkIdPlan::new(u32::MAX - 2, 2).unwrap();
+        assert_eq!(pair.get(0), Some(ChunkId::new(u32::MAX - 2)));
+        assert_eq!(pair.get(1), Some(ChunkId::new(u32::MAX - 1)));
+        assert_eq!(pair.get(2), None);
         assert_eq!(pair.following_counter(), u32::MAX);
 
         assert_eq!(
-            plan_chunk_ids(u32::MAX - 1, 2),
+            ChunkIdPlan::new(u32::MAX - 1, 2),
             Err(EditError::ChunkIdExhausted)
         );
     }
