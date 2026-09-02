@@ -334,7 +334,7 @@ mod tests {
             .edit_frames(frames_id, |asset| {
                 let mut replacement = asset.frame(1).unwrap();
                 replacement.duration_ticks = 90;
-                asset.set_frame(1, replacement).unwrap();
+                asset.replace_frame(1, replacement).unwrap();
             })
             .unwrap();
         assert_eq!(

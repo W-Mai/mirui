@@ -146,10 +146,11 @@ Typed payload operations:
 | `PALETTE` | `palette` → `PaletteView` | `push_palette` | `replace_palette` | `edit_palette`, `try_edit_palette` |
 | `FRAMES` | `frames` → `FramesView` | `push_frames` | `replace_frames` | `edit_frames`, `try_edit_frames` |
 
-`Meta` exposes positional insert, replace, and remove operations. `Palette` and
-`FramesAsset` additionally support record reordering. `FramesAsset` keeps its
-frame table and image planes borrowed until the corresponding mutable accessor
-is used.
+`Meta`, `Palette`, `FramesAsset`, and `Scene` expose `push` operations for
+incremental authoring. The typed collections also provide positional insert,
+replace, and remove operations; `Palette` and `FramesAsset` additionally
+support record reordering. `FramesAsset` keeps its frame table and image planes
+borrowed until the corresponding mutable accessor is used.
 
 `ImageAsset::new` accepts the required image geometry and main plane;
 `with_extra` adds an inline palette or alpha plane when the format requires

@@ -271,6 +271,11 @@ impl<'a> FramesAsset<'a> {
         self.data_mut().materialize_table()
     }
 
+    /// Appends a frame after applying record and decoded-memory limits.
+    pub fn push_frame(&mut self, frame: Frame) -> Result<(), FramesMutationError> {
+        self.insert_frame(self.len(), frame)
+    }
+
     pub fn insert_frame(&mut self, index: usize, frame: Frame) -> Result<(), FramesMutationError> {
         let len = self.len();
         if index > len {
@@ -301,7 +306,12 @@ impl<'a> FramesAsset<'a> {
         Ok(())
     }
 
-    pub fn set_frame(&mut self, index: usize, frame: Frame) -> Result<Frame, FramesMutationError> {
+    /// Replaces one frame and returns the previous record.
+    pub fn replace_frame(
+        &mut self,
+        index: usize,
+        frame: Frame,
+    ) -> Result<Frame, FramesMutationError> {
         let len = self.len();
         if index >= len {
             return Err(FramesMutationError::IndexOutOfBounds { index, len });
@@ -943,7 +953,8 @@ mod tests {
         let mut asset = atlas(ColorFormat::A8);
         let replacement = frame(1, 0);
         assert_eq!(asset.remove_frame(1).unwrap().source_x, 1);
-        asset.insert_frame(1, replacement).unwrap();
+        asset.push_frame(replacement).unwrap();
+        asset.move_frame(2, 1).unwrap();
         asset.move_frame(0, 2).unwrap();
         assert_eq!(
             asset
@@ -952,7 +963,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec![1, 2, 0]
         );
-        assert_eq!(asset.set_frame(2, frame(0, 0)).unwrap().source_x, 0);
+        assert_eq!(asset.replace_frame(2, frame(0, 0)).unwrap().source_x, 0);
         assert!(asset.encode_payload().is_ok());
     }
 

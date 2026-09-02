@@ -124,6 +124,11 @@ impl Meta {
         decode_view_with_allocator(view, &mut CheckedDecodeAllocator)
     }
 
+    /// Appends an entry after reserving its slot fallibly.
+    pub fn push(&mut self, entry: MetaEntry) -> Result<(), MetaMutationError> {
+        self.insert(self.entries.len(), entry)
+    }
+
     /// Inserts an entry at an exact position, including `len()` for append.
     pub fn insert(&mut self, index: usize, entry: MetaEntry) -> Result<(), MetaMutationError> {
         self.insert_with(index, entry, |entries| {
@@ -134,7 +139,7 @@ impl Meta {
     }
 
     /// Replaces one entry and returns the previous value.
-    pub fn replace_at(
+    pub fn replace(
         &mut self,
         index: usize,
         entry: MetaEntry,
@@ -148,7 +153,7 @@ impl Meta {
     }
 
     /// Removes and returns one entry at an exact position.
-    pub fn remove_at(&mut self, index: usize) -> Result<MetaEntry, MetaMutationError> {
+    pub fn remove(&mut self, index: usize) -> Result<MetaEntry, MetaMutationError> {
         let len = self.entries.len();
         if index >= len {
             return Err(MetaMutationError::IndexOutOfBounds { index, len });
@@ -766,7 +771,7 @@ mod tests {
         let mut meta =
             Meta::from_entries(vec![MetaEntry::text("a", "0"), MetaEntry::text("a", "2")]);
         meta.insert(1, MetaEntry::text("a", "1")).unwrap();
-        meta.insert(3, MetaEntry::new("A", MetaValue::Text(String::from("3"))))
+        meta.push(MetaEntry::new("A", MetaValue::Text(String::from("3"))))
             .unwrap();
         assert_eq!(
             meta.entries
@@ -796,18 +801,18 @@ mod tests {
             Err(MetaMutationError::IndexOutOfBounds { index: 99, len: 4 })
         );
 
-        let replaced = meta.replace_at(1, MetaEntry::bytes("b", vec![9])).unwrap();
+        let replaced = meta.replace(1, MetaEntry::bytes("b", vec![9])).unwrap();
         assert_eq!(replaced, MetaEntry::text("a", "1"));
-        assert_eq!(meta.remove_at(1).unwrap(), MetaEntry::bytes("b", vec![9]));
+        assert_eq!(meta.remove(1).unwrap(), MetaEntry::bytes("b", vec![9]));
         assert_eq!(meta.remove_all("a"), 2);
         assert_eq!(meta.remove_all("a"), 0);
         assert_eq!(meta.entries, [MetaEntry::text("A", "3")]);
         assert_eq!(
-            meta.replace_at(1, MetaEntry::text("x", "x")),
+            meta.replace(1, MetaEntry::text("x", "x")),
             Err(MetaMutationError::IndexOutOfBounds { index: 1, len: 1 })
         );
         assert_eq!(
-            meta.remove_at(1),
+            meta.remove(1),
             Err(MetaMutationError::IndexOutOfBounds { index: 1, len: 1 })
         );
     }

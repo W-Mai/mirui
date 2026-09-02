@@ -146,4 +146,23 @@ impl Scene {
     pub fn from_ops(ops: Vec<SceneOp>) -> Self {
         Self { ops }
     }
+
+    /// Appends an operation and returns the scene for continued authoring.
+    pub fn push(&mut self, op: SceneOp) -> &mut Self {
+        self.ops.push(op);
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Scene, SceneOp};
+
+    #[test]
+    fn push_appends_and_chains() {
+        let mut scene = Scene::new();
+        scene.push(SceneOp::GroupEnd).push(SceneOp::PopClip);
+
+        assert_eq!(scene.ops, [SceneOp::GroupEnd, SceneOp::PopClip]);
+    }
 }

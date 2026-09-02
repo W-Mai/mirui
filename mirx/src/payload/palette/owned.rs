@@ -67,6 +67,11 @@ impl Palette {
         decode_view_with_allocator(view, &mut CheckedDecodeAllocator)
     }
 
+    /// Appends a color after reserving its slot fallibly.
+    pub fn push(&mut self, color: Color) -> Result<(), PaletteMutationError> {
+        self.insert(self.colors.len(), color)
+    }
+
     /// Inserts a color at an exact position, including `len()` for append.
     pub fn insert(&mut self, index: usize, color: Color) -> Result<(), PaletteMutationError> {
         self.insert_with(index, color, |colors| {
@@ -77,7 +82,7 @@ impl Palette {
     }
 
     /// Replaces one color and returns the previous value.
-    pub fn set(&mut self, index: usize, color: Color) -> Result<Color, PaletteMutationError> {
+    pub fn replace(&mut self, index: usize, color: Color) -> Result<Color, PaletteMutationError> {
         let len = self.colors.len();
         let current = self
             .colors
@@ -441,9 +446,10 @@ mod tests {
         let d = Color::rgba(13, 14, 15, 16);
         let mut palette = Palette::from_colors(vec![a, b, c]);
 
-        palette.insert(1, d).unwrap();
+        palette.push(d).unwrap();
+        palette.move_color(3, 1).unwrap();
         assert_eq!(palette.colors, [a, d, b, c]);
-        assert_eq!(palette.set(2, a), Ok(b));
+        assert_eq!(palette.replace(2, a), Ok(b));
         assert_eq!(palette.colors, [a, d, a, c]);
         assert_eq!(palette.remove(1), Ok(d));
         assert_eq!(palette.colors, [a, a, c]);
@@ -460,7 +466,7 @@ mod tests {
             Err(PaletteMutationError::IndexOutOfBounds { index: 4, len: 3 })
         );
         for error in [
-            palette.set(3, d).unwrap_err(),
+            palette.replace(3, d).unwrap_err(),
             palette.remove(3).unwrap_err(),
             palette.move_color(3, 0).unwrap_err(),
             palette.move_color(0, 3).unwrap_err(),
