@@ -13,7 +13,7 @@ impl Document<'_> {
     ///
     /// The document's retained [`crate::PayloadLimits`] profile bounds every owned
     /// scene component. Preserved trailing bytes do not block typed reads.
-    pub fn vector(&self, id: ChunkId) -> Result<Scene, VectorAccessError> {
+    pub fn decode_vector(&self, id: ChunkId) -> Result<Scene, VectorAccessError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(VectorAccessError::FutureSemanticsUnsupported);
         }
@@ -38,11 +38,20 @@ impl Document<'_> {
         Scene::decode_with_limits(bytes, &self.payload_limits).map_err(Into::into)
     }
 
-    /// Appends one checked VECTOR payload and returns its stable identity.
+    /// Appends one checked VECTOR payload with no chunk flags.
+    pub fn push_vector(&mut self, scene: &Scene) -> Result<ChunkId, EditError> {
+        self.push_vector_with_flags(scene, ChunkFlags::NONE)
+    }
+
+    /// Appends one checked VECTOR payload with explicit chunk flags.
     ///
     /// Structural gates and the document's retained resource profile are
     /// checked before one canonical payload allocation is committed.
-    pub fn push_vector(&mut self, flags: ChunkFlags, scene: &Scene) -> Result<ChunkId, EditError> {
+    pub fn push_vector_with_flags(
+        &mut self,
+        scene: &Scene,
+        flags: ChunkFlags,
+    ) -> Result<ChunkId, EditError> {
         let limits = self.payload_limits;
         self.push_typed_owned_with(ChunkType::VECTOR, flags, || {
             let plan = scene.payload_plan().map_err(EditError::InvalidVector)?;
@@ -103,7 +112,9 @@ impl Document<'_> {
         edit: impl FnOnce(&mut Scene) -> Result<(), E>,
     ) -> Result<(), TryEditError<E>> {
         self.ensure_mutable()?;
-        let mut scene = self.vector(id).map_err(vector_access_error_for_edit)?;
+        let mut scene = self
+            .decode_vector(id)
+            .map_err(vector_access_error_for_edit)?;
         edit(&mut scene).map_err(TryEditError::Callback)?;
         self.replace_vector(id, &scene).map_err(Into::into)
     }
@@ -268,10 +279,10 @@ mod tests {
         let expected = representative_scene();
         let mut document = Document::new();
         let vector_id = document
-            .push_vector(ChunkFlags::CRITICAL, &expected)
+            .push_vector_with_flags(&expected, ChunkFlags::CRITICAL)
             .unwrap();
 
-        assert_eq!(document.vector(vector_id).unwrap(), expected);
+        assert_eq!(document.decode_vector(vector_id).unwrap(), expected);
         assert_eq!(
             document.get(vector_id).unwrap().payload_origin(),
             PayloadOrigin::OWNED
@@ -282,7 +293,7 @@ mod tests {
         let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reopened = Document::open(&encoded).unwrap();
         let reopened_id = reopened.chunks().next().unwrap().id();
-        assert_eq!(reopened.vector(reopened_id).unwrap(), expected);
+        assert_eq!(reopened.decode_vector(reopened_id).unwrap(), expected);
     }
 
     #[test]
@@ -291,7 +302,7 @@ mod tests {
         let mut document = flat_document();
         let image_pointer = document.flat_image().unwrap().main().as_ptr();
 
-        let vector_id = document.push_vector(ChunkFlags::NONE, &expected).unwrap();
+        let vector_id = document.push_vector(&expected).unwrap();
 
         assert_eq!(document.layout(), Layout::Chunk);
         assert_eq!(document.chunks().len(), 2);
@@ -309,7 +320,7 @@ mod tests {
             image_pointer
         );
         assert_eq!(document.image(image_id).unwrap().main(), &[1, 2, 3, 4]);
-        assert_eq!(document.vector(vector_id).unwrap(), expected);
+        assert_eq!(document.decode_vector(vector_id).unwrap(), expected);
     }
 
     #[test]
@@ -365,7 +376,7 @@ mod tests {
         let exact_options = OpenOptions::new().with_payload_limits(exact);
         let exact_document = Document::open_with(&source, &exact_options).unwrap();
         let vector_id = exact_document.chunks().next().unwrap().id();
-        assert_eq!(exact_document.vector(vector_id).unwrap(), expected);
+        assert_eq!(exact_document.decode_vector(vector_id).unwrap(), expected);
 
         let mut critical = Document::new_with_limits(exact);
         let critical_id = critical
@@ -376,7 +387,7 @@ mod tests {
                 policy: RawChunkPolicy::infer(),
             })
             .unwrap();
-        assert_eq!(critical.vector(critical_id).unwrap(), expected);
+        assert_eq!(critical.decode_vector(critical_id).unwrap(), expected);
 
         let mut malformed = Document::new_with_limits(exact);
         assert_eq!(
@@ -397,13 +408,13 @@ mod tests {
             let document = Document::open_with(&source, &options).unwrap();
             let vector_id = document.chunks().next().unwrap().id();
             assert_eq!(
-                document.vector(vector_id),
+                document.decode_vector(vector_id),
                 Err(VectorAccessError::InvalidPayload(error))
             );
 
             let mut authored = Document::new_with_limits(limits);
             assert_eq!(
-                authored.push_vector(ChunkFlags::NONE, &expected),
+                authored.push_vector(&expected),
                 Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
                     error
                 )))
@@ -433,7 +444,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            inferred.vector(opaque),
+            inferred.decode_vector(opaque),
             Err(VectorAccessError::InvalidPayload(
                 VectorReadError::TooManySceneOps { count: 5, limit: 4 }
             ))
@@ -478,11 +489,11 @@ mod tests {
         let mut malformed = Document::open(&malformed_source).unwrap();
         let vector_id = malformed.chunks().next().unwrap().id();
         assert!(matches!(
-            malformed.vector(vector_id),
+            malformed.decode_vector(vector_id),
             Err(VectorAccessError::InvalidPayload(_))
         ));
         malformed.replace_vector(vector_id, &expected).unwrap();
-        assert_eq!(malformed.vector(vector_id).unwrap(), expected);
+        assert_eq!(malformed.decode_vector(vector_id).unwrap(), expected);
     }
 
     #[test]
@@ -542,7 +553,7 @@ mod tests {
             .unwrap();
         assert!(document.is_dirty());
         assert!(matches!(
-            document.vector(vector_id).unwrap().ops.first(),
+            document.decode_vector(vector_id).unwrap().ops.first(),
             Some(crate::SceneOp::PopClip)
         ));
     }
@@ -578,7 +589,7 @@ mod tests {
         assert_eq!(payload.as_ptr(), original_pointer);
         assert_eq!(payload, original_bytes);
         assert!(!document.is_dirty());
-        assert_eq!(document.vector(vector_id).unwrap(), expected);
+        assert_eq!(document.decode_vector(vector_id).unwrap(), expected);
     }
 
     #[test]
@@ -592,7 +603,7 @@ mod tests {
         let source = vector_file(&payload, ChunkFlags::NONE);
         let mut document = Document::open(&source).unwrap();
         let vector_id = document.chunks().next().unwrap().id();
-        assert_eq!(document.vector(vector_id).unwrap(), Scene::default());
+        assert_eq!(document.decode_vector(vector_id).unwrap(), Scene::default());
 
         document.edit_vector(vector_id, |_| {}).unwrap();
 
@@ -621,17 +632,17 @@ mod tests {
         let meta = chunks.next().unwrap().id();
         let malformed = chunks.next().unwrap().id();
         assert_eq!(
-            document.vector(meta),
+            document.decode_vector(meta),
             Err(VectorAccessError::UnexpectedChunkType {
                 actual: ChunkType::META
             })
         );
         assert_eq!(
-            document.vector(id(99)),
+            document.decode_vector(id(99)),
             Err(VectorAccessError::InvalidChunkId)
         );
         assert!(matches!(
-            document.vector(malformed),
+            document.decode_vector(malformed),
             Err(VectorAccessError::InvalidPayload(_))
         ));
         let called = Cell::new(false);
@@ -643,7 +654,7 @@ mod tests {
 
         let flat = flat_document();
         assert_eq!(
-            flat.vector(id(0)),
+            flat.decode_vector(id(0)),
             Err(VectorAccessError::ChunkLayoutRequired)
         );
 
@@ -652,21 +663,21 @@ mod tests {
         let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
         let trailing = Document::open_with(&trailing_source, &options).unwrap();
         let vector_id = trailing.chunks().next().unwrap().id();
-        assert_eq!(trailing.vector(vector_id).unwrap(), expected);
+        assert_eq!(trailing.decode_vector(vector_id).unwrap(), expected);
 
         trailing_source[5] = VERSION_MINOR + 1;
         refresh_chunk_header_crc(&mut trailing_source);
         let future = Document::open_with(&trailing_source, &options).unwrap();
         let vector_id = future.chunks().next().unwrap().id();
         assert_eq!(
-            future.vector(vector_id),
+            future.decode_vector(vector_id),
             Err(VectorAccessError::FutureSemanticsUnsupported)
         );
         let normalized_options =
             options.with_compatibility(CompatibilityPolicy::NormalizeToCurrent);
         let normalized = Document::open_with(&trailing_source, &normalized_options).unwrap();
         let vector_id = normalized.chunks().next().unwrap().id();
-        assert_eq!(normalized.vector(vector_id).unwrap(), expected);
+        assert_eq!(normalized.decode_vector(vector_id).unwrap(), expected);
     }
 
     #[test]
@@ -687,7 +698,7 @@ mod tests {
             .set_type(promoted, ChunkType::VECTOR, explicit_policy())
             .unwrap();
         assert_eq!(
-            document.vector(promoted),
+            document.decode_vector(promoted),
             Err(VectorAccessError::NonContiguousPayload)
         );
         assert_eq!(
@@ -699,7 +710,7 @@ mod tests {
 
         let replacement = representative_scene();
         document.replace_vector(promoted, &replacement).unwrap();
-        assert_eq!(document.vector(promoted).unwrap(), replacement);
+        assert_eq!(document.decode_vector(promoted).unwrap(), replacement);
         assert_eq!(
             document.get(promoted).unwrap().payload_origin(),
             PayloadOrigin::OWNED
@@ -741,14 +752,14 @@ mod tests {
         let mut exhausted = Document::new();
         exhausted.next_id = u32::MAX;
         assert_eq!(
-            exhausted.push_vector(ChunkFlags::from_bits_retain(2), &invalid),
+            exhausted.push_vector_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::ChunkIdExhausted)
         );
         assert_eq!(exhausted.chunks().len(), 0);
 
         let mut reserved = Document::new();
         assert_eq!(
-            reserved.push_vector(ChunkFlags::from_bits_retain(2), &invalid),
+            reserved.push_vector_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::ReservedFlagBits { bits: 2 })
         );
         assert_eq!(reserved.chunks().len(), 0);
@@ -777,7 +788,7 @@ mod tests {
         granted.replace_vector(vector_id, &expected).unwrap();
         assert!(granted.is_dirty());
         assert_eq!(granted.get(vector_id).unwrap().flags(), reserved);
-        assert_eq!(granted.vector(vector_id).unwrap(), expected);
+        assert_eq!(granted.decode_vector(vector_id).unwrap(), expected);
     }
 
     #[test]

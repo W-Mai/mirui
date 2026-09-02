@@ -973,7 +973,7 @@ fn typed_image_push_failures_preserve_complete_state() {
     let mut chunk = Document::new();
     chunk.next_id = u32::MAX;
     let before = snapshot(&chunk);
-    let result = chunk.push_image(ChunkFlags::from_bits_retain(2), &bad_asset());
+    let result = chunk.push_image_with_flags(&bad_asset(), ChunkFlags::from_bits_retain(2));
     assert_atomic_error(&chunk, &before, result, EditError::ChunkIdExhausted);
 
     let flat_main = [1, 2, 3, 4];
@@ -987,12 +987,12 @@ fn typed_image_push_failures_preserve_complete_state() {
     .unwrap();
     flat.next_id = u32::MAX - 1;
     let before = snapshot(&flat);
-    let result = flat.push_image(ChunkFlags::NONE, &bad_asset());
+    let result = flat.push_image(&bad_asset());
     assert_atomic_error(&flat, &before, result, EditError::ChunkIdExhausted);
 
     let mut reserved = Document::new();
     let before = snapshot(&reserved);
-    let result = reserved.push_image(ChunkFlags::from_bits_retain(2), &bad_asset());
+    let result = reserved.push_image_with_flags(&bad_asset(), ChunkFlags::from_bits_retain(2));
     assert_atomic_error(
         &reserved,
         &before,

@@ -36,14 +36,19 @@ impl Document<'_> {
             .map_err(Into::into)
     }
 
-    /// Appends a checked IMAGE payload and returns its stable identity.
+    /// Appends a checked IMAGE payload with no chunk flags.
+    pub fn push_image(&mut self, image: &ImageAsset<'_>) -> Result<ChunkId, EditError> {
+        self.push_image_with_flags(image, ChunkFlags::NONE)
+    }
+
+    /// Appends a checked IMAGE payload with explicit chunk flags.
     ///
     /// The asset is encoded into one owned payload after structural edit gates
     /// have passed. A FLAT document is promoted atomically before insertion.
-    pub fn push_image(
+    pub fn push_image_with_flags(
         &mut self,
-        flags: ChunkFlags,
         image: &ImageAsset<'_>,
+        flags: ChunkFlags,
     ) -> Result<ChunkId, EditError> {
         self.push_typed_owned_with(ChunkType::IMAGE, flags, || encode_image_for_edit(image))
     }
@@ -190,7 +195,7 @@ mod tests {
                     &main,
                     (!extra.is_empty()).then_some(extra.as_slice()),
                 );
-                document.push_image(flags, &asset).unwrap()
+                document.push_image_with_flags(&asset, flags).unwrap()
             };
 
             assert_eq!(document.primary(), None, "{format:?}");
@@ -239,9 +244,7 @@ mod tests {
                 },
             })
             .unwrap();
-        authored
-            .push_image(ChunkFlags::NONE, &a8_asset(&main, 2, 2))
-            .unwrap();
+        authored.push_image(&a8_asset(&main, 2, 2)).unwrap();
         let source = authored.encode(&EncodeOptions::new()).unwrap();
         let expected = Reader::open(&source)
             .unwrap()
@@ -336,7 +339,7 @@ mod tests {
             Err(ImageDecodeError::ChunkLayoutRequired)
         );
         let inserted = promoted
-            .push_image(ChunkFlags::NONE, &a8_asset(&inserted_main, 2, 2))
+            .push_image(&a8_asset(&inserted_main, 2, 2))
             .unwrap();
         let promoted_id = promoted.primary().unwrap();
         assert_eq!(promoted_id, id(0));
@@ -454,7 +457,7 @@ mod tests {
         let mut chunk = Document::new();
         chunk.next_id = u32::MAX;
         assert_eq!(
-            chunk.push_image(ChunkFlags::from_bits_retain(2), &invalid),
+            chunk.push_image_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::ChunkIdExhausted)
         );
         assert_eq!(chunk.chunks().len(), 0);
@@ -463,10 +466,7 @@ mod tests {
         let flat_main = [1, 2, 3, 4];
         let mut flat = Document::new_flat(a8_asset(&flat_main, 2, 2)).unwrap();
         flat.next_id = u32::MAX - 1;
-        assert_eq!(
-            flat.push_image(ChunkFlags::NONE, &invalid),
-            Err(EditError::ChunkIdExhausted)
-        );
+        assert_eq!(flat.push_image(&invalid), Err(EditError::ChunkIdExhausted));
         assert_eq!(flat.layout(), Layout::Flat);
         assert_eq!(
             flat.flat_image().unwrap().main().as_ptr(),
@@ -476,7 +476,7 @@ mod tests {
 
         let mut reserved = Document::new();
         assert_eq!(
-            reserved.push_image(ChunkFlags::from_bits_retain(2), &invalid),
+            reserved.push_image_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::ReservedFlagBits { bits: 2 })
         );
         assert_eq!(reserved.chunks().len(), 0);
@@ -487,7 +487,7 @@ mod tests {
         let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
         let mut trailing = Document::open_with(&trailing_source, &options).unwrap();
         assert_eq!(
-            trailing.push_image(ChunkFlags::from_bits_retain(2), &invalid),
+            trailing.push_image_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::PreservedTrailingBytesReadOnly)
         );
 
@@ -495,7 +495,7 @@ mod tests {
         refresh_chunk_header_crc(&mut trailing_source);
         let mut future = Document::open_with(&trailing_source, &options).unwrap();
         assert_eq!(
-            future.push_image(ChunkFlags::from_bits_retain(2), &invalid),
+            future.push_image_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::FutureSemanticsReadOnly)
         );
     }

@@ -38,11 +38,20 @@ impl Document<'_> {
         MetaView::open_payload(bytes, &self.payload_limits).map_err(Into::into)
     }
 
-    /// Appends one checked META payload and returns its stable identity.
+    /// Appends one checked META payload with no chunk flags.
+    pub fn push_meta(&mut self, meta: &Meta) -> Result<ChunkId, EditError> {
+        self.push_meta_with_flags(meta, ChunkFlags::NONE)
+    }
+
+    /// Appends one checked META payload with explicit chunk flags.
     ///
     /// Structural gates and retained resource limits are checked before one
     /// canonical payload allocation is committed.
-    pub fn push_meta(&mut self, flags: ChunkFlags, meta: &Meta) -> Result<ChunkId, EditError> {
+    pub fn push_meta_with_flags(
+        &mut self,
+        meta: &Meta,
+        flags: ChunkFlags,
+    ) -> Result<ChunkId, EditError> {
         let limits = self.payload_limits;
         self.push_typed_owned_with(ChunkType::META, flags, || {
             let plan = meta.payload_plan().map_err(EditError::InvalidMeta)?;
@@ -208,7 +217,9 @@ mod tests {
     fn typed_push_query_and_reopen_preserve_order_duplicates_and_extensions() {
         let expected = sample_meta();
         let mut document = Document::new();
-        let meta_id = document.push_meta(ChunkFlags::CRITICAL, &expected).unwrap();
+        let meta_id = document
+            .push_meta_with_flags(&expected, ChunkFlags::CRITICAL)
+            .unwrap();
 
         assert_eq!(meta_id, id(0));
         assert_eq!(
@@ -383,7 +394,7 @@ mod tests {
 
         let mut authored = Document::new_with_limits(exact.with_max_meta_entries(2));
         assert_eq!(
-            authored.push_meta(ChunkFlags::NONE, &expected),
+            authored.push_meta(&expected),
             Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
                 MetaDecodeError::TooManyEntries { count: 3, limit: 2 }
             )))
@@ -392,7 +403,7 @@ mod tests {
 
         let mut authored = Document::new_with_limits(exact.with_max_meta_bytes(meta_bytes - 1));
         assert!(matches!(
-            authored.push_meta(ChunkFlags::NONE, &expected),
+            authored.push_meta(&expected),
             Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
                 MetaDecodeError::MetaBytesLimitExceeded { .. }
             )))

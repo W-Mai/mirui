@@ -13,7 +13,7 @@ impl Document<'_> {
     ///
     /// The document's retained [`PayloadLimits`] profile bounds both owned
     /// FONT components. Preserved trailing bytes do not block typed reads.
-    pub fn font(&self, id: ChunkId) -> Result<Font, FontAccessError> {
+    pub fn decode_font(&self, id: ChunkId) -> Result<Font, FontAccessError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(FontAccessError::FutureSemanticsUnsupported);
         }
@@ -38,11 +38,20 @@ impl Document<'_> {
         Font::decode_with_limits(bytes, &self.payload_limits).map_err(Into::into)
     }
 
-    /// Appends one checked FONT payload and returns its stable identity.
+    /// Appends one checked FONT payload with no chunk flags.
+    pub fn push_font(&mut self, font: &Font) -> Result<ChunkId, EditError> {
+        self.push_font_with_flags(font, ChunkFlags::NONE)
+    }
+
+    /// Appends one checked FONT payload with explicit chunk flags.
     ///
     /// Structural gates and the document's retained resource profile are
     /// checked before one canonical payload allocation is committed.
-    pub fn push_font(&mut self, flags: ChunkFlags, font: &Font) -> Result<ChunkId, EditError> {
+    pub fn push_font_with_flags(
+        &mut self,
+        font: &Font,
+        flags: ChunkFlags,
+    ) -> Result<ChunkId, EditError> {
         let limits = self.payload_limits;
         self.push_typed_owned_with(ChunkType::FONT, flags, || {
             let plan = font.payload_plan().map_err(EditError::InvalidFont)?;
@@ -103,7 +112,7 @@ impl Document<'_> {
         edit: impl FnOnce(&mut Font) -> Result<(), E>,
     ) -> Result<(), TryEditError<E>> {
         self.ensure_mutable()?;
-        let mut font = self.font(id).map_err(font_access_error_for_edit)?;
+        let mut font = self.decode_font(id).map_err(font_access_error_for_edit)?;
         edit(&mut font).map_err(TryEditError::Callback)?;
         self.replace_font(id, &font).map_err(Into::into)
     }
@@ -290,9 +299,9 @@ mod tests {
                 } else {
                     ChunkFlags::NONE
                 };
-                let font_id = document.push_font(flags, &expected).unwrap();
+                let font_id = document.push_font_with_flags(&expected, flags).unwrap();
 
-                assert_eq!(document.font(font_id).unwrap(), expected);
+                assert_eq!(document.decode_font(font_id).unwrap(), expected);
                 assert_eq!(document.get(font_id).unwrap().flags(), flags);
                 assert_eq!(
                     document.get(font_id).unwrap().payload_origin(),
@@ -302,7 +311,7 @@ mod tests {
                 let encoded = document.encode(&EncodeOptions::new()).unwrap();
                 let reopened = Document::open(&encoded).unwrap();
                 let reopened_id = reopened.chunks().next().unwrap().id();
-                assert_eq!(reopened.font(reopened_id).unwrap(), expected);
+                assert_eq!(reopened.decode_font(reopened_id).unwrap(), expected);
             }
         }
     }
@@ -322,13 +331,13 @@ mod tests {
         let exact_document = Document::open_with(&source, &exact_options).unwrap();
         let font_id = exact_document.chunks().next().unwrap().id();
         assert_eq!(exact_document.payload_limits(), exact);
-        assert_eq!(exact_document.font(font_id).unwrap(), expected);
+        assert_eq!(exact_document.decode_font(font_id).unwrap(), expected);
 
         let low_options = OpenOptions::new().with_payload_limits(low_glyphs);
         let low_document = Document::open_with(&source, &low_options).unwrap();
         let font_id = low_document.chunks().next().unwrap().id();
         assert_eq!(
-            low_document.font(font_id),
+            low_document.decode_font(font_id),
             Err(FontAccessError::InvalidPayload(
                 FontReadError::TooManyGlyphs { count: 2, limit: 1 }
             ))
@@ -336,7 +345,7 @@ mod tests {
 
         let mut authored = Document::new_with_limits(low_glyphs);
         assert_eq!(
-            authored.push_font(ChunkFlags::NONE, &expected),
+            authored.push_font(&expected),
             Err(EditError::InvalidFont(FontEncodeError::InvalidPayload(
                 FontReadError::TooManyGlyphs { count: 2, limit: 1 }
             )))
@@ -344,8 +353,8 @@ mod tests {
         assert_eq!(authored.chunks().len(), 0);
 
         let mut authored = Document::new_with_limits(exact);
-        let font_id = authored.push_font(ChunkFlags::NONE, &expected).unwrap();
-        assert_eq!(authored.font(font_id).unwrap(), expected);
+        let font_id = authored.push_font(&expected).unwrap();
+        assert_eq!(authored.decode_font(font_id).unwrap(), expected);
     }
 
     #[test]
@@ -361,7 +370,7 @@ mod tests {
                 policy: RawChunkPolicy::infer(),
             })
             .unwrap();
-        assert_eq!(document.font(font_id).unwrap(), expected);
+        assert_eq!(document.decode_font(font_id).unwrap(), expected);
 
         let low = PayloadLimits::EMBEDDED.with_max_font_glyphs(1);
         let mut limited = Document::new_with_limits(low);
@@ -387,7 +396,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            limited.font(opaque),
+            limited.decode_font(opaque),
             Err(FontAccessError::InvalidPayload(
                 FontReadError::TooManyGlyphs { count: 2, limit: 1 }
             ))
@@ -407,7 +416,7 @@ mod tests {
             .payload_bytes()
             .unwrap()
             .as_ptr();
-        let decoded = document.font(font_id).unwrap();
+        let decoded = document.decode_font(font_id).unwrap();
 
         document.replace_font(font_id, &decoded).unwrap();
         document.edit_font(font_id, |_| {}).unwrap();
@@ -431,7 +440,7 @@ mod tests {
         let source = font_file(&gapped, ChunkFlags::NONE);
         let mut document = Document::open(&source).unwrap();
         let font_id = document.chunks().next().unwrap().id();
-        let decoded = document.font(font_id).unwrap();
+        let decoded = document.decode_font(font_id).unwrap();
         document.replace_font(font_id, &decoded).unwrap();
         assert!(document.is_dirty());
         assert_eq!(
@@ -496,7 +505,7 @@ mod tests {
             .edit_font(font_id, |working| working.data[0] ^= 0xff)
             .unwrap();
         assert!(document.is_dirty());
-        assert_eq!(document.font(font_id).unwrap().data[0], 0x5a);
+        assert_eq!(document.decode_font(font_id).unwrap().data[0], 0x5a);
     }
 
     #[test]
@@ -613,7 +622,7 @@ mod tests {
             .payload_bytes()
             .unwrap()
             .as_ptr();
-        let mut changed = document.font(font_id).unwrap();
+        let mut changed = document.decode_font(font_id).unwrap();
 
         document.replace_font(font_id, &changed).unwrap();
         assert!(!document.is_dirty());
@@ -658,7 +667,7 @@ mod tests {
         granted.replace_font(font_id, &changed).unwrap();
         assert!(granted.is_dirty());
         assert_eq!(granted.get(font_id).unwrap().flags(), reserved);
-        assert_eq!(granted.font(font_id).unwrap(), changed);
+        assert_eq!(granted.decode_font(font_id).unwrap(), changed);
     }
 
     #[test]
@@ -679,7 +688,7 @@ mod tests {
 
         let replacement = font(FontChunkKind::Grayscale, 4);
         document.replace_font(font_id, &replacement).unwrap();
-        assert_eq!(document.font(font_id).unwrap(), replacement);
+        assert_eq!(document.decode_font(font_id).unwrap(), replacement);
     }
 
     #[test]
@@ -695,14 +704,17 @@ mod tests {
         let meta = chunks.next().unwrap().id();
         let malformed = chunks.next().unwrap().id();
         assert_eq!(
-            document.font(meta),
+            document.decode_font(meta),
             Err(FontAccessError::UnexpectedChunkType {
                 actual: ChunkType::META
             })
         );
-        assert_eq!(document.font(id(99)), Err(FontAccessError::InvalidChunkId));
+        assert_eq!(
+            document.decode_font(id(99)),
+            Err(FontAccessError::InvalidChunkId)
+        );
         assert!(matches!(
-            document.font(malformed),
+            document.decode_font(malformed),
             Err(FontAccessError::InvalidPayload(
                 FontReadError::Truncated { .. }
             ))
@@ -717,21 +729,24 @@ mod tests {
             Cow::Borrowed(&flat_main),
         ))
         .unwrap();
-        assert_eq!(flat.font(id(0)), Err(FontAccessError::ChunkLayoutRequired));
+        assert_eq!(
+            flat.decode_font(id(0)),
+            Err(FontAccessError::ChunkLayoutRequired)
+        );
 
         let mut trailing_source = font_file(&payload, ChunkFlags::NONE);
         trailing_source.extend_from_slice(b"tail");
         let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
         let trailing = Document::open_with(&trailing_source, &options).unwrap();
         let font_id = trailing.chunks().next().unwrap().id();
-        assert_eq!(trailing.font(font_id).unwrap(), expected);
+        assert_eq!(trailing.decode_font(font_id).unwrap(), expected);
 
         trailing_source[5] = VERSION_MINOR + 1;
         refresh_chunk_header_crc(&mut trailing_source);
         let future = Document::open_with(&trailing_source, &options).unwrap();
         let font_id = future.chunks().next().unwrap().id();
         assert_eq!(
-            future.font(font_id),
+            future.decode_font(font_id),
             Err(FontAccessError::FutureSemanticsUnsupported)
         );
 
@@ -739,7 +754,7 @@ mod tests {
             options.with_compatibility(CompatibilityPolicy::NormalizeToCurrent);
         let normalized = Document::open_with(&trailing_source, &normalized_options).unwrap();
         let font_id = normalized.chunks().next().unwrap().id();
-        assert_eq!(normalized.font(font_id).unwrap(), expected);
+        assert_eq!(normalized.decode_font(font_id).unwrap(), expected);
     }
 
     #[test]
@@ -758,7 +773,7 @@ mod tests {
             .set_type(promoted, ChunkType::FONT, explicit_policy())
             .unwrap();
         assert_eq!(
-            document.font(promoted),
+            document.decode_font(promoted),
             Err(FontAccessError::NonContiguousPayload)
         );
         assert_eq!(
@@ -774,7 +789,7 @@ mod tests {
 
         let replacement = font(FontChunkKind::Sdf, 4);
         document.replace_font(promoted, &replacement).unwrap();
-        assert_eq!(document.font(promoted).unwrap(), replacement);
+        assert_eq!(document.decode_font(promoted).unwrap(), replacement);
         assert_eq!(
             document.get(promoted).unwrap().payload_origin(),
             PayloadOrigin::OWNED
@@ -832,7 +847,7 @@ mod tests {
         let mut chunk = Document::new();
         chunk.next_id = u32::MAX;
         assert_eq!(
-            chunk.push_font(ChunkFlags::from_bits_retain(2), &invalid),
+            chunk.push_font_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::ChunkIdExhausted)
         );
         assert_eq!(chunk.chunks().len(), 0);
@@ -849,17 +864,14 @@ mod tests {
         .unwrap();
         let main_pointer = flat.flat_image().unwrap().main().as_ptr();
         flat.next_id = u32::MAX - 1;
-        assert_eq!(
-            flat.push_font(ChunkFlags::NONE, &invalid),
-            Err(EditError::ChunkIdExhausted)
-        );
+        assert_eq!(flat.push_font(&invalid), Err(EditError::ChunkIdExhausted));
         assert_eq!(flat.layout(), Layout::Flat);
         assert_eq!(flat.flat_image().unwrap().main().as_ptr(), main_pointer);
         assert_eq!(flat.next_id, u32::MAX - 1);
 
         let mut reserved = Document::new();
         assert_eq!(
-            reserved.push_font(ChunkFlags::from_bits_retain(2), &invalid),
+            reserved.push_font_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::ReservedFlagBits { bits: 2 })
         );
         assert_eq!(reserved.chunks().len(), 0);
@@ -871,7 +883,7 @@ mod tests {
         let mut trailing = Document::open_with(&source, &options).unwrap();
         let before_count = trailing.chunks().len();
         assert_eq!(
-            trailing.push_font(ChunkFlags::from_bits_retain(2), &invalid),
+            trailing.push_font_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::PreservedTrailingBytesReadOnly)
         );
         assert_eq!(trailing.chunks().len(), before_count);
@@ -881,7 +893,7 @@ mod tests {
         let mut future = Document::open_with(&source, &options).unwrap();
         let before_count = future.chunks().len();
         assert_eq!(
-            future.push_font(ChunkFlags::from_bits_retain(2), &invalid),
+            future.push_font_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::FutureSemanticsReadOnly)
         );
         assert_eq!(future.chunks().len(), before_count);

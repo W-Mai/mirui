@@ -374,12 +374,8 @@ fn frames_primary_hints_follow_atlas_and_animation_display_geometry() {
 #[test]
 fn valid_frames_can_be_selected_as_primary_without_explicit_hints() {
     let mut document = Document::new();
-    let atlas_id = document
-        .push_frames(ChunkFlags::NONE, &atlas_frames(2, 1))
-        .unwrap();
-    let animation_id = document
-        .push_frames(ChunkFlags::NONE, &animation_frames(6, 3))
-        .unwrap();
+    let atlas_id = document.push_frames(&atlas_frames(2, 1)).unwrap();
+    let animation_id = document.push_frames(&animation_frames(6, 3)).unwrap();
 
     document.clear_primary().unwrap();
     document.set_primary(animation_id).unwrap();

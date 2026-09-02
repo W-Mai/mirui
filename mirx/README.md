@@ -108,7 +108,7 @@ let image = ImageAsset::new(
 );
 
 let mut document = Document::new();
-let image_id = document.push_image(ChunkFlags::NONE, &image).unwrap();
+let image_id = document.push_image(&image).unwrap();
 document.set_primary(image_id).unwrap();
 
 let options = EncodeOptions::new();
@@ -140,8 +140,8 @@ Typed payload operations:
 | Type | Borrowed or decoded access | Add | Replace | Transactional edit |
 | --- | --- | --- | --- | --- |
 | `IMAGE` | `image` → `ImageView` | `push_image` | `replace_image` | — |
-| `FONT` | `font` → `Font` | `push_font` | `replace_font` | `edit_font`, `try_edit_font` |
-| `VECTOR` | `vector` → `Scene` | `push_vector` | `replace_vector` | `edit_vector`, `try_edit_vector` |
+| `FONT` | `decode_font` → `Font` | `push_font` | `replace_font` | `edit_font`, `try_edit_font` |
+| `VECTOR` | `decode_vector` → `Scene` | `push_vector` | `replace_vector` | `edit_vector`, `try_edit_vector` |
 | `META` | `meta` → `MetaView` | `push_meta` | `replace_meta` | `edit_meta`, `try_edit_meta` |
 | `PALETTE` | `palette` → `PaletteView` | `push_palette` | `replace_palette` | `edit_palette`, `try_edit_palette` |
 | `FRAMES` | `frames` → `FramesView` | `push_frames` | `replace_frames` | `edit_frames`, `try_edit_frames` |
@@ -151,6 +151,11 @@ incremental authoring. The typed collections also provide positional insert,
 replace, and remove operations; `Palette` and `FramesAsset` additionally
 support record reordering. `FramesAsset` keeps its frame table and image planes
 borrowed until the corresponding mutable accessor is used.
+
+Typed `Document::push_*` methods use `ChunkFlags::NONE`. Their
+`push_*_with_flags(value, flags)` counterparts retain explicit descriptor
+control. Noun accessors return zero-copy views; allocating FONT and VECTOR
+access is named `decode_font` and `decode_vector`.
 
 `ImageAsset::new` accepts the required image geometry and main plane;
 `with_extra` adds an inline palette or alpha plane when the format requires

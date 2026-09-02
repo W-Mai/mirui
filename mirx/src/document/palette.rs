@@ -38,14 +38,19 @@ impl Document<'_> {
         PaletteView::open_payload(bytes, &self.payload_limits).map_err(Into::into)
     }
 
-    /// Appends one checked PALETTE payload and returns its stable identity.
+    /// Appends one checked PALETTE payload with no chunk flags.
+    pub fn push_palette(&mut self, palette: &Palette) -> Result<ChunkId, EditError> {
+        self.push_palette_with_flags(palette, ChunkFlags::NONE)
+    }
+
+    /// Appends one checked PALETTE payload with explicit chunk flags.
     ///
     /// Structural gates and retained resource limits are checked before one
     /// canonical payload allocation is committed.
-    pub fn push_palette(
+    pub fn push_palette_with_flags(
         &mut self,
-        flags: ChunkFlags,
         palette: &Palette,
+        flags: ChunkFlags,
     ) -> Result<ChunkId, EditError> {
         let limits = self.payload_limits;
         self.push_typed_owned_with(ChunkType::PALETTE, flags, || {
@@ -197,7 +202,7 @@ mod tests {
         let expected = sample_palette();
         let mut document = Document::new();
         let palette_id = document
-            .push_palette(ChunkFlags::CRITICAL, &expected)
+            .push_palette_with_flags(&expected, ChunkFlags::CRITICAL)
             .unwrap();
 
         assert_eq!(palette_id, id(0));
@@ -339,7 +344,7 @@ mod tests {
 
         let mut authored = Document::new_with_limits(exact.with_max_palette_colors(2));
         assert_eq!(
-            authored.push_palette(ChunkFlags::NONE, &expected),
+            authored.push_palette(&expected),
             Err(EditError::InvalidPalette(
                 PaletteEncodeError::InvalidPayload(PaletteDecodeError::TooManyColors {
                     count: 3,
@@ -351,7 +356,7 @@ mod tests {
 
         let mut authored = Document::new_with_limits(exact.with_max_decoded_bytes(decoded - 1));
         assert!(matches!(
-            authored.push_palette(ChunkFlags::NONE, &expected),
+            authored.push_palette(&expected),
             Err(EditError::InvalidPalette(
                 PaletteEncodeError::InvalidPayload(
                     PaletteDecodeError::DecodedBytesLimitExceeded { .. }
@@ -511,7 +516,7 @@ mod tests {
             Cow::Borrowed(&pixels),
         ))
         .unwrap();
-        segmented.push_palette(ChunkFlags::NONE, &expected).unwrap();
+        segmented.push_palette(&expected).unwrap();
         let image_id = segmented.chunks().next().unwrap().id();
         segmented.clear_primary().unwrap();
         segmented

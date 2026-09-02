@@ -38,11 +38,16 @@ impl Document<'_> {
         FramesView::open_payload(bytes, &self.payload_limits).map_err(Into::into)
     }
 
-    /// Appends one checked FRAMES payload and returns its stable identity.
-    pub fn push_frames(
+    /// Appends one checked FRAMES payload with no chunk flags.
+    pub fn push_frames(&mut self, frames: &FramesAsset<'_>) -> Result<ChunkId, EditError> {
+        self.push_frames_with_flags(frames, ChunkFlags::NONE)
+    }
+
+    /// Appends one checked FRAMES payload with explicit chunk flags.
+    pub fn push_frames_with_flags(
         &mut self,
-        flags: ChunkFlags,
         frames: &FramesAsset<'_>,
+        flags: ChunkFlags,
     ) -> Result<ChunkId, EditError> {
         let limits = self.payload_limits;
         self.push_typed_owned_with(ChunkType::FRAMES, flags, || {
@@ -242,11 +247,9 @@ mod tests {
     fn typed_push_query_and_reopen_cover_both_modes() {
         let mut document = Document::new();
         let atlas_id = document
-            .push_frames(ChunkFlags::CRITICAL, &atlas())
+            .push_frames_with_flags(&atlas(), ChunkFlags::CRITICAL)
             .unwrap();
-        let animation_id = document
-            .push_frames(ChunkFlags::NONE, &animation())
-            .unwrap();
+        let animation_id = document.push_frames(&animation()).unwrap();
 
         assert_eq!(atlas_id, id(0));
         assert_eq!(document.frames(atlas_id).unwrap().len(), 1);
@@ -386,7 +389,7 @@ mod tests {
 
         let mut authored = Document::new_with_limits(PayloadLimits::HOST.with_max_frame_records(1));
         assert!(matches!(
-            authored.push_frames(ChunkFlags::NONE, &expected),
+            authored.push_frames(&expected),
             Err(EditError::InvalidFrames(FramesEncodeError::InvalidAsset(
                 FramesDecodeError::TooManyFrames { .. }
             )))
