@@ -175,9 +175,9 @@ fn frames_access_error_for_edit(error: FramesAccessError) -> EditError {
 mod tests {
     use super::*;
     use crate::{
-        AnimationFrames, AtlasFrames, ColorFormat, CriticalAssumption, EncodeOptions, Frame,
-        ImageAsset, OpenOptions, PayloadInput, PayloadLimits, PayloadOrigin, RawChunkInput,
-        RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy, encode_chunks,
+        AnimationFrames, AnimationSettings, AtlasFrames, ColorFormat, CriticalAssumption,
+        EncodeOptions, Frame, ImageAsset, OpenOptions, PayloadInput, PayloadLimits, PayloadOrigin,
+        RawChunkInput, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy, encode_chunks,
     };
     use alloc::{borrow::Cow, vec, vec::Vec};
 
@@ -201,30 +201,28 @@ mod tests {
         let mut first = frame(0, 0);
         first.target_x = 0;
         FramesAsset::Atlas(AtlasFrames::new(
-            ColorFormat::A8,
-            2,
-            1,
-            ColorFormat::A8.minimum_stride(2).unwrap(),
+            ImageAsset::new(
+                2,
+                1,
+                ColorFormat::A8,
+                ColorFormat::A8.minimum_stride(2).unwrap(),
+                Cow::Owned(vec![0x10, 0x20]),
+            ),
             vec![first],
-            Cow::Owned(vec![0x10, 0x20]),
-            None,
         ))
     }
 
     fn animation() -> FramesAsset<'static> {
         FramesAsset::Animation(AnimationFrames::new(
-            ColorFormat::A8,
-            2,
-            1,
-            ColorFormat::A8.minimum_stride(2).unwrap(),
-            2,
-            1,
-            1_000,
-            50,
-            3,
+            ImageAsset::new(
+                2,
+                1,
+                ColorFormat::A8,
+                ColorFormat::A8.minimum_stride(2).unwrap(),
+                Cow::Owned(vec![0x10, 0x20]),
+            ),
             vec![frame(0, 20), frame(1, 30)],
-            Cow::Owned(vec![0x10, 0x20]),
-            None,
+            AnimationSettings::new(2, 1, 1_000, 50).with_play_count(3),
         ))
     }
 
@@ -453,7 +451,6 @@ mod tests {
             ColorFormat::A8,
             1,
             Cow::Borrowed(&pixels),
-            None,
         ))
         .unwrap();
         assert_eq!(

@@ -254,7 +254,6 @@ mod tests {
             ColorFormat::A8,
             2,
             Cow::Borrowed(&[1, 2, 3, 4]),
-            None,
         ))
         .unwrap()
     }

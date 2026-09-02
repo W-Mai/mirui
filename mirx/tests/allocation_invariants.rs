@@ -65,7 +65,7 @@ fn count_allocations<T>(operation: impl FnOnce() -> T) -> (T, usize) {
 
 fn typed_container() -> Vec<u8> {
     let pixels = [0x00, 0x40, 0x80, 0xff];
-    let image = ImageAsset::new(2, 2, ColorFormat::A8, 2, Cow::Borrowed(&pixels), None)
+    let image = ImageAsset::new(2, 2, ColorFormat::A8, 2, Cow::Borrowed(&pixels))
         .encode_payload()
         .unwrap();
     let meta = Meta::from_entries(vec![MetaEntry::text("name", "fixture")])
@@ -75,10 +75,7 @@ fn typed_container() -> Vec<u8> {
         .encode_payload()
         .unwrap();
     let frames = FramesAsset::Atlas(AtlasFrames::new(
-        ColorFormat::A8,
-        2,
-        2,
-        2,
+        ImageAsset::new(2, 2, ColorFormat::A8, 2, Cow::Borrowed(&pixels)),
         vec![Frame {
             source_x: 0,
             source_y: 0,
@@ -88,8 +85,6 @@ fn typed_container() -> Vec<u8> {
             target_y: 0,
             duration_ticks: 0,
         }],
-        Cow::Borrowed(&pixels),
-        None,
     ))
     .encode_payload()
     .unwrap();

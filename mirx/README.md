@@ -105,7 +105,6 @@ let image = ImageAsset::new(
     ColorFormat::A8,
     stride,
     Cow::Borrowed(&pixels),
-    None,
 );
 
 let mut document = Document::new();
@@ -151,6 +150,13 @@ Typed payload operations:
 `FramesAsset` additionally support record reordering. `FramesAsset` keeps its
 frame table and image planes borrowed until the corresponding mutable accessor
 is used.
+
+`ImageAsset::new` accepts the required image geometry and main plane;
+`with_extra` adds an inline palette or alpha plane when the format requires
+one. FRAMES construction reuses the same image value:
+`AtlasFrames::new(image, frames)` creates an atlas, while
+`AnimationFrames::new(image, frames, settings)` accepts playback and canvas
+properties through `AnimationSettings`.
 
 ## Encoding and ownership
 

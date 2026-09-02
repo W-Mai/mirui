@@ -78,7 +78,6 @@ impl<'a> ImageAsset<'a> {
         format: ColorFormat,
         stride: u32,
         main: Cow<'a, [u8]>,
-        extra: Option<Cow<'a, [u8]>>,
     ) -> Self {
         Self {
             meta: ImageMeta {
@@ -88,8 +87,13 @@ impl<'a> ImageAsset<'a> {
                 format,
             },
             main,
-            extra,
+            extra: None,
         }
+    }
+
+    pub fn with_extra(mut self, extra: Cow<'a, [u8]>) -> Self {
+        self.extra = Some(extra);
+        self
     }
 
     pub const fn width(&self) -> u32 {
@@ -751,18 +755,12 @@ mod tests {
             let extra: Vec<u8> = (0..extra_len)
                 .map(|index| (index as u8).wrapping_mul(29).wrapping_add(3))
                 .collect();
-            let asset = ImageAsset::new(
-                width,
-                height,
-                format,
-                stride,
-                Cow::Borrowed(&main),
-                if extra.is_empty() {
-                    None
-                } else {
-                    Some(Cow::Borrowed(&extra))
-                },
-            );
+            let asset = ImageAsset::new(width, height, format, stride, Cow::Borrowed(&main));
+            let asset = if extra.is_empty() {
+                asset
+            } else {
+                asset.with_extra(Cow::Borrowed(&extra))
+            };
             let needed = ImageChunkHeader::SIZE + main_len + extra_len;
             assert_eq!(asset.encoded_payload_len(), Ok(needed), "{format:?}");
 
@@ -804,14 +802,8 @@ mod tests {
             );
         }
 
-        let empty = ImageAsset::new(
-            0,
-            0,
-            ColorFormat::A8,
-            0,
-            Cow::Borrowed(&[]),
-            Some(Cow::Borrowed(&[])),
-        );
+        let empty = ImageAsset::new(0, 0, ColorFormat::A8, 0, Cow::Borrowed(&[]))
+            .with_extra(Cow::Borrowed(&[]));
         let encoded = empty.encode_payload().unwrap();
         assert_eq!(encoded.len(), ImageChunkHeader::SIZE);
         assert_eq!(ImageView::open_payload(&encoded).unwrap().extra(), None);
@@ -819,14 +811,8 @@ mod tests {
 
     #[test]
     fn encode_into_validates_before_capacity_and_is_failure_atomic() {
-        let valid = ImageAsset::new(
-            2,
-            1,
-            ColorFormat::RGB565A8,
-            4,
-            Cow::Borrowed(&[1, 2, 3, 4]),
-            Some(Cow::Borrowed(&[5, 6])),
-        );
+        let valid = ImageAsset::new(2, 1, ColorFormat::RGB565A8, 4, Cow::Borrowed(&[1, 2, 3, 4]))
+            .with_extra(Cow::Borrowed(&[5, 6]));
         let needed = valid.encoded_payload_len().unwrap();
         let mut short = vec![0xa5; needed - 1];
         let before = short.clone();
@@ -839,14 +825,8 @@ mod tests {
         );
         assert_eq!(short, before);
 
-        let bad_main = ImageAsset::new(
-            2,
-            1,
-            ColorFormat::RGB565A8,
-            4,
-            Cow::Borrowed(&[1, 2, 3]),
-            Some(Cow::Borrowed(&[5, 6])),
-        );
+        let bad_main = ImageAsset::new(2, 1, ColorFormat::RGB565A8, 4, Cow::Borrowed(&[1, 2, 3]))
+            .with_extra(Cow::Borrowed(&[5, 6]));
         let mut output = [0xa5; 8];
         assert_eq!(
             bad_main.encode_payload_into(&mut output),
@@ -859,14 +839,9 @@ mod tests {
         );
         assert_eq!(output, [0xa5; 8]);
 
-        let bad_extra = ImageAsset::new(
-            2,
-            1,
-            ColorFormat::RGB565A8,
-            4,
-            Cow::Borrowed(&[1, 2, 3, 4]),
-            Some(Cow::Borrowed(&[5])),
-        );
+        let bad_extra =
+            ImageAsset::new(2, 1, ColorFormat::RGB565A8, 4, Cow::Borrowed(&[1, 2, 3, 4]))
+                .with_extra(Cow::Borrowed(&[5]));
         assert_eq!(
             bad_extra.encode_payload_into(&mut output),
             Err(ImageEncodeError::InvalidPayload(
@@ -878,7 +853,7 @@ mod tests {
         );
         assert_eq!(output, [0xa5; 8]);
 
-        let bad_stride = ImageAsset::new(2, 1, ColorFormat::RGB565, 3, Cow::Borrowed(&[]), None);
+        let bad_stride = ImageAsset::new(2, 1, ColorFormat::RGB565, 3, Cow::Borrowed(&[]));
         assert_eq!(
             bad_stride.encode_payload_into(&mut output),
             Err(ImageEncodeError::InvalidPayload(
@@ -906,14 +881,8 @@ mod tests {
             Err(ImagePayloadError::SizeOverflow)
         );
 
-        let geometry_overflow = ImageAsset::new(
-            u32::MAX,
-            1,
-            ColorFormat::RGBA8888,
-            0,
-            Cow::Borrowed(&[]),
-            None,
-        );
+        let geometry_overflow =
+            ImageAsset::new(u32::MAX, 1, ColorFormat::RGBA8888, 0, Cow::Borrowed(&[]));
         assert_eq!(
             geometry_overflow.encoded_payload_len(),
             Err(ImageEncodeError::InvalidPayload(
@@ -947,14 +916,8 @@ mod tests {
                 })
                 .collect();
 
-            let asset = ImageAsset::new(
-                width,
-                height,
-                format,
-                stride,
-                Cow::Borrowed(&main),
-                Some(Cow::Borrowed(&rgba)),
-            );
+            let asset = ImageAsset::new(width, height, format, stride, Cow::Borrowed(&main))
+                .with_extra(Cow::Borrowed(&rgba));
             let payload = asset.encode_payload().unwrap();
             let image = ImageView::open_payload(&payload).unwrap();
             let palette = image.inline_palette().unwrap();
@@ -996,14 +959,8 @@ mod tests {
                 flat[extra_start..].as_ptr()
             );
 
-            let zero = ImageAsset::new(
-                0,
-                0,
-                format,
-                0,
-                Cow::Borrowed(&[]),
-                Some(Cow::Borrowed(&rgba)),
-            );
+            let zero = ImageAsset::new(0, 0, format, 0, Cow::Borrowed(&[]))
+                .with_extra(Cow::Borrowed(&rgba));
             assert_eq!(
                 ImageView::open_payload(&zero.encode_payload().unwrap())
                     .unwrap()
@@ -1028,14 +985,12 @@ mod tests {
                 usize::try_from(format.extra_size(width, height, stride).unwrap())
                     .unwrap()
             ];
-            let asset = ImageAsset::new(
-                width,
-                height,
-                format,
-                stride,
-                Cow::Borrowed(&main),
-                (!extra.is_empty()).then(|| Cow::Borrowed(extra.as_slice())),
-            );
+            let asset = ImageAsset::new(width, height, format, stride, Cow::Borrowed(&main));
+            let asset = if extra.is_empty() {
+                asset
+            } else {
+                asset.with_extra(Cow::Borrowed(extra.as_slice()))
+            };
             let payload = asset.encode_payload().unwrap();
             let image = ImageView::open_payload(&payload).unwrap();
             assert_eq!(image.inline_palette(), None, "{format:?}");

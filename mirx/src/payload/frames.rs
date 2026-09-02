@@ -3,8 +3,8 @@ use core::iter::FusedIterator;
 mod owned;
 
 pub use owned::{
-    AnimationFrames, AssetFrameIter, AtlasFrames, FramesAsset, FramesEncodeError,
-    FramesMutationError,
+    AnimationFrames, AnimationSettings, AssetFrameIter, AtlasFrames, FramesAsset,
+    FramesEncodeError, FramesMutationError,
 };
 
 use super::envelope::{Envelope, EnvelopeError, ExactEnvelope};

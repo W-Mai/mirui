@@ -513,7 +513,6 @@ mod tests {
             ColorFormat::A8,
             2,
             Cow::Borrowed(&main),
-            None,
         ))
         .unwrap();
         assert_eq!(
@@ -716,7 +715,6 @@ mod tests {
             ColorFormat::A8,
             2,
             Cow::Borrowed(&flat_main),
-            None,
         ))
         .unwrap();
         assert_eq!(flat.font(id(0)), Err(FontAccessError::ChunkLayoutRequired));
@@ -753,7 +751,6 @@ mod tests {
             ColorFormat::A8,
             2,
             Cow::Borrowed(&main),
-            None,
         ))
         .unwrap();
         let promoted = document.promote_to_chunk().unwrap().unwrap();
@@ -801,7 +798,6 @@ mod tests {
             ColorFormat::A8,
             2,
             Cow::Borrowed(&main),
-            None,
         ))
         .unwrap();
         assert_eq!(
@@ -849,7 +845,6 @@ mod tests {
             ColorFormat::A8,
             2,
             Cow::Borrowed(&main),
-            None,
         ))
         .unwrap();
         let main_pointer = flat.flat_image().unwrap().main().as_ptr();

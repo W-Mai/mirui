@@ -8,6 +8,7 @@ use super::{
 use crate::{
     ColorFormat,
     payload::envelope::{VERSION, checked_payload_len, write_crc_trailer},
+    payload::image::{ImageAsset, ImageAssetParts},
     reader::PayloadLimits,
 };
 
@@ -62,6 +63,12 @@ pub struct AtlasFrames<'a> {
 #[derive(Debug, Eq, PartialEq)]
 pub struct AnimationFrames<'a> {
     data: FramesData<'a>,
+    settings: AnimationSettings,
+}
+
+/// Playback and display settings for an Animation-mode FRAMES value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AnimationSettings {
     canvas_width: u32,
     canvas_height: u32,
     timescale_hz: u32,
@@ -77,95 +84,95 @@ pub enum FramesAsset<'a> {
 }
 
 impl<'a> AtlasFrames<'a> {
-    pub fn new(
-        format: ColorFormat,
-        atlas_width: u32,
-        atlas_height: u32,
-        atlas_stride: u32,
-        frames: Vec<Frame>,
-        main: Cow<'a, [u8]>,
-        extra: Option<Cow<'a, [u8]>>,
-    ) -> Self {
+    pub fn new(image: ImageAsset<'a>, frames: Vec<Frame>) -> Self {
         Self {
-            data: FramesData::owned(
-                format,
-                atlas_width,
-                atlas_height,
-                atlas_stride,
-                frames,
-                main,
-                extra,
-            ),
+            data: FramesData::owned(image, frames),
         }
     }
 }
 
 impl<'a> AnimationFrames<'a> {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        format: ColorFormat,
-        atlas_width: u32,
-        atlas_height: u32,
-        atlas_stride: u32,
-        canvas_width: u32,
-        canvas_height: u32,
-        timescale_hz: u32,
-        default_duration_ticks: u32,
-        play_count: u32,
-        frames: Vec<Frame>,
-        main: Cow<'a, [u8]>,
-        extra: Option<Cow<'a, [u8]>>,
-    ) -> Self {
+    pub fn new(image: ImageAsset<'a>, frames: Vec<Frame>, settings: AnimationSettings) -> Self {
         Self {
-            data: FramesData::owned(
-                format,
-                atlas_width,
-                atlas_height,
-                atlas_stride,
-                frames,
-                main,
-                extra,
-            ),
-            canvas_width,
-            canvas_height,
-            timescale_hz,
-            default_duration_ticks,
-            play_count,
+            data: FramesData::owned(image, frames),
+            settings,
         }
     }
 
     pub const fn canvas_width(&self) -> u32 {
-        self.canvas_width
+        self.settings.canvas_width
     }
 
     pub const fn canvas_height(&self) -> u32 {
-        self.canvas_height
+        self.settings.canvas_height
     }
 
     pub const fn timescale_hz(&self) -> u32 {
-        self.timescale_hz
+        self.settings.timescale_hz
     }
 
     pub const fn default_duration_ticks(&self) -> u32 {
-        self.default_duration_ticks
+        self.settings.default_duration_ticks
     }
 
     pub const fn play_count(&self) -> u32 {
-        self.play_count
+        self.settings.play_count
     }
 
     pub fn set_canvas_size(&mut self, width: u32, height: u32) {
-        self.canvas_width = width;
-        self.canvas_height = height;
+        self.settings.canvas_width = width;
+        self.settings.canvas_height = height;
     }
 
     pub fn set_timing(&mut self, timescale_hz: u32, default_duration_ticks: u32) {
-        self.timescale_hz = timescale_hz;
-        self.default_duration_ticks = default_duration_ticks;
+        self.settings.timescale_hz = timescale_hz;
+        self.settings.default_duration_ticks = default_duration_ticks;
     }
 
     pub fn set_play_count(&mut self, play_count: u32) {
+        self.settings.play_count = play_count;
+    }
+}
+
+impl AnimationSettings {
+    pub const fn new(
+        canvas_width: u32,
+        canvas_height: u32,
+        timescale_hz: u32,
+        default_duration_ticks: u32,
+    ) -> Self {
+        Self {
+            canvas_width,
+            canvas_height,
+            timescale_hz,
+            default_duration_ticks,
+            play_count: 0,
+        }
+    }
+
+    pub const fn with_play_count(mut self, play_count: u32) -> Self {
         self.play_count = play_count;
+        self
+    }
+
+    pub const fn canvas_width(self) -> u32 {
+        self.canvas_width
+    }
+
+    pub const fn canvas_height(self) -> u32 {
+        self.canvas_height
+    }
+
+    pub const fn timescale_hz(self) -> u32 {
+        self.timescale_hz
+    }
+
+    pub const fn default_duration_ticks(self) -> u32 {
+        self.default_duration_ticks
+    }
+
+    pub const fn play_count(self) -> u32 {
+        self.play_count
     }
 }
 
@@ -189,11 +196,13 @@ impl<'a> FramesAsset<'a> {
             FramesMode::Atlas => Self::Atlas(AtlasFrames { data }),
             FramesMode::Animation => Self::Animation(AnimationFrames {
                 data,
-                canvas_width: view.canvas_width,
-                canvas_height: view.canvas_height,
-                timescale_hz: view.timescale_hz,
-                default_duration_ticks: view.default_duration_ticks,
-                play_count: view.play_count,
+                settings: AnimationSettings::new(
+                    view.canvas_width,
+                    view.canvas_height,
+                    view.timescale_hz,
+                    view.default_duration_ticks,
+                )
+                .with_play_count(view.play_count),
             }),
         }
     }
@@ -420,20 +429,13 @@ impl<'a> FramesAsset<'a> {
 }
 
 impl<'a> FramesData<'a> {
-    fn owned(
-        format: ColorFormat,
-        atlas_width: u32,
-        atlas_height: u32,
-        atlas_stride: u32,
-        frames: Vec<Frame>,
-        main: Cow<'a, [u8]>,
-        extra: Option<Cow<'a, [u8]>>,
-    ) -> Self {
+    fn owned(image: ImageAsset<'a>, frames: Vec<Frame>) -> Self {
+        let ImageAssetParts { meta, main, extra } = image.into_parts();
         Self {
-            format,
-            atlas_width,
-            atlas_height,
-            atlas_stride,
+            format: meta.format,
+            atlas_width: meta.width,
+            atlas_height: meta.height,
+            atlas_stride: meta.stride,
             table: FrameTableStorage::Owned(frames),
             main,
             extra,
@@ -630,21 +632,21 @@ impl<'a> FramesPayloadPlan<'a> {
         let (canvas_width, canvas_height) = match asset {
             FramesAsset::Atlas(_) => (0, 0),
             FramesAsset::Animation(animation) => {
-                if animation.canvas_width == 0 {
+                if animation.canvas_width() == 0 {
                     return Err(invalid(FramesDecodeError::ZeroCanvasWidth));
                 }
-                if animation.canvas_height == 0 {
+                if animation.canvas_height() == 0 {
                     return Err(invalid(FramesDecodeError::ZeroCanvasHeight));
                 }
-                if !(1..=MAX_TIMESCALE_HZ).contains(&animation.timescale_hz) {
+                if !(1..=MAX_TIMESCALE_HZ).contains(&animation.timescale_hz()) {
                     return Err(invalid(FramesDecodeError::InvalidTimescale(
-                        animation.timescale_hz,
+                        animation.timescale_hz(),
                     )));
                 }
-                if animation.default_duration_ticks == 0 {
+                if animation.default_duration_ticks() == 0 {
                     return Err(invalid(FramesDecodeError::ZeroDefaultDuration));
                 }
-                (animation.canvas_width, animation.canvas_height)
+                (animation.canvas_width(), animation.canvas_height())
             }
         };
         for (index, frame) in asset.frames().enumerate() {
@@ -740,11 +742,11 @@ impl<'a> FramesPayloadPlan<'a> {
         write_u32(out, 12, data.atlas_height);
         write_u32(out, 16, data.atlas_stride);
         if let FramesAsset::Animation(animation) = self.asset {
-            write_u32(out, 20, animation.canvas_width);
-            write_u32(out, 24, animation.canvas_height);
-            write_u32(out, 32, animation.timescale_hz);
-            write_u32(out, 36, animation.default_duration_ticks);
-            write_u32(out, 40, animation.play_count);
+            write_u32(out, 20, animation.canvas_width());
+            write_u32(out, 24, animation.canvas_height());
+            write_u32(out, 32, animation.timescale_hz());
+            write_u32(out, 36, animation.default_duration_ticks());
+            write_u32(out, 40, animation.play_count());
         }
         write_u32(out, 28, u32::from(self.frame_count));
         write_u32(out, 44, HEADER_LEN as u32);
@@ -772,11 +774,11 @@ impl<'a> FramesPayloadPlan<'a> {
         match self.asset {
             FramesAsset::Atlas(_) => true,
             FramesAsset::Animation(animation) => {
-                view.canvas_width == animation.canvas_width
-                    && view.canvas_height == animation.canvas_height
-                    && view.timescale_hz == animation.timescale_hz
-                    && view.default_duration_ticks == animation.default_duration_ticks
-                    && view.play_count == animation.play_count
+                view.canvas_width == animation.canvas_width()
+                    && view.canvas_height == animation.canvas_height()
+                    && view.timescale_hz == animation.timescale_hz()
+                    && view.default_duration_ticks == animation.default_duration_ticks()
+                    && view.play_count == animation.play_count()
             }
         }
     }
@@ -830,31 +832,29 @@ mod tests {
     fn atlas(format: ColorFormat) -> FramesAsset<'static> {
         let stride = format.minimum_stride(3).unwrap();
         let extra_len = format.extra_size(3, 1, stride).unwrap() as usize;
-        FramesAsset::Atlas(AtlasFrames::new(
-            format,
+        let image = ImageAsset::new(
             3,
             1,
+            format,
             stride,
-            vec![frame(0, 0), frame(1, 0), frame(2, 0)],
             Cow::Owned(vec![0x55; stride as usize]),
-            (extra_len != 0).then_some(Cow::Owned(vec![0x80; extra_len])),
+        );
+        let image = if extra_len == 0 {
+            image
+        } else {
+            image.with_extra(Cow::Owned(vec![0x80; extra_len]))
+        };
+        FramesAsset::Atlas(AtlasFrames::new(
+            image,
+            vec![frame(0, 0), frame(1, 0), frame(2, 0)],
         ))
     }
 
     fn animation() -> FramesAsset<'static> {
         FramesAsset::Animation(AnimationFrames::new(
-            ColorFormat::A8,
-            3,
-            1,
-            3,
-            4,
-            1,
-            60,
-            1,
-            0,
+            ImageAsset::new(3, 1, ColorFormat::A8, 3, Cow::Owned(vec![1, 2, 3])),
             vec![frame(0, 0), frame(1, 2), frame(2, 3)],
-            Cow::Owned(vec![1, 2, 3]),
-            None,
+            AnimationSettings::new(4, 1, 60, 1),
         ))
     }
 

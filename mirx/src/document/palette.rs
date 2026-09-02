@@ -416,7 +416,6 @@ mod tests {
             ColorFormat::A8,
             ColorFormat::A8.minimum_stride(1).unwrap(),
             Cow::Borrowed(&pixels),
-            None,
         ))
         .unwrap();
         assert_eq!(
@@ -510,7 +509,6 @@ mod tests {
             ColorFormat::A8,
             1,
             Cow::Borrowed(&pixels),
-            None,
         ))
         .unwrap();
         segmented.push_palette(ChunkFlags::NONE, &expected).unwrap();

@@ -5,9 +5,9 @@ use alloc::vec::Vec;
 use super::*;
 use crate::header::{CHUNK_FILE_HEADER_LEN, chunk_type};
 use crate::{
-    AnimationFrames, AtlasFrames, ColorFormat, CriticalAssumption, Frame, FramesAsset,
-    ImageChunkInput, PRIMARY_FORMAT_NONE, PayloadInput, RawChunkInput, RelocationAssumption,
-    ReservedBitsPolicy, crc32, encode_chunk_image, encode_chunks,
+    AnimationFrames, AnimationSettings, AtlasFrames, ColorFormat, CriticalAssumption, Frame,
+    FramesAsset, ImageChunkInput, PRIMARY_FORMAT_NONE, PayloadInput, RawChunkInput,
+    RelocationAssumption, ReservedBitsPolicy, crc32, encode_chunk_image, encode_chunks,
 };
 
 const CUSTOM: ChunkType = match ChunkType::new(0xbeef) {
@@ -109,13 +109,14 @@ fn atlas_frames(width: u32, height: u32) -> FramesAsset<'static> {
     let mut first = frame(0, 0);
     first.target_x = 0;
     FramesAsset::Atlas(AtlasFrames::new(
-        format,
-        width,
-        height,
-        stride,
+        ImageAsset::new(
+            width,
+            height,
+            format,
+            stride,
+            Cow::Owned(vec![0; (stride * height) as usize]),
+        ),
         vec![first],
-        Cow::Owned(vec![0; (stride * height) as usize]),
-        None,
     ))
 }
 
@@ -125,18 +126,15 @@ fn animation_frames(canvas_width: u32, canvas_height: u32) -> FramesAsset<'stati
     let atlas_height = 1;
     let stride = format.minimum_stride(atlas_width).unwrap();
     FramesAsset::Animation(AnimationFrames::new(
-        format,
-        atlas_width,
-        atlas_height,
-        stride,
-        canvas_width,
-        canvas_height,
-        1_000,
-        40,
-        0,
+        ImageAsset::new(
+            atlas_width,
+            atlas_height,
+            format,
+            stride,
+            Cow::Owned(vec![1, 2]),
+        ),
         vec![frame(0, 20), frame(1, 30)],
-        Cow::Owned(vec![1, 2]),
-        None,
+        AnimationSettings::new(canvas_width, canvas_height, 1_000, 40),
     ))
 }
 

@@ -492,14 +492,10 @@ fn complete_snapshot_distinguishes_origin_and_document_state_variants() {
     assert!(matches!(new_snapshot.state, StateSnapshot::Chunk { .. }));
 
     let authored_main = [1, 2, 3, 4];
-    let authored_flat = Document::new_flat(ImageAsset::new(
-        3,
-        2,
-        ColorFormat::I4,
-        2,
-        Cow::Borrowed(&authored_main),
-        Some(Cow::Owned(vec![0xa5; 64])),
-    ))
+    let authored_flat = Document::new_flat(
+        ImageAsset::new(3, 2, ColorFormat::I4, 2, Cow::Borrowed(&authored_main))
+            .with_extra(Cow::Owned(vec![0xa5; 64])),
+    )
     .unwrap();
     let authored_snapshot = snapshot(&authored_flat);
     assert_eq!(authored_snapshot.origin.kind, OriginKind::New);
@@ -839,7 +835,6 @@ fn flat_replacement_errors_and_noops_preserve_the_complete_snapshot() {
         ColorFormat::A8,
         1,
         Cow::Owned(vec![0; 2]),
-        None,
     ));
     assert_atomic_error(
         &document,
@@ -857,7 +852,6 @@ fn flat_replacement_errors_and_noops_preserve_the_complete_snapshot() {
         ColorFormat::A8,
         2,
         Cow::Owned(vec![0; 3]),
-        None,
     ));
     assert_atomic_error(
         &document,
@@ -875,7 +869,6 @@ fn flat_replacement_errors_and_noops_preserve_the_complete_snapshot() {
         ColorFormat::I4,
         2,
         Cow::Owned(vec![0; 4]),
-        None,
     ));
     assert_atomic_error(
         &document,
@@ -888,14 +881,10 @@ fn flat_replacement_errors_and_noops_preserve_the_complete_snapshot() {
     );
 
     document
-        .replace_flat_image(ImageAsset::new(
-            2,
-            2,
-            ColorFormat::A8,
-            2,
-            Cow::Owned(vec![1, 2, 3, 4]),
-            Some(Cow::Owned(Vec::new())),
-        ))
+        .replace_flat_image(
+            ImageAsset::new(2, 2, ColorFormat::A8, 2, Cow::Owned(vec![1, 2, 3, 4]))
+                .with_extra(Cow::Owned(Vec::new())),
+        )
         .unwrap();
     assert_eq!(snapshot(&document), before);
 }
@@ -927,7 +916,6 @@ fn payload_backed_flat_failures_preserve_backing_and_plane_ranges() {
         ColorFormat::A8,
         2,
         Cow::Owned(vec![0; 3]),
-        None,
     ));
     assert_atomic_error(
         &document,
@@ -942,7 +930,7 @@ fn payload_backed_flat_failures_preserve_backing_and_plane_ranges() {
 
 #[test]
 fn flat_replacement_blockers_precede_payload_validation_atomically() {
-    let bad_asset = || ImageAsset::new(2, 2, ColorFormat::A8, 2, Cow::Owned(vec![0; 3]), None);
+    let bad_asset = || ImageAsset::new(2, 2, ColorFormat::A8, 2, Cow::Owned(vec![0; 3]));
 
     let mut chunk = Document::new();
     let before = snapshot(&chunk);
@@ -980,7 +968,7 @@ fn flat_replacement_blockers_precede_payload_validation_atomically() {
 #[test]
 fn typed_image_push_failures_preserve_complete_state() {
     let stride = ColorFormat::A8.minimum_stride(2).unwrap();
-    let bad_asset = || ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Owned(vec![0; 3]), None);
+    let bad_asset = || ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Owned(vec![0; 3]));
 
     let mut chunk = Document::new();
     chunk.next_id = u32::MAX;
@@ -995,7 +983,6 @@ fn typed_image_push_failures_preserve_complete_state() {
         ColorFormat::A8,
         stride,
         Cow::Borrowed(&flat_main),
-        None,
     ))
     .unwrap();
     flat.next_id = u32::MAX - 1;
@@ -1024,7 +1011,7 @@ fn typed_image_replace_failures_and_noops_preserve_complete_state() {
     ]);
     let mut document = Document::from_vec(source).unwrap();
     let before = snapshot(&document);
-    let bad_asset = ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Owned(vec![0; 3]), None);
+    let bad_asset = ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Owned(vec![0; 3]));
 
     let result = document.replace_image(id(99), &bad_asset);
     assert_atomic_error(&document, &before, result, EditError::InvalidChunkId);
@@ -1045,7 +1032,7 @@ fn typed_image_replace_failures_and_noops_preserve_complete_state() {
     document
         .replace_image(
             id(0),
-            &ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Borrowed(&main), None),
+            &ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Borrowed(&main)),
         )
         .unwrap();
     assert_eq!(snapshot(&document), before);
@@ -1056,7 +1043,7 @@ fn typed_image_replace_failures_and_noops_preserve_complete_state() {
     let changed = [8; 4];
     let result = reserved.replace_image(
         id(0),
-        &ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Borrowed(&changed), None),
+        &ImageAsset::new(2, 2, ColorFormat::A8, stride, Cow::Borrowed(&changed)),
     );
     assert_atomic_error(
         &reserved,

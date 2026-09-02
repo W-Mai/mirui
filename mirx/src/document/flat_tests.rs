@@ -42,14 +42,18 @@ fn owned_asset(
     extra_byte: u8,
 ) -> ImageAsset<'static> {
     let (main_len, extra_len) = plane_lengths(format, width, height, stride);
-    ImageAsset::new(
+    let asset = ImageAsset::new(
         width,
         height,
         format,
         stride,
         Cow::Owned(vec![main_byte; main_len]),
-        (extra_len != 0).then(|| Cow::Owned(vec![extra_byte; extra_len])),
-    )
+    );
+    if extra_len == 0 {
+        asset
+    } else {
+        asset.with_extra(Cow::Owned(vec![extra_byte; extra_len]))
+    }
 }
 
 fn new_flat_error(image: ImageAsset<'static>) -> EditError {
@@ -154,14 +158,10 @@ fn borrowed_owned_and_mixed_planes_retain_pointer_and_capacity() {
     owned_extra.resize(64, 0x22);
     let owned_extra_pointer = owned_extra.as_ptr();
     let owned_extra_capacity = owned_extra.capacity();
-    let document = Document::new_flat(ImageAsset::new(
-        3,
-        2,
-        ColorFormat::I4,
-        3,
-        Cow::Borrowed(&borrowed_main),
-        Some(Cow::Owned(owned_extra)),
-    ))
+    let document = Document::new_flat(
+        ImageAsset::new(3, 2, ColorFormat::I4, 3, Cow::Borrowed(&borrowed_main))
+            .with_extra(Cow::Owned(owned_extra)),
+    )
     .unwrap();
     let DocumentState::Flat(record) = &document.state else {
         panic!("expected FLAT document");
@@ -184,14 +184,10 @@ fn borrowed_owned_and_mixed_planes_retain_pointer_and_capacity() {
     let owned_main_pointer = owned_main.as_ptr();
     let owned_main_capacity = owned_main.capacity();
     let borrowed_extra = [0x44; 64];
-    let document = Document::new_flat(ImageAsset::new(
-        3,
-        2,
-        ColorFormat::I4,
-        3,
-        Cow::Owned(owned_main),
-        Some(Cow::Borrowed(&borrowed_extra)),
-    ))
+    let document = Document::new_flat(
+        ImageAsset::new(3, 2, ColorFormat::I4, 3, Cow::Owned(owned_main))
+            .with_extra(Cow::Borrowed(&borrowed_extra)),
+    )
     .unwrap();
     let DocumentState::Flat(record) = &document.state else {
         panic!("expected FLAT document");
@@ -229,14 +225,10 @@ fn replacement_moves_owned_planes_without_changing_the_origin_allocation() {
 
     let mut document = Document::open(&source).unwrap();
     document
-        .replace_flat_image(ImageAsset::new(
-            3,
-            2,
-            ColorFormat::I4,
-            2,
-            Cow::Owned(main),
-            Some(Cow::Owned(extra)),
-        ))
+        .replace_flat_image(
+            ImageAsset::new(3, 2, ColorFormat::I4, 2, Cow::Owned(main))
+                .with_extra(Cow::Owned(extra)),
+        )
         .unwrap();
 
     assert_eq!(document.origin.source().unwrap().as_ptr(), source_pointer);
@@ -279,14 +271,10 @@ fn same_content_replacement_preserves_source_storage_and_noop_finish() {
         _ => panic!("expected FLAT document"),
     };
     borrowed
-        .replace_flat_image(ImageAsset::new(
-            3,
-            2,
-            ColorFormat::I4,
-            2,
-            Cow::Owned(pixels.to_vec()),
-            Some(Cow::Borrowed(&palette)),
-        ))
+        .replace_flat_image(
+            ImageAsset::new(3, 2, ColorFormat::I4, 2, Cow::Owned(pixels.to_vec()))
+                .with_extra(Cow::Borrowed(&palette)),
+        )
         .unwrap();
     assert!(!borrowed.is_dirty());
     match &borrowed.state {
@@ -314,14 +302,10 @@ fn same_content_replacement_preserves_source_storage_and_noop_finish() {
     let owned_capacity = owned_source.capacity();
     let mut owned = Document::from_vec(owned_source).unwrap();
     owned
-        .replace_flat_image(ImageAsset::new(
-            3,
-            2,
-            ColorFormat::I4,
-            2,
-            Cow::Borrowed(&pixels),
-            Some(Cow::Borrowed(&palette)),
-        ))
+        .replace_flat_image(
+            ImageAsset::new(3, 2, ColorFormat::I4, 2, Cow::Borrowed(&pixels))
+                .with_extra(Cow::Borrowed(&palette)),
+        )
         .unwrap();
     assert!(!owned.is_dirty());
     let Cow::Owned(finished) = owned.finish().unwrap() else {
@@ -346,14 +330,10 @@ fn changed_replacement_stays_flat_and_force_chunk_reuses_segmented_emission() {
     let palette = [0x5a; 64];
     let mut document = Document::open(&source).unwrap();
     document
-        .replace_flat_image(ImageAsset::new(
-            3,
-            2,
-            ColorFormat::I4,
-            2,
-            Cow::Borrowed(&main),
-            Some(Cow::Borrowed(&palette)),
-        ))
+        .replace_flat_image(
+            ImageAsset::new(3, 2, ColorFormat::I4, 2, Cow::Borrowed(&main))
+                .with_extra(Cow::Borrowed(&palette)),
+        )
         .unwrap();
 
     assert!(document.is_dirty());
@@ -400,14 +380,10 @@ fn changed_replacement_stays_flat_and_force_chunk_reuses_segmented_emission() {
 fn new_flat_finish_emits_owned_canonical_bytes_and_reopens() {
     let main = [0x10, 0x20, 0x30, 0x40];
     let palette = [0x80; 64];
-    let document = Document::new_flat(ImageAsset::new(
-        3,
-        2,
-        ColorFormat::I4,
-        2,
-        Cow::Borrowed(&main),
-        Some(Cow::Borrowed(&palette)),
-    ))
+    let document = Document::new_flat(
+        ImageAsset::new(3, 2, ColorFormat::I4, 2, Cow::Borrowed(&main))
+            .with_extra(Cow::Borrowed(&palette)),
+    )
     .unwrap();
     assert!(matches!(document.origin, Origin::New));
     assert!(document.is_dirty());
@@ -432,7 +408,6 @@ fn flat_asset_validation_reports_stride_plane_and_overflow_errors() {
             ColorFormat::RGB565,
             3,
             Cow::Owned(vec![0; 3]),
-            None,
         )),
         EditError::InvalidPayload(ImagePayloadError::StrideTooSmall {
             minimum: 4,
@@ -446,7 +421,6 @@ fn flat_asset_validation_reports_stride_plane_and_overflow_errors() {
             ColorFormat::A8,
             2,
             Cow::Owned(vec![0; 3]),
-            None,
         )),
         EditError::InvalidPayload(ImagePayloadError::MainPlaneLengthMismatch {
             expected: 4,
@@ -460,7 +434,6 @@ fn flat_asset_validation_reports_stride_plane_and_overflow_errors() {
             ColorFormat::I4,
             2,
             Cow::Owned(vec![0; 4]),
-            None,
         )),
         EditError::InvalidPayload(ImagePayloadError::ExtraPlaneLengthMismatch {
             expected: 64,
@@ -474,7 +447,6 @@ fn flat_asset_validation_reports_stride_plane_and_overflow_errors() {
             ColorFormat::RGBA8888,
             u32::MAX,
             Cow::Owned(Vec::new()),
-            None,
         )),
         EditError::InvalidPayload(ImagePayloadError::SizeOverflow)
     );
@@ -485,7 +457,6 @@ fn flat_asset_validation_reports_stride_plane_and_overflow_errors() {
             ColorFormat::A8,
             u32::MAX,
             Cow::Owned(Vec::new()),
-            None,
         )),
         EditError::InvalidPayload(ImagePayloadError::SizeOverflow)
     );
@@ -495,14 +466,10 @@ fn flat_asset_validation_reports_stride_plane_and_overflow_errors() {
 fn empty_extra_is_normalized_and_zero_sized_images_remain_representable() {
     let mut empty = Vec::with_capacity(19);
     empty.clear();
-    let document = Document::new_flat(ImageAsset::new(
-        0,
-        3,
-        ColorFormat::A8,
-        0,
-        Cow::Owned(Vec::new()),
-        Some(Cow::Owned(empty)),
-    ))
+    let document = Document::new_flat(
+        ImageAsset::new(0, 3, ColorFormat::A8, 0, Cow::Owned(Vec::new()))
+            .with_extra(Cow::Owned(empty)),
+    )
     .unwrap();
     let DocumentState::Flat(record) = &document.state else {
         panic!("expected FLAT document");
@@ -515,28 +482,20 @@ fn empty_extra_is_normalized_and_zero_sized_images_remain_representable() {
     );
 
     let indexed_palette = [0x5a; 8];
-    let indexed = Document::new_flat(ImageAsset::new(
-        0,
-        0,
-        ColorFormat::I1,
-        0,
-        Cow::Owned(Vec::new()),
-        Some(Cow::Borrowed(&indexed_palette)),
-    ))
+    let indexed = Document::new_flat(
+        ImageAsset::new(0, 0, ColorFormat::I1, 0, Cow::Owned(Vec::new()))
+            .with_extra(Cow::Borrowed(&indexed_palette)),
+    )
     .unwrap();
     assert_eq!(
         indexed.flat_image().unwrap().extra(),
         Some(indexed_palette.as_slice())
     );
 
-    let alpha = Document::new_flat(ImageAsset::new(
-        0,
-        3,
-        ColorFormat::RGB565A8,
-        0,
-        Cow::Owned(Vec::new()),
-        Some(Cow::Owned(Vec::new())),
-    ))
+    let alpha = Document::new_flat(
+        ImageAsset::new(0, 3, ColorFormat::RGB565A8, 0, Cow::Owned(Vec::new()))
+            .with_extra(Cow::Owned(Vec::new())),
+    )
     .unwrap();
     assert_eq!(alpha.flat_image().unwrap().extra(), None);
 }

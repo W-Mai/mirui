@@ -455,7 +455,6 @@ mod tests {
             ColorFormat::A8,
             ColorFormat::A8.minimum_stride(1).unwrap(),
             Cow::Borrowed(&pixels),
-            None,
         ))
         .unwrap();
         assert_eq!(flat.meta(id(0)), Err(MetaAccessError::ChunkLayoutRequired));

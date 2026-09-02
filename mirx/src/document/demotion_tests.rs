@@ -213,14 +213,10 @@ fn payload_backed_flat_survives_exact_replacement_and_forced_chunk_encoding() {
 
     document.dirty = false;
     document
-        .replace_flat_image(ImageAsset::new(
-            width,
-            height,
-            format,
-            stride,
-            Cow::Borrowed(&expected_main),
-            Some(Cow::Borrowed(&expected_extra)),
-        ))
+        .replace_flat_image(
+            ImageAsset::new(width, height, format, stride, Cow::Borrowed(&expected_main))
+                .with_extra(Cow::Borrowed(&expected_extra)),
+        )
         .unwrap();
     assert!(!document.is_dirty());
     let DocumentState::Flat(record) = &document.state else {

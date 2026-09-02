@@ -214,14 +214,10 @@ fn borrowed_and_owned_assets_keep_both_plane_allocations() {
     let borrowed_main = [1; 8];
     let borrowed_extra = [2; 4];
     assert_eq!(borrowed_extra.len(), extra_len);
-    let mut borrowed = Document::new_flat(ImageAsset::new(
-        width,
-        height,
-        format,
-        stride,
-        Cow::Borrowed(&borrowed_main),
-        Some(Cow::Borrowed(&borrowed_extra)),
-    ))
+    let mut borrowed = Document::new_flat(
+        ImageAsset::new(width, height, format, stride, Cow::Borrowed(&borrowed_main))
+            .with_extra(Cow::Borrowed(&borrowed_extra)),
+    )
     .unwrap();
     borrowed.promote_to_chunk().unwrap();
     let (_, record) = promoted(&borrowed);
@@ -240,14 +236,10 @@ fn borrowed_and_owned_assets_keep_both_plane_allocations() {
     let main_capacity = owned_main.capacity();
     let extra_pointer = owned_extra.as_ptr();
     let extra_capacity = owned_extra.capacity();
-    let mut owned = Document::new_flat(ImageAsset::new(
-        width,
-        height,
-        format,
-        stride,
-        Cow::Owned(owned_main),
-        Some(Cow::Owned(owned_extra)),
-    ))
+    let mut owned = Document::new_flat(
+        ImageAsset::new(width, height, format, stride, Cow::Owned(owned_main))
+            .with_extra(Cow::Owned(owned_extra)),
+    )
     .unwrap();
     owned.promote_to_chunk().unwrap();
     let (_, record) = promoted(&owned);
@@ -268,24 +260,16 @@ fn borrowed_and_owned_assets_keep_both_plane_allocations() {
     let replacement_main_capacity = replacement_main.capacity();
     let replacement_extra_pointer = replacement_extra.as_ptr();
     let replacement_extra_capacity = replacement_extra.capacity();
-    let mut replaced = Document::new_flat(ImageAsset::new(
-        width,
-        height,
-        format,
-        stride,
-        Cow::Borrowed(&borrowed_main),
-        Some(Cow::Borrowed(&borrowed_extra)),
-    ))
+    let mut replaced = Document::new_flat(
+        ImageAsset::new(width, height, format, stride, Cow::Borrowed(&borrowed_main))
+            .with_extra(Cow::Borrowed(&borrowed_extra)),
+    )
     .unwrap();
     replaced
-        .replace_flat_image(ImageAsset::new(
-            width,
-            height,
-            format,
-            stride,
-            Cow::Owned(replacement_main),
-            Some(Cow::Owned(replacement_extra)),
-        ))
+        .replace_flat_image(
+            ImageAsset::new(width, height, format, stride, Cow::Owned(replacement_main))
+                .with_extra(Cow::Owned(replacement_extra)),
+        )
         .unwrap();
     replaced.promote_to_chunk().unwrap();
     let (_, record) = promoted(&replaced);

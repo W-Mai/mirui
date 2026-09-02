@@ -131,14 +131,11 @@ mod tests {
         main: &'a [u8],
         extra: Option<&'a [u8]>,
     ) -> ImageAsset<'a> {
-        ImageAsset::new(
-            width,
-            height,
-            format,
-            stride,
-            Cow::Borrowed(main),
-            extra.map(Cow::Borrowed),
-        )
+        let asset = ImageAsset::new(width, height, format, stride, Cow::Borrowed(main));
+        match extra {
+            Some(extra) => asset.with_extra(Cow::Borrowed(extra)),
+            None => asset,
+        }
     }
 
     fn a8_asset(main: &[u8], width: u32, height: u32) -> ImageAsset<'_> {
