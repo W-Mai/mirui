@@ -66,7 +66,7 @@ impl Document<'_> {
     ///
     /// Typed replacement is an explicit canonical rewrite. The existing payload
     /// is not decoded, so malformed or segmented VECTOR nodes can be repaired.
-    pub fn replace_vector(&mut self, id: ChunkId, scene: &Scene) -> Result<(), EditError> {
+    pub(super) fn replace_vector(&mut self, id: ChunkId, scene: &Scene) -> Result<(), EditError> {
         let limits = self.payload_limits;
         self.replace_typed_owned_with(
             id,
@@ -88,7 +88,7 @@ impl Document<'_> {
     ///
     /// Decode, callback, validation, reserve, or encode failure leaves the
     /// document node unchanged. Panics and callback side effects are not caught.
-    pub fn edit_vector(
+    pub(super) fn edit_vector(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut Scene),
@@ -106,7 +106,7 @@ impl Document<'_> {
     /// Transactionally edits one VECTOR with a fallible caller callback.
     ///
     /// A callback error is returned without post-validation or replacement.
-    pub fn try_edit_vector<E>(
+    pub(super) fn try_edit_vector<E>(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut Scene) -> Result<(), E>,

@@ -65,7 +65,7 @@ impl Document<'_> {
     ///
     /// Exact canonical bytes are a no-op. Successful changes preserve entry
     /// order and duplicate keys in one owned canonical payload.
-    pub fn replace_meta(&mut self, id: ChunkId, meta: &Meta) -> Result<(), EditError> {
+    pub(super) fn replace_meta(&mut self, id: ChunkId, meta: &Meta) -> Result<(), EditError> {
         let limits = self.payload_limits;
         self.replace_typed_owned_with(
             id,
@@ -90,7 +90,7 @@ impl Document<'_> {
     ///
     /// Decode, callback, validation, reserve, or encode failure leaves the
     /// document node unchanged. Panics and callback side effects are not caught.
-    pub fn edit_meta(
+    pub(super) fn edit_meta(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut Meta),
@@ -108,7 +108,7 @@ impl Document<'_> {
     /// Transactionally edits one META value with a fallible callback.
     ///
     /// A callback error is returned without post-validation or replacement.
-    pub fn try_edit_meta<E>(
+    pub(super) fn try_edit_meta<E>(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut Meta) -> Result<(), E>,

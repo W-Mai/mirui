@@ -65,7 +65,11 @@ impl Document<'_> {
     ///
     /// Exact canonical bytes are a no-op. Successful changes preserve color
     /// order and duplicates in one owned canonical payload.
-    pub fn replace_palette(&mut self, id: ChunkId, palette: &Palette) -> Result<(), EditError> {
+    pub(super) fn replace_palette(
+        &mut self,
+        id: ChunkId,
+        palette: &Palette,
+    ) -> Result<(), EditError> {
         let limits = self.payload_limits;
         self.replace_typed_owned_with(
             id,
@@ -90,7 +94,7 @@ impl Document<'_> {
     ///
     /// Decode, callback, validation, reserve, or encode failure leaves the
     /// document node unchanged. Panics and callback side effects are not caught.
-    pub fn edit_palette(
+    pub(super) fn edit_palette(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut Palette),
@@ -108,7 +112,7 @@ impl Document<'_> {
     /// Transactionally edits one PALETTE value with a fallible callback.
     ///
     /// A callback error is returned without post-validation or replacement.
-    pub fn try_edit_palette<E>(
+    pub(super) fn try_edit_palette<E>(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut Palette) -> Result<(), E>,

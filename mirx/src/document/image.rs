@@ -57,7 +57,11 @@ impl Document<'_> {
     ///
     /// Exact canonical bytes are a no-op. Successful changes store one owned
     /// payload and refresh derived primary hints when the node is primary.
-    pub fn replace_image(&mut self, id: ChunkId, image: &ImageAsset<'_>) -> Result<(), EditError> {
+    pub(super) fn replace_image(
+        &mut self,
+        id: ChunkId,
+        image: &ImageAsset<'_>,
+    ) -> Result<(), EditError> {
         self.replace_typed_owned_with(
             id,
             ChunkType::IMAGE,

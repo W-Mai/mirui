@@ -150,6 +150,10 @@ Typed payload operations:
 | `PALETTE` | `palette` → `PaletteView` | `push_palette` | `replace_palette` | `edit_palette`, `try_edit_palette` |
 | `FRAMES` | `frames` → `FramesView` | `push_frames` | `replace_frames` | `edit_frames`, `try_edit_frames` |
 
+Typed access and `push_*` methods are on `Document`. Typed replacement and
+transactional edit methods are on the `DocumentChunkMut` returned by
+`Document::get_mut`.
+
 `Meta`, `Palette`, `FramesAsset`, and `Scene` expose `push` operations for
 incremental authoring. The typed collections also provide positional insert,
 replace, and remove operations; `Palette` and `FramesAsset` additionally

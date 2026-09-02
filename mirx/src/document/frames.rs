@@ -61,7 +61,7 @@ impl Document<'_> {
     ///
     /// Exact canonical bytes are a no-op. Successful changes commit one owned
     /// canonical payload after all validation and allocation succeeds.
-    pub fn replace_frames(
+    pub(super) fn replace_frames(
         &mut self,
         id: ChunkId,
         frames: &FramesAsset<'_>,
@@ -89,7 +89,7 @@ impl Document<'_> {
     ///
     /// Decode, callback, validation, reserve, or encode failure leaves the
     /// document node unchanged. Panics and callback side effects are not caught.
-    pub fn edit_frames(
+    pub(super) fn edit_frames(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut FramesAsset<'_>),
@@ -108,7 +108,7 @@ impl Document<'_> {
     ///
     /// Frame records and image planes stay borrowed until the callback requests
     /// mutable access to their partition.
-    pub fn try_edit_frames<E>(
+    pub(super) fn try_edit_frames<E>(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut FramesAsset<'_>) -> Result<(), E>,

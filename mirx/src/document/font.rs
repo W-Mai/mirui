@@ -64,7 +64,7 @@ impl Document<'_> {
     ///
     /// Exact canonical bytes are a no-op. A semantically equivalent payload
     /// with offset gaps is rewritten into canonical contiguous form.
-    pub fn replace_font(&mut self, id: ChunkId, font: &Font) -> Result<(), EditError> {
+    pub(super) fn replace_font(&mut self, id: ChunkId, font: &Font) -> Result<(), EditError> {
         let limits = self.payload_limits;
         self.replace_typed_owned_with(
             id,
@@ -88,7 +88,7 @@ impl Document<'_> {
     ///
     /// Decode, callback, validation, reserve, or encode failure leaves the
     /// document node unchanged. Panics and callback side effects are not caught.
-    pub fn edit_font(
+    pub(super) fn edit_font(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut Font),
@@ -106,7 +106,7 @@ impl Document<'_> {
     /// Transactionally edits one FONT with a fallible caller callback.
     ///
     /// A callback error is returned without post-validation or replacement.
-    pub fn try_edit_font<E>(
+    pub(super) fn try_edit_font<E>(
         &mut self,
         id: ChunkId,
         edit: impl FnOnce(&mut Font) -> Result<(), E>,
