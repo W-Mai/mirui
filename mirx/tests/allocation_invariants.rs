@@ -2,7 +2,10 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::borrow::Cow;
 use std::cell::Cell;
 
-use mirx::image::{ColorDescription, SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor};
+use mirx::image::{
+    ColorDescription, PLANE_RECORD_LEN, PlaneMemoryLayout, SURFACE_RECORD_LEN, SampleLayout,
+    SurfaceDescriptor,
+};
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
     AtlasFrames, ChunkFlags, ChunkType, Color, ColorFormat, Document, EncodeOptions, Frame,
@@ -150,6 +153,24 @@ fn image_surface_record_round_trip_allocates_nothing() {
     let (observed, allocations) =
         count_allocations(|| SurfaceDescriptor::from_record(&record).unwrap());
     assert_eq!(observed, surface);
+    assert_eq!(allocations, 0);
+}
+
+#[test]
+fn image_plane_memory_record_round_trip_allocates_nothing() {
+    let plane = SampleLayout::RGBA8888.plane_geometry(319, 181, 0).unwrap();
+    let memory = PlaneMemoryLayout::builder(plane)
+        .with_allocation_extent(320, 192)
+        .with_stride(1_280)
+        .with_alignment(64)
+        .build()
+        .unwrap();
+    let mut record = [0; PLANE_RECORD_LEN];
+    memory.encode_record_into(&mut record).unwrap();
+
+    let (observed, allocations) =
+        count_allocations(|| PlaneMemoryLayout::from_record(plane, &record).unwrap());
+    assert_eq!(observed, memory);
     assert_eq!(allocations, 0);
 }
 
