@@ -2,7 +2,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::borrow::Cow;
 use std::cell::Cell;
 
-use mirx::image::SampleLayout;
+use mirx::image::{ColorDescription, SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor};
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
     AtlasFrames, ChunkFlags, ChunkType, Color, ColorFormat, Document, EncodeOptions, Frame,
@@ -132,6 +132,24 @@ fn image_plane_geometry_allocates_nothing() {
             .sum::<u32>()
     });
     assert_eq!(observed, 1_278);
+    assert_eq!(allocations, 0);
+}
+
+#[test]
+fn image_surface_record_round_trip_allocates_nothing() {
+    let surface = SurfaceDescriptor::new(
+        319,
+        181,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let mut record = [0; SURFACE_RECORD_LEN];
+    surface.encode_record_into(&mut record).unwrap();
+
+    let (observed, allocations) =
+        count_allocations(|| SurfaceDescriptor::from_record(&record).unwrap());
+    assert_eq!(observed, surface);
     assert_eq!(allocations, 0);
 }
 
