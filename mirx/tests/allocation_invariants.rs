@@ -2,6 +2,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::borrow::Cow;
 use std::cell::Cell;
 
+use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
     AtlasFrames, ChunkFlags, ChunkType, Color, ColorFormat, Document, EncodeOptions, Frame,
     FramesAsset, ImageAsset, Meta, MetaEntry, Palette, PayloadLimits, Reader, encode_chunks,
@@ -95,6 +96,30 @@ fn typed_container() -> Vec<u8> {
         (ChunkType::PALETTE.raw(), ChunkFlags::NONE.bits(), &palette),
         (ChunkType::FRAMES.raw(), ChunkFlags::NONE.bits(), &frames),
     ])
+}
+
+fn empty_media_payload() -> Vec<u8> {
+    let mut bytes = vec![0; MEDIA_HEADER_LEN + MEDIA_CRC_LEN];
+    bytes[0] = 1;
+    bytes[4..6].copy_from_slice(&(MEDIA_SECTION_LEN as u16).to_le_bytes());
+    bytes[8..12].copy_from_slice(&(MEDIA_HEADER_LEN as u32).to_le_bytes());
+    let payload_len = bytes.len() as u32;
+    bytes[12..16].copy_from_slice(&payload_len.to_le_bytes());
+    let crc_offset = bytes.len() - MEDIA_CRC_LEN;
+    let crc = mirx::crc32(&bytes[..crc_offset]);
+    bytes[crc_offset..].copy_from_slice(&crc.to_le_bytes());
+    bytes
+}
+
+#[test]
+fn common_media_inspection_allocates_nothing() {
+    let bytes = empty_media_payload();
+    let (observed, allocations) = count_allocations(|| {
+        let media = MediaPayload::open(&bytes).unwrap();
+        (media.header().section_count(), media.sections().count())
+    });
+    assert_eq!(observed, (0, 0));
+    assert_eq!(allocations, 0);
 }
 
 #[test]

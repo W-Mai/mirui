@@ -11,6 +11,7 @@ mod flat;
 pub mod font;
 mod format;
 mod header;
+pub mod media;
 mod model;
 pub mod path;
 pub mod payload;
@@ -49,6 +50,7 @@ pub use header::{
     FLAT_HEADER_LEN, FileHeader, FlatHeader, ImageChunkHeader, Layout, MAGIC, VERSION_MAJOR,
     VERSION_MINOR, chunk_type,
 };
+pub use media::CodingId;
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
 pub use payload::frames::{
