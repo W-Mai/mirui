@@ -80,6 +80,18 @@ impl PlaneMemoryLayout {
         self.flags
     }
 
+    /// Revalidates this physical layout against a derived logical plane.
+    pub fn validate_for(self, plane: PlaneGeometry) -> Result<(), PlaneMemoryError> {
+        Self::builder(plane)
+            .with_allocation_extent(self.allocation_width, self.allocation_height)
+            .with_stride(self.stride)
+            .with_data_offset(self.data_offset)
+            .with_alignment(self.required_alignment())
+            .with_flags(self.flags)
+            .build()
+            .map(|_| ())
+    }
+
     /// Physical byte length including row padding and padded allocation rows.
     pub const fn byte_len(self) -> u32 {
         self.stride * self.allocation_height

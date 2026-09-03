@@ -3,8 +3,8 @@ use std::borrow::Cow;
 use std::cell::Cell;
 
 use mirx::image::{
-    ColorDescription, PLANE_RECORD_LEN, PlaneMemoryLayout, RawImageView, SURFACE_RECORD_LEN,
-    SampleLayout, SurfaceDescriptor,
+    ColorDescription, PLANE_RECORD_LEN, PlaneMemoryLayout, RawImageAsset, RawImageView,
+    SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor,
 };
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
@@ -231,6 +231,39 @@ fn raw_image_open_and_plane_iteration_allocate_nothing() {
     assert_eq!(observed.0, 1);
     assert_eq!(observed.1, 0x7f);
     assert_eq!(allocations, 0);
+}
+
+#[test]
+fn raw_image_sizing_encoding_and_reopen_allocate_nothing() {
+    let surface = SurfaceDescriptor::new(
+        3,
+        2,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let y = [0x10; 6];
+    let uv = [0x80; 4];
+    let planes: &[&[u8]] = &[&y, &uv];
+    let asset = RawImageAsset::new(surface, planes);
+    let needed = asset.encoded_len().unwrap();
+    let mut output = vec![0xa5; needed + 11];
+
+    let (observed, allocations) = count_allocations(|| {
+        let written = asset.encode_into(&mut output).unwrap();
+        let image = RawImageView::open(&output[..written]).unwrap();
+        (
+            written,
+            image.plane_count(),
+            image.plane(0).unwrap().bytes().as_ptr(),
+            image.plane(1).unwrap().bytes().as_ptr(),
+        )
+    });
+
+    assert_eq!(observed.0, needed);
+    assert_eq!(observed.1, 2);
+    assert_eq!(allocations, 0);
+    assert_eq!(&output[needed..], &[0xa5; 11]);
 }
 
 #[test]

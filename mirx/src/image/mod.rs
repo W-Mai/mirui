@@ -1,6 +1,7 @@
 //! IMAGE surface vocabulary independent of byte coding.
 
 mod color;
+mod encode;
 mod layout;
 mod memory;
 mod surface;
@@ -10,6 +11,7 @@ pub use color::{
     ChromaSiting, ColorDescription, ColorDescriptionError, ColorMatrix, ColorPrimaries, ColorRange,
     TransferFunction,
 };
+pub use encode::{RawImageAsset, RawImageEncodeError};
 pub use layout::{PlaneGeometries, PlaneGeometry, PlaneRole, SampleLayout};
 pub use memory::{
     PLANE_RECORD_LEN, PlaneMemoryBuilder, PlaneMemoryError, PlaneMemoryFlags, PlaneMemoryLayout,
