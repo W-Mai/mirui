@@ -1,0 +1,162 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="650" viewBox="0 0 960 650" role="img" aria-labelledby="title desc">
+  <title id="title">One MIRX file containing five referenced resources</title>
+  <desc id="desc">A clear logical and physical view of a 1,589-byte MIRX CHUNK file. Two images and two fonts are stored once and referenced by one vector scene. The byte map shows the 44-byte header, five 16-byte descriptors, two alignment gaps, and five exact payload ranges.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+      <path d="M0 0L8 4L0 8Z" class="arrow-head"/>
+    </marker>
+    <clipPath id="byte-bar-clip"><rect x="40" y="374" width="880" height="76" rx="12"/></clipPath>
+    <style>
+      .bg{fill:#f8fafc}
+      .panel{fill:#fff;stroke:#dbe3ee;stroke-width:1.5}
+      .soft{fill:#f1f5f9;stroke:#dbe3ee;stroke-width:1.2}
+      .title{fill:#0f172a;font:750 22px system-ui,sans-serif;letter-spacing:-.3px}
+      .section-title{fill:#0f172a;font:730 15px system-ui,sans-serif}
+      .head{fill:#0f172a;font:700 13px system-ui,sans-serif}
+      .label{fill:#0f172a;font:650 11px system-ui,sans-serif}
+      .body{fill:#64748b;font:11px system-ui,sans-serif}
+      .small{fill:#64748b;font:9.5px system-ui,sans-serif}
+      .mono{fill:#334155;font:650 10px ui-monospace,SFMono-Regular,Menlo,monospace}
+      .mono-small{fill:#64748b;font:650 9px ui-monospace,SFMono-Regular,Menlo,monospace}
+      .wire{fill:none;stroke:#64748b;stroke-width:1.6;marker-end:url(#arrow)}
+      .guide{fill:none;stroke:#94a3b8;stroke-width:1.2;stroke-dasharray:3 4}
+      .arrow-head{fill:#64748b}
+      .image-card{fill:#e0f2fe;stroke:#7dd3fc;stroke-width:1.1}
+      .image-text{fill:#0369a1}
+      .font-card{fill:#dcfce7;stroke:#86efac;stroke-width:1.1}
+      .font-text{fill:#047857}
+      .scene-card{fill:#fef3c7;stroke:#f59e0b;stroke-width:1.4}
+      .scene-text{fill:#92400e}
+      .pill{fill:#ede9fe}
+      .pill-text{fill:#6d28d9}
+      .bar-header{fill:#475569}.bar-table{fill:#64748b}
+      .bar-image{fill:#2563eb}.bar-image-alt{fill:#38bdf8}
+      .bar-font{fill:#10b981}.bar-font-alt{fill:#34d399}
+      .bar-scene{fill:#f59e0b}.bar-pad{fill:#f8fafc}
+      .bar-light{fill:#fff;font:700 9px ui-monospace,SFMono-Regular,Menlo,monospace}
+      .bar-dark{fill:#082f49;font:750 9px ui-monospace,SFMono-Regular,Menlo,monospace}
+      .bar-main{fill:#fff;font:750 11px ui-monospace,SFMono-Regular,Menlo,monospace}
+      .bar-sub{fill:#dbeafe;font:9px ui-monospace,SFMono-Regular,Menlo,monospace}
+      @media(prefers-color-scheme:dark){
+        .bg{fill:#0b1120}.panel{fill:#111827;stroke:#334155}.soft{fill:#0f172a;stroke:#334155}
+        .title,.section-title,.head,.label{fill:#f8fafc}.body,.small,.mono-small{fill:#94a3b8}.mono{fill:#cbd5e1}
+        .image-card{fill:#0c4a6e;stroke:#0284c7}.image-text{fill:#bae6fd}
+        .font-card{fill:#064e3b;stroke:#059669}.font-text{fill:#bbf7d0}
+        .scene-card{fill:#78350f;stroke:#d97706}.scene-text{fill:#fde68a}
+        .pill{fill:#2e1065}.pill-text{fill:#ddd6fe}.bar-pad{fill:#0b1120}
+        .wire{stroke:#94a3b8}.guide{stroke:#64748b}.arrow-head{fill:#94a3b8}
+      }
+    </style>
+  </defs>
+
+  <rect class="bg" width="960" height="650" rx="24"/>
+  <text class="title" x="40" y="45">One file, five resources, no duplicated payloads</text>
+  <text class="body" x="40" y="68">The scene refers to two images and two fonts; each resource is stored once in document order.</text>
+
+  <g>
+    <rect class="panel" x="40" y="92" width="880" height="194" rx="17" data-audit-boundary="logical-document"/>
+    <g data-audit-contained-by="logical-document" data-audit-min-inset="16 20 18 20">
+      <text class="section-title" x="64" y="121">Logical document</text>
+      <text class="small" x="896" y="121" text-anchor="end">table indices are stable references</text>
+
+      <rect class="soft" x="64" y="139" width="590" height="124" rx="13"/>
+      <text class="small" x="82" y="159">SOURCE RESOURCES · STORED ONCE</text>
+
+      <rect class="image-card" x="82" y="171" width="264" height="36" rx="8"/>
+      <text class="mono image-text" x="96" y="193">#0  IMAGE</text>
+      <text class="body image-text" x="178" y="193">hero · 20 × 12 · RGBA8888</text>
+
+      <rect class="font-card" x="356" y="171" width="280" height="36" rx="8"/>
+      <text class="mono font-text" x="370" y="193">#2  FONT</text>
+      <text class="body font-text" x="450" y="193">UI · 4 glyphs · grayscale 8</text>
+
+      <rect class="image-card" x="82" y="216" width="264" height="36" rx="8"/>
+      <text class="mono image-text" x="96" y="238">#1  IMAGE</text>
+      <text class="body image-text" x="178" y="238">badge · 10 × 7 · A1</text>
+
+      <rect class="font-card" x="356" y="216" width="280" height="36" rx="8"/>
+      <text class="mono font-text" x="370" y="238">#3  FONT</text>
+      <text class="body font-text" x="450" y="238">icons · 3 glyphs · SDF 4</text>
+
+      <path class="wire" d="M654 201H706"/>
+      <text class="mono-small" x="680" y="188" text-anchor="middle">refs #0..#3</text>
+
+      <rect class="scene-card" x="715" y="157" width="181" height="88" rx="12"/>
+      <text class="mono scene-text" x="732" y="181">#4  VECTOR</text>
+      <text class="head scene-text" x="732" y="203">scene</text>
+      <text class="small scene-text" x="732" y="223">5 ordered operations</text>
+      <text class="small scene-text" x="732" y="238">references resources by index</text>
+    </g>
+  </g>
+
+  <text class="section-title" x="40" y="324">Exact bytes on disk</text>
+  <text class="body" x="40" y="346">Block width follows stored size. The two 2-byte alignment gaps are widened only enough to remain visible.</text>
+  <rect class="pill" x="806" y="307" width="114" height="25" rx="13"/>
+  <text class="mono pill-text" x="863" y="323" text-anchor="middle">1,589 bytes</text>
+
+  <g>
+    <rect class="panel" x="40" y="374" width="880" height="76" rx="12" data-audit-boundary="byte-map"/>
+    <g clip-path="url(#byte-bar-clip)" data-audit-contained-by="byte-map" data-audit-min-inset="0 0 0 0">
+      <rect class="bar-header" x="40" y="374" width="24" height="76"/>
+      <rect class="bar-table" x="64" y="374" width="45" height="76"/>
+      <rect class="bar-image" x="109" y="374" width="549" height="76"/>
+      <rect class="bar-image-alt" x="658" y="374" width="26" height="76"/>
+      <rect class="bar-pad" x="684" y="374" width="2" height="76"/>
+      <rect class="bar-font" x="686" y="374" width="93" height="76"/>
+      <rect class="bar-font-alt" x="779" y="374" width="63" height="76"/>
+      <rect class="bar-pad" x="842" y="374" width="2" height="76"/>
+      <rect class="bar-scene" x="844" y="374" width="76" height="76"/>
+    </g>
+    <text class="bar-light" x="52" y="412" text-anchor="middle">H</text>
+    <text class="bar-light" x="86" y="412" text-anchor="middle">TABLE</text>
+    <text class="bar-main" x="383" y="405" text-anchor="middle">#0 IMAGE · hero</text>
+    <text class="bar-sub" x="383" y="425" text-anchor="middle">124..1116 · 992 B</text>
+    <text class="bar-dark" x="671" y="412" text-anchor="middle">#1</text>
+    <text class="bar-dark" x="732" y="412" text-anchor="middle">#2 FONT</text>
+    <text class="bar-dark" x="810" y="412" text-anchor="middle">#3</text>
+    <text class="bar-dark" x="882" y="412" text-anchor="middle">#4 VECTOR</text>
+  </g>
+
+  <path class="guide" d="M685 450V469H625"/>
+  <text class="mono-small" x="619" y="472" text-anchor="end">2 B zero pad</text>
+  <path class="guide" d="M843 450V469H852"/>
+  <text class="mono-small" x="858" y="472">2 B zero pad</text>
+
+  <g transform="translate(40 492)">
+    <g>
+      <rect class="panel" width="270" height="116" rx="14" data-audit-boundary="container-card"/>
+      <g data-audit-contained-by="container-card" data-audit-min-inset="14 18 16 18">
+        <text class="head" x="18" y="25">Container metadata</text>
+        <text class="mono" x="18" y="52">0..44</text><text class="body" x="86" y="52">CHUNK header</text><text class="mono" x="248" y="52" text-anchor="end">44 B</text>
+        <text class="mono" x="18" y="75">44..124</text><text class="body" x="86" y="75">5 × 16 B descriptors</text><text class="mono" x="248" y="75" text-anchor="end">80 B</text>
+        <text class="mono" x="18" y="98">2 + 2</text><text class="body" x="86" y="98">alignment gaps</text><text class="mono" x="248" y="98" text-anchor="end">4 B</text>
+      </g>
+    </g>
+
+    <g transform="translate(285)">
+      <rect class="panel" width="270" height="116" rx="14" data-audit-boundary="payload-card"/>
+      <g data-audit-contained-by="payload-card" data-audit-min-inset="14 18 16 18">
+        <text class="head" x="18" y="25">Payload totals</text>
+        <circle cx="23" cy="49" r="5" fill="#2563eb"/><text class="body" x="38" y="53">2 IMAGE payloads</text><text class="mono" x="248" y="53" text-anchor="end">1,038 B</text>
+        <circle cx="23" cy="72" r="5" fill="#10b981"/><text class="body" x="38" y="76">2 FONT payloads</text><text class="mono" x="248" y="76" text-anchor="end">282 B</text>
+        <circle cx="23" cy="95" r="5" fill="#f59e0b"/><text class="body" x="38" y="99">1 VECTOR payload</text><text class="mono" x="248" y="99" text-anchor="end">141 B</text>
+      </g>
+    </g>
+
+    <g transform="translate(570)">
+      <rect class="panel" width="310" height="116" rx="14" data-audit-boundary="lookup-card"/>
+      <g data-audit-contained-by="lookup-card" data-audit-min-inset="14 18 16 18">
+        <text class="head" x="18" y="25">Reading descriptor #4</text>
+        <text class="mono-small" x="18" y="51">offset = 1448</text>
+        <text class="mono-small" x="156" y="51">size = 141</text>
+        <path class="wire" d="M18 66H50"/>
+        <rect class="scene-card" x="58" y="58" width="228" height="40" rx="8"/>
+        <text class="mono scene-text" x="172" y="75" text-anchor="middle">file[1448..1589]</text>
+        <text class="small scene-text" x="172" y="91" text-anchor="middle">one borrowed VECTOR payload</text>
+      </g>
+    </g>
+  </g>
+
+  <text class="mono" x="40" y="634">44 B header + 80 B descriptors + 1,461 B payloads + 4 B padding = 1,589 B</text>
+  <text class="small" x="920" y="634" text-anchor="end">canonical 4-byte payload placement</text>
+</svg>

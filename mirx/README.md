@@ -10,7 +10,7 @@ The crate is `no_std + alloc`, has no external dependencies, and separates the a
 
 ![Four-step MIRX documentation path from the file model to checked output](docs/reading-path.svg)
 
-**Jump to:** [container model](#container-model) · [runtime reading](#runtime-reading) · [document authoring](#authoring-a-document) · [copy-on-write editing](#copy-on-write-editing) · [checked encoding](#checked-encoding) · [command-line workflow](#command-line-workflow)
+**Jump to:** [container model](#container-model) · [concrete byte map](#one-file-five-resources) · [runtime reading](#runtime-reading) · [document authoring](#authoring-a-document) · [copy-on-write editing](#copy-on-write-editing) · [checked encoding](#checked-encoding) · [command-line workflow](#command-line-workflow)
 
 ## Design at a glance
 
@@ -39,13 +39,19 @@ The crate is `no_std + alloc`, has no external dependencies, and separates the a
 
 ### FLAT
 
-FLAT stores exactly one image. Its header carries format, dimensions, and stride; the plane lengths are derived from that geometry. The main image plane follows the header, with an inline palette or alpha plane when required by the format. It is the smallest representation for a standalone image.
+FLAT stores exactly one image. Its header carries format, dimensions, and stride; the plane lengths are derived from that geometry. The main image plane is stored after the header, with an inline palette or alpha plane when required by the format. It is the smallest representation for a standalone image.
 
 ### CHUNK
 
 Canonical CHUNK output stores an ordered descriptor table followed by aligned payload ranges. Each descriptor carries a type, flags, offset, and size. The reader also accepts valid relocated tables and payload ranges. A header-level primary selection can expose display hints without decoding every payload.
 
 The six standard payload types are `IMAGE`, `FONT`, `VECTOR`, `META`, `PALETTE`, and `FRAMES`. `ChunkType` also represents every nonzero custom `u16`, allowing unknown payloads to be inspected and preserved.
+
+### One file, five resources
+
+![Exact byte allocation for a MIRX CHUNK file containing two images, two fonts, and one vector scene](docs/binary-allocation.svg)
+
+This 1,589-byte example is emitted by the checked encoder: a 44-byte CHUNK header, five 16-byte descriptors, 1,461 payload bytes, and two 2-byte alignment gaps. The VECTOR scene references the preceding IMAGE and FONT chunks by table index without embedding their bytes again.
 
 ## Payload families
 
