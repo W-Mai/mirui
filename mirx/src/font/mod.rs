@@ -2,6 +2,7 @@ pub mod atlas;
 mod encoder;
 pub mod header;
 mod preflight;
+mod representation;
 
 use alloc::vec::Vec;
 
@@ -11,6 +12,11 @@ pub use crate::font::encoder::FontEncodeError;
 pub use crate::font::header::{FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind};
 pub use crate::font::preflight::FontReadError;
 use crate::font::preflight::checked_bytes_per_glyph;
+pub use crate::font::representation::{
+    FontRepresentation, FontRepresentationError, FontRepresentationFallback,
+    FontRepresentationKind, FontRepresentationMatch, FontRepresentationPreference,
+    FontRepresentationRequest, FontRepresentations, FontSelectionError,
+};
 use crate::reader::PayloadLimits;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
