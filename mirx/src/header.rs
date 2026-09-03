@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn truncated_buffer_is_rejected() {
         assert_eq!(FileHeader::parse(&[]), Err(ParseError::Truncated));
-        assert_eq!(FileHeader::parse(&[b'M', b'I']), Err(ParseError::Truncated));
+        assert_eq!(FileHeader::parse(b"MI"), Err(ParseError::Truncated));
     }
 
     #[test]
