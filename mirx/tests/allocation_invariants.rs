@@ -4,7 +4,7 @@ use std::cell::Cell;
 
 use mirx::image::{
     ColorDescription, PLANE_RECORD_LEN, PlaneMemoryLayout, RawImageAsset, RawImageView,
-    SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor,
+    SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor, SurfaceRequirements,
 };
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
@@ -264,6 +264,34 @@ fn raw_image_sizing_encoding_and_reopen_allocate_nothing() {
     assert_eq!(observed.1, 2);
     assert_eq!(allocations, 0);
     assert_eq!(&output[needed..], &[0xa5; 11]);
+}
+
+#[test]
+fn image_surface_memory_planning_allocates_nothing() {
+    let surface = SurfaceDescriptor::new(
+        319,
+        181,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let requirements = SurfaceRequirements::new()
+        .with_base_alignment(64)
+        .with_plane_alignment(64)
+        .with_width_multiple(64)
+        .with_stride_multiple(64);
+
+    let (observed, allocations) = count_allocations(|| {
+        let plan = surface.memory_plan(requirements).unwrap();
+        (
+            plan.byte_len(),
+            plan.buffer_requirements().base_alignment(),
+            plan.planes().map(|plane| plane.stride()).sum::<u32>(),
+        )
+    });
+
+    assert_eq!(observed, (92_864, 64, 704));
+    assert_eq!(allocations, 0);
 }
 
 #[test]
