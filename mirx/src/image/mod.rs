@@ -4,6 +4,7 @@ mod color;
 mod layout;
 mod memory;
 mod surface;
+mod view;
 
 pub use color::{
     ChromaSiting, ColorDescription, ColorDescriptionError, ColorMatrix, ColorPrimaries, ColorRange,
@@ -17,3 +18,4 @@ pub use memory::{
 pub use surface::{
     SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError,
 };
+pub use view::{RawImagePlane, RawImagePlanes, RawImageView, RawImageViewError};

@@ -3,8 +3,8 @@ use std::borrow::Cow;
 use std::cell::Cell;
 
 use mirx::image::{
-    ColorDescription, PLANE_RECORD_LEN, PlaneMemoryLayout, SURFACE_RECORD_LEN, SampleLayout,
-    SurfaceDescriptor,
+    ColorDescription, PLANE_RECORD_LEN, PlaneMemoryLayout, RawImageView, SURFACE_RECORD_LEN,
+    SampleLayout, SurfaceDescriptor,
 };
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
@@ -115,6 +115,48 @@ fn empty_media_payload() -> Vec<u8> {
     bytes
 }
 
+fn raw_a8_media_payload() -> Vec<u8> {
+    let surface = SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let section_count = 2u16;
+    let surface_offset = MEDIA_HEADER_LEN + usize::from(section_count) * MEDIA_SECTION_LEN;
+    let data_offset = surface_offset + SURFACE_RECORD_LEN;
+    let mut bytes = vec![0; data_offset + 1 + MEDIA_CRC_LEN];
+    bytes[0] = 1;
+    bytes[2..4].copy_from_slice(&section_count.to_le_bytes());
+    bytes[4..6].copy_from_slice(&(MEDIA_SECTION_LEN as u16).to_le_bytes());
+    bytes[8..12].copy_from_slice(&(MEDIA_HEADER_LEN as u32).to_le_bytes());
+    let payload_len = bytes.len() as u32;
+    bytes[12..16].copy_from_slice(&payload_len.to_le_bytes());
+    bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
+
+    bytes[MEDIA_HEADER_LEN..MEDIA_HEADER_LEN + 2]
+        .copy_from_slice(&mirx::media::MediaSectionKind::SURFACE.raw().to_le_bytes());
+    bytes[MEDIA_HEADER_LEN + 2..MEDIA_HEADER_LEN + 4].copy_from_slice(&1u16.to_le_bytes());
+    bytes[MEDIA_HEADER_LEN + 4..MEDIA_HEADER_LEN + 8]
+        .copy_from_slice(&(surface_offset as u32).to_le_bytes());
+    bytes[MEDIA_HEADER_LEN + 8..MEDIA_HEADER_LEN + 12]
+        .copy_from_slice(&(SURFACE_RECORD_LEN as u32).to_le_bytes());
+    bytes[MEDIA_HEADER_LEN + 12..MEDIA_HEADER_LEN + 16]
+        .copy_from_slice(&(SURFACE_RECORD_LEN as u32).to_le_bytes());
+
+    let data_entry = MEDIA_HEADER_LEN + MEDIA_SECTION_LEN;
+    bytes[data_entry..data_entry + 2]
+        .copy_from_slice(&mirx::media::MediaSectionKind::DATA.raw().to_le_bytes());
+    bytes[data_entry + 2..data_entry + 4].copy_from_slice(&1u16.to_le_bytes());
+    bytes[data_entry + 4..data_entry + 8].copy_from_slice(&(data_offset as u32).to_le_bytes());
+    bytes[data_entry + 8..data_entry + 12].copy_from_slice(&1u32.to_le_bytes());
+    bytes[data_entry + 12..data_entry + 16].copy_from_slice(&1u32.to_le_bytes());
+
+    surface
+        .encode_record_into(&mut bytes[surface_offset..data_offset])
+        .unwrap();
+    bytes[data_offset] = 0x7f;
+    let crc_offset = bytes.len() - MEDIA_CRC_LEN;
+    let crc = mirx::crc32(&bytes[..crc_offset]);
+    bytes[crc_offset..].copy_from_slice(&crc.to_le_bytes());
+    bytes
+}
+
 #[test]
 fn common_media_inspection_allocates_nothing() {
     let bytes = empty_media_payload();
@@ -171,6 +213,23 @@ fn image_plane_memory_record_round_trip_allocates_nothing() {
     let (observed, allocations) =
         count_allocations(|| PlaneMemoryLayout::from_record(plane, &record).unwrap());
     assert_eq!(observed, memory);
+    assert_eq!(allocations, 0);
+}
+
+#[test]
+fn raw_image_open_and_plane_iteration_allocate_nothing() {
+    let bytes = raw_a8_media_payload();
+    let (observed, allocations) = count_allocations(|| {
+        let image = RawImageView::open(&bytes).unwrap();
+        let plane = image.planes().next().unwrap();
+        (
+            image.plane_count(),
+            plane.bytes()[0],
+            plane.bytes().as_ptr(),
+        )
+    });
+    assert_eq!(observed.0, 1);
+    assert_eq!(observed.1, 0x7f);
     assert_eq!(allocations, 0);
 }
 

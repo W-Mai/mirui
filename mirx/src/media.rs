@@ -407,7 +407,7 @@ impl<'a> MediaPayload<'a> {
 }
 
 /// One borrowed section body and its validated descriptor.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MediaSection<'a> {
     index: u16,
     descriptor: MediaSectionDescriptor,
