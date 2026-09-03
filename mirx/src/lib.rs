@@ -11,6 +11,7 @@ mod flat;
 pub mod font;
 mod format;
 mod header;
+pub mod image;
 pub mod media;
 mod model;
 pub mod path;

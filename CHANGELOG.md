@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **IMAGE sample layout and color vocabulary.** Open `SampleLayout` values cover packed, indexed, alpha, luma, planar YUV, and interleaved YUV surfaces. Plane geometry and minimum stride are derived without allocation, indexed color tables remain separate from sample planes, and YUV color descriptions require explicit matrix, range, and chroma siting.
 - **Sectioned MIRX media payload foundation.** `media::MediaPayload` validates and borrows the common IMAGE/FONT header, ordered section directory, CRC boundary, open section identifiers, and open `CodingId` values. File-relative DATA alignment and actual runtime addresses are checked independently without allocation.
 - **Validated MIRX font representation selection.** `FontRepresentation` models fixed-size coverage, ranged signed-distance, and application-defined glyph samples. `FontRepresentations::select` applies deterministic size matching, explicit kind preferences, and opt-in nearest fallback without allocation or file-order dependence.
 - **MIRX `Reader` and `Document` APIs.** `Reader` provides strict, zero-allocation FLAT/CHUNK inspection, lazy chunk iteration, primary resolution, compliance findings, and bounded known-payload validation. `Document` provides source-backed copy-on-write editing with stable session-local chunk identities, ordered insert/remove/reorder operations, primary selection, raw capability policies, deterministic encoding, and byte-identical no-op finish.

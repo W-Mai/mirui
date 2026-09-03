@@ -88,13 +88,7 @@ impl ColorFormat {
 
     /// Smallest valid main-plane stride for one row of `width` pixels.
     pub const fn minimum_stride(self, width: u32) -> Option<u32> {
-        let bits = width as u64 * self.bits_per_pixel() as u64;
-        let bytes = bits.div_ceil(8);
-        if bytes > u32::MAX as u64 {
-            None
-        } else {
-            Some(bytes as u32)
-        }
+        minimum_stride_for_bits(width, self.bits_per_pixel())
     }
 
     /// FLAT extra bytes; RGB565A8 intentionally uses the v1 no-padding alpha
@@ -110,6 +104,16 @@ impl ColorFormat {
             },
             _ => Some(0),
         }
+    }
+}
+
+pub(crate) const fn minimum_stride_for_bits(width: u32, bits_per_pixel: u8) -> Option<u32> {
+    let bits = width as u64 * bits_per_pixel as u64;
+    let bytes = bits.div_ceil(8);
+    if bytes > u32::MAX as u64 {
+        None
+    } else {
+        Some(bytes as u32)
     }
 }
 

@@ -72,6 +72,8 @@ impl MediaSectionKind {
     pub const CODING_PARAMS: Self = Self(0x0003);
     pub const ACCESS_UNITS: Self = Self(0x0004);
     pub const DATA: Self = Self(0x0005);
+    /// RGBA entries referenced by an indexed IMAGE sample plane.
+    pub const COLOR_TABLE: Self = Self(0x0006);
 
     pub const FACE: Self = Self(0x0010);
     pub const CODEPOINTS: Self = Self(0x0011);

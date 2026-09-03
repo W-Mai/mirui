@@ -2,6 +2,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::borrow::Cow;
 use std::cell::Cell;
 
+use mirx::image::SampleLayout;
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
     AtlasFrames, ChunkFlags, ChunkType, Color, ColorFormat, Document, EncodeOptions, Frame,
@@ -119,6 +120,18 @@ fn common_media_inspection_allocates_nothing() {
         (media.header().section_count(), media.sections().count())
     });
     assert_eq!(observed, (0, 0));
+    assert_eq!(allocations, 0);
+}
+
+#[test]
+fn image_plane_geometry_allocates_nothing() {
+    let (observed, allocations) = count_allocations(|| {
+        SampleLayout::P010
+            .planes(319, 181)
+            .map(|plane| plane.minimum_stride().unwrap())
+            .sum::<u32>()
+    });
+    assert_eq!(observed, 1_278);
     assert_eq!(allocations, 0);
 }
 
