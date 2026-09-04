@@ -2,7 +2,9 @@ use alloc::{borrow::Cow, vec::Vec};
 
 use super::ColorTableView;
 use crate::header::{FLAT_HEADER_LEN, FlatHeader};
-use crate::image::{RawImageEncodeError, RawImageView, RawImageViewError, SurfaceView};
+use crate::image::{
+    ImageEncodeError as SurfaceEncodeError, RawImageView, RawImageViewError, SurfaceView,
+};
 use crate::wire::slice;
 use crate::{ColorFormat, ReadError};
 
@@ -11,7 +13,7 @@ use crate::{ColorFormat, ReadError};
 #[non_exhaustive]
 pub enum ImagePayloadError {
     Media(RawImageViewError),
-    Surface(RawImageEncodeError),
+    Surface(SurfaceEncodeError),
     NotRepresentableAsPacked,
     Truncated { needed: usize, available: usize },
     StrideTooSmall { minimum: u32, actual: u32 },
@@ -318,11 +320,11 @@ impl<'a> ImagePayloadPlan<'a> {
     }
 }
 
-impl From<RawImageEncodeError> for ImageEncodeError {
-    fn from(error: RawImageEncodeError) -> Self {
+impl From<SurfaceEncodeError> for ImageEncodeError {
+    fn from(error: SurfaceEncodeError) -> Self {
         match error {
-            RawImageEncodeError::AllocationFailed => Self::AllocationFailed,
-            RawImageEncodeError::BufferTooSmall { needed, available } => {
+            SurfaceEncodeError::AllocationFailed => Self::AllocationFailed,
+            SurfaceEncodeError::BufferTooSmall { needed, available } => {
                 Self::BufferTooSmall { needed, available }
             }
             error => Self::InvalidPayload(ImagePayloadError::Surface(error)),

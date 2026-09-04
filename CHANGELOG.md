@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Single-stream IMAGE authoring.** Borrowed encoded bytes and coding records support exact sizing, checked caller-buffer writes and canonical comparison. Default groups and indexes are omitted; palettes and input alignment remain explicit, with shared RAW/encoded directory and checksum emission.
+
 - **Exact aligned unit indexes.** Fixed and checkpointed u16/u32 length forms separate coded bytes from inter-unit padding. Shared group alignment determines starts without per-unit offset/size pairs; bounded lookup, bidirectional iteration and checked encoding remain allocation-free.
 
 - **Strided LZ4 plane decoding.** Logical history spans selected packed, indexed, alpha and YUV planes without reading physical padding. Bounded row cursors decode into aligned caller memory, preserve source regions and defer packed-tail normalization until all history reads finish.

@@ -37,6 +37,14 @@ impl<'a> CodingRecord<'a> {
     pub const fn params(self) -> &'a [u8] {
         self.params
     }
+
+    pub(crate) fn encode_entry(self, params_end: u32) -> [u8; CODING_RECORD_LEN] {
+        let mut bytes = [0; CODING_RECORD_LEN];
+        write_u16_le(&mut bytes, 0, self.id.raw());
+        write_u16_le(&mut bytes, 2, self.revision);
+        write_u32_le(&mut bytes, 4, params_end);
+        bytes
+    }
 }
 
 /// Validated, allocation-free ordinal access to a CODINGS section.
@@ -158,11 +166,10 @@ impl<'a> CodingTable<'a> {
         let mut params_end = 0;
         for (index, record) in records.iter().enumerate() {
             let offset = CODING_TABLE_HEADER_LEN + index * CODING_RECORD_LEN;
-            write_u16_le(out, offset, record.id.raw());
-            write_u16_le(out, offset + 2, record.revision);
             let start = params_start + params_end;
             params_end += record.params.len();
-            write_u32_le(out, offset + 4, params_end as u32);
+            out[offset..offset + CODING_RECORD_LEN]
+                .copy_from_slice(&record.encode_entry(params_end as u32));
             out[start..params_start + params_end].copy_from_slice(record.params);
         }
         Ok(needed)

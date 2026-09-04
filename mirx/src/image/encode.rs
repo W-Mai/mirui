@@ -4,12 +4,11 @@ use super::{
     PLANE_RECORD_LEN, PlaneMemoryError, PlaneMemoryLayout, SURFACE_RECORD_LEN, SurfaceDescriptor,
     SurfaceView,
 };
-use crate::crc32::Crc32;
+use super::{color_table::ColorTableError, output::PayloadOutput};
 use crate::media::{
-    MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionFlags,
-    MediaSectionKind,
+    MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionKind,
 };
-use crate::wire::{write_u16_le, write_u32_le};
+use crate::wire::write_u16_le;
 
 /// Borrowed RAW IMAGE authoring input.
 ///
@@ -60,55 +59,57 @@ impl<'planes, 'data> RawImageAsset<'planes, 'data> {
 
     /// Validates and borrows the decoded surface without encoding it.
     /// The result borrows plane bytes, not the temporary plane-reference array.
-    pub fn view(self) -> Result<SurfaceView<'data>, RawImageEncodeError> {
+    pub fn view(self) -> Result<SurfaceView<'data>, ImageEncodeError> {
         let expected = usize::from(self.surface.plane_count());
         if self.planes.len() != expected {
-            return Err(RawImageEncodeError::PlaneCountMismatch {
+            return Err(ImageEncodeError::PlaneCountMismatch {
                 expected,
                 actual: self.planes.len(),
             });
         }
         if let Some(memory) = self.memory {
             if memory.len() != expected {
-                return Err(RawImageEncodeError::MemoryLayoutCountMismatch {
+                return Err(ImageEncodeError::MemoryLayoutCountMismatch {
                     expected,
                     actual: memory.len(),
                 });
             }
         }
-        validate_color_table(self)?;
+        self.surface
+            .read_color_table(self.color_table)
+            .map_err(ImageEncodeError::from)?;
         validate_planes(self)?;
         Ok(SurfaceView::from_asset(self))
     }
 
     /// Returns the exact canonical payload length after complete validation.
-    pub fn encoded_len(self) -> Result<usize, RawImageEncodeError> {
+    pub fn encoded_len(self) -> Result<usize, ImageEncodeError> {
         self.view()?.encoded_len()
     }
 
     /// Validates before writing and preserves any unused output suffix.
-    pub fn encode_into(self, out: &mut [u8]) -> Result<usize, RawImageEncodeError> {
+    pub fn encode_into(self, out: &mut [u8]) -> Result<usize, ImageEncodeError> {
         self.view()?.encode_into(out)
     }
 
     /// Allocates one exact-length canonical payload.
-    pub fn encode(self) -> Result<Vec<u8>, RawImageEncodeError> {
+    pub fn encode(self) -> Result<Vec<u8>, ImageEncodeError> {
         self.view()?.encode()
     }
 }
 
 impl SurfaceView<'_> {
     /// Returns the exact canonical RAW IMAGE payload length.
-    pub fn encoded_len(self) -> Result<usize, RawImageEncodeError> {
+    pub fn encoded_len(self) -> Result<usize, ImageEncodeError> {
         Ok(RawImagePlan::new(self)?.payload_len)
     }
 
     /// Encodes a canonical RAW IMAGE into caller-owned storage.
     /// All validation completes before writing; the unused suffix is preserved.
-    pub fn encode_into(self, out: &mut [u8]) -> Result<usize, RawImageEncodeError> {
+    pub fn encode_into(self, out: &mut [u8]) -> Result<usize, ImageEncodeError> {
         let plan = RawImagePlan::new(self)?;
         if out.len() < plan.payload_len {
-            return Err(RawImageEncodeError::BufferTooSmall {
+            return Err(ImageEncodeError::BufferTooSmall {
                 needed: plan.payload_len,
                 available: out.len(),
             });
@@ -118,11 +119,11 @@ impl SurfaceView<'_> {
     }
 
     /// Allocates one exact-length canonical RAW IMAGE payload.
-    pub fn encode(self) -> Result<Vec<u8>, RawImageEncodeError> {
+    pub fn encode(self) -> Result<Vec<u8>, ImageEncodeError> {
         let plan = RawImagePlan::new(self)?;
         let mut out = Vec::new();
         out.try_reserve_exact(plan.payload_len)
-            .map_err(|_| RawImageEncodeError::AllocationFailed)?;
+            .map_err(|_| ImageEncodeError::AllocationFailed)?;
         out.resize(plan.payload_len, 0);
         plan.emit(PayloadOutput::buffer(&mut out));
         Ok(out)
@@ -132,7 +133,7 @@ impl SurfaceView<'_> {
     ///
     /// Semantically equivalent but noncanonical records or padding do not
     /// match. CRC and every payload byte participate in the comparison.
-    pub fn matches_payload(self, payload: &[u8]) -> Result<bool, RawImageEncodeError> {
+    pub fn matches_payload(self, payload: &[u8]) -> Result<bool, ImageEncodeError> {
         let plan = RawImagePlan::new(self)?;
         Ok(payload.len() == plan.payload_len && plan.emit(PayloadOutput::comparison(payload)))
     }
@@ -150,7 +151,7 @@ struct RawImagePlan<'a> {
 }
 
 impl<'a> RawImagePlan<'a> {
-    fn new(view: SurfaceView<'a>) -> Result<Self, RawImageEncodeError> {
+    fn new(view: SurfaceView<'a>) -> Result<Self, ImageEncodeError> {
         let mut has_planes = false;
         let mut canonical_offset = 0;
         let mut data_len = 0;
@@ -159,7 +160,7 @@ impl<'a> RawImagePlan<'a> {
             let canonical = PlaneMemoryLayout::builder(plane.geometry())
                 .with_data_offset(canonical_offset)
                 .build()
-                .map_err(|_| RawImageEncodeError::SizeOverflow)?;
+                .map_err(|_| ImageEncodeError::SizeOverflow)?;
             has_planes |= plane.memory() != canonical;
             canonical_offset = canonical.data_end();
             data_len = plane.memory().data_end();
@@ -180,12 +181,12 @@ impl<'a> RawImagePlan<'a> {
         let data_offset = cursor
             .checked_add(alignment - 1)
             .map(|value| value & !(alignment - 1))
-            .ok_or(RawImageEncodeError::SizeOverflow)?;
+            .ok_or(ImageEncodeError::SizeOverflow)?;
         let payload_len = data_offset
-            .checked_add(usize::try_from(data_len).map_err(|_| RawImageEncodeError::SizeOverflow)?)
+            .checked_add(usize::try_from(data_len).map_err(|_| ImageEncodeError::SizeOverflow)?)
             .and_then(|end| end.checked_add(MEDIA_CRC_LEN))
-            .ok_or(RawImageEncodeError::SizeOverflow)?;
-        u32::try_from(payload_len).map_err(|_| RawImageEncodeError::SizeOverflow)?;
+            .ok_or(ImageEncodeError::SizeOverflow)?;
+        u32::try_from(payload_len).map_err(|_| ImageEncodeError::SizeOverflow)?;
         Ok(Self {
             view,
             section_count,
@@ -253,112 +254,23 @@ impl<'a> RawImagePlan<'a> {
             out.write(table.as_bytes());
         }
         out.pad_to(self.data_offset);
-        out.in_data = true;
+        out.begin_data();
         for plane in self.view.planes() {
             out.pad_to(self.data_offset + plane.memory().data_offset() as usize);
             out.write(plane.bytes());
         }
-        debug_assert_eq!(out.cursor + MEDIA_CRC_LEN, self.payload_len);
+        debug_assert_eq!(out.position() + MEDIA_CRC_LEN, self.payload_len);
         out.finish()
     }
 }
 
-enum Destination<'a> {
-    Buffer(&'a mut [u8]),
-    Comparison { bytes: &'a [u8], equal: bool },
-}
-
-struct PayloadOutput<'a> {
-    destination: Destination<'a>,
-    cursor: usize,
-    crc: Crc32,
-    metadata_crc: Crc32,
-    in_data: bool,
-}
-
-impl<'a> PayloadOutput<'a> {
-    fn buffer(bytes: &'a mut [u8]) -> Self {
-        Self {
-            destination: Destination::Buffer(bytes),
-            cursor: 0,
-            crc: Crc32::new(),
-            metadata_crc: Crc32::new(),
-            in_data: false,
-        }
-    }
-
-    fn comparison(bytes: &'a [u8]) -> Self {
-        Self {
-            destination: Destination::Comparison { bytes, equal: true },
-            cursor: 0,
-            crc: Crc32::new(),
-            metadata_crc: Crc32::new(),
-            in_data: false,
-        }
-    }
-
-    fn header(&mut self, bytes: &[u8; MEDIA_HEADER_LEN]) {
-        self.write(&bytes[..4]);
-        self.cursor = MEDIA_HEADER_LEN;
-    }
-
-    fn write_at(&mut self, offset: usize, bytes: &[u8]) {
-        let end = offset + bytes.len();
-        match &mut self.destination {
-            Destination::Buffer(out) => out[offset..end].copy_from_slice(bytes),
-            Destination::Comparison {
-                bytes: candidate,
-                equal,
-            } => {
-                *equal &= candidate[offset..end] == *bytes;
-            }
-        }
-    }
-
-    fn write(&mut self, bytes: &[u8]) {
-        self.write_at(self.cursor, bytes);
-        if self.in_data {
-            self.crc.update(bytes);
-        } else {
-            self.metadata_crc.update(bytes);
-        }
-        self.cursor += bytes.len();
-    }
-
-    fn pad_to(&mut self, offset: usize) {
-        debug_assert!(self.cursor <= offset);
-        const ZERO: [u8; 64] = [0; 64];
-        while self.cursor < offset {
-            self.write(&ZERO[..(offset - self.cursor).min(ZERO.len())]);
-        }
-    }
-
-    fn section(&mut self, kind: MediaSectionKind, offset: usize, size: usize) {
-        let mut entry = [0; MEDIA_SECTION_LEN];
-        write_u16_le(&mut entry, 0, kind.raw());
-        write_u16_le(&mut entry, 2, MediaSectionFlags::REQUIRED.bits());
-        write_u32_le(&mut entry, 4, offset as u32);
-        write_u32_le(&mut entry, 8, size as u32);
-        self.write(&entry);
-    }
-
-    fn finish(mut self) -> bool {
-        let crc = core::mem::replace(&mut self.crc, Crc32::new()).finish();
-        self.in_data = false;
-        self.write(&crc.to_le_bytes());
-        let metadata_crc = core::mem::replace(&mut self.metadata_crc, Crc32::new()).finish();
-        self.write_at(4, &metadata_crc.to_le_bytes());
-        match self.destination {
-            Destination::Buffer(_) => true,
-            Destination::Comparison { equal, .. } => equal,
-        }
-    }
-}
-
-/// Failure while validating or encoding a RAW IMAGE asset.
+/// Failure while validating or encoding an IMAGE asset.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum RawImageEncodeError {
+pub enum ImageEncodeError {
+    UnexpectedCoding(crate::media::CodingId),
+    Codings(crate::media::CodingTableError),
+    Group(super::UnitGroupError),
     PlaneCountMismatch {
         expected: usize,
         actual: usize,
@@ -394,64 +306,53 @@ pub enum RawImageEncodeError {
     AllocationFailed,
 }
 
-fn validate_color_table(asset: RawImageAsset<'_, '_>) -> Result<usize, RawImageEncodeError> {
-    match (
-        asset.surface.sample_layout().color_table_entries(),
-        asset.color_table,
-    ) {
-        (Some(entries), Some(table)) => {
-            let expected = usize::try_from(entries)
-                .ok()
-                .and_then(|entries| entries.checked_mul(4))
-                .ok_or(RawImageEncodeError::SizeOverflow)?;
-            if table.len() != expected {
-                return Err(RawImageEncodeError::ColorTableLengthMismatch {
-                    expected,
-                    actual: table.len(),
-                });
+impl From<ColorTableError> for ImageEncodeError {
+    fn from(error: ColorTableError) -> Self {
+        match error {
+            ColorTableError::Missing => Self::MissingColorTable,
+            ColorTableError::Unexpected => Self::UnexpectedColorTable,
+            ColorTableError::SizeMismatch { expected, actual } => {
+                Self::ColorTableLengthMismatch { expected, actual }
             }
-            Ok(expected)
+            ColorTableError::SizeOverflow => Self::SizeOverflow,
         }
-        (Some(_), None) => Err(RawImageEncodeError::MissingColorTable),
-        (None, Some(_)) => Err(RawImageEncodeError::UnexpectedColorTable),
-        (None, None) => Ok(0),
     }
 }
 
-fn validate_planes(asset: RawImageAsset<'_, '_>) -> Result<(u32, u8), RawImageEncodeError> {
+fn validate_planes(asset: RawImageAsset<'_, '_>) -> Result<(u32, u8), ImageEncodeError> {
     let mut previous_end = 0;
     let mut alignment_log2 = 0;
     for (index, bytes) in asset.planes.iter().enumerate() {
-        let index = u8::try_from(index).map_err(|_| RawImageEncodeError::SizeOverflow)?;
+        let index = u8::try_from(index).map_err(|_| ImageEncodeError::SizeOverflow)?;
         let geometry = asset
             .surface
             .plane(index)
-            .ok_or(RawImageEncodeError::SizeOverflow)?;
+            .ok_or(ImageEncodeError::SizeOverflow)?;
         let memory = match asset.memory {
             Some(memory) => {
                 let layout = memory[usize::from(index)];
                 layout
                     .validate_for(geometry)
-                    .map_err(|error| RawImageEncodeError::InvalidPlaneLayout { index, error })?;
+                    .map_err(|error| ImageEncodeError::InvalidPlaneLayout { index, error })?;
                 layout
             }
             None => PlaneMemoryLayout::builder(geometry)
                 .with_data_offset(previous_end)
                 .build()
-                .map_err(|error| RawImageEncodeError::InvalidPlaneLayout { index, error })?,
+                .map_err(|error| ImageEncodeError::InvalidPlaneLayout { index, error })?,
         };
 
         let expected =
-            usize::try_from(memory.byte_len()).map_err(|_| RawImageEncodeError::SizeOverflow)?;
+            usize::try_from(memory.byte_len()).map_err(|_| ImageEncodeError::SizeOverflow)?;
         if bytes.len() != expected {
-            return Err(RawImageEncodeError::PlaneLengthMismatch {
+            return Err(ImageEncodeError::PlaneLengthMismatch {
                 index,
                 expected,
                 actual: bytes.len(),
             });
         }
         if memory.data_offset() < previous_end {
-            return Err(RawImageEncodeError::PlaneRangesOverlap {
+            return Err(ImageEncodeError::PlaneRangesOverlap {
                 previous: index - 1,
                 next: index,
             });
@@ -600,7 +501,7 @@ mod tests {
         let mut out = [0xa5; 16];
         assert_eq!(
             invalid.encode_into(&mut out),
-            Err(RawImageEncodeError::PlaneLengthMismatch {
+            Err(ImageEncodeError::PlaneLengthMismatch {
                 index: 0,
                 expected: 4,
                 actual: 3,
@@ -614,7 +515,7 @@ mod tests {
         let needed = valid.encoded_len().unwrap();
         assert_eq!(
             valid.encode_into(&mut out),
-            Err(RawImageEncodeError::BufferTooSmall {
+            Err(ImageEncodeError::BufferTooSmall {
                 needed,
                 available: out.len(),
             })
@@ -630,13 +531,13 @@ mod tests {
         let planes: &[&[u8]] = &[&pixel];
         assert_eq!(
             RawImageAsset::new(indexed, planes).encoded_len(),
-            Err(RawImageEncodeError::MissingColorTable)
+            Err(ImageEncodeError::MissingColorTable)
         );
         assert_eq!(
             RawImageAsset::new(indexed, planes)
                 .with_color_table(&[0; 7])
                 .encoded_len(),
-            Err(RawImageEncodeError::ColorTableLengthMismatch {
+            Err(ImageEncodeError::ColorTableLengthMismatch {
                 expected: 8,
                 actual: 7,
             })
@@ -647,7 +548,7 @@ mod tests {
         let none: &[&[u8]] = &[];
         assert_eq!(
             RawImageAsset::new(rgb, none).encoded_len(),
-            Err(RawImageEncodeError::PlaneCountMismatch {
+            Err(ImageEncodeError::PlaneCountMismatch {
                 expected: 1,
                 actual: 0,
             })
@@ -665,7 +566,7 @@ mod tests {
             RawImageAsset::new(large, planes)
                 .with_memory_layouts(&[memory])
                 .encoded_len(),
-            Err(RawImageEncodeError::InvalidPlaneLayout {
+            Err(ImageEncodeError::InvalidPlaneLayout {
                 index: 0,
                 error: PlaneMemoryError::AllocationWidthTooSmall {
                     minimum: 4,

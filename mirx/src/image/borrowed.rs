@@ -6,7 +6,7 @@ pub use rows::{PlaneAccessError, PlaneRows};
 pub use transfer::SurfaceCopyError;
 
 use super::{
-    ColorDescription, PlaneMemoryLayout, RawImageAsset, RawImageEncodeError, RawImageView,
+    ColorDescription, ImageEncodeError, PlaneMemoryLayout, RawImageAsset, RawImageView,
     SampleLayout, SurfaceDescriptor, SurfacePlane,
 };
 use crate::{ColorFormat, ColorTableView, ImageView};
@@ -102,7 +102,7 @@ impl<'a> RawImageView<'a> {
 
 impl<'a> ImageView<'a> {
     /// Exposes packed FLAT or atlas pixels through the common surface model.
-    pub fn surface(self) -> Result<SurfaceView<'a>, RawImageEncodeError> {
+    pub fn surface(self) -> Result<SurfaceView<'a>, ImageEncodeError> {
         let layout = SampleLayout::from_color_format(self.format());
         let color = if layout.is_alpha() {
             ColorDescription::NONE
@@ -114,14 +114,14 @@ impl<'a> ImageView<'a> {
         let main = PlaneMemoryLayout::builder(surface.plane(0).expect("main plane"))
             .with_stride(self.stride())
             .build()
-            .map_err(|error| RawImageEncodeError::InvalidPlaneLayout { index: 0, error })?;
+            .map_err(|error| ImageEncodeError::InvalidPlaneLayout { index: 0, error })?;
         let planes = [self.main(), self.extra().unwrap_or(&[])];
         let mut memory = [main; 2];
         if self.format() == ColorFormat::RGB565A8 {
             memory[1] = PlaneMemoryLayout::builder(surface.plane(1).expect("alpha plane"))
                 .with_data_offset(main.data_end())
                 .build()
-                .map_err(|error| RawImageEncodeError::InvalidPlaneLayout { index: 1, error })?;
+                .map_err(|error| ImageEncodeError::InvalidPlaneLayout { index: 1, error })?;
         }
         let count = usize::from(surface.plane_count());
         let mut asset =

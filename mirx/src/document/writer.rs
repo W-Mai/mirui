@@ -49,7 +49,7 @@ impl<'a> SegmentedImagePlan<'a> {
     fn new(image: ImageSegments<'a>) -> Result<Self, EncodeError> {
         let payload = ImagePayloadPlan::from_planes(image).map_err(|error| match error {
             ImagePayloadError::SizeOverflow
-            | ImagePayloadError::Surface(crate::image::RawImageEncodeError::SizeOverflow) => {
+            | ImagePayloadError::Surface(crate::image::ImageEncodeError::SizeOverflow) => {
                 EncodeError::SizeOverflow
             }
             _ => EncodeError::InvalidPayload {

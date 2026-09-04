@@ -9,6 +9,9 @@ use crate::media::{
 };
 use crate::payload::ColorTableView;
 
+mod encode;
+pub use encode::EncodedImageAsset;
+
 #[cfg(test)]
 mod tests;
 

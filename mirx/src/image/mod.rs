@@ -51,6 +51,7 @@ mod encoded;
 mod grid;
 mod layout;
 mod memory;
+mod output;
 mod plan;
 mod surface;
 mod units;
@@ -64,8 +65,10 @@ pub use color::{
     TransferFunction,
 };
 pub use coverage::{CoverageBudget, CoverageError};
-pub use encode::{RawImageAsset, RawImageEncodeError};
-pub use encoded::{EncodedImageError, EncodedImageView, ImageGroupIter, ImageGroups};
+pub use encode::{ImageEncodeError, RawImageAsset};
+pub use encoded::{
+    EncodedImageAsset, EncodedImageError, EncodedImageView, ImageGroupIter, ImageGroups,
+};
 pub use grid::{Region, RegionError, TileGrid, TileGridError, Tiles};
 pub use layout::{PlaneGeometries, PlaneGeometry, PlaneRole, SampleLayout};
 pub use memory::{

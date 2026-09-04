@@ -15,6 +15,52 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn encoded_image_authoring_and_decode_use_only_caller_storage() {
+    use mirx::{
+        coding::Rle,
+        image::{CoverageBudget, EncodedImageAsset, EncodedImageView},
+    };
+    let surface = SurfaceDescriptor::new(
+        3,
+        3,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let mut bytes = [0xad; 256];
+    let mut stream = [0; 32];
+    let mut output = [0; 320];
+    let mut slots = [None];
+    let (_, allocations) = count_allocations(|| {
+        let codec = Rle::new();
+        let len = codec.encode_into(&[128; 17], &mut stream).unwrap();
+        let asset = EncodedImageAsset::new(surface, codec.record(), &stream[..len])
+            .with_input_alignment(64);
+        let size = asset.encoded_len().unwrap();
+        assert_eq!(asset.encode_into(&mut bytes), Ok(size));
+        assert_eq!(asset.matches_payload(&bytes[..size]), Ok(true));
+        let view = EncodedImageView::open_at(&bytes[..size], 0).unwrap();
+        let groups = view
+            .groups_into(&mut slots, &mut CoverageBudget::new(100))
+            .unwrap();
+        assert_eq!(groups.validate_unit(0, 0), Ok(len as u32));
+        let plan = groups
+            .get(0)
+            .unwrap()
+            .get(0)
+            .unwrap()
+            .decode_plan(SurfaceRequirements::new().with_stride_multiple(64))
+            .unwrap();
+        let decoded = plan.decode_into(&mut output).unwrap();
+        assert_eq!(
+            decoded.plane(1).unwrap().row(1).unwrap(),
+            Some(&[128; 4][..])
+        );
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn aligned_indexes_keep_checkpoints_and_exact_ranges_without_allocation() {
     use mirx::media::{UnitIndex, UnitIndexEncoding};
     let mut bytes = [0xad; 272];

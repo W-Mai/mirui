@@ -201,7 +201,7 @@ pub(super) fn encode_error_for_image(_: ImagePayloadError) -> EncodeError {
 fn plan_image_payload(image: ResolvedImagePlanes<'_>) -> Result<ImagePayloadPlan<'_>, EncodeError> {
     ImagePayloadPlan::from_planes(image).map_err(|error| match error {
         ImagePayloadError::SizeOverflow
-        | ImagePayloadError::Surface(crate::image::RawImageEncodeError::SizeOverflow) => {
+        | ImagePayloadError::Surface(crate::image::ImageEncodeError::SizeOverflow) => {
             EncodeError::SizeOverflow
         }
         _ => EncodeError::InvalidPayload {
