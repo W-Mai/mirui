@@ -1,5 +1,8 @@
 use super::SurfaceView;
-use crate::image::{BufferRequirementError, SurfaceMemoryPlan};
+use crate::image::{
+    BufferRequirementError, BufferRequirements, Region, RegionMemoryPlan, SurfaceDescriptor,
+    SurfaceMemoryPlan,
+};
 
 /// Failure before any destination pixel or padding is changed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -26,21 +29,7 @@ impl<'source> SurfaceView<'source> {
     where
         'source: 'output,
     {
-        if self.surface != plan.surface() {
-            return Err(SurfaceCopyError::SurfaceMismatch);
-        }
-        for (index, plane) in self.planes().enumerate() {
-            let flags = plane.memory().flags().bits();
-            if flags != 0 {
-                return Err(SurfaceCopyError::UnsupportedPlaneFlags {
-                    index: index as u8,
-                    flags,
-                });
-            }
-        }
-        plan.buffer_requirements()
-            .validate(output)
-            .map_err(SurfaceCopyError::Output)?;
+        self.check_copy(plan.surface(), plan.buffer_requirements(), output)?;
 
         let output = &mut output[..plan.byte_len() as usize];
         output.fill(0);
@@ -61,8 +50,55 @@ impl<'source> SurfaceView<'source> {
             }
         }
 
-        let output: &'output [u8] = output;
         Ok(SurfaceView::from_plan(plan, output, self.color_table))
+    }
+
+    /// Copies an exact region into cropped output, with zero physical padding.
+    ///
+    /// No allocation or color conversion occurs. Palette bytes remain borrowed
+    /// from the source. Invalid source identity, storage flags or caller buffers
+    /// are rejected before writes; unused output suffix bytes remain unchanged.
+    pub fn copy_region_into<'output>(
+        self,
+        output: &'output mut [u8],
+        plan: RegionMemoryPlan,
+    ) -> Result<SurfaceView<'output>, SurfaceCopyError>
+    where
+        'source: 'output,
+    {
+        let memory = plan.memory_plan();
+        self.check_copy(plan.source_surface(), memory.buffer_requirements(), output)?;
+        let output = &mut output[..memory.byte_len() as usize];
+        output.fill(0);
+        for (index, source) in self.planes().enumerate() {
+            let geometry = source.geometry();
+            let region = Region::new(0, 0, geometry.width(), geometry.height())
+                .expect("logical plane bounds");
+            plan.copy_plane(source, index as u8, region, output);
+        }
+        Ok(SurfaceView::from_plan(memory, output, self.color_table))
+    }
+
+    fn check_copy(
+        self,
+        source: SurfaceDescriptor,
+        buffer: BufferRequirements,
+        output: &[u8],
+    ) -> Result<(), SurfaceCopyError> {
+        if self.surface != source {
+            return Err(SurfaceCopyError::SurfaceMismatch);
+        }
+        for (index, plane) in self.planes().enumerate() {
+            let flags = plane.memory().flags().bits();
+            if flags != 0 {
+                return Err(SurfaceCopyError::UnsupportedPlaneFlags {
+                    index: index as u8,
+                    flags,
+                });
+            }
+        }
+        buffer.validate(output).map_err(SurfaceCopyError::Output)?;
+        Ok(())
     }
 }
 

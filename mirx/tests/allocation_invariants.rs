@@ -15,6 +15,41 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn exact_indexed_crops_reuse_caller_storage_and_borrow_the_palette() {
+    let surface = SurfaceDescriptor::new(9, 2, SampleLayout::I2, ColorDescription::SRGB).unwrap();
+    let palette = [0; 16];
+    let source = RawImageAsset::new(surface, &[&[0x1b, 0xe4, 0x80, 0xe4, 0x1b, 0x40]])
+        .with_color_table(&palette)
+        .view()
+        .unwrap();
+    #[repr(align(64))]
+    struct Buffer([u8; 256]);
+    let mut output = Buffer([0xa5; 256]);
+    let (_, allocations) = count_allocations(|| {
+        let plan = surface
+            .region_plan(
+                surface.region(3, 0, 5, 2).unwrap(),
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_stride_multiple(64),
+            )
+            .unwrap();
+        let view = source.copy_region_into(&mut output.0, plan).unwrap();
+        assert_eq!(
+            view.color_table().unwrap().as_bytes().as_ptr(),
+            palette.as_ptr()
+        );
+        assert_eq!(view.plane(0).unwrap().row(0).unwrap(), Some(&[0xf9, 0][..]));
+        assert_eq!(
+            view.plane(0).unwrap().row(1).unwrap(),
+            Some(&[0x06, 0xc0][..])
+        );
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(&output.0[128..], &[0xa5; 128]);
+}
+
+#[test]
 fn prepared_image_decode_uses_only_caller_output_workspace_and_borrowed_palette() {
     use mirx::{
         PayloadLimits,

@@ -61,6 +61,21 @@ impl Region {
             && other.y() < self.bottom()
     }
 
+    /// Returns the positive-area intersection in the same coordinate space.
+    pub fn intersection(self, other: Self) -> Option<Self> {
+        if !self.intersects(other) {
+            return None;
+        }
+        let x = self.x.max(other.x);
+        let y = self.y.max(other.y);
+        Some(Self {
+            x,
+            y,
+            width: self.right().min(other.right()) - x,
+            height: self.bottom().min(other.bottom()) - y,
+        })
+    }
+
     /// Maps an exact surface region into one plane's element coordinates.
     ///
     /// Interior boundaries must align to subsampling. Only the outer surface

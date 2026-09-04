@@ -283,6 +283,7 @@ impl FusedIterator for SurfaceMemoryPlanes {}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum SurfacePlanError {
+    Region(super::RegionError),
     InvalidBaseAlignment(u32),
     InvalidPlaneAlignment(u32),
     InvalidWidthMultiple,

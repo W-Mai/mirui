@@ -66,6 +66,12 @@ impl SurfaceDescriptor {
         self.height
     }
 
+    pub(super) const fn with_extent(mut self, width: u32, height: u32) -> Self {
+        self.width = width;
+        self.height = height;
+        self
+    }
+
     pub const fn sample_layout(self) -> SampleLayout {
         self.sample_layout
     }

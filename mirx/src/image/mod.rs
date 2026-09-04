@@ -54,6 +54,7 @@ mod memory;
 mod output;
 mod plan;
 mod reference;
+mod region;
 mod samples;
 mod surface;
 mod units;
@@ -83,6 +84,7 @@ pub use plan::{
     SurfacePlanError, SurfaceRequirements,
 };
 pub use reference::{ImageReadError, ImageRef};
+pub use region::RegionMemoryPlan;
 pub use surface::{
     SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError,
 };

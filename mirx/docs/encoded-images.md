@@ -163,6 +163,10 @@ This API requests the whole image. Row/ROI selection, streamed reads, accelerati
 
 ## Placing decoded units
 
+`SurfaceDescriptor::region_plan(region, requirements)` returns a `RegionMemoryPlan` retaining original source coordinates and a cropped `SurfaceMemoryPlan`. The cropped descriptor preserves sample layout, color, flags and pixel aspect. Interior subsampled-plane boundaries must be exact; odd outer edges are allowed. Packed 1/2/4-bit sample origins remain precise without byte rounding.
+
+`DecodedUnit::copy_region_into(output, region_plan)` writes only the intersection of an already decoded unit with the requested crop. Other samples, planes, padding and suffix bytes stay unchanged. `SurfaceView::copy_region_into` transfers a complete RAW crop and clears output padding, retaining its borrowed palette. These paths share plane-coordinate and sample-bit placement; they do not select encoded units, reduce a codec's staging needs or imply partial Flash reads.
+
 `DecodedUnit::copy_into(output, whole_surface_plan)` writes selected samples into a checked whole-surface allocation at their original positions. Planar units retain the original plane index and chroma coordinates; they are not renumbered as plane zero. The target descriptor must match the source surface.
 
 Only the unit's sample bits change. Other samples, absent planes, row padding, allocation rows, inter-plane gaps and the output suffix remain untouched. For 1/2/4-bit layouts, masked edge writes preserve neighbouring pixels in the same byte. Byte-aligned interiors use bulk copies; unaligned rows transfer shifted bytes without per-pixel staging.
