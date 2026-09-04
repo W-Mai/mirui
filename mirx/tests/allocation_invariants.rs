@@ -599,3 +599,33 @@ fn logical_plane_rows_borrow_without_allocating() {
     });
     assert_eq!(allocations, 0);
 }
+
+#[test]
+fn sparse_unit_selection_borrows_and_encodes_without_allocation() {
+    use mirx::media::{UnitSelection, UnitSelectionEncoding};
+    let cells = [0, 7, 255, 256, 511];
+    let mut list = [0; 20];
+    let mut bitmap = [0; 72];
+    let (_, allocations) = count_allocations(|| {
+        UnitSelectionEncoding::List
+            .encode_into(512, &cells, &mut list)
+            .unwrap();
+        UnitSelectionEncoding::Bitmap
+            .encode_into(512, &cells, &mut bitmap)
+            .unwrap();
+        for selection in [
+            UnitSelection::list(512, &list).unwrap(),
+            UnitSelection::bitmap(512, &bitmap).unwrap(),
+        ] {
+            assert!(selection.iter().eq(cells));
+            assert_eq!(selection.get(4), Some(511));
+            assert_eq!(selection.position(256), Some(3));
+            assert_eq!(selection.iter().nth_back(2), Some(255));
+        }
+        assert_eq!(
+            UnitSelection::all(u32::MAX).unwrap().iter().last(),
+            Some(u32::MAX - 1)
+        );
+    });
+    assert_eq!(allocations, 0);
+}

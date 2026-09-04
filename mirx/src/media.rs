@@ -9,6 +9,7 @@ use core::iter::FusedIterator;
 mod coding;
 mod index;
 mod integrity;
+mod selection;
 pub use coding::{
     CODING_RECORD_LEN, CODING_TABLE_HEADER_LEN, CodingRecord, CodingTable, CodingTableError,
 };
@@ -17,6 +18,10 @@ pub use index::{
 };
 pub use integrity::{
     INTEGRITY_RECORD_LEN, IntegrityError, IntegrityRange, IntegrityRanges, IntegrityTable,
+};
+pub use selection::{
+    SELECTION_CHECKPOINT_INTERVAL, SelectedUnits, UnitSelection, UnitSelectionEncoding,
+    UnitSelectionError,
 };
 
 use crate::crc32::Crc32;
