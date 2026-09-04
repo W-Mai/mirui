@@ -1,10 +1,15 @@
 use core::iter::FusedIterator;
 
+mod composition;
 mod frame_map;
 mod owned;
 mod sequence;
 mod timing;
 
+pub use composition::{
+    FRAME_COMPOSITION_RECORD_LEN, FrameComposition, FrameCompositionAsset, FrameCompositionError,
+    FrameCompositionOverride, FrameCompositionTable,
+};
 pub use frame_map::{FrameCounts, FrameMap, FrameMapAsset, FrameMapError, FrameMapIter};
 pub use owned::{
     AnimationFrames, AnimationSettings, AssetFrameIter, AtlasFrames, FramesAsset,

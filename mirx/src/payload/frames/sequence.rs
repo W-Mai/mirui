@@ -15,7 +15,7 @@ pub enum BlendMode {
 }
 
 impl BlendMode {
-    fn open(value: u8) -> Result<Self, FrameSequenceError> {
+    pub(super) fn open(value: u8) -> Result<Self, FrameSequenceError> {
         match value {
             0 => Ok(Self::Replace),
             1 => Ok(Self::SourceOver),
@@ -38,7 +38,7 @@ pub enum DisposalMode {
 }
 
 impl DisposalMode {
-    fn open(value: u8) -> Result<Self, FrameSequenceError> {
+    pub(super) fn open(value: u8) -> Result<Self, FrameSequenceError> {
         match value {
             0 => Ok(Self::Keep),
             1 => Ok(Self::Clear),
