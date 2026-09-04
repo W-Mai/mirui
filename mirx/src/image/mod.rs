@@ -50,6 +50,7 @@ mod layout;
 mod memory;
 mod plan;
 mod surface;
+mod units;
 mod view;
 
 pub use borrowed::{
@@ -72,5 +73,9 @@ pub use plan::{
 };
 pub use surface::{
     SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError,
+};
+pub use units::{
+    DecodeUnitRef, DecodeUnits, GroupPlanes, ReferenceMode, UnitGroup, UnitGroupBuilder,
+    UnitGroupError,
 };
 pub use view::{RawImagePlanes, RawImageView, RawImageViewError, SurfacePlane};

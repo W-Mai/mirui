@@ -629,3 +629,34 @@ fn sparse_unit_selection_borrows_and_encodes_without_allocation() {
     });
     assert_eq!(allocations, 0);
 }
+
+#[test]
+fn image_units_resolve_shared_metadata_without_allocation() {
+    use mirx::image::UnitGroup;
+    use mirx::media::{CodingId, CodingRecord, UnitIndex, UnitSelection};
+    let surface = SurfaceDescriptor::new(
+        5,
+        3,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let cells = [0, 0, 0, 0, 5, 0, 0, 0];
+    let data = [1, 2, 3, 4];
+    let (_, allocations) = count_allocations(|| {
+        let group =
+            UnitGroup::builder(surface, CodingRecord::new(CodingId::new(19), 1, &[]), &data)
+                .with_tiles(2, 2)
+                .with_selection(UnitSelection::list(6, &cells).unwrap())
+                .with_index(UnitIndex::fixed(2, 2).unwrap())
+                .build()
+                .unwrap();
+        assert_eq!(group.iter().count(), 2);
+        let unit = group.cell(5).unwrap();
+        assert_eq!(unit.data().as_ptr(), data[2..].as_ptr());
+        assert_eq!(unit.plane_region(1).unwrap().x(), 2);
+        assert_eq!(unit.plane_region(1).unwrap().y(), 1);
+        assert_eq!(group.iter().nth_back(1).unwrap().cell(), 0);
+    });
+    assert_eq!(allocations, 0);
+}
