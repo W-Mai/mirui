@@ -327,7 +327,6 @@ impl<'a> PayloadOutput<'a> {
         write_u16_le(&mut entry, 2, MediaSectionFlags::REQUIRED.bits());
         write_u32_le(&mut entry, 4, offset as u32);
         write_u32_le(&mut entry, 8, size as u32);
-        write_u32_le(&mut entry, 12, size as u32);
         self.write(&entry);
     }
 

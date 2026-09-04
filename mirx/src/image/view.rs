@@ -127,7 +127,6 @@ impl<'a> RawImageView<'a> {
         let surface = SurfaceDescriptor::from_record(surface_section.bytes())
             .map_err(RawImageViewError::Surface)?;
         let data = data.ok_or(RawImageViewError::MissingSection(MediaSectionKind::DATA))?;
-        validate_raw_section_size(data)?;
 
         let color_table = validate_color_table(surface, color_table_section)?;
         let view = Self {
@@ -323,11 +322,6 @@ pub enum RawImageViewError {
         expected: usize,
         actual: usize,
     },
-    SectionDecodedSizeMismatch {
-        kind: MediaSectionKind,
-        expected: u32,
-        actual: u32,
-    },
     Surface(SurfaceRecordError),
     InvalidPlaneRecord {
         index: u8,
@@ -366,29 +360,6 @@ fn validate_section_size(
     if actual != expected {
         return Err(RawImageViewError::SectionSizeMismatch {
             kind,
-            expected,
-            actual,
-        });
-    }
-    let expected_decoded = u32::try_from(expected).map_err(|_| RawImageViewError::SizeOverflow)?;
-    let actual_decoded = section.descriptor().decoded_size();
-    if actual_decoded != expected_decoded {
-        return Err(RawImageViewError::SectionDecodedSizeMismatch {
-            kind,
-            expected: expected_decoded,
-            actual: actual_decoded,
-        });
-    }
-    Ok(())
-}
-
-fn validate_raw_section_size(section: MediaSection<'_>) -> Result<(), RawImageViewError> {
-    let expected =
-        u32::try_from(section.bytes().len()).map_err(|_| RawImageViewError::SizeOverflow)?;
-    let actual = section.descriptor().decoded_size();
-    if actual != expected {
-        return Err(RawImageViewError::SectionDecodedSizeMismatch {
-            kind: section.descriptor().kind(),
             expected,
             actual,
         });
@@ -519,7 +490,6 @@ mod tests {
             write_u16_le(&mut out, entry + 2, MediaSectionFlags::REQUIRED.bits());
             write_u32_le(&mut out, entry + 4, offset as u32);
             write_u32_le(&mut out, entry + 8, bytes.len() as u32);
-            write_u32_le(&mut out, entry + 12, bytes.len() as u32);
             out[offset..offset + bytes.len()].copy_from_slice(bytes);
         }
         reseal(&mut out);

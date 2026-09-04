@@ -136,8 +136,6 @@ fn raw_a8_media_payload() -> Vec<u8> {
         .copy_from_slice(&(surface_offset as u32).to_le_bytes());
     bytes[MEDIA_HEADER_LEN + 8..MEDIA_HEADER_LEN + 12]
         .copy_from_slice(&(SURFACE_RECORD_LEN as u32).to_le_bytes());
-    bytes[MEDIA_HEADER_LEN + 12..MEDIA_HEADER_LEN + 16]
-        .copy_from_slice(&(SURFACE_RECORD_LEN as u32).to_le_bytes());
 
     let data_entry = MEDIA_HEADER_LEN + MEDIA_SECTION_LEN;
     bytes[data_entry..data_entry + 2]
@@ -145,7 +143,6 @@ fn raw_a8_media_payload() -> Vec<u8> {
     bytes[data_entry + 2..data_entry + 4].copy_from_slice(&1u16.to_le_bytes());
     bytes[data_entry + 4..data_entry + 8].copy_from_slice(&(data_offset as u32).to_le_bytes());
     bytes[data_entry + 8..data_entry + 12].copy_from_slice(&1u32.to_le_bytes());
-    bytes[data_entry + 12..data_entry + 16].copy_from_slice(&1u32.to_le_bytes());
 
     surface
         .encode_record_into(&mut bytes[surface_offset..data_offset])

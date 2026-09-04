@@ -53,7 +53,7 @@ Primary display hints use a 16-bit `image::SampleLayout`, including planar YUV i
 
 ![Exact byte allocation for a MIRX CHUNK file containing two images, two fonts, and one vector scene](docs/binary-allocation.svg)
 
-This 1,725-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors, 1,597 payload bytes, and two 2-byte alignment gaps. The two sectioned IMAGE payloads occupy 1,060 and 114 bytes. The VECTOR scene references the preceding IMAGE and FONT chunks by table index without embedding their bytes again.
+This 1,709-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors, 1,581 payload bytes, and two 2-byte alignment gaps. The two sectioned IMAGE payloads occupy 1,052 and 106 bytes. The VECTOR scene references the preceding IMAGE and FONT chunks by table index without embedding their bytes again.
 
 ## Payload families
 
@@ -110,7 +110,7 @@ fn inspect(bytes: &[u8]) {
 
 ## Image geometry
 
-IMAGE uses a 32-byte media header, 16-byte section entries, a 32-byte SURFACE record, optional PLANES and COLOR_TABLE sections, DATA, and a trailing CRC. Tight RAW planes derive their stride and offsets from the surface; padded allocation extents, strides, offsets, and alignment use explicit plane records. FLAT keeps its compact packed-image layout.
+IMAGE uses a 32-byte media header, 12-byte section entries, a 32-byte SURFACE record, optional PLANES and COLOR_TABLE sections, DATA, and a trailing CRC. Each section entry stores only its kind, flags, payload-relative offset, and byte size; typed schemas and surface geometry determine interpreted sizes. Tight RAW planes derive their stride and offsets from the surface; padded allocation extents, strides, offsets, and alignment use explicit plane records. FLAT keeps its compact packed-image layout.
 
 `Document::push_image` and `DocumentChunkMut::replace_image` accept `ImageSource`: packed `ImageAsset`, planar `RawImageAsset`, `RawImageView`, or `SurfaceView`. Typed reads return the same borrowed `SurfaceView` for all IMAGE layouts. Its `packed()` projection returns `None` when the color or storage contract cannot be expressed as a packed image.
 

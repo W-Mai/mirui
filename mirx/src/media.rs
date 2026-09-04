@@ -10,7 +10,7 @@ use crate::payload::envelope::{Envelope, EnvelopeError};
 use crate::wire::{read_u16_le, read_u32_le};
 
 pub const MEDIA_HEADER_LEN: usize = 32;
-pub const MEDIA_SECTION_LEN: usize = 16;
+pub const MEDIA_SECTION_LEN: usize = 12;
 pub const MEDIA_CRC_LEN: usize = 4;
 pub const MEDIA_VERSION: u8 = 1;
 
@@ -200,8 +200,7 @@ pub struct MediaSectionDescriptor {
     kind: MediaSectionKind,
     flags: MediaSectionFlags,
     offset: u32,
-    stored_size: u32,
-    decoded_size: u32,
+    size: u32,
 }
 
 impl MediaSectionDescriptor {
@@ -217,12 +216,9 @@ impl MediaSectionDescriptor {
         self.offset
     }
 
-    pub const fn stored_size(self) -> u32 {
-        self.stored_size
-    }
-
-    pub const fn decoded_size(self) -> u32 {
-        self.decoded_size
+    /// Byte length of the stored section body.
+    pub const fn size(self) -> u32 {
+        self.size
     }
 
     fn read(bytes: &[u8]) -> Option<Self> {
@@ -230,8 +226,7 @@ impl MediaSectionDescriptor {
             kind: MediaSectionKind::new(read_u16_le(bytes, 0)?)?,
             flags: MediaSectionFlags::from_bits_retain(read_u16_le(bytes, 2)?),
             offset: read_u32_le(bytes, 4)?,
-            stored_size: read_u32_le(bytes, 8)?,
-            decoded_size: read_u32_le(bytes, 12)?,
+            size: read_u32_le(bytes, 8)?,
         })
     }
 }
@@ -450,7 +445,7 @@ impl<'a> MediaSections<'a> {
         )
         .expect("validated media section descriptor");
         let start = usize::try_from(descriptor.offset).expect("validated section offset");
-        let size = usize::try_from(descriptor.stored_size).expect("validated section size");
+        let size = usize::try_from(descriptor.size).expect("validated section size");
         MediaSection {
             index: u16::try_from(index).expect("section index fits u16"),
             descriptor,
@@ -571,13 +566,13 @@ fn validate_sections(
         }
         let end = descriptor
             .offset
-            .checked_add(descriptor.stored_size)
+            .checked_add(descriptor.size)
             .ok_or(MediaPayloadError::SizeOverflow)?;
         if end > covered_len {
             return Err(MediaPayloadError::SectionOutOfBounds {
                 index,
                 offset: descriptor.offset,
-                size: descriptor.stored_size,
+                size: descriptor.size,
             });
         }
 
@@ -632,7 +627,6 @@ mod tests {
         kind: u16,
         flags: u16,
         offset: u32,
-        decoded_size: u32,
         bytes: &'a [u8],
     }
 
@@ -666,7 +660,6 @@ mod tests {
             write_u16_le(&mut out, entry + 2, section.flags);
             write_u32_le(&mut out, entry + 4, section.offset);
             write_u32_le(&mut out, entry + 8, section.bytes.len() as u32);
-            write_u32_le(&mut out, entry + 12, section.decoded_size);
             let start = section.offset as usize;
             out[start..start + section.bytes.len()].copy_from_slice(section.bytes);
         }
@@ -680,6 +673,22 @@ mod tests {
         let crc_offset = bytes.len() - MEDIA_CRC_LEN;
         let crc = crc32::compute(&bytes[..crc_offset]);
         bytes[crc_offset..].copy_from_slice(&crc.to_le_bytes());
+    }
+
+    #[test]
+    fn section_directory_contains_only_identity_flags_and_range() {
+        // Independent wire bytes keep reader/writer agreement from masking
+        // accidental additions to the directory schema.
+        let entry = [0x05, 0x00, 0x01, 0x80, 0x78, 0x56, 0x34, 0x12, 3, 0, 0, 0];
+        assert_eq!(MEDIA_SECTION_LEN, entry.len());
+        let descriptor = MediaSectionDescriptor::read(&entry).unwrap();
+        assert_eq!(descriptor.kind(), MediaSectionKind::DATA);
+        assert_eq!(descriptor.flags().bits(), 0x8001);
+        assert_eq!(descriptor.offset(), 0x1234_5678);
+        assert_eq!(descriptor.size(), 3);
+        for end in 0..entry.len() {
+            assert!(MediaSectionDescriptor::read(&entry[..end]).is_none());
+        }
     }
 
     #[test]
@@ -700,14 +709,12 @@ mod tests {
                 kind: MediaSectionKind::SURFACE.raw(),
                 flags: MediaSectionFlags::REQUIRED.bits(),
                 offset: 80,
-                decoded_size: 4,
                 bytes: &[1, 2, 3, 4],
             },
             TestSection {
                 kind: MediaSectionKind::DATA.raw(),
                 flags: 0xa500,
                 offset: 96,
-                decoded_size: 12,
                 bytes: &[5, 6, 7],
             },
         ];
@@ -732,7 +739,7 @@ mod tests {
         let data = iter.next_back().unwrap();
         assert_eq!(data.index(), 1);
         assert_eq!(data.descriptor().flags().bits(), 0xa500);
-        assert_eq!(data.descriptor().decoded_size(), 12);
+        assert_eq!(data.descriptor().size(), 3);
         assert_eq!(data.bytes(), &[5, 6, 7]);
         assert!(iter.next().is_none());
         assert!(iter.next_back().is_none());
@@ -744,7 +751,6 @@ mod tests {
             kind: MediaSectionKind::DATA.raw(),
             flags: MediaSectionFlags::REQUIRED.bits(),
             offset: 64,
-            decoded_size: 4,
             bytes: &[1, 2, 3, 4],
         }];
         let bytes = payload(&sections, 6, 0, CodingId::RAW.raw());
@@ -772,13 +778,13 @@ mod tests {
         let base = payload(&[], 0, 0, 0);
 
         let mut entry_size = base.clone();
-        write_u16_le(&mut entry_size, 4, 12);
+        write_u16_le(&mut entry_size, 4, 16);
         reseal(&mut entry_size);
         assert_eq!(
             MediaPayload::open(&entry_size),
             Err(MediaPayloadError::SectionEntrySizeMismatch {
-                expected: 16,
-                actual: 12,
+                expected: 12,
+                actual: 16,
             })
         );
 
@@ -811,14 +817,12 @@ mod tests {
                 kind: MediaSectionKind::SURFACE.raw(),
                 flags: 0,
                 offset: 80,
-                decoded_size: 8,
                 bytes: &[0; 8],
             },
             TestSection {
                 kind: MediaSectionKind::DATA.raw(),
                 flags: 0,
                 offset: 96,
-                decoded_size: 4,
                 bytes: &[0; 4],
             },
         ];
@@ -833,14 +837,14 @@ mod tests {
         );
 
         let mut before = base.clone();
-        write_u32_le(&mut before, MEDIA_HEADER_LEN + 4, 63);
+        write_u32_le(&mut before, MEDIA_HEADER_LEN + 4, 55);
         reseal(&mut before);
         assert_eq!(
             MediaPayload::open(&before),
             Err(MediaPayloadError::SectionBeforeBodies {
                 index: 0,
-                offset: 63,
-                minimum: 64,
+                offset: 55,
+                minimum: 56,
             })
         );
 

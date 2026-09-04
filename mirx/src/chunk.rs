@@ -488,7 +488,8 @@ mod tests {
         });
         // DATA is the second directory entry. Its byte range must stay inside
         // the payload even when an attacker recomputes the checksum.
-        encoded[60 + 56..60 + 60].copy_from_slice(&u32::MAX.to_le_bytes());
+        let data_size = 60 + crate::media::MEDIA_HEADER_LEN + crate::media::MEDIA_SECTION_LEN + 8;
+        encoded[data_size..data_size + 4].copy_from_slice(&u32::MAX.to_le_bytes());
         crate::image::test_support::refresh_crc(&mut encoded[60..]);
         assert!(matches!(
             parse_chunk(&encoded),

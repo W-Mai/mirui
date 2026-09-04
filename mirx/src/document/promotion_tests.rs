@@ -358,22 +358,22 @@ fn synthesized_query_materializes_one_canonical_image_payload_atomically() {
     let image_id = document.promote_to_chunk().unwrap().unwrap();
     let view = document.get(image_id).unwrap();
 
-    assert_eq!(view.payload_len(), Ok(104));
-    let mut short = [0xa5; 103];
+    assert_eq!(view.payload_len(), Ok(96));
+    let mut short = [0xa5; 95];
     assert_eq!(
         view.copy_payload_into(&mut short),
         Err(EncodeError::BufferTooSmall {
-            needed: 104,
-            available: 103,
+            needed: 96,
+            available: 95,
         })
     );
-    assert_eq!(short, [0xa5; 103]);
+    assert_eq!(short, [0xa5; 95]);
 
-    let mut target = [0xcc; 108];
-    assert_eq!(view.copy_payload_into(&mut target), Ok(104));
-    assert_eq!(&target[104..], &[0xcc; 4]);
+    let mut target = [0xcc; 100];
+    assert_eq!(view.copy_payload_into(&mut target), Ok(96));
+    assert_eq!(&target[96..], &[0xcc; 4]);
     let materialized = view.payload_to_vec().unwrap();
-    assert_eq!(materialized, target[..104]);
+    assert_eq!(materialized, target[..96]);
     assert_eq!(materialized[0], 1);
     assert_eq!(&materialized[28..32], &[0; 4]);
     let image = ImageView::open_payload_at(&materialized, 0).unwrap();

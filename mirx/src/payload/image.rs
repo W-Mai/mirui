@@ -602,7 +602,7 @@ mod tests {
         let empty = ImageAsset::new(0, 0, ColorFormat::A8, 0, Cow::Borrowed(&[]))
             .with_extra(Cow::Borrowed(&[]));
         let encoded = empty.encode_payload().unwrap();
-        assert_eq!(encoded.len(), 100);
+        assert_eq!(encoded.len(), 92);
         assert_eq!(ImageView::open_payload(&encoded).unwrap().extra(), None);
     }
 
