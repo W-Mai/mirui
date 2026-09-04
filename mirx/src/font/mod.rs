@@ -2,12 +2,17 @@ pub mod atlas;
 mod codepoints;
 mod encoder;
 pub mod header;
+mod metrics;
 mod preflight;
 mod representation;
 
 use alloc::vec::Vec;
 
 pub use codepoints::{FontCodepointError, FontCodepointIter, FontCodepoints};
+pub use metrics::{
+    GLYPH_METRICS_LEN, GlyphMetrics, GlyphMetricsIter, LINE_METRICS_LEN, LineMetrics, MetricsError,
+    MetricsTable,
+};
 
 pub use crate::font::atlas::{AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION};
 pub use crate::font::atlas::{read_header, read_metric, write_header, write_metric};

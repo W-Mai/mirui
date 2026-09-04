@@ -15,6 +15,32 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn font_metric_records_and_borrowed_table_use_no_heap() {
+    use mirx::Fixed;
+    use mirx::font::{GlyphMetrics, LineMetrics, MetricsTable};
+    let mut bytes = [0; 36];
+    let (glyph, allocations) = count_allocations(|| {
+        LineMetrics::new(Fixed(2560), Fixed(-768), Fixed(4096))
+            .unwrap()
+            .encode_record_into(&mut bytes)
+            .unwrap();
+        GlyphMetrics::new(Fixed(512), Fixed(-384), Fixed(1024))
+            .encode_record_into(&mut bytes[12..])
+            .unwrap();
+        GlyphMetrics::default()
+            .encode_record_into(&mut bytes[24..])
+            .unwrap();
+        let table = MetricsTable::open(&bytes).unwrap();
+        assert_eq!(table.len(), 2);
+        assert_eq!(table.line_metrics().line_height(), Fixed(4096));
+        assert_eq!(table.iter().count(), 2);
+        table.get(0).unwrap()
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(glyph.bearing_x(), Fixed(-384));
+}
+
+#[test]
 fn font_selection_retains_only_inline_metadata_without_source_allocation() {
     use mirx::{FontRepresentation, FontRepresentationRequest, FontRepresentations};
     let (selected, allocations) = count_allocations(|| {
