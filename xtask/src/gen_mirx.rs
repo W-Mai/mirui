@@ -21,7 +21,8 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
     \
                      [--format <rgba8888|rgb888|rgb565|rgb565-swapped|bgra8888|xrgb8888|i1|i2|i4|i8>] \
     \
-                     [--coding <raw|pixel|rle|lz4>] [--stride-align <bytes>]\n  \
+                     [--coding <raw|pixel|rle|lz4|frequency-reversible|frequency-quantized>] \
+                     [--quality <1..100>] [--stride-align <raw-row-bytes>]\n  \
                  cargo xtask gen-mirx bundle <a.mirx> <b.mirx> ... --out <bundle.mirx>\n  \
                  cargo xtask gen-mirx vector --in <scene.txt> --out <scene.mirx>\n\
                  \n\
