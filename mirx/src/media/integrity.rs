@@ -3,6 +3,9 @@ use core::{iter::FusedIterator, ops::Range};
 use super::{MediaPayload, MediaSectionKind};
 use crate::wire::{read_u32_le, write_u32_le};
 
+mod check;
+pub use check::DataCheckPlan;
+
 pub const INTEGRITY_RECORD_LEN: usize = 12;
 
 /// DATA checksum placement for canonical authoring.

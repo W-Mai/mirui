@@ -151,6 +151,8 @@ Whole-surface RAW without independent groups uses `RawImageAsset`, omitting CODI
 
 ## Complete scalar reconstruction
 
+`MediaPayload::data_check_plan(range)` separates checksum budgeting from execution. The payload-relative request must lie inside one DATA section. `byte_len()` reports the exact DATA bytes that `verify()` will scan: intersecting indexed partitions or all DATA bodies with whole-DATA integrity. Empty ranges cost zero. Planning reads metadata only, so corrupted DATA may still produce a plan; verification is required before consumption. This borrowed-slice operation does not implement partial file I/O.
+
 Prepared `ImageGroups` expose `decode_plan(requirements, limits)` for the complete surface. Planning reuses validated group slots, checks every scalar unit and complete DATA integrity, and returns an `ImageDecodePlan` without storing an expanded unit-plan table or allocating decoded bytes.
 
 `memory_plan()` describes the final output, including required address alignment and row stride. `workspace_requirements()` describes the largest tight decoded unit, reused across units at scalar alignment one. A tiled stream can bound this staging buffer by tile size; a whole-image stream requires whole-image staging. This path does not promise zero staging or direct GPU execution.

@@ -15,6 +15,32 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn data_check_planning_and_verification_borrow_partition_metadata() {
+    use mirx::{
+        coding::Rle,
+        image::EncodedImageAsset,
+        media::{DataIntegrity, MediaSectionKind},
+    };
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 1, 0x83, 2])
+        .with_integrity(DataIntegrity::Indexed(&[2, 4]))
+        .encode()
+        .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let media = MediaPayload::open(&bytes).unwrap();
+        let start = media
+            .section(MediaSectionKind::DATA)
+            .unwrap()
+            .descriptor()
+            .offset();
+        let plan = media.data_check_plan(start..start + 1).unwrap();
+        assert_eq!(plan.byte_len(), 2);
+        plan.verify().unwrap();
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn sparse_region_queries_skip_extreme_empty_spans_without_allocation() {
     use mirx::{
         image::UnitGroup,

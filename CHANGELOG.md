@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Planned DATA verification costs.** Borrowed checksum plans report exact scan bytes before verification. Indexed plans select intersecting partitions, whole-DATA plans expose full scan cost, and empty requests perform no checksum work.
+
 - **Bounded IMAGE spatial queries.** Borrowed region iterators select complete units with sparse rank jumps, explicit traversal bounds and preserved planar coordinates. Narrow and sparse requests avoid expanded unit tables and scans across unrelated cells or empty rows.
 
 - **Exact IMAGE region output.** Checked cropped plans preserve sample metadata and reject split chroma boundaries. RAW transfer and decoded-unit intersections share precise sub-byte placement, caller-owned aligned storage and validation-before-write semantics.

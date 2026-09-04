@@ -17,8 +17,8 @@ pub use index::{
     UNIT_CHECKPOINT_INTERVAL, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges,
 };
 pub use integrity::{
-    DataIntegrity, INTEGRITY_RECORD_LEN, IntegrityError, IntegrityRange, IntegrityRanges,
-    IntegrityTable,
+    DataCheckPlan, DataIntegrity, INTEGRITY_RECORD_LEN, IntegrityError, IntegrityRange,
+    IntegrityRanges, IntegrityTable,
 };
 pub use selection::{
     SELECTION_CHECKPOINT_INTERVAL, SelectedUnits, UnitSelection, UnitSelectionEncoding,
@@ -414,34 +414,10 @@ impl<'a> MediaPayload<'a> {
         self,
         requested: core::ops::Range<u32>,
     ) -> Result<u32, MediaPayloadError> {
-        if requested.start > requested.end
-            || !self
-                .sections_of_kind(MediaSectionKind::DATA)
-                .any(|section| {
-                    let descriptor = section.descriptor();
-                    requested.start >= descriptor.offset()
-                        && requested.end <= descriptor.offset() + descriptor.size()
-                })
-        {
-            return Err(MediaPayloadError::InvalidDataRange);
-        }
-        if requested.is_empty() {
-            return Ok(0);
-        }
-        if let Some(table) = self.integrity {
-            let mut checked = 0;
-            for range in table.intersecting(requested) {
-                self.validate_integrity_range(range)?;
-                checked += range.size();
-            }
-            Ok(checked)
-        } else {
-            self.validate_data()?;
-            Ok(self
-                .sections_of_kind(MediaSectionKind::DATA)
-                .map(|section| section.descriptor().size())
-                .sum())
-        }
+        let plan = self.data_check_plan(requested)?;
+        let byte_len = plan.byte_len();
+        plan.verify()?;
+        Ok(byte_len)
     }
 
     fn validate_integrity_range(self, range: IntegrityRange) -> Result<(), MediaPayloadError> {
