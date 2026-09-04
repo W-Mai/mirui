@@ -76,6 +76,8 @@ IMAGE, META, PALETTE, and FRAMES expose borrowed views. FONT and VECTOR use `dec
 
 `font::RepresentationTable` borrows representation/surface bodies and resolves scalar storage facts without a decoded metadata array. Native and wire tables share duplicate validation and size selection; count limits precede record interpretation. [Borrowed representation tables](docs/representation-tables.md) describes the bounds and direct iteration API.
 
+`font::FaceTables` joins shared Unicode ordinals to representation-specific metrics and maps. Size selection returns their matching records together; direct access does not rescan atlas maps or allocate metadata. [Joined face tables](docs/font-tables.md) describes exact table boundaries, fixed-cell omission and complete atlas-map sharing.
+
 `font::GlyphSurfaceRecord` encodes 24 bytes of shared glyph geometry and direct section references. RAW physical allocation and encoded coding/group/index references are exclusive states; directory checks do not imply body or DATA validation. [Glyph surface records](docs/glyph-surfaces.md) describes the fields, omission rules and checked constructors.
 
 `GlyphSurfaceRecord::raw_glyphs(media, map)` binds matching scalar maps to exact referenced PLANES/DATA storage without allocation or repeated DATA scans. It returns the shared `RawGlyphs` access and transfer API; complete-face or selected-range integrity checks remain separate.

@@ -1,6 +1,7 @@
 pub mod atlas;
 mod codepoints;
 mod encoder;
+mod face;
 mod glyph;
 pub mod header;
 mod mapping;
@@ -15,6 +16,7 @@ mod table;
 use alloc::vec::Vec;
 
 pub use codepoints::{FontCodepointError, FontCodepointIter, FontCodepoints};
+pub use face::{FaceRepresentation, FaceTables, FaceTablesError};
 pub use glyph::{Glyph, GlyphTable, GlyphTableError};
 pub use mapping::{GLYPH_REGION_LEN, GlyphMap, GlyphMapError, GlyphPacking, GlyphRegions};
 pub use metrics::{

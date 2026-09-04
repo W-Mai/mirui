@@ -99,6 +99,12 @@ impl<'a> RepresentationTable<'a> {
         self.glyph_count
     }
 
+    pub(super) fn surface(self, record: RepresentationRecord) -> GlyphSurfaceRecord {
+        let offset = usize::from(record.surface_index()) * GLYPH_SURFACE_RECORD_LEN;
+        GlyphSurfaceRecord::from_record(&self.surfaces[offset..])
+            .expect("validated referenced surface")
+    }
+
     /// Resolves one representation in constant time, independent of source alignment.
     pub fn get(self, index: usize) -> Option<RepresentationRecord> {
         (index < self.len()).then(|| self.read(index).expect("validated immutable records"))

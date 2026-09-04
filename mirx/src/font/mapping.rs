@@ -143,6 +143,17 @@ impl<'a> GlyphMap<'a> {
         })
     }
 
+    /// The caller has already checked exact record boundaries and atlas bounds.
+    pub(super) fn from_validated_records(width: u32, height: u32, bytes: &'a [u8]) -> Self {
+        Self {
+            source: MapSource::Atlas {
+                width,
+                height,
+                records: AtlasRecords::Wire(bytes),
+            },
+        }
+    }
+
     pub const fn packing(self) -> GlyphPacking {
         match self.source {
             MapSource::Grid(_) => GlyphPacking::GlyphMajor,

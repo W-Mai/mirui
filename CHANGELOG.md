@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Joined FONT metadata tables.** Shared Unicode ordinals bind exact representation-specific metrics and complete atlas maps. Size selection returns matching geometry and measurements, with checked map sharing, omitted fixed-cell maps and constant-time borrowed lookup after admission.
+
 - **Encoded glyph region plans.** Referenced scalar glyph storage reuses image coding, coverage and exact-region reconstruction with caller-owned buffers. Per-glyph plans preserve packed sample origins, indexed integrity and independent output alignment without retaining glyph-map metadata or allocating decoded storage.
 
 - **Shared encoded-section validation.** Coding and group bodies reuse one binding path independent of resource directory selection. Whole-surface preflight and reconstruction account for every DATA body they verify; local requests retain partition-scoped integrity and exact checksum budgets.

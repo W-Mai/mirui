@@ -15,6 +15,60 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn joined_face_selection_and_map_lookup_allocate_nothing() {
+    use mirx::{
+        Fixed, FontRepresentation, FontRepresentationRequest,
+        font::{
+            FaceTables, FontCodepoints, GlyphMap, GlyphPacking, GlyphSurfaceRecord, LineMetrics,
+            RepresentationRecord, RepresentationTable,
+        },
+        image::Region,
+    };
+    let (_, allocations) = count_allocations(|| {
+        let mut surfaces = [0; 24];
+        GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::Atlas2D, 8, 8, 0)
+            .unwrap()
+            .encode_record_into(&mut surfaces)
+            .unwrap();
+        let mut records = [0; 32];
+        for (index, size) in [12, 16].into_iter().enumerate() {
+            RepresentationRecord::new(FontRepresentation::coverage(8, size, 64).unwrap(), 0)
+                .encode_record_into(&mut records[index * 16..])
+                .unwrap();
+        }
+        let mut metrics = [0; 48];
+        let line = LineMetrics::new(
+            Fixed::from_raw(256),
+            Fixed::from_raw(-256),
+            Fixed::from_raw(512),
+        )
+        .unwrap();
+        line.encode_record_into(&mut metrics).unwrap();
+        line.encode_record_into(&mut metrics[24..]).unwrap();
+        let mut maps = [0; 16];
+        GlyphMap::atlas(8, 8, &[Region::new(1, 2, 3, 4).unwrap()])
+            .unwrap()
+            .encode_into(&mut maps)
+            .unwrap();
+        let codepoint = ('一' as u32).to_le_bytes();
+        let table =
+            RepresentationTable::open(&records, &surfaces, 1, &PayloadLimits::EMBEDDED).unwrap();
+        let face = FaceTables::new(
+            FontCodepoints::open(&codepoint).unwrap(),
+            table,
+            &metrics,
+            &maps,
+        )
+        .unwrap();
+        let selected = face.select(FontRepresentationRequest::new(16)).unwrap();
+        assert_eq!(selected.index(), 1);
+        assert_eq!(selected.map().get(0).unwrap().x(), 1);
+        assert_eq!(selected.metrics().len(), 1);
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn encoded_glyph_planning_and_execution_allocate_nothing() {
     use mirx::{
         coding::Rle,
