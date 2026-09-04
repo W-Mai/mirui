@@ -1,4 +1,4 @@
-use crate::image::{RawImageView, RawImageViewError, SurfaceView};
+use crate::image::{ImageReadError, ImageRef};
 use core::iter::FusedIterator;
 
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFileHeader};
@@ -177,14 +177,14 @@ impl<'a> ChunkRef<'a> {
 
     /// Returns a borrowed IMAGE view when this record has the IMAGE type.
     ///
-    /// The payload is validated at its actual file position, including the
-    /// absolute alignment of its pixel data. Other chunk types return
-    /// `Ok(None)` without interpreting their payload bytes.
-    pub fn image(&self) -> Result<Option<SurfaceView<'a>>, RawImageViewError> {
+    /// RAW exposes verified samples at their file position. Encoded metadata
+    /// retains that position for explicit group, integrity and decode checks.
+    /// Other types return `Ok(None)` without interpreting their payload bytes.
+    pub fn image(&self) -> Result<Option<ImageRef<'a>>, ImageReadError> {
         if self.chunk_type != ChunkType::IMAGE {
             return Ok(None);
         }
-        RawImageView::open_at(self.payload, self.payload_offset).map(|image| Some(image.view()))
+        ImageRef::open_at(self.payload, self.payload_offset).map(Some)
     }
 
     /// Returns a borrowed META view when this record has the META type.

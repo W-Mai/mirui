@@ -541,7 +541,7 @@ mod tests {
         let reader = Reader::open(bytes).unwrap();
         for chunk in reader.chunks() {
             if let Some(image) = chunk.image().unwrap() {
-                return image.packed().unwrap();
+                return image.raw().unwrap().packed().unwrap();
             }
         }
         panic!("missing IMAGE chunk")
@@ -811,7 +811,14 @@ mod tests {
             });
             let reader = Reader::open(&encoded).unwrap();
             let chunk = reader.chunks().next().unwrap();
-            let image = chunk.image().unwrap().unwrap().packed().unwrap();
+            let image = chunk
+                .image()
+                .unwrap()
+                .unwrap()
+                .raw()
+                .unwrap()
+                .packed()
+                .unwrap();
             let direct =
                 ImageView::open_payload_at(chunk.payload(), chunk.payload_offset()).unwrap();
             let relative = ImageView::open_payload(chunk.payload()).unwrap();
@@ -895,10 +902,12 @@ mod tests {
         );
         assert_eq!(
             chunks.next().unwrap().image(),
-            Err(RawImageViewError::Media(MediaPayloadError::Truncated {
-                needed: MEDIA_HEADER_LEN + 4,
-                available: 5
-            }))
+            Err(crate::image::ImageReadError::Media(
+                MediaPayloadError::Truncated {
+                    needed: MEDIA_HEADER_LEN + 4,
+                    available: 5
+                }
+            ))
         );
     }
 
@@ -958,7 +967,7 @@ mod tests {
         let mut chunks = reader.chunks();
         assert!(matches!(
             chunks.next().unwrap().image(),
-            Err(RawImageViewError::Media(_))
+            Err(crate::image::ImageReadError::Media(_))
         ));
         assert_eq!(chunks.next().unwrap().payload(), b"sentinel");
     }

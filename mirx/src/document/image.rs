@@ -229,7 +229,14 @@ mod tests {
             let reopened = Reader::open(&encoded).unwrap();
             let chunk = reopened.chunks().next().unwrap();
             assert_eq!(chunk.flags(), flags, "{format:?}");
-            let reopened_image = chunk.image().unwrap().unwrap().packed().unwrap();
+            let reopened_image = chunk
+                .image()
+                .unwrap()
+                .unwrap()
+                .raw()
+                .unwrap()
+                .packed()
+                .unwrap();
             assert_eq!(reopened_image.main(), expected_main, "{format:?}");
             assert_eq!(
                 reopened_image.extra(),
@@ -265,6 +272,8 @@ mod tests {
             .image()
             .unwrap()
             .unwrap()
+            .raw()
+            .unwrap()
             .packed()
             .unwrap();
         let expected_pointer = expected.main().as_ptr();
@@ -295,6 +304,8 @@ mod tests {
                 .unwrap()
                 .image()
                 .unwrap()
+                .unwrap()
+                .raw()
                 .unwrap()
                 .packed()
                 .unwrap();

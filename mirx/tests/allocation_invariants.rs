@@ -15,6 +15,54 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn critical_encoded_reader_uses_no_decoder_or_group_allocation() {
+    use mirx::{
+        coding::Rle,
+        image::{CoverageBudget, EncodedImageAsset},
+    };
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
+        .encode()
+        .unwrap();
+    let bytes = encode_chunks(&[(
+        ChunkType::IMAGE.raw(),
+        ChunkFlags::CRITICAL.bits(),
+        &payload,
+    )]);
+    let mut slots = [None];
+    let mut output = [0; 8];
+    let (_, allocations) = count_allocations(|| {
+        let reader = Reader::open(&bytes).unwrap();
+        reader
+            .validate_known_payloads(&PayloadLimits::EMBEDDED)
+            .unwrap();
+        let image = reader
+            .chunks()
+            .next()
+            .unwrap()
+            .image()
+            .unwrap()
+            .unwrap()
+            .encoded()
+            .unwrap();
+        let groups = image
+            .groups_into(&mut slots, &mut CoverageBudget::new(100))
+            .unwrap();
+        groups
+            .get(0)
+            .unwrap()
+            .get(0)
+            .unwrap()
+            .decode_plan(SurfaceRequirements::new())
+            .unwrap()
+            .decode_into(&mut output)
+            .unwrap();
+        assert_eq!(output, [42; 8]);
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn encoded_preflight_has_no_output_or_group_table_allocation() {
     use mirx::{
         coding::Lz4,
@@ -795,6 +843,8 @@ fn borrowed_reads_and_caller_buffer_encoding_allocate_nothing() {
         for chunk in reader.chunks() {
             if let Some(image) = chunk.image().unwrap() {
                 observed += image
+                    .raw()
+                    .unwrap()
                     .planes()
                     .map(|plane| plane.bytes().len())
                     .sum::<usize>();

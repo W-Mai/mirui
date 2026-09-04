@@ -58,7 +58,7 @@ fn planar_images_preserve_geometry_hints_alignment_and_noop_edits() {
             .find(|chunk| chunk.chunk_type() == ChunkType::IMAGE)
             .unwrap();
         let raw = RawImageView::open_at(chunk.payload(), chunk.payload_offset()).unwrap();
-        let observed = chunk.image().unwrap().unwrap();
+        let observed = chunk.image().unwrap().unwrap().raw().unwrap();
         assert_eq!(observed.surface(), surface);
         assert!(observed.data_addresses_are_aligned());
         assert!(raw.packed().is_none());
@@ -75,6 +75,7 @@ fn planar_images_preserve_geometry_hints_alignment_and_noop_edits() {
         let shifted_view = shifted_reader
             .chunks()
             .find_map(|chunk| chunk.image().unwrap())
+            .and_then(|image| image.raw())
             .unwrap();
         assert!(!shifted_view.data_addresses_are_aligned());
 

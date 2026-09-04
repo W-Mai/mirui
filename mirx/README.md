@@ -61,7 +61,7 @@ This 1,661-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors
 
 | Type | Purpose | Read access | Authoring value |
 | --- | --- | --- | --- |
-| `IMAGE` | Packed, indexed, alpha, and planar YUV surfaces | `SurfaceView` | `ImageAsset` / `RawImageAsset` |
+| `IMAGE` | RAW and coded packed, indexed, alpha, and planar YUV surfaces | `ImageRef` | `ImageAsset` / `RawImageAsset` / `EncodedImageAsset` |
 | `FONT` | Glyph metrics and atlas data | Bounded decode | `Font` |
 | `VECTOR` | Ordered scene operations | Bounded decode | `Scene` |
 | `META` | Ordered text, bytes, and extension values | `MetaView` | `Meta` |
@@ -92,8 +92,10 @@ fn inspect(bytes: &[u8]) {
                 .image()
                 .expect("valid IMAGE payload")
                 .expect("IMAGE type");
-            for plane in image.planes() {
-                assert!(plane.memory().stride() >= plane.geometry().minimum_stride().unwrap());
+            if let Some(surface) = image.raw() {
+                for plane in surface.planes() {
+                    assert!(plane.memory().stride() >= plane.geometry().minimum_stride().unwrap());
+                }
             }
         }
     }
@@ -106,7 +108,7 @@ fn inspect(bytes: &[u8]) {
 
 `ReadOptions` configures chunk-count limits, payload limits, and trailing-byte handling. `PayloadLimits::EMBEDDED` is the bounded default; `PayloadLimits::HOST` is the explicit larger profile for host tools. FONT and VECTOR provide zero-allocation preflight before bounded decoding.
 
-`parse`, `parse_flat`, and `parse_chunk` expose owned container metadata and packed image views. `Reader` exposes sectioned IMAGE surfaces, including planar YUV, without allocating container metadata.
+`parse`, `parse_flat`, and `parse_chunk` expose owned container metadata and packed image views. `Reader` exposes sectioned IMAGE references, including RAW planar YUV and encoded storage, without allocating container metadata. `ChunkRef::image` returns `ImageRef`; use `raw()` for borrowed samples or `encoded()` for explicit group/decode access.
 
 ## Image geometry
 
@@ -139,6 +141,8 @@ IMAGE uses an 8-byte media header, 12-byte section entries, a 32-byte SURFACE re
 `EncodedImageAsset::new(surface, coding, data)` writes a canonical single-stream IMAGE from borrowed encoded bytes. It provides exact sizing, checked caller-buffer encoding and byte comparison, with no hidden allocation. Default groups/indexes are omitted; palettes remain separate metadata, and nondefault input alignment adds one shared group record. Authoring validates metadata without claiming codec support or decoding DATA. RAW and encoded authoring share `image::ImageEncodeError`. See [encoded images](docs/encoded-images.md) for the complete encode/store/decode example and validation boundaries.
 
 `ImageRef::open` and `open_at` inspect either RAW or encoded IMAGE storage through one metadata parse. The `Raw(SurfaceView)` and `Encoded(EncodedImageView)` variants expose the same surface and palette metadata but distinct sample-access contracts. `raw()` returns verified borrowed samples; `encoded()` retains explicit group, integrity and decode planning. Dispatch follows CODINGS presence without parser fallback, allocation or implicit decoding.
+
+Critical IMAGE chunks pass complete RAW or encoded preflight during `Reader::open_with`, using its configured `PayloadLimits`. `validate_known_payloads` applies the same gate explicitly to every implemented standard payload. Unknown encoded profiles remain inspectable in noncritical chunks but fail explicit or critical validation; metadata opening alone never establishes codec support.
 
 `Document::push_image` and `DocumentChunkMut::replace_image` accept `ImageSource`: packed `ImageAsset`, planar `RawImageAsset`, `RawImageView`, or `SurfaceView`. Typed RAW reads return the same borrowed `SurfaceView` for packed and planar IMAGE layouts. Its `packed()` projection returns `None` when the color or storage contract cannot be expressed as a packed image. Encoded IMAGE metadata uses the separate `EncodedImageView` path.
 

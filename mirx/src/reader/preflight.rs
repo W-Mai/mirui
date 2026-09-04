@@ -1,5 +1,5 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
-use crate::image::RawImageViewError;
+use crate::image::{ImageReadError, ImageRef};
 use crate::{
     ChunkType, Font, FontReadError, FramesDecodeError, MetaDecodeError, PaletteDecodeError,
     ReadError, Scene, VectorReadError,
@@ -22,7 +22,7 @@ pub enum PayloadLocation {
 #[non_exhaustive]
 pub enum PayloadValidationFailure {
     UnsupportedStandardPayload,
-    Image(RawImageViewError),
+    Image(ImageReadError),
     Font(FontReadError),
     Vector(VectorReadError),
     Meta(MetaDecodeError),
@@ -148,7 +148,13 @@ pub(crate) fn preflight_chunk(
 ) -> Result<PreflightStatus, PayloadValidationFailure> {
     match chunk.chunk_type() {
         ChunkType::IMAGE => {
-            chunk.image().map_err(PayloadValidationFailure::Image)?;
+            if let Some(ImageRef::Encoded(image)) =
+                chunk.image().map_err(PayloadValidationFailure::Image)?
+            {
+                image.preflight(limits).map_err(|error| {
+                    PayloadValidationFailure::Image(ImageReadError::Encoded(error))
+                })?;
+            }
             Ok(PreflightStatus::Validated)
         }
         ChunkType::FONT => {
@@ -355,7 +361,7 @@ mod tests {
         bytes[24..28].copy_from_slice(&checksum.to_le_bytes());
     }
 
-    fn assert_critical_image_failure(bytes: &[u8], expected: RawImageViewError) {
+    fn assert_critical_image_failure(bytes: &[u8], expected: ImageReadError) {
         let offset = payload_offset(bytes, 0);
         assert_eq!(
             Reader::open(bytes),
@@ -840,7 +846,7 @@ mod tests {
 
     #[test]
     fn critical_image_preflight_uses_the_sectioned_contract() {
-        use crate::image::RawImageView;
+        use crate::image::EncodedImageError;
         use crate::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MediaPayloadError};
         let short = encode_chunks(&[(
             chunk_type::IMAGE,
@@ -849,7 +855,7 @@ mod tests {
         )]);
         assert_critical_image_failure(
             &short,
-            RawImageViewError::Media(MediaPayloadError::Truncated {
+            ImageReadError::Media(MediaPayloadError::Truncated {
                 needed: MEDIA_HEADER_LEN + MEDIA_CRC_LEN,
                 available: 5,
             }),
@@ -868,11 +874,13 @@ mod tests {
             if offset != 7 && offset != 64 {
                 crate::image::test_support::refresh_crc(&mut payload);
             }
-            let error = RawImageView::open_at(&payload, 60).unwrap_err();
+            let error = ImageRef::open_at(&payload, 60).unwrap_err();
             if offset == MEDIA_HEADER_LEN {
                 assert_eq!(
                     error,
-                    RawImageViewError::UnexpectedSection(crate::media::MediaSectionKind::CODINGS)
+                    ImageReadError::Encoded(EncodedImageError::MissingSection(
+                        crate::media::MediaSectionKind::SURFACE
+                    ))
                 );
             }
             let file = encode_chunks(&[(chunk_type::IMAGE, ChunkFlags::CRITICAL.bits(), &payload)]);
@@ -882,7 +890,6 @@ mod tests {
 
     #[test]
     fn critical_image_checks_exact_payload_boundary_and_crc() {
-        use crate::image::RawImageView;
         let valid = valid_image_payload();
         for mut payload in [
             valid[..valid.len() - 1].to_vec(),
@@ -892,7 +899,7 @@ mod tests {
             if payload.len() == valid.len() {
                 payload.push(0);
             }
-            let expected = RawImageView::open_at(&payload, 60).unwrap_err();
+            let expected = ImageRef::open_at(&payload, 60).unwrap_err();
             let bytes =
                 encode_chunks(&[(chunk_type::IMAGE, ChunkFlags::CRITICAL.bits(), &payload)]);
             assert_critical_image_failure(&bytes, expected);
@@ -900,7 +907,7 @@ mod tests {
         let mut corrupt = valid;
         let last = corrupt.len() - 1;
         corrupt[last] ^= 1;
-        let error = RawImageView::open_at(&corrupt, 60).unwrap_err();
+        let error = ImageRef::open_at(&corrupt, 60).unwrap_err();
         let bytes = encode_chunks(&[(chunk_type::IMAGE, ChunkFlags::CRITICAL.bits(), &corrupt)]);
         assert_critical_image_failure(&bytes, error);
     }
@@ -923,9 +930,9 @@ mod tests {
                     chunk_type: ChunkType::IMAGE,
                     payload_offset: payload_offset(&bytes, 0),
                 },
-                failure: PayloadValidationFailure::Image(RawImageViewError::UnexpectedSection(
-                    MediaSectionKind::CODINGS
-                ),),
+                failure: PayloadValidationFailure::Image(ImageReadError::Encoded(
+                    crate::image::EncodedImageError::MissingSection(MediaSectionKind::SURFACE)
+                )),
             })
         );
     }

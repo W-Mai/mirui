@@ -96,3 +96,11 @@ Use the corresponding `with_max_*` builders to set stricter or larger limits. Ze
 Work includes group resolution and coverage, each unit's coded and decoded bytes during syntax checks, and one complete DATA checksum scan. Checks precede the charged work. The common envelope and metadata CRC have already been checked by `open`; they are not retroactively limited by this later budget. Actual device stride, base alignment and output capacity still belong to the requested decode plan.
 
 The asset writer accepts one stream, not a list of separately encoded tiles. It does not integrate compressed storage into `ImageSource`, `Document::push_image` or runtime rendering. Unit-index APIs and group readers describe grouped storage independently.
+
+## Container reading
+
+`ChunkRef::image` returns `Result<Option<ImageRef>, ImageReadError>`. Other chunk types return `None` without interpreting payload bytes. IMAGE retains its actual chunk offset; RAW alignment checks occur while opening samples, and encoded alignment checks occur during group preparation or preflight.
+
+`Reader::open` uses embedded limits to preflight every critical IMAGE. `Reader::open_with` accepts custom `ReadOptions` with `PayloadLimits`; `validate_known_payloads` explicitly checks noncritical payloads as well. Encoded validation includes profile syntax and DATA integrity, not just metadata. Failures retain chunk location plus the group/unit location when applicable.
+
+Noncritical unknown coding can be inspected as encoded metadata and preserved as bytes. It does not pass explicit semantic validation. No reader path implicitly allocates a decoded image; resolve the borrowed groups and provide an appropriately aligned output buffer to the selected unit's decode plan.
