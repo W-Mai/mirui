@@ -53,15 +53,15 @@ Primary display hints use a 16-bit `image::SampleLayout`, including planar YUV i
 
 ![Exact byte allocation for a MIRX CHUNK file containing two images, two fonts, and one vector scene](docs/binary-allocation.svg)
 
-This 1,589-byte example is emitted by the checked encoder: a 44-byte CHUNK header, five 16-byte descriptors, 1,461 payload bytes, and two 2-byte alignment gaps. The VECTOR scene references the preceding IMAGE and FONT chunks by table index without embedding their bytes again.
+This 1,725-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors, 1,597 payload bytes, and two 2-byte alignment gaps. The two sectioned IMAGE payloads occupy 1,060 and 114 bytes. The VECTOR scene references the preceding IMAGE and FONT chunks by table index without embedding their bytes again.
 
 ## Payload families
 
 ![The six standard MIRX payload families and their access models](docs/payload-families.svg)
 
-| Type | Purpose | Read access | Owned value |
+| Type | Purpose | Read access | Authoring value |
 | --- | --- | --- | --- |
-| `IMAGE` | Pixels with optional inline palette or alpha plane | `ImageView` | `ImageAsset` |
+| `IMAGE` | Packed, indexed, alpha, and planar YUV surfaces | `SurfaceView` | `ImageAsset` / `RawImageAsset` |
 | `FONT` | Glyph metrics and atlas data | Bounded decode | `Font` |
 | `VECTOR` | Ordered scene operations | Bounded decode | `Scene` |
 | `META` | Ordered text, bytes, and extension values | `MetaView` | `Meta` |
@@ -92,11 +92,9 @@ fn inspect(bytes: &[u8]) {
                 .image()
                 .expect("valid IMAGE payload")
                 .expect("IMAGE type");
-            let minimum = image
-                .format()
-                .minimum_stride(image.width())
-                .expect("representable stride");
-            assert!(image.stride() >= minimum);
+            for plane in image.planes() {
+                assert!(plane.memory().stride() >= plane.geometry().minimum_stride().unwrap());
+            }
         }
     }
 
@@ -108,9 +106,15 @@ fn inspect(bytes: &[u8]) {
 
 `ReadOptions` configures chunk-count limits, payload limits, and trailing-byte handling. `PayloadLimits::EMBEDDED` is the bounded default; `PayloadLimits::HOST` is the explicit larger profile for host tools. FONT and VECTOR provide zero-allocation preflight before bounded decoding.
 
-The original `parse`, `parse_flat`, and `parse_chunk` functions remain available for compatibility.
+`parse`, `parse_flat`, and `parse_chunk` expose owned container metadata and packed image views. `Reader` exposes sectioned IMAGE surfaces, including planar YUV, without allocating container metadata.
 
 ## Image geometry
+
+IMAGE uses a 32-byte media header, 16-byte section entries, a 32-byte SURFACE record, optional PLANES and COLOR_TABLE sections, DATA, and a trailing CRC. Tight RAW planes derive their stride and offsets from the surface; padded allocation extents, strides, offsets, and alignment use explicit plane records. FLAT keeps its compact packed-image layout.
+
+`Document::push_image` and `DocumentChunkMut::replace_image` accept `ImageSource`: packed `ImageAsset`, planar `RawImageAsset`, `RawImageView`, or `SurfaceView`. Typed reads return the same borrowed `SurfaceView` for all IMAGE layouts. Its `packed()` projection returns `None` when the color or storage contract cannot be expressed as a packed image.
+
+`RawImageView::open_at` validates file-relative DATA and plane alignment. `SurfaceView::data_addresses_are_aligned` checks the actual in-memory plane addresses; valid file offsets alone do not make a byte slice suitable for GPU access. `SurfaceRequirements` plans padded allocation dimensions, row strides, and plane addresses without changing the logical image dimensions.
 
 `ColorFormat::bits_per_pixel()` is the canonical main-plane pixel depth. `ColorFormat::minimum_stride(width)` derives the smallest valid row stride, including sub-byte indexed and alpha formats.
 

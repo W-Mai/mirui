@@ -1,9 +1,8 @@
 use alloc::vec::Vec;
 
 use super::{ChunkNode, Document, DocumentState, FlatRecord, PayloadStorage};
-use crate::payload::image::{
-    ImageEncodeError, ImageMeta, ImagePayloadError, ImagePayloadPlan, ImagePlanes,
-};
+use crate::image::{RawImageView, SurfaceView};
+use crate::payload::image::{ImageEncodeError, ImagePayloadError, ImagePayloadPlan, ImagePlanes};
 use crate::{ChunkType, EncodeError, ImageView, PrimaryHints};
 
 #[derive(Clone, Copy)]
@@ -81,44 +80,64 @@ impl<'a> ResolvedNodePayload<'a> {
     }
 
     pub(super) fn validate_image_contract(self) -> Result<PrimaryHints, ImagePayloadError> {
-        self.image_planes().map(image_primary_hints)
+        let view = self.image_view()?;
+        let surface = view.surface();
+        Ok(PrimaryHints::new(
+            surface.sample_layout(),
+            surface.width(),
+            surface.height(),
+            view.plane(0)
+                .expect("validated main plane")
+                .memory()
+                .stride(),
+        ))
     }
 
-    pub(super) fn image_view(self) -> Result<ImageView<'a>, ImagePayloadError> {
+    pub(super) fn image_view(self) -> Result<SurfaceView<'a>, ImagePayloadError> {
         match self {
-            Self::Contiguous { bytes, placement } => match placement {
-                PayloadPlacement::Fixed(offset) => ImageView::open_payload_at(bytes, offset),
-                PayloadPlacement::Unplaced => ImageView::open_payload(bytes),
-            },
-            Self::PromotedImage(image) => Ok(ImageView::from_validated_planes(
-                ImageMeta {
-                    width: image.width,
-                    height: image.height,
-                    stride: image.stride,
-                    format: image.format,
-                },
-                image.main,
-                image.extra,
-            )),
+            Self::Contiguous { bytes, placement } => {
+                let view = match placement {
+                    PayloadPlacement::Fixed(offset) => RawImageView::open_at(bytes, offset),
+                    PayloadPlacement::Unplaced => RawImageView::open(bytes),
+                }
+                .map_err(ImagePayloadError::Media)?;
+                Ok(view.view())
+            }
+            Self::PromotedImage(image) => {
+                ImagePayloadPlan::from_planes(image).map(|plan| plan.surface())
+            }
         }
     }
 
-    pub(super) fn equals_image_plan(self, candidate: ImagePayloadPlan<'_>) -> bool {
+    pub(super) fn equals_surface(self, candidate: SurfaceView<'_>) -> bool {
         match self {
             Self::Contiguous { bytes, placement } => {
                 let aligned = match placement {
                     PayloadPlacement::Fixed(_) => self.image_view().is_ok(),
                     PayloadPlacement::Unplaced => true,
                 };
-                aligned && candidate.equals_payload(bytes)
+                aligned && candidate.matches_payload(bytes).unwrap_or(false)
             }
-            Self::PromotedImage(image) => ImagePayloadPlan::from_planes(image)
-                .is_ok_and(|existing| existing.equals_plan(candidate)),
+            Self::PromotedImage(_) => self
+                .image_view()
+                .is_ok_and(|existing| existing == candidate),
         }
     }
 
     pub(super) fn image_planes(self) -> Result<ResolvedImagePlanes<'a>, ImagePayloadError> {
-        resolved_image_planes(self.image_view()?)
+        let packed = match self {
+            Self::Contiguous { bytes, placement } => {
+                let raw = match placement {
+                    PayloadPlacement::Fixed(offset) => RawImageView::open_at(bytes, offset),
+                    PayloadPlacement::Unplaced => RawImageView::open(bytes),
+                }
+                .map_err(ImagePayloadError::Media)?;
+                raw.packed()
+            }
+            Self::PromotedImage(_) => self.image_view()?.packed(),
+        }
+        .ok_or(ImagePayloadError::NotRepresentableAsPacked)?;
+        resolved_image_planes(packed)
     }
 }
 
@@ -179,19 +198,15 @@ pub(super) fn encode_error_for_image(_: ImagePayloadError) -> EncodeError {
     }
 }
 
-fn image_primary_hints(image: ResolvedImagePlanes<'_>) -> PrimaryHints {
-    PrimaryHints::new(
-        crate::image::SampleLayout::from_color_format(image.format),
-        image.width,
-        image.height,
-        image.stride,
-    )
-}
-
 fn plan_image_payload(image: ResolvedImagePlanes<'_>) -> Result<ImagePayloadPlan<'_>, EncodeError> {
-    ImagePayloadPlan::from_planes(image).map_err(|error| {
-        debug_assert_eq!(error, ImagePayloadError::SizeOverflow);
-        EncodeError::SizeOverflow
+    ImagePayloadPlan::from_planes(image).map_err(|error| match error {
+        ImagePayloadError::SizeOverflow
+        | ImagePayloadError::Surface(crate::image::RawImageEncodeError::SizeOverflow) => {
+            EncodeError::SizeOverflow
+        }
+        _ => EncodeError::InvalidPayload {
+            chunk_type: ChunkType::IMAGE,
+        },
     })
 }
 

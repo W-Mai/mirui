@@ -1,6 +1,6 @@
 use super::{ChunkNode, Document, DocumentState, PayloadInput, RawChunkPolicy};
 use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, Font, FramesAsset, ImageAsset, Meta, Palette, Scene,
+    ChunkFlags, ChunkId, ChunkType, EditError, Font, FramesAsset, Meta, Palette, Scene,
     TryEditError,
 };
 
@@ -74,7 +74,10 @@ impl<'document, 'source> DocumentChunkMut<'document, 'source> {
     }
 
     /// Replaces this chunk with a checked IMAGE payload.
-    pub fn replace_image(&mut self, image: &ImageAsset<'_>) -> Result<(), EditError> {
+    pub fn replace_image(
+        &mut self,
+        image: &(impl crate::image::ImageSource + ?Sized),
+    ) -> Result<(), EditError> {
         let id = self.id();
         self.document.replace_image(id, image)
     }

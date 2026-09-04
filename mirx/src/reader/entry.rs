@@ -1,10 +1,11 @@
+use crate::image::{RawImageView, RawImageViewError, SurfaceView};
 use core::iter::FusedIterator;
 
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFileHeader};
 use crate::wire::{read_u16_le, read_u32_le, slice};
 use crate::{
-    ChunkFlags, ChunkType, FramesDecodeError, FramesView, ImagePayloadError, ImageView,
-    MetaDecodeError, MetaView, PaletteDecodeError, PaletteView, PayloadLimits, ReadError,
+    ChunkFlags, ChunkType, FramesDecodeError, FramesView, MetaDecodeError, MetaView,
+    PaletteDecodeError, PaletteView, PayloadLimits, ReadError,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -179,11 +180,11 @@ impl<'a> ChunkRef<'a> {
     /// The payload is validated at its actual file position, including the
     /// absolute alignment of its pixel data. Other chunk types return
     /// `Ok(None)` without interpreting their payload bytes.
-    pub fn image(&self) -> Result<Option<ImageView<'a>>, ImagePayloadError> {
+    pub fn image(&self) -> Result<Option<SurfaceView<'a>>, RawImageViewError> {
         if self.chunk_type != ChunkType::IMAGE {
             return Ok(None);
         }
-        ImageView::open_payload_at(self.payload, self.payload_offset).map(Some)
+        RawImageView::open_at(self.payload, self.payload_offset).map(|image| Some(image.view()))
     }
 
     /// Returns a borrowed META view when this record has the META type.

@@ -33,29 +33,17 @@ fn image_payload(
     width: u32,
     height: u32,
     stride: u32,
-    data_offset: u32,
+    padding: u32,
 ) -> Vec<u8> {
-    let main_len = usize::try_from(stride.checked_mul(height).unwrap()).unwrap();
-    let extra_len = usize::try_from(format.extra_size(width, height, stride).unwrap()).unwrap();
-    let data_start = usize::try_from(data_offset).unwrap();
-    let mut payload = vec![0; data_start + main_len + extra_len];
-    payload[0..4].copy_from_slice(&width.to_le_bytes());
-    payload[4..8].copy_from_slice(&height.to_le_bytes());
-    payload[8] = format.to_u8();
-    payload[12..16].copy_from_slice(&stride.to_le_bytes());
-    payload[16..20].copy_from_slice(&data_offset.to_le_bytes());
-    payload[20..24].copy_from_slice(&u32::try_from(main_len + extra_len).unwrap().to_le_bytes());
-    payload[24..28].copy_from_slice(&u32::try_from(extra_len).unwrap().to_le_bytes());
-    for (index, byte) in payload[data_start..data_start + main_len]
-        .iter_mut()
-        .enumerate()
-    {
-        *byte = index as u8 ^ 0x5a;
-    }
-    for (index, byte) in payload[data_start + main_len..].iter_mut().enumerate() {
-        *byte = index as u8 ^ 0xa5;
-    }
-    payload
+    let main: Vec<_> = (0..stride * height)
+        .map(|index| index as u8 ^ 0x5a)
+        .collect();
+    let extra: Vec<_> = (0..format.extra_size(width, height, stride).unwrap())
+        .map(|index| index as u8 ^ 0xa5)
+        .collect();
+    let asset = ImageAsset::new(width, height, format, stride, Cow::Borrowed(&main))
+        .with_extra(Cow::Borrowed(&extra));
+    crate::image::test_support::pad_data(asset.encode_payload().unwrap(), padding as usize, 2)
 }
 
 fn push_image<'a>(document: &mut Document<'a>, payload: PayloadInput<'a>) -> ChunkId {
@@ -158,8 +146,8 @@ fn promoted_image_demotes_without_copying_and_ids_are_not_reused() {
 #[test]
 fn borrowed_and_owned_unplaced_payloads_keep_their_storage() {
     for data_offset in 32..=35 {
-        let borrowed = image_payload(ColorFormat::A8, 2, 2, 2, data_offset);
-        let expected_main = borrowed[usize::try_from(data_offset).unwrap()..].as_ptr();
+        let borrowed = image_payload(ColorFormat::A8, 2, 2, 2, data_offset % 4);
+        let expected_main = ImageView::open_payload(&borrowed).unwrap().main().as_ptr();
         let mut document = Document::new();
         push_image(&mut document, PayloadInput::Borrowed(&borrowed));
         assert_eq!(document.demote_to_flat(), Ok(true));
@@ -169,9 +157,16 @@ fn borrowed_and_owned_unplaced_payloads_keep_their_storage() {
         );
     }
 
-    let owned = image_payload(ColorFormat::I4, 3, 2, 2, 35);
+    let owned = image_payload(ColorFormat::I4, 3, 2, 2, 3);
     let pointer = owned.as_ptr();
     let capacity = owned.capacity();
+    let main_offset = crate::image::test_support::data_offset(&owned);
+    let extra_offset = ImageView::open_payload(&owned)
+        .unwrap()
+        .extra()
+        .unwrap()
+        .as_ptr() as usize
+        - pointer as usize;
     let mut document = Document::new();
     push_image(&mut document, PayloadInput::Owned(owned));
     assert_eq!(document.demote_to_flat(), Ok(true));
@@ -188,11 +183,11 @@ fn borrowed_and_owned_unplaced_payloads_keep_their_storage() {
     };
     assert_eq!(backing.as_ptr(), pointer);
     assert_eq!(backing.capacity(), capacity);
-    assert_eq!(main.start(), 35);
-    assert_eq!(extra.unwrap().start(), 39);
+    assert_eq!(main.start(), main_offset);
+    assert_eq!(extra.unwrap().start(), extra_offset);
     assert_eq!(
         document.flat_image().unwrap().main().as_ptr() as usize,
-        pointer as usize + 35
+        pointer as usize + main_offset
     );
 }
 
@@ -202,9 +197,10 @@ fn payload_backed_flat_survives_exact_replacement_and_forced_chunk_encoding() {
     let width = 3;
     let height = 2;
     let stride = format.minimum_stride(width).unwrap();
-    let payload = image_payload(format, width, height, stride, 35);
-    let expected_main = payload[35..39].to_vec();
-    let expected_extra = payload[39..].to_vec();
+    let payload = image_payload(format, width, height, stride, 3);
+    let view = ImageView::open_payload(&payload).unwrap();
+    let expected_main = view.main().to_vec();
+    let expected_extra = view.extra().unwrap().to_vec();
     let backing_pointer = payload.as_ptr();
     let backing_capacity = payload.capacity();
     let mut document = Document::new();
@@ -262,7 +258,14 @@ fn payload_backed_flat_survives_exact_replacement_and_forced_chunk_encoding() {
 #[test]
 fn opened_source_payloads_keep_origin_allocation_and_exact_plane_ranges() {
     let data_offset = 33;
-    let payload = image_payload(ColorFormat::I4, 3, 2, 2, data_offset);
+    let payload = image_payload(ColorFormat::I4, 3, 2, 2, data_offset % 4);
+    let data_offset = crate::image::test_support::data_offset(&payload) as u32;
+    let palette_offset = ImageView::open_payload(&payload)
+        .unwrap()
+        .extra()
+        .unwrap()
+        .as_ptr() as usize
+        - payload.as_ptr() as usize;
     let source = encoded_image_chunk(&payload);
     let chunk = Reader::open(&source).unwrap().chunks().next().unwrap();
     let main_offset = usize::try_from(chunk.payload_offset() + data_offset).unwrap();
@@ -286,7 +289,7 @@ fn opened_source_payloads_keep_origin_allocation_and_exact_plane_ranges() {
         panic!("opened IMAGE payload must retain source-backed storage");
     };
     assert_eq!(main.start(), usize::try_from(data_offset).unwrap());
-    assert_eq!(extra.unwrap().start(), main.start() + 4);
+    assert_eq!(extra.unwrap().start(), palette_offset);
 
     let mut owned_source = Vec::with_capacity(source.len() + 41);
     owned_source.extend_from_slice(&source);
@@ -307,7 +310,7 @@ fn opened_source_payloads_keep_origin_allocation_and_exact_plane_ranges() {
 
 #[test]
 fn source_backed_images_keep_strict_absolute_alignment() {
-    let payload = image_payload(ColorFormat::A8, 2, 2, 2, 33);
+    let payload = image_payload(ColorFormat::A8, 2, 2, 2, 1);
     let mut source = encoded_image_chunk(&payload);
     let entry = CHUNK_FILE_HEADER_LEN;
     let old_offset = u32::from_le_bytes(source[entry + 4..entry + 8].try_into().unwrap());
@@ -349,9 +352,10 @@ fn every_color_format_demotes_and_reopens_with_identical_planes() {
             .unwrap()
             .checked_add(1)
             .unwrap();
-        let payload = image_payload(format, width, height, stride, 33);
-        let expected_main = payload[33..33 + usize::try_from(stride * height).unwrap()].to_vec();
-        let expected_extra = payload[33 + expected_main.len()..].to_vec();
+        let payload = image_payload(format, width, height, stride, 1);
+        let view = ImageView::open_payload(&payload).unwrap();
+        let expected_main = view.main().to_vec();
+        let expected_extra = view.extra().unwrap_or(&[]).to_vec();
         let mut document = Document::new();
         push_image(&mut document, PayloadInput::Borrowed(&payload));
 
@@ -373,7 +377,7 @@ fn every_color_format_demotes_and_reopens_with_identical_planes() {
 
 #[test]
 fn writer_policies_share_the_lossless_candidate_without_mutating_state() {
-    let payload = image_payload(ColorFormat::RGB565A8, 2, 2, 4, 35);
+    let payload = image_payload(ColorFormat::RGB565A8, 2, 2, 4, 3);
     let mut document = Document::new();
     let id = push_image(&mut document, PayloadInput::Borrowed(&payload));
     let next_id = document.next_id;
@@ -403,7 +407,7 @@ fn writer_policies_share_the_lossless_candidate_without_mutating_state() {
 
 #[test]
 fn structural_and_payload_rejections_are_failure_atomic() {
-    let valid = image_payload(ColorFormat::A8, 2, 2, 2, 32);
+    let valid = image_payload(ColorFormat::A8, 2, 2, 2, 0);
     let mut empty = Document::new();
     assert_eq!(
         empty.demote_to_flat(),
@@ -450,7 +454,7 @@ fn structural_and_payload_rejections_are_failure_atomic() {
 
 #[test]
 fn count_type_and_flags_cannot_be_discarded_by_demotion() {
-    let valid = image_payload(ColorFormat::A8, 1, 1, 1, 32);
+    let valid = image_payload(ColorFormat::A8, 1, 1, 1, 0);
 
     let mut multiple = Document::new();
     let primary = push_image(&mut multiple, PayloadInput::Borrowed(&valid));
@@ -584,7 +588,7 @@ fn malformed_payloads(valid: &[u8]) -> Vec<Vec<u8>> {
 
 #[test]
 fn nonrepresentable_smallest_falls_back_and_force_flat_is_atomic() {
-    let payload = image_payload(ColorFormat::A8, 1, 1, 1, 32);
+    let payload = image_payload(ColorFormat::A8, 1, 1, 1, 0);
     let mut document = Document::new();
     push_image(&mut document, PayloadInput::Borrowed(&payload));
     document
@@ -618,7 +622,7 @@ fn nonrepresentable_smallest_falls_back_and_force_flat_is_atomic() {
 
 #[test]
 fn global_write_blockers_precede_layout_and_representability() {
-    let payload = image_payload(ColorFormat::A8, 1, 1, 1, 32);
+    let payload = image_payload(ColorFormat::A8, 1, 1, 1, 0);
     let source = encoded_image_chunk(&payload);
 
     let mut future_with_tail = source.clone();
@@ -685,7 +689,7 @@ fn global_write_blockers_precede_layout_and_representability() {
 #[test]
 fn zero_geometry_uses_the_existing_format_rules() {
     for format in [ColorFormat::A8, ColorFormat::I4, ColorFormat::RGB565A8] {
-        let payload = image_payload(format, 0, 0, 0, 32);
+        let payload = image_payload(format, 0, 0, 0, 0);
         let mut document = Document::new();
         push_image(&mut document, PayloadInput::Borrowed(&payload));
         assert_eq!(document.demote_to_flat(), Ok(true));
@@ -700,7 +704,7 @@ fn zero_geometry_uses_the_existing_format_rules() {
 
 #[test]
 fn flat_candidate_uses_payload_metadata_instead_of_stale_hints() {
-    let payload = image_payload(ColorFormat::A8, 2, 3, 2, 32);
+    let payload = image_payload(ColorFormat::A8, 2, 3, 2, 0);
     let mut source = encoded_image_chunk(&payload);
     source[22] = 0xff;
     source[24..28].copy_from_slice(&9u32.to_le_bytes());
@@ -725,7 +729,7 @@ fn flat_candidate_uses_payload_metadata_instead_of_stale_hints() {
 
 #[test]
 fn flat_header_crc_is_recomputed_after_demotion() {
-    let payload = image_payload(ColorFormat::A8, 1, 2, 1, 35);
+    let payload = image_payload(ColorFormat::A8, 1, 2, 1, 3);
     let mut document = Document::new();
     push_image(&mut document, PayloadInput::Borrowed(&payload));
     document.demote_to_flat().unwrap();

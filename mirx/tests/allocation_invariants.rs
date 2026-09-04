@@ -326,7 +326,10 @@ fn borrowed_reads_and_caller_buffer_encoding_allocate_nothing() {
         let mut observed = 0usize;
         for chunk in reader.chunks() {
             if let Some(image) = chunk.image().unwrap() {
-                observed += image.main().len();
+                observed += image
+                    .planes()
+                    .map(|plane| plane.bytes().len())
+                    .sum::<usize>();
             }
             if let Some(meta) = chunk.meta(&limits).unwrap() {
                 observed += meta.entries().count();
@@ -378,4 +381,41 @@ fn borrowed_reads_and_caller_buffer_encoding_allocate_nothing() {
     assert_eq!(finish_allocations, 0);
     assert!(matches!(finished, Cow::Borrowed(_)));
     assert_eq!(finished.as_ref(), bytes);
+}
+
+#[test]
+fn sectioned_image_noop_edits_and_reencoding_allocate_nothing() {
+    let surface = SurfaceDescriptor::new(
+        2,
+        2,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let image = RawImageAsset::new(surface, &[&[16; 4], &[128; 2]]);
+    let mut authored = Document::new();
+    let id = authored.push_image(&image).unwrap();
+    authored.set_primary(id).unwrap();
+    let bytes = authored.encode(&EncodeOptions::new()).unwrap();
+    let mut document = Document::open(&bytes).unwrap();
+    let id = document.chunks().next().unwrap().id();
+    let mut out = vec![0; bytes.len()];
+    let (_, allocations) = count_allocations(|| {
+        document.get_mut(id).unwrap().replace_image(&image).unwrap();
+        assert!(!document.is_dirty());
+        document
+            .encode_into(&mut out, &EncodeOptions::new())
+            .unwrap();
+        let view = Reader::open(&out)
+            .unwrap()
+            .chunks()
+            .next()
+            .unwrap()
+            .image()
+            .unwrap()
+            .unwrap();
+        assert_eq!(view.surface(), surface);
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(out, bytes);
 }

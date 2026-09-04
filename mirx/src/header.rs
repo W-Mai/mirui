@@ -128,22 +128,6 @@ pub mod chunk_type {
     pub const PALETTE: u16 = 0x0080;
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ImageChunkHeader {
-    pub width: u32,
-    pub height: u32,
-    pub color_format: u8,
-    pub compress: u8,
-    pub stride: u32,
-    pub data_offset: u32,
-    pub data_size: u32,
-    pub extra_data_size: u32,
-}
-
-impl ImageChunkHeader {
-    pub const SIZE: usize = 32;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

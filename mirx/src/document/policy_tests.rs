@@ -114,21 +114,16 @@ fn valid_image_payload() -> Vec<u8> {
 }
 
 fn offset_sensitive_image_source() -> Vec<u8> {
-    let payload = valid_image_payload();
-    assert_eq!(payload.len(), 36);
-
+    let payload = crate::image::test_support::pad_data(valid_image_payload(), 1, 2);
     let template = encode_chunks(&[(chunk_type::IMAGE, 0, payload.as_slice())]);
-    let mut source = vec![0; 100];
     let table_end = CHUNK_FILE_HEADER_LEN + CHUNK_TABLE_ENTRY_LEN;
+    let mut source = vec![0; 63 + payload.len()];
     source[..table_end].copy_from_slice(&template[..table_end]);
-
-    let entry = CHUNK_FILE_HEADER_LEN;
-    source[16..20].copy_from_slice(&100u32.to_le_bytes());
-    source[entry + 4..entry + 8].copy_from_slice(&63u32.to_le_bytes());
-    source[entry + 8..entry + 12].copy_from_slice(&37u32.to_le_bytes());
-    source[63..95].copy_from_slice(&payload[..32]);
-    source[63 + 16..63 + 20].copy_from_slice(&33u32.to_le_bytes());
-    source[96..100].copy_from_slice(&payload[32..]);
+    source[63..].copy_from_slice(&payload);
+    let file_size = source.len() as u32;
+    source[16..20].copy_from_slice(&file_size.to_le_bytes());
+    source[CHUNK_FILE_HEADER_LEN + 4..CHUNK_FILE_HEADER_LEN + 8]
+        .copy_from_slice(&63u32.to_le_bytes());
     let checksum = crc32(&source[..40]);
     source[40..44].copy_from_slice(&checksum.to_le_bytes());
     source

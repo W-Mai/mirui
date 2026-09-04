@@ -2,10 +2,11 @@ use alloc::vec::Vec;
 
 use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentState};
-use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, ImageAsset, ImageDecodeError, ImageEncodeError,
-    ImageView,
-};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageDecodeError, ImageEncodeError};
+
+#[cfg(test)]
+use crate::ImageAsset;
+use crate::image::{ImageSource, SurfaceView};
 
 impl Document<'_> {
     /// Resolves one IMAGE node by its stable document-session identity.
@@ -14,7 +15,7 @@ impl Document<'_> {
     /// borrowed, and promoted payloads are decoded without copying their image
     /// planes. Preserved future container semantics must be normalized before
     /// typed payload access.
-    pub fn image(&self, id: ChunkId) -> Result<ImageView<'_>, ImageDecodeError> {
+    pub fn image(&self, id: ChunkId) -> Result<SurfaceView<'_>, ImageDecodeError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(ImageDecodeError::FutureSemanticsUnsupported);
         }
@@ -37,7 +38,10 @@ impl Document<'_> {
     }
 
     /// Appends a checked IMAGE payload with no chunk flags.
-    pub fn push_image(&mut self, image: &ImageAsset<'_>) -> Result<ChunkId, EditError> {
+    pub fn push_image(
+        &mut self,
+        image: &(impl ImageSource + ?Sized),
+    ) -> Result<ChunkId, EditError> {
         self.push_image_with_flags(image, ChunkFlags::NONE)
     }
 
@@ -47,7 +51,7 @@ impl Document<'_> {
     /// have passed. A FLAT document is promoted atomically before insertion.
     pub fn push_image_with_flags(
         &mut self,
-        image: &ImageAsset<'_>,
+        image: &(impl ImageSource + ?Sized),
         flags: ChunkFlags,
     ) -> Result<ChunkId, EditError> {
         self.push_typed_owned_with(ChunkType::IMAGE, flags, || encode_image_for_edit(image))
@@ -60,30 +64,33 @@ impl Document<'_> {
     pub(super) fn replace_image(
         &mut self,
         id: ChunkId,
-        image: &ImageAsset<'_>,
+        image: &(impl ImageSource + ?Sized),
     ) -> Result<(), EditError> {
         self.replace_typed_owned_with(
             id,
             ChunkType::IMAGE,
-            || image.payload_plan().map_err(image_plan_error_for_edit),
-            |plan, existing| Ok(existing.equals_image_plan(*plan)),
-            |plan| plan.payload_to_vec().map_err(image_encode_error_for_edit),
+            || {
+                let view = image.view().map_err(EditError::InvalidPayload)?;
+                view.encoded_len()
+                    .map_err(|error| image_encode_error_for_edit(error.into()))?;
+                Ok(view)
+            },
+            |plan, existing| Ok(existing.equals_surface(*plan)),
+            |plan| {
+                plan.encode()
+                    .map_err(|error| image_encode_error_for_edit(error.into()))
+            },
             EditError::InvalidPayload,
         )
     }
 }
 
-fn encode_image_for_edit(image: &ImageAsset<'_>) -> Result<Vec<u8>, EditError> {
-    image.encode_payload().map_err(image_encode_error_for_edit)
-}
-
-fn image_plan_error_for_edit(error: ImageEncodeError) -> EditError {
-    match error {
-        ImageEncodeError::InvalidPayload(error) => EditError::InvalidPayload(error),
-        ImageEncodeError::AllocationFailed | ImageEncodeError::BufferTooSmall { .. } => {
-            unreachable!("planning an IMAGE payload neither allocates nor writes output")
-        }
-    }
+fn encode_image_for_edit(image: &(impl ImageSource + ?Sized)) -> Result<Vec<u8>, EditError> {
+    image
+        .view()
+        .map_err(EditError::InvalidPayload)?
+        .encode()
+        .map_err(|error| image_encode_error_for_edit(error.into()))
 }
 
 fn image_encode_error_for_edit(error: ImageEncodeError) -> EditError {
@@ -102,7 +109,7 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::header::{CHUNK_FILE_HEADER_LEN, ImageChunkHeader, VERSION_MINOR};
+    use crate::header::{CHUNK_FILE_HEADER_LEN, VERSION_MINOR};
     use crate::{
         ColorFormat, CompatibilityPolicy, CriticalAssumption, EncodeOptions, ImagePayloadError,
         Layout, OpenOptions, PayloadOrigin, RawChunkPolicy, RawTypePolicy, Reader,
@@ -206,7 +213,7 @@ mod tests {
             let chunk = document.get(inserted).unwrap();
             assert_eq!(chunk.flags(), flags, "{format:?}");
             assert_eq!(chunk.payload_origin(), PayloadOrigin::OWNED, "{format:?}");
-            let image = document.image(inserted).unwrap();
+            let image = document.image(inserted).unwrap().packed().unwrap();
             assert_eq!(image.width(), width, "{format:?}");
             assert_eq!(image.height(), height, "{format:?}");
             assert_eq!(image.format(), format, "{format:?}");
@@ -222,7 +229,7 @@ mod tests {
             let reopened = Reader::open(&encoded).unwrap();
             let chunk = reopened.chunks().next().unwrap();
             assert_eq!(chunk.flags(), flags, "{format:?}");
-            let reopened_image = chunk.image().unwrap().unwrap();
+            let reopened_image = chunk.image().unwrap().unwrap().packed().unwrap();
             assert_eq!(reopened_image.main(), expected_main, "{format:?}");
             assert_eq!(
                 reopened_image.extra(),
@@ -257,6 +264,8 @@ mod tests {
             .unwrap()
             .image()
             .unwrap()
+            .unwrap()
+            .packed()
             .unwrap();
         let expected_pointer = expected.main().as_ptr();
         let document = Document::open(&source).unwrap();
@@ -266,7 +275,13 @@ mod tests {
             .unwrap()
             .id();
         assert_eq!(
-            document.image(image_id).unwrap().main().as_ptr(),
+            document
+                .image(image_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main()
+                .as_ptr(),
             expected_pointer
         );
 
@@ -280,6 +295,8 @@ mod tests {
                 .unwrap()
                 .image()
                 .unwrap()
+                .unwrap()
+                .packed()
                 .unwrap();
             image.main().as_ptr() as usize - owned_base
         };
@@ -290,7 +307,13 @@ mod tests {
             .unwrap()
             .id();
         assert_eq!(
-            owned_document.image(owned_id).unwrap().main().as_ptr() as usize,
+            owned_document
+                .image(owned_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main()
+                .as_ptr() as usize,
             owned_base + main_offset
         );
 
@@ -332,8 +355,14 @@ mod tests {
                 .as_ptr(),
             owned_payload_pointer
         );
-        assert_eq!(mixed.image(borrowed_id).unwrap().main(), main);
-        assert_eq!(mixed.image(owned_id).unwrap().main(), main);
+        assert_eq!(
+            mixed.image(borrowed_id).unwrap().packed().unwrap().main(),
+            main
+        );
+        assert_eq!(
+            mixed.image(owned_id).unwrap().packed().unwrap().main(),
+            main
+        );
 
         let promoted_main = [9, 8, 7, 6];
         let inserted_main = [4, 5, 6, 7];
@@ -349,7 +378,13 @@ mod tests {
         assert_eq!(promoted_id, id(0));
         assert_eq!(inserted, id(1));
         assert_eq!(
-            promoted.image(promoted_id).unwrap().main().as_ptr(),
+            promoted
+                .image(promoted_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main()
+                .as_ptr(),
             promoted_main.as_ptr()
         );
         assert_eq!(
@@ -384,9 +419,9 @@ mod tests {
         );
         assert!(matches!(
             document.image(image.id()),
-            Err(ImageDecodeError::InvalidPayload(
-                ImagePayloadError::Truncated { .. }
-            ))
+            Err(ImageDecodeError::InvalidPayload(ImagePayloadError::Media(
+                _
+            )))
         ));
 
         let valid_main = [1, 2, 3, 4];
@@ -396,7 +431,15 @@ mod tests {
         let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
         let trailing = Document::open_with(&with_trailing, &options).unwrap();
         let trailing_id = trailing.chunks().next().unwrap().id();
-        assert_eq!(trailing.image(trailing_id).unwrap().main(), valid_main);
+        assert_eq!(
+            trailing
+                .image(trailing_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main(),
+            valid_main
+        );
 
         with_trailing[5] = VERSION_MINOR + 1;
         refresh_chunk_header_crc(&mut with_trailing);
@@ -411,13 +454,22 @@ mod tests {
             options.with_compatibility(CompatibilityPolicy::NormalizeToCurrent);
         let normalized = Document::open_with(&with_trailing, &normalized_options).unwrap();
         let normalized_id = normalized.chunks().next().unwrap().id();
-        assert_eq!(normalized.image(normalized_id).unwrap().main(), valid_main);
+        assert_eq!(
+            normalized
+                .image(normalized_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main(),
+            valid_main
+        );
     }
 
     #[test]
     fn typed_query_keeps_absolute_alignment_checks_for_source_payloads() {
         let main = [1, 2, 3, 4];
         let payload = a8_asset(&main, 2, 2).encode_payload().unwrap();
+        let payload = crate::image::test_support::pad_data(payload, 0, 2);
         let mut source = image_file(&payload, ChunkFlags::NONE);
         let entry = CHUNK_FILE_HEADER_LEN;
         let original_payload_offset = payload_offset(&source, 0);
@@ -434,20 +486,31 @@ mod tests {
         );
         let mut document = Document::open(&source).unwrap();
         let image_id = document.chunks().next().unwrap().id();
-        let absolute_offset =
-            u32::try_from(shifted_payload_offset + ImageChunkHeader::SIZE).unwrap();
+        let absolute_offset = u32::try_from(
+            shifted_payload_offset + crate::image::test_support::data_offset(&payload),
+        )
+        .unwrap();
         assert_eq!(
             document.image(image_id),
-            Err(ImageDecodeError::InvalidPayload(
-                ImagePayloadError::DataOffsetUnaligned { absolute_offset }
-            ))
+            Err(ImageDecodeError::InvalidPayload(ImagePayloadError::Media(
+                crate::image::RawImageViewError::Media(
+                    crate::media::MediaPayloadError::DataOffsetUnaligned {
+                        index: 1,
+                        absolute_offset,
+                        alignment: 4
+                    }
+                )
+            )))
         );
 
         document
             .replace_image(image_id, &a8_asset(&main, 2, 2))
             .unwrap();
         assert!(document.is_dirty());
-        assert_eq!(document.image(image_id).unwrap().main(), main);
+        assert_eq!(
+            document.image(image_id).unwrap().packed().unwrap().main(),
+            main
+        );
         assert_eq!(
             document.get(image_id).unwrap().payload_origin(),
             PayloadOrigin::OWNED
@@ -513,7 +576,13 @@ mod tests {
         let image_id = document.chunks().next().unwrap().id();
         let before = document.get(image_id).unwrap();
         let payload_pointer = before.payload_bytes().unwrap().as_ptr();
-        let main_pointer = document.image(image_id).unwrap().main().as_ptr();
+        let main_pointer = document
+            .image(image_id)
+            .unwrap()
+            .packed()
+            .unwrap()
+            .main()
+            .as_ptr();
 
         document
             .replace_image(image_id, &a8_asset(&main, 2, 2))
@@ -524,7 +593,13 @@ mod tests {
         assert_eq!(after.payload_origin(), PayloadOrigin::ORIGINAL_SOURCE);
         assert_eq!(after.payload_bytes().unwrap().as_ptr(), payload_pointer);
         assert_eq!(
-            document.image(image_id).unwrap().main().as_ptr(),
+            document
+                .image(image_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main()
+                .as_ptr(),
             main_pointer
         );
         let finished = document.finish().unwrap();
@@ -544,7 +619,15 @@ mod tests {
         assert_eq!(repaired.primary(), Some(repaired_id));
         assert_eq!(repaired.primary_hints().width(), 3);
         assert_eq!(repaired.primary_hints().height(), 2);
-        assert_eq!(repaired.image(repaired_id).unwrap().main(), replacement);
+        assert_eq!(
+            repaired
+                .image(repaired_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main(),
+            replacement
+        );
         assert_eq!(
             repaired.get(repaired_id).unwrap().payload_origin(),
             PayloadOrigin::OWNED
@@ -556,6 +639,8 @@ mod tests {
         let exact_promoted_id = exact_promoted.promote_to_chunk().unwrap().unwrap();
         let exact_pointer = exact_promoted
             .image(exact_promoted_id)
+            .unwrap()
+            .packed()
             .unwrap()
             .main()
             .as_ptr();
@@ -573,6 +658,8 @@ mod tests {
             exact_promoted
                 .image(exact_promoted_id)
                 .unwrap()
+                .packed()
+                .unwrap()
                 .main()
                 .as_ptr(),
             exact_pointer
@@ -584,7 +671,13 @@ mod tests {
 
         let mut promoted = Document::new_flat(a8_asset(&original, 2, 2)).unwrap();
         let promoted_id = promoted.promote_to_chunk().unwrap().unwrap();
-        let original_pointer = promoted.image(promoted_id).unwrap().main().as_ptr();
+        let original_pointer = promoted
+            .image(promoted_id)
+            .unwrap()
+            .packed()
+            .unwrap()
+            .main()
+            .as_ptr();
         promoted
             .replace_image(promoted_id, &a8_asset(&changed, 3, 2))
             .unwrap();
@@ -595,7 +688,13 @@ mod tests {
             PayloadOrigin::OWNED
         );
         assert_ne!(
-            promoted.image(promoted_id).unwrap().main().as_ptr(),
+            promoted
+                .image(promoted_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main()
+                .as_ptr(),
             original_pointer
         );
         let DocumentState::Chunk(chunks) = &promoted.state else {
@@ -688,6 +787,14 @@ mod tests {
         let chunk = preserved.get(preserved_id).unwrap();
         assert_eq!(chunk.flags().bits(), 2);
         assert_eq!(chunk.payload_origin(), PayloadOrigin::OWNED);
-        assert_eq!(preserved.image(preserved_id).unwrap().main(), changed);
+        assert_eq!(
+            preserved
+                .image(preserved_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main(),
+            changed
+        );
     }
 }

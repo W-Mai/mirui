@@ -48,8 +48,8 @@ pub use font::{
 pub use format::ColorFormat;
 pub use header::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkEntry, ChunkFileHeader, FILE_HEADER_LEN,
-    FLAT_HEADER_LEN, FileHeader, FlatHeader, ImageChunkHeader, Layout, MAGIC, VERSION_MAJOR,
-    VERSION_MINOR, chunk_type,
+    FLAT_HEADER_LEN, FileHeader, FlatHeader, Layout, MAGIC, VERSION_MAJOR, VERSION_MINOR,
+    chunk_type,
 };
 pub use media::CodingId;
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};

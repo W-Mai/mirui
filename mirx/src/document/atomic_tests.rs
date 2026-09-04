@@ -892,9 +892,7 @@ fn flat_replacement_errors_and_noops_preserve_the_complete_snapshot() {
 
 #[test]
 fn payload_backed_flat_failures_preserve_backing_and_plane_ranges() {
-    let mut payload = image_payload(2, 2);
-    payload.splice(32..32, [0; 3]);
-    payload[16..20].copy_from_slice(&35u32.to_le_bytes());
+    let payload = crate::image::test_support::pad_data(image_payload(2, 2), 3, 2);
     let mut document = Document::new();
     let image = document
         .push_raw(raw(

@@ -39,6 +39,9 @@
 //! assert!(view.matches_payload(&bytes).unwrap());
 //! ```
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 mod borrowed;
 mod color;
 mod encode;
@@ -48,7 +51,7 @@ mod plan;
 mod surface;
 mod view;
 
-pub use borrowed::{SurfacePlanes, SurfaceView};
+pub use borrowed::{ImageSource, SurfacePlanes, SurfaceView};
 pub use color::{
     ChromaSiting, ColorDescription, ColorDescriptionError, ColorMatrix, ColorPrimaries, ColorRange,
     TransferFunction,

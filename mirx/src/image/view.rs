@@ -86,6 +86,11 @@ impl<'a> RawImageView<'a> {
                 media.header().default_coding(),
             ));
         }
+        if media.header().profile_revision() != 0 {
+            return Err(RawImageViewError::UnsupportedRevision(
+                media.header().profile_revision(),
+            ));
+        }
 
         let mut surface_section = None;
         let mut plane_records = None;
@@ -307,6 +312,7 @@ impl FusedIterator for RawImagePlanes<'_> {}
 pub enum RawImageViewError {
     Media(MediaPayloadError),
     UnsupportedCoding(CodingId),
+    UnsupportedRevision(u16),
     MissingSection(MediaSectionKind),
     DuplicateSection(MediaSectionKind),
     SectionMustBeRequired(MediaSectionKind),

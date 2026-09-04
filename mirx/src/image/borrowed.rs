@@ -171,10 +171,149 @@ impl ExactSizeIterator for SurfacePlanes<'_> {
 
 impl FusedIterator for SurfacePlanes<'_> {}
 
+/// Borrowed decoded pixels supplied to checked IMAGE authoring operations.
+///
+/// Implementations return validated views without transferring pixel ownership.
+pub trait ImageSource {
+    fn view(&self) -> Result<SurfaceView<'_>, crate::ImagePayloadError>;
+}
+
+impl ImageSource for SurfaceView<'_> {
+    fn view(&self) -> Result<SurfaceView<'_>, crate::ImagePayloadError> {
+        Ok(*self)
+    }
+}
+
+impl ImageSource for RawImageAsset<'_, '_> {
+    fn view(&self) -> Result<SurfaceView<'_>, crate::ImagePayloadError> {
+        RawImageAsset::view(*self).map_err(crate::ImagePayloadError::Surface)
+    }
+}
+
+impl ImageSource for RawImageView<'_> {
+    fn view(&self) -> Result<SurfaceView<'_>, crate::ImagePayloadError> {
+        Ok(RawImageView::view(*self))
+    }
+}
+
+impl<'a> SurfaceView<'a> {
+    /// Projects a surface into the packed FLAT/atlas model without dropping
+    /// color, geometry, or physical storage requirements.
+    pub fn packed(self) -> Option<ImageView<'a>> {
+        let surface = self.surface();
+        let format = surface.sample_layout().color_format()?;
+        let expected_color = if surface.sample_layout().is_alpha() {
+            ColorDescription::NONE
+        } else {
+            ColorDescription::SRGB
+        };
+        if surface.color() != expected_color
+            || surface.flags().bits() != 0
+            || surface.pixel_aspect() != (1, 1)
+        {
+            return None;
+        }
+        for plane in self.planes() {
+            let memory = plane.memory();
+            if memory.allocation_width() != plane.geometry().width()
+                || memory.allocation_height() != plane.geometry().height()
+                || memory.required_alignment() != 1
+                || memory.flags().bits() != 0
+            {
+                return None;
+            }
+        }
+        let main = self.plane(0)?;
+        let extra = if format == ColorFormat::RGB565A8 {
+            let alpha = self.plane(1)?;
+            if alpha.memory().stride() != surface.width() {
+                return None;
+            }
+            (!alpha.bytes().is_empty()).then_some(alpha.bytes())
+        } else {
+            self.color_table().map(|table| table.as_bytes())
+        };
+        Some(ImageView::from_validated_planes(
+            crate::payload::image::ImageMeta {
+                width: surface.width(),
+                height: surface.height(),
+                stride: main.memory().stride(),
+                format,
+            },
+            main.bytes(),
+            extra,
+        ))
+    }
+}
+
+impl<'a> RawImageView<'a> {
+    /// Projects a packed surface only when FLAT can retain its storage contract.
+    pub fn packed(self) -> Option<ImageView<'a>> {
+        use crate::media::{MediaSectionFlags, MediaSectionKind};
+        let media = self.media();
+        if media.header().flags().bits() != 0
+            || media.header().required_alignment() > 4
+            || media.sections().any(|section| {
+                let descriptor = section.descriptor();
+                descriptor.flags() != MediaSectionFlags::REQUIRED
+                    || !matches!(
+                        descriptor.kind(),
+                        MediaSectionKind::SURFACE
+                            | MediaSectionKind::PLANES
+                            | MediaSectionKind::COLOR_TABLE
+                            | MediaSectionKind::DATA
+                    )
+            })
+        {
+            return None;
+        }
+        self.view().packed()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::payload::image::ImageMeta;
+
+    #[test]
+    fn packed_projection_keeps_envelope_promises_out_of_flat_demotion() {
+        let surface =
+            SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let payload = RawImageAsset::new(surface, &[&[7]]).encode().unwrap();
+        assert!(RawImageView::open(&payload).unwrap().packed().is_some());
+        for (offset, value) in [(1, 0x80), (34, 0x81), (6, 6)] {
+            let mut changed = payload.clone();
+            changed[offset] = value;
+            super::super::test_support::refresh_crc(&mut changed);
+            let raw = RawImageView::open(&changed).unwrap();
+            assert_eq!(raw.view().plane(0).unwrap().bytes(), &[7]);
+            assert!(raw.packed().is_none());
+            let mut document = crate::Document::new();
+            let id = document
+                .push_raw(crate::RawChunkInput::new(crate::ChunkType::IMAGE, changed))
+                .unwrap();
+            document.set_primary(id).unwrap();
+            assert_eq!(
+                document.demote_to_flat(),
+                Err(crate::EditError::NotRepresentableAsFlat)
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_raw_revisions_stay_opaque() {
+        let surface =
+            SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let mut payload = RawImageAsset::new(surface, &[&[7]]).encode().unwrap();
+        payload[26] = 1;
+        super::super::test_support::refresh_crc(&mut payload);
+        assert!(crate::media::MediaPayload::open(&payload).is_ok());
+        assert_eq!(
+            RawImageView::open(&payload),
+            Err(super::super::RawImageViewError::UnsupportedRevision(1))
+        );
+    }
 
     #[test]
     fn decoded_view_outlives_temporary_metadata_without_copying_pixels() {

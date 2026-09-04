@@ -114,38 +114,27 @@ pub(super) fn flat_candidate<'document>(
     usize::try_from(file_size).map_err(|_| EditError::NotRepresentableAsFlat)?;
     let storage = match payload {
         ResolvedNodePayload::PromotedImage(_) => CandidateStorage::Promoted,
-        ResolvedNodePayload::Contiguous { bytes, .. } => {
-            contiguous_plane_ranges(bytes.len(), image)?
-        }
+        ResolvedNodePayload::Contiguous { bytes, .. } => contiguous_plane_ranges(bytes, image)?,
     };
     Ok(FlatCandidate { image, storage })
 }
 
 fn contiguous_plane_ranges(
-    payload_len: usize,
+    payload: &[u8],
     image: ResolvedImagePlanes<'_>,
 ) -> Result<CandidateStorage, EditError> {
-    let extra_len = image.extra.map_or(0, <[u8]>::len);
-    let data_len = image
-        .main
-        .len()
-        .checked_add(extra_len)
-        .ok_or(EditError::NotRepresentableAsFlat)?;
-    let main_start = payload_len
-        .checked_sub(data_len)
-        .ok_or(EditError::NotRepresentableAsFlat)?;
-    let main = SourceRange::checked(main_start, image.main.len(), payload_len)
-        .ok_or(EditError::NotRepresentableAsFlat)?;
-    let extra_start = main_start
-        .checked_add(image.main.len())
-        .ok_or(EditError::NotRepresentableAsFlat)?;
-    let extra = if extra_len == 0 {
-        None
-    } else {
-        Some(
-            SourceRange::checked(extra_start, extra_len, payload_len)
-                .ok_or(EditError::NotRepresentableAsFlat)?,
-        )
+    let range = |bytes: &[u8]| {
+        let start = (bytes.as_ptr() as usize)
+            .checked_sub(payload.as_ptr() as usize)
+            .ok_or(EditError::NotRepresentableAsFlat)?;
+        SourceRange::checked(start, bytes.len(), payload.len())
+            .ok_or(EditError::NotRepresentableAsFlat)
     };
+    let main = range(image.main)?;
+    let extra = image
+        .extra
+        .filter(|bytes| !bytes.is_empty())
+        .map(range)
+        .transpose()?;
     Ok(CandidateStorage::Contiguous { main, extra })
 }

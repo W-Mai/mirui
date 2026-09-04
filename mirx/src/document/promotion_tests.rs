@@ -358,23 +358,23 @@ fn synthesized_query_materializes_one_canonical_image_payload_atomically() {
     let image_id = document.promote_to_chunk().unwrap().unwrap();
     let view = document.get(image_id).unwrap();
 
-    assert_eq!(view.payload_len(), Ok(36));
-    let mut short = [0xa5; 35];
+    assert_eq!(view.payload_len(), Ok(104));
+    let mut short = [0xa5; 103];
     assert_eq!(
         view.copy_payload_into(&mut short),
         Err(EncodeError::BufferTooSmall {
-            needed: 36,
-            available: 35,
+            needed: 104,
+            available: 103,
         })
     );
-    assert_eq!(short, [0xa5; 35]);
+    assert_eq!(short, [0xa5; 103]);
 
-    let mut target = [0xcc; 40];
-    assert_eq!(view.copy_payload_into(&mut target), Ok(36));
-    assert_eq!(&target[36..], &[0xcc; 4]);
+    let mut target = [0xcc; 108];
+    assert_eq!(view.copy_payload_into(&mut target), Ok(104));
+    assert_eq!(&target[104..], &[0xcc; 4]);
     let materialized = view.payload_to_vec().unwrap();
-    assert_eq!(materialized, target[..36]);
-    assert_eq!(&materialized[9..12], &[0; 3]);
+    assert_eq!(materialized, target[..104]);
+    assert_eq!(materialized[0], 1);
     assert_eq!(&materialized[28..32], &[0; 4]);
     let image = ImageView::open_payload_at(&materialized, 0).unwrap();
     assert_eq!(image.main(), &[1, 2, 3, 4]);
@@ -405,10 +405,7 @@ fn exact_raw_replacement_keeps_sidecar_but_other_encoding_clears_it() {
         before_plane
     );
 
-    let mut offset_36 = vec![0; canonical.len() + 4];
-    offset_36[..32].copy_from_slice(&canonical[..32]);
-    offset_36[16..20].copy_from_slice(&36u32.to_le_bytes());
-    offset_36[36..].copy_from_slice(&canonical[32..]);
+    let offset_36 = crate::image::test_support::pad_data(canonical, 4, 0);
     ImageView::open_payload_at(&offset_36, 0).unwrap();
     document
         .replace_raw(
@@ -758,7 +755,9 @@ fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
 
     let promoted_payload = document.get(image_id).unwrap().payload_to_vec().unwrap();
     let mut second_payload = promoted_payload.clone();
-    second_payload[32..].copy_from_slice(&[9, 8, 7, 6]);
+    let start = crate::image::test_support::data_offset(&second_payload);
+    second_payload[start..start + 4].copy_from_slice(&[9, 8, 7, 6]);
+    crate::image::test_support::refresh_crc(&mut second_payload);
     let second = document
         .push_raw(RawChunkInput {
             chunk_type: ChunkType::IMAGE,
@@ -862,7 +861,7 @@ fn promoted_writer_policies_share_chunk_output_and_finish_uses_default() {
     let meta_end = chunks[0].payload_offset() as usize + chunks[0].payload().len();
     let image_start = chunks[1].payload_offset() as usize;
     assert!(default[meta_end..image_start].iter().all(|&byte| byte == 0));
-    let data_offset = u32::from_le_bytes(chunks[1].payload()[16..20].try_into().unwrap());
+    let data_offset = crate::image::test_support::data_offset(chunks[1].payload()) as u32;
     assert_eq!((chunks[1].payload_offset() + data_offset) % 4, 0);
 
     let mut finished = Document::open(&source).unwrap();

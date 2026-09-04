@@ -316,10 +316,19 @@ mod tests {
             ChunkType::VECTOR
         );
         assert_eq!(
-            document.image(image_id).unwrap().main().as_ptr(),
+            document
+                .image(image_id)
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main()
+                .as_ptr(),
             image_pointer
         );
-        assert_eq!(document.image(image_id).unwrap().main(), &[1, 2, 3, 4]);
+        assert_eq!(
+            document.image(image_id).unwrap().packed().unwrap().main(),
+            &[1, 2, 3, 4]
+        );
         assert_eq!(document.decode_vector(vector_id).unwrap(), expected);
     }
 

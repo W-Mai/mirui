@@ -1,25 +1,20 @@
 use alloc::{borrow::Cow, vec::Vec};
 
 use super::ColorTableView;
-use crate::header::{FLAT_HEADER_LEN, FlatHeader, ImageChunkHeader};
-use crate::wire::{read_u32_le, slice};
+use crate::header::{FLAT_HEADER_LEN, FlatHeader};
+use crate::image::{RawImageEncodeError, RawImageView, RawImageViewError, SurfaceView};
+use crate::wire::slice;
 use crate::{ColorFormat, ReadError};
 
 /// Failure while validating MIRX image metadata, planes, or an IMAGE payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ImagePayloadError {
+    Media(RawImageViewError),
+    Surface(RawImageEncodeError),
+    NotRepresentableAsPacked,
     Truncated { needed: usize, available: usize },
-    ReservedNonZero { offset: usize },
-    UnsupportedCompression(u8),
-    UnknownColorFormat(u8),
     StrideTooSmall { minimum: u32, actual: u32 },
-    DataOffsetBeforeHeader { offset: u32 },
-    DataOffsetUnaligned { absolute_offset: u32 },
-    PaddingNonZero { offset: usize },
-    ExtraDataSizeMismatch { expected: u32, actual: u32 },
-    DataSizeMismatch { expected: u32, actual: u32 },
-    PayloadLengthMismatch { expected: usize, actual: usize },
     MainPlaneLengthMismatch { expected: usize, actual: usize },
     ExtraPlaneLengthMismatch { expected: usize, actual: usize },
     SizeOverflow,
@@ -205,20 +200,6 @@ pub(crate) fn validate_image_planes(
     })
 }
 
-pub(crate) fn checked_image_payload_len(
-    main_size: u32,
-    extra_size: u32,
-) -> Result<(u32, u32), ImagePayloadError> {
-    let data_size = main_size
-        .checked_add(extra_size)
-        .ok_or(ImagePayloadError::SizeOverflow)?;
-    let payload_size = (ImageChunkHeader::SIZE as u32)
-        .checked_add(data_size)
-        .ok_or(ImagePayloadError::SizeOverflow)?;
-    usize::try_from(payload_size).map_err(|_| ImagePayloadError::SizeOverflow)?;
-    Ok((data_size, payload_size))
-}
-
 #[derive(Clone, Copy)]
 pub(crate) struct ImagePlanes<'a> {
     pub(crate) width: u32,
@@ -271,116 +252,88 @@ impl<'a> ImagePlanes<'a> {
 #[derive(Clone, Copy)]
 pub(crate) struct ImagePayloadPlan<'a> {
     planes: ImagePlanes<'a>,
-    data_size: u32,
     payload_size: u32,
 }
 
 impl<'a> ImagePayloadPlan<'a> {
     pub(crate) fn from_planes(planes: ImagePlanes<'a>) -> Result<Self, ImagePayloadError> {
-        let (data_size, payload_size) =
-            checked_image_payload_len(planes.main_size, planes.extra_size)?;
+        let surface = ImageView::from_validated_planes(
+            ImageMeta {
+                width: planes.width,
+                height: planes.height,
+                stride: planes.stride,
+                format: planes.format,
+            },
+            planes.main,
+            planes.extra,
+        )
+        .surface()
+        .map_err(ImagePayloadError::Surface)?;
+        let payload_size = surface.encoded_len().map_err(ImagePayloadError::Surface)?;
+        let payload_size =
+            u32::try_from(payload_size).map_err(|_| ImagePayloadError::SizeOverflow)?;
         Ok(Self {
             planes,
-            data_size,
             payload_size,
         })
     }
 
-    pub(crate) const fn planes(self) -> ImagePlanes<'a> {
-        self.planes
+    pub(crate) fn surface(self) -> SurfaceView<'a> {
+        let planes = self.planes;
+        ImageView::from_validated_planes(
+            ImageMeta {
+                width: planes.width,
+                height: planes.height,
+                stride: planes.stride,
+                format: planes.format,
+            },
+            planes.main,
+            planes.extra,
+        )
+        .surface()
+        .expect("validated packed surface")
     }
-
     pub(crate) fn encoded_len(self) -> usize {
-        usize::try_from(self.payload_size).expect("validated IMAGE payload size fits usize")
+        self.payload_size as usize
     }
-
-    pub(crate) const fn data_offset(self) -> u32 {
-        ImageChunkHeader::SIZE as u32
-    }
-
-    pub(crate) const fn data_size(self) -> u32 {
-        self.data_size
-    }
-
     pub(crate) const fn payload_size(self) -> u32 {
         self.payload_size
     }
 
     pub(crate) fn copy_payload_into(self, out: &mut [u8]) -> Result<usize, ImageEncodeError> {
-        let needed = self.encoded_len();
-        if out.len() < needed {
-            return Err(ImageEncodeError::BufferTooSmall {
-                needed,
-                available: out.len(),
-            });
-        }
-        self.emit_payload(&mut out[..needed]);
-        Ok(needed)
+        self.surface().encode_into(out).map_err(Into::into)
     }
 
     pub(crate) fn payload_to_vec(self) -> Result<Vec<u8>, ImageEncodeError> {
-        let needed = self.encoded_len();
-        let mut out = Vec::new();
-        out.try_reserve_exact(needed)
-            .map_err(|_| ImageEncodeError::AllocationFailed)?;
-        out.resize(needed, 0);
-        self.emit_payload(&mut out);
-        Ok(out)
+        self.surface().encode().map_err(Into::into)
     }
 
     pub(crate) fn equals_payload(self, candidate: &[u8]) -> bool {
-        if candidate.len() != self.encoded_len() {
-            return false;
-        }
-
-        let mut header = [0; ImageChunkHeader::SIZE];
-        self.write_header(&mut header);
-        let planes = self.planes;
-        let main_end = ImageChunkHeader::SIZE + planes.main.len();
-        candidate[..ImageChunkHeader::SIZE] == header
-            && candidate[ImageChunkHeader::SIZE..main_end] == *planes.main
-            && match planes.extra {
-                Some(extra) => candidate[main_end..] == *extra,
-                None => candidate.len() == main_end,
-            }
-    }
-
-    pub(crate) fn equals_plan(self, candidate: Self) -> bool {
-        let left = self.planes;
-        let right = candidate.planes;
-        left.width == right.width
-            && left.height == right.height
-            && left.format == right.format
-            && left.stride == right.stride
-            && left.main == right.main
-            && left.extra.unwrap_or(&[]) == right.extra.unwrap_or(&[])
+        self.surface().matches_payload(candidate).unwrap_or(false)
     }
 
     pub(crate) fn emit_payload(self, out: &mut [u8]) {
-        debug_assert_eq!(self.encoded_len(), out.len());
-        out.fill(0);
-        self.write_header(&mut out[..ImageChunkHeader::SIZE]);
+        self.copy_payload_into(out)
+            .expect("validated IMAGE output capacity");
+    }
+}
 
-        let planes = self.planes;
-        let data = &mut out[ImageChunkHeader::SIZE..];
-        let (main, extra) = data.split_at_mut(planes.main.len());
-        main.copy_from_slice(planes.main);
-        match planes.extra {
-            Some(source) => extra.copy_from_slice(source),
-            None => debug_assert!(extra.is_empty()),
+impl From<RawImageEncodeError> for ImageEncodeError {
+    fn from(error: RawImageEncodeError) -> Self {
+        match error {
+            RawImageEncodeError::AllocationFailed => Self::AllocationFailed,
+            RawImageEncodeError::BufferTooSmall { needed, available } => {
+                Self::BufferTooSmall { needed, available }
+            }
+            error => Self::InvalidPayload(ImagePayloadError::Surface(error)),
         }
     }
+}
 
-    fn write_header(self, out: &mut [u8]) {
-        debug_assert_eq!(out.len(), ImageChunkHeader::SIZE);
-        let planes = self.planes;
-        write_u32(out, 0, planes.width);
-        write_u32(out, 4, planes.height);
-        out[8] = planes.format.to_u8();
-        write_u32(out, 12, planes.stride);
-        write_u32(out, 16, self.data_offset());
-        write_u32(out, 20, self.data_size);
-        write_u32(out, 24, planes.extra_size);
+impl crate::image::ImageSource for ImageAsset<'_> {
+    fn view(&self) -> Result<SurfaceView<'_>, ImagePayloadError> {
+        let planes = ImagePlanes::new(self.meta, self.main(), self.extra())?;
+        Ok(ImagePayloadPlan::from_planes(planes)?.surface())
     }
 }
 
@@ -502,170 +455,24 @@ impl<'a> ImageView<'a> {
         ))
     }
 
-    /// Opens one borrowed IMAGE payload and validates its relative layout.
-    ///
-    /// This entry point has no outer file position, so it cannot validate the
-    /// absolute alignment of the pixel data. Use [`Self::open_payload_at`] or
-    /// [`crate::ChunkRef::image`] when the payload belongs to a MIRX file.
+    /// Opens a sectioned RAW IMAGE representable by the packed FLAT model.
     pub fn open_payload(payload: &'a [u8]) -> Result<Self, ImagePayloadError> {
-        Self::from_chunk_payload_with_placement(payload, None)
+        RawImageView::open(payload)
+            .map_err(ImagePayloadError::Media)?
+            .packed()
+            .ok_or(ImagePayloadError::NotRepresentableAsPacked)
     }
 
-    /// Opens one borrowed IMAGE payload at its absolute file position.
-    ///
-    /// In addition to the complete payload contract, this validates that the
-    /// pixel data begins on a four-byte boundary in the containing MIRX file.
+    /// Opens a packed sectioned RAW IMAGE and validates its file placement.
     pub fn open_payload_at(
         payload: &'a [u8],
         payload_offset: u32,
     ) -> Result<Self, ImagePayloadError> {
-        Self::from_chunk_payload_with_placement(payload, Some(payload_offset))
+        RawImageView::open_at(payload, payload_offset)
+            .map_err(ImagePayloadError::Media)?
+            .packed()
+            .ok_or(ImagePayloadError::NotRepresentableAsPacked)
     }
-
-    fn from_chunk_payload_with_placement(
-        payload: &'a [u8],
-        payload_offset: Option<u32>,
-    ) -> Result<Self, ImagePayloadError> {
-        let header_len = ImageChunkHeader::SIZE;
-        if payload.len() < header_len {
-            return Err(ImagePayloadError::Truncated {
-                needed: header_len,
-                available: payload.len(),
-            });
-        }
-
-        for offset in [10, 11, 28, 29, 30, 31] {
-            if payload[offset] != 0 {
-                return Err(ImagePayloadError::ReservedNonZero { offset });
-            }
-        }
-
-        let width = read_u32_le(payload, 0).expect("complete IMAGE header");
-        let height = read_u32_le(payload, 4).expect("complete IMAGE header");
-        let format_byte = payload[8];
-        let compression = payload[9];
-        let stride = read_u32_le(payload, 12).expect("complete IMAGE header");
-        let data_offset = read_u32_le(payload, 16).expect("complete IMAGE header");
-        let data_size = read_u32_le(payload, 20).expect("complete IMAGE header");
-        let extra_data_size = read_u32_le(payload, 24).expect("complete IMAGE header");
-
-        if compression != 0 {
-            return Err(ImagePayloadError::UnsupportedCompression(compression));
-        }
-        let format = ColorFormat::from_u8(format_byte)
-            .ok_or(ImagePayloadError::UnknownColorFormat(format_byte))?;
-        let minimum = format
-            .minimum_stride(width)
-            .ok_or(ImagePayloadError::SizeOverflow)?;
-        if stride < minimum {
-            return Err(ImagePayloadError::StrideTooSmall {
-                minimum,
-                actual: stride,
-            });
-        }
-        if data_offset < header_len as u32 {
-            return Err(ImagePayloadError::DataOffsetBeforeHeader {
-                offset: data_offset,
-            });
-        }
-
-        let data_start =
-            usize::try_from(data_offset).map_err(|_| ImagePayloadError::SizeOverflow)?;
-        if payload.len() < data_start {
-            return Err(ImagePayloadError::Truncated {
-                needed: data_start,
-                available: payload.len(),
-            });
-        }
-        if let Some(payload_offset) = payload_offset {
-            let absolute_data_offset = payload_offset
-                .checked_add(data_offset)
-                .ok_or(ImagePayloadError::SizeOverflow)?;
-            if absolute_data_offset % 4 != 0 {
-                return Err(ImagePayloadError::DataOffsetUnaligned {
-                    absolute_offset: absolute_data_offset,
-                });
-            }
-        }
-        if let Some(relative) = payload[header_len..data_start]
-            .iter()
-            .position(|&byte| byte != 0)
-        {
-            return Err(ImagePayloadError::PaddingNonZero {
-                offset: header_len + relative,
-            });
-        }
-
-        let main_size = stride
-            .checked_mul(height)
-            .ok_or(ImagePayloadError::SizeOverflow)?;
-        let expected_extra = format
-            .extra_size(width, height, stride)
-            .ok_or(ImagePayloadError::SizeOverflow)?;
-        if extra_data_size != expected_extra {
-            return Err(ImagePayloadError::ExtraDataSizeMismatch {
-                expected: expected_extra,
-                actual: extra_data_size,
-            });
-        }
-        let expected_data = main_size
-            .checked_add(expected_extra)
-            .ok_or(ImagePayloadError::SizeOverflow)?;
-        if data_size != expected_data {
-            return Err(ImagePayloadError::DataSizeMismatch {
-                expected: expected_data,
-                actual: data_size,
-            });
-        }
-
-        let data_end = data_offset
-            .checked_add(data_size)
-            .ok_or(ImagePayloadError::SizeOverflow)?;
-        let expected_len =
-            usize::try_from(data_end).map_err(|_| ImagePayloadError::SizeOverflow)?;
-        if payload.len() != expected_len {
-            return Err(ImagePayloadError::PayloadLengthMismatch {
-                expected: expected_len,
-                actual: payload.len(),
-            });
-        }
-
-        let main_len = usize::try_from(main_size).map_err(|_| ImagePayloadError::SizeOverflow)?;
-        let main_end = data_start
-            .checked_add(main_len)
-            .ok_or(ImagePayloadError::SizeOverflow)?;
-        let main = slice(payload, data_start, main_len).ok_or(ImagePayloadError::Truncated {
-            needed: main_end,
-            available: payload.len(),
-        })?;
-        let extra = if expected_extra == 0 {
-            None
-        } else {
-            let extra_len =
-                usize::try_from(expected_extra).map_err(|_| ImagePayloadError::SizeOverflow)?;
-            Some(
-                slice(payload, main_end, extra_len).ok_or(ImagePayloadError::Truncated {
-                    needed: expected_len,
-                    available: payload.len(),
-                })?,
-            )
-        };
-
-        Ok(Self {
-            meta: ImageMeta {
-                width,
-                height,
-                stride,
-                format,
-            },
-            main,
-            extra,
-        })
-    }
-}
-
-fn write_u32(out: &mut [u8], offset: usize, value: u32) {
-    out[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
 }
 
 #[cfg(test)]
@@ -677,6 +484,8 @@ mod tests {
     use super::*;
     use crate::crc32;
     use crate::header::{Layout, MAGIC, VERSION_MAJOR, VERSION_MINOR};
+    use crate::media::{MEDIA_HEADER_LEN, MediaPayload, MediaPayloadError, MediaSectionKind};
+    use crate::wire::read_u32_le;
     use crate::{ChunkType, Color, ImageChunkInput, Reader, encode_chunk_image, encode_chunks};
 
     const FORMATS: [ColorFormat; 16] = [
@@ -730,7 +539,7 @@ mod tests {
         let reader = Reader::open(bytes).unwrap();
         for chunk in reader.chunks() {
             if let Some(image) = chunk.image().unwrap() {
-                return image;
+                return image.packed().unwrap();
             }
         }
         panic!("missing IMAGE chunk")
@@ -761,7 +570,7 @@ mod tests {
             } else {
                 asset.with_extra(Cow::Borrowed(&extra))
             };
-            let needed = ImageChunkHeader::SIZE + main_len + extra_len;
+            let needed = asset.encoded_payload_len().unwrap();
             assert_eq!(asset.encoded_payload_len(), Ok(needed), "{format:?}");
 
             let encoded = asset.encode_payload().unwrap();
@@ -769,21 +578,9 @@ mod tests {
             assert_eq!(asset.encode_payload_into(&mut output), Ok(needed));
             assert_eq!(&output[..needed], encoded, "{format:?}");
             assert_eq!(&output[needed..], &[0xa5; 3], "{format:?}");
-            assert_eq!(encoded[9], 0, "{format:?}");
-            assert_eq!(&encoded[10..12], &[0; 2], "{format:?}");
-            assert_eq!(&encoded[28..32], &[0; 4], "{format:?}");
-            assert_eq!(read_u32_le(&encoded, 16), Some(32), "{format:?}");
-            assert_eq!(
-                read_u32_le(&encoded, 20),
-                Some(u32::try_from(main_len + extra_len).unwrap()),
-                "{format:?}"
-            );
-            assert_eq!(
-                read_u32_le(&encoded, 24),
-                Some(u32::try_from(extra_len).unwrap()),
-                "{format:?}"
-            );
-            assert_eq!(&encoded[ImageChunkHeader::SIZE..][..main_len], main);
+            let raw = RawImageView::open(&encoded).unwrap();
+            assert_eq!(raw.plane(0).unwrap().bytes(), main);
+            assert!(raw.media().section(MediaSectionKind::PLANES).is_some());
 
             let image = ImageView::open_payload(&encoded).unwrap();
             assert_eq!(
@@ -805,7 +602,7 @@ mod tests {
         let empty = ImageAsset::new(0, 0, ColorFormat::A8, 0, Cow::Borrowed(&[]))
             .with_extra(Cow::Borrowed(&[]));
         let encoded = empty.encode_payload().unwrap();
-        assert_eq!(encoded.len(), ImageChunkHeader::SIZE);
+        assert_eq!(encoded.len(), 100);
         assert_eq!(ImageView::open_payload(&encoded).unwrap().extra(), None);
     }
 
@@ -868,19 +665,6 @@ mod tests {
 
     #[test]
     fn payload_size_arithmetic_checks_wire_boundaries_without_allocating() {
-        assert_eq!(
-            checked_image_payload_len(u32::MAX - ImageChunkHeader::SIZE as u32, 0),
-            Ok((u32::MAX - ImageChunkHeader::SIZE as u32, u32::MAX))
-        );
-        assert_eq!(
-            checked_image_payload_len(u32::MAX - ImageChunkHeader::SIZE as u32 + 1, 0),
-            Err(ImagePayloadError::SizeOverflow)
-        );
-        assert_eq!(
-            checked_image_payload_len(u32::MAX, 1),
-            Err(ImagePayloadError::SizeOverflow)
-        );
-
         let geometry_overflow =
             ImageAsset::new(u32::MAX, 1, ColorFormat::RGBA8888, 0, Cow::Borrowed(&[]));
         assert_eq!(
@@ -1025,14 +809,16 @@ mod tests {
             });
             let reader = Reader::open(&encoded).unwrap();
             let chunk = reader.chunks().next().unwrap();
-            let image = chunk.image().unwrap().unwrap();
+            let image = chunk.image().unwrap().unwrap().packed().unwrap();
             let direct =
                 ImageView::open_payload_at(chunk.payload(), chunk.payload_offset()).unwrap();
             let relative = ImageView::open_payload(chunk.payload()).unwrap();
-            let data_offset = usize::try_from(
-                read_u32_le(chunk.payload(), 16).expect("complete IMAGE payload header"),
-            )
-            .unwrap();
+            let media = MediaPayload::open(chunk.payload()).unwrap();
+            let data_offset = media
+                .section(MediaSectionKind::DATA)
+                .unwrap()
+                .descriptor()
+                .offset() as usize;
 
             assert_eq!(image, direct, "{format:?}");
             assert_eq!(image, relative, "{format:?}");
@@ -1051,7 +837,16 @@ mod tests {
                     assert_eq!(view, extra, "{format:?}");
                     assert_eq!(
                         view.as_ptr(),
-                        chunk.payload()[data_offset + main_len..].as_ptr(),
+                        chunk.payload()[if format.palette_entries().is_some() {
+                            media
+                                .section(MediaSectionKind::COLOR_TABLE)
+                                .unwrap()
+                                .descriptor()
+                                .offset() as usize
+                        } else {
+                            data_offset + main_len
+                        }..]
+                            .as_ptr(),
                         "{format:?}"
                     );
                 }
@@ -1074,8 +869,7 @@ mod tests {
         let chunk = reader.chunks().next().unwrap();
         let valid_payload = chunk.payload().to_vec();
 
-        let mut malformed = [0; ImageChunkHeader::SIZE];
-        malformed[10] = 1;
+        let malformed = [1, 0, 0, 0, 0];
         let mixed = encode_chunks(&[
             (ChunkType::META.raw(), 0, malformed.as_slice()),
             (ChunkType::IMAGE.raw(), 0, valid_payload.as_slice()),
@@ -1086,7 +880,12 @@ mod tests {
         assert_eq!(chunks.next().unwrap().image(), Ok(None));
         let image_chunk = chunks.next().unwrap();
         let image = first_image(&mixed);
-        let data_offset = usize::try_from(read_u32_le(image_chunk.payload(), 16).unwrap()).unwrap();
+        let data_offset = MediaPayload::open(image_chunk.payload())
+            .unwrap()
+            .section(MediaSectionKind::DATA)
+            .unwrap()
+            .descriptor()
+            .offset() as usize;
         assert_eq!(image.main(), [0x5a]);
         assert_eq!(
             image.main().as_ptr(),
@@ -1094,54 +893,37 @@ mod tests {
         );
         assert_eq!(
             chunks.next().unwrap().image(),
-            Err(ImagePayloadError::ReservedNonZero { offset: 10 })
+            Err(RawImageViewError::Media(MediaPayloadError::Truncated {
+                needed: MEDIA_HEADER_LEN + 4,
+                available: 5
+            }))
         );
     }
 
     #[test]
     fn payload_openers_separate_relative_layout_from_absolute_alignment() {
-        let encoded = encode_chunk_image(&ImageChunkInput {
-            width: 1,
-            height: 1,
-            format: ColorFormat::RGB565A8,
-            stride: 2,
-            main: &[0x12, 0x34],
-            extra: Some(&[0x56]),
-        });
-        let reader = Reader::open(&encoded).unwrap();
-        let chunk = reader.chunks().next().unwrap();
-        let mut payload = chunk.payload().to_vec();
-        payload.insert(ImageChunkHeader::SIZE, 0);
-        payload[16..20].copy_from_slice(&33u32.to_le_bytes());
-
+        let payload = ImageAsset::new(1, 1, ColorFormat::A8, 1, Cow::Borrowed(&[0x56]))
+            .encode_payload()
+            .unwrap();
         let relative = ImageView::open_payload(&payload).unwrap();
-        let placed = ImageView::open_payload_at(&payload, 3).unwrap();
-        assert_eq!(relative, placed);
+        let placed = ImageView::open_payload_at(&payload, 4).unwrap();
         assert_eq!(relative.main().as_ptr(), placed.main().as_ptr());
-        assert_eq!(
-            relative.extra().unwrap().as_ptr(),
-            placed.extra().unwrap().as_ptr()
-        );
-        assert_eq!(
-            ImageView::open_payload_at(&payload, 2),
-            Err(ImagePayloadError::DataOffsetUnaligned {
-                absolute_offset: 35,
-            })
-        );
-        assert_eq!(
-            ImageView::open_payload_at(&payload, u32::MAX),
-            Err(ImagePayloadError::SizeOverflow)
-        );
+        // Tight RAW data has byte alignment; the container adds its own padding.
+        assert_eq!(relative, ImageView::open_payload_at(&payload, 3).unwrap());
+        assert!(ImageView::open_payload_at(&payload, u32::MAX).is_err());
     }
 
     #[test]
     fn payload_openers_reject_every_short_header() {
-        let bytes = [0; ImageChunkHeader::SIZE];
-        for available in 0..ImageChunkHeader::SIZE {
-            let expected = Err(ImagePayloadError::Truncated {
-                needed: ImageChunkHeader::SIZE,
-                available,
-            });
+        let mut bytes = [0; MEDIA_HEADER_LEN + 4];
+        bytes[0] = 1;
+        for available in 0..bytes.len() {
+            let expected = Err(ImagePayloadError::Media(RawImageViewError::Media(
+                MediaPayloadError::Truncated {
+                    needed: if available == 0 { 1 } else { bytes.len() },
+                    available,
+                },
+            )));
             assert_eq!(ImageView::open_payload(&bytes[..available]), expected);
             assert_eq!(
                 ImageView::open_payload_at(&bytes[..available], u32::MAX),
@@ -1172,13 +954,10 @@ mod tests {
 
         let reader = Reader::open(&bounded).unwrap();
         let mut chunks = reader.chunks();
-        assert_eq!(
+        assert!(matches!(
             chunks.next().unwrap().image(),
-            Err(ImagePayloadError::PayloadLengthMismatch {
-                expected: payload.len(),
-                actual: payload.len() - 1,
-            })
-        );
+            Err(RawImageViewError::Media(_))
+        ));
         assert_eq!(chunks.next().unwrap().payload(), b"sentinel");
     }
 

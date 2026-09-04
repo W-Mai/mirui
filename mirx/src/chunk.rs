@@ -6,7 +6,7 @@ use crate::error::ParseError;
 use crate::format::ColorFormat;
 use crate::header::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkEntry, ChunkFileHeader, FILE_HEADER_LEN,
-    FileHeader, ImageChunkHeader, Layout, VERSION_MAJOR, VERSION_MINOR, chunk_type,
+    FileHeader, Layout, VERSION_MAJOR, VERSION_MINOR, chunk_type,
 };
 
 /// Borrows the chunk table and IMAGE chunk pixel data from the input buffer.
@@ -50,8 +50,8 @@ impl<'a> ChunkFile<'a> {
     }
 }
 
-/// Only raw (`compress = 0`) IMAGE chunks are decoded; compressed chunks
-/// surface as [`ParseError::UnsupportedCompression`].
+/// Only RAW IMAGE payloads with a packed surface are decoded; other payloads
+/// surface as [`ParseError::InvalidImage`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageChunk<'a> {
     pub width: u32,
@@ -61,7 +61,7 @@ pub struct ImageChunk<'a> {
     /// Main pixel stream; for RGB565A8 this is the RGB565 stream and the
     /// A8 plane lives in `extra`.
     pub data: &'a [u8],
-    /// RGB565A8 A8 plane, `None` for other formats.
+    /// Inline indexed color table or RGB565A8 alpha plane.
     pub extra: Option<&'a [u8]>,
 }
 
@@ -173,128 +173,75 @@ pub fn parse_chunk(buf: &[u8]) -> Result<ChunkFile<'_>, ParseError> {
 }
 
 fn parse_image_chunk<'a>(buf: &'a [u8], entry: &ChunkEntry) -> Result<ImageChunk<'a>, ParseError> {
-    let chunk_start = entry.chunk_offset as usize;
-    let chunk_end = chunk_start
+    let start = entry.chunk_offset as usize;
+    let end = start
         .checked_add(entry.chunk_size as usize)
         .ok_or(ParseError::DimensionOverflow)?;
-    if buf.len() < chunk_end || entry.chunk_size < ImageChunkHeader::SIZE as u32 {
-        return Err(ParseError::Truncated);
-    }
-
-    let h = &buf[chunk_start..chunk_start + ImageChunkHeader::SIZE];
-    if h[10] != 0 || h[11] != 0 {
-        return Err(ParseError::ReservedNonZero);
-    }
-    if h[28..32].iter().any(|b| *b != 0) {
-        return Err(ParseError::ReservedNonZero);
-    }
-
-    let width = u32::from_le_bytes([h[0], h[1], h[2], h[3]]);
-    let height = u32::from_le_bytes([h[4], h[5], h[6], h[7]]);
-    let format_byte = h[8];
-    let compress = h[9];
-    let stride = u32::from_le_bytes([h[12], h[13], h[14], h[15]]);
-    let data_offset = u32::from_le_bytes([h[16], h[17], h[18], h[19]]);
-    let data_size = u32::from_le_bytes([h[20], h[21], h[22], h[23]]);
-    let extra_data_size = u32::from_le_bytes([h[24], h[25], h[26], h[27]]);
-
-    if compress != 0 {
-        return Err(ParseError::UnsupportedCompression(compress));
-    }
-
-    let format =
-        ColorFormat::from_u8(format_byte).ok_or(ParseError::UnknownColorFormat(format_byte))?;
-
-    let main_size = data_size
-        .checked_sub(extra_data_size)
-        .ok_or(ParseError::DimensionOverflow)? as usize;
-    let abs_data_start = chunk_start + data_offset as usize;
-    let abs_data_end = abs_data_start
-        .checked_add(data_size as usize)
-        .ok_or(ParseError::DimensionOverflow)?;
-    if buf.len() < abs_data_end {
-        return Err(ParseError::Truncated);
-    }
-    let data = &buf[abs_data_start..abs_data_start + main_size];
-    let extra = if extra_data_size > 0 {
-        Some(
-            &buf[abs_data_start + main_size..abs_data_start + main_size + extra_data_size as usize],
-        )
-    } else {
-        None
-    };
-
+    let payload = buf.get(start..end).ok_or(ParseError::Truncated)?;
+    let image = crate::ImageView::open_payload_at(payload, entry.chunk_offset)
+        .map_err(ParseError::InvalidImage)?;
     Ok(ImageChunk {
-        width,
-        height,
-        format,
-        stride,
-        data,
-        extra,
+        width: image.width(),
+        height: image.height(),
+        format: image.format(),
+        stride: image.stride(),
+        data: image.main(),
+        extra: image.extra(),
     })
 }
 
-/// Emits one raw IMAGE chunk; multi-chunk files need a different writer.
+/// Emits one checked RAW IMAGE in a single-chunk container.
+///
+/// Invalid image metadata or plane lengths panic. Fallible authoring uses
+/// [`crate::Document::push_image`] or [`crate::image::RawImageAsset`].
 pub fn encode_chunk_image(image: &ImageChunkInput<'_>) -> Vec<u8> {
-    let main_size = image.main.len();
-    let extra_size = image.extra.map(|e| e.len()).unwrap_or(0);
-    let data_size = main_size + extra_size;
-
-    let chunk_table_offset = CHUNK_FILE_HEADER_LEN as u32;
-    let chunk_start = chunk_table_offset as usize + CHUNK_TABLE_ENTRY_LEN;
-    let raw_data_start = chunk_start + ImageChunkHeader::SIZE;
-    // Align data start to 4 bytes so on-disk pixel data is amenable to
-    // word-sized loads on architectures that fault on misaligned reads.
-    let aligned_data_start = (raw_data_start + 3) & !3;
-    let pad = aligned_data_start - raw_data_start;
-    let data_offset = (ImageChunkHeader::SIZE + pad) as u32;
-    let chunk_size = ImageChunkHeader::SIZE + pad + data_size;
-    let file_size = (aligned_data_start + data_size) as u32;
-
-    let mut out = vec![0u8; file_size as usize];
-
+    use crate::image::ImageSource;
+    use crate::wire::{write_u16_le, write_u32_le};
+    let mut asset = crate::ImageAsset::new(
+        image.width,
+        image.height,
+        image.format,
+        image.stride,
+        alloc::borrow::Cow::Borrowed(image.main),
+    );
+    if let Some(extra) = image.extra {
+        asset = asset.with_extra(alloc::borrow::Cow::Borrowed(extra));
+    }
+    let surface = asset.view().expect("valid RAW IMAGE input");
+    let payload_size = surface
+        .encoded_len()
+        .expect("IMAGE payload length fits wire fields");
+    let chunk_start = CHUNK_FILE_HEADER_LEN + CHUNK_TABLE_ENTRY_LEN;
+    let file_size = chunk_start
+        .checked_add(payload_size)
+        .expect("IMAGE file size fits usize");
+    let wire_file_size = u32::try_from(file_size).expect("IMAGE file size fits u32");
+    let mut out = vec![0; file_size];
     let file_header = FileHeader {
         version_major: VERSION_MAJOR,
         version_minor: VERSION_MINOR,
         layout: Layout::Chunk,
         flags: 0,
     };
-    let mut prefix = [0u8; FILE_HEADER_LEN];
+    let mut prefix = [0; FILE_HEADER_LEN];
     file_header.write_into(&mut prefix);
-    out[0..FILE_HEADER_LEN].copy_from_slice(&prefix);
-
-    out[8..10].copy_from_slice(&1u16.to_le_bytes());
-    out[12..16].copy_from_slice(&chunk_table_offset.to_le_bytes());
-    out[16..20].copy_from_slice(&file_size.to_le_bytes());
-    out[20..22].copy_from_slice(&chunk_type::IMAGE.to_le_bytes());
-    out[22] = image.format.to_u8();
-    out[24..28].copy_from_slice(&image.width.to_le_bytes());
-    out[28..32].copy_from_slice(&image.height.to_le_bytes());
-    out[32..36].copy_from_slice(&image.stride.to_le_bytes());
-    let crc = crc32(&out[..40]);
-    out[40..44].copy_from_slice(&crc.to_le_bytes());
-
-    let entry_off = chunk_table_offset as usize;
-    out[entry_off..entry_off + 2].copy_from_slice(&chunk_type::IMAGE.to_le_bytes());
-    out[entry_off + 2..entry_off + 4].copy_from_slice(&0u16.to_le_bytes());
-    out[entry_off + 4..entry_off + 8].copy_from_slice(&(chunk_start as u32).to_le_bytes());
-    out[entry_off + 8..entry_off + 12].copy_from_slice(&(chunk_size as u32).to_le_bytes());
-
-    out[chunk_start..chunk_start + 4].copy_from_slice(&image.width.to_le_bytes());
-    out[chunk_start + 4..chunk_start + 8].copy_from_slice(&image.height.to_le_bytes());
-    out[chunk_start + 8] = image.format.to_u8();
-    out[chunk_start + 9] = 0;
-    out[chunk_start + 12..chunk_start + 16].copy_from_slice(&image.stride.to_le_bytes());
-    out[chunk_start + 16..chunk_start + 20].copy_from_slice(&data_offset.to_le_bytes());
-    out[chunk_start + 20..chunk_start + 24].copy_from_slice(&(data_size as u32).to_le_bytes());
-    out[chunk_start + 24..chunk_start + 28].copy_from_slice(&(extra_size as u32).to_le_bytes());
-
-    out[aligned_data_start..aligned_data_start + main_size].copy_from_slice(image.main);
-    if let Some(extra) = image.extra {
-        out[aligned_data_start + main_size..aligned_data_start + main_size + extra_size]
-            .copy_from_slice(extra);
-    }
-
+    out[..FILE_HEADER_LEN].copy_from_slice(&prefix);
+    write_u16_le(&mut out, 8, 1);
+    write_u32_le(&mut out, 12, CHUNK_FILE_HEADER_LEN as u32);
+    write_u32_le(&mut out, 16, wire_file_size);
+    write_u16_le(&mut out, 20, chunk_type::IMAGE);
+    write_u16_le(&mut out, 22, surface.surface().sample_layout().raw());
+    write_u32_le(&mut out, 24, image.width);
+    write_u32_le(&mut out, 28, image.height);
+    write_u32_le(&mut out, 32, image.stride);
+    let crc = crc32::compute(&out[..40]);
+    write_u32_le(&mut out, 40, crc);
+    write_u16_le(&mut out, CHUNK_FILE_HEADER_LEN, chunk_type::IMAGE);
+    write_u32_le(&mut out, CHUNK_FILE_HEADER_LEN + 4, chunk_start as u32);
+    write_u32_le(&mut out, CHUNK_FILE_HEADER_LEN + 8, payload_size as u32);
+    surface
+        .encode_into(&mut out[chunk_start..])
+        .expect("exact IMAGE output capacity");
     out
 }
 
@@ -464,9 +411,12 @@ mod tests {
         let img_ptr = img.data.as_ptr();
         let buf_start = encoded.as_ptr();
         let offset = img_ptr as usize - buf_start as usize;
-        // Pixel data sits after CHUNK header (44) + chunk table (16) + IMAGE
-        // inner header (32) = 92, padded up to a multiple of 4 = 92 already.
-        assert_eq!(offset, 92);
+        let payload_offset = parsed.entries[0].chunk_offset as usize;
+        let payload = &encoded[payload_offset..];
+        assert_eq!(
+            offset,
+            payload_offset + crate::image::test_support::data_offset(payload)
+        );
     }
 
     #[test]
@@ -516,37 +466,35 @@ mod tests {
             extra: None,
         };
         let mut encoded = encode_chunk_image(&input);
-        // IMAGE chunk inner header starts at offset 44 + 16 = 60; compress
-        // byte sits at 60 + 9 = 69.
-        encoded[69] = 1;
+        encoded[60 + 24] = 1;
+        crate::image::test_support::refresh_crc(&mut encoded[60..]);
         assert!(matches!(
             parse_chunk(&encoded),
-            Err(ParseError::UnsupportedCompression(1))
+            Err(ParseError::InvalidImage(crate::ImagePayloadError::Media(
+                crate::image::RawImageViewError::UnsupportedCoding(_)
+            )))
         ));
     }
 
     #[test]
-    fn chunk_extra_size_exceeding_data_size_is_rejected() {
-        // Crafts a CHUNK file whose inner IMAGE header has
-        // extra_data_size > data_size. The inner header is not covered
-        // by the file-level CRC, so an attacker can flip these bytes
-        // freely; the parser must reject before the subtraction.
-        let pixels = vec![0u8; 8];
-        let input = ImageChunkInput {
+    fn chunk_rejects_out_of_bounds_image_sections() {
+        let mut encoded = encode_chunk_image(&ImageChunkInput {
             width: 2,
             height: 2,
             format: ColorFormat::RGB565,
             stride: 4,
-            main: &pixels,
+            main: &[0; 8],
             extra: None,
-        };
-        let mut encoded = encode_chunk_image(&input);
-        // Inner header offset 24..28 = extra_data_size (u32 LE). Set it
-        // bigger than data_size (offset 20..24) — here data_size = 8.
-        encoded[84..88].copy_from_slice(&u32::MAX.to_le_bytes());
+        });
+        // DATA is the second directory entry. Its byte range must stay inside
+        // the payload even when an attacker recomputes the checksum.
+        encoded[60 + 56..60 + 60].copy_from_slice(&u32::MAX.to_le_bytes());
+        crate::image::test_support::refresh_crc(&mut encoded[60..]);
         assert!(matches!(
             parse_chunk(&encoded),
-            Err(ParseError::DimensionOverflow)
+            Err(ParseError::InvalidImage(crate::ImagePayloadError::Media(
+                crate::image::RawImageViewError::Media(_)
+            )))
         ));
     }
 

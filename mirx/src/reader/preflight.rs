@@ -1,7 +1,8 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
+use crate::image::RawImageViewError;
 use crate::{
-    ChunkType, Font, FontReadError, FramesDecodeError, ImagePayloadError, MetaDecodeError,
-    PaletteDecodeError, ReadError, Scene, VectorReadError,
+    ChunkType, Font, FontReadError, FramesDecodeError, MetaDecodeError, PaletteDecodeError,
+    ReadError, Scene, VectorReadError,
 };
 
 /// Source location of a payload validation result.
@@ -21,7 +22,7 @@ pub enum PayloadLocation {
 #[non_exhaustive]
 pub enum PayloadValidationFailure {
     UnsupportedStandardPayload,
-    Image(ImagePayloadError),
+    Image(RawImageViewError),
     Font(FontReadError),
     Vector(VectorReadError),
     Meta(MetaDecodeError),
@@ -354,7 +355,7 @@ mod tests {
         bytes[24..28].copy_from_slice(&checksum.to_le_bytes());
     }
 
-    fn assert_critical_image_failure(bytes: &[u8], expected: ImagePayloadError) {
+    fn assert_critical_image_failure(bytes: &[u8], expected: RawImageViewError) {
         let offset = payload_offset(bytes, 0);
         assert_eq!(
             Reader::open(bytes),
@@ -838,143 +839,77 @@ mod tests {
     }
 
     #[test]
-    fn critical_image_checks_header_fields_before_plane_sizes() {
-        let mut truncated =
-            encode_chunks(&[(chunk_type::IMAGE, ChunkFlags::CRITICAL.bits(), b"short")]);
-        assert_critical_image_failure(
-            &truncated,
-            ImagePayloadError::Truncated {
-                needed: 32,
-                available: 5,
-            },
-        );
-
-        truncated = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_byte(&mut truncated, 10, 1);
-        assert_critical_image_failure(
-            &truncated,
-            ImagePayloadError::ReservedNonZero { offset: 10 },
-        );
-
-        let mut compressed = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_byte(&mut compressed, 9, 7);
-        assert_critical_image_failure(&compressed, ImagePayloadError::UnsupportedCompression(7));
-
-        let mut unknown_format = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_byte(&mut unknown_format, 8, 0xfe);
-        assert_critical_image_failure(&unknown_format, ImagePayloadError::UnknownColorFormat(0xfe));
-
-        let mut small_stride = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_u32(&mut small_stride, 12, 1);
-        assert_critical_image_failure(
-            &small_stride,
-            ImagePayloadError::StrideTooSmall {
-                minimum: 2,
-                actual: 1,
-            },
-        );
-    }
-
-    #[test]
-    fn critical_image_checks_data_offset_alignment_and_padding() {
-        let mut before_header = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_u32(&mut before_header, 16, 31);
-        assert_critical_image_failure(
-            &before_header,
-            ImagePayloadError::DataOffsetBeforeHeader { offset: 31 },
-        );
-
-        let mut out_of_bounds = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_u32(&mut out_of_bounds, 16, 40);
-        assert_critical_image_failure(
-            &out_of_bounds,
-            ImagePayloadError::Truncated {
-                needed: 40,
-                available: 36,
-            },
-        );
-
-        let mut unaligned = image_file(ChunkFlags::CRITICAL.bits());
-        let absolute_offset = payload_offset(&unaligned, 0) + 33;
-        set_payload_u32(&mut unaligned, 16, 33);
-        assert_critical_image_failure(
-            &unaligned,
-            ImagePayloadError::DataOffsetUnaligned { absolute_offset },
-        );
-
-        let mut nonzero_padding = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_u32(&mut nonzero_padding, 16, 36);
-        set_payload_byte(&mut nonzero_padding, 32, 1);
-        assert_critical_image_failure(
-            &nonzero_padding,
-            ImagePayloadError::PaddingNonZero { offset: 32 },
-        );
-    }
-
-    #[test]
-    fn critical_image_checks_derived_plane_sizes_and_exact_end() {
-        let mut bad_extra = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_u32(&mut bad_extra, 24, 1);
-        assert_critical_image_failure(
-            &bad_extra,
-            ImagePayloadError::ExtraDataSizeMismatch {
-                expected: 0,
-                actual: 1,
-            },
-        );
-
-        let mut bad_data = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_u32(&mut bad_data, 20, 3);
-        assert_critical_image_failure(
-            &bad_data,
-            ImagePayloadError::DataSizeMismatch {
-                expected: 4,
-                actual: 3,
-            },
-        );
-
-        let mut trailing_payload = valid_image_payload();
-        trailing_payload.push(0);
-        let trailing = encode_chunks(&[(
-            chunk_type::IMAGE,
-            ChunkFlags::CRITICAL.bits(),
-            &trailing_payload,
-        )]);
-        assert_critical_image_failure(
-            &trailing,
-            ImagePayloadError::PayloadLengthMismatch {
-                expected: 36,
-                actual: 37,
-            },
-        );
-
-        let mut short_payload = valid_image_payload();
-        short_payload.pop();
+    fn critical_image_preflight_uses_the_sectioned_contract() {
+        use crate::image::RawImageView;
+        use crate::media::{CodingId, MediaPayloadError};
         let short = encode_chunks(&[(
             chunk_type::IMAGE,
             ChunkFlags::CRITICAL.bits(),
-            &short_payload,
+            &[1, 0, 0, 0, 0],
         )]);
         assert_critical_image_failure(
             &short,
-            ImagePayloadError::PayloadLengthMismatch {
-                expected: 36,
-                actual: 35,
-            },
+            RawImageViewError::Media(MediaPayloadError::Truncated {
+                needed: 36,
+                available: 5,
+            }),
         );
+        // Reserved header bytes, unsupported coding, section bounds, surface
+        // metadata and pixel integrity all pass through the same validator.
+        for (offset, value) in [(7, 1), (24, 7), (36, 0xff), (64, 0xff), (48, 0xff)] {
+            let mut payload = valid_image_payload();
+            payload[offset] = value;
+            let end = payload.len() - 4;
+            let checksum = crc32(&payload[..end]);
+            payload[end..].copy_from_slice(&checksum.to_le_bytes());
+            let error = RawImageView::open_at(&payload, 60).unwrap_err();
+            if offset == 24 {
+                assert_eq!(
+                    error,
+                    RawImageViewError::UnsupportedCoding(CodingId::new(7))
+                );
+            }
+            let file = encode_chunks(&[(chunk_type::IMAGE, ChunkFlags::CRITICAL.bits(), &payload)]);
+            assert_critical_image_failure(&file, error);
+        }
+    }
 
-        let mut overflow = image_file(ChunkFlags::CRITICAL.bits());
-        set_payload_u32(&mut overflow, 4, 2);
-        set_payload_u32(&mut overflow, 12, u32::MAX);
-        assert_critical_image_failure(&overflow, ImagePayloadError::SizeOverflow);
+    #[test]
+    fn critical_image_checks_exact_payload_boundary_and_crc() {
+        use crate::image::RawImageView;
+        let valid = valid_image_payload();
+        for mut payload in [
+            valid[..valid.len() - 1].to_vec(),
+            valid.clone(),
+            valid.clone(),
+        ] {
+            if payload.len() == valid.len() {
+                payload.push(0);
+            }
+            let expected = RawImageView::open_at(&payload, 60).unwrap_err();
+            let bytes =
+                encode_chunks(&[(chunk_type::IMAGE, ChunkFlags::CRITICAL.bits(), &payload)]);
+            assert_critical_image_failure(&bytes, expected);
+        }
+        let mut corrupt = valid;
+        let last = corrupt.len() - 1;
+        corrupt[last] ^= 1;
+        let error = RawImageView::open_at(&corrupt, 60).unwrap_err();
+        let bytes = encode_chunks(&[(chunk_type::IMAGE, ChunkFlags::CRITICAL.bits(), &corrupt)]);
+        assert_critical_image_failure(&bytes, error);
     }
 
     #[test]
     fn noncritical_malformed_image_opens_but_explicit_scan_reports_location() {
-        let mut bytes = image_file(0);
-        set_payload_byte(&mut bytes, 9, 3);
+        use crate::media::CodingId;
+        let mut payload = valid_image_payload();
+        payload[24..26].copy_from_slice(&3u16.to_le_bytes());
+        let end = payload.len() - 4;
+        let checksum = crc32(&payload[..end]);
+        payload[end..].copy_from_slice(&checksum.to_le_bytes());
+        let bytes = encode_chunks(&[(chunk_type::IMAGE, 0, &payload)]);
         let reader = Reader::open(&bytes).unwrap();
-        assert_eq!(reader.chunks().next().unwrap().payload().len(), 36);
+        assert_eq!(reader.chunks().next().unwrap().payload(), payload);
         assert_eq!(
             reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
             Err(PayloadValidationError {
@@ -983,9 +918,9 @@ mod tests {
                     chunk_type: ChunkType::IMAGE,
                     payload_offset: payload_offset(&bytes, 0),
                 },
-                failure: PayloadValidationFailure::Image(
-                    ImagePayloadError::UnsupportedCompression(3),
-                ),
+                failure: PayloadValidationFailure::Image(RawImageViewError::UnsupportedCoding(
+                    CodingId::new(3)
+                ),),
             })
         );
     }
