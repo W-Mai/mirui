@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shared image tile geometry.** `SurfaceDescriptor::tile_grid`, `image::Region`, and `TileGrid` derive regular regions without per-tile metadata. Joint YUV grids partition chroma samples without overlapping interior boundaries, and edge tiles retain odd logical dimensions. Lookup and bidirectional iterator skips are allocation-free and constant-time.
+
 - **Compact unit-range indexes.** `media::UnitIndex` exposes fixed, offset-table, and checkpointed-length byte ranges without allocation. `UnitIndexEncoding` provides checked caller-buffer encoding; sequential iteration and bounded random lookup share the validated range contract.
 
 - **Borrowed coding tables.** `media::CodingRecord` and `CodingTable` provide profile identity, revision, parameter slices, constant-time ordinal lookup, and checked caller-buffer encoding without allocation.

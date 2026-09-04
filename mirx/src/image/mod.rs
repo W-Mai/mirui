@@ -45,6 +45,7 @@ pub(crate) mod test_support;
 mod borrowed;
 mod color;
 mod encode;
+mod grid;
 mod layout;
 mod memory;
 mod plan;
@@ -59,6 +60,7 @@ pub use color::{
     TransferFunction,
 };
 pub use encode::{RawImageAsset, RawImageEncodeError};
+pub use grid::{Region, RegionError, TileGrid, TileGridError, Tiles};
 pub use layout::{PlaneGeometries, PlaneGeometry, PlaneRole, SampleLayout};
 pub use memory::{
     PLANE_RECORD_LEN, PlaneMemoryBuilder, PlaneMemoryError, PlaneMemoryFlags, PlaneMemoryLayout,

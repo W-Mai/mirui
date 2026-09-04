@@ -213,6 +213,31 @@ fn unit_index_encoding_lookup_and_iteration_allocate_nothing() {
 }
 
 #[test]
+fn shared_tile_and_chroma_region_resolution_allocate_nothing() {
+    let surface = SurfaceDescriptor::new(
+        319,
+        181,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let grid = surface.tile_grid(64, 32).unwrap();
+        assert_eq!(grid.len(), 30);
+        for (ordinal, region) in grid.iter().enumerate() {
+            assert_eq!(grid.get(ordinal), Some(region));
+            assert_eq!(region.for_plane(surface, 0), Ok(region));
+            let chroma = region.for_plane(surface, 1).unwrap();
+            assert_eq!(chroma.x() * 2, region.x());
+            assert_eq!(chroma.y() * 2, region.y());
+        }
+        let edge = grid.iter().next_back().unwrap();
+        assert_eq!((edge.width(), edge.height()), (63, 21));
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn image_plane_geometry_allocates_nothing() {
     let (observed, allocations) = count_allocations(|| {
         SampleLayout::P010
