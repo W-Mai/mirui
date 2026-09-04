@@ -104,3 +104,11 @@ The asset writer accepts one stream, not a list of separately encoded tiles. It 
 `Reader::open` uses embedded limits to preflight every critical IMAGE. `Reader::open_with` accepts custom `ReadOptions` with `PayloadLimits`; `validate_known_payloads` explicitly checks noncritical payloads as well. Encoded validation includes profile syntax and DATA integrity, not just metadata. Failures retain chunk location plus the group/unit location when applicable.
 
 Noncritical unknown coding can be inspected as encoded metadata and preserved as bytes. It does not pass explicit semantic validation. No reader path implicitly allocates a decoded image; resolve the borrowed groups and provide an appropriately aligned output buffer to the selected unit's decode plan.
+
+## Document access and relocation
+
+`Document::image(id)` returns the same `ImageRef` distinction, including borrowed RAW surfaces from promoted FLAT nodes. Encoded access keeps its metadata-only contract. Inserting complete encoded payload bytes with `push_raw` and `RawChunkPolicy::infer()` checks syntax, integrity and document limits before changing state. Unknown profiles require explicit raw relocation and critical-understanding assumptions; metadata inspection grants neither.
+
+Encoded primary hints contain the surface's sample layout and logical dimensions with stride zero. RAW hints retain the first stored plane's stride. A decode target chooses its own pitch and allocation extent; compressed DATA has no pixel-row stride.
+
+`EncodedImageView::input_alignment()` scans group declarations and returns their maximum power-of-two alignment, defaulting to one. It does not check coverage, codec syntax or actual addresses. Document's writer uses this value to align the absolute DATA origin after chunk insertion or reordering. Payload bytes remain unchanged, and file-offset alignment does not imply that a `Vec<u8>` or embedded byte slice has an aligned base pointer. Encoded storage cannot be demoted to FLAT without an explicit external decode and replacement.

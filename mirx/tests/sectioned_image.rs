@@ -88,6 +88,8 @@ fn planar_images_preserve_geometry_hints_alignment_and_noop_edits() {
         let pointer = reopened
             .image(id)
             .unwrap()
+            .raw()
+            .unwrap()
             .plane(0)
             .unwrap()
             .bytes()
@@ -97,6 +99,8 @@ fn planar_images_preserve_geometry_hints_alignment_and_noop_edits() {
         assert_eq!(
             reopened
                 .image(id)
+                .unwrap()
+                .raw()
                 .unwrap()
                 .plane(0)
                 .unwrap()

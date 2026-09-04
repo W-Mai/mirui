@@ -11,6 +11,43 @@ fn surface() -> SurfaceDescriptor {
 }
 
 #[test]
+fn input_alignment_is_a_shared_declaration_not_a_decode_claim() {
+    let records = [
+        UnitGroupRecord::new(0, 0..1)
+            .unwrap()
+            .with_input_alignment(16),
+        UnitGroupRecord::new(0, 64..65)
+            .unwrap()
+            .with_input_alignment(64),
+        UnitGroupRecord::new(0, 68..69)
+            .unwrap()
+            .with_input_alignment(4),
+    ];
+    let bytes = payload(
+        surface(),
+        &[coding()],
+        Some(&records),
+        None,
+        &[0; 69],
+        None,
+        None,
+    );
+    let image = EncodedImageView::open(&bytes).unwrap();
+    assert_eq!(image.input_alignment(), Ok(64));
+    // Declarations alone do not validate overlapping full-surface groups.
+    assert!(
+        image
+            .validate_groups(&mut CoverageBudget::new(1000))
+            .is_err()
+    );
+    let implicit = payload(surface(), &[coding()], None, None, &[0], None, None);
+    assert_eq!(
+        EncodedImageView::open(&implicit).unwrap().input_alignment(),
+        Ok(1)
+    );
+}
+
+#[test]
 fn encoded_metadata_integrity_and_strided_pixel_execution_share_unit_geometry() {
     use crate::coding::Pixel;
     use crate::image::SurfaceRequirements;

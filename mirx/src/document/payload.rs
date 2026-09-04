@@ -1,9 +1,9 @@
 use alloc::vec::Vec;
 
 use super::{ChunkNode, Document, DocumentState, FlatRecord, PayloadStorage};
-use crate::image::{RawImageView, SurfaceView};
+use crate::image::{ImageRef, RawImageView, SurfaceView};
 use crate::payload::image::{ImageEncodeError, ImagePayloadError, ImagePayloadPlan, ImagePlanes};
-use crate::{ChunkType, EncodeError, ImageView, PrimaryHints};
+use crate::{ChunkType, EncodeError, ImageView, PayloadLimits, PrimaryHints};
 
 #[derive(Clone, Copy)]
 pub(super) enum PayloadPlacement {
@@ -79,32 +79,42 @@ impl<'a> ResolvedNodePayload<'a> {
         }
     }
 
-    pub(super) fn validate_image_contract(self) -> Result<PrimaryHints, ImagePayloadError> {
+    pub(super) fn validate_image_contract(
+        self,
+        limits: &PayloadLimits,
+    ) -> Result<PrimaryHints, ImagePayloadError> {
         let view = self.image_view()?;
+        let stride = match view {
+            ImageRef::Raw(raw) => raw
+                .plane(0)
+                .expect("validated main plane")
+                .memory()
+                .stride(),
+            ImageRef::Encoded(encoded) => {
+                encoded
+                    .preflight(limits)
+                    .map_err(ImagePayloadError::Encoded)?;
+                0
+            }
+        };
         let surface = view.surface();
         Ok(PrimaryHints::new(
             surface.sample_layout(),
             surface.width(),
             surface.height(),
-            view.plane(0)
-                .expect("validated main plane")
-                .memory()
-                .stride(),
+            stride,
         ))
     }
 
-    pub(super) fn image_view(self) -> Result<SurfaceView<'a>, ImagePayloadError> {
+    pub(super) fn image_view(self) -> Result<ImageRef<'a>, ImagePayloadError> {
         match self {
-            Self::Contiguous { bytes, placement } => {
-                let view = match placement {
-                    PayloadPlacement::Fixed(offset) => RawImageView::open_at(bytes, offset),
-                    PayloadPlacement::Unplaced => RawImageView::open(bytes),
-                }
-                .map_err(ImagePayloadError::Media)?;
-                Ok(view.view())
+            Self::Contiguous { bytes, placement } => match placement {
+                PayloadPlacement::Fixed(offset) => ImageRef::open_at(bytes, offset),
+                PayloadPlacement::Unplaced => ImageRef::open(bytes),
             }
+            .map_err(Into::into),
             Self::PromotedImage(image) => {
-                ImagePayloadPlan::from_planes(image).map(|plan| plan.surface())
+                ImagePayloadPlan::from_planes(image).map(|plan| ImageRef::Raw(plan.surface()))
             }
         }
     }
@@ -120,7 +130,7 @@ impl<'a> ResolvedNodePayload<'a> {
             }
             Self::PromotedImage(_) => self
                 .image_view()
-                .is_ok_and(|existing| existing == candidate),
+                .is_ok_and(|existing| existing.raw() == Some(candidate)),
         }
     }
 
@@ -131,10 +141,15 @@ impl<'a> ResolvedNodePayload<'a> {
                     PayloadPlacement::Fixed(offset) => RawImageView::open_at(bytes, offset),
                     PayloadPlacement::Unplaced => RawImageView::open(bytes),
                 }
-                .map_err(ImagePayloadError::Media)?;
+                .map_err(|error| match error {
+                    crate::image::RawImageViewError::UnexpectedSection(
+                        crate::media::MediaSectionKind::CODINGS,
+                    ) => ImagePayloadError::NotRepresentableAsPacked,
+                    error => ImagePayloadError::Media(error),
+                })?;
                 raw.packed()
             }
-            Self::PromotedImage(_) => self.image_view()?.packed(),
+            Self::PromotedImage(_) => self.image_view()?.raw().and_then(|raw| raw.packed()),
         }
         .ok_or(ImagePayloadError::NotRepresentableAsPacked)?;
         resolved_image_planes(packed)

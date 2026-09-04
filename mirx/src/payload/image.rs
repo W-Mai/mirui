@@ -3,7 +3,8 @@ use alloc::{borrow::Cow, vec::Vec};
 use super::ColorTableView;
 use crate::header::{FLAT_HEADER_LEN, FlatHeader};
 use crate::image::{
-    ImageEncodeError as SurfaceEncodeError, RawImageView, RawImageViewError, SurfaceView,
+    EncodedImageError, ImageEncodeError as SurfaceEncodeError, ImageReadError, RawImageView,
+    RawImageViewError, SurfaceView,
 };
 use crate::wire::slice;
 use crate::{ColorFormat, ReadError};
@@ -13,6 +14,7 @@ use crate::{ColorFormat, ReadError};
 #[non_exhaustive]
 pub enum ImagePayloadError {
     Media(RawImageViewError),
+    Encoded(EncodedImageError),
     Surface(SurfaceEncodeError),
     NotRepresentableAsPacked,
     Truncated { needed: usize, available: usize },
@@ -20,6 +22,16 @@ pub enum ImagePayloadError {
     MainPlaneLengthMismatch { expected: usize, actual: usize },
     ExtraPlaneLengthMismatch { expected: usize, actual: usize },
     SizeOverflow,
+}
+
+impl From<ImageReadError> for ImagePayloadError {
+    fn from(error: ImageReadError) -> Self {
+        match error {
+            ImageReadError::Media(error) => Self::Media(RawImageViewError::Media(error)),
+            ImageReadError::Raw(error) => Self::Media(error),
+            ImageReadError::Encoded(error) => Self::Encoded(error),
+        }
+    }
 }
 
 /// Failure while encoding a canonical MIRX IMAGE payload.

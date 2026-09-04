@@ -75,7 +75,7 @@ fn evaluate_resolved_descriptor_with_flags(
 ) -> Result<EvaluatedDescriptor, EditError> {
     let flags = evaluated_flags.flags;
     let known_contract = if chunk_type == ChunkType::IMAGE {
-        match payload.validate_image_contract() {
+        match payload.validate_image_contract(&limits) {
             Ok(_) => true,
             Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
             Err(error) => return Err(EditError::InvalidPayload(error)),

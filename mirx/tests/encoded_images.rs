@@ -1,6 +1,7 @@
 use mirx::{
-    ChunkFlags, ChunkType, PayloadLimits, PayloadLocation, PayloadValidationFailure, ReadError,
-    ReadOptions, Reader,
+    ChunkFlags, ChunkType, Document, EditError, EncodeOptions, Meta, PayloadInput, PayloadLimits,
+    PayloadLocation, PayloadOrigin, PayloadValidationFailure, RawChunkInput, RawChunkPolicy,
+    ReadError, ReadOptions, Reader,
     coding::{Lz4, Pixel, Rle},
     encode_chunks,
     image::{
@@ -9,6 +10,183 @@ use mirx::{
     },
     media::{CodingId, CodingRecord, MediaPayloadError},
 };
+
+#[test]
+fn document_relocation_preserves_encoded_storage_alignment_and_derived_hints() {
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    for alignment in [1, 4, 16, 64, 256] {
+        let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
+            .with_input_alignment(alignment)
+            .encode()
+            .unwrap();
+        let mut document = Document::new();
+        let id = document
+            .push_raw(RawChunkInput {
+                chunk_type: ChunkType::IMAGE,
+                flags: ChunkFlags::CRITICAL,
+                payload: PayloadInput::Borrowed(&payload),
+                policy: RawChunkPolicy::infer(),
+            })
+            .unwrap();
+        document.set_primary(id).unwrap();
+        let image = document.image(id).unwrap().encoded().unwrap();
+        assert_eq!(image.input_alignment(), Ok(alignment));
+        assert_eq!(
+            document.get(id).unwrap().payload_bytes().unwrap().as_ptr(),
+            payload.as_ptr()
+        );
+        assert_eq!(
+            document.get(id).unwrap().payload_origin(),
+            PayloadOrigin::BORROWED
+        );
+        assert_eq!(document.primary_hints().stride(), 0);
+        assert_eq!(document.primary_hints().width(), 8);
+        assert_eq!(document.primary_hints().sample_layout(), SampleLayout::A8);
+        let meta = document.push_meta(&Meta::default()).unwrap();
+        document.move_before(meta, id).unwrap();
+        let bytes = document.encode(&EncodeOptions::new()).unwrap();
+        let mut reopened = Document::open(&bytes).unwrap();
+        let id = reopened
+            .chunks_of_type(ChunkType::IMAGE)
+            .next()
+            .unwrap()
+            .id();
+        assert_eq!(
+            reopened.get(id).unwrap().payload_bytes(),
+            Some(payload.as_slice())
+        );
+        assert_eq!(
+            reopened.get(id).unwrap().payload_origin(),
+            PayloadOrigin::ORIGINAL_SOURCE
+        );
+        let meta = reopened
+            .chunks_of_type(ChunkType::META)
+            .next()
+            .unwrap()
+            .id();
+        reopened.remove(meta).unwrap();
+        reopened
+            .get_mut(id)
+            .unwrap()
+            .set_flags(ChunkFlags::NONE, RawChunkPolicy::infer())
+            .unwrap();
+        assert_eq!(
+            reopened.demote_to_flat(),
+            Err(EditError::NotRepresentableAsFlat)
+        );
+        let bytes = reopened.encode(&EncodeOptions::new()).unwrap();
+        let reader = Reader::open(&bytes).unwrap();
+        reader
+            .validate_known_payloads(&PayloadLimits::EMBEDDED)
+            .unwrap();
+        let chunk = reader.chunks().next().unwrap();
+        assert_eq!(chunk.payload(), payload);
+        let image = chunk.image().unwrap().unwrap().encoded().unwrap();
+        let data = image
+            .media()
+            .section(mirx::media::MediaSectionKind::DATA)
+            .unwrap();
+        assert_eq!(
+            (chunk.payload_offset() + data.descriptor().offset()) % alignment,
+            0
+        );
+    }
+}
+
+#[test]
+fn document_inference_checks_encoded_syntax_and_limits_before_mutation() {
+    use mirx::ImagePayloadError;
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let valid = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
+        .encode()
+        .unwrap();
+    let malformed = EncodedImageAsset::new(surface, Rle::new().record(), &[0xff])
+        .encode()
+        .unwrap();
+    let unknown =
+        EncodedImageAsset::new(surface, CodingRecord::new(CodingId::new(511), 1, &[]), &[1])
+            .encode()
+            .unwrap();
+    for (payload, limits) in [
+        (&malformed, PayloadLimits::EMBEDDED),
+        (&unknown, PayloadLimits::EMBEDDED),
+        (&valid, PayloadLimits::EMBEDDED.with_max_decoded_bytes(7)),
+        (&valid, PayloadLimits::EMBEDDED.with_max_image_groups(0)),
+        (&valid, PayloadLimits::EMBEDDED.with_max_image_units(0)),
+        (&valid, PayloadLimits::EMBEDDED.with_max_image_work(0)),
+    ] {
+        let mut document = Document::new_with_limits(limits);
+        let before = document.encode(&EncodeOptions::new()).unwrap();
+        assert!(matches!(
+            document.push_raw(RawChunkInput {
+                chunk_type: ChunkType::IMAGE,
+                flags: ChunkFlags::NONE,
+                payload: PayloadInput::Borrowed(payload),
+                policy: RawChunkPolicy::infer(),
+            }),
+            Err(EditError::InvalidPayload(ImagePayloadError::Encoded(_)))
+        ));
+        assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), before);
+        assert_eq!(document.chunks().count(), 0);
+    }
+}
+
+#[test]
+fn opaque_encoded_relocation_remains_an_explicit_policy_and_keeps_alignment() {
+    use mirx::{CriticalAssumption, RelocationAssumption, ReservedBitsPolicy};
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let payload =
+        EncodedImageAsset::new(surface, CodingRecord::new(CodingId::new(511), 1, &[]), &[1])
+            .with_input_alignment(64)
+            .encode()
+            .unwrap();
+    let mut document = Document::new();
+    let id = document
+        .push_raw(RawChunkInput {
+            chunk_type: ChunkType::IMAGE,
+            flags: ChunkFlags::NONE,
+            payload: PayloadInput::Borrowed(&payload),
+            policy: RawChunkPolicy {
+                relocation: RelocationAssumption::AssumeRelocatable,
+                critical_semantics: CriticalAssumption::Infer,
+                reserved_flag_bits: ReservedBitsPolicy::Reject,
+            },
+        })
+        .unwrap();
+    assert_eq!(
+        document.set_primary(id),
+        Err(EditError::PrimaryHintsRequired {
+            chunk_type: ChunkType::IMAGE
+        })
+    );
+    assert_eq!(
+        document.get_mut(id).unwrap().set_flags(
+            ChunkFlags::CRITICAL,
+            RawChunkPolicy {
+                relocation: RelocationAssumption::AssumeRelocatable,
+                critical_semantics: CriticalAssumption::Infer,
+                reserved_flag_bits: ReservedBitsPolicy::Reject,
+            }
+        ),
+        Err(EditError::CriticalAssumptionRequired {
+            chunk_type: ChunkType::IMAGE
+        })
+    );
+    let bytes = document.encode(&EncodeOptions::new()).unwrap();
+    let reader = Reader::open(&bytes).unwrap();
+    let chunk = reader.chunks().next().unwrap();
+    assert_eq!(chunk.payload(), payload);
+    let image = chunk.image().unwrap().unwrap().encoded().unwrap();
+    assert_eq!(image.input_alignment(), Ok(64));
+    image
+        .validate_groups(&mut CoverageBudget::new(100))
+        .unwrap();
+    assert!(
+        reader
+            .validate_known_payloads(&PayloadLimits::EMBEDDED)
+            .is_err()
+    );
+}
 
 #[test]
 fn critical_scalar_images_reach_aligned_caller_output_through_reader() {

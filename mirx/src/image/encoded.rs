@@ -60,6 +60,18 @@ impl<'a> EncodedImageView<'a> {
         self.media.validate_data().map_err(EncodedImageError::Media)
     }
 
+    /// Maximum declared group input alignment, or one for an implicit group.
+    ///
+    /// This scans only group records, without expanding units or checking
+    /// coverage, codec syntax or actual backing addresses.
+    pub fn input_alignment(self) -> Result<u32, EncodedImageError> {
+        let mut alignment = 1;
+        for index in 0..self.group_count() {
+            alignment = alignment.max(self.record(index)?.input_alignment());
+        }
+        Ok(alignment)
+    }
+
     pub(super) fn from_media(
         media: MediaPayload<'a>,
         file_offset: Option<u32>,

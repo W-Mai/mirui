@@ -319,6 +319,8 @@ mod tests {
             document
                 .image(image_id)
                 .unwrap()
+                .raw()
+                .unwrap()
                 .packed()
                 .unwrap()
                 .main()
@@ -326,7 +328,14 @@ mod tests {
             image_pointer
         );
         assert_eq!(
-            document.image(image_id).unwrap().packed().unwrap().main(),
+            document
+                .image(image_id)
+                .unwrap()
+                .raw()
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main(),
             &[1, 2, 3, 4]
         );
         assert_eq!(document.decode_vector(vector_id).unwrap(), expected);

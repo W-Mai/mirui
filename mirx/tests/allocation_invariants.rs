@@ -15,6 +15,43 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn encoded_document_queries_and_placement_allocate_no_samples_or_group_table() {
+    use mirx::{
+        PayloadInput, RawChunkInput, RawChunkPolicy, coding::Rle, image::EncodedImageAsset,
+    };
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
+        .with_input_alignment(64)
+        .encode()
+        .unwrap();
+    let mut document = Document::new();
+    let (_, allocations) = count_allocations(|| {
+        document
+            .push_raw(RawChunkInput {
+                chunk_type: ChunkType::IMAGE,
+                flags: ChunkFlags::CRITICAL,
+                payload: PayloadInput::Borrowed(&payload),
+                policy: RawChunkPolicy::infer(),
+            })
+            .unwrap();
+    });
+    assert_eq!(allocations, 1, "only the document node table is owned");
+    let id = document.chunks().next().unwrap().id();
+    let mut output = [0; 512];
+    let (_, allocations) = count_allocations(|| {
+        document.set_primary(id).unwrap();
+        let image = document.image(id).unwrap().encoded().unwrap();
+        assert_eq!(image.input_alignment(), Ok(64));
+        assert_eq!(document.primary_hints().stride(), 0);
+        let size = document
+            .encode_into(&mut output, &EncodeOptions::new())
+            .unwrap();
+        Reader::open(&output[..size]).unwrap();
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn critical_encoded_reader_uses_no_decoder_or_group_allocation() {
     use mirx::{
         coding::Rle,

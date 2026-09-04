@@ -6,16 +6,16 @@ use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageDecodeError, ImageEn
 
 #[cfg(test)]
 use crate::ImageAsset;
-use crate::image::{ImageSource, SurfaceView};
+use crate::image::{ImageRef, ImageSource};
 
 impl Document<'_> {
     /// Resolves one IMAGE node by its stable document-session identity.
     ///
-    /// Source-backed payloads retain their absolute alignment checks. Owned,
-    /// borrowed, and promoted payloads are decoded without copying their image
-    /// planes. Preserved future container semantics must be normalized before
-    /// typed payload access.
-    pub fn image(&self, id: ChunkId) -> Result<SurfaceView<'_>, ImageDecodeError> {
+    /// RAW and promoted samples remain borrowed. Encoded metadata retains the
+    /// source position for explicit group, integrity and decode checks, without
+    /// allocating decoded samples. Preserved future container semantics must
+    /// be normalized before typed payload access.
+    pub fn image(&self, id: ChunkId) -> Result<ImageRef<'_>, ImageDecodeError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(ImageDecodeError::FutureSemanticsUnsupported);
         }
@@ -213,7 +213,13 @@ mod tests {
             let chunk = document.get(inserted).unwrap();
             assert_eq!(chunk.flags(), flags, "{format:?}");
             assert_eq!(chunk.payload_origin(), PayloadOrigin::OWNED, "{format:?}");
-            let image = document.image(inserted).unwrap().packed().unwrap();
+            let image = document
+                .image(inserted)
+                .unwrap()
+                .raw()
+                .unwrap()
+                .packed()
+                .unwrap();
             assert_eq!(image.width(), width, "{format:?}");
             assert_eq!(image.height(), height, "{format:?}");
             assert_eq!(image.format(), format, "{format:?}");
@@ -287,6 +293,8 @@ mod tests {
             document
                 .image(image_id)
                 .unwrap()
+                .raw()
+                .unwrap()
                 .packed()
                 .unwrap()
                 .main()
@@ -320,6 +328,8 @@ mod tests {
         assert_eq!(
             owned_document
                 .image(owned_id)
+                .unwrap()
+                .raw()
                 .unwrap()
                 .packed()
                 .unwrap()
@@ -367,11 +377,25 @@ mod tests {
             owned_payload_pointer
         );
         assert_eq!(
-            mixed.image(borrowed_id).unwrap().packed().unwrap().main(),
+            mixed
+                .image(borrowed_id)
+                .unwrap()
+                .raw()
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main(),
             main
         );
         assert_eq!(
-            mixed.image(owned_id).unwrap().packed().unwrap().main(),
+            mixed
+                .image(owned_id)
+                .unwrap()
+                .raw()
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main(),
             main
         );
 
@@ -391,6 +415,8 @@ mod tests {
         assert_eq!(
             promoted
                 .image(promoted_id)
+                .unwrap()
+                .raw()
                 .unwrap()
                 .packed()
                 .unwrap()
@@ -446,6 +472,8 @@ mod tests {
             trailing
                 .image(trailing_id)
                 .unwrap()
+                .raw()
+                .unwrap()
                 .packed()
                 .unwrap()
                 .main(),
@@ -468,6 +496,8 @@ mod tests {
         assert_eq!(
             normalized
                 .image(normalized_id)
+                .unwrap()
+                .raw()
                 .unwrap()
                 .packed()
                 .unwrap()
@@ -517,7 +547,14 @@ mod tests {
             .unwrap();
         assert!(document.is_dirty());
         assert_eq!(
-            document.image(image_id).unwrap().packed().unwrap().main(),
+            document
+                .image(image_id)
+                .unwrap()
+                .raw()
+                .unwrap()
+                .packed()
+                .unwrap()
+                .main(),
             main
         );
         assert_eq!(
@@ -588,6 +625,8 @@ mod tests {
         let main_pointer = document
             .image(image_id)
             .unwrap()
+            .raw()
+            .unwrap()
             .packed()
             .unwrap()
             .main()
@@ -604,6 +643,8 @@ mod tests {
         assert_eq!(
             document
                 .image(image_id)
+                .unwrap()
+                .raw()
                 .unwrap()
                 .packed()
                 .unwrap()
@@ -632,6 +673,8 @@ mod tests {
             repaired
                 .image(repaired_id)
                 .unwrap()
+                .raw()
+                .unwrap()
                 .packed()
                 .unwrap()
                 .main(),
@@ -648,6 +691,8 @@ mod tests {
         let exact_promoted_id = exact_promoted.promote_to_chunk().unwrap().unwrap();
         let exact_pointer = exact_promoted
             .image(exact_promoted_id)
+            .unwrap()
+            .raw()
             .unwrap()
             .packed()
             .unwrap()
@@ -667,6 +712,8 @@ mod tests {
             exact_promoted
                 .image(exact_promoted_id)
                 .unwrap()
+                .raw()
+                .unwrap()
                 .packed()
                 .unwrap()
                 .main()
@@ -682,6 +729,8 @@ mod tests {
         let promoted_id = promoted.promote_to_chunk().unwrap().unwrap();
         let original_pointer = promoted
             .image(promoted_id)
+            .unwrap()
+            .raw()
             .unwrap()
             .packed()
             .unwrap()
@@ -699,6 +748,8 @@ mod tests {
         assert_ne!(
             promoted
                 .image(promoted_id)
+                .unwrap()
+                .raw()
                 .unwrap()
                 .packed()
                 .unwrap()
@@ -799,6 +850,8 @@ mod tests {
         assert_eq!(
             preserved
                 .image(preserved_id)
+                .unwrap()
+                .raw()
                 .unwrap()
                 .packed()
                 .unwrap()

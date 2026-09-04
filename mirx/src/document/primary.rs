@@ -101,7 +101,7 @@ fn derived_primary_hints(
     limits: PayloadLimits,
 ) -> Result<PrimaryHints, ()> {
     if chunk_type == ChunkType::IMAGE {
-        return payload.validate_image_contract().map_err(|_| ());
+        return payload.validate_image_contract(&limits).map_err(|_| ());
     }
     if chunk_type != ChunkType::FRAMES {
         return Err(());

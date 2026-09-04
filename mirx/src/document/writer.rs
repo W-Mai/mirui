@@ -10,7 +10,7 @@ use super::{
     ChunkSet, Compatibility, Document, DocumentState, EncodeOptions, FlatRecord, LayoutPolicy,
     PayloadStorage, PrimaryHintState, TrailingState,
 };
-use crate::image::RawImageView;
+use crate::image::ImageRef;
 use crate::media::{MediaPayload, MediaSectionKind};
 use crate::payload::image::{ImagePayloadError, ImagePayloadPlan};
 use crate::wire::{write_u16_le, write_u32_le};
@@ -22,6 +22,8 @@ use crate::{
 
 #[cfg(test)]
 use crate::ColorFormat;
+#[cfg(test)]
+use crate::image::RawImageView;
 
 const CONTAINER_ALIGNMENT: u32 = 4;
 
@@ -81,12 +83,20 @@ impl<'a> PayloadPlan<'a> {
                 match media.and_then(|media| media.section(MediaSectionKind::DATA)) {
                     Some(data) => {
                         let mut alignment = CONTAINER_ALIGNMENT;
-                        if let Ok(view) = RawImageView::open(payload) {
-                            for plane in view.planes() {
-                                alignment = alignment.max(plane.memory().required_alignment());
+                        match ImageRef::open(payload) {
+                            Ok(ImageRef::Raw(view)) => {
+                                for plane in view.planes() {
+                                    alignment = alignment.max(plane.memory().required_alignment());
+                                }
                             }
+                            Ok(ImageRef::Encoded(view)) => {
+                                if let Ok(required) = view.input_alignment() {
+                                    alignment = alignment.max(required);
+                                }
+                            }
+                            Err(_) => {}
                         }
-                        PlacementConstraint::RawImageDataAligned {
+                        PlacementConstraint::ImageDataAligned {
                             payload,
                             data_offset: data.descriptor().offset(),
                             alignment,
@@ -105,7 +115,7 @@ impl<'a> PayloadPlan<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PlacementConstraint<'a> {
     ChunkStartAligned(u32),
-    RawImageDataAligned {
+    ImageDataAligned {
         payload: &'a [u8],
         data_offset: u32,
         alignment: u32,
@@ -116,7 +126,7 @@ impl PlacementConstraint<'_> {
     fn place(self, cursor: u32) -> Result<u32, EncodeError> {
         match self {
             Self::ChunkStartAligned(alignment) => align_up(cursor, alignment),
-            Self::RawImageDataAligned {
+            Self::ImageDataAligned {
                 payload,
                 data_offset,
                 alignment,
