@@ -172,6 +172,8 @@ Encoded payload bytes can be inserted through `push_raw` with `RawChunkPolicy::i
 
 `DecodeUnitRef::decode_plan` combines supported profile preflight with `UnitMemoryPlan`. RAW, PIXEL, RLE and LZ4 units write directly into planned rows, including padded strides and allocation extents, without a tight staging buffer. `CodingRecord::RAW` retains exact logical samples inside explicit groups for uncompressed tiles or mixed compression choices. RAW, RLE and LZ4 support selected packed, indexed, alpha and YUV planes; tight rows are consumed in original plane-index order. LZ4 history crosses rows and planes while excluding physical padding. Actual output address and capacity are checked before writes; padding and unused sub-byte row bits become zero, while suffix bytes stay unchanged. `DecodedUnit` borrows only the destination and exposes `SurfacePlane` row access, while its memory plan retains original source regions. Verify source integrity with `ImageGroups::validate_unit` before executing an encoded IMAGE unit. Unsupported coding or frame references fail during planning.
 
+`DecodedUnit::copy_into(output, whole_surface_plan)` places decoded samples at their original plane coordinates without allocation. It preserves other samples, padding and suffix bytes, including adjacent sub-byte pixels in a shared byte. Descriptor and actual output address/capacity checks precede writes. One caller-owned unit buffer can be reused across tiles; this placement operation does not select units, verify complete coverage or preflight a multi-unit request.
+
 ```rust
 use mirx::{coding::Pixel, image::SampleLayout};
 

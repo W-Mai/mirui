@@ -15,6 +15,42 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn decoded_units_place_samples_in_shared_surface_storage_without_allocation() {
+    use mirx::{
+        image::{
+            ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitGroup,
+        },
+        media::{CodingRecord, UnitSelection},
+    };
+    let surface = SurfaceDescriptor::new(9, 1, SampleLayout::A1, ColorDescription::NONE).unwrap();
+    let selection_bytes = 1u32.to_le_bytes();
+    let selection = UnitSelection::list(3, &selection_bytes).unwrap();
+    let unit = UnitGroup::builder(surface, CodingRecord::RAW, &[0b1010_0000])
+        .with_tiles(3, 1)
+        .with_selection(selection)
+        .build()
+        .unwrap()
+        .get(0)
+        .unwrap();
+    let target = surface
+        .memory_plan(SurfaceRequirements::new().with_stride_multiple(8))
+        .unwrap();
+    let mut unit_buffer = [0; 1];
+    let mut output = [0x5a; 16];
+    let (_, allocations) = count_allocations(|| {
+        let decoded = unit
+            .decode_plan(SurfaceRequirements::new())
+            .unwrap()
+            .decode_into(&mut unit_buffer)
+            .unwrap();
+        decoded.copy_into(&mut output, target).unwrap();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(output[0], 0b0101_0110);
+    assert_eq!(&output[1..], &[0x5a; 15]);
+}
+
+#[test]
 fn native_wire_and_implicit_glyph_maps_allocate_nothing() {
     use mirx::{font::GlyphMap, image::Region};
     let regions = [

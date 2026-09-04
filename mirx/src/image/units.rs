@@ -6,6 +6,7 @@ use crate::media::{CodingRecord, UnitIndex, UnitIndexError, UnitSelection, UnitS
 mod decode;
 mod output;
 mod plan;
+mod transfer;
 mod wire;
 pub(crate) use decode::ScalarProfile;
 pub use decode::{DecodedUnit, UnitDecodeError, UnitDecodePlan};

@@ -79,6 +79,15 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
         .unwrap();
     #[repr(align(64))]
     struct Aligned([u8; 128]);
+    let whole_plan = surface
+        .memory_plan(
+            SurfaceRequirements::new()
+                .with_base_alignment(64)
+                .with_stride_multiple(64),
+        )
+        .unwrap();
+    let mut whole = Aligned([0x5a; 128]);
+    let mut output = Aligned([0xad; 128]);
     for (ordinal, expected) in samples.iter().enumerate() {
         let unit = groups.get(ordinal).unwrap().get(0).unwrap();
         assert_eq!(
@@ -94,15 +103,17 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
             .with_stride_multiple(64)
             .with_base_alignment(64);
         let plan = unit.decode_plan(requirements).unwrap();
-        let mut output = Aligned([0xad; 128]);
         let decoded = plan.decode_into(&mut output.0).unwrap();
         assert_eq!(
             decoded.plane(0).unwrap().row(0).unwrap(),
             Some(expected.as_slice())
         );
+        decoded.copy_into(&mut whole.0, whole_plan).unwrap();
         assert_eq!(&output.0[6..64], &[0; 58]);
         assert_eq!(&output.0[64..], &[0xad; 64]);
     }
+    assert_eq!(&whole.0[..24], samples.as_flattened());
+    assert_eq!(&whole.0[24..], &[0x5a; 104]);
     let mut document = Document::open(&bytes).unwrap();
     let id = document
         .chunks_of_type(ChunkType::IMAGE)

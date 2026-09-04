@@ -149,6 +149,14 @@ Partitions are covered by the metadata CRC. Author preflight bounds their native
 
 Whole-surface RAW without independent groups uses `RawImageAsset`, omitting CODINGS. The single-stream encoded constructor rejects RAW instead of writing redundant metadata. An IMAGE with explicit RAW groups is still an `ImageRef::Encoded`: group/index addressing and a decode plan remain necessary, and opening does not claim a directly borrowed contiguous surface.
 
+## Placing decoded units
+
+`DecodedUnit::copy_into(output, whole_surface_plan)` writes selected samples into a checked whole-surface allocation at their original positions. Planar units retain the original plane index and chroma coordinates; they are not renumbered as plane zero. The target descriptor must match the source surface.
+
+Only the unit's sample bits change. Other samples, absent planes, row padding, allocation rows, inter-plane gaps and the output suffix remain untouched. For 1/2/4-bit layouts, masked edge writes preserve neighbouring pixels in the same byte. Byte-aligned interiors use bulk copies; unaligned rows transfer shifted bytes without per-pixel staging.
+
+The caller can reuse one decoded-unit buffer across RAW, PIXEL, RLE and LZ4 units. This requires both that buffer and the final output allocation; a whole-image unit still needs whole-image temporary output with this approach. Placement does not allocate, select units or provide failure-atomic multi-unit execution. Integrity, required-unit preflight, complete coverage and final padding initialization belong to the enclosing request.
+
 ## Container reading
 
 `ChunkRef::image` returns `Result<Option<ImageRef>, ImageReadError>`. Other chunk types return `None` without interpreting payload bytes. IMAGE retains its actual chunk offset; RAW alignment checks occur while opening samples, and encoded alignment checks occur during group preparation or preflight.

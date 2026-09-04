@@ -54,6 +54,7 @@ mod memory;
 mod output;
 mod plan;
 mod reference;
+mod samples;
 mod surface;
 mod units;
 mod view;
