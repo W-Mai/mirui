@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **RAW units in grouped images.** Exact selected-plane samples share the bounded scalar preflight and caller-owned strided output path with compressed units. Mixed RAW/PIXEL/RLE/LZ4 groups retain independent alignment and coding choices without decoded staging allocations.
+
 - **Grouped encoded IMAGE authoring.** Borrowed coding, group and index tables support planar and tiled storage with shared profiles, sparse selections and aligned variable ranges. Canonical emission and typed document admission share reader validation without temporary payloads or expanded unit tables.
 
 - **Typed encoded IMAGE insertion and replacement.** Canonical assets pass shared scalar syntax and resource checks before allocation. Exact replacements keep storage without allocation, misaligned source payloads are repaired, and output-span budgets bound padding before encoding.

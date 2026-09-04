@@ -15,27 +15,35 @@ use mirx::{
 fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
     use mirx::image::{GroupSelection, Region, UnitGroupRecord};
     let surface =
-        SurfaceDescriptor::new(6, 1, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
+        SurfaceDescriptor::new(8, 1, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
     let pixel = Pixel::new(SampleLayout::RGB888).unwrap();
     let rle = Rle::new().with_element_size(3).unwrap();
     let lz4 = Lz4::new();
-    let codings = [pixel.record(), rle.record(), lz4.record()];
+    let codings = [
+        pixel.record(),
+        rle.record(),
+        lz4.record(),
+        CodingRecord::RAW,
+    ];
     let samples = [
         [17, 42, 91, 17, 42, 91],
         [0, 1, 2, 0, 1, 2],
         [55, 56, 57, 55, 56, 57],
+        [5, 17, 29, 47, 83, 131],
     ];
-    let mut data = [0xa5; 192];
+    let mut data = [0xa5; 256];
+    data[192..198].copy_from_slice(&samples[3]);
     let mut table = [0; Lz4::TABLE_LEN];
     let lengths = [
         pixel.encode_into(&samples[0], &mut data[..64]).unwrap(),
         rle.encode_into(&samples[1], &mut data[64..128]).unwrap(),
         lz4.encoder(&mut table)
             .unwrap()
-            .encode_into(&samples[2], &mut data[128..])
+            .encode_into(&samples[2], &mut data[128..192])
             .unwrap(),
+        samples[3].len(),
     ];
-    let records: [_; 3] = core::array::from_fn(|i| {
+    let records: [_; 4] = core::array::from_fn(|i| {
         UnitGroupRecord::new(i as u32, (64 * i) as u32..(64 * i + lengths[i]) as u32)
             .unwrap()
             .with_tiles(2, 1)
@@ -43,9 +51,9 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
             .with_index_offset((i * 4) as u32)
             .with_input_alignment(64)
     });
-    let index = [0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0];
+    let index = [0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0];
     let asset =
-        EncodedImageAsset::from_groups(surface, &codings, &records, &data[..128 + lengths[2]])
+        EncodedImageAsset::from_groups(surface, &codings, &records, &data[..192 + lengths[3]])
             .with_index(&index);
     let mut document = Document::new();
     let id = document
@@ -62,7 +70,7 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
         .unwrap();
     let image = chunk.image().unwrap().unwrap().encoded().unwrap();
     assert_eq!(image.codings().iter().collect::<Vec<_>>(), codings);
-    let mut slots = [None; 3];
+    let mut slots = [None; 4];
     let groups = image
         .groups_into(&mut slots, &mut CoverageBudget::new(4096))
         .unwrap();

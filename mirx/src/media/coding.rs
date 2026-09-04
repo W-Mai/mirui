@@ -18,6 +18,9 @@ pub struct CodingRecord<'a> {
 }
 
 impl<'a> CodingRecord<'a> {
+    /// Tight logical samples in selected-plane order, without codec parameters.
+    pub const RAW: Self = Self::new(CodingId::RAW, 1, &[]);
+
     pub const fn new(id: CodingId, revision: u16, params: &'a [u8]) -> Self {
         Self {
             id,

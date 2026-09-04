@@ -15,6 +15,60 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn raw_units_preflight_and_transfer_without_staging_or_heap() {
+    use mirx::{
+        image::{EncodedImageAsset, EncodedImageView, UnitGroup},
+        media::CodingRecord,
+    };
+    let surface = SurfaceDescriptor::new(
+        5,
+        3,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let samples = [128; 27];
+    let records = [mirx::image::UnitGroupRecord::new(0, 0..27).unwrap()];
+    let codings = [CodingRecord::RAW];
+    let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &samples);
+    #[repr(align(64))]
+    struct Aligned([u8; 512]);
+    let mut output = Aligned([0xad; 512]);
+    let mut payload = [0; 256];
+    let (_, allocations) = count_allocations(|| {
+        asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
+        let len = asset.encode_into(&mut payload).unwrap();
+        EncodedImageView::open(&payload[..len])
+            .unwrap()
+            .preflight(&PayloadLimits::EMBEDDED)
+            .unwrap();
+        let unit = UnitGroup::builder(surface, CodingRecord::RAW, &samples)
+            .build()
+            .unwrap()
+            .get(0)
+            .unwrap();
+        let plan = unit
+            .decode_plan(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_plane_alignment(64)
+                    .with_stride_multiple(64),
+            )
+            .unwrap();
+        let decoded = plan.decode_into(&mut output.0).unwrap();
+        assert_eq!(
+            decoded.plane(0).unwrap().row(0).unwrap(),
+            Some(&[128; 5][..])
+        );
+        assert_eq!(
+            decoded.plane(1).unwrap().row(0).unwrap(),
+            Some(&[128; 6][..])
+        );
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
     use mirx::{
         coding::Rle,

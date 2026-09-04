@@ -13,11 +13,13 @@ use crate::{
 #[cfg(test)]
 mod lz4_tests;
 #[cfg(test)]
+mod raw_tests;
+#[cfg(test)]
 mod tests;
 
 /// Validated scalar execution into independent, caller-owned unit storage.
 ///
-/// PIXEL supports RGB888/RGBA8888; RLE/LZ4 cover selected tight plane rows. Other
+/// PIXEL supports RGB888/RGBA8888; RAW/RLE/LZ4 cover selected tight plane rows. Other
 /// coding profiles and reference modes are rejected during planning. Media
 /// integrity is a separate gate, such as `ImageGroups::validate_unit`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -28,6 +30,7 @@ pub struct UnitDecodePlan<'a> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Decoder<'a> {
+    Raw(&'a [u8]),
     Pixel(PixelDecodePlan<'a>),
     Rle(RleDecodePlan<'a>),
     Lz4(Lz4DecodePlan<'a>),
@@ -35,6 +38,7 @@ enum Decoder<'a> {
 
 #[derive(Clone, Copy)]
 pub(crate) enum ScalarProfile {
+    Raw,
     Pixel(Pixel),
     Rle(Rle),
     Lz4(Lz4),
@@ -46,6 +50,18 @@ impl ScalarProfile {
         layout: SampleLayout,
     ) -> Result<Self, UnitDecodeError> {
         match coding.id() {
+            CodingId::RAW => {
+                if coding.revision() != CodingRecord::RAW.revision() {
+                    return Err(UnitDecodeError::UnsupportedRevision {
+                        coding: coding.id(),
+                        revision: coding.revision(),
+                    });
+                }
+                if !coding.params().is_empty() {
+                    return Err(UnitDecodeError::UnexpectedParameters(coding.id()));
+                }
+                Ok(Self::Raw)
+            }
             CodingId::PIXEL => Pixel::from_record(coding, layout)
                 .map(Self::Pixel)
                 .map_err(UnitDecodeError::Pixel),
@@ -65,6 +81,16 @@ impl ScalarProfile {
         memory: UnitMemoryPlan,
     ) -> Result<UnitDecodePlan<'_>, UnitDecodeError> {
         let decoder = match self {
+            Self::Raw => {
+                let expected = memory.sample_byte_len();
+                if data.len() != expected {
+                    return Err(UnitDecodeError::SampleLengthMismatch {
+                        expected,
+                        actual: data.len(),
+                    });
+                }
+                Decoder::Raw(data)
+            }
             Self::Pixel(codec) => {
                 let geometry = memory.plane(0).expect("pixel plane").geometry();
                 let count =
@@ -90,7 +116,7 @@ impl ScalarProfile {
 impl<'a> DecodeUnitRef<'a> {
     /// Validates profile syntax and plans a complete scalar-decoded unit.
     ///
-    /// Logical output size comes from checked local plane geometry. Compressed bytes
+    /// Logical output size comes from checked local plane geometry. Stored bytes
     /// are read bytewise without hardware input-alignment requirements; the
     /// stored alignment promise remains separately inspectable on this unit.
     pub fn decode_plan(
@@ -126,6 +152,7 @@ impl UnitDecodePlan<'_> {
         let output = &mut output[..self.memory.byte_len() as usize];
         let mut writer = UnitOutput::new(self.memory, output);
         match self.decoder {
+            Decoder::Raw(bytes) => writer.write(bytes),
             Decoder::Pixel(plan) => {
                 let channels = usize::from(
                     self.memory
@@ -191,6 +218,16 @@ impl<'a> DecodedUnit<'a> {
 #[non_exhaustive]
 pub enum UnitDecodeError {
     UnsupportedCoding(CodingId),
+    UnsupportedRevision {
+        coding: CodingId,
+        revision: u16,
+    },
+    UnexpectedParameters(CodingId),
+    /// Tight selected-plane sample bytes differ from the stored RAW unit length.
+    SampleLengthMismatch {
+        expected: usize,
+        actual: usize,
+    },
     UnsupportedReference(ReferenceMode),
     Pixel(PixelError),
     Rle(RleError),

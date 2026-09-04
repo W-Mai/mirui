@@ -281,7 +281,10 @@ fn invalid_profiles_streams_and_output_addresses_cannot_modify_destinations() {
     let requirements = SurfaceRequirements::new();
     assert!(matches!(
         make(CodingRecord::new(CodingId::RAW, 1, &[])).decode_plan(requirements),
-        Err(UnitDecodeError::UnsupportedCoding(CodingId::RAW))
+        Err(UnitDecodeError::SampleLengthMismatch {
+            expected: 3,
+            actual: 1
+        })
     ));
     assert!(matches!(
         make(CodingRecord::new(CodingId::PIXEL, 2, &[])).decode_plan(requirements),

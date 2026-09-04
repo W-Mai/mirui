@@ -131,6 +131,14 @@ Explicit group arrays remain explicit, including a one-group array. Empty arrays
 
 Low-level encoding checks records, profile references, static reference rules and exact DATA/index consumption before writing. Full static coverage and codec support remain bounded `preflight` checks: overlapping or incomplete groups cannot enter typed Document edits. Group count and minimum native table size are checked before table scans; output-span work is charged before index resolution. Single-stream default omission and bytes remain unchanged. Integrity covers all DATA; this writer does not emit indexed integrity records.
 
+## RAW units in grouped storage
+
+`CodingRecord::RAW` stores tight logical samples with revision 1 and no parameters. Explicit groups can mix RAW units with PIXEL, RLE or LZ4 units, or retain independently addressed raw tiles. A RAW unit contains selected planes in original plane-index order; each plane contains tight local rows. Its exact byte count comes from the same geometry used by compressed units. Unknown revisions, nonempty parameters and short or long sample streams are rejected before output writes.
+
+`decode_plan` transfers RAW bytes through the shared strided output path, with no tight staging buffer or heap. Output address, plane alignment, allocation extent and stride are independent of stored input layout. Row tails and allocation padding are normalized exactly as for compressed units. The caller chooses RAW where compression is not useful; this API does not make that size comparison automatically.
+
+Whole-surface RAW without independent groups uses `RawImageAsset`, omitting CODINGS. The single-stream encoded constructor rejects RAW instead of writing redundant metadata. An IMAGE with explicit RAW groups is still an `ImageRef::Encoded`: group/index addressing and a decode plan remain necessary, and opening does not claim a directly borrowed contiguous surface.
+
 ## Container reading
 
 `ChunkRef::image` returns `Result<Option<ImageRef>, ImageReadError>`. Other chunk types return `None` without interpreting payload bytes. IMAGE retains its actual chunk offset; RAW alignment checks occur while opening samples, and encoded alignment checks occur during group preparation or preflight.
