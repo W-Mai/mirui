@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Compact FONT representation records.** Fixed 16-byte records retain class-dependent size semantics and shared surface/map references. Surface-derived sample depth and tight decoded cost are not duplicated; native binding rejects stale hints and typed parsing enforces canonical Coverage defaults.
+
 - **Joined glyph lookup.** Shared Unicode, metric and RAW sample tables require equal cardinality before access. Character and ordinal lookup return paired measurements and raster samples without allocation or metadata-lifetime coupling, preserving missing characters and empty glyph regions.
 
 - **Borrowed RAW glyph storage.** GlyphMajor cells share checked stride, allocation and alignment rules; Atlas2D glyphs retain exact sub-byte regions. Constant-time lookup and caller-owned cropped transfer reuse image layouts without sample allocation or map-lifetime coupling.

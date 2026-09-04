@@ -6,6 +6,7 @@ pub mod header;
 mod mapping;
 mod metrics;
 mod preflight;
+mod record;
 mod representation;
 mod storage;
 
@@ -18,6 +19,7 @@ pub use metrics::{
     GLYPH_METRICS_LEN, GlyphMetrics, GlyphMetricsIter, LINE_METRICS_LEN, LineMetrics, MetricsError,
     MetricsTable,
 };
+pub use record::{REPRESENTATION_RECORD_LEN, RepresentationRecord, RepresentationRecordError};
 pub use storage::{GlyphRaster, GlyphStorageError, RawGlyphBuilder, RawGlyphs};
 
 pub use crate::font::atlas::{AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION};

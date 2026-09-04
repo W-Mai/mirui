@@ -72,6 +72,8 @@ IMAGE, META, PALETTE, and FRAMES expose borrowed views. FONT and VECTOR use `dec
 
 `FontRepresentations::select` matches fixed-size coverage and ranged signed-distance representations with explicit preferences and fallback. The returned `FontRepresentationMatch` owns one inline metadata value and its source index; selection allocates nothing and does not extend the representation table's lifetime.
 
+`font::RepresentationRecord` encodes 16 bytes of size semantics and shared surface/map references. Sample depth and decoded selection cost come from the bound surface, while fixed Coverage omits repeated range values. [Font representation records](docs/font-representations.md) defines canonical fields and native binding checks.
+
 `font::MetricsTable` borrows representation-specific line and glyph measurements as signed 24.8 values, without repeating codepoints or raster storage fields. [Font metric records](docs/font-metrics.md) describes the byte layout, coordinate conventions and allocation-free access.
 
 `font::GlyphMap` derives fixed GlyphMajor cells without map bytes or borrows explicit Atlas2D rectangles. Native and wire maps share checked lookup and encoding without repeating per-glyph storage rules; see [glyph region maps](docs/glyph-maps.md).

@@ -15,6 +15,24 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn representation_record_binding_and_emission_allocate_nothing() {
+    use mirx::{FontRepresentation, font::RepresentationRecord};
+    let (_, allocations) = count_allocations(|| {
+        let surface =
+            SurfaceDescriptor::new(5, 3, SampleLayout::A4, ColorDescription::NONE).unwrap();
+        let metadata = FontRepresentation::signed_distance(4, 3, 24, 17, 48, 9).unwrap();
+        let record = RepresentationRecord::new(metadata, 2).with_glyph_map_offset(32);
+        record.validate_for(surface).unwrap();
+        let mut bytes = [0xa5; 17];
+        record.encode_record_into(&mut bytes[1..]).unwrap();
+        let decoded = RepresentationRecord::from_record(&bytes[1..], surface).unwrap();
+        assert_eq!(decoded, record);
+        assert_eq!(bytes[0], 0xa5);
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn joined_glyph_lookup_and_metric_access_allocate_nothing() {
     use mirx::{
         Fixed,
