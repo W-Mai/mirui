@@ -2,6 +2,7 @@ use core::iter::FusedIterator;
 
 mod composition;
 mod frame_map;
+mod keyframes;
 mod owned;
 mod sequence;
 mod timing;
@@ -11,6 +12,7 @@ pub use composition::{
     FrameCompositionOverride, FrameCompositionTable,
 };
 pub use frame_map::{FrameCounts, FrameMap, FrameMapAsset, FrameMapError, FrameMapIter};
+pub use keyframes::{KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError, KeyframeIter};
 pub use owned::{
     AnimationFrames, AnimationSettings, AssetFrameIter, AtlasFrames, FramesAsset,
     FramesEncodeError, FramesMutationError,

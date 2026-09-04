@@ -60,7 +60,8 @@ pub use payload::frames::{
     FrameCompositionTable, FrameCounts, FrameIter, FrameMap, FrameMapAsset, FrameMapError,
     FrameMapIter, FrameRow, FrameSequence, FrameSequenceError, FrameTiming, FrameTimingAsset,
     FrameTimingEncoding, FrameTimingError, FramesAsset, FramesDecodeError, FramesEncodeError,
-    FramesMode, FramesMutationError, FramesView,
+    FramesMode, FramesMutationError, FramesView, KeyframeIndex, KeyframeIndexAsset,
+    KeyframeIndexError, KeyframeIter,
 };
 pub use payload::image::{ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
 pub use payload::meta::{
