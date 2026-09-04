@@ -42,6 +42,8 @@ pub struct CodingId(u16);
 impl CodingId {
     /// Uncoded bytes described directly by the payload's memory records.
     pub const RAW: Self = Self(0);
+    /// Independent lossless RGB/RGBA pixel state stream.
+    pub const PIXEL: Self = Self(1);
 
     pub const fn new(value: u16) -> Self {
         Self(value)

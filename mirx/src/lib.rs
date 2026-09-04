@@ -4,6 +4,7 @@
 extern crate alloc;
 
 mod chunk;
+pub mod coding;
 mod crc32;
 pub mod document;
 mod error;

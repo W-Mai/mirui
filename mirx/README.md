@@ -140,6 +140,21 @@ IMAGE uses an 8-byte media header, 12-byte section entries, a 32-byte SURFACE re
 
 `DecodeUnitRef::memory_plan` applies the same allocation rules to a decoded unit. `UnitMemoryPlan` includes only selected planes; each `UnitPlane` retains its original plane index, source region, local sample geometry, and planned physical layout. Input alignment does not silently become an output requirement. Unit plans preserve odd chroma edges and sub-byte origins, allocate no heap, and validate actual caller-buffer size/address through `buffer_requirements()`. They describe independent unit storage, not in-place writeback into a full-surface buffer.
 
+`coding::Pixel` encodes independent, lossless RGB888/RGBA8888 sample streams with color-cache, delta and run operations. Exact sizing, encoding, preflight and decoding use caller memory without allocation. A validated `PixelDecodePlan` checks destination capacity before writes; failures preserve output. These are tight sample-stream operations, separate from surface stride, media CRC and container editing. See [pixel coding](docs/pixel-coding.md) for the byte format.
+
+```rust
+use mirx::{coding::Pixel, image::SampleLayout};
+
+let codec = Pixel::new(SampleLayout::RGB888).unwrap();
+let samples = [32, 64, 96, 32, 64, 96];
+let mut encoded = [0; 8];
+let len = codec.encode_into(&samples, &mut encoded).unwrap();
+let plan = codec.plan(&encoded[..len], 2).unwrap();
+let mut output = [0; 6];
+plan.decode_into(&mut output).unwrap();
+assert_eq!(output, samples);
+```
+
 `SurfacePlane::row(y)` and `rows()` borrow logical sample rows without allocation. Row indices use each plane's own geometry, including chroma subsampling. Stride padding and allocation-only rows are excluded; unused low bits in a sub-byte row's last byte remain unchanged. Unknown physical storage flags are rejected. These CPU-readable slices do not imply that every row meets GPU address-alignment requirements.
 
 ```rust

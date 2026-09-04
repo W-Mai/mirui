@@ -14,6 +14,26 @@ use mirx::{
 
 struct TrackingAllocator;
 
+#[test]
+fn pixel_count_encode_plan_and_decode_allocate_nothing() {
+    let samples = [11, 22, 33, 255, 11, 22, 33, 255, 12, 23, 34, 255];
+    let mut encoded = [0; 32];
+    let mut output = [0; 12];
+    let (written, allocations) = count_allocations(|| {
+        let codec = mirx::coding::Pixel::new(SampleLayout::RGBA8888).unwrap();
+        let len = codec.encoded_len(&samples).unwrap();
+        assert_eq!(codec.encode_into(&samples, &mut encoded).unwrap(), len);
+        codec
+            .plan(&encoded[..len], 3)
+            .unwrap()
+            .decode_into(&mut output)
+            .unwrap()
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(written, samples.len());
+    assert_eq!(samples, output);
+}
+
 thread_local! {
     static TRACKING: Cell<bool> = const { Cell::new(false) };
     static ALLOCATION_COUNT: Cell<usize> = const { Cell::new(0) };
