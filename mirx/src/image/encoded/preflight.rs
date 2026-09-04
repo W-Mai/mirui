@@ -13,22 +13,52 @@ mod tests;
 pub(super) struct Preflight<'a> {
     limits: &'a PayloadLimits,
     budget: CoverageBudget,
+    total_groups: usize,
     total_units: u64,
 }
 
 impl<'a> Preflight<'a> {
     pub(super) fn new(limits: &'a PayloadLimits, groups: usize) -> Result<Self, EncodedImageError> {
-        if groups > limits.max_image_groups() as usize {
+        let mut preflight = Self {
+            limits,
+            budget: CoverageBudget::new(limits.max_raster_work()),
+            total_groups: 0,
+            total_units: 0,
+        };
+        preflight.add_groups(groups)?;
+        Ok(preflight)
+    }
+
+    fn add_groups(&mut self, count: usize) -> Result<(), EncodedImageError> {
+        let total = self
+            .total_groups
+            .checked_add(count)
+            .ok_or(EncodedImageError::SizeOverflow)?;
+        if total > self.limits.max_raster_groups() as usize {
             return Err(EncodedImageError::TooManyGroups {
-                limit: limits.max_image_groups(),
-                actual: groups,
+                limit: self.limits.max_raster_groups(),
+                actual: total,
             });
         }
-        Ok(Self {
-            limits,
-            budget: CoverageBudget::new(limits.max_image_work()),
-            total_units: 0,
-        })
+        self.total_groups = total;
+        Ok(())
+    }
+
+    /// Adds static coverage and scalar syntax, without resetting resource counters.
+    /// DATA integrity is scheduled separately by the complete media caller.
+    pub(super) fn image(&mut self, image: EncodedImageView<'_>) -> Result<(), EncodedImageError> {
+        self.add_groups(image.group_count())?;
+        self.groups(image.group_source())
+    }
+
+    /// Charges a validated media payload's derived DATA size before scanning it.
+    pub(super) fn data(
+        &mut self,
+        media: crate::media::MediaPayload<'_>,
+        byte_len: u32,
+    ) -> Result<(), EncodedImageError> {
+        self.spend(u64::from(byte_len))?;
+        media.validate_data().map_err(EncodedImageError::Media)
     }
 
     pub(super) fn spend(&mut self, work: u64) -> Result<(), EncodedImageError> {
@@ -44,7 +74,7 @@ impl<'a> Preflight<'a> {
             self.spend(source.resolution_cost(record))?;
             self.group(index, source.resolve_record(index, record)?.0)?;
         }
-        self.spend(source.data.len() as u64)
+        Ok(())
     }
 
     pub(super) fn total_units(&self) -> u64 {
@@ -52,7 +82,7 @@ impl<'a> Preflight<'a> {
     }
 
     pub(super) fn work(&self) -> u64 {
-        self.limits.max_image_work() - self.budget.remaining()
+        self.limits.max_raster_work() - self.budget.remaining()
     }
 
     pub(super) fn group(
@@ -78,9 +108,9 @@ impl<'a> Preflight<'a> {
             .total_units
             .checked_add(count)
             .ok_or(EncodedImageError::SizeOverflow)?;
-        if self.total_units > u64::from(self.limits.max_image_units()) {
+        if self.total_units > u64::from(self.limits.max_raster_units()) {
             return Err(EncodedImageError::TooManyUnits {
-                limit: self.limits.max_image_units(),
+                limit: self.limits.max_raster_units(),
                 actual: self.total_units,
             });
         }
@@ -141,11 +171,8 @@ impl EncodedImageView<'_> {
     /// Target-specific stride, addresses and allocation requirements remain a
     /// separate decode-plan concern.
     pub fn preflight(self, limits: &PayloadLimits) -> Result<(), EncodedImageError> {
-        let mut preflight = Preflight::new(limits, self.group_count())?;
-        preflight.groups(self.group_source())?;
-        // Group preflight already charged the selected DATA body. Whole-media
-        // integrity also reads any other DATA sections sharing this payload.
-        preflight.spend(u64::from(self.checksum_bytes) - self.data.bytes().len() as u64)?;
-        self.validate_data()
+        let mut preflight = Preflight::new(limits, 0)?;
+        preflight.image(self)?;
+        preflight.data(self.media, self.checksum_bytes)
     }
 }

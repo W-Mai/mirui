@@ -266,9 +266,9 @@ fn document_inference_checks_encoded_syntax_and_limits_before_mutation() {
         (&malformed, PayloadLimits::EMBEDDED),
         (&unknown, PayloadLimits::EMBEDDED),
         (&valid, PayloadLimits::EMBEDDED.with_max_decoded_bytes(7)),
-        (&valid, PayloadLimits::EMBEDDED.with_max_image_groups(0)),
-        (&valid, PayloadLimits::EMBEDDED.with_max_image_units(0)),
-        (&valid, PayloadLimits::EMBEDDED.with_max_image_work(0)),
+        (&valid, PayloadLimits::EMBEDDED.with_max_raster_groups(0)),
+        (&valid, PayloadLimits::EMBEDDED.with_max_raster_units(0)),
+        (&valid, PayloadLimits::EMBEDDED.with_max_raster_work(0)),
     ] {
         let mut document = Document::new_with_limits(limits);
         let before = document.encode(&EncodeOptions::new()).unwrap();
@@ -486,9 +486,9 @@ fn reader_limits_and_data_integrity_are_enforced_before_critical_success() {
     )]);
     for limits in [
         PayloadLimits::EMBEDDED.with_max_decoded_bytes(7),
-        PayloadLimits::EMBEDDED.with_max_image_groups(0),
-        PayloadLimits::EMBEDDED.with_max_image_units(0),
-        PayloadLimits::EMBEDDED.with_max_image_work(0),
+        PayloadLimits::EMBEDDED.with_max_raster_groups(0),
+        PayloadLimits::EMBEDDED.with_max_raster_units(0),
+        PayloadLimits::EMBEDDED.with_max_raster_work(0),
     ] {
         assert!(matches!(
             Reader::open_with(&bytes, &ReadOptions::new().with_payload_limits(limits)),
@@ -674,9 +674,9 @@ fn typed_encoded_edit_failures_leave_flat_and_primary_storage_unchanged() {
     );
     for limits in [
         PayloadLimits::EMBEDDED.with_max_decoded_bytes(7),
-        PayloadLimits::EMBEDDED.with_max_image_groups(0),
-        PayloadLimits::EMBEDDED.with_max_image_units(0),
-        PayloadLimits::EMBEDDED.with_max_image_work(0),
+        PayloadLimits::EMBEDDED.with_max_raster_groups(0),
+        PayloadLimits::EMBEDDED.with_max_raster_units(0),
+        PayloadLimits::EMBEDDED.with_max_raster_work(0),
     ] {
         let mut document = Document::new_with_limits(limits);
         assert!(document.push_encoded_image(&valid).is_err());

@@ -12,6 +12,108 @@ use crate::{
 };
 
 #[test]
+fn shared_surface_admission_accumulates_limits_and_checksums_once() {
+    let surface = SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 42])
+        .encode()
+        .unwrap();
+    let image = EncodedImageView::open(&bytes).unwrap();
+    let limits = PayloadLimits::EMBEDDED;
+    let mut single = Preflight::new(&limits, 0).unwrap();
+    single.image(image).unwrap();
+    let work = single.work();
+    single.data(image.media, image.checksum_bytes).unwrap();
+    assert_eq!(single.work(), work + 2);
+    image
+        .preflight(&limits.with_max_raster_work(work + 2))
+        .unwrap();
+    assert!(
+        image
+            .preflight(&limits.with_max_raster_work(work + 1))
+            .is_err()
+    );
+
+    let limits = limits
+        .with_max_raster_groups(2)
+        .with_max_raster_units(2)
+        .with_max_raster_work(work * 2 + 2);
+    let mut shared = Preflight::new(&limits, 0).unwrap();
+    shared.image(image).unwrap();
+    shared.image(image).unwrap();
+    assert_eq!(shared.total_groups, 2);
+    assert_eq!(shared.total_units(), 2);
+    assert_eq!(shared.work(), work * 2);
+    shared.data(image.media, image.checksum_bytes).unwrap();
+    assert_eq!(shared.work(), work * 2 + 2);
+
+    let group_limits = limits.with_max_raster_groups(1);
+    let mut groups = Preflight::new(&group_limits, 0).unwrap();
+    groups.image(image).unwrap();
+    assert_eq!(
+        groups.image(image),
+        Err(EncodedImageError::TooManyGroups {
+            limit: 1,
+            actual: 2
+        })
+    );
+    assert_eq!(groups.total_groups, 1);
+    assert_eq!(groups.work(), work);
+    let unit_limits = limits.with_max_raster_units(1);
+    let mut units = Preflight::new(&unit_limits, 0).unwrap();
+    units.image(image).unwrap();
+    assert_eq!(
+        units.image(image),
+        Err(EncodedImageError::TooManyUnits {
+            limit: 1,
+            actual: 2
+        })
+    );
+    let work_limits = limits.with_max_raster_work(work);
+    let mut budget = Preflight::new(&work_limits, 0).unwrap();
+    budget.image(image).unwrap();
+    assert_eq!(
+        budget.image(image),
+        Err(EncodedImageError::Coverage(CoverageError::BudgetExceeded))
+    );
+    assert_eq!(
+        groups.add_groups(usize::MAX),
+        Err(EncodedImageError::SizeOverflow)
+    );
+    assert_eq!(groups.total_groups, 1);
+}
+
+#[test]
+fn checksum_budget_exhaustion_precedes_corrupt_data_scans() {
+    let surface = SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let mut bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 42])
+        .encode()
+        .unwrap();
+    let data = data_offset(&bytes);
+    bytes[data + 1] ^= 1;
+    let image = EncodedImageView::open(&bytes).unwrap();
+    let limits = PayloadLimits::EMBEDDED;
+    let mut probe = Preflight::new(&limits, 0).unwrap();
+    probe.image(image).unwrap();
+    probe.image(image).unwrap();
+    let work = probe.work();
+    for (allowed, checksum_expected) in [(work + 1, false), (work + 2, true)] {
+        let limits = limits.with_max_raster_work(allowed);
+        let mut preflight = Preflight::new(&limits, 0).unwrap();
+        preflight.image(image).unwrap();
+        preflight.image(image).unwrap();
+        let result = preflight.data(image.media, image.checksum_bytes);
+        if checksum_expected {
+            assert!(matches!(result, Err(EncodedImageError::Media(_))));
+        } else {
+            assert_eq!(
+                result,
+                Err(EncodedImageError::Coverage(CoverageError::BudgetExceeded))
+            );
+        }
+    }
+}
+
+#[test]
 fn scalar_syntax_and_integrity_are_both_required() {
     let surface =
         SurfaceDescriptor::new(2, 2, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
@@ -85,8 +187,8 @@ fn limits_bound_independent_units_instead_of_allocating_the_full_surface() {
     let view = EncodedImageView::open(&bytes).unwrap();
     let limits = PayloadLimits::EMBEDDED
         .with_max_decoded_bytes(2)
-        .with_max_image_groups(1)
-        .with_max_image_units(4);
+        .with_max_raster_groups(1)
+        .with_max_raster_units(4);
     assert_eq!(view.preflight(&limits), Ok(()));
     assert_eq!(
         view.preflight(&limits.with_max_decoded_bytes(1)),
@@ -98,25 +200,25 @@ fn limits_bound_independent_units_instead_of_allocating_the_full_surface() {
         })
     );
     assert_eq!(
-        view.preflight(&limits.with_max_image_units(3)),
+        view.preflight(&limits.with_max_raster_units(3)),
         Err(EncodedImageError::TooManyUnits {
             limit: 3,
             actual: 4
         })
     );
     assert_eq!(
-        view.preflight(&limits.with_max_image_groups(0)),
+        view.preflight(&limits.with_max_raster_groups(0)),
         Err(EncodedImageError::TooManyGroups {
             limit: 0,
             actual: 1
         })
     );
     let minimum = (0..1024)
-        .find(|work| view.preflight(&limits.with_max_image_work(*work)).is_ok())
+        .find(|work| view.preflight(&limits.with_max_raster_work(*work)).is_ok())
         .unwrap();
     assert!(minimum > 8 + 8 + 8);
     assert_eq!(
-        view.preflight(&limits.with_max_image_work(minimum - 1)),
+        view.preflight(&limits.with_max_raster_work(minimum - 1)),
         Err(EncodedImageError::Coverage(CoverageError::BudgetExceeded))
     );
     let indexed = payload(
@@ -139,7 +241,7 @@ fn empty_surfaces_still_require_an_understood_active_profile() {
     let surface =
         SurfaceDescriptor::new(0, u32::MAX, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let limits = PayloadLimits::EMBEDDED
-        .with_max_image_units(0)
+        .with_max_raster_units(0)
         .with_max_decoded_bytes(0);
     for coding in [Rle::new().record(), Lz4::new().record()] {
         let bytes = EncodedImageAsset::new(surface, coding, &[])
@@ -205,14 +307,14 @@ fn coded_limits_and_errors_follow_group_and_unit_locations() {
     );
     let view = EncodedImageView::open(&bytes).unwrap();
     assert_eq!(
-        view.preflight(&PayloadLimits::EMBEDDED.with_max_image_groups(1)),
+        view.preflight(&PayloadLimits::EMBEDDED.with_max_raster_groups(1)),
         Err(EncodedImageError::TooManyGroups {
             limit: 1,
             actual: 2
         })
     );
     assert_eq!(
-        view.preflight(&PayloadLimits::EMBEDDED.with_max_image_units(1)),
+        view.preflight(&PayloadLimits::EMBEDDED.with_max_raster_units(1)),
         Err(EncodedImageError::TooManyUnits {
             limit: 1,
             actual: 2

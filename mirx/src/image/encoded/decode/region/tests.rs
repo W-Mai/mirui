@@ -50,12 +50,12 @@ fn exact_sub_byte_regions_bound_staging_and_deduplicate_checksum_partitions() {
             .decode_region_plan(
                 requested,
                 requirements,
-                &PayloadLimits::EMBEDDED.with_max_image_work(plan.work()),
+                &PayloadLimits::EMBEDDED.with_max_raster_work(plan.work()),
             )
             .unwrap();
         for limits in [
-            PayloadLimits::EMBEDDED.with_max_image_work(plan.work() - 1),
-            PayloadLimits::EMBEDDED.with_max_image_units(1),
+            PayloadLimits::EMBEDDED.with_max_raster_work(plan.work() - 1),
+            PayloadLimits::EMBEDDED.with_max_raster_units(1),
             PayloadLimits::EMBEDDED.with_max_decoded_bytes(0),
         ] {
             assert!(

@@ -5,9 +5,9 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PayloadLimits {
     max_decoded_bytes: usize,
-    max_image_groups: u32,
-    max_image_units: u32,
-    max_image_work: u64,
+    max_raster_groups: u32,
+    max_raster_units: u32,
+    max_raster_work: u64,
     max_font_glyphs: u32,
     max_font_representations: u32,
     max_scene_ops: u32,
@@ -25,9 +25,9 @@ impl PayloadLimits {
     /// Default limits for constrained and embedded targets.
     pub const EMBEDDED: Self = Self {
         max_decoded_bytes: 128 * 1024,
-        max_image_groups: 1_024,
-        max_image_units: 65_535,
-        max_image_work: 16 * 1024 * 1024,
+        max_raster_groups: 1_024,
+        max_raster_units: 65_535,
+        max_raster_work: 16 * 1024 * 1024,
         max_font_glyphs: 4_096,
         max_font_representations: 64,
         max_scene_ops: 4_096,
@@ -44,9 +44,9 @@ impl PayloadLimits {
     /// Larger limits intended for explicit host-side tooling.
     pub const HOST: Self = Self {
         max_decoded_bytes: 64 * 1024 * 1024,
-        max_image_groups: 65_535,
-        max_image_units: 16 * 1024 * 1024,
-        max_image_work: 1024 * 1024 * 1024,
+        max_raster_groups: 65_535,
+        max_raster_units: 16 * 1024 * 1024,
+        max_raster_work: 1024 * 1024 * 1024,
         max_font_glyphs: 1_000_000,
         max_font_representations: 1_024,
         max_scene_ops: 1_000_000,
@@ -64,32 +64,34 @@ impl PayloadLimits {
         Self::EMBEDDED
     }
 
-    /// Decoded allocation bound; encoded IMAGE applies it to one tight unit.
+    /// Decoded allocation bound; encoded rasters apply it to one tight unit.
     pub const fn max_decoded_bytes(self) -> usize {
         self.max_decoded_bytes
     }
 
-    pub const fn max_image_groups(self) -> u32 {
-        self.max_image_groups
+    /// Total admitted raster groups, including implicit whole-surface groups.
+    pub const fn max_raster_groups(self) -> u32 {
+        self.max_raster_groups
     }
-    pub const fn with_max_image_groups(mut self, value: u32) -> Self {
-        self.max_image_groups = value;
+    pub const fn with_max_raster_groups(mut self, value: u32) -> Self {
+        self.max_raster_groups = value;
         self
     }
-    pub const fn max_image_units(self) -> u32 {
-        self.max_image_units
+    /// Total stored raster units across admitted groups and surfaces.
+    pub const fn max_raster_units(self) -> u32 {
+        self.max_raster_units
     }
-    pub const fn with_max_image_units(mut self, value: u32) -> Self {
-        self.max_image_units = value;
+    pub const fn with_max_raster_units(mut self, value: u32) -> Self {
+        self.max_raster_units = value;
         self
     }
-    /// Conservative encoded IMAGE parsing, coverage, syntax and checksum work.
+    /// Conservative raster parsing, coverage, syntax and checksum work.
     /// Common metadata opening precedes this budget.
-    pub const fn max_image_work(self) -> u64 {
-        self.max_image_work
+    pub const fn max_raster_work(self) -> u64 {
+        self.max_raster_work
     }
-    pub const fn with_max_image_work(mut self, value: u64) -> Self {
-        self.max_image_work = value;
+    pub const fn with_max_raster_work(mut self, value: u64) -> Self {
+        self.max_raster_work = value;
         self
     }
 
@@ -213,9 +215,9 @@ mod tests {
     fn profiles_match_the_published_resource_bounds() {
         let embedded = PayloadLimits::EMBEDDED;
         assert_eq!(embedded.max_decoded_bytes(), 131_072);
-        assert_eq!(embedded.max_image_groups(), 1_024);
-        assert_eq!(embedded.max_image_units(), 65_535);
-        assert_eq!(embedded.max_image_work(), 16_777_216);
+        assert_eq!(embedded.max_raster_groups(), 1_024);
+        assert_eq!(embedded.max_raster_units(), 65_535);
+        assert_eq!(embedded.max_raster_work(), 16_777_216);
         assert_eq!(embedded.max_font_glyphs(), 4_096);
         assert_eq!(embedded.max_font_representations(), 64);
         assert_eq!(embedded.max_scene_ops(), 4_096);
@@ -230,9 +232,9 @@ mod tests {
 
         let host = PayloadLimits::HOST;
         assert_eq!(host.max_decoded_bytes(), 67_108_864);
-        assert_eq!(host.max_image_groups(), 65_535);
-        assert_eq!(host.max_image_units(), 16_777_216);
-        assert_eq!(host.max_image_work(), 1_073_741_824);
+        assert_eq!(host.max_raster_groups(), 65_535);
+        assert_eq!(host.max_raster_units(), 16_777_216);
+        assert_eq!(host.max_raster_work(), 1_073_741_824);
         assert_eq!(host.max_font_glyphs(), 1_000_000);
         assert_eq!(host.max_font_representations(), 1_024);
         assert_eq!(host.max_scene_ops(), 1_000_000);
@@ -256,9 +258,9 @@ mod tests {
     fn custom_profile_builders_cover_every_bound_and_accept_zero() {
         let limits = PayloadLimits::HOST
             .with_max_decoded_bytes(0)
-            .with_max_image_groups(0)
-            .with_max_image_units(0)
-            .with_max_image_work(0)
+            .with_max_raster_groups(0)
+            .with_max_raster_units(0)
+            .with_max_raster_work(0)
             .with_max_font_glyphs(1)
             .with_max_font_representations(0)
             .with_max_scene_ops(2)
@@ -272,9 +274,9 @@ mod tests {
             .with_max_palette_colors(10);
 
         assert_eq!(limits.max_decoded_bytes(), 0);
-        assert_eq!(limits.max_image_groups(), 0);
-        assert_eq!(limits.max_image_units(), 0);
-        assert_eq!(limits.max_image_work(), 0);
+        assert_eq!(limits.max_raster_groups(), 0);
+        assert_eq!(limits.max_raster_units(), 0);
+        assert_eq!(limits.max_raster_work(), 0);
         assert_eq!(limits.max_font_glyphs(), 1);
         assert_eq!(limits.max_font_representations(), 0);
         assert_eq!(limits.max_scene_ops(), 2);

@@ -59,7 +59,7 @@ fn native_and_wire_groups_share_coverage_indexes_alignment_and_work() {
             let mut b = CoverageBudget::new(work);
             assert_eq!(native.validate_groups(&mut a), wire.validate_groups(&mut b));
             assert_eq!(a.remaining(), b.remaining());
-            let limits = PayloadLimits::EMBEDDED.with_max_image_work(work);
+            let limits = PayloadLimits::EMBEDDED.with_max_raster_work(work);
             let mut a = Preflight::new(&limits, 2).unwrap();
             let mut b = Preflight::new(&limits, 2).unwrap();
             assert_eq!(a.groups(native), b.groups(wire));

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shared raster preflight budgets.** Group, unit and work counters accumulate across encoded surfaces, with separately scheduled DATA integrity. `PayloadLimits` exposes `max_raster_groups`, `max_raster_units` and `max_raster_work`; defaults and option footprints are unchanged.
+
 - **Joined FONT metadata tables.** Shared Unicode ordinals bind exact representation-specific metrics and complete atlas maps. Size selection returns matching geometry and measurements, with checked map sharing, omitted fixed-cell maps and constant-time borrowed lookup after admission.
 
 - **Encoded glyph region plans.** Referenced scalar glyph storage reuses image coding, coverage and exact-region reconstruction with caller-owned buffers. Per-glyph plans preserve packed sample origins, indexed integrity and independent output alignment without retaining glyph-map metadata or allocating decoded storage.

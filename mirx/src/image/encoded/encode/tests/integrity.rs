@@ -87,18 +87,18 @@ fn partitioned_padding_and_work_bounds_match_wire_admission() {
         let minimum = (0..8192)
             .find(|work| {
                 image
-                    .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(*work))
+                    .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(*work))
                     .is_ok()
             })
             .unwrap();
         let combined = minimum + payload.len() as u64;
         assert!(
             asset
-                .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(combined - 1))
+                .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(combined - 1))
                 .is_err()
         );
         asset
-            .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(combined))
+            .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(combined))
             .unwrap();
     }
 }
@@ -120,7 +120,7 @@ fn invalid_partition_shapes_and_early_size_limits_cannot_touch_output() {
     assert_eq!(
         asset
             .with_integrity(DataIntegrity::Indexed(&many))
-            .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(1535)),
+            .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(1535)),
         Err(ImageEncodeError::Preflight(EncodedImageError::Coverage(
             CoverageError::BudgetExceeded
         )))

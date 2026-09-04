@@ -82,7 +82,7 @@ fn required_preflight_work(image: EncodedImageView<'_>) -> u64 {
     while low < high {
         let mid = low + (high - low) / 2;
         if image
-            .preflight(&PayloadLimits::HOST.with_max_image_work(mid))
+            .preflight(&PayloadLimits::HOST.with_max_raster_work(mid))
             .is_ok()
         {
             high = mid;
@@ -104,7 +104,7 @@ fn whole_decode_and_preflight_charge_every_data_body_they_verify() {
         assert_eq!(required_preflight_work(image), base_work + 100);
         assert!(
             image
-                .preflight(&PayloadLimits::HOST.with_max_image_work(base_work))
+                .preflight(&PayloadLimits::HOST.with_max_raster_work(base_work))
                 .is_err()
         );
         let mut slots = [None];
@@ -120,14 +120,14 @@ fn whole_decode_and_preflight_charge_every_data_body_they_verify() {
             groups
                 .decode_plan(
                     SurfaceRequirements::new(),
-                    &PayloadLimits::HOST.with_max_image_work(plan.work() - 1)
+                    &PayloadLimits::HOST.with_max_raster_work(plan.work() - 1)
                 )
                 .is_err()
         );
         groups
             .decode_plan(
                 SurfaceRequirements::new(),
-                &PayloadLimits::HOST.with_max_image_work(plan.work()),
+                &PayloadLimits::HOST.with_max_raster_work(plan.work()),
             )
             .unwrap();
         let mut output = [0; 4];

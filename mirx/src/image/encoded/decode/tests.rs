@@ -73,20 +73,20 @@ fn complete_sub_byte_tiles_share_one_byte_workspace_and_exact_work_limits() {
     groups
         .decode_plan(
             requirements,
-            &PayloadLimits::EMBEDDED.with_max_image_work(plan.work()),
+            &PayloadLimits::EMBEDDED.with_max_raster_work(plan.work()),
         )
         .unwrap();
     assert!(
         groups
             .decode_plan(
                 requirements,
-                &PayloadLimits::EMBEDDED.with_max_image_work(plan.work() - 1)
+                &PayloadLimits::EMBEDDED.with_max_raster_work(plan.work() - 1)
             )
             .is_err()
     );
     for limits in [
-        PayloadLimits::EMBEDDED.with_max_image_units(5),
-        PayloadLimits::EMBEDDED.with_max_image_groups(0),
+        PayloadLimits::EMBEDDED.with_max_raster_units(5),
+        PayloadLimits::EMBEDDED.with_max_raster_groups(0),
         PayloadLimits::EMBEDDED.with_max_decoded_bytes(0),
     ] {
         assert!(groups.decode_plan(requirements, &limits).is_err());

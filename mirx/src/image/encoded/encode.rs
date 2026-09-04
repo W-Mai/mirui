@@ -177,7 +177,7 @@ impl<'a> EncodedImageAsset<'a> {
             })
             .ok_or(ImageEncodeError::SizeOverflow)?;
         // Bound native table scans before sizing; the output span charges these bytes once.
-        if minimum > limits.max_image_work() {
+        if minimum > limits.max_raster_work() {
             return Err(ImageEncodeError::Preflight(
                 super::EncodedImageError::Coverage(crate::image::CoverageError::BudgetExceeded),
             ));
@@ -188,6 +188,9 @@ impl<'a> EncodedImageAsset<'a> {
             .map_err(ImageEncodeError::Preflight)?;
         preflight
             .groups(plan.source())
+            .map_err(ImageEncodeError::Preflight)?;
+        preflight
+            .spend(self.data.len() as u64)
             .map_err(ImageEncodeError::Preflight)
     }
 

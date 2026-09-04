@@ -38,9 +38,9 @@ fn asset_preflight_admits_exactly_supported_syntax_without_serializing() {
     ));
     for limits in [
         PayloadLimits::EMBEDDED.with_max_decoded_bytes(7),
-        PayloadLimits::EMBEDDED.with_max_image_groups(0),
-        PayloadLimits::EMBEDDED.with_max_image_units(0),
-        PayloadLimits::EMBEDDED.with_max_image_work(0),
+        PayloadLimits::EMBEDDED.with_max_raster_groups(0),
+        PayloadLimits::EMBEDDED.with_max_raster_units(0),
+        PayloadLimits::EMBEDDED.with_max_raster_work(0),
     ] {
         assert!(asset.preflight(&limits).is_err());
     }
@@ -89,18 +89,18 @@ fn asset_preflight_charges_reader_work_and_canonical_output_without_double_profi
                 let minimum = (0..1024)
                     .find(|work| {
                         image
-                            .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(*work))
+                            .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(*work))
                             .is_ok()
                     })
                     .unwrap();
                 let combined = minimum + payload.len() as u64;
                 assert!(
                     asset
-                        .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(combined - 1))
+                        .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(combined - 1))
                         .is_err()
                 );
                 assert_eq!(
-                    asset.preflight(&PayloadLimits::EMBEDDED.with_max_image_work(combined)),
+                    asset.preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(combined)),
                     Ok(())
                 );
             }

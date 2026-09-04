@@ -89,12 +89,14 @@ This conservative accounting can reject a many-group image earlier than cached v
 
 | Limit | Embedded | Host | Meaning |
 | --- | --- | --- | --- |
-| `max_image_groups` | 1,024 | 65,535 | Includes the implicit whole-surface group |
-| `max_image_units` | 65,535 | 16,777,216 | Total stored units across groups |
+| `max_raster_groups` | 1,024 | 65,535 | Includes the implicit whole-surface group |
+| `max_raster_units` | 65,535 | 16,777,216 | Total stored units across groups |
 | `max_decoded_bytes` | 128 KiB | 64 MiB | Tight decoded bytes of one independent unit |
-| `max_image_work` | 16,777,216 | 1,073,741,824 | Conservative bounded work after metadata opening |
+| `max_raster_work` | 16,777,216 | 1,073,741,824 | Conservative bounded work after metadata opening |
 
 Use the corresponding `with_max_*` builders to set stricter or larger limits. Zero disables the corresponding resource. A tiled image may exceed the decoded-byte limit in total while each independently decoded unit fits it. Preflight does not allocate the complete image or promise that an application can retain all decoded units simultaneously.
+
+Raster limits describe sample processing independently of IMAGE, glyph or frame semantics. Shared admission accumulates group, unit and work costs across surfaces; DATA integrity is charged separately by the complete media caller. Adding another surface does not reset those counters or require repeating a shared DATA checksum scan.
 
 Work includes group resolution and coverage, each unit's coded and decoded bytes during syntax checks, and one complete DATA checksum scan. Checks precede the charged work. The common envelope and metadata CRC have already been checked by `open`; they are not retroactively limited by this later budget. Actual device stride, base alignment and output capacity still belong to the requested decode plan.
 

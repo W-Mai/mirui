@@ -895,7 +895,7 @@ fn encoded_preflight_has_no_output_or_group_table_allocation() {
         );
         assert!(
             image
-                .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(0))
+                .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(0))
                 .is_err()
         );
     });

@@ -123,18 +123,18 @@ fn variable_indexes_preserve_exact_lengths_padding_and_canonical_work() {
         let minimum = (0..8192)
             .find(|work| {
                 image
-                    .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(*work))
+                    .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(*work))
                     .is_ok()
             })
             .unwrap();
         let combined = minimum + payload.len() as u64;
         assert!(
             asset
-                .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(combined - 1))
+                .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(combined - 1))
                 .is_err()
         );
         asset
-            .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(combined))
+            .preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(combined))
             .unwrap();
         let mut slots = [None];
         let groups = image
@@ -204,13 +204,13 @@ fn structural_errors_preserve_output_and_coverage_requires_bounded_admission() {
     let asset = EncodedImageAsset::from_groups(surface, &many_codings, &malformed, &[0x81, 42]);
     // Resource gates must run before scanning even malformed native records.
     assert!(matches!(
-        asset.preflight(&PayloadLimits::EMBEDDED.with_max_image_groups(0)),
+        asset.preflight(&PayloadLimits::EMBEDDED.with_max_raster_groups(0)),
         Err(ImageEncodeError::Preflight(
             EncodedImageError::TooManyGroups { .. }
         ))
     ));
     assert_eq!(
-        asset.preflight(&PayloadLimits::EMBEDDED.with_max_image_work(255)),
+        asset.preflight(&PayloadLimits::EMBEDDED.with_max_raster_work(255)),
         Err(ImageEncodeError::Preflight(EncodedImageError::Coverage(
             CoverageError::BudgetExceeded
         )))
