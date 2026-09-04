@@ -76,7 +76,7 @@ impl<'a> RawImageView<'a> {
         self.planes().all(|plane| plane.address_is_aligned())
     }
 
-    fn from_media(
+    pub(super) fn from_media(
         media: MediaPayload<'a>,
         payload_file_offset: Option<u32>,
     ) -> Result<Self, RawImageViewError> {

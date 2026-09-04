@@ -53,6 +53,7 @@ mod layout;
 mod memory;
 mod output;
 mod plan;
+mod reference;
 mod surface;
 mod units;
 mod view;
@@ -79,6 +80,7 @@ pub use plan::{
     BufferRequirementError, BufferRequirements, SurfaceMemoryPlan, SurfaceMemoryPlanes,
     SurfacePlanError, SurfaceRequirements,
 };
+pub use reference::{ImageReadError, ImageRef};
 pub use surface::{
     SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError,
 };

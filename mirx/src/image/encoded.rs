@@ -30,11 +30,13 @@ pub struct EncodedImageView<'a> {
 
 impl<'a> EncodedImageView<'a> {
     pub fn open(payload: &'a [u8]) -> Result<Self, EncodedImageError> {
-        Self::from_payload(payload, None)
+        let media = MediaPayload::open(payload).map_err(EncodedImageError::Media)?;
+        Self::from_media(media, None)
     }
     /// Retains the outer position for file-relative checks during group preparation.
     pub fn open_at(payload: &'a [u8], file_offset: u32) -> Result<Self, EncodedImageError> {
-        Self::from_payload(payload, Some(file_offset))
+        let media = MediaPayload::open(payload).map_err(EncodedImageError::Media)?;
+        Self::from_media(media, Some(file_offset))
     }
     pub const fn media(self) -> MediaPayload<'a> {
         self.media
@@ -57,11 +59,10 @@ impl<'a> EncodedImageView<'a> {
         self.media.validate_data().map_err(EncodedImageError::Media)
     }
 
-    fn from_payload(
-        payload: &'a [u8],
+    pub(super) fn from_media(
+        media: MediaPayload<'a>,
         file_offset: Option<u32>,
     ) -> Result<Self, EncodedImageError> {
-        let media = MediaPayload::open(payload).map_err(EncodedImageError::Media)?;
         let mut surface = None;
         let mut codings = None;
         let mut data = None;

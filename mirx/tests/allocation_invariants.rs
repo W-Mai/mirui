@@ -15,6 +15,30 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn image_storage_dispatch_does_not_allocate_or_decode() {
+    use mirx::{
+        coding::Rle,
+        image::{EncodedImageAsset, ImageRef},
+    };
+    let surface = SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let raw = RawImageAsset::new(surface, &[&[42; 8]]).encode().unwrap();
+    let encoded = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
+        .encode()
+        .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let image = ImageRef::open_at(&raw, 0).unwrap();
+        assert_eq!(image.surface(), surface);
+        assert_eq!(image.raw().unwrap().plane(0).unwrap().bytes(), &[42; 8]);
+        assert!(image.encoded().is_none());
+        let image = ImageRef::open_at(&encoded, 0).unwrap();
+        assert_eq!(image.surface(), surface);
+        assert!(image.raw().is_none());
+        assert!(image.encoded().is_some());
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn encoded_image_authoring_and_decode_use_only_caller_storage() {
     use mirx::{
         coding::Rle,

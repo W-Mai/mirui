@@ -53,6 +53,10 @@ UNIT_GROUPS and UNIT_INDEX are omitted: the only coding and complete DATA range 
 
 ## Validation boundaries
 
+`image::ImageRef::open(payload)` and `open_at(payload, file_offset)` inspect either storage form. Match `ImageRef::Raw(surface)` for direct verified samples or `ImageRef::Encoded(image)` for explicit group/decode work. `surface()` and `color_table()` expose common metadata; `raw()` and `encoded()` are optional typed projections, not conversion requests.
+
+The common media header and metadata CRC are parsed once. CODINGS presence selects the encoded parser; a malformed encoded payload is not retried as RAW. RAW checks DATA integrity before returning samples. Encoded opening retains its metadata-only behavior and carries the file offset into group preparation.
+
 | Operation | Checks |
 | --- | --- |
 | `asset.encoded_len` / `encode_into` | Surface and palette agreement, single-unit geometry, lengths, placement and output capacity |
