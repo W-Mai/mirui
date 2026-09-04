@@ -1,16 +1,21 @@
 use super::{DecodeUnitRef, ReferenceMode, UnitMemoryPlan, output::UnitOutput};
 use crate::{
-    coding::{Pixel, PixelDecodePlan, PixelError, Rle, RleDecodePlan, RleError},
+    coding::{
+        Lz4, Lz4DecodePlan, Lz4Error, Pixel, PixelDecodePlan, PixelError, Rle, RleDecodePlan,
+        RleError,
+    },
     image::{BufferRequirementError, SurfacePlanError, SurfacePlane, SurfaceRequirements},
     media::CodingId,
 };
 
 #[cfg(test)]
+mod lz4_tests;
+#[cfg(test)]
 mod tests;
 
 /// Validated scalar execution into independent, caller-owned unit storage.
 ///
-/// PIXEL supports RGB888/RGBA8888; RLE covers selected tight plane rows. Other
+/// PIXEL supports RGB888/RGBA8888; RLE/LZ4 cover selected tight plane rows. Other
 /// coding profiles and reference modes are rejected during planning. Media
 /// integrity is a separate gate, such as `ImageGroups::validate_unit`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,6 +28,7 @@ pub struct UnitDecodePlan<'a> {
 enum Decoder<'a> {
     Pixel(PixelDecodePlan<'a>),
     Rle(RleDecodePlan<'a>),
+    Lz4(Lz4DecodePlan<'a>),
 }
 
 impl<'a> DecodeUnitRef<'a> {
@@ -38,7 +44,10 @@ impl<'a> DecodeUnitRef<'a> {
         if self.reference != ReferenceMode::Independent {
             return Err(UnitDecodeError::UnsupportedReference(self.reference));
         }
-        if !matches!(self.coding.id(), CodingId::PIXEL | CodingId::RLE) {
+        if !matches!(
+            self.coding.id(),
+            CodingId::PIXEL | CodingId::RLE | CodingId::LZ4
+        ) {
             return Err(UnitDecodeError::UnsupportedCoding(self.coding.id()));
         }
         let memory = self
@@ -55,12 +64,19 @@ impl<'a> DecodeUnitRef<'a> {
                     .plan(self.data, count)
                     .map_err(UnitDecodeError::Pixel)?,
             )
-        } else {
+        } else if self.coding.id() == CodingId::RLE {
             let codec = Rle::from_record(self.coding).map_err(UnitDecodeError::Rle)?;
             Decoder::Rle(
                 codec
                     .plan(self.data, memory.sample_byte_len())
                     .map_err(UnitDecodeError::Rle)?,
+            )
+        } else {
+            let codec = Lz4::from_record(self.coding).map_err(UnitDecodeError::Lz4)?;
+            Decoder::Lz4(
+                codec
+                    .plan(self.data, memory.sample_byte_len())
+                    .map_err(UnitDecodeError::Lz4)?,
             )
         };
         Ok(UnitDecodePlan { memory, decoder })
@@ -96,6 +112,12 @@ impl UnitDecodePlan<'_> {
                 plan.for_each_run(|value, count| writer.repeat(&value[..channels], count));
             }
             Decoder::Rle(plan) => plan.for_each_block(|bytes, repeat| writer.repeat(bytes, repeat)),
+            Decoder::Lz4(plan) => plan.for_each_sequence(|bytes, matched| {
+                writer.write(bytes);
+                if let Some((distance, len)) = matched {
+                    writer.copy_match(distance, len);
+                }
+            }),
         }
         writer.finish();
         Ok(DecodedUnit {
@@ -147,6 +169,7 @@ pub enum UnitDecodeError {
     UnsupportedReference(ReferenceMode),
     Pixel(PixelError),
     Rle(RleError),
+    Lz4(Lz4Error),
     Memory(SurfacePlanError),
     Output(BufferRequirementError),
 }

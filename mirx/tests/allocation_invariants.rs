@@ -15,6 +15,47 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn lz4_plane_history_has_no_staging_or_heap_index() {
+    use mirx::{coding::Lz4, image::UnitGroup};
+    let surface = SurfaceDescriptor::new(33, 8, SampleLayout::A1, ColorDescription::NONE).unwrap();
+    let mut table = [0; Lz4::TABLE_LEN];
+    let mut encoded = [0; 64];
+    let mut input = [0; 40];
+    for (i, byte) in input.iter_mut().enumerate() {
+        *byte = [1, 2, 3, 4, 255, 6][i % 6];
+    }
+    let mut output = [0xad; 72];
+    let (_, allocations) = count_allocations(|| {
+        let codec = Lz4::new();
+        let len = codec
+            .encoder(&mut table)
+            .unwrap()
+            .encode_into(&input, &mut encoded)
+            .unwrap();
+        let unit = UnitGroup::builder(surface, codec.record(), &encoded[..len])
+            .build()
+            .unwrap()
+            .get(0)
+            .unwrap();
+        let plan = unit
+            .decode_plan(SurfaceRequirements::new().with_stride_multiple(8))
+            .unwrap();
+        let decoded = plan.decode_into(&mut output).unwrap();
+        for (actual, expected) in decoded
+            .plane(0)
+            .unwrap()
+            .rows()
+            .unwrap()
+            .zip(input.chunks_exact(5))
+        {
+            assert_eq!(&actual[..4], &expected[..4]);
+            assert_eq!(actual[4], expected[4] & 0x80);
+        }
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn lz4_encoder_uses_only_the_borrowed_table_and_output() {
     use mirx::coding::Lz4;
     let mut table = [u32::MAX; Lz4::TABLE_LEN];

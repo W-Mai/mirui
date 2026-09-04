@@ -52,3 +52,11 @@ The encoder searches one latest candidate per endian-independent 4-byte hash, us
 `encoded_len` counts exact bytes with the same sequence emitter as `encode_into`. Encoding counts first, checks capacity, then resets the table and emits without a temporary encoded buffer. Errors preserve output; scratch table contents may change. Success preserves the output suffix. `Lz4::encoded_bound` checks the conservative `input + input / 255 + 16` bound. Input lengths above `u32::MAX` are rejected by sizing and encoding.
 
 These APIs process contiguous byte blocks. They do not select codecs, construct IMAGE payloads, convert colors, validate media CRCs or reconstruct temporal references. Asset selection must compare full encoded and RAW storage costs, including metadata, indexes and alignment.
+
+## Strided plane output
+
+LZ4 `DecodeUnitRef` values use the selected tight plane rows as one logical byte stream, in original plane-index order. Geometry supplies the exact decoded length. Backward offsets count only those bytes, not row padding, allocation-only rows or inter-plane alignment gaps. Matches may cross plane boundaries and refer to bytes produced earlier in the same match; no external reference or per-plane reset is implied.
+
+`decode_plan` validates the block and target memory requirements before execution. `UnitDecodePlan::decode_into` checks the actual destination address and capacity, then writes literals and matches directly into planned rows. Source and destination row cursors advance through physical storage without a tight staging image or expanded address index. Short repeating periods use a fixed 4-byte local value, not a dictionary allocation.
+
+Output padding is zero. Unused low bits in packed row tails are cleared only after all matches complete: such bytes may still be history for later valid samples during decoding. Original plane indices and source regions remain available on `DecodedUnit`, which borrows only the output buffer and may outlive the encoded input. Media checksums remain a separate validation step.

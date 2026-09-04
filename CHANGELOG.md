@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Strided LZ4 plane decoding.** Logical history spans selected packed, indexed, alpha and YUV planes without reading physical padding. Bounded row cursors decode into aligned caller memory, preserve source regions and defer packed-tail normalization until all history reads finish.
+
 - **Caller-workspace LZ4 encoding.** Explicit fixed hash tables support exact sizing and checked block encoding without allocation or automatic growth. Shared counting/emission preserves output on errors and produces deterministic bytes for each input and table size.
 
 - **Checked LZ4 block decoding.** Independent blocks use exact-length preflight, validated backward references and caller output as history. Block-end constraints, capacity checks and shared parser replay preserve output on errors without allocation.
