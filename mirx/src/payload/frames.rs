@@ -3,6 +3,7 @@ use core::iter::FusedIterator;
 mod frame_map;
 mod owned;
 mod sequence;
+mod timing;
 
 pub use frame_map::{FrameCounts, FrameMap, FrameMapAsset, FrameMapError, FrameMapIter};
 pub use owned::{
@@ -11,6 +12,9 @@ pub use owned::{
 };
 pub use sequence::{
     BlendMode, DisposalMode, FRAME_SEQUENCE_RECORD_LEN, FrameSequence, FrameSequenceError,
+};
+pub use timing::{
+    FRAME_TIMING_HEADER_LEN, FrameTiming, FrameTimingAsset, FrameTimingEncoding, FrameTimingError,
 };
 
 use super::envelope::{Envelope, EnvelopeError, ExactEnvelope};

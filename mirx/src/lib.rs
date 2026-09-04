@@ -55,8 +55,9 @@ pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
 pub use payload::frames::{
     AnimationFrames, AnimationSettings, AssetFrameIter, AtlasFrames, BlendMode, DisposalMode,
-    FRAME_SEQUENCE_RECORD_LEN, Frame, FrameCounts, FrameIter, FrameMap, FrameMapAsset,
-    FrameMapError, FrameMapIter, FrameRow, FrameSequence, FrameSequenceError, FramesAsset,
+    FRAME_SEQUENCE_RECORD_LEN, FRAME_TIMING_HEADER_LEN, Frame, FrameCounts, FrameIter, FrameMap,
+    FrameMapAsset, FrameMapError, FrameMapIter, FrameRow, FrameSequence, FrameSequenceError,
+    FrameTiming, FrameTimingAsset, FrameTimingEncoding, FrameTimingError, FramesAsset,
     FramesDecodeError, FramesEncodeError, FramesMode, FramesMutationError, FramesView,
 };
 pub use payload::image::{ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
