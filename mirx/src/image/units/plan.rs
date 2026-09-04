@@ -75,6 +75,16 @@ impl UnitMemoryPlan {
         self.surface
     }
 
+    pub(super) fn sample_byte_len(self) -> usize {
+        self.planes().fold(0usize, |total, plane| {
+            let geometry = plane.geometry();
+            (geometry.minimum_stride().expect("planned sample row") as usize)
+                .checked_mul(geometry.height() as usize)
+                .and_then(|bytes| total.checked_add(bytes))
+                .expect("logical rows fit the checked unit allocation")
+        })
+    }
+
     pub const fn requirements(self) -> SurfaceRequirements {
         self.requirements
     }

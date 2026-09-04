@@ -1,6 +1,6 @@
-use super::{DecodeUnitRef, ReferenceMode, UnitMemoryPlan};
+use super::{DecodeUnitRef, ReferenceMode, UnitMemoryPlan, output::UnitOutput};
 use crate::{
-    coding::{Pixel, PixelDecodePlan, PixelError},
+    coding::{Pixel, PixelDecodePlan, PixelError, Rle, RleDecodePlan, RleError},
     image::{BufferRequirementError, SurfacePlanError, SurfacePlane, SurfaceRequirements},
     media::CodingId,
 };
@@ -10,19 +10,25 @@ mod tests;
 
 /// Validated scalar execution into independent, caller-owned unit storage.
 ///
-/// PIXEL streams support complete independent RGB888/RGBA8888 units. Other
+/// PIXEL supports RGB888/RGBA8888; RLE covers selected tight plane rows. Other
 /// coding profiles and reference modes are rejected during planning. Media
 /// integrity is a separate gate, such as `ImageGroups::validate_unit`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UnitDecodePlan<'a> {
     memory: UnitMemoryPlan,
-    pixels: PixelDecodePlan<'a>,
+    decoder: Decoder<'a>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Decoder<'a> {
+    Pixel(PixelDecodePlan<'a>),
+    Rle(RleDecodePlan<'a>),
 }
 
 impl<'a> DecodeUnitRef<'a> {
     /// Validates profile syntax and plans a complete scalar-decoded unit.
     ///
-    /// Pixel count comes from checked local plane geometry. Compressed bytes
+    /// Logical output size comes from checked local plane geometry. Compressed bytes
     /// are read bytewise without hardware input-alignment requirements; the
     /// stored alignment promise remains separately inspectable on this unit.
     pub fn decode_plan(
@@ -32,22 +38,32 @@ impl<'a> DecodeUnitRef<'a> {
         if self.reference != ReferenceMode::Independent {
             return Err(UnitDecodeError::UnsupportedReference(self.reference));
         }
-        if self.coding.id() != CodingId::PIXEL {
+        if !matches!(self.coding.id(), CodingId::PIXEL | CodingId::RLE) {
             return Err(UnitDecodeError::UnsupportedCoding(self.coding.id()));
         }
-        let codec = Pixel::from_record(self.coding, self.surface.sample_layout())
-            .map_err(UnitDecodeError::Pixel)?;
         let memory = self
             .memory_plan(requirements)
             .map_err(UnitDecodeError::Memory)?;
-        // RGB/RGBA layouts have one selected plane, including planar groups.
-        let geometry = memory.plane(0).expect("pixel plane").geometry();
-        let count = usize::try_from(u64::from(geometry.width()) * u64::from(geometry.height()))
-            .map_err(|_| UnitDecodeError::Memory(SurfacePlanError::SizeOverflow))?;
-        let pixels = codec
-            .plan(self.data, count)
-            .map_err(UnitDecodeError::Pixel)?;
-        Ok(UnitDecodePlan { memory, pixels })
+        let decoder = if self.coding.id() == CodingId::PIXEL {
+            let codec = Pixel::from_record(self.coding, self.surface.sample_layout())
+                .map_err(UnitDecodeError::Pixel)?;
+            let geometry = memory.plane(0).expect("pixel plane").geometry();
+            let count = usize::try_from(u64::from(geometry.width()) * u64::from(geometry.height()))
+                .map_err(|_| UnitDecodeError::Memory(SurfacePlanError::SizeOverflow))?;
+            Decoder::Pixel(
+                codec
+                    .plan(self.data, count)
+                    .map_err(UnitDecodeError::Pixel)?,
+            )
+        } else {
+            let codec = Rle::from_record(self.coding).map_err(UnitDecodeError::Rle)?;
+            Decoder::Rle(
+                codec
+                    .plan(self.data, memory.sample_byte_len())
+                    .map_err(UnitDecodeError::Rle)?,
+            )
+        };
+        Ok(UnitDecodePlan { memory, decoder })
     }
 }
 
@@ -67,30 +83,21 @@ impl UnitDecodePlan<'_> {
             .validate(output)
             .map_err(UnitDecodeError::Output)?;
         let output = &mut output[..self.memory.byte_len() as usize];
-        output.fill(0);
-        let plane = self.memory.plane(0).expect("pixel plane");
-        let width = plane.geometry().width() as usize;
-        let channels = usize::from(plane.geometry().bits_per_element()) / 8;
-        let stride = plane.memory().stride() as usize;
-        let offset = plane.memory().data_offset() as usize;
-        let mut row = 0;
-        let mut column = 0;
-        self.pixels.for_each_run(|value, mut remaining| {
-            while remaining > 0 {
-                let count = remaining.min(width - column);
-                let start = offset + row * stride + column * channels;
-                let end = start + count * channels;
-                for pixel in output[start..end].chunks_exact_mut(channels) {
-                    pixel.copy_from_slice(&value[..channels]);
-                }
-                remaining -= count;
-                column += count;
-                if column == width {
-                    column = 0;
-                    row += 1;
-                }
+        let mut writer = UnitOutput::new(self.memory, output);
+        match self.decoder {
+            Decoder::Pixel(plan) => {
+                let channels = usize::from(
+                    self.memory
+                        .plane(0)
+                        .expect("pixel plane")
+                        .geometry()
+                        .bits_per_element(),
+                ) / 8;
+                plan.for_each_run(|value, count| writer.repeat(&value[..channels], count));
             }
-        });
+            Decoder::Rle(plan) => plan.for_each_block(|bytes, repeat| writer.repeat(bytes, repeat)),
+        }
+        writer.finish();
         Ok(DecodedUnit {
             memory: self.memory,
             bytes: output,
@@ -139,6 +146,7 @@ pub enum UnitDecodeError {
     UnsupportedCoding(CodingId),
     UnsupportedReference(ReferenceMode),
     Pixel(PixelError),
+    Rle(RleError),
     Memory(SurfacePlanError),
     Output(BufferRequirementError),
 }

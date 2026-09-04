@@ -352,6 +352,11 @@ impl PlaneGeometry {
     pub const fn minimum_stride(self) -> Option<u32> {
         minimum_stride_for_bits(self.width, self.bits_per_element)
     }
+
+    pub(super) const fn row_tail_mask(self) -> u8 {
+        let used = (self.width % 8) * (self.bits_per_element as u32 % 8) % 8;
+        if used == 0 { 0xff } else { 0xff << (8 - used) }
+    }
 }
 
 /// Allocation-free iterator over the planes derived from one sample layout.

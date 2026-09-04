@@ -4,6 +4,7 @@ use super::{Region, RegionError, SurfaceDescriptor, TileGrid, TileGridError};
 use crate::media::{CodingRecord, UnitIndex, UnitIndexError, UnitSelection, UnitSelectionError};
 
 mod decode;
+mod output;
 mod plan;
 mod wire;
 pub use decode::{DecodedUnit, UnitDecodeError, UnitDecodePlan};

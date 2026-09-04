@@ -15,6 +15,47 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn rle_planar_execution_allocates_neither_plane_tables_nor_staging() {
+    use mirx::{
+        coding::Rle,
+        image::{GroupPlanes, UnitGroup},
+    };
+    #[repr(align(64))]
+    struct Buffer([u8; 256]);
+    let mut output = Buffer([0xad; 256]);
+    let (_, allocations) = count_allocations(|| {
+        let surface = SurfaceDescriptor::new(
+            5,
+            3,
+            SampleLayout::NV12,
+            ColorDescription::BT709_YUV_LIMITED,
+        )
+        .unwrap();
+        let codec = Rle::new();
+        let unit = UnitGroup::builder(surface, codec.record(), &[0x8b, 128])
+            .with_planes(GroupPlanes::Plane(1))
+            .build()
+            .unwrap()
+            .get(0)
+            .unwrap();
+        let plan = unit
+            .decode_plan(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_stride_multiple(64),
+            )
+            .unwrap();
+        let decoded = plan.decode_into(&mut output.0).unwrap();
+        assert!(decoded.plane(0).is_none());
+        assert_eq!(
+            decoded.plane(1).unwrap().row(1).unwrap(),
+            Some(&[128; 6][..])
+        );
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn rle_selection_encoding_and_validated_decode_allocate_nothing() {
     let input = [7; 384];
     let mut encoded = [0; 768];

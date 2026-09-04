@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **RLE plane decoding.** A shared sequential-output cursor maps decoded bytes into selected packed, indexed, alpha, and YUV plane rows. Element boundaries may cross rows and planes; output alignment and canonical padding require no staging allocation.
+
 - **Bounded element RLE.** Byte and 2/3/4-byte element streams support exact-size literal/run selection, checked caller-buffer encoding, and immutable decode preflight. Default parameters are omitted, and failures preserve output without hidden allocation.
 
 - **Strided pixel unit decoding.** Profile preflight and checked unit geometry drive direct decoding into caller-aligned plane rows. Padding is initialized deterministically, errors preserve output, and borrowed decoded units retain source regions without retaining encoded storage.

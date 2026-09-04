@@ -14,3 +14,9 @@ Canonical encoding compares two greedy tokenizations, using minimum repeat lengt
 `coding::Rle::new()` selects byte RLE; `with_element_size` validates other widths. `encoded_len` and `encode_into` count before writing, reject partial elements and leave output unchanged on errors. `plan(input, decoded_len)` validates token lengths, bounds and exact consumption without allocating or writing output. `RleDecodePlan::decode_into` checks capacity before replaying immutable input, preserves the suffix and cannot partially write an error result.
 
 The codec describes tight byte streams. Surface stride, sample packing, palettes, color interpretation, checksums, frame composition and tool selection are separate contracts. Compression can expand input; asset selection must compare complete encoded and RAW storage sizes.
+
+## Plane output
+
+RLE `DecodeUnitRef` values decode selected tight plane rows in original plane-index order. A plane contributes `minimum_stride() × height` bytes, excluding physical stride/allocation padding. Element grouping continues across rows and planes; the total byte count must be divisible by element size. Packed/indexed/alpha and planar YUV layouts use the same byte mapping without color conversion or synthesized palettes.
+
+`decode_plan` validates the entire stream and target layout before returning a plan. Execution maps literals and repeated elements directly into caller-aligned plane rows; it does not allocate a tight intermediate image. Physical padding is zero, and unused low bits in sub-byte row tails are cleared after decoding. Logical samples remain exact; non-sample tail bits are canonicalized consistently with RAW transfer. Chroma-only and sub-byte units retain their original plane indices and source regions. Source integrity remains a separate media check.
