@@ -3,6 +3,9 @@ use core::{iter::FusedIterator, ops::Range};
 use super::{Region, RegionError, SurfaceDescriptor, TileGrid, TileGridError};
 use crate::media::{CodingRecord, UnitIndex, UnitIndexError, UnitSelection, UnitSelectionError};
 
+mod wire;
+pub use wire::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord, UnitGroupRecordError};
+
 /// Included planes and the coordinate space of a group's regions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum GroupPlanes {
@@ -222,6 +225,12 @@ pub struct UnitGroupBuilder<'a> {
 }
 
 impl<'a> UnitGroupBuilder<'a> {
+    fn grid(&self) -> Result<TileGrid, UnitGroupError> {
+        let (width, height) = self.planes.dimensions(self.surface)?;
+        let (tile_width, tile_height) = self.tiles.unwrap_or((width.max(1), height.max(1)));
+        TileGrid::new(width, height, tile_width, tile_height).map_err(UnitGroupError::Grid)
+    }
+
     pub const fn with_tiles(mut self, width: u32, height: u32) -> Self {
         self.tiles = Some((width, height));
         self
@@ -253,10 +262,7 @@ impl<'a> UnitGroupBuilder<'a> {
         if !self.input_alignment.is_power_of_two() {
             return Err(UnitGroupError::InvalidAlignment(self.input_alignment));
         }
-        let (width, height) = self.planes.dimensions(self.surface)?;
-        let (tile_width, tile_height) = self.tiles.unwrap_or((width.max(1), height.max(1)));
-        let grid =
-            TileGrid::new(width, height, tile_width, tile_height).map_err(UnitGroupError::Grid)?;
+        let grid = self.grid()?;
         if let (GroupPlanes::Joint(_), Some(first)) = (self.planes, grid.get(0)) {
             for plane in 0..self.surface.plane_count() {
                 if self.planes.contains(plane) {

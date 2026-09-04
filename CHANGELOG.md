@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shared group records.** Checked 36-byte records resolve coding, plane geometry, sparse selection, and compact byte indexes into borrowed image units. Index lengths and fixed unit sizes are derived; metadata read/write and resolution use caller-owned storage without allocation.
+
 - **Borrowed image units.** `image::UnitGroup` combines shared coding, regular geometry, sparse selection, and encoded ranges into `DecodeUnitRef` values without allocation. Joint and independent plane groups retain exact chroma boundaries, reference rules, and separate offset/address alignment checks.
 
 - **Sparse unit selection.** Borrowed full, sorted-list, and checkpointed-bitmap maps connect stored-unit ordinals with grid cells. Bidirectional lookup and iterator skips avoid scanning earlier cells; caller-buffer encoding validates order, bounds, and bitmap padding without allocation.

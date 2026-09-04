@@ -256,7 +256,7 @@ pub enum UnitIndexEncoding {
 }
 
 impl UnitIndexEncoding {
-    fn table_len(self, count: usize) -> Result<usize, UnitIndexError> {
+    pub(crate) fn table_len(self, count: usize) -> Result<usize, UnitIndexError> {
         let size = match self {
             Self::Offsets => count.checked_add(1).and_then(|count| count.checked_mul(4)),
             Self::Checkpointed => count

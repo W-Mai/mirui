@@ -276,7 +276,11 @@ pub enum UnitSelectionEncoding {
 }
 
 impl UnitSelectionEncoding {
-    fn table_len(self, cell_count: u32, count: usize) -> Result<usize, UnitSelectionError> {
+    pub(crate) fn table_len(
+        self,
+        cell_count: u32,
+        count: usize,
+    ) -> Result<usize, UnitSelectionError> {
         let cells = usize::try_from(cell_count).map_err(|_| UnitSelectionError::SizeOverflow)?;
         let needed = match self {
             Self::List => count

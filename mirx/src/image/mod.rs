@@ -75,7 +75,7 @@ pub use surface::{
     SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError,
 };
 pub use units::{
-    DecodeUnitRef, DecodeUnits, GroupPlanes, ReferenceMode, UnitGroup, UnitGroupBuilder,
-    UnitGroupError,
+    DecodeUnitRef, DecodeUnits, GroupPlanes, GroupSelection, ReferenceMode, UNIT_GROUP_RECORD_LEN,
+    UnitGroup, UnitGroupBuilder, UnitGroupError, UnitGroupRecord, UnitGroupRecordError,
 };
 pub use view::{RawImagePlanes, RawImageView, RawImageViewError, SurfacePlane};

@@ -660,3 +660,27 @@ fn image_units_resolve_shared_metadata_without_allocation() {
     });
     assert_eq!(allocations, 0);
 }
+
+#[test]
+fn group_record_read_write_and_resolution_allocate_nothing() {
+    use mirx::image::UnitGroupRecord;
+    use mirx::media::CodingTable;
+    let surface = SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let codings = [1, 0, 0, 0, 19, 0, 1, 0, 0, 0, 0, 0];
+    let data = [1, 2, 3, 4];
+    let mut bytes = [0; 36];
+    let (_, allocations) = count_allocations(|| {
+        UnitGroupRecord::new(0, 0..4)
+            .unwrap()
+            .with_tiles(1, 1)
+            .encode_into(&mut bytes)
+            .unwrap();
+        let group = UnitGroupRecord::open(&bytes)
+            .unwrap()
+            .resolve(surface, CodingTable::open(&codings).unwrap(), &data, &[])
+            .unwrap();
+        assert_eq!(group.get(1).unwrap().data().as_ptr(), data[2..].as_ptr());
+        assert_eq!(group.get(1).unwrap().region().x(), 1);
+    });
+    assert_eq!(allocations, 0);
+}
