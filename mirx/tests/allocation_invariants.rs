@@ -15,6 +15,49 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn encoded_glyph_planning_and_execution_allocate_nothing() {
+    use mirx::{
+        coding::Rle,
+        font::{GlyphMap, GlyphPacking, GlyphSurfaceRecord},
+        image::{CoverageBudget, EncodedImageAsset, UnitGroupRecord},
+    };
+    let surface = SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let bytes = EncodedImageAsset::from_groups(
+        surface,
+        &[Rle::new().record()],
+        &[UnitGroupRecord::new(0, 0..4).unwrap().with_tiles(2, 2)],
+        &[0x83, 1, 0x83, 2],
+    )
+    .encode()
+    .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let media = MediaPayload::open(&bytes).unwrap();
+        let record = GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 3)
+            .unwrap()
+            .with_codings(1)
+            .unwrap()
+            .with_groups(2, None)
+            .unwrap();
+        let glyphs = record
+            .encoded_glyphs(media, GlyphMap::glyph_major(2, 2, 2).unwrap())
+            .unwrap();
+        glyphs.preflight(&PayloadLimits::EMBEDDED).unwrap();
+        let mut slots = [None];
+        let groups = glyphs
+            .groups_into(&mut slots, &mut CoverageBudget::new(1000))
+            .unwrap();
+        let plan = groups
+            .decode_plan(1, SurfaceRequirements::new(), &PayloadLimits::EMBEDDED)
+            .unwrap();
+        let mut output = [0; 4];
+        let mut workspace = [0; 4];
+        plan.decode_into(&mut output, &mut workspace).unwrap();
+        assert_eq!(output, [2; 4]);
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn borrowed_representation_tables_resolve_and_select_without_allocation() {
     use mirx::{
         FontRepresentation, FontRepresentationRequest,

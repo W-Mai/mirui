@@ -80,6 +80,8 @@ IMAGE, META, PALETTE, and FRAMES expose borrowed views. FONT and VECTOR use `dec
 
 `GlyphSurfaceRecord::raw_glyphs(media, map)` binds matching scalar maps to exact referenced PLANES/DATA storage without allocation or repeated DATA scans. It returns the shared `RawGlyphs` access and transfer API; complete-face or selected-range integrity checks remain separate.
 
+`GlyphSurfaceRecord::encoded_glyphs(media, map)` binds compressed scalar samples to shared coding and group tables. Caller-owned group slots prepare exact glyph plans with bounded unit workspace, partition-aware integrity, sub-byte crops and independently aligned output. [Encoded glyph regions](docs/encoded-glyphs.md) describes whole-stream versus tiled memory costs and metadata lifetimes.
+
 `font::MetricsTable` borrows representation-specific line and glyph measurements as signed 24.8 values, without repeating codepoints or raster storage fields. [Font metric records](docs/font-metrics.md) describes the byte layout, coordinate conventions and allocation-free access.
 
 `font::GlyphMap` derives fixed GlyphMajor cells without map bytes or borrows explicit Atlas2D rectangles. Native and wire maps share checked lookup and encoding without repeating per-glyph storage rules; see [glyph region maps](docs/glyph-maps.md).

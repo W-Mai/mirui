@@ -48,6 +48,7 @@ mod color_table;
 mod coverage;
 mod encode;
 mod encoded;
+pub(crate) use encoded::EncodedSections;
 mod grid;
 mod layout;
 mod memory;

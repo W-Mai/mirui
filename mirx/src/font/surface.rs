@@ -7,7 +7,9 @@ use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
 pub const GLYPH_SURFACE_RECORD_LEN: usize = 24;
 
+mod encoded;
 mod raw;
+pub use encoded::{EncodedGlyphError, EncodedGlyphs, GlyphGroups};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Storage {

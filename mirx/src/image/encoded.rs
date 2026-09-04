@@ -39,12 +39,12 @@ pub struct EncodedImageView<'a> {
 }
 
 /// Resolved directory entries, without resource-specific selection policy.
-struct EncodedSections<'a> {
-    codings: Option<MediaSection<'a>>,
-    data: Option<MediaSection<'a>>,
-    records: Option<MediaSection<'a>>,
-    indexes: Option<MediaSection<'a>>,
-    color_table: Option<MediaSection<'a>>,
+pub(crate) struct EncodedSections<'a> {
+    pub(crate) codings: Option<MediaSection<'a>>,
+    pub(crate) data: Option<MediaSection<'a>>,
+    pub(crate) records: Option<MediaSection<'a>>,
+    pub(crate) indexes: Option<MediaSection<'a>>,
+    pub(crate) color_table: Option<MediaSection<'a>>,
 }
 
 impl<'a> EncodedImageView<'a> {
@@ -68,6 +68,11 @@ impl<'a> EncodedImageView<'a> {
     }
     pub const fn color_table(self) -> Option<ColorTableView<'a>> {
         self.color_table
+    }
+
+    pub(crate) const fn with_file_offset(mut self, offset: u32) -> Self {
+        self.file_offset = Some(offset);
+        self
     }
     /// Number of caller workspace slots, including an implicit whole-surface group.
     pub fn group_count(self) -> usize {
@@ -146,7 +151,7 @@ impl<'a> EncodedImageView<'a> {
         )
     }
 
-    fn from_sections(
+    pub(crate) fn from_sections(
         media: MediaPayload<'a>,
         surface: SurfaceDescriptor,
         sections: EncodedSections<'a>,

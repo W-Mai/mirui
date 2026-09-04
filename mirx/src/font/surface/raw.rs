@@ -67,7 +67,7 @@ impl GlyphSurfaceRecord {
             .map_err(GlyphSurfaceRecordError::Storage)
     }
 
-    fn validate_map(self, map: GlyphMap<'_>) -> Result<(), GlyphSurfaceRecordError> {
+    pub(super) fn validate_map(self, map: GlyphMap<'_>) -> Result<(), GlyphSurfaceRecordError> {
         let extent = match map.packing() {
             GlyphPacking::GlyphMajor => map.cell_extent().expect("fixed cell map"),
             GlyphPacking::Atlas2D => (map.width(), map.height()),
