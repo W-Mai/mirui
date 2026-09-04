@@ -12,6 +12,9 @@ impl<'a> Cursor<'a> {
     pub(super) fn new(bytes: &'a [u8]) -> Self {
         Self { bytes, position: 0 }
     }
+    pub(super) fn is_empty(&self) -> bool {
+        self.position == self.bytes.len()
+    }
     pub(super) fn take(&mut self, count: usize) -> Result<&'a [u8], BufferError> {
         let end = self
             .position

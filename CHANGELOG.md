@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Checked LZ4 block decoding.** Independent blocks use exact-length preflight, validated backward references and caller output as history. Block-end constraints, capacity checks and shared parser replay preserve output on errors without allocation.
+
 - **RLE plane decoding.** A shared sequential-output cursor maps decoded bytes into selected packed, indexed, alpha, and YUV plane rows. Element boundaries may cross rows and planes; output alignment and canonical padding require no staging allocation.
 
 - **Bounded element RLE.** Byte and 2/3/4-byte element streams support exact-size literal/run selection, checked caller-buffer encoding, and immutable decode preflight. Default parameters are omitted, and failures preserve output without hidden allocation.

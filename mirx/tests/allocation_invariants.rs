@@ -15,6 +15,23 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn lz4_preflight_and_history_replay_allocate_nothing() {
+    use mirx::coding::Lz4;
+    let input = [0x13, b'a', 1, 0, 0x50, b't', b'a', b'i', b'l', b'!'];
+    let mut output = [0xad; 16];
+    let (_, allocations) = count_allocations(|| {
+        let codec = Lz4::from_record(Lz4::new().record()).unwrap();
+        let plan = codec.plan(&input, 13).unwrap();
+        assert!(plan.decode_into(&mut output[..12]).is_err());
+        assert_eq!(output, [0xad; 16]);
+        assert_eq!(plan.decode_into(&mut output), Ok(13));
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(&output[..13], b"aaaaaaaatail!");
+    assert_eq!(&output[13..], &[0xad; 3]);
+}
+
+#[test]
 fn rle_planar_execution_allocates_neither_plane_tables_nor_staging() {
     use mirx::{
         coding::Rle,

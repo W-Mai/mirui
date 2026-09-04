@@ -46,6 +46,8 @@ impl CodingId {
     pub const PIXEL: Self = Self(1);
     /// Independent lossless byte or fixed-width element run-length stream.
     pub const RLE: Self = Self(2);
+    /// Independent LZ4 blocks without frames, dictionaries, or size prefixes.
+    pub const LZ4: Self = Self(3);
 
     pub const fn new(value: u16) -> Self {
         Self(value)
