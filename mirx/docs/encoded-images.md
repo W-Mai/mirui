@@ -60,6 +60,7 @@ The common media header and metadata CRC are parsed once. CODINGS presence selec
 | Operation | Checks |
 | --- | --- |
 | `asset.encoded_len` / `encode_into` | Surface and palette agreement, single-unit geometry, lengths, placement and output capacity |
+| `asset.preflight` | Metadata, supported scalar syntax, group/unit/decoded bounds, reader-equivalent work and canonical output span; no allocation |
 | `EncodedImageView::open` | Metadata CRC, sections and typed metadata; no DATA scan |
 | `image.groups_into` | Group geometry, static coverage, indexes and declared file alignment |
 | `image.validate_groups` | The same group checks without a stored group table, under a conservative work budget |
@@ -95,7 +96,7 @@ Use the corresponding `with_max_*` builders to set stricter or larger limits. Ze
 
 Work includes group resolution and coverage, each unit's coded and decoded bytes during syntax checks, and one complete DATA checksum scan. Checks precede the charged work. The common envelope and metadata CRC have already been checked by `open`; they are not retroactively limited by this later budget. Actual device stride, base alignment and output capacity still belong to the requested decode plan.
 
-The asset writer accepts one stream, not a list of separately encoded tiles. It does not integrate compressed storage into `ImageSource`, `Document::push_image` or runtime rendering. Unit-index APIs and group readers describe grouped storage independently.
+The asset writer accepts one stream, not a list of separately encoded tiles. `ImageSource` and `Document::push_image` accept decoded surfaces; encoded storage uses `push_encoded_image` and `replace_encoded_image`. These APIs do not implicitly select a codec, recompress samples or integrate runtime rendering. Unit-index APIs and group readers describe grouped storage independently.
 
 ## Container reading
 
@@ -112,3 +113,11 @@ Noncritical unknown coding can be inspected as encoded metadata and preserved as
 Encoded primary hints contain the surface's sample layout and logical dimensions with stride zero. RAW hints retain the first stored plane's stride. A decode target chooses its own pitch and allocation extent; compressed DATA has no pixel-row stride.
 
 `EncodedImageView::input_alignment()` scans group declarations and returns their maximum power-of-two alignment, defaulting to one. It does not check coverage, codec syntax or actual addresses. Document's writer uses this value to align the absolute DATA origin after chunk insertion or reordering. Payload bytes remain unchanged, and file-offset alignment does not imply that a `Vec<u8>` or embedded byte slice has an aligned base pointer. Encoded storage cannot be demoted to FLAT without an explicit external decode and replacement.
+
+## Typed encoded edits
+
+`push_encoded_image(&asset)` and `push_encoded_image_with_flags(&asset, flags)` store borrowed encoded input as one final owned payload after validation. `get_mut(id)?.replace_encoded_image(&asset)` preserves chunk identity and flags and updates primary hints. Structural edit gates run before candidate validation; malformed syntax, unsupported profiles or exceeded limits leave the document unchanged.
+
+`asset.preflight(&limits)` shares scalar profile and unit checks with the encoded reader. Its work charge includes the future reader's group-resolution, coverage, syntax and DATA checksum budget, plus the complete canonical output span. Large alignment padding therefore cannot authorize an unbounded allocation merely because the decoded image is small. The gate allocates neither payload nor decoded samples; ordinary low-level `encode` remains available for metadata-valid opaque coding.
+
+An exact canonical replacement keeps source or owned storage and dirty state, with zero allocation. If identical bytes occupy a misaligned source position, replacement creates owned storage so the writer can repair placement. Other successful replacements allocate one final payload, with no decoded staging image or codec workspace.

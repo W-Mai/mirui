@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use super::{ChunkNode, Document, DocumentState, FlatRecord, PayloadStorage};
-use crate::image::{ImageRef, RawImageView, SurfaceView};
+use crate::image::{EncodedImageAsset, EncodedImageView, ImageRef, RawImageView, SurfaceView};
 use crate::payload::image::{ImageEncodeError, ImagePayloadError, ImagePayloadPlan, ImagePlanes};
 use crate::{ChunkType, EncodeError, ImageView, PayloadLimits, PrimaryHints};
 
@@ -132,6 +132,29 @@ impl<'a> ResolvedNodePayload<'a> {
                 .image_view()
                 .is_ok_and(|existing| existing.raw() == Some(candidate)),
         }
+    }
+
+    pub(super) fn equals_encoded(
+        self,
+        candidate: EncodedImageAsset<'_>,
+    ) -> Result<bool, crate::image::ImageEncodeError> {
+        let Self::Contiguous { bytes, placement } = self else {
+            return Ok(false);
+        };
+        if !candidate.matches_payload(bytes)? {
+            return Ok(false);
+        }
+        Ok(match placement {
+            PayloadPlacement::Unplaced => true,
+            PayloadPlacement::Fixed(offset) => EncodedImageView::open(bytes).is_ok_and(|image| {
+                image.input_alignment().is_ok_and(|alignment| {
+                    image
+                        .media()
+                        .validate_file_alignment(offset, alignment)
+                        .is_ok()
+                })
+            }),
+        })
     }
 
     pub(super) fn image_planes(self) -> Result<ResolvedImagePlanes<'a>, ImagePayloadError> {

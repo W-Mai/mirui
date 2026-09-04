@@ -1,3 +1,4 @@
+use super::preflight::Preflight;
 use alloc::vec::Vec;
 
 use crate::{
@@ -84,6 +85,34 @@ impl<'a> EncodedImageAsset<'a> {
         Ok(Plan::new(self)?.payload_len)
     }
 
+    /// Validates metadata, scalar syntax and resource limits before allocation.
+    ///
+    /// Work includes the equivalent encoded reader's group/unit checks and the
+    /// canonical output span, including padding. No payload, decoded samples
+    /// or group table is allocated. Low-level encoding alone checks metadata,
+    /// not profile support; this explicit gate admits typed document edits.
+    pub fn preflight(self, limits: &crate::PayloadLimits) -> Result<(), ImageEncodeError> {
+        let plan = Plan::new(self)?;
+        let group = self.group()?;
+        let record = plan.group.unwrap_or_else(|| {
+            UnitGroupRecord::new(0, 0..self.data.len() as u32).expect("validated group range")
+        });
+        let mut preflight = Preflight::new(limits, 1).map_err(ImageEncodeError::Preflight)?;
+        preflight
+            .spend(plan.payload_len as u64)
+            .map_err(ImageEncodeError::Preflight)?;
+        preflight
+            .single(group, record.resolution_work(0))
+            .map_err(ImageEncodeError::Preflight)
+    }
+
+    fn group(self) -> Result<UnitGroup<'a>, ImageEncodeError> {
+        UnitGroup::builder(self.surface, self.coding, self.data)
+            .with_input_alignment(self.input_alignment)
+            .build()
+            .map_err(ImageEncodeError::Group)
+    }
+
     /// Writes canonical metadata and supplied DATA after all bounds are checked.
     /// Errors preserve output; success preserves its unused suffix.
     pub fn encode_into(self, output: &mut [u8]) -> Result<usize, ImageEncodeError> {
@@ -133,10 +162,7 @@ impl<'a> Plan<'a> {
             .surface
             .read_color_table(asset.color_table)
             .map_err(ImageEncodeError::from)?;
-        let group = UnitGroup::builder(asset.surface, asset.coding, asset.data)
-            .with_input_alignment(asset.input_alignment)
-            .build()
-            .map_err(ImageEncodeError::Group)?;
+        let group = asset.group()?;
         let has_group = !group.is_empty() && asset.input_alignment != 1;
         let alignment = if has_group { asset.input_alignment } else { 1 };
         let group = has_group.then(|| {

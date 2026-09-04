@@ -6,7 +6,7 @@ use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageDecodeError, ImageEn
 
 #[cfg(test)]
 use crate::ImageAsset;
-use crate::image::{ImageRef, ImageSource};
+use crate::image::{EncodedImageAsset, ImageRef, ImageSource};
 
 impl Document<'_> {
     /// Resolves one IMAGE node by its stable document-session identity.
@@ -55,6 +55,61 @@ impl Document<'_> {
         flags: ChunkFlags,
     ) -> Result<ChunkId, EditError> {
         self.push_typed_owned_with(ChunkType::IMAGE, flags, || encode_image_for_edit(image))
+    }
+
+    /// Appends already encoded IMAGE samples after bounded syntax validation.
+    pub fn push_encoded_image(
+        &mut self,
+        image: &EncodedImageAsset<'_>,
+    ) -> Result<ChunkId, EditError> {
+        self.push_encoded_image_with_flags(image, ChunkFlags::NONE)
+    }
+
+    /// Appends encoded IMAGE storage with explicit flags and one payload allocation.
+    /// Structural gates, metadata, codec syntax and limits are checked first.
+    pub fn push_encoded_image_with_flags(
+        &mut self,
+        image: &EncodedImageAsset<'_>,
+        flags: ChunkFlags,
+    ) -> Result<ChunkId, EditError> {
+        let limits = self.payload_limits;
+        self.push_typed_owned_with(ChunkType::IMAGE, flags, || {
+            image
+                .preflight(&limits)
+                .map_err(|error| image_encode_error_for_edit(error.into()))?;
+            image
+                .encode()
+                .map_err(|error| image_encode_error_for_edit(error.into()))
+        })
+    }
+
+    pub(super) fn replace_encoded_image(
+        &mut self,
+        id: ChunkId,
+        image: &EncodedImageAsset<'_>,
+    ) -> Result<(), EditError> {
+        let limits = self.payload_limits;
+        self.replace_typed_owned_with(
+            id,
+            ChunkType::IMAGE,
+            || {
+                image
+                    .preflight(&limits)
+                    .map_err(|error| image_encode_error_for_edit(error.into()))?;
+                Ok(*image)
+            },
+            |image, existing| {
+                existing
+                    .equals_encoded(*image)
+                    .map_err(|error| image_encode_error_for_edit(error.into()))
+            },
+            |image| {
+                image
+                    .encode()
+                    .map_err(|error| image_encode_error_for_edit(error.into()))
+            },
+            EditError::InvalidPayload,
+        )
     }
 
     /// Replaces one IMAGE payload without changing its identity or descriptor.

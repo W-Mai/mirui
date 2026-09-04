@@ -88,6 +88,11 @@ impl UnitGroupRecord {
         self.input_alignment
     }
 
+    /// Conservative resolution cost for a validated media payload's index span.
+    pub(crate) fn resolution_work(self, index_bytes: usize) -> u64 {
+        1 + u64::from(self.data_size) + index_bytes as u64
+    }
+
     pub const fn with_tiles(mut self, width: u32, height: u32) -> Self {
         self.tiles = Some((width, height));
         self

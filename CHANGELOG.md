@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Typed encoded IMAGE insertion and replacement.** Canonical assets pass shared scalar syntax and resource checks before allocation. Exact replacements keep storage without allocation, misaligned source payloads are repaired, and output-span budgets bound padding before encoding.
+
 - **Encoded IMAGE document access and relocation.** Borrowed image references preserve storage semantics, checked descriptor inference enforces payload limits, and file planning retains declared group input alignment. Encoded primary hints keep logical geometry without inventing a decoded stride.
 
 - **Reader access to encoded IMAGE payloads.** Typed chunk reads distinguish RAW samples from encoded metadata. Critical opening and explicit validation enforce coding syntax, integrity, resource limits and file-relative input alignment without decoding allocation.

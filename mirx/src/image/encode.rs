@@ -268,6 +268,7 @@ impl<'a> RawImagePlan<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ImageEncodeError {
+    Preflight(super::EncodedImageError),
     UnexpectedCoding(crate::media::CodingId),
     Codings(crate::media::CodingTableError),
     Group(super::UnitGroupError),

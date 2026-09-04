@@ -226,10 +226,7 @@ impl<'a> EncodedImageView<'a> {
     }
 
     fn resolution_cost(self, record: UnitGroupRecord) -> u64 {
-        1 + u64::from(record.data_range().end - record.data_range().start)
-            + self
-                .indexes
-                .map_or(0, |section| section.bytes().len() as u64)
+        record.resolution_work(self.indexes.map_or(0, |section| section.bytes().len()))
     }
 
     fn resolve_record(

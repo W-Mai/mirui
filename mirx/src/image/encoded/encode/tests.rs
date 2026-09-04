@@ -8,6 +8,105 @@ use crate::{
 };
 
 #[test]
+fn asset_preflight_admits_exactly_supported_syntax_without_serializing() {
+    use crate::{
+        PayloadLimits,
+        image::{CoverageError, ImageEncodeError},
+    };
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let asset = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
+    assert_eq!(asset.preflight(&PayloadLimits::EMBEDDED), Ok(()));
+    let malformed = EncodedImageAsset::new(surface, Rle::new().record(), &[0xff]);
+    assert!(matches!(
+        malformed.preflight(&PayloadLimits::EMBEDDED),
+        Err(ImageEncodeError::Preflight(EncodedImageError::Unit {
+            group: 0,
+            ordinal: 0,
+            ..
+        }))
+    ));
+    let unknown =
+        EncodedImageAsset::new(surface, CodingRecord::new(CodingId::new(511), 1, &[]), &[1]);
+    assert!(matches!(
+        unknown.preflight(&PayloadLimits::EMBEDDED),
+        Err(ImageEncodeError::Preflight(EncodedImageError::Coding {
+            group: 0,
+            ..
+        }))
+    ));
+    for limits in [
+        PayloadLimits::EMBEDDED.with_max_decoded_bytes(7),
+        PayloadLimits::EMBEDDED.with_max_image_groups(0),
+        PayloadLimits::EMBEDDED.with_max_image_units(0),
+        PayloadLimits::EMBEDDED.with_max_image_work(0),
+    ] {
+        assert!(asset.preflight(&limits).is_err());
+    }
+    // Small decoded output cannot authorize a two-gigabyte padding allocation.
+    let padded = asset.with_input_alignment(1 << 31);
+    assert!(padded.encoded_len().unwrap() > 1 << 31);
+    assert_eq!(
+        padded.preflight(&PayloadLimits::EMBEDDED),
+        Err(ImageEncodeError::Preflight(EncodedImageError::Coverage(
+            CoverageError::BudgetExceeded
+        )))
+    );
+}
+
+#[test]
+fn asset_preflight_charges_reader_work_and_canonical_output_without_double_profiles() {
+    use crate::PayloadLimits;
+    for layout in [
+        SampleLayout::A8,
+        SampleLayout::RGB565_A8,
+        SampleLayout::NV12,
+        SampleLayout::I420,
+    ] {
+        let color = if layout.is_alpha() {
+            ColorDescription::NONE
+        } else if layout.is_yuv() {
+            ColorDescription::BT709_YUV_LIMITED
+        } else {
+            ColorDescription::SRGB
+        };
+        for width in [0, 4] {
+            let surface = SurfaceDescriptor::new(width, 2, layout, color).unwrap();
+            let size: usize = surface
+                .planes()
+                .map(|p| (p.minimum_stride().unwrap() * p.height()) as usize)
+                .sum();
+            let mut stream = [0; 128];
+            let len = Rle::new()
+                .encode_into(&[42; 64][..size], &mut stream)
+                .unwrap();
+            for alignment in [1, 64] {
+                let asset = EncodedImageAsset::new(surface, Rle::new().record(), &stream[..len])
+                    .with_input_alignment(alignment);
+                let payload = asset.encode().unwrap();
+                let image = EncodedImageView::open(&payload).unwrap();
+                let minimum = (0..1024)
+                    .find(|work| {
+                        image
+                            .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(*work))
+                            .is_ok()
+                    })
+                    .unwrap();
+                let combined = minimum + payload.len() as u64;
+                assert!(
+                    asset
+                        .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(combined - 1))
+                        .is_err()
+                );
+                assert_eq!(
+                    asset.preflight(&PayloadLimits::EMBEDDED.with_max_image_work(combined)),
+                    Ok(())
+                );
+            }
+        }
+    }
+}
+
+#[test]
 fn single_stream_omission_round_trips_each_scalar_profile() {
     let surface =
         SurfaceDescriptor::new(3, 2, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();

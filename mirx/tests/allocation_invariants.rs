@@ -15,6 +15,63 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn typed_encoded_edits_allocate_only_final_payloads_and_keep_noops_borrowed() {
+    use mirx::{coding::Rle, image::EncodedImageAsset};
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let asset = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
+    let malformed = EncodedImageAsset::new(surface, Rle::new().record(), &[0xff]);
+    let mut document = Document::new();
+    let (_, allocations) = count_allocations(|| {
+        asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
+        assert!(document.push_encoded_image(&malformed).is_err());
+        assert!(
+            document
+                .push_encoded_image(&asset.with_input_alignment(1 << 31))
+                .is_err()
+        );
+    });
+    assert_eq!(allocations, 0);
+    let (id, allocations) = count_allocations(|| document.push_encoded_image(&asset).unwrap());
+    assert_eq!(allocations, 2, "one payload and one document node table");
+    document.set_primary(id).unwrap();
+    let bytes = document.encode(&EncodeOptions::new()).unwrap();
+    let mut document = Document::open(&bytes).unwrap();
+    let id = document.chunks().next().unwrap().id();
+    let pointer = document.get(id).unwrap().payload_bytes().unwrap().as_ptr();
+    let (_, allocations) = count_allocations(|| {
+        document
+            .get_mut(id)
+            .unwrap()
+            .replace_encoded_image(&asset)
+            .unwrap();
+        assert!(!document.is_dirty());
+        assert_eq!(
+            document.get(id).unwrap().payload_bytes().unwrap().as_ptr(),
+            pointer
+        );
+        assert!(
+            document
+                .get_mut(id)
+                .unwrap()
+                .replace_encoded_image(&malformed)
+                .is_err()
+        );
+        assert!(!document.is_dirty());
+    });
+    assert_eq!(allocations, 0);
+    let changed = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 43]);
+    let (_, allocations) = count_allocations(|| {
+        document
+            .get_mut(id)
+            .unwrap()
+            .replace_encoded_image(&changed)
+            .unwrap()
+    });
+    assert_eq!(allocations, 1);
+    assert!(document.is_dirty());
+}
+
+#[test]
 fn encoded_document_queries_and_placement_allocate_no_samples_or_group_table() {
     use mirx::{
         PayloadInput, RawChunkInput, RawChunkPolicy, coding::Rle, image::EncodedImageAsset,

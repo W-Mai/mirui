@@ -335,6 +335,9 @@ impl<'a> ImagePayloadPlan<'a> {
 impl From<SurfaceEncodeError> for ImageEncodeError {
     fn from(error: SurfaceEncodeError) -> Self {
         match error {
+            SurfaceEncodeError::Preflight(error) => {
+                Self::InvalidPayload(ImagePayloadError::Encoded(error))
+            }
             SurfaceEncodeError::AllocationFailed => Self::AllocationFailed,
             SurfaceEncodeError::BufferTooSmall { needed, available } => {
                 Self::BufferTooSmall { needed, available }

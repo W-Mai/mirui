@@ -189,7 +189,7 @@ fn opaque_encoded_relocation_remains_an_explicit_policy_and_keeps_alignment() {
 }
 
 #[test]
-fn critical_scalar_images_reach_aligned_caller_output_through_reader() {
+fn critical_scalar_images_reach_aligned_caller_output_through_document_and_reader() {
     let surface =
         SurfaceDescriptor::new(3, 2, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
     let samples = [
@@ -214,14 +214,15 @@ fn critical_scalar_images_reach_aligned_caller_output_through_reader() {
                     .encode_into(&samples, &mut stream)
                     .unwrap(),
             };
-            let payload = EncodedImageAsset::new(surface, coding, &stream[..size])
-                .encode()
+            let mut document = Document::new();
+            let id = document
+                .push_encoded_image_with_flags(
+                    &EncodedImageAsset::new(surface, coding, &stream[..size]),
+                    ChunkFlags::CRITICAL,
+                )
                 .unwrap();
-            let bytes = encode_chunks(&[(
-                ChunkType::IMAGE.raw(),
-                ChunkFlags::CRITICAL.bits(),
-                &payload,
-            )]);
+            document.set_primary(id).unwrap();
+            let bytes = document.encode(&EncodeOptions::new()).unwrap();
             let reader = Reader::open(&bytes).unwrap();
             reader
                 .validate_known_payloads(&PayloadLimits::EMBEDDED)
@@ -393,4 +394,137 @@ fn encoded_input_alignment_uses_the_chunk_position() {
     let image = chunks.next().unwrap();
     assert_eq!(image.payload_offset(), 128);
     assert!(image.image().unwrap().unwrap().encoded().is_some());
+}
+
+#[test]
+fn typed_encoded_replacement_refreshes_primary_and_repairs_source_placement() {
+    use mirx::image::RawImageAsset;
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let asset =
+        EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]).with_input_alignment(64);
+    let payload = asset.encode().unwrap();
+    // This low-level container has not satisfied the IMAGE alignment promise.
+    let bytes = encode_chunks(&[(ChunkType::IMAGE.raw(), 0, &payload)]);
+    let mut document = Document::open(&bytes).unwrap();
+    let id = document.chunks().next().unwrap().id();
+    assert!(!document.is_dirty());
+    document
+        .get_mut(id)
+        .unwrap()
+        .replace_encoded_image(&asset)
+        .unwrap();
+    assert!(document.is_dirty());
+    assert_eq!(
+        document.get(id).unwrap().payload_origin(),
+        PayloadOrigin::OWNED
+    );
+    document.set_primary(id).unwrap();
+    assert_eq!(document.primary_hints().stride(), 0);
+    let bytes = document.encode(&EncodeOptions::new()).unwrap();
+    let mut document = Document::open(&bytes).unwrap();
+    let id = document.chunks().next().unwrap().id();
+    let pointer = document.get(id).unwrap().payload_bytes().unwrap().as_ptr();
+    document
+        .get_mut(id)
+        .unwrap()
+        .replace_encoded_image(&asset)
+        .unwrap();
+    assert!(!document.is_dirty());
+    assert_eq!(
+        document.get(id).unwrap().payload_bytes().unwrap().as_ptr(),
+        pointer
+    );
+
+    let large = SurfaceDescriptor::new(
+        3,
+        2,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let replacement = EncodedImageAsset::new(large, Rle::new().record(), &[0x89, 128]);
+    document
+        .get_mut(id)
+        .unwrap()
+        .replace_encoded_image(&replacement)
+        .unwrap();
+    assert_eq!(document.primary(), Some(id));
+    assert_eq!(document.primary_hints().sample_layout(), SampleLayout::NV12);
+    assert_eq!(document.primary_hints().width(), 3);
+    assert_eq!(document.primary_hints().height(), 2);
+    assert_eq!(document.primary_hints().stride(), 0);
+    let output = document.encode(&EncodeOptions::new()).unwrap();
+    Reader::open(&output)
+        .unwrap()
+        .validate_known_payloads(&PayloadLimits::EMBEDDED)
+        .unwrap();
+    document
+        .get_mut(id)
+        .unwrap()
+        .replace_image(&RawImageAsset::new(surface, &[&[42; 8]]))
+        .unwrap();
+    assert!(document.image(id).unwrap().raw().is_some());
+    assert_eq!(document.primary_hints().stride(), 8);
+}
+
+#[test]
+fn typed_encoded_edit_failures_leave_flat_and_primary_storage_unchanged() {
+    use mirx::{ColorFormat, ImageAsset, Layout};
+    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let valid = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
+    let invalid = EncodedImageAsset::new(surface, Rle::new().record(), &[0xff]);
+    let mut document = Document::new_flat(ImageAsset::new(
+        8,
+        1,
+        ColorFormat::A8,
+        8,
+        (&b"01234567"[..]).into(),
+    ))
+    .unwrap();
+    let before = document.encode(&EncodeOptions::new()).unwrap();
+    assert!(document.push_encoded_image(&invalid).is_err());
+    assert_eq!(document.layout(), Layout::Flat);
+    assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), before);
+    let id = document.push_encoded_image(&valid).unwrap();
+    assert_eq!(document.layout(), Layout::Chunk);
+    assert!(
+        document
+            .image(document.primary().unwrap())
+            .unwrap()
+            .raw()
+            .is_some()
+    );
+    document.set_primary(id).unwrap();
+    let before = document.encode(&EncodeOptions::new()).unwrap();
+    let pointer = document.get(id).unwrap().payload_bytes().unwrap().as_ptr();
+    assert!(
+        document
+            .get_mut(id)
+            .unwrap()
+            .replace_encoded_image(&invalid)
+            .is_err()
+    );
+    assert_eq!(
+        document.get(id).unwrap().payload_bytes().unwrap().as_ptr(),
+        pointer
+    );
+    assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), before);
+    let meta = document.push_meta(&Meta::default()).unwrap();
+    assert_eq!(
+        document
+            .get_mut(meta)
+            .unwrap()
+            .replace_encoded_image(&invalid),
+        Err(EditError::InvalidChunkType)
+    );
+    for limits in [
+        PayloadLimits::EMBEDDED.with_max_decoded_bytes(7),
+        PayloadLimits::EMBEDDED.with_max_image_groups(0),
+        PayloadLimits::EMBEDDED.with_max_image_units(0),
+        PayloadLimits::EMBEDDED.with_max_image_work(0),
+    ] {
+        let mut document = Document::new_with_limits(limits);
+        assert!(document.push_encoded_image(&valid).is_err());
+        assert_eq!(document.chunks().count(), 0);
+    }
 }

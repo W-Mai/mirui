@@ -82,6 +82,16 @@ impl<'document, 'source> DocumentChunkMut<'document, 'source> {
         self.document.replace_image(id, image)
     }
 
+    /// Replaces IMAGE storage with already encoded samples after bounded preflight.
+    /// Exact canonical bytes are a no-op; changes own one final payload.
+    pub fn replace_encoded_image(
+        &mut self,
+        image: &crate::image::EncodedImageAsset<'_>,
+    ) -> Result<(), EditError> {
+        let id = self.id();
+        self.document.replace_encoded_image(id, image)
+    }
+
     /// Replaces this chunk with a checked FONT payload.
     pub fn replace_font(&mut self, font: &Font) -> Result<(), EditError> {
         let id = self.id();
