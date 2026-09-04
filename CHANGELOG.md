@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Constant-space encoded group validation.** Shared canonical checks cover static geometry, DATA/index consumption and file alignment without a stored group table. Conservative parsing charges and geometric budgets bound repeated resolution; cached caller workspace remains available for repeated access.
+
 - **Explicit IMAGE storage references.** One metadata parse selects verified RAW surfaces or encoded metadata without allocation or parser fallback. Common surface and palette access retains distinct integrity, alignment and decode contracts.
 
 - **Single-stream IMAGE authoring.** Borrowed encoded bytes and coding records support exact sizing, checked caller-buffer writes and canonical comparison. Default groups and indexes are omitted; palettes and input alignment remain explicit, with shared RAW/encoded directory and checksum emission.

@@ -154,6 +154,148 @@ fn split_records() -> [UnitGroupRecord; 2] {
 const SPLIT_INDEX: [u8; 16] = [0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0];
 
 #[test]
+fn constant_space_and_prepared_validation_share_static_contracts() {
+    let mut overlap = SPLIT_INDEX;
+    overlap[8] = 1;
+    let mut temporal = split_records();
+    temporal[1] = temporal[1].with_reference(ReferenceMode::Previous);
+    let mut missing_coding = split_records();
+    missing_coding[1] = UnitGroupRecord::new(3, 2..4).unwrap();
+    for (records, index, data) in [
+        (split_records(), SPLIT_INDEX, &[1; 4][..]),
+        (split_records(), overlap, &[1; 4][..]),
+        (temporal, SPLIT_INDEX, &[1; 4][..]),
+        (missing_coding, SPLIT_INDEX, &[1; 4][..]),
+        (split_records(), SPLIT_INDEX, &[1; 5][..]),
+    ] {
+        let bytes = payload(
+            surface(),
+            &[coding()],
+            Some(&records),
+            Some(&index),
+            data,
+            None,
+            None,
+        );
+        let image = EncodedImageView::open(&bytes).unwrap();
+        let mut workspace = [None; 2];
+        let prepared = image
+            .groups_into(&mut workspace, &mut CoverageBudget::new(10_000))
+            .map(|_| ());
+        assert_eq!(
+            image.validate_groups(&mut CoverageBudget::new(10_000)),
+            prepared
+        );
+    }
+    let yuv = SurfaceDescriptor::new(
+        3,
+        3,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let records = [
+        UnitGroupRecord::new(0, 0..9)
+            .unwrap()
+            .with_planes(super::super::GroupPlanes::Plane(0)),
+        UnitGroupRecord::new(0, 9..17)
+            .unwrap()
+            .with_planes(super::super::GroupPlanes::Plane(1)),
+    ];
+    let bytes = payload(
+        yuv,
+        &[coding()],
+        Some(&records),
+        None,
+        &[128; 17],
+        None,
+        None,
+    );
+    EncodedImageView::open(&bytes)
+        .unwrap()
+        .validate_groups(&mut CoverageBudget::new(10_000))
+        .unwrap();
+}
+
+#[test]
+fn constant_space_validation_charges_repeated_parsing_before_work() {
+    let bytes = payload(
+        surface(),
+        &[coding()],
+        Some(&split_records()),
+        Some(&SPLIT_INDEX),
+        &[1; 4],
+        None,
+        None,
+    );
+    let image = EncodedImageView::open(&bytes).unwrap();
+    let mut budget = CoverageBudget::new(10_000);
+    image.validate_groups(&mut budget).unwrap();
+    let used = 10_000 - budget.remaining();
+    let mut workspace = [None; 2];
+    let mut cached_budget = CoverageBudget::new(10_000);
+    image
+        .groups_into(&mut workspace, &mut cached_budget)
+        .unwrap();
+    assert!(used > 10_000 - cached_budget.remaining() + 2 * (1 + 2 + 16));
+    assert_eq!(
+        image.validate_groups(&mut CoverageBudget::new(used)),
+        Ok(())
+    );
+    assert_eq!(
+        image.validate_groups(&mut CoverageBudget::new(used - 1)),
+        Err(EncodedImageError::Coverage(CoverageError::BudgetExceeded))
+    );
+    let mut too_small = CoverageBudget::new(18);
+    assert_eq!(
+        image.validate_groups(&mut too_small),
+        Err(EncodedImageError::Coverage(CoverageError::BudgetExceeded))
+    );
+    assert_eq!(too_small.remaining(), 18);
+    let empty =
+        SurfaceDescriptor::new(0, u32::MAX, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let bytes = payload(empty, &[coding()], None, None, &[], None, None);
+    EncodedImageView::open(&bytes)
+        .unwrap()
+        .validate_groups(&mut CoverageBudget::new(100))
+        .unwrap();
+}
+
+#[test]
+fn group_validation_does_not_claim_checksum_or_codec_support() {
+    let mut bytes = payload(
+        surface(),
+        &[coding()],
+        Some(&split_records()),
+        Some(&SPLIT_INDEX),
+        &[1; 4],
+        None,
+        Some(&[2, 2]),
+    );
+    let data = crate::image::test_support::data_offset(&bytes);
+    bytes[data] ^= 1;
+    let image = EncodedImageView::open(&bytes).unwrap();
+    assert_eq!(
+        image.validate_groups(&mut CoverageBudget::new(10_000)),
+        Ok(())
+    );
+    assert!(image.validate_data().is_err());
+    let mut workspace = [None; 2];
+    let groups = image
+        .groups_into(&mut workspace, &mut CoverageBudget::new(100))
+        .unwrap();
+    assert!(matches!(
+        groups
+            .get(0)
+            .unwrap()
+            .get(0)
+            .unwrap()
+            .decode_plan(super::super::SurfaceRequirements::new()),
+        Err(super::super::UnitDecodeError::UnsupportedCoding(_))
+    ));
+}
+
+#[test]
 fn implicit_group_metadata_and_data_validation_remain_separate() {
     let bytes = payload(
         surface(),

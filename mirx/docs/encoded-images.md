@@ -62,6 +62,7 @@ The common media header and metadata CRC are parsed once. CODINGS presence selec
 | `asset.encoded_len` / `encode_into` | Surface and palette agreement, single-unit geometry, lengths, placement and output capacity |
 | `EncodedImageView::open` | Metadata CRC, sections and typed metadata; no DATA scan |
 | `image.groups_into` | Group geometry, static coverage, indexes and declared file alignment |
+| `image.validate_groups` | The same group checks without a stored group table, under a conservative work budget |
 | `groups.validate_unit` | Declared checksum coverage, reported as bytes read |
 | `unit.decode_plan` | Supported profile syntax, exact decoded length and target memory requirements |
 | `plan.decode_into` | Actual target address/capacity, then reconstruction into caller storage |
@@ -69,5 +70,13 @@ The common media header and metadata CRC are parsed once. CODINGS presence selec
 Unknown nonzero coding IDs, revisions and parameters remain representable. Even known-profile bytes are not decoded during authoring; malformed streams can be preserved but fail explicit decode preflight. Checksums prove byte integrity, not valid coding syntax.
 
 Errors from `encode_into` preserve the entire output; success preserves its unused suffix. Canonical comparison includes directory entries, padding and both checksums. `image::ImageEncodeError` is shared by RAW and encoded surface authoring. The packed `ImageAsset` facade retains its payload-validation error wrapper.
+
+## Validation workspace
+
+Use `groups_into` when subsequent access benefits from prepared groups. Its caller-owned table prevents repeated index parsing; the supplied `CoverageBudget` bounds geometric group/pair/selected-cell work. Capacity errors preserve workspace, while other failures may change its used prefix.
+
+Use `validate_groups` when only a validation result is needed. It stores no group table, validates all immutable records once, then resolves them again as the coverage algorithm needs them. Every resolution charges one record visit plus its declared DATA span and the entire UNIT_INDEX section length before index/group parsing. DATA span conservatively bounds nonempty unit visits; index bytes bound selection/range scans. Geometric work is charged separately through the same budget.
+
+This conservative accounting can reject a many-group image earlier than cached validation, especially when groups share a large index section. Increase the explicit budget or provide workspace instead of assuming an index guarantees cheap validation. Exhaustion never returns success. These units describe bounded work, not actual bytes read, memory usage or elapsed time. Neither validation path decodes samples or verifies DATA checksums.
 
 The asset writer accepts one stream, not a list of separately encoded tiles. It does not integrate compressed storage into `ImageSource`, `Document::push_image` or runtime rendering. Unit-index APIs and group readers describe grouped storage independently.

@@ -5,6 +5,8 @@ use super::{GroupPlanes, SurfaceDescriptor, TileGrid, UnitGroup};
 /// One operation is a group/pair visit, selected-unit visit, or spatial query.
 /// Indexed queries have the bounded lookup costs of UnitSelection. No budget
 /// exhaustion is treated as valid coverage; callers can retry with more work.
+/// Constant-space encoded group validation also charges its documented
+/// conservative record/index re-resolution costs through this budget.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CoverageBudget {
     remaining: u64,
@@ -20,9 +22,12 @@ impl CoverageBudget {
         self.remaining
     }
     fn spend(&mut self) -> Result<(), CoverageError> {
+        self.spend_many(1)
+    }
+    pub(crate) fn spend_many(&mut self, operations: u64) -> Result<(), CoverageError> {
         self.remaining = self
             .remaining
-            .checked_sub(1)
+            .checked_sub(operations)
             .ok_or(CoverageError::BudgetExceeded)?;
         Ok(())
     }
@@ -36,18 +41,18 @@ impl SurfaceDescriptor {
         groups: &[UnitGroup<'_>],
         budget: &mut CoverageBudget,
     ) -> Result<(), CoverageError> {
-        self.validate_coverage_by(groups.len(), |index| groups[index], budget)
+        self.validate_coverage_by(groups.len(), |index, _| Ok(groups[index]), budget)
     }
 
     pub(crate) fn validate_coverage_by<'a>(
         self,
         count: usize,
-        group_at: impl Fn(usize) -> UnitGroup<'a>,
+        group_at: impl Fn(usize, &mut CoverageBudget) -> Result<UnitGroup<'a>, CoverageError>,
         budget: &mut CoverageBudget,
     ) -> Result<(), CoverageError> {
         for index in 0..count {
             budget.spend()?;
-            let group = group_at(index);
+            let group = group_at(index, budget)?;
             if group.surface() != self {
                 return Err(CoverageError::SurfaceMismatch);
             }
@@ -58,7 +63,7 @@ impl SurfaceDescriptor {
             let mut actual = 0u64;
             for index in 0..count {
                 budget.spend()?;
-                let group = group_at(index);
+                let group = group_at(index, budget)?;
                 actual = actual
                     .checked_add(group.covered_area(plane, budget)?)
                     .ok_or(CoverageError::AreaOverflow)?;
@@ -71,9 +76,9 @@ impl SurfaceDescriptor {
                 });
             }
             for index in 0..count {
-                let group = group_at(index);
+                let group = group_at(index, budget)?;
                 for other in index + 1..count {
-                    if group.overlaps(group_at(other), plane, budget)? {
+                    if group.overlaps(group_at(other, budget)?, plane, budget)? {
                         return Err(CoverageError::Overlap { plane });
                     }
                 }

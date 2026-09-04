@@ -15,6 +15,33 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn constant_space_group_validation_has_no_hidden_table() {
+    use mirx::{
+        coding::Rle,
+        image::{CoverageBudget, EncodedImageAsset, EncodedImageView},
+    };
+    let surface = SurfaceDescriptor::new(
+        3,
+        3,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x90, 128])
+        .with_input_alignment(64)
+        .encode()
+        .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let image = EncodedImageView::open_at(&bytes, 0).unwrap();
+        image
+            .validate_groups(&mut CoverageBudget::new(10_000))
+            .unwrap();
+        assert!(image.validate_groups(&mut CoverageBudget::new(0)).is_err());
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn image_storage_dispatch_does_not_allocate_or_decode() {
     use mirx::{
         coding::Rle,

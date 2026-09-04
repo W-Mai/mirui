@@ -172,11 +172,83 @@ impl<'a> EncodedImageView<'a> {
         }
         let workspace = &mut workspace[..count];
         workspace.fill(None);
+        self.visit_groups(None, |index, group| workspace[index] = Some(group))?;
+        self.surface
+            .validate_coverage_by(
+                count,
+                |index, _| Ok(workspace[index].expect("prepared group")),
+                budget,
+            )
+            .map_err(EncodedImageError::Coverage)?;
+        Ok(ImageGroups {
+            image: self,
+            groups: workspace,
+        })
+    }
+
+    /// Validates groups and exact static coverage without storing a group table.
+    ///
+    /// Immutable records are re-resolved during coverage checks. Each resolution
+    /// charges one record visit, its DATA span and the complete UNIT_INDEX byte
+    /// count before parsing, in addition to geometric coverage work. This is a
+    /// conservative work bound, not bytes read or elapsed time. Prepared caller
+    /// workspace avoids those repeated scans. Codec syntax and DATA checksums
+    /// remain separate checks.
+    pub fn validate_groups(self, budget: &mut CoverageBudget) -> Result<(), EncodedImageError> {
+        self.visit_groups(Some(budget), |_, _| {})?;
+        self.surface
+            .validate_coverage_by(
+                self.group_count(),
+                |index, budget| {
+                    let record = self.record(index).expect("validated group record");
+                    budget.spend_many(self.resolution_cost(record))?;
+                    Ok(self
+                        .resolve_record(index, record)
+                        .expect("validated immutable group")
+                        .0)
+                },
+                budget,
+            )
+            .map_err(EncodedImageError::Coverage)
+    }
+
+    fn resolution_cost(self, record: UnitGroupRecord) -> u64 {
+        1 + u64::from(record.data_range().end - record.data_range().start)
+            + self
+                .indexes
+                .map_or(0, |section| section.bytes().len() as u64)
+    }
+
+    fn resolve_record(
+        self,
+        index: usize,
+        record: UnitGroupRecord,
+    ) -> Result<(UnitGroup<'a>, core::ops::Range<u32>), EncodedImageError> {
+        record
+            .resolve_with_index_range(
+                self.surface,
+                self.codings,
+                self.data.bytes(),
+                self.indexes.map_or(&[][..], |section| section.bytes()),
+            )
+            .map_err(|error| EncodedImageError::Group { index, error })
+    }
+
+    fn visit_groups(
+        self,
+        mut budget: Option<&mut CoverageBudget>,
+        mut visit: impl FnMut(usize, UnitGroup<'a>),
+    ) -> Result<(), EncodedImageError> {
         let index_bytes = self.indexes.map_or(&[][..], |section| section.bytes());
         let mut data_end = 0u32;
         let mut index_end = 0u32;
-        for (index, slot) in workspace.iter_mut().enumerate() {
+        for index in 0..self.group_count() {
             let record = self.record(index)?;
+            if let Some(budget) = budget.as_deref_mut() {
+                budget
+                    .spend_many(self.resolution_cost(record))
+                    .map_err(EncodedImageError::Coverage)?;
+            }
             if record.reference() != ReferenceMode::Independent {
                 return Err(EncodedImageError::ReferenceInStaticImage(index));
             }
@@ -205,14 +277,7 @@ impl<'a> EncodedImageView<'a> {
                     });
                 }
             }
-            let (group, range) = record
-                .resolve_with_index_range(
-                    self.surface,
-                    self.codings,
-                    self.data.bytes(),
-                    index_bytes,
-                )
-                .map_err(|error| EncodedImageError::Group { index, error })?;
+            let (group, range) = self.resolve_record(index, record)?;
             if group.is_empty() && self.records.is_some() {
                 return Err(EncodedImageError::EmptyGroup(index));
             }
@@ -227,7 +292,7 @@ impl<'a> EncodedImageView<'a> {
                 index_end = range.end;
             }
             data_end = record.data_range().end;
-            *slot = Some(group);
+            visit(index, group);
         }
         if data_end != self.data.descriptor().size() {
             return Err(EncodedImageError::UnreferencedData);
@@ -235,17 +300,7 @@ impl<'a> EncodedImageView<'a> {
         if index_end as usize != index_bytes.len() {
             return Err(EncodedImageError::UnreferencedIndexes);
         }
-        self.surface
-            .validate_coverage_by(
-                count,
-                |index| workspace[index].expect("prepared group"),
-                budget,
-            )
-            .map_err(EncodedImageError::Coverage)?;
-        Ok(ImageGroups {
-            image: self,
-            groups: workspace,
-        })
+        Ok(())
     }
 }
 
