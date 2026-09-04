@@ -228,7 +228,7 @@ impl<'a> RawImageView<'a> {
     }
 }
 
-/// One borrowed RAW image plane and its logical and physical descriptors.
+/// One borrowed decoded plane and its logical and physical descriptors.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SurfacePlane<'a> {
     pub(super) geometry: PlaneGeometry,

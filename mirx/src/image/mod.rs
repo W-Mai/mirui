@@ -80,8 +80,8 @@ pub use surface::{
     SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError,
 };
 pub use units::{
-    DecodeUnitRef, DecodeUnits, GroupPlanes, GroupSelection, ReferenceMode, UNIT_GROUP_RECORD_LEN,
-    UnitGroup, UnitGroupBuilder, UnitGroupError, UnitGroupRecord, UnitGroupRecordError,
-    UnitMemoryPlan, UnitPlane, UnitPlanes,
+    DecodeUnitRef, DecodeUnits, DecodedUnit, GroupPlanes, GroupSelection, ReferenceMode,
+    UNIT_GROUP_RECORD_LEN, UnitDecodeError, UnitDecodePlan, UnitGroup, UnitGroupBuilder,
+    UnitGroupError, UnitGroupRecord, UnitGroupRecordError, UnitMemoryPlan, UnitPlane, UnitPlanes,
 };
 pub use view::{RawImagePlanes, RawImageView, RawImageViewError, SurfacePlane};

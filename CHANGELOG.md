@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Strided pixel unit decoding.** Profile preflight and checked unit geometry drive direct decoding into caller-aligned plane rows. Padding is initialized deterministically, errors preserve output, and borrowed decoded units retain source regions without retaining encoded storage.
+
 - **Lossless pixel sample coding.** Independent RGB888/RGBA8888 streams support color-cache references, channel deltas, and runs. Exact sizing, checked encoding, and validated decode plans use caller-owned output without allocation; errors preserve destination bytes.
 
 - **Decoded-unit memory plans.** Shared surface/unit planning derives selected-plane allocations, byte strides, offsets, and buffer alignment without heap allocation. Unit planes retain source origins and original plane indices, including odd chroma edges and sub-byte regions.

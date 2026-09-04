@@ -3,8 +3,10 @@ use core::{iter::FusedIterator, ops::Range};
 use super::{Region, RegionError, SurfaceDescriptor, TileGrid, TileGridError};
 use crate::media::{CodingRecord, UnitIndex, UnitIndexError, UnitSelection, UnitSelectionError};
 
+mod decode;
 mod plan;
 mod wire;
+pub use decode::{DecodedUnit, UnitDecodeError, UnitDecodePlan};
 pub use plan::{UnitMemoryPlan, UnitPlane, UnitPlanes};
 pub use wire::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord, UnitGroupRecordError};
 

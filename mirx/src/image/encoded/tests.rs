@@ -9,6 +9,59 @@ use alloc::{vec, vec::Vec};
 fn surface() -> SurfaceDescriptor {
     SurfaceDescriptor::new(4, 1, SampleLayout::A8, ColorDescription::NONE).unwrap()
 }
+
+#[test]
+fn encoded_metadata_integrity_and_strided_pixel_execution_share_unit_geometry() {
+    use crate::coding::Pixel;
+    use crate::image::SurfaceRequirements;
+
+    let surface =
+        SurfaceDescriptor::new(3, 2, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
+    let codec = Pixel::new(surface.sample_layout()).unwrap();
+    for indexed in [false, true] {
+        let mut bytes = payload(
+            surface,
+            &[codec.record()],
+            None,
+            None,
+            &[5],
+            None,
+            if indexed { Some(&[1]) } else { None },
+        );
+        let view = EncodedImageView::open(&bytes).unwrap();
+        let mut slots = [None];
+        let groups = view
+            .groups_into(&mut slots, &mut CoverageBudget::new(100))
+            .unwrap();
+        assert_eq!(groups.validate_unit(0, 0), Ok(1));
+        let unit = groups.get(0).unwrap().get(0).unwrap();
+        let plan = unit
+            .decode_plan(SurfaceRequirements::new().with_stride_multiple(16))
+            .unwrap();
+        let mut output = [0xad; 40];
+        let decoded = plan.decode_into(&mut output).unwrap();
+        assert_eq!(decoded.plane(0).unwrap().memory().stride(), 16);
+        assert_eq!(decoded.plane(0).unwrap().row(1).unwrap(), Some(&[0; 9][..]));
+        assert_eq!(&output[..32], &[0; 32]);
+        assert_eq!(&output[32..], &[0xad; 8]);
+
+        let data = view
+            .media()
+            .sections()
+            .find(|section| section.descriptor().kind() == MediaSectionKind::DATA)
+            .unwrap()
+            .descriptor()
+            .offset() as usize;
+        bytes[data] ^= 1;
+        // Metadata opening and group preparation do not scan DATA implicitly.
+        let view = EncodedImageView::open(&bytes).unwrap();
+        let mut slots = [None];
+        let groups = view
+            .groups_into(&mut slots, &mut CoverageBudget::new(100))
+            .unwrap();
+        assert!(groups.validate_unit(0, 0).is_err());
+    }
+}
 fn coding() -> CodingRecord<'static> {
     CodingRecord::new(CodingId::new(19), 1, &[])
 }

@@ -70,6 +70,11 @@ impl DecodeUnitRef<'_> {
 }
 
 impl UnitMemoryPlan {
+    /// Original logical surface; output planes have their own local extents.
+    pub const fn source_surface(self) -> SurfaceDescriptor {
+        self.surface
+    }
+
     pub const fn requirements(self) -> SurfaceRequirements {
         self.requirements
     }

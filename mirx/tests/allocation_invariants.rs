@@ -15,6 +15,37 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn pixel_unit_plan_and_strided_execution_need_no_staging_allocation() {
+    use mirx::image::UnitGroup;
+    #[repr(align(64))]
+    struct Buffer([u8; 256]);
+    let mut output = Buffer([0xad; 256]);
+    let (height, allocations) = count_allocations(|| {
+        let surface =
+            SurfaceDescriptor::new(20, 2, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
+        let codec = mirx::coding::Pixel::new(surface.sample_layout()).unwrap();
+        let unit = UnitGroup::builder(surface, codec.record(), &[39])
+            .build()
+            .unwrap()
+            .get(0)
+            .unwrap();
+        let plan = unit
+            .decode_plan(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_stride_multiple(64),
+            )
+            .unwrap();
+        let decoded = plan.decode_into(&mut output.0).unwrap();
+        decoded.plane(0).unwrap().geometry().height()
+    });
+    assert_eq!(height, 2);
+    assert_eq!(allocations, 0);
+    assert_eq!(&output.0[..4], &[0, 0, 0, 255]);
+    assert_eq!(&output.0[80..128], &[0; 48]);
+}
+
+#[test]
 fn pixel_count_encode_plan_and_decode_allocate_nothing() {
     let samples = [11, 22, 33, 255, 11, 22, 33, 255, 12, 23, 34, 255];
     let mut encoded = [0; 32];
