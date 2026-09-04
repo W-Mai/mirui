@@ -35,6 +35,8 @@
 //! let view = RawImageAsset::new(surface, &[&y, &uv]).view().unwrap();
 //! assert_eq!(view.plane(0).unwrap().bytes(), y);
 //! assert_eq!(view.plane(1).unwrap().memory().stride(), 2);
+//! let bytes = view.encode().unwrap();
+//! assert!(view.matches_payload(&bytes).unwrap());
 //! ```
 
 mod borrowed;

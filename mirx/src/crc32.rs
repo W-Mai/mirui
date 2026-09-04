@@ -28,14 +28,28 @@ const fn build_table() -> [u32; 256] {
 }
 
 pub fn compute(buf: &[u8]) -> u32 {
-    let mut crc = 0xFFFF_FFFFu32;
-    let mut i = 0;
-    while i < buf.len() {
-        let idx = ((crc ^ buf[i] as u32) & 0xFF) as usize;
-        crc = (crc >> 8) ^ TABLE[idx];
-        i += 1;
+    let mut crc = Crc32::new();
+    crc.update(buf);
+    crc.finish()
+}
+
+pub(crate) struct Crc32(u32);
+
+impl Crc32 {
+    pub(crate) const fn new() -> Self {
+        Self(0xFFFF_FFFF)
     }
-    crc ^ 0xFFFF_FFFF
+
+    pub(crate) fn update(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            let index = ((self.0 ^ u32::from(byte)) & 0xff) as usize;
+            self.0 = (self.0 >> 8) ^ TABLE[index];
+        }
+    }
+
+    pub(crate) const fn finish(self) -> u32 {
+        self.0 ^ 0xFFFF_FFFF
+    }
 }
 
 #[cfg(test)]
@@ -53,6 +67,18 @@ mod tests {
         assert_eq!(compute(b"123456789"), 0xCBF43926);
         assert_eq!(compute(b"a"), 0xE8B7BE43);
         assert_eq!(compute(b"abc"), 0x352441C2);
+    }
+
+    #[test]
+    fn streaming_is_independent_of_segment_boundaries() {
+        let bytes = b"123456789";
+        for split in 0..=bytes.len() {
+            let mut crc = Crc32::new();
+            crc.update(&bytes[..split]);
+            crc.update(&[]);
+            crc.update(&bytes[split..]);
+            assert_eq!(crc.finish(), compute(bytes));
+        }
     }
 
     #[test]

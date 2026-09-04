@@ -250,7 +250,9 @@ fn raw_image_sizing_encoding_and_reopen_allocate_nothing() {
     let mut output = vec![0xa5; needed + 11];
 
     let (observed, allocations) = count_allocations(|| {
-        let written = asset.encode_into(&mut output).unwrap();
+        let view = asset.view().unwrap();
+        let written = view.encode_into(&mut output).unwrap();
+        assert!(view.matches_payload(&output[..written]).unwrap());
         let image = RawImageView::open(&output[..written]).unwrap();
         (
             written,
