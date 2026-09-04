@@ -143,6 +143,9 @@ impl EncodedImageView<'_> {
     pub fn preflight(self, limits: &PayloadLimits) -> Result<(), EncodedImageError> {
         let mut preflight = Preflight::new(limits, self.group_count())?;
         preflight.groups(self.group_source())?;
+        // Group preflight already charged the selected DATA body. Whole-media
+        // integrity also reads any other DATA sections sharing this payload.
+        preflight.spend(u64::from(self.checksum_bytes) - self.data.bytes().len() as u64)?;
         self.validate_data()
     }
 }

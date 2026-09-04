@@ -20,6 +20,8 @@ pub use decode::{DecodeError, ImageDecodePlan};
 pub use encode::EncodedImageAsset;
 
 #[cfg(test)]
+mod sections_tests;
+#[cfg(test)]
 mod tests;
 
 /// Borrowed encoded IMAGE metadata; opening does not decode or scan DATA.
@@ -33,6 +35,16 @@ pub struct EncodedImageView<'a> {
     indexes: Option<MediaSection<'a>>,
     color_table: Option<ColorTableView<'a>>,
     file_offset: Option<u32>,
+    checksum_bytes: u32,
+}
+
+/// Resolved directory entries, without resource-specific selection policy.
+struct EncodedSections<'a> {
+    codings: Option<MediaSection<'a>>,
+    data: Option<MediaSection<'a>>,
+    records: Option<MediaSection<'a>>,
+    indexes: Option<MediaSection<'a>>,
+    color_table: Option<MediaSection<'a>>,
 }
 
 impl<'a> EncodedImageView<'a> {
@@ -120,6 +132,33 @@ impl<'a> EncodedImageView<'a> {
         }
         let surface =
             SurfaceDescriptor::from_record(surface.bytes()).map_err(EncodedImageError::Surface)?;
+        Self::from_sections(
+            media,
+            surface,
+            EncodedSections {
+                codings,
+                data,
+                records,
+                indexes,
+                color_table,
+            },
+            file_offset,
+        )
+    }
+
+    fn from_sections(
+        media: MediaPayload<'a>,
+        surface: SurfaceDescriptor,
+        sections: EncodedSections<'a>,
+        file_offset: Option<u32>,
+    ) -> Result<Self, EncodedImageError> {
+        let EncodedSections {
+            codings,
+            data,
+            records,
+            indexes,
+            color_table,
+        } = sections;
         let codings = CodingTable::open(
             codings
                 .ok_or(EncodedImageError::MissingSection(MediaSectionKind::CODINGS))?
@@ -151,6 +190,11 @@ impl<'a> EncodedImageView<'a> {
             indexes,
             color_table,
             file_offset,
+            // Validated disjoint DATA spans fit inside the u32 payload boundary.
+            checksum_bytes: media
+                .sections_of_kind(MediaSectionKind::DATA)
+                .map(|section| section.descriptor().size())
+                .sum(),
         })
     }
 

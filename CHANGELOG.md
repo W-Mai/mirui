@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shared encoded-section validation.** Coding and group bodies reuse one binding path independent of resource directory selection. Whole-surface preflight and reconstruction account for every DATA body they verify; local requests retain partition-scoped integrity and exact checksum budgets.
+
 - **Borrowed FONT representation tables.** Direct scalar-surface binding derives depth and decoded cost from shared records, with explicit representation-count bounds before parsing. Native and wire tables share identity validation and size ranking, returning inline records and selection results without allocation.
 
 - **Referenced RAW glyph binding.** Glyph surface records bind matching cell/atlas maps to exact PLANES and DATA sections through shared storage validation. Repeated section kinds retain precise ordinal addressing, and glyph lookup does not trigger implicit full-DATA checksum scans.

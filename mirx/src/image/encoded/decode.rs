@@ -65,7 +65,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
             .memory_plan(requirements)
             .map_err(DecodeError::Memory)?;
         preflight
-            .spend(u64::from(memory.byte_len()) + self.image.data.bytes().len() as u64)
+            .spend(u64::from(memory.byte_len()) + u64::from(self.image.checksum_bytes))
             .map_err(DecodeError::Image)?;
         let mut workspace = 0;
         let mut input_bytes = 0;
@@ -91,7 +91,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
             units: preflight.total_units(),
             work: preflight.work(),
             input_bytes,
-            checksum_bytes: self.image.data.bytes().len() as u64,
+            checksum_bytes: u64::from(self.image.checksum_bytes),
         })
     }
 }
