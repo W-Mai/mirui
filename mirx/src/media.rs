@@ -8,11 +8,15 @@ use core::iter::FusedIterator;
 
 mod coding;
 mod index;
+mod integrity;
 pub use coding::{
     CODING_RECORD_LEN, CODING_TABLE_HEADER_LEN, CodingRecord, CodingTable, CodingTableError,
 };
 pub use index::{
     UNIT_CHECKPOINT_INTERVAL, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges,
+};
+pub use integrity::{
+    INTEGRITY_RECORD_LEN, IntegrityError, IntegrityRange, IntegrityRanges, IntegrityTable,
 };
 
 use crate::crc32::Crc32;
@@ -61,6 +65,15 @@ pub struct MediaFlags(u8);
 
 impl MediaFlags {
     pub const NONE: Self = Self(0);
+    /// INTEGRITY records replace the whole-DATA checksum trailer.
+    pub const INDEXED_INTEGRITY: Self = Self(1);
+
+    pub const fn has_indexed_integrity(self) -> bool {
+        self.0 & Self::INDEXED_INTEGRITY.0 != 0
+    }
+    pub const fn unknown_bits(self) -> u8 {
+        self.0 & !Self::INDEXED_INTEGRITY.0
+    }
 
     pub const fn from_bits_retain(bits: u8) -> Self {
         Self(bits)
@@ -85,6 +98,7 @@ impl MediaSectionKind {
     pub const COLOR_TABLE: Self = Self(0x0006);
 
     pub const UNIT_INDEX: Self = Self(0x0007);
+    pub const INTEGRITY: Self = Self(0x0008);
 
     pub const FACE: Self = Self(0x0010);
     pub const CODEPOINTS: Self = Self(0x0011);
@@ -216,6 +230,17 @@ pub enum MediaPayloadError {
     },
     UnsupportedVersion(u8),
     InvalidAlignment(u32),
+    InvalidDataRange,
+    MissingIntegrityTable,
+    UnexpectedIntegrityTable,
+    DuplicateIntegrityTable,
+    IntegrityTableMustBeRequired,
+    Integrity(IntegrityError),
+    RangeCrcMismatch {
+        offset: u32,
+        expected: u32,
+        actual: u32,
+    },
     MetadataCrcMismatch {
         expected: u32,
         actual: u32,
@@ -261,6 +286,7 @@ pub struct MediaPayload<'a> {
     payload: &'a [u8],
     header: MediaHeader,
     directory: &'a [u8],
+    integrity: Option<IntegrityTable<'a>>,
 }
 
 impl<'a> MediaPayload<'a> {
@@ -285,7 +311,15 @@ impl<'a> MediaPayload<'a> {
                 return Err(MediaPayloadError::UnsupportedVersion(version));
             }
         }
-        let needed = MEDIA_HEADER_LEN + MEDIA_CRC_LEN;
+        let trailer_len = if payload
+            .get(1)
+            .is_some_and(|&flags| MediaFlags::from_bits_retain(flags).has_indexed_integrity())
+        {
+            0
+        } else {
+            MEDIA_CRC_LEN
+        };
+        let needed = MEDIA_HEADER_LEN + trailer_len;
         if payload.len() < needed {
             return Err(MediaPayloadError::Truncated {
                 needed,
@@ -294,7 +328,7 @@ impl<'a> MediaPayload<'a> {
         }
         u32::try_from(payload.len()).map_err(|_| MediaPayloadError::SizeOverflow)?;
         let header = MediaHeader::read(payload);
-        let covered = &payload[..payload.len() - MEDIA_CRC_LEN];
+        let covered = &payload[..payload.len() - trailer_len];
         let directory_end = usize::from(header.section_count)
             .checked_mul(MEDIA_SECTION_LEN)
             .and_then(|len| MEDIA_HEADER_LEN.checked_add(len))
@@ -304,23 +338,110 @@ impl<'a> MediaPayload<'a> {
         }
         let directory = &covered[MEDIA_HEADER_LEN..directory_end];
         validate_sections(covered, directory, header.section_count, directory_end)?;
-        Ok(Self {
+        let mut media = Self {
             payload,
             header,
             directory,
-        })
+            integrity: None,
+        };
+        let mut tables = media.sections_of_kind(MediaSectionKind::INTEGRITY);
+        let section = tables.next();
+        if tables.next().is_some() {
+            return Err(MediaPayloadError::DuplicateIntegrityTable);
+        }
+        match (header.flags.has_indexed_integrity(), section) {
+            (false, None) => {}
+            (false, Some(_)) => return Err(MediaPayloadError::UnexpectedIntegrityTable),
+            (true, None) => return Err(MediaPayloadError::MissingIntegrityTable),
+            (true, Some(section)) => {
+                if !section.descriptor.flags.is_required() {
+                    return Err(MediaPayloadError::IntegrityTableMustBeRequired);
+                }
+                let table =
+                    IntegrityTable::open(section.bytes()).map_err(MediaPayloadError::Integrity)?;
+                table
+                    .validate_coverage(media)
+                    .map_err(MediaPayloadError::Integrity)?;
+                media.integrity = Some(table);
+            }
+        }
+        Ok(media)
     }
 
-    /// Validates the whole-DATA coverage, scanning DATA bodies exactly once.
+    /// Validates all declared coverage, scanning DATA bodies exactly once.
     ///
     /// Metadata and inter-section padding are excluded. A successful metadata
     /// open alone does not establish DATA integrity.
     pub fn validate_data(self) -> Result<(), MediaPayloadError> {
+        if let Some(table) = self.integrity {
+            for range in table.iter() {
+                self.validate_integrity_range(range)?;
+            }
+            return Ok(());
+        }
         let expected = read_u32_le(self.payload, self.payload.len() - MEDIA_CRC_LEN)
             .expect("validated DATA checksum trailer");
         let actual = self.data_crc();
         if actual != expected {
             return Err(MediaPayloadError::DataCrcMismatch { expected, actual });
+        }
+        Ok(())
+    }
+
+    /// Returns indexed coverage, or `None` for the whole-DATA checksum form.
+    pub const fn integrity(self) -> Option<IntegrityTable<'a>> {
+        self.integrity
+    }
+
+    /// Verifies a payload-relative request contained in one DATA section.
+    ///
+    /// Returns the actual number of DATA bytes checksummed. Indexed coverage
+    /// verifies only intersecting records; whole-DATA coverage scans all DATA.
+    /// Empty requests check no DATA bytes. This operation does not perform I/O.
+    pub fn validate_data_range(
+        self,
+        requested: core::ops::Range<u32>,
+    ) -> Result<u32, MediaPayloadError> {
+        if requested.start > requested.end
+            || !self
+                .sections_of_kind(MediaSectionKind::DATA)
+                .any(|section| {
+                    let descriptor = section.descriptor();
+                    requested.start >= descriptor.offset()
+                        && requested.end <= descriptor.offset() + descriptor.size()
+                })
+        {
+            return Err(MediaPayloadError::InvalidDataRange);
+        }
+        if requested.is_empty() {
+            return Ok(0);
+        }
+        if let Some(table) = self.integrity {
+            let mut checked = 0;
+            for range in table.intersecting(requested) {
+                self.validate_integrity_range(range)?;
+                checked += range.size();
+            }
+            Ok(checked)
+        } else {
+            self.validate_data()?;
+            Ok(self
+                .sections_of_kind(MediaSectionKind::DATA)
+                .map(|section| section.descriptor().size())
+                .sum())
+        }
+    }
+
+    fn validate_integrity_range(self, range: IntegrityRange) -> Result<(), MediaPayloadError> {
+        let bytes = &self.payload[range.offset() as usize..range.range().end as usize];
+        let actual = crate::crc32::compute(bytes);
+        let expected = range.checksum();
+        if actual != expected {
+            return Err(MediaPayloadError::RangeCrcMismatch {
+                offset: range.offset(),
+                expected,
+                actual,
+            });
         }
         Ok(())
     }
@@ -575,9 +696,27 @@ pub(crate) fn refresh_checksums(payload: &mut [u8]) {
     let Ok(media) = MediaPayload::parse(payload) else {
         return;
     };
-    let data_crc = media.data_crc();
-    let end = payload.len() - MEDIA_CRC_LEN;
-    payload[end..].copy_from_slice(&data_crc.to_le_bytes());
+    if let Some(table) = media.integrity() {
+        let section_offset = media
+            .section(MediaSectionKind::INTEGRITY)
+            .unwrap()
+            .descriptor()
+            .offset() as usize;
+        let checksums: alloc::vec::Vec<_> = table
+            .iter()
+            .map(|range| {
+                crate::crc32(&payload[range.offset() as usize..range.range().end as usize])
+            })
+            .collect();
+        for (index, checksum) in checksums.into_iter().enumerate() {
+            let field = section_offset + index * INTEGRITY_RECORD_LEN + 8;
+            payload[field..field + 4].copy_from_slice(&checksum.to_le_bytes());
+        }
+    } else {
+        let data_crc = media.data_crc();
+        let end = payload.len() - MEDIA_CRC_LEN;
+        payload[end..].copy_from_slice(&data_crc.to_le_bytes());
+    }
     let metadata_crc = MediaPayload::parse(payload).unwrap().metadata_crc();
     payload[4..8].copy_from_slice(&metadata_crc.to_le_bytes());
 }
@@ -589,6 +728,170 @@ mod tests {
 
     use super::*;
     use crate::wire::{write_u16_le, write_u32_le};
+
+    fn indexed_image() -> Vec<u8> {
+        use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
+        let mut bytes = vec![0; 108];
+        bytes[0] = MEDIA_VERSION;
+        bytes[1] = MediaFlags::INDEXED_INTEGRITY.bits();
+        write_u16_le(&mut bytes, 2, 3);
+        for (index, (kind, offset, size)) in [
+            (MediaSectionKind::SURFACE, 44, 32),
+            (MediaSectionKind::INTEGRITY, 76, 24),
+            (MediaSectionKind::DATA, 100, 8),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let entry = 8 + index * 12;
+            write_u16_le(&mut bytes, entry, kind.raw());
+            write_u16_le(&mut bytes, entry + 2, 1);
+            write_u32_le(&mut bytes, entry + 4, offset);
+            write_u32_le(&mut bytes, entry + 8, size);
+        }
+        SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE)
+            .unwrap()
+            .encode_record_into(&mut bytes[44..76])
+            .unwrap();
+        bytes[100..].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
+        let ranges = [
+            IntegrityRange::new(100..104, crate::crc32(&bytes[100..104])).unwrap(),
+            IntegrityRange::new(104..108, crate::crc32(&bytes[104..108])).unwrap(),
+        ];
+        IntegrityTable::encode_into(&ranges, &mut bytes[76..100]).unwrap();
+        let mut metadata = Crc32::new();
+        metadata.update(&bytes[..4]);
+        metadata.update(&bytes[8..100]);
+        write_u32_le(&mut bytes, 4, metadata.finish());
+        bytes
+    }
+
+    #[test]
+    fn indexed_integrity_checks_only_intersecting_ranges_and_reports_cost() {
+        let mut bytes = indexed_image();
+        let media = MediaPayload::open(&bytes).unwrap();
+        assert_eq!(media.integrity().unwrap().len(), 2);
+        assert_eq!(media.validate_data_range(100..101), Ok(4));
+        assert_eq!(media.validate_data_range(103..105), Ok(8));
+        assert_eq!(media.validate_data_range(108..108), Ok(0));
+        assert_eq!(
+            media.validate_data_range(99..101),
+            Err(MediaPayloadError::InvalidDataRange)
+        );
+        media.validate_data().unwrap();
+        let image = crate::image::RawImageView::open(&bytes).unwrap();
+        assert_eq!(image.plane(0).unwrap().bytes(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert!(image.packed().is_some());
+        bytes[105] ^= 1;
+        let media = MediaPayload::open(&bytes).unwrap();
+        assert_eq!(media.validate_data_range(100..101), Ok(4));
+        assert!(matches!(
+            media.validate_data_range(103..105),
+            Err(MediaPayloadError::RangeCrcMismatch { offset: 104, .. })
+        ));
+        assert!(media.validate_data().is_err());
+        assert!(crate::image::RawImageView::open(&bytes).is_err());
+    }
+
+    #[test]
+    fn indexed_integrity_cannot_leave_gaps_cross_data_or_duplicate_coverage() {
+        for (field, value) in [(76, 99), (76, 101), (80, 3), (80, 5), (88, 103), (92, 5)] {
+            let mut bytes = indexed_image();
+            write_u32_le(&mut bytes, field, value);
+            assert!(
+                matches!(
+                    MediaPayload::open(&bytes),
+                    Err(MediaPayloadError::Integrity(_))
+                ),
+                "field {field}, value {value}"
+            );
+        }
+        let mut checksum = indexed_image();
+        checksum[84] ^= 1;
+        assert!(matches!(
+            MediaPayload::open(&checksum),
+            Err(MediaPayloadError::MetadataCrcMismatch { .. })
+        ));
+
+        let mut missing = indexed_image();
+        write_u16_le(&mut missing, 20, 0x8000);
+        assert_eq!(
+            MediaPayload::open(&missing),
+            Err(MediaPayloadError::MissingIntegrityTable)
+        );
+        let mut optional = indexed_image();
+        write_u16_le(&mut optional, 22, 0);
+        assert_eq!(
+            MediaPayload::open(&optional),
+            Err(MediaPayloadError::IntegrityTableMustBeRequired)
+        );
+        let mut duplicated = indexed_image();
+        write_u16_le(&mut duplicated, 8, MediaSectionKind::INTEGRITY.raw());
+        assert_eq!(
+            MediaPayload::open(&duplicated),
+            Err(MediaPayloadError::DuplicateIntegrityTable)
+        );
+        let mut unflagged = indexed_image();
+        unflagged[1] = 0;
+        unflagged.extend_from_slice(&[0; 4]);
+        assert_eq!(
+            MediaPayload::open(&unflagged),
+            Err(MediaPayloadError::UnexpectedIntegrityTable)
+        );
+    }
+
+    #[test]
+    fn whole_data_integrity_reports_the_full_cost_of_a_partial_request() {
+        let bytes = payload(
+            &[
+                TestSection {
+                    kind: MediaSectionKind::DATA.raw(),
+                    flags: 1,
+                    offset: 40,
+                    bytes: &[1; 8],
+                },
+                TestSection {
+                    kind: MediaSectionKind::DATA.raw(),
+                    flags: 1,
+                    offset: 52,
+                    bytes: &[2; 4],
+                },
+            ],
+            0,
+        );
+        let media = MediaPayload::open(&bytes).unwrap();
+        assert_eq!(media.integrity(), None);
+        assert_eq!(media.validate_data_range(41..42), Ok(12));
+        assert_eq!(
+            media.validate_data_range(48..52),
+            Err(MediaPayloadError::InvalidDataRange)
+        );
+    }
+
+    #[test]
+    fn indexed_raw_images_survive_document_placement_and_lossless_demotion() {
+        let bytes = indexed_image();
+        let mut document = crate::Document::new();
+        let id = document
+            .push_raw(crate::RawChunkInput::new(
+                crate::ChunkType::IMAGE,
+                bytes.as_slice(),
+            ))
+            .unwrap();
+        document.set_primary(id).unwrap();
+        let encoded = document.encode(&crate::EncodeOptions::new()).unwrap();
+        let reader = crate::Reader::open(&encoded).unwrap();
+        let chunk = reader.chunks().next().unwrap();
+        assert_eq!(chunk.payload(), bytes);
+        let image =
+            crate::image::RawImageView::open_at(chunk.payload(), chunk.payload_offset()).unwrap();
+        assert_eq!(image.plane(0).unwrap().bytes(), &[1, 2, 3, 4, 5, 6, 7, 8]);
+        assert!(document.demote_to_flat().unwrap());
+        assert_eq!(
+            document.flat_image().unwrap().main(),
+            &[1, 2, 3, 4, 5, 6, 7, 8]
+        );
+    }
 
     #[derive(Clone, Copy)]
     struct TestSection<'a> {
@@ -672,10 +975,10 @@ mod tests {
                 bytes: &[5, 6, 7],
             },
         ];
-        let bytes = payload(&sections, 0xa5);
+        let bytes = payload(&sections, 0xa4);
         let media = MediaPayload::open(&bytes).unwrap();
         let header = media.header();
-        assert_eq!(header.flags().bits(), 0xa5);
+        assert_eq!(header.flags().bits(), 0xa4);
         assert_eq!(header.section_count(), 2);
 
         let mut iter = media.sections();

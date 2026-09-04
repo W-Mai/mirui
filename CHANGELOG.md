@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Indexed DATA integrity.** Media payloads can replace the whole-DATA checksum with disjoint range checksums. `validate_data_range` verifies only intersecting indexed coverage and reports actual checksum bytes; metadata opening validates the complete coverage map without scanning DATA. RAW access accepts either integrity form.
+
 - **Shared image tile geometry.** `SurfaceDescriptor::tile_grid`, `image::Region`, and `TileGrid` derive regular regions without per-tile metadata. Joint YUV grids partition chroma samples without overlapping interior boundaries, and edge tiles retain odd logical dimensions. Lookup and bidirectional iterator skips are allocation-free and constant-time.
 
 - **Compact unit-range indexes.** `media::UnitIndex` exposes fixed, offset-table, and checkpointed-length byte ranges without allocation. `UnitIndexEncoding` provides checked caller-buffer encoding; sequential iteration and bounded random lookup share the validated range contract.

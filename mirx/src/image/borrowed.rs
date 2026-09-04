@@ -256,7 +256,7 @@ impl<'a> RawImageView<'a> {
     pub fn packed(self) -> Option<ImageView<'a>> {
         use crate::media::{MediaSectionFlags, MediaSectionKind};
         let media = self.media();
-        if media.header().flags().bits() != 0
+        if media.header().flags().unknown_bits() != 0
             || media.sections().any(|section| {
                 let descriptor = section.descriptor();
                 descriptor.flags() != MediaSectionFlags::REQUIRED
@@ -266,6 +266,7 @@ impl<'a> RawImageView<'a> {
                             | MediaSectionKind::PLANES
                             | MediaSectionKind::COLOR_TABLE
                             | MediaSectionKind::DATA
+                            | MediaSectionKind::INTEGRITY
                     )
             })
         {

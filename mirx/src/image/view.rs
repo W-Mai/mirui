@@ -91,6 +91,7 @@ impl<'a> RawImageView<'a> {
                 MediaSectionKind::PLANES => Some(&mut plane_records),
                 MediaSectionKind::COLOR_TABLE => Some(&mut color_table_section),
                 MediaSectionKind::DATA => Some(&mut data),
+                MediaSectionKind::INTEGRITY => None,
                 MediaSectionKind::CODINGS
                 | MediaSectionKind::UNIT_GROUPS
                 | MediaSectionKind::UNIT_INDEX => {

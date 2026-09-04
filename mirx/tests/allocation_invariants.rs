@@ -238,6 +238,47 @@ fn shared_tile_and_chroma_region_resolution_allocate_nothing() {
 }
 
 #[test]
+fn indexed_integrity_open_and_partial_verification_allocate_nothing() {
+    use mirx::media::{IntegrityRange, IntegrityTable, MediaFlags, MediaSectionKind};
+    let mut bytes = [0u8; 60];
+    bytes[..4].copy_from_slice(&[1, MediaFlags::INDEXED_INTEGRITY.bits(), 2, 0]);
+    for (index, (kind, offset, size)) in [
+        (MediaSectionKind::INTEGRITY, 32u32, 24u32),
+        (MediaSectionKind::DATA, 56, 4),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let entry = 8 + index * 12;
+        bytes[entry..entry + 2].copy_from_slice(&kind.raw().to_le_bytes());
+        bytes[entry + 2..entry + 4].copy_from_slice(&1u16.to_le_bytes());
+        bytes[entry + 4..entry + 8].copy_from_slice(&offset.to_le_bytes());
+        bytes[entry + 8..entry + 12].copy_from_slice(&size.to_le_bytes());
+    }
+    bytes[56..].copy_from_slice(&[1, 2, 3, 4]);
+    let ranges = [
+        IntegrityRange::new(56..58, mirx::crc32(&bytes[56..58])).unwrap(),
+        IntegrityRange::new(58..60, mirx::crc32(&bytes[58..60])).unwrap(),
+    ];
+    IntegrityTable::encode_into(&ranges, &mut bytes[32..56]).unwrap();
+    let mut metadata = bytes[..4].to_vec();
+    metadata.extend_from_slice(&bytes[8..56]);
+    bytes[4..8].copy_from_slice(&mirx::crc32(&metadata).to_le_bytes());
+    let mut copy = [0; 24];
+    let (_, allocations) = count_allocations(|| {
+        let media = MediaPayload::open(&bytes).unwrap();
+        assert_eq!(media.validate_data_range(56..57), Ok(2));
+        media.validate_data().unwrap();
+        let table = media.integrity().unwrap();
+        assert!(table.iter().eq(ranges));
+        IntegrityTable::encode_into(&[table.get(0).unwrap(), table.get(1).unwrap()], &mut copy)
+            .unwrap();
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(copy, bytes[32..56]);
+}
+
+#[test]
 fn image_plane_geometry_allocates_nothing() {
     let (observed, allocations) = count_allocations(|| {
         SampleLayout::P010
