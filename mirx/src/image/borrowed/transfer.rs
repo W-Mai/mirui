@@ -1,0 +1,286 @@
+use super::SurfaceView;
+use crate::image::{BufferRequirementError, SurfaceMemoryPlan, SurfacePlane};
+
+/// Failure before any destination pixel or padding is changed.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum SurfaceCopyError {
+    SurfaceMismatch,
+    UnsupportedPlaneFlags { index: u8, flags: u16 },
+    Output(BufferRequirementError),
+}
+
+impl<'source> SurfaceView<'source> {
+    /// Copies logical RAW samples into a caller-owned physical layout.
+    ///
+    /// Validation precedes every write. Row padding, allocation-only rows,
+    /// inter-plane gaps, and unused low bits in sub-byte rows become zero.
+    /// Unused output suffix bytes remain unchanged. No color conversion or
+    /// allocation occurs. An indexed color table remains borrowed from the
+    /// source; only sample planes move to the destination.
+    pub fn copy_into<'output>(
+        self,
+        output: &'output mut [u8],
+        plan: SurfaceMemoryPlan,
+    ) -> Result<SurfaceView<'output>, SurfaceCopyError>
+    where
+        'source: 'output,
+    {
+        if self.surface != plan.surface() {
+            return Err(SurfaceCopyError::SurfaceMismatch);
+        }
+        for (index, plane) in self.planes().enumerate() {
+            let flags = plane.memory().flags().bits();
+            if flags != 0 {
+                return Err(SurfaceCopyError::UnsupportedPlaneFlags {
+                    index: index as u8,
+                    flags,
+                });
+            }
+        }
+        plan.buffer_requirements()
+            .validate(output)
+            .map_err(SurfaceCopyError::Output)?;
+
+        let output = &mut output[..plan.byte_len() as usize];
+        output.fill(0);
+        for (source, memory) in self.planes().zip(plan.planes()) {
+            let geometry = source.geometry();
+            let row_size = geometry.minimum_stride().expect("validated plane geometry") as usize;
+            let used_bits =
+                (u64::from(geometry.width()) * u64::from(geometry.bits_per_element())) % 8;
+            for row in 0..geometry.height() as usize {
+                let source_start = row * source.memory().stride() as usize;
+                let target_start = memory.data_offset() as usize + row * memory.stride() as usize;
+                let target = &mut output[target_start..target_start + row_size];
+                target.copy_from_slice(&source.bytes()[source_start..source_start + row_size]);
+                if used_bits != 0 {
+                    target[row_size - 1] &= 0xff << (8 - used_bits);
+                }
+            }
+        }
+
+        let output: &'output [u8] = output;
+        Ok(SurfaceView {
+            surface: self.surface,
+            planes: core::array::from_fn(|index| {
+                plan.plane(index as u8).map(|memory| SurfacePlane {
+                    geometry: self
+                        .surface
+                        .plane(index as u8)
+                        .expect("validated plane index"),
+                    memory,
+                    bytes: memory.bytes(output).expect("validated output plane range"),
+                })
+            }),
+            color_table: self.color_table,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ColorFormat;
+    use crate::image::{
+        ColorDescription, PlaneMemoryFlags, PlaneMemoryLayout, RawImageAsset, SampleLayout,
+        SurfaceDescriptor, SurfaceRequirements,
+    };
+    use alloc::vec::Vec;
+
+    #[repr(align(64))]
+    struct Aligned([u8; 4096]);
+
+    #[test]
+    fn every_layout_copies_only_logical_samples_and_clears_physical_padding() {
+        let formats = [
+            ColorFormat::I1,
+            ColorFormat::I2,
+            ColorFormat::I4,
+            ColorFormat::I8,
+            ColorFormat::A1,
+            ColorFormat::A2,
+            ColorFormat::A4,
+            ColorFormat::A8,
+            ColorFormat::L8,
+            ColorFormat::RGB565,
+            ColorFormat::RGB565Swapped,
+            ColorFormat::RGB565A8,
+            ColorFormat::RGB888,
+            ColorFormat::XRGB8888,
+            ColorFormat::RGBA8888,
+            ColorFormat::BGRA8888,
+        ];
+        let yuv = [
+            SampleLayout::I420,
+            SampleLayout::YV12,
+            SampleLayout::NV12,
+            SampleLayout::NV21,
+            SampleLayout::P010,
+            SampleLayout::P016,
+        ];
+        for layout in formats
+            .into_iter()
+            .map(SampleLayout::from_color_format)
+            .chain(yuv)
+        {
+            let color = if layout.is_alpha() {
+                ColorDescription::NONE
+            } else if layout.color_format().is_some() {
+                ColorDescription::SRGB
+            } else {
+                ColorDescription::BT709_YUV_LIMITED
+            };
+            let surface = SurfaceDescriptor::new(5, 3, layout, color).unwrap();
+            let source_plan = surface
+                .memory_plan(
+                    SurfaceRequirements::new()
+                        .with_width_multiple(2)
+                        .with_height_multiple(4)
+                        .with_stride_multiple(3),
+                )
+                .unwrap();
+            let memory: Vec<_> = source_plan.planes().collect();
+            let buffers: Vec<_> = memory
+                .iter()
+                .enumerate()
+                .map(|(index, memory)| {
+                    (0..memory.byte_len())
+                        .map(|byte| {
+                            (byte as u8)
+                                .wrapping_add(17 * index as u8)
+                                .wrapping_add(0x9b)
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            let planes: Vec<_> = buffers.iter().map(Vec::as_slice).collect();
+            let palette = [0x5a; 1024];
+            let mut asset = RawImageAsset::new(surface, &planes).with_memory_layouts(&memory);
+            if let Some(count) = layout.color_table_entries() {
+                asset = asset.with_color_table(&palette[..count as usize * 4]);
+            }
+            let source = asset.view().unwrap();
+            let plan = surface
+                .memory_plan(
+                    SurfaceRequirements::new()
+                        .with_width_multiple(4)
+                        .with_height_multiple(2)
+                        .with_stride_multiple(3)
+                        .with_base_alignment(64)
+                        .with_plane_alignment(64),
+                )
+                .unwrap();
+            let mut output = Aligned([0xa5; 4096]);
+            let copied = source.copy_into(&mut output.0, plan).unwrap();
+            assert_eq!(copied.surface(), surface);
+            assert!(copied.data_addresses_are_aligned());
+            assert_eq!(
+                copied.color_table().map(|table| table.as_bytes().as_ptr()),
+                source.color_table().map(|table| table.as_bytes().as_ptr())
+            );
+            for (index, plane) in copied.planes().enumerate() {
+                let geometry = plane.geometry();
+                let stride = plane.memory().stride() as usize;
+                let row_size = geometry.minimum_stride().unwrap() as usize;
+                let tail =
+                    (u64::from(geometry.width()) * u64::from(geometry.bits_per_element())) % 8;
+                for (offset, &actual) in plane.bytes().iter().enumerate() {
+                    let row = offset / stride;
+                    let column = offset % stride;
+                    let expected = if row < geometry.height() as usize && column < row_size {
+                        let sample = buffers[index][row * memory[index].stride() as usize + column];
+                        if column + 1 == row_size && tail != 0 {
+                            sample & (0xff << (8 - tail))
+                        } else {
+                            sample
+                        }
+                    } else {
+                        0
+                    };
+                    assert_eq!(actual, expected, "{layout:?}, plane {index}, byte {offset}");
+                }
+            }
+            let mut previous_end = 0;
+            for memory in plan.planes() {
+                let start = memory.data_offset() as usize;
+                assert!(output.0[previous_end..start].iter().all(|&byte| byte == 0));
+                previous_end = memory.data_end() as usize;
+            }
+            assert!(
+                output.0[plan.byte_len() as usize..]
+                    .iter()
+                    .all(|&byte| byte == 0xa5)
+            );
+        }
+    }
+
+    #[test]
+    fn preflight_failures_leave_every_output_byte_unchanged() {
+        let surface =
+            SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let source = RawImageAsset::new(surface, &[&[1, 2, 3, 4]])
+            .view()
+            .unwrap();
+        let plan = surface
+            .memory_plan(SurfaceRequirements::new().with_base_alignment(64))
+            .unwrap();
+        let mut output = Aligned([0xa5; 4096]);
+        assert!(matches!(
+            source.copy_into(&mut output.0[..3], plan),
+            Err(SurfaceCopyError::Output(
+                BufferRequirementError::TooSmall { .. }
+            ))
+        ));
+        assert_eq!(output.0, [0xa5; 4096]);
+        assert!(matches!(
+            source.copy_into(&mut output.0[1..], plan),
+            Err(SurfaceCopyError::Output(
+                BufferRequirementError::AddressUnaligned { .. }
+            ))
+        ));
+        assert_eq!(output.0, [0xa5; 4096]);
+        let different = SurfaceDescriptor::new(1, 4, SampleLayout::A8, ColorDescription::NONE)
+            .unwrap()
+            .memory_plan(SurfaceRequirements::new())
+            .unwrap();
+        assert_eq!(
+            source.copy_into(&mut output.0, different),
+            Err(SurfaceCopyError::SurfaceMismatch)
+        );
+        assert_eq!(output.0, [0xa5; 4096]);
+        let flagged = [PlaneMemoryLayout::builder(surface.plane(0).unwrap())
+            .with_flags(PlaneMemoryFlags::from_bits_retain(0x80))
+            .build()
+            .unwrap()];
+        let source = RawImageAsset::new(surface, &[&[1, 2, 3, 4]])
+            .with_memory_layouts(&flagged)
+            .view()
+            .unwrap();
+        assert_eq!(
+            source.copy_into(&mut output.0, plan),
+            Err(SurfaceCopyError::UnsupportedPlaneFlags {
+                index: 0,
+                flags: 0x80
+            })
+        );
+        assert_eq!(output.0, [0xa5; 4096]);
+    }
+
+    #[test]
+    fn zero_geometry_needs_no_allocation_or_address_alignment() {
+        for (width, height) in [(0, 0), (0, 3), (5, 0)] {
+            let surface =
+                SurfaceDescriptor::new(width, height, SampleLayout::A8, ColorDescription::NONE)
+                    .unwrap();
+            let source = RawImageAsset::new(surface, &[&[]]).view().unwrap();
+            let plan = surface
+                .memory_plan(SurfaceRequirements::new().with_base_alignment(64))
+                .unwrap();
+            let mut output = [];
+            let copied = source.copy_into(&mut output, plan).unwrap();
+            assert_eq!(copied.surface(), surface);
+            assert_eq!(copied.plane(0).unwrap().bytes(), []);
+        }
+    }
+}

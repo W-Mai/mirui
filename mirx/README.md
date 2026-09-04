@@ -116,6 +116,31 @@ IMAGE uses a 32-byte media header, 16-byte section entries, a 32-byte SURFACE re
 
 `RawImageView::open_at` validates file-relative DATA and plane alignment. `SurfaceView::data_addresses_are_aligned` checks the actual in-memory plane addresses; valid file offsets alone do not make a byte slice suitable for GPU access. `SurfaceRequirements` plans padded allocation dimensions, row strides, and plane addresses without changing the logical image dimensions.
 
+`SurfaceView::copy_into(output, plan)` transfers logical RAW samples into a caller-owned allocation. Source padding is ignored; destination padding and unused sub-byte row bits become zero. All validation precedes writes, and any output suffix remains unchanged. The returned view borrows the output planes and retains the source's indexed color table without copying it. No allocation or color conversion occurs.
+
+```rust
+use mirx::image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor, SurfaceRequirements};
+
+#[repr(align(64))]
+struct Buffer([u8; 256]);
+
+let surface = SurfaceDescriptor::new(
+    2, 2, SampleLayout::NV12, ColorDescription::BT709_YUV_LIMITED,
+).unwrap();
+let image = RawImageAsset::new(surface, &[&[16; 4], &[128; 2]]).view().unwrap();
+let plan = surface.memory_plan(
+    SurfaceRequirements::new()
+        .with_base_alignment(64)
+        .with_plane_alignment(64)
+        .with_stride_multiple(64),
+).unwrap();
+let mut buffer = Buffer([0; 256]);
+let copied = image.copy_into(&mut buffer.0, plan).unwrap();
+assert_eq!(copied.surface().width(), 2);
+assert_eq!(copied.plane(0).unwrap().memory().stride(), 64);
+assert!(copied.data_addresses_are_aligned());
+```
+
 `ColorFormat::bits_per_pixel()` is the canonical main-plane pixel depth. `ColorFormat::minimum_stride(width)` derives the smallest valid row stride, including sub-byte indexed and alpha formats.
 
 ```rust

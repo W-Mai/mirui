@@ -1,5 +1,8 @@
 use core::iter::FusedIterator;
 
+mod transfer;
+pub use transfer::SurfaceCopyError;
+
 use super::{
     ColorDescription, PlaneMemoryLayout, RawImageAsset, RawImageEncodeError, RawImageView,
     SampleLayout, SurfaceDescriptor, SurfacePlane,

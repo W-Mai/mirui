@@ -419,3 +419,37 @@ fn sectioned_image_noop_edits_and_reencoding_allocate_nothing() {
     assert_eq!(allocations, 0);
     assert_eq!(out, bytes);
 }
+
+#[test]
+fn raw_surface_transfer_uses_only_the_caller_buffer() {
+    #[repr(align(64))]
+    struct Aligned([u8; 256]);
+    let surface = SurfaceDescriptor::new(
+        2,
+        2,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let source = RawImageAsset::new(surface, &[&[16; 4], &[128; 2]])
+        .view()
+        .unwrap();
+    let plan = surface
+        .memory_plan(
+            SurfaceRequirements::new()
+                .with_base_alignment(64)
+                .with_plane_alignment(64)
+                .with_stride_multiple(64),
+        )
+        .unwrap();
+    let mut output = Aligned([0xa5; 256]);
+    let (_, allocations) = count_allocations(|| {
+        let copied = source.copy_into(&mut output.0, plan).unwrap();
+        assert!(copied.data_addresses_are_aligned());
+        assert_eq!(copied.plane(0).unwrap().bytes()[0], 16);
+        assert_eq!(copied.plane(0).unwrap().bytes()[64], 16);
+        assert_eq!(&copied.plane(1).unwrap().bytes()[..2], &[128; 2]);
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(&output.0[192..], &[0xa5; 64]);
+}
