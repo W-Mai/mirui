@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 
 use crate::run_cmd;
 
-use super::{Result, probe_icu};
+use super::{Result, icu_program, probe_icu};
 
 pub fn run(args: &[String]) -> Result {
     probe_icu()?;
@@ -101,7 +101,7 @@ pub fn run(args: &[String]) -> Result {
     }
 
     let icu_args_ref: Vec<&str> = icu_args.iter().map(|s| s.as_str()).collect();
-    run_cmd("icu", &icu_args_ref)?;
+    run_cmd(&icu_program(), &icu_args_ref)?;
 
     let stem = ttf
         .file_stem()
