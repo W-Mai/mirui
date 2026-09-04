@@ -1,10 +1,16 @@
 use core::iter::FusedIterator;
 
+mod frame_map;
 mod owned;
+mod sequence;
 
+pub use frame_map::{FrameCounts, FrameMap, FrameMapAsset, FrameMapError, FrameMapIter};
 pub use owned::{
     AnimationFrames, AnimationSettings, AssetFrameIter, AtlasFrames, FramesAsset,
     FramesEncodeError, FramesMutationError,
+};
+pub use sequence::{
+    BlendMode, DisposalMode, FRAME_SEQUENCE_RECORD_LEN, FrameSequence, FrameSequenceError,
 };
 
 use super::envelope::{Envelope, EnvelopeError, ExactEnvelope};
