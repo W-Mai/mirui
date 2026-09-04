@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Joined glyph lookup.** Shared Unicode, metric and RAW sample tables require equal cardinality before access. Character and ordinal lookup return paired measurements and raster samples without allocation or metadata-lifetime coupling, preserving missing characters and empty glyph regions.
+
 - **Borrowed RAW glyph storage.** GlyphMajor cells share checked stride, allocation and alignment rules; Atlas2D glyphs retain exact sub-byte regions. Constant-time lookup and caller-owned cropped transfer reuse image layouts without sample allocation or map-lifetime coupling.
 
 - **Selected-region IMAGE decoding.** Exact cropped requests reuse scalar plans and caller-owned aligned output. Complete intersecting units share bounded staging, while checksum partition coalescing reports actual verification bytes separately from selected coded bytes. All input and buffer checks precede final writes.

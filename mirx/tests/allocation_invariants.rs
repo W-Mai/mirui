@@ -15,6 +15,46 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn joined_glyph_lookup_and_metric_access_allocate_nothing() {
+    use mirx::{
+        Fixed,
+        font::{
+            FontCodepoints, GlyphMap, GlyphMetrics, GlyphTable, LineMetrics, MetricsTable,
+            RawGlyphs,
+        },
+    };
+    let (_, allocations) = count_allocations(|| {
+        let chars = [65, 0, 0, 0, 0x2d, 0x4e, 0, 0];
+        let codepoints = FontCodepoints::open(&chars).unwrap();
+        let line = LineMetrics::new(Fixed(769), Fixed(-129), Fixed(1025)).unwrap();
+        let mut records = [0; 36];
+        line.encode_record_into(&mut records).unwrap();
+        for i in 0..2 {
+            GlyphMetrics::new(Fixed(513 + i as i32), Fixed(-1), Fixed(769))
+                .encode_record_into(&mut records[12 + i * 12..])
+                .unwrap();
+        }
+        let metrics = MetricsTable::open(&records).unwrap();
+        let map = GlyphMap::glyph_major(1, 1, 2).unwrap();
+        let data = [11, 22];
+        let glyphs = RawGlyphs::builder(map, SampleLayout::A8)
+            .build(&data)
+            .unwrap();
+        let table = GlyphTable::new(codepoints, metrics, glyphs).unwrap();
+        assert_eq!(table.line_metrics(), line);
+        assert_eq!(table.glyph('A'), table.get(0));
+        let glyph = table.glyph('中').unwrap();
+        assert_eq!(glyph.metrics().advance(), Fixed(514));
+        assert_eq!(
+            glyph.raster().storage().plane(0).unwrap().bytes().as_ptr(),
+            data[1..].as_ptr()
+        );
+        assert!(table.glyph('B').is_none());
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn raw_glyph_cells_and_atlas_regions_borrow_without_allocation() {
     use mirx::{
         font::{GlyphMap, RawGlyphs},

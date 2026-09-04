@@ -78,6 +78,8 @@ IMAGE, META, PALETTE, and FRAMES expose borrowed views. FONT and VECTOR use `dec
 
 `font::RawGlyphs` binds those maps to scalar sample storage. A shared `PlaneMemoryLayout` describes each independently aligned cell or the complete atlas. Constant-time lookup returns a `GlyphRaster`; its exact region copies into caller-owned output through the image memory and stride contract, without allocating or retaining map metadata. [Borrowed glyph storage](docs/glyph-storage.md) covers cell gaps, sub-byte atlas origins and source/output alignment.
 
+`font::GlyphTable` joins shared codepoints, representation metrics and RAW glyph storage after checking equal counts. `glyph(char)` returns matching measurements and samples through one ordinal; the result borrows only sample bytes. [Joined glyph lookup](docs/glyph-lookup.md) covers missing characters, empty raster regions and design-ppem metrics.
+
 ## Runtime reading
 
 `Reader` validates the common header, exact logical length, chunk table, payload ranges, primary selection, and configured resource limits. Chunk iteration and borrowed typed views continue to reference the input bytes.

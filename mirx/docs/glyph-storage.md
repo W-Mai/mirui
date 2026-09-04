@@ -35,3 +35,5 @@ assert_eq!(view.plane(0).unwrap().row(0).unwrap(), Some(&[0x12, 0x12, 0x10][..])
 ```
 
 `file_address_is_aligned(data_offset)` checks declared placement; `data_addresses_are_aligned()` checks actual borrowed storage. Neither implies the other. Misaligned source slices can still use CPU reads and explicit transfer. Atlas-base alignment does not imply every glyph's interior origin is aligned or byte-addressable. Unknown physical flags remain representable, but linear row access and copying reject unsupported flags. Compressed bytes cannot be passed as RAW cells, and physical padding is never codec input.
+
+[Joined glyph lookup](glyph-lookup.md) binds this storage to a shared Unicode directory and one metric table, rejecting cardinality mismatches before character lookup.
