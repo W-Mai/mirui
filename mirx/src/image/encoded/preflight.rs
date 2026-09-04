@@ -46,7 +46,19 @@ impl<'a> Preflight<'a> {
         self.spend(source.data.len() as u64)
     }
 
-    fn group(&mut self, index: usize, group: UnitGroup<'_>) -> Result<(), EncodedImageError> {
+    pub(super) fn total_units(&self) -> u64 {
+        self.total_units
+    }
+
+    pub(super) fn work(&self) -> u64 {
+        self.limits.max_image_work() - self.budget.remaining()
+    }
+
+    pub(super) fn group(
+        &mut self,
+        index: usize,
+        group: UnitGroup<'_>,
+    ) -> Result<(), EncodedImageError> {
         self.total_units = self
             .total_units
             .checked_add(group.len() as u64)

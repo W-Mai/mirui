@@ -114,6 +114,21 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
     }
     assert_eq!(&whole.0[..24], samples.as_flattened());
     assert_eq!(&whole.0[24..], &[0x5a; 104]);
+    let plan = groups
+        .decode_plan(whole_plan.requirements(), &PayloadLimits::EMBEDDED)
+        .unwrap();
+    assert_eq!(plan.unit_count(), 4);
+    assert_eq!(plan.workspace_requirements().byte_len(), 6);
+    let mut combined = Aligned([0xad; 128]);
+    let mut workspace = [0x5a; 12];
+    let view = plan.decode_into(&mut combined.0, &mut workspace).unwrap();
+    assert_eq!(
+        view.plane(0).unwrap().row(0).unwrap(),
+        Some(samples.as_flattened())
+    );
+    assert_eq!(&combined.0[24..64], &[0; 40]);
+    assert_eq!(&combined.0[64..], &[0xad; 64]);
+    assert_eq!(&workspace[6..], &[0x5a; 6]);
     let mut document = Document::open(&bytes).unwrap();
     let id = document
         .chunks_of_type(ChunkType::IMAGE)

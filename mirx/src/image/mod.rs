@@ -69,7 +69,8 @@ pub use color::{
 pub use coverage::{CoverageBudget, CoverageError};
 pub use encode::{ImageEncodeError, RawImageAsset};
 pub use encoded::{
-    EncodedImageAsset, EncodedImageError, EncodedImageView, ImageGroupIter, ImageGroups,
+    DecodeError, EncodedImageAsset, EncodedImageError, EncodedImageView, ImageDecodePlan,
+    ImageGroupIter, ImageGroups,
 };
 pub use grid::{Region, RegionError, TileGrid, TileGridError, Tiles};
 pub use layout::{PlaneGeometries, PlaneGeometry, PlaneRole, SampleLayout};

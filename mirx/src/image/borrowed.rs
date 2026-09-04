@@ -7,7 +7,7 @@ pub use transfer::SurfaceCopyError;
 
 use super::{
     ColorDescription, ImageEncodeError, PlaneMemoryLayout, RawImageAsset, RawImageView,
-    SampleLayout, SurfaceDescriptor, SurfacePlane,
+    SampleLayout, SurfaceDescriptor, SurfaceMemoryPlan, SurfacePlane,
 };
 use crate::{ColorFormat, ColorTableView, ImageView};
 
@@ -53,6 +53,28 @@ impl<'a> SurfaceView<'a> {
     /// Checks the actual plane addresses against their declared alignments.
     pub fn data_addresses_are_aligned(self) -> bool {
         self.planes().all(SurfacePlane::address_is_aligned)
+    }
+
+    /// Borrows already validated output and its matching indexed color table.
+    pub(super) fn from_plan(
+        plan: SurfaceMemoryPlan,
+        bytes: &'a [u8],
+        color_table: Option<ColorTableView<'a>>,
+    ) -> Self {
+        Self {
+            surface: plan.surface(),
+            planes: core::array::from_fn(|index| {
+                plan.plane(index as u8).map(|memory| SurfacePlane {
+                    geometry: plan
+                        .surface()
+                        .plane(index as u8)
+                        .expect("planned surface plane"),
+                    memory,
+                    bytes: memory.bytes(bytes).expect("validated output plane range"),
+                })
+            }),
+            color_table,
+        }
     }
 
     pub(super) fn from_asset(asset: RawImageAsset<'_, 'a>) -> Self {

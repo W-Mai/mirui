@@ -15,6 +15,59 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn prepared_image_decode_uses_only_caller_output_workspace_and_borrowed_palette() {
+    use mirx::{
+        PayloadLimits,
+        coding::Rle,
+        image::{
+            ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageView, SampleLayout,
+            SurfaceDescriptor, SurfaceRequirements,
+        },
+    };
+    let surface = SurfaceDescriptor::new(3, 2, SampleLayout::I4, ColorDescription::SRGB).unwrap();
+    let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 0xff])
+        .with_color_table(&[0; 64])
+        .encode()
+        .unwrap();
+    #[repr(align(64))]
+    struct Buffer([u8; 256]);
+    let mut output = Buffer([0xa5; 256]);
+    let mut workspace = [0x5a; 8];
+    let (_, allocations) = count_allocations(|| {
+        let image = EncodedImageView::open(&payload).unwrap();
+        let mut slots = [None];
+        let groups = image
+            .groups_into(&mut slots, &mut CoverageBudget::new(1000))
+            .unwrap();
+        let plan = groups
+            .decode_plan(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_stride_multiple(64),
+                &PayloadLimits::EMBEDDED,
+            )
+            .unwrap();
+        assert_eq!(plan.workspace_requirements().byte_len(), 4);
+        let view = plan.decode_into(&mut output.0, &mut workspace).unwrap();
+        assert_eq!(
+            view.color_table().unwrap().as_bytes().as_ptr(),
+            image.color_table().unwrap().as_bytes().as_ptr()
+        );
+        assert_eq!(
+            view.plane(0).unwrap().row(0).unwrap(),
+            Some(&[0xff, 0xf0][..])
+        );
+        assert_eq!(
+            view.plane(0).unwrap().row(1).unwrap(),
+            Some(&[0xff, 0xf0][..])
+        );
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(&output.0[128..], &[0xa5; 128]);
+    assert_eq!(&workspace[4..], &[0x5a; 4]);
+}
+
+#[test]
 fn decoded_units_place_samples_in_shared_surface_storage_without_allocation() {
     use mirx::{
         image::{

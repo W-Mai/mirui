@@ -9,12 +9,14 @@ use crate::media::{
 };
 use crate::payload::ColorTableView;
 
+mod decode;
 mod encode;
 mod groups;
 #[cfg(test)]
 use super::UnitGroupRecord;
 use groups::{CodingRecords, GroupRecords, GroupSource};
 mod preflight;
+pub use decode::{DecodeError, ImageDecodePlan};
 pub use encode::EncodedImageAsset;
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 use super::SurfaceView;
-use crate::image::{BufferRequirementError, SurfaceMemoryPlan, SurfacePlane};
+use crate::image::{BufferRequirementError, SurfaceMemoryPlan};
 
 /// Failure before any destination pixel or padding is changed.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -62,20 +62,7 @@ impl<'source> SurfaceView<'source> {
         }
 
         let output: &'output [u8] = output;
-        Ok(SurfaceView {
-            surface: self.surface,
-            planes: core::array::from_fn(|index| {
-                plan.plane(index as u8).map(|memory| SurfacePlane {
-                    geometry: self
-                        .surface
-                        .plane(index as u8)
-                        .expect("validated plane index"),
-                    memory,
-                    bytes: memory.bytes(output).expect("validated output plane range"),
-                })
-            }),
-            color_table: self.color_table,
-        })
+        Ok(SurfaceView::from_plan(plan, output, self.color_table))
     }
 }
 

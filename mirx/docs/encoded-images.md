@@ -149,6 +149,18 @@ Partitions are covered by the metadata CRC. Author preflight bounds their native
 
 Whole-surface RAW without independent groups uses `RawImageAsset`, omitting CODINGS. The single-stream encoded constructor rejects RAW instead of writing redundant metadata. An IMAGE with explicit RAW groups is still an `ImageRef::Encoded`: group/index addressing and a decode plan remain necessary, and opening does not claim a directly borrowed contiguous surface.
 
+## Complete scalar reconstruction
+
+Prepared `ImageGroups` expose `decode_plan(requirements, limits)` for the complete surface. Planning reuses validated group slots, checks every scalar unit and complete DATA integrity, and returns an `ImageDecodePlan` without storing an expanded unit-plan table or allocating decoded bytes.
+
+`memory_plan()` describes the final output, including required address alignment and row stride. `workspace_requirements()` describes the largest tight decoded unit, reused across units at scalar alignment one. A tiled stream can bound this staging buffer by tile size; a whole-image stream requires whole-image staging. This path does not promise zero staging or direct GPU execution.
+
+`decode_into(output, workspace)` validates both caller buffers before changing either, initializes the final allocation to zero and reconstructs every unit through shared exact placement. Output padding is zero and both buffer suffixes are preserved. Returned sample planes borrow output; the indexed color table remains borrowed from the encoded source. No color conversion occurs.
+
+Group/unit and tight per-unit decoded limits remain explicit. The work budget charges output initialization, one complete DATA checksum scan, unit syntax preflight, execution-time re-preflight/replay, placement and bounded unit visits. `work()` reports the charge; it is not a cycle count. Earlier metadata/group preparation and coverage are not repeated or included in this request charge. Unsupported coding, corrupt input, exhausted limits and caller-buffer errors are rejected before final output changes.
+
+This API requests the whole image. Row/ROI selection, streamed reads, acceleration and tool/runtime integration are separate operations.
+
 ## Placing decoded units
 
 `DecodedUnit::copy_into(output, whole_surface_plan)` writes selected samples into a checked whole-surface allocation at their original positions. Planar units retain the original plane index and chroma coordinates; they are not renumbered as plane zero. The target descriptor must match the source surface.

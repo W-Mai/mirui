@@ -174,6 +174,8 @@ Encoded payload bytes can be inserted through `push_raw` with `RawChunkPolicy::i
 
 `DecodedUnit::copy_into(output, whole_surface_plan)` places decoded samples at their original plane coordinates without allocation. It preserves other samples, padding and suffix bytes, including adjacent sub-byte pixels in a shared byte. Descriptor and actual output address/capacity checks precede writes. One caller-owned unit buffer can be reused across tiles; this placement operation does not select units, verify complete coverage or preflight a multi-unit request.
 
+`ImageGroups::decode_plan(requirements, limits)` preflights every unit and complete DATA integrity for whole-image scalar reconstruction. `ImageDecodePlan` reports the final memory layout and one reusable workspace sized to the largest tight unit. `decode_into(output, workspace)` checks both buffers before writing, reconstructs all planes and zeroes final padding without allocation. A whole-image stream requires whole-image staging with this path; tiled streams can use a smaller reusable unit buffer. The returned `SurfaceView` borrows output samples and the source's indexed palette. Work limits include preparation and replay; group preparation and coverage are separate, already-completed checks.
+
 ```rust
 use mirx::{coding::Pixel, image::SampleLayout};
 
