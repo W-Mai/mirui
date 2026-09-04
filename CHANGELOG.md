@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Grouped encoded IMAGE authoring.** Borrowed coding, group and index tables support planar and tiled storage with shared profiles, sparse selections and aligned variable ranges. Canonical emission and typed document admission share reader validation without temporary payloads or expanded unit tables.
+
 - **Typed encoded IMAGE insertion and replacement.** Canonical assets pass shared scalar syntax and resource checks before allocation. Exact replacements keep storage without allocation, misaligned source payloads are repaired, and output-span budgets bound padding before encoding.
 
 - **Encoded IMAGE document access and relocation.** Borrowed image references preserve storage semantics, checked descriptor inference enforces payload limits, and file planning retains declared group input alignment. Encoded primary hints keep logical geometry without inventing a decoded stride.

@@ -1,6 +1,6 @@
 # Encoded images
 
-`EncodedImageAsset` wraps one already encoded stream with a surface descriptor and coding record. Metadata authoring, integrity checking and sample decoding are separate operations. `encoded_len`, `encode_into` and `matches_payload` allocate nothing; `encode` allocates one payload.
+`EncodedImageAsset` wraps already encoded DATA with a surface descriptor, coding records and optional groups/indexes. Metadata authoring, integrity checking and sample decoding are separate operations. `encoded_len`, `encode_into` and `matches_payload` allocate nothing; `encode` allocates one payload.
 
 ## Encode, store and decode
 
@@ -98,7 +98,38 @@ Use the corresponding `with_max_*` builders to set stricter or larger limits. Ze
 
 Work includes group resolution and coverage, each unit's coded and decoded bytes during syntax checks, and one complete DATA checksum scan. Checks precede the charged work. The common envelope and metadata CRC have already been checked by `open`; they are not retroactively limited by this later budget. Actual device stride, base alignment and output capacity still belong to the requested decode plan.
 
-The asset writer accepts one stream, not a list of separately encoded tiles. `ImageSource` and `Document::push_image` accept decoded surfaces; encoded storage uses `push_encoded_image` and `replace_encoded_image`. These APIs do not implicitly select a codec, recompress samples or integrate runtime rendering. Unit-index APIs and group readers describe grouped storage independently.
+`ImageSource` and `Document::push_image` accept decoded surfaces; encoded storage uses `push_encoded_image` and `replace_encoded_image`. These APIs do not implicitly select a codec, recompress samples or integrate runtime rendering.
+
+## Grouped authoring
+
+`EncodedImageAsset::from_groups(surface, &codings, &groups, data)` borrows all inputs. Each `UnitGroupRecord` names one coding ordinal and a DATA range, with optional tile geometry, plane selection, sparse selection and range encoding. `with_index(bytes)` supplies the combined UNIT_INDEX body; index offsets address that body, while DATA ranges address DATA. No per-unit descriptor array is generated.
+
+```rust
+use mirx::{PayloadLimits, coding::Rle, image::{
+    ColorDescription, EncodedImageAsset, GroupPlanes, SampleLayout,
+    SurfaceDescriptor, UnitGroupRecord,
+}};
+
+let surface = SurfaceDescriptor::new(
+    3, 3, SampleLayout::NV12, ColorDescription::BT709_YUV_LIMITED,
+).unwrap();
+let codings = [Rle::new().record()];
+let groups = [
+    UnitGroupRecord::new(0, 0..2).unwrap().with_planes(GroupPlanes::Plane(0)),
+    UnitGroupRecord::new(0, 2..4).unwrap().with_planes(GroupPlanes::Plane(1)),
+];
+// Nine luma bytes followed by eight interleaved chroma bytes after decoding.
+let data = [0x88, 16, 0x87, 128];
+let asset = EncodedImageAsset::from_groups(surface, &codings, &groups, &data);
+asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
+let mut payload = [0; 256];
+let len = asset.encode_into(&mut payload).unwrap();
+assert_eq!(asset.matches_payload(&payload[..len]), Ok(true));
+```
+
+Explicit group arrays remain explicit, including a one-group array. Empty arrays are invalid. Empty index bytes omit UNIT_INDEX; fixed-size units need no range index. Variable-size units use `UnitIndexEncoding::encode_into` with the same alignment as their group. Sparse selection bytes precede range bytes within each group's index range. The writer preserves caller-selected index encodings and DATA padding, and aligns the DATA origin to the maximum group requirement. An asset-level alignment override is only available for the single-stream constructor; combining it with explicit groups is an error. `asset.input_alignment()` returns the checked effective alignment.
+
+Low-level encoding checks records, profile references, static reference rules and exact DATA/index consumption before writing. Full static coverage and codec support remain bounded `preflight` checks: overlapping or incomplete groups cannot enter typed Document edits. Group count and minimum native table size are checked before table scans; output-span work is charged before index resolution. Single-stream default omission and bytes remain unchanged. Integrity covers all DATA; this writer does not emit indexed integrity records.
 
 ## Container reading
 

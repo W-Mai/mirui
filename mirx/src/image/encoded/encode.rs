@@ -8,8 +8,8 @@ use crate::{
         UnitGroupRecord, output::PayloadOutput,
     },
     media::{
-        CodingId, CodingRecord, CodingTable, MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN,
-        MEDIA_VERSION, MediaSectionKind, UnitIndex,
+        CODING_RECORD_LEN, CodingId, CodingRecord, CodingTable, MEDIA_CRC_LEN, MEDIA_HEADER_LEN,
+        MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionKind, UnitIndex,
     },
     wire::write_u16_le,
 };
@@ -17,11 +17,11 @@ use crate::{
 #[cfg(test)]
 mod tests;
 
-/// Borrowed single-stream IMAGE authoring input.
+/// Borrowed single-stream or grouped IMAGE authoring input.
 ///
 /// Metadata validation does not decode supplied bytes or imply codec support.
 /// Unknown nonzero coding identifiers remain representable. Profile syntax is
-/// checked separately through a resolved unit's decode plan.
+/// checked separately by [`Self::preflight`] or a resolved unit's decode plan.
 ///
 /// ```
 /// use mirx::{coding::Rle, image::{
@@ -42,25 +42,73 @@ mod tests;
 #[derive(Clone, Copy, Debug)]
 pub struct EncodedImageAsset<'a> {
     surface: SurfaceDescriptor,
-    coding: CodingRecord<'a>,
+    codings: AssetCodings<'a>,
+    groups: Option<&'a [UnitGroupRecord]>,
+    indexes: &'a [u8],
     data: &'a [u8],
     color_table: Option<&'a [u8]>,
     input_alignment: u32,
 }
+
+#[derive(Clone, Copy, Debug)]
+enum AssetCodings<'a> {
+    Single(CodingRecord<'a>),
+    Shared(&'a [CodingRecord<'a>]),
+}
+
+impl<'a> AssetCodings<'a> {
+    fn as_slice(&self) -> &[CodingRecord<'a>] {
+        match self {
+            Self::Single(record) => core::slice::from_ref(record),
+            Self::Shared(records) => records,
+        }
+    }
+}
+
 impl<'a> EncodedImageAsset<'a> {
+    /// Defines one whole-surface stream with an omitted group table by default.
     pub const fn new(surface: SurfaceDescriptor, coding: CodingRecord<'a>, data: &'a [u8]) -> Self {
         Self {
             surface,
-            coding,
+            codings: AssetCodings::Single(coding),
+            groups: None,
+            indexes: &[],
             data,
             color_table: None,
             input_alignment: 1,
         }
     }
+
+    /// Borrows shared profiles and explicit groups whose ranges address DATA.
+    /// Group records own alignment, topology, coding ordinals and index offsets.
+    pub const fn from_groups(
+        surface: SurfaceDescriptor,
+        codings: &'a [CodingRecord<'a>],
+        groups: &'a [UnitGroupRecord],
+        data: &'a [u8],
+    ) -> Self {
+        Self {
+            surface,
+            codings: AssetCodings::Shared(codings),
+            groups: Some(groups),
+            indexes: &[],
+            data,
+            color_table: None,
+            input_alignment: 1,
+        }
+    }
+
+    /// Attaches combined selection/range index bytes without changing their encoding.
+    pub const fn with_index(mut self, bytes: &'a [u8]) -> Self {
+        self.indexes = bytes;
+        self
+    }
     pub const fn with_color_table(mut self, rgba: &'a [u8]) -> Self {
         self.color_table = Some(rgba);
         self
     }
+    /// Sets single-stream alignment. Explicit groups declare their own alignment.
+    /// A nondefault override combined with explicit groups is rejected.
     pub const fn with_input_alignment(mut self, alignment: u32) -> Self {
         self.input_alignment = alignment;
         self
@@ -68,8 +116,14 @@ impl<'a> EncodedImageAsset<'a> {
     pub const fn surface(self) -> SurfaceDescriptor {
         self.surface
     }
-    pub const fn coding(self) -> CodingRecord<'a> {
-        self.coding
+    pub fn codings(&self) -> &[CodingRecord<'a>] {
+        self.codings.as_slice()
+    }
+    pub const fn groups(self) -> Option<&'a [UnitGroupRecord]> {
+        self.groups
+    }
+    pub const fn index(self) -> &'a [u8] {
+        self.indexes
     }
     pub const fn data(self) -> &'a [u8] {
         self.data
@@ -77,8 +131,9 @@ impl<'a> EncodedImageAsset<'a> {
     pub const fn color_table(self) -> Option<&'a [u8]> {
         self.color_table
     }
-    pub const fn input_alignment(self) -> u32 {
-        self.input_alignment
+    /// Checked DATA alignment, derived from all groups; empty implicit streams need one.
+    pub fn input_alignment(self) -> Result<u32, ImageEncodeError> {
+        Ok(Plan::metadata(self)?.alignment)
     }
 
     /// Exact payload size after metadata validation, without decoding samples.
@@ -93,36 +148,30 @@ impl<'a> EncodedImageAsset<'a> {
     /// or group table is allocated. Low-level encoding alone checks metadata,
     /// not profile support; this explicit gate admits typed document edits.
     pub fn preflight(self, limits: &crate::PayloadLimits) -> Result<(), ImageEncodeError> {
-        let plan = Plan::new(self)?;
-        let codings = [self.coding];
-        let source = GroupSource {
-            surface: self.surface,
-            codings: CodingRecords::Native(&codings),
-            records: plan
-                .group
-                .as_ref()
-                .map_or(GroupRecords::Implicit, |record| {
-                    GroupRecords::Native(core::slice::from_ref(record))
-                }),
-            data: self.data,
-            indexes: &[],
-            file_offset: None,
-            data_offset: plan.data_offset as u32,
-        };
-        let mut preflight = Preflight::new(limits, 1).map_err(ImageEncodeError::Preflight)?;
+        let groups = self.groups.map_or(1, <[UnitGroupRecord]>::len);
+        let mut preflight = Preflight::new(limits, groups).map_err(ImageEncodeError::Preflight)?;
+        let minimum = (self.codings().len() as u64)
+            .checked_mul(CODING_RECORD_LEN as u64)
+            .and_then(|len| {
+                len.checked_add(
+                    self.groups.map_or(0, <[UnitGroupRecord]>::len) as u64
+                        * UNIT_GROUP_RECORD_LEN as u64,
+                )
+            })
+            .ok_or(ImageEncodeError::SizeOverflow)?;
+        // Bound native table scans before sizing; the output span charges these bytes once.
+        if minimum > limits.max_image_work() {
+            return Err(ImageEncodeError::Preflight(
+                super::EncodedImageError::Coverage(crate::image::CoverageError::BudgetExceeded),
+            ));
+        }
+        let plan = Plan::metadata(self)?;
         preflight
             .spend(plan.payload_len as u64)
             .map_err(ImageEncodeError::Preflight)?;
         preflight
-            .groups(source)
+            .groups(plan.source())
             .map_err(ImageEncodeError::Preflight)
-    }
-
-    fn group(self) -> Result<UnitGroup<'a>, ImageEncodeError> {
-        UnitGroup::builder(self.surface, self.coding, self.data)
-            .with_input_alignment(self.input_alignment)
-            .build()
-            .map_err(ImageEncodeError::Group)
     }
 
     /// Writes canonical metadata and supplied DATA after all bounds are checked.
@@ -162,34 +211,75 @@ struct Plan<'a> {
     coding_len: usize,
     section_count: u16,
     group: Option<UnitGroupRecord>,
+    alignment: u32,
     data_offset: usize,
     payload_len: usize,
 }
 impl<'a> Plan<'a> {
     fn new(asset: EncodedImageAsset<'a>) -> Result<Self, ImageEncodeError> {
-        if asset.coding.id() == CodingId::RAW {
-            return Err(ImageEncodeError::UnexpectedCoding(CodingId::RAW));
-        }
+        let plan = Self::metadata(asset)?;
+        plan.source()
+            .visit_groups(None, |_, _| {})
+            .map_err(ImageEncodeError::Preflight)?;
+        Ok(plan)
+    }
+
+    fn metadata(asset: EncodedImageAsset<'a>) -> Result<Self, ImageEncodeError> {
         asset
             .surface
             .read_color_table(asset.color_table)
             .map_err(ImageEncodeError::from)?;
-        let group = asset.group()?;
-        let has_group = !group.is_empty() && asset.input_alignment != 1;
-        let alignment = if has_group { asset.input_alignment } else { 1 };
-        let group = has_group.then(|| {
-            UnitGroupRecord::new(0, 0..asset.data.len() as u32)
-                .expect("validated group range")
-                .with_input_alignment(alignment)
-        });
+        let group = if asset.groups.is_some() {
+            if asset.input_alignment != 1 {
+                return Err(ImageEncodeError::ConflictingAlignment);
+            }
+            None
+        } else {
+            let coding = asset.codings()[0];
+            if coding.id() == CodingId::RAW {
+                return Err(ImageEncodeError::UnexpectedCoding(CodingId::RAW));
+            }
+            let group = UnitGroup::builder(asset.surface, coding, asset.data)
+                .with_input_alignment(asset.input_alignment)
+                .build()
+                .map_err(ImageEncodeError::Group)?;
+            (!group.is_empty() && asset.input_alignment != 1).then(|| {
+                UnitGroupRecord::new(0, 0..asset.data.len() as u32)
+                    .expect("validated group range")
+                    .with_input_alignment(asset.input_alignment)
+            })
+        };
+        let records = asset
+            .groups
+            .or_else(|| group.as_ref().map(core::slice::from_ref));
+        let source = GroupSource {
+            surface: asset.surface,
+            codings: CodingRecords::Native(asset.codings()),
+            records: records.map_or(GroupRecords::Implicit, GroupRecords::Native),
+            data: asset.data,
+            indexes: asset.indexes,
+            file_offset: None,
+            data_offset: 0,
+        };
+        let alignment = source
+            .input_alignment()
+            .map_err(ImageEncodeError::Preflight)?;
         let coding_len =
-            CodingTable::encoded_len(&[asset.coding]).map_err(ImageEncodeError::Codings)?;
-        let section_count = 3 + u16::from(has_group) + u16::from(asset.color_table.is_some());
+            CodingTable::encoded_len(asset.codings()).map_err(ImageEncodeError::Codings)?;
+        let group_len = records
+            .map_or(0, <[UnitGroupRecord]>::len)
+            .checked_mul(UNIT_GROUP_RECORD_LEN)
+            .ok_or(ImageEncodeError::SizeOverflow)?;
+        let section_count = 3
+            + u16::from(records.is_some())
+            + u16::from(!asset.indexes.is_empty())
+            + u16::from(asset.color_table.is_some());
         let metadata_len = (MEDIA_HEADER_LEN
             + usize::from(section_count) * MEDIA_SECTION_LEN
             + SURFACE_RECORD_LEN)
             .checked_add(coding_len)
-            .and_then(|len| len.checked_add(usize::from(has_group) * UNIT_GROUP_RECORD_LEN))
+            .and_then(|len| len.checked_add(group_len))
+            .and_then(|len| len.checked_add(asset.indexes.len()))
             .and_then(|len| len.checked_add(asset.color_table.map_or(0, <[u8]>::len)))
             .ok_or(ImageEncodeError::SizeOverflow)?;
         let data_offset = UnitIndex::aligned(
@@ -207,9 +297,30 @@ impl<'a> Plan<'a> {
             coding_len,
             section_count,
             group,
+            alignment,
             data_offset,
             payload_len,
         })
+    }
+
+    fn records(&self) -> Option<&[UnitGroupRecord]> {
+        self.asset
+            .groups
+            .or_else(|| self.group.as_ref().map(core::slice::from_ref))
+    }
+
+    fn source(&self) -> GroupSource<'_> {
+        GroupSource {
+            surface: self.asset.surface,
+            codings: CodingRecords::Native(self.asset.codings()),
+            records: self
+                .records()
+                .map_or(GroupRecords::Implicit, GroupRecords::Native),
+            data: self.asset.data,
+            indexes: self.asset.indexes,
+            file_offset: None,
+            data_offset: self.data_offset as u32,
+        }
     }
     fn emit(self, mut output: PayloadOutput<'_>) -> bool {
         let mut header = [0; MEDIA_HEADER_LEN];
@@ -225,9 +336,18 @@ impl<'a> Plan<'a> {
         let mut offset = surface_offset + SURFACE_RECORD_LEN;
         output.section(MediaSectionKind::CODINGS, offset, self.coding_len);
         offset += self.coding_len;
-        if self.group.is_some() {
-            output.section(MediaSectionKind::UNIT_GROUPS, offset, UNIT_GROUP_RECORD_LEN);
-            offset += UNIT_GROUP_RECORD_LEN;
+        if let Some(records) = self.records() {
+            let size = records.len() * UNIT_GROUP_RECORD_LEN;
+            output.section(MediaSectionKind::UNIT_GROUPS, offset, size);
+            offset += size;
+        }
+        if !self.asset.indexes.is_empty() {
+            output.section(
+                MediaSectionKind::UNIT_INDEX,
+                offset,
+                self.asset.indexes.len(),
+            );
+            offset += self.asset.indexes.len();
         }
         if let Some(table) = self.asset.color_table {
             output.section(MediaSectionKind::COLOR_TABLE, offset, table.len());
@@ -243,21 +363,23 @@ impl<'a> Plan<'a> {
             .encode_record_into(&mut surface)
             .expect("surface record size");
         output.write(&surface);
-        output.write(&1u32.to_le_bytes());
-        output.write(
-            &self
-                .asset
-                .coding
-                .encode_entry(self.asset.coding.params().len() as u32),
-        );
-        output.write(self.asset.coding.params());
-        if let Some(group) = self.group {
+        output.write(&(self.asset.codings().len() as u32).to_le_bytes());
+        let mut params_end = 0;
+        for record in self.asset.codings() {
+            params_end += record.params().len() as u32;
+            output.write(&record.encode_entry(params_end));
+        }
+        for record in self.asset.codings() {
+            output.write(record.params());
+        }
+        for group in self.records().into_iter().flatten() {
             let mut bytes = [0; UNIT_GROUP_RECORD_LEN];
             group
                 .encode_into(&mut bytes)
                 .expect("validated group record");
             output.write(&bytes);
         }
+        output.write(self.asset.indexes);
         if let Some(table) = self.asset.color_table {
             output.write(table);
         }

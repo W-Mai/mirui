@@ -12,6 +12,102 @@ use mirx::{
 };
 
 #[test]
+fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
+    use mirx::image::{GroupSelection, Region, UnitGroupRecord};
+    let surface =
+        SurfaceDescriptor::new(6, 1, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
+    let pixel = Pixel::new(SampleLayout::RGB888).unwrap();
+    let rle = Rle::new().with_element_size(3).unwrap();
+    let lz4 = Lz4::new();
+    let codings = [pixel.record(), rle.record(), lz4.record()];
+    let samples = [
+        [17, 42, 91, 17, 42, 91],
+        [0, 1, 2, 0, 1, 2],
+        [55, 56, 57, 55, 56, 57],
+    ];
+    let mut data = [0xa5; 192];
+    let mut table = [0; Lz4::TABLE_LEN];
+    let lengths = [
+        pixel.encode_into(&samples[0], &mut data[..64]).unwrap(),
+        rle.encode_into(&samples[1], &mut data[64..128]).unwrap(),
+        lz4.encoder(&mut table)
+            .unwrap()
+            .encode_into(&samples[2], &mut data[128..])
+            .unwrap(),
+    ];
+    let records: [_; 3] = core::array::from_fn(|i| {
+        UnitGroupRecord::new(i as u32, (64 * i) as u32..(64 * i + lengths[i]) as u32)
+            .unwrap()
+            .with_tiles(2, 1)
+            .with_selection(GroupSelection::List(1))
+            .with_index_offset((i * 4) as u32)
+            .with_input_alignment(64)
+    });
+    let index = [0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0];
+    let asset =
+        EncodedImageAsset::from_groups(surface, &codings, &records, &data[..128 + lengths[2]])
+            .with_index(&index);
+    let mut document = Document::new();
+    let id = document
+        .push_encoded_image_with_flags(&asset, ChunkFlags::CRITICAL)
+        .unwrap();
+    document.set_primary(id).unwrap();
+    let meta = document.push_meta(&Meta::default()).unwrap();
+    document.move_before(meta, id).unwrap();
+    let bytes = document.encode(&EncodeOptions::new()).unwrap();
+    let reader = Reader::open(&bytes).unwrap();
+    let chunk = reader
+        .chunks()
+        .find(|c| c.chunk_type() == ChunkType::IMAGE)
+        .unwrap();
+    let image = chunk.image().unwrap().unwrap().encoded().unwrap();
+    assert_eq!(image.codings().iter().collect::<Vec<_>>(), codings);
+    let mut slots = [None; 3];
+    let groups = image
+        .groups_into(&mut slots, &mut CoverageBudget::new(4096))
+        .unwrap();
+    #[repr(align(64))]
+    struct Aligned([u8; 128]);
+    for (ordinal, expected) in samples.iter().enumerate() {
+        let unit = groups.get(ordinal).unwrap().get(0).unwrap();
+        assert_eq!(
+            unit.region(),
+            Region::new(ordinal as u32 * 2, 0, 2, 1).unwrap()
+        );
+        assert_eq!(unit.coding(), codings[ordinal]);
+        let requirements = SurfaceRequirements::new()
+            .with_stride_multiple(64)
+            .with_base_alignment(64);
+        let plan = unit.decode_plan(requirements).unwrap();
+        let mut output = Aligned([0xad; 128]);
+        let decoded = plan.decode_into(&mut output.0).unwrap();
+        assert_eq!(
+            decoded.plane(0).unwrap().row(0).unwrap(),
+            Some(expected.as_slice())
+        );
+        assert_eq!(&output.0[6..64], &[0; 58]);
+        assert_eq!(&output.0[64..], &[0xad; 64]);
+    }
+    let mut document = Document::open(&bytes).unwrap();
+    let id = document
+        .chunks_of_type(ChunkType::IMAGE)
+        .next()
+        .unwrap()
+        .id();
+    document
+        .get_mut(id)
+        .unwrap()
+        .replace_encoded_image(&asset)
+        .unwrap();
+    assert!(!document.is_dirty());
+    assert_eq!(
+        document.primary_hints().sample_layout(),
+        SampleLayout::RGB888
+    );
+    assert_eq!(document.primary_hints().stride(), 0);
+}
+
+#[test]
 fn document_relocation_preserves_encoded_storage_alignment_and_derived_hints() {
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     for alignment in [1, 4, 16, 64, 256] {

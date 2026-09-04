@@ -15,6 +15,73 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
+    use mirx::{
+        coding::Rle,
+        image::{EncodedImageAsset, EncodedImageView, UnitGroupRecord},
+        media::UnitIndexEncoding,
+    };
+    let surface = SurfaceDescriptor::new(3, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let codings = [Rle::new().record()];
+    let records = [UnitGroupRecord::new(0, 0..5)
+        .unwrap()
+        .with_tiles(2, 1)
+        .with_index_encoding(UnitIndexEncoding::Lengths16)];
+    let mut index = [0; 16];
+    let index_len = UnitIndexEncoding::Lengths16
+        .encode_into(&[3, 2], 1, &mut index)
+        .unwrap();
+    let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &[1, 1, 2, 0, 3])
+        .with_index(&index[..index_len]);
+    let mut output = [0xad; 512];
+    let (len, allocations) = count_allocations(|| {
+        asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
+        let len = asset.encode_into(&mut output).unwrap();
+        assert_eq!(asset.encoded_len(), Ok(len));
+        assert_eq!(asset.matches_payload(&output[..len]), Ok(true));
+        EncodedImageView::open(&output[..len])
+            .unwrap()
+            .preflight(&PayloadLimits::EMBEDDED)
+            .unwrap();
+        len
+    });
+    assert_eq!(allocations, 0);
+    assert!(output[len..].iter().all(|b| *b == 0xad));
+    let mut document = Document::new();
+    let (id, allocations) = count_allocations(|| document.push_encoded_image(&asset).unwrap());
+    assert_eq!(allocations, 2);
+    let (_, allocations) = count_allocations(|| {
+        document
+            .get_mut(id)
+            .unwrap()
+            .replace_encoded_image(&asset)
+            .unwrap()
+    });
+    assert_eq!(allocations, 0);
+    let changed = EncodedImageAsset::from_groups(surface, &codings, &records, &[1, 1, 2, 0, 4])
+        .with_index(&index[..index_len]);
+    let (_, allocations) = count_allocations(|| {
+        document
+            .get_mut(id)
+            .unwrap()
+            .replace_encoded_image(&changed)
+            .unwrap()
+    });
+    assert_eq!(allocations, 1);
+    let invalid = asset.with_index(&index[..index_len - 1]);
+    let (_, allocations) = count_allocations(|| {
+        assert!(
+            document
+                .get_mut(id)
+                .unwrap()
+                .replace_encoded_image(&invalid)
+                .is_err()
+        )
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn typed_encoded_edits_allocate_only_final_payloads_and_keep_noops_borrowed() {
     use mirx::{coding::Rle, image::EncodedImageAsset};
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();

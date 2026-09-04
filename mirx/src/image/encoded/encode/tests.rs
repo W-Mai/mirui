@@ -1,4 +1,5 @@
 use super::*;
+mod grouped;
 use crate::{
     coding::{Lz4, Pixel, Rle},
     image::{
@@ -130,9 +131,9 @@ fn single_stream_omission_round_trips_each_scalar_profile() {
         };
         let asset = EncodedImageAsset::new(surface, coding, &stream[..len]);
         assert_eq!(asset.surface(), surface);
-        assert_eq!(asset.coding(), coding);
+        assert_eq!(asset.codings(), &[coding]);
         assert_eq!(asset.data(), &stream[..len]);
-        assert_eq!(asset.input_alignment(), 1);
+        assert_eq!(asset.input_alignment(), Ok(1));
         assert_eq!(asset.color_table(), None);
         assert_eq!(asset.encoded_len(), Ok(92 + coding.params().len() + len));
         let bytes = asset.encode().unwrap();
