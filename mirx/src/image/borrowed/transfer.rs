@@ -47,6 +47,9 @@ impl<'source> SurfaceView<'source> {
         for (source, memory) in self.planes().zip(plan.planes()) {
             let geometry = source.geometry();
             let row_size = geometry.minimum_stride().expect("validated plane geometry") as usize;
+            if row_size == 0 {
+                continue;
+            }
             let used_bits =
                 (u64::from(geometry.width()) * u64::from(geometry.bits_per_element())) % 8;
             for row in 0..geometry.height() as usize {
@@ -269,7 +272,7 @@ mod tests {
 
     #[test]
     fn zero_geometry_needs_no_allocation_or_address_alignment() {
-        for (width, height) in [(0, 0), (0, 3), (5, 0)] {
+        for (width, height) in [(0, 0), (0, 3), (5, 0), (0, u32::MAX), (u32::MAX, 0)] {
             let surface =
                 SurfaceDescriptor::new(width, height, SampleLayout::A8, ColorDescription::NONE)
                     .unwrap();

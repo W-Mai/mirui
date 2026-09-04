@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`ColorFormat` exposes canonical pixel-layout helpers.** `bits_per_pixel()` defines main-plane pixel depth, and `minimum_stride(width)` derives the smallest valid byte stride from it for byte-aligned and packed formats.
 - **MIRX authoring APIs use compact Rust naming and fluent configuration.** Empty CHUNK documents use `Document::new` or `Default`; raw inputs and policies use `new(...).with_*`; typed append defaults to empty flags with explicit `push_*_with_flags` variants; allocating FONT and VECTOR access uses `decode_font` and `decode_vector`; ordered payload collections use `push`, `replace`, and `remove` vocabulary.
 
+### Fixed
+
+- Zero-width RAW surface transfer skips empty rows regardless of logical height.
+
 ## [0.42.0] - 2026-07-12
 
 ### Added — breaking
