@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Compact FONT glyph maps.** Fixed GlyphMajor cells derive regions without stored map entries; Atlas2D maps borrow native or little-endian rectangles. Checked bounds, empty/shared regions, exact caller-buffer emission and constant-time ordinal access require no allocation.
+
 - **Borrowed FONT metric tables.** Representation-specific signed 24.8 line and glyph records retain fractional and large bearings, explicit line spacing and shared glyph ordinals. Checked record writes, unaligned table reads and constant-time indexed access allocate nothing.
 
 - **Indexed IMAGE integrity authoring.** Caller-defined DATA partitions produce checked range/CRC records with canonical offsets, bounded preflight and allocation-free emission. Local unit verification excludes disjoint ranges, while complete Reader/Document validation checks every partition.

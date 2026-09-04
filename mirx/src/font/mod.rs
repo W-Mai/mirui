@@ -2,6 +2,7 @@ pub mod atlas;
 mod codepoints;
 mod encoder;
 pub mod header;
+mod mapping;
 mod metrics;
 mod preflight;
 mod representation;
@@ -9,6 +10,7 @@ mod representation;
 use alloc::vec::Vec;
 
 pub use codepoints::{FontCodepointError, FontCodepointIter, FontCodepoints};
+pub use mapping::{GLYPH_REGION_LEN, GlyphMap, GlyphMapError, GlyphPacking, GlyphRegions};
 pub use metrics::{
     GLYPH_METRICS_LEN, GlyphMetrics, GlyphMetricsIter, LINE_METRICS_LEN, LineMetrics, MetricsError,
     MetricsTable,

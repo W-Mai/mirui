@@ -74,6 +74,8 @@ IMAGE, META, PALETTE, and FRAMES expose borrowed views. FONT and VECTOR use `dec
 
 `font::MetricsTable` borrows representation-specific line and glyph measurements as signed 24.8 values, without repeating codepoints or raster storage fields. [Font metric records](docs/font-metrics.md) describes the byte layout, coordinate conventions and allocation-free access.
 
+`font::GlyphMap` derives fixed GlyphMajor cells without map bytes or borrows explicit Atlas2D rectangles. Native and wire maps share checked lookup and encoding without repeating per-glyph storage rules; see [glyph region maps](docs/glyph-maps.md).
+
 ## Runtime reading
 
 `Reader` validates the common header, exact logical length, chunk table, payload ranges, primary selection, and configured resource limits. Chunk iteration and borrowed typed views continue to reference the input bytes.

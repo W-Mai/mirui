@@ -15,6 +15,28 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn native_wire_and_implicit_glyph_maps_allocate_nothing() {
+    use mirx::{font::GlyphMap, image::Region};
+    let regions = [
+        Region::new(1, 2, 3, 4).unwrap(),
+        Region::new(7, 9, 0, 0).unwrap(),
+    ];
+    let mut bytes = [0; 32];
+    let (region, allocations) = count_allocations(|| {
+        let native = GlyphMap::atlas(7, 9, &regions).unwrap();
+        native.encode_into(&mut bytes).unwrap();
+        let wire = GlyphMap::from_records(7, 9, &bytes).unwrap();
+        assert_eq!(wire.iter().count(), 2);
+        assert_eq!(wire.get(1), native.get(1));
+        let implicit = GlyphMap::glyph_major(7, 9, 10).unwrap();
+        assert_eq!(implicit.encode_into(&mut []), Ok(0));
+        implicit.get(9).unwrap()
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(region, Region::new(0, 81, 7, 9).unwrap());
+}
+
+#[test]
 fn font_metric_records_and_borrowed_table_use_no_heap() {
     use mirx::Fixed;
     use mirx::font::{GlyphMetrics, LineMetrics, MetricsTable};
