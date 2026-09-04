@@ -466,3 +466,26 @@ fn shared_font_codepoints_validate_and_search_without_decoding_an_array() {
     });
     assert_eq!(allocations, 0);
 }
+
+#[test]
+fn logical_plane_rows_borrow_without_allocating() {
+    use mirx::image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor};
+
+    let surface = SurfaceDescriptor::new(
+        2,
+        2,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let image = RawImageAsset::new(surface, &[&[16; 4], &[128; 2]])
+            .view()
+            .unwrap();
+        let y = image.plane(0).unwrap();
+        assert_eq!(y.row(1).unwrap().unwrap().as_ptr(), y.bytes()[2..].as_ptr());
+        assert_eq!(y.rows().unwrap().next_back(), Some(&[16, 16][..]));
+        assert_eq!(image.plane(1).unwrap().rows().unwrap().count(), 1);
+    });
+    assert_eq!(allocations, 0);
+}

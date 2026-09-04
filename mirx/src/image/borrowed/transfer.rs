@@ -52,11 +52,10 @@ impl<'source> SurfaceView<'source> {
             }
             let used_bits =
                 (u64::from(geometry.width()) * u64::from(geometry.bits_per_element())) % 8;
-            for row in 0..geometry.height() as usize {
-                let source_start = row * source.memory().stride() as usize;
+            for (row, samples) in source.rows().expect("validated linear storage").enumerate() {
                 let target_start = memory.data_offset() as usize + row * memory.stride() as usize;
                 let target = &mut output[target_start..target_start + row_size];
-                target.copy_from_slice(&source.bytes()[source_start..source_start + row_size]);
+                target.copy_from_slice(samples);
                 if used_bits != 0 {
                     target[row_size - 1] &= 0xff << (8 - used_bits);
                 }

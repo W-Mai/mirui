@@ -118,6 +118,8 @@ IMAGE uses a 32-byte media header, 16-byte section entries, a 32-byte SURFACE re
 
 `SurfaceView::copy_into(output, plan)` transfers logical RAW samples into a caller-owned allocation. Source padding is ignored; destination padding and unused sub-byte row bits become zero. All validation precedes writes, and any output suffix remains unchanged. The returned view borrows the output planes and retains the source's indexed color table without copying it. No allocation or color conversion occurs.
 
+`SurfacePlane::row(y)` and `rows()` borrow logical sample rows without allocation. Row indices use each plane's own geometry, including chroma subsampling. Stride padding and allocation-only rows are excluded; unused low bits in a sub-byte row's last byte remain unchanged. Unknown physical storage flags are rejected. These CPU-readable slices do not imply that every row meets GPU address-alignment requirements.
+
 ```rust
 use mirx::image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor, SurfaceRequirements};
 
@@ -139,6 +141,11 @@ let copied = image.copy_into(&mut buffer.0, plan).unwrap();
 assert_eq!(copied.surface().width(), 2);
 assert_eq!(copied.plane(0).unwrap().memory().stride(), 64);
 assert!(copied.data_addresses_are_aligned());
+let y = copied.plane(0).unwrap();
+assert_eq!(y.row(1).unwrap(), Some(&[16, 16][..]));
+assert_eq!(y.rows().unwrap().count(), 2);
+let uv = copied.plane(1).unwrap();
+assert_eq!(uv.rows().unwrap().count(), 1);
 ```
 
 `ColorFormat::bits_per_pixel()` is the canonical main-plane pixel depth. `ColorFormat::minimum_stride(width)` derives the smallest valid row stride, including sub-byte indexed and alpha formats.

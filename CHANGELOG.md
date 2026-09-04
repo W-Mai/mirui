@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Borrowed RAW plane rows.** `SurfacePlane::row` and `rows` expose logical sample rows without stride padding, allocation-only rows, or hidden copies. Indexed and planar layouts share exact-size, double-ended iteration with constant-time skips; unknown physical storage flags are rejected.
+
 - **Shared FONT codepoint tables.** `FontCodepoints` validates sorted little-endian Unicode scalar records and exposes glyph-ordinal lookup and exact-size, double-ended iteration without allocation or aligned typed slices.
 
 - **Caller-owned RAW surface transfer.** `SurfaceView::copy_into` copies logical samples into a checked `SurfaceMemoryPlan` without allocation or color conversion. Destination padding and unused sub-byte row bits are initialized deterministically; output failures are atomic, and indexed color tables retain their source storage.

@@ -51,7 +51,9 @@ mod plan;
 mod surface;
 mod view;
 
-pub use borrowed::{ImageSource, SurfaceCopyError, SurfacePlanes, SurfaceView};
+pub use borrowed::{
+    ImageSource, PlaneAccessError, PlaneRows, SurfaceCopyError, SurfacePlanes, SurfaceView,
+};
 pub use color::{
     ChromaSiting, ColorDescription, ColorDescriptionError, ColorMatrix, ColorPrimaries, ColorRange,
     TransferFunction,

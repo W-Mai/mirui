@@ -1,6 +1,8 @@
 use core::iter::FusedIterator;
 
+mod rows;
 mod transfer;
+pub use rows::{PlaneAccessError, PlaneRows};
 pub use transfer::SurfaceCopyError;
 
 use super::{
