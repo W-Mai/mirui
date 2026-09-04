@@ -79,6 +79,8 @@ Use `groups_into` when subsequent access benefits from prepared groups. Its call
 
 Use `validate_groups` when only a validation result is needed. It stores no group table, validates all immutable records once, then resolves them again as the coverage algorithm needs them. Every resolution charges one record visit plus its declared DATA span and the entire UNIT_INDEX section length before index/group parsing. DATA span conservatively bounds nonempty unit visits; index bytes bound selection/range scans. Geometric work is charged separately through the same budget.
 
+Native authoring records and borrowed wire records use one group-resolution and coverage implementation. Authoring does not serialize a temporary coding/group table for validation; native records must satisfy the same field, range, reference and alignment rules as wire records.
+
 This conservative accounting can reject a many-group image earlier than cached validation, especially when groups share a large index section. Increase the explicit budget or provide workspace instead of assuming an index guarantees cheap validation. Exhaustion never returns success. These units describe bounded work, not actual bytes read, memory usage or elapsed time. Neither validation path decodes samples or verifies DATA checksums.
 
 ## Complete preflight

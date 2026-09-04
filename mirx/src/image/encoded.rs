@@ -1,8 +1,8 @@
 use core::iter::FusedIterator;
 
 use super::{
-    CoverageBudget, CoverageError, ReferenceMode, SURFACE_RECORD_LEN, SurfaceDescriptor,
-    SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroup, UnitGroupRecord, UnitGroupRecordError,
+    CoverageBudget, CoverageError, SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceRecordError,
+    UNIT_GROUP_RECORD_LEN, UnitGroup, UnitGroupRecordError,
 };
 use crate::media::{
     CodingTable, CodingTableError, MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind,
@@ -10,6 +10,10 @@ use crate::media::{
 use crate::payload::ColorTableView;
 
 mod encode;
+mod groups;
+#[cfg(test)]
+use super::UnitGroupRecord;
+use groups::{CodingRecords, GroupRecords, GroupSource};
 mod preflight;
 pub use encode::EncodedImageAsset;
 
@@ -65,11 +69,7 @@ impl<'a> EncodedImageView<'a> {
     /// This scans only group records, without expanding units or checking
     /// coverage, codec syntax or actual backing addresses.
     pub fn input_alignment(self) -> Result<u32, EncodedImageError> {
-        let mut alignment = 1;
-        for index in 0..self.group_count() {
-            alignment = alignment.max(self.record(index)?.input_alignment());
-        }
-        Ok(alignment)
+        self.group_source().input_alignment()
     }
 
     pub(super) fn from_media(
@@ -152,17 +152,17 @@ impl<'a> EncodedImageView<'a> {
         })
     }
 
-    fn record(self, index: usize) -> Result<UnitGroupRecord, EncodedImageError> {
-        if index >= self.group_count() {
-            return Err(EncodedImageError::GroupOutOfBounds(index));
-        }
-        match self.records {
-            Some(records) => {
-                UnitGroupRecord::open(&records.bytes()[index * UNIT_GROUP_RECORD_LEN..])
-                    .map_err(|error| EncodedImageError::Group { index, error })
-            }
-            None => UnitGroupRecord::new(0, 0..self.data.descriptor().size())
-                .map_err(|error| EncodedImageError::Group { index, error }),
+    fn group_source(self) -> GroupSource<'a> {
+        GroupSource {
+            surface: self.surface,
+            codings: CodingRecords::Wire(self.codings),
+            records: self.records.map_or(GroupRecords::Implicit, |section| {
+                GroupRecords::Wire(section.bytes())
+            }),
+            data: self.data.bytes(),
+            indexes: self.indexes.map_or(&[], |section| section.bytes()),
+            file_offset: self.file_offset,
+            data_offset: self.data.descriptor().offset(),
         }
     }
 
@@ -185,7 +185,8 @@ impl<'a> EncodedImageView<'a> {
         }
         let workspace = &mut workspace[..count];
         workspace.fill(None);
-        self.visit_groups(None, |index, group| workspace[index] = Some(group))?;
+        self.group_source()
+            .visit_groups(None, |index, group| workspace[index] = Some(group))?;
         self.surface
             .validate_coverage_by(
                 count,
@@ -208,109 +209,7 @@ impl<'a> EncodedImageView<'a> {
     /// workspace avoids those repeated scans. Codec syntax and DATA checksums
     /// remain separate checks.
     pub fn validate_groups(self, budget: &mut CoverageBudget) -> Result<(), EncodedImageError> {
-        self.visit_groups(Some(budget), |_, _| {})?;
-        self.surface
-            .validate_coverage_by(
-                self.group_count(),
-                |index, budget| {
-                    let record = self.record(index).expect("validated group record");
-                    budget.spend_many(self.resolution_cost(record))?;
-                    Ok(self
-                        .resolve_record(index, record)
-                        .expect("validated immutable group")
-                        .0)
-                },
-                budget,
-            )
-            .map_err(EncodedImageError::Coverage)
-    }
-
-    fn resolution_cost(self, record: UnitGroupRecord) -> u64 {
-        record.resolution_work(self.indexes.map_or(0, |section| section.bytes().len()))
-    }
-
-    fn resolve_record(
-        self,
-        index: usize,
-        record: UnitGroupRecord,
-    ) -> Result<(UnitGroup<'a>, core::ops::Range<u32>), EncodedImageError> {
-        record
-            .resolve_with_index_range(
-                self.surface,
-                self.codings,
-                self.data.bytes(),
-                self.indexes.map_or(&[][..], |section| section.bytes()),
-            )
-            .map_err(|error| EncodedImageError::Group { index, error })
-    }
-
-    fn visit_groups(
-        self,
-        mut budget: Option<&mut CoverageBudget>,
-        mut visit: impl FnMut(usize, UnitGroup<'a>),
-    ) -> Result<(), EncodedImageError> {
-        let index_bytes = self.indexes.map_or(&[][..], |section| section.bytes());
-        let mut data_end = 0u32;
-        let mut index_end = 0u32;
-        for index in 0..self.group_count() {
-            let record = self.record(index)?;
-            if let Some(budget) = budget.as_deref_mut() {
-                budget
-                    .spend_many(self.resolution_cost(record))
-                    .map_err(EncodedImageError::Coverage)?;
-            }
-            if record.reference() != ReferenceMode::Independent {
-                return Err(EncodedImageError::ReferenceInStaticImage(index));
-            }
-            let alignment = record.input_alignment();
-            let expected_start = data_end
-                .checked_add(alignment - 1)
-                .map(|end| end & !(alignment - 1))
-                .ok_or(EncodedImageError::SizeOverflow)?;
-            if record.data_range().start != expected_start {
-                return Err(EncodedImageError::NonCanonicalDataRange {
-                    index,
-                    expected_start,
-                    actual_start: record.data_range().start,
-                });
-            }
-            if let Some(file_offset) = self.file_offset {
-                let absolute_offset = file_offset
-                    .checked_add(self.data.descriptor().offset())
-                    .and_then(|offset| offset.checked_add(record.data_range().start))
-                    .ok_or(EncodedImageError::SizeOverflow)?;
-                if absolute_offset % alignment != 0 {
-                    return Err(EncodedImageError::FileAddressUnaligned {
-                        index,
-                        absolute_offset,
-                        alignment,
-                    });
-                }
-            }
-            let (group, range) = self.resolve_record(index, record)?;
-            if group.is_empty() && self.records.is_some() {
-                return Err(EncodedImageError::EmptyGroup(index));
-            }
-            if !range.is_empty() {
-                if range.start != index_end {
-                    return Err(EncodedImageError::NonCanonicalIndexRange {
-                        index,
-                        expected_start: index_end,
-                        actual_start: range.start,
-                    });
-                }
-                index_end = range.end;
-            }
-            data_end = record.data_range().end;
-            visit(index, group);
-        }
-        if data_end != self.data.descriptor().size() {
-            return Err(EncodedImageError::UnreferencedData);
-        }
-        if index_end as usize != index_bytes.len() {
-            return Err(EncodedImageError::UnreferencedIndexes);
-        }
-        Ok(())
+        self.group_source().validate_groups(budget)
     }
 }
 
@@ -351,7 +250,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
             .data
             .descriptor()
             .offset()
-            .checked_add(self.image.record(group)?.data_range().start)
+            .checked_add(self.image.group_source().record(group)?.data_range().start)
             .ok_or(EncodedImageError::SizeOverflow)?;
         let range = unit.data_range();
         let start = base

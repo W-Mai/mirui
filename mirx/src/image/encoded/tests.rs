@@ -1,5 +1,5 @@
 use super::*;
-use crate::image::{ColorDescription, GroupSelection, SampleLayout};
+use crate::image::{ColorDescription, GroupSelection, ReferenceMode, SampleLayout};
 use crate::media::{
     CodingId, CodingRecord, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionFlags,
 };

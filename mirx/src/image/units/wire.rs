@@ -256,11 +256,20 @@ impl UnitGroupRecord {
         data: &'a [u8],
         indexes: &'a [u8],
     ) -> Result<(UnitGroup<'a>, Range<u32>), UnitGroupRecordError> {
+        self.resolve_with(surface, data, indexes, |index| codings.get(index as usize))
+    }
+
+    pub(crate) fn resolve_with<'a>(
+        self,
+        surface: SurfaceDescriptor,
+        data: &'a [u8],
+        indexes: &'a [u8],
+        coding_at: impl FnOnce(u32) -> Option<crate::media::CodingRecord<'a>>,
+    ) -> Result<(UnitGroup<'a>, Range<u32>), UnitGroupRecordError> {
         self.validate()?;
         u32::try_from(data.len()).map_err(|_| UnitGroupRecordError::SizeOverflow)?;
         u32::try_from(indexes.len()).map_err(|_| UnitGroupRecordError::SizeOverflow)?;
-        let coding = codings
-            .get(self.coding_index as usize)
+        let coding = coding_at(self.coding_index)
             .ok_or(UnitGroupRecordError::MissingCoding(self.coding_index))?;
         let range = self.data_range();
         let bytes = data
@@ -336,7 +345,7 @@ impl UnitGroupRecord {
         ))
     }
 
-    fn validate(self) -> Result<(), UnitGroupRecordError> {
+    pub(crate) fn validate(self) -> Result<(), UnitGroupRecordError> {
         if self
             .tiles
             .is_some_and(|(width, height)| width == 0 || height == 0)

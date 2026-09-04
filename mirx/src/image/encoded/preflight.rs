@@ -1,4 +1,4 @@
-use super::{EncodedImageError, EncodedImageView};
+use super::{EncodedImageError, EncodedImageView, groups::GroupSource};
 use crate::{
     PayloadLimits,
     image::{
@@ -36,27 +36,14 @@ impl<'a> Preflight<'a> {
             .map_err(EncodedImageError::Coverage)
     }
 
-    pub(super) fn single(
-        &mut self,
-        group: UnitGroup<'_>,
-        resolution_work: u64,
-    ) -> Result<(), EncodedImageError> {
-        self.spend(resolution_work)?;
-        group
-            .surface()
-            .validate_coverage_by(
-                1,
-                |_, budget| {
-                    budget.spend_many(resolution_work)?;
-                    Ok(group)
-                },
-                &mut self.budget,
-            )
-            .map_err(EncodedImageError::Coverage)?;
-        self.spend(resolution_work)?;
-        self.group(0, group)?;
-        // Charge the stored DATA checksum that the resulting payload requires.
-        self.spend(group.data().len() as u64)
+    pub(super) fn groups(&mut self, source: GroupSource<'_>) -> Result<(), EncodedImageError> {
+        source.validate_groups(&mut self.budget)?;
+        for index in 0..source.group_count() {
+            let record = source.record(index)?;
+            self.spend(source.resolution_cost(record))?;
+            self.group(index, source.resolve_record(index, record)?.0)?;
+        }
+        self.spend(source.data.len() as u64)
     }
 
     fn group(&mut self, index: usize, group: UnitGroup<'_>) -> Result<(), EncodedImageError> {
@@ -112,13 +99,7 @@ impl EncodedImageView<'_> {
     /// separate decode-plan concern.
     pub fn preflight(self, limits: &PayloadLimits) -> Result<(), EncodedImageError> {
         let mut preflight = Preflight::new(limits, self.group_count())?;
-        self.validate_groups(&mut preflight.budget)?;
-        for index in 0..self.group_count() {
-            let record = self.record(index)?;
-            preflight.spend(self.resolution_cost(record))?;
-            preflight.group(index, self.resolve_record(index, record)?.0)?;
-        }
-        preflight.spend(self.data.bytes().len() as u64)?;
+        preflight.groups(self.group_source())?;
         self.validate_data()
     }
 }

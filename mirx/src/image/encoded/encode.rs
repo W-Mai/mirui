@@ -1,3 +1,4 @@
+use super::groups::{CodingRecords, GroupRecords, GroupSource};
 use super::preflight::Preflight;
 use alloc::vec::Vec;
 
@@ -93,16 +94,27 @@ impl<'a> EncodedImageAsset<'a> {
     /// not profile support; this explicit gate admits typed document edits.
     pub fn preflight(self, limits: &crate::PayloadLimits) -> Result<(), ImageEncodeError> {
         let plan = Plan::new(self)?;
-        let group = self.group()?;
-        let record = plan.group.unwrap_or_else(|| {
-            UnitGroupRecord::new(0, 0..self.data.len() as u32).expect("validated group range")
-        });
+        let codings = [self.coding];
+        let source = GroupSource {
+            surface: self.surface,
+            codings: CodingRecords::Native(&codings),
+            records: plan
+                .group
+                .as_ref()
+                .map_or(GroupRecords::Implicit, |record| {
+                    GroupRecords::Native(core::slice::from_ref(record))
+                }),
+            data: self.data,
+            indexes: &[],
+            file_offset: None,
+            data_offset: plan.data_offset as u32,
+        };
         let mut preflight = Preflight::new(limits, 1).map_err(ImageEncodeError::Preflight)?;
         preflight
             .spend(plan.payload_len as u64)
             .map_err(ImageEncodeError::Preflight)?;
         preflight
-            .single(group, record.resolution_work(0))
+            .groups(source)
             .map_err(ImageEncodeError::Preflight)
     }
 
