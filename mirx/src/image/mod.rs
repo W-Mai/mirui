@@ -44,8 +44,10 @@ pub(crate) mod test_support;
 
 mod borrowed;
 mod color;
+mod color_table;
 mod coverage;
 mod encode;
+mod encoded;
 mod grid;
 mod layout;
 mod memory;
@@ -63,6 +65,7 @@ pub use color::{
 };
 pub use coverage::{CoverageBudget, CoverageError};
 pub use encode::{RawImageAsset, RawImageEncodeError};
+pub use encoded::{EncodedImageError, EncodedImageView, ImageGroupIter, ImageGroups};
 pub use grid::{Region, RegionError, TileGrid, TileGridError, Tiles};
 pub use layout::{PlaneGeometries, PlaneGeometry, PlaneRole, SampleLayout};
 pub use memory::{

@@ -119,7 +119,9 @@ impl<'a> RawImageView<'a> {
             .map_err(RawImageViewError::Surface)?;
         let data = data.ok_or(RawImageViewError::MissingSection(MediaSectionKind::DATA))?;
 
-        let color_table = validate_color_table(surface, color_table_section)?;
+        let color_table = surface
+            .read_color_table(color_table_section.map(|section| section.bytes()))
+            .map_err(RawImageViewError::from)?;
         let view = Self {
             media,
             surface,
@@ -357,25 +359,19 @@ fn validate_section_size(
     Ok(())
 }
 
-fn validate_color_table(
-    surface: SurfaceDescriptor,
-    section: Option<MediaSection<'_>>,
-) -> Result<Option<ColorTableView<'_>>, RawImageViewError> {
-    let expected_entries = surface.sample_layout().color_table_entries();
-    match (expected_entries, section) {
-        (Some(entries), Some(section)) => {
-            let expected = usize::try_from(entries)
-                .ok()
-                .and_then(|entries| entries.checked_mul(4))
-                .ok_or(RawImageViewError::SizeOverflow)?;
-            validate_section_size(section, expected)?;
-            let table = ColorTableView::from_rgba_bytes(section.bytes())
-                .expect("validated indexed color table length");
-            Ok(Some(table))
+impl From<super::color_table::ColorTableError> for RawImageViewError {
+    fn from(error: super::color_table::ColorTableError) -> Self {
+        use super::color_table::ColorTableError;
+        match error {
+            ColorTableError::Missing => Self::MissingColorTable,
+            ColorTableError::Unexpected => Self::UnexpectedColorTable,
+            ColorTableError::SizeMismatch { expected, actual } => Self::SectionSizeMismatch {
+                kind: MediaSectionKind::COLOR_TABLE,
+                expected,
+                actual,
+            },
+            ColorTableError::SizeOverflow => Self::SizeOverflow,
         }
-        (Some(_), None) => Err(RawImageViewError::MissingColorTable),
-        (None, Some(_)) => Err(RawImageViewError::UnexpectedColorTable),
-        (None, None) => Ok(None),
     }
 }
 

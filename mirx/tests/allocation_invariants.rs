@@ -709,3 +709,44 @@ fn image_coverage_and_selection_windows_allocate_nothing() {
     });
     assert_eq!(allocations, 0);
 }
+
+#[test]
+fn encoded_image_open_prepare_and_integrity_allocate_nothing() {
+    use mirx::image::{CoverageBudget, EncodedImageView};
+    let mut bytes = [0u8; 96];
+    bytes[0] = 1;
+    bytes[2] = 3;
+    for (entry, kind, offset, size) in [(8, 1, 44u32, 32u32), (20, 3, 76, 12), (32, 5, 88, 4)] {
+        bytes[entry] = kind;
+        bytes[entry + 2] = 1;
+        bytes[entry + 4..entry + 8].copy_from_slice(&offset.to_le_bytes());
+        bytes[entry + 8..entry + 12].copy_from_slice(&size.to_le_bytes());
+    }
+    bytes[44] = 4;
+    bytes[48] = 1;
+    bytes[52] = 0x23;
+    bytes[76] = 1;
+    bytes[80] = 19;
+    bytes[82] = 1;
+    bytes[88..92].copy_from_slice(&[1, 2, 3, 4]);
+    let checksum = mirx::crc32(&bytes[88..92]);
+    bytes[92..96].copy_from_slice(&checksum.to_le_bytes());
+    let mut metadata = [0; 88];
+    metadata[..4].copy_from_slice(&bytes[..4]);
+    metadata[4..84].copy_from_slice(&bytes[8..88]);
+    metadata[84..].copy_from_slice(&bytes[92..]);
+    bytes[4..8].copy_from_slice(&mirx::crc32(&metadata).to_le_bytes());
+    let mut workspace = [None];
+    let (_, allocations) = count_allocations(|| {
+        let image = EncodedImageView::open(&bytes).unwrap();
+        let groups = image
+            .groups_into(&mut workspace, &mut CoverageBudget::new(10))
+            .unwrap();
+        assert_eq!(
+            groups.get(0).unwrap().get(0).unwrap().data().as_ptr(),
+            bytes[88..].as_ptr()
+        );
+        assert_eq!(groups.validate_unit(0, 0), Ok(4));
+    });
+    assert_eq!(allocations, 0);
+}

@@ -36,8 +36,18 @@ impl SurfaceDescriptor {
         groups: &[UnitGroup<'_>],
         budget: &mut CoverageBudget,
     ) -> Result<(), CoverageError> {
-        for group in groups {
+        self.validate_coverage_by(groups.len(), |index| groups[index], budget)
+    }
+
+    pub(crate) fn validate_coverage_by<'a>(
+        self,
+        count: usize,
+        group_at: impl Fn(usize) -> UnitGroup<'a>,
+        budget: &mut CoverageBudget,
+    ) -> Result<(), CoverageError> {
+        for index in 0..count {
             budget.spend()?;
+            let group = group_at(index);
             if group.surface() != self {
                 return Err(CoverageError::SurfaceMismatch);
             }
@@ -46,8 +56,9 @@ impl SurfaceDescriptor {
             let geometry = self.plane(plane).unwrap();
             let expected = u64::from(geometry.width()) * u64::from(geometry.height());
             let mut actual = 0u64;
-            for &group in groups {
+            for index in 0..count {
                 budget.spend()?;
+                let group = group_at(index);
                 actual = actual
                     .checked_add(group.covered_area(plane, budget)?)
                     .ok_or(CoverageError::AreaOverflow)?;
@@ -59,9 +70,10 @@ impl SurfaceDescriptor {
                     actual,
                 });
             }
-            for (index, &group) in groups.iter().enumerate() {
-                for &other in &groups[index + 1..] {
-                    if group.overlaps(other, plane, budget)? {
+            for index in 0..count {
+                let group = group_at(index);
+                for other in index + 1..count {
+                    if group.overlaps(group_at(other), plane, budget)? {
                         return Err(CoverageError::Overlap { plane });
                     }
                 }
