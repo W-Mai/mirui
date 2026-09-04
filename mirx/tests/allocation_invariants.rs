@@ -15,6 +15,29 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn referenced_raw_glyph_binding_allocates_nothing() {
+    use mirx::font::{GlyphMap, GlyphPacking, GlyphSurfaceRecord};
+    let surface = SurfaceDescriptor::new(3, 2, SampleLayout::A4, ColorDescription::NONE).unwrap();
+    let bytes = RawImageAsset::new(surface, &[&[0x12, 0x30, 0x45, 0x60]])
+        .encode()
+        .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let media = MediaPayload::open(&bytes).unwrap();
+        media.validate_data().unwrap();
+        let record =
+            GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 3, 1, 1).unwrap();
+        let glyphs = record
+            .raw_glyphs(media, GlyphMap::glyph_major(3, 1, 2).unwrap())
+            .unwrap();
+        assert_eq!(
+            glyphs.get(1).unwrap().storage().plane(0).unwrap().bytes(),
+            &[0x45, 0x60]
+        );
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn glyph_surface_records_and_directory_binding_allocate_nothing() {
     use mirx::font::{GlyphPacking, GlyphSurfaceRecord};
     let bytes = raw_a8_media_payload();

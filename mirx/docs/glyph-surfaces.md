@@ -48,4 +48,8 @@ assert_eq!(GlyphSurfaceRecord::from_record(&bytes)?, record);
 
 `validate_sections(media)` checks direct directory ordinals, expected kinds and exact REQUIRED flags in constant space. It does not establish body validity, complete face cardinality, coding support, coverage or DATA integrity. Referenced immutable sections may be shared by several records. RAW binding requires one exact 24-byte PLANES record when present; implicit encoded storage requires exactly one coding record when groups are absent.
 
+`raw_glyphs(media, map)` binds matching scalar maps to the referenced RAW PLANES and DATA through `RawGlyphs`. It requires identical packing and cell/atlas dimensions, parses the exact physical record and checks the complete DATA span, including shared cell-alignment gaps. Encoded storage and unsupported scalar layouts are rejected. The returned storage borrows the original DATA and reuses existing glyph lookup and crop transfer.
+
+This low-level binding does not checksum samples. Verify the complete face or selected DATA range before trusted consumption; repeated glyph binding must not silently rescan all representations. Source-address and file-address checks remain explicit on `RawGlyphs`. Unknown physical flags remain inspectable, while row access and sample copying reject unsupported storage interpretation.
+
 Record reads and writes allocate nothing and accept unaligned input. Parsing consumes a 24-byte prefix; complete tables must have an exact multiple of that size. Short output errors preserve all bytes, and successful writes leave the suffix unchanged.

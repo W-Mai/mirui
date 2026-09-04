@@ -1,11 +1,13 @@
 #![doc = include_str!("../../docs/glyph-surfaces.md")]
 
-use super::{GlyphMap, GlyphMapError, GlyphPacking};
-use crate::image::SampleLayout;
+use super::{GlyphMap, GlyphMapError, GlyphPacking, GlyphStorageError};
+use crate::image::{PlaneMemoryRecordError, SampleLayout};
 use crate::media::{MediaPayload, MediaSectionFlags, MediaSectionKind};
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
 pub const GLYPH_SURFACE_RECORD_LEN: usize = 24;
+
+mod raw;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Storage {
@@ -322,6 +324,14 @@ pub enum GlyphSurfaceRecordError {
         index: u16,
         flags: MediaSectionFlags,
     },
+    ExpectedRawStorage,
+    MapMismatch,
+    UnsupportedLayout(SampleLayout),
+    PlaneRecordLength {
+        actual: usize,
+    },
+    Plane(PlaneMemoryRecordError),
+    Storage(GlyphStorageError),
 }
 
 #[cfg(test)]
