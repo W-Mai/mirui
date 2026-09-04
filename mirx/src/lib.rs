@@ -45,7 +45,7 @@ pub use font::{
     FontSelectionError, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION, read_header,
     read_metric, write_header, write_metric,
 };
-pub use format::{ColorFormat, PRIMARY_FORMAT_NONE};
+pub use format::ColorFormat;
 pub use header::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkEntry, ChunkFileHeader, FILE_HEADER_LEN,
     FLAT_HEADER_LEN, FileHeader, FlatHeader, ImageChunkHeader, Layout, MAGIC, VERSION_MAJOR,

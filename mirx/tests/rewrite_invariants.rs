@@ -77,7 +77,7 @@ fn generated_raw_sequences_rewrite_deterministically_and_reopen_every_payload() 
         expected[0].payload = replacement;
 
         let primary = expected.last().unwrap();
-        let hints = PrimaryHints::new(0xff, seed + 1, count as u32, 0);
+        let hints = PrimaryHints::new(mirx::image::SampleLayout::NONE, seed + 1, count as u32, 0);
         document.set_primary_with_hints(primary.id, hints).unwrap();
 
         let first = document.encode(&Default::default()).unwrap();

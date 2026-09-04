@@ -6,8 +6,8 @@ use super::*;
 use crate::header::{CHUNK_FILE_HEADER_LEN, chunk_type};
 use crate::{
     AnimationFrames, AnimationSettings, AtlasFrames, ColorFormat, CriticalAssumption, Frame,
-    FramesAsset, ImageChunkInput, PRIMARY_FORMAT_NONE, PayloadInput, RawChunkInput,
-    RelocationAssumption, ReservedBitsPolicy, crc32, encode_chunk_image, encode_chunks,
+    FramesAsset, ImageChunkInput, PayloadInput, RawChunkInput, RelocationAssumption,
+    ReservedBitsPolicy, crc32, encode_chunk_image, encode_chunks,
 };
 
 const CUSTOM: ChunkType = match ChunkType::new(0xbeef) {
@@ -18,10 +18,13 @@ const OTHER_CUSTOM: ChunkType = match ChunkType::new(0xcafe) {
     Some(chunk_type) => chunk_type,
     None => panic!("nonzero chunk type"),
 };
-const WIRE_HINTS: PrimaryHints = PrimaryHints::new(0xa5, 13, 21, 55);
-const OTHER_HINTS: PrimaryHints = PrimaryHints::new(0x5a, 34, 12, 68);
-const NON_IMAGE_HINTS: PrimaryHints = PrimaryHints::new(PRIMARY_FORMAT_NONE, 0, 0, 0);
-const SUGGESTED_HINTS: PrimaryHints = PrimaryHints::new(PRIMARY_FORMAT_NONE, 20, 30, 0);
+const WIRE_HINTS: PrimaryHints =
+    PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 13, 21, 55);
+const OTHER_HINTS: PrimaryHints =
+    PrimaryHints::new(crate::image::SampleLayout::new(0x5a), 34, 12, 68);
+const NON_IMAGE_HINTS: PrimaryHints = PrimaryHints::new(crate::image::SampleLayout::NONE, 0, 0, 0);
+const SUGGESTED_HINTS: PrimaryHints =
+    PrimaryHints::new(crate::image::SampleLayout::NONE, 20, 30, 0);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct NodeSnapshot {
@@ -84,7 +87,7 @@ fn image_payload(width: u32, height: u32, fill: u8) -> Vec<u8> {
 
 fn image_hints(width: u32, height: u32) -> PrimaryHints {
     PrimaryHints::new(
-        ColorFormat::A8.to_u8(),
+        crate::image::SampleLayout::from_color_format(ColorFormat::A8),
         width,
         height,
         ColorFormat::A8.minimum_stride(width).unwrap(),
@@ -153,7 +156,7 @@ fn raw<'a>(
 
 fn set_wire_primary(source: &mut [u8], chunk_type: u16, hints: PrimaryHints) {
     source[20..22].copy_from_slice(&chunk_type.to_le_bytes());
-    source[22] = hints.color_format_raw();
+    source[22..24].copy_from_slice(&hints.sample_layout().raw().to_le_bytes());
     source[24..28].copy_from_slice(&hints.width().to_le_bytes());
     source[28..32].copy_from_slice(&hints.height().to_le_bytes());
     source[32..36].copy_from_slice(&hints.stride().to_le_bytes());
@@ -326,7 +329,12 @@ fn frames_primary_hints_follow_atlas_and_animation_display_geometry() {
     set_wire_primary(&mut atlas_source, ChunkType::FRAMES.raw(), WIRE_HINTS);
     let mut atlas_document = Document::open(&atlas_source).unwrap();
     let atlas_id = atlas_document.primary().unwrap();
-    let atlas_hints = PrimaryHints::new(ColorFormat::A8.to_u8(), 3, 2, 3);
+    let atlas_hints = PrimaryHints::new(
+        crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+        3,
+        2,
+        3,
+    );
 
     assert_eq!(chunk_hint_state(&atlas_document), PrimaryHintState::Derived);
     assert_eq!(atlas_document.primary_hints(), atlas_hints);
@@ -343,12 +351,22 @@ fn frames_primary_hints_follow_atlas_and_animation_display_geometry() {
         .unwrap();
     assert_eq!(
         atlas_document.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 4, 1, 4)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            4,
+            1,
+            4
+        )
     );
     let encoded = atlas_document.encode(&EncodeOptions::new()).unwrap();
     assert_eq!(
         Document::open(&encoded).unwrap().primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 4, 1, 4)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            4,
+            1,
+            4
+        )
     );
 
     let animation = animation_frames(5, 4);
@@ -367,7 +385,12 @@ fn frames_primary_hints_follow_atlas_and_animation_display_geometry() {
     );
     assert_eq!(
         animation_document.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 5, 4, 0)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            5,
+            4,
+            0
+        )
     );
 }
 
@@ -382,14 +405,24 @@ fn valid_frames_can_be_selected_as_primary_without_explicit_hints() {
     assert_eq!(document.primary(), Some(animation_id));
     assert_eq!(
         document.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 6, 3, 0)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            6,
+            3,
+            0
+        )
     );
 
     document.set_primary(atlas_id).unwrap();
     assert_eq!(document.primary(), Some(atlas_id));
     assert_eq!(
         document.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 1, 2)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            2,
+            1,
+            2
+        )
     );
 }
 
@@ -483,7 +516,7 @@ fn legacy_zero_stale_none_future_and_flat_sources_remain_unambiguous() {
 
     let mut future_flat = flat_source;
     future_flat[5] = VERSION_MINOR + 1;
-    future_flat[8] = WIRE_HINTS.color_format_raw();
+    future_flat[8] = WIRE_HINTS.sample_layout().raw() as u8;
     future_flat[12..16].copy_from_slice(&WIRE_HINTS.width().to_le_bytes());
     future_flat[16..20].copy_from_slice(&WIRE_HINTS.height().to_le_bytes());
     future_flat[20..24].copy_from_slice(&WIRE_HINTS.stride().to_le_bytes());

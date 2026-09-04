@@ -23,7 +23,8 @@ const TYPE_C: ChunkType = match ChunkType::new(0xc001) {
     Some(chunk_type) => chunk_type,
     None => panic!("nonzero chunk type"),
 };
-const WIRE_HINTS: PrimaryHints = PrimaryHints::new(0xa5, 13, 21, 55);
+const WIRE_HINTS: PrimaryHints =
+    PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 13, 21, 55);
 const BORROWED_PAYLOAD: &[u8] = b"borrowed-payload";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -404,7 +405,7 @@ fn refresh_header_crc(source: &mut [u8]) {
 
 fn set_wire_primary(source: &mut [u8], chunk_type: ChunkType, hints: PrimaryHints) {
     source[20..22].copy_from_slice(&chunk_type.raw().to_le_bytes());
-    source[22] = hints.color_format_raw();
+    source[22..24].copy_from_slice(&hints.sample_layout().raw().to_le_bytes());
     source[24..28].copy_from_slice(&hints.width().to_le_bytes());
     source[28..32].copy_from_slice(&hints.height().to_le_bytes());
     source[32..36].copy_from_slice(&hints.stride().to_le_bytes());
@@ -477,7 +478,7 @@ fn image_payload(width: u32, height: u32) -> Vec<u8> {
 
 fn image_hints(width: u32, height: u32) -> PrimaryHints {
     PrimaryHints::new(
-        ColorFormat::A8.to_u8(),
+        crate::image::SampleLayout::from_color_format(ColorFormat::A8),
         width,
         height,
         ColorFormat::A8.minimum_stride(width).unwrap(),

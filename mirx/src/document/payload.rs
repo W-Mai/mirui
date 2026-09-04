@@ -181,7 +181,7 @@ pub(super) fn encode_error_for_image(_: ImagePayloadError) -> EncodeError {
 
 fn image_primary_hints(image: ResolvedImagePlanes<'_>) -> PrimaryHints {
     PrimaryHints::new(
-        image.format.to_u8(),
+        crate::image::SampleLayout::from_color_format(image.format),
         image.width,
         image.height,
         image.stride,

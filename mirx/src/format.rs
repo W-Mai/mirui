@@ -30,10 +30,6 @@ pub enum ColorFormat {
     BGRA8888 = 0x62,
 }
 
-/// Sentinel byte stored in the CHUNK header `primary_color_format` slot when
-/// the chunk has no fixed pixel format (e.g. a VECTOR chunk).
-pub const PRIMARY_FORMAT_NONE: u8 = 0xFF;
-
 impl ColorFormat {
     pub const fn from_u8(b: u8) -> Option<Self> {
         Some(match b {

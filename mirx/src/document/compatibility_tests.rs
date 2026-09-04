@@ -442,7 +442,12 @@ fn normalized_future_flat_keeps_extra_bytes_as_an_independent_trailing_region() 
     assert!(matches!(document.state, DocumentState::Flat(_)));
     assert_eq!(
         document.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 1, 1, 1)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            1,
+            1,
+            1
+        )
     );
     assert_eq!(document.compatibility, Compatibility::Current);
     assert_eq!(document.trailing, TrailingState::Preserved);

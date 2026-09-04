@@ -7,16 +7,17 @@ use super::payload::ResolvedNodePayload;
 use super::*;
 use crate::{
     ColorFormat, CriticalAssumption, EncodeError, EncodeOptions, FlatImageInput, ImageAsset,
-    ImageView, LayoutPolicy, OpenOptions, PRIMARY_FORMAT_NONE, PayloadOrigin, RawChunkInput,
-    ReadOptions, Reader, RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy,
-    VERSION_MINOR, crc32, encode_chunks, encode_flat,
+    ImageView, LayoutPolicy, OpenOptions, PayloadOrigin, RawChunkInput, ReadOptions, Reader,
+    RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, VERSION_MINOR, crc32,
+    encode_chunks, encode_flat,
 };
 
 const CUSTOM: ChunkType = match ChunkType::new(0xbeef) {
     Some(chunk_type) => chunk_type,
     None => panic!("nonzero chunk type"),
 };
-const CUSTOM_HINTS: PrimaryHints = PrimaryHints::new(0xa5, 13, 21, 55);
+const CUSTOM_HINTS: PrimaryHints =
+    PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 13, 21, 55);
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct PlaneSnapshot {
@@ -179,7 +180,12 @@ fn borrowed_source_promotion_keeps_plane_pointer_and_chunk_noop_is_exact() {
     );
     assert_eq!(
         document.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 2, 2)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            2,
+            2,
+            2
+        )
     );
 
     let view = document.get(image_id).unwrap();
@@ -682,7 +688,12 @@ fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
     assert_eq!(document.primary(), Some(image_id));
     assert_eq!(
         document.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 2, 2)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            2,
+            2,
+            2
+        )
     );
     document
         .set_flags(image_id, ChunkFlags::CRITICAL, RawChunkPolicy::infer())
@@ -702,7 +713,7 @@ fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
     assert_eq!(promoted_id(&document), image_id);
     assert_eq!(
         document.primary_hints(),
-        PrimaryHints::new(PRIMARY_FORMAT_NONE, 0, 0, 0)
+        PrimaryHints::new(crate::image::SampleLayout::NONE, 0, 0, 0)
     );
     document
         .set_type(image_id, CUSTOM, explicit_policy())
@@ -737,7 +748,12 @@ fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
     assert_eq!(promoted_id(&document), image_id);
     assert_eq!(
         document.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 2, 2)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            2,
+            2,
+            2
+        )
     );
 
     let promoted_payload = document.get(image_id).unwrap().payload_to_vec().unwrap();
@@ -769,7 +785,12 @@ fn primary_descriptor_and_reorder_operations_keep_the_tag_sidecar_pair() {
     assert_eq!(second_primary_chunks[2].payload(), promoted_payload);
     assert_eq!(
         second_primary.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 2, 2)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            2,
+            2,
+            2
+        )
     );
     document.set_primary(image_id).unwrap();
     assert_eq!(document.primary(), Some(image_id));

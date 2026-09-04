@@ -714,7 +714,12 @@ fn flat_candidate_uses_payload_metadata_instead_of_stale_hints() {
     assert_eq!(document.demote_to_flat(), Ok(true));
     assert_eq!(
         document.primary_hints(),
-        PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 3, 2)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+            2,
+            3,
+            2
+        )
     );
 }
 

@@ -1,12 +1,10 @@
 use super::descriptor::descriptor_payload;
 use super::payload::ResolvedNodePayload;
 use super::{ChunkNode, ChunkSet, Document, DocumentState, PrimaryHintState};
-use crate::{
-    ChunkId, ChunkType, EditError, FramesMode, FramesView, PRIMARY_FORMAT_NONE, PayloadLimits,
-    PrimaryHints,
-};
+use crate::{ChunkId, ChunkType, EditError, FramesMode, FramesView, PayloadLimits, PrimaryHints};
 
-const KNOWN_NON_IMAGE_HINTS: PrimaryHints = PrimaryHints::new(PRIMARY_FORMAT_NONE, 0, 0, 0);
+const KNOWN_NON_IMAGE_HINTS: PrimaryHints =
+    PrimaryHints::new(crate::image::SampleLayout::NONE, 0, 0, 0);
 
 const fn is_known_non_image(chunk_type: ChunkType) -> bool {
     matches!(
@@ -33,7 +31,7 @@ pub(super) const fn open_primary_hint_state(
 }
 
 const fn valid_known_non_image_hints(hints: PrimaryHints) -> bool {
-    hints.color_format_raw() == PRIMARY_FORMAT_NONE
+    hints.sample_layout().raw() == crate::image::SampleLayout::NONE.raw()
         && hints.stride() == 0
         && ((hints.width() == 0 && hints.height() == 0)
             || (hints.width() != 0 && hints.height() != 0))
@@ -112,13 +110,13 @@ fn derived_primary_hints(
     let frames = FramesView::open_payload(bytes, &limits).map_err(|_| ())?;
     Ok(match frames.mode() {
         FramesMode::Atlas => PrimaryHints::new(
-            frames.format().to_u8(),
+            crate::image::SampleLayout::from_color_format(frames.format()),
             frames.atlas_width(),
             frames.atlas_height(),
             frames.atlas_stride(),
         ),
         FramesMode::Animation => PrimaryHints::new(
-            frames.format().to_u8(),
+            crate::image::SampleLayout::from_color_format(frames.format()),
             frames.canvas_width(),
             frames.canvas_height(),
             0,
@@ -227,7 +225,7 @@ impl Document<'_> {
     /// Returns the effective primary display hints.
     ///
     /// Valid IMAGE and FRAMES hints are derived from the validated payload. Known
-    /// non-image primaries use [`PRIMARY_FORMAT_NONE`], zero stride, and either
+    /// non-image primaries use [`crate::image::SampleLayout::NONE`], zero stride, and either
     /// explicit suggested dimensions or zero geometry. Future opaque FLAT
     /// documents expose their preserved raw header hints without interpreting
     /// the format. Documents without a primary and primaries whose hints are
@@ -236,7 +234,7 @@ impl Document<'_> {
         let DocumentState::Chunk(chunks) = &self.state else {
             return match &self.state {
                 DocumentState::Flat(record) => PrimaryHints::new(
-                    record.image.format.to_u8(),
+                    crate::image::SampleLayout::from_color_format(record.image.format),
                     record.image.width,
                     record.image.height,
                     record.image.stride,
@@ -319,7 +317,7 @@ impl Document<'_> {
     ///
     /// This is the explicit path for payload contracts whose hints cannot be
     /// derived by this crate. Valid IMAGE and FRAMES payloads accept only their
-    /// derived hints. Known non-image payloads require [`PRIMARY_FORMAT_NONE`],
+    /// derived hints. Known non-image payloads require [`crate::image::SampleLayout::NONE`],
     /// zero stride, and either zero geometry or nonzero suggested dimensions.
     /// The selected node is moved to the first table position of its type
     /// without allocating.
@@ -416,7 +414,8 @@ mod tests {
         Some(chunk_type) => chunk_type,
         None => panic!("nonzero chunk type"),
     };
-    const EXPLICIT_HINTS: PrimaryHints = PrimaryHints::new(0xa5, 13, 21, 55);
+    const EXPLICIT_HINTS: PrimaryHints =
+        PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 13, 21, 55);
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct NodeSnapshot {

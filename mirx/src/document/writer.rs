@@ -201,7 +201,7 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
         let primary = WirePrimary {
             chunk_type: ChunkType::IMAGE.raw(),
             hints: PrimaryHints::new(
-                image.format.to_u8(),
+                crate::image::SampleLayout::from_color_format(image.format),
                 image.width,
                 image.height,
                 image.stride,
@@ -565,7 +565,7 @@ fn emit_chunk(plan: &ChunkLayoutPlan<'_, '_>, out: &mut [u8]) {
     write_u32_le(out, 16, plan.file_size());
     let primary = plan.primary();
     write_u16_le(out, 20, primary.chunk_type);
-    out[22] = primary.hints.color_format_raw();
+    write_u16_le(out, 22, primary.hints.sample_layout().raw());
     write_u32_le(out, 24, primary.hints.width());
     write_u32_le(out, 28, primary.hints.height());
     write_u32_le(out, 32, primary.hints.stride());
@@ -677,7 +677,7 @@ fn lower_primary(
             .as_ref()
             .expect("promoted payload tag requires its FLAT sidecar");
         PrimaryHints::new(
-            record.image.format.to_u8(),
+            crate::image::SampleLayout::from_color_format(record.image.format),
             record.image.width,
             record.image.height,
             record.image.stride,
@@ -771,8 +771,8 @@ mod tests {
     };
     use crate::wire::{read_u16_le, read_u32_le};
     use crate::{
-        FlatImageInput, ImageView, Layout, PRIMARY_FORMAT_NONE, Reader, TrailingBytesPolicy,
-        VERSION_MINOR, crc32, encode_chunks, encode_flat,
+        FlatImageInput, ImageView, Layout, Reader, TrailingBytesPolicy, VERSION_MINOR, crc32,
+        encode_chunks, encode_flat,
     };
 
     const CUSTOM_A: ChunkType = match ChunkType::new(0xa001) {
@@ -973,7 +973,12 @@ mod tests {
             plan.primary(),
             WirePrimary {
                 chunk_type: ChunkType::IMAGE.raw(),
-                hints: PrimaryHints::new(format.to_u8(), width, height, stride),
+                hints: PrimaryHints::new(
+                    crate::image::SampleLayout::from_color_format(format),
+                    width,
+                    height,
+                    stride
+                ),
             }
         );
         let placement = plan.placements().next().unwrap();
@@ -1121,7 +1126,12 @@ mod tests {
         derived.set_primary(image_id).unwrap();
         assert_eq!(
             chunk_plan(&derived, &EncodeOptions::new()).primary().hints,
-            PrimaryHints::new(ColorFormat::A8.to_u8(), 1, 1, 1)
+            PrimaryHints::new(
+                crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+                1,
+                1,
+                1
+            )
         );
 
         let mut explicit_zero = Document::new();
@@ -1142,7 +1152,7 @@ mod tests {
         known.set_primary(font).unwrap();
         assert_eq!(
             chunk_plan(&known, &EncodeOptions::new()).primary().hints,
-            PrimaryHints::new(PRIMARY_FORMAT_NONE, 0, 0, 0)
+            PrimaryHints::new(crate::image::SampleLayout::NONE, 0, 0, 0)
         );
 
         let source = encode_chunks(&[(CUSTOM_B.raw(), 0, b"preserved")]);
@@ -1354,7 +1364,7 @@ mod tests {
         let mut checksum_payload = vec![0x10, 0x20, 0x30, 0x40, 0x50];
         let inner_checksum = crc32(&checksum_payload);
         checksum_payload.extend_from_slice(&inner_checksum.to_le_bytes());
-        let hints = PrimaryHints::new(0xfe, 17, 9, 23);
+        let hints = PrimaryHints::new(crate::image::SampleLayout::new(0xfedc), 17, 9, 23);
 
         let mut document = Document::new();
         let primary = document.push_raw(raw(CUSTOM_A, &first_payload)).unwrap();
@@ -1385,13 +1395,13 @@ mod tests {
         assert_eq!(read_u32_le(encoded, 12), Some(44));
         assert_eq!(read_u32_le(encoded, 16), Some(needed as u32));
         assert_eq!(read_u16_le(encoded, 20), Some(CUSTOM_A.raw()));
-        assert_eq!(encoded[22], hints.color_format_raw());
+        assert_eq!(read_u16_le(encoded, 22), Some(hints.sample_layout().raw()));
         assert_eq!(read_u32_le(encoded, 24), Some(hints.width()));
         assert_eq!(read_u32_le(encoded, 28), Some(hints.height()));
         assert_eq!(read_u32_le(encoded, 32), Some(hints.stride()));
         assert_eq!(read_u32_le(encoded, 40), Some(crc32(&encoded[..40])));
         assert_eq!(&encoded[10..12], &[0, 0]);
-        assert_eq!(encoded[23], 0);
+        assert_eq!(encoded[23], (hints.sample_layout().raw() >> 8) as u8);
         assert_eq!(&encoded[36..40], &[0, 0, 0, 0]);
 
         assert_eq!(read_u16_le(encoded, 44), Some(CUSTOM_A.raw()));

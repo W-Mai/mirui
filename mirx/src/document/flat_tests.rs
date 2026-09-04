@@ -90,7 +90,12 @@ fn new_flat_covers_every_color_format_with_padded_stride_and_exact_extra() {
         assert_eq!(document.primary(), None);
         assert_eq!(
             document.primary_hints(),
-            PrimaryHints::new(format.to_u8(), width, height, stride)
+            PrimaryHints::new(
+                crate::image::SampleLayout::from_color_format(format),
+                width,
+                height,
+                stride
+            )
         );
         let image = document.flat_image().unwrap();
         assert_eq!(image.width(), width);
@@ -342,7 +347,12 @@ fn changed_replacement_stays_flat_and_force_chunk_reuses_segmented_emission() {
     assert_eq!(document.primary(), None);
     assert_eq!(
         document.primary_hints(),
-        PrimaryHints::new(ColorFormat::I4.to_u8(), 3, 2, 2)
+        PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::I4),
+            3,
+            2,
+            2
+        )
     );
     for policy in [
         LayoutPolicy::PreserveOrPromote,

@@ -18,13 +18,13 @@ impl<'a> Reader<'a> {
     pub const fn primary_hints(&self) -> PrimaryHints {
         match self.header {
             ContainerHeader::Flat(header) => PrimaryHints::new(
-                header.color_format,
+                crate::image::SampleLayout::new(header.color_format as u16),
                 header.width,
                 header.height,
                 header.stride,
             ),
             ContainerHeader::Chunk(header) => PrimaryHints::new(
-                header.primary_color_format,
+                crate::image::SampleLayout::new(header.primary_sample_layout),
                 header.primary_width,
                 header.primary_height,
                 header.primary_stride,
@@ -39,18 +39,18 @@ mod tests {
 
     use super::*;
     use crate::header::{CHUNK_FILE_HEADER_LEN, VERSION_MINOR, chunk_type};
-    use crate::{ColorFormat, Layout, PRIMARY_FORMAT_NONE, crc32, encode_chunks};
+    use crate::{ColorFormat, Layout, crc32, encode_chunks};
 
     fn set_primary(
         bytes: &mut [u8],
         chunk_type: u16,
-        color_format: u8,
+        sample_layout: u16,
         width: u32,
         height: u32,
         stride: u32,
     ) {
         bytes[20..22].copy_from_slice(&chunk_type.to_le_bytes());
-        bytes[22] = color_format;
+        bytes[22..24].copy_from_slice(&sample_layout.to_le_bytes());
         bytes[24..28].copy_from_slice(&width.to_le_bytes());
         bytes[28..32].copy_from_slice(&height.to_le_bytes());
         bytes[32..36].copy_from_slice(&stride.to_le_bytes());
@@ -80,18 +80,49 @@ mod tests {
         assert_eq!(reader.primary(), Ok(None));
         assert_eq!(
             reader.primary_hints(),
-            PrimaryHints::new(ColorFormat::A8.to_u8(), 1, 1, 1)
+            PrimaryHints::new(
+                crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+                1,
+                1,
+                1
+            )
         );
     }
 
     #[test]
     fn primary_type_zero_preserves_raw_hints() {
         let mut bytes = encode_chunks(&[]);
-        set_primary(&mut bytes, 0, 0xfe, 13, 21, 55);
+        set_primary(&mut bytes, 0, 0xfedc, 13, 21, 55);
         let reader = Reader::open(&bytes).unwrap();
         assert_eq!(reader.primary(), Ok(None));
-        assert_eq!(reader.primary_hints(), PrimaryHints::new(0xfe, 13, 21, 55));
+        assert_eq!(
+            reader.primary_hints(),
+            PrimaryHints::new(crate::image::SampleLayout::new(0xfedc), 13, 21, 55)
+        );
         assert_eq!(reader.primary_hints().known_color_format(), None);
+    }
+
+    #[test]
+    fn primary_layout_uses_both_header_bytes() {
+        for layout in [
+            crate::image::SampleLayout::I420,
+            crate::image::SampleLayout::NV12,
+            crate::image::SampleLayout::P010,
+            crate::image::SampleLayout::new(0xfedc),
+        ] {
+            let mut bytes = encode_chunks(&[(0xbeef, 0, b"opaque")]);
+            set_primary(&mut bytes, 0xbeef, layout.raw(), 320, 240, 640);
+            let reader = Reader::open(&bytes).unwrap();
+            assert_eq!(reader.primary_hints().sample_layout(), layout);
+            assert_eq!(
+                crate::parse_chunk(&bytes)
+                    .unwrap()
+                    .header
+                    .primary_sample_layout,
+                layout.raw()
+            );
+            assert_eq!(reader.primary_hints().known_color_format(), None);
+        }
     }
 
     #[test]
@@ -101,7 +132,14 @@ mod tests {
             (chunk_type::FONT, 0, b"first"),
             (chunk_type::FONT, 0, b"second"),
         ]);
-        set_primary(&mut bytes, chunk_type::FONT, PRIMARY_FORMAT_NONE, 0, 0, 0);
+        set_primary(
+            &mut bytes,
+            chunk_type::FONT,
+            crate::image::SampleLayout::NONE.raw(),
+            0,
+            0,
+            0,
+        );
         let reader = Reader::open(&bytes).unwrap();
         let primary = reader.primary().unwrap().unwrap();
         assert_eq!(primary.index(), 1);
@@ -133,7 +171,10 @@ mod tests {
             set_primary(&mut bytes, chunk_type::VECTOR, 0xa5, 3, 4, 12);
             let reader = Reader::open(&bytes).unwrap();
             assert_eq!(reader.primary(), Ok(None));
-            assert_eq!(reader.primary_hints(), PrimaryHints::new(0xa5, 3, 4, 12));
+            assert_eq!(
+                reader.primary_hints(),
+                PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 3, 4, 12)
+            );
             assert_eq!(reader.chunks().next().unwrap().payload(), b"meta");
         }
     }
@@ -144,7 +185,7 @@ mod tests {
         set_primary(
             &mut bytes,
             chunk_type::IMAGE,
-            ColorFormat::RGBA8888.to_u8(),
+            crate::image::SampleLayout::RGBA8888.raw(),
             2,
             3,
             8,

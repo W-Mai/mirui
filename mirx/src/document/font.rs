@@ -186,9 +186,9 @@ mod tests {
     use crate::{
         AtlasHeader, ColorFormat, CompatibilityPolicy, CriticalAssumption, EncodeOptions,
         FONT_CHUNK_HEADER_LEN, FontChunkHeader, FontChunkKind, HEADER_LEN, ImageAsset, Layout,
-        METRIC_LEN, OpenOptions, PRIMARY_FORMAT_NONE, PayloadOrigin, PrimaryHints, RawChunkPolicy,
-        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy, SUPPORTED_VERSION,
-        TrailingBytesPolicy, crc32, encode_chunks, write_header, write_metric,
+        METRIC_LEN, OpenOptions, PayloadOrigin, PrimaryHints, RawChunkPolicy, RawTypePolicy,
+        RelocationAssumption, ReservedBitsPolicy, SUPPORTED_VERSION, TrailingBytesPolicy, crc32,
+        encode_chunks, write_header, write_metric,
     };
 
     fn id(counter: u32) -> ChunkId {
@@ -784,7 +784,7 @@ mod tests {
         );
         assert_eq!(
             document.primary_hints(),
-            PrimaryHints::new(PRIMARY_FORMAT_NONE, 0, 0, 0)
+            PrimaryHints::new(crate::image::SampleLayout::NONE, 0, 0, 0)
         );
 
         let replacement = font(FontChunkKind::Sdf, 4);

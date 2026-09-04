@@ -163,7 +163,7 @@ mod tests {
 
     use super::*;
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
-    use crate::{ColorFormat, Layout, PRIMARY_FORMAT_NONE, Reader, crc32, encode_chunks};
+    use crate::{ColorFormat, Layout, Reader, crc32, encode_chunks};
 
     fn refresh_crc(bytes: &mut [u8]) {
         let checksum = crc32(&bytes[..40]);
@@ -172,7 +172,7 @@ mod tests {
 
     fn set_primary(bytes: &mut [u8], chunk_type: u16, hints: PrimaryHints) {
         bytes[20..22].copy_from_slice(&chunk_type.to_le_bytes());
-        bytes[22] = hints.color_format_raw();
+        bytes[22..24].copy_from_slice(&hints.sample_layout().raw().to_le_bytes());
         bytes[24..28].copy_from_slice(&hints.width().to_le_bytes());
         bytes[28..32].copy_from_slice(&hints.height().to_le_bytes());
         bytes[32..36].copy_from_slice(&hints.stride().to_le_bytes());
@@ -225,7 +225,7 @@ mod tests {
 
     #[test]
     fn reports_stale_hints_and_stale_primary_type() {
-        let hints = PrimaryHints::new(0xa5, 3, 4, 12);
+        let hints = PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 3, 4, 12);
         let mut stale_hints = encode_chunks(&[]);
         set_primary(&mut stale_hints, 0, hints);
         assert_eq!(
@@ -269,7 +269,7 @@ mod tests {
         set_primary(
             &mut bytes,
             chunk_type::FONT,
-            PrimaryHints::new(PRIMARY_FORMAT_NONE, 0, 0, 0),
+            PrimaryHints::new(crate::image::SampleLayout::NONE, 0, 0, 0),
         );
         assert_eq!(
             Reader::open(&bytes).unwrap().compliance_findings().next(),
@@ -349,7 +349,7 @@ mod tests {
             set_primary(
                 &mut bytes,
                 chunk_type::VECTOR,
-                PrimaryHints::new(0xa5, 3, 4, 12),
+                PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 3, 4, 12),
             );
             let start = payload_offset(&bytes, 0);
             set_payload_range(&mut bytes, 1, start + 2, 3);

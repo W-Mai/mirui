@@ -84,7 +84,7 @@ pub fn parse_chunk(buf: &[u8]) -> Result<ChunkFile<'_>, ParseError> {
         return Err(ParseError::Truncated);
     }
 
-    if buf[10] != 0 || buf[11] != 0 || buf[23] != 0 {
+    if buf[10] != 0 || buf[11] != 0 {
         return Err(ParseError::ReservedNonZero);
     }
     if buf[36..40].iter().any(|b| *b != 0) {
@@ -95,7 +95,7 @@ pub fn parse_chunk(buf: &[u8]) -> Result<ChunkFile<'_>, ParseError> {
     let chunk_table_offset = u32::from_le_bytes([buf[12], buf[13], buf[14], buf[15]]);
     let file_size = u32::from_le_bytes([buf[16], buf[17], buf[18], buf[19]]);
     let primary_chunk_type = u16::from_le_bytes([buf[20], buf[21]]);
-    let primary_color_format = buf[22];
+    let primary_sample_layout = u16::from_le_bytes([buf[22], buf[23]]);
     let primary_width = u32::from_le_bytes([buf[24], buf[25], buf[26], buf[27]]);
     let primary_height = u32::from_le_bytes([buf[28], buf[29], buf[30], buf[31]]);
     let primary_stride = u32::from_le_bytes([buf[32], buf[33], buf[34], buf[35]]);
@@ -115,7 +115,7 @@ pub fn parse_chunk(buf: &[u8]) -> Result<ChunkFile<'_>, ParseError> {
         chunk_table_offset,
         file_size,
         primary_chunk_type,
-        primary_color_format,
+        primary_sample_layout,
         primary_width,
         primary_height,
         primary_stride,
@@ -412,8 +412,8 @@ mod tests {
         assert_eq!(parsed.header.chunk_count, 1);
         assert_eq!(parsed.header.primary_chunk_type, chunk_type::IMAGE);
         assert_eq!(
-            parsed.header.primary_color_format,
-            ColorFormat::RGB565.to_u8()
+            parsed.header.primary_sample_layout,
+            crate::image::SampleLayout::RGB565.raw()
         );
         assert_eq!(parsed.header.primary_width, 4);
         assert_eq!(parsed.header.primary_height, 4);

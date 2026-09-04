@@ -95,7 +95,7 @@ pub struct ChunkFileHeader {
     pub chunk_table_offset: u32,
     pub file_size: u32,
     pub primary_chunk_type: u16,
-    pub primary_color_format: u8,
+    pub primary_sample_layout: u16,
     pub primary_width: u32,
     pub primary_height: u32,
     pub primary_stride: u32,

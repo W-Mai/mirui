@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Primary display hints use 16-bit sample layouts.** `PrimaryHints` accepts and exposes `SampleLayout`; the CHUNK header stores the complete identifier without increasing its 44-byte size. `SampleLayout::NONE` denotes a primary without a fixed pixel layout. The MIRX command-line inspector and explicit hint parser retain YUV and custom layout identifiers.
 - **`ColorFormat` exposes canonical pixel-layout helpers.** `bits_per_pixel()` defines main-plane pixel depth, and `minimum_stride(width)` derives the smallest valid byte stride from it for byte-aligned and packed formats.
 - **MIRX authoring APIs use compact Rust naming and fluent configuration.** Empty CHUNK documents use `Document::new` or `Default`; raw inputs and policies use `new(...).with_*`; typed append defaults to empty flags with explicit `push_*_with_flags` variants; allocating FONT and VECTOR access uses `decode_font` and `decode_vector`; ordered payload collections use `push`, `replace`, and `remove` vocabulary.
 

@@ -81,33 +81,38 @@ impl ChunkId {
 
 /// Raw display hints stored beside the selected primary chunk.
 ///
-/// The color-format byte is retained even when it is not known to this crate.
+/// The complete sample-layout identifier is retained even when it is unknown.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct PrimaryHints {
-    color_format: u8,
+    sample_layout: u16,
     width: u32,
     height: u32,
     stride: u32,
 }
 
 impl PrimaryHints {
-    pub const ZERO: Self = Self::new(0, 0, 0, 0);
+    pub const ZERO: Self = Self::new(crate::image::SampleLayout::new(0), 0, 0, 0);
 
-    pub const fn new(color_format: u8, width: u32, height: u32, stride: u32) -> Self {
+    pub const fn new(
+        sample_layout: crate::image::SampleLayout,
+        width: u32,
+        height: u32,
+        stride: u32,
+    ) -> Self {
         Self {
-            color_format,
+            sample_layout: sample_layout.raw(),
             width,
             height,
             stride,
         }
     }
 
-    pub const fn color_format_raw(self) -> u8 {
-        self.color_format
+    pub const fn sample_layout(self) -> crate::image::SampleLayout {
+        crate::image::SampleLayout::new(self.sample_layout)
     }
 
     pub const fn known_color_format(self) -> Option<ColorFormat> {
-        ColorFormat::from_u8(self.color_format)
+        self.sample_layout().color_format()
     }
 
     pub const fn width(self) -> u32 {
@@ -123,7 +128,7 @@ impl PrimaryHints {
     }
 
     pub const fn is_zero(self) -> bool {
-        self.color_format == 0 && self.width == 0 && self.height == 0 && self.stride == 0
+        self.sample_layout == 0 && self.width == 0 && self.height == 0 && self.stride == 0
     }
 }
 
@@ -148,15 +153,20 @@ mod tests {
     }
 
     #[test]
-    fn primary_hints_retain_raw_color_format() {
-        let known = PrimaryHints::new(ColorFormat::RGB565.to_u8(), 8, 4, 16);
+    fn primary_hints_retain_full_sample_layout() {
+        let known = PrimaryHints::new(
+            crate::image::SampleLayout::from_color_format(ColorFormat::RGB565),
+            8,
+            4,
+            16,
+        );
         assert_eq!(known.known_color_format(), Some(ColorFormat::RGB565));
         assert_eq!(known.width(), 8);
         assert_eq!(known.height(), 4);
         assert_eq!(known.stride(), 16);
 
-        let unknown = PrimaryHints::new(0xfe, 0, 0, 0);
-        assert_eq!(unknown.color_format_raw(), 0xfe);
+        let unknown = PrimaryHints::new(crate::image::SampleLayout::new(0xfedc), 0, 0, 0);
+        assert_eq!(unknown.sample_layout().raw(), 0xfedc);
         assert_eq!(unknown.known_color_format(), None);
         assert!(!unknown.is_zero());
         assert!(PrimaryHints::ZERO.is_zero());

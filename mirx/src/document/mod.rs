@@ -1182,7 +1182,12 @@ mod tests {
             assert_eq!(document.layout(), Layout::Flat);
             assert_eq!(
                 document.state,
-                DocumentState::OpaqueFlat(PrimaryHints::new(ColorFormat::A8.to_u8(), 2, 1, 2,))
+                DocumentState::OpaqueFlat(PrimaryHints::new(
+                    crate::image::SampleLayout::from_color_format(ColorFormat::A8),
+                    2,
+                    1,
+                    2,
+                ))
             );
             assert!(!document.is_dirty());
             assert_eq!(document.file_metadata().version_minor(), minor);

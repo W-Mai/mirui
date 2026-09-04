@@ -275,7 +275,7 @@ fn parse_chunk_header(
 ) -> Result<ChunkFileHeader, ReadError> {
     require_len(bytes, CHUNK_FILE_HEADER_LEN)?;
     if enforce_current_semantics {
-        require_zero(bytes, &[10, 11, 23, 36, 37, 38, 39])?;
+        require_zero(bytes, &[10, 11, 36, 37, 38, 39])?;
     }
     validate_crc(bytes, 40, 40)?;
 
@@ -285,7 +285,7 @@ fn parse_chunk_header(
         chunk_table_offset: read_u32(bytes, 12)?,
         file_size: read_u32(bytes, 16)?,
         primary_chunk_type: read_u16(bytes, 20)?,
-        primary_color_format: bytes[22],
+        primary_sample_layout: read_u16(bytes, 22)?,
         primary_width: read_u32(bytes, 24)?,
         primary_height: read_u32(bytes, 28)?,
         primary_stride: read_u32(bytes, 32)?,
@@ -465,7 +465,7 @@ mod tests {
             );
         }
 
-        for offset in [10, 11, 23, 36, 37, 38, 39] {
+        for offset in [10, 11, 36, 37, 38, 39] {
             let mut current = chunk_header(VERSION_MINOR, 0);
             current[offset] = 1;
             let checksum = crc32(&current[..40]);

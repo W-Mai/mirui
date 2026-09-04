@@ -47,6 +47,8 @@ Canonical CHUNK output stores an ordered descriptor table followed by aligned pa
 
 The six standard payload types are `IMAGE`, `FONT`, `VECTOR`, `META`, `PALETTE`, and `FRAMES`. `ChunkType` also represents every nonzero custom `u16`, allowing unknown payloads to be inspected and preserved.
 
+Primary display hints use a 16-bit `image::SampleLayout`, including planar YUV identifiers. `PrimaryHints::new(layout, width, height, stride)` stores logical dimensions and a byte stride; `SampleLayout::NONE` denotes a primary without a fixed pixel layout. The CHUNK header remains 44 bytes, with the sample-layout field at bytes 22–23.
+
 ### One file, five resources
 
 ![Exact byte allocation for a MIRX CHUNK file containing two images, two fonts, and one vector scene](docs/binary-allocation.svg)
@@ -307,7 +309,7 @@ cargo xtask mirx insert <file> --type <u16> --payload <path> [--flags <u16>] [ra
 cargo xtask mirx replace <file> --index <n> --payload <path> [guards] [raw policy options]
 cargo xtask mirx remove <file> --index <n> [guards] [raw policy options]
 cargo xtask mirx move <file> --index <n> (--before <n> | --after <n>) [guards] [raw policy options]
-cargo xtask mirx set-primary <file> --index <n> [--hints <format,width,height,stride>] [guards] [raw policy options]
+cargo xtask mirx set-primary <file> --index <n> [--hints <sample-layout,width,height,stride>] [guards] [raw policy options]
 cargo xtask mirx clear-primary <file> [guards] [raw policy options]
 ```
 

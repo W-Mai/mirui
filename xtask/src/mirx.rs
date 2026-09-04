@@ -29,7 +29,7 @@ pub fn run(args: &[String]) -> Result {
 }
 
 fn usage() -> &'static str {
-    "usage:\n  cargo xtask mirx inspect <file>\n  cargo xtask mirx validate <file> [--known-payloads]\n  cargo xtask mirx extract <file> --index <n> --out <payload> [--expect-type <u16>] [--expect-crc <u32>]\n  cargo xtask mirx insert <file> --type <u16> --payload <path> [--flags <u16>] [raw policy options]\n  cargo xtask mirx replace <file> --index <n> --payload <path> [guards] [raw policy options]\n  cargo xtask mirx remove <file> --index <n> [guards] [raw policy options]\n  cargo xtask mirx move <file> --index <n> (--before <n> | --after <n>) [guards] [raw policy options]\n  cargo xtask mirx set-primary <file> --index <n> [--hints <format,width,height,stride>] [guards] [raw policy options]\n  cargo xtask mirx clear-primary <file> [guards] [raw policy options]\nguards:\n  --expect-type <u16> --expect-crc <u32>\nraw policy options:\n  --assume-relocatable --assume-critical-understood\n  --assume-relocatable-type <u16> --assume-critical-type <u16>\n  --preserve-reserved-flags | --normalize-reserved-flags"
+    "usage:\n  cargo xtask mirx inspect <file>\n  cargo xtask mirx validate <file> [--known-payloads]\n  cargo xtask mirx extract <file> --index <n> --out <payload> [--expect-type <u16>] [--expect-crc <u32>]\n  cargo xtask mirx insert <file> --type <u16> --payload <path> [--flags <u16>] [raw policy options]\n  cargo xtask mirx replace <file> --index <n> --payload <path> [guards] [raw policy options]\n  cargo xtask mirx remove <file> --index <n> [guards] [raw policy options]\n  cargo xtask mirx move <file> --index <n> (--before <n> | --after <n>) [guards] [raw policy options]\n  cargo xtask mirx set-primary <file> --index <n> [--hints <sample-layout,width,height,stride>] [guards] [raw policy options]\n  cargo xtask mirx clear-primary <file> [guards] [raw policy options]\nguards:\n  --expect-type <u16> --expect-crc <u32>\nraw policy options:\n  --assume-relocatable --assume-critical-understood\n  --assume-relocatable-type <u16> --assume-critical-type <u16>\n  --preserve-reserved-flags | --normalize-reserved-flags"
 }
 
 fn inspect_command(args: &[String]) -> Result {
@@ -750,15 +750,15 @@ fn guard_document_chunk(
 
 fn parse_primary_hints(value: &str) -> Result<PrimaryHints> {
     let mut fields = value.split(',');
-    let format = fields.next().ok_or("missing color format")?;
+    let layout = fields.next().ok_or("missing sample layout")?;
     let width = fields.next().ok_or("missing hint width")?;
     let height = fields.next().ok_or("missing hint height")?;
     let stride = fields.next().ok_or("missing hint stride")?;
     if fields.next().is_some() {
-        return Err("primary hints need format,width,height,stride".into());
+        return Err("primary hints need sample-layout,width,height,stride".into());
     }
     Ok(PrimaryHints::new(
-        parse_u8(format, "color format")?,
+        mirx::image::SampleLayout::new(parse_u16(layout, "sample layout")?),
         parse_u32(width, "hint width")?,
         parse_u32(height, "hint height")?,
         parse_u32(stride, "hint stride")?,
@@ -822,12 +822,6 @@ fn parse_usize(value: &str, name: &str) -> Result<usize> {
     value
         .parse::<usize>()
         .map_err(|_| format!("invalid {name}: `{value}`").into())
-}
-
-fn parse_u8(value: &str, name: &str) -> Result<u8> {
-    parse_radix(value, name).and_then(|parsed| {
-        u8::try_from(parsed).map_err(|_| format!("{name} out of range: `{value}`").into())
-    })
 }
 
 fn parse_u16(value: &str, name: &str) -> Result<u16> {
@@ -920,8 +914,8 @@ fn inspect_bytes(bytes: &[u8]) -> std::result::Result<String, String> {
     match reader.layout() {
         Layout::Flat => writeln!(
             report,
-            "primary=flat color_format=0x{:02x} width={} height={} stride={}",
-            hints.color_format_raw(),
+            "primary=flat sample_layout=0x{:04x} width={} height={} stride={}",
+            hints.sample_layout().raw(),
             hints.width(),
             hints.height(),
             hints.stride(),
@@ -930,10 +924,10 @@ fn inspect_bytes(bytes: &[u8]) -> std::result::Result<String, String> {
         Layout::Chunk => match reader.primary().map_err(|error| format!("{error:?}"))? {
             Some(primary) => writeln!(
                 report,
-                "primary=index:{} type:{} color_format=0x{:02x} width={} height={} stride={}",
+                "primary=index:{} type:{} sample_layout=0x{:04x} width={} height={} stride={}",
                 primary.index(),
                 type_name(primary.chunk_type()),
-                hints.color_format_raw(),
+                hints.sample_layout().raw(),
                 hints.width(),
                 hints.height(),
                 hints.stride(),
@@ -941,8 +935,8 @@ fn inspect_bytes(bytes: &[u8]) -> std::result::Result<String, String> {
             .unwrap(),
             None => writeln!(
                 report,
-                "primary=none color_format=0x{:02x} width={} height={} stride={}",
-                hints.color_format_raw(),
+                "primary=none sample_layout=0x{:04x} width={} height={} stride={}",
+                hints.sample_layout().raw(),
                 hints.width(),
                 hints.height(),
                 hints.stride(),
@@ -1011,7 +1005,7 @@ mod tests {
 
     fn set_primary(bytes: &mut [u8], chunk_type: ChunkType, hints: PrimaryHints) {
         bytes[20..22].copy_from_slice(&chunk_type.raw().to_le_bytes());
-        bytes[22] = hints.color_format_raw();
+        bytes[22..24].copy_from_slice(&hints.sample_layout().raw().to_le_bytes());
         bytes[24..28].copy_from_slice(&hints.width().to_le_bytes());
         bytes[28..32].copy_from_slice(&hints.height().to_le_bytes());
         bytes[32..36].copy_from_slice(&hints.stride().to_le_bytes());
@@ -1033,13 +1027,13 @@ mod tests {
             (custom.raw(), 0x8000, b"custom"),
             (ChunkType::META.raw(), 2, b"two"),
         ]);
-        let hints = PrimaryHints::new(mirx::PRIMARY_FORMAT_NONE, 12, 8, 0);
+        let hints = PrimaryHints::new(mirx::image::SampleLayout::NONE, 12, 8, 0);
         set_primary(&mut bytes, ChunkType::META, hints);
 
         let report = inspect_bytes(&bytes).unwrap();
         assert!(report.starts_with("version=1.0 layout=chunk file_flags=0x00 logical_size="));
         assert!(report.contains(
-            "primary=index:0 type:0x0010(META) color_format=0xff width=12 height=8 stride=0\n"
+            "primary=index:0 type:0x0010(META) sample_layout=0x00ff width=12 height=8 stride=0\n"
         ));
         assert!(report.contains("chunks=3\n"));
         assert!(report.contains(&format!(
@@ -1071,7 +1065,7 @@ mod tests {
         let report = inspect_bytes(&bytes).unwrap();
         assert!(report.contains("layout=flat"));
         assert!(report.contains("trailing_size=4"));
-        assert!(report.contains("primary=flat color_format=0x23 width=2 height=1 stride=2\n"));
+        assert!(report.contains("primary=flat sample_layout=0x0023 width=2 height=1 stride=2\n"));
         assert!(report.ends_with("chunks=0\n"));
     }
 
@@ -1361,7 +1355,7 @@ mod tests {
             [b"a".as_slice(), b"c".as_slice()]
         );
 
-        let hints = PrimaryHints::new(0xfe, 320, 240, 640);
+        let hints = PrimaryHints::new(mirx::image::SampleLayout::new(0xfedc), 320, 240, 640);
         let selected = set_primary_bytes(
             source,
             2,
@@ -1415,11 +1409,17 @@ mod tests {
         assert!(set_move_position(&mut position, MovePosition::After(2)).is_err());
         assert_eq!(
             parse_primary_hints("0x23,320,240,0x140").unwrap(),
-            PrimaryHints::new(0x23, 320, 240, 320)
+            PrimaryHints::new(mirx::image::SampleLayout::A8, 320, 240, 320)
         );
         assert!(parse_primary_hints("0x23,320,240").is_err());
         assert!(parse_primary_hints("0x23,320,240,320,extra").is_err());
-        assert!(parse_primary_hints("0x100,320,240,320").is_err());
+        assert_eq!(
+            parse_primary_hints("0x110,320,240,320")
+                .unwrap()
+                .sample_layout(),
+            mirx::image::SampleLayout::NV12,
+        );
+        assert!(parse_primary_hints("0x10000,320,240,320").is_err());
     }
 
     #[test]

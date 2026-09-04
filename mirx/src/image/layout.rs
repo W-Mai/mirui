@@ -12,6 +12,10 @@ use crate::format::minimum_stride_for_bits;
 pub struct SampleLayout(u16);
 
 impl SampleLayout {
+    /// No fixed sample layout in a container display hint.
+    /// This sentinel cannot describe a decoded surface.
+    pub const NONE: Self = Self(0x00ff);
+
     pub const I1: Self = Self(0x0010);
     pub const I2: Self = Self(0x0011);
     pub const I4: Self = Self(0x0012);
