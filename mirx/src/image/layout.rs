@@ -294,6 +294,14 @@ pub struct PlaneGeometry {
 }
 
 impl PlaneGeometry {
+    pub(super) const fn with_extent(self, width: u32, height: u32) -> Self {
+        Self {
+            width,
+            height,
+            ..self
+        }
+    }
+
     const fn new(
         role: PlaneRole,
         width: u32,

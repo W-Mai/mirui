@@ -3,7 +3,9 @@ use core::{iter::FusedIterator, ops::Range};
 use super::{Region, RegionError, SurfaceDescriptor, TileGrid, TileGridError};
 use crate::media::{CodingRecord, UnitIndex, UnitIndexError, UnitSelection, UnitSelectionError};
 
+mod plan;
 mod wire;
+pub use plan::{UnitMemoryPlan, UnitPlane, UnitPlanes};
 pub use wire::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord, UnitGroupRecordError};
 
 /// Included planes and the coordinate space of a group's regions.
@@ -16,6 +18,16 @@ pub enum GroupPlanes {
 }
 
 impl GroupPlanes {
+    fn plane_region(self, surface: SurfaceDescriptor, region: Region, index: u8) -> Option<Region> {
+        if !self.contains(index) {
+            return None;
+        }
+        match self {
+            Self::Joint(_) => region.for_plane(surface, index).ok(),
+            Self::Plane(_) => Some(region),
+        }
+    }
+
     pub fn contains(self, index: u8) -> bool {
         match self {
             Self::Joint(mask) => index < 8 && mask & (1 << index) != 0,
@@ -96,13 +108,7 @@ impl<'a> DecodeUnitRef<'a> {
     }
     /// Returns element coordinates for an included plane; absent planes return None.
     pub fn plane_region(self, index: u8) -> Option<Region> {
-        if !self.planes.contains(index) {
-            return None;
-        }
-        match self.planes {
-            GroupPlanes::Joint(_) => self.region.for_plane(self.surface, index).ok(),
-            GroupPlanes::Plane(_) => Some(self.region),
-        }
+        self.planes.plane_region(self.surface, self.region, index)
     }
 }
 

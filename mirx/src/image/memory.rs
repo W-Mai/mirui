@@ -67,7 +67,7 @@ impl PlaneMemoryLayout {
         self.stride
     }
 
-    /// Byte offset relative to the start of the IMAGE DATA section.
+    /// Byte offset relative to the containing DATA section or caller-owned buffer.
     pub const fn data_offset(self) -> u32 {
         self.data_offset
     }

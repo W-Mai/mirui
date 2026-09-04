@@ -750,3 +750,40 @@ fn encoded_image_open_prepare_and_integrity_allocate_nothing() {
     });
     assert_eq!(allocations, 0);
 }
+
+#[test]
+fn decoded_unit_memory_planning_allocates_nothing() {
+    use mirx::image::UnitGroup;
+    use mirx::media::{CodingId, CodingRecord};
+    let surface = SurfaceDescriptor::new(
+        5,
+        3,
+        SampleLayout::NV12,
+        ColorDescription::BT709_YUV_LIMITED,
+    )
+    .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let unit = UnitGroup::builder(
+            surface,
+            CodingRecord::new(CodingId::new(19), 1, &[]),
+            &[1; 6],
+        )
+        .with_tiles(2, 2)
+        .build()
+        .unwrap()
+        .get(5)
+        .unwrap();
+        let plan = unit
+            .memory_plan(
+                SurfaceRequirements::new()
+                    .with_plane_alignment(64)
+                    .with_stride_multiple(64),
+            )
+            .unwrap();
+        assert_eq!(plan.byte_len(), 128);
+        assert_eq!(plan.plane(1).unwrap().source_region().x(), 2);
+        assert_eq!(plan.plane(1).unwrap().memory().data_offset(), 64);
+        assert_eq!(plan.planes().count(), 2);
+    });
+    assert_eq!(allocations, 0);
+}

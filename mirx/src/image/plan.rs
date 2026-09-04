@@ -1,6 +1,6 @@
 use core::iter::FusedIterator;
 
-use super::{PlaneMemoryError, PlaneMemoryLayout, SurfaceDescriptor};
+use super::{PlaneGeometry, PlaneMemoryError, PlaneMemoryLayout, SurfaceDescriptor};
 
 /// Backend allocation constraints for every plane of a decoded surface.
 ///
@@ -72,7 +72,7 @@ impl SurfaceRequirements {
         self.stride_multiple
     }
 
-    fn validate(self) -> Result<(), SurfacePlanError> {
+    pub(super) fn validate(self) -> Result<(), SurfacePlanError> {
         if !valid_alignment(self.base_alignment) {
             return Err(SurfacePlanError::InvalidBaseAlignment(self.base_alignment));
         }
@@ -100,7 +100,7 @@ impl Default for SurfaceRequirements {
     }
 }
 
-/// Total caller-buffer requirements for one planned decoded surface.
+/// Total caller-buffer requirements for one planned decoded allocation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BufferRequirements {
     byte_len: usize,
@@ -108,6 +108,17 @@ pub struct BufferRequirements {
 }
 
 impl BufferRequirements {
+    pub(super) fn new(byte_len: u32, base_alignment: u32) -> Result<Self, SurfacePlanError> {
+        if !valid_alignment(base_alignment) {
+            return Err(SurfacePlanError::InvalidBaseAlignment(base_alignment));
+        }
+        Ok(Self {
+            byte_len: usize::try_from(byte_len).map_err(|_| SurfacePlanError::SizeOverflow)?,
+            base_alignment: usize::try_from(base_alignment)
+                .map_err(|_| SurfacePlanError::SizeOverflow)?,
+        })
+    }
+
     pub const fn byte_len(self) -> usize {
         self.byte_len
     }
@@ -142,8 +153,7 @@ impl BufferRequirements {
 pub struct SurfaceMemoryPlan {
     surface: SurfaceDescriptor,
     requirements: SurfaceRequirements,
-    byte_len: u32,
-    base_alignment: u32,
+    buffer: BufferRequirements,
 }
 
 impl SurfaceDescriptor {
@@ -158,16 +168,17 @@ impl SurfaceDescriptor {
             .max(requirements.plane_alignment);
         let mut byte_len = 0;
         for index in 0..self.plane_count() {
-            let plane = planned_plane(self, requirements, index, byte_len)?;
+            let plane = requirements.plan_plane(
+                self.plane(index).expect("surface plane"),
+                index,
+                byte_len,
+            )?;
             byte_len = plane.data_end();
         }
-        usize::try_from(byte_len).map_err(|_| SurfacePlanError::SizeOverflow)?;
-        usize::try_from(base_alignment).map_err(|_| SurfacePlanError::SizeOverflow)?;
         Ok(SurfaceMemoryPlan {
             surface: self,
             requirements,
-            byte_len,
-            base_alignment,
+            buffer: BufferRequirements::new(byte_len, base_alignment)?,
         })
     }
 }
@@ -182,18 +193,15 @@ impl SurfaceMemoryPlan {
     }
 
     pub const fn byte_len(self) -> u32 {
-        self.byte_len
+        self.buffer.byte_len as u32
     }
 
     pub const fn base_alignment(self) -> u32 {
-        self.base_alignment
+        self.buffer.base_alignment as u32
     }
 
     pub const fn buffer_requirements(self) -> BufferRequirements {
-        BufferRequirements {
-            byte_len: self.byte_len as usize,
-            base_alignment: self.base_alignment as usize,
-        }
+        self.buffer
     }
 
     pub fn plane(self, index: u8) -> Option<PlaneMemoryLayout> {
@@ -202,7 +210,13 @@ impl SurfaceMemoryPlan {
         }
         let mut offset = 0;
         for current in 0..=index {
-            let plane = planned_plane(self.surface, self.requirements, current, offset)
+            let plane = self
+                .requirements
+                .plan_plane(
+                    self.surface.plane(current).expect("surface plane"),
+                    current,
+                    offset,
+                )
                 .expect("validated surface memory plan");
             if current == index {
                 return Some(plane);
@@ -265,7 +279,7 @@ impl ExactSizeIterator for SurfaceMemoryPlanes {
 
 impl FusedIterator for SurfaceMemoryPlanes {}
 
-/// Failure while planning physical storage for a decoded surface.
+/// Failure while planning physical storage for decoded planes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum SurfacePlanError {
@@ -286,31 +300,32 @@ pub enum BufferRequirementError {
     AddressUnaligned { address: usize, alignment: usize },
 }
 
-fn planned_plane(
-    surface: SurfaceDescriptor,
-    requirements: SurfaceRequirements,
-    index: u8,
-    previous_end: u32,
-) -> Result<PlaneMemoryLayout, SurfacePlanError> {
-    let geometry = surface.plane(index).ok_or(SurfacePlanError::SizeOverflow)?;
-    let allocation_width = round_up(geometry.width(), requirements.width_multiple)
-        .ok_or(SurfacePlanError::SizeOverflow)?;
-    let allocation_height = round_up(geometry.height(), requirements.height_multiple)
-        .ok_or(SurfacePlanError::SizeOverflow)?;
-    let minimum_stride =
-        crate::format::minimum_stride_for_bits(allocation_width, geometry.bits_per_element())
+impl SurfaceRequirements {
+    pub(super) fn plan_plane(
+        self,
+        geometry: PlaneGeometry,
+        index: u8,
+        previous_end: u32,
+    ) -> Result<PlaneMemoryLayout, SurfacePlanError> {
+        let allocation_width = round_up(geometry.width(), self.width_multiple)
             .ok_or(SurfacePlanError::SizeOverflow)?;
-    let stride = round_up(minimum_stride, requirements.stride_multiple)
-        .ok_or(SurfacePlanError::SizeOverflow)?;
-    let data_offset = round_up(previous_end, requirements.plane_alignment)
-        .ok_or(SurfacePlanError::SizeOverflow)?;
-    PlaneMemoryLayout::builder(geometry)
-        .with_allocation_extent(allocation_width, allocation_height)
-        .with_stride(stride)
-        .with_data_offset(data_offset)
-        .with_alignment(requirements.plane_alignment)
-        .build()
-        .map_err(|error| SurfacePlanError::InvalidPlane { index, error })
+        let allocation_height = round_up(geometry.height(), self.height_multiple)
+            .ok_or(SurfacePlanError::SizeOverflow)?;
+        let minimum_stride =
+            crate::format::minimum_stride_for_bits(allocation_width, geometry.bits_per_element())
+                .ok_or(SurfacePlanError::SizeOverflow)?;
+        let stride =
+            round_up(minimum_stride, self.stride_multiple).ok_or(SurfacePlanError::SizeOverflow)?;
+        let data_offset =
+            round_up(previous_end, self.plane_alignment).ok_or(SurfacePlanError::SizeOverflow)?;
+        PlaneMemoryLayout::builder(geometry)
+            .with_allocation_extent(allocation_width, allocation_height)
+            .with_stride(stride)
+            .with_data_offset(data_offset)
+            .with_alignment(self.plane_alignment)
+            .build()
+            .map_err(|error| SurfacePlanError::InvalidPlane { index, error })
+    }
 }
 
 const fn valid_alignment(alignment: u32) -> bool {

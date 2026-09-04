@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Decoded-unit memory plans.** Shared surface/unit planning derives selected-plane allocations, byte strides, offsets, and buffer alignment without heap allocation. Unit planes retain source origins and original plane indices, including odd chroma edges and sub-byte regions.
+
 - **Encoded IMAGE inspection.** Borrowed metadata reading and caller-workspace group preparation validate single-stream defaults, static coverage, canonical DATA/index placement, palettes, and file alignment. Prepared groups expose unit-local integrity checks without decoding or hidden allocation.
 
 - **Bounded image coverage.** Exact per-plane coverage and overlap checks support sparse groups with different tile sizes and joint/planar coordinates. Explicit operation budgets bound validation work without allocating a coverage bitmap; selected-cell range queries avoid prefix scans.

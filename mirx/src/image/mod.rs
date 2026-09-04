@@ -82,5 +82,6 @@ pub use surface::{
 pub use units::{
     DecodeUnitRef, DecodeUnits, GroupPlanes, GroupSelection, ReferenceMode, UNIT_GROUP_RECORD_LEN,
     UnitGroup, UnitGroupBuilder, UnitGroupError, UnitGroupRecord, UnitGroupRecordError,
+    UnitMemoryPlan, UnitPlane, UnitPlanes,
 };
 pub use view::{RawImagePlanes, RawImageView, RawImageViewError, SurfacePlane};
