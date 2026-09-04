@@ -254,7 +254,7 @@ impl<'a> RawImagePlan<'a> {
             out.write(table.as_bytes());
         }
         out.pad_to(self.data_offset);
-        out.begin_data();
+        out.begin_data(crate::media::DataIntegrity::Whole);
         for plane in self.view.planes() {
             out.pad_to(self.data_offset + plane.memory().data_offset() as usize);
             out.write(plane.bytes());
@@ -273,6 +273,7 @@ pub enum ImageEncodeError {
     /// Explicit groups cannot be combined with an asset-level alignment override.
     ConflictingAlignment,
     Codings(crate::media::CodingTableError),
+    Integrity(crate::media::IntegrityError),
     Group(super::UnitGroupError),
     PlaneCountMismatch {
         expected: usize,

@@ -59,7 +59,7 @@ The common media header and metadata CRC are parsed once. CODINGS presence selec
 
 | Operation | Checks |
 | --- | --- |
-| `asset.encoded_len` / `encode_into` | Surface and palette agreement, single-unit geometry, lengths, placement and output capacity |
+| `asset.encoded_len` / `encode_into` | Surface/palette agreement, group/index structure, checksum partitions, lengths and placement; encoding also checks output capacity |
 | `asset.preflight` | Metadata, supported scalar syntax, group/unit/decoded bounds, reader-equivalent work and canonical output span; no allocation |
 | `EncodedImageView::open` | Metadata CRC, sections and typed metadata; no DATA scan |
 | `image.groups_into` | Group geometry, static coverage, indexes and declared file alignment |
@@ -71,7 +71,7 @@ The common media header and metadata CRC are parsed once. CODINGS presence selec
 
 Unknown nonzero coding IDs, revisions and parameters remain representable. Even known-profile bytes are not decoded during authoring; malformed streams can be preserved but fail explicit decode preflight. Checksums prove byte integrity, not valid coding syntax.
 
-Errors from `encode_into` preserve the entire output; success preserves its unused suffix. Canonical comparison includes directory entries, padding and both checksums. `image::ImageEncodeError` is shared by RAW and encoded surface authoring. The packed `ImageAsset` facade retains its payload-validation error wrapper.
+Errors from `encode_into` preserve the entire output; success preserves its unused suffix. Canonical comparison includes directory entries, padding, metadata CRC and every declared DATA checksum. `image::ImageEncodeError` is shared by RAW and encoded surface authoring. The packed `ImageAsset` facade retains its payload-validation error wrapper.
 
 ## Validation workspace
 
@@ -129,7 +129,17 @@ assert_eq!(asset.matches_payload(&payload[..len]), Ok(true));
 
 Explicit group arrays remain explicit, including a one-group array. Empty arrays are invalid. Empty index bytes omit UNIT_INDEX; fixed-size units need no range index. Variable-size units use `UnitIndexEncoding::encode_into` with the same alignment as their group. Sparse selection bytes precede range bytes within each group's index range. The writer preserves caller-selected index encodings and DATA padding, and aligns the DATA origin to the maximum group requirement. An asset-level alignment override is only available for the single-stream constructor; combining it with explicit groups is an error. `asset.input_alignment()` returns the checked effective alignment.
 
-Low-level encoding checks records, profile references, static reference rules and exact DATA/index consumption before writing. Full static coverage and codec support remain bounded `preflight` checks: overlapping or incomplete groups cannot enter typed Document edits. Group count and minimum native table size are checked before table scans; output-span work is charged before index resolution. Single-stream default omission and bytes remain unchanged. Integrity covers all DATA; this writer does not emit indexed integrity records.
+Low-level encoding checks records, profile references, static reference rules and exact DATA/index consumption before writing. Full static coverage and codec support remain bounded `preflight` checks: overlapping or incomplete groups cannot enter typed Document edits. Group count and minimum native table size are checked before table scans; output-span work is charged before index resolution. Single-stream default omission and bytes remain unchanged.
+
+## Checksum partitions
+
+The default `DataIntegrity::Whole` uses one four-byte DATA CRC trailer. `asset.with_integrity(DataIntegrity::Indexed(&ends))` writes a required INTEGRITY section instead, with one twelve-byte range/CRC record per partition and no whole-DATA trailer. `DataIntegrity` is in `mirx::media`. Ends are cumulative offsets relative to DATA, starting implicitly at zero; they must strictly increase and finish at DATA length. Empty DATA accepts an empty partition list. The writer computes payload-relative offsets and CRCs after placement, without allocating a temporary table.
+
+For DATA containing two four-byte units, `Indexed(&[4, 8])` allows each unit's checksum to read four bytes. If the second unit starts at byte 64, `Indexed(&[64, 68])` folds the gap into the first partition: checking the first unit reads 64 bytes, while checking the second reads four. `Indexed(&[4, 64, 68])` isolates the gap but costs another twelve-byte record. No per-unit checksum is inserted automatically.
+
+`groups.validate_unit(group, ordinal)` verifies only intersecting partitions and reports their total byte count. Unrelated DATA corruption does not invalidate a disjoint local request; complete `image.preflight`, critical Reader opening and typed Document admission still verify all DATA. This is borrowed-slice validation, not a flash transport or a promise that opening critical assets performs only local reads.
+
+Partitions are covered by the metadata CRC. Author preflight bounds their native table footprint before scanning them, then charges canonical output size and one complete DATA checksum pass. Canonical comparison, caller-buffer encoding, typed replacement and no-op detection retain their allocation guarantees in both modes.
 
 ## RAW units in grouped storage
 

@@ -5,6 +5,62 @@ use crate::wire::{read_u32_le, write_u32_le};
 
 pub const INTEGRITY_RECORD_LEN: usize = 12;
 
+/// DATA checksum placement for canonical authoring.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum DataIntegrity<'a> {
+    /// One CRC32 trailer covering all DATA bytes.
+    #[default]
+    Whole,
+    /// Cumulative DATA-relative partition ends, beginning implicitly at zero.
+    /// Ends strictly increase and exactly cover DATA, including alignment gaps.
+    /// Empty DATA requires an empty list. Checksums are computed by the writer.
+    Indexed(&'a [u32]),
+}
+
+impl<'a> DataIntegrity<'a> {
+    pub const fn partitions(self) -> Option<&'a [u32]> {
+        match self {
+            Self::Whole => None,
+            Self::Indexed(ends) => Some(ends),
+        }
+    }
+
+    pub(crate) const fn trailer_len(self) -> usize {
+        match self {
+            Self::Whole => super::MEDIA_CRC_LEN,
+            Self::Indexed(_) => 0,
+        }
+    }
+
+    pub(crate) fn section_len(self, data_len: usize) -> Result<usize, IntegrityError> {
+        let data_len = u32::try_from(data_len).map_err(|_| IntegrityError::SizeOverflow)?;
+        let Self::Indexed(ends) = self else {
+            return Ok(0);
+        };
+        let size = ends
+            .len()
+            .checked_mul(INTEGRITY_RECORD_LEN)
+            .ok_or(IntegrityError::SizeOverflow)?;
+        u32::try_from(size).map_err(|_| IntegrityError::SizeOverflow)?;
+        let mut start = 0;
+        for (index, &end) in ends.iter().enumerate() {
+            if end <= start {
+                return Err(IntegrityError::RangesOverlapOrReversed {
+                    index: index as u32,
+                });
+            }
+            if end > data_len {
+                return Err(IntegrityError::InvalidCoverage { offset: end });
+            }
+            start = end;
+        }
+        if start != data_len {
+            return Err(IntegrityError::IncompleteCoverage { offset: start });
+        }
+        Ok(size)
+    }
+}
+
 /// One positive, payload-relative DATA range and its CRC32/IEEE checksum.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct IntegrityRange {
@@ -48,6 +104,14 @@ impl IntegrityRange {
             offset..end,
             read_u32_le(bytes, 8).ok_or(IntegrityError::Truncated)?,
         )
+    }
+
+    pub(crate) fn encode_record(self) -> [u8; INTEGRITY_RECORD_LEN] {
+        let mut bytes = [0; INTEGRITY_RECORD_LEN];
+        write_u32_le(&mut bytes, 0, self.offset);
+        write_u32_le(&mut bytes, 4, self.size);
+        write_u32_le(&mut bytes, 8, self.checksum);
+        bytes
     }
 }
 
@@ -158,9 +222,7 @@ impl<'a> IntegrityTable<'a> {
         }
         for (index, range) in ranges.iter().enumerate() {
             let offset = index * INTEGRITY_RECORD_LEN;
-            write_u32_le(out, offset, range.offset);
-            write_u32_le(out, offset + 4, range.size);
-            write_u32_le(out, offset + 8, range.checksum);
+            out[offset..offset + INTEGRITY_RECORD_LEN].copy_from_slice(&range.encode_record());
         }
         Ok(needed)
     }

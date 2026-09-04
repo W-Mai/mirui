@@ -17,7 +17,8 @@ pub use index::{
     UNIT_CHECKPOINT_INTERVAL, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges,
 };
 pub use integrity::{
-    INTEGRITY_RECORD_LEN, IntegrityError, IntegrityRange, IntegrityRanges, IntegrityTable,
+    DataIntegrity, INTEGRITY_RECORD_LEN, IntegrityError, IntegrityRange, IntegrityRanges,
+    IntegrityTable,
 };
 pub use selection::{
     SELECTION_CHECKPOINT_INTERVAL, SelectedUnits, UnitSelection, UnitSelectionEncoding,

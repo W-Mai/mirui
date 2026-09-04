@@ -14,6 +14,7 @@ use mirx::{
 #[test]
 fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
     use mirx::image::{GroupSelection, Region, UnitGroupRecord};
+    use mirx::media::DataIntegrity;
     let surface =
         SurfaceDescriptor::new(8, 1, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
     let pixel = Pixel::new(SampleLayout::RGB888).unwrap();
@@ -54,7 +55,8 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
     let index = [0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0];
     let asset =
         EncodedImageAsset::from_groups(surface, &codings, &records, &data[..192 + lengths[3]])
-            .with_index(&index);
+            .with_index(&index)
+            .with_integrity(DataIntegrity::Indexed(&[64, 128, 192, 198]));
     let mut document = Document::new();
     let id = document
         .push_encoded_image_with_flags(&asset, ChunkFlags::CRITICAL)
@@ -70,6 +72,7 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
         .unwrap();
     let image = chunk.image().unwrap().unwrap().encoded().unwrap();
     assert_eq!(image.codings().iter().collect::<Vec<_>>(), codings);
+    assert_eq!(image.media().integrity().unwrap().len(), 4);
     let mut slots = [None; 4];
     let groups = image
         .groups_into(&mut slots, &mut CoverageBudget::new(4096))
@@ -78,6 +81,10 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
     struct Aligned([u8; 128]);
     for (ordinal, expected) in samples.iter().enumerate() {
         let unit = groups.get(ordinal).unwrap().get(0).unwrap();
+        assert_eq!(
+            groups.validate_unit(ordinal, 0),
+            Ok(if ordinal == 3 { 6 } else { 64 })
+        );
         assert_eq!(
             unit.region(),
             Region::new(ordinal as u32 * 2, 0, 2, 1).unwrap()

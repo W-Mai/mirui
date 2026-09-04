@@ -1,5 +1,6 @@
 use super::*;
 mod grouped;
+mod integrity;
 use crate::{
     coding::{Lz4, Pixel, Rle},
     image::{

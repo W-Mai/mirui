@@ -73,7 +73,7 @@ fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
     use mirx::{
         coding::Rle,
         image::{EncodedImageAsset, EncodedImageView, UnitGroupRecord},
-        media::UnitIndexEncoding,
+        media::{DataIntegrity, UnitIndexEncoding},
     };
     let surface = SurfaceDescriptor::new(3, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let codings = [Rle::new().record()];
@@ -86,7 +86,8 @@ fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
         .encode_into(&[3, 2], 1, &mut index)
         .unwrap();
     let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &[1, 1, 2, 0, 3])
-        .with_index(&index[..index_len]);
+        .with_index(&index[..index_len])
+        .with_integrity(DataIntegrity::Indexed(&[3, 5]));
     let mut output = [0xad; 512];
     let (len, allocations) = count_allocations(|| {
         asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
@@ -113,7 +114,8 @@ fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
     });
     assert_eq!(allocations, 0);
     let changed = EncodedImageAsset::from_groups(surface, &codings, &records, &[1, 1, 2, 0, 4])
-        .with_index(&index[..index_len]);
+        .with_index(&index[..index_len])
+        .with_integrity(DataIntegrity::Indexed(&[3, 5]));
     let (_, allocations) = count_allocations(|| {
         document
             .get_mut(id)

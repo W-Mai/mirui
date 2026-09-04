@@ -8,8 +8,9 @@ use crate::{
         UnitGroupRecord, output::PayloadOutput,
     },
     media::{
-        CODING_RECORD_LEN, CodingId, CodingRecord, CodingTable, MEDIA_CRC_LEN, MEDIA_HEADER_LEN,
-        MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionKind, UnitIndex,
+        CODING_RECORD_LEN, CodingId, CodingRecord, CodingTable, DataIntegrity,
+        INTEGRITY_RECORD_LEN, IntegrityRange, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION,
+        MediaFlags, MediaSectionKind, UnitIndex,
     },
     wire::write_u16_le,
 };
@@ -45,6 +46,7 @@ pub struct EncodedImageAsset<'a> {
     codings: AssetCodings<'a>,
     groups: Option<&'a [UnitGroupRecord]>,
     indexes: &'a [u8],
+    integrity: DataIntegrity<'a>,
     data: &'a [u8],
     color_table: Option<&'a [u8]>,
     input_alignment: u32,
@@ -73,6 +75,7 @@ impl<'a> EncodedImageAsset<'a> {
             codings: AssetCodings::Single(coding),
             groups: None,
             indexes: &[],
+            integrity: DataIntegrity::Whole,
             data,
             color_table: None,
             input_alignment: 1,
@@ -92,6 +95,7 @@ impl<'a> EncodedImageAsset<'a> {
             codings: AssetCodings::Shared(codings),
             groups: Some(groups),
             indexes: &[],
+            integrity: DataIntegrity::Whole,
             data,
             color_table: None,
             input_alignment: 1,
@@ -102,6 +106,14 @@ impl<'a> EncodedImageAsset<'a> {
     pub const fn with_index(mut self, bytes: &'a [u8]) -> Self {
         self.indexes = bytes;
         self
+    }
+    /// Selects whole-DATA or caller-partitioned CRC coverage; no checksum is supplied manually.
+    pub const fn with_integrity(mut self, integrity: DataIntegrity<'a>) -> Self {
+        self.integrity = integrity;
+        self
+    }
+    pub const fn integrity(self) -> DataIntegrity<'a> {
+        self.integrity
     }
     pub const fn with_color_table(mut self, rgba: &'a [u8]) -> Self {
         self.color_table = Some(rgba);
@@ -158,6 +170,11 @@ impl<'a> EncodedImageAsset<'a> {
                         * UNIT_GROUP_RECORD_LEN as u64,
                 )
             })
+            .and_then(|len| {
+                (self.integrity.partitions().map_or(0, <[u32]>::len) as u64)
+                    .checked_mul(INTEGRITY_RECORD_LEN as u64)
+                    .and_then(|size| len.checked_add(size))
+            })
             .ok_or(ImageEncodeError::SizeOverflow)?;
         // Bound native table scans before sizing; the output span charges these bytes once.
         if minimum > limits.max_image_work() {
@@ -209,6 +226,7 @@ impl<'a> EncodedImageAsset<'a> {
 struct Plan<'a> {
     asset: EncodedImageAsset<'a>,
     coding_len: usize,
+    integrity_len: usize,
     section_count: u16,
     group: Option<UnitGroupRecord>,
     alignment: u32,
@@ -266,6 +284,10 @@ impl<'a> Plan<'a> {
             .map_err(ImageEncodeError::Preflight)?;
         let coding_len =
             CodingTable::encoded_len(asset.codings()).map_err(ImageEncodeError::Codings)?;
+        let integrity_len = asset
+            .integrity
+            .section_len(asset.data.len())
+            .map_err(ImageEncodeError::Integrity)?;
         let group_len = records
             .map_or(0, <[UnitGroupRecord]>::len)
             .checked_mul(UNIT_GROUP_RECORD_LEN)
@@ -273,6 +295,7 @@ impl<'a> Plan<'a> {
         let section_count = 3
             + u16::from(records.is_some())
             + u16::from(!asset.indexes.is_empty())
+            + u16::from(asset.integrity.partitions().is_some())
             + u16::from(asset.color_table.is_some());
         let metadata_len = (MEDIA_HEADER_LEN
             + usize::from(section_count) * MEDIA_SECTION_LEN
@@ -281,6 +304,7 @@ impl<'a> Plan<'a> {
             .and_then(|len| len.checked_add(group_len))
             .and_then(|len| len.checked_add(asset.indexes.len()))
             .and_then(|len| len.checked_add(asset.color_table.map_or(0, <[u8]>::len)))
+            .and_then(|len| len.checked_add(integrity_len))
             .ok_or(ImageEncodeError::SizeOverflow)?;
         let data_offset = UnitIndex::aligned(
             u32::try_from(metadata_len).map_err(|_| ImageEncodeError::SizeOverflow)?,
@@ -289,12 +313,13 @@ impl<'a> Plan<'a> {
         .map_err(|_| ImageEncodeError::SizeOverflow)? as usize;
         let payload_len = data_offset
             .checked_add(asset.data.len())
-            .and_then(|len| len.checked_add(MEDIA_CRC_LEN))
+            .and_then(|len| len.checked_add(asset.integrity.trailer_len()))
             .ok_or(ImageEncodeError::SizeOverflow)?;
         u32::try_from(payload_len).map_err(|_| ImageEncodeError::SizeOverflow)?;
         Ok(Self {
             asset,
             coding_len,
+            integrity_len,
             section_count,
             group,
             alignment,
@@ -325,6 +350,9 @@ impl<'a> Plan<'a> {
     fn emit(self, mut output: PayloadOutput<'_>) -> bool {
         let mut header = [0; MEDIA_HEADER_LEN];
         header[0] = MEDIA_VERSION;
+        if self.asset.integrity.partitions().is_some() {
+            header[1] = MediaFlags::INDEXED_INTEGRITY.bits();
+        }
         write_u16_le(&mut header, 2, self.section_count);
         output.header(&header);
         let surface_offset = MEDIA_HEADER_LEN + usize::from(self.section_count) * MEDIA_SECTION_LEN;
@@ -351,6 +379,10 @@ impl<'a> Plan<'a> {
         }
         if let Some(table) = self.asset.color_table {
             output.section(MediaSectionKind::COLOR_TABLE, offset, table.len());
+            offset += table.len();
+        }
+        if self.asset.integrity.partitions().is_some() {
+            output.section(MediaSectionKind::INTEGRITY, offset, self.integrity_len);
         }
         output.section(
             MediaSectionKind::DATA,
@@ -383,10 +415,24 @@ impl<'a> Plan<'a> {
         if let Some(table) = self.asset.color_table {
             output.write(table);
         }
+        let mut start = 0;
+        for &end in self.asset.integrity.partitions().unwrap_or(&[]) {
+            let checksum = crate::crc32(&self.asset.data[start as usize..end as usize]);
+            let range = IntegrityRange::new(
+                self.data_offset as u32 + start..self.data_offset as u32 + end,
+                checksum,
+            )
+            .expect("validated integrity partition");
+            output.write(&range.encode_record());
+            start = end;
+        }
         output.pad_to(self.data_offset);
-        output.begin_data();
+        output.begin_data(self.asset.integrity);
         output.write(self.asset.data);
-        debug_assert_eq!(output.position() + MEDIA_CRC_LEN, self.payload_len);
+        debug_assert_eq!(
+            output.position() + self.asset.integrity.trailer_len(),
+            self.payload_len
+        );
         output.finish()
     }
 }
