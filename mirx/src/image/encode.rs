@@ -1,10 +1,11 @@
 use alloc::vec::Vec;
 
+use super::color_table::ColorTableError;
 use super::{
     PLANE_RECORD_LEN, PlaneMemoryError, PlaneMemoryLayout, SURFACE_RECORD_LEN, SurfaceDescriptor,
     SurfaceView,
 };
-use super::{color_table::ColorTableError, output::PayloadOutput};
+use crate::media::output::PayloadOutput;
 use crate::media::{
     MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionKind,
 };

@@ -15,6 +15,139 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn owned_font_edits_and_emission_need_no_temporary_reference_arrays() {
+    use mirx::{
+        Fixed,
+        font::{
+            Font, FontAsset, FontRepresentation, GlyphMap, GlyphMetrics, GlyphSurfaceAsset,
+            LineMetrics, RawGlyphs, RepresentationAsset,
+        },
+    };
+    let chars = ['A'];
+    let metrics = [GlyphMetrics::default()];
+    let line = LineMetrics::new(Fixed::from_raw(256), Fixed::ZERO, Fixed::from_raw(256)).unwrap();
+    let raw = RawGlyphs::builder(GlyphMap::glyph_major(2, 2, 1).unwrap(), SampleLayout::A8)
+        .build(&[7; 4])
+        .unwrap();
+    let surfaces = [GlyphSurfaceAsset::raw(raw)];
+    let representations = [RepresentationAsset::new(
+        FontRepresentation::coverage(8, 12, 4).unwrap(),
+        0,
+        line,
+        &metrics,
+    )];
+    let asset = FontAsset::new(&chars, &representations, &surfaces);
+    let mut owned = Font::from_asset(asset, &PayloadLimits::EMBEDDED).unwrap();
+    let (_, allocations) = count_allocations(|| {
+        owned.set_codepoint(0, '中').unwrap();
+        owned.set_line_metrics(0, line).unwrap();
+        owned.glyph_metrics_mut(0).unwrap()[0] =
+            GlyphMetrics::new(Fixed::from_raw(517), Fixed::ZERO, Fixed::ZERO);
+        let mut output = [0; 512];
+        let len = owned.encode_into(&mut output).unwrap();
+        assert_eq!(owned.encoded_len(), Ok(len));
+        assert!(owned.matches_payload(&output[..len]).unwrap());
+        owned.preflight(&PayloadLimits::EMBEDDED).unwrap();
+    });
+    assert_eq!(allocations, 0);
+    let bytes = asset.encode().unwrap();
+    let (_, allocations) = count_allocations(|| {
+        assert!(
+            Font::from_asset(asset, &PayloadLimits::EMBEDDED.with_max_decoded_bytes(4)).is_err()
+        );
+        assert!(
+            Font::decode_with_limits(&bytes, &PayloadLimits::EMBEDDED.with_max_decoded_bytes(4))
+                .is_err()
+        );
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
+fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
+    use mirx::{
+        Fixed,
+        coding::Rle,
+        font::{
+            FontAsset, FontGlyphs, FontRepresentation, FontRepresentationRequest, FontView,
+            GlyphMap, GlyphMetrics, GlyphSurfaceAsset, LineMetrics, RawGlyphs, RepresentationAsset,
+        },
+        image::{CoverageBudget, EncodedImageAsset},
+    };
+    let (_, allocations) = count_allocations(|| {
+        let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
+        let metrics = [GlyphMetrics::default(); 2];
+        let line =
+            LineMetrics::new(Fixed::from_raw(256), Fixed::ZERO, Fixed::from_raw(256)).unwrap();
+        let raw = RawGlyphs::builder(map, SampleLayout::A8)
+            .build(&[7; 8])
+            .unwrap();
+        let image = EncodedImageAsset::new(
+            SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap(),
+            Rle::new().record(),
+            &[0x87, 42],
+        );
+        let surfaces = [
+            GlyphSurfaceAsset::raw(raw),
+            GlyphSurfaceAsset::Encoded { map, image },
+        ];
+        let representations = [
+            RepresentationAsset::new(
+                FontRepresentation::coverage(8, 12, 8).unwrap(),
+                0,
+                line,
+                &metrics,
+            ),
+            RepresentationAsset::new(
+                FontRepresentation::signed_distance(8, 3, 24, 17, 48, 8).unwrap(),
+                1,
+                line,
+                &metrics,
+            ),
+        ];
+        let asset = FontAsset::new(&['A', 'B'], &representations, &surfaces);
+        asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
+        let mut output = [0; 512];
+        let len = asset.encode_into(&mut output).unwrap();
+        assert_eq!(asset.encoded_len(), Ok(len));
+        assert!(asset.matches_payload(&output[..len]).unwrap());
+        let font = FontView::open(&output[..len], &PayloadLimits::EMBEDDED).unwrap();
+        font.preflight(&PayloadLimits::EMBEDDED).unwrap();
+        let chosen = font
+            .tables()
+            .select(FontRepresentationRequest::new(24))
+            .unwrap();
+        assert_eq!(chosen.index(), 1);
+        let FontGlyphs::Encoded(glyphs) = font.glyphs(chosen.index()).unwrap() else {
+            panic!("encoded");
+        };
+        let mut slots = [None];
+        let groups = glyphs
+            .groups_into(&mut slots, &mut CoverageBudget::new(1000))
+            .unwrap();
+        let plan = groups
+            .decode_plan(1, SurfaceRequirements::new(), &PayloadLimits::EMBEDDED)
+            .unwrap();
+        let mut decoded = [0; 4];
+        plan.decode_into(&mut decoded, &mut [0; 8]).unwrap();
+        assert_eq!(decoded, [42; 4]);
+
+        let mut coding_body = [0; 12];
+        mirx::media::CodingTable::encode_into(&[Rle::new().record()], &mut coding_body).unwrap();
+        let image = EncodedImageAsset::from_codings(
+            image.surface(),
+            mirx::media::CodingTable::open(&coding_body).unwrap(),
+            image.data(),
+        );
+        let mut image_bytes = [0; 256];
+        let image_len = image.encode_into(&mut image_bytes).unwrap();
+        assert!(image.matches_payload(&image_bytes[..image_len]).unwrap());
+        image.preflight(&PayloadLimits::EMBEDDED).unwrap();
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn joined_face_selection_and_map_lookup_allocate_nothing() {
     use mirx::{
         Fixed, FontRepresentation, FontRepresentationRequest,

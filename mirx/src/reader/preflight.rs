@@ -1,7 +1,7 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
 use crate::image::{ImageReadError, ImageRef};
 use crate::{
-    ChunkType, Font, FontReadError, FramesDecodeError, MetaDecodeError, PaletteDecodeError,
+    ChunkType, FontError, FontView, FramesDecodeError, MetaDecodeError, PaletteDecodeError,
     ReadError, Scene, VectorReadError,
 };
 
@@ -23,7 +23,7 @@ pub enum PayloadLocation {
 pub enum PayloadValidationFailure {
     UnsupportedStandardPayload,
     Image(ImageReadError),
-    Font(FontReadError),
+    Font(FontError),
     Vector(VectorReadError),
     Meta(MetaDecodeError),
     Palette(PaletteDecodeError),
@@ -158,7 +158,9 @@ pub(crate) fn preflight_chunk(
             Ok(PreflightStatus::Validated)
         }
         ChunkType::FONT => {
-            Font::preflight(chunk.payload(), limits).map_err(PayloadValidationFailure::Font)?;
+            FontView::open_at(chunk.payload(), chunk.payload_offset(), limits)
+                .and_then(|font| font.preflight(limits))
+                .map_err(PayloadValidationFailure::Font)?;
             Ok(PreflightStatus::Validated)
         }
         ChunkType::VECTOR => {
@@ -205,9 +207,8 @@ mod tests {
     use super::*;
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
     use crate::{
-        AtlasHeader, ChunkFlags, ColorFormat, FlatImageInput, FontChunkHeader, FontChunkKind,
-        GlyphMetric, HEADER_LEN, ImageChunkInput, METRIC_LEN, ReadOptions, SUPPORTED_VERSION,
-        SceneOp, TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
+        ChunkFlags, ColorFormat, FlatImageInput, ImageChunkInput, ReadOptions, SceneOp,
+        TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
     };
 
     fn valid_image_payload() -> Vec<u8> {
@@ -239,44 +240,28 @@ mod tests {
     }
 
     fn valid_font_payload() -> Vec<u8> {
-        Font {
-            chunk_header: FontChunkHeader {
-                kind: FontChunkKind::Sdf,
-                format: 4,
-                size: 4,
-            },
-            atlas: AtlasHeader {
-                version: SUPPORTED_VERSION,
-                bit_depth: 4,
-                _pad0: 0,
-                source_size: 4,
-                spread: 2,
-                glyph_count: 2,
-                metric_offset: HEADER_LEN as u32,
-                data_offset: (HEADER_LEN + 2 * METRIC_LEN) as u32,
-                bytes_per_glyph: 8,
-                ascender: 3,
-                descender: 1,
-                line_height: 4,
-                _pad1: 0,
-            },
-            metrics: alloc::vec![
-                GlyphMetric {
-                    codepoint: 'A' as u32,
-                    advance: 4,
-                    bearing_x: 0,
-                    bearing_y: 3,
-                },
-                GlyphMetric {
-                    codepoint: 'B' as u32,
-                    advance: 4,
-                    bearing_x: 0,
-                    bearing_y: 3,
-                },
-            ],
-            data: alloc::vec![0; 16],
-        }
-        .encode()
+        use crate::font::{
+            FontAsset, FontRepresentation, GlyphMap, GlyphMetrics, GlyphSurfaceAsset, LineMetrics,
+            RawGlyphs, RepresentationAsset,
+        };
+        use crate::image::SampleLayout;
+        let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
+        let raw = RawGlyphs::builder(map, SampleLayout::A8)
+            .build(&[0; 8])
+            .unwrap();
+        let surfaces = [GlyphSurfaceAsset::raw(raw)];
+        let metrics = [GlyphMetrics::default(); 2];
+        let line =
+            LineMetrics::new(crate::Fixed::ONE, crate::Fixed::ZERO, crate::Fixed::ONE).unwrap();
+        let representations = [RepresentationAsset::new(
+            FontRepresentation::coverage(8, 12, 8).unwrap(),
+            0,
+            line,
+            &metrics,
+        )];
+        FontAsset::new(&['A', 'B'], &representations, &surfaces)
+            .encode()
+            .unwrap()
     }
 
     fn font_file(flags: u16) -> Vec<u8> {
@@ -346,6 +331,18 @@ mod tests {
         bytes[start + relative..start + relative + 4].copy_from_slice(&value.to_le_bytes());
     }
 
+    fn mutate_font_payload(bytes: &mut [u8], mutate: impl FnOnce(&mut [u8])) {
+        let start = payload_start(bytes, 0);
+        let size = u32::from_le_bytes(
+            bytes[CHUNK_FILE_HEADER_LEN + 8..CHUNK_FILE_HEADER_LEN + 12]
+                .try_into()
+                .unwrap(),
+        ) as usize;
+        let payload = &mut bytes[start..start + size];
+        mutate(payload);
+        crate::media::refresh_checksums(payload);
+    }
+
     fn mark_first_chunk_critical(bytes: &mut [u8]) {
         bytes[CHUNK_FILE_HEADER_LEN + 2..CHUNK_FILE_HEADER_LEN + 4]
             .copy_from_slice(&ChunkFlags::CRITICAL.bits().to_le_bytes());
@@ -376,7 +373,7 @@ mod tests {
         );
     }
 
-    fn assert_critical_font_failure(bytes: &[u8], expected: FontReadError) {
+    fn assert_critical_font_failure(bytes: &[u8], expected: FontError) {
         let offset = payload_offset(bytes, 0);
         assert_eq!(
             Reader::open(bytes),
@@ -518,9 +515,9 @@ mod tests {
                     chunk_type: ChunkType::FONT,
                     payload_offset: payload_offset(&bytes, 0),
                 },
-                failure: PayloadValidationFailure::Font(FontReadError::TooManyGlyphs {
-                    count: 2,
-                    limit: 1,
+                failure: PayloadValidationFailure::Font(FontError::TooManyGlyphs {
+                    actual: 2,
+                    limit: 1
                 }),
             }))
         );
@@ -529,11 +526,22 @@ mod tests {
     #[test]
     fn malformed_font_is_strict_only_when_critical_or_explicitly_scanned() {
         let mut critical = font_file(ChunkFlags::CRITICAL.bits());
-        set_payload_byte(&mut critical, 4, 2);
-        assert_critical_font_failure(&critical, FontReadError::UnsupportedVersion(2));
+        mutate_font_payload(&mut critical, |payload| payload[0] = 2);
+        assert_critical_font_failure(
+            &critical,
+            FontError::Media(crate::media::MediaPayloadError::UnsupportedVersion(2)),
+        );
 
         let mut noncritical = font_file(0);
-        set_payload_u32(&mut noncritical, 44, 'A' as u32);
+        mutate_font_payload(&mut noncritical, |payload| {
+            let media = crate::media::MediaPayload::open(payload).unwrap();
+            let offset = media
+                .section(crate::media::MediaSectionKind::CODEPOINTS)
+                .unwrap()
+                .descriptor()
+                .offset() as usize;
+            payload[offset + 4..offset + 8].copy_from_slice(&('A' as u32).to_le_bytes());
+        });
         let reader = Reader::open(&noncritical).unwrap();
         assert_eq!(
             reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
@@ -543,13 +551,13 @@ mod tests {
                     chunk_type: ChunkType::FONT,
                     payload_offset: payload_offset(&noncritical, 0),
                 },
-                failure: PayloadValidationFailure::Font(
-                    FontReadError::CodepointsNotStrictlyIncreasing {
+                failure: PayloadValidationFailure::Font(FontError::Codepoints(
+                    crate::font::FontCodepointError::NotSorted {
                         index: 1,
                         previous: 'A' as u32,
-                        actual: 'A' as u32,
-                    },
-                ),
+                        current: 'A' as u32,
+                    }
+                ),),
             })
         );
     }
@@ -974,7 +982,9 @@ mod tests {
                     chunk_type: ChunkType::FONT,
                     payload_offset: payload_offset(&bytes, 0),
                 },
-                failure: PayloadValidationFailure::Font(FontReadError::UnknownChunkKind(b'f')),
+                failure: PayloadValidationFailure::Font(FontError::Media(
+                    crate::media::MediaPayloadError::UnsupportedVersion(b'f')
+                )),
             })
         );
     }
@@ -1014,14 +1024,16 @@ mod tests {
             ));
 
             let mut malformed_font = font_file(ChunkFlags::CRITICAL.bits());
-            set_payload_byte(&mut malformed_font, 4, 2);
+            mutate_font_payload(&mut malformed_font, |payload| payload[0] = 2);
             malformed_font[5] = minor;
             malformed_font[7] = flags;
             refresh_header_crc(&mut malformed_font);
             assert!(matches!(
                 Reader::open(&malformed_font),
                 Err(ReadError::CriticalPayload(PayloadValidationError {
-                    failure: PayloadValidationFailure::Font(FontReadError::UnsupportedVersion(2),),
+                    failure: PayloadValidationFailure::Font(FontError::Media(
+                        crate::media::MediaPayloadError::UnsupportedVersion(2)
+                    ),),
                     ..
                 }))
             ));

@@ -47,6 +47,11 @@ impl<'map, 'data> RawGlyphs<'map, 'data> {
         self.data.len() as u32
     }
 
+    /// The complete stored range, including declared cell and row padding.
+    pub const fn as_bytes(self) -> &'data [u8] {
+        self.data
+    }
+
     pub fn len(self) -> usize {
         self.map.len()
     }

@@ -33,6 +33,8 @@ pub const MEDIA_SECTION_LEN: usize = 12;
 pub const MEDIA_CRC_LEN: usize = 4;
 pub const MEDIA_VERSION: u8 = 1;
 
+pub(crate) mod output;
+
 /// Open identifier for one stored coding profile.
 ///
 /// Unknown values remain representable so raw editing never depends on the
@@ -112,7 +114,6 @@ impl MediaSectionKind {
     pub const UNIT_INDEX: Self = Self(0x0007);
     pub const INTEGRITY: Self = Self(0x0008);
 
-    pub const FACE: Self = Self(0x0010);
     pub const CODEPOINTS: Self = Self(0x0011);
     pub const REPRESENTATIONS: Self = Self(0x0012);
     pub const METRICS: Self = Self(0x0013);
@@ -302,6 +303,9 @@ pub struct MediaPayload<'a> {
 }
 
 impl<'a> MediaPayload<'a> {
+    pub(crate) const fn payload_len(self) -> usize {
+        self.payload.len()
+    }
     /// Opens metadata without reading or checksumming DATA bodies.
     ///
     /// Validates section bounds and the metadata CRC, including the stored

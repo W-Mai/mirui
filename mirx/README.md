@@ -62,13 +62,15 @@ This 1,661-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors
 | Type | Purpose | Read access | Authoring value |
 | --- | --- | --- | --- |
 | `IMAGE` | RAW and coded packed, indexed, alpha, and planar YUV surfaces | `ImageRef` | `ImageAsset` / `RawImageAsset` / `EncodedImageAsset` |
-| `FONT` | Glyph metrics and atlas data | Bounded decode | `Font` |
+| `FONT` | Shared Unicode, metrics, maps, and RAW or coded glyph surfaces | `FontView` | `FontAsset` / `Font` |
 | `VECTOR` | Ordered scene operations | Bounded decode | `Scene` |
 | `META` | Ordered text, bytes, and extension values | `MetaView` | `Meta` |
 | `PALETTE` | Ordered RGBA colors | `PaletteView` | `Palette` |
 | `FRAMES` | Atlas regions or timed animation frames | `FramesView` | `FramesAsset` |
 
-IMAGE, META, PALETTE, and FRAMES expose borrowed views. FONT and VECTOR use `decode_font` and `decode_vector` to make their owned allocation visible at the call site.
+IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `Document::decode_font` and `decode_vector` make owned allocation visible at the call site.
+
+`FontView::open` admits one complete font face: a shared Unicode ordinal table, one or more representation-specific metric/map records, and referenced RAW or encoded scalar surfaces. `preflight` accumulates limits across every unique surface and validates DATA once. `FontAsset` writes borrowed authoring input, while owned `Font` retains the same representation and coding structure for transactional document edits.
 
 `FontRepresentations::select` matches fixed-size coverage and ranged signed-distance representations with explicit preferences and fallback. The returned `FontRepresentationMatch` owns one inline metadata value and its source index; selection allocates nothing and does not extend the representation table's lifetime.
 

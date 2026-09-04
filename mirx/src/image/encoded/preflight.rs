@@ -10,7 +10,7 @@ use crate::{
 #[cfg(test)]
 mod tests;
 
-pub(super) struct Preflight<'a> {
+pub(crate) struct Preflight<'a> {
     limits: &'a PayloadLimits,
     budget: CoverageBudget,
     total_groups: usize,
@@ -18,7 +18,7 @@ pub(super) struct Preflight<'a> {
 }
 
 impl<'a> Preflight<'a> {
-    pub(super) fn new(limits: &'a PayloadLimits, groups: usize) -> Result<Self, EncodedImageError> {
+    pub(crate) fn new(limits: &'a PayloadLimits, groups: usize) -> Result<Self, EncodedImageError> {
         let mut preflight = Self {
             limits,
             budget: CoverageBudget::new(limits.max_raster_work()),
@@ -29,7 +29,7 @@ impl<'a> Preflight<'a> {
         Ok(preflight)
     }
 
-    fn add_groups(&mut self, count: usize) -> Result<(), EncodedImageError> {
+    pub(super) fn add_groups(&mut self, count: usize) -> Result<(), EncodedImageError> {
         let total = self
             .total_groups
             .checked_add(count)
@@ -46,13 +46,13 @@ impl<'a> Preflight<'a> {
 
     /// Adds static coverage and scalar syntax, without resetting resource counters.
     /// DATA integrity is scheduled separately by the complete media caller.
-    pub(super) fn image(&mut self, image: EncodedImageView<'_>) -> Result<(), EncodedImageError> {
+    pub(crate) fn image(&mut self, image: EncodedImageView<'_>) -> Result<(), EncodedImageError> {
         self.add_groups(image.group_count())?;
         self.groups(image.group_source())
     }
 
     /// Charges a validated media payload's derived DATA size before scanning it.
-    pub(super) fn data(
+    pub(crate) fn data(
         &mut self,
         media: crate::media::MediaPayload<'_>,
         byte_len: u32,
@@ -61,7 +61,7 @@ impl<'a> Preflight<'a> {
         media.validate_data().map_err(EncodedImageError::Media)
     }
 
-    pub(super) fn spend(&mut self, work: u64) -> Result<(), EncodedImageError> {
+    pub(crate) fn spend(&mut self, work: u64) -> Result<(), EncodedImageError> {
         self.budget
             .spend_many(work)
             .map_err(EncodedImageError::Coverage)

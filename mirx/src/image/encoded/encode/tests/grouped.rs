@@ -28,7 +28,7 @@ fn planar_groups_share_profiles_and_preserve_alignment_without_unit_tables() {
     data[..2].copy_from_slice(&[0x88, 16]);
     data[64..].copy_from_slice(&[0x87, 128]);
     let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &data);
-    assert_eq!(asset.codings(), &codings);
+    assert_eq!(asset.codings().collect::<Vec<_>>(), &codings);
     assert_eq!(asset.groups(), Some(records.as_slice()));
     assert_eq!(asset.index(), &[]);
     assert_eq!(asset.input_alignment(), Ok(64));

@@ -3,9 +3,8 @@ use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_prima
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
 use crate::{
-    ChunkFlags, ChunkType, EditError, Font, FontEncodeError, FramesEncodeError, FramesView,
-    MetaEncodeError, MetaView, PaletteEncodeError, PaletteView, PayloadLimits, Scene,
-    VectorEncodeError,
+    ChunkFlags, ChunkType, EditError, FramesEncodeError, FramesView, MetaEncodeError, MetaView,
+    PaletteEncodeError, PaletteView, PayloadLimits, Scene, VectorEncodeError,
 };
 
 #[cfg(test)]
@@ -82,15 +81,16 @@ fn evaluate_resolved_descriptor_with_flags(
         }
     } else if chunk_type == ChunkType::FONT {
         match payload.bytes() {
-            Some(bytes) => match Font::preflight(bytes, &limits) {
+            Some(_) => match payload
+                .font_view(&limits)
+                .and_then(|font| font.preflight(&limits))
+            {
                 Ok(()) => true,
                 Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
                     false
                 }
                 Err(error) => {
-                    return Err(EditError::InvalidFont(FontEncodeError::InvalidPayload(
-                        error,
-                    )));
+                    return Err(EditError::InvalidFont(error));
                 }
             },
             None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
@@ -721,8 +721,8 @@ mod tests {
 
         assert_eq!(
             document.set_type(id, ChunkType::FONT, RawChunkPolicy::infer()),
-            Err(EditError::InvalidFont(FontEncodeError::InvalidPayload(
-                crate::FontReadError::UnknownChunkKind(b'n')
+            Err(EditError::InvalidFont(crate::FontError::Media(
+                crate::media::MediaPayloadError::UnsupportedVersion(b'n')
             )))
         );
         assert_eq!(snapshot(&document), before);

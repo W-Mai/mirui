@@ -66,6 +66,13 @@ pub struct EncodedGlyphs<'map, 'data> {
 }
 
 impl<'map, 'data> EncodedGlyphs<'map, 'data> {
+    pub(crate) fn preflight_in(
+        self,
+        preflight: &mut crate::image::RasterPreflight<'_>,
+    ) -> Result<(), EncodedImageError> {
+        preflight.image(self.image)
+    }
+
     pub const fn map(self) -> GlyphMap<'map> {
         self.map
     }

@@ -168,7 +168,7 @@ impl<'a> IntegrityTable<'a> {
         }
     }
 
-    pub(super) fn intersecting(self, requested: Range<u32>) -> IntegrityRanges<'a> {
+    pub(crate) fn intersecting(self, requested: Range<u32>) -> IntegrityRanges<'a> {
         let mut low = 0;
         let mut high = self.len();
         while low < high {

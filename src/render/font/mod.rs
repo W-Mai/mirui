@@ -8,9 +8,7 @@
 //! [`FontBackend::Custom`].
 
 pub mod bitmap_8x8;
-pub mod chunk;
-pub mod gray;
-pub mod multi;
+pub mod mirx;
 pub mod sdf;
 
 pub use bitmap_8x8::{CHAR_H, CHAR_W, FONT_8X8, glyph};
@@ -24,8 +22,8 @@ use crate::ecs::World;
 /// [`GlyphKind`] payload that selects the rasterization scheme.
 #[derive(Clone, Debug)]
 pub struct Glyph {
-    /// Horizontal advance after drawing this glyph, in pixels.
-    pub advance: u16,
+    /// Horizontal advance at the representation's design ppem.
+    pub advance: crate::types::Fixed,
     pub kind: GlyphKind,
 }
 
@@ -36,50 +34,15 @@ pub struct Glyph {
 pub enum GlyphKind {
     /// Bitmap rows, one byte per row, MSB = leftmost pixel.
     Mono(&'static [u8]),
-    /// Signed-distance-field atlas slice. `atlas` holds packed
-    /// distances at `bit_depth` per pixel, layout
-    /// `source_size × source_size` row-major. The renderer scales to
-    /// the requested target size by sampling.
-    Sdf {
-        atlas: &'static [u8],
-        source_size: u16,
-        bit_depth: u8,
-        /// Pixels of zero-distance band encoded around the glyph edge
-        /// (atlas-time choice). Required to convert the quantized
-        /// distance back to source pixels.
-        spread: u16,
-        bbox_w: u8,
-        bbox_h: u8,
-        bearing_x: i8,
-        bearing_y: i8,
+    /// Borrowed scalar samples in their declared physical plane.
+    Raster {
+        samples: &'static [u8],
+        stride: u32,
+        region: ::mirx::image::Region,
+        representation: ::mirx::FontRepresentation,
+        bearing_x: crate::types::Fixed,
+        bearing_y: crate::types::Fixed,
     },
-    /// Pre-rasterized grayscale coverage, `bpp` bits per pixel packed
-    /// MSB-first, `w × h` row-major. The stored value IS the alpha —
-    /// no distance math, no resampling — so this is the crisp path for
-    /// fixed-size small text where SDF undersamples thin stems.
-    /// `bearing_x` / `bearing_y` place the bitmap relative to the pen.
-    Grayscale {
-        coverage: &'static [u8],
-        bpp: u8,
-        w: u8,
-        h: u8,
-        bearing_x: i8,
-        bearing_y: i8,
-    },
-}
-
-/// Which representation a font wants for a given lookup. Used both as
-/// the `format` axis of a font cache key and to tell a multi-table
-/// provider which kind of glyph to hand back.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum FontFormat {
-    /// Provider picks: grayscale if a fixed-size table covers the
-    /// requested size, else the scalable SDF table.
-    Auto,
-    /// Force pre-rasterized grayscale coverage.
-    Grayscale,
-    /// Force the scalable signed-distance-field table.
-    Sdf,
 }
 
 /// Cheap font metadata that layout reads without touching glyph data.
@@ -88,9 +51,9 @@ pub enum FontFormat {
 /// advance between baselines.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FontMetrics {
-    pub ascender: u16,
-    pub descender: u16,
-    pub line_height: u16,
+    pub ascender: crate::types::Fixed,
+    pub descender: crate::types::Fixed,
+    pub line_height: crate::types::Fixed,
 }
 
 /// A glyph source. Implementors plug into [`FontBackend::Custom`] to
@@ -99,7 +62,7 @@ pub trait FontProvider: 'static {
     /// `requested_size` lets a multi-table provider pick the closest
     /// fixed-size representation; single-table providers ignore it.
     fn glyph(&self, ch: char, requested_size: u16) -> Option<Glyph>;
-    fn metrics(&self) -> FontMetrics;
+    fn metrics(&self, requested_size: u16) -> FontMetrics;
 }
 
 /// Glyph source backing a [`Font`]: the bundled 8x8 bitmap, or a
@@ -148,18 +111,18 @@ impl Font {
     }
 
     /// Cheap metrics — no glyph touch.
-    pub fn metrics(&self) -> FontMetrics {
+    pub fn metrics(&self, requested_size: u16) -> FontMetrics {
         match &self.backend {
             FontBackend::Bitmap8x8 => BITMAP_8X8_METRICS,
-            FontBackend::Custom(p) => p.metrics(),
+            FontBackend::Custom(p) => p.metrics(requested_size),
         }
     }
 }
 
 const BITMAP_8X8_METRICS: FontMetrics = FontMetrics {
-    ascender: 7,
-    descender: 1,
-    line_height: 8,
+    ascender: crate::types::Fixed::from_int(7),
+    descender: crate::types::Fixed::from_int(-1),
+    line_height: crate::types::Fixed::from_int(8),
 };
 
 fn bitmap_8x8_glyph(ch: char) -> Option<Glyph> {
@@ -170,7 +133,7 @@ fn bitmap_8x8_glyph(ch: char) -> Option<Glyph> {
     };
     let bitmap: &'static [u8; 8] = bitmap_8x8::glyph(byte);
     Some(Glyph {
-        advance: bitmap_8x8::CHAR_W as u16,
+        advance: crate::types::Fixed::from_int(bitmap_8x8::CHAR_W as i32),
         kind: GlyphKind::Mono(bitmap),
     })
 }
@@ -185,7 +148,7 @@ impl HasProbe for Font {
     type Meta = FontMetrics;
 
     fn extract_meta(&self) -> Self::Meta {
-        self.metrics()
+        self.metrics(self.size)
     }
 }
 
@@ -338,7 +301,7 @@ mod tests {
         let font = Font::bitmap_8x8();
         let meta = font.extract_meta();
         assert_eq!(meta, BITMAP_8X8_METRICS);
-        assert_eq!(meta.line_height, 8);
+        assert_eq!(meta.line_height, crate::types::Fixed::from_int(8));
     }
 
     fn unwrap_mono(g: &Glyph) -> &[u8] {
@@ -352,7 +315,7 @@ mod tests {
     fn glyph_roundtrip_for_ascii() {
         let font = Font::bitmap_8x8();
         let g = font.glyph('A', 16).expect("ASCII glyph");
-        assert_eq!(g.advance, 8);
+        assert_eq!(g.advance, crate::types::Fixed::from_int(8));
         assert_eq!(unwrap_mono(&g).len(), 8);
     }
 
@@ -377,15 +340,15 @@ mod tests {
         impl FontProvider for AllX {
             fn glyph(&self, _ch: char, _requested_size: u16) -> Option<Glyph> {
                 Some(Glyph {
-                    advance: 6,
+                    advance: crate::types::Fixed::from_int(6),
                     kind: GlyphKind::Mono(&[0xFF; 8]),
                 })
             }
-            fn metrics(&self) -> FontMetrics {
+            fn metrics(&self, _requested_size: u16) -> FontMetrics {
                 FontMetrics {
-                    ascender: 6,
-                    descender: 0,
-                    line_height: 6,
+                    ascender: crate::types::Fixed::from_int(6),
+                    descender: crate::types::Fixed::ZERO,
+                    line_height: crate::types::Fixed::from_int(6),
                 }
             }
         }
@@ -394,7 +357,13 @@ mod tests {
             size: 6,
             backend: FontBackend::Custom(Rc::new(AllX)),
         };
-        assert_eq!(font.glyph('A', 16).unwrap().advance, 6);
-        assert_eq!(font.metrics().line_height, 6);
+        assert_eq!(
+            font.glyph('A', 16).unwrap().advance,
+            crate::types::Fixed::from_int(6)
+        );
+        assert_eq!(
+            font.metrics(font.size).line_height,
+            crate::types::Fixed::from_int(6)
+        );
     }
 }

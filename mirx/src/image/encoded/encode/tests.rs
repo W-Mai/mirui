@@ -10,6 +10,51 @@ use crate::{
 };
 
 #[test]
+fn retained_coding_tables_emit_identical_native_bytes_without_record_arrays() {
+    let surface = SurfaceDescriptor::new(4, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let data = [0x83, 7];
+    let codings = [Rle::new().record(), CodingRecord::RAW];
+    let records = [UnitGroupRecord::new(0, 0..2).unwrap()];
+    let native = EncodedImageAsset::from_groups(surface, &codings, &records, &data);
+    let bytes = native.encode().unwrap();
+    let image = EncodedImageView::open(&bytes).unwrap();
+    let retained =
+        EncodedImageAsset::from_codings(surface, image.codings(), &data).with_groups(&records);
+    assert_eq!(retained.encode().unwrap(), bytes);
+    assert!(retained.matches_payload(&bytes).unwrap());
+    retained.preflight(&crate::PayloadLimits::EMBEDDED).unwrap();
+    assert_eq!(
+        retained.codings().rev().collect::<Vec<_>>(),
+        [CodingRecord::RAW, Rle::new().record()]
+    );
+    assert!(matches!(
+        EncodedImageAsset::from_codings(surface, image.codings(), &data).encoded_len(),
+        Err(ImageEncodeError::Preflight(
+            EncodedImageError::AmbiguousImplicitGroup
+        ))
+    ));
+
+    let params = [3, 5, 8];
+    let native = EncodedImageAsset::new(
+        surface,
+        CodingRecord::new(CodingId::new(500), 2, &params),
+        &data,
+    );
+    let bytes = native.encode().unwrap();
+    let image = EncodedImageView::open(&bytes).unwrap();
+    let retained = EncodedImageAsset::from_codings(surface, image.codings(), &data);
+    assert_eq!(retained.encode().unwrap(), bytes);
+    assert_eq!(
+        retained.codings().next().unwrap().params().as_ptr(),
+        image.codings().get(0).unwrap().params().as_ptr()
+    );
+    assert_eq!(
+        retained.preflight(&crate::PayloadLimits::EMBEDDED),
+        native.preflight(&crate::PayloadLimits::EMBEDDED)
+    );
+}
+
+#[test]
 fn asset_preflight_admits_exactly_supported_syntax_without_serializing() {
     use crate::{
         PayloadLimits,
@@ -132,7 +177,7 @@ fn single_stream_omission_round_trips_each_scalar_profile() {
         };
         let asset = EncodedImageAsset::new(surface, coding, &stream[..len]);
         assert_eq!(asset.surface(), surface);
-        assert_eq!(asset.codings(), &[coding]);
+        assert_eq!(asset.codings().collect::<Vec<_>>(), &[coding]);
         assert_eq!(asset.data(), &stream[..len]);
         assert_eq!(asset.input_alignment(), Ok(1));
         assert_eq!(asset.color_table(), None);

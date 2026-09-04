@@ -13,7 +13,7 @@
 extern crate alloc;
 
 use crate::prelude::*;
-use crate::render::font::{Font, FontManager, gray, sdf};
+use crate::render::font::{Font, FontManager, mirx as mirx_font};
 use crate::ui::widgets::Text;
 
 const PIXEL_10: &[u8] = include_bytes!("assets/fusion_pixel_10_1bit.mirx");
@@ -24,13 +24,6 @@ const TOKEN_10: FontToken = FontToken::Custom("pixel10");
 const TOKEN_12: FontToken = FontToken::Custom("pixel12");
 const TOKEN_24: FontToken = FontToken::Custom("sdf24");
 
-fn font_payload(atlas: &'static [u8]) -> &'static [u8] {
-    mirx::parse_chunk(atlas)
-        .expect("bundled atlas parses")
-        .chunk_payload(atlas, mirx::chunk_type::FONT)
-        .expect("FONT chunk present")
-}
-
 /// Register the three demo fonts in the world's [`FontManager`], each
 /// under its own token. Idempotent — re-registering rebinds the keys.
 pub fn register_font(world: &mut World) {
@@ -38,11 +31,14 @@ pub fn register_font(world: &mut World) {
         return;
     };
     let pixel10: Font =
-        gray::font_from_mirx_chunk("FusionPixel-10", font_payload(PIXEL_10)).expect("10px atlas");
+        mirx_font::font_from_mirx("FusionPixel-10", PIXEL_10, &mirx::PayloadLimits::HOST)
+            .expect("10px atlas");
     let pixel12: Font =
-        gray::font_from_mirx_chunk("FusionPixel-12", font_payload(PIXEL_12)).expect("12px atlas");
+        mirx_font::font_from_mirx("FusionPixel-12", PIXEL_12, &mirx::PayloadLimits::HOST)
+            .expect("12px atlas");
     let sdf24: Font =
-        sdf::font_from_mirx_chunk("MiSans-SDF-24", font_payload(SDF_24)).expect("24px atlas");
+        mirx_font::font_from_mirx("MiSans-SDF-24", SDF_24, &mirx::PayloadLimits::HOST)
+            .expect("24px atlas");
     mgr.add_static(TOKEN_10.cache_key(), pixel10);
     mgr.add_static(TOKEN_12.cache_key(), pixel12);
     mgr.add_static(TOKEN_24.cache_key(), sdf24);
@@ -97,9 +93,9 @@ mod tests {
 
     #[test]
     fn loads_three_atlases_at_their_sizes() {
-        let p10 = gray::font_from_mirx_chunk("p10", font_payload(PIXEL_10)).unwrap();
-        let p12 = gray::font_from_mirx_chunk("p12", font_payload(PIXEL_12)).unwrap();
-        let s24 = sdf::font_from_mirx_chunk("s24", font_payload(SDF_24)).unwrap();
+        let p10 = mirx_font::font_from_mirx("p10", PIXEL_10, &mirx::PayloadLimits::HOST).unwrap();
+        let p12 = mirx_font::font_from_mirx("p12", PIXEL_12, &mirx::PayloadLimits::HOST).unwrap();
+        let s24 = mirx_font::font_from_mirx("s24", SDF_24, &mirx::PayloadLimits::HOST).unwrap();
         assert_eq!(p10.size, 10);
         assert_eq!(p12.size, 12);
         assert_eq!(s24.size, 24);

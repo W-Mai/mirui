@@ -1,13 +1,13 @@
-//! Regression gate: pixel-buffer hash for the grayscale rendering
+//! Regression gate: pixel-buffer hash for the coverage rendering
 //! path. If a refactor changes the rendered bytes, the hash mismatches
 //! and the test fails, forcing a deliberate review + baseline update.
 //!
-//! The atlas under test is `tests/fixtures/misans_gray_16_4bit.mirx`,
+//! The atlas under test is `tests/fixtures/misans_coverage_16_4bit.mirx`,
 //! committed to the repo, so the path is reproducible on any machine.
 
 use mirui::prelude::*;
 use mirui::render::font::FontManager;
-use mirui::render::font::gray;
+use mirui::render::font::mirx::font_from_mirx;
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
@@ -15,9 +15,8 @@ use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Viewport;
 use mirui::ui::render_system;
 use mirui::ui::widgets::Text;
-use mirx::{chunk_type, parse_chunk};
 
-const GRAY_ATLAS_BYTES: &[u8] = include_bytes!("fixtures/misans_gray_16_4bit.mirx");
+const COVERAGE_FONT_BYTES: &[u8] = include_bytes!("fixtures/misans_coverage_16_4bit.mirx");
 
 /// FNV-1a 64-bit hash. No external crate required, stable forever.
 fn fnv1a64(bytes: &[u8]) -> u64 {
@@ -29,7 +28,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
     h
 }
 
-fn render_gray_text(text: &str) -> Vec<u8> {
+fn render_coverage_text(text: &str) -> Vec<u8> {
     let text: String = text.into();
     let width: u16 = 240;
     let height: u16 = 48;
@@ -37,11 +36,12 @@ fn render_gray_text(text: &str) -> Vec<u8> {
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    let parsed = parse_chunk(GRAY_ATLAS_BYTES).expect("parse mirx");
-    let payload = parsed
-        .chunk_payload(GRAY_ATLAS_BYTES, chunk_type::FONT)
-        .expect("FONT chunk");
-    let font = gray::font_from_mirx_chunk("MiSans-Regular", payload).expect("parse gray atlas");
+    let font = font_from_mirx(
+        "MiSans-Regular",
+        COVERAGE_FONT_BYTES,
+        &mirx::PayloadLimits::HOST,
+    )
+    .expect("parse coverage face");
     app.world
         .resource::<FontManager>()
         .expect("FontManager")
@@ -86,26 +86,26 @@ fn render_gray_text(text: &str) -> Vec<u8> {
     tex.buf.as_slice().to_vec()
 }
 
-/// Grayscale render is the small-text path. Its bytes must not drift
+/// Coverage rendering is the small-text path. Its bytes must not drift
 /// across refactors. On a deliberate pipeline change, regenerate the
-/// hash with `cargo test --features std --test gray_render_regression
+/// hash with `cargo test --features std --test coverage_render_regression
 /// -- --nocapture` and update the constant after eye-checking.
 #[test]
-fn gray_hello_byte_hash_is_stable() {
-    let pixels = render_gray_text("Hello!");
+fn coverage_hello_byte_hash_is_stable() {
+    let pixels = render_coverage_text("Hello!");
     let hash = fnv1a64(&pixels);
     assert_eq!(pixels.len(), 240 * 48 * 4);
     assert_eq!(
         hash, 0x7a1a_4c9e_e1e9_6623,
-        "grayscale MiSans render drifted; eye-check the snapshot before pinning a new value (hash={hash:#018x})",
+        "MiSans coverage render drifted; eye-check the snapshot before pinning a new value (hash={hash:#018x})",
     );
 }
 
-/// The grayscale render must put real ink down — guards against a
+/// The coverage render must put real ink down — guards against a
 /// silent regression where the dispatch arm skips drawing.
 #[test]
-fn gray_render_is_not_blank() {
-    let pixels = render_gray_text("Hello!");
+fn coverage_render_is_not_blank() {
+    let pixels = render_coverage_text("Hello!");
     let lit = pixels.chunks_exact(4).filter(|px| px[0] > 40).count();
     assert!(lit > 50, "expected lit pixels, got {lit}");
 }

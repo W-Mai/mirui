@@ -22,7 +22,7 @@ pub enum ParseError {
     ReservedNonZero,
 }
 
-use crate::font::{FontEncodeError, FontReadError};
+use crate::font::FontError;
 use crate::model::{ChunkType, InvalidChunkType};
 use crate::payload::frames::{FramesDecodeError, FramesEncodeError};
 use crate::payload::image::ImagePayloadError;
@@ -165,7 +165,7 @@ pub enum EditError {
         bits: u16,
     },
     InvalidPayload(ImagePayloadError),
-    InvalidFont(FontEncodeError),
+    InvalidFont(FontError),
     InvalidVector(VectorEncodeError),
     InvalidMeta(MetaEncodeError),
     InvalidPalette(PaletteEncodeError),
@@ -190,15 +190,15 @@ pub enum FontAccessError {
     /// The selected raw node has no contiguous FONT payload representation.
     NonContiguousPayload,
     /// The selected FONT payload violates its typed contract.
-    InvalidPayload(FontReadError),
+    InvalidPayload(FontError),
     /// Owned metric or atlas-data storage could not be reserved.
     AllocationFailed,
 }
 
-impl From<FontReadError> for FontAccessError {
-    fn from(value: FontReadError) -> Self {
+impl From<FontError> for FontAccessError {
+    fn from(value: FontError) -> Self {
         match value {
-            FontReadError::AllocationFailed => Self::AllocationFailed,
+            FontError::AllocationFailed => Self::AllocationFailed,
             error => Self::InvalidPayload(error),
         }
     }

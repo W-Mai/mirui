@@ -3,16 +3,16 @@ use std::borrow::Cow;
 use mirx::{Document, Layout, MirxFile, PayloadLimits, Reader, parse, parse_chunk};
 
 const FONT_FIXTURES: &[&[u8]] = &[
-    include_bytes!("fixtures/misans_gray_16_4bit.mirx"),
-    include_bytes!("fixtures/misans_regular_ascii_32_4bit.mirx"),
-    include_bytes!("fixtures/misans_regular_cjk_32_4bit.mirx"),
+    include_bytes!("fixtures/misans_coverage_16_4bit.mirx"),
+    include_bytes!("fixtures/misans_sdf_ascii_32.mirx"),
+    include_bytes!("fixtures/misans_sdf_cjk_32.mirx"),
 ];
 
 #[test]
-fn shipped_font_fixtures_open_through_legacy_and_bounded_paths() {
+fn shipped_font_fixtures_open_through_container_and_document_paths() {
     for &bytes in FONT_FIXTURES {
-        let legacy = parse_chunk(bytes).unwrap();
-        assert!(!legacy.entries.is_empty());
+        let parsed = parse_chunk(bytes).unwrap();
+        assert!(!parsed.entries.is_empty());
         assert!(matches!(parse(bytes).unwrap(), MirxFile::Chunk(_)));
 
         let reader = Reader::open(bytes).unwrap();

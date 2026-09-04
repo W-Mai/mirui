@@ -3,13 +3,13 @@
 //! hash mismatches and the test fails, forcing a deliberate review +
 //! baseline update.
 //!
-//! The atlas under test is `tests/fixtures/misans_regular_ascii_32_4bit.mirx`
+//! The atlas under test is `tests/fixtures/misans_sdf_ascii_32.mirx`
 //! committed to the repo, so the SDF path is reproducible on any
 //! machine.
 
 use mirui::prelude::*;
-use mirui::render::font::sdf::SdfFontProvider;
-use mirui::render::font::{Font, FontBackend, FontManager, FontToken};
+use mirui::render::font::mirx::font_from_mirx;
+use mirui::render::font::{FontManager, FontToken};
 use mirui::render::sw::SwRenderer;
 use mirui::render::texture::ColorFormat;
 use mirui::surface::FramebufferAccess;
@@ -17,9 +17,8 @@ use mirui::surface::framebuf::FramebufSurface;
 use mirui::types::Viewport;
 use mirui::ui::render_system;
 use mirui::ui::widgets::Text;
-use mirx::{chunk_type, parse_chunk};
 
-const ATLAS_BYTES: &[u8] = include_bytes!("fixtures/misans_regular_ascii_32_4bit.mirx");
+const ATLAS_BYTES: &[u8] = include_bytes!("fixtures/misans_sdf_ascii_32.mirx");
 
 /// FNV-1a 64-bit hash. No external crate required, stable forever.
 fn fnv1a64(bytes: &[u8]) -> u64 {
@@ -40,17 +39,8 @@ fn render_text(text: &str, font_token: FontToken, register_misans: bool) -> Vec<
     app.with_default_widgets().with_default_systems();
 
     if register_misans {
-        let parsed = parse_chunk(ATLAS_BYTES).expect("parse mirx");
-        let payload = parsed
-            .chunk_payload(ATLAS_BYTES, chunk_type::FONT)
-            .expect("FONT chunk");
-        let provider = SdfFontProvider::from_mirx_chunk(payload).expect("parse atlas");
-        let size = provider.header().source_size;
-        let font = Font {
-            family: "MiSans-Regular",
-            size,
-            backend: FontBackend::Custom(std::rc::Rc::new(provider)),
-        };
+        let font = font_from_mirx("MiSans-Regular", ATLAS_BYTES, &mirx::PayloadLimits::HOST)
+            .expect("parse font");
         app.world
             .resource::<FontManager>()
             .expect("FontManager")

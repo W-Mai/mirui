@@ -156,13 +156,21 @@ impl WebCanvasRenderer<'_> {
                 continue;
             };
             w += match &g.kind {
-                GlyphKind::Sdf { source_size, .. } => {
-                    g.advance as i32 * requested as i32 / (*source_size as i32).max(1)
-                }
-                _ => g.advance as i32,
+                GlyphKind::Raster { representation, .. } => (g.advance
+                    * crate::types::Fixed::from_int(i32::from(requested))
+                    / crate::types::Fixed::from_int(i32::from(
+                        representation.design_ppem().max(1),
+                    )))
+                .to_int(),
+                GlyphKind::Mono(_) => g.advance.to_int(),
             };
         }
-        let h = (font.metrics().line_height as i32).max(requested as i32) + 1;
+        let h = font
+            .metrics(requested)
+            .line_height
+            .to_int()
+            .max(requested as i32)
+            + 1;
         (w, h)
     }
 

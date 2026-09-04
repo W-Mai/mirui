@@ -5,7 +5,7 @@
 //!     [text] [out.png]
 //!
 //! Defaults to "我是中国人 Hello!" → `.local/screenshots/sdf-cjk.png`.
-//! The atlas comes from `tests/fixtures/misans_regular_cjk_32_4bit.mirx`,
+//! The atlas comes from `tests/fixtures/misans_sdf_cjk_32.mirx`,
 //! baked from MiSans-Regular.ttf via `icu bake-font`.
 
 extern crate alloc;
@@ -16,28 +16,16 @@ use std::io::BufWriter;
 use std::path::PathBuf;
 
 use mirui::prelude::*;
-use mirui::render::font::sdf::SdfFontProvider;
-use mirui::render::font::{Font, FontBackend, FontManager, FontToken};
+use mirui::render::font::mirx::font_from_mirx;
+use mirui::render::font::{Font, FontManager, FontToken};
 use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::ui::widgets::Text;
-use mirx::{chunk_type, parse_chunk};
 
-const ATLAS_BYTES: &[u8] =
-    include_bytes!("../../../tests/fixtures/misans_regular_cjk_32_4bit.mirx");
+const ATLAS_BYTES: &[u8] = include_bytes!("../../../tests/fixtures/misans_sdf_cjk_32.mirx");
 
 fn load_misans_font() -> Font {
-    let parsed = parse_chunk(ATLAS_BYTES).expect("parse mirx");
-    let payload = parsed
-        .chunk_payload(ATLAS_BYTES, chunk_type::FONT)
-        .expect("FONT chunk");
-    let provider = SdfFontProvider::from_mirx_chunk(payload).expect("parse atlas");
-    let size = provider.header().source_size;
-    Font {
-        family: "MiSans-Regular",
-        size,
-        backend: FontBackend::Custom(alloc::rc::Rc::new(provider)),
-    }
+    font_from_mirx("MiSans-Regular", ATLAS_BYTES, &mirx::PayloadLimits::HOST).expect("parse font")
 }
 
 fn main() {

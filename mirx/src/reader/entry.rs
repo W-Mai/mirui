@@ -187,6 +187,18 @@ impl<'a> ChunkRef<'a> {
         ImageRef::open_at(self.payload, self.payload_offset).map(Some)
     }
 
+    /// Borrows one FONT face and retains its file placement without scanning DATA.
+    /// Other chunk types return `Ok(None)` without interpreting their payload.
+    pub fn font(
+        &self,
+        limits: &PayloadLimits,
+    ) -> Result<Option<crate::FontView<'a>>, crate::FontError> {
+        if self.chunk_type != ChunkType::FONT {
+            return Ok(None);
+        }
+        crate::FontView::open_at(self.payload, self.payload_offset, limits).map(Some)
+    }
+
     /// Returns a borrowed META view when this record has the META type.
     ///
     /// Other chunk types return `Ok(None)` without interpreting their payload

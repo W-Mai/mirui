@@ -103,6 +103,11 @@ impl<'a> CodingTable<'a> {
         self.records.is_empty()
     }
 
+    /// Byte count of the validated canonical coding body, including parameters.
+    pub const fn byte_len(self) -> usize {
+        CODING_TABLE_HEADER_LEN + self.records.len() + self.params.len()
+    }
+
     /// Resolves a record in constant time, including its borrowed parameters.
     pub fn get(self, index: usize) -> Option<CodingRecord<'a>> {
         if index >= self.len() {
@@ -134,7 +139,13 @@ impl<'a> CodingTable<'a> {
 
     /// Computes the exact size, rejecting an empty table and u32 overflow.
     pub fn encoded_len(records: &[CodingRecord<'_>]) -> Result<usize, CodingTableError> {
-        if records.is_empty() {
+        Self::encoded_iter_len(records.iter().copied())
+    }
+
+    pub(crate) fn encoded_iter_len<'record>(
+        records: impl ExactSizeIterator<Item = CodingRecord<'record>>,
+    ) -> Result<usize, CodingTableError> {
+        if records.len() == 0 {
             return Err(CodingTableError::EmptyTable);
         }
         let mut size = records
@@ -157,7 +168,14 @@ impl<'a> CodingTable<'a> {
         records: &[CodingRecord<'_>],
         out: &mut [u8],
     ) -> Result<usize, CodingTableError> {
-        let needed = Self::encoded_len(records)?;
+        Self::encode_iter_into(records.iter().copied(), out)
+    }
+
+    pub(crate) fn encode_iter_into<'record>(
+        records: impl ExactSizeIterator<Item = CodingRecord<'record>> + Clone,
+        out: &mut [u8],
+    ) -> Result<usize, CodingTableError> {
+        let needed = Self::encoded_iter_len(records.clone())?;
         if out.len() < needed {
             return Err(CodingTableError::BufferTooSmall {
                 needed,
@@ -167,7 +185,7 @@ impl<'a> CodingTable<'a> {
         write_u32_le(out, 0, records.len() as u32);
         let params_start = CODING_TABLE_HEADER_LEN + records.len() * CODING_RECORD_LEN;
         let mut params_end = 0;
-        for (index, record) in records.iter().enumerate() {
+        for (index, record) in records.enumerate() {
             let offset = CODING_TABLE_HEADER_LEN + index * CODING_RECORD_LEN;
             let start = params_start + params_end;
             params_end += record.params.len();

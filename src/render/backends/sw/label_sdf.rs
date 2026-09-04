@@ -12,6 +12,7 @@ impl SwRenderer<'_> {
     /// from a one-output-pixel-wide linear ramp around the zero
     /// distance, matching one-pixel anti-aliasing without explicit
     /// super-sampling.
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(super) fn blit_sdf_glyph(
         &mut self,
@@ -26,30 +27,81 @@ impl SwRenderer<'_> {
         color: &Color,
         opa: u8,
     ) {
+        let layout = match bit_depth {
+            4 => mirx::image::SampleLayout::A4,
+            8 => mirx::image::SampleLayout::A8,
+            _ => return,
+        };
+        let surface = mirx::image::SurfaceDescriptor::new(
+            u32::from(source_size),
+            u32::from(source_size),
+            layout,
+            mirx::image::ColorDescription::NONE,
+        )
+        .expect("supported scalar layout");
+        let region = surface
+            .region(0, 0, u32::from(source_size), u32::from(source_size))
+            .unwrap();
+        let stride = (u32::from(source_size) * u32::from(bit_depth)).div_ceil(8);
+        self.blit_sdf_region(
+            atlas,
+            stride,
+            region,
+            bit_depth,
+            spread,
+            cx,
+            cy,
+            target_size,
+            target_size,
+            phys_bounds,
+            color,
+            opa,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn blit_sdf_region(
+        &mut self,
+        samples: &[u8],
+        stride: u32,
+        region: mirx::image::Region,
+        bit_depth: u8,
+        spread: u16,
+        cx: i32,
+        cy: i32,
+        target_width: u16,
+        target_height: u16,
+        phys_bounds: (i32, i32, i32, i32),
+        color: &Color,
+        opa: u8,
+    ) {
         let (clip_x, clip_y, clip_x2, clip_y2) = phys_bounds;
-        let target_size = target_size.max(1) as i32;
-        let inv_scale = Fixed::from_int(source_size as i32) / Fixed::from_int(target_size);
+        let target_width = target_width.max(1) as i32;
+        let target_height = target_height.max(1) as i32;
+        let scale_x = Fixed::from_int(region.width() as i32) / Fixed::from_int(target_width);
+        let scale_y = Fixed::from_int(region.height() as i32) / Fixed::from_int(target_height);
         let half_texel = Fixed::ONE / 2;
-        let edge_half = inv_scale / 2;
+        let edge_half = scale_x.max(scale_y) / 2;
         let target_w = self.target.width as usize;
         let clip_mask = self.clip_stack.last().map(|m| m.alpha.as_slice());
 
-        for dy in 0..target_size {
+        for dy in 0..target_height {
             let py = cy + dy;
             if py < clip_y || py >= clip_y2 {
                 continue;
             }
-            let sy = (Fixed::from_int(dy) + half_texel) * inv_scale - half_texel;
+            let sy = (Fixed::from_int(dy) + half_texel) * scale_y - half_texel;
             let row_mask_off = py as usize * target_w;
 
-            for dx in 0..target_size {
+            for dx in 0..target_width {
                 let px = cx + dx;
                 if px < clip_x || px >= clip_x2 {
                     continue;
                 }
-                let sx = (Fixed::from_int(dx) + half_texel) * inv_scale - half_texel;
+                let sx = (Fixed::from_int(dx) + half_texel) * scale_x - half_texel;
 
-                let dist = sample_signed_distance(atlas, source_size, bit_depth, spread, sx, sy);
+                let dist =
+                    sample_signed_distance(samples, stride, region, bit_depth, spread, sx, sy);
                 let cov = if dist <= -edge_half {
                     continue;
                 } else if dist >= edge_half {
@@ -102,9 +154,9 @@ mod tests {
             let idx = y * 4 + x;
             let byte_idx = idx >> 1;
             if idx & 1 == 0 {
-                buf[byte_idx] = (buf[byte_idx] & 0xF0) | (q & 0x0F);
-            } else {
                 buf[byte_idx] = (buf[byte_idx] & 0x0F) | ((q & 0x0F) << 4);
+            } else {
+                buf[byte_idx] = (buf[byte_idx] & 0xF0) | (q & 0x0F);
             }
         };
         for y in 0..4 {
@@ -155,9 +207,9 @@ mod tests {
             let idx = y * n + x;
             let bi = idx >> 1;
             if idx & 1 == 0 {
-                buf[bi] = (buf[bi] & 0xF0) | (q & 0x0F);
-            } else {
                 buf[bi] = (buf[bi] & 0x0F) | ((q & 0x0F) << 4);
+            } else {
+                buf[bi] = (buf[bi] & 0xF0) | (q & 0x0F);
             }
         };
         // Signed distance to the stem at column 4 (stem occupies x∈[4,5)).

@@ -18,6 +18,8 @@ use groups::{CodingRecords, GroupRecords, GroupSource};
 mod preflight;
 pub use decode::{DecodeError, ImageDecodePlan};
 pub use encode::EncodedImageAsset;
+pub(crate) use encode::StoragePlan;
+pub(crate) use preflight::Preflight;
 
 #[cfg(test)]
 mod sections_tests;

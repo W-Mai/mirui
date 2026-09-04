@@ -23,6 +23,18 @@ pub(super) enum ResolvedNodePayload<'a> {
 }
 
 impl<'a> ResolvedNodePayload<'a> {
+    pub(super) fn font_view(
+        self,
+        limits: &PayloadLimits,
+    ) -> Result<crate::FontView<'a>, crate::FontError> {
+        match self {
+            Self::Contiguous { bytes, placement } => match placement {
+                PayloadPlacement::Fixed(offset) => crate::FontView::open_at(bytes, offset, limits),
+                PayloadPlacement::Unplaced => crate::FontView::open(bytes, limits),
+            },
+            Self::PromotedImage(_) => Err(crate::FontError::SizeOverflow),
+        }
+    }
     pub(super) const fn bytes(self) -> Option<&'a [u8]> {
         match self {
             Self::Contiguous { bytes, .. } => Some(bytes),

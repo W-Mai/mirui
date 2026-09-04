@@ -76,8 +76,19 @@ impl<'a> PayloadPlan<'a> {
         }
     }
 
-    fn placement_constraint(self, chunk_type: ChunkType) -> PlacementConstraint<'a> {
+    fn placement_constraint(
+        self,
+        chunk_type: ChunkType,
+        limits: crate::PayloadLimits,
+    ) -> PlacementConstraint<'a> {
         match self {
+            Self::Verbatim(payload) if chunk_type == ChunkType::FONT => {
+                if crate::FontView::open(payload, &limits).is_ok() {
+                    PlacementConstraint::Font { payload, limits }
+                } else {
+                    PlacementConstraint::Chunk(CONTAINER_ALIGNMENT)
+                }
+            }
             Self::Verbatim(payload) if chunk_type == ChunkType::IMAGE => {
                 let media = MediaPayload::open(payload).ok();
                 match media.and_then(|media| media.section(MediaSectionKind::DATA)) {
@@ -96,17 +107,17 @@ impl<'a> PayloadPlan<'a> {
                             }
                             Err(_) => {}
                         }
-                        PlacementConstraint::ImageDataAligned {
+                        PlacementConstraint::Image {
                             payload,
                             data_offset: data.descriptor().offset(),
                             alignment,
                         }
                     }
-                    None => PlacementConstraint::ChunkStartAligned(CONTAINER_ALIGNMENT),
+                    None => PlacementConstraint::Chunk(CONTAINER_ALIGNMENT),
                 }
             }
             Self::Verbatim(_) | Self::SegmentedImage(_) => {
-                PlacementConstraint::ChunkStartAligned(CONTAINER_ALIGNMENT)
+                PlacementConstraint::Chunk(CONTAINER_ALIGNMENT)
             }
         }
     }
@@ -114,8 +125,12 @@ impl<'a> PayloadPlan<'a> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum PlacementConstraint<'a> {
-    ChunkStartAligned(u32),
-    ImageDataAligned {
+    Chunk(u32),
+    Font {
+        payload: &'a [u8],
+        limits: crate::PayloadLimits,
+    },
+    Image {
         payload: &'a [u8],
         data_offset: u32,
         alignment: u32,
@@ -125,8 +140,13 @@ enum PlacementConstraint<'a> {
 impl PlacementConstraint<'_> {
     fn place(self, cursor: u32) -> Result<u32, EncodeError> {
         match self {
-            Self::ChunkStartAligned(alignment) => align_up(cursor, alignment),
-            Self::ImageDataAligned {
+            Self::Chunk(alignment) => align_up(cursor, alignment),
+            Self::Font { payload, limits } => crate::FontView::open(payload, &limits)
+                .and_then(|view| view.aligned_file_offset(cursor, CONTAINER_ALIGNMENT))
+                .map_err(|_| EncodeError::InvalidPayload {
+                    chunk_type: ChunkType::FONT,
+                }),
+            Self::Image {
                 payload,
                 data_offset,
                 alignment,
@@ -325,7 +345,9 @@ impl<'document, 'source> ChunkLayoutPlan<'document, 'source> {
         let payload = self.payload_at(index)?;
         let (chunk_type, flags) = self.descriptor_at(index);
         let chunk_size = payload.encoded_len()?;
-        let chunk_offset = payload.placement_constraint(chunk_type).place(cursor)?;
+        let chunk_offset = payload
+            .placement_constraint(chunk_type, self.document.payload_limits)
+            .place(cursor)?;
         let end_offset = checked_payload_end(chunk_offset, chunk_size)?;
         let table_entry_offset = self
             .chunk_table_offset
@@ -1056,8 +1078,8 @@ mod tests {
         for cursor in 100..104 {
             for data_offset in 32..36 {
                 let payload = image_payload(data_offset % 4);
-                let constraint =
-                    PayloadPlan::Verbatim(&payload).placement_constraint(ChunkType::IMAGE);
+                let constraint = PayloadPlan::Verbatim(&payload)
+                    .placement_constraint(ChunkType::IMAGE, crate::PayloadLimits::HOST);
                 let placed = constraint.place(cursor).unwrap();
                 let expected = align_relative(cursor, data_offset, 4).unwrap();
 
@@ -1300,13 +1322,13 @@ mod tests {
         );
         assert_eq!(checked_payload_end(u32::MAX - 1, 1), Ok(u32::MAX));
         assert_eq!(
-            PlacementConstraint::ChunkStartAligned(4).place(u32::MAX),
+            PlacementConstraint::Chunk(4).place(u32::MAX),
             Err(EncodeError::SizeOverflow)
         );
         let image = image_payload(0);
         assert_eq!(
             PayloadPlan::Verbatim(&image)
-                .placement_constraint(ChunkType::IMAGE)
+                .placement_constraint(ChunkType::IMAGE, crate::PayloadLimits::HOST)
                 .place(u32::MAX),
             Err(EncodeError::SizeOverflow)
         );

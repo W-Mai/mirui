@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Complete FONT face authoring and access.** `FontView` binds shared Unicode ordinals, representation-specific metrics and maps, and referenced RAW or encoded scalar surfaces. `FontAsset` provides validation-first borrowed encoding, while owned `Font` preserves coding and integrity structures for transactional document edits.
+
+- **MIRX font rendering.** `MirxFontProvider` opens one complete FONT face and selects metrics and glyph storage through the same representation. The software renderer consumes signed 24.8 advances and bearings, explicit atlas regions, physical row strides, empty glyph cells, and logical-size selection independent of viewport scale.
+
 - **Shared raster preflight budgets.** Group, unit and work counters accumulate across encoded surfaces, with separately scheduled DATA integrity. `PayloadLimits` exposes `max_raster_groups`, `max_raster_units` and `max_raster_work`; defaults and option footprints are unchanged.
 
 - **Joined FONT metadata tables.** Shared Unicode ordinals bind exact representation-specific metrics and complete atlas maps. Size selection returns matching geometry and measurements, with checked map sharing, omitted fixed-cell maps and constant-time borrowed lookup after admission.
@@ -121,6 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Guarded `cargo xtask mirx` commands.** `inspect`, `validate`, `extract`, `insert`, `replace`, `remove`, `move`, `set-primary`, and `clear-primary` cover host-side container inspection and raw editing. Optional type and CRC guards protect index-based scripts; file replacement uses a flushed sibling temporary and atomic rename.
 
 ### Changed
+
+- **FONT payloads use the sectioned media layout.** Multiple coverage and signed-distance representations share one face instead of separate representation chunks. Glyph sample storage uses the IMAGE stride, alignment, integrity, and coding contracts; runtime-specific grayscale and SDF payload readers are removed.
 
 - **Compact media headers and separate integrity coverage.** The 8-byte media header stores identity, section count, and metadata CRC. Metadata inspection skips DATA bodies; explicit DATA validation and RAW access verify the data checksum. Plane records own alignment requirements, and decoded buffer bounds are derived from geometry rather than duplicated in the header.
 

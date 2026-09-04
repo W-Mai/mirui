@@ -17,45 +17,53 @@ enum ChecksumScope {
     IndexedData,
 }
 
-pub(super) struct PayloadOutput<'a> {
+pub(crate) struct PayloadOutput<'a> {
     destination: Destination<'a>,
     cursor: usize,
     crc: Crc32,
     metadata_crc: Crc32,
     scope: ChecksumScope,
+    indexed_integrity: bool,
 }
 
 impl<'a> PayloadOutput<'a> {
-    pub(super) fn buffer(bytes: &'a mut [u8]) -> Self {
+    pub(crate) fn buffer(bytes: &'a mut [u8]) -> Self {
         Self {
             destination: Destination::Buffer(bytes),
             cursor: 0,
             crc: Crc32::new(),
             metadata_crc: Crc32::new(),
             scope: ChecksumScope::Metadata,
+            indexed_integrity: false,
         }
     }
 
-    pub(super) fn comparison(bytes: &'a [u8]) -> Self {
+    pub(crate) fn comparison(bytes: &'a [u8]) -> Self {
         Self {
             destination: Destination::Comparison { bytes, equal: true },
             cursor: 0,
             crc: Crc32::new(),
             metadata_crc: Crc32::new(),
             scope: ChecksumScope::Metadata,
+            indexed_integrity: false,
         }
     }
 
-    pub(super) fn header(&mut self, bytes: &[u8; MEDIA_HEADER_LEN]) {
+    pub(crate) fn header(&mut self, bytes: &[u8; MEDIA_HEADER_LEN]) {
         self.write(&bytes[..4]);
         self.cursor = MEDIA_HEADER_LEN;
     }
 
-    pub(super) fn position(&self) -> usize {
+    pub(crate) fn position(&self) -> usize {
         self.cursor
     }
 
-    pub(super) fn begin_data(&mut self, integrity: DataIntegrity<'_>) {
+    pub(crate) fn begin_metadata(&mut self) {
+        self.scope = ChecksumScope::Metadata;
+    }
+
+    pub(crate) fn begin_data(&mut self, integrity: DataIntegrity<'_>) {
+        self.indexed_integrity = integrity.partitions().is_some();
         self.scope = match integrity {
             DataIntegrity::Whole => ChecksumScope::WholeData,
             DataIntegrity::Indexed(_) => ChecksumScope::IndexedData,
@@ -75,7 +83,7 @@ impl<'a> PayloadOutput<'a> {
         }
     }
 
-    pub(super) fn write(&mut self, bytes: &[u8]) {
+    pub(crate) fn write(&mut self, bytes: &[u8]) {
         self.write_at(self.cursor, bytes);
         match self.scope {
             ChecksumScope::WholeData => self.crc.update(bytes),
@@ -85,7 +93,7 @@ impl<'a> PayloadOutput<'a> {
         self.cursor += bytes.len();
     }
 
-    pub(super) fn pad_to(&mut self, offset: usize) {
+    pub(crate) fn pad_to(&mut self, offset: usize) {
         debug_assert!(self.cursor <= offset);
         const ZERO: [u8; 64] = [0; 64];
         while self.cursor < offset {
@@ -93,7 +101,7 @@ impl<'a> PayloadOutput<'a> {
         }
     }
 
-    pub(super) fn section(&mut self, kind: MediaSectionKind, offset: usize, size: usize) {
+    pub(crate) fn section(&mut self, kind: MediaSectionKind, offset: usize, size: usize) {
         let mut entry = [0; MEDIA_SECTION_LEN];
         write_u16_le(&mut entry, 0, kind.raw());
         write_u16_le(&mut entry, 2, MediaSectionFlags::REQUIRED.bits());
@@ -102,11 +110,10 @@ impl<'a> PayloadOutput<'a> {
         self.write(&entry);
     }
 
-    pub(super) fn finish(mut self) -> bool {
-        debug_assert!(!matches!(self.scope, ChecksumScope::Metadata));
-        if matches!(self.scope, ChecksumScope::WholeData) {
+    pub(crate) fn finish(mut self) -> bool {
+        if !self.indexed_integrity {
             let crc = core::mem::replace(&mut self.crc, Crc32::new()).finish();
-            self.scope = ChecksumScope::Metadata;
+            self.begin_metadata();
             self.write(&crc.to_le_bytes());
         }
         let metadata_crc = core::mem::replace(&mut self.metadata_crc, Crc32::new()).finish();

@@ -32,7 +32,7 @@ impl<'a> ChunkFile<'a> {
 
     /// Every chunk payload of `chunk_type`, in table order. Lets a
     /// caller pick among multiple same-typed chunks (e.g. several FONT
-    /// representations) by peeking each payload's own header. Entries
+    /// faces) by inspecting each payload. Entries
     /// whose declared range falls outside `buf` are skipped.
     pub fn chunk_payloads(
         &self,
@@ -529,7 +529,7 @@ mod tests {
         let parsed = parse_chunk(&encoded).unwrap();
         assert_eq!(parsed.entries.len(), 3);
 
-        // Both FONT chunks come back in table order.
+        // Both FONT faces come back in table order.
         let fonts: Vec<&[u8]> = parsed.chunk_payloads(&encoded, chunk_type::FONT).collect();
         assert_eq!(fonts.len(), 2);
         assert_eq!(fonts[0], a.as_slice());

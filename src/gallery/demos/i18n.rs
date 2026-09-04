@@ -2,7 +2,7 @@ extern crate alloc;
 
 use crate::core::i18n::{I18n, Locale, Translation};
 use crate::prelude::*;
-use crate::render::font::{Font, FontManager, sdf};
+use crate::render::font::{Font, FontManager, mirx as mirx_font};
 use crate::t;
 use crate::ui::dirty::Dirty;
 
@@ -24,11 +24,8 @@ fn register_font(world: &mut World) {
     let Some(mgr) = world.resource::<FontManager>() else {
         return;
     };
-    let payload = mirx::parse_chunk(SDF_24)
-        .expect("bundled atlas parses")
-        .chunk_payload(SDF_24, mirx::chunk_type::FONT)
-        .expect("FONT chunk");
-    let font: Font = sdf::font_from_mirx_chunk("MiSans-SDF-24", payload).expect("24px atlas");
+    let font: Font = mirx_font::font_from_mirx("MiSans-SDF-24", SDF_24, &mirx::PayloadLimits::HOST)
+        .expect("24px atlas");
     mgr.add_static(TOKEN_CJK.cache_key(), font);
 }
 

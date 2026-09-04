@@ -15,16 +15,23 @@ pub(super) enum CodingRecords<'a> {
 }
 
 impl<'a> CodingRecords<'a> {
-    fn len(self) -> usize {
+    pub(super) fn len(self) -> usize {
         match self {
             Self::Wire(table) => table.len(),
             Self::Native(records) => records.len(),
         }
     }
-    fn get(self, index: usize) -> Option<CodingRecord<'a>> {
+    pub(super) fn get(self, index: usize) -> Option<CodingRecord<'a>> {
         match self {
             Self::Wire(table) => table.get(index),
             Self::Native(records) => records.get(index).copied(),
+        }
+    }
+
+    pub(super) fn encoded_len(self) -> Result<usize, CodingTableError> {
+        match self {
+            Self::Wire(table) => Ok(table.byte_len()),
+            Self::Native(records) => CodingTable::encoded_len(records),
         }
     }
 }

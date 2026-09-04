@@ -39,12 +39,10 @@ pub use error::{
 };
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
 pub use font::{
-    AtlasHeader, FONT_CHUNK_HEADER_LEN, Font, FontChunkHeader, FontChunkKind, FontCodepointError,
-    FontCodepointIter, FontCodepoints, FontDecodeError, FontEncodeError, FontReadError,
+    Font, FontAsset, FontCodepointError, FontCodepointIter, FontCodepoints, FontError,
     FontRepresentation, FontRepresentationError, FontRepresentationFallback,
     FontRepresentationKind, FontRepresentationMatch, FontRepresentationPreference,
-    FontRepresentationRequest, FontRepresentations, FontSelectionError, GlyphMetric, HEADER_LEN,
-    METRIC_LEN, SUPPORTED_VERSION, read_header, read_metric, write_header, write_metric,
+    FontRepresentationRequest, FontRepresentations, FontSelectionError, FontView,
 };
 pub use format::ColorFormat;
 pub use header::{

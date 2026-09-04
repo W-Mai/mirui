@@ -14,7 +14,7 @@ extern crate alloc;
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
-use crate::render::font::{Font, FontManager, sdf};
+use crate::render::font::{Font, FontManager, mirx as mirx_font};
 use crate::render::renderer::Renderer;
 use crate::ui::dirty::Dirty;
 use crate::ui::view::{View, ViewCtx};
@@ -35,17 +35,11 @@ mirui_macros::animate!(ZoomSize, |world, entity, value| {
     world.insert(entity, crate::ui::dirty::Dirty);
 });
 
-fn font_payload(atlas: &'static [u8]) -> &'static [u8] {
-    mirx::parse_chunk(atlas)
-        .expect("bundled atlas parses")
-        .chunk_payload(atlas, mirx::chunk_type::FONT)
-        .expect("FONT chunk present")
-}
-
 pub fn register_font(world: &mut World) {
     if let Some(mgr) = world.resource::<FontManager>() {
-        let font = sdf::font_from_mirx_chunk("MiSans-SDF-zoom", font_payload(SDF_ATLAS))
-            .expect("zoom atlas");
+        let font =
+            mirx_font::font_from_mirx("MiSans-SDF-zoom", SDF_ATLAS, &mirx::PayloadLimits::HOST)
+                .expect("zoom atlas");
         mgr.add_static(ZOOM_TOKEN.cache_key(), font);
     }
 }
