@@ -53,7 +53,7 @@ Primary display hints use a 16-bit `image::SampleLayout`, including planar YUV i
 
 ![Exact byte allocation for a MIRX CHUNK file containing two images, two fonts, and one vector scene](docs/binary-allocation.svg)
 
-This 1,709-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors, 1,581 payload bytes, and two 2-byte alignment gaps. The two sectioned IMAGE payloads occupy 1,052 and 106 bytes. The VECTOR scene references the preceding IMAGE and FONT chunks by table index without embedding their bytes again.
+This 1,661-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors, 1,533 payload bytes, and two 2-byte alignment gaps. The two sectioned IMAGE payloads occupy 1,028 and 82 bytes. The VECTOR scene references the preceding IMAGE and FONT chunks by table index without embedding their bytes again.
 
 ## Payload families
 
@@ -110,7 +110,11 @@ fn inspect(bytes: &[u8]) {
 
 ## Image geometry
 
-IMAGE uses a 32-byte media header, 12-byte section entries, a 32-byte SURFACE record, optional PLANES and COLOR_TABLE sections, DATA, and a trailing CRC. Each section entry stores only its kind, flags, payload-relative offset, and byte size; typed schemas and surface geometry determine interpreted sizes. Tight RAW planes derive their stride and offsets from the surface; padded allocation extents, strides, offsets, and alignment use explicit plane records. FLAT keeps its compact packed-image layout.
+IMAGE uses an 8-byte media header, 12-byte section entries, a 32-byte SURFACE record, optional PLANES and COLOR_TABLE sections, DATA, and a 4-byte DATA checksum. The header contains version, flags, section count, and metadata CRC only. Each section entry stores kind, flags, payload-relative offset, and byte size; typed schemas and surface geometry determine interpreted sizes. Tight RAW planes derive their stride and offsets from the surface; padded allocation extents, strides, offsets, and alignment use explicit plane records. FLAT keeps its compact packed-image layout.
+
+`MediaPayload::open` validates section ranges and metadata integrity without scanning DATA. The metadata CRC covers the header except its own checksum field, the directory, all non-DATA bytes and padding, and the stored DATA checksum. `MediaPayload::validate_data` separately checks the concatenated DATA bodies in directory order. `RawImageView::open` and `open_at` perform both checks before exposing samples. Metadata inspection therefore does not imply that sample bytes have been verified; this borrowed-slice API does not perform streamed file reads.
+
+`media::CodingTable` borrows profile IDs, revisions, and parameter slices by ordinal without allocation or aligned casts. A table stores a 4-byte count, 8-byte records, and parameter bytes; cumulative parameter ends give constant-time lookup without separate offset/length pairs. Empty parameters select profile defaults. Unknown IDs and revisions remain representable, not implicitly decodable. RAW images omit CODINGS; the RAW view rejects coded sections.
 
 `Document::push_image` and `DocumentChunkMut::replace_image` accept `ImageSource`: packed `ImageAsset`, planar `RawImageAsset`, `RawImageView`, or `SurfaceView`. Typed reads return the same borrowed `SurfaceView` for all IMAGE layouts. Its `packed()` projection returns `None` when the color or storage contract cannot be expressed as a packed image.
 

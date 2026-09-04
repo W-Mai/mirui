@@ -493,13 +493,11 @@ mod tests {
         assert_eq!(
             document.image(image_id),
             Err(ImageDecodeError::InvalidPayload(ImagePayloadError::Media(
-                crate::image::RawImageViewError::Media(
-                    crate::media::MediaPayloadError::DataOffsetUnaligned {
-                        index: 1,
-                        absolute_offset,
-                        alignment: 4
-                    }
-                )
+                crate::image::RawImageViewError::PlaneFileAddressUnaligned {
+                    index: 0,
+                    absolute_offset,
+                    alignment: 4
+                }
             )))
         );
 

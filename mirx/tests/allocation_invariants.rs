@@ -105,13 +105,8 @@ fn typed_container() -> Vec<u8> {
 fn empty_media_payload() -> Vec<u8> {
     let mut bytes = vec![0; MEDIA_HEADER_LEN + MEDIA_CRC_LEN];
     bytes[0] = 1;
-    bytes[4..6].copy_from_slice(&(MEDIA_SECTION_LEN as u16).to_le_bytes());
-    bytes[8..12].copy_from_slice(&(MEDIA_HEADER_LEN as u32).to_le_bytes());
-    let payload_len = bytes.len() as u32;
-    bytes[12..16].copy_from_slice(&payload_len.to_le_bytes());
-    let crc_offset = bytes.len() - MEDIA_CRC_LEN;
-    let crc = mirx::crc32(&bytes[..crc_offset]);
-    bytes[crc_offset..].copy_from_slice(&crc.to_le_bytes());
+    let crc = mirx::crc32(&[1, 0, 0, 0, 0, 0, 0, 0]);
+    bytes[4..8].copy_from_slice(&crc.to_le_bytes());
     bytes
 }
 
@@ -123,11 +118,6 @@ fn raw_a8_media_payload() -> Vec<u8> {
     let mut bytes = vec![0; data_offset + 1 + MEDIA_CRC_LEN];
     bytes[0] = 1;
     bytes[2..4].copy_from_slice(&section_count.to_le_bytes());
-    bytes[4..6].copy_from_slice(&(MEDIA_SECTION_LEN as u16).to_le_bytes());
-    bytes[8..12].copy_from_slice(&(MEDIA_HEADER_LEN as u32).to_le_bytes());
-    let payload_len = bytes.len() as u32;
-    bytes[12..16].copy_from_slice(&payload_len.to_le_bytes());
-    bytes[16..20].copy_from_slice(&1u32.to_le_bytes());
 
     bytes[MEDIA_HEADER_LEN..MEDIA_HEADER_LEN + 2]
         .copy_from_slice(&mirx::media::MediaSectionKind::SURFACE.raw().to_le_bytes());
@@ -149,8 +139,13 @@ fn raw_a8_media_payload() -> Vec<u8> {
         .unwrap();
     bytes[data_offset] = 0x7f;
     let crc_offset = bytes.len() - MEDIA_CRC_LEN;
-    let crc = mirx::crc32(&bytes[..crc_offset]);
+    let crc = mirx::crc32(&bytes[data_offset..crc_offset]);
     bytes[crc_offset..].copy_from_slice(&crc.to_le_bytes());
+    let mut metadata = bytes[..4].to_vec();
+    metadata.extend_from_slice(&bytes[8..data_offset]);
+    metadata.extend_from_slice(&bytes[crc_offset..]);
+    let crc = mirx::crc32(&metadata);
+    bytes[4..8].copy_from_slice(&crc.to_le_bytes());
     bytes
 }
 
@@ -163,6 +158,30 @@ fn common_media_inspection_allocates_nothing() {
     });
     assert_eq!(observed, (0, 0));
     assert_eq!(allocations, 0);
+}
+
+#[test]
+fn coding_table_read_and_caller_buffer_encoding_allocate_nothing() {
+    use mirx::media::{CodingId, CodingRecord, CodingTable};
+    let records = [
+        CodingRecord::new(CodingId::new(0x8000), 3, &[1, 2, 3]),
+        CodingRecord::new(CodingId::new(0xffff), 0xffff, &[]),
+    ];
+    let mut encoded = [0; 23];
+    let mut copy = [0; 23];
+    let (result, allocations) = count_allocations(|| {
+        let len = CodingTable::encode_into(&records, &mut encoded).unwrap();
+        let table = CodingTable::open(&encoded[..len]).unwrap();
+        assert!(table.iter().eq(records));
+        assert_eq!(
+            table.get(0).unwrap().params().as_ptr(),
+            encoded[20..].as_ptr()
+        );
+        CodingTable::encode_into(&[table.get(0).unwrap(), table.get(1).unwrap()], &mut copy)
+    });
+    assert_eq!(result, Ok(23));
+    assert_eq!(allocations, 0);
+    assert_eq!(encoded, copy);
 }
 
 #[test]

@@ -257,7 +257,6 @@ impl<'a> RawImageView<'a> {
         use crate::media::{MediaSectionFlags, MediaSectionKind};
         let media = self.media();
         if media.header().flags().bits() != 0
-            || media.header().required_alignment() > 4
             || media.sections().any(|section| {
                 let descriptor = section.descriptor();
                 descriptor.flags() != MediaSectionFlags::REQUIRED
@@ -287,7 +286,7 @@ mod tests {
             SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let payload = RawImageAsset::new(surface, &[&[7]]).encode().unwrap();
         assert!(RawImageView::open(&payload).unwrap().packed().is_some());
-        for (offset, value) in [(1, 0x80), (34, 0x81), (6, 6)] {
+        for (offset, value) in [(1, 0x80), (crate::media::MEDIA_HEADER_LEN + 2, 0x81)] {
             let mut changed = payload.clone();
             changed[offset] = value;
             super::super::test_support::refresh_crc(&mut changed);
@@ -307,16 +306,19 @@ mod tests {
     }
 
     #[test]
-    fn unknown_raw_revisions_stay_opaque() {
+    fn coded_sections_stay_opaque_to_raw_access() {
         let surface =
             SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let mut payload = RawImageAsset::new(surface, &[&[7]]).encode().unwrap();
-        payload[26] = 1;
+        payload[crate::media::MEDIA_HEADER_LEN] =
+            crate::media::MediaSectionKind::CODINGS.raw() as u8;
         super::super::test_support::refresh_crc(&mut payload);
         assert!(crate::media::MediaPayload::open(&payload).is_ok());
         assert_eq!(
             RawImageView::open(&payload),
-            Err(super::super::RawImageViewError::UnsupportedRevision(1))
+            Err(super::super::RawImageViewError::UnexpectedSection(
+                crate::media::MediaSectionKind::CODINGS
+            ))
         );
     }
 

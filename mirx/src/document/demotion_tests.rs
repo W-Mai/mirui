@@ -43,7 +43,7 @@ fn image_payload(
         .collect();
     let asset = ImageAsset::new(width, height, format, stride, Cow::Borrowed(&main))
         .with_extra(Cow::Borrowed(&extra));
-    crate::image::test_support::pad_data(asset.encode_payload().unwrap(), padding as usize, 2)
+    crate::image::test_support::pad_data(asset.encode_payload().unwrap(), padding as usize, 0)
 }
 
 fn push_image<'a>(document: &mut Document<'a>, payload: PayloadInput<'a>) -> ChunkId {
@@ -311,6 +311,7 @@ fn opened_source_payloads_keep_origin_allocation_and_exact_plane_ranges() {
 #[test]
 fn source_backed_images_keep_strict_absolute_alignment() {
     let payload = image_payload(ColorFormat::A8, 2, 2, 2, 1);
+    let payload = crate::image::test_support::pad_data(payload, 1, 2);
     let mut source = encoded_image_chunk(&payload);
     let entry = CHUNK_FILE_HEADER_LEN;
     let old_offset = u32::from_le_bytes(source[entry + 4..entry + 8].try_into().unwrap());
@@ -538,51 +539,15 @@ fn count_type_and_flags_cannot_be_discarded_by_demotion() {
 fn malformed_payloads(valid: &[u8]) -> Vec<Vec<u8>> {
     let mut cases = Vec::new();
     cases.push(valid[..10].to_vec());
-
-    let mut reserved = valid.to_vec();
-    reserved[10] = 1;
-    cases.push(reserved);
-
-    let mut compressed = valid.to_vec();
-    compressed[9] = 1;
-    cases.push(compressed);
-
-    let mut unknown = valid.to_vec();
-    unknown[8] = 0xff;
-    cases.push(unknown);
-
-    let mut small_stride = valid.to_vec();
-    small_stride[8] = ColorFormat::RGB565.to_u8();
-    small_stride[0..4].copy_from_slice(&3u32.to_le_bytes());
-    small_stride[12..16].copy_from_slice(&5u32.to_le_bytes());
-    cases.push(small_stride);
-
-    let mut early_data = valid.to_vec();
-    early_data[16..20].copy_from_slice(&31u32.to_le_bytes());
-    cases.push(early_data);
-
-    let mut padding = valid.to_vec();
-    padding[16..20].copy_from_slice(&33u32.to_le_bytes());
-    padding.insert(32, 1);
-    cases.push(padding);
-
-    let mut extra_size = valid.to_vec();
-    extra_size[24..28].copy_from_slice(&1u32.to_le_bytes());
-    cases.push(extra_size);
-
-    let mut data_size = valid.to_vec();
-    data_size[20..24].copy_from_slice(&5u32.to_le_bytes());
-    cases.push(data_size);
-
+    // Every byte belongs to metadata or DATA checksum coverage.
+    for index in 0..valid.len() {
+        let mut corrupt = valid.to_vec();
+        corrupt[index] ^= 0xff;
+        cases.push(corrupt);
+    }
     let mut trailing = valid.to_vec();
     trailing.push(0);
     cases.push(trailing);
-
-    let mut overflow = valid.to_vec();
-    overflow[8] = ColorFormat::RGBA8888.to_u8();
-    overflow[0..4].copy_from_slice(&u32::MAX.to_le_bytes());
-    overflow[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
-    cases.push(overflow);
     cases
 }
 

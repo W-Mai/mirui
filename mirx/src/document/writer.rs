@@ -78,14 +78,9 @@ impl<'a> PayloadPlan<'a> {
         match self {
             Self::Verbatim(payload) if chunk_type == ChunkType::IMAGE => {
                 let media = MediaPayload::open(payload).ok();
-                match media.and_then(|media| {
-                    media
-                        .section(MediaSectionKind::DATA)
-                        .map(|data| (media, data))
-                }) {
-                    Some((media, data)) => {
-                        let mut alignment =
-                            media.header().required_alignment().max(CONTAINER_ALIGNMENT);
+                match media.and_then(|media| media.section(MediaSectionKind::DATA)) {
+                    Some(data) => {
+                        let mut alignment = CONTAINER_ALIGNMENT;
                         if let Ok(view) = RawImageView::open(payload) {
                             for plane in view.planes() {
                                 alignment = alignment.max(plane.memory().required_alignment());
@@ -127,11 +122,11 @@ impl PlacementConstraint<'_> {
                 alignment,
             } => {
                 let candidate = align_relative(cursor, data_offset, alignment)?;
-                MediaPayload::open_at(payload, candidate).map_err(|_| {
-                    EncodeError::InvalidPayload {
+                MediaPayload::open(payload)
+                    .and_then(|media| media.validate_file_alignment(candidate, alignment))
+                    .map_err(|_| EncodeError::InvalidPayload {
                         chunk_type: ChunkType::IMAGE,
-                    }
-                })?;
+                    })?;
                 Ok(candidate)
             }
         }
@@ -974,9 +969,9 @@ mod tests {
         assert_eq!(placement.table_entry_offset, CHUNK_FILE_HEADER_LEN);
         assert_eq!(placement.leading_padding, 60..60);
         assert_eq!(placement.chunk_offset, 60);
-        assert_eq!(placement.chunk_size, 172);
-        assert_eq!(placement.output_range, 60..232);
-        assert_eq!(plan.file_size(), 232);
+        assert_eq!(placement.chunk_size, 148);
+        assert_eq!(placement.output_range, 60..208);
+        assert_eq!(plan.file_size(), 208);
         let PayloadPlan::SegmentedImage(image) = placement.payload else {
             panic!("expected segmented IMAGE payload");
         };
@@ -1034,7 +1029,7 @@ mod tests {
                 placement.leading_padding,
                 usize::try_from(cursor).unwrap()..placement.output_range.start
             );
-            assert!(ImageView::open_payload_at(payload, placement.chunk_offset).is_ok());
+            assert!(RawImageView::open_at(payload, placement.chunk_offset).is_ok());
             cursor = u32::try_from(placement.output_range.end).unwrap();
         }
         let offsets: Vec<_> = plan
@@ -1432,7 +1427,7 @@ mod tests {
 
         let options = EncodeOptions::new();
         let needed = document.encoded_len(&options).unwrap();
-        assert_eq!(needed, 337);
+        assert_eq!(needed, 325);
         let mut out = vec![0xa5; needed + 5];
         assert_eq!(document.encode_into(&mut out, &options), Ok(needed));
         assert_eq!(&out[needed..], &[0xa5; 5]);
@@ -1447,17 +1442,17 @@ mod tests {
         }
 
         assert_eq!(read_u32_le(encoded, 48), Some(95));
-        assert_eq!(read_u32_le(encoded, 64), Some(232));
-        assert_eq!(read_u32_le(encoded, 80), Some(328));
+        assert_eq!(read_u32_le(encoded, 64), Some(208));
+        assert_eq!(read_u32_le(encoded, 80), Some(316));
         assert_eq!(&encoded[92..95], &[0, 0, 0]);
-        assert_eq!(&encoded[95..232], parseable.as_slice());
-        assert_eq!(&encoded[232..325], opaque.as_slice());
-        assert_eq!(&encoded[325..328], &[0, 0, 0]);
-        assert_eq!(&encoded[328..337], frames.as_slice());
+        assert_eq!(&encoded[95..208], parseable.as_slice());
+        assert_eq!(&encoded[208..313], opaque.as_slice());
+        assert_eq!(&encoded[313..316], &[0, 0, 0]);
+        assert_eq!(&encoded[316..325], frames.as_slice());
         assert_eq!(read_u32_le(encoded, needed - 4), Some(frames_checksum));
         assert_eq!(
             95 + crate::image::test_support::data_offset(&parseable) as u32,
-            220
+            196
         );
         assert_eq!(
             (95 + crate::image::test_support::data_offset(&parseable)) % 4,
@@ -1465,9 +1460,9 @@ mod tests {
         );
         assert_ne!(95 % 4, 0);
 
-        let image = ImageView::open_payload_at(&encoded[95..232], 95).unwrap();
+        let image = RawImageView::open_at(&encoded[95..208], 95).unwrap();
         assert_eq!(
-            image.main(),
+            image.plane(0).unwrap().bytes(),
             &[0x11, 0xa1, 0xa2, 0xa3, 0x22, 0xb1, 0xb2, 0xb3]
         );
 
@@ -1477,16 +1472,16 @@ mod tests {
         assert_eq!(image.payload_offset(), 95);
         assert_eq!(image.payload(), parseable);
         let opaque_image = chunks.next().unwrap();
-        assert_eq!(opaque_image.payload_offset(), 232);
+        assert_eq!(opaque_image.payload_offset(), 208);
         assert_eq!(opaque_image.payload(), opaque);
         let frames_chunk = chunks.next().unwrap();
-        assert_eq!(frames_chunk.payload_offset(), 328);
+        assert_eq!(frames_chunk.payload_offset(), 316);
         assert_eq!(frames_chunk.payload(), frames);
         assert!(chunks.next().is_none());
 
         let allocated = document.encode(&options).unwrap();
         assert_eq!(allocated, encoded);
-        assert_eq!(allocated.len(), 328 + frames.len());
+        assert_eq!(allocated.len(), 316 + frames.len());
     }
 
     #[test]

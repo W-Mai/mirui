@@ -358,24 +358,24 @@ fn synthesized_query_materializes_one_canonical_image_payload_atomically() {
     let image_id = document.promote_to_chunk().unwrap().unwrap();
     let view = document.get(image_id).unwrap();
 
-    assert_eq!(view.payload_len(), Ok(96));
-    let mut short = [0xa5; 95];
+    assert_eq!(view.payload_len(), Ok(72));
+    let mut short = [0xa5; 71];
     assert_eq!(
         view.copy_payload_into(&mut short),
         Err(EncodeError::BufferTooSmall {
-            needed: 96,
-            available: 95,
+            needed: 72,
+            available: 71,
         })
     );
-    assert_eq!(short, [0xa5; 95]);
+    assert_eq!(short, [0xa5; 71]);
 
-    let mut target = [0xcc; 100];
-    assert_eq!(view.copy_payload_into(&mut target), Ok(96));
-    assert_eq!(&target[96..], &[0xcc; 4]);
+    let mut target = [0xcc; 76];
+    assert_eq!(view.copy_payload_into(&mut target), Ok(72));
+    assert_eq!(&target[72..], &[0xcc; 4]);
     let materialized = view.payload_to_vec().unwrap();
-    assert_eq!(materialized, target[..96]);
+    assert_eq!(materialized, target[..72]);
     assert_eq!(materialized[0], 1);
-    assert_eq!(&materialized[28..32], &[0; 4]);
+    assert_eq!(&materialized[2..4], &2u16.to_le_bytes());
     let image = ImageView::open_payload_at(&materialized, 0).unwrap();
     assert_eq!(image.main(), &[1, 2, 3, 4]);
     assert_eq!(image.extra(), None);

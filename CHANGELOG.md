@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Borrowed coding tables.** `media::CodingRecord` and `CodingTable` provide profile identity, revision, parameter slices, constant-time ordinal lookup, and checked caller-buffer encoding without allocation.
+
 - **Borrowed RAW plane rows.** `SurfacePlane::row` and `rows` expose logical sample rows without stride padding, allocation-only rows, or hidden copies. Indexed and planar layouts share exact-size, double-ended iteration with constant-time skips; unknown physical storage flags are rejected.
 
 - **Shared FONT codepoint tables.** `FontCodepoints` validates sorted little-endian Unicode scalar records and exposes glyph-ordinal lookup and exact-size, double-ended iteration without allocation or aligned typed slices.
@@ -27,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Guarded `cargo xtask mirx` commands.** `inspect`, `validate`, `extract`, `insert`, `replace`, `remove`, `move`, `set-primary`, and `clear-primary` cover host-side container inspection and raw editing. Optional type and CRC guards protect index-based scripts; file replacement uses a flushed sibling temporary and atomic rename.
 
 ### Changed
+
+- **Compact media headers and separate integrity coverage.** The 8-byte media header stores identity, section count, and metadata CRC. Metadata inspection skips DATA bodies; explicit DATA validation and RAW access verify the data checksum. Plane records own alignment requirements, and decoded buffer bounds are derived from geometry rather than duplicated in the header.
 
 - **Compact media section directory.** Each entry stores kind, flags, offset, and size in 12 bytes. `MediaSectionDescriptor::size` exposes the stored byte count; typed schemas and surface geometry validate interpreted lengths without a duplicated decoded-size field.
 - **Primary display hints use 16-bit sample layouts.** `PrimaryHints` accepts and exposes `SampleLayout`; the CHUNK header stores the complete identifier without increasing its 44-byte size. `SampleLayout::NONE` denotes a primary without a fixed pixel layout. The MIRX command-line inspector and explicit hint parser retain YUV and custom layout identifiers.

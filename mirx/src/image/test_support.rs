@@ -3,9 +3,7 @@ use alloc::vec::Vec;
 use crate::media::{MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload, MediaSectionKind};
 
 pub(crate) fn refresh_crc(payload: &mut [u8]) {
-    let end = payload.len() - 4;
-    let checksum = crate::crc32::compute(&payload[..end]);
-    payload[end..].copy_from_slice(&checksum.to_le_bytes());
+    crate::media::refresh_checksums(payload);
 }
 
 pub(crate) fn data_offset(payload: &[u8]) -> usize {
@@ -19,6 +17,30 @@ pub(crate) fn data_offset(payload: &[u8]) -> usize {
 
 /// Moves DATA without changing the logical image, and declares file alignment.
 pub(crate) fn pad_data(mut payload: Vec<u8>, padding: usize, alignment_log2: u8) -> Vec<u8> {
+    if alignment_log2 != 0 {
+        let image = super::RawImageView::open(&payload).unwrap();
+        let planes: Vec<_> = image.planes().map(|plane| plane.bytes()).collect();
+        let layouts: Vec<_> = image
+            .planes()
+            .map(|plane| {
+                let memory = plane.memory();
+                super::PlaneMemoryLayout::builder(plane.geometry())
+                    .with_allocation_extent(memory.allocation_width(), memory.allocation_height())
+                    .with_stride(memory.stride())
+                    .with_data_offset(memory.data_offset())
+                    .with_alignment(1 << alignment_log2)
+                    .with_flags(memory.flags())
+                    .build()
+                    .unwrap()
+            })
+            .collect();
+        let mut asset =
+            super::RawImageAsset::new(image.surface(), &planes).with_memory_layouts(&layouts);
+        if let Some(table) = image.color_table() {
+            asset = asset.with_color_table(table.as_bytes());
+        }
+        payload = asset.encode().unwrap();
+    }
     let offset = data_offset(&payload);
     let count = MediaPayload::open(&payload)
         .unwrap()
@@ -32,9 +54,6 @@ pub(crate) fn pad_data(mut payload: Vec<u8>, padding: usize, alignment_log2: u8)
             payload[field..field + 4].copy_from_slice(&(start + padding as u32).to_le_bytes());
         }
     }
-    payload[6] = alignment_log2;
-    let size = payload.len() as u32;
-    payload[12..16].copy_from_slice(&size.to_le_bytes());
     refresh_crc(&mut payload);
     payload
 }

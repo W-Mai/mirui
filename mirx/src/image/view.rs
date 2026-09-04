@@ -4,7 +4,7 @@ use super::{
     PLANE_RECORD_LEN, PlaneGeometry, PlaneMemoryError, PlaneMemoryLayout, PlaneMemoryRecordError,
     SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor, SurfaceRecordError,
 };
-use crate::media::{CodingId, MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind};
+use crate::media::{MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind};
 use crate::payload::ColorTableView;
 
 /// Borrowed zero-allocation view of one RAW sectioned IMAGE payload.
@@ -27,8 +27,7 @@ impl<'a> RawImageView<'a> {
     /// Opens a RAW IMAGE payload and validates file-relative DATA and plane
     /// alignment against its outer MIRX position.
     pub fn open_at(payload: &'a [u8], payload_file_offset: u32) -> Result<Self, RawImageViewError> {
-        let media = MediaPayload::open_at(payload, payload_file_offset)
-            .map_err(RawImageViewError::Media)?;
+        let media = MediaPayload::open(payload).map_err(RawImageViewError::Media)?;
         Self::from_media(media, Some(payload_file_offset))
     }
 
@@ -81,17 +80,6 @@ impl<'a> RawImageView<'a> {
         media: MediaPayload<'a>,
         payload_file_offset: Option<u32>,
     ) -> Result<Self, RawImageViewError> {
-        if media.header().default_coding() != CodingId::RAW {
-            return Err(RawImageViewError::UnsupportedCoding(
-                media.header().default_coding(),
-            ));
-        }
-        if media.header().profile_revision() != 0 {
-            return Err(RawImageViewError::UnsupportedRevision(
-                media.header().profile_revision(),
-            ));
-        }
-
         let mut surface_section = None;
         let mut plane_records = None;
         let mut color_table_section = None;
@@ -103,7 +91,9 @@ impl<'a> RawImageView<'a> {
                 MediaSectionKind::PLANES => Some(&mut plane_records),
                 MediaSectionKind::COLOR_TABLE => Some(&mut color_table_section),
                 MediaSectionKind::DATA => Some(&mut data),
-                MediaSectionKind::CODING_PARAMS | MediaSectionKind::ACCESS_UNITS => {
+                MediaSectionKind::CODINGS
+                | MediaSectionKind::UNIT_GROUPS
+                | MediaSectionKind::UNIT_INDEX => {
                     return Err(RawImageViewError::UnexpectedSection(kind));
                 }
                 _ if section.descriptor().flags().is_required() => {
@@ -137,6 +127,7 @@ impl<'a> RawImageView<'a> {
             data,
         };
         view.validate_planes(payload_file_offset)?;
+        media.validate_data().map_err(RawImageViewError::Media)?;
         Ok(view)
     }
 
@@ -310,8 +301,6 @@ impl FusedIterator for RawImagePlanes<'_> {}
 #[non_exhaustive]
 pub enum RawImageViewError {
     Media(MediaPayloadError),
-    UnsupportedCoding(CodingId),
-    UnsupportedRevision(u16),
     MissingSection(MediaSectionKind),
     DuplicateSection(MediaSectionKind),
     SectionMustBeRequired(MediaSectionKind),
@@ -413,7 +402,6 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
-    use crate::crc32;
     use crate::image::{ColorDescription, PlaneMemoryFlags};
     use crate::media::{
         MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionFlags,
@@ -476,13 +464,6 @@ mod tests {
         let mut out = vec![0; cursor + MEDIA_CRC_LEN];
         out[0] = MEDIA_VERSION;
         write_u16_le(&mut out, 2, section_count as u16);
-        write_u16_le(&mut out, 4, MEDIA_SECTION_LEN as u16);
-        out[6] = alignment_log2;
-        write_u32_le(&mut out, 8, MEDIA_HEADER_LEN as u32);
-        let payload_len = out.len() as u32;
-        write_u32_le(&mut out, 12, payload_len);
-        write_u32_le(&mut out, 16, data.len() as u32);
-        write_u16_le(&mut out, 24, CodingId::RAW.raw());
 
         for (index, (kind, offset, bytes)) in bodies.into_iter().enumerate() {
             let entry = MEDIA_HEADER_LEN + index * MEDIA_SECTION_LEN;
@@ -497,9 +478,7 @@ mod tests {
     }
 
     fn reseal(bytes: &mut [u8]) {
-        let crc_offset = bytes.len() - MEDIA_CRC_LEN;
-        let crc = crc32(&bytes[..crc_offset]);
-        bytes[crc_offset..].copy_from_slice(&crc.to_le_bytes());
+        crate::media::refresh_checksums(bytes);
     }
 
     #[test]
@@ -624,9 +603,7 @@ mod tests {
         assert!(RawImageView::open(&bytes).is_ok());
         assert!(matches!(
             RawImageView::open_at(&bytes, 4),
-            Err(RawImageViewError::Media(
-                MediaPayloadError::DataOffsetUnaligned { .. }
-            ))
+            Err(RawImageViewError::PlaneFileAddressUnaligned { .. })
         ));
     }
 
@@ -670,14 +647,24 @@ mod tests {
         let surface_bytes = surface_record(surface);
         let mut bytes = payload(&surface_bytes, None, None, &[0], 0);
 
-        write_u16_le(&mut bytes, 24, 7);
+        write_u16_le(
+            &mut bytes,
+            MEDIA_HEADER_LEN,
+            MediaSectionKind::CODINGS.raw(),
+        );
         reseal(&mut bytes);
         assert_eq!(
             RawImageView::open(&bytes),
-            Err(RawImageViewError::UnsupportedCoding(CodingId::new(7)))
+            Err(RawImageViewError::UnexpectedSection(
+                MediaSectionKind::CODINGS
+            ))
         );
 
-        write_u16_le(&mut bytes, 24, CodingId::RAW.raw());
+        write_u16_le(
+            &mut bytes,
+            MEDIA_HEADER_LEN,
+            MediaSectionKind::SURFACE.raw(),
+        );
         write_u16_le(&mut bytes, MEDIA_HEADER_LEN + 2, 0);
         reseal(&mut bytes);
         assert_eq!(

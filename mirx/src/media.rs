@@ -1,15 +1,20 @@
 //! Common wire vocabulary for sectioned media payloads.
 //!
-//! IMAGE and FONT use the same fixed header, section directory, coding
-//! identifiers, checksum boundary, and alignment checks. Typed payload modules
-//! define the contents of each section.
+//! Sectioned payloads share a fixed header, directory, coding identifiers,
+//! and independent metadata/DATA checksum coverage. Typed payload modules
+//! define section contents and physical storage requirements.
 
 use core::iter::FusedIterator;
 
-use crate::payload::envelope::{Envelope, EnvelopeError};
+mod coding;
+pub use coding::{
+    CODING_RECORD_LEN, CODING_TABLE_HEADER_LEN, CodingRecord, CodingTable, CodingTableError,
+};
+
+use crate::crc32::Crc32;
 use crate::wire::{read_u16_le, read_u32_le};
 
-pub const MEDIA_HEADER_LEN: usize = 32;
+pub const MEDIA_HEADER_LEN: usize = 8;
 pub const MEDIA_SECTION_LEN: usize = 12;
 pub const MEDIA_CRC_LEN: usize = 4;
 pub const MEDIA_VERSION: u8 = 1;
@@ -69,11 +74,13 @@ pub struct MediaSectionKind(u16);
 impl MediaSectionKind {
     pub const SURFACE: Self = Self(0x0001);
     pub const PLANES: Self = Self(0x0002);
-    pub const CODING_PARAMS: Self = Self(0x0003);
-    pub const ACCESS_UNITS: Self = Self(0x0004);
+    pub const CODINGS: Self = Self(0x0003);
+    pub const UNIT_GROUPS: Self = Self(0x0004);
     pub const DATA: Self = Self(0x0005);
     /// RGBA entries referenced by an indexed IMAGE sample plane.
     pub const COLOR_TABLE: Self = Self(0x0006);
+
+    pub const UNIT_INDEX: Self = Self(0x0007);
 
     pub const FACE: Self = Self(0x0010);
     pub const CODEPOINTS: Self = Self(0x0011);
@@ -130,66 +137,30 @@ impl MediaSectionFlags {
     }
 }
 
-/// Decoded common header of an IMAGE or FONT payload.
+/// Common media identity and metadata checksum.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MediaHeader {
     flags: MediaFlags,
     section_count: u16,
-    required_alignment_log2: u8,
-    payload_size: u32,
-    decoded_bytes_bound: u32,
-    scratch_bytes_bound: u32,
-    default_coding: CodingId,
-    profile_revision: u16,
+    metadata_crc32: u32,
 }
 
 impl MediaHeader {
     pub const fn flags(self) -> MediaFlags {
         self.flags
     }
-
     pub const fn section_count(self) -> u16 {
         self.section_count
     }
-
-    pub const fn required_alignment_log2(self) -> u8 {
-        self.required_alignment_log2
-    }
-
-    pub const fn required_alignment(self) -> u32 {
-        1u32 << self.required_alignment_log2
-    }
-
-    pub const fn payload_size(self) -> u32 {
-        self.payload_size
-    }
-
-    pub const fn decoded_bytes_bound(self) -> u32 {
-        self.decoded_bytes_bound
-    }
-
-    pub const fn scratch_bytes_bound(self) -> u32 {
-        self.scratch_bytes_bound
-    }
-
-    pub const fn default_coding(self) -> CodingId {
-        self.default_coding
-    }
-
-    pub const fn profile_revision(self) -> u16 {
-        self.profile_revision
+    pub const fn metadata_crc32(self) -> u32 {
+        self.metadata_crc32
     }
 
     fn read(bytes: &[u8]) -> Self {
         Self {
             flags: MediaFlags::from_bits_retain(bytes[1]),
             section_count: read_u16_le(bytes, 2).expect("validated media header"),
-            required_alignment_log2: bytes[6],
-            payload_size: read_u32_le(bytes, 12).expect("validated media header"),
-            decoded_bytes_bound: read_u32_le(bytes, 16).expect("validated media header"),
-            scratch_bytes_bound: read_u32_le(bytes, 20).expect("validated media header"),
-            default_coding: CodingId::new(read_u16_le(bytes, 24).expect("validated media header")),
-            profile_revision: read_u16_le(bytes, 26).expect("validated media header"),
+            metadata_crc32: read_u32_le(bytes, 4).expect("validated media header"),
         }
     }
 }
@@ -240,24 +211,12 @@ pub enum MediaPayloadError {
         available: usize,
     },
     UnsupportedVersion(u8),
-    ReservedNonZero {
-        offset: usize,
-    },
-    SectionTableOffsetMismatch {
+    InvalidAlignment(u32),
+    MetadataCrcMismatch {
         expected: u32,
         actual: u32,
     },
-    SectionEntrySizeMismatch {
-        expected: u16,
-        actual: u16,
-    },
-    RequiredAlignmentTooLarge {
-        log2: u8,
-    },
-    PayloadLengthMismatch {
-        expected: usize,
-        actual: usize,
-    },
+
     SectionTableOutOfBounds,
     InvalidSectionKind {
         index: u16,
@@ -285,7 +244,7 @@ pub enum MediaPayloadError {
         absolute_offset: u32,
         alignment: u32,
     },
-    CrcMismatch {
+    DataCrcMismatch {
         expected: u32,
         actual: u32,
     },
@@ -301,40 +260,46 @@ pub struct MediaPayload<'a> {
 }
 
 impl<'a> MediaPayload<'a> {
-    /// Opens a payload without assuming where it sits in an outer MIRX file.
+    /// Opens metadata without reading or checksumming DATA bodies.
     ///
-    /// Use [`Self::open_at`] when validating the payload's file-relative DATA
-    /// alignment promise.
+    /// Validates section bounds and the metadata CRC, including the stored
+    /// DATA checksum. Call `validate_data` before consuming the whole DATA
+    /// coverage. This slice API does not perform streamed file reads.
     pub fn open(payload: &'a [u8]) -> Result<Self, MediaPayloadError> {
-        let envelope = Envelope::open_v1(payload, MEDIA_HEADER_LEN).map_err(map_envelope_error)?;
-        let covered = envelope.covered();
-        validate_header_bytes(covered)?;
-        let header = MediaHeader::read(covered);
-        let expected =
-            usize::try_from(header.payload_size).map_err(|_| MediaPayloadError::SizeOverflow)?;
-        if expected != payload.len() {
-            return Err(MediaPayloadError::PayloadLengthMismatch {
-                expected,
-                actual: payload.len(),
+        let media = Self::parse(payload)?;
+        let actual = media.metadata_crc();
+        let expected = media.header.metadata_crc32;
+        if actual != expected {
+            return Err(MediaPayloadError::MetadataCrcMismatch { expected, actual });
+        }
+        Ok(media)
+    }
+
+    fn parse(payload: &'a [u8]) -> Result<Self, MediaPayloadError> {
+        if let Some(&version) = payload.first() {
+            if version != MEDIA_VERSION {
+                return Err(MediaPayloadError::UnsupportedVersion(version));
+            }
+        }
+        let needed = MEDIA_HEADER_LEN + MEDIA_CRC_LEN;
+        if payload.len() < needed {
+            return Err(MediaPayloadError::Truncated {
+                needed,
+                available: payload.len(),
             });
         }
-
-        let directory_len = usize::from(header.section_count)
+        u32::try_from(payload.len()).map_err(|_| MediaPayloadError::SizeOverflow)?;
+        let header = MediaHeader::read(payload);
+        let covered = &payload[..payload.len() - MEDIA_CRC_LEN];
+        let directory_end = usize::from(header.section_count)
             .checked_mul(MEDIA_SECTION_LEN)
-            .ok_or(MediaPayloadError::SizeOverflow)?;
-        let directory_end = MEDIA_HEADER_LEN
-            .checked_add(directory_len)
+            .and_then(|len| MEDIA_HEADER_LEN.checked_add(len))
             .ok_or(MediaPayloadError::SizeOverflow)?;
         if directory_end > covered.len() {
             return Err(MediaPayloadError::SectionTableOutOfBounds);
         }
         let directory = &covered[MEDIA_HEADER_LEN..directory_end];
         validate_sections(covered, directory, header.section_count, directory_end)?;
-
-        let exact = envelope
-            .validate_exact_end(covered.len())
-            .map_err(map_envelope_error)?;
-        exact.validate_crc().map_err(map_envelope_error)?;
         Ok(Self {
             payload,
             header,
@@ -342,12 +307,39 @@ impl<'a> MediaPayload<'a> {
         })
     }
 
-    /// Opens a payload and validates every DATA section's alignment relative
-    /// to the beginning of the outer MIRX file.
-    pub fn open_at(payload: &'a [u8], payload_file_offset: u32) -> Result<Self, MediaPayloadError> {
-        let media = Self::open(payload)?;
-        media.validate_file_alignment(payload_file_offset)?;
-        Ok(media)
+    /// Validates the whole-DATA coverage, scanning DATA bodies exactly once.
+    ///
+    /// Metadata and inter-section padding are excluded. A successful metadata
+    /// open alone does not establish DATA integrity.
+    pub fn validate_data(self) -> Result<(), MediaPayloadError> {
+        let expected = read_u32_le(self.payload, self.payload.len() - MEDIA_CRC_LEN)
+            .expect("validated DATA checksum trailer");
+        let actual = self.data_crc();
+        if actual != expected {
+            return Err(MediaPayloadError::DataCrcMismatch { expected, actual });
+        }
+        Ok(())
+    }
+
+    fn data_crc(self) -> u32 {
+        let mut crc = Crc32::new();
+        for section in self.sections_of_kind(MediaSectionKind::DATA) {
+            crc.update(section.bytes());
+        }
+        crc.finish()
+    }
+
+    fn metadata_crc(self) -> u32 {
+        let mut crc = Crc32::new();
+        crc.update(&self.payload[..4]);
+        let mut start = MEDIA_HEADER_LEN;
+        for section in self.sections_of_kind(MediaSectionKind::DATA) {
+            let offset = section.descriptor.offset as usize;
+            crc.update(&self.payload[start..offset]);
+            start = offset + section.bytes.len();
+        }
+        crc.update(&self.payload[start..]);
+        crc.finish()
     }
 
     pub const fn header(self) -> MediaHeader {
@@ -380,11 +372,16 @@ impl<'a> MediaPayload<'a> {
             .all(|section| section.address_is_aligned(alignment))
     }
 
+    /// Checks DATA file offsets against an explicit placement requirement.
+    /// Per-plane and actual runtime addresses are separate typed checks.
     pub fn validate_file_alignment(
         self,
         payload_file_offset: u32,
+        alignment: u32,
     ) -> Result<(), MediaPayloadError> {
-        let alignment = self.header.required_alignment();
+        if !alignment.is_power_of_two() {
+            return Err(MediaPayloadError::InvalidAlignment(alignment));
+        }
         for section in self.sections_of_kind(MediaSectionKind::DATA) {
             let absolute_offset = payload_file_offset
                 .checked_add(section.descriptor.offset)
@@ -515,32 +512,6 @@ impl DoubleEndedIterator for MediaSectionsOfKind<'_> {
 
 impl FusedIterator for MediaSectionsOfKind<'_> {}
 
-fn validate_header_bytes(bytes: &[u8]) -> Result<(), MediaPayloadError> {
-    let section_entry_size = read_u16_le(bytes, 4).expect("validated media header");
-    if section_entry_size != MEDIA_SECTION_LEN as u16 {
-        return Err(MediaPayloadError::SectionEntrySizeMismatch {
-            expected: MEDIA_SECTION_LEN as u16,
-            actual: section_entry_size,
-        });
-    }
-    let section_table_offset = read_u32_le(bytes, 8).expect("validated media header");
-    if section_table_offset != MEDIA_HEADER_LEN as u32 {
-        return Err(MediaPayloadError::SectionTableOffsetMismatch {
-            expected: MEDIA_HEADER_LEN as u32,
-            actual: section_table_offset,
-        });
-    }
-    if bytes[6] > 31 {
-        return Err(MediaPayloadError::RequiredAlignmentTooLarge { log2: bytes[6] });
-    }
-    for offset in [7, 28, 29, 30, 31] {
-        if bytes[offset] != 0 {
-            return Err(MediaPayloadError::ReservedNonZero { offset });
-        }
-    }
-    Ok(())
-}
-
 fn validate_sections(
     covered: &[u8],
     directory: &[u8],
@@ -595,22 +566,16 @@ fn validate_sections(
     Ok(())
 }
 
-fn map_envelope_error(error: EnvelopeError) -> MediaPayloadError {
-    match error {
-        EnvelopeError::Truncated { needed, available } => {
-            MediaPayloadError::Truncated { needed, available }
-        }
-        EnvelopeError::UnsupportedVersion(version) => {
-            MediaPayloadError::UnsupportedVersion(version)
-        }
-        EnvelopeError::PayloadLengthMismatch { expected, actual } => {
-            MediaPayloadError::PayloadLengthMismatch { expected, actual }
-        }
-        EnvelopeError::CrcMismatch { expected, actual } => {
-            MediaPayloadError::CrcMismatch { expected, actual }
-        }
-        EnvelopeError::SizeOverflow => MediaPayloadError::SizeOverflow,
-    }
+#[cfg(test)]
+pub(crate) fn refresh_checksums(payload: &mut [u8]) {
+    let Ok(media) = MediaPayload::parse(payload) else {
+        return;
+    };
+    let data_crc = media.data_crc();
+    let end = payload.len() - MEDIA_CRC_LEN;
+    payload[end..].copy_from_slice(&data_crc.to_le_bytes());
+    let metadata_crc = MediaPayload::parse(payload).unwrap().metadata_crc();
+    payload[4..8].copy_from_slice(&metadata_crc.to_le_bytes());
 }
 
 #[cfg(test)]
@@ -619,7 +584,6 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
-    use crate::crc32;
     use crate::wire::{write_u16_le, write_u32_le};
 
     #[derive(Clone, Copy)]
@@ -630,12 +594,7 @@ mod tests {
         bytes: &'a [u8],
     }
 
-    fn payload(
-        sections: &[TestSection<'_>],
-        alignment_log2: u8,
-        flags: u8,
-        coding: u16,
-    ) -> Vec<u8> {
+    fn payload(sections: &[TestSection<'_>], flags: u8) -> Vec<u8> {
         let directory_end = MEDIA_HEADER_LEN + sections.len() * MEDIA_SECTION_LEN;
         let body_end = sections.iter().fold(directory_end, |end, section| {
             end.max(section.offset as usize + section.bytes.len())
@@ -645,14 +604,6 @@ mod tests {
         out[0] = MEDIA_VERSION;
         out[1] = flags;
         write_u16_le(&mut out, 2, sections.len() as u16);
-        write_u16_le(&mut out, 4, MEDIA_SECTION_LEN as u16);
-        out[6] = alignment_log2;
-        write_u32_le(&mut out, 8, MEDIA_HEADER_LEN as u32);
-        write_u32_le(&mut out, 12, payload_len as u32);
-        write_u32_le(&mut out, 16, 4096);
-        write_u32_le(&mut out, 20, 128);
-        write_u16_le(&mut out, 24, coding);
-        write_u16_le(&mut out, 26, 3);
 
         for (index, section) in sections.iter().enumerate() {
             let entry = MEDIA_HEADER_LEN + index * MEDIA_SECTION_LEN;
@@ -663,16 +614,15 @@ mod tests {
             let start = section.offset as usize;
             out[start..start + section.bytes.len()].copy_from_slice(section.bytes);
         }
-        let crc_offset = out.len() - MEDIA_CRC_LEN;
-        let crc = crc32::compute(&out[..crc_offset]);
-        out[crc_offset..].copy_from_slice(&crc.to_le_bytes());
+        refresh_checksums(&mut out);
         out
     }
 
     fn reseal(bytes: &mut [u8]) {
-        let crc_offset = bytes.len() - MEDIA_CRC_LEN;
-        let crc = crc32::compute(&bytes[..crc_offset]);
-        bytes[crc_offset..].copy_from_slice(&crc.to_le_bytes());
+        // Malformed directory tests fail structurally before CRC validation.
+        if MediaPayload::parse(bytes).is_ok() {
+            refresh_checksums(bytes);
+        }
     }
 
     #[test]
@@ -718,14 +668,11 @@ mod tests {
                 bytes: &[5, 6, 7],
             },
         ];
-        let bytes = payload(&sections, 4, 0xa5, 0xbeef);
-        let media = MediaPayload::open_at(&bytes, 0).unwrap();
+        let bytes = payload(&sections, 0xa5);
+        let media = MediaPayload::open(&bytes).unwrap();
         let header = media.header();
         assert_eq!(header.flags().bits(), 0xa5);
         assert_eq!(header.section_count(), 2);
-        assert_eq!(header.required_alignment(), 16);
-        assert_eq!(header.default_coding(), CodingId::new(0xbeef));
-        assert_eq!(header.profile_revision(), 3);
 
         let mut iter = media.sections();
         assert_eq!(iter.len(), 2);
@@ -753,10 +700,10 @@ mod tests {
             offset: 64,
             bytes: &[1, 2, 3, 4],
         }];
-        let bytes = payload(&sections, 6, 0, CodingId::RAW.raw());
-        let media = MediaPayload::open_at(&bytes, 0).unwrap();
+        let bytes = payload(&sections, 0);
+        let media = MediaPayload::open(&bytes).unwrap();
         assert_eq!(
-            MediaPayload::open_at(&bytes, 4),
+            media.validate_file_alignment(4, 64),
             Err(MediaPayloadError::DataOffsetUnaligned {
                 index: 0,
                 absolute_offset: 68,
@@ -774,40 +721,60 @@ mod tests {
     }
 
     #[test]
-    fn rejects_header_schema_and_reserved_bytes_before_sections() {
-        let base = payload(&[], 0, 0, 0);
-
-        let mut entry_size = base.clone();
-        write_u16_le(&mut entry_size, 4, 16);
-        reseal(&mut entry_size);
-        assert_eq!(
-            MediaPayload::open(&entry_size),
-            Err(MediaPayloadError::SectionEntrySizeMismatch {
-                expected: 12,
-                actual: 16,
-            })
-        );
-
-        let mut table_offset = base.clone();
-        write_u32_le(&mut table_offset, 8, 36);
-        reseal(&mut table_offset);
-        assert_eq!(
-            MediaPayload::open(&table_offset),
-            Err(MediaPayloadError::SectionTableOffsetMismatch {
-                expected: 32,
-                actual: 36,
-            })
-        );
-
-        for offset in [7, 28, 29, 30, 31] {
-            let mut reserved = base.clone();
-            reserved[offset] = 1;
-            reseal(&mut reserved);
-            assert_eq!(
-                MediaPayload::open(&reserved),
-                Err(MediaPayloadError::ReservedNonZero { offset })
-            );
+    fn metadata_and_data_have_disjoint_integrity_coverage() {
+        let sections = [
+            TestSection {
+                kind: MediaSectionKind::SURFACE.raw(),
+                flags: 1,
+                offset: 80,
+                bytes: &[1; 4],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 96,
+                bytes: &[2; 4],
+            },
+            TestSection {
+                kind: 0x8000,
+                flags: 0,
+                offset: 108,
+                bytes: &[3; 4],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 120,
+                bytes: &[4; 4],
+            },
+        ];
+        let base = payload(&sections, 0);
+        MediaPayload::open(&base).unwrap().validate_data().unwrap();
+        for offset in 0..base.len() {
+            let mut changed = base.clone();
+            changed[offset] ^= 1;
+            let metadata = MediaPayload::open(&changed);
+            if (96..100).contains(&offset) || (120..124).contains(&offset) {
+                assert!(metadata.is_ok(), "DATA byte {offset}");
+                assert!(matches!(
+                    metadata.unwrap().validate_data(),
+                    Err(MediaPayloadError::DataCrcMismatch { .. })
+                ));
+            } else {
+                assert!(metadata.is_err(), "metadata or padding byte {offset}");
+            }
         }
+    }
+
+    #[test]
+    fn header_has_only_identity_count_and_metadata_checksum() {
+        let bytes = payload(&[], 0);
+        assert_eq!(bytes.len(), 12);
+        assert_eq!(&bytes[..4], &[1, 0, 0, 0]);
+        assert_eq!(&bytes[8..], &[0; 4]); // CRC32 of no DATA.
+        let media = MediaPayload::open(&bytes).unwrap();
+        assert_eq!(media.header().metadata_crc32(), media.metadata_crc());
+        media.validate_data().unwrap();
     }
 
     #[test]
@@ -826,7 +793,7 @@ mod tests {
                 bytes: &[0; 4],
             },
         ];
-        let base = payload(&valid, 0, 0, 0);
+        let base = payload(&valid, 0);
 
         let mut zero_kind = base.clone();
         write_u16_le(&mut zero_kind, MEDIA_HEADER_LEN, 0);
@@ -837,14 +804,14 @@ mod tests {
         );
 
         let mut before = base.clone();
-        write_u32_le(&mut before, MEDIA_HEADER_LEN + 4, 55);
+        write_u32_le(&mut before, MEDIA_HEADER_LEN + 4, 31);
         reseal(&mut before);
         assert_eq!(
             MediaPayload::open(&before),
             Err(MediaPayloadError::SectionBeforeBodies {
                 index: 0,
-                offset: 55,
-                minimum: 56,
+                offset: 31,
+                minimum: 32,
             })
         );
 
@@ -884,32 +851,16 @@ mod tests {
     }
 
     #[test]
-    fn exact_payload_size_and_crc_are_enforced() {
-        let mut bytes = payload(&[], 0, 0, 0);
-        let actual_len = bytes.len();
-        write_u32_le(&mut bytes, 12, (actual_len + 1) as u32);
-        reseal(&mut bytes);
+    fn unknown_version_is_rejected_before_header_length() {
         assert_eq!(
-            MediaPayload::open(&bytes),
-            Err(MediaPayloadError::PayloadLengthMismatch {
-                expected: actual_len + 1,
-                actual: actual_len,
-            })
+            MediaPayload::open(&[2]),
+            Err(MediaPayloadError::UnsupportedVersion(2))
         );
-
-        write_u32_le(&mut bytes, 12, actual_len as u32);
-        reseal(&mut bytes);
-        let last = bytes.len() - 1;
-        bytes[last] ^= 0x80;
-        assert!(matches!(
-            MediaPayload::open(&bytes),
-            Err(MediaPayloadError::CrcMismatch { .. })
-        ));
     }
 
     #[test]
     fn every_header_prefix_truncation_is_reported() {
-        let bytes = payload(&[], 0, 0, 0);
+        let bytes = payload(&[], 0);
         for available in 0..MEDIA_HEADER_LEN + MEDIA_CRC_LEN {
             assert!(matches!(
                 MediaPayload::open(&bytes[..available]),

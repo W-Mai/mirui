@@ -455,7 +455,7 @@ mod tests {
     }
 
     #[test]
-    fn chunk_unsupported_compression_is_rejected() {
+    fn raw_chunk_access_rejects_coded_sections() {
         let pixels = vec![0u8; 8];
         let input = ImageChunkInput {
             width: 2,
@@ -466,12 +466,15 @@ mod tests {
             extra: None,
         };
         let mut encoded = encode_chunk_image(&input);
-        encoded[60 + 24] = 1;
+        encoded[60 + crate::media::MEDIA_HEADER_LEN] =
+            crate::media::MediaSectionKind::CODINGS.raw() as u8;
         crate::image::test_support::refresh_crc(&mut encoded[60..]);
         assert!(matches!(
             parse_chunk(&encoded),
             Err(ParseError::InvalidImage(crate::ImagePayloadError::Media(
-                crate::image::RawImageViewError::UnsupportedCoding(_)
+                crate::image::RawImageViewError::UnexpectedSection(
+                    crate::media::MediaSectionKind::CODINGS
+                )
             )))
         ));
     }

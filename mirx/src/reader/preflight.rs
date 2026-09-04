@@ -841,7 +841,7 @@ mod tests {
     #[test]
     fn critical_image_preflight_uses_the_sectioned_contract() {
         use crate::image::RawImageView;
-        use crate::media::{CodingId, MediaPayloadError};
+        use crate::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MediaPayloadError};
         let short = encode_chunks(&[(
             chunk_type::IMAGE,
             ChunkFlags::CRITICAL.bits(),
@@ -850,23 +850,29 @@ mod tests {
         assert_critical_image_failure(
             &short,
             RawImageViewError::Media(MediaPayloadError::Truncated {
-                needed: 36,
+                needed: MEDIA_HEADER_LEN + MEDIA_CRC_LEN,
                 available: 5,
             }),
         );
-        // Reserved header bytes, unsupported coding, section bounds, surface
+        // Header checksum, unsupported sections, section bounds, surface
         // metadata and pixel integrity all pass through the same validator.
-        for (offset, value) in [(7, 1), (24, 7), (36, 0xff), (64, 0xff), (48, 0xff)] {
+        for (offset, value) in [
+            (7, 1),
+            (MEDIA_HEADER_LEN, 3),
+            (MEDIA_HEADER_LEN + 4, 0xff),
+            (32, 0xff),
+            (64, 0xff),
+        ] {
             let mut payload = valid_image_payload();
             payload[offset] = value;
-            let end = payload.len() - 4;
-            let checksum = crc32(&payload[..end]);
-            payload[end..].copy_from_slice(&checksum.to_le_bytes());
+            if offset != 7 && offset != 64 {
+                crate::image::test_support::refresh_crc(&mut payload);
+            }
             let error = RawImageView::open_at(&payload, 60).unwrap_err();
-            if offset == 24 {
+            if offset == MEDIA_HEADER_LEN {
                 assert_eq!(
                     error,
-                    RawImageViewError::UnsupportedCoding(CodingId::new(7))
+                    RawImageViewError::UnexpectedSection(crate::media::MediaSectionKind::CODINGS)
                 );
             }
             let file = encode_chunks(&[(chunk_type::IMAGE, ChunkFlags::CRITICAL.bits(), &payload)]);
@@ -901,12 +907,11 @@ mod tests {
 
     #[test]
     fn noncritical_malformed_image_opens_but_explicit_scan_reports_location() {
-        use crate::media::CodingId;
+        use crate::media::{MEDIA_HEADER_LEN, MediaSectionKind};
         let mut payload = valid_image_payload();
-        payload[24..26].copy_from_slice(&3u16.to_le_bytes());
-        let end = payload.len() - 4;
-        let checksum = crc32(&payload[..end]);
-        payload[end..].copy_from_slice(&checksum.to_le_bytes());
+        payload[MEDIA_HEADER_LEN..MEDIA_HEADER_LEN + 2]
+            .copy_from_slice(&MediaSectionKind::CODINGS.raw().to_le_bytes());
+        crate::image::test_support::refresh_crc(&mut payload);
         let bytes = encode_chunks(&[(chunk_type::IMAGE, 0, &payload)]);
         let reader = Reader::open(&bytes).unwrap();
         assert_eq!(reader.chunks().next().unwrap().payload(), payload);
@@ -918,8 +923,8 @@ mod tests {
                     chunk_type: ChunkType::IMAGE,
                     payload_offset: payload_offset(&bytes, 0),
                 },
-                failure: PayloadValidationFailure::Image(RawImageViewError::UnsupportedCoding(
-                    CodingId::new(3)
+                failure: PayloadValidationFailure::Image(RawImageViewError::UnexpectedSection(
+                    MediaSectionKind::CODINGS
                 ),),
             })
         );

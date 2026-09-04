@@ -6,7 +6,7 @@ use super::{
 };
 use crate::crc32::Crc32;
 use crate::media::{
-    CodingId, MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionFlags,
+    MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionFlags,
     MediaSectionKind,
 };
 use crate::wire::{write_u16_le, write_u32_le};
@@ -146,7 +146,6 @@ struct RawImagePlan<'a> {
     color_table_offset: Option<usize>,
     data_offset: usize,
     data_len: u32,
-    required_alignment_log2: u8,
     payload_len: usize,
 }
 
@@ -194,7 +193,6 @@ impl<'a> RawImagePlan<'a> {
             color_table_offset,
             data_offset,
             data_len,
-            required_alignment_log2,
             payload_len,
         })
     }
@@ -203,13 +201,7 @@ impl<'a> RawImagePlan<'a> {
         let mut header = [0; MEDIA_HEADER_LEN];
         header[0] = MEDIA_VERSION;
         write_u16_le(&mut header, 2, self.section_count);
-        write_u16_le(&mut header, 4, MEDIA_SECTION_LEN as u16);
-        header[6] = self.required_alignment_log2;
-        write_u32_le(&mut header, 8, MEDIA_HEADER_LEN as u32);
-        write_u32_le(&mut header, 12, self.payload_len as u32);
-        write_u32_le(&mut header, 16, self.data_len);
-        write_u16_le(&mut header, 24, CodingId::RAW.raw());
-        out.write(&header);
+        out.header(&header);
 
         let surface_offset = MEDIA_HEADER_LEN + usize::from(self.section_count) * MEDIA_SECTION_LEN;
         out.section(
@@ -261,6 +253,7 @@ impl<'a> RawImagePlan<'a> {
             out.write(table.as_bytes());
         }
         out.pad_to(self.data_offset);
+        out.in_data = true;
         for plane in self.view.planes() {
             out.pad_to(self.data_offset + plane.memory().data_offset() as usize);
             out.write(plane.bytes());
@@ -279,6 +272,8 @@ struct PayloadOutput<'a> {
     destination: Destination<'a>,
     cursor: usize,
     crc: Crc32,
+    metadata_crc: Crc32,
+    in_data: bool,
 }
 
 impl<'a> PayloadOutput<'a> {
@@ -287,6 +282,8 @@ impl<'a> PayloadOutput<'a> {
             destination: Destination::Buffer(bytes),
             cursor: 0,
             crc: Crc32::new(),
+            metadata_crc: Crc32::new(),
+            in_data: false,
         }
     }
 
@@ -295,22 +292,37 @@ impl<'a> PayloadOutput<'a> {
             destination: Destination::Comparison { bytes, equal: true },
             cursor: 0,
             crc: Crc32::new(),
+            metadata_crc: Crc32::new(),
+            in_data: false,
         }
     }
 
-    fn write(&mut self, bytes: &[u8]) {
-        let end = self.cursor + bytes.len();
+    fn header(&mut self, bytes: &[u8; MEDIA_HEADER_LEN]) {
+        self.write(&bytes[..4]);
+        self.cursor = MEDIA_HEADER_LEN;
+    }
+
+    fn write_at(&mut self, offset: usize, bytes: &[u8]) {
+        let end = offset + bytes.len();
         match &mut self.destination {
-            Destination::Buffer(out) => out[self.cursor..end].copy_from_slice(bytes),
+            Destination::Buffer(out) => out[offset..end].copy_from_slice(bytes),
             Destination::Comparison {
                 bytes: candidate,
                 equal,
             } => {
-                *equal &= candidate[self.cursor..end] == *bytes;
+                *equal &= candidate[offset..end] == *bytes;
             }
         }
-        self.crc.update(bytes);
-        self.cursor = end;
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        self.write_at(self.cursor, bytes);
+        if self.in_data {
+            self.crc.update(bytes);
+        } else {
+            self.metadata_crc.update(bytes);
+        }
+        self.cursor += bytes.len();
     }
 
     fn pad_to(&mut self, offset: usize) {
@@ -332,7 +344,10 @@ impl<'a> PayloadOutput<'a> {
 
     fn finish(mut self) -> bool {
         let crc = core::mem::replace(&mut self.crc, Crc32::new()).finish();
+        self.in_data = false;
         self.write(&crc.to_le_bytes());
+        let metadata_crc = core::mem::replace(&mut self.metadata_crc, Crc32::new()).finish();
+        self.write_at(4, &metadata_crc.to_le_bytes());
         match self.destination {
             Destination::Buffer(_) => true,
             Destination::Comparison { equal, .. } => equal,
