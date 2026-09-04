@@ -44,6 +44,7 @@ pub(crate) mod test_support;
 
 mod borrowed;
 mod color;
+mod coverage;
 mod encode;
 mod grid;
 mod layout;
@@ -60,6 +61,7 @@ pub use color::{
     ChromaSiting, ColorDescription, ColorDescriptionError, ColorMatrix, ColorPrimaries, ColorRange,
     TransferFunction,
 };
+pub use coverage::{CoverageBudget, CoverageError};
 pub use encode::{RawImageAsset, RawImageEncodeError};
 pub use grid::{Region, RegionError, TileGrid, TileGridError, Tiles};
 pub use layout::{PlaneGeometries, PlaneGeometry, PlaneRole, SampleLayout};

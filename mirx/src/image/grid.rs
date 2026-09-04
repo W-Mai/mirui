@@ -51,6 +51,16 @@ impl Region {
         self.width == 0 || self.height == 0
     }
 
+    /// Tests positive-area intersection; touching edges and empty regions do not overlap.
+    pub const fn intersects(self, other: Self) -> bool {
+        !self.is_empty()
+            && !other.is_empty()
+            && self.x() < other.right()
+            && other.x() < self.right()
+            && self.y() < other.bottom()
+            && other.y() < self.bottom()
+    }
+
     /// Maps an exact surface region into one plane's element coordinates.
     ///
     /// Interior boundaries must align to subsampling. Only the outer surface

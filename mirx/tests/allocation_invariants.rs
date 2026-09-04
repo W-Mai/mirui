@@ -684,3 +684,28 @@ fn group_record_read_write_and_resolution_allocate_nothing() {
     });
     assert_eq!(allocations, 0);
 }
+
+#[test]
+fn image_coverage_and_selection_windows_allocate_nothing() {
+    use mirx::image::{CoverageBudget, UnitGroup};
+    use mirx::media::{CodingId, CodingRecord, UnitSelection};
+    let surface = SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let cells = [0; 4];
+    let (_, allocations) = count_allocations(|| {
+        let selection = UnitSelection::list(2, &cells).unwrap();
+        assert_eq!(selection.range(0..1).unwrap().len(), 1);
+        let group = UnitGroup::builder(
+            surface,
+            CodingRecord::new(CodingId::new(19), 1, &[]),
+            &[1; 2],
+        )
+        .with_tiles(1, 1)
+        .build()
+        .unwrap();
+        assert_eq!(
+            surface.validate_coverage(&[group], &mut CoverageBudget::new(10)),
+            Ok(())
+        );
+    });
+    assert_eq!(allocations, 0);
+}

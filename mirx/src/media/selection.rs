@@ -1,4 +1,4 @@
-use core::iter::FusedIterator;
+use core::{iter::FusedIterator, ops::Range};
 
 use crate::wire::{read_u32_le, write_u32_le};
 
@@ -149,34 +149,55 @@ impl<'a> UnitSelection<'a> {
         if cell >= self.cell_count {
             return None;
         }
+        if let Storage::Bitmap { bits, .. } = self.storage {
+            return (bits[cell as usize / 8] & (1 << (cell % 8)) != 0).then(|| self.rank(cell));
+        }
+        let ordinal = self.rank(cell);
+        (self.get(ordinal) == Some(cell)).then_some(ordinal)
+    }
+
+    /// Selects a half-open grid-cell interval without scanning earlier cells.
+    /// Returns None for reversed or out-of-bounds intervals.
+    pub fn range(self, cells: Range<u32>) -> Option<SelectedUnits<'a>> {
+        if cells.start > cells.end || cells.end > self.cell_count {
+            return None;
+        }
+        Some(SelectedUnits {
+            selection: self,
+            front: self.rank(cells.start),
+            back: self.rank(cells.end),
+        })
+    }
+
+    fn rank(self, cell: u32) -> usize {
+        if cell == self.cell_count {
+            return self.count;
+        }
         match self.storage {
-            Storage::All => Some(cell as usize),
+            Storage::All => cell as usize,
             Storage::List(bytes) => {
                 let mut low = 0;
                 let mut high = self.count;
                 while low < high {
                     let middle = low + (high - low) / 2;
-                    match read_u32_le(bytes, middle * 4).unwrap().cmp(&cell) {
-                        core::cmp::Ordering::Less => low = middle + 1,
-                        core::cmp::Ordering::Greater => high = middle,
-                        core::cmp::Ordering::Equal => return Some(middle),
+                    if read_u32_le(bytes, middle * 4).unwrap() < cell {
+                        low = middle + 1;
+                    } else {
+                        high = middle;
                     }
                 }
-                None
+                low
             }
             Storage::Bitmap { checkpoints, bits } => {
                 let byte_index = cell as usize / 8;
-                let mask = 1u8 << (cell % 8);
-                if bits[byte_index] & mask == 0 {
-                    return None;
-                }
                 let block = cell as usize / SELECTION_CHECKPOINT_INTERVAL;
                 let prefix = read_u32_le(checkpoints, block * 4).unwrap();
                 let preceding = bits[block * CHECKPOINT_BYTES..byte_index]
                     .iter()
                     .map(|byte| byte.count_ones())
                     .sum::<u32>();
-                Some((prefix + preceding + (bits[byte_index] & (mask - 1)).count_ones()) as usize)
+                let mask = (1u8 << (cell % 8)) - 1;
+                (prefix + preceding + (bits[byte_index] & mask).count_ones()) as usize
             }
         }
     }
@@ -491,5 +512,44 @@ mod tests {
             assert!(encoding.encode_into(10, &[1], &mut out[..1]).is_err());
             assert_eq!(out, [0xa5; 20]);
         }
+    }
+
+    #[test]
+    fn selected_cell_ranges_share_rank_boundaries_across_forms() {
+        let cells = [0, 7, 8, 255, 256, 511, 512];
+        for encoding in [UnitSelectionEncoding::List, UnitSelectionEncoding::Bitmap] {
+            let mut bytes = vec![0; encoding.encoded_len(513, &cells).unwrap()];
+            encoding.encode_into(513, &cells, &mut bytes).unwrap();
+            let selection = match encoding {
+                UnitSelectionEncoding::List => UnitSelection::list(513, &bytes),
+                UnitSelectionEncoding::Bitmap => UnitSelection::bitmap(513, &bytes),
+            }
+            .unwrap();
+            for start in [0, 1, 7, 8, 9, 254, 255, 256, 257, 511, 512, 513] {
+                for end in [0, 1, 7, 8, 9, 254, 255, 256, 257, 511, 512, 513] {
+                    if start > end {
+                        assert!(selection.range(start..end).is_none());
+                        continue;
+                    }
+                    let expected: alloc::vec::Vec<_> = cells
+                        .iter()
+                        .copied()
+                        .filter(|cell| *cell >= start && *cell < end)
+                        .collect();
+                    let range = selection.range(start..end).unwrap();
+                    assert_eq!(range.len(), expected.len());
+                    assert!(range.clone().eq(expected.iter().copied()));
+                    assert!(range.rev().eq(expected.iter().rev().copied()));
+                }
+            }
+            assert!(selection.range(0..514).is_none());
+        }
+        let all = UnitSelection::all(u32::MAX).unwrap();
+        assert!(
+            all.range(u32::MAX - 2..u32::MAX)
+                .unwrap()
+                .eq([u32::MAX - 2, u32::MAX - 1])
+        );
+        assert_eq!(all.range(0..u32::MAX).unwrap().count(), u32::MAX as usize);
     }
 }

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bounded image coverage.** Exact per-plane coverage and overlap checks support sparse groups with different tile sizes and joint/planar coordinates. Explicit operation budgets bound validation work without allocating a coverage bitmap; selected-cell range queries avoid prefix scans.
+
 - **Shared group records.** Checked 36-byte records resolve coding, plane geometry, sparse selection, and compact byte indexes into borrowed image units. Index lengths and fixed unit sizes are derived; metadata read/write and resolution use caller-owned storage without allocation.
 
 - **Borrowed image units.** `image::UnitGroup` combines shared coding, regular geometry, sparse selection, and encoded ranges into `DecodeUnitRef` values without allocation. Joint and independent plane groups retain exact chroma boundaries, reference rules, and separate offset/address alignment checks.
