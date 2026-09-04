@@ -52,11 +52,11 @@ impl<'a> RawImageView<'a> {
         self.surface.plane_count()
     }
 
-    pub fn plane(self, index: u8) -> Option<RawImagePlane<'a>> {
+    pub fn plane(self, index: u8) -> Option<SurfacePlane<'a>> {
         let geometry = self.surface.plane(index)?;
         let memory = self.plane_memory(index, geometry).ok()?;
         let bytes = memory.bytes(self.data.bytes())?;
-        Some(RawImagePlane {
+        Some(SurfacePlane {
             geometry,
             memory,
             bytes,
@@ -232,13 +232,13 @@ impl<'a> RawImageView<'a> {
 
 /// One borrowed RAW image plane and its logical and physical descriptors.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RawImagePlane<'a> {
-    geometry: PlaneGeometry,
-    memory: PlaneMemoryLayout,
-    bytes: &'a [u8],
+pub struct SurfacePlane<'a> {
+    pub(super) geometry: PlaneGeometry,
+    pub(super) memory: PlaneMemoryLayout,
+    pub(super) bytes: &'a [u8],
 }
 
-impl<'a> RawImagePlane<'a> {
+impl<'a> SurfacePlane<'a> {
     pub const fn geometry(self) -> PlaneGeometry {
         self.geometry
     }
@@ -252,7 +252,8 @@ impl<'a> RawImagePlane<'a> {
     }
 
     pub fn address_is_aligned(self) -> bool {
-        self.bytes.as_ptr() as usize % self.memory.required_alignment() as usize == 0
+        self.bytes.is_empty()
+            || self.bytes.as_ptr() as usize % self.memory.required_alignment() as usize == 0
     }
 }
 
@@ -265,7 +266,7 @@ pub struct RawImagePlanes<'a> {
 }
 
 impl<'a> Iterator for RawImagePlanes<'a> {
-    type Item = RawImagePlane<'a>;
+    type Item = SurfacePlane<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.front == self.back {

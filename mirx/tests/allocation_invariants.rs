@@ -295,6 +295,27 @@ fn image_surface_memory_planning_allocates_nothing() {
 }
 
 #[test]
+fn decoded_surface_views_allocate_nothing_and_keep_plane_pointers() {
+    let payload = raw_a8_media_payload();
+    let image = RawImageView::open(&payload).unwrap();
+    let pixel_pointer = image.plane(0).unwrap().bytes().as_ptr();
+    let ((wire_view, authored_view), allocations) = count_allocations(|| {
+        let view = image.view();
+        let planes = [view.plane(0).unwrap().bytes()];
+        let authored = RawImageAsset::new(view.surface(), &planes).view().unwrap();
+        assert_eq!(view.planes().len(), 1);
+        assert!(view.data_addresses_are_aligned());
+        (view, authored)
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(wire_view.plane(0).unwrap().bytes().as_ptr(), pixel_pointer);
+    assert_eq!(
+        authored_view.plane(0).unwrap().bytes().as_ptr(),
+        pixel_pointer
+    );
+}
+
+#[test]
 fn borrowed_reads_and_caller_buffer_encoding_allocate_nothing() {
     let bytes = typed_container();
     let (observed, read_allocations) = count_allocations(|| {

@@ -16,15 +16,15 @@ use crate::wire::{write_u16_le, write_u32_le};
 /// canonical layouts need only those bytes; padded or aligned surfaces attach
 /// one checked [`PlaneMemoryLayout`] per derived plane.
 #[derive(Clone, Copy, Debug)]
-pub struct RawImageAsset<'a> {
+pub struct RawImageAsset<'planes, 'data> {
     surface: SurfaceDescriptor,
-    planes: &'a [&'a [u8]],
-    memory: Option<&'a [PlaneMemoryLayout]>,
-    color_table: Option<&'a [u8]>,
+    planes: &'planes [&'data [u8]],
+    memory: Option<&'planes [PlaneMemoryLayout]>,
+    color_table: Option<&'data [u8]>,
 }
 
-impl<'a> RawImageAsset<'a> {
-    pub const fn new(surface: SurfaceDescriptor, planes: &'a [&'a [u8]]) -> Self {
+impl<'planes, 'data> RawImageAsset<'planes, 'data> {
+    pub const fn new(surface: SurfaceDescriptor, planes: &'planes [&'data [u8]]) -> Self {
         Self {
             surface,
             planes,
@@ -33,13 +33,13 @@ impl<'a> RawImageAsset<'a> {
         }
     }
 
-    pub const fn with_memory_layouts(mut self, memory: &'a [PlaneMemoryLayout]) -> Self {
+    pub const fn with_memory_layouts(mut self, memory: &'planes [PlaneMemoryLayout]) -> Self {
         self.memory = Some(memory);
         self
     }
 
     /// Attaches straight-alpha RGBA entries for an indexed sample layout.
-    pub const fn with_color_table(mut self, rgba: &'a [u8]) -> Self {
+    pub const fn with_color_table(mut self, rgba: &'data [u8]) -> Self {
         self.color_table = Some(rgba);
         self
     }
@@ -48,16 +48,23 @@ impl<'a> RawImageAsset<'a> {
         self.surface
     }
 
-    pub const fn planes(self) -> &'a [&'a [u8]] {
+    pub const fn planes(self) -> &'planes [&'data [u8]] {
         self.planes
     }
 
-    pub const fn memory_layouts(self) -> Option<&'a [PlaneMemoryLayout]> {
+    pub const fn memory_layouts(self) -> Option<&'planes [PlaneMemoryLayout]> {
         self.memory
     }
 
-    pub const fn color_table(self) -> Option<&'a [u8]> {
+    pub const fn color_table(self) -> Option<&'data [u8]> {
         self.color_table
+    }
+
+    /// Validates and borrows the decoded surface without encoding it.
+    /// The result borrows plane bytes, not the temporary plane-reference array.
+    pub fn view(self) -> Result<super::SurfaceView<'data>, RawImageEncodeError> {
+        RawImagePlan::new(self)?;
+        Ok(super::SurfaceView::from_asset(self))
     }
 
     /// Returns the exact canonical payload length after complete validation.
@@ -85,8 +92,8 @@ impl<'a> RawImageAsset<'a> {
 }
 
 #[derive(Clone, Copy, Debug)]
-struct RawImagePlan<'a> {
-    asset: RawImageAsset<'a>,
+struct RawImagePlan<'planes, 'data> {
+    asset: RawImageAsset<'planes, 'data>,
     section_count: u16,
     planes_offset: Option<usize>,
     color_table_offset: Option<usize>,
@@ -96,8 +103,8 @@ struct RawImagePlan<'a> {
     payload_len: usize,
 }
 
-impl<'a> RawImagePlan<'a> {
-    fn new(asset: RawImageAsset<'a>) -> Result<Self, RawImageEncodeError> {
+impl<'planes, 'data> RawImagePlan<'planes, 'data> {
+    fn new(asset: RawImageAsset<'planes, 'data>) -> Result<Self, RawImageEncodeError> {
         let plane_count = usize::from(asset.surface.plane_count());
         if asset.planes.len() != plane_count {
             return Err(RawImageEncodeError::PlaneCountMismatch {
@@ -304,7 +311,7 @@ pub enum RawImageEncodeError {
     AllocationFailed,
 }
 
-fn validate_color_table(asset: RawImageAsset<'_>) -> Result<usize, RawImageEncodeError> {
+fn validate_color_table(asset: RawImageAsset<'_, '_>) -> Result<usize, RawImageEncodeError> {
     match (
         asset.surface.sample_layout().color_table_entries(),
         asset.color_table,
@@ -328,7 +335,7 @@ fn validate_color_table(asset: RawImageAsset<'_>) -> Result<usize, RawImageEncod
     }
 }
 
-fn validate_planes(asset: RawImageAsset<'_>) -> Result<(u32, u8), RawImageEncodeError> {
+fn validate_planes(asset: RawImageAsset<'_, '_>) -> Result<(u32, u8), RawImageEncodeError> {
     let mut previous_end = 0;
     let mut alignment_log2 = 0;
     for (index, bytes) in asset.planes.iter().enumerate() {

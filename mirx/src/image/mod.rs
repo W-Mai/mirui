@@ -21,7 +21,23 @@
 //! assert_eq!(plane.stride(), 1280);
 //! assert_eq!(plan.buffer_requirements().base_alignment(), 64);
 //! ```
+//!
+//! Borrowed surfaces can be inspected before serialization:
+//!
+//! ```
+//! use mirx::image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor};
+//!
+//! let surface = SurfaceDescriptor::new(
+//!     2, 2, SampleLayout::NV12, ColorDescription::BT709_YUV_LIMITED,
+//! ).unwrap();
+//! let y = [16; 4];
+//! let uv = [128; 2];
+//! let view = RawImageAsset::new(surface, &[&y, &uv]).view().unwrap();
+//! assert_eq!(view.plane(0).unwrap().bytes(), y);
+//! assert_eq!(view.plane(1).unwrap().memory().stride(), 2);
+//! ```
 
+mod borrowed;
 mod color;
 mod encode;
 mod layout;
@@ -30,6 +46,7 @@ mod plan;
 mod surface;
 mod view;
 
+pub use borrowed::{SurfacePlanes, SurfaceView};
 pub use color::{
     ChromaSiting, ColorDescription, ColorDescriptionError, ColorMatrix, ColorPrimaries, ColorRange,
     TransferFunction,
@@ -47,4 +64,4 @@ pub use plan::{
 pub use surface::{
     SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError,
 };
-pub use view::{RawImagePlane, RawImagePlanes, RawImageView, RawImageViewError};
+pub use view::{RawImagePlanes, RawImageView, RawImageViewError, SurfacePlane};
