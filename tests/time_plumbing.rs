@@ -6,12 +6,15 @@
 use mirui::core::log::sinks::RingBufferSink;
 use mirui::core::log::{Level, clear_sinks, install_sink, set_max_level};
 use mirui::core::time::{clock_now_ns, is_clock_installed, mock};
+use std::sync::Mutex;
+
+// Clock installation is process-wide. Keep real-clock reads and mock teardown
+// inside the same fixture lock, not only the lifetime of the mock handle.
+static CLOCK_STATE: Mutex<()> = Mutex::new(());
 
 #[test]
 fn std_auto_anchors_first_log_and_stays_monotonic() {
-    let _serial = mock::install();
-    // Uninstall the mock: this test asserts the real std clock.
-    drop(_serial);
+    let _serial = CLOCK_STATE.lock().unwrap();
 
     clear_sinks();
     set_max_level(Level::Info);
@@ -45,6 +48,7 @@ fn std_auto_anchors_first_log_and_stays_monotonic() {
 
 #[test]
 fn mock_install_routes_clock_reads_through_mock_buffer() {
+    let _serial = CLOCK_STATE.lock().unwrap();
     let _guard = mock::install();
     mock::set_ns(42_000);
     assert_eq!(clock_now_ns(), 42_000);
@@ -54,6 +58,7 @@ fn mock_install_routes_clock_reads_through_mock_buffer() {
 
 #[test]
 fn mock_drop_restores_real_clock_source() {
+    let _serial = CLOCK_STATE.lock().unwrap();
     let baseline = clock_now_ns();
     {
         let _guard = mock::install();
