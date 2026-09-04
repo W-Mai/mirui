@@ -2,17 +2,44 @@ use core::{iter::FusedIterator, ops::Range};
 
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
+#[cfg(test)]
+mod aligned_tests;
+
 /// Number of units between stored length-table checkpoints.
 pub const UNIT_CHECKPOINT_INTERVAL: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Storage<'a> {
-    Fixed(u32),
+    Fixed {
+        size: u32,
+        step: u32,
+    },
     Offsets(&'a [u8]),
-    Checkpointed {
+    Lengths {
         checkpoints: &'a [u8],
         lengths: &'a [u8],
+        width: LengthWidth,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum LengthWidth {
+    U16,
+    U32,
+}
+impl LengthWidth {
+    fn bytes(self) -> usize {
+        match self {
+            Self::U16 => 2,
+            Self::U32 => 4,
+        }
+    }
+    fn read(self, bytes: &[u8], index: usize) -> u32 {
+        match self {
+            Self::U16 => u32::from(read_u16_le(bytes, index * 2).expect("complete unit length")),
+            Self::U32 => read_u32_le(bytes, index * 4).expect("complete unit length"),
+        }
+    }
 }
 
 /// Validated DATA-relative byte ranges without per-unit geometry or allocation.
@@ -24,19 +51,36 @@ pub struct UnitIndex<'a> {
     storage: Storage<'a>,
     count: usize,
     byte_len: u32,
+    alignment: u32,
 }
 
 impl<'a> UnitIndex<'a> {
     /// Derives equal-size ranges without storing any index bytes.
-    pub fn fixed(count: u32, unit_bytes: u32) -> Result<Self, UnitIndexError> {
-        let byte_len = count
-            .checked_mul(unit_bytes)
-            .ok_or(UnitIndexError::SizeOverflow)?;
+    /// Alignment pads starts between units, never the final unit's end.
+    pub fn fixed(count: u32, unit_bytes: u32, alignment: u32) -> Result<Self, UnitIndexError> {
+        Self::validate_alignment(alignment)?;
+        let step = if count > 1 {
+            Self::aligned(unit_bytes, alignment)?
+        } else {
+            unit_bytes
+        };
+        let byte_len = if count == 0 {
+            0
+        } else {
+            (count - 1)
+                .checked_mul(step)
+                .and_then(|n| n.checked_add(unit_bytes))
+                .ok_or(UnitIndexError::SizeOverflow)?
+        };
         let count = usize::try_from(count).map_err(|_| UnitIndexError::SizeOverflow)?;
         Ok(Self {
-            storage: Storage::Fixed(unit_bytes),
+            storage: Storage::Fixed {
+                size: unit_bytes,
+                step,
+            },
             count,
             byte_len,
+            alignment,
         })
     }
 
@@ -68,6 +112,7 @@ impl<'a> UnitIndex<'a> {
             storage: Storage::Offsets(bytes),
             count,
             byte_len: previous,
+            alignment: 1,
         })
     }
 
@@ -76,9 +121,29 @@ impl<'a> UnitIndex<'a> {
     /// One checkpoint precedes each block of 64 units. Opening validates every
     /// checkpoint and the total byte length; random access sums at most 63
     /// preceding lengths. Sequential iteration reads each length only once.
-    pub fn checkpointed(count: u32, bytes: &'a [u8]) -> Result<Self, UnitIndexError> {
+    /// Checkpoints are aligned physical starts; lengths exclude all padding.
+    pub fn lengths16(count: u32, bytes: &'a [u8], alignment: u32) -> Result<Self, UnitIndexError> {
+        Self::lengths(count, bytes, alignment, LengthWidth::U16)
+    }
+
+    /// Borrows u32 checkpoints and u32 lengths with the same 64-unit access bound.
+    pub fn lengths32(count: u32, bytes: &'a [u8], alignment: u32) -> Result<Self, UnitIndexError> {
+        Self::lengths(count, bytes, alignment, LengthWidth::U32)
+    }
+
+    fn lengths(
+        count: u32,
+        bytes: &'a [u8],
+        alignment: u32,
+        width: LengthWidth,
+    ) -> Result<Self, UnitIndexError> {
+        Self::validate_alignment(alignment)?;
         let count = usize::try_from(count).map_err(|_| UnitIndexError::SizeOverflow)?;
-        let needed = UnitIndexEncoding::Checkpointed.table_len(count)?;
+        let encoding = match width {
+            LengthWidth::U16 => UnitIndexEncoding::Lengths16,
+            LengthWidth::U32 => UnitIndexEncoding::Lengths32,
+        };
+        let needed = encoding.table_len(count)?;
         if bytes.len() != needed {
             return Err(UnitIndexError::LengthMismatch {
                 expected: needed,
@@ -89,30 +154,31 @@ impl<'a> UnitIndex<'a> {
         let (checkpoints, lengths) = bytes.split_at(checkpoint_count * 4);
         let mut byte_len = 0u32;
         for index in 0..count {
+            let start = Self::aligned(byte_len, alignment)?;
             if index % UNIT_CHECKPOINT_INTERVAL == 0 {
                 let actual = read_u32_le(checkpoints, index / UNIT_CHECKPOINT_INTERVAL * 4)
                     .expect("complete checkpoint");
-                if actual != byte_len {
+                if actual != start {
                     return Err(UnitIndexError::CheckpointMismatch {
                         index: index as u32,
-                        expected: byte_len,
+                        expected: start,
                         actual,
                     });
                 }
             }
-            byte_len = byte_len
-                .checked_add(u32::from(
-                    read_u16_le(lengths, index * 2).expect("complete unit length"),
-                ))
+            byte_len = start
+                .checked_add(width.read(lengths, index))
                 .ok_or(UnitIndexError::SizeOverflow)?;
         }
         Ok(Self {
-            storage: Storage::Checkpointed {
+            storage: Storage::Lengths {
                 checkpoints,
                 lengths,
+                width,
             },
             count,
             byte_len,
+            alignment,
         })
     }
 
@@ -132,16 +198,18 @@ impl<'a> UnitIndex<'a> {
             return None;
         }
         let start = match self.storage {
-            Storage::Fixed(size) => index as u32 * size,
+            Storage::Fixed { step, .. } => index as u32 * step,
             Storage::Offsets(bytes) => read_u32_le(bytes, index * 4)?,
-            Storage::Checkpointed {
+            Storage::Lengths {
                 checkpoints,
                 lengths,
+                width,
             } => {
                 let block = index / UNIT_CHECKPOINT_INTERVAL;
                 let mut offset = read_u32_le(checkpoints, block * 4)?;
                 for preceding in block * UNIT_CHECKPOINT_INTERVAL..index {
-                    offset += u32::from(read_u16_le(lengths, preceding * 2)?);
+                    offset = Self::aligned(offset + width.read(lengths, preceding), self.alignment)
+                        .expect("validated unit start");
                 }
                 offset
             }
@@ -161,15 +229,27 @@ impl<'a> UnitIndex<'a> {
 
     fn unit_len(self, index: usize) -> u32 {
         match self.storage {
-            Storage::Fixed(size) => size,
+            Storage::Fixed { size, .. } => size,
             Storage::Offsets(bytes) => {
                 read_u32_le(bytes, (index + 1) * 4).unwrap()
                     - read_u32_le(bytes, index * 4).unwrap()
             }
-            Storage::Checkpointed { lengths, .. } => {
-                u32::from(read_u16_le(lengths, index * 2).unwrap())
-            }
+            Storage::Lengths { lengths, width, .. } => width.read(lengths, index),
         }
+    }
+
+    fn validate_alignment(alignment: u32) -> Result<(), UnitIndexError> {
+        if alignment.is_power_of_two() {
+            Ok(())
+        } else {
+            Err(UnitIndexError::InvalidAlignment(alignment))
+        }
+    }
+    pub(crate) fn aligned(offset: u32, alignment: u32) -> Result<u32, UnitIndexError> {
+        Self::validate_alignment(alignment)?;
+        offset
+            .checked_add(offset.wrapping_neg() & (alignment - 1))
+            .ok_or(UnitIndexError::SizeOverflow)
     }
 }
 
@@ -191,9 +271,14 @@ impl Iterator for UnitRanges<'_> {
             return None;
         }
         let start = self.front_offset;
-        self.front_offset += self.index.unit_len(self.front);
+        let end = start + self.index.unit_len(self.front);
         self.front += 1;
-        Some(start..self.front_offset)
+        self.front_offset = if self.front < self.index.count {
+            UnitIndex::aligned(end, self.index.alignment).expect("validated unit start")
+        } else {
+            end
+        };
+        Some(start..end)
     }
 
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
@@ -225,9 +310,14 @@ impl DoubleEndedIterator for UnitRanges<'_> {
             return None;
         }
         self.back -= 1;
-        let end = self.back_offset;
-        self.back_offset -= self.index.unit_len(self.back);
-        Some(self.back_offset..end)
+        let len = self.index.unit_len(self.back);
+        let step = if self.back + 1 == self.index.count {
+            len
+        } else {
+            UnitIndex::aligned(len, self.index.alignment).expect("validated unit step")
+        };
+        self.back_offset -= step;
+        Some(self.back_offset..self.back_offset + len)
     }
 
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
@@ -235,9 +325,10 @@ impl DoubleEndedIterator for UnitRanges<'_> {
             self.front = self.back;
             return None;
         }
-        self.back -= n;
-        self.back_offset = self.index.get(self.back - 1)?.end;
-        self.next_back()
+        self.back -= n + 1;
+        let range = self.index.get(self.back)?;
+        self.back_offset = range.start;
+        Some(range)
     }
 }
 
@@ -251,20 +342,24 @@ impl FusedIterator for UnitRanges<'_> {}
 /// Explicit wire representation for a variable-size unit index.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum UnitIndexEncoding {
+    /// Adjacent u32 offsets, including the final end; no inter-unit gaps.
     Offsets,
-    Checkpointed,
+    /// A physical-start checkpoint per 64 units, followed by u16 coded lengths.
+    Lengths16,
+    /// A physical-start checkpoint per 64 units, followed by u32 coded lengths.
+    Lengths32,
 }
 
 impl UnitIndexEncoding {
     pub(crate) fn table_len(self, count: usize) -> Result<usize, UnitIndexError> {
         let size = match self {
             Self::Offsets => count.checked_add(1).and_then(|count| count.checked_mul(4)),
-            Self::Checkpointed => count
+            Self::Lengths16 | Self::Lengths32 => count
                 .div_ceil(UNIT_CHECKPOINT_INTERVAL)
                 .checked_mul(4)
                 .and_then(|checkpoints| {
                     count
-                        .checked_mul(2)
+                        .checked_mul(if self == Self::Lengths16 { 2 } else { 4 })
                         .and_then(|lengths| lengths.checked_add(checkpoints))
                 }),
         }
@@ -273,15 +368,27 @@ impl UnitIndexEncoding {
         Ok(size)
     }
 
-    pub fn encoded_len(self, lengths: &[u32]) -> Result<usize, UnitIndexError> {
+    pub fn encoded_len(self, lengths: &[u32], alignment: u32) -> Result<usize, UnitIndexError> {
+        UnitIndex::validate_alignment(alignment)?;
         let needed = self.table_len(lengths.len())?;
         let mut total = 0u32;
         for (index, &length) in lengths.iter().enumerate() {
-            if self == Self::Checkpointed && length > u32::from(u16::MAX) {
+            if self == Self::Lengths16 && length > u32::from(u16::MAX) {
                 return Err(UnitIndexError::LengthTooLarge {
                     index: index as u32,
                     bytes: length,
                 });
+            }
+            if self == Self::Offsets {
+                if total % alignment != 0 {
+                    return Err(UnitIndexError::UnalignedOffset {
+                        index: index as u32,
+                        offset: total,
+                        alignment,
+                    });
+                }
+            } else {
+                total = UnitIndex::aligned(total, alignment)?;
             }
             total = total
                 .checked_add(length)
@@ -292,8 +399,13 @@ impl UnitIndexEncoding {
 
     /// Encodes caller-supplied lengths without allocation or silent format changes.
     /// Errors preserve the entire output; success preserves its unused suffix.
-    pub fn encode_into(self, lengths: &[u32], out: &mut [u8]) -> Result<usize, UnitIndexError> {
-        let needed = self.encoded_len(lengths)?;
+    pub fn encode_into(
+        self,
+        lengths: &[u32],
+        alignment: u32,
+        out: &mut [u8],
+    ) -> Result<usize, UnitIndexError> {
+        let needed = self.encoded_len(lengths, alignment)?;
         if out.len() < needed {
             return Err(UnitIndexError::BufferTooSmall {
                 needed,
@@ -309,13 +421,27 @@ impl UnitIndexEncoding {
                     write_u32_le(out, (index + 1) * 4, offset);
                 }
             }
-            Self::Checkpointed => {
+            Self::Lengths16 | Self::Lengths32 => {
+                let width = if self == Self::Lengths16 {
+                    LengthWidth::U16
+                } else {
+                    LengthWidth::U32
+                };
                 let lengths_start = lengths.len().div_ceil(UNIT_CHECKPOINT_INTERVAL) * 4;
                 for (index, &length) in lengths.iter().enumerate() {
+                    offset = UnitIndex::aligned(offset, alignment).expect("validated unit start");
                     if index % UNIT_CHECKPOINT_INTERVAL == 0 {
                         write_u32_le(out, index / UNIT_CHECKPOINT_INTERVAL * 4, offset);
                     }
-                    write_u16_le(out, lengths_start + index * 2, length as u16);
+                    let position = lengths_start + index * width.bytes();
+                    match width {
+                        LengthWidth::U16 => {
+                            write_u16_le(out, position, length as u16);
+                        }
+                        LengthWidth::U32 => {
+                            write_u32_le(out, position, length);
+                        }
+                    }
                     offset += length;
                 }
             }
@@ -327,6 +453,12 @@ impl UnitIndexEncoding {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum UnitIndexError {
+    InvalidAlignment(u32),
+    UnalignedOffset {
+        index: u32,
+        offset: u32,
+        alignment: u32,
+    },
     InvalidOffsetTableLength(usize),
     FirstOffsetNonZero(u32),
     OffsetsOutOfOrder {
@@ -367,7 +499,7 @@ mod tests {
         let expected = [0..2, 2..2, 2..5];
         for index in [
             UnitIndex::offsets(&offsets).unwrap(),
-            UnitIndex::checkpointed(3, &checkpointed).unwrap(),
+            UnitIndex::lengths16(3, &checkpointed, 1).unwrap(),
         ] {
             assert_eq!(index.len(), 3);
             assert_eq!(index.byte_len(), 5);
@@ -394,15 +526,22 @@ mod tests {
                     range
                 })
                 .collect();
-            for encoding in [UnitIndexEncoding::Offsets, UnitIndexEncoding::Checkpointed] {
-                let mut bytes = vec![0xa5; encoding.encoded_len(&lengths).unwrap() + 3];
-                let len = encoding.encode_into(&lengths, &mut bytes[1..]).unwrap();
+            for encoding in [
+                UnitIndexEncoding::Offsets,
+                UnitIndexEncoding::Lengths16,
+                UnitIndexEncoding::Lengths32,
+            ] {
+                let mut bytes = vec![0xa5; encoding.encoded_len(&lengths, 1).unwrap() + 3];
+                let len = encoding.encode_into(&lengths, 1, &mut bytes[1..]).unwrap();
                 assert_eq!(bytes[0], 0xa5);
                 assert_eq!(&bytes[1 + len..], &[0xa5; 2]);
                 let index = match encoding {
                     UnitIndexEncoding::Offsets => UnitIndex::offsets(&bytes[1..1 + len]),
-                    UnitIndexEncoding::Checkpointed => {
-                        UnitIndex::checkpointed(count, &bytes[1..1 + len])
+                    UnitIndexEncoding::Lengths16 => {
+                        UnitIndex::lengths16(count, &bytes[1..1 + len], 1)
+                    }
+                    UnitIndexEncoding::Lengths32 => {
+                        UnitIndex::lengths32(count, &bytes[1..1 + len], 1)
                     }
                 }
                 .unwrap();
@@ -429,14 +568,14 @@ mod tests {
 
     #[test]
     fn fixed_ranges_need_no_table_and_check_arithmetic() {
-        let index = UnitIndex::fixed(3, 4).unwrap();
+        let index = UnitIndex::fixed(3, 4, 1).unwrap();
         assert!(index.iter().eq([0..4, 4..8, 8..12]));
         assert_eq!(index.byte_len(), 12);
         assert_eq!(
-            UnitIndex::fixed(u32::MAX, 2),
+            UnitIndex::fixed(u32::MAX, 2, 1),
             Err(UnitIndexError::SizeOverflow)
         );
-        let large = UnitIndex::fixed(u32::MAX, 1).unwrap();
+        let large = UnitIndex::fixed(u32::MAX, 1, 1).unwrap();
         assert_eq!(large.iter().count(), u32::MAX as usize);
         assert_eq!(large.iter().last(), Some(u32::MAX - 1..u32::MAX));
         assert_eq!(
@@ -444,7 +583,7 @@ mod tests {
             Some(u32::MAX - 1..u32::MAX)
         );
         assert_eq!(large.iter().nth_back(u32::MAX as usize - 1), Some(0..1));
-        assert!(UnitIndex::fixed(0, u32::MAX).unwrap().is_empty());
+        assert!(UnitIndex::fixed(0, u32::MAX, 1).unwrap().is_empty());
     }
 
     #[test]
@@ -462,36 +601,36 @@ mod tests {
         ));
         let lengths = [1; 65];
         let mut bytes = [0; 138];
-        UnitIndexEncoding::Checkpointed
-            .encode_into(&lengths, &mut bytes)
+        UnitIndexEncoding::Lengths16
+            .encode_into(&lengths, 1, &mut bytes)
             .unwrap();
         for end in 0..bytes.len() {
-            assert!(UnitIndex::checkpointed(65, &bytes[..end]).is_err());
+            assert!(UnitIndex::lengths16(65, &bytes[..end], 1).is_err());
         }
         for checkpoint in [0, 4] {
             bytes[checkpoint] ^= 1;
             assert!(matches!(
-                UnitIndex::checkpointed(65, &bytes),
+                UnitIndex::lengths16(65, &bytes, 1),
                 Err(UnitIndexError::CheckpointMismatch { .. })
             ));
             bytes[checkpoint] ^= 1;
         }
-        assert!(UnitIndex::checkpointed(64, &bytes).is_err());
-        assert!(UnitIndex::checkpointed(u32::MAX, &[]).is_err());
+        assert!(UnitIndex::lengths16(64, &bytes, 1).is_err());
+        assert!(UnitIndex::lengths16(u32::MAX, &[], 1).is_err());
     }
 
     #[test]
     fn encoder_rejects_expansion_overflow_and_short_buffers_before_writing() {
         let mut out = [0xa5; 32];
         assert!(matches!(
-            UnitIndexEncoding::Checkpointed.encode_into(&[65536], &mut out),
+            UnitIndexEncoding::Lengths16.encode_into(&[65536], 1, &mut out),
             Err(UnitIndexError::LengthTooLarge { .. })
         ));
         assert_eq!(out, [0xa5; 32]);
-        for encoding in [UnitIndexEncoding::Offsets, UnitIndexEncoding::Checkpointed] {
-            assert!(encoding.encode_into(&[u32::MAX, 1], &mut out).is_err());
+        for encoding in [UnitIndexEncoding::Offsets, UnitIndexEncoding::Lengths16] {
+            assert!(encoding.encode_into(&[u32::MAX, 1], 1, &mut out).is_err());
             assert!(matches!(
-                encoding.encode_into(&[1; 65], &mut out),
+                encoding.encode_into(&[1; 65], 1, &mut out),
                 Err(UnitIndexError::BufferTooSmall { .. })
             ));
             assert_eq!(out, [0xa5; 32]);

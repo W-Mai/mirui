@@ -15,6 +15,34 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn aligned_indexes_keep_checkpoints_and_exact_ranges_without_allocation() {
+    use mirx::media::{UnitIndex, UnitIndexEncoding};
+    let mut bytes = [0xad; 272];
+    let lengths = [3; 65];
+    let (_, allocations) = count_allocations(|| {
+        for encoding in [UnitIndexEncoding::Lengths16, UnitIndexEncoding::Lengths32] {
+            let len = encoding.encode_into(&lengths, 64, &mut bytes).unwrap();
+            let index = if encoding == UnitIndexEncoding::Lengths16 {
+                UnitIndex::lengths16(65, &bytes[..len], 64)
+            } else {
+                UnitIndex::lengths32(65, &bytes[..len], 64)
+            }
+            .unwrap();
+            assert_eq!(index.byte_len(), 4099);
+            assert_eq!(index.get(64), Some(4096..4099));
+            assert!(index.iter().eq((0..65).map(|i| i * 64..i * 64 + 3)));
+            assert!(
+                index
+                    .iter()
+                    .rev()
+                    .eq((0..65).rev().map(|i| i * 64..i * 64 + 3))
+            );
+        }
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn lz4_plane_history_has_no_staging_or_heap_index() {
     use mirx::{coding::Lz4, image::UnitGroup};
     let surface = SurfaceDescriptor::new(33, 8, SampleLayout::A1, ColorDescription::NONE).unwrap();
@@ -390,15 +418,15 @@ fn unit_index_encoding_lookup_and_iteration_allocate_nothing() {
     let mut checkpointed = [0; 270];
     let (_, allocations) = count_allocations(|| {
         UnitIndexEncoding::Offsets
-            .encode_into(&lengths, &mut offsets)
+            .encode_into(&lengths, 1, &mut offsets)
             .unwrap();
-        UnitIndexEncoding::Checkpointed
-            .encode_into(&lengths, &mut checkpointed)
+        UnitIndexEncoding::Lengths16
+            .encode_into(&lengths, 1, &mut checkpointed)
             .unwrap();
         for index in [
-            UnitIndex::fixed(129, 3).unwrap(),
+            UnitIndex::fixed(129, 3, 1).unwrap(),
             UnitIndex::offsets(&offsets).unwrap(),
-            UnitIndex::checkpointed(129, &checkpointed).unwrap(),
+            UnitIndex::lengths16(129, &checkpointed, 1).unwrap(),
         ] {
             assert_eq!(index.byte_len(), 387);
             assert_eq!(index.get(64), Some(192..195));
@@ -846,7 +874,7 @@ fn image_units_resolve_shared_metadata_without_allocation() {
             UnitGroup::builder(surface, CodingRecord::new(CodingId::new(19), 1, &[]), &data)
                 .with_tiles(2, 2)
                 .with_selection(UnitSelection::list(6, &cells).unwrap())
-                .with_index(UnitIndex::fixed(2, 2).unwrap())
+                .with_index(UnitIndex::fixed(2, 2, 1).unwrap())
                 .build()
                 .unwrap();
         assert_eq!(group.iter().count(), 2);

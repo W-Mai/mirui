@@ -1,0 +1,44 @@
+# Unit indexes
+
+`media::UnitIndex` maps a stored-unit ordinal to an exact coded byte range relative to group DATA. The group's grid and selection provide unit count and geometry. A returned range never includes bytes inserted to align the next unit. `byte_len()` is the complete physical DATA span, including inter-unit gaps but excluding any unnecessary final padding.
+
+| Form | Index body | Lookup | Inter-unit gaps |
+| --- | --- | --- | --- |
+| Fixed | None | Ordinal × aligned step | Derived from fixed coded length and alignment |
+| Offsets | `u32[N + 1]` adjacent starts/ends | Direct | Not represented |
+| Lengths16 | `u32[ceil(N / 64)]` checkpoints, then `u16[N]` coded lengths | One checkpoint plus at most 63 earlier lengths | Derived from shared alignment |
+| Lengths32 | `u32[ceil(N / 64)]` checkpoints, then `u32[N]` coded lengths | One checkpoint plus at most 63 earlier lengths | Derived from shared alignment |
+
+All fields are little-endian and read bytewise; the table address need not be aligned. Checkpoints are physical starts of units 0, 64, 128 and so on. The first is zero. Every unit starts at `align_up(previous_end, alignment)`. Its end is that start plus its actual coded length. Count comes from the group, and alignment comes from `UnitGroupRecord::input_alignment`; neither is repeated in the index body.
+
+For coded lengths `[3, 5, 2]` and alignment `64`:
+
+```text
+DATA 0..3      unit 0: 3 coded bytes
+     3..64     alignment gap
+     64..69    unit 1: 5 coded bytes
+     69..128   alignment gap
+     128..130  unit 2: 2 coded bytes
+```
+
+The complete span is 130 bytes. Decoder inputs have lengths 3, 5 and 2; none receives the gaps. DATA integrity coverage still includes those physical gaps. Independent decodability, sample coverage and reference availability are separate group/profile checks.
+
+## Read and write
+
+```rust
+use mirx::media::{UnitIndex, UnitIndexEncoding};
+
+let lengths = [3, 5, 2];
+let mut bytes = [0; 10]; // one u32 checkpoint + three u16 lengths
+UnitIndexEncoding::Lengths16.encode_into(&lengths, 64, &mut bytes).unwrap();
+let index = UnitIndex::lengths16(3, &bytes, 64).unwrap();
+assert_eq!(index.get(1), Some(64..69));
+assert_eq!(index.byte_len(), 130);
+assert!(index.iter().rev().eq([128..130, 64..69, 0..3]));
+```
+
+`UnitIndex::fixed(count, unit_bytes, alignment)` omits the table. `lengths16` and `lengths32` accept count, table bytes and alignment; `offsets` derives count from its table. Opening checks every checkpoint, length, total bound and alignment. Forward/reverse iteration advances in constant time per adjacent range; skips use bounded direct lookup, without expanded arrays or scans over skipped units.
+
+`UnitIndexEncoding::encoded_len(lengths, alignment)` and `encode_into(lengths, alignment, output)` share validation. Overflow, unrepresentable lengths, invalid alignment and insufficient output leave the entire destination unchanged. Success preserves the suffix. Offsets reject any alignment request that would require inserting gaps; the caller selects a length-table form explicitly. Lengths16 rejects lengths above 65,535 instead of silently switching width.
+
+Group records use index mode 0 for fixed, 1 for offsets, 2 for Lengths16 and 3 for Lengths32. Fixed coded length is uniquely recovered from DATA span, unit count and shared alignment. The last actual end is authoritative: no next start is calculated after the last unit, so an otherwise valid range ending at `u32::MAX` remains representable. Empty generic ranges are supported by the index, but nonempty encoded IMAGE units reject them.

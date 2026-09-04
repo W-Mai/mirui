@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Exact aligned unit indexes.** Fixed and checkpointed u16/u32 length forms separate coded bytes from inter-unit padding. Shared group alignment determines starts without per-unit offset/size pairs; bounded lookup, bidirectional iteration and checked encoding remain allocation-free.
+
 - **Strided LZ4 plane decoding.** Logical history spans selected packed, indexed, alpha and YUV planes without reading physical padding. Bounded row cursors decode into aligned caller memory, preserve source regions and defer packed-tail normalization until all history reads finish.
 
 - **Caller-workspace LZ4 encoding.** Explicit fixed hash tables support exact sizing and checked block encoding without allocation or automatic growth. Shared counting/emission preserves output on errors and produces deterministic bytes for each input and table size.

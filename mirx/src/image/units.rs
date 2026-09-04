@@ -300,13 +300,27 @@ impl<'a> UnitGroupBuilder<'a> {
                         return Err(UnitGroupError::UnreferencedData);
                     }
                     0
+                } else if count == 1 {
+                    data_len
                 } else {
-                    if data_len % count != 0 {
+                    let average = data_len.div_ceil(count);
+                    let step = UnitIndex::aligned(average, self.input_alignment)
+                        .map_err(UnitGroupError::Index)?;
+                    let prefix = (count - 1)
+                        .checked_mul(step)
+                        .ok_or(UnitGroupError::SizeOverflow)?;
+                    let size = data_len
+                        .checked_sub(prefix)
+                        .ok_or(UnitGroupError::UnequalFixedUnits)?;
+                    let rounded = UnitIndex::aligned(size, self.input_alignment)
+                        .map_err(UnitGroupError::Index)?;
+                    if rounded != step {
                         return Err(UnitGroupError::UnequalFixedUnits);
                     }
-                    data_len / count
+                    size
                 };
-                UnitIndex::fixed(count, unit_bytes).map_err(UnitGroupError::Index)?
+                UnitIndex::fixed(count, unit_bytes, self.input_alignment)
+                    .map_err(UnitGroupError::Index)?
             }
         };
         if index.len() != selection.len() {
@@ -321,6 +335,7 @@ impl<'a> UnitGroupBuilder<'a> {
                 actual: data_len,
             });
         }
+        let mut previous_end = 0;
         for (ordinal, range) in index.iter().enumerate() {
             if range.is_empty() {
                 return Err(UnitGroupError::EmptyUnit {
@@ -334,6 +349,16 @@ impl<'a> UnitGroupBuilder<'a> {
                     alignment: self.input_alignment,
                 });
             }
+            let expected = UnitIndex::aligned(previous_end, self.input_alignment)
+                .map_err(UnitGroupError::Index)?;
+            if range.start != expected {
+                return Err(UnitGroupError::NonCanonicalUnitStart {
+                    ordinal: ordinal as u32,
+                    expected,
+                    actual: range.start,
+                });
+            }
+            previous_end = range.end;
         }
         Ok(UnitGroup {
             surface: self.surface,
@@ -439,6 +464,11 @@ pub enum UnitGroupError {
         offset: u32,
         alignment: u32,
     },
+    NonCanonicalUnitStart {
+        ordinal: u32,
+        expected: u32,
+        actual: u32,
+    },
 }
 
 #[cfg(test)]
@@ -470,7 +500,7 @@ mod tests {
             .unwrap();
         let mut ranges = [0; 16];
         UnitIndexEncoding::Offsets
-            .encode_into(&[3, 2, 3], &mut ranges)
+            .encode_into(&[3, 2, 3], 1, &mut ranges)
             .unwrap();
         let data = [1, 2, 3, 4, 5, 6, 7, 8];
         let group = UnitGroup::builder(surface(), coding(), &data)
@@ -596,13 +626,13 @@ mod tests {
         ));
         assert!(matches!(
             UnitGroup::builder(surface(), coding(), &[1])
-                .with_index(UnitIndex::fixed(2, 1).unwrap())
+                .with_index(UnitIndex::fixed(2, 1, 1).unwrap())
                 .build(),
             Err(UnitGroupError::UnitCountMismatch { .. })
         ));
         assert!(matches!(
             UnitGroup::builder(surface(), coding(), &[1])
-                .with_index(UnitIndex::fixed(1, 2).unwrap())
+                .with_index(UnitIndex::fixed(1, 2, 1).unwrap())
                 .build(),
             Err(UnitGroupError::DataLengthMismatch { .. })
         ));
@@ -639,6 +669,7 @@ mod tests {
         assert!(matches!(
             UnitGroup::builder(surface, coding(), &data.0[..126])
                 .with_tiles(1, 1)
+                .with_index(UnitIndex::fixed(2, 63, 1).unwrap())
                 .with_input_alignment(64)
                 .build(),
             Err(UnitGroupError::UnalignedUnit {
@@ -653,5 +684,32 @@ mod tests {
                 .build(),
             Err(UnitGroupError::InvalidAlignment(3))
         );
+    }
+
+    #[test]
+    fn group_alignment_is_the_only_source_of_inter_unit_gaps() {
+        let surface =
+            SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let data = [1; 69];
+        let index = UnitIndex::fixed(2, 5, 64).unwrap();
+        assert!(matches!(
+            UnitGroup::builder(surface, coding(), &data)
+                .with_tiles(1, 1)
+                .with_index(index)
+                .build(),
+            Err(UnitGroupError::NonCanonicalUnitStart {
+                ordinal: 1,
+                expected: 5,
+                actual: 64
+            })
+        ));
+        let group = UnitGroup::builder(surface, coding(), &data)
+            .with_tiles(1, 1)
+            .with_index(index)
+            .with_input_alignment(64)
+            .build()
+            .unwrap();
+        assert_eq!(group.get(0).unwrap().data_range(), 0..5);
+        assert_eq!(group.get(1).unwrap().data_range(), 64..69);
     }
 }

@@ -147,7 +147,8 @@ impl UnitGroupRecord {
         record.index_encoding = match bytes[30] {
             0 => None,
             1 => Some(UnitIndexEncoding::Offsets),
-            2 => Some(UnitIndexEncoding::Checkpointed),
+            2 => Some(UnitIndexEncoding::Lengths16),
+            3 => Some(UnitIndexEncoding::Lengths32),
             value => return Err(UnitGroupRecordError::UnknownValue { offset: 30, value }),
         };
         let listed_count = read_u32_le(bytes, 24).unwrap();
@@ -210,7 +211,8 @@ impl UnitGroupRecord {
         bytes[30] = match self.index_encoding {
             None => 0,
             Some(UnitIndexEncoding::Offsets) => 1,
-            Some(UnitIndexEncoding::Checkpointed) => 2,
+            Some(UnitIndexEncoding::Lengths16) => 2,
+            Some(UnitIndexEncoding::Lengths32) => 3,
         };
         match self.selection {
             GroupSelection::All => {}
@@ -306,9 +308,16 @@ impl UnitGroupRecord {
         if let Some(encoding) = self.index_encoding {
             let ranges = match encoding {
                 UnitIndexEncoding::Offsets => UnitIndex::offsets(encoded_ranges),
-                UnitIndexEncoding::Checkpointed => {
-                    UnitIndex::checkpointed(selection.len() as u32, encoded_ranges)
-                }
+                UnitIndexEncoding::Lengths16 => UnitIndex::lengths16(
+                    selection.len() as u32,
+                    encoded_ranges,
+                    self.input_alignment,
+                ),
+                UnitIndexEncoding::Lengths32 => UnitIndex::lengths32(
+                    selection.len() as u32,
+                    encoded_ranges,
+                    self.input_alignment,
+                ),
             }
             .map_err(UnitGroupRecordError::Index)?;
             builder = builder.with_index(ranges);
@@ -399,6 +408,69 @@ mod tests {
     }
 
     #[test]
+    fn aligned_group_records_exclude_padding_from_exact_lz4_streams() {
+        use crate::{coding::Lz4, image::SurfaceRequirements};
+        let surface =
+            SurfaceDescriptor::new(26, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let codec = Lz4::new();
+        let mut table = [0; Lz4::TABLE_LEN];
+        let mut encoder = codec.encoder(&mut table).unwrap();
+        let mut coding_bytes = [0; 12];
+        CodingTable::encode_into(&[codec.record()], &mut coding_bytes).unwrap();
+        let codings = CodingTable::open(&coding_bytes).unwrap();
+        for encoding in [
+            None,
+            Some(UnitIndexEncoding::Lengths16),
+            Some(UnitIndexEncoding::Lengths32),
+        ] {
+            let first = [17; 13];
+            let second = if encoding.is_none() {
+                [23; 13]
+            } else {
+                [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+            };
+            #[repr(align(64))]
+            struct Buffer([u8; 128]);
+            let mut data = Buffer([0xa5; 128]);
+            let a = encoder.encode_into(&first, &mut data.0).unwrap();
+            let b = encoder.encode_into(&second, &mut data.0[64..]).unwrap();
+            let mut indexes = [0; 12];
+            let index_len = encoding
+                .map(|e| {
+                    e.encode_into(&[a as u32, b as u32], 64, &mut indexes)
+                        .unwrap()
+                })
+                .unwrap_or(0);
+            let mut record = UnitGroupRecord::new(0, 0..(64 + b) as u32)
+                .unwrap()
+                .with_tiles(13, 1)
+                .with_input_alignment(64);
+            if let Some(encoding) = encoding {
+                record = record.with_index_encoding(encoding);
+            }
+            let mut wire = [0; UNIT_GROUP_RECORD_LEN];
+            record.encode_into(&mut wire).unwrap();
+            let group = UnitGroupRecord::open(&wire)
+                .unwrap()
+                .resolve(surface, codings, &data.0[..64 + b], &indexes[..index_len])
+                .unwrap();
+            assert_eq!(group.index().byte_len(), (64 + b) as u32);
+            for (unit, expected) in group.iter().zip([first, second]) {
+                assert!(unit.data_address_is_aligned());
+                let mut output = [0; 13];
+                unit.decode_plan(SurfaceRequirements::new())
+                    .unwrap()
+                    .decode_into(&mut output)
+                    .unwrap();
+                assert_eq!(output, expected);
+            }
+            assert_eq!(group.get(0).unwrap().data_range(), 0..a as u32);
+            assert_eq!(group.get(1).unwrap().data_range(), 64..(64 + b) as u32);
+            assert!(data.0[a..64].iter().all(|b| *b == 0xa5));
+        }
+    }
+
+    #[test]
     fn independent_group_packet_resolves_relative_bases_and_shared_rules() {
         let record = UnitGroupRecord::open(&RECORD).unwrap();
         let data = [0, 0, 0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 0xff];
@@ -452,7 +524,8 @@ mod tests {
             for encoding in [
                 None,
                 Some(UnitIndexEncoding::Offsets),
-                Some(UnitIndexEncoding::Checkpointed),
+                Some(UnitIndexEncoding::Lengths16),
+                Some(UnitIndexEncoding::Lengths32),
             ] {
                 let selection_encoding = match selection_form {
                     GroupSelection::All => None,
@@ -463,7 +536,7 @@ mod tests {
                     .map(|encoding| encoding.encoded_len(6, selected).unwrap())
                     .unwrap_or(0);
                 let range_len = encoding
-                    .map(|encoding| encoding.encoded_len(&lengths).unwrap())
+                    .map(|encoding| encoding.encoded_len(&lengths, 1).unwrap())
                     .unwrap_or(0);
                 let mut indexes = vec![0xa5; selection_len + range_len];
                 if let Some(encoding) = selection_encoding {
@@ -471,7 +544,7 @@ mod tests {
                 }
                 if let Some(encoding) = encoding {
                     encoding
-                        .encode_into(&lengths, &mut indexes[selection_len..])
+                        .encode_into(&lengths, 1, &mut indexes[selection_len..])
                         .unwrap();
                 }
                 let data = vec![9; selected.len() * 2];
