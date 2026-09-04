@@ -6,11 +6,13 @@ use crate::media::{CodingRecord, UnitIndex, UnitIndexError, UnitSelection, UnitS
 mod decode;
 mod output;
 mod plan;
+mod region;
 mod transfer;
 mod wire;
 pub(crate) use decode::ScalarProfile;
 pub use decode::{DecodedUnit, UnitDecodeError, UnitDecodePlan};
 pub use plan::{UnitMemoryPlan, UnitPlane, UnitPlanes};
+pub use region::RegionUnits;
 pub use wire::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord, UnitGroupRecordError};
 
 /// Included planes and the coordinate space of a group's regions.

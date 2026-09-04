@@ -15,6 +15,33 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn sparse_region_queries_skip_extreme_empty_spans_without_allocation() {
+    use mirx::{
+        image::UnitGroup,
+        media::{CodingRecord, UnitSelection},
+    };
+    let surface =
+        SurfaceDescriptor::new(1, u32::MAX, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let cells = (u32::MAX - 1).to_le_bytes();
+    let selection = UnitSelection::list(u32::MAX, &cells).unwrap();
+    let group = UnitGroup::builder(surface, CodingRecord::RAW, &[42])
+        .with_tiles(1, 1)
+        .with_selection(selection)
+        .build()
+        .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let region = surface.region(0, 0, 1, u32::MAX).unwrap();
+        let mut units = group.units_in(region).unwrap();
+        assert_eq!(units.work_bound(), 4);
+        let unit = units.next().unwrap();
+        assert_eq!(unit.cell(), u32::MAX - 1);
+        assert_eq!(unit.data(), &[42]);
+        assert_eq!(units.next(), None);
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn exact_indexed_crops_reuse_caller_storage_and_borrow_the_palette() {
     let surface = SurfaceDescriptor::new(9, 2, SampleLayout::I2, ColorDescription::SRGB).unwrap();
     let palette = [0; 16];

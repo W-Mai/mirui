@@ -163,6 +163,10 @@ This API requests the whole image. Row/ROI selection, streamed reads, accelerati
 
 ## Placing decoded units
 
+`UnitGroup::units_in(region)` queries complete units intersecting a rectangle in the group's grid coordinates: surface pixels for joint groups, plane elements for planar groups. Use `Region::for_plane` or `RegionMemoryPlan::plane_region` when projecting a surface request into a planar group. Out-of-bounds regions fail; the returned units are not clipped.
+
+`RegionUnits` retains borrowed group/index state and uses rank jumps to skip unrelated columns and absent rows. Construction performs bounded rank lookups; `work_bound()` bounds subsequent traversal probes. A probe retains the selection/index's bounded binary-search or checkpoint cost. Size hints are conservative, and skipping yielded units is sequential. Syntax, integrity, decoded bytes and I/O costs are separate from this metadata query.
+
 `SurfaceDescriptor::region_plan(region, requirements)` returns a `RegionMemoryPlan` retaining original source coordinates and a cropped `SurfaceMemoryPlan`. The cropped descriptor preserves sample layout, color, flags and pixel aspect. Interior subsampled-plane boundaries must be exact; odd outer edges are allowed. Packed 1/2/4-bit sample origins remain precise without byte rounding.
 
 `DecodedUnit::copy_region_into(output, region_plan)` writes only the intersection of an already decoded unit with the requested crop. Other samples, planes, padding and suffix bytes stay unchanged. `SurfaceView::copy_region_into` transfers a complete RAW crop and clears output padding, retaining its borrowed palette. These paths share plane-coordinate and sample-bit placement; they do not select encoded units, reduce a codec's staging needs or imply partial Flash reads.

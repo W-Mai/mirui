@@ -90,7 +90,8 @@ pub use surface::{
 };
 pub use units::{
     DecodeUnitRef, DecodeUnits, DecodedUnit, GroupPlanes, GroupSelection, ReferenceMode,
-    UNIT_GROUP_RECORD_LEN, UnitDecodeError, UnitDecodePlan, UnitGroup, UnitGroupBuilder,
-    UnitGroupError, UnitGroupRecord, UnitGroupRecordError, UnitMemoryPlan, UnitPlane, UnitPlanes,
+    RegionUnits, UNIT_GROUP_RECORD_LEN, UnitDecodeError, UnitDecodePlan, UnitGroup,
+    UnitGroupBuilder, UnitGroupError, UnitGroupRecord, UnitGroupRecordError, UnitMemoryPlan,
+    UnitPlane, UnitPlanes,
 };
 pub use view::{RawImagePlanes, RawImageView, RawImageViewError, SurfacePlane};
