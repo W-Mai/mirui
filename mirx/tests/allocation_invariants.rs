@@ -1191,6 +1191,24 @@ fn common_media_inspection_allocates_nothing() {
 }
 
 #[test]
+fn direct_directory_lookup_and_skips_allocate_nothing() {
+    let bytes = raw_a8_media_payload();
+    let (_, allocations) = count_allocations(|| {
+        let media = MediaPayload::open(&bytes).unwrap();
+        let first = media.get(0).unwrap();
+        let second = media.get(1).unwrap();
+        assert_eq!(first.index(), 0);
+        assert_eq!(second.index(), 1);
+        assert_eq!(media.sections().nth(1), Some(second));
+        assert_eq!(media.sections().nth_back(1), Some(first));
+        assert_eq!(media.sections().last(), Some(second));
+        assert_eq!(media.sections().count(), 2);
+        assert_eq!(media.get(usize::MAX), None);
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn coding_table_read_and_caller_buffer_encoding_allocate_nothing() {
     use mirx::media::{CodingId, CodingRecord, CodingTable};
     let records = [

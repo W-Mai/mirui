@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Direct media-directory access.** Ordinal lookup and bidirectional iterator skips resolve only the selected section descriptor in constant time, without a decoded table. Type-filtered scanning and explicit DATA verification retain separate semantics.
+
 - **Compact FONT representation records.** Fixed 16-byte records retain class-dependent size semantics and shared surface/map references. Surface-derived sample depth and tight decoded cost are not duplicated; native binding rejects stale hints and typed parsing enforces canonical Coverage defaults.
 
 - **Joined glyph lookup.** Shared Unicode, metric and RAW sample tables require equal cardinality before access. Character and ordinal lookup return paired measurements and raster samples without allocation or metadata-lifetime coupling, preserving missing characters and empty glyph regions.

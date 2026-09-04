@@ -459,12 +459,34 @@ impl<'a> MediaPayload<'a> {
         self.header
     }
 
+    /// Borrows one directory entry by ordinal in constant time.
+    ///
+    /// The index is not the nth occurrence of a kind. DATA integrity remains a
+    /// separate check, and no decoded directory array or allocation is created.
+    ///
+    /// ```
+    /// use mirx::{image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor},
+    ///     media::{MediaPayload, MediaSectionKind}};
+    /// let surface = SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    /// let bytes = RawImageAsset::new(surface, &[&[7]]).encode().unwrap();
+    /// let media = MediaPayload::open(&bytes).unwrap();
+    /// assert_eq!(media.get(0).unwrap().descriptor().kind(), MediaSectionKind::SURFACE);
+    /// assert_eq!(media.get(1).unwrap().bytes(), &[7]);
+    /// assert!(media.get(usize::MAX).is_none());
+    /// media.validate_data().unwrap();
+    /// ```
+    pub fn get(self, index: usize) -> Option<MediaSection<'a>> {
+        self.sections().nth(index)
+    }
+
     pub fn sections(self) -> MediaSections<'a> {
         MediaSections {
             payload: self.payload,
             directory: self.directory,
             front: 0,
             back: usize::from(self.header.section_count),
+            #[cfg(test)]
+            reads: 0,
         }
     }
 
@@ -539,16 +561,23 @@ impl<'a> MediaSection<'a> {
 }
 
 /// Exact-size iterator over every section in physical order.
+/// Direct forward/backward skips read only the selected descriptor.
 #[derive(Clone, Debug)]
 pub struct MediaSections<'a> {
     payload: &'a [u8],
     directory: &'a [u8],
     front: usize,
     back: usize,
+    #[cfg(test)]
+    reads: usize,
 }
 
 impl<'a> MediaSections<'a> {
-    fn read(&self, index: usize) -> MediaSection<'a> {
+    fn read(&mut self, index: usize) -> MediaSection<'a> {
+        #[cfg(test)]
+        {
+            self.reads += 1;
+        }
         let entry_start = index * MEDIA_SECTION_LEN;
         let descriptor = MediaSectionDescriptor::read(
             &self.directory[entry_start..entry_start + MEDIA_SECTION_LEN],
@@ -576,6 +605,23 @@ impl<'a> Iterator for MediaSections<'a> {
         Some(section)
     }
 
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        if n >= self.len() {
+            self.front = self.back;
+            return None;
+        }
+        self.front += n;
+        self.next()
+    }
+
+    fn count(self) -> usize {
+        self.len()
+    }
+
+    fn last(mut self) -> Option<Self::Item> {
+        self.next_back()
+    }
+
     fn size_hint(&self) -> (usize, Option<usize>) {
         let len = self.len();
         (len, Some(len))
@@ -589,6 +635,15 @@ impl DoubleEndedIterator for MediaSections<'_> {
         }
         self.back -= 1;
         Some(self.read(self.back))
+    }
+
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        if n >= self.len() {
+            self.front = self.back;
+            return None;
+        }
+        self.back -= n;
+        self.next_back()
     }
 }
 
@@ -716,6 +771,98 @@ mod tests {
 
     use super::*;
     use crate::wire::{write_u16_le, write_u32_le};
+
+    #[test]
+    fn direct_ordinals_and_skips_read_only_the_selected_descriptor() {
+        let count = usize::from(u16::MAX);
+        let start = (MEDIA_HEADER_LEN + MEDIA_SECTION_LEN * count) as u32;
+        let sections: Vec<_> = (0..count)
+            .map(|i| TestSection {
+                kind: 0x8000 + (i % 32) as u16,
+                flags: 0,
+                offset: start,
+                bytes: &[],
+            })
+            .collect();
+        let bytes = payload(&sections, 0);
+        let media = MediaPayload::open(&bytes).unwrap();
+        for index in [0, 31, 1000, count - 1] {
+            let section = media.get(index).unwrap();
+            assert_eq!(usize::from(section.index()), index);
+            assert_eq!(
+                section.descriptor().kind().raw(),
+                0x8000 + (index % 32) as u16
+            );
+        }
+        assert_eq!(media.get(count), None);
+        assert_eq!(media.get(usize::MAX), None);
+        let mut iter = media.sections();
+        assert_eq!(iter.nth(62_000).unwrap().index(), 62_000);
+        assert_eq!(iter.reads, 1);
+        assert_eq!(iter.nth_back(1000).unwrap().index(), 64_534);
+        assert_eq!(iter.reads, 2);
+        assert_eq!(iter.next().unwrap().index(), 62_001);
+        assert_eq!(iter.next_back().unwrap().index(), 64_533);
+        assert_eq!(iter.reads, 4);
+        assert_eq!(iter.size_hint(), (2531, Some(2531)));
+        assert_eq!(iter.nth(usize::MAX), None);
+        assert_eq!(iter.reads, 4);
+        assert_eq!(iter.next_back(), None);
+        assert_eq!(iter.count(), 0);
+        assert_eq!(media.sections().last().unwrap().index(), u16::MAX - 1);
+        assert_eq!(media.sections().count(), count);
+        let mut reversed = media.sections();
+        assert_eq!(reversed.nth_back(usize::MAX), None);
+        assert_eq!(reversed.reads, 0);
+        assert_eq!(reversed.len(), 0);
+    }
+
+    #[test]
+    fn directory_ordinals_do_not_mean_kind_occurrences_or_data_verification() {
+        let sections = [
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 44,
+                bytes: &[1],
+            },
+            TestSection {
+                kind: MediaSectionKind::SURFACE.raw(),
+                flags: 1,
+                offset: 45,
+                bytes: &[2],
+            },
+            TestSection {
+                kind: MediaSectionKind::DATA.raw(),
+                flags: 1,
+                offset: 46,
+                bytes: &[3],
+            },
+        ];
+        let mut bytes = payload(&sections, 0);
+        bytes[46] ^= 1;
+        let media = MediaPayload::open(&bytes).unwrap();
+        assert_eq!(
+            media.get(1).unwrap().descriptor().kind(),
+            MediaSectionKind::SURFACE
+        );
+        assert_eq!(media.get(2).unwrap().bytes().as_ptr(), bytes[46..].as_ptr());
+        assert_eq!(media.section(MediaSectionKind::DATA).unwrap().index(), 0);
+        assert_eq!(
+            media
+                .sections_of_kind(MediaSectionKind::DATA)
+                .nth(1)
+                .unwrap()
+                .index(),
+            2
+        );
+        assert!(media.validate_data().is_err());
+        let empty = payload(&[], 0);
+        let media = MediaPayload::open(&empty).unwrap();
+        assert_eq!(media.get(0), None);
+        assert_eq!(media.sections().next_back(), None);
+        assert_eq!(media.sections().last(), None);
+    }
 
     fn indexed_image() -> Vec<u8> {
         use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
