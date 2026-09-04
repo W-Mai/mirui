@@ -338,14 +338,24 @@ pub struct FontRepresentations<'a> {
 
 impl<'a> FontRepresentations<'a> {
     pub fn new(records: &'a [FontRepresentation]) -> Result<Self, FontSelectionError> {
-        if records.is_empty() {
+        Self::validate_by(records.len(), |index| records[index])?;
+        Ok(Self { records })
+    }
+
+    pub(crate) fn validate_by(
+        count: usize,
+        record: impl Fn(usize) -> FontRepresentation,
+    ) -> Result<(), FontSelectionError> {
+        if count == 0 {
             return Err(FontSelectionError::Empty);
         }
-        for (index, representation) in records.iter().copied().enumerate() {
+        for index in 0..count {
+            let representation = record(index);
             representation
                 .validate()
                 .map_err(|error| FontSelectionError::InvalidRepresentation { index, error })?;
-            for (first, earlier) in records[..index].iter().copied().enumerate() {
+            for first in 0..index {
+                let earlier = record(first);
                 if earlier.selection_identity() == representation.selection_identity() {
                     return Err(FontSelectionError::DuplicateRepresentation {
                         first,
@@ -354,7 +364,7 @@ impl<'a> FontRepresentations<'a> {
                 }
             }
         }
-        Ok(Self { records })
+        Ok(())
     }
 
     pub const fn as_slice(self) -> &'a [FontRepresentation] {

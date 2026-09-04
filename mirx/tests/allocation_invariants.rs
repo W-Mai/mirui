@@ -15,6 +15,44 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn borrowed_representation_tables_resolve_and_select_without_allocation() {
+    use mirx::{
+        FontRepresentation, FontRepresentationRequest,
+        font::{GlyphPacking, GlyphSurfaceRecord, RepresentationRecord, RepresentationTable},
+    };
+    let (_, allocations) = count_allocations(|| {
+        let mut surfaces = [0; 24];
+        GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 8, 8, 0)
+            .unwrap()
+            .encode_record_into(&mut surfaces)
+            .unwrap();
+        let mut records = [0; 32];
+        RepresentationRecord::new(FontRepresentation::coverage(4, 16, 64).unwrap(), 0)
+            .encode_record_into(&mut records)
+            .unwrap();
+        RepresentationRecord::new(
+            FontRepresentation::signed_distance(4, 3, 24, 17, 48, 64).unwrap(),
+            0,
+        )
+        .encode_record_into(&mut records[16..])
+        .unwrap();
+        let table =
+            RepresentationTable::open(&records, &surfaces, 2, &PayloadLimits::EMBEDDED).unwrap();
+        assert_eq!(
+            table
+                .select(FontRepresentationRequest::new(24))
+                .unwrap()
+                .index(),
+            1
+        );
+        assert_eq!(table.iter().nth_back(1), table.get(0));
+        assert_eq!(table.iter().count(), 2);
+        assert_eq!(table.get(1).unwrap().representation().decoded_bytes(), 64);
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn referenced_raw_glyph_binding_allocates_nothing() {
     use mirx::font::{GlyphMap, GlyphPacking, GlyphSurfaceRecord};
     let surface = SurfaceDescriptor::new(3, 2, SampleLayout::A4, ColorDescription::NONE).unwrap();

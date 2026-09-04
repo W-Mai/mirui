@@ -10,6 +10,7 @@ mod record;
 mod representation;
 mod storage;
 mod surface;
+mod table;
 
 use alloc::vec::Vec;
 
@@ -23,6 +24,7 @@ pub use metrics::{
 pub use record::{REPRESENTATION_RECORD_LEN, RepresentationRecord, RepresentationRecordError};
 pub use storage::{GlyphRaster, GlyphStorageError, RawGlyphBuilder, RawGlyphs};
 pub use surface::{GLYPH_SURFACE_RECORD_LEN, GlyphSurfaceRecord, GlyphSurfaceRecordError};
+pub use table::{RepresentationIter, RepresentationTable, RepresentationTableError};
 
 pub use crate::font::atlas::{AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION};
 pub use crate::font::atlas::{read_header, read_metric, write_header, write_metric};

@@ -9,6 +9,7 @@ pub struct PayloadLimits {
     max_image_units: u32,
     max_image_work: u64,
     max_font_glyphs: u32,
+    max_font_representations: u32,
     max_scene_ops: u32,
     max_path_commands: u32,
     max_gradient_stops: u32,
@@ -28,6 +29,7 @@ impl PayloadLimits {
         max_image_units: 65_535,
         max_image_work: 16 * 1024 * 1024,
         max_font_glyphs: 4_096,
+        max_font_representations: 64,
         max_scene_ops: 4_096,
         max_path_commands: 16_384,
         max_gradient_stops: 4_096,
@@ -46,6 +48,7 @@ impl PayloadLimits {
         max_image_units: 16 * 1024 * 1024,
         max_image_work: 1024 * 1024 * 1024,
         max_font_glyphs: 1_000_000,
+        max_font_representations: 1_024,
         max_scene_ops: 1_000_000,
         max_path_commands: 4_000_000,
         max_gradient_stops: 1_000_000,
@@ -101,6 +104,16 @@ impl PayloadLimits {
 
     pub const fn with_max_font_glyphs(mut self, value: u32) -> Self {
         self.max_font_glyphs = value;
+        self
+    }
+
+    /// Bounds representation-table parsing and pairwise duplicate checks.
+    pub const fn max_font_representations(self) -> u32 {
+        self.max_font_representations
+    }
+
+    pub const fn with_max_font_representations(mut self, value: u32) -> Self {
+        self.max_font_representations = value;
         self
     }
 
@@ -204,6 +217,7 @@ mod tests {
         assert_eq!(embedded.max_image_units(), 65_535);
         assert_eq!(embedded.max_image_work(), 16_777_216);
         assert_eq!(embedded.max_font_glyphs(), 4_096);
+        assert_eq!(embedded.max_font_representations(), 64);
         assert_eq!(embedded.max_scene_ops(), 4_096);
         assert_eq!(embedded.max_path_commands(), 16_384);
         assert_eq!(embedded.max_gradient_stops(), 4_096);
@@ -220,6 +234,7 @@ mod tests {
         assert_eq!(host.max_image_units(), 16_777_216);
         assert_eq!(host.max_image_work(), 1_073_741_824);
         assert_eq!(host.max_font_glyphs(), 1_000_000);
+        assert_eq!(host.max_font_representations(), 1_024);
         assert_eq!(host.max_scene_ops(), 1_000_000);
         assert_eq!(host.max_path_commands(), 4_000_000);
         assert_eq!(host.max_gradient_stops(), 1_000_000);
@@ -245,6 +260,7 @@ mod tests {
             .with_max_image_units(0)
             .with_max_image_work(0)
             .with_max_font_glyphs(1)
+            .with_max_font_representations(0)
             .with_max_scene_ops(2)
             .with_max_path_commands(3)
             .with_max_gradient_stops(4)
@@ -260,6 +276,7 @@ mod tests {
         assert_eq!(limits.max_image_units(), 0);
         assert_eq!(limits.max_image_work(), 0);
         assert_eq!(limits.max_font_glyphs(), 1);
+        assert_eq!(limits.max_font_representations(), 0);
         assert_eq!(limits.max_scene_ops(), 2);
         assert_eq!(limits.max_path_commands(), 3);
         assert_eq!(limits.max_gradient_stops(), 4);
