@@ -6,6 +6,7 @@ mod mapping;
 mod metrics;
 mod preflight;
 mod representation;
+mod storage;
 
 use alloc::vec::Vec;
 
@@ -15,6 +16,7 @@ pub use metrics::{
     GLYPH_METRICS_LEN, GlyphMetrics, GlyphMetricsIter, LINE_METRICS_LEN, LineMetrics, MetricsError,
     MetricsTable,
 };
+pub use storage::{GlyphRaster, GlyphStorageError, RawGlyphBuilder, RawGlyphs};
 
 pub use crate::font::atlas::{AtlasHeader, GlyphMetric, HEADER_LEN, METRIC_LEN, SUPPORTED_VERSION};
 pub use crate::font::atlas::{read_header, read_metric, write_header, write_metric};

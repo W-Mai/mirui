@@ -66,6 +66,20 @@ impl<'source> SurfaceView<'source> {
     where
         'source: 'output,
     {
+        self.copy_region_samples_into(output, plan)?;
+        Ok(SurfaceView::from_plan(
+            plan.memory_plan(),
+            output,
+            self.color_table,
+        ))
+    }
+
+    /// Copies sample bytes without retaining source palette metadata.
+    pub(crate) fn copy_region_samples_into(
+        self,
+        output: &mut [u8],
+        plan: RegionMemoryPlan,
+    ) -> Result<(), SurfaceCopyError> {
         let memory = plan.memory_plan();
         self.check_copy(plan.source_surface(), memory.buffer_requirements(), output)?;
         let output = &mut output[..memory.byte_len() as usize];
@@ -76,7 +90,7 @@ impl<'source> SurfaceView<'source> {
                 .expect("logical plane bounds");
             plan.copy_plane(source, index as u8, region, output);
         }
-        Ok(SurfaceView::from_plan(memory, output, self.color_table))
+        Ok(())
     }
 
     fn check_copy(

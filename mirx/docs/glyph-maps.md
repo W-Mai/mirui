@@ -46,3 +46,5 @@ Native and wire atlas validation scan records once, after checking the table's r
 The map contains no codepoints, metrics, coding IDs, DATA offsets, stride or alignment. Coordinates remain samples, including sub-byte x positions. Physical padding and per-glyph allocation gaps must be resolved through storage layout; a vertical logical GlyphMajor surface does not imply one contiguous physical plane.
 
 A mapped glyph need not equal one decode unit. Whole-atlas coding can require a shared decoded surface; tiled coding can require multiple units for one rectangle. The map itself performs neither decoding nor unit selection. Line and pen placement use [font metric records](font-metrics.md); sample storage and caller output remain separate contracts.
+
+`font::RawGlyphs` binds either map to scalar RAW samples using shared physical plane rules. Its [borrowed storage contract](glyph-storage.md) accounts for cell allocation rows, alignment gaps and exact atlas regions without treating them as one implicit contiguous bitmap.

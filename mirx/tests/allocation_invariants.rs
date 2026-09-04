@@ -15,6 +15,63 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn raw_glyph_cells_and_atlas_regions_borrow_without_allocation() {
+    use mirx::{
+        font::{GlyphMap, RawGlyphs},
+        image::Region,
+    };
+    #[repr(align(64))]
+    struct Buffer([u8; 512]);
+    let source = Buffer([0x55; 512]);
+    let mut output = Buffer([0xa5; 512]);
+    let (_, allocations) = count_allocations(|| {
+        let cell = SampleLayout::A2.plane_geometry(5, 3, 0).unwrap();
+        let memory = PlaneMemoryLayout::builder(cell)
+            .with_stride(64)
+            .with_alignment(64)
+            .build()
+            .unwrap();
+        let map = GlyphMap::glyph_major(5, 3, 2).unwrap();
+        let glyphs = RawGlyphs::builder(map, SampleLayout::A2)
+            .with_memory_layout(memory)
+            .build(&source.0[..384])
+            .unwrap();
+        assert!(glyphs.data_addresses_are_aligned());
+        assert!(glyphs.file_address_is_aligned(64));
+        let glyph = glyphs.get(1).unwrap();
+        assert_eq!(
+            glyph.storage().plane(0).unwrap().bytes().as_ptr(),
+            source.0[192..].as_ptr()
+        );
+        let plan = glyph
+            .memory_plan(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_stride_multiple(64),
+            )
+            .unwrap();
+        glyph.copy_into(&mut output.0, plan).unwrap();
+        let regions = [Region::new(1, 1, 3, 2).unwrap()];
+        let map = GlyphMap::atlas(5, 3, &regions).unwrap();
+        let glyph = RawGlyphs::builder(map, SampleLayout::A2)
+            .with_memory_layout(memory)
+            .build(&source.0[..192])
+            .unwrap()
+            .get(0)
+            .unwrap();
+        assert_eq!(
+            glyph.storage().plane(0).unwrap().bytes().as_ptr(),
+            source.0.as_ptr()
+        );
+        let plan = glyph.memory_plan(SurfaceRequirements::new()).unwrap();
+        let view = glyph.copy_into(&mut output.0, plan).unwrap();
+        assert_eq!(view.plane(0).unwrap().row(0).unwrap(), Some(&[0x54][..]));
+        assert_eq!(view.plane(0).unwrap().row(1).unwrap(), Some(&[0x54][..]));
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn indexed_region_decode_borrows_palette_and_uses_only_caller_output_and_workspace() {
     use mirx::{
         coding::Rle,

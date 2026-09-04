@@ -56,7 +56,7 @@ impl<'a> SurfaceView<'a> {
     }
 
     /// Borrows already validated output and its matching indexed color table.
-    pub(super) fn from_plan(
+    pub(crate) fn from_plan(
         plan: SurfaceMemoryPlan,
         bytes: &'a [u8],
         color_table: Option<ColorTableView<'a>>,
