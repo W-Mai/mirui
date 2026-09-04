@@ -10,6 +10,7 @@ use crate::media::{
 use crate::payload::ColorTableView;
 
 mod encode;
+mod preflight;
 pub use encode::EncodedImageAsset;
 
 #[cfg(test)]
@@ -408,6 +409,29 @@ pub enum EncodedImageError {
     Media(MediaPayloadError),
     Surface(SurfaceRecordError),
     Codings(CodingTableError),
+    TooManyGroups {
+        limit: u32,
+        actual: usize,
+    },
+    TooManyUnits {
+        limit: u32,
+        actual: u64,
+    },
+    Coding {
+        group: usize,
+        error: super::UnitDecodeError,
+    },
+    Unit {
+        group: usize,
+        ordinal: usize,
+        error: super::UnitDecodeError,
+    },
+    DecodedUnitTooLarge {
+        group: usize,
+        ordinal: usize,
+        limit: usize,
+        actual: usize,
+    },
     MissingSection(MediaSectionKind),
     DuplicateSection(MediaSectionKind),
     SectionMustBeRequired(MediaSectionKind),

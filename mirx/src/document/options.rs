@@ -259,9 +259,10 @@ mod tests {
         assert_eq!(OPTIONS.raw_type_policies(), &POLICIES);
         assert_eq!(OPTIONS.raw_type_policies().as_ptr(), POLICIES.as_ptr());
         assert!(size_of::<RawTypePolicy>() <= 8);
+        // Includes inline collection limits and a 64-bit IMAGE work budget.
         #[cfg(target_pointer_width = "32")]
-        assert!(size_of::<OpenOptions<'_>>() <= 64);
-        #[cfg(target_pointer_width = "64")]
         assert!(size_of::<OpenOptions<'_>>() <= 80);
+        #[cfg(target_pointer_width = "64")]
+        assert!(size_of::<OpenOptions<'_>>() <= 96);
     }
 }

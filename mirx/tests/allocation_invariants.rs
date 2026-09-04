@@ -15,6 +15,41 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn encoded_preflight_has_no_output_or_group_table_allocation() {
+    use mirx::{
+        coding::Lz4,
+        image::{EncodedImageAsset, EncodedImageView},
+    };
+    let surface = SurfaceDescriptor::new(33, 8, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let mut table = [0; Lz4::TABLE_LEN];
+    let mut stream = [0; 288];
+    let codec = Lz4::new();
+    let len = codec
+        .encoder(&mut table)
+        .unwrap()
+        .encode_into(&[42; 264], &mut stream)
+        .unwrap();
+    let bytes = EncodedImageAsset::new(surface, codec.record(), &stream[..len])
+        .encode()
+        .unwrap();
+    let (_, allocations) = count_allocations(|| {
+        let image = EncodedImageView::open(&bytes).unwrap();
+        image.preflight(&PayloadLimits::EMBEDDED).unwrap();
+        assert!(
+            image
+                .preflight(&PayloadLimits::EMBEDDED.with_max_decoded_bytes(263))
+                .is_err()
+        );
+        assert!(
+            image
+                .preflight(&PayloadLimits::EMBEDDED.with_max_image_work(0))
+                .is_err()
+        );
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn constant_space_group_validation_has_no_hidden_table() {
     use mirx::{
         coding::Rle,

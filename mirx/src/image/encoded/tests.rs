@@ -66,7 +66,7 @@ fn coding() -> CodingRecord<'static> {
     CodingRecord::new(CodingId::new(19), 1, &[])
 }
 
-fn payload(
+pub(super) fn payload(
     surface: SurfaceDescriptor,
     codings: &[CodingRecord<'_>],
     groups: Option<&[UnitGroupRecord]>,

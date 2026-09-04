@@ -7,6 +7,7 @@ mod decode;
 mod output;
 mod plan;
 mod wire;
+pub(crate) use decode::ScalarProfile;
 pub use decode::{DecodedUnit, UnitDecodeError, UnitDecodePlan};
 pub use plan::{UnitMemoryPlan, UnitPlane, UnitPlanes};
 pub use wire::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord, UnitGroupRecordError};

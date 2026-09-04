@@ -63,6 +63,7 @@ The common media header and metadata CRC are parsed once. CODINGS presence selec
 | `EncodedImageView::open` | Metadata CRC, sections and typed metadata; no DATA scan |
 | `image.groups_into` | Group geometry, static coverage, indexes and declared file alignment |
 | `image.validate_groups` | The same group checks without a stored group table, under a conservative work budget |
+| `image.preflight(&limits)` | Static groups, admitted scalar profiles, exact unit syntax and complete DATA integrity without decoding samples |
 | `groups.validate_unit` | Declared checksum coverage, reported as bytes read |
 | `unit.decode_plan` | Supported profile syntax, exact decoded length and target memory requirements |
 | `plan.decode_into` | Actual target address/capacity, then reconstruction into caller storage |
@@ -78,5 +79,20 @@ Use `groups_into` when subsequent access benefits from prepared groups. Its call
 Use `validate_groups` when only a validation result is needed. It stores no group table, validates all immutable records once, then resolves them again as the coverage algorithm needs them. Every resolution charges one record visit plus its declared DATA span and the entire UNIT_INDEX section length before index/group parsing. DATA span conservatively bounds nonempty unit visits; index bytes bound selection/range scans. Geometric work is charged separately through the same budget.
 
 This conservative accounting can reject a many-group image earlier than cached validation, especially when groups share a large index section. Increase the explicit budget or provide workspace instead of assuming an index guarantees cheap validation. Exhaustion never returns success. These units describe bounded work, not actual bytes read, memory usage or elapsed time. Neither validation path decodes samples or verifies DATA checksums.
+
+## Complete preflight
+
+`EncodedImageView::preflight(&PayloadLimits::EMBEDDED)` checks all active groups, scalar coding parameters, exact unit syntax and complete DATA integrity without allocating a group table or output samples. Group overlap, temporal references in static images, unsupported coding, malformed streams and checksum failures remain errors. Empty surfaces contain no unit stream, but their active coding ID, revision, parameters and sample layout must still be understood.
+
+| Limit | Embedded | Host | Meaning |
+| --- | --- | --- | --- |
+| `max_image_groups` | 1,024 | 65,535 | Includes the implicit whole-surface group |
+| `max_image_units` | 65,535 | 16,777,216 | Total stored units across groups |
+| `max_decoded_bytes` | 128 KiB | 64 MiB | Tight decoded bytes of one independent unit |
+| `max_image_work` | 16,777,216 | 1,073,741,824 | Conservative bounded work after metadata opening |
+
+Use the corresponding `with_max_*` builders to set stricter or larger limits. Zero disables the corresponding resource. A tiled image may exceed the decoded-byte limit in total while each independently decoded unit fits it. Preflight does not allocate the complete image or promise that an application can retain all decoded units simultaneously.
+
+Work includes group resolution and coverage, each unit's coded and decoded bytes during syntax checks, and one complete DATA checksum scan. Checks precede the charged work. The common envelope and metadata CRC have already been checked by `open`; they are not retroactively limited by this later budget. Actual device stride, base alignment and output capacity still belong to the requested decode plan.
 
 The asset writer accepts one stream, not a list of separately encoded tiles. It does not integrate compressed storage into `ImageSource`, `Document::push_image` or runtime rendering. Unit-index APIs and group readers describe grouped storage independently.

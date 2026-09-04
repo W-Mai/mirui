@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bounded encoded IMAGE preflight.** Static coverage, scalar profile admission, exact unit syntax and complete DATA integrity are checked without decoded output or group-table allocation. Explicit group/unit/work bounds and per-unit decoded limits preserve streaming-sized memory requirements and report failing unit locations.
+
 - **Constant-space encoded group validation.** Shared canonical checks cover static geometry, DATA/index consumption and file alignment without a stored group table. Conservative parsing charges and geometric budgets bound repeated resolution; cached caller workspace remains available for repeated access.
 
 - **Explicit IMAGE storage references.** One metadata parse selects verified RAW surfaces or encoded metadata without allocation or parser fallback. Common surface and palette access retains distinct integrity, alignment and decode contracts.

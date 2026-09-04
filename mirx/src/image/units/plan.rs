@@ -75,7 +75,7 @@ impl UnitMemoryPlan {
         self.surface
     }
 
-    pub(super) fn sample_byte_len(self) -> usize {
+    pub(crate) fn sample_byte_len(self) -> usize {
         self.planes().fold(0usize, |total, plane| {
             let geometry = plane.geometry();
             (geometry.minimum_stride().expect("planned sample row") as usize)
