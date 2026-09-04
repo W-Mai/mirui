@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Compact unit-range indexes.** `media::UnitIndex` exposes fixed, offset-table, and checkpointed-length byte ranges without allocation. `UnitIndexEncoding` provides checked caller-buffer encoding; sequential iteration and bounded random lookup share the validated range contract.
+
 - **Borrowed coding tables.** `media::CodingRecord` and `CodingTable` provide profile identity, revision, parameter slices, constant-time ordinal lookup, and checked caller-buffer encoding without allocation.
 
 - **Borrowed RAW plane rows.** `SurfacePlane::row` and `rows` expose logical sample rows without stride padding, allocation-only rows, or hidden copies. Indexed and planar layouts share exact-size, double-ended iteration with constant-time skips; unknown physical storage flags are rejected.

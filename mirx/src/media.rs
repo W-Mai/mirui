@@ -7,8 +7,12 @@
 use core::iter::FusedIterator;
 
 mod coding;
+mod index;
 pub use coding::{
     CODING_RECORD_LEN, CODING_TABLE_HEADER_LEN, CodingRecord, CodingTable, CodingTableError,
+};
+pub use index::{
+    UNIT_CHECKPOINT_INTERVAL, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges,
 };
 
 use crate::crc32::Crc32;

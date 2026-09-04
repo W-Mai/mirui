@@ -185,6 +185,34 @@ fn coding_table_read_and_caller_buffer_encoding_allocate_nothing() {
 }
 
 #[test]
+fn unit_index_encoding_lookup_and_iteration_allocate_nothing() {
+    use mirx::media::{UnitIndex, UnitIndexEncoding};
+    let lengths = [3; 129];
+    let mut offsets = [0; 520];
+    let mut checkpointed = [0; 270];
+    let (_, allocations) = count_allocations(|| {
+        UnitIndexEncoding::Offsets
+            .encode_into(&lengths, &mut offsets)
+            .unwrap();
+        UnitIndexEncoding::Checkpointed
+            .encode_into(&lengths, &mut checkpointed)
+            .unwrap();
+        for index in [
+            UnitIndex::fixed(129, 3).unwrap(),
+            UnitIndex::offsets(&offsets).unwrap(),
+            UnitIndex::checkpointed(129, &checkpointed).unwrap(),
+        ] {
+            assert_eq!(index.byte_len(), 387);
+            assert_eq!(index.get(64), Some(192..195));
+            assert_eq!(index.iter().nth(128), Some(384..387));
+            assert_eq!(index.iter().nth_back(128), Some(0..3));
+            assert!(index.iter().eq((0..129).map(|i| i * 3..i * 3 + 3)));
+        }
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn image_plane_geometry_allocates_nothing() {
     let (observed, allocations) = count_allocations(|| {
         SampleLayout::P010
