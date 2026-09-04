@@ -1,6 +1,9 @@
 use super::buffer::{BufferError, Cursor};
 use crate::media::{CodingId, CodingRecord};
 
+mod encode;
+pub use encode::Lz4Encoder;
+
 #[cfg(test)]
 mod tests;
 
@@ -16,6 +19,28 @@ pub struct Lz4;
 impl Lz4 {
     pub const fn new() -> Self {
         Self
+    }
+    /// Suggested hash-table length in u32 entries (4 KiB); callers may vary it.
+    pub const TABLE_LEN: usize = 1024;
+
+    /// Borrows a power-of-two hash table with 16..=65536 u32 entries.
+    pub fn encoder(self, table: &mut [u32]) -> Result<Lz4Encoder<'_>, Lz4Error> {
+        Lz4Encoder::new(table)
+    }
+
+    /// Conservative block bound with checked arithmetic and u32 input limits.
+    pub fn encoded_bound(self, bytes: usize) -> Result<usize, Lz4Error> {
+        self.validate_len(bytes)?;
+        bytes
+            .checked_add(bytes / 255)
+            .and_then(|n| n.checked_add(16))
+            .ok_or(Lz4Error::SizeOverflow)
+    }
+
+    fn validate_len(self, bytes: usize) -> Result<(), Lz4Error> {
+        u32::try_from(bytes)
+            .map(|_| ())
+            .map_err(|_| Lz4Error::InputTooLarge { bytes })
     }
     pub const fn record(self) -> CodingRecord<'static> {
         CodingRecord::new(CodingId::LZ4, 1, &[])
@@ -172,6 +197,8 @@ impl<'a> Lz4DecodePlan<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum Lz4Error {
+    InvalidWorkspace { entries: usize },
+    InputTooLarge { bytes: usize },
     UnexpectedCoding(CodingId),
     UnsupportedRevision(u16),
     UnexpectedParameters,

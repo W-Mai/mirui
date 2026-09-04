@@ -32,4 +32,23 @@ assert_eq!(&output, b"aaaaaaaatail!");
 
 `Lz4::plan` checks all sequence lengths, references, block-end restrictions and exact input/output counts without allocating history or writing output. `Lz4DecodePlan` retains immutable input and the exact output requirement. `decode_into` checks capacity before replaying that same parser; errors preserve every output byte, and success preserves the suffix. Overlapping matches use previously produced bytes directly in caller output. There is no hidden allocation or decoded staging buffer.
 
-This API decodes contiguous byte blocks. It does not select codecs, construct IMAGE payloads, convert colors, validate media CRCs or reconstruct temporal references.
+## Caller-workspace encoding
+
+```rust
+use mirx::coding::Lz4;
+
+let mut table = [0; Lz4::TABLE_LEN];
+let mut encoder = Lz4::new().encoder(&mut table).unwrap();
+let input = [42; 128];
+let mut encoded = [0; 160];
+let size = encoder.encoded_len(&input).unwrap();
+assert_eq!(encoder.encode_into(&input, &mut encoded).unwrap(), size);
+```
+
+`Lz4::encoder` borrows a power-of-two table of 16–65,536 `u32` entries. `Lz4::TABLE_LEN` is 1,024 entries (4 KiB), an explicit starting size rather than an allocation request. Smaller tables reduce workspace but can miss matches; larger tables do not guarantee smaller output under greedy parsing. No automatic table growth or input-size-dependent stack allocation occurs. The caller may reuse one table across independent blocks.
+
+The encoder searches one latest candidate per endian-independent 4-byte hash, uses at most a 65,535-byte backward distance, extends matches to adjacent equal bytes, and seeds the last two match positions. Table contents reset on every pass. For the same input and table size, output is deterministic across prior workspace contents and host byte order. Table size is an encoder policy, not a parameter in the block.
+
+`encoded_len` counts exact bytes with the same sequence emitter as `encode_into`. Encoding counts first, checks capacity, then resets the table and emits without a temporary encoded buffer. Errors preserve output; scratch table contents may change. Success preserves the output suffix. `Lz4::encoded_bound` checks the conservative `input + input / 255 + 16` bound. Input lengths above `u32::MAX` are rejected by sizing and encoding.
+
+These APIs process contiguous byte blocks. They do not select codecs, construct IMAGE payloads, convert colors, validate media CRCs or reconstruct temporal references. Asset selection must compare full encoded and RAW storage costs, including metadata, indexes and alignment.

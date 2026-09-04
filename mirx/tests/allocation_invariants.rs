@@ -15,6 +15,33 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn lz4_encoder_uses_only_the_borrowed_table_and_output() {
+    use mirx::coding::Lz4;
+    let mut table = [u32::MAX; Lz4::TABLE_LEN];
+    let mut encoded = [0xad; 32];
+    let mut output = [0; 128];
+    let (_, allocations) = count_allocations(|| {
+        let mut encoder = Lz4::new().encoder(&mut table).unwrap();
+        let len = encoder.encoded_len(&[42; 128]).unwrap();
+        assert!(
+            encoder
+                .encode_into(&[42; 128], &mut encoded[..len - 1])
+                .is_err()
+        );
+        assert_eq!(encoded, [0xad; 32]);
+        assert_eq!(encoder.encode_into(&[42; 128], &mut encoded), Ok(len));
+        Lz4::new()
+            .plan(&encoded[..len], 128)
+            .unwrap()
+            .decode_into(&mut output)
+            .unwrap();
+        assert_eq!(output, [42; 128]);
+        assert!(encoded[len..].iter().all(|b| *b == 0xad));
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn lz4_preflight_and_history_replay_allocate_nothing() {
     use mirx::coding::Lz4;
     let input = [0x13, b'a', 1, 0, 0x50, b't', b'a', b'i', b'l', b'!'];

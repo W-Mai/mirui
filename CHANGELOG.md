@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Caller-workspace LZ4 encoding.** Explicit fixed hash tables support exact sizing and checked block encoding without allocation or automatic growth. Shared counting/emission preserves output on errors and produces deterministic bytes for each input and table size.
+
 - **Checked LZ4 block decoding.** Independent blocks use exact-length preflight, validated backward references and caller output as history. Block-end constraints, capacity checks and shared parser replay preserve output on errors without allocation.
 
 - **RLE plane decoding.** A shared sequential-output cursor maps decoded bytes into selected packed, indexed, alpha, and YUV plane rows. Element boundaries may cross rows and planes; output alignment and canonical padding require no staging allocation.

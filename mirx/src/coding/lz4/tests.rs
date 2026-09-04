@@ -152,3 +152,88 @@ fn truncation_counts_and_capacity_are_checked_before_output_writes() {
     assert_eq!(&output[..13], b"aaaaaaaatail!");
     assert_eq!(&output[13..], &[0xad; 3]);
 }
+
+#[test]
+fn encoder_workspace_is_explicit_bounded_and_reset_per_pass() {
+    let codec = Lz4::new();
+    for entries in [0, 1, 15, 17, 1000, 65537, 131072] {
+        assert!(matches!(
+            codec.encoder(&mut vec![0; entries]),
+            Err(Lz4Error::InvalidWorkspace { .. })
+        ));
+    }
+    for entries in [16, 64, 256, Lz4::TABLE_LEN, 4096, 65536] {
+        let mut table = vec![u32::MAX; entries];
+        let mut encoder = codec.encoder(&mut table).unwrap();
+        assert_eq!(encoder.table_len(), entries);
+        let mut encoded = [0xad; 20];
+        let expected = [0x13, b'a', 1, 0, 0x50, b'a', b'a', b'a', b'a', b'a'];
+        assert_eq!(encoder.encoded_len(&[b'a'; 13]), Ok(expected.len()));
+        assert_eq!(
+            encoder.encode_into(&[b'a'; 13], &mut encoded[..9]),
+            Err(Lz4Error::OutputTooSmall {
+                needed: 10,
+                available: 9
+            })
+        );
+        assert_eq!(encoded, [0xad; 20]);
+        encoder
+            .encode_into(b"xyzxyzxyzxyzxyzxyz", &mut encoded)
+            .unwrap();
+        encoded.fill(0xad);
+        assert_eq!(encoder.encode_into(&[b'a'; 13], &mut encoded), Ok(10));
+        assert_eq!(&encoded[..10], &expected);
+        assert_eq!(&encoded[10..], &[0xad; 10]);
+        assert_eq!(encoder.encode_into(&[], &mut encoded), Ok(1));
+        assert_eq!(encoded[0], 0);
+        assert_eq!(encoder.encode_into(b"abc", &mut encoded), Ok(4));
+        assert_eq!(&encoded[..4], &[0x30, b'a', b'b', b'c']);
+    }
+    assert_eq!(codec.encoded_bound(0), Ok(16));
+    assert!(codec.encoded_bound(usize::MAX).is_err());
+    if let Ok(len) = usize::try_from(u64::from(u32::MAX) + 1) {
+        assert_eq!(
+            codec.encoded_bound(len),
+            Err(Lz4Error::InputTooLarge { bytes: len })
+        );
+    }
+}
+
+#[test]
+fn encoder_extensions_windows_and_bounds_share_the_decoder_contract() {
+    let codec = Lz4::new();
+    let mut table = [0; Lz4::TABLE_LEN];
+    let mut encoder = codec.encoder(&mut table).unwrap();
+    for len in [
+        0, 1, 12, 13, 14, 15, 16, 269, 270, 271, 65534, 65535, 65536, 131075,
+    ] {
+        for period in [1, 3, 17, 251] {
+            let input: Vec<_> = (0..len).map(|i| (i % period) as u8).collect();
+            let size = encoder.encoded_len(&input).unwrap();
+            assert!(size <= codec.encoded_bound(len).unwrap());
+            let mut encoded = vec![0xad; size + 1];
+            assert_eq!(encoder.encode_into(&input, &mut encoded), Ok(size));
+            assert_eq!(encoded[size], 0xad);
+            let mut output = vec![0; len];
+            codec
+                .plan(&encoded[..size], len)
+                .unwrap()
+                .decode_into(&mut output)
+                .unwrap();
+            assert_eq!(output, input);
+        }
+    }
+
+    let mut input = vec![42; 65536];
+    input[..4].copy_from_slice(&[1, 2, 3, 4]);
+    input.extend_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]);
+    let mut encoded = vec![0; encoder.encoded_len(&input).unwrap()];
+    encoder.encode_into(&input, &mut encoded).unwrap();
+    let mut output = vec![0; input.len()];
+    codec
+        .plan(&encoded, input.len())
+        .unwrap()
+        .decode_into(&mut output)
+        .unwrap();
+    assert_eq!(output, input);
+}
