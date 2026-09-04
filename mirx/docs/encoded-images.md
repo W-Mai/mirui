@@ -2,6 +2,30 @@
 
 `EncodedImageAsset` wraps already encoded DATA with a surface descriptor, coding records and optional groups/indexes. Metadata authoring, integrity checking and sample decoding are separate operations. `encoded_len`, `encode_into` and `matches_payload` allocate nothing; `encode` allocates one payload.
 
+## Mirui runtime handoff
+
+`mirui::render::texture::Texture::plan_mirx` connects an IMAGE decode plan to renderer storage without hiding group or codec scratch allocations. The caller supplies `[Option<UnitGroup>]`, an output buffer satisfying the reported address alignment, and one reusable workspace. RAW sources use the same output layout transfer; `Texture::from_mirx` retains the zero-copy path when the RAW layout already matches the default requirements.
+
+```rust
+use mirui::render::texture::{MirxTextureOptions, Texture};
+
+#[repr(align(64))]
+struct Output([u8; 4096]);
+
+let options = MirxTextureOptions::new().with_requirements(
+    mirx::image::SurfaceRequirements::new()
+        .with_base_alignment(64)
+        .with_plane_alignment(64)
+        .with_stride_multiple(64),
+);
+let mut groups = [None; 8];
+let plan = Texture::plan_mirx(bytes, options, &mut groups)?;
+assert!(plan.output_len() <= 4096);
+let mut output = Output([0; 4096]);
+let mut workspace = [0; 1024];
+let texture = plan.decode_into(&mut output.0, &mut workspace)?;
+```
+
 ## Encode, store and decode
 
 ```rust
