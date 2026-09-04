@@ -51,6 +51,10 @@ impl CodingId {
     pub const RLE: Self = Self(2);
     /// Independent LZ4 blocks without frames, dictionaries, or size prefixes.
     pub const LZ4: Self = Self(3);
+    /// Reversible color decorrelation and integer 8x8 frequency blocks.
+    pub const FREQUENCY_REVERSIBLE: Self = Self(4);
+    /// Quantized integer 8x8 frequency blocks with explicit quality.
+    pub const FREQUENCY_QUANTIZED: Self = Self(5);
 
     pub const fn new(value: u16) -> Self {
         Self(value)

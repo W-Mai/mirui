@@ -1,4 +1,5 @@
 use super::{EncodedImageError, ImageGroups, preflight::Preflight};
+use crate::image::units::ScalarProfile;
 use crate::{
     PayloadLimits,
     image::{
@@ -75,10 +76,20 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
                 let unit_memory = unit
                     .memory_plan(SurfaceRequirements::new())
                     .expect("preflighted unit geometry");
+                let profile =
+                    ScalarProfile::new(unit.coding(), self.image().surface().sample_layout())
+                        .expect("preflighted scalar profile");
+                let profile_work = profile
+                    .extra_work(unit_memory)
+                    .expect("preflighted profile work");
                 workspace = workspace.max(unit_memory.byte_len());
                 input_bytes += unit.data().len() as u64;
                 preflight
-                    .spend_replay(unit.data().len(), unit_memory.sample_byte_len())
+                    .spend_replay(
+                        unit.data().len(),
+                        unit_memory.sample_byte_len(),
+                        profile_work,
+                    )
                     .map_err(DecodeError::Image)?;
             }
         }

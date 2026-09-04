@@ -15,6 +15,54 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn frequency_authoring_preflight_and_aligned_decode_allocate_nothing() {
+    use mirx::{
+        coding::{Frequency, FrequencyGeometry},
+        image::{CoverageBudget, EncodedImageAsset, EncodedImageView},
+    };
+    #[repr(align(64))]
+    struct Aligned([u8; 1024]);
+    let samples = core::array::from_fn::<_, 64, _>(|index| (index * 37 + 11) as u8);
+    let geometry = FrequencyGeometry::for_plane(SampleLayout::A8, 0, 8, 8).unwrap();
+    let codec = Frequency::reversible();
+    let mut stream = [0xa5; 384];
+    let mut payload = Aligned([0xa5; 1024]);
+    let mut output = Aligned([0xa5; 1024]);
+    let mut workspace = [0xa5; 64];
+    let (_, allocations) = count_allocations(|| {
+        let stream_len = codec.encode_into(geometry, &samples, &mut stream).unwrap();
+        let mut params = [0];
+        let asset = EncodedImageAsset::new(
+            SurfaceDescriptor::new(8, 8, SampleLayout::A8, ColorDescription::NONE).unwrap(),
+            codec.record_into(&mut params),
+            &stream[..stream_len],
+        );
+        asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
+        let payload_len = asset.encode_into(&mut payload.0).unwrap();
+        let image = EncodedImageView::open(&payload.0[..payload_len]).unwrap();
+        let mut slots = [None];
+        let groups = image
+            .groups_into(&mut slots, &mut CoverageBudget::new(1024))
+            .unwrap();
+        let plan = groups
+            .decode_plan(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_stride_multiple(64),
+                &PayloadLimits::EMBEDDED,
+            )
+            .unwrap();
+        let decoded = plan.decode_into(&mut output.0, &mut workspace).unwrap();
+        assert_eq!(
+            decoded.plane(0).unwrap().row(7).unwrap(),
+            Some(&samples[56..])
+        );
+    });
+    assert_eq!(allocations, 0);
+    assert!(output.0[512..].iter().all(|byte| *byte == 0xa5));
+}
+
+#[test]
 fn owned_font_edits_and_emission_need_no_temporary_reference_arrays() {
     use mirx::{
         Fixed,

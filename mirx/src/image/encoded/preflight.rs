@@ -141,7 +141,12 @@ impl<'a> Preflight<'a> {
                 actual: size,
             });
         }
-        self.spend(size as u64 + unit.data().len() as u64)?;
+        let profile_work = profile.extra_work(memory).map_err(fail)?;
+        let work = (size as u64)
+            .checked_add(unit.data().len() as u64)
+            .and_then(|work| work.checked_add(profile_work))
+            .ok_or(EncodedImageError::SizeOverflow)?;
+        self.spend(work)?;
         profile.plan(unit.data(), memory).map_err(fail)?;
         Ok(memory)
     }
@@ -150,11 +155,17 @@ impl<'a> Preflight<'a> {
         &mut self,
         input: usize,
         decoded: usize,
+        profile_work: u64,
     ) -> Result<(), EncodedImageError> {
         let work = (input as u64)
             .checked_add(decoded as u64)
             .and_then(|v| v.checked_mul(2))
             .and_then(|v| v.checked_add(decoded as u64))
+            .and_then(|v| {
+                profile_work
+                    .checked_mul(2)
+                    .and_then(|extra| v.checked_add(extra))
+            })
             .and_then(|v| v.checked_add(1))
             .ok_or(EncodedImageError::SizeOverflow)?;
         self.spend(work)

@@ -1,8 +1,8 @@
 use super::{DecodeUnitRef, ReferenceMode, UnitMemoryPlan, output::UnitOutput};
 use crate::{
     coding::{
-        Lz4, Lz4DecodePlan, Lz4Error, Pixel, PixelDecodePlan, PixelError, Rle, RleDecodePlan,
-        RleError,
+        Frequency, FrequencyError, FrequencyGeometry, Lz4, Lz4DecodePlan, Lz4Error, Pixel,
+        PixelDecodePlan, PixelError, Rle, RleDecodePlan, RleError,
     },
     image::{
         BufferRequirementError, SampleLayout, SurfacePlanError, SurfacePlane, SurfaceRequirements,
@@ -10,6 +10,8 @@ use crate::{
     media::{CodingId, CodingRecord},
 };
 
+#[cfg(test)]
+mod frequency_tests;
 #[cfg(test)]
 mod lz4_tests;
 #[cfg(test)]
@@ -19,9 +21,10 @@ mod tests;
 
 /// Validated scalar execution into independent, caller-owned unit storage.
 ///
-/// PIXEL supports RGB888/RGBA8888; RAW/RLE/LZ4 cover selected tight plane rows. Other
-/// coding profiles and reference modes are rejected during planning. Media
-/// integrity is a separate gate, such as `ImageGroups::validate_unit`.
+/// PIXEL supports RGB888/RGBA8888; RAW/RLE/LZ4 and frequency profiles cover
+/// selected tight plane rows. Other coding profiles and reference modes are
+/// rejected during planning. Media integrity is a separate gate, such as
+/// `ImageGroups::validate_unit`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UnitDecodePlan<'a> {
     memory: UnitMemoryPlan,
@@ -34,6 +37,7 @@ enum Decoder<'a> {
     Pixel(PixelDecodePlan<'a>),
     Rle(RleDecodePlan<'a>),
     Lz4(Lz4DecodePlan<'a>),
+    Frequency(FrequencyUnitDecodePlan<'a>),
 }
 
 #[derive(Clone, Copy)]
@@ -42,6 +46,7 @@ pub(crate) enum ScalarProfile {
     Pixel(Pixel),
     Rle(Rle),
     Lz4(Lz4),
+    Frequency(Frequency),
 }
 
 impl ScalarProfile {
@@ -71,6 +76,11 @@ impl ScalarProfile {
             CodingId::LZ4 => Lz4::from_record(coding)
                 .map(Self::Lz4)
                 .map_err(UnitDecodeError::Lz4),
+            CodingId::FREQUENCY_REVERSIBLE | CodingId::FREQUENCY_QUANTIZED => {
+                Frequency::from_record(coding)
+                    .map(Self::Frequency)
+                    .map_err(UnitDecodeError::Frequency)
+            }
             id => Err(UnitDecodeError::UnsupportedCoding(id)),
         }
     }
@@ -108,8 +118,38 @@ impl ScalarProfile {
                     .plan(data, memory.sample_byte_len())
                     .map_err(UnitDecodeError::Lz4)?,
             ),
+            Self::Frequency(codec) => Decoder::Frequency(
+                FrequencyUnitDecodePlan::new(codec, data, memory)
+                    .map_err(UnitDecodeError::Frequency)?,
+            ),
         };
         Ok(UnitDecodePlan { memory, decoder })
+    }
+
+    pub(crate) fn extra_work(self, memory: UnitMemoryPlan) -> Result<u64, UnitDecodeError> {
+        let Self::Frequency(_) = self else {
+            return Ok(0);
+        };
+        let mut coefficients = 0u64;
+        for plane in memory.planes() {
+            let geometry = FrequencyGeometry::for_plane(
+                memory.source_surface().sample_layout(),
+                plane.index(),
+                plane.geometry().width(),
+                plane.geometry().height(),
+            )
+            .map_err(UnitDecodeError::Frequency)?;
+            coefficients = coefficients
+                .checked_add(
+                    geometry
+                        .coefficient_count()
+                        .map_err(UnitDecodeError::Frequency)? as u64,
+                )
+                .ok_or(UnitDecodeError::Frequency(FrequencyError::SizeOverflow))?;
+        }
+        coefficients
+            .checked_mul(16)
+            .ok_or(UnitDecodeError::Frequency(FrequencyError::SizeOverflow))
     }
 }
 
@@ -150,6 +190,15 @@ impl UnitDecodePlan<'_> {
             .validate(output)
             .map_err(UnitDecodeError::Output)?;
         let output = &mut output[..self.memory.byte_len() as usize];
+        if let Decoder::Frequency(plan) = self.decoder {
+            plan.decode_tight_into(&mut output[..self.memory.sample_byte_len()])
+                .expect("validated frequency unit");
+            UnitOutput::expand_tight(self.memory, output);
+            return Ok(DecodedUnit {
+                memory: self.memory,
+                bytes: output,
+            });
+        }
         let mut writer = UnitOutput::new(self.memory, output);
         match self.decoder {
             Decoder::Raw(bytes) => writer.write(bytes),
@@ -170,6 +219,7 @@ impl UnitDecodePlan<'_> {
                     writer.copy_match(distance, len);
                 }
             }),
+            Decoder::Frequency(_) => unreachable!("handled before sequential output"),
         }
         writer.finish();
         Ok(DecodedUnit {
@@ -184,6 +234,65 @@ impl UnitDecodePlan<'_> {
 pub struct DecodedUnit<'a> {
     memory: UnitMemoryPlan,
     bytes: &'a [u8],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct FrequencyUnitDecodePlan<'a> {
+    codec: Frequency,
+    input: &'a [u8],
+    memory: UnitMemoryPlan,
+}
+
+impl<'a> FrequencyUnitDecodePlan<'a> {
+    fn new(
+        codec: Frequency,
+        input: &'a [u8],
+        memory: UnitMemoryPlan,
+    ) -> Result<Self, FrequencyError> {
+        let mut remaining = input;
+        for plane in memory.planes() {
+            let geometry = FrequencyGeometry::for_plane(
+                memory.source_surface().sample_layout(),
+                plane.index(),
+                plane.geometry().width(),
+                plane.geometry().height(),
+            )?;
+            let (_, consumed) = codec.plan_prefix(remaining, geometry)?;
+            remaining = &remaining[consumed..];
+        }
+        if !remaining.is_empty() {
+            return Err(FrequencyError::TrailingData {
+                offset: input.len() - remaining.len(),
+            });
+        }
+        Ok(Self {
+            codec,
+            input,
+            memory,
+        })
+    }
+
+    fn decode_tight_into(self, output: &mut [u8]) -> Result<(), FrequencyError> {
+        debug_assert_eq!(output.len(), self.memory.sample_byte_len());
+        let mut input = self.input;
+        let mut output_offset = 0;
+        for plane in self.memory.planes() {
+            let geometry = FrequencyGeometry::for_plane(
+                self.memory.source_surface().sample_layout(),
+                plane.index(),
+                plane.geometry().width(),
+                plane.geometry().height(),
+            )?;
+            let (plan, consumed) = self.codec.plan_prefix(input, geometry)?;
+            let len = plan.decoded_len();
+            plan.decode_into(&mut output[output_offset..output_offset + len])?;
+            input = &input[consumed..];
+            output_offset += len;
+        }
+        debug_assert!(input.is_empty());
+        debug_assert_eq!(output_offset, output.len());
+        Ok(())
+    }
 }
 impl<'a> DecodedUnit<'a> {
     pub const fn memory_plan(self) -> UnitMemoryPlan {
@@ -232,6 +341,7 @@ pub enum UnitDecodeError {
     Pixel(PixelError),
     Rle(RleError),
     Lz4(Lz4Error),
+    Frequency(FrequencyError),
     Memory(SurfacePlanError),
     Output(BufferRequirementError),
 }

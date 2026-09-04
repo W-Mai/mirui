@@ -2,7 +2,7 @@ use mirx::{
     ChunkFlags, ChunkType, Document, EditError, EncodeOptions, Meta, PayloadInput, PayloadLimits,
     PayloadLocation, PayloadOrigin, PayloadValidationFailure, RawChunkInput, RawChunkPolicy,
     ReadError, ReadOptions, Reader,
-    coding::{Lz4, Pixel, Rle},
+    coding::{Frequency, FrequencyGeometry, Lz4, Pixel, Rle},
     encode_chunks,
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageError, ImageReadError,
@@ -10,6 +10,74 @@ use mirx::{
     },
     media::{CodingId, CodingRecord, MediaPayloadError},
 };
+
+#[test]
+fn frequency_profiles_round_trip_through_container_preflight_and_decode() {
+    let surface =
+        SurfaceDescriptor::new(13, 9, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
+    let geometry = FrequencyGeometry::for_plane(SampleLayout::RGBA8888, 0, 13, 9).unwrap();
+    let samples: Vec<u8> = (0..geometry.decoded_len().unwrap())
+        .map(|index| ((index * 43 + index / 11 * 29 + 7) & 0xff) as u8)
+        .collect();
+    for codec in [Frequency::reversible(), Frequency::quantized(75).unwrap()] {
+        let mut stream = vec![0; codec.encoded_len(geometry, &samples).unwrap()];
+        codec.encode_into(geometry, &samples, &mut stream).unwrap();
+        let mut params = [0];
+        let asset = EncodedImageAsset::new(surface, codec.record_into(&mut params), &stream);
+        asset.preflight(&PayloadLimits::HOST).unwrap();
+        assert!(
+            asset
+                .preflight(&PayloadLimits::HOST.with_max_raster_work(1))
+                .is_err()
+        );
+        let payload = asset.encode().unwrap();
+        let image = mirx::image::EncodedImageView::open(&payload).unwrap();
+        image.preflight(&PayloadLimits::HOST).unwrap();
+        let mut slots = [None];
+        let groups = image
+            .groups_into(&mut slots, &mut CoverageBudget::new(256))
+            .unwrap();
+        let plan = groups
+            .decode_plan(
+                SurfaceRequirements::new().with_stride_multiple(64),
+                &PayloadLimits::HOST,
+            )
+            .unwrap();
+        assert!(
+            groups
+                .decode_plan(
+                    SurfaceRequirements::new().with_stride_multiple(64),
+                    &PayloadLimits::HOST.with_max_raster_work(plan.work() - 1),
+                )
+                .is_err()
+        );
+        groups
+            .decode_plan(
+                SurfaceRequirements::new().with_stride_multiple(64),
+                &PayloadLimits::HOST.with_max_raster_work(plan.work()),
+            )
+            .unwrap();
+        assert_eq!(plan.workspace_requirements().byte_len(), 468);
+        let mut output = vec![0xa5; plan.memory_plan().byte_len() as usize + 3];
+        let mut workspace = vec![0xa5; plan.workspace_requirements().byte_len()];
+        let decoded = plan.decode_into(&mut output, &mut workspace).unwrap();
+        let plane = decoded.plane(0).unwrap();
+        let mut changed = false;
+        for row in 0..9 {
+            let expected = &samples[row as usize * 52..row as usize * 52 + 52];
+            let actual = plane.row(row).unwrap().unwrap();
+            for (before, after) in expected.chunks_exact(4).zip(actual.chunks_exact(4)) {
+                assert_eq!(before[3], after[3]);
+                changed |= before[..3] != after[..3];
+            }
+        }
+        assert_eq!(changed, !codec.is_reversible());
+        assert_eq!(
+            &output[plan.memory_plan().byte_len() as usize..],
+            &[0xa5; 3]
+        );
+    }
+}
 
 #[test]
 fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {

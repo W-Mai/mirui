@@ -56,7 +56,35 @@ let decoded = plan.decode_into(&mut output).unwrap();
 assert_eq!(decoded.plane(0).unwrap().row(1).unwrap(), Some(&[42; 4][..]));
 ```
 
-The encoder receives tight logical sample bytes, not physical row padding. PIXEL accepts RGB888/RGBA8888 samples; RLE and LZ4 operate on bytes. For a joint YUV stream, concatenate tight rows in plane-index order. Indexed color tables are separate metadata, supplied with `with_color_table`; they are not compressed with the index plane. No color conversion or automatic codec selection occurs.
+The encoder receives tight logical sample bytes, not physical row padding. PIXEL accepts RGB888/RGBA8888 samples; RLE and LZ4 operate on bytes. For a joint YUV byte stream, concatenate tight rows in plane-index order. Indexed color tables are separate metadata, supplied with `with_color_table`; they are not compressed with the index plane. No color conversion or automatic codec selection occurs.
+
+## Frequency profiles
+
+`Frequency::reversible()` combines reversible YCoCg-R color decorrelation where applicable with an 8×8 integer Haar lifting transform and canonical zero-run/signed-varint coefficient coding. `Frequency::quantized(quality)` uses deterministic per-band quantization for qualities 1 through 100. It is a distinct lossy profile even at quality 100; alpha and index components remain exact. The stream is MIRX coefficient syntax, not a JPEG container or JPEG entropy stream.
+
+```rust
+use mirx::coding::{Frequency, FrequencyGeometry};
+
+let geometry = FrequencyGeometry::for_plane(SampleLayout::RGBA8888, 0, 4, 2).unwrap();
+let samples = [
+    12, 34, 56, 255, 78, 90, 12, 128,
+    34, 56, 78, 64, 90, 12, 34, 0,
+    56, 78, 90, 255, 12, 34, 56, 128,
+    78, 90, 12, 64, 34, 56, 78, 0,
+];
+let codec = Frequency::quantized(75).unwrap();
+let mut stream = [0; 512];
+let stream_len = codec.encode_into(geometry, &samples, &mut stream).unwrap();
+let mut params = [0];
+let asset = EncodedImageAsset::new(
+    SurfaceDescriptor::new(4, 2, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap(),
+    codec.record_into(&mut params),
+    &stream[..stream_len],
+);
+asset.preflight(&mirx::PayloadLimits::EMBEDDED).unwrap();
+```
+
+Revision 1 accepts I8, A8, L8, RGB888, RGBA8888, BGRA8888 and the 8-bit planes of I420, YV12, NV12 and NV21. Sub-byte samples, RGB565, XRGB8888, P010 and P016 are rejected instead of being treated as byte lanes. A multi-plane unit concatenates one independently encoded plane stream per selected plane in derived plane order. Plane dimensions and component counts delimit those streams without stored length fields. Every 8×8 block resets its coefficient state, and IMAGE groups remain the independently addressable unit boundary. Progressive-band access is not advertised by this revision.
 
 ## Payload layout
 
@@ -122,7 +150,7 @@ Use the corresponding `with_max_*` builders to set stricter or larger limits. Ze
 
 Raster limits describe sample processing independently of IMAGE, glyph or frame semantics. Shared admission accumulates group, unit and work costs across surfaces; DATA integrity is charged separately by the complete media caller. Adding another surface does not reset those counters or require repeating a shared DATA checksum scan.
 
-Work includes group resolution and coverage, each unit's coded and decoded bytes during syntax checks, and one complete DATA checksum scan. Checks precede the charged work. The common envelope and metadata CRC have already been checked by `open`; they are not retroactively limited by this later budget. Actual device stride, base alignment and output capacity still belong to the requested decode plan.
+Work includes group resolution and coverage, each unit's coded and decoded bytes during syntax checks, frequency coefficient transforms where present, and one complete DATA checksum scan. Checks precede the charged work. The common envelope and metadata CRC have already been checked by `open`; they are not retroactively limited by this later budget. Actual device stride, base alignment and output capacity still belong to the requested decode plan.
 
 `ImageSource` and `Document::push_image` accept decoded surfaces; encoded storage uses `push_encoded_image` and `replace_encoded_image`. These APIs do not implicitly select a codec, recompress samples or integrate runtime rendering.
 
@@ -169,7 +197,7 @@ Partitions are covered by the metadata CRC. Author preflight bounds their native
 
 ## RAW units in grouped storage
 
-`CodingRecord::RAW` stores tight logical samples with revision 1 and no parameters. Explicit groups can mix RAW units with PIXEL, RLE or LZ4 units, or retain independently addressed raw tiles. A RAW unit contains selected planes in original plane-index order; each plane contains tight local rows. Its exact byte count comes from the same geometry used by compressed units. Unknown revisions, nonempty parameters and short or long sample streams are rejected before output writes.
+`CodingRecord::RAW` stores tight logical samples with revision 1 and no parameters. Explicit groups can mix RAW units with PIXEL, RLE, LZ4 or frequency-coded units, or retain independently addressed raw tiles. A RAW unit contains selected planes in original plane-index order; each plane contains tight local rows. Its exact byte count comes from the same geometry used by compressed units. Unknown revisions, nonempty parameters and short or long sample streams are rejected before output writes.
 
 `decode_plan` transfers RAW bytes through the shared strided output path, with no tight staging buffer or heap. Output address, plane alignment, allocation extent and stride are independent of stored input layout. Row tails and allocation padding are normalized exactly as for compressed units. The caller chooses RAW where compression is not useful; this API does not make that size comparison automatically.
 
@@ -181,7 +209,7 @@ Whole-surface RAW without independent groups uses `RawImageAsset`, omitting CODI
 
 Shared encoded-section binding keeps directory selection separate from coding/group body validation. Whole preflight and reconstruction charge every DATA body covered by complete media validation, including bodies outside the selected surface. That total is derived once from directory metadata and adds no wire field. ROI plans retain their explicit partition or whole-DATA coverage; an empty ROI performs no sample checksum work.
 
-Prepared `ImageGroups` expose `decode_plan(requirements, limits)` for the complete surface. Planning reuses validated group slots, checks every scalar unit and complete DATA integrity, and returns an `ImageDecodePlan` without storing an expanded unit-plan table or allocating decoded bytes.
+Prepared `ImageGroups` expose `decode_plan(requirements, limits)` for the complete surface. Planning reuses validated group slots, checks every scalar unit and complete DATA integrity, and returns an `ImageDecodePlan` without storing an expanded unit-plan table or allocating decoded bytes. RAW, PIXEL, RLE, LZ4 and both frequency profiles share this path.
 
 `memory_plan()` describes the final output, including required address alignment and row stride. `workspace_requirements()` describes the largest tight decoded unit, reused across units at scalar alignment one. A tiled stream can bound this staging buffer by tile size; a whole-image stream requires whole-image staging. This path does not promise zero staging or direct GPU execution.
 
@@ -211,7 +239,7 @@ The workspace is the largest complete selected unit, even for a tiny crop. Final
 
 Only the unit's sample bits change. Other samples, absent planes, row padding, allocation rows, inter-plane gaps and the output suffix remain untouched. For 1/2/4-bit layouts, masked edge writes preserve neighbouring pixels in the same byte. Byte-aligned interiors use bulk copies; unaligned rows transfer shifted bytes without per-pixel staging.
 
-The caller can reuse one decoded-unit buffer across RAW, PIXEL, RLE and LZ4 units. This requires both that buffer and the final output allocation; a whole-image unit still needs whole-image temporary output with this approach. Placement does not allocate, select units or provide failure-atomic multi-unit execution. Integrity, required-unit preflight, complete coverage and final padding initialization belong to the enclosing request.
+The caller can reuse one decoded-unit buffer across RAW, PIXEL, RLE, LZ4 and frequency-coded units. This requires both that buffer and the final output allocation; a whole-image unit still needs whole-image temporary output with this approach. Placement does not allocate, select units or provide failure-atomic multi-unit execution. Integrity, required-unit preflight, complete coverage and final padding initialization belong to the enclosing request.
 
 ## Container reading
 

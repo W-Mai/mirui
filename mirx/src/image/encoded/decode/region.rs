@@ -190,8 +190,15 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
                     .map_err(DecodeError::Image)?;
                 workspace = workspace.max(unit_memory.byte_len());
                 input_bytes += unit.data().len() as u64;
+                let profile_work = selected_profile
+                    .extra_work(unit_memory)
+                    .expect("preflighted profile work");
                 preflight
-                    .spend_replay(unit.data().len(), unit_memory.sample_byte_len())
+                    .spend_replay(
+                        unit.data().len(),
+                        unit_memory.sample_byte_len(),
+                        profile_work,
+                    )
                     .map_err(DecodeError::Image)?;
                 let range = unit.data_range();
                 checksums

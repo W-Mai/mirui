@@ -1038,19 +1038,22 @@ mod tests {
         Pixel,
         Rle,
         Lz4,
+        FrequencyReversible,
+        FrequencyQuantized,
     }
 
     fn build_encoded_rgb(coding: TestCoding) -> &'static [u8] {
         use mirx::{
             Document,
-            coding::{Lz4, Pixel, Rle},
+            coding::{Frequency, FrequencyGeometry, Lz4, Pixel, Rle},
             image::{ColorDescription, EncodedImageAsset, SampleLayout, SurfaceDescriptor},
         };
 
-        let samples = [17, 42, 91, 17, 42, 91];
+        let samples = [17, 42, 91, 111, 7, 203];
         let surface =
             SurfaceDescriptor::new(2, 1, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
-        let mut encoded = [0; 64];
+        let mut encoded = [0; 512];
+        let mut frequency_params = [0];
         let (record, len) = match coding {
             TestCoding::Pixel => {
                 let codec = Pixel::new(SampleLayout::RGB888).unwrap();
@@ -1075,6 +1078,22 @@ mod tests {
                     .encode_into(&samples, &mut encoded)
                     .unwrap();
                 (codec.record(), len)
+            }
+            TestCoding::FrequencyReversible => {
+                let codec = Frequency::reversible();
+                let geometry = FrequencyGeometry::for_plane(SampleLayout::RGB888, 0, 2, 1).unwrap();
+                (
+                    codec.record_into(&mut frequency_params),
+                    codec.encode_into(geometry, &samples, &mut encoded).unwrap(),
+                )
+            }
+            TestCoding::FrequencyQuantized => {
+                let codec = Frequency::quantized(50).unwrap();
+                let geometry = FrequencyGeometry::for_plane(SampleLayout::RGB888, 0, 2, 1).unwrap();
+                (
+                    codec.record_into(&mut frequency_params),
+                    codec.encode_into(geometry, &samples, &mut encoded).unwrap(),
+                )
             }
         };
         let image = EncodedImageAsset::new(surface, record, &encoded[..len]);
@@ -1110,14 +1129,33 @@ mod tests {
 
     #[test]
     fn from_mirx_decodes_every_lossless_profile() {
-        for coding in [TestCoding::Pixel, TestCoding::Rle, TestCoding::Lz4] {
+        for coding in [
+            TestCoding::Pixel,
+            TestCoding::Rle,
+            TestCoding::Lz4,
+            TestCoding::FrequencyReversible,
+        ] {
             let tex = Texture::from_mirx(build_encoded_rgb(coding)).unwrap();
             assert_eq!(tex.width, 2);
             assert_eq!(tex.height, 1);
             assert_eq!(tex.stride, 6);
             assert_eq!(tex.format, ColorFormat::RGB888);
-            assert_eq!(tex.buf.as_slice(), &[17, 42, 91, 17, 42, 91]);
+            assert_eq!(tex.buf.as_slice(), &[17, 42, 91, 111, 7, 203]);
             assert!(matches!(tex.buf, TexBuf::Aligned(_)));
+        }
+    }
+
+    #[test]
+    fn from_mirx_decodes_quantized_frequency_pixels() {
+        let tex = Texture::from_mirx(build_encoded_rgb(TestCoding::FrequencyQuantized)).unwrap();
+        assert_eq!((tex.width, tex.height, tex.stride), (2, 1, 6));
+        assert_eq!(tex.format, ColorFormat::RGB888);
+        assert_ne!(tex.buf.as_slice(), &[17, 42, 91, 111, 7, 203]);
+        for (before, after) in [17u8, 42, 91, 111, 7, 203]
+            .into_iter()
+            .zip(tex.buf.as_slice().iter().copied())
+        {
+            assert!(before.abs_diff(after) <= 52);
         }
     }
 
@@ -1135,7 +1173,7 @@ mod tests {
         assert_eq!(tex.height, 1);
         assert_eq!(tex.stride, 192);
         assert_eq!(tex.buf.as_slice().as_ptr() as usize % 64, 0);
-        assert_eq!(&tex.buf.as_slice()[..6], &[17, 42, 91, 17, 42, 91]);
+        assert_eq!(&tex.buf.as_slice()[..6], &[17, 42, 91, 111, 7, 203]);
         assert_eq!(&tex.buf.as_slice()[6..], &[0; 186]);
         let TexBuf::Aligned(storage) = tex.buf else {
             panic!("encoded output must own its aligned allocation")
@@ -1167,7 +1205,7 @@ mod tests {
         let texture = plan.decode_into(&mut output.0, &mut workspace).unwrap();
         assert_eq!(texture.buf.as_slice().as_ptr() as usize % 64, 0);
         assert_eq!(texture.stride, 64);
-        assert_eq!(&texture.buf.as_slice()[..6], &[17, 42, 91, 17, 42, 91]);
+        assert_eq!(&texture.buf.as_slice()[..6], &[17, 42, 91, 111, 7, 203]);
         assert_eq!(&texture.buf.as_slice()[6..], &[0; 58]);
         assert_eq!(&output.0[64..], &[0xa5; 192]);
         assert_eq!(&workspace[6..], &[0x5a; 10]);
@@ -1247,7 +1285,7 @@ mod tests {
         let first = m.resolve("compressed");
         let second = m.resolve("compressed");
         assert!(alloc::rc::Rc::ptr_eq(&first, &second));
-        assert_eq!(first.buf.as_slice(), &[17, 42, 91, 17, 42, 91]);
+        assert_eq!(first.buf.as_slice(), &[17, 42, 91, 111, 7, 203]);
         assert!(matches!(first.buf, TexBuf::Aligned(_)));
     }
 

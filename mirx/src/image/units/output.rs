@@ -160,4 +160,42 @@ impl<'a> UnitOutput<'a> {
             }
         }
     }
+
+    /// Expands tight selected-plane bytes in place into their planned rows.
+    ///
+    /// Destinations never precede their tight source positions because planned
+    /// strides and inter-plane offsets can only add padding. Reverse traversal
+    /// therefore preserves every unread source byte while overlapping moves are
+    /// performed. All physical gaps are cleared after placement.
+    pub(super) fn expand_tight(memory: UnitMemoryPlan, output: &mut [u8]) {
+        debug_assert!(output.len() >= memory.byte_len() as usize);
+        let mut source_end = memory.sample_byte_len();
+        for plane in memory.planes().rev() {
+            let geometry = plane.geometry();
+            let row_len = geometry.minimum_stride().expect("sample row") as usize;
+            let plane_len = row_len * geometry.height() as usize;
+            let source_start = source_end - plane_len;
+            let target = plane.memory();
+            for row in (0..geometry.height() as usize).rev() {
+                let source = source_start + row * row_len;
+                let destination = target.data_offset() as usize + row * target.stride() as usize;
+                output.copy_within(source..source + row_len, destination);
+            }
+            source_end = source_start;
+        }
+        debug_assert_eq!(source_end, 0);
+
+        let mut clear_from = 0;
+        for plane in memory.planes() {
+            let geometry = plane.geometry();
+            let row_len = geometry.minimum_stride().expect("sample row") as usize;
+            let target = plane.memory();
+            for row in 0..geometry.height() as usize {
+                let row_start = target.data_offset() as usize + row * target.stride() as usize;
+                output[clear_from..row_start].fill(0);
+                clear_from = row_start + row_len;
+            }
+        }
+        output[clear_from..memory.byte_len() as usize].fill(0);
+    }
 }
