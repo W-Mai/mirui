@@ -15,6 +15,55 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn indexed_region_decode_borrows_palette_and_uses_only_caller_output_and_workspace() {
+    use mirx::{
+        coding::Rle,
+        image::{CoverageBudget, EncodedImageAsset, EncodedImageView, UnitGroupRecord},
+        media::DataIntegrity,
+    };
+    let surface = SurfaceDescriptor::new(4, 1, SampleLayout::I4, ColorDescription::SRGB).unwrap();
+    let coding = [Rle::new().record()];
+    let records = [UnitGroupRecord::new(0, 0..4).unwrap().with_tiles(2, 1)];
+    let payload =
+        EncodedImageAsset::from_groups(surface, &coding, &records, &[0x80, 0x12, 0x80, 0x34])
+            .with_color_table(&[0; 64])
+            .with_integrity(DataIntegrity::Indexed(&[2, 4]))
+            .encode()
+            .unwrap();
+    #[repr(align(64))]
+    struct Buffer([u8; 128]);
+    let mut output = Buffer([0xa5; 128]);
+    let mut workspace = [0x5a; 4];
+    let (_, allocations) = count_allocations(|| {
+        let image = EncodedImageView::open(&payload).unwrap();
+        let mut slots = [None];
+        let groups = image
+            .groups_into(&mut slots, &mut CoverageBudget::new(1000))
+            .unwrap();
+        let plan = groups
+            .decode_region_plan(
+                surface.region(1, 0, 2, 1).unwrap(),
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_stride_multiple(64),
+                &PayloadLimits::EMBEDDED,
+            )
+            .unwrap();
+        assert_eq!(plan.workspace_requirements().byte_len(), 1);
+        assert_eq!(plan.checksum_byte_len(), 4);
+        let view = plan.decode_into(&mut output.0, &mut workspace).unwrap();
+        assert_eq!(
+            view.color_table().unwrap().as_bytes().as_ptr(),
+            image.color_table().unwrap().as_bytes().as_ptr()
+        );
+        assert_eq!(view.plane(0).unwrap().row(0).unwrap(), Some(&[0x23][..]));
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(&output.0[64..], &[0xa5; 64]);
+    assert_eq!(&workspace[1..], &[0x5a; 3]);
+}
+
+#[test]
 fn data_check_planning_and_verification_borrow_partition_metadata() {
     use mirx::{
         coding::Rle,

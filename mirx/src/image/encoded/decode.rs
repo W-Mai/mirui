@@ -2,22 +2,28 @@ use super::{EncodedImageError, ImageGroups, preflight::Preflight};
 use crate::{
     PayloadLimits,
     image::{
-        BufferRequirementError, BufferRequirements, SurfaceMemoryPlan, SurfacePlanError,
-        SurfaceRequirements, SurfaceView,
+        BufferRequirementError, BufferRequirements, RegionMemoryPlan, SurfaceMemoryPlan,
+        SurfacePlanError, SurfaceRequirements, SurfaceView,
     },
 };
 
-/// Complete scalar image reconstruction using one reusable caller-owned unit buffer.
+mod region;
+use region::DecodeScope;
+
+/// Scalar image reconstruction using one reusable caller-owned unit buffer.
 ///
-/// All units and DATA integrity are preflighted. Prepared group slots and input
+/// Requested units and DATA integrity are preflighted. Prepared group slots and input
 /// remain borrowed; no per-unit plan array or decoded storage is allocated.
 #[derive(Clone, Copy, Debug)]
 pub struct ImageDecodePlan<'a, 'g> {
     groups: ImageGroups<'a, 'g>,
-    memory: SurfaceMemoryPlan,
+    memory: RegionMemoryPlan,
+    scope: DecodeScope,
     workspace: BufferRequirements,
     units: u64,
     work: u64,
+    input_bytes: u64,
+    checksum_bytes: u64,
 }
 
 impl<'a, 'g> ImageGroups<'a, 'g> {
@@ -62,6 +68,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
             .spend(u64::from(memory.byte_len()) + self.image.data.bytes().len() as u64)
             .map_err(DecodeError::Image)?;
         let mut workspace = 0;
+        let mut input_bytes = 0;
         for (index, group) in self.iter().enumerate() {
             preflight.group(index, group).map_err(DecodeError::Image)?;
             for unit in group.iter() {
@@ -69,34 +76,47 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
                     .memory_plan(SurfaceRequirements::new())
                     .expect("preflighted unit geometry");
                 workspace = workspace.max(unit_memory.byte_len());
-                let decoded = unit_memory.sample_byte_len() as u64;
-                let input = unit.data().len() as u64;
-                let work = input
-                    .checked_add(decoded)
-                    .and_then(|v| v.checked_mul(2))
-                    .and_then(|v| v.checked_add(decoded))
-                    .and_then(|v| v.checked_add(1))
-                    .ok_or(DecodeError::Image(EncodedImageError::SizeOverflow))?;
-                preflight.spend(work).map_err(DecodeError::Image)?;
+                input_bytes += unit.data().len() as u64;
+                preflight
+                    .spend_replay(unit.data().len(), unit_memory.sample_byte_len())
+                    .map_err(DecodeError::Image)?;
             }
         }
         self.image().validate_data().map_err(DecodeError::Image)?;
         Ok(ImageDecodePlan {
             groups: self,
-            memory,
+            memory: RegionMemoryPlan::whole(memory),
+            scope: DecodeScope::Whole,
             workspace: BufferRequirements::new(workspace, 1).map_err(DecodeError::Memory)?,
             units: preflight.total_units(),
             work: preflight.work(),
+            input_bytes,
+            checksum_bytes: self.image.data.bytes().len() as u64,
         })
     }
 }
 
 impl<'a> ImageDecodePlan<'a, '_> {
     pub const fn memory_plan(self) -> SurfaceMemoryPlan {
+        self.memory.memory_plan()
+    }
+
+    /// Exact original region and its independently aligned output allocation.
+    pub const fn region_plan(self) -> RegionMemoryPlan {
         self.memory
     }
 
-    /// Largest tight decoded unit, reused during execution; scalar alignment is one.
+    /// Selected encoded bytes, excluding alignment gaps and metadata.
+    pub const fn input_byte_len(self) -> u64 {
+        self.input_bytes
+    }
+
+    /// Actual DATA checksum bytes, including required partition expansion.
+    pub const fn checksum_byte_len(self) -> u64 {
+        self.checksum_bytes
+    }
+
+    /// Largest tight selected unit, reused during execution; scalar alignment is one.
     /// A whole-image encoded stream requires whole-image staging with this path.
     pub const fn workspace_requirements(self) -> BufferRequirements {
         self.workspace
@@ -111,7 +131,7 @@ impl<'a> ImageDecodePlan<'a, '_> {
         self.work
     }
 
-    /// Reconstructs all samples after validating both caller buffers.
+    /// Reconstructs the requested samples after validating both caller buffers.
     ///
     /// Binding errors leave output and workspace unchanged. Successful output
     /// has zero physical padding; both buffer suffixes are preserved. Immutable
@@ -125,17 +145,18 @@ impl<'a> ImageDecodePlan<'a, '_> {
     where
         'a: 'output,
     {
-        self.memory
+        let memory = self.memory_plan();
+        memory
             .buffer_requirements()
             .validate(output)
             .map_err(DecodeError::Output)?;
         self.workspace
             .validate(workspace)
             .map_err(DecodeError::Workspace)?;
-        let output = &mut output[..self.memory.byte_len() as usize];
+        let output = &mut output[..memory.byte_len() as usize];
         output.fill(0);
         for group in self.groups.iter() {
-            for unit in group.iter() {
+            for unit in self.scope.units(group, self.memory) {
                 let plan = unit
                     .decode_plan(SurfaceRequirements::new())
                     .expect("immutable preflighted unit");
@@ -143,12 +164,12 @@ impl<'a> ImageDecodePlan<'a, '_> {
                     .decode_into(workspace)
                     .expect("validated unit workspace");
                 decoded
-                    .copy_into(output, self.memory)
+                    .copy_region_into(output, self.memory)
                     .expect("validated unit placement");
             }
         }
         Ok(SurfaceView::from_plan(
-            self.memory,
+            memory,
             output,
             self.groups.image().color_table(),
         ))

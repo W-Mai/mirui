@@ -2,7 +2,8 @@ use super::{EncodedImageError, EncodedImageView, groups::GroupSource};
 use crate::{
     PayloadLimits,
     image::{
-        CoverageBudget, SurfaceRequirements, UnitDecodeError, UnitGroup, units::ScalarProfile,
+        CoverageBudget, DecodeUnitRef, SurfaceRequirements, UnitDecodeError, UnitGroup,
+        UnitMemoryPlan, units::ScalarProfile,
     },
 };
 
@@ -59,16 +60,7 @@ impl<'a> Preflight<'a> {
         index: usize,
         group: UnitGroup<'_>,
     ) -> Result<(), EncodedImageError> {
-        self.total_units = self
-            .total_units
-            .checked_add(group.len() as u64)
-            .ok_or(EncodedImageError::SizeOverflow)?;
-        if self.total_units > u64::from(self.limits.max_image_units()) {
-            return Err(EncodedImageError::TooManyUnits {
-                limit: self.limits.max_image_units(),
-                actual: self.total_units,
-            });
-        }
+        self.add_units(group.len() as u64)?;
         let profile = ScalarProfile::new(group.coding(), group.surface().sample_layout()).map_err(
             |error| EncodedImageError::Coding {
                 group: index,
@@ -76,27 +68,66 @@ impl<'a> Preflight<'a> {
             },
         )?;
         for (ordinal, unit) in group.iter().enumerate() {
-            let fail = |error| EncodedImageError::Unit {
-                group: index,
-                ordinal,
-                error,
-            };
-            let memory = unit
-                .memory_plan(SurfaceRequirements::new())
-                .map_err(|error| fail(UnitDecodeError::Memory(error)))?;
-            let size = memory.sample_byte_len();
-            if size > self.limits.max_decoded_bytes() {
-                return Err(EncodedImageError::DecodedUnitTooLarge {
-                    group: index,
-                    ordinal,
-                    limit: self.limits.max_decoded_bytes(),
-                    actual: size,
-                });
-            }
-            self.spend(size as u64 + unit.data().len() as u64)?;
-            profile.plan(unit.data(), memory).map_err(fail)?;
+            self.unit(index, ordinal, unit, profile)?;
         }
         Ok(())
+    }
+
+    pub(super) fn add_units(&mut self, count: u64) -> Result<(), EncodedImageError> {
+        self.total_units = self
+            .total_units
+            .checked_add(count)
+            .ok_or(EncodedImageError::SizeOverflow)?;
+        if self.total_units > u64::from(self.limits.max_image_units()) {
+            return Err(EncodedImageError::TooManyUnits {
+                limit: self.limits.max_image_units(),
+                actual: self.total_units,
+            });
+        }
+        Ok(())
+    }
+
+    pub(super) fn unit(
+        &mut self,
+        index: usize,
+        ordinal: usize,
+        unit: DecodeUnitRef<'_>,
+        profile: ScalarProfile,
+    ) -> Result<UnitMemoryPlan, EncodedImageError> {
+        let fail = |error| EncodedImageError::Unit {
+            group: index,
+            ordinal,
+            error,
+        };
+        let memory = unit
+            .memory_plan(SurfaceRequirements::new())
+            .map_err(|error| fail(UnitDecodeError::Memory(error)))?;
+        let size = memory.sample_byte_len();
+        if size > self.limits.max_decoded_bytes() {
+            return Err(EncodedImageError::DecodedUnitTooLarge {
+                group: index,
+                ordinal,
+                limit: self.limits.max_decoded_bytes(),
+                actual: size,
+            });
+        }
+        self.spend(size as u64 + unit.data().len() as u64)?;
+        profile.plan(unit.data(), memory).map_err(fail)?;
+        Ok(memory)
+    }
+
+    pub(super) fn spend_replay(
+        &mut self,
+        input: usize,
+        decoded: usize,
+    ) -> Result<(), EncodedImageError> {
+        let work = (input as u64)
+            .checked_add(decoded as u64)
+            .and_then(|v| v.checked_mul(2))
+            .and_then(|v| v.checked_add(decoded as u64))
+            .and_then(|v| v.checked_add(1))
+            .ok_or(EncodedImageError::SizeOverflow)?;
+        self.spend(work)
     }
 }
 

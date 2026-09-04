@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Selected-region IMAGE decoding.** Exact cropped requests reuse scalar plans and caller-owned aligned output. Complete intersecting units share bounded staging, while checksum partition coalescing reports actual verification bytes separately from selected coded bytes. All input and buffer checks precede final writes.
+
 - **Planned DATA verification costs.** Borrowed checksum plans report exact scan bytes before verification. Indexed plans select intersecting partitions, whole-DATA plans expose full scan cost, and empty requests perform no checksum work.
 
 - **Bounded IMAGE spatial queries.** Borrowed region iterators select complete units with sparse rank jumps, explicit traversal bounds and preserved planar coordinates. Narrow and sparse requests avoid expanded unit tables and scans across unrelated cells or empty rows.

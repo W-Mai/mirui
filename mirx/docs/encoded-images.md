@@ -161,7 +161,13 @@ Prepared `ImageGroups` expose `decode_plan(requirements, limits)` for the comple
 
 Group/unit and tight per-unit decoded limits remain explicit. The work budget charges output initialization, one complete DATA checksum scan, unit syntax preflight, execution-time re-preflight/replay, placement and bounded unit visits. `work()` reports the charge; it is not a cycle count. Earlier metadata/group preparation and coverage are not repeated or included in this request charge. Unsupported coding, corrupt input, exhausted limits and caller-buffer errors are rejected before final output changes.
 
-This API requests the whole image. Row/ROI selection, streamed reads, acceleration and tool/runtime integration are separate operations.
+## Selected-region reconstruction
+
+`groups.decode_region_plan(region, requirements, limits)` returns the same `ImageDecodePlan` for an exact cropped surface. A full-width one-row region requests a row when its chroma boundaries are valid. The plan projects requests into planar group coordinates, selects intersecting units and checks their scalar syntax. Complete intersecting units are decoded; only their requested samples are copied. Unknown profiles or malformed streams outside the selection are not decoded by this path. Earlier group preparation still validates complete static coverage and all index metadata.
+
+`region_plan()` retains source and cropped geometry. `input_byte_len()` counts selected encoded bytes without alignment gaps; `checksum_byte_len()` counts actual DATA verification, including intersecting partition expansion and required gaps. Shared partitions are verified once and whole-DATA integrity scans complete DATA at most once. Empty regions select no units and require no checksum or workspace bytes. These counts describe borrowed input processing, not partial disk or Flash I/O.
+
+The workspace is the largest complete selected unit, even for a tiny crop. Final allocation, exact YUV boundaries, sub-byte placement, palette borrowing and binding-error atomicity use the same rules as whole-image reconstruction. The work charge includes spatial-query bounds, selected syntax checks, coalesced checksum scans, replay and cropped output initialization. Unit limits apply to the selection; the group limit still bounds the prepared image's groups. Streamed reads, backend negotiation, acceleration and tool/runtime integration remain separate operations.
 
 ## Placing decoded units
 

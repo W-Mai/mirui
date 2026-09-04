@@ -182,6 +182,8 @@ Encoded payload bytes can be inserted through `push_raw` with `RawChunkPolicy::i
 
 `ImageGroups::decode_plan(requirements, limits)` preflights every unit and complete DATA integrity for whole-image scalar reconstruction. `ImageDecodePlan` reports the final memory layout and one reusable workspace sized to the largest tight unit. `decode_into(output, workspace)` checks both buffers before writing, reconstructs all planes and zeroes final padding without allocation. A whole-image stream requires whole-image staging with this path; tiled streams can use a smaller reusable unit buffer. The returned `SurfaceView` borrows output samples and the source's indexed palette. Work limits include preparation and replay; group preparation and coverage are separate, already-completed checks.
 
+`ImageGroups::decode_region_plan(region, requirements, limits)` prepares exact cropped reconstruction through the same plan and caller buffers. Only intersecting units are preflighted and decoded; shared checksum partitions are verified once. `region_plan()` preserves original coordinates, `input_byte_len()` reports selected coded bytes, and `checksum_byte_len()` includes required checksum expansion. Packed sample origins and YUV boundaries remain exact. A small crop still needs workspace for its largest complete selected unit; empty regions require none. No implicit file I/O or color conversion occurs.
+
 ```rust
 use mirx::{coding::Pixel, image::SampleLayout};
 

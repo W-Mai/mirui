@@ -81,6 +81,13 @@ impl<'a> MediaPayload<'a> {
 }
 
 impl DataCheckPlan<'_> {
+    pub(crate) fn covered_end(&self) -> Option<u32> {
+        match &self.coverage {
+            Coverage::Indexed(ranges) => ranges.clone().next_back().map(|range| range.range().end),
+            Coverage::Empty | Coverage::Whole => None,
+        }
+    }
+
     /// Exact DATA bytes scanned by `verify`, excluding already-read metadata.
     pub const fn byte_len(&self) -> u32 {
         self.byte_len

@@ -129,6 +129,24 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
     assert_eq!(&combined.0[24..64], &[0; 40]);
     assert_eq!(&combined.0[64..], &[0xad; 64]);
     assert_eq!(&workspace[6..], &[0x5a; 6]);
+    let region = groups
+        .decode_region_plan(
+            surface.region(2, 0, 4, 1).unwrap(),
+            whole_plan.requirements(),
+            &PayloadLimits::EMBEDDED,
+        )
+        .unwrap();
+    assert_eq!(region.unit_count(), 2);
+    assert_eq!(region.input_byte_len(), (lengths[1] + lengths[2]) as u64);
+    assert_eq!(region.checksum_byte_len(), 128);
+    let mut cropped = Aligned([0xad; 128]);
+    let view = region.decode_into(&mut cropped.0, &mut workspace).unwrap();
+    assert_eq!(
+        view.plane(0).unwrap().row(0).unwrap(),
+        Some(&samples.as_flattened()[6..18])
+    );
+    assert_eq!(&cropped.0[12..64], &[0; 52]);
+    assert_eq!(&cropped.0[64..], &[0xad; 64]);
     let mut document = Document::open(&bytes).unwrap();
     let id = document
         .chunks_of_type(ChunkType::IMAGE)
