@@ -84,7 +84,7 @@ let asset = EncodedImageAsset::new(
 asset.preflight(&mirx::PayloadLimits::EMBEDDED).unwrap();
 ```
 
-Revision 1 accepts I8, A8, L8, RGB888, RGBA8888, BGRA8888 and the 8-bit planes of I420, YV12, NV12 and NV21. Sub-byte samples, RGB565, XRGB8888, P010 and P016 are rejected instead of being treated as byte lanes. A multi-plane unit concatenates one independently encoded plane stream per selected plane in derived plane order. Plane dimensions and component counts delimit those streams without stored length fields. Every 8×8 block resets its coefficient state, and IMAGE groups remain the independently addressable unit boundary. Progressive-band access is not advertised by this revision.
+Revision 1 accepts I8, A8, L8, RGB888, RGBA8888, BGRA8888 and the 8-bit planes of I420, YV12, NV12 and NV21. Sub-byte samples, RGB565, XRGB8888, P010 and P016 are rejected instead of being treated as byte lanes. A multi-plane unit concatenates one independently encoded plane stream per selected plane in derived plane order. Plane dimensions and component counts delimit those streams without stored length fields. Partial edge blocks repeat the nearest sample instead of injecting an artificial zero border. Every 8×8 block resets its coefficient state, and IMAGE groups remain the independently addressable unit boundary. Progressive-band access is not advertised by this revision.
 
 ## Payload layout
 

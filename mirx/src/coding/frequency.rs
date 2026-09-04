@@ -411,12 +411,9 @@ impl FrequencyGeometry {
         values: &mut [i64; COEFFICIENTS],
     ) {
         for y in 0..BLOCK {
-            let sample_y = block_y * BLOCK as u32 + y as u32;
+            let sample_y = (block_y * BLOCK as u32 + y as u32).min(self.height - 1);
             for x in 0..BLOCK {
-                let sample_x = block_x * BLOCK as u32 + x as u32;
-                if sample_x >= self.width || sample_y >= self.height {
-                    continue;
-                }
+                let sample_x = (block_x * BLOCK as u32 + x as u32).min(self.width - 1);
                 let pixel = (sample_y as usize * self.width as usize + sample_x as usize)
                     * usize::from(self.components);
                 values[y * BLOCK + x] = self.load_sample(samples, pixel, component);

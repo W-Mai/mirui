@@ -156,18 +156,26 @@ fn quantized_profile_is_deterministic_and_quality_100_is_not_lossless() {
 }
 
 #[test]
+fn quantized_edge_extension_preserves_constant_surfaces() {
+    let geometry = FrequencyGeometry::for_plane(SampleLayout::RGBA8888, 0, 13, 9).unwrap();
+    let source = [17, 42, 91, 137].repeat(13 * 9);
+    for quality in [1, 25, 50, 75, 100] {
+        let codec = Frequency::quantized(quality).unwrap();
+        let stream = encoded(codec, geometry, &source);
+        let plan = codec.plan(&stream, geometry).unwrap();
+        let mut output = vec![0; source.len()];
+        plan.decode_into(&mut output).unwrap();
+        assert_eq!(output, source, "quality {quality}");
+    }
+}
+
+#[test]
 fn syntax_validation_rejects_truncation_overflow_and_noncanonical_values() {
     let geometry = FrequencyGeometry::for_plane(SampleLayout::A8, 0, 1, 1).unwrap();
     let codec = Frequency::reversible();
     let source = [42];
     let bytes = encoded(codec, geometry, &source);
-    assert_eq!(
-        bytes,
-        [
-            130, 3, 5, 11, 0, 128, 21, 2, 130, 5, 11, 21, 0, 128, 43, 2, 130, 11, 21, 43, 0, 128,
-            85, 10, 130, 21, 43, 85, 0, 128, 171, 1, 26,
-        ]
-    );
+    assert_eq!(bytes, [128, 171, 1, 62]);
     for end in 0..bytes.len() {
         assert!(codec.plan(&bytes[..end], geometry).is_err(), "end {end}");
     }
