@@ -15,6 +15,29 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn glyph_surface_records_and_directory_binding_allocate_nothing() {
+    use mirx::font::{GlyphPacking, GlyphSurfaceRecord};
+    let bytes = raw_a8_media_payload();
+    let (_, allocations) = count_allocations(|| {
+        let media = MediaPayload::open(&bytes).unwrap();
+        let record =
+            GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 1, 1, 1).unwrap();
+        record.validate_sections(media).unwrap();
+        let encoded = record
+            .with_codings(2)
+            .unwrap()
+            .with_groups(3, Some(4))
+            .unwrap();
+        assert_eq!(encoded.logical_extent(100).unwrap(), (1, 100));
+        let mut out = [0xa5; 25];
+        encoded.encode_record_into(&mut out[1..]).unwrap();
+        assert_eq!(GlyphSurfaceRecord::from_record(&out[1..]).unwrap(), encoded);
+        assert_eq!(out[0], 0xa5);
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn representation_record_binding_and_emission_allocate_nothing() {
     use mirx::{FontRepresentation, font::RepresentationRecord};
     let (_, allocations) = count_allocations(|| {

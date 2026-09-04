@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shared glyph surface records.** Fixed 24-byte records retain cell/atlas geometry and direct media-section references without repeating byte ranges. Checked storage states exclude conflicting RAW/encoded fields, and directory binding validates reference kinds and flags without allocation.
+
 - **Direct media-directory access.** Ordinal lookup and bidirectional iterator skips resolve only the selected section descriptor in constant time, without a decoded table. Type-filtered scanning and explicit DATA verification retain separate semantics.
 
 - **Compact FONT representation records.** Fixed 16-byte records retain class-dependent size semantics and shared surface/map references. Surface-derived sample depth and tight decoded cost are not duplicated; native binding rejects stale hints and typed parsing enforces canonical Coverage defaults.

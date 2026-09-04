@@ -74,6 +74,8 @@ IMAGE, META, PALETTE, and FRAMES expose borrowed views. FONT and VECTOR use `dec
 
 `font::RepresentationRecord` encodes 16 bytes of size semantics and shared surface/map references. Sample depth and decoded selection cost come from the bound surface, while fixed Coverage omits repeated range values. [Font representation records](docs/font-representations.md) defines canonical fields and native binding checks.
 
+`font::GlyphSurfaceRecord` encodes 24 bytes of shared glyph geometry and direct section references. RAW physical allocation and encoded coding/group/index references are exclusive states; directory checks do not imply body or DATA validation. [Glyph surface records](docs/glyph-surfaces.md) describes the fields, omission rules and checked constructors.
+
 `font::MetricsTable` borrows representation-specific line and glyph measurements as signed 24.8 values, without repeating codepoints or raster storage fields. [Font metric records](docs/font-metrics.md) describes the byte layout, coordinate conventions and allocation-free access.
 
 `font::GlyphMap` derives fixed GlyphMajor cells without map bytes or borrows explicit Atlas2D rectangles. Native and wire maps share checked lookup and encoding without repeating per-glyph storage rules; see [glyph region maps](docs/glyph-maps.md).
