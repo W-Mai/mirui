@@ -156,6 +156,20 @@ assert_eq!(ColorFormat::RGBA8888.minimum_stride(13), Some(52));
 
 Formats with a separate palette or alpha plane report the depth of the main plane. `ColorFormat::extra_size(width, height, stride)` calculates the required extra-plane byte count.
 
+## Font codepoint tables
+
+`FontCodepoints` borrows a CODEPOINTS section body: strictly increasing little-endian `u32` Unicode scalar values. It rejects surrogates, out-of-range values, duplicates, unordered records, and partial entries. Glyph ordinals come from table positions, so raster representations can share one Unicode directory. `get`, `binary_search`, and double-ended iteration require no allocation or pointer alignment.
+
+```rust
+use mirx::FontCodepoints;
+
+let bytes = [0x41, 0, 0, 0, 0x2d, 0x4e, 0, 0];
+let codepoints = FontCodepoints::open(&bytes).unwrap();
+assert_eq!(codepoints.binary_search('A'), Ok(0));
+assert_eq!(codepoints.get(1), Some('中'));
+assert_eq!(codepoints.binary_search('B'), Err(1));
+```
+
 ## Authoring a document
 
 ![Document owns collection operations while DocumentChunkMut scopes edits to one existing chunk](docs/document-operations.svg)

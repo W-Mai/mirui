@@ -453,3 +453,16 @@ fn raw_surface_transfer_uses_only_the_caller_buffer() {
     assert_eq!(allocations, 0);
     assert_eq!(&output.0[192..], &[0xa5; 64]);
 }
+
+#[test]
+fn shared_font_codepoints_validate_and_search_without_decoding_an_array() {
+    let bytes = [0x41, 0, 0, 0, 0x2d, 0x4e, 0, 0, 0, 0xf6, 1, 0];
+    let (_, allocations) = count_allocations(|| {
+        let table = mirx::FontCodepoints::open(&bytes).unwrap();
+        assert_eq!(table.binary_search('中'), Ok(1));
+        assert_eq!(table.binary_search('B'), Err(1));
+        assert_eq!(table.iter().next_back(), Some('😀'));
+        assert_eq!(table.as_bytes().as_ptr(), bytes.as_ptr());
+    });
+    assert_eq!(allocations, 0);
+}

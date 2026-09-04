@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Shared FONT codepoint tables.** `FontCodepoints` validates sorted little-endian Unicode scalar records and exposes glyph-ordinal lookup and exact-size, double-ended iteration without allocation or aligned typed slices.
+
 - **Caller-owned RAW surface transfer.** `SurfaceView::copy_into` copies logical samples into a checked `SurfaceMemoryPlan` without allocation or color conversion. Destination padding and unused sub-byte row bits are initialized deterministically; output failures are atomic, and indexed color tables retain their source storage.
 
 - **Sectioned IMAGE container integration.** `Reader` and `Document` expose borrowed `SurfaceView` values for packed, indexed, and planar YUV images. `ImageSource` unifies typed append and replacement. Canonical encoding, no-op comparisons, primary layout hints, and DATA placement share the surface contract. Lossless FLAT conversion retains original plane storage and rejects unrepresentable color, layout, or alignment requirements.
