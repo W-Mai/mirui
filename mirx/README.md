@@ -70,6 +70,8 @@ This 1,661-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors
 
 IMAGE, META, PALETTE, and FRAMES expose borrowed views. FONT and VECTOR use `decode_font` and `decode_vector` to make their owned allocation visible at the call site.
 
+`FontRepresentations::select` matches fixed-size coverage and ranged signed-distance representations with explicit preferences and fallback. The returned `FontRepresentationMatch` owns one inline metadata value and its source index; selection allocates nothing and does not extend the representation table's lifetime.
+
 ## Runtime reading
 
 `Reader` validates the common header, exact logical length, chunk table, payload ranges, primary selection, and configured resource limits. Chunk iteration and borrowed typed views continue to reference the input bytes.

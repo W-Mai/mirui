@@ -15,6 +15,24 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn font_selection_retains_only_inline_metadata_without_source_allocation() {
+    use mirx::{FontRepresentation, FontRepresentationRequest, FontRepresentations};
+    let (selected, allocations) = count_allocations(|| {
+        let records = [
+            FontRepresentation::coverage(4, 16, 512).unwrap(),
+            FontRepresentation::signed_distance(8, 4, 24, 17, 48, 1024).unwrap(),
+        ];
+        FontRepresentations::new(&records)
+            .unwrap()
+            .select(FontRepresentationRequest::new(32))
+            .unwrap()
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(selected.representation().design_ppem(), 24);
+    assert_eq!(selected.index(), 1);
+}
+
+#[test]
 fn raw_units_preflight_and_transfer_without_staging_or_heap() {
     use mirx::{
         image::{EncodedImageAsset, EncodedImageView, UnitGroup},

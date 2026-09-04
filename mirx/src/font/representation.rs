@@ -1,5 +1,3 @@
-use core::cmp::Ordering;
-
 type RepresentationIdentity = (u8, u16, u16, u16, u16, u16);
 type SelectionRank = (u16, u8, u16, u32, RepresentationIdentity);
 
@@ -310,20 +308,20 @@ pub enum FontSelectionError {
     NoMatch,
 }
 
-/// Result of deterministic representation selection.
+/// Result of deterministic selection, independent of record storage lifetimes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FontRepresentationMatch<'a> {
+pub struct FontRepresentationMatch {
     index: usize,
-    representation: &'a FontRepresentation,
+    representation: FontRepresentation,
     used_fallback: bool,
 }
 
-impl<'a> FontRepresentationMatch<'a> {
+impl FontRepresentationMatch {
     pub const fn index(self) -> usize {
         self.index
     }
 
-    pub const fn representation(self) -> &'a FontRepresentation {
+    pub const fn representation(self) -> FontRepresentation {
         self.representation
     }
 
@@ -374,12 +372,22 @@ impl<'a> FontRepresentations<'a> {
     pub fn select(
         self,
         request: FontRepresentationRequest,
-    ) -> Result<FontRepresentationMatch<'a>, FontSelectionError> {
-        if request.ppem == 0 {
+    ) -> Result<FontRepresentationMatch, FontSelectionError> {
+        request.select_by(self.len(), |index| self.records[index])
+    }
+}
+
+impl FontRepresentationRequest {
+    pub(crate) fn select_by(
+        self,
+        count: usize,
+        record: impl Fn(usize) -> FontRepresentation,
+    ) -> Result<FontRepresentationMatch, FontSelectionError> {
+        if self.ppem == 0 {
             return Err(FontSelectionError::InvalidRequestSize);
         }
 
-        let covered = self.best_match(request, false);
+        let covered = self.best_match_by(count, &record, false);
         if let Some((index, representation)) = covered {
             return Ok(FontRepresentationMatch {
                 index,
@@ -387,8 +395,8 @@ impl<'a> FontRepresentations<'a> {
                 used_fallback: false,
             });
         }
-        if request.fallback == FontRepresentationFallback::Nearest {
-            if let Some((index, representation)) = self.best_match(request, true) {
+        if self.fallback == FontRepresentationFallback::Nearest {
+            if let Some((index, representation)) = self.best_match_by(count, &record, true) {
                 return Ok(FontRepresentationMatch {
                     index,
                     representation,
@@ -399,19 +407,17 @@ impl<'a> FontRepresentations<'a> {
         Err(FontSelectionError::NoMatch)
     }
 
-    fn best_match(
+    fn best_match_by(
         self,
-        request: FontRepresentationRequest,
+        count: usize,
+        record: &impl Fn(usize) -> FontRepresentation,
         allow_outside_range: bool,
-    ) -> Option<(usize, &'a FontRepresentation)> {
-        self.records
-            .iter()
-            .enumerate()
-            .filter(|(_, representation)| request.accepts(**representation, allow_outside_range))
-            .filter(|(_, representation)| {
-                allow_outside_range || representation.supports(request.ppem)
-            })
-            .min_by(|left, right| request.compare(*left, *right, allow_outside_range))
+    ) -> Option<(usize, FontRepresentation)> {
+        (0..count)
+            .map(|index| (index, record(index)))
+            .filter(|(_, representation)| self.accepts(*representation, allow_outside_range))
+            .filter(|(_, representation)| allow_outside_range || representation.supports(self.ppem))
+            .min_by_key(|(_, representation)| self.rank(*representation, allow_outside_range))
     }
 }
 
@@ -438,18 +444,6 @@ impl FontRepresentationRequest {
             ) => expected == actual,
             _ => false,
         }
-    }
-
-    fn compare(
-        self,
-        left: (usize, &FontRepresentation),
-        right: (usize, &FontRepresentation),
-        outside_range: bool,
-    ) -> Ordering {
-        let (_, left) = left;
-        let (_, right) = right;
-        self.rank(*left, outside_range)
-            .cmp(&self.rank(*right, outside_range))
     }
 
     fn rank(self, representation: FontRepresentation, outside_range: bool) -> SelectionRank {
@@ -480,6 +474,70 @@ impl FontRepresentationRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selected_metadata_outlives_native_storage() {
+        let selected = {
+            let records = [FontRepresentation::coverage(4, 16, 512).unwrap()];
+            FontRepresentations::new(&records)
+                .unwrap()
+                .select(FontRepresentationRequest::new(16))
+                .unwrap()
+        };
+        assert_eq!(selected.index(), 0);
+        assert_eq!(
+            selected.representation(),
+            FontRepresentation::coverage(4, 16, 512).unwrap()
+        );
+        assert!(!selected.used_fallback());
+    }
+
+    #[test]
+    fn record_access_selection_has_two_pass_bound_and_identical_policy() {
+        use core::cell::Cell;
+        let records = [
+            FontRepresentation::coverage(4, 16, 512).unwrap(),
+            FontRepresentation::signed_distance(8, 4, 24, 17, 48, 1024).unwrap(),
+            FontRepresentation::signed_distance(8, 8, 64, 49, 128, 2048).unwrap(),
+            FontRepresentation::application(42, 32, 1, 128, 512).unwrap(),
+        ];
+        let native = FontRepresentations::new(&records).unwrap();
+        for size in [0, 1, 16, 17, 24, 48, 49, 64, 128, 129, u16::MAX] {
+            for preference in [
+                FontRepresentationPreference::Auto,
+                FontRepresentationPreference::Coverage,
+                FontRepresentationPreference::SignedDistance,
+                FontRepresentationPreference::Application(42),
+            ] {
+                for fallback in [
+                    FontRepresentationFallback::Reject,
+                    FontRepresentationFallback::Nearest,
+                ] {
+                    let request = FontRepresentationRequest::new(size)
+                        .with_preference(preference)
+                        .with_fallback(fallback);
+                    let calls = Cell::new(0);
+                    let selected = request.select_by(records.len(), |index| {
+                        calls.set(calls.get() + 1);
+                        let value = records[index];
+                        FontRepresentation::new(
+                            value.kind(),
+                            value.design_ppem(),
+                            value.min_ppem(),
+                            value.max_ppem(),
+                            value.decoded_bytes(),
+                        )
+                        .unwrap()
+                    });
+                    assert_eq!(selected, native.select(request));
+                    assert!(calls.get() <= records.len() * 2);
+                    if size == 0 {
+                        assert_eq!(calls.get(), 0);
+                    }
+                }
+            }
+        }
+    }
 
     fn coverage(bits: u8, ppem: u16, bytes: u32) -> FontRepresentation {
         FontRepresentation::coverage(bits, ppem, bytes).unwrap()
@@ -569,7 +627,7 @@ mod tests {
             .unwrap()
             .select(FontRepresentationRequest::new(16))
             .unwrap();
-        assert_eq!(*selected.representation(), exact_coverage);
+        assert_eq!(selected.representation(), exact_coverage);
     }
 
     #[test]
@@ -580,12 +638,12 @@ mod tests {
         let second = [b, a];
         let request = FontRepresentationRequest::new(40);
 
-        let selected_a = *FontRepresentations::new(&first)
+        let selected_a = FontRepresentations::new(&first)
             .unwrap()
             .select(request)
             .unwrap()
             .representation();
-        let selected_b = *FontRepresentations::new(&second)
+        let selected_b = FontRepresentations::new(&second)
             .unwrap()
             .select(request)
             .unwrap()
@@ -603,7 +661,7 @@ mod tests {
             .unwrap()
             .select(FontRepresentationRequest::new(30))
             .unwrap();
-        assert_eq!(*selected.representation(), compact);
+        assert_eq!(selected.representation(), compact);
     }
 
     #[test]
