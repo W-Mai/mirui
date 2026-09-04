@@ -44,6 +44,8 @@ impl CodingId {
     pub const RAW: Self = Self(0);
     /// Independent lossless RGB/RGBA pixel state stream.
     pub const PIXEL: Self = Self(1);
+    /// Independent lossless byte or fixed-width element run-length stream.
+    pub const RLE: Self = Self(2);
 
     pub const fn new(value: u16) -> Self {
         Self(value)

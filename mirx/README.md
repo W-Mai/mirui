@@ -142,6 +142,8 @@ IMAGE uses an 8-byte media header, 12-byte section entries, a 32-byte SURFACE re
 
 `coding::Pixel` encodes independent, lossless RGB888/RGBA8888 sample streams with color-cache, delta and run operations. Exact sizing, encoding, preflight and decoding use caller memory without allocation. A validated `PixelDecodePlan` checks destination capacity before writes; failures preserve output. These are tight sample-stream operations, separate from surface stride, media CRC and container editing. See [pixel coding](docs/pixel-coding.md) for the byte format.
 
+`coding::Rle` encodes independent byte or 2/3/4-byte element streams. The default element-size parameter is omitted; literal/run selection compares exact encoded sizes without a temporary buffer. `RleDecodePlan` validates exact input and output counts before caller-buffer decoding, with no heap, cross-unit history or partial failure writes. Element coding alone does not define a surface layout. See [RLE coding](docs/rle-coding.md).
+
 `DecodeUnitRef::decode_plan` combines supported profile preflight with `UnitMemoryPlan`. Independent PIXEL units decode directly into planned rows, including padded strides and allocation extents, without a tight staging buffer. Actual output address and capacity are checked before writes; padding becomes zero and suffix bytes stay unchanged. `DecodedUnit` borrows only the destination and exposes `SurfacePlane` row access, while its memory plan retains original source regions. Verify source integrity with `ImageGroups::validate_unit` before executing an encoded IMAGE unit. Unsupported coding or frame references fail during planning.
 
 ```rust

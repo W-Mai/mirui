@@ -1,3 +1,4 @@
+use super::buffer::{BufferError, Cursor, Emitter};
 use crate::{
     image::SampleLayout,
     media::{CodingId, CodingRecord},
@@ -333,52 +334,11 @@ impl State {
     }
 }
 
-struct Cursor<'a> {
-    bytes: &'a [u8],
-    position: usize,
-}
-impl<'a> Cursor<'a> {
-    fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, position: 0 }
-    }
-    fn take(&mut self, count: usize) -> Result<&'a [u8], PixelError> {
-        let end = self
-            .position
-            .checked_add(count)
-            .ok_or(PixelError::SizeOverflow)?;
-        let value = self
-            .bytes
-            .get(self.position..end)
-            .ok_or(PixelError::Truncated {
-                offset: self.position,
-            })?;
-        self.position = end;
-        Ok(value)
-    }
-    fn byte(&mut self) -> Result<u8, PixelError> {
-        Ok(self.take(1)?[0])
-    }
-}
-struct Emitter<'a> {
-    output: Option<&'a mut [u8]>,
-    position: usize,
-}
-impl Emitter<'_> {
-    fn count() -> Self {
-        Self {
-            output: None,
-            position: 0,
+impl From<BufferError> for PixelError {
+    fn from(error: BufferError) -> Self {
+        match error {
+            BufferError::SizeOverflow => Self::SizeOverflow,
+            BufferError::Truncated { offset } => Self::Truncated { offset },
         }
-    }
-    fn put(&mut self, bytes: &[u8]) -> Result<(), PixelError> {
-        let end = self
-            .position
-            .checked_add(bytes.len())
-            .ok_or(PixelError::SizeOverflow)?;
-        if let Some(output) = &mut self.output {
-            output[self.position..end].copy_from_slice(bytes);
-        }
-        self.position = end;
-        Ok(())
     }
 }

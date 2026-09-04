@@ -15,6 +15,27 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn rle_selection_encoding_and_validated_decode_allocate_nothing() {
+    let input = [7; 384];
+    let mut encoded = [0; 768];
+    let mut output = [0; 384];
+    let (_, allocations) = count_allocations(|| {
+        for size in 1..=4 {
+            let codec = mirx::coding::Rle::new().with_element_size(size).unwrap();
+            let len = codec.encoded_len(&input).unwrap();
+            assert_eq!(codec.encode_into(&input, &mut encoded).unwrap(), len);
+            codec
+                .plan(&encoded[..len], input.len())
+                .unwrap()
+                .decode_into(&mut output)
+                .unwrap();
+        }
+    });
+    assert_eq!(allocations, 0);
+    assert_eq!(input, output);
+}
+
+#[test]
 fn pixel_unit_plan_and_strided_execution_need_no_staging_allocation() {
     use mirx::image::UnitGroup;
     #[repr(align(64))]
