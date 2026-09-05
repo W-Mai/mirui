@@ -1,6 +1,11 @@
 use super::buffer::{BufferError, Cursor, Emitter};
 use crate::media::{CodingId, CodingRecord};
 
+mod kernel;
+#[cfg(target_arch = "aarch64")]
+pub use kernel::NeonFrameDelta;
+pub use kernel::{FrameDeltaKernel, ScalarFrameDelta};
+
 const REPEAT: u8 = 0x40;
 const LITERAL: u8 = 0x80;
 const PATTERN: u8 = 0xc0;
@@ -347,6 +352,19 @@ impl<'a> FrameDeltaDecodePlan<'a> {
 
     /// Applies residuals to a buffer that already contains the predictor.
     pub fn apply_into(self, output: &mut [u8]) -> Result<usize, FrameDeltaError> {
+        #[cfg(target_arch = "aarch64")]
+        let mut kernel = NeonFrameDelta;
+        #[cfg(not(target_arch = "aarch64"))]
+        let mut kernel = ScalarFrameDelta;
+        self.apply_with(output, &mut kernel)
+    }
+
+    /// Applies residuals through a caller-selected execution kernel.
+    pub fn apply_with(
+        self,
+        output: &mut [u8],
+        kernel: &mut impl FrameDeltaKernel,
+    ) -> Result<usize, FrameDeltaError> {
         if output.len() < self.decoded_len {
             return Err(FrameDeltaError::OutputTooSmall {
                 needed: self.decoded_len,
@@ -359,20 +377,14 @@ impl<'a> FrameDeltaDecodePlan<'a> {
             match block {
                 ResidualBlock::Zero => {}
                 ResidualBlock::Repeat(residual) => {
-                    for output in &mut output[position..end] {
-                        *output = output.wrapping_add(residual);
-                    }
+                    kernel.add_repeat(&mut output[position..end], residual);
                 }
                 ResidualBlock::Literal(residuals) => {
-                    for (output, residual) in output[position..end].iter_mut().zip(residuals) {
-                        *output = output.wrapping_add(*residual);
-                    }
+                    kernel.add_literals(&mut output[position..end], residuals);
                 }
                 ResidualBlock::Pattern(residuals, repetitions) => {
                     debug_assert_eq!(residuals.len() * repetitions, count);
-                    for (offset, output) in output[position..end].iter_mut().enumerate() {
-                        *output = output.wrapping_add(residuals[offset % residuals.len()]);
-                    }
+                    kernel.add_pattern(&mut output[position..end], residuals);
                 }
             }
             position = end;

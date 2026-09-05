@@ -94,6 +94,115 @@ fn repeated_channel_residuals_use_one_bounded_pattern() {
 }
 
 #[test]
+fn validated_blocks_dispatch_through_the_selected_kernel() {
+    #[derive(Default)]
+    struct CountingKernel {
+        literals: usize,
+        repeats: usize,
+        patterns: usize,
+    }
+    impl FrameDeltaKernel for CountingKernel {
+        fn add_literals(&mut self, output: &mut [u8], residuals: &[u8]) {
+            self.literals += 1;
+            ScalarFrameDelta.add_literals(output, residuals);
+        }
+
+        fn add_repeat(&mut self, output: &mut [u8], residual: u8) {
+            self.repeats += 1;
+            ScalarFrameDelta.add_repeat(output, residual);
+        }
+
+        fn add_pattern(&mut self, output: &mut [u8], residuals: &[u8]) {
+            self.patterns += 1;
+            ScalarFrameDelta.add_pattern(output, residuals);
+        }
+    }
+
+    let input = [
+        1,
+        REPEAT | 1,
+        3,
+        LITERAL | 1,
+        1,
+        2,
+        PATTERN | 3,
+        0,
+        0,
+        1,
+        2,
+        3,
+        4,
+    ];
+    let plan = FrameDelta::new().plan(&input, 14).unwrap();
+    let mut output = [10; 14];
+    let mut kernel = CountingKernel::default();
+    plan.apply_with(&mut output, &mut kernel).unwrap();
+    assert_eq!(
+        (kernel.literals, kernel.repeats, kernel.patterns),
+        (1, 1, 1)
+    );
+    assert_eq!(
+        output,
+        [10, 10, 13, 13, 11, 12, 11, 12, 13, 14, 11, 12, 13, 14]
+    );
+}
+
+#[cfg(target_arch = "aarch64")]
+#[test]
+fn neon_and_scalar_kernels_are_bit_exact() {
+    fn compare(input: &[u8], reference: &[u8]) {
+        let plan = FrameDelta::new().plan(input, reference.len()).unwrap();
+        let mut scalar = reference.to_vec();
+        plan.apply_with(&mut scalar, &mut ScalarFrameDelta).unwrap();
+        let mut neon = reference.to_vec();
+        plan.apply_with(&mut neon, &mut NeonFrameDelta).unwrap();
+        assert_eq!(neon, scalar);
+    }
+
+    compare(&[REPEAT | 15, 9], &[250; 16]);
+    compare(
+        &[
+            LITERAL | 15,
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+        ],
+        &[250; 16],
+    );
+    compare(&[PATTERN | 2, 38, 0, 1, 2, 3], &[250; 120]);
+
+    let reference = core::array::from_fn::<_, 257, _>(|index| (index * 47) as u8);
+    let current = core::array::from_fn::<_, 257, _>(|index| {
+        reference[index].wrapping_add([0, 7, 0, 249][index % 4])
+    });
+    let codec = FrameDelta::new();
+    let mut encoded = [0; 262];
+    let len = codec
+        .encode_into(&reference, &current, &mut encoded)
+        .unwrap();
+    let plan = codec.plan(&encoded[..len], current.len()).unwrap();
+    let mut scalar = reference;
+    plan.apply_with(&mut scalar, &mut ScalarFrameDelta).unwrap();
+    let mut neon = reference;
+    plan.apply_with(&mut neon, &mut NeonFrameDelta).unwrap();
+    assert_eq!(scalar, current);
+    assert_eq!(neon, current);
+}
+
+#[test]
 fn all_failures_precede_output_writes() {
     let codec = FrameDelta::new();
     let reference = [1, 2, 3];

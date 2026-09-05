@@ -18,7 +18,7 @@ struct TrackingAllocator;
 fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
         FrameSequence, SectionedFramesAsset, SectionedFramesView,
-        coding::FrameDelta,
+        coding::{FrameDelta, ScalarFrameDelta},
         image::{CoverageBudget, ReferenceMode, UnitGroupRecord},
         media::CodingRecord,
     };
@@ -38,6 +38,13 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
         let codings = [CodingRecord::RAW, codec.record()];
         let mut data = [7, 0, 0];
         let delta_len = codec.encode_into(&[7], &[9], &mut data[1..]).unwrap();
+        let mut direct = [7];
+        codec
+            .plan(&data[1..1 + delta_len], direct.len())
+            .unwrap()
+            .apply_with(&mut direct, &mut ScalarFrameDelta)
+            .unwrap();
+        assert_eq!(direct, [9]);
         let groups = [
             UnitGroupRecord::new(0, 0..1).unwrap(),
             UnitGroupRecord::new(1, 1..1 + delta_len as u32)

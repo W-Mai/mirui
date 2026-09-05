@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Bounded MIRX frame residuals.** `FrameDelta` stores lossless previous-unit residuals with compact run and repeating-pattern tokens. Frame sessions reconstruct packed, indexed, alpha and YUV units through caller-owned aligned canvas/workspace storage, with bounded recovery seeks, complete preflight and no hidden allocation.
+- **Pluggable frame-residual execution.** Validated FrameDelta blocks dispatch through a public allocation-free kernel seam. AArch64 selects bit-exact NEON replay for literal, repeated and compatible patterned residuals; scalar execution remains available explicitly and on other targets.
 
 - **MIRX frequency image coding.** Reversible and quantized 8×8 integer transform profiles use canonical coefficient streams, reversible RGB decorrelation, deterministic quality steps and exact alpha/index reconstruction. Container preflight charges coefficient work, while unit, whole-image and renderer paths retain caller-owned aligned output and bounded reusable workspace.
 
