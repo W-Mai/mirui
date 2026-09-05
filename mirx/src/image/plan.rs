@@ -108,7 +108,7 @@ pub struct BufferRequirements {
 }
 
 impl BufferRequirements {
-    pub(super) fn new(byte_len: u32, base_alignment: u32) -> Result<Self, SurfacePlanError> {
+    pub(crate) fn new(byte_len: u32, base_alignment: u32) -> Result<Self, SurfacePlanError> {
         if !valid_alignment(base_alignment) {
             return Err(SurfacePlanError::InvalidBaseAlignment(base_alignment));
         }

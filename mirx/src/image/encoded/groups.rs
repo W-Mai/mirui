@@ -156,6 +156,30 @@ impl<'a> GroupSource<'a> {
             .map_err(EncodedImageError::Coverage)
     }
 
+    /// Checks non-overlapping partial coverage for one validated group range.
+    pub(crate) fn validate_disjoint_group_range(
+        self,
+        range: Range<usize>,
+        budget: &mut CoverageBudget,
+    ) -> Result<(), EncodedImageError> {
+        debug_assert!(range.end <= self.group_count());
+        self.surface
+            .validate_disjoint_coverage_by(
+                range.len(),
+                |relative, budget| {
+                    let index = range.start + relative;
+                    let record = self.record(index).expect("validated group record");
+                    budget.spend_many(self.resolution_cost(record))?;
+                    Ok(self
+                        .resolve_record(index, record)
+                        .expect("validated immutable group")
+                        .0)
+                },
+                budget,
+            )
+            .map_err(EncodedImageError::Coverage)
+    }
+
     pub(crate) fn resolution_cost(self, record: UnitGroupRecord) -> u64 {
         record.resolution_work(self.indexes.len())
     }

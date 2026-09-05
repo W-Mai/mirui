@@ -44,6 +44,19 @@ impl SurfaceDescriptor {
         self.validate_coverage_by(groups.len(), |index, _| Ok(groups[index]), budget)
     }
 
+    /// Checks that every group targets this surface and no selected units overlap.
+    ///
+    /// Unlike [`Self::validate_coverage`], holes are permitted. This is the
+    /// coverage rule for a frame that retains unchanged samples from a previous
+    /// canvas.
+    pub fn validate_disjoint_coverage(
+        self,
+        groups: &[UnitGroup<'_>],
+        budget: &mut CoverageBudget,
+    ) -> Result<(), CoverageError> {
+        self.validate_disjoint_coverage_by(groups.len(), |index, _| Ok(groups[index]), budget)
+    }
+
     pub(crate) fn validate_coverage_by<'a>(
         self,
         count: usize,
@@ -75,6 +88,32 @@ impl SurfaceDescriptor {
                     actual,
                 });
             }
+            for index in 0..count {
+                let group = group_at(index, budget)?;
+                for other in index + 1..count {
+                    if group.overlaps(group_at(other, budget)?, plane, budget)? {
+                        return Err(CoverageError::Overlap { plane });
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_disjoint_coverage_by<'a>(
+        self,
+        count: usize,
+        group_at: impl Fn(usize, &mut CoverageBudget) -> Result<UnitGroup<'a>, CoverageError>,
+        budget: &mut CoverageBudget,
+    ) -> Result<(), CoverageError> {
+        for index in 0..count {
+            budget.spend()?;
+            let group = group_at(index, budget)?;
+            if group.surface() != self {
+                return Err(CoverageError::SurfaceMismatch);
+            }
+        }
+        for plane in 0..self.plane_count() {
             for index in 0..count {
                 let group = group_at(index, budget)?;
                 for other in index + 1..count {
@@ -249,6 +288,10 @@ mod tests {
                 expected: 4,
                 actual: 2
             })
+        );
+        assert_eq!(
+            surface.validate_disjoint_coverage(&[make(&left)], &mut CoverageBudget::new(100)),
+            Ok(())
         );
         assert!(
             !Region::new(0, 0, 1, 1)

@@ -72,6 +72,7 @@ pub use color::{
 };
 pub use coverage::{CoverageBudget, CoverageError};
 pub use encode::{ImageEncodeError, RawImageAsset};
+pub(crate) use encoded::Preflight;
 pub use encoded::{
     DecodeError, EncodedImageAsset, EncodedImageError, EncodedImageView, ImageDecodePlan,
     ImageGroupIter, ImageGroups,
@@ -91,6 +92,7 @@ pub use region::RegionMemoryPlan;
 pub use surface::{
     SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError,
 };
+pub(crate) use units::ScalarProfile;
 pub use units::{
     DecodeUnitRef, DecodeUnits, DecodedUnit, GroupPlanes, GroupSelection, ReferenceMode,
     RegionUnits, UNIT_GROUP_RECORD_LEN, UnitDecodeError, UnitDecodePlan, UnitGroup,

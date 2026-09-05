@@ -1,6 +1,7 @@
 use super::*;
 use crate::image::{
-    ColorDescription, GroupPlanes, Region, SampleLayout, SurfaceDescriptor, UnitGroup,
+    ColorDescription, GroupPlanes, ReferenceMode, Region, SampleLayout, SurfaceDescriptor,
+    UnitGroup,
 };
 use crate::media::CodingRecord;
 use alloc::vec;
@@ -296,12 +297,13 @@ fn invalid_profiles_streams_and_output_addresses_cannot_modify_destinations() {
         .unwrap()
         .get(0)
         .unwrap();
-    assert_eq!(
-        previous.decode_plan(requirements),
-        Err(UnitDecodeError::UnsupportedReference(
-            ReferenceMode::Previous
-        ))
-    );
+    let mut previous_output = [0xad; 3];
+    previous
+        .decode_plan(requirements)
+        .unwrap()
+        .decode_into(&mut previous_output)
+        .unwrap();
+    assert_eq!(previous_output, [0; 3]);
     let invalid = UnitGroup::builder(source, codec.record(), &[1])
         .build()
         .unwrap()

@@ -50,6 +50,21 @@ pub struct FramePresentation {
     composition: FrameComposition,
 }
 
+/// Prepared groups for one frame, borrowing caller-owned slots and source bytes.
+#[derive(Clone, Debug)]
+pub struct FrameGroups<'a, 'g> {
+    frames: SectionedFramesView<'a>,
+    presentation: FramePresentation,
+    group_start: usize,
+    groups: &'g [Option<crate::image::UnitGroup<'a>>],
+}
+
+/// Exact-size iterator over prepared groups for one frame.
+#[derive(Clone, Debug)]
+pub struct FrameGroupIter<'a, 'g> {
+    groups: core::slice::Iter<'g, Option<crate::image::UnitGroup<'a>>>,
+}
+
 /// Borrowed canonical FRAMES authoring input.
 #[derive(Clone, Copy, Debug)]
 pub struct SectionedFramesAsset<'a> {
@@ -431,6 +446,12 @@ fn validate_asset_references(
                 if frame == 0 {
                     return Err(FramesEncodeError::FirstFrameDependsOnPrevious);
                 }
+                source
+                    .validate_disjoint_group_range(
+                        range.start as usize..range.end as usize,
+                        &mut budget,
+                    )
+                    .map_err(FramesEncodeError::ReferenceStorage)?;
                 delta_frames += 1;
                 if delta_frames > u32::from(asset.sequence.max_delta_frames()) {
                     return Err(FramesEncodeError::DeltaBoundExceeded {
@@ -748,6 +769,54 @@ impl<'a> SectionedFramesView<'a> {
         })
     }
 
+    /// Resolves one frame's groups into caller-owned slots without allocation.
+    ///
+    /// A capacity error preserves every slot. Other failures may overwrite the
+    /// used prefix; only a returned handle guarantees prepared groups.
+    pub fn groups_into<'g>(
+        self,
+        frame: u32,
+        workspace: &'g mut [Option<crate::image::UnitGroup<'a>>],
+        budget: &mut CoverageBudget,
+    ) -> Result<FrameGroups<'a, 'g>, SectionedFramesError> {
+        let presentation = self
+            .frame(frame)
+            .ok_or(SectionedFramesError::FrameOutOfBounds(frame))?;
+        let range = presentation.groups();
+        let count = range.len();
+        if workspace.len() < count {
+            return Err(SectionedFramesError::WorkspaceTooSmall {
+                needed: count,
+                available: workspace.len(),
+            });
+        }
+        let workspace = &mut workspace[..count];
+        workspace.fill(None);
+        let source = self.group_source();
+        for (relative, global) in (range.start as usize..range.end as usize).enumerate() {
+            let record = source
+                .record(global)
+                .map_err(SectionedFramesError::Storage)?;
+            budget
+                .spend_many(source.resolution_cost(record))
+                .map_err(|error| {
+                    SectionedFramesError::Storage(EncodedImageError::Coverage(error))
+                })?;
+            workspace[relative] = Some(
+                source
+                    .resolve_record(global, record)
+                    .map_err(SectionedFramesError::Storage)?
+                    .0,
+            );
+        }
+        Ok(FrameGroups {
+            frames: self,
+            presentation,
+            group_start: range.start as usize,
+            groups: workspace,
+        })
+    }
+
     pub fn validate_data(self) -> Result<(), SectionedFramesError> {
         self.media
             .validate_data()
@@ -803,6 +872,12 @@ impl<'a> SectionedFramesView<'a> {
                     if frame == 0 {
                         return Err(SectionedFramesError::FirstFrameDependsOnPrevious);
                     }
+                    source
+                        .validate_disjoint_group_range(
+                            range.start as usize..range.end as usize,
+                            budget,
+                        )
+                        .map_err(SectionedFramesError::Storage)?;
                     delta_frames += 1;
                     if delta_frames > u32::from(self.sequence.max_delta_frames()) {
                         return Err(SectionedFramesError::DeltaBoundExceeded {
@@ -853,6 +928,122 @@ impl FramePresentation {
         self.groups.is_empty()
     }
 }
+
+impl<'a, 'g> FrameGroups<'a, 'g> {
+    pub const fn frames(&self) -> SectionedFramesView<'a> {
+        self.frames
+    }
+
+    pub fn presentation(&self) -> FramePresentation {
+        self.presentation.clone()
+    }
+
+    pub const fn len(&self) -> usize {
+        self.groups.len()
+    }
+
+    pub const fn is_empty(&self) -> bool {
+        self.groups.is_empty()
+    }
+
+    pub fn get(&self, index: usize) -> Option<crate::image::UnitGroup<'a>> {
+        self.groups.get(index).copied().flatten()
+    }
+
+    pub fn iter(&self) -> FrameGroupIter<'a, 'g> {
+        FrameGroupIter {
+            groups: self.groups.iter(),
+        }
+    }
+
+    pub fn reference(&self) -> ReferenceMode {
+        self.get(0)
+            .map_or(ReferenceMode::Previous, |group| group.reference())
+    }
+
+    /// Verifies checksum coverage for one encoded unit before it is decoded.
+    pub fn validate_unit(&self, group: usize, ordinal: usize) -> Result<u32, SectionedFramesError> {
+        let plan = self.unit_check_plan(group, ordinal)?;
+        let byte_len = plan.byte_len();
+        plan.verify().map_err(SectionedFramesError::Media)?;
+        Ok(byte_len)
+    }
+
+    /// Plans exact checksum work for one encoded unit without reading DATA.
+    pub fn unit_check_plan(
+        &self,
+        group: usize,
+        ordinal: usize,
+    ) -> Result<crate::media::DataCheckPlan<'a>, SectionedFramesError> {
+        let unit = self
+            .get(group)
+            .ok_or(SectionedFramesError::GroupOutOfBounds(group))?
+            .get(ordinal)
+            .ok_or(SectionedFramesError::UnitOutOfBounds { group, ordinal })?;
+        let source = self.frames.group_source();
+        let base = self
+            .frames
+            .data
+            .descriptor()
+            .offset()
+            .checked_add(
+                source
+                    .record(self.group_start + group)
+                    .map_err(SectionedFramesError::Storage)?
+                    .data_range()
+                    .start,
+            )
+            .ok_or(SectionedFramesError::SizeOverflow)?;
+        let range = unit.data_range();
+        let start = base
+            .checked_add(range.start)
+            .ok_or(SectionedFramesError::SizeOverflow)?;
+        let end = base
+            .checked_add(range.end)
+            .ok_or(SectionedFramesError::SizeOverflow)?;
+        self.frames
+            .media
+            .data_check_plan(start..end)
+            .map_err(SectionedFramesError::Media)
+    }
+}
+
+impl<'a> Iterator for FrameGroupIter<'a, '_> {
+    type Item = crate::image::UnitGroup<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.groups
+            .next()
+            .map(|group| group.expect("prepared frame group"))
+    }
+
+    fn nth(&mut self, n: usize) -> Option<Self::Item> {
+        self.groups
+            .nth(n)
+            .map(|group| group.expect("prepared frame group"))
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.groups.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for FrameGroupIter<'_, '_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.groups
+            .next_back()
+            .map(|group| group.expect("prepared frame group"))
+    }
+
+    fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
+        self.groups
+            .nth_back(n)
+            .map(|group| group.expect("prepared frame group"))
+    }
+}
+
+impl ExactSizeIterator for FrameGroupIter<'_, '_> {}
+impl core::iter::FusedIterator for FrameGroupIter<'_, '_> {}
 
 fn required<'a>(
     section: Option<MediaSection<'a>>,
@@ -918,6 +1109,16 @@ pub enum SectionedFramesError {
     GroupCountMismatch {
         mapped: u32,
         stored: usize,
+    },
+    FrameOutOfBounds(u32),
+    WorkspaceTooSmall {
+        needed: usize,
+        available: usize,
+    },
+    GroupOutOfBounds(usize),
+    UnitOutOfBounds {
+        group: usize,
+        ordinal: usize,
     },
     Timing(FrameTimingError),
     Composition(FrameCompositionError),
@@ -1087,6 +1288,23 @@ mod tests {
         );
         assert!(frames.frame(2).unwrap().is_noop());
         assert_eq!(frames.keyframes().unwrap().previous(2), Some(0));
+        let mut empty = [];
+        assert!(matches!(
+            frames.groups_into(1, &mut empty, &mut CoverageBudget::new(100)),
+            Err(SectionedFramesError::WorkspaceTooSmall {
+                needed: 1,
+                available: 0,
+            })
+        ));
+        let mut slots = [None];
+        let groups = frames
+            .groups_into(1, &mut slots, &mut CoverageBudget::new(100))
+            .unwrap();
+        assert_eq!(groups.presentation().index(), 1);
+        assert_eq!(groups.len(), 1);
+        assert_eq!(groups.iter().len(), 1);
+        assert_eq!(groups.get(0).unwrap().reference(), ReferenceMode::Previous);
+        assert_eq!(groups.validate_unit(0, 0).unwrap(), 2);
         frames.validate_data().unwrap();
     }
 

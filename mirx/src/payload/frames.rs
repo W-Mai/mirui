@@ -4,6 +4,7 @@ mod composition;
 mod frame_map;
 mod keyframes;
 mod owned;
+mod playback;
 mod sectioned;
 mod sequence;
 mod timing;
@@ -18,8 +19,10 @@ pub use owned::{
     AnimationFrames, AnimationSettings, AssetFrameIter, AtlasFrames, FramesAsset,
     FramesEncodeError, FramesMutationError,
 };
+pub use playback::{FrameDecodeError, FrameDecodePlan};
 pub use sectioned::{
-    FramePresentation, SectionedFramesAsset, SectionedFramesError, SectionedFramesView,
+    FrameGroupIter, FrameGroups, FramePresentation, SectionedFramesAsset, SectionedFramesError,
+    SectionedFramesView,
 };
 pub use sequence::{
     BlendMode, DisposalMode, FRAME_SEQUENCE_RECORD_LEN, FrameSequence, FrameSequenceError,

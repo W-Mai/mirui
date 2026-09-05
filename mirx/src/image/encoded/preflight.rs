@@ -77,15 +77,15 @@ impl<'a> Preflight<'a> {
         Ok(())
     }
 
-    pub(super) fn total_units(&self) -> u64 {
+    pub(crate) fn total_units(&self) -> u64 {
         self.total_units
     }
 
-    pub(super) fn work(&self) -> u64 {
+    pub(crate) fn work(&self) -> u64 {
         self.limits.max_raster_work() - self.budget.remaining()
     }
 
-    pub(super) fn group(
+    pub(crate) fn group(
         &mut self,
         index: usize,
         group: UnitGroup<'_>,
@@ -151,7 +151,7 @@ impl<'a> Preflight<'a> {
         Ok(memory)
     }
 
-    pub(super) fn spend_replay(
+    pub(crate) fn spend_replay(
         &mut self,
         input: usize,
         decoded: usize,

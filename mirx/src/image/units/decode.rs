@@ -1,4 +1,4 @@
-use super::{DecodeUnitRef, ReferenceMode, UnitMemoryPlan, output::UnitOutput};
+use super::{DecodeUnitRef, UnitMemoryPlan, output::UnitOutput};
 use crate::{
     coding::{
         Frequency, FrequencyError, FrequencyGeometry, Lz4, Lz4DecodePlan, Lz4Error, Pixel,
@@ -22,9 +22,10 @@ mod tests;
 /// Validated scalar execution into independent, caller-owned unit storage.
 ///
 /// PIXEL supports RGB888/RGBA8888; RAW/RLE/LZ4 and frequency profiles cover
-/// selected tight plane rows. Other coding profiles and reference modes are
-/// rejected during planning. Media integrity is a separate gate, such as
-/// `ImageGroups::validate_unit`.
+/// selected tight plane rows. The group reference mode determines how decoded
+/// samples compose into a frame; it does not change these replacement codecs.
+/// Other coding profiles are rejected during planning. Media integrity is a
+/// separate gate, such as `ImageGroups::validate_unit`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct UnitDecodePlan<'a> {
     memory: UnitMemoryPlan,
@@ -163,9 +164,6 @@ impl<'a> DecodeUnitRef<'a> {
         self,
         requirements: SurfaceRequirements,
     ) -> Result<UnitDecodePlan<'a>, UnitDecodeError> {
-        if self.reference != ReferenceMode::Independent {
-            return Err(UnitDecodeError::UnsupportedReference(self.reference));
-        }
         let profile = ScalarProfile::new(self.coding, self.surface.sample_layout())?;
         let memory = self
             .memory_plan(requirements)
@@ -337,7 +335,6 @@ pub enum UnitDecodeError {
         expected: usize,
         actual: usize,
     },
-    UnsupportedReference(ReferenceMode),
     Pixel(PixelError),
     Rle(RleError),
     Lz4(Lz4Error),
