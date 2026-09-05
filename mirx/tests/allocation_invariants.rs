@@ -17,10 +17,11 @@ struct TrackingAllocator;
 #[test]
 fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
-        FrameSequence, SectionedFramesAsset, SectionedFramesView,
+        FrameCandidate, FramePolicy, FrameSelector, FrameSequence, SectionedFramesAsset,
+        SectionedFramesView,
         coding::{FrameDelta, ScalarFrameDelta},
         image::{CoverageBudget, ReferenceMode, UnitGroupRecord},
-        media::CodingRecord,
+        media::{CodingId, CodingRecord},
     };
     #[repr(align(64))]
     struct Aligned([u8; 64]);
@@ -34,6 +35,20 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     let mut workspace = [0; 1];
     let mut slots = [None];
     let (_, allocations) = count_allocations(|| {
+        let mut selector = FrameSelector::new(FramePolicy::new(1));
+        selector
+            .select(&[FrameCandidate::keyframe(CodingId::RAW, 1)])
+            .unwrap();
+        assert_eq!(
+            selector
+                .select(&[
+                    FrameCandidate::delta(2),
+                    FrameCandidate::keyframe(CodingId::RAW, 3),
+                ])
+                .unwrap()
+                .candidate(),
+            FrameCandidate::delta(2)
+        );
         let codec = FrameDelta::new();
         let codings = [CodingRecord::RAW, codec.record()];
         let mut data = [7, 0, 0];

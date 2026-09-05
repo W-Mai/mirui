@@ -6,6 +6,8 @@ mod keyframes;
 mod owned;
 mod playback;
 mod sectioned;
+#[doc = include_str!("../../docs/frame-selection.md")]
+mod selection;
 mod sequence;
 mod timing;
 
@@ -23,6 +25,10 @@ pub use playback::{FrameDecodeError, FrameDecodePlan, FrameDisposalPlan, FrameSe
 pub use sectioned::{
     FrameGroupIter, FrameGroups, FramePresentation, SectionedFramesAsset, SectionedFramesError,
     SectionedFramesView,
+};
+pub use selection::{
+    CandidateRejection, FrameCandidate, FrameChoice, FramePolicy, FrameSelectionError,
+    FrameSelector, FrameStorage,
 };
 pub use sequence::{
     BlendMode, DisposalMode, FRAME_SEQUENCE_RECORD_LEN, FrameSequence, FrameSequenceError,
