@@ -1,6 +1,6 @@
 /// Copies validated MSB-first sample bits while preserving neighbouring bits.
 /// Starts are intra-byte offsets; the caller has already checked both spans.
-pub(super) fn copy(
+pub(crate) fn copy(
     source: &[u8],
     mut source_bit: u8,
     target: &mut [u8],

@@ -9,8 +9,14 @@ use crate::{
         FrameDelta, FrameDeltaError, Frequency, FrequencyError, FrequencyGeometry, Lz4, Lz4Error,
         Pixel, PixelError, Rle, RleError,
     },
-    image::{ReferenceMode, SurfaceDescriptor, UNIT_GROUP_RECORD_LEN, UnitGroupRecord},
-    media::{CODING_RECORD_LEN, CodingId, CodingRecord},
+    image::{
+        GroupSelection, ReferenceMode, Region, RegionError, SurfaceDescriptor, TileGrid,
+        TileGridError, UNIT_GROUP_RECORD_LEN, UnitGroupRecord,
+    },
+    media::{
+        CODING_RECORD_LEN, CodingId, CodingRecord, UnitIndexEncoding, UnitIndexError,
+        UnitSelectionEncoding, UnitSelectionError,
+    },
 };
 
 /// Lossless coding profiles considered by [`FramesEncoder`].
@@ -196,7 +202,109 @@ struct PreparedCandidate {
     candidate: FrameCandidate,
     encoding: Option<FrameEncoding>,
     bytes: Vec<u8>,
+    encoded_bytes: usize,
     reconstructed: Option<Vec<u8>>,
+    layout: PreparedLayout,
+}
+
+#[derive(Debug)]
+enum PreparedLayout {
+    Whole,
+    Sparse {
+        tile_width: u32,
+        tile_height: u32,
+        selection: GroupSelection,
+        index_encoding: Option<UnitIndexEncoding>,
+        index: Vec<u8>,
+    },
+}
+
+#[derive(Debug)]
+struct ChangedTiles {
+    grid: TileGrid,
+    cells: Vec<u32>,
+    offsets: Vec<u32>,
+    current: Vec<u8>,
+    previous: Vec<u8>,
+}
+
+impl ChangedTiles {
+    fn collect(
+        surface: SurfaceDescriptor,
+        grid: TileGrid,
+        current: &[u8],
+        previous: &[u8],
+    ) -> Result<Self, FrameWriteError> {
+        let current_surface = TightSurface::new(surface, current)?;
+        let previous_surface = TightSurface::new(surface, previous)?;
+        let mut changed = Self {
+            grid,
+            cells: Vec::new(),
+            offsets: alloc::vec![0],
+            current: Vec::new(),
+            previous: Vec::new(),
+        };
+        let mut current_tile = Vec::new();
+        let mut previous_tile = Vec::new();
+        for (cell, region) in grid.iter().enumerate() {
+            current_surface.copy_region(region, &mut current_tile)?;
+            previous_surface.copy_region(region, &mut previous_tile)?;
+            if current_tile != previous_tile {
+                changed
+                    .cells
+                    .try_reserve(1)
+                    .map_err(|_| FrameWriteError::AllocationFailed)?;
+                changed
+                    .offsets
+                    .try_reserve(1)
+                    .map_err(|_| FrameWriteError::AllocationFailed)?;
+                changed
+                    .current
+                    .try_reserve(current_tile.len())
+                    .map_err(|_| FrameWriteError::AllocationFailed)?;
+                changed
+                    .previous
+                    .try_reserve(previous_tile.len())
+                    .map_err(|_| FrameWriteError::AllocationFailed)?;
+                changed
+                    .cells
+                    .push(u32::try_from(cell).map_err(|_| FrameWriteError::SizeOverflow)?);
+                changed.current.extend_from_slice(&current_tile);
+                changed.previous.extend_from_slice(&previous_tile);
+                changed.offsets.push(
+                    u32::try_from(changed.current.len())
+                        .map_err(|_| FrameWriteError::SizeOverflow)?,
+                );
+            }
+        }
+        Ok(changed)
+    }
+
+    fn len(&self) -> usize {
+        self.cells.len()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.cells.is_empty()
+    }
+
+    fn region(&self, index: usize) -> Region {
+        self.grid
+            .get(self.cells[index] as usize)
+            .expect("collected tile remains in grid")
+    }
+
+    fn current(&self, index: usize) -> &[u8] {
+        &self.current[self.range(index)]
+    }
+
+    fn previous(&self, index: usize) -> &[u8] {
+        &self.previous[self.range(index)]
+    }
+
+    fn range(&self, index: usize) -> core::ops::Range<usize> {
+        self.offsets[index] as usize..self.offsets[index + 1] as usize
+    }
 }
 
 /// Host-side builder for canonical sectioned FRAMES payloads.
@@ -211,6 +319,7 @@ pub struct FramesEncoder {
     profiles: FrameEncodingSet,
     selector: FrameSelector,
     input_alignment: u32,
+    tile_size: Option<(u32, u32)>,
     sample_bytes: usize,
     previous: Vec<u8>,
     codings: Vec<FrameEncoding>,
@@ -218,6 +327,8 @@ pub struct FramesEncoder {
     frame_group_counts: Vec<u32>,
     keyframes: Vec<u32>,
     data: Vec<u8>,
+    indexes: Vec<u8>,
+    color_table: Vec<u8>,
     reports: Vec<FrameWriteReport>,
     candidates: Vec<PreparedCandidate>,
     lz4_table: Vec<u32>,
@@ -240,7 +351,7 @@ impl FramesEncoder {
         lz4_table.resize(Lz4::TABLE_LEN, 0);
         let mut candidates = Vec::new();
         candidates
-            .try_reserve_exact(8)
+            .try_reserve_exact(16)
             .map_err(|_| FrameWriteError::AllocationFailed)?;
         Ok(Self {
             sequence,
@@ -248,6 +359,7 @@ impl FramesEncoder {
             profiles: FrameEncodingSet::default(),
             selector: FrameSelector::new(FramePolicy::new(sequence.max_delta_frames())),
             input_alignment: 1,
+            tile_size: Some((32, 32)),
             sample_bytes,
             previous,
             codings: Vec::new(),
@@ -255,6 +367,8 @@ impl FramesEncoder {
             frame_group_counts: Vec::new(),
             keyframes: Vec::new(),
             data: Vec::new(),
+            indexes: Vec::new(),
+            color_table: Vec::new(),
             reports: Vec::new(),
             candidates,
             lz4_table,
@@ -286,6 +400,43 @@ impl FramesEncoder {
             return Err(FrameWriteError::InvalidInputAlignment(alignment));
         }
         self.input_alignment = alignment;
+        Ok(self)
+    }
+
+    /// Enables sparse frame candidates over a shared surface tile grid.
+    pub fn with_tiles(mut self, width: u32, height: u32) -> Result<Self, FrameWriteError> {
+        self.ensure_not_started()?;
+        self.surface.tile_grid(width, height)?;
+        self.tile_size = Some((width, height));
+        Ok(self)
+    }
+
+    /// Disables sparse frame candidates while retaining whole-frame profiles.
+    pub fn without_tiles(mut self) -> Result<Self, FrameWriteError> {
+        self.ensure_not_started()?;
+        self.tile_size = None;
+        Ok(self)
+    }
+
+    /// Stores the exact RGBA color table required by indexed sample layouts.
+    pub fn with_color_table(mut self, rgba: &[u8]) -> Result<Self, FrameWriteError> {
+        self.ensure_not_started()?;
+        let expected = self
+            .surface
+            .sample_layout()
+            .color_table_entries()
+            .map_or(0, |entries| entries as usize * 4);
+        if rgba.len() != expected {
+            return Err(FrameWriteError::ColorTableLengthMismatch {
+                expected,
+                actual: rgba.len(),
+            });
+        }
+        self.color_table.clear();
+        self.color_table
+            .try_reserve_exact(rgba.len())
+            .map_err(|_| FrameWriteError::AllocationFailed)?;
+        self.color_table.extend_from_slice(rgba);
         Ok(self)
     }
 
@@ -324,7 +475,7 @@ impl FramesEncoder {
         }
 
         self.prepare_candidates(samples)?;
-        let mut offered = [FrameCandidate::omitted(); 8];
+        let mut offered = [FrameCandidate::omitted(); 16];
         for (slot, prepared) in offered.iter_mut().zip(&self.candidates) {
             *slot = prepared.candidate;
         }
@@ -350,7 +501,7 @@ impl FramesEncoder {
             });
         }
         let records: Vec<_> = self.codings.iter().map(FrameEncoding::record).collect();
-        let asset = SectionedFramesAsset::new(
+        let mut asset = SectionedFramesAsset::new(
             self.sequence,
             self.surface,
             &records,
@@ -358,7 +509,11 @@ impl FramesEncoder {
             &self.frame_group_counts,
             &self.data,
         )?
-        .with_keyframes(&self.keyframes)?;
+        .with_index(&self.indexes);
+        if !self.color_table.is_empty() {
+            asset = asset.with_color_table(&self.color_table);
+        }
+        let asset = asset.with_keyframes(&self.keyframes)?;
         Ok(EncodedFrames {
             payload: asset.encode()?,
             reports: self.reports,
@@ -372,7 +527,9 @@ impl FramesEncoder {
                 candidate: FrameCandidate::omitted(),
                 encoding: None,
                 bytes: Vec::new(),
+                encoded_bytes: 0,
                 reconstructed: None,
+                layout: PreparedLayout::Whole,
             });
         }
         if self.profiles.raw {
@@ -434,6 +591,15 @@ impl FramesEncoder {
             bytes.truncate(len);
             self.add_candidate(FrameStorage::Delta, FrameEncoding::Delta, bytes, None)?;
         }
+        if let Some((tile_width, tile_height)) = self.tile_size
+            && !self.previous.is_empty()
+        {
+            let grid = self.surface.tile_grid(tile_width, tile_height)?;
+            let changed = ChangedTiles::collect(self.surface, grid, samples, &self.previous)?;
+            if !changed.is_empty() {
+                self.prepare_sparse_candidates(&changed)?;
+            }
+        }
         Ok(())
     }
 
@@ -468,10 +634,209 @@ impl FramesEncoder {
         self.candidates.push(PreparedCandidate {
             candidate,
             encoding: Some(encoding),
+            encoded_bytes: bytes.len(),
             bytes,
             reconstructed,
+            layout: PreparedLayout::Whole,
         });
         Ok(())
+    }
+
+    fn prepare_sparse_candidates(&mut self, changed: &ChangedTiles) -> Result<(), FrameWriteError> {
+        if changed.len() == changed.grid.len() {
+            return Ok(());
+        }
+        if self.profiles.raw {
+            self.add_sparse_candidate(changed, FrameEncoding::Raw)?;
+        }
+        if self.profiles.rle {
+            self.add_sparse_candidate(changed, FrameEncoding::Rle)?;
+        }
+        if self.profiles.pixel
+            && matches!(
+                self.surface.sample_layout(),
+                crate::image::SampleLayout::RGB888 | crate::image::SampleLayout::RGBA8888
+            )
+        {
+            self.add_sparse_candidate(changed, FrameEncoding::Pixel)?;
+        }
+        if self.profiles.lz4 {
+            self.add_sparse_candidate(changed, FrameEncoding::Lz4)?;
+        }
+        if self.profiles.frequency_reversible
+            && changed
+                .grid
+                .iter()
+                .all(|region| frequency_region_supported(self.surface, region))
+        {
+            self.add_sparse_candidate(changed, FrameEncoding::FrequencyReversible)?;
+        }
+        if let Some(quality) = self.profiles.frequency_quality
+            && changed
+                .grid
+                .iter()
+                .all(|region| frequency_region_supported(self.surface, region))
+        {
+            self.add_sparse_candidate(changed, FrameEncoding::FrequencyQuantized(quality))?;
+        }
+        if self.profiles.delta {
+            self.add_sparse_candidate(changed, FrameEncoding::Delta)?;
+        }
+        Ok(())
+    }
+
+    fn add_sparse_candidate(
+        &mut self,
+        changed: &ChangedTiles,
+        encoding: FrameEncoding,
+    ) -> Result<(), FrameWriteError> {
+        let mut bytes = Vec::new();
+        let mut lengths = Vec::new();
+        lengths
+            .try_reserve_exact(changed.len())
+            .map_err(|_| FrameWriteError::AllocationFailed)?;
+        let mut encoded_bytes = 0usize;
+        let mut decoded_bytes = 0u64;
+        let mut workspace_bytes = 0u64;
+        let mut reconstructed = if encoding.is_lossless() {
+            None
+        } else {
+            let mut output = allocated(self.previous.len())?;
+            output.copy_from_slice(&self.previous);
+            Some(output)
+        };
+
+        for index in 0..changed.len() {
+            let region = changed.region(index);
+            let (encoded, decoded) = self.encode_sparse_unit(
+                encoding,
+                region,
+                changed.current(index),
+                changed.previous(index),
+            )?;
+            let padding = aligned_padding(bytes.len(), self.input_alignment)?;
+            bytes
+                .try_reserve(padding + encoded.len())
+                .map_err(|_| FrameWriteError::AllocationFailed)?;
+            bytes.resize(bytes.len() + padding, 0);
+            bytes.extend_from_slice(&encoded);
+            lengths.push(u32::try_from(encoded.len()).map_err(|_| FrameWriteError::SizeOverflow)?);
+            encoded_bytes = encoded_bytes
+                .checked_add(encoded.len())
+                .ok_or(FrameWriteError::SizeOverflow)?;
+            decoded_bytes = decoded_bytes
+                .checked_add(changed.current(index).len() as u64)
+                .ok_or(FrameWriteError::SizeOverflow)?;
+            workspace_bytes = workspace_bytes.max(changed.current(index).len() as u64);
+            if let (Some(output), Some(decoded)) = (&mut reconstructed, decoded) {
+                TightSurface::replace_region(self.surface, output, region, &decoded)?;
+            }
+        }
+
+        let (selection, mut index) = encode_selection(changed.grid, &changed.cells)?;
+        let index_encoding = if lengths.windows(2).all(|pair| pair[0] == pair[1]) {
+            None
+        } else {
+            let encoding = if lengths.iter().all(|&length| length <= u32::from(u16::MAX)) {
+                UnitIndexEncoding::Lengths16
+            } else {
+                UnitIndexEncoding::Lengths32
+            };
+            let offset = index.len();
+            let needed = encoding.encoded_len(&lengths, self.input_alignment)?;
+            index
+                .try_reserve(needed)
+                .map_err(|_| FrameWriteError::AllocationFailed)?;
+            index.resize(offset + needed, 0);
+            encoding.encode_into(&lengths, self.input_alignment, &mut index[offset..])?;
+            Some(encoding)
+        };
+
+        let padding = aligned_padding(self.data.len(), self.input_alignment)?;
+        let setup = if self.codings.contains(&encoding) {
+            0
+        } else {
+            CODING_RECORD_LEN + encoding.record().params().len()
+        };
+        let stored = padding
+            .checked_add(bytes.len())
+            .and_then(|value| value.checked_add(index.len()))
+            .and_then(|value| value.checked_add(UNIT_GROUP_RECORD_LEN))
+            .and_then(|value| value.checked_add(setup))
+            .ok_or(FrameWriteError::SizeOverflow)? as u64;
+        let mut candidate = FrameCandidate::sparse(encoding.coding_id(), stored)
+            .with_decode_cost(decoded_bytes, workspace_bytes);
+        if !encoding.is_lossless() {
+            candidate = candidate.lossy();
+        }
+        self.candidates.push(PreparedCandidate {
+            candidate,
+            encoding: Some(encoding),
+            bytes,
+            encoded_bytes,
+            reconstructed,
+            layout: PreparedLayout::Sparse {
+                tile_width: changed.grid.tile_width(),
+                tile_height: changed.grid.tile_height(),
+                selection,
+                index_encoding,
+                index,
+            },
+        });
+        Ok(())
+    }
+
+    fn encode_sparse_unit(
+        &mut self,
+        encoding: FrameEncoding,
+        region: Region,
+        current: &[u8],
+        previous: &[u8],
+    ) -> Result<(Vec<u8>, Option<Vec<u8>>), FrameWriteError> {
+        match encoding {
+            FrameEncoding::Raw => {
+                let mut bytes = allocated(current.len())?;
+                bytes.copy_from_slice(current);
+                Ok((bytes, None))
+            }
+            FrameEncoding::Rle => {
+                let codec = Rle::new();
+                let mut bytes = allocated(codec.encoded_len(current)?)?;
+                let len = codec.encode_into(current, &mut bytes)?;
+                bytes.truncate(len);
+                Ok((bytes, None))
+            }
+            FrameEncoding::Pixel => {
+                let codec = Pixel::new(self.surface.sample_layout())?;
+                let mut bytes = allocated(codec.encoded_len(current)?)?;
+                let len = codec.encode_into(current, &mut bytes)?;
+                bytes.truncate(len);
+                Ok((bytes, None))
+            }
+            FrameEncoding::Lz4 => {
+                let mut encoder = Lz4::new().encoder(&mut self.lz4_table)?;
+                let mut bytes = allocated(encoder.encoded_len(current)?)?;
+                let len = encoder.encode_into(current, &mut bytes)?;
+                bytes.truncate(len);
+                Ok((bytes, None))
+            }
+            FrameEncoding::FrequencyReversible => {
+                encode_frequency_region(Frequency::reversible(), self.surface, region, current)
+            }
+            FrameEncoding::FrequencyQuantized(quality) => encode_frequency_region(
+                Frequency::quantized(quality)?,
+                self.surface,
+                region,
+                current,
+            ),
+            FrameEncoding::Delta => {
+                let codec = FrameDelta::new();
+                let mut bytes = allocated(codec.encoded_len(previous, current)?)?;
+                let len = codec.encode_into(previous, current, &mut bytes)?;
+                bytes.truncate(len);
+                Ok((bytes, None))
+            }
+        }
     }
 
     fn commit(
@@ -481,7 +846,7 @@ impl FramesEncoder {
         samples: &[u8],
     ) -> Result<FrameWriteReport, FrameWriteError> {
         let encoded_bytes =
-            u32::try_from(prepared.bytes.len()).map_err(|_| FrameWriteError::SizeOverflow)?;
+            u32::try_from(prepared.encoded_bytes).map_err(|_| FrameWriteError::SizeOverflow)?;
         if let Some(encoding) = prepared.encoding {
             let existing_coding = self.codings.iter().position(|stored| *stored == encoding);
             let coding_index = existing_coding.unwrap_or(self.codings.len());
@@ -500,7 +865,32 @@ impl FramesEncoder {
                 start..end,
             )?
             .with_input_alignment(self.input_alignment);
-            if choice.candidate().storage() == FrameStorage::Delta {
+            let mut candidate_index = None;
+            match &prepared.layout {
+                PreparedLayout::Whole => {}
+                PreparedLayout::Sparse {
+                    tile_width,
+                    tile_height,
+                    selection,
+                    index_encoding,
+                    index,
+                } => {
+                    let index_offset = u32::try_from(self.indexes.len())
+                        .map_err(|_| FrameWriteError::SizeOverflow)?;
+                    group = group
+                        .with_tiles(*tile_width, *tile_height)
+                        .with_selection(*selection)
+                        .with_index_offset(index_offset);
+                    if let Some(encoding) = index_encoding {
+                        group = group.with_index_encoding(*encoding);
+                    }
+                    candidate_index = Some(index);
+                }
+            }
+            if matches!(
+                choice.candidate().storage(),
+                FrameStorage::Sparse | FrameStorage::Delta
+            ) {
                 group = group.with_reference(ReferenceMode::Previous);
             }
 
@@ -512,6 +902,11 @@ impl FramesEncoder {
             self.data
                 .try_reserve(padding + prepared.bytes.len())
                 .map_err(|_| FrameWriteError::AllocationFailed)?;
+            if let Some(index) = candidate_index {
+                self.indexes
+                    .try_reserve(index.len())
+                    .map_err(|_| FrameWriteError::AllocationFailed)?;
+            }
             self.groups
                 .try_reserve(1)
                 .map_err(|_| FrameWriteError::AllocationFailed)?;
@@ -532,6 +927,9 @@ impl FramesEncoder {
             }
             self.data.resize(self.data.len() + padding, 0);
             self.data.extend_from_slice(&prepared.bytes);
+            if let Some(index) = candidate_index {
+                self.indexes.extend_from_slice(index);
+            }
             self.groups.push(group);
             self.frame_group_counts.push(1);
             if choice.candidate().storage().is_independent() {
@@ -559,6 +957,153 @@ impl FramesEncoder {
         };
         self.reports.push(report);
         Ok(report)
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct TightSurface<'a> {
+    surface: SurfaceDescriptor,
+    bytes: &'a [u8],
+}
+
+impl<'a> TightSurface<'a> {
+    fn new(surface: SurfaceDescriptor, bytes: &'a [u8]) -> Result<Self, FrameWriteError> {
+        let expected = tight_sample_bytes(surface)?;
+        if bytes.len() != expected {
+            return Err(FrameWriteError::SampleLengthMismatch {
+                expected,
+                actual: bytes.len(),
+            });
+        }
+        Ok(Self { surface, bytes })
+    }
+
+    fn region_byte_len(self, region: Region) -> Result<usize, FrameWriteError> {
+        let mut total = 0usize;
+        for index in 0..self.surface.plane_count() {
+            let plane = self.surface.plane(index).expect("surface plane");
+            let projected = region.for_plane(self.surface, index)?;
+            let row_bits = u64::from(projected.width()) * u64::from(plane.bits_per_element());
+            let row_bytes =
+                usize::try_from(row_bits.div_ceil(8)).map_err(|_| FrameWriteError::SizeOverflow)?;
+            total = total
+                .checked_add(
+                    row_bytes
+                        .checked_mul(projected.height() as usize)
+                        .ok_or(FrameWriteError::SizeOverflow)?,
+                )
+                .ok_or(FrameWriteError::SizeOverflow)?;
+        }
+        Ok(total)
+    }
+
+    fn copy_region(self, region: Region, output: &mut Vec<u8>) -> Result<(), FrameWriteError> {
+        let needed = self.region_byte_len(region)?;
+        output.clear();
+        output
+            .try_reserve(needed)
+            .map_err(|_| FrameWriteError::AllocationFailed)?;
+        output.resize(needed, 0);
+
+        let mut plane_offset = 0usize;
+        let mut output_offset = 0usize;
+        for index in 0..self.surface.plane_count() {
+            let plane = self.surface.plane(index).expect("surface plane");
+            let projected = region.for_plane(self.surface, index)?;
+            let stride = usize::try_from(
+                plane
+                    .minimum_stride()
+                    .ok_or(FrameWriteError::SizeOverflow)?,
+            )
+            .map_err(|_| FrameWriteError::SizeOverflow)?;
+            let plane_len = stride
+                .checked_mul(plane.height() as usize)
+                .ok_or(FrameWriteError::SizeOverflow)?;
+            let start_bit = u64::from(projected.x()) * u64::from(plane.bits_per_element());
+            let row_bits = u64::from(projected.width()) * u64::from(plane.bits_per_element());
+            let row_bytes =
+                usize::try_from(row_bits.div_ceil(8)).map_err(|_| FrameWriteError::SizeOverflow)?;
+            for row in 0..projected.height() as usize {
+                let source_offset = plane_offset
+                    .checked_add((projected.y() as usize + row) * stride)
+                    .and_then(|offset| offset.checked_add(start_bit as usize / 8))
+                    .ok_or(FrameWriteError::SizeOverflow)?;
+                crate::image::samples::copy(
+                    &self.bytes[source_offset..],
+                    (start_bit % 8) as u8,
+                    &mut output[output_offset..],
+                    0,
+                    row_bits,
+                );
+                output_offset += row_bytes;
+            }
+            plane_offset += plane_len;
+        }
+        debug_assert_eq!(output_offset, needed);
+        Ok(())
+    }
+
+    fn replace_region(
+        surface: SurfaceDescriptor,
+        target: &mut [u8],
+        region: Region,
+        source: &[u8],
+    ) -> Result<(), FrameWriteError> {
+        let target_len = tight_sample_bytes(surface)?;
+        if target.len() != target_len {
+            return Err(FrameWriteError::SampleLengthMismatch {
+                expected: target_len,
+                actual: target.len(),
+            });
+        }
+        let expected = Self {
+            surface,
+            bytes: &[],
+        }
+        .region_byte_len(region)?;
+        if source.len() != expected {
+            return Err(FrameWriteError::SampleLengthMismatch {
+                expected,
+                actual: source.len(),
+            });
+        }
+
+        let mut plane_offset = 0usize;
+        let mut source_offset = 0usize;
+        for index in 0..surface.plane_count() {
+            let plane = surface.plane(index).expect("surface plane");
+            let projected = region.for_plane(surface, index)?;
+            let stride = usize::try_from(
+                plane
+                    .minimum_stride()
+                    .ok_or(FrameWriteError::SizeOverflow)?,
+            )
+            .map_err(|_| FrameWriteError::SizeOverflow)?;
+            let plane_len = stride
+                .checked_mul(plane.height() as usize)
+                .ok_or(FrameWriteError::SizeOverflow)?;
+            let start_bit = u64::from(projected.x()) * u64::from(plane.bits_per_element());
+            let row_bits = u64::from(projected.width()) * u64::from(plane.bits_per_element());
+            let row_bytes =
+                usize::try_from(row_bits.div_ceil(8)).map_err(|_| FrameWriteError::SizeOverflow)?;
+            for row in 0..projected.height() as usize {
+                let target_offset = plane_offset
+                    .checked_add((projected.y() as usize + row) * stride)
+                    .and_then(|offset| offset.checked_add(start_bit as usize / 8))
+                    .ok_or(FrameWriteError::SizeOverflow)?;
+                crate::image::samples::copy(
+                    &source[source_offset..],
+                    0,
+                    &mut target[target_offset..],
+                    (start_bit % 8) as u8,
+                    row_bits,
+                );
+                source_offset += row_bytes;
+            }
+            plane_offset += plane_len;
+        }
+        debug_assert_eq!(source_offset, expected);
+        Ok(())
     }
 }
 
@@ -599,6 +1144,50 @@ fn frequency_supported(surface: SurfaceDescriptor) -> bool {
         )
         .is_ok()
     })
+}
+
+fn frequency_region_supported(surface: SurfaceDescriptor, region: Region) -> bool {
+    (0..surface.plane_count()).all(|index| {
+        region.for_plane(surface, index).is_ok_and(|plane| {
+            FrequencyGeometry::for_plane(
+                surface.sample_layout(),
+                index,
+                plane.width(),
+                plane.height(),
+            )
+            .is_ok()
+        })
+    })
+}
+
+fn encode_selection(
+    grid: TileGrid,
+    cells: &[u32],
+) -> Result<(GroupSelection, Vec<u8>), FrameWriteError> {
+    if cells.len() == grid.len() {
+        return Ok((GroupSelection::All, Vec::new()));
+    }
+    let cell_count = u32::try_from(grid.len()).map_err(|_| FrameWriteError::SizeOverflow)?;
+    let list_len = UnitSelectionEncoding::List.encoded_len(cell_count, cells)?;
+    let bitmap_len = UnitSelectionEncoding::Bitmap.encoded_len(cell_count, cells)?;
+    let (encoding, selection, len) = if list_len <= bitmap_len {
+        (
+            UnitSelectionEncoding::List,
+            GroupSelection::List(
+                u32::try_from(cells.len()).map_err(|_| FrameWriteError::SizeOverflow)?,
+            ),
+            list_len,
+        )
+    } else {
+        (
+            UnitSelectionEncoding::Bitmap,
+            GroupSelection::Bitmap,
+            bitmap_len,
+        )
+    };
+    let mut bytes = allocated(len)?;
+    encoding.encode_into(cell_count, cells, &mut bytes)?;
+    Ok((selection, bytes))
 }
 
 fn encode_frequency(
@@ -663,6 +1252,67 @@ fn encode_frequency(
     Ok((encoded, reconstructed))
 }
 
+fn encode_frequency_region(
+    codec: Frequency,
+    surface: SurfaceDescriptor,
+    region: Region,
+    samples: &[u8],
+) -> Result<(Vec<u8>, Option<Vec<u8>>), FrameWriteError> {
+    let mut geometries = [None; 3];
+    let mut encoded_lengths = [0usize; 3];
+    let mut encoded_len = 0usize;
+    let mut sample_offset = 0usize;
+    for index in 0..surface.plane_count() {
+        let plane = region.for_plane(surface, index)?;
+        let geometry = FrequencyGeometry::for_plane(
+            surface.sample_layout(),
+            index,
+            plane.width(),
+            plane.height(),
+        )?;
+        let sample_len = geometry.decoded_len()?;
+        let sample_end = sample_offset
+            .checked_add(sample_len)
+            .ok_or(FrameWriteError::SizeOverflow)?;
+        let len = codec.encoded_len(geometry, &samples[sample_offset..sample_end])?;
+        geometries[index as usize] = Some(geometry);
+        encoded_lengths[index as usize] = len;
+        encoded_len = encoded_len
+            .checked_add(len)
+            .ok_or(FrameWriteError::SizeOverflow)?;
+        sample_offset = sample_end;
+    }
+    debug_assert_eq!(sample_offset, samples.len());
+
+    let mut encoded = allocated(encoded_len)?;
+    let mut reconstructed = if codec.is_reversible() {
+        None
+    } else {
+        Some(allocated(samples.len())?)
+    };
+    let mut encoded_offset = 0usize;
+    sample_offset = 0;
+    for index in 0..surface.plane_count() as usize {
+        let geometry = geometries[index].expect("validated region plane");
+        let sample_len = geometry.decoded_len()?;
+        let sample_end = sample_offset + sample_len;
+        let encoded_end = encoded_offset + encoded_lengths[index];
+        codec.encode_into(
+            geometry,
+            &samples[sample_offset..sample_end],
+            &mut encoded[encoded_offset..encoded_end],
+        )?;
+        if let Some(output) = &mut reconstructed {
+            codec
+                .plan(&encoded[encoded_offset..encoded_end], geometry)?
+                .decode_into(&mut output[sample_offset..sample_end])?;
+        }
+        sample_offset = sample_end;
+        encoded_offset = encoded_end;
+    }
+    Ok((encoded, reconstructed))
+}
+
 /// Failure while selecting, storing, or finishing a sectioned frame sequence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -675,19 +1325,24 @@ pub enum FrameWriteError {
     SampleLengthMismatch { expected: usize, actual: usize },
     TooManyFrames { expected: u32 },
     FrameCountMismatch { expected: u32, actual: u32 },
-    Selection(FrameSelectionError),
+    ColorTableLengthMismatch { expected: usize, actual: usize },
+    Candidate(FrameSelectionError),
     Rle(RleError),
     Pixel(PixelError),
     Lz4(Lz4Error),
     Delta(FrameDeltaError),
     Frequency(FrequencyError),
+    Region(RegionError),
+    TileGrid(TileGridError),
+    UnitSelection(UnitSelectionError),
+    UnitIndex(UnitIndexError),
     Group(crate::image::UnitGroupRecordError),
     Payload(FramesEncodeError),
 }
 
 impl From<FrameSelectionError> for FrameWriteError {
     fn from(error: FrameSelectionError) -> Self {
-        Self::Selection(error)
+        Self::Candidate(error)
     }
 }
 
@@ -721,6 +1376,30 @@ impl From<FrequencyError> for FrameWriteError {
     }
 }
 
+impl From<RegionError> for FrameWriteError {
+    fn from(error: RegionError) -> Self {
+        Self::Region(error)
+    }
+}
+
+impl From<TileGridError> for FrameWriteError {
+    fn from(error: TileGridError) -> Self {
+        Self::TileGrid(error)
+    }
+}
+
+impl From<UnitSelectionError> for FrameWriteError {
+    fn from(error: UnitSelectionError) -> Self {
+        Self::UnitSelection(error)
+    }
+}
+
+impl From<UnitIndexError> for FrameWriteError {
+    fn from(error: UnitIndexError) -> Self {
+        Self::UnitIndex(error)
+    }
+}
+
 impl From<crate::image::UnitGroupRecordError> for FrameWriteError {
     fn from(error: crate::image::UnitGroupRecordError) -> Self {
         Self::Group(error)
@@ -741,6 +1420,7 @@ mod tests {
         image::{ColorDescription, SampleLayout, SurfaceRequirements},
         payload::frames::SectionedFramesView,
     };
+    use alloc::vec;
 
     fn surface() -> SurfaceDescriptor {
         SurfaceDescriptor::new(4, 1, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap()
@@ -956,7 +1636,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             encoder.push(&[127; 64]),
-            Err(FrameWriteError::Selection(
+            Err(FrameWriteError::Candidate(
                 FrameSelectionError::NoCandidate { frame: 0 }
             ))
         );
@@ -1013,5 +1693,347 @@ mod tests {
             .copied()
             .collect();
         assert_eq!(decoded, source);
+    }
+
+    #[test]
+    fn sparse_raw_frame_stores_only_changed_tiles_and_replays_exactly() {
+        let surface =
+            SurfaceDescriptor::new(64, 64, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
+        let sequence = FrameSequence::new(2, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(1)
+            .unwrap();
+        let profiles = raw_only_profiles();
+        let first = vec![0; 64 * 64 * 4];
+        let mut second = first.clone();
+        let changed = surface.region(16, 32, 16, 16).unwrap();
+        TightSurface::replace_region(surface, &mut second, changed, &[0x5a; 16 * 16 * 4]).unwrap();
+        let mut encoder = FramesEncoder::new(sequence, surface)
+            .unwrap()
+            .with_profiles(profiles)
+            .unwrap()
+            .with_tiles(16, 16)
+            .unwrap();
+        encoder.push(&first).unwrap();
+        let report = encoder.push(&second).unwrap();
+        assert_eq!(report.storage(), FrameStorage::Sparse);
+        assert_eq!(report.encoding(), Some(FrameEncoding::Raw));
+        assert_eq!(report.encoded_bytes(), 16 * 16 * 4);
+        let encoded = encoder.finish().unwrap();
+
+        let frames = SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        let mut slots = [None];
+        let groups = frames
+            .groups_into(
+                1,
+                &mut slots,
+                &mut crate::image::CoverageBudget::new(u64::MAX),
+            )
+            .unwrap();
+        let group = groups.iter().next().unwrap();
+        assert_eq!(group.len(), 1);
+        assert_eq!(group.grid().tile_width(), 16);
+        assert_eq!(group.get(0).unwrap().cell(), 9);
+
+        let mut canvas = vec![0; second.len()];
+        let mut workspace = vec![0; second.len()];
+        let mut playback = frames
+            .session(
+                SurfaceRequirements::new(),
+                PayloadLimits::HOST,
+                &mut slots,
+                &mut canvas,
+                &mut workspace,
+                &mut [],
+            )
+            .unwrap();
+        playback.present(0).unwrap();
+        assert_eq!(tight_frame(playback.present(1).unwrap()), second);
+    }
+
+    #[test]
+    fn sparse_edge_tiles_use_compact_lengths_and_aligned_unit_starts() {
+        let surface =
+            SurfaceDescriptor::new(40, 8, SampleLayout::L8, ColorDescription::SRGB).unwrap();
+        let sequence = FrameSequence::new(2, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(1)
+            .unwrap();
+        let first = [0; 320];
+        let mut second = first;
+        TightSurface::replace_region(
+            surface,
+            &mut second,
+            surface.region(0, 0, 16, 8).unwrap(),
+            &[1; 128],
+        )
+        .unwrap();
+        TightSurface::replace_region(
+            surface,
+            &mut second,
+            surface.region(32, 0, 8, 8).unwrap(),
+            &[2; 64],
+        )
+        .unwrap();
+        let mut encoder = FramesEncoder::new(sequence, surface)
+            .unwrap()
+            .with_profiles(raw_only_profiles())
+            .unwrap()
+            .with_tiles(16, 8)
+            .unwrap()
+            .with_input_alignment(64)
+            .unwrap();
+        encoder.push(&first).unwrap();
+        assert_eq!(
+            encoder.push(&second).unwrap().storage(),
+            FrameStorage::Sparse
+        );
+        let encoded = encoder.finish().unwrap();
+
+        #[repr(align(64))]
+        struct Aligned([u8; 2048]);
+        let mut aligned = Aligned([0; 2048]);
+        aligned.0[..encoded.payload().len()].copy_from_slice(encoded.payload());
+        let frames = SectionedFramesView::open_at(
+            &aligned.0[..encoded.payload().len()],
+            0,
+            &PayloadLimits::HOST,
+        )
+        .unwrap();
+        let mut slots = [None];
+        let groups = frames
+            .groups_into(
+                1,
+                &mut slots,
+                &mut crate::image::CoverageBudget::new(u64::MAX),
+            )
+            .unwrap();
+        let group = groups.iter().next().unwrap();
+        assert_eq!(group.len(), 2);
+        assert!(group.data_addresses_are_aligned());
+        assert_eq!(group.get(0).unwrap().data().len(), 128);
+        assert_eq!(group.get(1).unwrap().data().len(), 64);
+        assert!(group.iter().all(|unit| unit.data_address_is_aligned()));
+    }
+
+    #[test]
+    fn sparse_regions_preserve_joint_yuv_edges_and_packed_neighbours() {
+        let nv12 = SurfaceDescriptor::new(
+            5,
+            3,
+            SampleLayout::NV12,
+            ColorDescription::BT709_YUV_LIMITED,
+        )
+        .unwrap();
+        let first = [0; 27];
+        let mut second = first;
+        TightSurface::replace_region(
+            nv12,
+            &mut second,
+            nv12.region(4, 2, 1, 1).unwrap(),
+            &[7, 8, 9],
+        )
+        .unwrap();
+        sparse_raw_roundtrip(nv12, 4, 2, &first, &second);
+
+        let indexed =
+            SurfaceDescriptor::new(17, 2, SampleLayout::I1, ColorDescription::SRGB).unwrap();
+        let first = [0b1111_0000, 0, 0, 0b0000_1111, 0, 0];
+        let mut second = first;
+        TightSurface::replace_region(
+            indexed,
+            &mut second,
+            indexed.region(8, 1, 8, 1).unwrap(),
+            &[0b1010_1010],
+        )
+        .unwrap();
+        assert_eq!(second[3], first[3]);
+        assert_eq!(second[4], 0b1010_1010);
+        sparse_raw_roundtrip(indexed, 8, 1, &first, &second);
+    }
+
+    #[test]
+    fn quantized_sparse_history_tracks_the_reconstructed_tiles() {
+        let surface =
+            SurfaceDescriptor::new(32, 16, SampleLayout::L8, ColorDescription::SRGB).unwrap();
+        let sequence = FrameSequence::new(3, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(2)
+            .unwrap();
+        let profiles = FrameEncodingSet::lossless()
+            .with_raw(false)
+            .with_rle(false)
+            .with_pixel(false)
+            .with_lz4(false)
+            .with_reversible_frequency(false)
+            .with_delta(false)
+            .with_quantized_frequency(35)
+            .unwrap();
+        let first = core::array::from_fn::<_, 512, _>(|index| (index * 29 + 7) as u8);
+        let mut encoder = FramesEncoder::new(sequence, surface)
+            .unwrap()
+            .with_profiles(profiles)
+            .unwrap()
+            .with_policy(FramePolicy::new(2).allow_lossy())
+            .unwrap()
+            .with_tiles(16, 8)
+            .unwrap();
+        encoder.push(&first).unwrap();
+        let mut second = encoder.previous.clone();
+        TightSurface::replace_region(
+            surface,
+            &mut second,
+            surface.region(16, 8, 16, 8).unwrap(),
+            &core::array::from_fn::<_, 128, _>(|index| (index * 47 + 13) as u8),
+        )
+        .unwrap();
+        let report = encoder.push(&second).unwrap();
+        assert_eq!(report.storage(), FrameStorage::Sparse);
+        assert_eq!(
+            report.encoding(),
+            Some(FrameEncoding::FrequencyQuantized(35))
+        );
+        assert_ne!(encoder.previous, second);
+        let reconstructed = encoder.previous.clone();
+        assert_eq!(
+            encoder.push(&reconstructed).unwrap().storage(),
+            FrameStorage::Omitted
+        );
+    }
+
+    #[test]
+    fn every_lossless_sparse_profile_replays_the_selected_tiles() {
+        let surface =
+            SurfaceDescriptor::new(64, 64, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
+        let first: Vec<_> = (0..64 * 64 * 4)
+            .map(|index| (index * 73 + index / 11 + 19) as u8)
+            .collect();
+        let mut second = first.clone();
+        TightSurface::replace_region(
+            surface,
+            &mut second,
+            surface.region(32, 16, 16, 16).unwrap(),
+            &core::array::from_fn::<_, 1024, _>(|index| (index * 31 + 5) as u8),
+        )
+        .unwrap();
+
+        for encoding in [
+            FrameEncoding::Rle,
+            FrameEncoding::Pixel,
+            FrameEncoding::Lz4,
+            FrameEncoding::FrequencyReversible,
+            FrameEncoding::Delta,
+        ] {
+            let sequence = FrameSequence::new(2, 1_000, 40)
+                .unwrap()
+                .with_max_delta_frames(1)
+                .unwrap();
+            let mut encoder = FramesEncoder::new(sequence, surface)
+                .unwrap()
+                .with_profiles(raw_only_profiles())
+                .unwrap()
+                .with_tiles(16, 16)
+                .unwrap();
+            encoder.push(&first).unwrap();
+            encoder.profiles = only_profile(encoding);
+            let report = encoder.push(&second).unwrap();
+            assert_eq!(report.storage(), FrameStorage::Sparse, "{encoding:?}");
+            assert_eq!(report.encoding(), Some(encoding));
+            let encoded = encoder.finish().unwrap();
+            let frames =
+                SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+            let mut slots = [None];
+            let mut canvas = vec![0; second.len()];
+            let mut workspace = vec![0; second.len()];
+            let mut playback = frames
+                .session(
+                    SurfaceRequirements::new(),
+                    PayloadLimits::HOST,
+                    &mut slots,
+                    &mut canvas,
+                    &mut workspace,
+                    &mut [],
+                )
+                .unwrap();
+            playback.present(0).unwrap();
+            assert_eq!(tight_frame(playback.present(1).unwrap()), second);
+        }
+    }
+
+    fn raw_only_profiles() -> FrameEncodingSet {
+        FrameEncodingSet::lossless()
+            .with_rle(false)
+            .with_pixel(false)
+            .with_lz4(false)
+            .with_reversible_frequency(false)
+            .with_delta(false)
+    }
+
+    fn only_profile(encoding: FrameEncoding) -> FrameEncodingSet {
+        FrameEncodingSet {
+            raw: false,
+            rle: encoding == FrameEncoding::Rle,
+            pixel: encoding == FrameEncoding::Pixel,
+            lz4: encoding == FrameEncoding::Lz4,
+            frequency_reversible: encoding == FrameEncoding::FrequencyReversible,
+            frequency_quality: None,
+            delta: encoding == FrameEncoding::Delta,
+        }
+    }
+
+    fn sparse_raw_roundtrip(
+        surface: SurfaceDescriptor,
+        tile_width: u32,
+        tile_height: u32,
+        first: &[u8],
+        second: &[u8],
+    ) {
+        let sequence = FrameSequence::new(2, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(1)
+            .unwrap();
+        let mut encoder = FramesEncoder::new(sequence, surface)
+            .unwrap()
+            .with_profiles(raw_only_profiles())
+            .unwrap()
+            .with_tiles(tile_width, tile_height)
+            .unwrap();
+        if let Some(entries) = surface.sample_layout().color_table_entries() {
+            let mut rgba = vec![0; entries as usize * 4];
+            for color in rgba.chunks_exact_mut(4) {
+                color[3] = 255;
+            }
+            encoder = encoder.with_color_table(&rgba).unwrap();
+        }
+        encoder.push(first).unwrap();
+        assert_eq!(
+            encoder.push(second).unwrap().storage(),
+            FrameStorage::Sparse
+        );
+        let encoded = encoder.finish().unwrap();
+        let frames = SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        let mut slots = [None];
+        let mut canvas = vec![0; second.len()];
+        let mut workspace = vec![0; second.len()];
+        let mut playback = frames
+            .session(
+                SurfaceRequirements::new(),
+                PayloadLimits::HOST,
+                &mut slots,
+                &mut canvas,
+                &mut workspace,
+                &mut [],
+            )
+            .unwrap();
+        playback.present(0).unwrap();
+        assert_eq!(tight_frame(playback.present(1).unwrap()), second);
+    }
+
+    fn tight_frame(view: crate::image::SurfaceView<'_>) -> Vec<u8> {
+        view.planes()
+            .flat_map(|plane| plane.rows().unwrap())
+            .flatten()
+            .copied()
+            .collect()
     }
 }

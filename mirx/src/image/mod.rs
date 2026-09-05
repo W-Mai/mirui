@@ -58,7 +58,7 @@ mod memory;
 mod plan;
 mod reference;
 mod region;
-mod samples;
+pub(crate) mod samples;
 mod surface;
 mod units;
 mod view;
