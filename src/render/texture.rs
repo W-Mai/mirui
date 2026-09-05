@@ -530,7 +530,7 @@ impl From<core::num::TryFromIntError> for MirxLoadError {
     }
 }
 
-fn map_mirx_format(fmt: mirx::ColorFormat) -> Result<ColorFormat, MirxLoadError> {
+pub(super) fn map_mirx_format(fmt: mirx::ColorFormat) -> Result<ColorFormat, MirxLoadError> {
     match fmt {
         mirx::ColorFormat::RGB565 => Ok(ColorFormat::RGB565),
         mirx::ColorFormat::RGB565Swapped => Ok(ColorFormat::RGB565Swapped),
@@ -683,7 +683,7 @@ fn open_mirx_image(bytes: &[u8]) -> Result<mirx::image::ImageRef<'_>, MirxLoadEr
     primary.image()?.ok_or(MirxLoadError::NoImageChunk)
 }
 
-fn texture_from_surface(
+pub(super) fn texture_from_surface(
     surface: mirx::image::SurfaceView<'_>,
 ) -> Result<Texture<'_>, MirxLoadError> {
     let descriptor = surface.surface();

@@ -20,7 +20,9 @@ pub use encode::{
 };
 pub use frame_map::{FrameCounts, FrameMap, FrameMapAsset, FrameMapError, FrameMapIter};
 pub use keyframes::{KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError, KeyframeIter};
-pub use playback::{FrameDecodeError, FrameDecodePlan, FrameDisposalPlan, FrameSession};
+pub use playback::{
+    FrameDecodeError, FrameDecodePlan, FrameDisposalPlan, FrameSession, FramesPlaybackPlan,
+};
 pub use sectioned::{
     FrameGroupIter, FrameGroups, FramePresentation, FramesAsset, FramesEncodeError, FramesError,
     FramesView,

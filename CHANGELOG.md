@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Preflighted MIRX frame playback.** `FramesPlaybackPlan` validates every frame representation and reports exact reusable group, canvas, codec-workspace, and disposal-backup storage. mirui's `MirxFramesPlan` binds those caller-owned buffers once and presents each requested frame as a borrowed render texture while preserving bounded temporal state.
 - **Bounded MIRX frame residuals.** `FrameDelta` stores lossless previous-unit residuals with compact run and repeating-pattern tokens. Frame sessions reconstruct packed, indexed, alpha and YUV units through caller-owned aligned canvas/workspace storage, with bounded recovery seeks, complete preflight and no hidden allocation.
 - **Pluggable frame-residual execution.** Validated FrameDelta blocks dispatch through a public allocation-free kernel seam. AArch64 selects bit-exact NEON replay for literal, repeated and compatible patterned residuals; scalar execution remains available explicitly and on other targets.
 - **Bounded frame candidate selection.** `FrameSelector` chooses among omitted, keyframe, sparse and residual representations using complete wire bytes, recovery distance, loss policy, decode work and workspace limits. Deterministic ties improve recovery and runtime cost, while explicit admission reasons support generator reports without allocation.

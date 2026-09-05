@@ -365,7 +365,75 @@ pub struct FrameSession<'a, 'storage> {
     current: Option<u32>,
 }
 
+/// Preflighted storage contract for allocation-free frame playback.
+///
+/// Planning validates every frame representation once and retains only the
+/// largest caller-buffer requirements. Binding does not read encoded DATA or
+/// allocate; the returned session reuses the supplied storage for every frame.
+#[derive(Clone, Copy, Debug)]
+pub struct FramesPlaybackPlan<'a> {
+    frames: FramesView<'a>,
+    requirements: SurfaceRequirements,
+    limits: PayloadLimits,
+    memory: SurfaceMemoryPlan,
+    group_workspace_len: usize,
+    workspace: BufferRequirements,
+    backup: BufferRequirements,
+}
+
 impl<'a> FramesView<'a> {
+    /// Preflights every frame and returns exact reusable storage requirements.
+    ///
+    /// `group_workspace` is temporary planning storage. Its required length is
+    /// the largest number of groups referenced by one frame, not the total
+    /// number of groups in the sequence.
+    pub fn playback_plan(
+        self,
+        requirements: SurfaceRequirements,
+        limits: PayloadLimits,
+        group_workspace: &mut [Option<UnitGroup<'a>>],
+    ) -> Result<FramesPlaybackPlan<'a>, FrameDecodeError> {
+        let memory = self
+            .surface()
+            .memory_plan(requirements)
+            .map_err(FrameDecodeError::Memory)?;
+        let group_workspace_len = self
+            .frame_map()
+            .into_iter()
+            .map(|range| usize::try_from(range.end - range.start).expect("u32 fits usize"))
+            .max()
+            .unwrap_or(0);
+        if group_workspace.len() < group_workspace_len {
+            return Err(FrameDecodeError::GroupWorkspaceTooSmall {
+                needed: group_workspace_len,
+                available: group_workspace.len(),
+            });
+        }
+
+        let mut required = ReplayRequirements::new();
+        for frame in 0..self.sequence().frame_count() {
+            let mut budget = CoverageBudget::new(limits.max_raster_work());
+            let groups = self
+                .groups_into(frame, group_workspace, &mut budget)
+                .map_err(FrameDecodeError::Frames)?;
+            let plan = groups.decode_plan(
+                requirements,
+                &limits.with_max_raster_work(budget.remaining()),
+            )?;
+            required.include(&plan);
+        }
+
+        Ok(FramesPlaybackPlan {
+            frames: self,
+            requirements,
+            limits,
+            memory,
+            group_workspace_len,
+            workspace: required.workspace(),
+            backup: required.backup(),
+        })
+    }
+
     /// Binds caller-owned playback storage and validates stable requirements.
     pub fn session<'storage>(
         self,
@@ -416,6 +484,70 @@ impl<'a> FramesView<'a> {
             memory,
             group_workspace_len,
             backup_requirements,
+            group_workspace,
+            canvas,
+            unit_workspace,
+            backup,
+            current: None,
+        })
+    }
+}
+
+impl<'a> FramesPlaybackPlan<'a> {
+    pub const fn frames(self) -> FramesView<'a> {
+        self.frames
+    }
+
+    pub const fn memory_plan(self) -> SurfaceMemoryPlan {
+        self.memory
+    }
+
+    pub const fn group_workspace_len(self) -> usize {
+        self.group_workspace_len
+    }
+
+    pub const fn canvas_requirements(self) -> BufferRequirements {
+        self.memory.buffer_requirements()
+    }
+
+    pub const fn workspace_requirements(self) -> BufferRequirements {
+        self.workspace
+    }
+
+    pub const fn backup_requirements(self) -> BufferRequirements {
+        self.backup
+    }
+
+    /// Binds the preflighted contract to storage retained for the session.
+    pub fn bind<'storage>(
+        self,
+        group_workspace: &'storage mut [Option<UnitGroup<'a>>],
+        canvas: &'storage mut [u8],
+        unit_workspace: &'storage mut [u8],
+        backup: &'storage mut [u8],
+    ) -> Result<FrameSession<'a, 'storage>, FrameDecodeError> {
+        if group_workspace.len() < self.group_workspace_len {
+            return Err(FrameDecodeError::GroupWorkspaceTooSmall {
+                needed: self.group_workspace_len,
+                available: group_workspace.len(),
+            });
+        }
+        self.canvas_requirements()
+            .validate(canvas)
+            .map_err(FrameDecodeError::Canvas)?;
+        self.workspace
+            .validate(unit_workspace)
+            .map_err(FrameDecodeError::Workspace)?;
+        self.backup
+            .validate(backup)
+            .map_err(FrameDecodeError::Backup)?;
+        Ok(FrameSession {
+            frames: self.frames,
+            requirements: self.requirements,
+            limits: self.limits,
+            memory: self.memory,
+            group_workspace_len: self.group_workspace_len,
+            backup_requirements: self.backup,
             group_workspace,
             canvas,
             unit_workspace,
@@ -960,6 +1092,66 @@ mod tests {
                 &[1, 0]
             );
         }
+    }
+
+    #[test]
+    fn playback_plan_reports_exact_reusable_storage_and_binds_it() {
+        let bytes = session_payload(false);
+        let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let mut planning_slots = [None];
+        let plan = frames
+            .playback_plan(
+                SurfaceRequirements::new().with_base_alignment(2),
+                PayloadLimits::HOST,
+                &mut planning_slots,
+            )
+            .unwrap();
+
+        assert_eq!(plan.group_workspace_len(), 1);
+        assert_eq!(plan.canvas_requirements().byte_len(), 2);
+        assert_eq!(plan.canvas_requirements().base_alignment(), 2);
+        assert_eq!(plan.workspace_requirements().byte_len(), 2);
+        assert_eq!(plan.backup_requirements().byte_len(), 0);
+
+        let mut slots = [None];
+        let mut canvas = [0xad; 2];
+        let mut workspace = [0; 2];
+        let mut session = plan
+            .bind(&mut slots, &mut canvas, &mut workspace, &mut [])
+            .unwrap();
+        assert_eq!(
+            session.present(1).unwrap().plane(0).unwrap().bytes(),
+            &[1, 9]
+        );
+    }
+
+    #[test]
+    fn playback_plan_includes_restore_previous_backup() {
+        let bytes = composed_payload(DisposalMode::RestorePrevious);
+        let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let mut planning_slots = [None];
+        let plan = frames
+            .playback_plan(
+                SurfaceRequirements::new().with_base_alignment(4),
+                PayloadLimits::HOST,
+                &mut planning_slots,
+            )
+            .unwrap();
+
+        assert_eq!(plan.canvas_requirements().byte_len(), 4);
+        assert_eq!(plan.backup_requirements(), plan.canvas_requirements());
+        let mut slots = [None];
+        let mut canvas = [0xad; 4];
+        let mut workspace = [0; 4];
+        let mut short_backup = [0; 3];
+        assert!(matches!(
+            plan.bind(&mut slots, &mut canvas, &mut workspace, &mut short_backup,),
+            Err(FrameDecodeError::Backup(BufferRequirementError::TooSmall {
+                needed: 4,
+                available: 3,
+            }))
+        ));
+        assert_eq!(canvas, [0xad; 4]);
     }
 
     #[test]
