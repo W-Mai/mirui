@@ -2,7 +2,7 @@
 
 `FramesEncoder` converts decoded tight frames into one canonical sectioned `FRAMES` payload. The source surface remains the only owner of width, height, sample layout, color description, and derived plane geometry.
 
-Each `push` compares complete lossless representations. RAW is the independent fallback; RLE, native pixel coding, and LZ4 are independent keyframe candidates; `FrameDelta` predicts from the previous reconstructed frame. An unchanged frame can omit groups and DATA entirely. The selector compares group records, new coding-table entries, DATA alignment padding, and encoded bytes rather than comparing codec bodies alone.
+Each `push` compares complete representations. RAW is the independent fallback; RLE, native pixel coding, LZ4, and reversible frequency coding are independent lossless keyframe candidates; `FrameDelta` predicts from the previous reconstructed frame. Quantized frequency coding participates only when configured through `FrameEncodingSet::with_quantized_frequency` and admitted through `FramePolicy::allow_lossy`. An unchanged frame can omit groups and DATA entirely. The selector compares group records, new coding-table entries, DATA alignment padding, and encoded bytes rather than comparing codec bodies alone.
 
 ```rust
 use mirx::{
@@ -39,3 +39,5 @@ let payload: &[u8] = encoded.payload();
 `SurfaceDescriptor::tight_byte_len` derives the required input length by summing every plane's `minimum_stride() × height`; packed indexes and subsampled YUV therefore use the same geometry seam as decoding. `with_input_alignment` aligns the DATA base and every stored unit start. Runtime output alignment and stride remain separate `SurfaceRequirements`, so a 64-byte GPU input requirement does not silently force the same decoded layout.
 
 `FrameWriteReport` exposes the selected storage relation, coding, encoded body size, complete incremental storage size, and resulting recovery distance for every frame. Failed sizing, candidate selection, or storage reservation does not advance the sequence.
+
+After a quantized keyframe is selected, the encoder reconstructs that exact coded frame into its retained history. Later omission and `FrameDelta` candidates therefore use the same predictor bytes as runtime playback. This prevents source samples that were discarded by quantization from leaking into the inter-frame reference chain.

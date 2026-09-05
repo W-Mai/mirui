@@ -5,7 +5,10 @@ use super::{
     FrameStorage, FramesEncodeError, SectionedFramesAsset,
 };
 use crate::{
-    coding::{FrameDelta, FrameDeltaError, Lz4, Lz4Error, Pixel, PixelError, Rle, RleError},
+    coding::{
+        FrameDelta, FrameDeltaError, Frequency, FrequencyError, FrequencyGeometry, Lz4, Lz4Error,
+        Pixel, PixelError, Rle, RleError,
+    },
     image::{ReferenceMode, SurfaceDescriptor, UNIT_GROUP_RECORD_LEN, UnitGroupRecord},
     media::{CODING_RECORD_LEN, CodingId, CodingRecord},
 };
@@ -17,6 +20,8 @@ pub struct FrameEncodingSet {
     rle: bool,
     pixel: bool,
     lz4: bool,
+    frequency_reversible: bool,
+    frequency_quality: Option<u8>,
     delta: bool,
 }
 
@@ -28,6 +33,8 @@ impl FrameEncodingSet {
             rle: true,
             pixel: true,
             lz4: true,
+            frequency_reversible: true,
+            frequency_quality: None,
             delta: true,
         }
     }
@@ -52,6 +59,22 @@ impl FrameEncodingSet {
         self
     }
 
+    pub const fn with_reversible_frequency(mut self, enabled: bool) -> Self {
+        self.frequency_reversible = enabled;
+        self
+    }
+
+    pub fn with_quantized_frequency(mut self, quality: u8) -> Result<Self, FrequencyError> {
+        Frequency::quantized(quality)?;
+        self.frequency_quality = Some(quality);
+        Ok(self)
+    }
+
+    pub const fn without_quantized_frequency(mut self) -> Self {
+        self.frequency_quality = None;
+        self
+    }
+
     pub const fn with_delta(mut self, enabled: bool) -> Self {
         self.delta = enabled;
         self
@@ -71,6 +94,8 @@ pub enum FrameEncoding {
     Rle,
     Pixel,
     Lz4,
+    FrequencyReversible,
+    FrequencyQuantized(u8),
     Delta,
 }
 
@@ -81,18 +106,30 @@ impl FrameEncoding {
             Self::Rle => CodingId::RLE,
             Self::Pixel => CodingId::PIXEL,
             Self::Lz4 => CodingId::LZ4,
+            Self::FrequencyReversible => CodingId::FREQUENCY_REVERSIBLE,
+            Self::FrequencyQuantized(_) => CodingId::FREQUENCY_QUANTIZED,
             Self::Delta => CodingId::FRAME_DELTA,
         }
     }
 
-    const fn record(self) -> CodingRecord<'static> {
+    fn record(&self) -> CodingRecord<'_> {
         match self {
             Self::Raw => CodingRecord::RAW,
             Self::Rle => Rle::new().record(),
             Self::Pixel => CodingRecord::new(CodingId::PIXEL, 1, &[]),
             Self::Lz4 => Lz4::new().record(),
+            Self::FrequencyReversible => CodingRecord::new(CodingId::FREQUENCY_REVERSIBLE, 1, &[]),
+            Self::FrequencyQuantized(quality) => CodingRecord::new(
+                CodingId::FREQUENCY_QUANTIZED,
+                1,
+                core::slice::from_ref(quality),
+            ),
             Self::Delta => FrameDelta::new().record(),
         }
+    }
+
+    const fn is_lossless(self) -> bool {
+        !matches!(self, Self::FrequencyQuantized(_))
     }
 }
 
@@ -159,6 +196,7 @@ struct PreparedCandidate {
     candidate: FrameCandidate,
     encoding: Option<FrameEncoding>,
     bytes: Vec<u8>,
+    reconstructed: Option<Vec<u8>>,
 }
 
 /// Host-side builder for canonical sectioned FRAMES payloads.
@@ -223,12 +261,14 @@ impl FramesEncoder {
         })
     }
 
-    pub fn with_profiles(mut self, profiles: FrameEncodingSet) -> Self {
+    pub fn with_profiles(mut self, profiles: FrameEncodingSet) -> Result<Self, FrameWriteError> {
+        self.ensure_not_started()?;
         self.profiles = profiles;
-        self
+        Ok(self)
     }
 
     pub fn with_policy(mut self, policy: FramePolicy) -> Result<Self, FrameWriteError> {
+        self.ensure_not_started()?;
         if policy.max_delta_frames() > self.sequence.max_delta_frames() {
             return Err(FrameWriteError::DeltaPolicyExceedsSequence {
                 policy: policy.max_delta_frames(),
@@ -241,6 +281,7 @@ impl FramesEncoder {
 
     /// Aligns every encoded unit start within DATA.
     pub fn with_input_alignment(mut self, alignment: u32) -> Result<Self, FrameWriteError> {
+        self.ensure_not_started()?;
         if !alignment.is_power_of_two() {
             return Err(FrameWriteError::InvalidInputAlignment(alignment));
         }
@@ -258,6 +299,14 @@ impl FramesEncoder {
 
     pub fn reports(&self) -> &[FrameWriteReport] {
         &self.reports
+    }
+
+    fn ensure_not_started(&self) -> Result<(), FrameWriteError> {
+        if self.selector.frame() == 0 {
+            Ok(())
+        } else {
+            Err(FrameWriteError::AlreadyStarted)
+        }
     }
 
     /// Selects and stores one frame atomically.
@@ -300,12 +349,7 @@ impl FramesEncoder {
                 actual: self.selector.frame(),
             });
         }
-        let records: Vec<_> = self
-            .codings
-            .iter()
-            .copied()
-            .map(FrameEncoding::record)
-            .collect();
+        let records: Vec<_> = self.codings.iter().map(FrameEncoding::record).collect();
         let asset = SectionedFramesAsset::new(
             self.sequence,
             self.surface,
@@ -328,19 +372,20 @@ impl FramesEncoder {
                 candidate: FrameCandidate::omitted(),
                 encoding: None,
                 bytes: Vec::new(),
+                reconstructed: None,
             });
         }
         if self.profiles.raw {
             let mut bytes = allocated(samples.len())?;
             bytes.copy_from_slice(samples);
-            self.add_candidate(FrameStorage::Keyframe, FrameEncoding::Raw, bytes)?;
+            self.add_candidate(FrameStorage::Keyframe, FrameEncoding::Raw, bytes, None)?;
         }
         if self.profiles.rle {
             let codec = Rle::new();
             let mut bytes = allocated(codec.encoded_len(samples)?)?;
             let len = codec.encode_into(samples, &mut bytes)?;
             bytes.truncate(len);
-            self.add_candidate(FrameStorage::Keyframe, FrameEncoding::Rle, bytes)?;
+            self.add_candidate(FrameStorage::Keyframe, FrameEncoding::Rle, bytes, None)?;
         }
         if self.profiles.pixel
             && matches!(
@@ -352,21 +397,42 @@ impl FramesEncoder {
             let mut bytes = allocated(codec.encoded_len(samples)?)?;
             let len = codec.encode_into(samples, &mut bytes)?;
             bytes.truncate(len);
-            self.add_candidate(FrameStorage::Keyframe, FrameEncoding::Pixel, bytes)?;
+            self.add_candidate(FrameStorage::Keyframe, FrameEncoding::Pixel, bytes, None)?;
         }
         if self.profiles.lz4 {
             let mut encoder = Lz4::new().encoder(&mut self.lz4_table)?;
             let mut bytes = allocated(encoder.encoded_len(samples)?)?;
             let len = encoder.encode_into(samples, &mut bytes)?;
             bytes.truncate(len);
-            self.add_candidate(FrameStorage::Keyframe, FrameEncoding::Lz4, bytes)?;
+            self.add_candidate(FrameStorage::Keyframe, FrameEncoding::Lz4, bytes, None)?;
+        }
+        if self.profiles.frequency_reversible && frequency_supported(self.surface) {
+            let (bytes, _) = encode_frequency(Frequency::reversible(), self.surface, samples)?;
+            self.add_candidate(
+                FrameStorage::Keyframe,
+                FrameEncoding::FrequencyReversible,
+                bytes,
+                None,
+            )?;
+        }
+        if let Some(quality) = self.profiles.frequency_quality
+            && frequency_supported(self.surface)
+        {
+            let codec = Frequency::quantized(quality)?;
+            let (bytes, reconstructed) = encode_frequency(codec, self.surface, samples)?;
+            self.add_candidate(
+                FrameStorage::Keyframe,
+                FrameEncoding::FrequencyQuantized(quality),
+                bytes,
+                reconstructed,
+            )?;
         }
         if self.profiles.delta && !self.previous.is_empty() {
             let codec = FrameDelta::new();
             let mut bytes = allocated(codec.encoded_len(&self.previous, samples)?)?;
             let len = codec.encode_into(&self.previous, samples, &mut bytes)?;
             bytes.truncate(len);
-            self.add_candidate(FrameStorage::Delta, FrameEncoding::Delta, bytes)?;
+            self.add_candidate(FrameStorage::Delta, FrameEncoding::Delta, bytes, None)?;
         }
         Ok(())
     }
@@ -376,6 +442,7 @@ impl FramesEncoder {
         storage: FrameStorage,
         encoding: FrameEncoding,
         bytes: Vec<u8>,
+        reconstructed: Option<Vec<u8>>,
     ) -> Result<(), FrameWriteError> {
         let padding = aligned_padding(self.data.len(), self.input_alignment)?;
         let setup = if self.codings.contains(&encoding) {
@@ -388,17 +455,21 @@ impl FramesEncoder {
             .and_then(|value| value.checked_add(UNIT_GROUP_RECORD_LEN))
             .and_then(|value| value.checked_add(setup))
             .ok_or(FrameWriteError::SizeOverflow)? as u64;
-        let candidate = match storage {
+        let mut candidate = match storage {
             FrameStorage::Keyframe => FrameCandidate::keyframe(encoding.coding_id(), stored),
             FrameStorage::Delta => FrameCandidate::delta(stored),
             FrameStorage::Sparse => FrameCandidate::sparse(encoding.coding_id(), stored),
             FrameStorage::Omitted => FrameCandidate::omitted(),
         }
         .with_decode_cost(self.sample_bytes as u64, self.sample_bytes as u64);
+        if !encoding.is_lossless() {
+            candidate = candidate.lossy();
+        }
         self.candidates.push(PreparedCandidate {
             candidate,
             encoding: Some(encoding),
             bytes,
+            reconstructed,
         });
         Ok(())
     }
@@ -476,7 +547,8 @@ impl FramesEncoder {
             self.frame_group_counts.push(0);
         }
         self.previous.clear();
-        self.previous.extend_from_slice(samples);
+        self.previous
+            .extend_from_slice(prepared.reconstructed.as_deref().unwrap_or(samples));
         let report = FrameWriteReport {
             frame: choice.frame(),
             storage: choice.candidate().storage(),
@@ -517,12 +589,87 @@ fn tight_sample_bytes(surface: SurfaceDescriptor) -> Result<usize, FrameWriteErr
     .map_err(|_| FrameWriteError::SizeOverflow)
 }
 
+fn frequency_supported(surface: SurfaceDescriptor) -> bool {
+    surface.planes().enumerate().all(|(index, plane)| {
+        FrequencyGeometry::for_plane(
+            surface.sample_layout(),
+            index as u8,
+            plane.width(),
+            plane.height(),
+        )
+        .is_ok()
+    })
+}
+
+fn encode_frequency(
+    codec: Frequency,
+    surface: SurfaceDescriptor,
+    samples: &[u8],
+) -> Result<(Vec<u8>, Option<Vec<u8>>), FrameWriteError> {
+    let mut encoded_lengths = [0usize; 3];
+    let mut encoded_len = 0usize;
+    let mut sample_offset = 0usize;
+    for (index, plane) in surface.planes().enumerate() {
+        let geometry = FrequencyGeometry::for_plane(
+            surface.sample_layout(),
+            index as u8,
+            plane.width(),
+            plane.height(),
+        )?;
+        let sample_len = geometry.decoded_len()?;
+        let sample_end = sample_offset
+            .checked_add(sample_len)
+            .ok_or(FrameWriteError::SizeOverflow)?;
+        let len = codec.encoded_len(geometry, &samples[sample_offset..sample_end])?;
+        encoded_lengths[index] = len;
+        encoded_len = encoded_len
+            .checked_add(len)
+            .ok_or(FrameWriteError::SizeOverflow)?;
+        sample_offset = sample_end;
+    }
+    debug_assert_eq!(sample_offset, samples.len());
+
+    let mut encoded = allocated(encoded_len)?;
+    let mut reconstructed = if codec.is_reversible() {
+        None
+    } else {
+        Some(allocated(samples.len())?)
+    };
+    let mut encoded_offset = 0usize;
+    sample_offset = 0;
+    for (index, plane) in surface.planes().enumerate() {
+        let geometry = FrequencyGeometry::for_plane(
+            surface.sample_layout(),
+            index as u8,
+            plane.width(),
+            plane.height(),
+        )?;
+        let sample_len = geometry.decoded_len()?;
+        let sample_end = sample_offset + sample_len;
+        let encoded_end = encoded_offset + encoded_lengths[index];
+        codec.encode_into(
+            geometry,
+            &samples[sample_offset..sample_end],
+            &mut encoded[encoded_offset..encoded_end],
+        )?;
+        if let Some(output) = &mut reconstructed {
+            codec
+                .plan(&encoded[encoded_offset..encoded_end], geometry)?
+                .decode_into(&mut output[sample_offset..sample_end])?;
+        }
+        sample_offset = sample_end;
+        encoded_offset = encoded_end;
+    }
+    Ok((encoded, reconstructed))
+}
+
 /// Failure while selecting, storing, or finishing a sectioned frame sequence.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FrameWriteError {
     AllocationFailed,
     SizeOverflow,
+    AlreadyStarted,
     InvalidInputAlignment(u32),
     DeltaPolicyExceedsSequence { policy: u16, sequence: u16 },
     SampleLengthMismatch { expected: usize, actual: usize },
@@ -533,6 +680,7 @@ pub enum FrameWriteError {
     Pixel(PixelError),
     Lz4(Lz4Error),
     Delta(FrameDeltaError),
+    Frequency(FrequencyError),
     Group(crate::image::UnitGroupRecordError),
     Payload(FramesEncodeError),
 }
@@ -564,6 +712,12 @@ impl From<Lz4Error> for FrameWriteError {
 impl From<FrameDeltaError> for FrameWriteError {
     fn from(error: FrameDeltaError) -> Self {
         Self::Delta(error)
+    }
+}
+
+impl From<FrequencyError> for FrameWriteError {
+    fn from(error: FrequencyError) -> Self {
+        Self::Frequency(error)
     }
 }
 
@@ -611,10 +765,12 @@ mod tests {
         let profiles = FrameEncodingSet::lossless()
             .with_rle(false)
             .with_pixel(false)
-            .with_lz4(false);
+            .with_lz4(false)
+            .with_reversible_frequency(false);
         let mut encoder = FramesEncoder::new(sequence, surface())
             .unwrap()
-            .with_profiles(profiles);
+            .with_profiles(profiles)
+            .unwrap();
         for frame in [&first[..], &same, &changed, &last] {
             encoder.push(frame).unwrap();
         }
@@ -654,10 +810,12 @@ mod tests {
             .with_rle(false)
             .with_pixel(false)
             .with_lz4(false)
+            .with_reversible_frequency(false)
             .with_delta(false);
         let mut encoder = FramesEncoder::new(sequence, surface())
             .unwrap()
             .with_profiles(profiles)
+            .unwrap()
             .with_input_alignment(64)
             .unwrap();
         encoder.push(&[1; 16]).unwrap();
@@ -716,5 +874,144 @@ mod tests {
                 actual: 1
             })
         ));
+    }
+
+    #[test]
+    fn quantized_history_is_reconstructed_before_the_next_delta() {
+        let surface =
+            SurfaceDescriptor::new(8, 8, SampleLayout::L8, ColorDescription::SRGB).unwrap();
+        let sequence = FrameSequence::new(2, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(1)
+            .unwrap();
+        let profiles = FrameEncodingSet::lossless()
+            .with_raw(false)
+            .with_rle(false)
+            .with_pixel(false)
+            .with_lz4(false)
+            .with_reversible_frequency(false)
+            .with_quantized_frequency(10)
+            .unwrap();
+        let source = core::array::from_fn::<_, 64, _>(|index| (index * 37 + 11) as u8);
+        let (_, reconstructed) =
+            encode_frequency(Frequency::quantized(10).unwrap(), surface, &source).unwrap();
+        let second: Vec<_> = reconstructed
+            .unwrap()
+            .into_iter()
+            .map(|sample| sample.wrapping_add(1))
+            .collect();
+        let mut encoder = FramesEncoder::new(sequence, surface)
+            .unwrap()
+            .with_profiles(profiles)
+            .unwrap()
+            .with_policy(FramePolicy::new(1).allow_lossy())
+            .unwrap();
+        encoder.push(&source).unwrap();
+        encoder.push(&second).unwrap();
+        let encoded = encoder.finish().unwrap();
+        assert_eq!(
+            encoded.reports()[0].encoding(),
+            Some(FrameEncoding::FrequencyQuantized(10))
+        );
+        assert_eq!(encoded.reports()[1].encoding(), Some(FrameEncoding::Delta));
+
+        let frames = SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        let mut groups = [None];
+        let mut canvas = [0; 64];
+        let mut workspace = [0; 64];
+        let mut playback = frames
+            .session(
+                SurfaceRequirements::new(),
+                PayloadLimits::HOST,
+                &mut groups,
+                &mut canvas,
+                &mut workspace,
+                &mut [],
+            )
+            .unwrap();
+        let first = playback.present(0).unwrap().plane(0).unwrap().bytes();
+        assert_ne!(first, source);
+        assert_eq!(
+            playback.present(1).unwrap().plane(0).unwrap().bytes(),
+            &second
+        );
+    }
+
+    #[test]
+    fn quantized_only_profile_requires_explicit_loss_policy() {
+        let surface =
+            SurfaceDescriptor::new(8, 8, SampleLayout::L8, ColorDescription::SRGB).unwrap();
+        let profiles = FrameEncodingSet::lossless()
+            .with_raw(false)
+            .with_rle(false)
+            .with_pixel(false)
+            .with_lz4(false)
+            .with_reversible_frequency(false)
+            .with_delta(false)
+            .with_quantized_frequency(50)
+            .unwrap();
+        let mut encoder = FramesEncoder::new(FrameSequence::new(1, 1_000, 40).unwrap(), surface)
+            .unwrap()
+            .with_profiles(profiles)
+            .unwrap();
+        assert_eq!(
+            encoder.push(&[127; 64]),
+            Err(FrameWriteError::Selection(
+                FrameSelectionError::NoCandidate { frame: 0 }
+            ))
+        );
+        assert_eq!(encoder.frame_count(), 0);
+    }
+
+    #[test]
+    fn reversible_frequency_roundtrips_joint_yuv_planes() {
+        let surface = SurfaceDescriptor::new(
+            4,
+            4,
+            SampleLayout::NV12,
+            ColorDescription::BT709_YUV_LIMITED,
+        )
+        .unwrap();
+        let sequence = FrameSequence::new(1, 1_000, 40).unwrap();
+        let profiles = FrameEncodingSet::lossless()
+            .with_raw(false)
+            .with_rle(false)
+            .with_pixel(false)
+            .with_lz4(false)
+            .with_delta(false);
+        let source = core::array::from_fn::<_, 24, _>(|index| (index * 19 + 7) as u8);
+        let mut encoder = FramesEncoder::new(sequence, surface)
+            .unwrap()
+            .with_profiles(profiles)
+            .unwrap();
+        encoder.push(&source).unwrap();
+        let encoded = encoder.finish().unwrap();
+        assert_eq!(
+            encoded.reports()[0].encoding(),
+            Some(FrameEncoding::FrequencyReversible)
+        );
+
+        let frames = SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        let mut groups = [None];
+        let mut canvas = [0; 24];
+        let mut workspace = [0; 24];
+        let mut playback = frames
+            .session(
+                SurfaceRequirements::new(),
+                PayloadLimits::HOST,
+                &mut groups,
+                &mut canvas,
+                &mut workspace,
+                &mut [],
+            )
+            .unwrap();
+        let view = playback.present(0).unwrap();
+        let decoded: Vec<_> = view
+            .planes()
+            .flat_map(|plane| plane.rows().unwrap())
+            .flatten()
+            .copied()
+            .collect();
+        assert_eq!(decoded, source);
     }
 }
