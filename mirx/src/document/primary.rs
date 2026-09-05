@@ -1,7 +1,7 @@
 use super::descriptor::descriptor_payload;
 use super::payload::ResolvedNodePayload;
 use super::{ChunkNode, ChunkSet, Document, DocumentState, PrimaryHintState};
-use crate::{ChunkId, ChunkType, EditError, PayloadLimits, PrimaryHints, SectionedFramesView};
+use crate::{ChunkId, ChunkType, EditError, FramesView, PayloadLimits, PrimaryHints};
 
 const KNOWN_NON_IMAGE_HINTS: PrimaryHints =
     PrimaryHints::new(crate::image::SampleLayout::NONE, 0, 0, 0);
@@ -107,7 +107,7 @@ fn derived_primary_hints(
         return Err(());
     }
     let bytes = payload.bytes().ok_or(())?;
-    let frames = SectionedFramesView::open(bytes, &limits).map_err(|_| ())?;
+    let frames = FramesView::open(bytes, &limits).map_err(|_| ())?;
     let surface = frames.surface();
     let stride = surface
         .plane(0)

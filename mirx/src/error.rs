@@ -24,7 +24,7 @@ pub enum ParseError {
 
 use crate::font::FontError;
 use crate::model::{ChunkType, InvalidChunkType};
-use crate::payload::frames::SectionedFramesError;
+use crate::payload::frames::FramesError;
 use crate::payload::image::ImagePayloadError;
 use crate::payload::meta::{MetaDecodeError, MetaEncodeError};
 use crate::payload::palette::{PaletteDecodeError, PaletteEncodeError};
@@ -169,7 +169,7 @@ pub enum EditError {
     InvalidVector(VectorEncodeError),
     InvalidMeta(MetaEncodeError),
     InvalidPalette(PaletteEncodeError),
-    InvalidFrames(SectionedFramesError),
+    InvalidFrames(FramesError),
     NonContiguousPayload {
         chunk_type: ChunkType,
     },
@@ -287,11 +287,11 @@ pub enum FramesAccessError {
     /// The selected raw node has no contiguous FRAMES payload representation.
     NonContiguousPayload,
     /// The selected FRAMES payload violates its typed contract.
-    InvalidPayload(SectionedFramesError),
+    InvalidPayload(FramesError),
 }
 
-impl From<SectionedFramesError> for FramesAccessError {
-    fn from(value: SectionedFramesError) -> Self {
+impl From<FramesError> for FramesAccessError {
+    fn from(value: FramesError) -> Self {
         Self::InvalidPayload(value)
     }
 }

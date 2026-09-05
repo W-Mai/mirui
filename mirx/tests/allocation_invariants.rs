@@ -17,8 +17,7 @@ struct TrackingAllocator;
 #[test]
 fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
-        FrameCandidate, FramePolicy, FrameSelector, FrameSequence, SectionedFramesAsset,
-        SectionedFramesView,
+        FrameCandidate, FramePolicy, FrameSelector, FrameSequence, FramesAsset, FramesView,
         coding::{FrameDelta, ScalarFrameDelta},
         image::{CoverageBudget, ReferenceMode, UnitGroupRecord},
         media::{CodingId, CodingRecord},
@@ -66,11 +65,10 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
                 .unwrap()
                 .with_reference(ReferenceMode::Previous),
         ];
-        let asset = SectionedFramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &data)
-            .unwrap();
+        let asset = FramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &data).unwrap();
         let len = asset.encode_into(&mut output).unwrap();
         assert_eq!(asset.encoded_len(), Ok(len));
-        let frames = SectionedFramesView::open(&output[..len], &PayloadLimits::EMBEDDED).unwrap();
+        let frames = FramesView::open(&output[..len], &PayloadLimits::EMBEDDED).unwrap();
         assert_eq!(frames.frame(1).unwrap().groups(), 1..2);
         let groups = frames
             .groups_into(0, &mut slots, &mut CoverageBudget::new(100))

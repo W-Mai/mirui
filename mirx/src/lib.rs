@@ -54,18 +54,16 @@ pub use media::CodingId;
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
 pub use payload::frames::{
-    AnimationFrames, AnimationSettings, AssetFrameIter, AtlasFrames, BlendMode, CandidateRejection,
-    DisposalMode, EncodedFrames, FRAME_COMPOSITION_RECORD_LEN, FRAME_SEQUENCE_RECORD_LEN,
-    FRAME_TIMING_HEADER_LEN, Frame, FrameCandidate, FrameChoice, FrameComposition,
-    FrameCompositionAsset, FrameCompositionError, FrameCompositionOverride, FrameCompositionTable,
-    FrameCounts, FrameDecodeError, FrameDecodePlan, FrameDisposalPlan, FrameEncoding,
-    FrameEncodingSet, FrameGroupIter, FrameGroups, FrameIter, FrameMap, FrameMapAsset,
-    FrameMapError, FrameMapIter, FramePolicy, FramePresentation, FrameRow, FrameSelectionError,
+    BlendMode, CandidateRejection, DisposalMode, EncodedFrames, FRAME_COMPOSITION_RECORD_LEN,
+    FRAME_SEQUENCE_RECORD_LEN, FRAME_TIMING_HEADER_LEN, FrameCandidate, FrameChoice,
+    FrameComposition, FrameCompositionAsset, FrameCompositionError, FrameCompositionOverride,
+    FrameCompositionTable, FrameCounts, FrameDecodeError, FrameDecodePlan, FrameDisposalPlan,
+    FrameEncoding, FrameEncodingSet, FrameGroupIter, FrameGroups, FrameMap, FrameMapAsset,
+    FrameMapError, FrameMapIter, FramePolicy, FramePresentation, FrameSelectionError,
     FrameSelector, FrameSequence, FrameSequenceError, FrameSession, FrameStorage, FrameTiming,
     FrameTimingAsset, FrameTimingEncoding, FrameTimingError, FrameWriteError, FrameWriteReport,
-    FramesAsset, FramesDecodeError, FramesEncodeError, FramesEncoder, FramesMode,
-    FramesMutationError, FramesView, KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError,
-    KeyframeIter, SectionedFramesAsset, SectionedFramesError, SectionedFramesView,
+    FramesAsset, FramesEncodeError, FramesEncoder, FramesError, FramesView, KeyframeIndex,
+    KeyframeIndexAsset, KeyframeIndexError, KeyframeIter,
 };
 pub use payload::image::{ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
 pub use payload::meta::{

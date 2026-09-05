@@ -5,8 +5,46 @@ use super::{
     FRAME_SEQUENCE_RECORD_LEN, FrameComposition, FrameCompositionAsset, FrameCompositionError,
     FrameCompositionOverride, FrameCompositionTable, FrameCounts, FrameMap, FrameMapError,
     FrameSequence, FrameSequenceError, FrameTiming, FrameTimingAsset, FrameTimingEncoding,
-    FrameTimingError, FramesEncodeError, KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError,
+    FrameTimingError, KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError,
 };
+
+/// Failure while validating or encoding a FRAMES asset.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum FramesEncodeError {
+    Storage(crate::image::ImageEncodeError),
+    FrameMap(FrameMapError),
+    FrameCountMismatch {
+        expected: u32,
+        actual: usize,
+    },
+    GroupCountMismatch {
+        expected: u32,
+        actual: usize,
+    },
+    Timing(FrameTimingError),
+    Composition(FrameCompositionError),
+    Keyframes(KeyframeIndexError),
+    ReferenceStorage(EncodedImageError),
+    FirstFrameDependsOnPrevious,
+    MixedReferences {
+        frame: u32,
+    },
+    DeltaBoundExceeded {
+        frame: u32,
+        delta_frames: u32,
+        limit: u16,
+    },
+    IndexedFrameDependsOnPrevious {
+        frame: u32,
+    },
+    BufferTooSmall {
+        needed: usize,
+        available: usize,
+    },
+    SizeOverflow,
+    AllocationFailed,
+}
 use crate::{
     PayloadLimits,
     image::{
@@ -25,7 +63,7 @@ use crate::{
 
 /// Sectioned FRAMES metadata without decoded samples or a materialized group table.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct SectionedFramesView<'a> {
+pub struct FramesView<'a> {
     media: MediaPayload<'a>,
     sequence: FrameSequence,
     surface: SurfaceDescriptor,
@@ -53,7 +91,7 @@ pub struct FramePresentation {
 /// Prepared groups for one frame, borrowing caller-owned slots and source bytes.
 #[derive(Clone, Debug)]
 pub struct FrameGroups<'a, 'g> {
-    frames: SectionedFramesView<'a>,
+    frames: FramesView<'a>,
     presentation: FramePresentation,
     group_start: usize,
     groups: &'g [Option<crate::image::UnitGroup<'a>>],
@@ -67,7 +105,7 @@ pub struct FrameGroupIter<'a, 'g> {
 
 /// Borrowed canonical FRAMES authoring input.
 #[derive(Clone, Copy, Debug)]
-pub struct SectionedFramesAsset<'a> {
+pub struct FramesAsset<'a> {
     sequence: FrameSequence,
     surface: SurfaceDescriptor,
     codings: &'a [CodingRecord<'a>],
@@ -82,7 +120,7 @@ pub struct SectionedFramesAsset<'a> {
     color_table: Option<&'a [u8]>,
 }
 
-impl<'a> SectionedFramesAsset<'a> {
+impl<'a> FramesAsset<'a> {
     /// Defines one sequence from shared coding/group storage and per-frame group counts.
     pub fn new(
         sequence: FrameSequence,
@@ -157,7 +195,8 @@ impl<'a> SectionedFramesAsset<'a> {
         Ok(self)
     }
 
-    pub const fn with_index(mut self, bytes: &'a [u8]) -> Self {
+    /// Supplies encoded unit-selection and byte-range indexes referenced by group records.
+    pub const fn with_unit_index(mut self, bytes: &'a [u8]) -> Self {
         self.indexes = bytes;
         self
     }
@@ -185,12 +224,12 @@ impl<'a> SectionedFramesAsset<'a> {
     }
 
     pub fn encoded_len(self) -> Result<usize, FramesEncodeError> {
-        Ok(SectionedFramesPlan::new(self)?.payload_len)
+        Ok(FramesPlan::new(self)?.payload_len)
     }
 
     /// Writes one canonical payload after completing validation and sizing.
     pub fn encode_into(self, output: &mut [u8]) -> Result<usize, FramesEncodeError> {
-        let plan = SectionedFramesPlan::new(self)?;
+        let plan = FramesPlan::new(self)?;
         if output.len() < plan.payload_len {
             return Err(FramesEncodeError::BufferTooSmall {
                 needed: plan.payload_len,
@@ -204,7 +243,7 @@ impl<'a> SectionedFramesAsset<'a> {
 
     /// Allocates exactly the canonical payload length.
     pub fn encode(self) -> Result<Vec<u8>, FramesEncodeError> {
-        let plan = SectionedFramesPlan::new(self)?;
+        let plan = FramesPlan::new(self)?;
         let mut output = Vec::new();
         output
             .try_reserve_exact(plan.payload_len)
@@ -226,8 +265,8 @@ impl<'a> SectionedFramesAsset<'a> {
     }
 }
 
-struct SectionedFramesPlan<'a> {
-    asset: SectionedFramesAsset<'a>,
+struct FramesPlan<'a> {
+    asset: FramesAsset<'a>,
     storage: EncodedStoragePlan<'a>,
     integrity_len: usize,
     section_count: u16,
@@ -235,8 +274,8 @@ struct SectionedFramesPlan<'a> {
     payload_len: usize,
 }
 
-impl<'a> SectionedFramesPlan<'a> {
-    fn new(asset: SectionedFramesAsset<'a>) -> Result<Self, FramesEncodeError> {
+impl<'a> FramesPlan<'a> {
+    fn new(asset: FramesAsset<'a>) -> Result<Self, FramesEncodeError> {
         let storage =
             EncodedStoragePlan::new(asset.storage()).map_err(FramesEncodeError::Storage)?;
         let source = storage.source();
@@ -415,7 +454,7 @@ impl<'a> SectionedFramesPlan<'a> {
 }
 
 fn validate_asset_references(
-    asset: SectionedFramesAsset<'_>,
+    asset: FramesAsset<'_>,
     source: GroupSource<'_>,
 ) -> Result<(), FramesEncodeError> {
     let mut budget = CoverageBudget::new(u64::MAX);
@@ -555,10 +594,10 @@ fn write_integrity(
     }
 }
 
-impl<'a> SectionedFramesView<'a> {
+impl<'a> FramesView<'a> {
     /// Opens metadata without decoding or scanning DATA bytes.
-    pub fn open(payload: &'a [u8], limits: &PayloadLimits) -> Result<Self, SectionedFramesError> {
-        let media = MediaPayload::open(payload).map_err(SectionedFramesError::Media)?;
+    pub fn open(payload: &'a [u8], limits: &PayloadLimits) -> Result<Self, FramesError> {
+        let media = MediaPayload::open(payload).map_err(FramesError::Media)?;
         Self::from_media(media, None, limits)
     }
 
@@ -567,8 +606,8 @@ impl<'a> SectionedFramesView<'a> {
         payload: &'a [u8],
         file_offset: u32,
         limits: &PayloadLimits,
-    ) -> Result<Self, SectionedFramesError> {
-        let media = MediaPayload::open(payload).map_err(SectionedFramesError::Media)?;
+    ) -> Result<Self, FramesError> {
+        let media = MediaPayload::open(payload).map_err(FramesError::Media)?;
         Self::from_media(media, Some(file_offset), limits)
     }
 
@@ -576,7 +615,7 @@ impl<'a> SectionedFramesView<'a> {
         media: MediaPayload<'a>,
         file_offset: Option<u32>,
         limits: &PayloadLimits,
-    ) -> Result<Self, SectionedFramesError> {
+    ) -> Result<Self, FramesError> {
         let mut sequence = None;
         let mut surface = None;
         let mut codings = None;
@@ -604,28 +643,27 @@ impl<'a> SectionedFramesView<'a> {
                 MediaSectionKind::COLOR_TABLE => Some(&mut color_table),
                 MediaSectionKind::INTEGRITY => None,
                 MediaSectionKind::PLANES => {
-                    return Err(SectionedFramesError::UnexpectedSection(kind));
+                    return Err(FramesError::UnexpectedSection(kind));
                 }
                 _ if section.descriptor().flags().is_required() => {
-                    return Err(SectionedFramesError::UnknownRequiredSection(kind));
+                    return Err(FramesError::UnknownRequiredSection(kind));
                 }
                 _ => None,
             };
             if let Some(slot) = slot {
                 if slot.replace(section).is_some() {
-                    return Err(SectionedFramesError::DuplicateSection(kind));
+                    return Err(FramesError::DuplicateSection(kind));
                 }
                 if !section.descriptor().flags().is_required() {
-                    return Err(SectionedFramesError::SectionMustBeRequired(kind));
+                    return Err(FramesError::SectionMustBeRequired(kind));
                 }
             }
         }
         let sequence = required(sequence, MediaSectionKind::SEQUENCE)?;
         require_size(sequence, FRAME_SEQUENCE_RECORD_LEN)?;
-        let sequence =
-            FrameSequence::open(sequence.bytes()).map_err(SectionedFramesError::Sequence)?;
+        let sequence = FrameSequence::open(sequence.bytes()).map_err(FramesError::Sequence)?;
         if sequence.frame_count() > limits.max_frame_records() {
-            return Err(SectionedFramesError::TooManyFrames {
+            return Err(FramesError::TooManyFrames {
                 count: sequence.frame_count(),
                 limit: limits.max_frame_records(),
             });
@@ -634,18 +672,16 @@ impl<'a> SectionedFramesView<'a> {
         let surface_section = required(surface, MediaSectionKind::SURFACE)?;
         require_size(surface_section, SURFACE_RECORD_LEN)?;
         let surface = SurfaceDescriptor::from_record(surface_section.bytes())
-            .map_err(SectionedFramesError::Surface)?;
+            .map_err(FramesError::Surface)?;
         let codings = CodingTable::open(required(codings, MediaSectionKind::CODINGS)?.bytes())
-            .map_err(SectionedFramesError::Codings)?;
+            .map_err(FramesError::Codings)?;
         let groups = required(groups, MediaSectionKind::UNIT_GROUPS)?;
         if groups.bytes().is_empty() || groups.bytes().len() % UNIT_GROUP_RECORD_LEN != 0 {
-            return Err(SectionedFramesError::InvalidGroupTableLength(
-                groups.bytes().len(),
-            ));
+            return Err(FramesError::InvalidGroupTableLength(groups.bytes().len()));
         }
         let group_count = groups.bytes().len() / UNIT_GROUP_RECORD_LEN;
         if group_count as u64 > u64::from(limits.max_raster_groups()) {
-            return Err(SectionedFramesError::TooManyGroups {
+            return Err(FramesError::TooManyGroups {
                 count: group_count,
                 limit: limits.max_raster_groups(),
             });
@@ -654,9 +690,9 @@ impl<'a> SectionedFramesView<'a> {
             required(map, MediaSectionKind::FRAME_MAP)?.bytes(),
             sequence.frame_count(),
         )
-        .map_err(SectionedFramesError::Map)?;
+        .map_err(FramesError::Map)?;
         if map.group_count() as usize != group_count {
-            return Err(SectionedFramesError::GroupCountMismatch {
+            return Err(FramesError::GroupCountMismatch {
                 mapped: map.group_count(),
                 stored: group_count,
             });
@@ -670,15 +706,15 @@ impl<'a> SectionedFramesView<'a> {
                 )
             })
             .transpose()
-            .map_err(SectionedFramesError::Timing)?;
+            .map_err(FramesError::Timing)?;
         let composition = composition
             .map(|section| FrameCompositionTable::open(section.bytes(), sequence, surface))
             .transpose()
-            .map_err(SectionedFramesError::Composition)?;
+            .map_err(FramesError::Composition)?;
         let keyframes = keyframes
             .map(|section| KeyframeIndex::open(section.bytes(), sequence))
             .transpose()
-            .map_err(SectionedFramesError::Keyframes)?;
+            .map_err(FramesError::Keyframes)?;
         let data = required(data, MediaSectionKind::DATA)?;
         let color_table = surface
             .read_color_table(color_table.map(MediaSection::bytes))
@@ -701,7 +737,7 @@ impl<'a> SectionedFramesView<'a> {
         let mut budget = CoverageBudget::new(limits.max_raster_work());
         view.group_source()
             .visit_groups_with_references(Some(&mut budget), |_, _| {})
-            .map_err(SectionedFramesError::Storage)?;
+            .map_err(FramesError::Storage)?;
         view.validate_reference_runs(&mut budget)?;
         Ok(view)
     }
@@ -775,10 +811,10 @@ impl<'a> SectionedFramesView<'a> {
     ///
     /// The value constrains the FRAMES payload's file or Flash placement; it
     /// does not describe the alignment required by a decoded destination.
-    pub fn input_alignment(self) -> Result<u32, SectionedFramesError> {
+    pub fn input_alignment(self) -> Result<u32, FramesError> {
         self.group_source()
             .input_alignment()
-            .map_err(SectionedFramesError::Storage)
+            .map_err(FramesError::Storage)
     }
 
     pub fn frame(self, index: u32) -> Option<FramePresentation> {
@@ -813,14 +849,14 @@ impl<'a> SectionedFramesView<'a> {
         frame: u32,
         workspace: &'g mut [Option<crate::image::UnitGroup<'a>>],
         budget: &mut CoverageBudget,
-    ) -> Result<FrameGroups<'a, 'g>, SectionedFramesError> {
+    ) -> Result<FrameGroups<'a, 'g>, FramesError> {
         let presentation = self
             .frame(frame)
-            .ok_or(SectionedFramesError::FrameOutOfBounds(frame))?;
+            .ok_or(FramesError::FrameOutOfBounds(frame))?;
         let range = presentation.groups();
         let count = range.len();
         if workspace.len() < count {
-            return Err(SectionedFramesError::WorkspaceTooSmall {
+            return Err(FramesError::WorkspaceTooSmall {
                 needed: count,
                 available: workspace.len(),
             });
@@ -829,18 +865,14 @@ impl<'a> SectionedFramesView<'a> {
         workspace.fill(None);
         let source = self.group_source();
         for (relative, global) in (range.start as usize..range.end as usize).enumerate() {
-            let record = source
-                .record(global)
-                .map_err(SectionedFramesError::Storage)?;
+            let record = source.record(global).map_err(FramesError::Storage)?;
             budget
                 .spend_many(source.resolution_cost(record))
-                .map_err(|error| {
-                    SectionedFramesError::Storage(EncodedImageError::Coverage(error))
-                })?;
+                .map_err(|error| FramesError::Storage(EncodedImageError::Coverage(error)))?;
             workspace[relative] = Some(
                 source
                     .resolve_record(global, record)
-                    .map_err(SectionedFramesError::Storage)?
+                    .map_err(FramesError::Storage)?
                     .0,
             );
         }
@@ -852,10 +884,8 @@ impl<'a> SectionedFramesView<'a> {
         })
     }
 
-    pub fn validate_data(self) -> Result<(), SectionedFramesError> {
-        self.media
-            .validate_data()
-            .map_err(SectionedFramesError::Media)
+    pub fn validate_data(self) -> Result<(), FramesError> {
+        self.media.validate_data().map_err(FramesError::Media)
     }
 
     fn group_source(self) -> GroupSource<'a> {
@@ -870,10 +900,7 @@ impl<'a> SectionedFramesView<'a> {
         }
     }
 
-    fn validate_reference_runs(
-        self,
-        budget: &mut CoverageBudget,
-    ) -> Result<(), SectionedFramesError> {
+    fn validate_reference_runs(self, budget: &mut CoverageBudget) -> Result<(), FramesError> {
         let source = self.group_source();
         let mut delta_frames = 0u32;
         for frame in 0..self.sequence.frame_count() {
@@ -883,15 +910,15 @@ impl<'a> SectionedFramesView<'a> {
             } else {
                 let first = source
                     .record(range.start as usize)
-                    .map_err(SectionedFramesError::Storage)?
+                    .map_err(FramesError::Storage)?
                     .reference();
                 for group in range.start + 1..range.end {
                     let next = source
                         .record(group as usize)
-                        .map_err(SectionedFramesError::Storage)?
+                        .map_err(FramesError::Storage)?
                         .reference();
                     if next != first {
-                        return Err(SectionedFramesError::MixedReferences { frame });
+                        return Err(FramesError::MixedReferences { frame });
                     }
                 }
                 first
@@ -900,22 +927,22 @@ impl<'a> SectionedFramesView<'a> {
                 ReferenceMode::Independent => {
                     source
                         .validate_group_range(range.start as usize..range.end as usize, budget)
-                        .map_err(SectionedFramesError::Storage)?;
+                        .map_err(FramesError::Storage)?;
                     delta_frames = 0;
                 }
                 ReferenceMode::Previous => {
                     if frame == 0 {
-                        return Err(SectionedFramesError::FirstFrameDependsOnPrevious);
+                        return Err(FramesError::FirstFrameDependsOnPrevious);
                     }
                     source
                         .validate_disjoint_group_range(
                             range.start as usize..range.end as usize,
                             budget,
                         )
-                        .map_err(SectionedFramesError::Storage)?;
+                        .map_err(FramesError::Storage)?;
                     delta_frames += 1;
                     if delta_frames > u32::from(self.sequence.max_delta_frames()) {
-                        return Err(SectionedFramesError::DeltaBoundExceeded {
+                        return Err(FramesError::DeltaBoundExceeded {
                             frame,
                             delta_frames,
                             limit: self.sequence.max_delta_frames(),
@@ -930,11 +957,11 @@ impl<'a> SectionedFramesView<'a> {
                 if range.is_empty()
                     || source
                         .record(range.start as usize)
-                        .map_err(SectionedFramesError::Storage)?
+                        .map_err(FramesError::Storage)?
                         .reference()
                         != ReferenceMode::Independent
                 {
-                    return Err(SectionedFramesError::IndexedFrameDependsOnPrevious { frame });
+                    return Err(FramesError::IndexedFrameDependsOnPrevious { frame });
                 }
             }
         }
@@ -965,7 +992,7 @@ impl FramePresentation {
 }
 
 impl<'a, 'g> FrameGroups<'a, 'g> {
-    pub const fn frames(&self) -> SectionedFramesView<'a> {
+    pub const fn frames(&self) -> FramesView<'a> {
         self.frames
     }
 
@@ -997,10 +1024,10 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
     }
 
     /// Verifies checksum coverage for one encoded unit before it is decoded.
-    pub fn validate_unit(&self, group: usize, ordinal: usize) -> Result<u32, SectionedFramesError> {
+    pub fn validate_unit(&self, group: usize, ordinal: usize) -> Result<u32, FramesError> {
         let plan = self.unit_check_plan(group, ordinal)?;
         let byte_len = plan.byte_len();
-        plan.verify().map_err(SectionedFramesError::Media)?;
+        plan.verify().map_err(FramesError::Media)?;
         Ok(byte_len)
     }
 
@@ -1009,12 +1036,12 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
         &self,
         group: usize,
         ordinal: usize,
-    ) -> Result<crate::media::DataCheckPlan<'a>, SectionedFramesError> {
+    ) -> Result<crate::media::DataCheckPlan<'a>, FramesError> {
         let unit = self
             .get(group)
-            .ok_or(SectionedFramesError::GroupOutOfBounds(group))?
+            .ok_or(FramesError::GroupOutOfBounds(group))?
             .get(ordinal)
-            .ok_or(SectionedFramesError::UnitOutOfBounds { group, ordinal })?;
+            .ok_or(FramesError::UnitOutOfBounds { group, ordinal })?;
         let source = self.frames.group_source();
         let base = self
             .frames
@@ -1024,22 +1051,22 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
             .checked_add(
                 source
                     .record(self.group_start + group)
-                    .map_err(SectionedFramesError::Storage)?
+                    .map_err(FramesError::Storage)?
                     .data_range()
                     .start,
             )
-            .ok_or(SectionedFramesError::SizeOverflow)?;
+            .ok_or(FramesError::SizeOverflow)?;
         let range = unit.data_range();
         let start = base
             .checked_add(range.start)
-            .ok_or(SectionedFramesError::SizeOverflow)?;
+            .ok_or(FramesError::SizeOverflow)?;
         let end = base
             .checked_add(range.end)
-            .ok_or(SectionedFramesError::SizeOverflow)?;
+            .ok_or(FramesError::SizeOverflow)?;
         self.frames
             .media
             .data_check_plan(start..end)
-            .map_err(SectionedFramesError::Media)
+            .map_err(FramesError::Media)
     }
 }
 
@@ -1083,13 +1110,13 @@ impl core::iter::FusedIterator for FrameGroupIter<'_, '_> {}
 fn required<'a>(
     section: Option<MediaSection<'a>>,
     kind: MediaSectionKind,
-) -> Result<MediaSection<'a>, SectionedFramesError> {
-    section.ok_or(SectionedFramesError::MissingSection(kind))
+) -> Result<MediaSection<'a>, FramesError> {
+    section.ok_or(FramesError::MissingSection(kind))
 }
 
-fn require_size(section: MediaSection<'_>, expected: usize) -> Result<(), SectionedFramesError> {
+fn require_size(section: MediaSection<'_>, expected: usize) -> Result<(), FramesError> {
     if section.bytes().len() != expected {
-        return Err(SectionedFramesError::SectionSizeMismatch {
+        return Err(FramesError::SectionSizeMismatch {
             kind: section.descriptor().kind(),
             expected,
             actual: section.bytes().len(),
@@ -1098,25 +1125,23 @@ fn require_size(section: MediaSection<'_>, expected: usize) -> Result<(), Sectio
     Ok(())
 }
 
-fn map_color_table(error: ColorTableError) -> SectionedFramesError {
+fn map_color_table(error: ColorTableError) -> FramesError {
     match error {
-        ColorTableError::Missing => SectionedFramesError::MissingColorTable,
-        ColorTableError::Unexpected => SectionedFramesError::UnexpectedColorTable,
-        ColorTableError::SizeMismatch { expected, actual } => {
-            SectionedFramesError::SectionSizeMismatch {
-                kind: MediaSectionKind::COLOR_TABLE,
-                expected,
-                actual,
-            }
-        }
-        ColorTableError::SizeOverflow => SectionedFramesError::SizeOverflow,
+        ColorTableError::Missing => FramesError::MissingColorTable,
+        ColorTableError::Unexpected => FramesError::UnexpectedColorTable,
+        ColorTableError::SizeMismatch { expected, actual } => FramesError::SectionSizeMismatch {
+            kind: MediaSectionKind::COLOR_TABLE,
+            expected,
+            actual,
+        },
+        ColorTableError::SizeOverflow => FramesError::SizeOverflow,
     }
 }
 
 /// Failure while opening sectioned FRAMES metadata.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum SectionedFramesError {
+pub enum FramesError {
     Media(MediaPayloadError),
     MissingSection(MediaSectionKind),
     DuplicateSection(MediaSectionKind),
@@ -1310,7 +1335,7 @@ mod tests {
     #[test]
     fn sectioned_metadata_resolves_defaults_overrides_references_and_noop_frames() {
         let bytes = payload([ReferenceMode::Independent, ReferenceMode::Previous]);
-        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         assert_eq!(frames.sequence().frame_count(), 3);
         assert_eq!(frames.surface().width(), 2);
         assert_eq!(frames.group_count(), 2);
@@ -1326,7 +1351,7 @@ mod tests {
         let mut empty = [];
         assert!(matches!(
             frames.groups_into(1, &mut empty, &mut CoverageBudget::new(100)),
-            Err(SectionedFramesError::WorkspaceTooSmall {
+            Err(FramesError::WorkspaceTooSmall {
                 needed: 1,
                 available: 0,
             })
@@ -1364,7 +1389,7 @@ mod tests {
             FrameComposition::new(BlendMode::SourceOver, DisposalMode::Keep),
         )];
         let keyframes = [0];
-        let asset = SectionedFramesAsset::new(
+        let asset = FramesAsset::new(
             sequence,
             surface,
             &codings,
@@ -1392,7 +1417,7 @@ mod tests {
 
         let bytes = asset.encode().unwrap();
         assert_eq!(bytes.len(), needed);
-        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         assert_eq!(frames.sequence(), sequence);
         assert_eq!(frames.surface(), surface);
         assert_eq!(frames.frame(1).unwrap().duration_ticks(), 80);
@@ -1427,7 +1452,7 @@ mod tests {
         data[0] = 1;
         data[64] = 2;
         let integrity_ends = [1, 64, 65];
-        let asset = SectionedFramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &data)
+        let asset = FramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &data)
             .unwrap()
             .with_integrity(DataIntegrity::Indexed(&integrity_ends));
         let mut bytes = asset.encode().unwrap();
@@ -1438,11 +1463,11 @@ mod tests {
             .descriptor()
             .offset();
         assert_eq!(data_offset % 64, 0);
-        let frames = SectionedFramesView::open_at(&bytes, 64, &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open_at(&bytes, 64, &PayloadLimits::HOST).unwrap();
         frames.validate_data().unwrap();
 
         bytes[data_offset as usize + 32] ^= 1;
-        let frames = SectionedFramesView::open_at(&bytes, 64, &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open_at(&bytes, 64, &PayloadLimits::HOST).unwrap();
         assert!(frames.validate_data().is_err());
     }
 
@@ -1450,11 +1475,11 @@ mod tests {
     fn first_frame_and_per_frame_reference_modes_are_strict() {
         let first = payload([ReferenceMode::Previous, ReferenceMode::Previous]);
         assert_eq!(
-            SectionedFramesView::open(&first, &PayloadLimits::HOST),
-            Err(SectionedFramesError::FirstFrameDependsOnPrevious)
+            FramesView::open(&first, &PayloadLimits::HOST),
+            Err(FramesError::FirstFrameDependsOnPrevious)
         );
         let mixed = payload([ReferenceMode::Independent, ReferenceMode::Independent]);
-        let frames = SectionedFramesView::open(&mixed, &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(&mixed, &PayloadLimits::HOST).unwrap();
         assert_eq!(frames.frame(1).unwrap().groups(), 1..2);
     }
 
@@ -1462,16 +1487,16 @@ mod tests {
     fn frame_and_group_limits_apply_before_runtime_materialization() {
         let bytes = payload([ReferenceMode::Independent, ReferenceMode::Previous]);
         assert_eq!(
-            SectionedFramesView::open(&bytes, &PayloadLimits::HOST.with_max_frame_records(2),),
-            Err(SectionedFramesError::TooManyFrames { count: 3, limit: 2 })
+            FramesView::open(&bytes, &PayloadLimits::HOST.with_max_frame_records(2),),
+            Err(FramesError::TooManyFrames { count: 3, limit: 2 })
         );
         assert_eq!(
-            SectionedFramesView::open(&bytes, &PayloadLimits::HOST.with_max_raster_groups(1),),
-            Err(SectionedFramesError::TooManyGroups { count: 2, limit: 1 })
+            FramesView::open(&bytes, &PayloadLimits::HOST.with_max_raster_groups(1),),
+            Err(FramesError::TooManyGroups { count: 2, limit: 1 })
         );
         assert_eq!(
-            SectionedFramesView::open(&bytes, &PayloadLimits::HOST.with_max_raster_work(0),),
-            Err(SectionedFramesError::Storage(EncodedImageError::Coverage(
+            FramesView::open(&bytes, &PayloadLimits::HOST.with_max_raster_work(0),),
+            Err(FramesError::Storage(EncodedImageError::Coverage(
                 CoverageError::BudgetExceeded
             )))
         );
@@ -1484,8 +1509,8 @@ mod tests {
             &[2, 2, 2],
         );
         assert_eq!(
-            SectionedFramesView::open(&bytes, &PayloadLimits::HOST),
-            Err(SectionedFramesError::Storage(EncodedImageError::Coverage(
+            FramesView::open(&bytes, &PayloadLimits::HOST),
+            Err(FramesError::Storage(EncodedImageError::Coverage(
                 CoverageError::AreaMismatch {
                     plane: 0,
                     expected: 2,

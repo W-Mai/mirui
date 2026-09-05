@@ -1,4 +1,4 @@
-use super::{BlendMode, DisposalMode, FrameGroups, SectionedFramesError, SectionedFramesView};
+use super::{BlendMode, DisposalMode, FrameGroups, FramesError, FramesView};
 use crate::{
     PayloadLimits,
     image::{
@@ -138,7 +138,7 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
                     .map_err(FrameDecodeError::Image)?;
                 check
                     .verify()
-                    .map_err(SectionedFramesError::Media)
+                    .map_err(FramesError::Media)
                     .map_err(FrameDecodeError::Frames)?;
                 preflight
                     .spend_replay(
@@ -352,7 +352,7 @@ impl FrameDisposalPlan<'_, '_> {
 /// allowing random seeks to restart from the closest recovery frame.
 #[derive(Debug)]
 pub struct FrameSession<'a, 'storage> {
-    frames: SectionedFramesView<'a>,
+    frames: FramesView<'a>,
     requirements: SurfaceRequirements,
     limits: PayloadLimits,
     memory: SurfaceMemoryPlan,
@@ -365,7 +365,7 @@ pub struct FrameSession<'a, 'storage> {
     current: Option<u32>,
 }
 
-impl<'a> SectionedFramesView<'a> {
+impl<'a> FramesView<'a> {
     /// Binds caller-owned playback storage and validates stable requirements.
     pub fn session<'storage>(
         self,
@@ -476,7 +476,7 @@ impl ReplayRequirements {
 }
 
 impl<'a> FrameSession<'a, '_> {
-    pub const fn frames(&self) -> SectionedFramesView<'a> {
+    pub const fn frames(&self) -> FramesView<'a> {
         self.frames
     }
 
@@ -622,7 +622,7 @@ impl<'a> FrameSession<'a, '_> {
     }
 
     fn execution_plan<'groups>(
-        frames: SectionedFramesView<'a>,
+        frames: FramesView<'a>,
         requirements: SurfaceRequirements,
         limits: PayloadLimits,
         group_workspace: &'groups mut [Option<UnitGroup<'a>>],
@@ -679,7 +679,7 @@ impl<'a> FrameSession<'a, '_> {
 pub enum FrameDecodeError {
     FrameOutOfBounds(u32),
     GroupWorkspaceTooSmall { needed: usize, available: usize },
-    Frames(SectionedFramesError),
+    Frames(FramesError),
     Image(EncodedImageError),
     UnsupportedSourceOver(crate::image::SampleLayout),
     Memory(SurfacePlanError),
@@ -693,8 +693,7 @@ pub enum FrameDecodeError {
 mod tests {
     use super::*;
     use crate::{
-        FrameComposition, FrameCompositionOverride, FrameSequence, SectionedFramesAsset,
-        SectionedFramesView,
+        FrameComposition, FrameCompositionOverride, FrameSequence, FramesAsset, FramesView,
         image::{
             ColorDescription, CoverageBudget, SampleLayout, SurfaceDescriptor, UnitGroupRecord,
         },
@@ -725,13 +724,12 @@ mod tests {
         UnitSelectionEncoding::List
             .encode_into(2, &[1], &mut index)
             .unwrap();
-        let bytes =
-            SectionedFramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &[1, 2, 9])
-                .unwrap()
-                .with_index(&index)
-                .encode()
-                .unwrap();
-        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let bytes = FramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &[1, 2, 9])
+            .unwrap()
+            .with_unit_index(&index)
+            .encode()
+            .unwrap();
+        let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         let requirements = SurfaceRequirements::new()
             .with_base_alignment(64)
             .with_stride_multiple(64);
@@ -789,7 +787,7 @@ mod tests {
             1,
             FrameComposition::new(BlendMode::SourceOver, disposal),
         )];
-        SectionedFramesAsset::new(
+        FramesAsset::new(
             sequence,
             surface,
             &codings,
@@ -808,7 +806,7 @@ mod tests {
     fn source_over_restore_and_clear_have_explicit_retained_lifetimes() {
         for disposal in [DisposalMode::RestorePrevious, DisposalMode::Clear] {
             let bytes = composed_payload(disposal);
-            let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+            let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
             let mut slots = [None];
             let mut canvas = [0xad; 4];
             let mut workspace = [0; 4];
@@ -884,7 +882,7 @@ mod tests {
             1,
             FrameComposition::new(BlendMode::Replace, DisposalMode::Clear),
         )];
-        let asset = SectionedFramesAsset::new(
+        let asset = FramesAsset::new(
             sequence,
             surface,
             &codings,
@@ -893,7 +891,7 @@ mod tests {
             &[1, 2, 9, 3, 4],
         )
         .unwrap()
-        .with_index(&index)
+        .with_unit_index(&index)
         .with_composition(&compositions)
         .unwrap();
         if index_keyframes {
@@ -907,7 +905,7 @@ mod tests {
     fn session_sequences_disposal_and_bounded_random_access() {
         for index_keyframes in [false, true] {
             let bytes = session_payload(index_keyframes);
-            let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+            let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
             assert_eq!(frames.recovery_frame(2), Some(0));
             assert_eq!(frames.recovery_frame(3), Some(3));
             assert_eq!(frames.recovery_frame(4), None);
@@ -967,7 +965,7 @@ mod tests {
     #[test]
     fn session_rejects_storage_before_mutating_canvas() {
         let bytes = session_payload(false);
-        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         let mut no_slots = [];
         let mut canvas = [0xad; 2];
         let mut workspace = [0; 2];
@@ -1034,7 +1032,7 @@ mod tests {
         assert_eq!(canvas, [0xad; 2]);
 
         let bytes = composed_payload(DisposalMode::RestorePrevious);
-        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         let mut slots = [None];
         let mut canvas = [0xad; 4];
         let mut workspace = [0; 4];
@@ -1086,12 +1084,11 @@ mod tests {
         let surface =
             SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let codings = [CodingRecord::RAW, codec.record()];
-        let bytes =
-            SectionedFramesAsset::new(sequence, surface, &codings, &groups, &[1, 1, 1], &data)
-                .unwrap()
-                .encode()
-                .unwrap();
-        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let bytes = FramesAsset::new(sequence, surface, &codings, &groups, &[1, 1, 1], &data)
+            .unwrap()
+            .encode()
+            .unwrap();
+        let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         let data_offset = frames
             .media()
             .section(crate::media::MediaSectionKind::DATA)
@@ -1121,7 +1118,7 @@ mod tests {
 
         let mut corrupted = bytes.clone();
         corrupted[data_offset + data.len() - 1] ^= 1;
-        let frames = SectionedFramesView::open(&corrupted, &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(&corrupted, &PayloadLimits::HOST).unwrap();
         canvas = [0xad; 2];
         {
             let mut session = frames

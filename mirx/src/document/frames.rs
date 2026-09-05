@@ -2,8 +2,7 @@ use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentState};
 use crate::payload::image::ImagePayloadError;
 use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, EncodedFrames, FramesAccessError,
-    SectionedFramesView,
+    ChunkFlags, ChunkId, ChunkType, EditError, EncodedFrames, FramesAccessError, FramesView,
 };
 
 impl Document<'_> {
@@ -11,7 +10,7 @@ impl Document<'_> {
     ///
     /// The view retains the source file position so declared input alignment
     /// is checked against the actual chunk placement.
-    pub fn frames(&self, id: ChunkId) -> Result<SectionedFramesView<'_>, FramesAccessError> {
+    pub fn frames(&self, id: ChunkId) -> Result<FramesView<'_>, FramesAccessError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(FramesAccessError::FutureSemanticsUnsupported);
         }
@@ -77,8 +76,8 @@ impl Document<'_> {
 }
 
 fn validate_frames(payload: &[u8], limits: &crate::PayloadLimits) -> Result<(), EditError> {
-    SectionedFramesView::open(payload, limits)
-        .and_then(SectionedFramesView::validate_data)
+    FramesView::open(payload, limits)
+        .and_then(FramesView::validate_data)
         .map_err(EditError::InvalidFrames)
 }
 

@@ -118,7 +118,7 @@ impl<'a> PayloadPlan<'a> {
                 }
             }
             Self::Verbatim(payload) if chunk_type == ChunkType::FRAMES => {
-                let frames = crate::SectionedFramesView::open(payload, &limits).ok();
+                let frames = crate::FramesView::open(payload, &limits).ok();
                 let data = frames.and_then(|frames| {
                     frames
                         .media()

@@ -1,8 +1,8 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
 use crate::image::{ImageReadError, ImageRef};
 use crate::{
-    ChunkType, FontError, FontView, MetaDecodeError, PaletteDecodeError, ReadError, Scene,
-    SectionedFramesError, VectorReadError,
+    ChunkType, FontError, FontView, FramesError, MetaDecodeError, PaletteDecodeError, ReadError,
+    Scene, VectorReadError,
 };
 
 /// Source location of a payload validation result.
@@ -27,7 +27,7 @@ pub enum PayloadValidationFailure {
     Vector(VectorReadError),
     Meta(MetaDecodeError),
     Palette(PaletteDecodeError),
-    Frames(SectionedFramesError),
+    Frames(FramesError),
 }
 
 /// A payload validation failure bound to its MIRX source location.
@@ -415,7 +415,7 @@ mod tests {
         );
     }
 
-    fn assert_critical_frames_failure(bytes: &[u8], expected: SectionedFramesError) {
+    fn assert_critical_frames_failure(bytes: &[u8], expected: FramesError) {
         let offset = payload_offset(bytes, 0);
         assert_eq!(
             Reader::open(bytes),
@@ -780,7 +780,7 @@ mod tests {
         assert!(matches!(
             Reader::open_with(&bytes, &ReadOptions::new().with_payload_limits(limited),),
             Err(ReadError::CriticalPayload(PayloadValidationError {
-                failure: PayloadValidationFailure::Frames(SectionedFramesError::TooManyFrames {
+                failure: PayloadValidationFailure::Frames(FramesError::TooManyFrames {
                     count: 1,
                     limit: 0,
                 }),
@@ -795,7 +795,7 @@ mod tests {
         set_payload_byte(&mut critical, 0, 2);
         assert_critical_frames_failure(
             &critical,
-            SectionedFramesError::Media(crate::media::MediaPayloadError::UnsupportedVersion(2)),
+            FramesError::Media(crate::media::MediaPayloadError::UnsupportedVersion(2)),
         );
 
         let mut noncritical = frames_file(0);
@@ -809,7 +809,7 @@ mod tests {
                     chunk_type: ChunkType::FRAMES,
                     payload_offset: payload_offset(&noncritical, 0),
                 },
-                failure: PayloadValidationFailure::Frames(SectionedFramesError::Media(
+                failure: PayloadValidationFailure::Frames(FramesError::Media(
                     crate::media::MediaPayloadError::UnsupportedVersion(2),
                 )),
             })

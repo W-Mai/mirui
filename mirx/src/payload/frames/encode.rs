@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use super::{
     FrameCandidate, FrameChoice, FramePolicy, FrameSelectionError, FrameSelector, FrameSequence,
-    FrameStorage, FramesEncodeError, SectionedFramesAsset,
+    FrameStorage, FramesAsset, FramesEncodeError,
 };
 use crate::{
     coding::{
@@ -501,7 +501,7 @@ impl FramesEncoder {
             });
         }
         let records: Vec<_> = self.codings.iter().map(FrameEncoding::record).collect();
-        let mut asset = SectionedFramesAsset::new(
+        let mut asset = FramesAsset::new(
             self.sequence,
             self.surface,
             &records,
@@ -509,7 +509,7 @@ impl FramesEncoder {
             &self.frame_group_counts,
             &self.data,
         )?
-        .with_index(&self.indexes);
+        .with_unit_index(&self.indexes);
         if !self.color_table.is_empty() {
             asset = asset.with_color_table(&self.color_table);
         }
@@ -1418,7 +1418,7 @@ mod tests {
     use crate::{
         PayloadLimits,
         image::{ColorDescription, SampleLayout, SurfaceRequirements},
-        payload::frames::SectionedFramesView,
+        payload::frames::FramesView,
     };
     use alloc::vec;
 
@@ -1460,7 +1460,7 @@ mod tests {
         assert_eq!(encoded.reports()[2].storage(), FrameStorage::Delta);
         assert_eq!(encoded.reports()[3].storage(), FrameStorage::Keyframe);
 
-        let frames = SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
         let mut groups = [None];
         let mut canvas = [0; 16];
         let mut workspace = [0; 16];
@@ -1507,7 +1507,7 @@ mod tests {
         struct Aligned([u8; 1024]);
         let mut aligned = Aligned([0; 1024]);
         aligned.0[..encoded.payload().len()].copy_from_slice(encoded.payload());
-        let frames = SectionedFramesView::open_at(
+        let frames = FramesView::open_at(
             &aligned.0[..encoded.payload().len()],
             0,
             &PayloadLimits::HOST,
@@ -1595,7 +1595,7 @@ mod tests {
         );
         assert_eq!(encoded.reports()[1].encoding(), Some(FrameEncoding::Delta));
 
-        let frames = SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
         let mut groups = [None];
         let mut canvas = [0; 64];
         let mut workspace = [0; 64];
@@ -1671,7 +1671,7 @@ mod tests {
             Some(FrameEncoding::FrequencyReversible)
         );
 
-        let frames = SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
         let mut groups = [None];
         let mut canvas = [0; 24];
         let mut workspace = [0; 24];
@@ -1721,7 +1721,7 @@ mod tests {
         assert_eq!(report.encoded_bytes(), 16 * 16 * 4);
         let encoded = encoder.finish().unwrap();
 
-        let frames = SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
         let mut slots = [None];
         let groups = frames
             .groups_into(
@@ -1794,7 +1794,7 @@ mod tests {
         struct Aligned([u8; 2048]);
         let mut aligned = Aligned([0; 2048]);
         aligned.0[..encoded.payload().len()].copy_from_slice(encoded.payload());
-        let frames = SectionedFramesView::open_at(
+        let frames = FramesView::open_at(
             &aligned.0[..encoded.payload().len()],
             0,
             &PayloadLimits::HOST,
@@ -1940,8 +1940,7 @@ mod tests {
             assert_eq!(report.storage(), FrameStorage::Sparse, "{encoding:?}");
             assert_eq!(report.encoding(), Some(encoding));
             let encoded = encoder.finish().unwrap();
-            let frames =
-                SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+            let frames = FramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
             let mut slots = [None];
             let mut canvas = vec![0; second.len()];
             let mut workspace = vec![0; second.len()];
@@ -2011,7 +2010,7 @@ mod tests {
             FrameStorage::Sparse
         );
         let encoded = encoder.finish().unwrap();
-        let frames = SectionedFramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        let frames = FramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
         let mut slots = [None];
         let mut canvas = vec![0; second.len()];
         let mut workspace = vec![0; second.len()];

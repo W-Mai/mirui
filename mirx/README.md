@@ -66,7 +66,7 @@ This 1,661-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors
 | `VECTOR` | Ordered scene operations | Bounded decode | `Scene` |
 | `META` | Ordered text, bytes, and extension values | `MetaView` | `Meta` |
 | `PALETTE` | Ordered RGBA colors | `PaletteView` | `Palette` |
-| `FRAMES` | Timed coded surfaces with sparse and previous-frame groups | `SectionedFramesView` | `FramesEncoder` / `EncodedFrames` |
+| `FRAMES` | Timed coded surfaces with sparse and previous-frame groups | `FramesView` | `FramesAsset` / `FramesEncoder` / `EncodedFrames` |
 
 IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `Document::decode_font` and `decode_vector` make owned allocation visible at the call site.
 
@@ -394,7 +394,7 @@ let frames = document.frames(id).unwrap();
 
 `FrameSequence` owns the shared clock, default duration, composition defaults, loop count, and maximum recovery distance. `FramesEncoder` chooses the stored representation for each pushed surface and returns one immutable `EncodedFrames` value for insertion or replacement.
 
-`SectionedFramesView::session` prepares sectioned frame playback with caller-owned group slots, an aligned canvas, one reusable unit workspace and an optional disposal backup. `present(frame)` reuses forward state or restarts from the closest bounded recovery frame, validating the complete replay path and selected DATA before writes. Sparse replacement groups and previous-frame residual groups share the same unit geometry, integrity and alignment contracts.
+`FramesView::session` prepares sectioned frame playback with caller-owned group slots, an aligned canvas, one reusable unit workspace and an optional disposal backup. `present(frame)` reuses forward state or restarts from the closest bounded recovery frame, validating the complete replay path and selected DATA before writes. Sparse replacement groups and previous-frame residual groups share the same unit geometry, integrity and alignment contracts.
 
 ## Checked encoding
 
