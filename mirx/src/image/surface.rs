@@ -125,6 +125,29 @@ impl SurfaceDescriptor {
         self.sample_layout.planes(self.width, self.height)
     }
 
+    /// Total bytes of all tightly packed planes in canonical plane order.
+    pub const fn tight_byte_len(self) -> Option<u32> {
+        let mut index = 0;
+        let mut total = 0u32;
+        while index < self.plane_count() {
+            let Some(plane) = self.plane(index) else {
+                return None;
+            };
+            let Some(stride) = plane.minimum_stride() else {
+                return None;
+            };
+            let Some(bytes) = stride.checked_mul(plane.height()) else {
+                return None;
+            };
+            let Some(next) = total.checked_add(bytes) else {
+                return None;
+            };
+            total = next;
+            index += 1;
+        }
+        Some(total)
+    }
+
     /// Decodes one fixed-width SURFACE section record.
     ///
     /// An all-zero color tuple expands to the canonical layout default for
@@ -259,6 +282,18 @@ mod tests {
             Ok(SURFACE_RECORD_LEN)
         );
         bytes
+    }
+
+    #[test]
+    fn tight_byte_len_sums_derived_plane_strides() {
+        let surface = SurfaceDescriptor::new(
+            5,
+            3,
+            SampleLayout::NV12,
+            ColorDescription::BT709_YUV_LIMITED,
+        )
+        .unwrap();
+        assert_eq!(surface.tight_byte_len(), Some(15 + 12));
     }
 
     #[test]

@@ -1,6 +1,8 @@
 use core::iter::FusedIterator;
 
 mod composition;
+#[doc = include_str!("../../docs/frame-authoring.md")]
+mod encode;
 mod frame_map;
 mod keyframes;
 mod owned;
@@ -14,6 +16,10 @@ mod timing;
 pub use composition::{
     FRAME_COMPOSITION_RECORD_LEN, FrameComposition, FrameCompositionAsset, FrameCompositionError,
     FrameCompositionOverride, FrameCompositionTable,
+};
+pub use encode::{
+    EncodedFrames, FrameEncoding, FrameEncodingSet, FrameWriteError, FrameWriteReport,
+    FramesEncoder,
 };
 pub use frame_map::{FrameCounts, FrameMap, FrameMapAsset, FrameMapError, FrameMapIter};
 pub use keyframes::{KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError, KeyframeIter};
