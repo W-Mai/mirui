@@ -1,6 +1,8 @@
 use core::iter::FusedIterator;
 
-use super::{PlaneGeometry, PlaneMemoryError, PlaneMemoryLayout, SurfaceDescriptor};
+use super::{
+    PlaneGeometry, PlaneMemoryError, PlaneMemoryLayout, Region, SurfaceDescriptor, samples,
+};
 
 /// Backend allocation constraints for every plane of a decoded surface.
 ///
@@ -233,6 +235,36 @@ impl SurfaceMemoryPlan {
             back: self.surface.plane_count(),
         }
     }
+
+    pub(crate) fn clear_region(self, output: &mut [u8], region: Region) {
+        for plane in 0..self.surface.plane_count() {
+            self.clear_plane_region(
+                output,
+                plane,
+                region
+                    .for_plane(self.surface, plane)
+                    .expect("validated composition region"),
+            );
+        }
+    }
+
+    pub(crate) fn clear_plane_region(self, output: &mut [u8], plane: u8, region: Region) {
+        let geometry = self.surface.plane(plane).expect("validated plane index");
+        let memory = self.plane(plane).expect("validated plane storage");
+        debug_assert!(region.right() <= geometry.width());
+        debug_assert!(region.bottom() <= geometry.height());
+        let element_bits = u64::from(geometry.bits_per_element());
+        let start_bit = u64::from(region.x()) * element_bits;
+        let byte = (start_bit / 8) as usize;
+        let bit = (start_bit % 8) as u8;
+        let bits = u64::from(region.width()) * element_bits;
+        let bytes = (u64::from(bit) + bits).div_ceil(8) as usize;
+        for row in region.y()..region.bottom() {
+            let offset =
+                memory.data_offset() as usize + row as usize * memory.stride() as usize + byte;
+            samples::clear(&mut output[offset..offset + bytes], bit, bits);
+        }
+    }
 }
 
 /// Exact-size iterator over the physical planes of a memory plan.
@@ -456,6 +488,16 @@ mod tests {
             exact.memory_plan(SurfaceRequirements::new().with_width_multiple(2)),
             Err(SurfacePlanError::SizeOverflow)
         );
+    }
+
+    #[test]
+    fn clearing_a_sub_byte_region_preserves_neighbouring_samples() {
+        let surface =
+            SurfaceDescriptor::new(9, 1, SampleLayout::A1, ColorDescription::NONE).unwrap();
+        let plan = surface.memory_plan(SurfaceRequirements::new()).unwrap();
+        let mut output = [0xff; 2];
+        plan.clear_region(&mut output, surface.region(3, 0, 3, 1).unwrap());
+        assert_eq!(output, [0xe3, 0xff]);
     }
 
     #[test]

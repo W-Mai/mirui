@@ -39,6 +39,29 @@ pub(super) fn copy(
     }
 }
 
+/// Clears MSB-first samples while preserving neighbouring bits.
+pub(super) fn clear(target: &mut [u8], mut target_bit: u8, mut bits: u64) {
+    debug_assert!(target_bit < 8);
+    debug_assert!(u64::from(target_bit) + bits <= target.len() as u64 * 8);
+    let mut target_byte = 0;
+    while bits != 0 {
+        if target_bit == 0 && bits >= 8 {
+            let bytes = (bits / 8) as usize;
+            target[target_byte..target_byte + bytes].fill(0);
+            target_byte += bytes;
+            bits %= 8;
+            continue;
+        }
+        let take = bits.min(u64::from(8 - target_bit)) as u8;
+        let mask = (0xff >> (8 - take)) << (8 - target_bit - take);
+        target[target_byte] &= !mask;
+        target_bit += take;
+        target_byte += usize::from(target_bit / 8);
+        target_bit %= 8;
+        bits -= u64::from(take);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -64,6 +87,22 @@ mod tests {
                         "source={source_bit}, target={target_bit}, bits={bits}"
                     );
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn every_clear_offset_preserves_neighbouring_bits() {
+        for target_bit in 0..8u8 {
+            for bits in 0..=64u64 {
+                let mut target = [0xa5; 9];
+                let mut expected = target;
+                for bit in 0..bits as usize {
+                    let target = usize::from(target_bit) + bit;
+                    expected[target / 8] &= !(1 << (7 - target % 8));
+                }
+                clear(&mut target, target_bit, bits);
+                assert_eq!(target, expected, "target={target_bit}, bits={bits}");
             }
         }
     }

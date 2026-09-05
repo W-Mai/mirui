@@ -93,6 +93,26 @@ impl SampleLayout {
         )
     }
 
+    pub(crate) const fn supports_source_over(self) -> bool {
+        matches!(
+            self,
+            Self::A8
+                | Self::L8
+                | Self::RGB565
+                | Self::RGB565_SWAPPED
+                | Self::RGB888
+                | Self::XRGB8888
+                | Self::RGBA8888
+                | Self::BGRA8888
+                | Self::I420
+                | Self::YV12
+                | Self::NV12
+                | Self::NV21
+                | Self::P010
+                | Self::P016
+        )
+    }
+
     /// Number of entries required in the separate COLOR_TABLE section.
     pub const fn color_table_entries(self) -> Option<u32> {
         match self.color_format() {

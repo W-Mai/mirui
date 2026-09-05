@@ -278,6 +278,14 @@ fn validate_record(
                 frame: record.frame,
                 error,
             })?;
+        for plane in 0..surface.plane_count() {
+            region
+                .for_plane(surface, plane)
+                .map_err(|error| FrameCompositionError::Region {
+                    frame: record.frame,
+                    error,
+                })?;
+        }
     }
     Ok(())
 }
@@ -417,6 +425,29 @@ mod tests {
                 error: RegionError::OutOfBounds
             })
         );
+    }
+
+    #[test]
+    fn explicit_yuv_regions_cannot_split_chroma_samples() {
+        let surface = SurfaceDescriptor::new(
+            5,
+            3,
+            SampleLayout::NV12,
+            ColorDescription::BT709_YUV_LIMITED,
+        )
+        .unwrap();
+        let record = [FrameCompositionOverride::new(
+            1,
+            FrameComposition::new(BlendMode::Replace, DisposalMode::Clear)
+                .with_region(surface.region(1, 0, 2, 2).unwrap()),
+        )];
+        assert!(matches!(
+            FrameCompositionAsset::new(&record, sequence(), surface),
+            Err(FrameCompositionError::Region {
+                frame: 1,
+                error: RegionError::UnalignedPlaneRegion { index: 1, .. },
+            })
+        ));
     }
 
     #[test]

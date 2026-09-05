@@ -1,5 +1,5 @@
 use super::DecodedUnit;
-use crate::image::{RegionMemoryPlan, SurfaceCopyError, SurfaceMemoryPlan};
+use crate::image::{RegionMemoryPlan, SampleLayout, SurfaceCopyError, SurfaceMemoryPlan};
 
 impl DecodedUnit<'_> {
     /// Places selected samples at their original coordinates in a whole surface.
@@ -57,6 +57,80 @@ impl DecodedUnit<'_> {
         }
         Ok(())
     }
+
+    pub(crate) fn source_over_into(
+        self,
+        output: &mut [u8],
+        plan: SurfaceMemoryPlan,
+    ) -> Result<(), SurfaceCopyError> {
+        let layout = plan.surface().sample_layout();
+        if !layout.supports_source_over() {
+            return Err(SurfaceCopyError::UnsupportedSourceOver(layout));
+        }
+        if !matches!(
+            layout,
+            SampleLayout::A8 | SampleLayout::RGBA8888 | SampleLayout::BGRA8888
+        ) {
+            return self.copy_into(output, plan);
+        }
+        if self.memory_plan().source_surface() != plan.surface() {
+            return Err(SurfaceCopyError::SurfaceMismatch);
+        }
+        plan.buffer_requirements()
+            .validate(output)
+            .map_err(SurfaceCopyError::Output)?;
+        let source = self.plane(0).expect("alpha-bearing packed unit");
+        let region = self
+            .memory_plan()
+            .plane(0)
+            .expect("alpha-bearing packed unit")
+            .source_region();
+        let target = plan.plane(0).expect("alpha-bearing packed surface");
+        let channels = if layout == SampleLayout::A8 { 1 } else { 4 };
+        for row in 0..region.height() {
+            let source = source
+                .row(row)
+                .expect("validated source row")
+                .expect("selected source row");
+            let offset = target.data_offset() as usize
+                + (region.y() + row) as usize * target.stride() as usize
+                + region.x() as usize * channels;
+            let target = &mut output[offset..offset + region.width() as usize * channels];
+            if channels == 1 {
+                for (source, target) in source.iter().zip(target) {
+                    *target = alpha_over(*source, *target);
+                }
+            } else {
+                for (source, target) in source.chunks_exact(4).zip(target.chunks_exact_mut(4)) {
+                    rgba_over(source, target);
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+fn alpha_over(source: u8, target: u8) -> u8 {
+    let source = u32::from(source);
+    let target = u32::from(target);
+    ((source * 255 + target * (255 - source) + 127) / 255) as u8
+}
+
+fn rgba_over(source: &[u8], target: &mut [u8]) {
+    let source_alpha = u32::from(source[3]);
+    let target_alpha = u32::from(target[3]);
+    let inverse = 255 - source_alpha;
+    let output_alpha = source_alpha * 255 + target_alpha * inverse;
+    if output_alpha == 0 {
+        target.fill(0);
+        return;
+    }
+    for channel in 0..3 {
+        let numerator = u32::from(source[channel]) * source_alpha * 255
+            + u32::from(target[channel]) * target_alpha * inverse;
+        target[channel] = ((numerator + output_alpha / 2) / output_alpha) as u8;
+    }
+    target[3] = ((output_alpha + 127) / 255) as u8;
 }
 
 #[cfg(test)]

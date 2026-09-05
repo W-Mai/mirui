@@ -9,6 +9,7 @@ use crate::image::{
 #[non_exhaustive]
 pub enum SurfaceCopyError {
     SurfaceMismatch,
+    UnsupportedSourceOver(super::SampleLayout),
     UnsupportedPlaneFlags { index: u8, flags: u16 },
     Output(BufferRequirementError),
 }

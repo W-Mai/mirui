@@ -58,7 +58,7 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
                 &PayloadLimits::EMBEDDED,
             )
             .unwrap()
-            .decode_into(&mut canvas.0, &mut workspace)
+            .decode_into(&mut canvas.0, &mut workspace, &mut [])
             .unwrap();
         assert_eq!(canvas.0[0], 7);
         frames.validate_data().unwrap();
