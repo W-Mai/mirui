@@ -124,6 +124,12 @@ impl MediaSectionKind {
     pub const GLYPH_MAPS: Self = Self(0x0014);
     pub const SURFACE_GROUPS: Self = Self(0x0015);
 
+    pub const SEQUENCE: Self = Self(0x0021);
+    pub const FRAME_MAP: Self = Self(0x0022);
+    pub const FRAME_TIMING: Self = Self(0x0023);
+    pub const FRAME_COMPOSITION: Self = Self(0x0024);
+    pub const KEYFRAME_INDEX: Self = Self(0x0025);
+
     pub const fn new(value: u16) -> Option<Self> {
         if value == 0 { None } else { Some(Self(value)) }
     }

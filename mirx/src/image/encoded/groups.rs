@@ -4,31 +4,32 @@ use crate::image::{
     UnitGroupRecord,
 };
 use crate::media::{CodingRecord, CodingTable, CodingTableError};
+use core::ops::Range;
 
 #[cfg(test)]
 mod tests;
 
 #[derive(Clone, Copy)]
-pub(super) enum CodingRecords<'a> {
+pub(crate) enum CodingRecords<'a> {
     Wire(CodingTable<'a>),
     Native(&'a [CodingRecord<'a>]),
 }
 
 impl<'a> CodingRecords<'a> {
-    pub(super) fn len(self) -> usize {
+    pub(crate) fn len(self) -> usize {
         match self {
             Self::Wire(table) => table.len(),
             Self::Native(records) => records.len(),
         }
     }
-    pub(super) fn get(self, index: usize) -> Option<CodingRecord<'a>> {
+    pub(crate) fn get(self, index: usize) -> Option<CodingRecord<'a>> {
         match self {
             Self::Wire(table) => table.get(index),
             Self::Native(records) => records.get(index).copied(),
         }
     }
 
-    pub(super) fn encoded_len(self) -> Result<usize, CodingTableError> {
+    pub(crate) fn encoded_len(self) -> Result<usize, CodingTableError> {
         match self {
             Self::Wire(table) => Ok(table.byte_len()),
             Self::Native(records) => CodingTable::encoded_len(records),
@@ -37,7 +38,7 @@ impl<'a> CodingRecords<'a> {
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum GroupRecords<'a> {
+pub(crate) enum GroupRecords<'a> {
     Implicit,
     Wire(&'a [u8]),
     Native(&'a [UnitGroupRecord]),
@@ -45,18 +46,18 @@ pub(super) enum GroupRecords<'a> {
 
 /// Borrowed static-image storage, independent of record serialization.
 #[derive(Clone, Copy)]
-pub(super) struct GroupSource<'a> {
-    pub(super) surface: SurfaceDescriptor,
-    pub(super) codings: CodingRecords<'a>,
-    pub(super) records: GroupRecords<'a>,
-    pub(super) data: &'a [u8],
-    pub(super) indexes: &'a [u8],
-    pub(super) file_offset: Option<u32>,
-    pub(super) data_offset: u32,
+pub(crate) struct GroupSource<'a> {
+    pub(crate) surface: SurfaceDescriptor,
+    pub(crate) codings: CodingRecords<'a>,
+    pub(crate) records: GroupRecords<'a>,
+    pub(crate) data: &'a [u8],
+    pub(crate) indexes: &'a [u8],
+    pub(crate) file_offset: Option<u32>,
+    pub(crate) data_offset: u32,
 }
 
 impl<'a> GroupSource<'a> {
-    pub(super) fn group_count(self) -> usize {
+    pub(crate) fn group_count(self) -> usize {
         match self.records {
             GroupRecords::Implicit => 1,
             GroupRecords::Wire(bytes) => bytes.len() / UNIT_GROUP_RECORD_LEN,
@@ -64,7 +65,7 @@ impl<'a> GroupSource<'a> {
         }
     }
 
-    fn validate_tables(self) -> Result<(), EncodedImageError> {
+    pub(crate) fn validate_tables(self) -> Result<(), EncodedImageError> {
         u32::try_from(self.data.len()).map_err(|_| EncodedImageError::SizeOverflow)?;
         u32::try_from(self.indexes.len()).map_err(|_| EncodedImageError::SizeOverflow)?;
         if self.codings.len() == 0 {
@@ -84,7 +85,7 @@ impl<'a> GroupSource<'a> {
         }
     }
 
-    pub(super) fn record(self, index: usize) -> Result<UnitGroupRecord, EncodedImageError> {
+    pub(crate) fn record(self, index: usize) -> Result<UnitGroupRecord, EncodedImageError> {
         if index >= self.group_count() {
             return Err(EncodedImageError::GroupOutOfBounds(index));
         }
@@ -101,7 +102,7 @@ impl<'a> GroupSource<'a> {
         record.map_err(|error| EncodedImageError::Group { index, error })
     }
 
-    pub(super) fn input_alignment(self) -> Result<u32, EncodedImageError> {
+    pub(crate) fn input_alignment(self) -> Result<u32, EncodedImageError> {
         self.validate_tables()?;
         let mut alignment = 1;
         for index in 0..self.group_count() {
@@ -110,7 +111,7 @@ impl<'a> GroupSource<'a> {
         Ok(alignment)
     }
 
-    pub(super) fn validate_groups(
+    pub(crate) fn validate_groups(
         self,
         budget: &mut CoverageBudget,
     ) -> Result<(), EncodedImageError> {
@@ -131,11 +132,35 @@ impl<'a> GroupSource<'a> {
             .map_err(EncodedImageError::Coverage)
     }
 
-    pub(super) fn resolution_cost(self, record: UnitGroupRecord) -> u64 {
+    /// Checks exact surface coverage for one already validated group range.
+    pub(crate) fn validate_group_range(
+        self,
+        range: Range<usize>,
+        budget: &mut CoverageBudget,
+    ) -> Result<(), EncodedImageError> {
+        debug_assert!(range.end <= self.group_count());
+        self.surface
+            .validate_coverage_by(
+                range.len(),
+                |relative, budget| {
+                    let index = range.start + relative;
+                    let record = self.record(index).expect("validated group record");
+                    budget.spend_many(self.resolution_cost(record))?;
+                    Ok(self
+                        .resolve_record(index, record)
+                        .expect("validated immutable group")
+                        .0)
+                },
+                budget,
+            )
+            .map_err(EncodedImageError::Coverage)
+    }
+
+    pub(crate) fn resolution_cost(self, record: UnitGroupRecord) -> u64 {
         record.resolution_work(self.indexes.len())
     }
 
-    pub(super) fn resolve_record(
+    pub(crate) fn resolve_record(
         self,
         index: usize,
         record: UnitGroupRecord,
@@ -147,8 +172,26 @@ impl<'a> GroupSource<'a> {
             .map_err(|error| EncodedImageError::Group { index, error })
     }
 
-    pub(super) fn visit_groups(
+    pub(crate) fn visit_groups(
         self,
+        budget: Option<&mut CoverageBudget>,
+        visit: impl FnMut(usize, UnitGroup<'a>),
+    ) -> Result<(), EncodedImageError> {
+        self.visit_groups_inner(false, budget, visit)
+    }
+
+    /// Validates canonical shared storage while leaving frame references intact.
+    pub(crate) fn visit_groups_with_references(
+        self,
+        budget: Option<&mut CoverageBudget>,
+        visit: impl FnMut(usize, UnitGroup<'a>),
+    ) -> Result<(), EncodedImageError> {
+        self.visit_groups_inner(true, budget, visit)
+    }
+
+    fn visit_groups_inner(
+        self,
+        allow_references: bool,
         mut budget: Option<&mut CoverageBudget>,
         mut visit: impl FnMut(usize, UnitGroup<'a>),
     ) -> Result<(), EncodedImageError> {
@@ -163,7 +206,7 @@ impl<'a> GroupSource<'a> {
                     .spend_many(self.resolution_cost(record))
                     .map_err(EncodedImageError::Coverage)?;
             }
-            if record.reference() != ReferenceMode::Independent {
+            if !allow_references && record.reference() != ReferenceMode::Independent {
                 return Err(EncodedImageError::ReferenceInStaticImage(index));
             }
             let alignment = record.input_alignment();

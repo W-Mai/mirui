@@ -2,7 +2,7 @@ use super::SurfaceDescriptor;
 use crate::payload::ColorTableView;
 
 impl SurfaceDescriptor {
-    pub(super) fn read_color_table(
+    pub(crate) fn read_color_table(
         self,
         bytes: Option<&[u8]>,
     ) -> Result<Option<ColorTableView<'_>>, ColorTableError> {
@@ -30,7 +30,7 @@ impl SurfaceDescriptor {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum ColorTableError {
+pub(crate) enum ColorTableError {
     Missing,
     Unexpected,
     SizeMismatch { expected: usize, actual: usize },
