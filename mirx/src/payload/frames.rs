@@ -19,7 +19,7 @@ pub use owned::{
     AnimationFrames, AnimationSettings, AssetFrameIter, AtlasFrames, FramesAsset,
     FramesEncodeError, FramesMutationError,
 };
-pub use playback::{FrameDecodeError, FrameDecodePlan};
+pub use playback::{FrameDecodeError, FrameDecodePlan, FrameDisposalPlan, FrameSession};
 pub use sectioned::{
     FrameGroupIter, FrameGroups, FramePresentation, SectionedFramesAsset, SectionedFramesError,
     SectionedFramesView,

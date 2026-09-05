@@ -738,6 +738,31 @@ impl<'a> SectionedFramesView<'a> {
         self.keyframes
     }
 
+    /// Finds the closest independent frame that can reconstruct `frame`.
+    ///
+    /// An explicit keyframe index provides the answer directly. Payloads that
+    /// omit the index are scanned only within the declared delta bound.
+    pub fn recovery_frame(self, frame: u32) -> Option<u32> {
+        if frame >= self.sequence.frame_count() {
+            return None;
+        }
+        if let Some(keyframes) = self.keyframes {
+            return keyframes.previous(frame);
+        }
+        let source = self.group_source();
+        let earliest = frame.saturating_sub(u32::from(self.sequence.max_delta_frames()));
+        for candidate in (earliest..=frame).rev() {
+            let range = self.map.get(candidate)?;
+            if range.is_empty() {
+                continue;
+            }
+            if source.record(range.start as usize).ok()?.reference() == ReferenceMode::Independent {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
     pub const fn color_table(self) -> Option<ColorTableView<'a>> {
         self.color_table
     }

@@ -1,9 +1,10 @@
-use super::{BlendMode, DisposalMode, FrameGroups, SectionedFramesError};
+use super::{BlendMode, DisposalMode, FrameGroups, SectionedFramesError, SectionedFramesView};
 use crate::{
     PayloadLimits,
     image::{
-        BufferRequirementError, BufferRequirements, EncodedImageError, Preflight, ReferenceMode,
-        ScalarProfile, SurfaceMemoryPlan, SurfacePlanError, SurfaceRequirements, SurfaceView,
+        BufferRequirementError, BufferRequirements, CoverageBudget, EncodedImageError, Preflight,
+        ReferenceMode, ScalarProfile, SurfaceMemoryPlan, SurfacePlanError, SurfaceRequirements,
+        SurfaceView, UnitGroup,
     },
 };
 
@@ -25,6 +26,39 @@ pub struct FrameDecodePlan<'a, 'g> {
     work: u64,
     input_bytes: u64,
     checksum_bytes: u64,
+}
+
+/// Checked post-presentation operation for one frame.
+#[derive(Debug)]
+pub struct FrameDisposalPlan<'a, 'g> {
+    groups: FrameGroups<'a, 'g>,
+    memory: SurfaceMemoryPlan,
+    backup: BufferRequirements,
+    composition: super::FrameComposition,
+    work: u64,
+}
+
+impl<'a, 'g> FrameGroups<'a, 'g> {
+    /// Plans disposal without scanning or decoding the frame payload.
+    pub fn disposal_plan(
+        self,
+        requirements: SurfaceRequirements,
+    ) -> Result<FrameDisposalPlan<'a, 'g>, FrameDecodeError> {
+        let memory = self
+            .frames()
+            .surface()
+            .memory_plan(requirements)
+            .map_err(FrameDecodeError::Memory)?;
+        let composition = self.presentation().composition();
+        let (backup, work) = FrameDisposalPlan::requirements(memory, composition)?;
+        Ok(FrameDisposalPlan {
+            groups: self,
+            memory,
+            backup,
+            composition,
+            work,
+        })
+    }
 }
 
 impl<'a, 'g> FrameGroups<'a, 'g> {
@@ -59,13 +93,7 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
                 .spend(u64::from(memory.byte_len()))
                 .map_err(FrameDecodeError::Image)?;
         }
-        let disposal_work = match composition.disposal() {
-            DisposalMode::Keep => 0,
-            DisposalMode::Clear => u64::from(memory.byte_len()),
-            DisposalMode::RestorePrevious => u64::from(memory.byte_len())
-                .checked_mul(2)
-                .ok_or(FrameDecodeError::SizeOverflow)?,
-        };
+        let (backup, disposal_work) = FrameDisposalPlan::requirements(memory, composition)?;
         preflight
             .spend(disposal_work)
             .map_err(FrameDecodeError::Image)?;
@@ -125,11 +153,7 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
             groups: self,
             memory,
             workspace: BufferRequirements::new(workspace, 1).map_err(FrameDecodeError::Memory)?,
-            backup: if composition.disposal() == DisposalMode::RestorePrevious {
-                memory.buffer_requirements()
-            } else {
-                BufferRequirements::new(0, 1).map_err(FrameDecodeError::Memory)?
-            },
+            backup,
             composition,
             initialize_canvas,
             units: preflight.total_units(),
@@ -239,6 +263,45 @@ impl<'a> FrameDecodePlan<'a, '_> {
 
     /// Applies this frame's post-presentation disposal to the retained canvas.
     pub fn dispose_into(&self, canvas: &mut [u8], backup: &[u8]) -> Result<(), FrameDecodeError> {
+        FrameDisposalPlan {
+            groups: self.groups.clone(),
+            memory: self.memory,
+            backup: self.backup,
+            composition: self.composition,
+            work: 0,
+        }
+        .dispose_into(canvas, backup)
+    }
+}
+
+impl FrameDisposalPlan<'_, '_> {
+    fn requirements(
+        memory: SurfaceMemoryPlan,
+        composition: super::FrameComposition,
+    ) -> Result<(BufferRequirements, u64), FrameDecodeError> {
+        let empty = BufferRequirements::new(0, 1).map_err(FrameDecodeError::Memory)?;
+        match composition.disposal() {
+            DisposalMode::Keep => Ok((empty, 0)),
+            DisposalMode::Clear => Ok((empty, u64::from(memory.byte_len()))),
+            DisposalMode::RestorePrevious => Ok((
+                memory.buffer_requirements(),
+                u64::from(memory.byte_len())
+                    .checked_mul(2)
+                    .ok_or(FrameDecodeError::SizeOverflow)?,
+            )),
+        }
+    }
+
+    pub const fn backup_requirements(&self) -> BufferRequirements {
+        self.backup
+    }
+
+    pub const fn work(&self) -> u64 {
+        self.work
+    }
+
+    /// Applies this frame's disposal without reading its encoded unit bytes.
+    pub fn dispose_into(&self, canvas: &mut [u8], backup: &[u8]) -> Result<(), FrameDecodeError> {
         self.memory
             .buffer_requirements()
             .validate(canvas)
@@ -272,10 +335,340 @@ impl<'a> FrameDecodePlan<'a, '_> {
     }
 }
 
+/// Stateful, allocation-free playback over a sectioned frame sequence.
+///
+/// All mutable storage is borrowed for the session lifetime. This keeps the
+/// canvas and restore-previous snapshot paired across sequential calls while
+/// allowing random seeks to restart from the closest recovery frame.
+#[derive(Debug)]
+pub struct FrameSession<'a, 'storage> {
+    frames: SectionedFramesView<'a>,
+    requirements: SurfaceRequirements,
+    limits: PayloadLimits,
+    memory: SurfaceMemoryPlan,
+    group_workspace_len: usize,
+    backup_requirements: BufferRequirements,
+    group_workspace: &'storage mut [Option<UnitGroup<'a>>],
+    canvas: &'storage mut [u8],
+    unit_workspace: &'storage mut [u8],
+    backup: &'storage mut [u8],
+    current: Option<u32>,
+}
+
+impl<'a> SectionedFramesView<'a> {
+    /// Binds caller-owned playback storage and validates stable requirements.
+    pub fn session<'storage>(
+        self,
+        requirements: SurfaceRequirements,
+        limits: PayloadLimits,
+        group_workspace: &'storage mut [Option<UnitGroup<'a>>],
+        canvas: &'storage mut [u8],
+        unit_workspace: &'storage mut [u8],
+        backup: &'storage mut [u8],
+    ) -> Result<FrameSession<'a, 'storage>, FrameDecodeError> {
+        let memory = self
+            .surface()
+            .memory_plan(requirements)
+            .map_err(FrameDecodeError::Memory)?;
+        memory
+            .buffer_requirements()
+            .validate(canvas)
+            .map_err(FrameDecodeError::Canvas)?;
+        let group_workspace_len = self
+            .frame_map()
+            .into_iter()
+            .map(|range| usize::try_from(range.end - range.start).expect("u32 fits usize"))
+            .max()
+            .unwrap_or(0);
+        if group_workspace.len() < group_workspace_len {
+            return Err(FrameDecodeError::GroupWorkspaceTooSmall {
+                needed: group_workspace_len,
+                available: group_workspace.len(),
+            });
+        }
+        let needs_backup = (0..self.sequence().frame_count()).any(|frame| {
+            self.frame(frame).is_some_and(|presentation| {
+                presentation.composition().disposal() == DisposalMode::RestorePrevious
+            })
+        });
+        let backup_requirements = if needs_backup {
+            memory.buffer_requirements()
+        } else {
+            BufferRequirements::new(0, 1).expect("valid empty buffer requirements")
+        };
+        backup_requirements
+            .validate(backup)
+            .map_err(FrameDecodeError::Backup)?;
+        Ok(FrameSession {
+            frames: self,
+            requirements,
+            limits,
+            memory,
+            group_workspace_len,
+            backup_requirements,
+            group_workspace,
+            canvas,
+            unit_workspace,
+            backup,
+            current: None,
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ReplayRequirements {
+    workspace_bytes: usize,
+    workspace_alignment: usize,
+    backup_bytes: usize,
+    backup_alignment: usize,
+}
+
+impl ReplayRequirements {
+    const fn new() -> Self {
+        Self {
+            workspace_bytes: 0,
+            workspace_alignment: 1,
+            backup_bytes: 0,
+            backup_alignment: 1,
+        }
+    }
+
+    fn include(&mut self, plan: &FrameDecodePlan<'_, '_>) {
+        let workspace = plan.workspace_requirements();
+        self.workspace_bytes = self.workspace_bytes.max(workspace.byte_len());
+        self.workspace_alignment = self.workspace_alignment.max(workspace.base_alignment());
+        let backup = plan.backup_requirements();
+        self.backup_bytes = self.backup_bytes.max(backup.byte_len());
+        self.backup_alignment = self.backup_alignment.max(backup.base_alignment());
+    }
+
+    fn include_disposal(&mut self, plan: &FrameDisposalPlan<'_, '_>) {
+        let backup = plan.backup_requirements();
+        self.backup_bytes = self.backup_bytes.max(backup.byte_len());
+        self.backup_alignment = self.backup_alignment.max(backup.base_alignment());
+    }
+
+    fn workspace(self) -> BufferRequirements {
+        Self::buffer(self.workspace_bytes, self.workspace_alignment)
+    }
+
+    fn backup(self) -> BufferRequirements {
+        Self::buffer(self.backup_bytes, self.backup_alignment)
+    }
+
+    fn buffer(byte_len: usize, alignment: usize) -> BufferRequirements {
+        BufferRequirements::new(
+            u32::try_from(byte_len).expect("planned buffer length originates as u32"),
+            u32::try_from(alignment).expect("planned buffer alignment originates as u32"),
+        )
+        .expect("merged buffer requirements remain valid")
+    }
+}
+
+impl<'a> FrameSession<'a, '_> {
+    pub const fn frames(&self) -> SectionedFramesView<'a> {
+        self.frames
+    }
+
+    /// The frame currently presented on the retained canvas.
+    pub const fn current_frame(&self) -> Option<u32> {
+        self.current
+    }
+
+    pub const fn canvas_requirements(&self) -> BufferRequirements {
+        self.memory.buffer_requirements()
+    }
+
+    pub const fn group_workspace_len(&self) -> usize {
+        self.group_workspace_len
+    }
+
+    pub const fn backup_requirements(&self) -> BufferRequirements {
+        self.backup_requirements
+    }
+
+    /// Forgets playback position without modifying caller storage.
+    pub fn reset(&mut self) {
+        self.current = None;
+    }
+
+    /// Presents `frame`, replaying only the bounded dependency path required.
+    ///
+    /// The complete path and all buffers are checked before the first canvas
+    /// write. A short forward move reuses the retained canvas; other seeks
+    /// restart from the closest independent recovery frame.
+    pub fn present(&mut self, frame: u32) -> Result<SurfaceView<'_>, FrameDecodeError> {
+        if frame >= self.frames.sequence().frame_count() {
+            return Err(FrameDecodeError::FrameOutOfBounds(frame));
+        }
+        if self.current == Some(frame) {
+            return Ok(SurfaceView::from_plan(
+                self.memory,
+                &self.canvas[..self.memory.byte_len() as usize],
+                self.frames.color_table(),
+            ));
+        }
+        let (dispose_current, start) = self.replay_start(frame)?;
+        let required = self.preflight_run(dispose_current, start, frame)?;
+        required
+            .workspace()
+            .validate(self.unit_workspace)
+            .map_err(FrameDecodeError::Workspace)?;
+        required
+            .backup()
+            .validate(self.backup)
+            .map_err(FrameDecodeError::Backup)?;
+
+        if dispose_current {
+            self.dispose_current();
+        }
+        for replayed in start..frame {
+            self.decode_frame(replayed, true);
+        }
+        self.decode_frame(frame, false);
+        self.current = Some(frame);
+        Ok(SurfaceView::from_plan(
+            self.memory,
+            &self.canvas[..self.memory.byte_len() as usize],
+            self.frames.color_table(),
+        ))
+    }
+
+    fn replay_start(&self, target: u32) -> Result<(bool, u32), FrameDecodeError> {
+        if let Some(current) = self.current {
+            let forward = target.checked_sub(current);
+            if forward.is_some_and(|distance| {
+                distance <= u32::from(self.frames.sequence().max_delta_frames()) + 1
+            }) {
+                return Ok((true, current + 1));
+            }
+        }
+        self.frames
+            .recovery_frame(target)
+            .map(|frame| (false, frame))
+            .ok_or(FrameDecodeError::FrameOutOfBounds(target))
+    }
+
+    fn preflight_run(
+        &mut self,
+        dispose_current: bool,
+        start: u32,
+        target: u32,
+    ) -> Result<ReplayRequirements, FrameDecodeError> {
+        // Playback performs the same immutable validation again while applying
+        // frames. Reserving half the work bound accounts for both passes.
+        let mut budget = CoverageBudget::new(self.limits.max_raster_work() / 2);
+        let mut required = ReplayRequirements::new();
+        if dispose_current {
+            self.preflight_disposal(
+                self.current.expect("continuation has current frame"),
+                &mut budget,
+                &mut required,
+            )?;
+        }
+        for frame in start..=target {
+            self.preflight_frame(frame, &mut budget, &mut required)?;
+        }
+        Ok(required)
+    }
+
+    fn preflight_disposal(
+        &mut self,
+        frame: u32,
+        budget: &mut CoverageBudget,
+        required: &mut ReplayRequirements,
+    ) -> Result<(), FrameDecodeError> {
+        let groups = self
+            .frames
+            .groups_into(frame, self.group_workspace, budget)
+            .map_err(FrameDecodeError::Frames)?;
+        let plan = groups.disposal_plan(self.requirements)?;
+        budget
+            .spend_many(plan.work())
+            .map_err(EncodedImageError::Coverage)
+            .map_err(FrameDecodeError::Image)?;
+        required.include_disposal(&plan);
+        Ok(())
+    }
+
+    fn preflight_frame(
+        &mut self,
+        frame: u32,
+        budget: &mut CoverageBudget,
+        required: &mut ReplayRequirements,
+    ) -> Result<(), FrameDecodeError> {
+        let groups = self
+            .frames
+            .groups_into(frame, self.group_workspace, budget)
+            .map_err(FrameDecodeError::Frames)?;
+        let limits = self.limits.with_max_raster_work(budget.remaining());
+        let plan = groups.decode_plan(self.requirements, &limits)?;
+        budget
+            .spend_many(plan.work())
+            .map_err(EncodedImageError::Coverage)
+            .map_err(FrameDecodeError::Image)?;
+        required.include(&plan);
+        Ok(())
+    }
+
+    fn execution_plan<'groups>(
+        frames: SectionedFramesView<'a>,
+        requirements: SurfaceRequirements,
+        limits: PayloadLimits,
+        group_workspace: &'groups mut [Option<UnitGroup<'a>>],
+        frame: u32,
+    ) -> FrameDecodePlan<'a, 'groups> {
+        let groups = frames
+            .groups_into(frame, group_workspace, &mut CoverageBudget::new(u64::MAX))
+            .expect("preflighted immutable frame groups");
+        groups
+            .decode_plan(requirements, &limits.with_max_raster_work(u64::MAX))
+            .expect("preflighted immutable frame decode")
+    }
+
+    fn decode_frame(&mut self, frame: u32, dispose: bool) {
+        let plan = Self::execution_plan(
+            self.frames,
+            self.requirements,
+            self.limits,
+            self.group_workspace,
+            frame,
+        );
+        plan.decode_into(self.canvas, self.unit_workspace, self.backup)
+            .expect("preflighted playback buffers");
+        if dispose {
+            plan.dispose_into(self.canvas, self.backup)
+                .expect("preflighted playback disposal");
+        }
+    }
+
+    fn dispose_current(&mut self) {
+        self.dispose_frame(self.current.expect("continuation has current frame"));
+    }
+
+    fn dispose_frame(&mut self, frame: u32) {
+        let groups = self
+            .frames
+            .groups_into(
+                frame,
+                self.group_workspace,
+                &mut CoverageBudget::new(u64::MAX),
+            )
+            .expect("preflighted immutable frame groups");
+        let plan = groups
+            .disposal_plan(self.requirements)
+            .expect("preflighted immutable frame disposal");
+        plan.dispose_into(self.canvas, self.backup)
+            .expect("preflighted playback buffers");
+    }
+}
+
 /// Unsupported frame composition, exhausted limits, or invalid caller storage.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FrameDecodeError {
+    FrameOutOfBounds(u32),
+    GroupWorkspaceTooSmall { needed: usize, available: usize },
     Frames(SectionedFramesError),
     Image(EncodedImageError),
     UnsupportedSourceOver(crate::image::SampleLayout),
@@ -454,5 +847,202 @@ mod tests {
                 }
             );
         }
+    }
+
+    fn session_payload(index_keyframes: bool) -> alloc::vec::Vec<u8> {
+        let sequence = FrameSequence::new(4, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(2)
+            .unwrap();
+        let surface =
+            SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let codings = [CodingRecord::RAW];
+        let groups = [
+            UnitGroupRecord::new(0, 0..2).unwrap(),
+            UnitGroupRecord::new(0, 2..3)
+                .unwrap()
+                .with_tiles(1, 1)
+                .with_selection(crate::image::GroupSelection::List(1))
+                .with_reference(ReferenceMode::Previous),
+            UnitGroupRecord::new(0, 3..5).unwrap(),
+        ];
+        let mut index = [0; 4];
+        UnitSelectionEncoding::List
+            .encode_into(2, &[1], &mut index)
+            .unwrap();
+        let compositions = [FrameCompositionOverride::new(
+            1,
+            FrameComposition::new(BlendMode::Replace, DisposalMode::Clear),
+        )];
+        let asset = SectionedFramesAsset::new(
+            sequence,
+            surface,
+            &codings,
+            &groups,
+            &[1, 1, 0, 1],
+            &[1, 2, 9, 3, 4],
+        )
+        .unwrap()
+        .with_index(&index)
+        .with_composition(&compositions)
+        .unwrap();
+        if index_keyframes {
+            asset.with_keyframes(&[0, 3]).unwrap().encode().unwrap()
+        } else {
+            asset.encode().unwrap()
+        }
+    }
+
+    #[test]
+    fn session_sequences_disposal_and_bounded_random_access() {
+        for index_keyframes in [false, true] {
+            let bytes = session_payload(index_keyframes);
+            let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+            assert_eq!(frames.recovery_frame(2), Some(0));
+            assert_eq!(frames.recovery_frame(3), Some(3));
+            assert_eq!(frames.recovery_frame(4), None);
+
+            let mut slots = [None];
+            let mut canvas = [0xad; 2];
+            let mut workspace = [0; 2];
+            let mut session = frames
+                .session(
+                    SurfaceRequirements::new(),
+                    PayloadLimits::HOST,
+                    &mut slots,
+                    &mut canvas,
+                    &mut workspace,
+                    &mut [],
+                )
+                .unwrap();
+
+            assert_eq!(session.current_frame(), None);
+            assert_eq!(session.group_workspace_len(), 1);
+            assert_eq!(session.backup_requirements().byte_len(), 0);
+            assert_eq!(
+                session.present(0).unwrap().plane(0).unwrap().bytes(),
+                &[1, 2]
+            );
+            assert_eq!(session.current_frame(), Some(0));
+            assert_eq!(
+                session.present(1).unwrap().plane(0).unwrap().bytes(),
+                &[1, 9]
+            );
+            assert_eq!(
+                session.present(2).unwrap().plane(0).unwrap().bytes(),
+                &[1, 0]
+            );
+            assert_eq!(
+                session.present(3).unwrap().plane(0).unwrap().bytes(),
+                &[3, 4]
+            );
+
+            assert_eq!(
+                session.present(1).unwrap().plane(0).unwrap().bytes(),
+                &[1, 9]
+            );
+            assert_eq!(
+                session.present(1).unwrap().plane(0).unwrap().bytes(),
+                &[1, 9]
+            );
+            session.reset();
+            assert_eq!(session.current_frame(), None);
+            assert_eq!(
+                session.present(2).unwrap().plane(0).unwrap().bytes(),
+                &[1, 0]
+            );
+        }
+    }
+
+    #[test]
+    fn session_rejects_storage_before_mutating_canvas() {
+        let bytes = session_payload(false);
+        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let mut no_slots = [];
+        let mut canvas = [0xad; 2];
+        let mut workspace = [0; 2];
+        assert!(matches!(
+            frames.session(
+                SurfaceRequirements::new(),
+                PayloadLimits::HOST,
+                &mut no_slots,
+                &mut canvas,
+                &mut workspace,
+                &mut [],
+            ),
+            Err(FrameDecodeError::GroupWorkspaceTooSmall {
+                needed: 1,
+                available: 0,
+            })
+        ));
+        assert_eq!(canvas, [0xad; 2]);
+
+        let mut slots = [None];
+        let mut canvas = [0xad; 2];
+        let mut short_workspace = [0; 1];
+        {
+            let mut session = frames
+                .session(
+                    SurfaceRequirements::new(),
+                    PayloadLimits::HOST,
+                    &mut slots,
+                    &mut canvas,
+                    &mut short_workspace,
+                    &mut [],
+                )
+                .unwrap();
+            assert!(matches!(
+                session.present(0),
+                Err(FrameDecodeError::Workspace(
+                    BufferRequirementError::TooSmall {
+                        needed: 2,
+                        available: 1,
+                    }
+                ))
+            ));
+            assert_eq!(session.current_frame(), None);
+        }
+        assert_eq!(canvas, [0xad; 2]);
+
+        let mut slots = [None];
+        let mut canvas = [0xad; 2];
+        let mut workspace = [0; 2];
+        {
+            let mut session = frames
+                .session(
+                    SurfaceRequirements::new(),
+                    PayloadLimits::HOST.with_max_raster_work(0),
+                    &mut slots,
+                    &mut canvas,
+                    &mut workspace,
+                    &mut [],
+                )
+                .unwrap();
+            assert!(session.present(0).is_err());
+            assert_eq!(session.current_frame(), None);
+        }
+        assert_eq!(canvas, [0xad; 2]);
+
+        let bytes = composed_payload(DisposalMode::RestorePrevious);
+        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let mut slots = [None];
+        let mut canvas = [0xad; 4];
+        let mut workspace = [0; 4];
+        let mut short_backup = [0; 3];
+        assert!(matches!(
+            frames.session(
+                SurfaceRequirements::new(),
+                PayloadLimits::HOST,
+                &mut slots,
+                &mut canvas,
+                &mut workspace,
+                &mut short_backup,
+            ),
+            Err(FrameDecodeError::Backup(BufferRequirementError::TooSmall {
+                needed: 4,
+                available: 3,
+            }))
+        ));
+        assert_eq!(canvas, [0xad; 4]);
     }
 }
