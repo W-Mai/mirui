@@ -59,11 +59,12 @@ pub use payload::frames::{
     FrameComposition, FrameCompositionAsset, FrameCompositionError, FrameCompositionOverride,
     FrameCompositionTable, FrameCounts, FrameDecodeError, FrameDecodePlan, FrameDisposalPlan,
     FrameEncoding, FrameEncodingSet, FrameGroupIter, FrameGroups, FrameMap, FrameMapAsset,
-    FrameMapError, FrameMapIter, FramePolicy, FramePresentation, FrameSelectionError,
-    FrameSelector, FrameSequence, FrameSequenceError, FrameSession, FrameStorage, FrameTiming,
-    FrameTimingAsset, FrameTimingEncoding, FrameTimingError, FrameWriteError, FrameWriteReport,
-    FramesAsset, FramesEncodeError, FramesEncoder, FramesError, FramesPlaybackPlan, FramesView,
-    KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError, KeyframeIter,
+    FrameMapError, FrameMapIter, FramePolicy, FramePosition, FramePresentation,
+    FrameSelectionError, FrameSelector, FrameSequence, FrameSequenceError, FrameSession,
+    FrameStorage, FrameTimeline, FrameTiming, FrameTimingAsset, FrameTimingEncoding,
+    FrameTimingError, FrameWriteError, FrameWriteReport, FramesAsset, FramesEncodeError,
+    FramesEncoder, FramesError, FramesPlaybackPlan, FramesView, KeyframeIndex, KeyframeIndexAsset,
+    KeyframeIndexError, KeyframeIter,
 };
 pub use payload::image::{ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
 pub use payload::meta::{

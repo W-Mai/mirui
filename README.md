@@ -126,7 +126,7 @@ let texture = Texture::from_mirx_with(
 )?;
 ```
 
-`MirxFramesPlan::open` validates the primary FRAMES timeline and reports exact group-slot, aligned canvas, codec workspace, and restore-previous backup requirements. `bind` attaches caller-owned buffers once; `MirxFramesSession::present` reuses them and returns a borrowed `Texture` for each requested frame. Frame count, timescale, play count, and per-frame duration remain available on the plan without decoding pixels.
+`MirxFramesPlan::open` validates the primary FRAMES timeline and reports exact group-slot, aligned canvas, codec workspace, and restore-previous backup requirements. `bind` attaches caller-owned buffers once; `MirxFramesSession::present` reuses them and returns a borrowed `Texture` for each requested frame. `frame_at_ticks` and `present_at` resolve variable durations and finite or unbounded play counts directly from absolute sequence ticks without an allocated timing table.
 
 ## DSL Syntax
 

@@ -136,6 +136,72 @@ impl<'a> FrameTiming<'a> {
         }
     }
 
+    pub(crate) fn cycle_duration_ticks(self) -> u64 {
+        match self.encoding {
+            FrameTimingEncoding::Dense => (0..self.frame_count)
+                .map(|frame| {
+                    u64::from(read_dense(self.body, frame).expect("validated dense duration"))
+                })
+                .sum(),
+            FrameTimingEncoding::Sparse => {
+                let mut total =
+                    u128::from(self.frame_count) * u128::from(self.default_duration_ticks);
+                for entry in self.body.chunks_exact(SPARSE_ENTRY_LEN) {
+                    let duration = read_u32_le(entry, 4).expect("validated sparse duration");
+                    total = total + u128::from(duration) - u128::from(self.default_duration_ticks);
+                }
+                u64::try_from(total).expect("u32 frame counts and durations fit u64")
+            }
+        }
+    }
+
+    pub(crate) fn locate(self, elapsed_ticks: u64) -> Option<(u32, u32)> {
+        if elapsed_ticks >= self.cycle_duration_ticks() {
+            return None;
+        }
+        match self.encoding {
+            FrameTimingEncoding::Dense => {
+                let mut remaining = elapsed_ticks;
+                for frame in 0..self.frame_count {
+                    let duration =
+                        u64::from(read_dense(self.body, frame).expect("validated dense duration"));
+                    if remaining < duration {
+                        return Some((frame, remaining as u32));
+                    }
+                    remaining -= duration;
+                }
+                unreachable!("validated durations cover one complete cycle")
+            }
+            FrameTimingEncoding::Sparse => self.locate_sparse(elapsed_ticks),
+        }
+    }
+
+    fn locate_sparse(self, mut remaining: u64) -> Option<(u32, u32)> {
+        let default = u64::from(self.default_duration_ticks);
+        let mut frame = 0u32;
+        for entry in self.body.chunks_exact(SPARSE_ENTRY_LEN) {
+            let override_frame = read_u32_le(entry, 0).expect("validated sparse frame");
+            let default_run = u64::from(override_frame - frame) * default;
+            if remaining < default_run {
+                let offset = u32::try_from(remaining / default)
+                    .expect("default run offset fits frame ordinal");
+                return Some((frame + offset, (remaining % default) as u32));
+            }
+            remaining -= default_run;
+
+            let duration = u64::from(read_u32_le(entry, 4).expect("validated sparse duration"));
+            if remaining < duration {
+                return Some((override_frame, remaining as u32));
+            }
+            remaining -= duration;
+            frame = override_frame + 1;
+        }
+
+        let offset =
+            u32::try_from(remaining / default).expect("default tail offset fits frame ordinal");
+        Some((frame + offset, (remaining % default) as u32))
+    }
+
     fn sparse_duration(self, frame: u32) -> Option<u32> {
         let mut left = 0usize;
         let mut right = self.body.len() / SPARSE_ENTRY_LEN;
@@ -350,6 +416,25 @@ mod tests {
             assert_eq!(timing.duration(frame as u32), Some(duration));
         }
         assert_eq!(timing.duration(5), None);
+    }
+
+    #[test]
+    fn sparse_timeline_skips_default_runs_around_overrides() {
+        let mut durations = [10; 1_000];
+        durations[500] = 25;
+        let asset = FrameTimingAsset::new(&durations, 10).unwrap();
+        assert_eq!(asset.encoding(), Some(FrameTimingEncoding::Sparse));
+        let mut bytes = [0; 12];
+        let len = asset.encode_into(&mut bytes).unwrap();
+        let timing = FrameTiming::open(&bytes[..len], 1_000, 10).unwrap();
+
+        assert_eq!(timing.cycle_duration_ticks(), 10_015);
+        assert_eq!(timing.locate(4_999), Some((499, 9)));
+        assert_eq!(timing.locate(5_000), Some((500, 0)));
+        assert_eq!(timing.locate(5_024), Some((500, 24)));
+        assert_eq!(timing.locate(5_025), Some((501, 0)));
+        assert_eq!(timing.locate(10_014), Some((999, 9)));
+        assert_eq!(timing.locate(10_015), None);
     }
 
     #[test]

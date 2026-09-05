@@ -8,6 +8,7 @@ mod sectioned;
 #[doc = include_str!("../../docs/frame-selection.md")]
 mod selection;
 mod sequence;
+mod timeline;
 mod timing;
 
 pub use composition::{
@@ -34,6 +35,7 @@ pub use selection::{
 pub use sequence::{
     BlendMode, DisposalMode, FRAME_SEQUENCE_RECORD_LEN, FrameSequence, FrameSequenceError,
 };
+pub use timeline::{FramePosition, FrameTimeline};
 pub use timing::{
     FRAME_TIMING_HEADER_LEN, FrameTiming, FrameTimingAsset, FrameTimingEncoding, FrameTimingError,
 };

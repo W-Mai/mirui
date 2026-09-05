@@ -113,6 +113,14 @@ impl<'source> MirxFramesPlan<'source> {
             .map(|presentation| presentation.duration_ticks())
     }
 
+    pub const fn timeline(self) -> mirx::FrameTimeline<'source> {
+        self.inner.frames().timeline()
+    }
+
+    pub fn frame_at_ticks(self, elapsed_ticks: u64) -> Option<mirx::FramePosition> {
+        self.timeline().locate(elapsed_ticks)
+    }
+
     pub const fn group_workspace_len(self) -> usize {
         self.inner.group_workspace_len()
     }
@@ -137,8 +145,10 @@ impl<'source> MirxFramesPlan<'source> {
         workspace: &'storage mut [u8],
         backup: &'storage mut [u8],
     ) -> Result<MirxFramesSession<'source, 'storage>, MirxFramesError> {
+        let timeline = self.timeline();
         Ok(MirxFramesSession {
             inner: self.inner.bind(group_slots, canvas, workspace, backup)?,
+            timeline,
         })
     }
 }
@@ -146,6 +156,7 @@ impl<'source> MirxFramesPlan<'source> {
 /// Stateful MIRX frame decoder borrowing all mutable playback storage.
 pub struct MirxFramesSession<'source, 'storage> {
     inner: mirx::FrameSession<'source, 'storage>,
+    timeline: mirx::FrameTimeline<'source>,
 }
 
 impl MirxFramesSession<'_, '_> {
@@ -161,6 +172,20 @@ impl MirxFramesSession<'_, '_> {
     pub fn present(&mut self, frame: u32) -> Result<Texture<'_>, MirxFramesError> {
         let surface = self.inner.present(frame)?;
         super::texture::texture_from_surface(surface).map_err(Into::into)
+    }
+
+    /// Resolves an absolute sequence tick and presents its frame.
+    ///
+    /// `Ok(None)` means a finite play count has completed.
+    pub fn present_at(
+        &mut self,
+        elapsed_ticks: u64,
+    ) -> Result<Option<(mirx::FramePosition, Texture<'_>)>, MirxFramesError> {
+        let Some(position) = self.timeline.locate(elapsed_ticks) else {
+            return Ok(None);
+        };
+        let texture = self.present(position.frame())?;
+        Ok(Some((position, texture)))
     }
 }
 
@@ -209,6 +234,10 @@ mod tests {
         assert_eq!(plan.timescale_hz(), 1_000);
         assert_eq!(plan.duration_ticks(0), Some(40));
         assert_eq!(plan.duration_ticks(1), Some(75));
+        assert_eq!(plan.timeline().cycle_duration_ticks(), 115);
+        assert_eq!(plan.frame_at_ticks(39).unwrap().frame(), 0);
+        assert_eq!(plan.frame_at_ticks(40).unwrap().frame(), 1);
+        assert_eq!(plan.frame_at_ticks(115).unwrap().play(), 1);
         assert_eq!(plan.canvas_requirements().byte_len(), 192);
         assert_eq!(plan.canvas_requirements().base_alignment(), 64);
 
@@ -224,7 +253,9 @@ mod tests {
             assert_eq!(&texture.buf.as_slice()[..6], &[10, 20, 30, 40, 50, 60]);
             texture.buf.as_slice().as_ptr()
         };
-        let second = session.present(1).unwrap();
+        let (position, second) = session.present_at(40).unwrap().unwrap();
+        assert_eq!(position.frame(), 1);
+        assert_eq!(position.elapsed_ticks(), 0);
         assert_eq!(second.buf.as_slice().as_ptr(), first_ptr);
         assert_eq!(&second.buf.as_slice()[..6], &[10, 20, 30, 41, 52, 63]);
         assert_eq!(session.current_frame(), Some(1));

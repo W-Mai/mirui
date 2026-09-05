@@ -84,17 +84,22 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
             .decode_into(&mut canvas.0, &mut workspace, &mut [])
             .unwrap();
         assert_eq!(canvas.0[0], 7);
-        let mut session = frames
-            .session(
+        let timeline = frames.timeline();
+        assert_eq!(timeline.cycle_duration_ticks(), 80);
+        assert_eq!(timeline.locate(40).unwrap().frame(), 1);
+        let plan = frames
+            .playback_plan(
                 SurfaceRequirements::new()
                     .with_base_alignment(64)
                     .with_stride_multiple(64),
                 PayloadLimits::EMBEDDED,
                 &mut slots,
-                &mut canvas.0,
-                &mut workspace,
-                &mut [],
             )
+            .unwrap();
+        assert_eq!(plan.canvas_requirements().byte_len(), 64);
+        assert_eq!(plan.workspace_requirements().byte_len(), 1);
+        let mut session = plan
+            .bind(&mut slots, &mut canvas.0, &mut workspace, &mut [])
             .unwrap();
         assert_eq!(session.present(0).unwrap().plane(0).unwrap().bytes()[0], 7);
         assert_eq!(session.present(1).unwrap().plane(0).unwrap().bytes()[0], 9);
