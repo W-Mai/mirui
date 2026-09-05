@@ -195,6 +195,14 @@ impl<'a> FrameTimingAsset<'a> {
         self.encoding
     }
 
+    pub(crate) const fn durations(self) -> &'a [u32] {
+        self.durations
+    }
+
+    pub(crate) const fn default_duration_ticks(self) -> u32 {
+        self.default_duration_ticks
+    }
+
     pub fn encoded_len(self) -> usize {
         match self.encoding {
             None => 0,

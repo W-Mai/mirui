@@ -18,7 +18,9 @@ pub use owned::{
     AnimationFrames, AnimationSettings, AssetFrameIter, AtlasFrames, FramesAsset,
     FramesEncodeError, FramesMutationError,
 };
-pub use sectioned::{FramePresentation, SectionedFramesError, SectionedFramesView};
+pub use sectioned::{
+    FramePresentation, SectionedFramesAsset, SectionedFramesError, SectionedFramesView,
+};
 pub use sequence::{
     BlendMode, DisposalMode, FRAME_SEQUENCE_RECORD_LEN, FrameSequence, FrameSequenceError,
 };

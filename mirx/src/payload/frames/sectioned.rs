@@ -1,22 +1,26 @@
+use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::{
-    FRAME_SEQUENCE_RECORD_LEN, FrameComposition, FrameCompositionError, FrameCompositionTable,
-    FrameMap, FrameMapError, FrameSequence, FrameSequenceError, FrameTiming, FrameTimingError,
-    KeyframeIndex, KeyframeIndexError,
+    FRAME_SEQUENCE_RECORD_LEN, FrameComposition, FrameCompositionAsset, FrameCompositionError,
+    FrameCompositionOverride, FrameCompositionTable, FrameCounts, FrameMap, FrameMapError,
+    FrameSequence, FrameSequenceError, FrameTiming, FrameTimingAsset, FrameTimingEncoding,
+    FrameTimingError, FramesEncodeError, KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError,
 };
 use crate::{
     PayloadLimits,
     image::{
-        CodingRecords, ColorTableError, CoverageBudget, EncodedImageError, GroupRecords,
-        GroupSource, ReferenceMode, SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceRecordError,
-        UNIT_GROUP_RECORD_LEN,
+        CodingRecords, ColorTableError, CoverageBudget, EncodedImageAsset, EncodedImageError,
+        EncodedStoragePlan, GroupRecords, GroupSource, ReferenceMode, SURFACE_RECORD_LEN,
+        SurfaceDescriptor, SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroupRecord,
     },
     media::{
-        CodingTable, CodingTableError, MediaPayload, MediaPayloadError, MediaSection,
-        MediaSectionKind,
+        CodingRecord, CodingTable, CodingTableError, DataIntegrity, IntegrityRange,
+        MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaFlags, MediaPayload,
+        MediaPayloadError, MediaSection, MediaSectionKind, UnitIndex, output::PayloadOutput,
     },
     payload::ColorTableView,
+    wire::write_u16_le,
 };
 
 /// Sectioned FRAMES metadata without decoded samples or a materialized group table.
@@ -44,6 +48,490 @@ pub struct FramePresentation {
     groups: Range<u32>,
     duration_ticks: u32,
     composition: FrameComposition,
+}
+
+/// Borrowed canonical FRAMES authoring input.
+#[derive(Clone, Copy, Debug)]
+pub struct SectionedFramesAsset<'a> {
+    sequence: FrameSequence,
+    surface: SurfaceDescriptor,
+    codings: &'a [CodingRecord<'a>],
+    groups: &'a [UnitGroupRecord],
+    indexes: &'a [u8],
+    map: FrameCounts<'a>,
+    timing: Option<FrameTimingAsset<'a>>,
+    composition: Option<FrameCompositionAsset<'a>>,
+    keyframes: Option<KeyframeIndexAsset<'a>>,
+    integrity: DataIntegrity<'a>,
+    data: &'a [u8],
+    color_table: Option<&'a [u8]>,
+}
+
+impl<'a> SectionedFramesAsset<'a> {
+    /// Defines one sequence from shared coding/group storage and per-frame group counts.
+    pub fn new(
+        sequence: FrameSequence,
+        surface: SurfaceDescriptor,
+        codings: &'a [CodingRecord<'a>],
+        groups: &'a [UnitGroupRecord],
+        frame_group_counts: &'a [u32],
+        data: &'a [u8],
+    ) -> Result<Self, FramesEncodeError> {
+        let map = FrameCounts::new(frame_group_counts).map_err(FramesEncodeError::FrameMap)?;
+        if map.frame_count() != sequence.frame_count() as usize {
+            return Err(FramesEncodeError::FrameCountMismatch {
+                expected: sequence.frame_count(),
+                actual: map.frame_count(),
+            });
+        }
+        if map.group_count() as usize != groups.len() {
+            return Err(FramesEncodeError::GroupCountMismatch {
+                expected: map.group_count(),
+                actual: groups.len(),
+            });
+        }
+        Ok(Self {
+            sequence,
+            surface,
+            codings,
+            groups,
+            indexes: &[],
+            map,
+            timing: None,
+            composition: None,
+            keyframes: None,
+            integrity: DataIntegrity::Whole,
+            data,
+            color_table: None,
+        })
+    }
+
+    pub fn with_durations(mut self, durations: &'a [u32]) -> Result<Self, FramesEncodeError> {
+        if durations.len() != self.sequence.frame_count() as usize {
+            return Err(FramesEncodeError::FrameCountMismatch {
+                expected: self.sequence.frame_count(),
+                actual: durations.len(),
+            });
+        }
+        self.timing = Some(
+            FrameTimingAsset::new(durations, self.sequence.default_duration_ticks())
+                .map_err(FramesEncodeError::Timing)?,
+        );
+        Ok(self)
+    }
+
+    pub fn with_composition(
+        mut self,
+        overrides: &'a [FrameCompositionOverride],
+    ) -> Result<Self, FramesEncodeError> {
+        self.composition = if overrides.is_empty() {
+            None
+        } else {
+            Some(
+                FrameCompositionAsset::new(overrides, self.sequence, self.surface)
+                    .map_err(FramesEncodeError::Composition)?,
+            )
+        };
+        Ok(self)
+    }
+
+    pub fn with_keyframes(mut self, frames: &'a [u32]) -> Result<Self, FramesEncodeError> {
+        self.keyframes = Some(
+            KeyframeIndexAsset::new(frames, self.sequence).map_err(FramesEncodeError::Keyframes)?,
+        );
+        Ok(self)
+    }
+
+    pub const fn with_index(mut self, bytes: &'a [u8]) -> Self {
+        self.indexes = bytes;
+        self
+    }
+
+    pub const fn with_integrity(mut self, integrity: DataIntegrity<'a>) -> Self {
+        self.integrity = integrity;
+        self
+    }
+
+    pub const fn with_color_table(mut self, rgba: &'a [u8]) -> Self {
+        self.color_table = Some(rgba);
+        self
+    }
+
+    pub const fn sequence(self) -> FrameSequence {
+        self.sequence
+    }
+
+    pub const fn surface(self) -> SurfaceDescriptor {
+        self.surface
+    }
+
+    pub const fn frame_map(self) -> FrameCounts<'a> {
+        self.map
+    }
+
+    pub fn encoded_len(self) -> Result<usize, FramesEncodeError> {
+        Ok(SectionedFramesPlan::new(self)?.payload_len)
+    }
+
+    /// Writes one canonical payload after completing validation and sizing.
+    pub fn encode_into(self, output: &mut [u8]) -> Result<usize, FramesEncodeError> {
+        let plan = SectionedFramesPlan::new(self)?;
+        if output.len() < plan.payload_len {
+            return Err(FramesEncodeError::BufferTooSmall {
+                needed: plan.payload_len,
+                available: output.len(),
+            });
+        }
+        let len = plan.payload_len;
+        plan.emit(PayloadOutput::buffer(&mut output[..len]));
+        Ok(len)
+    }
+
+    /// Allocates exactly the canonical payload length.
+    pub fn encode(self) -> Result<Vec<u8>, FramesEncodeError> {
+        let plan = SectionedFramesPlan::new(self)?;
+        let mut output = Vec::new();
+        output
+            .try_reserve_exact(plan.payload_len)
+            .map_err(|_| FramesEncodeError::AllocationFailed)?;
+        output.resize(plan.payload_len, 0);
+        plan.emit(PayloadOutput::buffer(&mut output));
+        Ok(output)
+    }
+
+    fn storage(self) -> EncodedImageAsset<'a> {
+        let mut storage =
+            EncodedImageAsset::from_groups(self.surface, self.codings, self.groups, self.data)
+                .with_index(self.indexes)
+                .with_integrity(self.integrity);
+        if let Some(table) = self.color_table {
+            storage = storage.with_color_table(table);
+        }
+        storage
+    }
+}
+
+struct SectionedFramesPlan<'a> {
+    asset: SectionedFramesAsset<'a>,
+    storage: EncodedStoragePlan<'a>,
+    integrity_len: usize,
+    section_count: u16,
+    data_offset: usize,
+    payload_len: usize,
+}
+
+impl<'a> SectionedFramesPlan<'a> {
+    fn new(asset: SectionedFramesAsset<'a>) -> Result<Self, FramesEncodeError> {
+        let storage =
+            EncodedStoragePlan::new(asset.storage()).map_err(FramesEncodeError::Storage)?;
+        let source = storage.source();
+        source
+            .visit_groups_with_references(None, |_, _| {})
+            .map_err(FramesEncodeError::ReferenceStorage)?;
+        validate_asset_references(asset, source)?;
+
+        let timing_len = asset
+            .timing
+            .filter(|timing| !timing.is_empty())
+            .map_or(0, FrameTimingAsset::encoded_len);
+        let composition_len = asset
+            .composition
+            .map_or(0, FrameCompositionAsset::encoded_len);
+        let keyframe_len = asset.keyframes.map_or(0, KeyframeIndexAsset::encoded_len);
+        let integrity_len = asset
+            .integrity
+            .section_len(asset.data.len())
+            .map_err(crate::image::ImageEncodeError::Integrity)
+            .map_err(FramesEncodeError::Storage)?;
+        let storage_sections = storage.sections();
+        let storage_len = storage_sections
+            .iter()
+            .flatten()
+            .try_fold(0usize, |len, (_, size)| len.checked_add(*size))
+            .ok_or(FramesEncodeError::SizeOverflow)?;
+        let storage_section_count = storage_sections.iter().flatten().count();
+        let section_count = 3usize
+            .checked_add(storage_section_count)
+            .and_then(|count| count.checked_add(1))
+            .and_then(|count| count.checked_add(usize::from(timing_len != 0)))
+            .and_then(|count| count.checked_add(usize::from(composition_len != 0)))
+            .and_then(|count| count.checked_add(usize::from(keyframe_len != 0)))
+            .and_then(|count| count.checked_add(usize::from(asset.color_table.is_some())))
+            .and_then(|count| {
+                count.checked_add(usize::from(asset.integrity.partitions().is_some()))
+            })
+            .ok_or(FramesEncodeError::SizeOverflow)?;
+        let section_count =
+            u16::try_from(section_count).map_err(|_| FramesEncodeError::SizeOverflow)?;
+        let metadata_len = MEDIA_HEADER_LEN
+            .checked_add(usize::from(section_count) * MEDIA_SECTION_LEN)
+            .and_then(|len| len.checked_add(FRAME_SEQUENCE_RECORD_LEN))
+            .and_then(|len| len.checked_add(SURFACE_RECORD_LEN))
+            .and_then(|len| len.checked_add(storage_len))
+            .and_then(|len| len.checked_add(asset.map.encoded_len()))
+            .and_then(|len| len.checked_add(timing_len))
+            .and_then(|len| len.checked_add(composition_len))
+            .and_then(|len| len.checked_add(keyframe_len))
+            .and_then(|len| len.checked_add(asset.color_table.map_or(0, <[u8]>::len)))
+            .and_then(|len| len.checked_add(integrity_len))
+            .ok_or(FramesEncodeError::SizeOverflow)?;
+        let data_offset = UnitIndex::aligned(
+            u32::try_from(metadata_len).map_err(|_| FramesEncodeError::SizeOverflow)?,
+            storage.alignment(),
+        )
+        .map_err(|_| FramesEncodeError::SizeOverflow)? as usize;
+        let payload_len = data_offset
+            .checked_add(asset.data.len())
+            .and_then(|len| len.checked_add(asset.integrity.trailer_len()))
+            .ok_or(FramesEncodeError::SizeOverflow)?;
+        u32::try_from(payload_len).map_err(|_| FramesEncodeError::SizeOverflow)?;
+        Ok(Self {
+            asset,
+            storage,
+            integrity_len,
+            section_count,
+            data_offset,
+            payload_len,
+        })
+    }
+
+    fn emit(self, mut output: PayloadOutput<'_>) -> bool {
+        let timing = self.asset.timing.filter(|timing| !timing.is_empty());
+        let mut header = [0; MEDIA_HEADER_LEN];
+        header[0] = MEDIA_VERSION;
+        if self.asset.integrity.partitions().is_some() {
+            header[1] = MediaFlags::INDEXED_INTEGRITY.bits();
+        }
+        write_u16_le(&mut header, 2, self.section_count);
+        output.header(&header);
+
+        let mut offset = MEDIA_HEADER_LEN + usize::from(self.section_count) * MEDIA_SECTION_LEN;
+        output.section(
+            MediaSectionKind::SEQUENCE,
+            offset,
+            FRAME_SEQUENCE_RECORD_LEN,
+        );
+        offset += FRAME_SEQUENCE_RECORD_LEN;
+        output.section(MediaSectionKind::SURFACE, offset, SURFACE_RECORD_LEN);
+        offset += SURFACE_RECORD_LEN;
+        for (kind, size) in self.storage.sections().into_iter().flatten() {
+            output.section(kind, offset, size);
+            offset += size;
+        }
+        output.section(
+            MediaSectionKind::FRAME_MAP,
+            offset,
+            self.asset.map.encoded_len(),
+        );
+        offset += self.asset.map.encoded_len();
+        if let Some(timing) = timing {
+            output.section(MediaSectionKind::FRAME_TIMING, offset, timing.encoded_len());
+            offset += timing.encoded_len();
+        }
+        if let Some(composition) = self.asset.composition {
+            output.section(
+                MediaSectionKind::FRAME_COMPOSITION,
+                offset,
+                composition.encoded_len(),
+            );
+            offset += composition.encoded_len();
+        }
+        if let Some(keyframes) = self.asset.keyframes {
+            output.section(
+                MediaSectionKind::KEYFRAME_INDEX,
+                offset,
+                keyframes.encoded_len(),
+            );
+            offset += keyframes.encoded_len();
+        }
+        if let Some(table) = self.asset.color_table {
+            output.section(MediaSectionKind::COLOR_TABLE, offset, table.len());
+            offset += table.len();
+        }
+        if self.asset.integrity.partitions().is_some() {
+            output.section(MediaSectionKind::INTEGRITY, offset, self.integrity_len);
+        }
+        output.section(
+            MediaSectionKind::DATA,
+            self.data_offset,
+            self.asset.data.len(),
+        );
+
+        output.write(&self.asset.sequence.encode_record());
+        let mut surface = [0; SURFACE_RECORD_LEN];
+        self.asset
+            .surface
+            .encode_record_into(&mut surface)
+            .expect("validated surface record");
+        output.write(&surface);
+        self.storage.emit_metadata(&mut output);
+        write_frame_map(self.asset.map, &mut output);
+        if let Some(timing) = timing {
+            write_frame_timing(timing, &mut output);
+        }
+        if let Some(composition) = self.asset.composition {
+            for record in composition.records() {
+                output.write(&record.encode_record());
+            }
+        }
+        if let Some(keyframes) = self.asset.keyframes {
+            for &frame in keyframes.frames() {
+                output.write(&frame.to_le_bytes()[..keyframes.entry_bytes()]);
+            }
+        }
+        if let Some(table) = self.asset.color_table {
+            output.write(table);
+        }
+        write_integrity(
+            &mut output,
+            self.asset.integrity,
+            self.data_offset,
+            self.asset.data,
+        );
+        output.pad_to(self.data_offset);
+        output.begin_data(self.asset.integrity);
+        output.write(self.asset.data);
+        debug_assert_eq!(
+            output.position() + self.asset.integrity.trailer_len(),
+            self.payload_len
+        );
+        output.finish()
+    }
+}
+
+fn validate_asset_references(
+    asset: SectionedFramesAsset<'_>,
+    source: GroupSource<'_>,
+) -> Result<(), FramesEncodeError> {
+    let mut budget = CoverageBudget::new(u64::MAX);
+    let mut start = 0u32;
+    let mut delta_frames = 0u32;
+    let indexed = asset.keyframes.map_or(&[][..], KeyframeIndexAsset::frames);
+    let mut indexed_position = 0usize;
+    for (frame, &count) in asset.map.counts().iter().enumerate() {
+        let frame = frame as u32;
+        let end = start + count;
+        let range = start..end;
+        let reference =
+            frame_reference(source, frame, range.clone()).map_err(map_reference_storage)?;
+        if indexed.get(indexed_position) == Some(&frame) {
+            if reference != ReferenceMode::Independent {
+                return Err(FramesEncodeError::IndexedFrameDependsOnPrevious { frame });
+            }
+            indexed_position += 1;
+        }
+        match reference {
+            ReferenceMode::Independent => {
+                source
+                    .validate_group_range(range.start as usize..range.end as usize, &mut budget)
+                    .map_err(FramesEncodeError::ReferenceStorage)?;
+                delta_frames = 0;
+            }
+            ReferenceMode::Previous => {
+                if frame == 0 {
+                    return Err(FramesEncodeError::FirstFrameDependsOnPrevious);
+                }
+                delta_frames += 1;
+                if delta_frames > u32::from(asset.sequence.max_delta_frames()) {
+                    return Err(FramesEncodeError::DeltaBoundExceeded {
+                        frame,
+                        delta_frames,
+                        limit: asset.sequence.max_delta_frames(),
+                    });
+                }
+            }
+        }
+        start = end;
+    }
+    debug_assert_eq!(indexed_position, indexed.len());
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FrameReferenceError {
+    Storage(EncodedImageError),
+    Mixed { frame: u32 },
+}
+
+fn frame_reference(
+    source: GroupSource<'_>,
+    frame: u32,
+    range: Range<u32>,
+) -> Result<ReferenceMode, FrameReferenceError> {
+    if range.is_empty() {
+        return Ok(ReferenceMode::Previous);
+    }
+    let first = source
+        .record(range.start as usize)
+        .map_err(FrameReferenceError::Storage)?
+        .reference();
+    for group in range.start + 1..range.end {
+        let next = source
+            .record(group as usize)
+            .map_err(FrameReferenceError::Storage)?
+            .reference();
+        if next != first {
+            return Err(FrameReferenceError::Mixed { frame });
+        }
+    }
+    Ok(first)
+}
+
+fn map_reference_storage(error: FrameReferenceError) -> FramesEncodeError {
+    match error {
+        FrameReferenceError::Storage(error) => FramesEncodeError::ReferenceStorage(error),
+        FrameReferenceError::Mixed { frame } => FramesEncodeError::MixedReferences { frame },
+    }
+}
+
+fn write_frame_map(map: FrameCounts<'_>, output: &mut PayloadOutput<'_>) {
+    let entry_bytes = map.encoded_len() / map.frame_count();
+    let mut end = 0u32;
+    for &count in map.counts() {
+        end += count;
+        output.write(&end.to_le_bytes()[..entry_bytes]);
+    }
+}
+
+fn write_frame_timing(timing: FrameTimingAsset<'_>, output: &mut PayloadOutput<'_>) {
+    let encoding = timing.encoding().expect("nonempty timing section");
+    output.write(&[
+        match encoding {
+            FrameTimingEncoding::Dense => 0,
+            FrameTimingEncoding::Sparse => 1,
+        },
+        0,
+        0,
+        0,
+    ]);
+    for (frame, &duration) in timing.durations().iter().enumerate() {
+        if encoding == FrameTimingEncoding::Sparse && duration == timing.default_duration_ticks() {
+            continue;
+        }
+        if encoding == FrameTimingEncoding::Sparse {
+            output.write(&(frame as u32).to_le_bytes());
+        }
+        output.write(&duration.to_le_bytes());
+    }
+}
+
+fn write_integrity(
+    output: &mut PayloadOutput<'_>,
+    integrity: DataIntegrity<'_>,
+    data_offset: usize,
+    data: &[u8],
+) {
+    let mut start = 0u32;
+    for &end in integrity.partitions().unwrap_or(&[]) {
+        let checksum = crate::crc32(&data[start as usize..end as usize]);
+        let range = IntegrityRange::new(
+            data_offset as u32 + start..data_offset as u32 + end,
+            checksum,
+        )
+        .expect("validated integrity partition");
+        output.write(&range.encode_record());
+        start = end;
+    }
 }
 
 impl<'a> SectionedFramesView<'a> {
@@ -600,6 +1088,109 @@ mod tests {
         assert!(frames.frame(2).unwrap().is_noop());
         assert_eq!(frames.keyframes().unwrap().previous(2), Some(0));
         frames.validate_data().unwrap();
+    }
+
+    #[test]
+    fn canonical_asset_roundtrips_every_optional_column() {
+        let sequence = FrameSequence::new(3, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(2)
+            .unwrap();
+        let surface =
+            SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let codings = [CodingRecord::new(CodingId::new(42), 1, &[])];
+        let groups = [
+            UnitGroupRecord::new(0, 0..1).unwrap(),
+            UnitGroupRecord::new(0, 1..2)
+                .unwrap()
+                .with_reference(ReferenceMode::Previous),
+        ];
+        let durations = [40, 80, 40];
+        let compositions = [FrameCompositionOverride::new(
+            1,
+            FrameComposition::new(BlendMode::SourceOver, DisposalMode::Keep),
+        )];
+        let keyframes = [0];
+        let asset = SectionedFramesAsset::new(
+            sequence,
+            surface,
+            &codings,
+            &groups,
+            &[1, 1, 0],
+            &[0xaa, 0xbb],
+        )
+        .unwrap()
+        .with_durations(&durations)
+        .unwrap()
+        .with_composition(&compositions)
+        .unwrap()
+        .with_keyframes(&keyframes)
+        .unwrap();
+        let needed = asset.encoded_len().unwrap();
+        let mut short = vec![0x5a; needed - 1];
+        assert_eq!(
+            asset.encode_into(&mut short),
+            Err(FramesEncodeError::BufferTooSmall {
+                needed,
+                available: needed - 1,
+            })
+        );
+        assert!(short.iter().all(|&byte| byte == 0x5a));
+
+        let bytes = asset.encode().unwrap();
+        assert_eq!(bytes.len(), needed);
+        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        assert_eq!(frames.sequence(), sequence);
+        assert_eq!(frames.surface(), surface);
+        assert_eq!(frames.frame(1).unwrap().duration_ticks(), 80);
+        assert_eq!(
+            frames.frame(1).unwrap().composition().blend(),
+            BlendMode::SourceOver
+        );
+        assert!(frames.frame(2).unwrap().is_noop());
+        assert_eq!(frames.keyframes().unwrap().previous(2), Some(0));
+        frames.validate_data().unwrap();
+    }
+
+    #[test]
+    fn authoring_aligns_data_and_integrity_covers_inter_group_padding() {
+        let sequence = FrameSequence::new(2, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(1)
+            .unwrap();
+        let surface =
+            SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let codings = [CodingRecord::new(CodingId::new(42), 1, &[])];
+        let groups = [
+            UnitGroupRecord::new(0, 0..1)
+                .unwrap()
+                .with_input_alignment(64),
+            UnitGroupRecord::new(0, 64..65)
+                .unwrap()
+                .with_reference(ReferenceMode::Previous)
+                .with_input_alignment(64),
+        ];
+        let mut data = [0x5a; 65];
+        data[0] = 1;
+        data[64] = 2;
+        let integrity_ends = [1, 64, 65];
+        let asset = SectionedFramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &data)
+            .unwrap()
+            .with_integrity(DataIntegrity::Indexed(&integrity_ends));
+        let mut bytes = asset.encode().unwrap();
+        let media = MediaPayload::open(&bytes).unwrap();
+        let data_offset = media
+            .section(MediaSectionKind::DATA)
+            .unwrap()
+            .descriptor()
+            .offset();
+        assert_eq!(data_offset % 64, 0);
+        let frames = SectionedFramesView::open_at(&bytes, 64, &PayloadLimits::HOST).unwrap();
+        frames.validate_data().unwrap();
+
+        bytes[data_offset as usize + 32] ^= 1;
+        let frames = SectionedFramesView::open_at(&bytes, 64, &PayloadLimits::HOST).unwrap();
+        assert!(frames.validate_data().is_err());
     }
 
     #[test]

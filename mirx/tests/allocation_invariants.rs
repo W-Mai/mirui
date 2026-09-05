@@ -15,6 +15,39 @@ use mirx::{
 struct TrackingAllocator;
 
 #[test]
+fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
+    use mirx::{
+        FrameSequence, SectionedFramesAsset, SectionedFramesView,
+        image::{ReferenceMode, UnitGroupRecord},
+        media::{CodingId, CodingRecord},
+    };
+    let sequence = FrameSequence::new(2, 1_000, 40)
+        .unwrap()
+        .with_max_delta_frames(1)
+        .unwrap();
+    let surface = SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let codings = [CodingRecord::new(CodingId::new(42), 1, &[])];
+    let groups = [
+        UnitGroupRecord::new(0, 0..1).unwrap(),
+        UnitGroupRecord::new(0, 1..2)
+            .unwrap()
+            .with_reference(ReferenceMode::Previous),
+    ];
+    let mut output = [0xa5; 256];
+    let (_, allocations) = count_allocations(|| {
+        let asset =
+            SectionedFramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &[7, 9])
+                .unwrap();
+        let len = asset.encode_into(&mut output).unwrap();
+        assert_eq!(asset.encoded_len(), Ok(len));
+        let frames = SectionedFramesView::open(&output[..len], &PayloadLimits::EMBEDDED).unwrap();
+        assert_eq!(frames.frame(1).unwrap().groups(), 1..2);
+        frames.validate_data().unwrap();
+    });
+    assert_eq!(allocations, 0);
+}
+
+#[test]
 fn frequency_authoring_preflight_and_aligned_decode_allocate_nothing() {
     use mirx::{
         coding::{Frequency, FrequencyGeometry},

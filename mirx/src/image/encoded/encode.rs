@@ -495,7 +495,7 @@ impl<'a> StoragePlan<'a> {
             .or_else(|| self.group.as_ref().map(core::slice::from_ref))
     }
 
-    fn source(&self) -> GroupSource<'_> {
+    pub(crate) fn source(&self) -> GroupSource<'_> {
         GroupSource {
             surface: self.asset.surface,
             codings: self.asset.codings.source(),

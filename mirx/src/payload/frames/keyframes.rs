@@ -131,6 +131,14 @@ impl<'a> KeyframeIndexAsset<'a> {
         self.frames.len() * self.width.bytes()
     }
 
+    pub(crate) const fn frames(self) -> &'a [u32] {
+        self.frames
+    }
+
+    pub(crate) const fn entry_bytes(self) -> usize {
+        self.width.bytes()
+    }
+
     /// Writes canonical indices after validating capacity; errors preserve output.
     pub fn encode_into(self, output: &mut [u8]) -> Result<usize, KeyframeIndexError> {
         let needed = self.encoded_len();

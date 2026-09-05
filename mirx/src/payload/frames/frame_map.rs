@@ -241,6 +241,10 @@ impl<'a> FrameCounts<'a> {
         self.counts.len() * self.width.bytes()
     }
 
+    pub(crate) const fn counts(self) -> &'a [u32] {
+        self.counts
+    }
+
     /// Writes accumulated endpoints directly from counts without allocating.
     pub fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameMapError> {
         let needed = self.encoded_len();

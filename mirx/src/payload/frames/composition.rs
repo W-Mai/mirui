@@ -65,7 +65,7 @@ impl FrameCompositionOverride {
         self.composition
     }
 
-    fn encode_record(self) -> [u8; FRAME_COMPOSITION_RECORD_LEN] {
+    pub(crate) fn encode_record(self) -> [u8; FRAME_COMPOSITION_RECORD_LEN] {
         let mut bytes = [0; FRAME_COMPOSITION_RECORD_LEN];
         write_u32_le(&mut bytes, 0, self.frame);
         if let Some(region) = self.composition.region {
@@ -216,6 +216,10 @@ impl<'a> FrameCompositionAsset<'a> {
 
     pub const fn encoded_len(self) -> usize {
         self.records.len() * FRAME_COMPOSITION_RECORD_LEN
+    }
+
+    pub(crate) const fn records(self) -> &'a [FrameCompositionOverride] {
+        self.records
     }
 
     /// Errors preserve the complete output buffer.

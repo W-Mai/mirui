@@ -28,10 +28,49 @@ pub enum FramesMutationError {
 #[non_exhaustive]
 pub enum FramesEncodeError {
     InvalidAsset(FramesDecodeError),
-    MainPlaneLengthMismatch { expected: usize, actual: usize },
-    ExtraPlaneLengthMismatch { expected: usize, actual: usize },
-    DecodedBytesLimitExceeded { needed: usize, limit: usize },
-    BufferTooSmall { needed: usize, available: usize },
+    Storage(crate::image::ImageEncodeError),
+    FrameMap(super::FrameMapError),
+    FrameCountMismatch {
+        expected: u32,
+        actual: usize,
+    },
+    GroupCountMismatch {
+        expected: u32,
+        actual: usize,
+    },
+    Timing(super::FrameTimingError),
+    Composition(super::FrameCompositionError),
+    Keyframes(super::KeyframeIndexError),
+    ReferenceStorage(crate::image::EncodedImageError),
+    FirstFrameDependsOnPrevious,
+    MixedReferences {
+        frame: u32,
+    },
+    DeltaBoundExceeded {
+        frame: u32,
+        delta_frames: u32,
+        limit: u16,
+    },
+    IndexedFrameDependsOnPrevious {
+        frame: u32,
+    },
+    MainPlaneLengthMismatch {
+        expected: usize,
+        actual: usize,
+    },
+    ExtraPlaneLengthMismatch {
+        expected: usize,
+        actual: usize,
+    },
+    DecodedBytesLimitExceeded {
+        needed: usize,
+        limit: usize,
+    },
+    BufferTooSmall {
+        needed: usize,
+        available: usize,
+    },
+    SizeOverflow,
     AllocationFailed,
 }
 
