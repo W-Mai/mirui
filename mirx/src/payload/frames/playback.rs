@@ -239,11 +239,21 @@ impl<'a> FrameDecodePlan<'a, '_> {
         }
         for group in self.groups.iter() {
             for unit in group.iter() {
-                let decoded = unit
+                let plan = unit
                     .decode_plan(SurfaceRequirements::new())
-                    .expect("immutable preflighted frame unit")
-                    .decode_into(workspace)
-                    .expect("validated frame unit workspace");
+                    .expect("immutable preflighted frame unit");
+                let decoded = if unit.coding().id() == crate::CodingId::FRAME_DELTA {
+                    let reference = SurfaceView::from_plan(
+                        self.memory,
+                        &*canvas,
+                        self.groups.frames().color_table(),
+                    );
+                    plan.decode_from(reference, workspace)
+                        .expect("validated frame reference and unit workspace")
+                } else {
+                    plan.decode_into(workspace)
+                        .expect("validated frame unit workspace")
+                };
                 match self.composition.blend() {
                     BlendMode::Replace => decoded
                         .copy_into(canvas, self.memory)
@@ -1044,5 +1054,89 @@ mod tests {
             }))
         ));
         assert_eq!(canvas, [0xad; 4]);
+    }
+
+    #[test]
+    fn session_reconstructs_chained_frame_delta_units() {
+        let codec = crate::coding::FrameDelta::new();
+        let root = [250, 2];
+        let next = [5, 2];
+        let last = [5, 9];
+        let mut first_delta = [0; 4];
+        let first_len = codec.encode_into(&root, &next, &mut first_delta).unwrap();
+        let mut second_delta = [0; 4];
+        let second_len = codec.encode_into(&next, &last, &mut second_delta).unwrap();
+        let mut data = alloc::vec::Vec::from(root);
+        data.extend_from_slice(&first_delta[..first_len]);
+        data.extend_from_slice(&second_delta[..second_len]);
+        let first_end = root.len() as u32 + first_len as u32;
+        let groups = [
+            UnitGroupRecord::new(0, 0..root.len() as u32).unwrap(),
+            UnitGroupRecord::new(1, root.len() as u32..first_end)
+                .unwrap()
+                .with_reference(ReferenceMode::Previous),
+            UnitGroupRecord::new(1, first_end..data.len() as u32)
+                .unwrap()
+                .with_reference(ReferenceMode::Previous),
+        ];
+        let sequence = FrameSequence::new(3, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(2)
+            .unwrap();
+        let surface =
+            SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let codings = [CodingRecord::RAW, codec.record()];
+        let bytes =
+            SectionedFramesAsset::new(sequence, surface, &codings, &groups, &[1, 1, 1], &data)
+                .unwrap()
+                .encode()
+                .unwrap();
+        let frames = SectionedFramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let data_offset = frames
+            .media()
+            .section(crate::media::MediaSectionKind::DATA)
+            .unwrap()
+            .descriptor()
+            .offset() as usize;
+        let mut slots = [None];
+        let mut canvas = [0xad; 2];
+        let mut workspace = [0; 2];
+        {
+            let mut session = frames
+                .session(
+                    SurfaceRequirements::new(),
+                    PayloadLimits::HOST,
+                    &mut slots,
+                    &mut canvas,
+                    &mut workspace,
+                    &mut [],
+                )
+                .unwrap();
+            assert_eq!(session.present(0).unwrap().plane(0).unwrap().bytes(), &root);
+            assert_eq!(session.present(1).unwrap().plane(0).unwrap().bytes(), &next);
+            assert_eq!(session.present(2).unwrap().plane(0).unwrap().bytes(), &last);
+            session.reset();
+            assert_eq!(session.present(2).unwrap().plane(0).unwrap().bytes(), &last);
+        }
+
+        let mut corrupted = bytes.clone();
+        corrupted[data_offset + data.len() - 1] ^= 1;
+        let frames = SectionedFramesView::open(&corrupted, &PayloadLimits::HOST).unwrap();
+        canvas = [0xad; 2];
+        {
+            let mut session = frames
+                .session(
+                    SurfaceRequirements::new(),
+                    PayloadLimits::HOST,
+                    &mut slots,
+                    &mut canvas,
+                    &mut workspace,
+                    &mut [],
+                )
+                .unwrap();
+            assert!(session.present(2).is_err());
+            assert_eq!(session.current_frame(), None);
+        }
+        assert_eq!(canvas, [0xad; 2]);
     }
 }

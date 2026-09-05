@@ -1,7 +1,7 @@
 use super::SurfaceView;
 use crate::image::{
     BufferRequirementError, BufferRequirements, Region, RegionMemoryPlan, SurfaceDescriptor,
-    SurfaceMemoryPlan,
+    SurfaceMemoryPlan, UnitMemoryPlan, samples,
 };
 
 /// Failure before any destination pixel or padding is changed.
@@ -91,6 +91,48 @@ impl<'source> SurfaceView<'source> {
                 .expect("logical plane bounds");
             plan.copy_plane(source, index as u8, region, output);
         }
+        Ok(())
+    }
+
+    /// Copies one unit's selected source regions into the tight output prefix.
+    pub(crate) fn copy_unit_tight_into(
+        self,
+        output: &mut [u8],
+        memory: UnitMemoryPlan,
+    ) -> Result<(), SurfaceCopyError> {
+        self.check_copy(
+            memory.source_surface(),
+            memory.buffer_requirements(),
+            output,
+        )?;
+        let output = &mut output[..memory.byte_len() as usize];
+        output.fill(0);
+        let mut target_start = 0;
+        for target in memory.planes() {
+            let source = self
+                .plane(target.index())
+                .expect("selected source surface plane");
+            let region = target.source_region();
+            let bits_per_element = u64::from(source.geometry().bits_per_element());
+            let row_bits = u64::from(region.width()) * bits_per_element;
+            let row_len = row_bits.div_ceil(8) as usize;
+            if row_len == 0 {
+                continue;
+            }
+            let source_start = u64::from(region.x()) * bits_per_element;
+            let source_byte = (source_start / 8) as usize;
+            let source_bit = (source_start % 8) as u8;
+            for row in 0..region.height() {
+                let source = source
+                    .row(region.y() + row)
+                    .expect("validated unit source row")
+                    .expect("in-bounds unit source row");
+                let target = &mut output[target_start..target_start + row_len];
+                samples::copy(&source[source_byte..], source_bit, target, 0, row_bits);
+                target_start += row_len;
+            }
+        }
+        debug_assert_eq!(target_start, memory.sample_byte_len());
         Ok(())
     }
 

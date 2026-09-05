@@ -55,6 +55,8 @@ impl CodingId {
     pub const FREQUENCY_REVERSIBLE: Self = Self(4);
     /// Quantized integer 8x8 frequency blocks with explicit quality.
     pub const FREQUENCY_QUANTIZED: Self = Self(5);
+    /// Previous-frame byte prediction with run and repeating-pattern residual coding.
+    pub const FRAME_DELTA: Self = Self(6);
 
     pub const fn new(value: u16) -> Self {
         Self(value)

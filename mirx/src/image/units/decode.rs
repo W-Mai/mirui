@@ -1,15 +1,19 @@
 use super::{DecodeUnitRef, UnitMemoryPlan, output::UnitOutput};
 use crate::{
     coding::{
-        Frequency, FrequencyError, FrequencyGeometry, Lz4, Lz4DecodePlan, Lz4Error, Pixel,
-        PixelDecodePlan, PixelError, Rle, RleDecodePlan, RleError,
+        FrameDelta, FrameDeltaDecodePlan, FrameDeltaError, Frequency, FrequencyError,
+        FrequencyGeometry, Lz4, Lz4DecodePlan, Lz4Error, Pixel, PixelDecodePlan, PixelError, Rle,
+        RleDecodePlan, RleError,
     },
     image::{
-        BufferRequirementError, SampleLayout, SurfacePlanError, SurfacePlane, SurfaceRequirements,
+        BufferRequirementError, ReferenceMode, SampleLayout, SurfaceCopyError, SurfacePlanError,
+        SurfacePlane, SurfaceRequirements, SurfaceView,
     },
     media::{CodingId, CodingRecord},
 };
 
+#[cfg(test)]
+mod frame_delta_tests;
 #[cfg(test)]
 mod frequency_tests;
 #[cfg(test)]
@@ -39,6 +43,7 @@ enum Decoder<'a> {
     Rle(RleDecodePlan<'a>),
     Lz4(Lz4DecodePlan<'a>),
     Frequency(FrequencyUnitDecodePlan<'a>),
+    FrameDelta(FrameDeltaDecodePlan<'a>),
 }
 
 #[derive(Clone, Copy)]
@@ -48,6 +53,7 @@ pub(crate) enum ScalarProfile {
     Rle(Rle),
     Lz4(Lz4),
     Frequency(Frequency),
+    FrameDelta(FrameDelta),
 }
 
 impl ScalarProfile {
@@ -82,6 +88,9 @@ impl ScalarProfile {
                     .map(Self::Frequency)
                     .map_err(UnitDecodeError::Frequency)
             }
+            CodingId::FRAME_DELTA => FrameDelta::from_record(coding)
+                .map(Self::FrameDelta)
+                .map_err(UnitDecodeError::FrameDelta),
             id => Err(UnitDecodeError::UnsupportedCoding(id)),
         }
     }
@@ -122,6 +131,11 @@ impl ScalarProfile {
             Self::Frequency(codec) => Decoder::Frequency(
                 FrequencyUnitDecodePlan::new(codec, data, memory)
                     .map_err(UnitDecodeError::Frequency)?,
+            ),
+            Self::FrameDelta(codec) => Decoder::FrameDelta(
+                codec
+                    .plan(data, memory.sample_byte_len())
+                    .map_err(UnitDecodeError::FrameDelta)?,
             ),
         };
         Ok(UnitDecodePlan { memory, decoder })
@@ -165,6 +179,11 @@ impl<'a> DecodeUnitRef<'a> {
         requirements: SurfaceRequirements,
     ) -> Result<UnitDecodePlan<'a>, UnitDecodeError> {
         let profile = ScalarProfile::new(self.coding, self.surface.sample_layout())?;
+        if matches!(profile, ScalarProfile::FrameDelta(_))
+            && self.reference != ReferenceMode::Previous
+        {
+            return Err(UnitDecodeError::PreviousReferenceRequired(self.coding.id()));
+        }
         let memory = self
             .memory_plan(requirements)
             .map_err(UnitDecodeError::Memory)?;
@@ -183,6 +202,9 @@ impl UnitDecodePlan<'_> {
     /// padding is zeroed; the suffix is unchanged. The result borrows only the
     /// output, so it can outlive the encoded input and this plan.
     pub fn decode_into(self, output: &mut [u8]) -> Result<DecodedUnit<'_>, UnitDecodeError> {
+        if let Decoder::FrameDelta(_) = self.decoder {
+            return Err(UnitDecodeError::ReferenceRequired(CodingId::FRAME_DELTA));
+        }
         self.memory
             .buffer_requirements()
             .validate(output)
@@ -218,12 +240,53 @@ impl UnitDecodePlan<'_> {
                 }
             }),
             Decoder::Frequency(_) => unreachable!("handled before sequential output"),
+            Decoder::FrameDelta(_) => unreachable!("reference checked before output binding"),
         }
         writer.finish();
         Ok(DecodedUnit {
             memory: self.memory,
             bytes: output,
         })
+    }
+
+    /// Reconstructs a previous-frame residual from a validated surface.
+    ///
+    /// The reference region is copied into the tight workspace prefix, the
+    /// residual is applied in place, and physical row padding is expanded only
+    /// after both reference and output buffers pass validation.
+    pub fn decode_from<'output>(
+        self,
+        reference: SurfaceView<'_>,
+        output: &'output mut [u8],
+    ) -> Result<DecodedUnit<'output>, UnitDecodeError> {
+        let Decoder::FrameDelta(plan) = self.decoder else {
+            return Err(UnitDecodeError::ReferenceNotSupported(self.coding_id()));
+        };
+        self.memory
+            .buffer_requirements()
+            .validate(output)
+            .map_err(UnitDecodeError::Output)?;
+        reference
+            .copy_unit_tight_into(output, self.memory)
+            .map_err(UnitDecodeError::Reference)?;
+        plan.apply_into(&mut output[..self.memory.sample_byte_len()])
+            .map_err(UnitDecodeError::FrameDelta)?;
+        UnitOutput::expand_tight(self.memory, output);
+        Ok(DecodedUnit {
+            memory: self.memory,
+            bytes: &output[..self.memory.byte_len() as usize],
+        })
+    }
+
+    fn coding_id(self) -> CodingId {
+        match self.decoder {
+            Decoder::Raw(_) => CodingId::RAW,
+            Decoder::Pixel(_) => CodingId::PIXEL,
+            Decoder::Rle(_) => CodingId::RLE,
+            Decoder::Lz4(_) => CodingId::LZ4,
+            Decoder::Frequency(plan) => plan.codec.coding_id(),
+            Decoder::FrameDelta(_) => CodingId::FRAME_DELTA,
+        }
     }
 }
 
@@ -339,6 +402,11 @@ pub enum UnitDecodeError {
     Rle(RleError),
     Lz4(Lz4Error),
     Frequency(FrequencyError),
+    FrameDelta(FrameDeltaError),
+    PreviousReferenceRequired(CodingId),
+    ReferenceRequired(CodingId),
+    ReferenceNotSupported(CodingId),
+    Reference(SurfaceCopyError),
     Memory(SurfacePlanError),
     Output(BufferRequirementError),
 }

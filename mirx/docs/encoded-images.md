@@ -137,7 +137,7 @@ This conservative accounting can reject a many-group image earlier than cached v
 
 ## Complete preflight
 
-`EncodedImageView::preflight(&PayloadLimits::EMBEDDED)` checks all active groups, scalar coding parameters, exact unit syntax and complete DATA integrity without allocating a group table or output samples. Group overlap, temporal references in static images, unsupported coding, malformed streams and checksum failures remain errors. Empty surfaces contain no unit stream, but their active coding ID, revision, parameters and sample layout must still be understood.
+`EncodedImageView::preflight(&PayloadLimits::EMBEDDED)` checks all active groups, scalar coding parameters, exact unit syntax and complete DATA integrity without allocating a group table or output samples. Group overlap, temporal references in static images, unsupported coding, malformed streams and checksum failures remain errors. `FRAME_DELTA` is recognized by the shared scalar layer but requires `ReferenceMode::Previous`, so it is rejected in static IMAGE and admitted only by bounded FRAMES replay. Empty surfaces contain no unit stream, but their active coding ID, revision, parameters and sample layout must still be understood.
 
 | Limit | Embedded | Host | Meaning |
 | --- | --- | --- | --- |

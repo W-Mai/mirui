@@ -4,10 +4,12 @@
 //! Media records and decode-unit boundaries supply those independent contracts.
 
 mod buffer;
+mod frame_delta;
 mod frequency;
 mod lz4;
 mod pixel;
 mod rle;
+pub use frame_delta::{FrameDelta, FrameDeltaDecodePlan, FrameDeltaError};
 pub use frequency::{Frequency, FrequencyDecodePlan, FrequencyError, FrequencyGeometry};
 pub use lz4::{Lz4, Lz4DecodePlan, Lz4Encoder, Lz4Error};
 pub use pixel::{Pixel, PixelDecodePlan, PixelError};

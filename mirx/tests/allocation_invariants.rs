@@ -18,6 +18,7 @@ struct TrackingAllocator;
 fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
         FrameSequence, SectionedFramesAsset, SectionedFramesView,
+        coding::FrameDelta,
         image::{CoverageBudget, ReferenceMode, UnitGroupRecord},
         media::CodingRecord,
     };
@@ -28,21 +29,23 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
         .with_max_delta_frames(1)
         .unwrap();
     let surface = SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let codings = [CodingRecord::RAW];
-    let groups = [
-        UnitGroupRecord::new(0, 0..1).unwrap(),
-        UnitGroupRecord::new(0, 1..2)
-            .unwrap()
-            .with_reference(ReferenceMode::Previous),
-    ];
     let mut output = [0xa5; 256];
     let mut canvas = Aligned([0xa5; 64]);
     let mut workspace = [0; 1];
     let mut slots = [None];
     let (_, allocations) = count_allocations(|| {
-        let asset =
-            SectionedFramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &[7, 9])
-                .unwrap();
+        let codec = FrameDelta::new();
+        let codings = [CodingRecord::RAW, codec.record()];
+        let mut data = [7, 0, 0];
+        let delta_len = codec.encode_into(&[7], &[9], &mut data[1..]).unwrap();
+        let groups = [
+            UnitGroupRecord::new(0, 0..1).unwrap(),
+            UnitGroupRecord::new(1, 1..1 + delta_len as u32)
+                .unwrap()
+                .with_reference(ReferenceMode::Previous),
+        ];
+        let asset = SectionedFramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &data)
+            .unwrap();
         let len = asset.encode_into(&mut output).unwrap();
         assert_eq!(asset.encoded_len(), Ok(len));
         let frames = SectionedFramesView::open(&output[..len], &PayloadLimits::EMBEDDED).unwrap();

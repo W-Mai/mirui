@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Bounded MIRX frame residuals.** `FrameDelta` stores lossless previous-unit residuals with compact run and repeating-pattern tokens. Frame sessions reconstruct packed, indexed, alpha and YUV units through caller-owned aligned canvas/workspace storage, with bounded recovery seeks, complete preflight and no hidden allocation.
+
 - **MIRX frequency image coding.** Reversible and quantized 8×8 integer transform profiles use canonical coefficient streams, reversible RGB decorrelation, deterministic quality steps and exact alpha/index reconstruction. Container preflight charges coefficient work, while unit, whole-image and renderer paths retain caller-owned aligned output and bounded reusable workspace.
 
 - **Lossless MIRX texture loading.** `Texture::plan_mirx` preflights RAW, native pixel, RLE and LZ4 IMAGE storage into exact caller-owned group, output and workspace requirements. `Texture::from_mirx_with`, `MirxLoader` and `ResourceManager::add_mirx_bytes_with` retain RAW zero-copy access, cache decoded output, and apply explicit width, stride, plane and base-address alignment constraints.
