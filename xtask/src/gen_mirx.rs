@@ -31,7 +31,11 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
     \
                      [--timebase <ticks-per-second>] [--max-delta-frames <count>] \
     \
-                     [--tile <width>x<height>|none] [--input-align <bytes>] [--quality <1..100>]\n  \
+                     [--play-count <count>] [--tile <width>x<height>|none] [--input-align <bytes>] \
+    \
+                     [--output-align <bytes>] [--plane-align <bytes>] [--width-multiple <pixels>] \
+    \
+                     [--height-multiple <rows>] [--stride-multiple <bytes>] [--quality <1..100>]\n  \
                  cargo xtask gen-mirx bundle <a.mirx> <b.mirx> ... --out <bundle.mirx>\n  \
                  cargo xtask gen-mirx vector --in <scene.txt> --out <scene.mirx>\n\
                  \n\

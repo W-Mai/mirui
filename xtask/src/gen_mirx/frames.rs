@@ -4,7 +4,8 @@ use std::process::Command;
 
 use mirx::{
     ChunkFlags, ChunkType, Document, EncodeOptions, FrameEncoding, FrameEncodingSet, FramePolicy,
-    FrameSequence, FrameStorage, FramesEncoder, PayloadLimits, Reader, image::SurfaceDescriptor,
+    FrameSequence, FrameStorage, FramesEncoder, PayloadLimits, Reader,
+    image::{BufferRequirements, SurfaceDescriptor, SurfaceMemoryPlan, SurfaceRequirements},
 };
 
 use super::{Result, icu_program, probe_icu};
@@ -16,9 +17,11 @@ struct Options {
     format: String,
     timebase: u32,
     duration: u32,
+    play_count: u32,
     max_delta_frames: u16,
     tiles: Option<(u32, u32)>,
     input_alignment: u32,
+    output_requirements: SurfaceRequirements,
     quality: Option<u8>,
 }
 
@@ -29,9 +32,15 @@ impl Options {
         let mut format = String::from("rgba8888");
         let mut timebase = 1_000;
         let mut duration = 40;
+        let mut play_count = 0;
         let mut max_delta_frames = 8;
         let mut tiles = Some((32, 32));
         let mut input_alignment = 1u32;
+        let mut output_alignment = 1u32;
+        let mut plane_alignment = 1u32;
+        let mut width_multiple = 1u32;
+        let mut height_multiple = 1u32;
+        let mut stride_multiple = 1u32;
         let mut quality = None;
         let mut cursor = 0;
         while cursor < args.len() {
@@ -49,6 +58,9 @@ impl Options {
                 "--duration" => {
                     duration = value.parse().map_err(|_| "--duration must be positive")?
                 }
+                "--play-count" => {
+                    play_count = value.parse().map_err(|_| "--play-count must fit u32")?
+                }
                 "--max-delta-frames" => {
                     max_delta_frames = value
                         .parse()
@@ -59,6 +71,31 @@ impl Options {
                     input_alignment = value
                         .parse()
                         .map_err(|_| "--input-align must be a positive power of two")?
+                }
+                "--output-align" => {
+                    output_alignment = value
+                        .parse()
+                        .map_err(|_| "--output-align must be a positive power of two")?
+                }
+                "--plane-align" => {
+                    plane_alignment = value
+                        .parse()
+                        .map_err(|_| "--plane-align must be a positive power of two")?
+                }
+                "--width-multiple" => {
+                    width_multiple = value
+                        .parse()
+                        .map_err(|_| "--width-multiple must be positive")?
+                }
+                "--height-multiple" => {
+                    height_multiple = value
+                        .parse()
+                        .map_err(|_| "--height-multiple must be positive")?
+                }
+                "--stride-multiple" => {
+                    stride_multiple = value
+                        .parse()
+                        .map_err(|_| "--stride-multiple must be positive")?
                 }
                 "--quality" => {
                     quality = Some(
@@ -99,6 +136,15 @@ impl Options {
         if !input_alignment.is_power_of_two() {
             return Err("--input-align must be a positive power of two".into());
         }
+        if !output_alignment.is_power_of_two() {
+            return Err("--output-align must be a positive power of two".into());
+        }
+        if !plane_alignment.is_power_of_two() {
+            return Err("--plane-align must be a positive power of two".into());
+        }
+        if width_multiple == 0 || height_multiple == 0 || stride_multiple == 0 {
+            return Err("output width, height, and stride multiples must be positive".into());
+        }
         if quality.is_some_and(|value| !(1..=100).contains(&value)) {
             return Err("--quality must be between 1 and 100".into());
         }
@@ -108,9 +154,16 @@ impl Options {
             format,
             timebase,
             duration,
+            play_count,
             max_delta_frames,
             tiles,
             input_alignment,
+            output_requirements: SurfaceRequirements::new()
+                .with_base_alignment(output_alignment)
+                .with_plane_alignment(plane_alignment)
+                .with_width_multiple(width_multiple)
+                .with_height_multiple(height_multiple)
+                .with_stride_multiple(stride_multiple),
             quality,
         })
     }
@@ -123,6 +176,15 @@ struct DecodedFrame {
     color_table: Option<Vec<u8>>,
 }
 
+#[derive(Debug)]
+struct OutputReport {
+    memory: SurfaceMemoryPlan,
+    input_alignment: u32,
+    group_slots: usize,
+    workspace: BufferRequirements,
+    backup: BufferRequirements,
+}
+
 pub fn run(args: &[String]) -> Result {
     probe_icu()?;
     let options = Options::parse(args)?;
@@ -131,6 +193,10 @@ pub fn run(args: &[String]) -> Result {
         frames.push(decode_frame(input, &options.format)?);
     }
     let first = frames.first().expect("validated frame list");
+    first
+        .surface
+        .memory_plan(options.output_requirements)
+        .map_err(|error| format!("invalid output requirements: {error:?}"))?;
     for (index, frame) in frames.iter().enumerate().skip(1) {
         if frame.surface != first.surface {
             return Err(format!(
@@ -153,6 +219,7 @@ pub fn run(args: &[String]) -> Result {
         options.duration,
     )
     .map_err(|error| format!("invalid frame sequence: {error:?}"))?
+    .with_play_count(options.play_count)
     .with_max_delta_frames(max_delta_frames)
     .map_err(|error| format!("invalid frame sequence: {error:?}"))?;
     let mut profiles = FrameEncodingSet::lossless();
@@ -196,13 +263,16 @@ pub fn run(args: &[String]) -> Result {
         .map_err(|error| format!("cannot finish frame sequence: {error:?}"))?;
     let reports = encoded.reports().to_vec();
     let mut document = Document::new();
-    document
+    let frames_id = document
         .push_frames_with_flags(encoded, ChunkFlags::CRITICAL)
         .map_err(|error| format!("cannot add encoded frames: {error:?}"))?;
+    document
+        .set_primary(frames_id)
+        .map_err(|error| format!("cannot select encoded frames: {error:?}"))?;
     let bytes = document
         .encode(&EncodeOptions::new())
         .map_err(|error| format!("cannot encode FRAMES container: {error:?}"))?;
-    verify_output(&bytes)?;
+    let output_report = inspect_output(&bytes, options.output_requirements)?;
     fs::write(&options.output, &bytes)?;
 
     println!(
@@ -214,6 +284,45 @@ pub fn run(args: &[String]) -> Result {
         options.format,
         bytes.len()
     );
+    let source_bytes = frames
+        .iter()
+        .map(|frame| frame.samples.len())
+        .sum::<usize>();
+    let policy = options.quality.map_or_else(
+        || String::from("lossless"),
+        |quality| format!("lossy allowed, frequency quality {quality}"),
+    );
+    println!(
+        "  storage: {} source B -> {} MIRX B ({:.3}x), policy {policy}",
+        source_bytes,
+        bytes.len(),
+        bytes.len() as f64 / source_bytes as f64,
+    );
+    println!(
+        "  access: recovery <= {} frames, input alignment {} B, runtime {}",
+        max_delta_frames,
+        output_report.input_alignment,
+        runtime_path(first.surface),
+    );
+    println!(
+        "  buffers: canvas {} B @ {} B, codec workspace {} B @ {} B, backup {} B @ {} B, group slots {}",
+        output_report.memory.byte_len(),
+        output_report.memory.base_alignment(),
+        output_report.workspace.byte_len(),
+        output_report.workspace.base_alignment(),
+        output_report.backup.byte_len(),
+        output_report.backup.base_alignment(),
+        output_report.group_slots,
+    );
+    for (index, plane) in output_report.memory.planes().enumerate() {
+        println!(
+            "  plane {index}: offset {} B, stride {} B, allocation {}x{}",
+            plane.data_offset(),
+            plane.stride(),
+            plane.allocation_width(),
+            plane.allocation_height(),
+        );
+    }
     for report in &reports {
         println!(
             "  frame {}: {} / {}, body {} B, stored {} B, recovery {}",
@@ -283,23 +392,51 @@ fn decode_frame(path: &Path, format: &str) -> Result<DecodedFrame> {
     })
 }
 
-fn verify_output(bytes: &[u8]) -> Result {
+fn inspect_output(bytes: &[u8], requirements: SurfaceRequirements) -> Result<OutputReport> {
     let reader = Reader::open(bytes)
         .map_err(|error| format!("generated FRAMES container is invalid: {error:?}"))?;
     reader
         .validate_known_payloads(&PayloadLimits::HOST)
         .map_err(|error| format!("generated FRAMES preflight failed: {error:?}"))?;
     let entry = reader
-        .chunks()
-        .find(|entry| entry.chunk_type() == ChunkType::FRAMES)
-        .ok_or("generated container has no FRAMES chunk")?;
-    entry
+        .primary()
+        .map_err(|error| format!("generated FRAMES primary is invalid: {error:?}"))?
+        .ok_or("generated container has no primary FRAMES chunk")?;
+    if entry.chunk_type() != ChunkType::FRAMES {
+        return Err("generated container primary is not FRAMES".into());
+    }
+    let frames = entry
         .frames(&PayloadLimits::HOST)
         .map_err(|error| format!("generated FRAMES payload is invalid: {error:?}"))?
-        .ok_or("generated chunk type is not FRAMES")?
+        .ok_or("generated chunk type is not FRAMES")?;
+    frames
         .validate_data()
         .map_err(|error| format!("generated FRAMES DATA is invalid: {error:?}"))?;
-    Ok(())
+    let mut group_slots = vec![None; frames.group_count()];
+    let plan = frames
+        .playback_plan(requirements, PayloadLimits::HOST, &mut group_slots)
+        .map_err(|error| format!("generated FRAMES playback plan failed: {error:?}"))?;
+    Ok(OutputReport {
+        memory: plan.memory_plan(),
+        input_alignment: frames
+            .input_alignment()
+            .map_err(|error| format!("generated FRAMES alignment is invalid: {error:?}"))?,
+        group_slots: plan.group_workspace_len(),
+        workspace: plan.workspace_requirements(),
+        backup: plan.backup_requirements(),
+    })
+}
+
+fn runtime_path(surface: SurfaceDescriptor) -> &'static str {
+    match surface.sample_layout() {
+        mirx::image::SampleLayout::RGB565
+        | mirx::image::SampleLayout::RGB565_SWAPPED
+        | mirx::image::SampleLayout::RGB888
+        | mirx::image::SampleLayout::XRGB8888
+        | mirx::image::SampleLayout::RGBA8888
+        | mirx::image::SampleLayout::BGRA8888 => "mirui borrowed Texture",
+        _ => "mirx decoded surface; backend conversion required",
+    }
 }
 
 fn parse_tiles(value: &str) -> Result<Option<(u32, u32)>> {
@@ -361,11 +498,23 @@ mod tests {
             "90000",
             "--duration",
             "3000",
+            "--play-count",
+            "3",
             "--max-delta-frames",
             "12",
             "--tile",
             "16x8",
             "--input-align",
+            "64",
+            "--output-align",
+            "64",
+            "--plane-align",
+            "64",
+            "--width-multiple",
+            "8",
+            "--height-multiple",
+            "2",
+            "--stride-multiple",
             "64",
             "--quality",
             "70",
@@ -374,6 +523,12 @@ mod tests {
         assert_eq!(options.inputs.len(), 2);
         assert_eq!(options.tiles, Some((16, 8)));
         assert_eq!(options.input_alignment, 64);
+        assert_eq!(options.play_count, 3);
+        assert_eq!(options.output_requirements.base_alignment(), 64);
+        assert_eq!(options.output_requirements.plane_alignment(), 64);
+        assert_eq!(options.output_requirements.width_multiple(), 8);
+        assert_eq!(options.output_requirements.height_multiple(), 2);
+        assert_eq!(options.output_requirements.stride_multiple(), 64);
         assert_eq!(options.quality, Some(70));
         assert_eq!(options.max_delta_frames, 12);
     }
@@ -395,6 +550,28 @@ mod tests {
             ]))
             .is_err()
         );
+        assert!(
+            Options::parse(&args(&[
+                "--in",
+                "a.png",
+                "--out",
+                "a.mirx",
+                "--output-align",
+                "3",
+            ]))
+            .is_err()
+        );
+        assert!(
+            Options::parse(&args(&[
+                "--in",
+                "a.png",
+                "--out",
+                "a.mirx",
+                "--stride-multiple",
+                "0",
+            ]))
+            .is_err()
+        );
         assert_eq!(
             Options::parse(&args(&[
                 "--in", "a.png", "--out", "a.mirx", "--tile", "none"
@@ -403,5 +580,44 @@ mod tests {
             .tiles,
             None
         );
+    }
+
+    #[test]
+    fn output_report_requires_primary_and_applies_runtime_layout() {
+        use mirx::image::{ColorDescription, SampleLayout};
+
+        let surface =
+            SurfaceDescriptor::new(2, 1, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
+        let sequence = FrameSequence::new(1, 1_000, 40).unwrap();
+        let mut encoder = FramesEncoder::new(sequence, surface)
+            .unwrap()
+            .with_profiles(FrameEncodingSet::lossless().with_delta(false))
+            .unwrap();
+        encoder.push(&[1, 2, 3, 4, 5, 6]).unwrap();
+        let encoded = encoder.finish().unwrap();
+
+        let mut missing_primary = Document::new();
+        missing_primary.push_frames(encoded.clone()).unwrap();
+        let bytes = missing_primary.encode(&EncodeOptions::new()).unwrap();
+        assert!(inspect_output(&bytes, SurfaceRequirements::new()).is_err());
+
+        let mut document = Document::new();
+        let id = document.push_frames(encoded).unwrap();
+        document.set_primary(id).unwrap();
+        let bytes = document.encode(&EncodeOptions::new()).unwrap();
+        let report = inspect_output(
+            &bytes,
+            SurfaceRequirements::new()
+                .with_base_alignment(64)
+                .with_width_multiple(64)
+                .with_stride_multiple(64),
+        )
+        .unwrap();
+        assert_eq!(report.memory.byte_len(), 192);
+        assert_eq!(report.memory.base_alignment(), 64);
+        assert_eq!(report.memory.plane(0).unwrap().stride(), 192);
+        assert_eq!(report.group_slots, 1);
+        assert_eq!(report.workspace.byte_len(), 6);
+        assert_eq!(report.backup.byte_len(), 0);
     }
 }
