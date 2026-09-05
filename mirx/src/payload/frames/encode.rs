@@ -2,7 +2,7 @@ use alloc::vec::Vec;
 
 use super::{
     FrameCandidate, FrameChoice, FramePolicy, FrameSelectionError, FrameSelector, FrameSequence,
-    FrameStorage, FramesAsset, FramesEncodeError,
+    FrameStorage, FrameTimingError, FramesAsset, FramesEncodeError,
 };
 use crate::{
     coding::{
@@ -325,6 +325,7 @@ pub struct FramesEncoder {
     codings: Vec<FrameEncoding>,
     groups: Vec<UnitGroupRecord>,
     frame_group_counts: Vec<u32>,
+    durations: Vec<u32>,
     keyframes: Vec<u32>,
     data: Vec<u8>,
     indexes: Vec<u8>,
@@ -365,6 +366,7 @@ impl FramesEncoder {
             codings: Vec::new(),
             groups: Vec::new(),
             frame_group_counts: Vec::new(),
+            durations: Vec::new(),
             keyframes: Vec::new(),
             data: Vec::new(),
             indexes: Vec::new(),
@@ -462,6 +464,15 @@ impl FramesEncoder {
 
     /// Selects and stores one frame atomically.
     pub fn push(&mut self, samples: &[u8]) -> Result<FrameWriteReport, FrameWriteError> {
+        self.push_with_duration(samples, self.sequence.default_duration_ticks())
+    }
+
+    /// Selects and stores one frame with an explicit duration in sequence ticks.
+    pub fn push_with_duration(
+        &mut self,
+        samples: &[u8],
+        duration_ticks: u32,
+    ) -> Result<FrameWriteReport, FrameWriteError> {
         if self.selector.frame() >= self.sequence.frame_count() {
             return Err(FrameWriteError::TooManyFrames {
                 expected: self.sequence.frame_count(),
@@ -472,6 +483,11 @@ impl FramesEncoder {
                 expected: self.sample_bytes,
                 actual: samples.len(),
             });
+        }
+        if duration_ticks == 0 {
+            return Err(FrameWriteError::Timing(FrameTimingError::ZeroDuration {
+                frame: self.selector.frame(),
+            }));
         }
 
         self.prepare_candidates(samples)?;
@@ -487,7 +503,7 @@ impl FramesEncoder {
             .position(|prepared| prepared.candidate == choice.candidate())
             .expect("selected offered candidate");
         let prepared = self.candidates.swap_remove(selected);
-        let report = self.commit(choice, prepared, samples)?;
+        let report = self.commit(choice, prepared, samples, duration_ticks)?;
         self.selector = next_selector;
         self.candidates.clear();
         Ok(report)
@@ -513,6 +529,7 @@ impl FramesEncoder {
         if !self.color_table.is_empty() {
             asset = asset.with_color_table(&self.color_table);
         }
+        let asset = asset.with_durations(&self.durations)?;
         let asset = asset.with_keyframes(&self.keyframes)?;
         Ok(EncodedFrames {
             payload: asset.encode()?,
@@ -844,9 +861,16 @@ impl FramesEncoder {
         choice: FrameChoice,
         prepared: PreparedCandidate,
         samples: &[u8],
+        duration_ticks: u32,
     ) -> Result<FrameWriteReport, FrameWriteError> {
         let encoded_bytes =
             u32::try_from(prepared.encoded_bytes).map_err(|_| FrameWriteError::SizeOverflow)?;
+        self.durations
+            .try_reserve(1)
+            .map_err(|_| FrameWriteError::AllocationFailed)?;
+        self.reports
+            .try_reserve(1)
+            .map_err(|_| FrameWriteError::AllocationFailed)?;
         if let Some(encoding) = prepared.encoding {
             let existing_coding = self.codings.iter().position(|stored| *stored == encoding);
             let coding_index = existing_coding.unwrap_or(self.codings.len());
@@ -913,9 +937,6 @@ impl FramesEncoder {
             self.frame_group_counts
                 .try_reserve(1)
                 .map_err(|_| FrameWriteError::AllocationFailed)?;
-            self.reports
-                .try_reserve(1)
-                .map_err(|_| FrameWriteError::AllocationFailed)?;
             if choice.candidate().storage().is_independent() {
                 self.keyframes
                     .try_reserve(1)
@@ -939,9 +960,6 @@ impl FramesEncoder {
             self.frame_group_counts
                 .try_reserve(1)
                 .map_err(|_| FrameWriteError::AllocationFailed)?;
-            self.reports
-                .try_reserve(1)
-                .map_err(|_| FrameWriteError::AllocationFailed)?;
             self.frame_group_counts.push(0);
         }
         self.previous.clear();
@@ -955,6 +973,7 @@ impl FramesEncoder {
             stored_bytes: choice.candidate().stored_bytes(),
             delta_frames: choice.delta_frames(),
         };
+        self.durations.push(duration_ticks);
         self.reports.push(report);
         Ok(report)
     }
@@ -1337,6 +1356,7 @@ pub enum FrameWriteError {
     UnitSelection(UnitSelectionError),
     UnitIndex(UnitIndexError),
     Group(crate::image::UnitGroupRecordError),
+    Timing(FrameTimingError),
     Payload(FramesEncodeError),
 }
 
@@ -1478,6 +1498,35 @@ mod tests {
             let view = playback.present(index as u32).unwrap();
             assert_eq!(view.plane(0).unwrap().bytes(), &expected);
         }
+    }
+
+    #[test]
+    fn explicit_frame_durations_roundtrip_and_zero_is_atomic() {
+        let sequence = FrameSequence::new(2, 1_000, 40)
+            .unwrap()
+            .with_max_delta_frames(1)
+            .unwrap();
+        let first = [
+            10, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 1, 2, 3, 255,
+        ];
+        let second = [
+            11, 20, 30, 255, 40, 50, 60, 255, 70, 80, 90, 255, 1, 2, 3, 255,
+        ];
+        let mut encoder = FramesEncoder::new(sequence, surface()).unwrap();
+        assert_eq!(
+            encoder.push_with_duration(&first, 0),
+            Err(FrameWriteError::Timing(FrameTimingError::ZeroDuration {
+                frame: 0,
+            }))
+        );
+        assert_eq!(encoder.frame_count(), 0);
+        encoder.push_with_duration(&first, 40).unwrap();
+        encoder.push_with_duration(&second, 75).unwrap();
+
+        let encoded = encoder.finish().unwrap();
+        let frames = FramesView::open(encoded.payload(), &PayloadLimits::HOST).unwrap();
+        assert_eq!(frames.frame(0).unwrap().duration_ticks(), 40);
+        assert_eq!(frames.frame(1).unwrap().duration_ticks(), 75);
     }
 
     #[test]

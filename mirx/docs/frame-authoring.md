@@ -31,7 +31,7 @@ encoder
     .push(&[255, 0, 0, 255, 0, 0, 0, 255])
     .unwrap();
 encoder
-    .push(&[254, 0, 0, 255, 0, 0, 0, 255])
+    .push_with_duration(&[254, 0, 0, 255, 0, 0, 0, 255], 75)
     .unwrap();
 let encoded = encoder.finish().unwrap();
 let payload: &[u8] = encoded.payload();
@@ -45,5 +45,7 @@ let payload: &[u8] = encoded.payload();
 Indexed surfaces require `with_color_table` before the first frame. The exact RGBA table is stored once for the sequence; sparse tiles carry only packed index samples. `without_tiles` disables spatial candidates when whole-frame coding is preferred.
 
 `FrameWriteReport` exposes the selected storage relation, coding, encoded body size, complete incremental storage size, and resulting recovery distance for every frame. Failed sizing, candidate selection, or storage reservation does not advance the sequence.
+
+`push` uses `FrameSequence::default_duration_ticks`; `push_with_duration` accepts a nonzero duration in the same sequence timebase. Canonical authoring omits the timing section when every frame uses the default and otherwise chooses the smaller dense or sparse override form.
 
 After a quantized keyframe or sparse tile group is selected, the encoder reconstructs that exact coded output into its retained history. Later omission and `FrameDelta` candidates therefore use the same predictor bytes as runtime playback. This prevents source samples that were discarded by quantization from leaking into the inter-frame reference chain.

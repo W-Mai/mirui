@@ -392,7 +392,7 @@ let frames = document.frames(id).unwrap();
 # let _ = frames;
 ```
 
-`FrameSequence` owns the shared clock, default duration, composition defaults, loop count, and maximum recovery distance. `FramesEncoder` chooses the stored representation for each pushed surface and returns one immutable `EncodedFrames` value for insertion or replacement.
+`FrameSequence` owns the shared clock, default duration, composition defaults, loop count, and maximum recovery distance. `FramesEncoder::push` uses the shared duration, while `push_with_duration` stores only non-default per-frame timing through the compact timing section. The encoder chooses the stored representation for each pushed surface and returns one immutable `EncodedFrames` value for insertion or replacement.
 
 `FramesView::session` prepares sectioned frame playback with caller-owned group slots, an aligned canvas, one reusable unit workspace and an optional disposal backup. `present(frame)` reuses forward state or restarts from the closest bounded recovery frame, validating the complete replay path and selected DATA before writes. Sparse replacement groups and previous-frame residual groups share the same unit geometry, integrity and alignment contracts.
 
