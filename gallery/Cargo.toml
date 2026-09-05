@@ -134,6 +134,10 @@ name = "multi_font_snapshot"
 path = "examples/tools/multi_font_snapshot.rs"
 
 [[example]]
+name = "mirx_frames_snapshot"
+path = "examples/tools/mirx_frames_snapshot.rs"
+
+[[example]]
 name = "lifecycle_suspend"
 path = "examples/tools/lifecycle_suspend.rs"
 
