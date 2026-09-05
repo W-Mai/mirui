@@ -66,7 +66,7 @@ This 1,661-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors
 | `VECTOR` | Ordered scene operations | Bounded decode | `Scene` |
 | `META` | Ordered text, bytes, and extension values | `MetaView` | `Meta` |
 | `PALETTE` | Ordered RGBA colors | `PaletteView` | `Palette` |
-| `FRAMES` | Atlas regions or timed animation frames | `FramesView` | `FramesAsset` |
+| `FRAMES` | Timed coded surfaces with sparse and previous-frame groups | `SectionedFramesView` | `FramesEncoder` / `EncodedFrames` |
 
 IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `Document::decode_font` and `decode_vector` make owned allocation visible at the call site.
 
@@ -367,49 +367,32 @@ document
 | `VECTOR` | `decode_vector` | `push_vector` | `replace_vector`, `edit_vector`, `try_edit_vector` |
 | `META` | `meta` | `push_meta` | `replace_meta`, `edit_meta`, `try_edit_meta` |
 | `PALETTE` | `palette` | `push_palette` | `replace_palette`, `edit_palette`, `try_edit_palette` |
-| `FRAMES` | `frames` | `push_frames` | `replace_frames`, `edit_frames`, `try_edit_frames` |
+| `FRAMES` | `frames` | `push_frames` | `replace_frames` |
 
 Typed `push_*` methods use `ChunkFlags::NONE`. Their `push_*_with_flags(value, flags)` counterparts retain explicit descriptor control.
 
-`Meta` and `Palette` use `push`, `insert`, `replace`, and `remove`. `FramesAsset` exposes the corresponding `push_frame`, `insert_frame`, `replace_frame`, `remove_frame`, and `move_frame` methods; `Scene::push` appends an operation.
+`Meta` and `Palette` use `push`, `insert`, `replace`, and `remove`. `FramesEncoder::push` authors the ordered sequence and `DocumentChunkMut::replace_frames` atomically installs a finished `EncodedFrames` value. `Scene::push` appends an operation.
 
 ## Composing typed values
 
 `ImageAsset::new` accepts the required geometry and main plane. `with_extra` adds an inline palette or alpha plane only when the selected format needs one.
 
-FRAMES construction reuses the same image model:
+FRAMES construction reuses the sectioned surface model:
 
 ```rust,no_run
-extern crate alloc;
+use mirx::{Document, FrameSequence, FramesEncoder, image::{ColorDescription, SampleLayout, SurfaceDescriptor}};
 
-use alloc::{borrow::Cow, vec};
-use mirx::{AnimationFrames, AnimationSettings, ColorFormat, Frame, ImageAsset};
-
-let frame = Frame {
-    source_x: 0,
-    source_y: 0,
-    width: 32,
-    height: 32,
-    target_x: 0,
-    target_y: 0,
-    duration_ticks: 100,
-};
-let atlas = ImageAsset::new(
-    64,
-    64,
-    ColorFormat::RGBA8888,
-    64 * 4,
-    Cow::Borrowed(&[]),
-);
-let animation = AnimationFrames::new(
-    atlas,
-    vec![frame],
-    AnimationSettings::new(64, 64, 1_000, 100),
-);
-# let _ = animation;
+let surface = SurfaceDescriptor::new(2, 1, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
+let sequence = FrameSequence::new(1, 1_000, 40).unwrap();
+let mut encoder = FramesEncoder::new(sequence, surface).unwrap().with_input_alignment(64).unwrap();
+encoder.push(&[255, 0, 0, 255, 0, 0, 0, 255]).unwrap();
+let mut document = Document::new();
+let id = document.push_frames(encoder.finish().unwrap()).unwrap();
+let frames = document.frames(id).unwrap();
+# let _ = frames;
 ```
 
-`AtlasFrames::new(image, frames)` represents addressable atlas regions. `AnimationFrames::new(image, frames, settings)` adds canvas, timing, and playback semantics through `AnimationSettings`.
+`FrameSequence` owns the shared clock, default duration, composition defaults, loop count, and maximum recovery distance. `FramesEncoder` chooses the stored representation for each pushed surface and returns one immutable `EncodedFrames` value for insertion or replacement.
 
 `SectionedFramesView::session` prepares sectioned frame playback with caller-owned group slots, an aligned canvas, one reusable unit workspace and an optional disposal backup. `present(frame)` reuses forward state or restarts from the closest bounded recovery frame, validating the complete replay path and selected DATA before writes. Sparse replacement groups and previous-frame residual groups share the same unit geometry, integrity and alignment contracts.
 

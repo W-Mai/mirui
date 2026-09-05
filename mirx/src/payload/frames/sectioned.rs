@@ -771,6 +771,16 @@ impl<'a> SectionedFramesView<'a> {
         self.groups.bytes().len() / UNIT_GROUP_RECORD_LEN
     }
 
+    /// Maximum declared source alignment across stored frame groups.
+    ///
+    /// The value constrains the FRAMES payload's file or Flash placement; it
+    /// does not describe the alignment required by a decoded destination.
+    pub fn input_alignment(self) -> Result<u32, SectionedFramesError> {
+        self.group_source()
+            .input_alignment()
+            .map_err(SectionedFramesError::Storage)
+    }
+
     pub fn frame(self, index: u32) -> Option<FramePresentation> {
         let groups = self.map.get(index)?;
         let duration_ticks = self.timing.map_or_else(

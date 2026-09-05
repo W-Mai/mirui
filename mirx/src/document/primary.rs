@@ -1,7 +1,7 @@
 use super::descriptor::descriptor_payload;
 use super::payload::ResolvedNodePayload;
 use super::{ChunkNode, ChunkSet, Document, DocumentState, PrimaryHintState};
-use crate::{ChunkId, ChunkType, EditError, FramesMode, FramesView, PayloadLimits, PrimaryHints};
+use crate::{ChunkId, ChunkType, EditError, PayloadLimits, PrimaryHints, SectionedFramesView};
 
 const KNOWN_NON_IMAGE_HINTS: PrimaryHints =
     PrimaryHints::new(crate::image::SampleLayout::NONE, 0, 0, 0);
@@ -107,21 +107,18 @@ fn derived_primary_hints(
         return Err(());
     }
     let bytes = payload.bytes().ok_or(())?;
-    let frames = FramesView::open_payload(bytes, &limits).map_err(|_| ())?;
-    Ok(match frames.mode() {
-        FramesMode::Atlas => PrimaryHints::new(
-            crate::image::SampleLayout::from_color_format(frames.format()),
-            frames.atlas_width(),
-            frames.atlas_height(),
-            frames.atlas_stride(),
-        ),
-        FramesMode::Animation => PrimaryHints::new(
-            crate::image::SampleLayout::from_color_format(frames.format()),
-            frames.canvas_width(),
-            frames.canvas_height(),
-            0,
-        ),
-    })
+    let frames = SectionedFramesView::open(bytes, &limits).map_err(|_| ())?;
+    let surface = frames.surface();
+    let stride = surface
+        .plane(0)
+        .and_then(|plane| plane.minimum_stride())
+        .ok_or(())?;
+    Ok(PrimaryHints::new(
+        surface.sample_layout(),
+        surface.width(),
+        surface.height(),
+        stride,
+    ))
 }
 
 /// A structural edit projected onto table order without changing storage.

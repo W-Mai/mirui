@@ -1,8 +1,8 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
 use crate::image::{ImageReadError, ImageRef};
 use crate::{
-    ChunkType, FontError, FontView, FramesDecodeError, MetaDecodeError, PaletteDecodeError,
-    ReadError, Scene, VectorReadError,
+    ChunkType, FontError, FontView, MetaDecodeError, PaletteDecodeError, ReadError, Scene,
+    SectionedFramesError, VectorReadError,
 };
 
 /// Source location of a payload validation result.
@@ -27,7 +27,7 @@ pub enum PayloadValidationFailure {
     Vector(VectorReadError),
     Meta(MetaDecodeError),
     Palette(PaletteDecodeError),
-    Frames(FramesDecodeError),
+    Frames(SectionedFramesError),
 }
 
 /// A payload validation failure bound to its MIRX source location.
@@ -178,8 +178,12 @@ pub(crate) fn preflight_chunk(
             Ok(PreflightStatus::Validated)
         }
         ChunkType::FRAMES => {
-            chunk
+            let frames = chunk
                 .frames(limits)
+                .map_err(PayloadValidationFailure::Frames)?
+                .expect("FRAMES chunk must return a typed view");
+            frames
+                .validate_data()
                 .map_err(PayloadValidationFailure::Frames)?;
             Ok(PreflightStatus::Validated)
         }
@@ -206,9 +210,11 @@ mod tests {
 
     use super::*;
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
+    use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
     use crate::{
-        ChunkFlags, ColorFormat, FlatImageInput, ImageChunkInput, ReadOptions, SceneOp,
-        TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
+        ChunkFlags, ColorFormat, FlatImageInput, FrameSequence, FramesEncoder, ImageChunkInput,
+        ReadOptions, SceneOp, TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks,
+        encode_flat,
     };
 
     fn valid_image_payload() -> Vec<u8> {
@@ -294,22 +300,13 @@ mod tests {
     }
 
     fn frames_file(flags: u16) -> Vec<u8> {
-        let mut payload = alloc::vec![0; 98];
-        payload[0] = 1;
-        payload[2] = ColorFormat::A8.to_u8();
-        payload[8..12].copy_from_slice(&2u32.to_le_bytes());
-        payload[12..16].copy_from_slice(&1u32.to_le_bytes());
-        payload[16..20].copy_from_slice(&2u32.to_le_bytes());
-        payload[28..32].copy_from_slice(&1u32.to_le_bytes());
-        payload[44..48].copy_from_slice(&64u32.to_le_bytes());
-        payload[48..52].copy_from_slice(&96u32.to_le_bytes());
-        payload[52..56].copy_from_slice(&2u32.to_le_bytes());
-        payload[56..60].copy_from_slice(&2u32.to_le_bytes());
-        payload[72..76].copy_from_slice(&2u32.to_le_bytes());
-        payload[76..80].copy_from_slice(&1u32.to_le_bytes());
-        let checksum = crc32(&payload);
-        payload.extend_from_slice(&checksum.to_le_bytes());
-        encode_chunks(&[(chunk_type::FRAMES, flags, &payload)])
+        let sequence = FrameSequence::new(1, 1_000, 40).unwrap();
+        let surface =
+            SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let mut encoder = FramesEncoder::new(sequence, surface).unwrap();
+        encoder.push(&[0x10, 0x20]).unwrap();
+        let encoded = encoder.finish().unwrap();
+        encode_chunks(&[(chunk_type::FRAMES, flags, encoded.payload())])
     }
 
     fn payload_offset(bytes: &[u8], index: usize) -> u32 {
@@ -418,7 +415,7 @@ mod tests {
         );
     }
 
-    fn assert_critical_frames_failure(bytes: &[u8], expected: FramesDecodeError) {
+    fn assert_critical_frames_failure(bytes: &[u8], expected: SectionedFramesError) {
         let offset = payload_offset(bytes, 0);
         assert_eq!(
             Reader::open(bytes),
@@ -776,14 +773,14 @@ mod tests {
             .frames(&limits)
             .unwrap()
             .unwrap();
-        assert_eq!(frames.mode(), crate::FramesMode::Atlas);
-        assert_eq!(frames.len(), 1);
+        assert_eq!(frames.sequence().frame_count(), 1);
+        assert_eq!(frames.surface().width(), 2);
 
         let limited = PayloadLimits::EMBEDDED.with_max_frame_records(0);
         assert!(matches!(
             Reader::open_with(&bytes, &ReadOptions::new().with_payload_limits(limited),),
             Err(ReadError::CriticalPayload(PayloadValidationError {
-                failure: PayloadValidationFailure::Frames(FramesDecodeError::TooManyFrames {
+                failure: PayloadValidationFailure::Frames(SectionedFramesError::TooManyFrames {
                     count: 1,
                     limit: 0,
                 }),
@@ -795,11 +792,14 @@ mod tests {
     #[test]
     fn malformed_frames_is_strict_only_when_critical_or_explicitly_scanned() {
         let mut critical = frames_file(ChunkFlags::CRITICAL.bits());
-        set_payload_byte(&mut critical, 3, 1);
-        assert_critical_frames_failure(&critical, FramesDecodeError::UnsupportedCompression(1));
+        set_payload_byte(&mut critical, 0, 2);
+        assert_critical_frames_failure(
+            &critical,
+            SectionedFramesError::Media(crate::media::MediaPayloadError::UnsupportedVersion(2)),
+        );
 
         let mut noncritical = frames_file(0);
-        set_payload_u32(&mut noncritical, 16, 1);
+        set_payload_byte(&mut noncritical, 0, 2);
         let reader = Reader::open(&noncritical).unwrap();
         assert_eq!(
             reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
@@ -809,10 +809,9 @@ mod tests {
                     chunk_type: ChunkType::FRAMES,
                     payload_offset: payload_offset(&noncritical, 0),
                 },
-                failure: PayloadValidationFailure::Frames(FramesDecodeError::StrideTooSmall {
-                    minimum: 2,
-                    actual: 1,
-                }),
+                failure: PayloadValidationFailure::Frames(SectionedFramesError::Media(
+                    crate::media::MediaPayloadError::UnsupportedVersion(2),
+                )),
             })
         );
     }

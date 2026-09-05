@@ -4,8 +4,8 @@ use core::iter::FusedIterator;
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFileHeader};
 use crate::wire::{read_u16_le, read_u32_le, slice};
 use crate::{
-    ChunkFlags, ChunkType, FramesDecodeError, FramesView, MetaDecodeError, MetaView,
-    PaletteDecodeError, PaletteView, PayloadLimits, ReadError,
+    ChunkFlags, ChunkType, MetaDecodeError, MetaView, PaletteDecodeError, PaletteView,
+    PayloadLimits, ReadError, SectionedFramesError, SectionedFramesView,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -231,11 +231,11 @@ impl<'a> ChunkRef<'a> {
     pub fn frames(
         &self,
         limits: &PayloadLimits,
-    ) -> Result<Option<FramesView<'a>>, FramesDecodeError> {
+    ) -> Result<Option<SectionedFramesView<'a>>, SectionedFramesError> {
         if self.chunk_type != ChunkType::FRAMES {
             return Ok(None);
         }
-        FramesView::open_payload(self.payload, limits).map(Some)
+        SectionedFramesView::open_at(self.payload, self.payload_offset, limits).map(Some)
     }
 }
 

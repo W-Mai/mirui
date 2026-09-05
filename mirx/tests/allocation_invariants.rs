@@ -8,8 +8,8 @@ use mirx::image::{
 };
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
-    AtlasFrames, ChunkFlags, ChunkType, Color, ColorFormat, Document, EncodeOptions, Frame,
-    FramesAsset, ImageAsset, Meta, MetaEntry, Palette, PayloadLimits, Reader, encode_chunks,
+    ChunkFlags, ChunkType, Color, ColorFormat, Document, EncodeOptions, FrameSequence,
+    FramesEncoder, ImageAsset, Meta, MetaEntry, Palette, PayloadLimits, Reader, encode_chunks,
 };
 
 struct TrackingAllocator;
@@ -1562,26 +1562,21 @@ fn typed_container() -> Vec<u8> {
     let palette = Palette::from_colors(vec![Color::rgba(1, 2, 3, 4), Color::rgba(5, 6, 7, 8)])
         .encode_payload()
         .unwrap();
-    let frames = FramesAsset::Atlas(AtlasFrames::new(
-        ImageAsset::new(2, 2, ColorFormat::A8, 2, Cow::Borrowed(&pixels)),
-        vec![Frame {
-            source_x: 0,
-            source_y: 0,
-            width: 2,
-            height: 2,
-            target_x: 0,
-            target_y: 0,
-            duration_ticks: 0,
-        }],
-    ))
-    .encode_payload()
-    .unwrap();
+    let sequence = FrameSequence::new(1, 1_000, 40).unwrap();
+    let surface = SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let mut encoder = FramesEncoder::new(sequence, surface).unwrap();
+    encoder.push(&pixels).unwrap();
+    let frames = encoder.finish().unwrap();
 
     encode_chunks(&[
         (ChunkType::IMAGE.raw(), ChunkFlags::NONE.bits(), &image),
         (ChunkType::META.raw(), ChunkFlags::NONE.bits(), &meta),
         (ChunkType::PALETTE.raw(), ChunkFlags::NONE.bits(), &palette),
-        (ChunkType::FRAMES.raw(), ChunkFlags::NONE.bits(), &frames),
+        (
+            ChunkType::FRAMES.raw(),
+            ChunkFlags::NONE.bits(),
+            frames.payload(),
+        ),
     ])
 }
 
@@ -1951,13 +1946,13 @@ fn borrowed_reads_and_caller_buffer_encoding_allocate_nothing() {
                 observed += palette.colors().iter().count();
             }
             if let Some(frames) = chunk.frames(&limits).unwrap() {
-                observed += frames.frames().count();
-                observed += frames.atlas().main().len();
+                observed += frames.sequence().frame_count() as usize;
+                observed += frames.group_count();
             }
         }
         observed
     });
-    assert_eq!(observed, 12);
+    assert_eq!(observed, 9);
     assert_eq!(read_allocations, 0);
 
     let (document, document_open_allocations) =

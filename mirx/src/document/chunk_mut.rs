@@ -1,6 +1,6 @@
 use super::{ChunkNode, Document, DocumentState, PayloadInput, RawChunkPolicy};
 use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, Font, FramesAsset, Meta, Palette, Scene,
+    ChunkFlags, ChunkId, ChunkType, EditError, EncodedFrames, Font, Meta, Palette, Scene,
     TryEditError,
 };
 
@@ -177,27 +177,9 @@ impl<'document, 'source> DocumentChunkMut<'document, 'source> {
     }
 
     /// Replaces this chunk with a checked FRAMES payload.
-    pub fn replace_frames(&mut self, frames: &FramesAsset<'_>) -> Result<(), EditError> {
+    pub fn replace_frames(&mut self, frames: EncodedFrames) -> Result<(), EditError> {
         let id = self.id();
         self.document.replace_frames(id, frames)
-    }
-
-    /// Transactionally edits this chunk as a copy-on-write FRAMES value.
-    pub fn edit_frames(
-        &mut self,
-        edit: impl FnOnce(&mut FramesAsset<'_>),
-    ) -> Result<(), EditError> {
-        let id = self.id();
-        self.document.edit_frames(id, edit)
-    }
-
-    /// Transactionally edits this chunk as FRAMES with a fallible callback.
-    pub fn try_edit_frames<E>(
-        &mut self,
-        edit: impl FnOnce(&mut FramesAsset<'_>) -> Result<(), E>,
-    ) -> Result<(), TryEditError<E>> {
-        let id = self.id();
-        self.document.try_edit_frames(id, edit)
     }
 
     fn node(&self) -> &ChunkNode<'source> {

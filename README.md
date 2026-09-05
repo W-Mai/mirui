@@ -103,6 +103,12 @@ adding new target crates.
 cargo xtask gen-mirx image --in logo.png --out logo.mirx --format rgba8888 --coding frequency-quantized --quality 75
 ```
 
+`gen-mirx frames` accepts an ordered list of decoded source images, evaluates whole-frame, sparse-tile, previous-frame, RLE, native pixel, LZ4, reversible frequency, and optional quantized frequency candidates, then writes one checked FRAMES container. The output writer preserves declared source alignment at the final file address; decoded GPU/DMA alignment remains a runtime `SurfaceRequirements` choice.
+
+```shell
+cargo xtask gen-mirx frames --in frame-000.png --in frame-001.png --out animation.mirx --format rgba8888 --tile 32x32 --input-align 64
+```
+
 `Texture::from_mirx` keeps compatible RAW pixels borrowed and decodes compressed pixels into owned storage. `Texture::plan_mirx` exposes exact group-slot, output, alignment, and reusable workspace requirements for fixed caller buffers. `MirxTextureOptions` carries `PayloadLimits` plus `SurfaceRequirements`, including GPU/DMA width, stride, plane, and base-address constraints.
 
 ```rust

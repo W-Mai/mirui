@@ -23,6 +23,21 @@ pub(super) enum ResolvedNodePayload<'a> {
 }
 
 impl<'a> ResolvedNodePayload<'a> {
+    pub(super) fn frames_view(
+        self,
+        limits: &PayloadLimits,
+    ) -> Result<crate::SectionedFramesView<'a>, crate::SectionedFramesError> {
+        match self {
+            Self::Contiguous { bytes, placement } => match placement {
+                PayloadPlacement::Fixed(offset) => {
+                    crate::SectionedFramesView::open_at(bytes, offset, limits)
+                }
+                PayloadPlacement::Unplaced => crate::SectionedFramesView::open(bytes, limits),
+            },
+            Self::PromotedImage(_) => Err(crate::SectionedFramesError::SizeOverflow),
+        }
+    }
+
     pub(super) fn font_view(
         self,
         limits: &PayloadLimits,

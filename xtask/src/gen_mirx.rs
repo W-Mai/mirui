@@ -1,5 +1,6 @@
 mod bundle;
 mod font;
+mod frames;
 mod image;
 mod vector;
 
@@ -9,6 +10,7 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
     let sub = args.first().map(|s| s.as_str()).unwrap_or("");
     match sub {
         "font" => font::run(&args[1..]),
+        "frames" => frames::run(&args[1..]),
         "image" => image::run(&args[1..]),
         "bundle" => bundle::run(&args[1..]),
         "vector" => vector::run(&args[1..]),
@@ -23,10 +25,17 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
     \
                      [--coding <raw|pixel|rle|lz4|frequency-reversible|frequency-quantized>] \
                      [--quality <1..100>] [--stride-align <raw-row-bytes>]\n  \
+                 cargo xtask gen-mirx frames --in <frame> --in <frame> --out <animation.mirx> \
+    \
+                     [--format <rgba8888|rgb888|i1|i2|i4|i8>] [--duration <ticks>] \
+    \
+                     [--timebase <ticks-per-second>] [--max-delta-frames <count>] \
+    \
+                     [--tile <width>x<height>|none] [--input-align <bytes>] [--quality <1..100>]\n  \
                  cargo xtask gen-mirx bundle <a.mirx> <b.mirx> ... --out <bundle.mirx>\n  \
                  cargo xtask gen-mirx vector --in <scene.txt> --out <scene.mirx>\n\
                  \n\
-                 font/image/bundle are shims around the icu tool.\n\
+                 font/image/frames/bundle use the icu tool for source decoding.\n\
                  install: cargo install icu_tool  \
                  (or brew install w-mai/homebrew-cellar/icu_tool)"
             );

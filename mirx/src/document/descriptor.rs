@@ -3,8 +3,8 @@ use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_prima
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
 use crate::{
-    ChunkFlags, ChunkType, EditError, FramesEncodeError, FramesView, MetaEncodeError, MetaView,
-    PaletteEncodeError, PaletteView, PayloadLimits, Scene, VectorEncodeError,
+    ChunkFlags, ChunkType, EditError, MetaEncodeError, MetaView, PaletteEncodeError, PaletteView,
+    PayloadLimits, Scene, SectionedFramesView, VectorEncodeError,
 };
 
 #[cfg(test)]
@@ -162,15 +162,15 @@ fn evaluate_resolved_descriptor_with_flags(
         }
     } else if chunk_type == ChunkType::FRAMES {
         match payload.bytes() {
-            Some(bytes) => match FramesView::open_payload(bytes, &limits) {
-                Ok(_) => true,
+            Some(bytes) => match SectionedFramesView::open(bytes, &limits)
+                .and_then(SectionedFramesView::validate_data)
+            {
+                Ok(()) => true,
                 Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
                     false
                 }
                 Err(error) => {
-                    return Err(EditError::InvalidFrames(FramesEncodeError::InvalidAsset(
-                        error,
-                    )));
+                    return Err(EditError::InvalidFrames(error));
                 }
             },
             None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,

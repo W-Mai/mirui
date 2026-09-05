@@ -107,12 +107,34 @@ impl<'a> PayloadPlan<'a> {
                             }
                             Err(_) => {}
                         }
-                        PlacementConstraint::Image {
+                        PlacementConstraint::AlignedMedia {
+                            chunk_type,
                             payload,
                             data_offset: data.descriptor().offset(),
                             alignment,
                         }
                     }
+                    None => PlacementConstraint::Chunk(CONTAINER_ALIGNMENT),
+                }
+            }
+            Self::Verbatim(payload) if chunk_type == ChunkType::FRAMES => {
+                let frames = crate::SectionedFramesView::open(payload, &limits).ok();
+                let data = frames.and_then(|frames| {
+                    frames
+                        .media()
+                        .section(MediaSectionKind::DATA)
+                        .map(|data| (frames, data))
+                });
+                match data {
+                    Some((frames, data)) => match frames.input_alignment() {
+                        Ok(alignment) => PlacementConstraint::AlignedMedia {
+                            chunk_type,
+                            payload,
+                            data_offset: data.descriptor().offset(),
+                            alignment: CONTAINER_ALIGNMENT.max(alignment),
+                        },
+                        Err(_) => PlacementConstraint::Chunk(CONTAINER_ALIGNMENT),
+                    },
                     None => PlacementConstraint::Chunk(CONTAINER_ALIGNMENT),
                 }
             }
@@ -130,7 +152,8 @@ enum PlacementConstraint<'a> {
         payload: &'a [u8],
         limits: crate::PayloadLimits,
     },
-    Image {
+    AlignedMedia {
+        chunk_type: ChunkType,
         payload: &'a [u8],
         data_offset: u32,
         alignment: u32,
@@ -146,7 +169,8 @@ impl PlacementConstraint<'_> {
                 .map_err(|_| EncodeError::InvalidPayload {
                     chunk_type: ChunkType::FONT,
                 }),
-            Self::Image {
+            Self::AlignedMedia {
+                chunk_type,
                 payload,
                 data_offset,
                 alignment,
@@ -154,9 +178,7 @@ impl PlacementConstraint<'_> {
                 let candidate = align_relative(cursor, data_offset, alignment)?;
                 MediaPayload::open(payload)
                     .and_then(|media| media.validate_file_alignment(candidate, alignment))
-                    .map_err(|_| EncodeError::InvalidPayload {
-                        chunk_type: ChunkType::IMAGE,
-                    })?;
+                    .map_err(|_| EncodeError::InvalidPayload { chunk_type })?;
                 Ok(candidate)
             }
         }

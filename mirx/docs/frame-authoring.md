@@ -38,6 +38,8 @@ let payload: &[u8] = encoded.payload();
 # assert!(!payload.is_empty());
 ```
 
+`Document::push_frames(encoded)` transfers the finished payload without cloning it. The document writer reads its declared group input alignment and chooses a chunk position that makes the final file-relative DATA addresses valid. `Document::frames(id)` and `ChunkRef::frames(limits)` return the same `SectionedFramesView`; both retain fixed file placement when the payload came from an encoded container.
+
 `SurfaceDescriptor::tight_byte_len` derives the required input length by summing every plane's `minimum_stride() × height`; packed indexes and subsampled YUV therefore use the same geometry seam as decoding. `with_tiles` validates one joint-plane grid, including chroma boundaries, before the first frame. Sparse selection chooses the smaller sorted-cell or checkpointed-bitmap form. Equal coded unit lengths omit the range table; variable lengths use compact checkpointed `u16` lengths when possible and `u32` otherwise. `with_input_alignment` aligns the DATA base and every stored unit start. Runtime output alignment and stride remain separate `SurfaceRequirements`, so a 64-byte GPU input requirement does not silently force the same decoded layout.
 
 Indexed surfaces require `with_color_table` before the first frame. The exact RGBA table is stored once for the sequence; sparse tiles carry only packed index samples. `without_tiles` disables spatial candidates when whole-frame coding is preferred.
