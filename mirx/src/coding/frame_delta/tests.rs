@@ -202,6 +202,61 @@ fn neon_and_scalar_kernels_are_bit_exact() {
     assert_eq!(neon, current);
 }
 
+#[cfg(target_arch = "x86_64")]
+#[test]
+fn sse2_and_scalar_kernels_are_bit_exact() {
+    fn compare(input: &[u8], reference: &[u8]) {
+        let plan = FrameDelta::new().plan(input, reference.len()).unwrap();
+        let mut scalar = reference.to_vec();
+        plan.apply_with(&mut scalar, &mut ScalarFrameDelta).unwrap();
+        let mut sse2 = reference.to_vec();
+        plan.apply_with(&mut sse2, &mut Sse2FrameDelta).unwrap();
+        assert_eq!(sse2, scalar);
+    }
+
+    compare(&[REPEAT | 15, 9], &[250; 16]);
+    compare(
+        &[
+            LITERAL | 15,
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+        ],
+        &[250; 16],
+    );
+    compare(&[PATTERN | 2, 38, 0, 1, 2, 3], &[250; 120]);
+
+    let reference = core::array::from_fn::<_, 257, _>(|index| (index * 47) as u8);
+    let current = core::array::from_fn::<_, 257, _>(|index| {
+        reference[index].wrapping_add([0, 7, 0, 249][index % 4])
+    });
+    let codec = FrameDelta::new();
+    let mut encoded = [0; 262];
+    let len = codec
+        .encode_into(&reference, &current, &mut encoded)
+        .unwrap();
+    let plan = codec.plan(&encoded[..len], current.len()).unwrap();
+    let mut scalar = reference;
+    plan.apply_with(&mut scalar, &mut ScalarFrameDelta).unwrap();
+    let mut sse2 = reference;
+    plan.apply_with(&mut sse2, &mut Sse2FrameDelta).unwrap();
+    assert_eq!(scalar, current);
+    assert_eq!(sse2, current);
+}
+
 #[test]
 fn all_failures_precede_output_writes() {
     let codec = FrameDelta::new();

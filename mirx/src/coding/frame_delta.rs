@@ -4,6 +4,8 @@ use crate::media::{CodingId, CodingRecord};
 mod kernel;
 #[cfg(target_arch = "aarch64")]
 pub use kernel::NeonFrameDelta;
+#[cfg(target_arch = "x86_64")]
+pub use kernel::Sse2FrameDelta;
 pub use kernel::{FrameDeltaKernel, ScalarFrameDelta};
 
 const REPEAT: u8 = 0x40;
@@ -354,7 +356,9 @@ impl<'a> FrameDeltaDecodePlan<'a> {
     pub fn apply_into(self, output: &mut [u8]) -> Result<usize, FrameDeltaError> {
         #[cfg(target_arch = "aarch64")]
         let mut kernel = NeonFrameDelta;
-        #[cfg(not(target_arch = "aarch64"))]
+        #[cfg(target_arch = "x86_64")]
+        let mut kernel = Sse2FrameDelta;
+        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
         let mut kernel = ScalarFrameDelta;
         self.apply_with(output, &mut kernel)
     }
