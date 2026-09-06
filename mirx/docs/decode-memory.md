@@ -48,6 +48,22 @@ The request is a caller assertion about storage supplied outside MIRX. A byte sl
 
 The built-in slice decoder rejects `Compute`, `DirectUpload`, and device-only buffers before image preflight. This is a capability result, not an automatic fallback. A device adapter must expose its own execution path and validate coding revision, sample layout, block geometry, memory placement, alignment, coherence, lifetime, and failure atomicity.
 
+## Execution target status
+
+| Target | Implementation | Verification | Admitted scope |
+| --- | --- | --- | --- |
+| Portable scalar Rust | implemented | host tests, allocation invariants, RISC-V compile | RAW, native pixel, RLE, LZ4, reversible and quantized frequency coding, frame delta |
+| AArch64 NEON | implemented for frame-delta residual replay | bit-exact tests and native AArch64 measurements | validated literal, repeat, and compatible pattern blocks; scalar tail and fallback |
+| x86-64 SSE2 | implemented for frame-delta residual replay | bit-exact x86 executable under Rosetta 2; native x86 hardware unverified | validated literal, repeat, and compatible pattern blocks; scalar tail and fallback |
+| RISC-V RV32IMC | portable scalar path compiles without atomics | compile-only in this repository | no device timing or cache-coherence claim |
+| Arm MVE | not implemented | unverified | none |
+| GPU compute | not implemented | unverified and rejected by the built-in decoder | none |
+| GPU-native block upload | no MIRX coding profile is assigned | unverified and rejected by the built-in decoder | none |
+| Firmware offload | no adapter is implemented | unverified | placement and synchronization vocabulary only |
+| BES device path | 64-byte output geometry and address contracts are representable | device execution unverified | no firmware, cache-maintenance, or timing claim |
+
+“Implemented” identifies executable code, while “verified” identifies the environment that actually ran it. A cross-target build proves compilation only. `MemoryPlacement`, `CacheSync`, and `SurfaceRequirements` describe a backend contract; they do not upgrade an absent adapter into a supported target.
+
 ## Frame playback retains the same contract
 
 `FramesView::playback_plan_for` applies one `DecodeRequest` to every frame before allocating or binding playback storage. The retained canvas uses the output geometry and placement. The reusable codec workspace and `RestorePrevious` snapshot use the workspace placement and alignment; a snapshot also preserves any stronger canvas base alignment. Encoded unit alignment and actual slice-address checks are aggregated across the complete sequence.
