@@ -8,14 +8,15 @@
 
 ```rust
 use mirui::render::texture::{MirxTextureOptions, Texture};
+use mirx::ByteAlignment;
 
 #[repr(align(64))]
 struct Output([u8; 4096]);
 
 let options = MirxTextureOptions::new().with_requirements(
     mirx::image::SurfaceRequirements::new()
-        .with_base_alignment(64)
-        .with_plane_alignment(64)
+        .with_base_alignment(ByteAlignment::new(64).unwrap())
+        .with_plane_alignment(ByteAlignment::new(64).unwrap())
         .with_stride_multiple(64),
 );
 let mut groups = [None; 8];
@@ -156,7 +157,7 @@ Work includes group resolution and coverage, each unit's coded and decoded bytes
 
 ## Grouped authoring
 
-`EncodedImageAsset::from_groups(surface, &codings, &groups, data)` borrows all inputs. Each `UnitGroupRecord` names one coding ordinal and a DATA range, with optional tile geometry, plane selection, sparse selection and range encoding. `with_index(bytes)` supplies the combined UNIT_INDEX body; index offsets address that body, while DATA ranges address DATA. No per-unit descriptor array is generated.
+`EncodedImageAsset::from_groups(surface, &codings, &groups, data)` borrows all inputs. Each `UnitGroupRecord` names one coding ordinal and a DATA range, with optional tile geometry, plane selection, sparse selection and range encoding. `with_unit_index(bytes)` supplies the combined UNIT_INDEX body; index offsets address that body, while DATA ranges address DATA. No per-unit descriptor array is generated.
 
 ```rust
 use mirx::{PayloadLimits, coding::Rle, image::{

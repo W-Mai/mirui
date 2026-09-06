@@ -23,7 +23,7 @@ RepresentationRecord::new(FontRepresentation::coverage(8, 12, 64).unwrap(), 0)
     .encode_record_into(&mut record).unwrap();
 let representations = RepresentationTable::open(&record, &surface, 1, &PayloadLimits::EMBEDDED).unwrap();
 let mut metrics = [0; 24];
-LineMetrics::new(Fixed::from_raw(10 * 256), Fixed::from_raw(-2 * 256), Fixed::from_raw(12 * 256)).unwrap()
+LineMetrics::new(Fixed::from_int(10), Fixed::from_int(-2), Fixed::from_int(12)).unwrap()
     .encode_record_into(&mut metrics).unwrap();
 let tables = FaceTables::new(codepoints, representations, &metrics, &[]).unwrap();
 let selected = tables.select(FontRepresentationRequest::new(12)).unwrap();

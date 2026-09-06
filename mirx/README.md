@@ -2,7 +2,7 @@
 
 MIRX is mirui's ahead-of-time binary asset format. It packages images, fonts, vector scenes, metadata, palettes, and frame sequences into deterministic bytes that can be embedded with `include_bytes!` and consumed directly on constrained targets.
 
-The crate is `no_std + alloc`, has no external dependencies, and separates the allocation-free runtime path from source-backed authoring.
+The crate is `no_std + alloc` and separates the allocation-free runtime path from source-backed authoring. A target-gated portable vector dependency accelerates frame residual replay on x86-64, AArch64, and wasm32; unsupported targets retain the scalar path without that dependency.
 
 ![MIRX architecture: assets are encoded into FLAT or CHUNK containers, then consumed through Reader or edited through Document](docs/architecture.svg)
 
@@ -170,7 +170,7 @@ IMAGE uses an 8-byte media header, 12-byte section entries, a 32-byte SURFACE re
 
 `EncodedImageView::preflight(&limits)` combines static group validation, admitted scalar profiles, exact unit syntax and complete DATA integrity without allocating groups or decoded samples. `PayloadLimits::with_max_raster_groups`, `with_max_raster_units` and `with_max_raster_work` bound shared sample-processing costs; `with_max_decoded_bytes` limits each unit's tight decoded bytes. Shared admission accumulates costs across surfaces and charges DATA integrity separately. Large independently coded images need not fit in one decoded allocation. Empty surfaces still require an understood active profile; unsupported syntax and unit-size failures retain their group/unit locations.
 
-`EncodedImageAsset::new(surface, coding, data)` writes a canonical single-stream IMAGE from borrowed encoded bytes. `from_groups(surface, &codings, &groups, data).with_index(bytes)` accepts shared profiles, planar or tiled groups and optional compact indexes. Exact sizing, checked caller-buffer encoding and byte comparison allocate nothing. Default single-stream groups/indexes are omitted; explicit groups own their input alignment, and palettes remain separate metadata. Authoring validates structural metadata without claiming codec support or decoding DATA; bounded preflight checks complete coverage and syntax. RAW and encoded authoring share `image::ImageEncodeError`. See [encoded images](docs/encoded-images.md) for encode/store/decode examples and validation boundaries.
+`EncodedImageAsset::new(surface, coding, data)` writes a canonical single-stream IMAGE from borrowed encoded bytes. `from_groups(surface, &codings, &groups, data).with_unit_index(bytes)` accepts shared profiles, planar or tiled groups and optional compact indexes. Exact sizing, checked caller-buffer encoding and byte comparison allocate nothing. Default single-stream groups/indexes are omitted; explicit groups own their input alignment, and palettes remain separate metadata. Authoring validates structural metadata without claiming codec support or decoding DATA; bounded preflight checks complete coverage and syntax. RAW and encoded authoring share `image::ImageEncodeError`. See [encoded images](docs/encoded-images.md) for encode/store/decode examples and validation boundaries.
 
 `ImageRef::open` and `open_at` inspect either RAW or encoded IMAGE storage through one metadata parse. The `Raw(SurfaceView)` and `Encoded(EncodedImageView)` variants expose the same surface and palette metadata but distinct sample-access contracts. `raw()` returns verified borrowed samples; `encoded()` retains explicit group, integrity and decode planning. Dispatch follows CODINGS presence without parser fallback, allocation or implicit decoding.
 
@@ -204,7 +204,7 @@ Encoded payload bytes can be inserted through `push_raw` with `RawChunkPolicy::i
 
 `coding::Lz4` encodes and decodes independent raw LZ4 blocks. `encoder(&mut table)` borrows fixed caller workspace for exact sizing and checked encoding; table size never changes automatically. Decode preflight uses an exact caller-supplied decoded length, and backward references use caller output as history. No frame, size prefix, external dictionary or allocation is required. Errors preserve output, and successful writes retain the suffix. See [LZ4 coding](docs/lz4-coding.md).
 
-`coding::FrameDelta` encodes lossless modulo-256 byte residuals against the same unit in the previous frame. Bounded run and repeating-pattern tokens compact unchanged regions, constant channel changes and interleaved pixels without sample-layout-specific state. FRAMES sessions copy the predictor from the retained canvas into reusable caller workspace, apply residuals in place, then expand into the requested strided and aligned unit layout. `FrameDeltaKernel` separates validated token parsing from residual execution; AArch64 selects NEON, x86-64 selects SSE2, other targets use the scalar reference, and callers can provide an explicit kernel through `apply_with`. Static IMAGE groups reject this previous-frame profile. Asset generators must compare no-op, sparse-tile, residual and independent-profile sizes because incompressible residuals can exceed RAW. See [frame-delta coding](docs/frame-delta-coding.md).
+`coding::FrameDelta` encodes lossless modulo-256 byte residuals against the same unit in the previous frame. Bounded run and repeating-pattern tokens compact unchanged regions, constant channel changes and interleaved pixels without sample-layout-specific state. FRAMES sessions copy the predictor from the retained canvas into reusable caller workspace, apply residuals in place, then expand into the requested strided and aligned unit layout. `FrameDeltaKernel` separates validated token parsing from residual execution. One private portable 16-byte kernel maps to the vector facilities available on x86-64, AArch64 and wasm32; compact scalar execution remains the default elsewhere, and callers can provide an explicit firmware kernel through `apply_with`. Static IMAGE groups reject this previous-frame profile. Asset generators must compare no-op, sparse-tile, residual and independent-profile sizes because incompressible residuals can exceed RAW. See [frame-delta coding](docs/frame-delta-coding.md).
 
 `FrameSelector` admits already-encoded omitted, keyframe, sparse and delta candidates against loss, recovery-distance, stored-byte, decode-work and workspace limits without allocating. Selection compares complete incremental wire bytes, prefers independent recovery on equal storage, and exposes each rejection for generator reports. See [frame candidate selection](docs/frame-selection.md).
 
@@ -234,7 +234,7 @@ assert_eq!(output, samples);
 `SurfacePlane::row(y)` and `rows()` borrow logical sample rows without allocation. Row indices use each plane's own geometry, including chroma subsampling. Stride padding and allocation-only rows are excluded; unused low bits in a sub-byte row's last byte remain unchanged. Unknown physical storage flags are rejected. These CPU-readable slices do not imply that every row meets GPU address-alignment requirements.
 
 ```rust
-use mirx::image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor, SurfaceRequirements};
+use mirx::{ByteAlignment, image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor, SurfaceRequirements}};
 
 #[repr(align(64))]
 struct Buffer([u8; 256]);
@@ -245,8 +245,8 @@ let surface = SurfaceDescriptor::new(
 let image = RawImageAsset::new(surface, &[&[16; 4], &[128; 2]]).view().unwrap();
 let plan = surface.memory_plan(
     SurfaceRequirements::new()
-        .with_base_alignment(64)
-        .with_plane_alignment(64)
+        .with_base_alignment(ByteAlignment::new(64).unwrap())
+        .with_plane_alignment(ByteAlignment::new(64).unwrap())
         .with_stride_multiple(64),
 ).unwrap();
 let mut buffer = Buffer([0; 256]);
@@ -388,11 +388,14 @@ Typed `push_*` methods use `ChunkFlags::NONE`. Their `push_*_with_flags(value, f
 FRAMES construction reuses the sectioned surface model:
 
 ```rust,no_run
-use mirx::{Document, FrameSequence, FramesEncoder, image::{ColorDescription, SampleLayout, SurfaceDescriptor}};
+use mirx::{ByteAlignment, Document, FrameSequence, FramesEncoder, image::{ColorDescription, SampleLayout, SurfaceDescriptor}};
 
 let surface = SurfaceDescriptor::new(2, 1, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
 let sequence = FrameSequence::new(1, 1_000, 40).unwrap();
-let mut encoder = FramesEncoder::new(sequence, surface).unwrap().with_input_alignment(64).unwrap();
+let mut encoder = FramesEncoder::new(sequence, surface)
+    .unwrap()
+    .with_input_alignment(ByteAlignment::new(64).unwrap())
+    .unwrap();
 encoder.push(&[255, 0, 0, 255, 0, 0, 0, 255]).unwrap();
 let mut document = Document::new();
 let id = document.push_frames(encoder.finish().unwrap()).unwrap();
@@ -402,7 +405,7 @@ let frames = document.frames(id).unwrap();
 
 `FrameSequence` owns the shared clock, default duration, composition defaults, loop count, and maximum recovery distance. `FramesEncoder::push` uses the shared duration, while `push_with_duration` stores only non-default per-frame timing through the compact timing section. The encoder chooses the stored representation for each pushed surface and returns one immutable `EncodedFrames` value for insertion or replacement.
 
-`FramesView::playback_plan` validates every frame and reports exact group-slot, aligned canvas, reusable unit-workspace and optional disposal-backup requirements before `bind` creates a `FrameSession`. `present(frame)` reuses forward state or restarts from the closest bounded recovery frame, validating the complete replay path and selected DATA before writes. `FramesView::timeline` maps absolute ticks to `FramePosition` using variable durations and finite or unbounded play counts without allocating a cumulative table. Sparse replacement groups and previous-frame residual groups share the same unit geometry, integrity and alignment contracts.
+`FramesView::group_workspace_len` reports planning scratch before scratch is supplied. `playback_plan` then validates every frame and reports exact aligned canvas, reusable unit-workspace and optional disposal-backup requirements. `FramesPlaybackPlan::bind(PlaybackStorage { .. })` names each caller-owned buffer, validates every capacity and runtime address, and creates a `FrameSession`. `present(frame)` reuses forward state or restarts from the closest bounded recovery frame; no storage or integrity failure is deferred past binding. `FramesView::timeline` maps absolute ticks to `FramePosition` using variable durations and finite or unbounded play counts without allocating a cumulative table. Sparse replacement groups and previous-frame residual groups share the same unit geometry, integrity and alignment contracts.
 
 ## Checked encoding
 
@@ -487,7 +490,7 @@ Decimal and `0x`-prefixed values are accepted. File edits are failure-safe: the 
 | No-op identity | An unchanged document returns its original bytes exactly |
 | Output stability | Modified documents use deterministic ordering, padding, and metadata |
 | Forward handling | Unknown types are preserved; future semantics remain read-only by default |
-| Portability | `no_std + alloc`, no external dependencies, Rust 1.85 compatible |
+| Portability | `no_std + alloc`, Rust 1.85 compatible; target-gated portable vectors with scalar fallback |
 
 ## License
 

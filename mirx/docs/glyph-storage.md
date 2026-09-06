@@ -12,14 +12,17 @@
 `get(ordinal)` resolves in constant time and returns a `GlyphRaster` borrowing only sample bytes, not map metadata. `storage()` exposes the backing `SurfaceView`; `region()` locates the glyph within it. `memory_plan(requirements)` and `copy_into(output, plan)` reuse exact image cropping and caller-buffer address checks. Successful output has zero padding and preserves its unused suffix. A plan for another source or region fails before writes. No lookup, planning or transfer allocates.
 
 ```rust
-use mirx::{font::{GlyphMap, RawGlyphs}, image::{
+use mirx::{ByteAlignment, font::{GlyphMap, RawGlyphs}, image::{
     ColorDescription, PlaneMemoryLayout, SampleLayout, SurfaceDescriptor, SurfaceRequirements,
 }};
 
 let map = GlyphMap::glyph_major(5, 3, 2).unwrap();
 let cell = SurfaceDescriptor::new(5, 3, SampleLayout::A4, ColorDescription::NONE).unwrap();
 let memory = PlaneMemoryLayout::builder(cell.plane(0).unwrap())
-    .with_stride(64).with_alignment(64).build().unwrap();
+    .with_stride(64)
+    .with_alignment(ByteAlignment::new(64).unwrap())
+    .build()
+    .unwrap();
 #[repr(align(64))]
 struct Source([u8; 384]);
 let source = Source([0x12; 384]);

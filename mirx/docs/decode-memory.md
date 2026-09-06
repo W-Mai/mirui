@@ -3,22 +3,22 @@
 `ImageGroups::decode_plan` is the compact CPU-reconstruction API. `decode_plan_for` accepts a `DecodeRequest` when encoded input, decoded output, or reusable workspace has a device-facing memory contract.
 
 ```rust
-use mirx::{PayloadLimits, image::{
+use mirx::{ByteAlignment, PayloadLimits, image::{
     DecodeRequest, MemoryPlacement, SurfaceRequirements,
 }};
 
 # fn plan(groups: mirx::image::ImageGroups<'_, '_>) -> Result<(), mirx::image::DecodeError> {
 let request = DecodeRequest::new(
     SurfaceRequirements::new()
-        .with_base_alignment(64)
-        .with_plane_alignment(64)
+        .with_base_alignment(ByteAlignment::new(64).unwrap())
+        .with_plane_alignment(ByteAlignment::new(64).unwrap())
         .with_width_multiple(64)
         .with_stride_multiple(64),
 )
 .with_input(MemoryPlacement::Flash)
 .with_output(MemoryPlacement::SharedNoncoherent)
 .with_workspace(MemoryPlacement::SharedCoherent)
-.with_workspace_alignment(64);
+.with_workspace_alignment(ByteAlignment::new(64).unwrap());
 
 let plan = groups.decode_plan_for(request, &PayloadLimits::EMBEDDED)?;
 assert_eq!(plan.workspace_requirements().base_alignment(), 64);
@@ -53,8 +53,10 @@ The built-in slice decoder rejects `Compute`, `DirectUpload`, and device-only bu
 | Target | Implementation | Verification | Admitted scope |
 | --- | --- | --- | --- |
 | Portable scalar Rust | implemented | host tests, allocation invariants, RISC-V compile | RAW, native pixel, RLE, LZ4, reversible and quantized frequency coding, frame delta |
-| AArch64 NEON | implemented for frame-delta residual replay | bit-exact tests and native AArch64 measurements | validated literal, repeat, and compatible pattern blocks; scalar tail and fallback |
-| x86-64 SSE2 | implemented for frame-delta residual replay | bit-exact x86 executable under Rosetta 2; native x86 hardware unverified | validated literal, repeat, and compatible pattern blocks; scalar tail and fallback |
+| Portable 16-byte vectors | one `wide::u8x16` frame-delta path for AArch64, x86-64, and wasm32 | cross-kernel bit-exact tests for every tail and pattern period | eligible literal, repeat, and compatible pattern blocks; plan-selected scalar fallback |
+| AArch64 | portable vector path implemented | native measurements and `add.16b` release assembly | complete frame reconstruction benchmarked |
+| x86-64 | portable vector path implemented | `paddb` release assembly; native runtime unverified | compiled vector replay with scalar fallback |
+| wasm32 | portable vector path implemented | builds with and without `simd128` target feature | runtime measurement unverified |
 | RISC-V RV32IMC | portable scalar path compiles without atomics | compile-only in this repository | no device timing or cache-coherence claim |
 | Arm MVE | not implemented | unverified | none |
 | GPU compute | not implemented | unverified and rejected by the built-in decoder | none |
@@ -69,21 +71,27 @@ The built-in slice decoder rejects `Compute`, `DirectUpload`, and device-only bu
 `FramesView::playback_plan_for` applies one `DecodeRequest` to every frame before allocating or binding playback storage. The retained canvas uses the output geometry and placement. The reusable codec workspace and `RestorePrevious` snapshot use the workspace placement and alignment; a snapshot also preserves any stronger canvas base alignment. Encoded unit alignment and actual slice-address checks are aggregated across the complete sequence.
 
 ```rust
-# use mirx::{FramesView, PayloadLimits, image::{DecodeRequest, MemoryPlacement, SurfaceRequirements, UnitGroup}};
-# fn plan<'a>(frames: FramesView<'a>, slots: &mut [Option<UnitGroup<'a>>]) -> Result<(), mirx::FrameDecodeError> {
+# use mirx::{ByteAlignment, FramesView, PayloadLimits, PlaybackStorage, image::{DecodeRequest, MemoryPlacement, SurfaceRequirements, UnitGroup}};
+# fn plan<'a>(frames: FramesView<'a>, slots: &mut [Option<UnitGroup<'a>>], canvas: &mut [u8], workspace: &mut [u8], backup: &mut [u8]) -> Result<(), mirx::FrameDecodeError> {
 let request = DecodeRequest::new(
     SurfaceRequirements::new()
-        .with_base_alignment(64)
+        .with_base_alignment(ByteAlignment::new(64).unwrap())
         .with_stride_multiple(64),
 )
 .with_input(MemoryPlacement::Flash)
 .with_output(MemoryPlacement::SharedNoncoherent)
 .with_workspace(MemoryPlacement::SharedCoherent)
-.with_workspace_alignment(64);
+.with_workspace_alignment(ByteAlignment::new(64).unwrap());
 
 let plan = frames.playback_plan_for(request, PayloadLimits::EMBEDDED, slots)?;
 assert_eq!(plan.canvas_requirements().base_alignment(), 64);
 assert_eq!(plan.workspace_requirements().base_alignment(), 64);
+let _session = plan.bind(PlaybackStorage {
+    groups: slots,
+    canvas,
+    workspace,
+    backup,
+})?;
 # Ok(())
 # }
 ```

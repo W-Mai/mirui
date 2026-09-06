@@ -36,8 +36,8 @@ let line = LineMetrics::new(
     Fixed::from_int(12), Fixed::from_int(-4), Fixed::from_int(18),
 )?;
 let glyph = GlyphMetrics::new(
-    Fixed::from_raw(1920), // 7.5-pixel advance
-    Fixed::from_raw(-128), // -0.5-pixel left bearing
+    Fixed::from_ratio(15, 2), // 7.5-pixel advance
+    Fixed::from_ratio(-1, 2), // -0.5-pixel left bearing
     Fixed::from_int(11),
 );
 let mut bytes = [0; 24];

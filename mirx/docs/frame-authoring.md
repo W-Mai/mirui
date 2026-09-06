@@ -8,7 +8,7 @@ Each `push` compares complete representations. RAW is the independent fallback; 
 
 ```rust
 use mirx::{
-    FrameSequence, FramesEncoder,
+    ByteAlignment, FrameSequence, FramesEncoder,
     image::{ColorDescription, SampleLayout, SurfaceDescriptor},
 };
 
@@ -27,7 +27,7 @@ let mut encoder = FramesEncoder::new(sequence, surface)
     .unwrap()
     .with_tiles(16, 16)
     .unwrap()
-    .with_input_alignment(64)
+    .with_input_alignment(ByteAlignment::new(64).unwrap())
     .unwrap();
 encoder
     .push(&[255, 0, 0, 255, 0, 0, 0, 255])

@@ -12,8 +12,8 @@ use mirx::{Fixed, font::{
 }, image::{SampleLayout, SurfaceRequirements}};
 
 let codepoints = FontCodepoints::open(&[b'A', 0, 0, 0]).unwrap();
-let line = LineMetrics::new(Fixed::from_raw(768), Fixed::from_raw(-256), Fixed::from_raw(1024)).unwrap();
-let metric = GlyphMetrics::new(Fixed::from_raw(640), Fixed::from_raw(-64), Fixed::from_raw(768));
+let line = LineMetrics::new(Fixed::from_int(3), Fixed::from_int(-1), Fixed::from_int(4)).unwrap();
+let metric = GlyphMetrics::new(Fixed::from_ratio(5, 2), Fixed::from_ratio(-1, 4), Fixed::from_int(3));
 let mut records = [0; 24];
 line.encode_record_into(&mut records).unwrap();
 metric.encode_record_into(&mut records[12..]).unwrap();
