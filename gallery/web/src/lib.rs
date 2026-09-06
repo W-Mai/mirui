@@ -3,6 +3,8 @@
 use wasm_bindgen::prelude::*;
 
 gallery::register_demos! {
+    ("orbit_console",        "Orbit Console",        "Showcase",    orbit_console,        1024, 640),
+
     ("hello",                "hello",                "Basics",      hello,                480, 320),
     ("dsl",                  "dsl walk + if",        "Basics",      dsl,                  480, 320),
     ("text",                 "text labels",          "Basics",      text,                 480, 320),

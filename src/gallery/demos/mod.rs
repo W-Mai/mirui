@@ -38,6 +38,7 @@ pub mod niche;
 pub mod offscreen;
 pub mod offscreen_modal;
 pub mod on_handlers;
+pub mod orbit_console;
 pub mod particles;
 pub mod persistence_counter;
 pub mod pinch_rotate;
