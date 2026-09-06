@@ -2,9 +2,9 @@ use super::{BlendMode, DisposalMode, FrameGroups, FramesError, FramesView};
 use crate::{
     PayloadLimits,
     image::{
-        BufferRequirementError, BufferRequirements, CoverageBudget, EncodedImageError, Preflight,
-        ReferenceMode, ScalarProfile, SurfaceMemoryPlan, SurfacePlanError, SurfaceRequirements,
-        SurfaceView, UnitGroup,
+        BufferRequirementError, BufferRequirements, CacheSync, CoverageBudget, DecodeRequest,
+        DecodeRequestError, EncodedImageError, Preflight, ReferenceMode, ScalarProfile,
+        SurfaceMemoryPlan, SurfacePlanError, SurfaceRequirements, SurfaceView, UnitGroup,
     },
 };
 
@@ -18,6 +18,7 @@ use crate::{
 pub struct FrameDecodePlan<'a, 'g> {
     groups: FrameGroups<'a, 'g>,
     memory: SurfaceMemoryPlan,
+    request: DecodeRequest,
     workspace: BufferRequirements,
     backup: BufferRequirements,
     composition: super::FrameComposition,
@@ -25,6 +26,8 @@ pub struct FrameDecodePlan<'a, 'g> {
     units: u64,
     work: u64,
     input_bytes: u64,
+    input_alignment: u32,
+    input_addresses_aligned: bool,
     checksum_bytes: u64,
 }
 
@@ -44,13 +47,22 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
         self,
         requirements: SurfaceRequirements,
     ) -> Result<FrameDisposalPlan<'a, 'g>, FrameDecodeError> {
+        self.disposal_plan_with(requirements, 1)
+    }
+
+    fn disposal_plan_with(
+        self,
+        requirements: SurfaceRequirements,
+        backup_alignment: u32,
+    ) -> Result<FrameDisposalPlan<'a, 'g>, FrameDecodeError> {
         let memory = self
             .frames()
             .surface()
             .memory_plan(requirements)
             .map_err(FrameDecodeError::Memory)?;
         let composition = self.presentation().composition();
-        let (backup, work) = FrameDisposalPlan::requirements(memory, composition)?;
+        let (backup, work) =
+            FrameDisposalPlan::requirements(memory, composition, backup_alignment)?;
         Ok(FrameDisposalPlan {
             groups: self,
             memory,
@@ -68,12 +80,24 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
         requirements: SurfaceRequirements,
         limits: &PayloadLimits,
     ) -> Result<FrameDecodePlan<'a, 'g>, FrameDecodeError> {
+        self.decode_plan_for(DecodeRequest::new(requirements), limits)
+    }
+
+    /// Preflights one frame for explicit execution and memory policy.
+    pub fn decode_plan_for(
+        self,
+        request: DecodeRequest,
+        limits: &PayloadLimits,
+    ) -> Result<FrameDecodePlan<'a, 'g>, FrameDecodeError> {
+        request
+            .validate_reconstruction()
+            .map_err(FrameDecodeError::Request)?;
         let presentation = self.presentation();
         let composition = presentation.composition();
         let memory = self
             .frames()
             .surface()
-            .memory_plan(requirements)
+            .memory_plan(request.requirements())
             .map_err(FrameDecodeError::Memory)?;
         if composition.blend() == BlendMode::SourceOver
             && !self
@@ -93,18 +117,23 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
                 .spend(u64::from(memory.byte_len()))
                 .map_err(FrameDecodeError::Image)?;
         }
-        let (backup, disposal_work) = FrameDisposalPlan::requirements(memory, composition)?;
+        let (backup, disposal_work) =
+            FrameDisposalPlan::requirements(memory, composition, request.workspace_alignment())?;
         preflight
             .spend(disposal_work)
             .map_err(FrameDecodeError::Image)?;
         let mut workspace = 0u32;
         let mut input_bytes = 0u64;
+        let mut input_alignment = 1u32;
+        let mut input_addresses_aligned = true;
         let mut checksum_bytes = 0u64;
         for (group_index, group) in self.iter().enumerate() {
             preflight
                 .group(group_index, group)
                 .map_err(FrameDecodeError::Image)?;
             for (ordinal, unit) in group.iter().enumerate() {
+                input_alignment = input_alignment.max(unit.input_alignment());
+                input_addresses_aligned &= unit.data_address_is_aligned();
                 let unit_memory = unit
                     .memory_plan(SurfaceRequirements::new())
                     .expect("preflighted frame unit geometry");
@@ -152,19 +181,35 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
         Ok(FrameDecodePlan {
             groups: self,
             memory,
-            workspace: BufferRequirements::new(workspace, 1).map_err(FrameDecodeError::Memory)?,
+            request,
+            workspace: BufferRequirements::new(workspace, request.workspace_alignment())
+                .map_err(FrameDecodeError::Memory)?,
             backup,
             composition,
             initialize_canvas,
             units: preflight.total_units(),
             work: preflight.work(),
             input_bytes,
+            input_alignment,
+            input_addresses_aligned,
             checksum_bytes,
         })
     }
 }
 
 impl<'a> FrameDecodePlan<'a, '_> {
+    pub const fn request(&self) -> DecodeRequest {
+        self.request
+    }
+
+    pub const fn input_sync(&self) -> CacheSync {
+        self.request.input_sync()
+    }
+
+    pub const fn output_sync(&self) -> CacheSync {
+        self.request.output_sync()
+    }
+
     pub const fn memory_plan(&self) -> SurfaceMemoryPlan {
         self.memory
     }
@@ -196,6 +241,14 @@ impl<'a> FrameDecodePlan<'a, '_> {
 
     pub const fn input_byte_len(&self) -> u64 {
         self.input_bytes
+    }
+
+    pub const fn input_alignment(&self) -> u32 {
+        self.input_alignment
+    }
+
+    pub const fn input_addresses_are_aligned(&self) -> bool {
+        self.input_addresses_aligned
     }
 
     pub const fn checksum_byte_len(&self) -> u64 {
@@ -288,13 +341,24 @@ impl FrameDisposalPlan<'_, '_> {
     fn requirements(
         memory: SurfaceMemoryPlan,
         composition: super::FrameComposition,
+        backup_alignment: u32,
     ) -> Result<(BufferRequirements, u64), FrameDecodeError> {
         let empty = BufferRequirements::new(0, 1).map_err(FrameDecodeError::Memory)?;
         match composition.disposal() {
             DisposalMode::Keep => Ok((empty, 0)),
             DisposalMode::Clear => Ok((empty, u64::from(memory.byte_len()))),
             DisposalMode::RestorePrevious => Ok((
-                memory.buffer_requirements(),
+                BufferRequirements::new(
+                    memory.byte_len(),
+                    u32::try_from(
+                        memory
+                            .buffer_requirements()
+                            .base_alignment()
+                            .max(backup_alignment as usize),
+                    )
+                    .expect("surface and workspace alignments originate as u32"),
+                )
+                .map_err(FrameDecodeError::Memory)?,
                 u64::from(memory.byte_len())
                     .checked_mul(2)
                     .ok_or(FrameDecodeError::SizeOverflow)?,
@@ -353,7 +417,7 @@ impl FrameDisposalPlan<'_, '_> {
 #[derive(Debug)]
 pub struct FrameSession<'a, 'storage> {
     frames: FramesView<'a>,
-    requirements: SurfaceRequirements,
+    request: DecodeRequest,
     limits: PayloadLimits,
     memory: SurfaceMemoryPlan,
     group_workspace_len: usize,
@@ -373,12 +437,14 @@ pub struct FrameSession<'a, 'storage> {
 #[derive(Clone, Copy, Debug)]
 pub struct FramesPlaybackPlan<'a> {
     frames: FramesView<'a>,
-    requirements: SurfaceRequirements,
+    request: DecodeRequest,
     limits: PayloadLimits,
     memory: SurfaceMemoryPlan,
     group_workspace_len: usize,
     workspace: BufferRequirements,
     backup: BufferRequirements,
+    input_alignment: u32,
+    input_addresses_aligned: bool,
 }
 
 impl<'a> FramesView<'a> {
@@ -393,9 +459,22 @@ impl<'a> FramesView<'a> {
         limits: PayloadLimits,
         group_workspace: &mut [Option<UnitGroup<'a>>],
     ) -> Result<FramesPlaybackPlan<'a>, FrameDecodeError> {
+        self.playback_plan_for(DecodeRequest::new(requirements), limits, group_workspace)
+    }
+
+    /// Preflights every frame for explicit execution and memory policy.
+    pub fn playback_plan_for(
+        self,
+        request: DecodeRequest,
+        limits: PayloadLimits,
+        group_workspace: &mut [Option<UnitGroup<'a>>],
+    ) -> Result<FramesPlaybackPlan<'a>, FrameDecodeError> {
+        request
+            .validate_reconstruction()
+            .map_err(FrameDecodeError::Request)?;
         let memory = self
             .surface()
-            .memory_plan(requirements)
+            .memory_plan(request.requirements())
             .map_err(FrameDecodeError::Memory)?;
         let group_workspace_len = self
             .frame_map()
@@ -416,21 +495,21 @@ impl<'a> FramesView<'a> {
             let groups = self
                 .groups_into(frame, group_workspace, &mut budget)
                 .map_err(FrameDecodeError::Frames)?;
-            let plan = groups.decode_plan(
-                requirements,
-                &limits.with_max_raster_work(budget.remaining()),
-            )?;
+            let plan = groups
+                .decode_plan_for(request, &limits.with_max_raster_work(budget.remaining()))?;
             required.include(&plan);
         }
 
         Ok(FramesPlaybackPlan {
             frames: self,
-            requirements,
+            request,
             limits,
             memory,
             group_workspace_len,
             workspace: required.workspace(),
             backup: required.backup(),
+            input_alignment: required.input_alignment,
+            input_addresses_aligned: required.input_addresses_aligned,
         })
     }
 
@@ -444,9 +523,32 @@ impl<'a> FramesView<'a> {
         unit_workspace: &'storage mut [u8],
         backup: &'storage mut [u8],
     ) -> Result<FrameSession<'a, 'storage>, FrameDecodeError> {
+        self.session_for(
+            DecodeRequest::new(requirements),
+            limits,
+            group_workspace,
+            canvas,
+            unit_workspace,
+            backup,
+        )
+    }
+
+    /// Binds playback storage for explicit execution and memory policy.
+    pub fn session_for<'storage>(
+        self,
+        request: DecodeRequest,
+        limits: PayloadLimits,
+        group_workspace: &'storage mut [Option<UnitGroup<'a>>],
+        canvas: &'storage mut [u8],
+        unit_workspace: &'storage mut [u8],
+        backup: &'storage mut [u8],
+    ) -> Result<FrameSession<'a, 'storage>, FrameDecodeError> {
+        request
+            .validate_reconstruction()
+            .map_err(FrameDecodeError::Request)?;
         let memory = self
             .surface()
-            .memory_plan(requirements)
+            .memory_plan(request.requirements())
             .map_err(FrameDecodeError::Memory)?;
         memory
             .buffer_requirements()
@@ -470,7 +572,17 @@ impl<'a> FramesView<'a> {
             })
         });
         let backup_requirements = if needs_backup {
-            memory.buffer_requirements()
+            BufferRequirements::new(
+                memory.byte_len(),
+                u32::try_from(
+                    memory
+                        .buffer_requirements()
+                        .base_alignment()
+                        .max(request.workspace_alignment() as usize),
+                )
+                .expect("surface and workspace alignments originate as u32"),
+            )
+            .map_err(FrameDecodeError::Memory)?
         } else {
             BufferRequirements::new(0, 1).expect("valid empty buffer requirements")
         };
@@ -479,7 +591,7 @@ impl<'a> FramesView<'a> {
             .map_err(FrameDecodeError::Backup)?;
         Ok(FrameSession {
             frames: self,
-            requirements,
+            request,
             limits,
             memory,
             group_workspace_len,
@@ -502,6 +614,18 @@ impl<'a> FramesPlaybackPlan<'a> {
         self.memory
     }
 
+    pub const fn request(self) -> DecodeRequest {
+        self.request
+    }
+
+    pub const fn input_sync(self) -> CacheSync {
+        self.request.input_sync()
+    }
+
+    pub const fn output_sync(self) -> CacheSync {
+        self.request.output_sync()
+    }
+
     pub const fn group_workspace_len(self) -> usize {
         self.group_workspace_len
     }
@@ -516,6 +640,14 @@ impl<'a> FramesPlaybackPlan<'a> {
 
     pub const fn backup_requirements(self) -> BufferRequirements {
         self.backup
+    }
+
+    pub const fn input_alignment(self) -> u32 {
+        self.input_alignment
+    }
+
+    pub const fn input_addresses_are_aligned(self) -> bool {
+        self.input_addresses_aligned
     }
 
     /// Binds the preflighted contract to storage retained for the session.
@@ -543,7 +675,7 @@ impl<'a> FramesPlaybackPlan<'a> {
             .map_err(FrameDecodeError::Backup)?;
         Ok(FrameSession {
             frames: self.frames,
-            requirements: self.requirements,
+            request: self.request,
             limits: self.limits,
             memory: self.memory,
             group_workspace_len: self.group_workspace_len,
@@ -563,6 +695,8 @@ struct ReplayRequirements {
     workspace_alignment: usize,
     backup_bytes: usize,
     backup_alignment: usize,
+    input_alignment: u32,
+    input_addresses_aligned: bool,
 }
 
 impl ReplayRequirements {
@@ -572,6 +706,8 @@ impl ReplayRequirements {
             workspace_alignment: 1,
             backup_bytes: 0,
             backup_alignment: 1,
+            input_alignment: 1,
+            input_addresses_aligned: true,
         }
     }
 
@@ -582,6 +718,8 @@ impl ReplayRequirements {
         let backup = plan.backup_requirements();
         self.backup_bytes = self.backup_bytes.max(backup.byte_len());
         self.backup_alignment = self.backup_alignment.max(backup.base_alignment());
+        self.input_alignment = self.input_alignment.max(plan.input_alignment());
+        self.input_addresses_aligned &= plan.input_addresses_are_aligned();
     }
 
     fn include_disposal(&mut self, plan: &FrameDisposalPlan<'_, '_>) {
@@ -615,6 +753,18 @@ impl<'a> FrameSession<'a, '_> {
     /// The frame currently presented on the retained canvas.
     pub const fn current_frame(&self) -> Option<u32> {
         self.current
+    }
+
+    pub const fn request(&self) -> DecodeRequest {
+        self.request
+    }
+
+    pub const fn input_sync(&self) -> CacheSync {
+        self.request.input_sync()
+    }
+
+    pub const fn output_sync(&self) -> CacheSync {
+        self.request.output_sync()
     }
 
     pub const fn canvas_requirements(&self) -> BufferRequirements {
@@ -724,7 +874,10 @@ impl<'a> FrameSession<'a, '_> {
             .frames
             .groups_into(frame, self.group_workspace, budget)
             .map_err(FrameDecodeError::Frames)?;
-        let plan = groups.disposal_plan(self.requirements)?;
+        let plan = groups.disposal_plan_with(
+            self.request.requirements(),
+            self.request.workspace_alignment(),
+        )?;
         budget
             .spend_many(plan.work())
             .map_err(EncodedImageError::Coverage)
@@ -744,7 +897,7 @@ impl<'a> FrameSession<'a, '_> {
             .groups_into(frame, self.group_workspace, budget)
             .map_err(FrameDecodeError::Frames)?;
         let limits = self.limits.with_max_raster_work(budget.remaining());
-        let plan = groups.decode_plan(self.requirements, &limits)?;
+        let plan = groups.decode_plan_for(self.request, &limits)?;
         budget
             .spend_many(plan.work())
             .map_err(EncodedImageError::Coverage)
@@ -755,7 +908,7 @@ impl<'a> FrameSession<'a, '_> {
 
     fn execution_plan<'groups>(
         frames: FramesView<'a>,
-        requirements: SurfaceRequirements,
+        request: DecodeRequest,
         limits: PayloadLimits,
         group_workspace: &'groups mut [Option<UnitGroup<'a>>],
         frame: u32,
@@ -764,14 +917,14 @@ impl<'a> FrameSession<'a, '_> {
             .groups_into(frame, group_workspace, &mut CoverageBudget::new(u64::MAX))
             .expect("preflighted immutable frame groups");
         groups
-            .decode_plan(requirements, &limits.with_max_raster_work(u64::MAX))
+            .decode_plan_for(request, &limits.with_max_raster_work(u64::MAX))
             .expect("preflighted immutable frame decode")
     }
 
     fn decode_frame(&mut self, frame: u32, dispose: bool) {
         let plan = Self::execution_plan(
             self.frames,
-            self.requirements,
+            self.request,
             self.limits,
             self.group_workspace,
             frame,
@@ -798,7 +951,10 @@ impl<'a> FrameSession<'a, '_> {
             )
             .expect("preflighted immutable frame groups");
         let plan = groups
-            .disposal_plan(self.requirements)
+            .disposal_plan_with(
+                self.request.requirements(),
+                self.request.workspace_alignment(),
+            )
             .expect("preflighted immutable frame disposal");
         plan.dispose_into(self.canvas, self.backup)
             .expect("preflighted playback buffers");
@@ -809,6 +965,7 @@ impl<'a> FrameSession<'a, '_> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FrameDecodeError {
+    Request(DecodeRequestError),
     FrameOutOfBounds(u32),
     GroupWorkspaceTooSmall { needed: usize, available: usize },
     Frames(FramesError),
@@ -1152,6 +1309,62 @@ mod tests {
             }))
         ));
         assert_eq!(canvas, [0xad; 4]);
+    }
+
+    #[test]
+    fn playback_contract_covers_canvas_workspace_backup_and_encoded_input() {
+        let bytes = composed_payload(DisposalMode::RestorePrevious);
+        let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        let request = DecodeRequest::new(
+            SurfaceRequirements::new()
+                .with_base_alignment(64)
+                .with_stride_multiple(64),
+        )
+        .with_input(crate::image::MemoryPlacement::Flash)
+        .with_output(crate::image::MemoryPlacement::SharedNoncoherent)
+        .with_workspace(crate::image::MemoryPlacement::SharedCoherent)
+        .with_workspace_alignment(64);
+        let mut planning_slots = [None];
+        let plan = frames
+            .playback_plan_for(request, PayloadLimits::HOST, &mut planning_slots)
+            .unwrap();
+
+        assert_eq!(plan.request(), request);
+        assert_eq!(plan.input_sync(), CacheSync::None);
+        assert_eq!(plan.output_sync(), CacheSync::CleanAfterWrite);
+        assert_eq!(plan.canvas_requirements().base_alignment(), 64);
+        assert_eq!(plan.workspace_requirements().base_alignment(), 64);
+        assert_eq!(plan.backup_requirements().base_alignment(), 64);
+        assert_eq!(plan.input_alignment(), 1);
+        assert!(plan.input_addresses_are_aligned());
+
+        let mut slots = [None];
+        let mut canvas = Aligned([0xad; 64]);
+        let mut workspace = Aligned([0; 64]);
+        let mut backup = Aligned([0; 64]);
+        let mut session = plan
+            .bind(&mut slots, &mut canvas.0, &mut workspace.0, &mut backup.0)
+            .unwrap();
+        assert_eq!(session.request(), request);
+        assert_eq!(session.output_sync(), CacheSync::CleanAfterWrite);
+        assert_eq!(
+            session.present(1).unwrap().plane(0).unwrap().row(0),
+            Ok(Some(&[105, 10, 15, 255][..]))
+        );
+
+        assert_eq!(
+            frames
+                .playback_plan_for(
+                    DecodeRequest::default()
+                        .with_execution(crate::image::DecodeExecution::DirectUpload),
+                    PayloadLimits::HOST,
+                    &mut [],
+                )
+                .unwrap_err(),
+            FrameDecodeError::Request(DecodeRequestError::UnsupportedExecution(
+                crate::image::DecodeExecution::DirectUpload
+            ))
+        );
     }
 
     #[test]

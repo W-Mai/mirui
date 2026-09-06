@@ -19,7 +19,7 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
         FrameCandidate, FramePolicy, FrameSelector, FrameSequence, FramesAsset, FramesView,
         coding::{FrameDelta, ScalarFrameDelta},
-        image::{CoverageBudget, ReferenceMode, UnitGroupRecord},
+        image::{CoverageBudget, DecodeRequest, MemoryPlacement, ReferenceMode, UnitGroupRecord},
         media::{CodingId, CodingRecord},
     };
     #[repr(align(64))]
@@ -31,7 +31,7 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     let surface = SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let mut output = [0xa5; 256];
     let mut canvas = Aligned([0xa5; 64]);
-    let mut workspace = [0; 1];
+    let mut workspace = Aligned([0; 64]);
     let mut slots = [None];
     let (_, allocations) = count_allocations(|| {
         let mut selector = FrameSelector::new(FramePolicy::new(1));
@@ -73,33 +73,30 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
         let groups = frames
             .groups_into(0, &mut slots, &mut CoverageBudget::new(100))
             .unwrap();
+        let request = DecodeRequest::new(
+            SurfaceRequirements::new()
+                .with_base_alignment(64)
+                .with_stride_multiple(64),
+        )
+        .with_input(MemoryPlacement::Flash)
+        .with_output(MemoryPlacement::SharedCoherent)
+        .with_workspace_alignment(64);
         groups
-            .decode_plan(
-                SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_stride_multiple(64),
-                &PayloadLimits::EMBEDDED,
-            )
+            .decode_plan_for(request, &PayloadLimits::EMBEDDED)
             .unwrap()
-            .decode_into(&mut canvas.0, &mut workspace, &mut [])
+            .decode_into(&mut canvas.0, &mut workspace.0, &mut [])
             .unwrap();
         assert_eq!(canvas.0[0], 7);
         let timeline = frames.timeline();
         assert_eq!(timeline.cycle_duration_ticks(), 80);
         assert_eq!(timeline.locate(40).unwrap().frame(), 1);
         let plan = frames
-            .playback_plan(
-                SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_stride_multiple(64),
-                PayloadLimits::EMBEDDED,
-                &mut slots,
-            )
+            .playback_plan_for(request, PayloadLimits::EMBEDDED, &mut slots)
             .unwrap();
         assert_eq!(plan.canvas_requirements().byte_len(), 64);
         assert_eq!(plan.workspace_requirements().byte_len(), 1);
         let mut session = plan
-            .bind(&mut slots, &mut canvas.0, &mut workspace, &mut [])
+            .bind(&mut slots, &mut canvas.0, &mut workspace.0, &mut [])
             .unwrap();
         assert_eq!(session.present(0).unwrap().plane(0).unwrap().bytes()[0], 7);
         assert_eq!(session.present(1).unwrap().plane(0).unwrap().bytes()[0], 9);
