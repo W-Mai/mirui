@@ -72,8 +72,8 @@ fn refresh(world: &mut World, entity: Entity) {
     let rot_int = rot_deg.to_int();
     let visual_rot_int = visual_rot_deg.to_int();
     let line = format!(
-        "{mode}   delta {scale_pct}%/{} raw   visual {visual_scale_pct}% {visual_rot_int}deg   rotate_delta {rot_int}   counts {pinch_events}/{rotate_events}",
-        last_pinch.raw(),
+        "{mode}   delta {scale_pct}%/{:.3} factor   visual {visual_scale_pct}% {visual_rot_int}deg   rotate_delta {rot_int}   counts {pinch_events}/{rotate_events}",
+        last_pinch.to_f32(),
     );
     if let Some(status) = world.find_by_id("pinch_status") {
         world.insert(status, Text::from(line));

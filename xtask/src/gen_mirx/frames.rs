@@ -3,9 +3,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use mirx::{
-    ChunkFlags, ChunkType, Document, EncodeOptions, FrameEncoding, FrameEncodingSet, FramePolicy,
-    FrameSequence, FrameStorage, FramesEncoder, PayloadLimits, Reader,
+    ByteAlignment, ChunkFlags, ChunkType, Document, EncodeOptions, FrameEncoding, FrameEncodingSet,
+    FramePolicy, FrameSequence, FramesEncoder, PayloadLimits, Reader,
     image::{BufferRequirements, DecodeRequest, SurfaceDescriptor, SurfaceMemoryPlan},
+    payload::frames::FrameStorage,
 };
 
 use super::{Result, icu_program, memory, probe_icu};
@@ -20,7 +21,7 @@ struct Options {
     play_count: u32,
     max_delta_frames: u16,
     tiles: Option<(u32, u32)>,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
     decode_request: DecodeRequest,
     quality: Option<u8>,
 }
@@ -35,7 +36,7 @@ impl Options {
         let mut play_count = 0;
         let mut max_delta_frames = 8;
         let mut tiles = Some((32, 32));
-        let mut input_alignment = 1u32;
+        let mut input_alignment = ByteAlignment::ONE;
         let mut decode = memory::DecodeArgs::default();
         let mut quality = None;
         let mut cursor = 0;
@@ -64,9 +65,12 @@ impl Options {
                 }
                 "--tile" => tiles = parse_tiles(value)?,
                 "--input-align" => {
-                    input_alignment = value
-                        .parse()
-                        .map_err(|_| "--input-align must be a positive power of two")?
+                    input_alignment = ByteAlignment::new(
+                        value
+                            .parse()
+                            .map_err(|_| "--input-align must be a positive power of two")?,
+                    )
+                    .map_err(|_| "--input-align must be a positive power of two")?
                 }
                 "--quality" => {
                     quality = Some(
@@ -104,9 +108,6 @@ impl Options {
         }
         if duration == 0 {
             return Err("--duration must be positive".into());
-        }
-        if !input_alignment.is_power_of_two() {
-            return Err("--input-align must be a positive power of two".into());
         }
         if quality.is_some_and(|value| !(1..=100).contains(&value)) {
             return Err("--quality must be between 1 and 100".into());
@@ -606,14 +607,14 @@ mod tests {
             &bytes,
             DecodeRequest::new(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_width_multiple(64)
                     .with_stride_multiple(64),
             )
             .with_input(MemoryPlacement::Flash)
             .with_output(MemoryPlacement::SharedNoncoherent)
             .with_workspace(MemoryPlacement::SharedCoherent)
-            .with_workspace_alignment(64),
+            .with_workspace_alignment(mirx::ByteAlignment::new(64).unwrap()),
         )
         .unwrap();
         assert_eq!(report.memory.byte_len(), 192);

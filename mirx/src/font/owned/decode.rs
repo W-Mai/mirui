@@ -162,7 +162,7 @@ impl Font {
                         media.get(usize::from(id)).expect("validated index").bytes()
                     }))?,
                     partitions,
-                    alignment: 1,
+                    alignment: crate::ByteAlignment::ONE,
                     data: Self::copy(data.bytes())?,
                 }
             } else {

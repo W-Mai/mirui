@@ -1,7 +1,7 @@
 use super::{EncodedImageError, ImageGroups, preflight::Preflight};
 use crate::image::units::ScalarProfile;
 use crate::{
-    PayloadLimits,
+    ByteAlignment, PayloadLimits,
     image::{
         BufferRequirementError, BufferRequirements, CacheSync, DecodeRequest, DecodeRequestError,
         RegionMemoryPlan, SurfaceMemoryPlan, SurfacePlanError, SurfaceRequirements, SurfaceView,
@@ -25,7 +25,7 @@ pub struct ImageDecodePlan<'a, 'g> {
     units: u64,
     work: u64,
     input_bytes: u64,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
     input_addresses_aligned: bool,
     checksum_bytes: u64,
 }
@@ -90,7 +90,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
             .map_err(DecodeError::Image)?;
         let mut workspace = 0;
         let mut input_bytes = 0;
-        let mut input_alignment = 1;
+        let mut input_alignment = ByteAlignment::ONE;
         let mut input_addresses_aligned = true;
         for (index, group) in self.iter().enumerate() {
             preflight.group(index, group).map_err(DecodeError::Image)?;
@@ -165,7 +165,7 @@ impl<'a> ImageDecodePlan<'a, '_> {
     }
 
     /// Maximum alignment promised for selected encoded unit starts.
-    pub const fn input_alignment(self) -> u32 {
+    pub const fn input_alignment(self) -> ByteAlignment {
         self.input_alignment
     }
 

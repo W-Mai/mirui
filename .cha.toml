@@ -69,3 +69,9 @@ max_depth = 3
 
 [plugins.api-misuse]
 enabled = true
+fixed_storage_paths = [
+  "src/render/backends/sw/label.rs",
+  "src/render/backends/sw/quad_aa.rs",
+  "src/render/mirx_convert.rs",
+  "src/types/transform_3d.rs",
+]

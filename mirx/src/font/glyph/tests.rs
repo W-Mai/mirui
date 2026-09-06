@@ -5,6 +5,10 @@ use crate::{
     image::{Region, SampleLayout, SurfaceRequirements},
 };
 
+fn wire_fixed(bits: i32) -> Fixed {
+    Fixed::from_le_bytes(bits.to_le_bytes())
+}
+
 #[test]
 fn unicode_lookup_keeps_metrics_and_samples_on_the_same_ordinal() {
     let mut chars = [0; 16];
@@ -15,11 +19,11 @@ fn unicode_lookup_keeps_metrics_and_samples_on_the_same_ordinal() {
         bytes.copy_from_slice(&(cp as u32).to_le_bytes());
     }
     let codepoints = FontCodepoints::open(&chars).unwrap();
-    let line = LineMetrics::new(Fixed(1025), Fixed(-513), Fixed(2049)).unwrap();
+    let line = LineMetrics::new(wire_fixed(1025), wire_fixed(-513), wire_fixed(2049)).unwrap();
     let records = [
-        GlyphMetrics::new(Fixed(-1), Fixed(i32::MIN), Fixed(i32::MAX)),
-        GlyphMetrics::new(Fixed(769), Fixed(-128), Fixed(513)),
-        GlyphMetrics::new(Fixed(1024), Fixed(1), Fixed(-257)),
+        GlyphMetrics::new(wire_fixed(-1), wire_fixed(i32::MIN), wire_fixed(i32::MAX)),
+        GlyphMetrics::new(wire_fixed(769), wire_fixed(-128), wire_fixed(513)),
+        GlyphMetrics::new(wire_fixed(1024), wire_fixed(1), wire_fixed(-257)),
         GlyphMetrics::default(),
     ];
     let mut bytes = [0; 60];
@@ -58,7 +62,7 @@ fn unicode_lookup_keeps_metrics_and_samples_on_the_same_ordinal() {
 fn all_counts_must_agree_before_joined_lookup_exists() {
     let chars = [65, 0, 0, 0, 66, 0, 0, 0];
     let mut bytes = [0; 36];
-    LineMetrics::new(Fixed(1), Fixed(0), Fixed(1))
+    LineMetrics::new(wire_fixed(1), wire_fixed(0), wire_fixed(1))
         .unwrap()
         .encode_record_into(&mut bytes)
         .unwrap();
@@ -95,13 +99,13 @@ fn resolved_glyph_outlives_all_metadata_and_preserves_empty_rasters() {
     let (glyph, space, line) = {
         let chars = [32, 0, 0, 0, 65, 0, 0, 0];
         let codepoints = FontCodepoints::open(&chars).unwrap();
-        let line = LineMetrics::new(Fixed(1024), Fixed(-256), Fixed(1280)).unwrap();
+        let line = LineMetrics::new(wire_fixed(1024), wire_fixed(-256), wire_fixed(1280)).unwrap();
         let mut bytes = [0; 37];
         line.encode_record_into(&mut bytes[1..]).unwrap();
-        GlyphMetrics::new(Fixed(512), Fixed(0), Fixed(0))
+        GlyphMetrics::new(wire_fixed(512), wire_fixed(0), wire_fixed(0))
             .encode_record_into(&mut bytes[13..])
             .unwrap();
-        GlyphMetrics::new(Fixed(640), Fixed(-128), Fixed(256))
+        GlyphMetrics::new(wire_fixed(640), wire_fixed(-128), wire_fixed(256))
             .encode_record_into(&mut bytes[25..])
             .unwrap();
         let metrics = MetricsTable::open(&bytes[1..]).unwrap();
@@ -120,10 +124,10 @@ fn resolved_glyph_outlives_all_metadata_and_preserves_empty_rasters() {
             table.line_metrics(),
         )
     };
-    assert_eq!(glyph.metrics().advance(), Fixed(640));
-    assert_eq!(space.metrics().advance(), Fixed(512));
+    assert_eq!(glyph.metrics().advance(), wire_fixed(640));
+    assert_eq!(space.metrics().advance(), wire_fixed(512));
     assert!(space.raster().region().is_empty());
-    assert_eq!(line.line_height(), Fixed(1280));
+    assert_eq!(line.line_height(), wire_fixed(1280));
     let mut out = [0xa5; 4];
     for glyph in [space, glyph] {
         let plan = glyph

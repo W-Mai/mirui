@@ -1,6 +1,6 @@
 use super::{BlendMode, DisposalMode, FrameGroups, FramesError, FramesView};
 use crate::{
-    PayloadLimits,
+    ByteAlignment, PayloadLimits,
     image::{
         AccessCapabilities, BufferRequirementError, BufferRequirements, CacheSync, CoverageBudget,
         DecodeRequest, DecodeRequestError, EncodedImageError, Preflight, ReferenceMode,
@@ -27,7 +27,7 @@ pub struct FrameDecodePlan<'a, 'g> {
     units: u64,
     work: u64,
     input_bytes: u64,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
     input_addresses_aligned: bool,
     checksum_bytes: u64,
 }
@@ -48,13 +48,13 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
         self,
         requirements: SurfaceRequirements,
     ) -> Result<FrameDisposalPlan<'a, 'g>, FrameDecodeError> {
-        self.disposal_plan_with(requirements, 1)
+        self.disposal_plan_with(requirements, ByteAlignment::ONE)
     }
 
     fn disposal_plan_with(
         self,
         requirements: SurfaceRequirements,
-        backup_alignment: u32,
+        backup_alignment: ByteAlignment,
     ) -> Result<FrameDisposalPlan<'a, 'g>, FrameDecodeError> {
         let memory = self
             .frames()
@@ -125,7 +125,7 @@ impl<'a, 'g> FrameGroups<'a, 'g> {
             .map_err(FrameDecodeError::Image)?;
         let mut workspace = 0u32;
         let mut input_bytes = 0u64;
-        let mut input_alignment = 1u32;
+        let mut input_alignment = ByteAlignment::ONE;
         let mut input_addresses_aligned = true;
         let mut checksum_bytes = 0u64;
         for (group_index, group) in self.iter().enumerate() {
@@ -244,7 +244,7 @@ impl<'a> FrameDecodePlan<'a, '_> {
         self.input_bytes
     }
 
-    pub const fn input_alignment(&self) -> u32 {
+    pub const fn input_alignment(&self) -> ByteAlignment {
         self.input_alignment
     }
 
@@ -342,22 +342,20 @@ impl FrameDisposalPlan<'_, '_> {
     fn requirements(
         memory: SurfaceMemoryPlan,
         composition: super::FrameComposition,
-        backup_alignment: u32,
+        backup_alignment: ByteAlignment,
     ) -> Result<(BufferRequirements, u64), FrameDecodeError> {
-        let empty = BufferRequirements::new(0, 1).map_err(FrameDecodeError::Memory)?;
+        let empty =
+            BufferRequirements::new(0, ByteAlignment::ONE).map_err(FrameDecodeError::Memory)?;
         match composition.disposal() {
             DisposalMode::Keep => Ok((empty, 0)),
             DisposalMode::Clear => Ok((empty, u64::from(memory.byte_len()))),
             DisposalMode::RestorePrevious => Ok((
                 BufferRequirements::new(
                     memory.byte_len(),
-                    u32::try_from(
-                        memory
-                            .buffer_requirements()
-                            .base_alignment()
-                            .max(backup_alignment as usize),
-                    )
-                    .expect("surface and workspace alignments originate as u32"),
+                    memory
+                        .buffer_requirements()
+                        .base_alignment()
+                        .max(backup_alignment),
                 )
                 .map_err(FrameDecodeError::Memory)?,
                 u64::from(memory.byte_len())
@@ -444,11 +442,28 @@ pub struct FramesPlaybackPlan<'a> {
     group_workspace_len: usize,
     workspace: BufferRequirements,
     backup: BufferRequirements,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
     input_addresses_aligned: bool,
 }
 
+/// Caller-owned storage retained by a frame playback session.
+pub struct PlaybackStorage<'a, 'storage> {
+    pub groups: &'storage mut [Option<UnitGroup<'a>>],
+    pub canvas: &'storage mut [u8],
+    pub workspace: &'storage mut [u8],
+    pub backup: &'storage mut [u8],
+}
+
 impl<'a> FramesView<'a> {
+    /// Returns the largest group table needed to inspect one frame.
+    pub fn group_workspace_len(self) -> usize {
+        self.frame_map()
+            .into_iter()
+            .map(|range| usize::try_from(range.end - range.start).expect("u32 fits usize"))
+            .max()
+            .unwrap_or(0)
+    }
+
     /// Preflights every frame and returns exact reusable storage requirements.
     ///
     /// `group_workspace` is temporary planning storage. Its required length is
@@ -477,12 +492,7 @@ impl<'a> FramesView<'a> {
             .surface()
             .memory_plan(request.requirements())
             .map_err(FrameDecodeError::Memory)?;
-        let group_workspace_len = self
-            .frame_map()
-            .into_iter()
-            .map(|range| usize::try_from(range.end - range.start).expect("u32 fits usize"))
-            .max()
-            .unwrap_or(0);
+        let group_workspace_len = self.group_workspace_len();
         if group_workspace.len() < group_workspace_len {
             return Err(FrameDecodeError::GroupWorkspaceTooSmall {
                 needed: group_workspace_len,
@@ -514,8 +524,8 @@ impl<'a> FramesView<'a> {
         })
     }
 
-    /// Binds caller-owned playback storage and validates stable requirements.
-    pub fn session<'storage>(
+    #[cfg(test)]
+    pub(crate) fn test_session<'storage>(
         self,
         requirements: SurfaceRequirements,
         limits: PayloadLimits,
@@ -524,84 +534,12 @@ impl<'a> FramesView<'a> {
         unit_workspace: &'storage mut [u8],
         backup: &'storage mut [u8],
     ) -> Result<FrameSession<'a, 'storage>, FrameDecodeError> {
-        self.session_for(
-            DecodeRequest::new(requirements),
-            limits,
-            group_workspace,
+        let plan = self.playback_plan(requirements, limits, group_workspace)?;
+        plan.bind(PlaybackStorage {
+            groups: group_workspace,
             canvas,
-            unit_workspace,
+            workspace: unit_workspace,
             backup,
-        )
-    }
-
-    /// Binds playback storage for explicit execution and memory policy.
-    pub fn session_for<'storage>(
-        self,
-        request: DecodeRequest,
-        limits: PayloadLimits,
-        group_workspace: &'storage mut [Option<UnitGroup<'a>>],
-        canvas: &'storage mut [u8],
-        unit_workspace: &'storage mut [u8],
-        backup: &'storage mut [u8],
-    ) -> Result<FrameSession<'a, 'storage>, FrameDecodeError> {
-        request
-            .validate_reconstruction()
-            .map_err(FrameDecodeError::Request)?;
-        let memory = self
-            .surface()
-            .memory_plan(request.requirements())
-            .map_err(FrameDecodeError::Memory)?;
-        memory
-            .buffer_requirements()
-            .validate(canvas)
-            .map_err(FrameDecodeError::Canvas)?;
-        let group_workspace_len = self
-            .frame_map()
-            .into_iter()
-            .map(|range| usize::try_from(range.end - range.start).expect("u32 fits usize"))
-            .max()
-            .unwrap_or(0);
-        if group_workspace.len() < group_workspace_len {
-            return Err(FrameDecodeError::GroupWorkspaceTooSmall {
-                needed: group_workspace_len,
-                available: group_workspace.len(),
-            });
-        }
-        let needs_backup = (0..self.sequence().frame_count()).any(|frame| {
-            self.frame(frame).is_some_and(|presentation| {
-                presentation.composition().disposal() == DisposalMode::RestorePrevious
-            })
-        });
-        let backup_requirements = if needs_backup {
-            BufferRequirements::new(
-                memory.byte_len(),
-                u32::try_from(
-                    memory
-                        .buffer_requirements()
-                        .base_alignment()
-                        .max(request.workspace_alignment() as usize),
-                )
-                .expect("surface and workspace alignments originate as u32"),
-            )
-            .map_err(FrameDecodeError::Memory)?
-        } else {
-            BufferRequirements::new(0, 1).expect("valid empty buffer requirements")
-        };
-        backup_requirements
-            .validate(backup)
-            .map_err(FrameDecodeError::Backup)?;
-        Ok(FrameSession {
-            frames: self,
-            request,
-            limits,
-            memory,
-            group_workspace_len,
-            backup_requirements,
-            group_workspace,
-            canvas,
-            unit_workspace,
-            backup,
-            current: None,
         })
     }
 }
@@ -648,7 +586,7 @@ impl<'a> FramesPlaybackPlan<'a> {
         self.backup
     }
 
-    pub const fn input_alignment(self) -> u32 {
+    pub const fn input_alignment(self) -> ByteAlignment {
         self.input_alignment
     }
 
@@ -659,11 +597,14 @@ impl<'a> FramesPlaybackPlan<'a> {
     /// Binds the preflighted contract to storage retained for the session.
     pub fn bind<'storage>(
         self,
-        group_workspace: &'storage mut [Option<UnitGroup<'a>>],
-        canvas: &'storage mut [u8],
-        unit_workspace: &'storage mut [u8],
-        backup: &'storage mut [u8],
+        storage: PlaybackStorage<'a, 'storage>,
     ) -> Result<FrameSession<'a, 'storage>, FrameDecodeError> {
+        let PlaybackStorage {
+            groups: group_workspace,
+            canvas,
+            workspace: unit_workspace,
+            backup,
+        } = storage;
         if group_workspace.len() < self.group_workspace_len {
             return Err(FrameDecodeError::GroupWorkspaceTooSmall {
                 needed: self.group_workspace_len,
@@ -698,10 +639,10 @@ impl<'a> FramesPlaybackPlan<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct ReplayRequirements {
     workspace_bytes: usize,
-    workspace_alignment: usize,
+    workspace_alignment: ByteAlignment,
     backup_bytes: usize,
-    backup_alignment: usize,
-    input_alignment: u32,
+    backup_alignment: ByteAlignment,
+    input_alignment: ByteAlignment,
     input_addresses_aligned: bool,
 }
 
@@ -709,10 +650,10 @@ impl ReplayRequirements {
     const fn new() -> Self {
         Self {
             workspace_bytes: 0,
-            workspace_alignment: 1,
+            workspace_alignment: ByteAlignment::ONE,
             backup_bytes: 0,
-            backup_alignment: 1,
-            input_alignment: 1,
+            backup_alignment: ByteAlignment::ONE,
+            input_alignment: ByteAlignment::ONE,
             input_addresses_aligned: true,
         }
     }
@@ -742,10 +683,10 @@ impl ReplayRequirements {
         Self::buffer(self.backup_bytes, self.backup_alignment)
     }
 
-    fn buffer(byte_len: usize, alignment: usize) -> BufferRequirements {
+    fn buffer(byte_len: usize, alignment: ByteAlignment) -> BufferRequirements {
         BufferRequirements::new(
             u32::try_from(byte_len).expect("planned buffer length originates as u32"),
-            u32::try_from(alignment).expect("planned buffer alignment originates as u32"),
+            alignment,
         )
         .expect("merged buffer requirements remain valid")
     }
@@ -988,11 +929,13 @@ pub enum FrameDecodeError {
 mod tests {
     use super::*;
     use crate::{
-        FrameComposition, FrameCompositionOverride, FrameSequence, FramesAsset, FramesView,
         image::{
             ColorDescription, CoverageBudget, SampleLayout, SurfaceDescriptor, UnitGroupRecord,
         },
         media::{CodingRecord, UnitSelectionEncoding},
+        payload::frames::{
+            FrameComposition, FrameCompositionOverride, FrameSequence, FramesAsset, FramesView,
+        },
     };
 
     #[repr(align(64))]
@@ -1026,7 +969,7 @@ mod tests {
             .unwrap();
         let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         let requirements = SurfaceRequirements::new()
-            .with_base_alignment(64)
+            .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
             .with_stride_multiple(64);
         let mut canvas = Aligned([0xad; 64]);
         let mut workspace = [0; 2];
@@ -1209,7 +1152,7 @@ mod tests {
             let mut canvas = [0xad; 2];
             let mut workspace = [0; 2];
             let mut session = frames
-                .session(
+                .test_session(
                     SurfaceRequirements::new(),
                     PayloadLimits::HOST,
                     &mut slots,
@@ -1261,10 +1204,12 @@ mod tests {
     fn playback_plan_reports_exact_reusable_storage_and_binds_it() {
         let bytes = session_payload(false);
         let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
+        assert_eq!(frames.group_workspace_len(), 1);
         let mut planning_slots = [None];
         let plan = frames
             .playback_plan(
-                SurfaceRequirements::new().with_base_alignment(2),
+                SurfaceRequirements::new()
+                    .with_base_alignment(crate::ByteAlignment::new(2).unwrap()),
                 PayloadLimits::HOST,
                 &mut planning_slots,
             )
@@ -1280,7 +1225,12 @@ mod tests {
         let mut canvas = [0xad; 2];
         let mut workspace = [0; 2];
         let mut session = plan
-            .bind(&mut slots, &mut canvas, &mut workspace, &mut [])
+            .bind(PlaybackStorage {
+                groups: &mut slots,
+                canvas: &mut canvas,
+                workspace: &mut workspace,
+                backup: &mut [],
+            })
             .unwrap();
         assert_eq!(
             session.present(1).unwrap().plane(0).unwrap().bytes(),
@@ -1295,7 +1245,8 @@ mod tests {
         let mut planning_slots = [None];
         let plan = frames
             .playback_plan(
-                SurfaceRequirements::new().with_base_alignment(4),
+                SurfaceRequirements::new()
+                    .with_base_alignment(crate::ByteAlignment::new(4).unwrap()),
                 PayloadLimits::HOST,
                 &mut planning_slots,
             )
@@ -1308,7 +1259,12 @@ mod tests {
         let mut workspace = [0; 4];
         let mut short_backup = [0; 3];
         assert!(matches!(
-            plan.bind(&mut slots, &mut canvas, &mut workspace, &mut short_backup,),
+            plan.bind(PlaybackStorage {
+                groups: &mut slots,
+                canvas: &mut canvas,
+                workspace: &mut workspace,
+                backup: &mut short_backup,
+            }),
             Err(FrameDecodeError::Backup(BufferRequirementError::TooSmall {
                 needed: 4,
                 available: 3,
@@ -1323,13 +1279,13 @@ mod tests {
         let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         let request = DecodeRequest::new(
             SurfaceRequirements::new()
-                .with_base_alignment(64)
+                .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
                 .with_stride_multiple(64),
         )
         .with_input(crate::image::MemoryPlacement::Flash)
         .with_output(crate::image::MemoryPlacement::SharedNoncoherent)
         .with_workspace(crate::image::MemoryPlacement::SharedCoherent)
-        .with_workspace_alignment(64);
+        .with_workspace_alignment(crate::ByteAlignment::new(64).unwrap());
         let mut planning_slots = [None];
         let plan = frames
             .playback_plan_for(request, PayloadLimits::HOST, &mut planning_slots)
@@ -1349,7 +1305,12 @@ mod tests {
         let mut workspace = Aligned([0; 64]);
         let mut backup = Aligned([0; 64]);
         let mut session = plan
-            .bind(&mut slots, &mut canvas.0, &mut workspace.0, &mut backup.0)
+            .bind(PlaybackStorage {
+                groups: &mut slots,
+                canvas: &mut canvas.0,
+                workspace: &mut workspace.0,
+                backup: &mut backup.0,
+            })
             .unwrap();
         assert_eq!(session.request(), request);
         assert_eq!(session.output_sync(), CacheSync::CleanAfterWrite);
@@ -1374,14 +1335,14 @@ mod tests {
     }
 
     #[test]
-    fn session_rejects_storage_before_mutating_canvas() {
+    fn planning_and_binding_reject_every_failure_before_mutating_canvas() {
         let bytes = session_payload(false);
         let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         let mut no_slots = [];
         let mut canvas = [0xad; 2];
         let mut workspace = [0; 2];
         assert!(matches!(
-            frames.session(
+            frames.test_session(
                 SurfaceRequirements::new(),
                 PayloadLimits::HOST,
                 &mut no_slots,
@@ -1399,36 +1360,30 @@ mod tests {
         let mut slots = [None];
         let mut canvas = [0xad; 2];
         let mut short_workspace = [0; 1];
-        {
-            let mut session = frames
-                .session(
-                    SurfaceRequirements::new(),
-                    PayloadLimits::HOST,
-                    &mut slots,
-                    &mut canvas,
-                    &mut short_workspace,
-                    &mut [],
-                )
-                .unwrap();
-            assert!(matches!(
-                session.present(0),
-                Err(FrameDecodeError::Workspace(
-                    BufferRequirementError::TooSmall {
-                        needed: 2,
-                        available: 1,
-                    }
-                ))
-            ));
-            assert_eq!(session.current_frame(), None);
-        }
+        assert!(matches!(
+            frames.test_session(
+                SurfaceRequirements::new(),
+                PayloadLimits::HOST,
+                &mut slots,
+                &mut canvas,
+                &mut short_workspace,
+                &mut [],
+            ),
+            Err(FrameDecodeError::Workspace(
+                BufferRequirementError::TooSmall {
+                    needed: 2,
+                    available: 1,
+                }
+            ))
+        ));
         assert_eq!(canvas, [0xad; 2]);
 
         let mut slots = [None];
         let mut canvas = [0xad; 2];
         let mut workspace = [0; 2];
-        {
-            let mut session = frames
-                .session(
+        assert!(
+            frames
+                .test_session(
                     SurfaceRequirements::new(),
                     PayloadLimits::HOST.with_max_raster_work(0),
                     &mut slots,
@@ -1436,10 +1391,8 @@ mod tests {
                     &mut workspace,
                     &mut [],
                 )
-                .unwrap();
-            assert!(session.present(0).is_err());
-            assert_eq!(session.current_frame(), None);
-        }
+                .is_err()
+        );
         assert_eq!(canvas, [0xad; 2]);
 
         let bytes = composed_payload(DisposalMode::RestorePrevious);
@@ -1449,7 +1402,7 @@ mod tests {
         let mut workspace = [0; 4];
         let mut short_backup = [0; 3];
         assert!(matches!(
-            frames.session(
+            frames.test_session(
                 SurfaceRequirements::new(),
                 PayloadLimits::HOST,
                 &mut slots,
@@ -1511,7 +1464,7 @@ mod tests {
         let mut workspace = [0; 2];
         {
             let mut session = frames
-                .session(
+                .test_session(
                     SurfaceRequirements::new(),
                     PayloadLimits::HOST,
                     &mut slots,
@@ -1531,20 +1484,19 @@ mod tests {
         corrupted[data_offset + data.len() - 1] ^= 1;
         let frames = FramesView::open(&corrupted, &PayloadLimits::HOST).unwrap();
         canvas = [0xad; 2];
-        {
-            let mut session = frames
-                .session(
-                    SurfaceRequirements::new(),
-                    PayloadLimits::HOST,
-                    &mut slots,
-                    &mut canvas,
-                    &mut workspace,
-                    &mut [],
-                )
-                .unwrap();
-            assert!(session.present(2).is_err());
-            assert_eq!(session.current_frame(), None);
-        }
+        assert!(matches!(
+            frames.test_session(
+                SurfaceRequirements::new(),
+                PayloadLimits::HOST,
+                &mut slots,
+                &mut canvas,
+                &mut workspace,
+                &mut [],
+            ),
+            Err(FrameDecodeError::Frames(FramesError::Media(
+                crate::media::MediaPayloadError::DataCrcMismatch { .. }
+            )))
+        ));
         assert_eq!(canvas, [0xad; 2]);
     }
 }

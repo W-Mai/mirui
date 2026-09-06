@@ -69,7 +69,7 @@ fn partitioned_padding_and_work_bounds_match_wire_admission() {
     let records = [UnitGroupRecord::new(0, 0..66)
         .unwrap()
         .with_tiles(2, 1)
-        .with_input_alignment(64)];
+        .with_input_alignment(crate::ByteAlignment::new(64).unwrap())];
     let mut data = [0xa5; 66];
     data[..2].copy_from_slice(&[0x81, 42]);
     data[64..].copy_from_slice(&[0x81, 43]);

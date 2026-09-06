@@ -67,7 +67,7 @@ fn one_physical_record_preserves_cell_gaps_atlas_regions_and_address_checks() {
         let plane = layout.plane_geometry(5, 3, 0).unwrap();
         let memory = PlaneMemoryLayout::builder(plane)
             .with_stride(16)
-            .with_alignment(64)
+            .with_alignment(crate::ByteAlignment::new(64).unwrap())
             .with_data_offset(64)
             .build()
             .unwrap();

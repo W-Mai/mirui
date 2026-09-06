@@ -1,6 +1,7 @@
 #![doc = include_str!("../../docs/decode-memory.md")]
 
 use super::SurfaceRequirements;
+use crate::ByteAlignment;
 
 /// How encoded samples are intended to reach their consumer.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -84,7 +85,7 @@ pub struct DecodeRequest {
     input: MemoryPlacement,
     output: MemoryPlacement,
     workspace: MemoryPlacement,
-    workspace_alignment: u32,
+    workspace_alignment: ByteAlignment,
 }
 
 impl DecodeRequest {
@@ -95,7 +96,7 @@ impl DecodeRequest {
             input: MemoryPlacement::Cpu,
             output: MemoryPlacement::Cpu,
             workspace: MemoryPlacement::Cpu,
-            workspace_alignment: 1,
+            workspace_alignment: ByteAlignment::ONE,
         }
     }
 
@@ -124,7 +125,7 @@ impl DecodeRequest {
         self
     }
 
-    pub const fn with_workspace_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_workspace_alignment(mut self, alignment: ByteAlignment) -> Self {
         self.workspace_alignment = alignment;
         self
     }
@@ -149,7 +150,7 @@ impl DecodeRequest {
         self.workspace
     }
 
-    pub const fn workspace_alignment(self) -> u32 {
+    pub const fn workspace_alignment(self) -> ByteAlignment {
         self.workspace_alignment
     }
 
@@ -185,11 +186,6 @@ impl DecodeRequest {
         if !self.workspace.is_cpu_writable() {
             return Err(DecodeRequestError::WorkspaceNotWritable(self.workspace));
         }
-        if !self.workspace_alignment.is_power_of_two() {
-            return Err(DecodeRequestError::InvalidWorkspaceAlignment(
-                self.workspace_alignment,
-            ));
-        }
         Ok(())
     }
 }
@@ -208,7 +204,6 @@ pub enum DecodeRequestError {
     InputNotReadable(MemoryPlacement),
     OutputNotWritable(MemoryPlacement),
     WorkspaceNotWritable(MemoryPlacement),
-    InvalidWorkspaceAlignment(u32),
 }
 
 #[cfg(test)]
@@ -269,11 +264,6 @@ mod tests {
                 MemoryPlacement::Device
             ))
         );
-        assert_eq!(
-            DecodeRequest::default()
-                .with_workspace_alignment(3)
-                .validate_reconstruction(),
-            Err(DecodeRequestError::InvalidWorkspaceAlignment(3))
-        );
+        assert!(crate::ByteAlignment::new(3).is_err());
     }
 }

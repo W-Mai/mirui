@@ -251,7 +251,9 @@ impl<'a> SurfacePlane<'a> {
 
     pub fn address_is_aligned(self) -> bool {
         self.bytes.is_empty()
-            || self.bytes.as_ptr() as usize % self.memory.required_alignment() as usize == 0
+            || self.bytes.as_ptr() as usize
+                % usize::try_from(self.memory.required_alignment().get()).expect("u32 fits usize")
+                == 0
     }
 }
 
@@ -334,7 +336,7 @@ pub enum RawImageViewError {
     PlaneFileAddressUnaligned {
         index: u8,
         absolute_offset: u32,
-        alignment: u32,
+        alignment: crate::ByteAlignment,
     },
     CanonicalDataSizeMismatch {
         expected: u32,
@@ -423,7 +425,7 @@ mod tests {
             .with_allocation_extent(allocation_width, allocation_height)
             .with_stride(stride)
             .with_data_offset(offset)
-            .with_alignment(alignment)
+            .with_alignment(crate::ByteAlignment::new(alignment).unwrap())
             .with_flags(PlaneMemoryFlags::from_bits_retain(0xa500))
             .build()
             .unwrap();

@@ -5,7 +5,7 @@ use super::{
     RepresentationTableError,
 };
 use crate::{
-    PayloadLimits,
+    ByteAlignment, PayloadLimits,
     image::{CoverageBudget, CoverageError, EncodedImageError, RasterPreflight},
     media::{MediaPayload, MediaPayloadError, MediaSection, MediaSectionFlags, MediaSectionKind},
 };
@@ -215,8 +215,8 @@ impl<'a> FontView<'a> {
     }
 
     /// Maximum declared plane/group alignment; not an actual backing-pointer guarantee.
-    pub fn input_alignment(self) -> Result<u32, FontError> {
-        let mut alignment = 1;
+    pub fn input_alignment(self) -> Result<ByteAlignment, FontError> {
+        let mut alignment = ByteAlignment::ONE;
         for index in 0..self.surface_count() {
             let value = self.bind(
                 self.surface_representation(index)
@@ -249,7 +249,7 @@ impl<'a> FontView<'a> {
             let Some((required, offset)) = self.alignment_constraint(index)? else {
                 continue;
             };
-            let required = required.max(container_alignment);
+            let required = required.get().max(container_alignment);
             if anchor.is_none() || required > alignment {
                 alignment = required;
                 anchor = Some(offset);
@@ -271,7 +271,7 @@ impl<'a> FontView<'a> {
                 let absolute = offset
                     .checked_add(relative)
                     .ok_or(FontError::SizeOverflow)?;
-                if absolute % required.max(container_alignment) != 0 {
+                if absolute % required.get().max(container_alignment) != 0 {
                     return Err(FontError::FileAddressUnaligned {
                         surface: index,
                         data_offset: absolute,
@@ -290,7 +290,7 @@ impl<'a> FontView<'a> {
         Ok(offset)
     }
 
-    fn alignment_constraint(self, index: usize) -> Result<Option<(u32, u32)>, FontError> {
+    fn alignment_constraint(self, index: usize) -> Result<Option<(ByteAlignment, u32)>, FontError> {
         let record = self.surface_record(index);
         let glyphs = self.bind(
             self.surface_representation(index)
@@ -369,6 +369,7 @@ impl<'a> FontView<'a> {
                     % glyphs
                         .input_alignment()
                         .map_err(|error| FontError::Encoded { index, error })?
+                        .get()
                     == 0
             }
         };

@@ -23,6 +23,7 @@ pub use frame_map::{FrameCounts, FrameMap, FrameMapAsset, FrameMapError, FrameMa
 pub use keyframes::{KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError, KeyframeIter};
 pub use playback::{
     FrameDecodeError, FrameDecodePlan, FrameDisposalPlan, FrameSession, FramesPlaybackPlan,
+    PlaybackStorage,
 };
 pub use sectioned::{
     FrameGroupIter, FrameGroups, FramePresentation, FramesAsset, FramesEncodeError, FramesError,

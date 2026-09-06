@@ -256,7 +256,7 @@ impl<'a> FramesAsset<'a> {
     fn storage(self) -> EncodedImageAsset<'a> {
         let mut storage =
             EncodedImageAsset::from_groups(self.surface, self.codings, self.groups, self.data)
-                .with_index(self.indexes)
+                .with_unit_index(self.indexes)
                 .with_integrity(self.integrity);
         if let Some(table) = self.color_table {
             storage = storage.with_color_table(table);
@@ -811,7 +811,7 @@ impl<'a> FramesView<'a> {
     ///
     /// The value constrains the FRAMES payload's file or Flash placement; it
     /// does not describe the alignment required by a decoded destination.
-    pub fn input_alignment(self) -> Result<u32, FramesError> {
+    pub fn input_alignment(self) -> Result<crate::ByteAlignment, FramesError> {
         self.group_source()
             .input_alignment()
             .map_err(FramesError::Storage)
@@ -1207,12 +1207,14 @@ mod tests {
 
     use super::*;
     use crate::{
-        BlendMode, DisposalMode, FrameCompositionAsset, FrameCompositionOverride, FrameMapAsset,
-        FrameTimingAsset, KeyframeIndexAsset,
         image::{ColorDescription, CoverageError, SampleLayout, UnitGroupRecord},
         media::{
             CodingId, CodingRecord, DataIntegrity, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN,
             MEDIA_VERSION, MediaSectionKind, output::PayloadOutput,
+        },
+        payload::frames::{
+            BlendMode, DisposalMode, FrameCompositionAsset, FrameCompositionOverride,
+            FrameMapAsset, FrameTimingAsset, KeyframeIndexAsset,
         },
         wire::write_u16_le,
     };
@@ -1442,11 +1444,11 @@ mod tests {
         let groups = [
             UnitGroupRecord::new(0, 0..1)
                 .unwrap()
-                .with_input_alignment(64),
+                .with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
             UnitGroupRecord::new(0, 64..65)
                 .unwrap()
                 .with_reference(ReferenceMode::Previous)
-                .with_input_alignment(64),
+                .with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
         ];
         let mut data = [0x5a; 65];
         data[0] = 1;

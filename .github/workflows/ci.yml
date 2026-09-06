@@ -23,6 +23,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends libsdl2-dev libevdev-dev
       - run: cargo install xrune-fmt
-      - run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/W-Mai/Cha/releases/download/v1.14.0/cha-cli-installer.sh | sh
+      - run: curl --proto '=https' --tlsv1.2 -LsSf https://github.com/W-Mai/Cha/releases/download/v1.20.0/cha-cli-installer.sh | sh
       - run: echo "$HOME/.cargo/bin" >> $GITHUB_PATH
       - run: cargo xtask ci

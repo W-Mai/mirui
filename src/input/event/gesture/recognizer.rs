@@ -22,9 +22,9 @@ pub(super) enum GestureState {
 const DRAG_THRESHOLD: i32 = 10;
 const LONG_PRESS_MS: u16 = 500;
 /// 5% relative distance change wakes Pinch. Q24.8: 0.05 * 256 ≈ 13.
-const PINCH_THRESHOLD: Fixed = Fixed::from_raw(13);
+const PINCH_THRESHOLD: Fixed = Fixed::from_ratio(13, 256);
 /// ≈0.1 rad (5.7°) wakes Rotate. Q24.8: 0.1 * 256 ≈ 26.
-const ROTATE_THRESHOLD: Fixed = Fixed::from_raw(26);
+const ROTATE_THRESHOLD: Fixed = Fixed::from_ratio(26, 256);
 
 pub(super) const MAX_FINGERS: usize = 4;
 
@@ -258,7 +258,7 @@ impl GestureRecognizer {
         let (f0, f1) = (self.fingers[0], self.fingers[1]);
         let dx = f1.current_x - f0.current_x;
         let dy = f1.current_y - f0.current_y;
-        self.initial_dist = dist(dx, dy).max(Fixed::from_raw(1));
+        self.initial_dist = dist(dx, dy).max(Fixed::from_ratio(1, 256));
         self.initial_angle = Fixed::atan2(dy, dx);
         self.last_emit_dist = self.initial_dist;
         self.last_emit_angle = self.initial_angle;
@@ -297,7 +297,7 @@ impl GestureRecognizer {
         if let Some(target) = self.target {
             if self.pinch_emitting {
                 let pinch_increment = Fixed64::from_fixed(cur_dist)
-                    / Fixed64::from_fixed(self.last_emit_dist.max(Fixed::from_raw(1)));
+                    / Fixed64::from_fixed(self.last_emit_dist.max(Fixed::from_ratio(1, 256)));
                 self.last_emit_dist = cur_dist;
                 events_out.push(GestureEvent::Pinch {
                     x: center_x,

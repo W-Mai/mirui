@@ -5,17 +5,17 @@ use crate::render::command::CompositeMode;
 use crate::render::path::{Path, PathCmd};
 use crate::render::raster::FillRule;
 use crate::render::scene::{ResourceRef, Scene, SceneOp};
-use crate::types::{Color, Fixed, Point, Rect, Transform};
+use crate::types::{Color, Fixed, Point, Rect, Transform, fixed::storage};
 
 impl From<mirx::Fixed> for Fixed {
     fn from(v: mirx::Fixed) -> Self {
-        Fixed(v.raw())
+        storage::from_le_bytes(v.to_le_bytes())
     }
 }
 
 impl From<Fixed> for mirx::Fixed {
     fn from(v: Fixed) -> Self {
-        mirx::Fixed(v.0)
+        mirx::Fixed::from_le_bytes(storage::to_le_bytes(v))
     }
 }
 
@@ -582,5 +582,19 @@ impl From<Scene> for mirx::Scene {
     fn from(s: Scene) -> Self {
         let ops: Vec<mirx::SceneOp> = s.ops.into_iter().map(Into::into).collect();
         Self::from_ops(ops)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fixed_conversion_preserves_every_endpoint_bit() {
+        for bits in [i32::MIN, -1, 0, 1, i32::MAX] {
+            let wire = mirx::Fixed::from_le_bytes(bits.to_le_bytes());
+            let runtime = Fixed::from(wire);
+            assert_eq!(mirx::Fixed::from(runtime).to_le_bytes(), bits.to_le_bytes());
+        }
     }
 }

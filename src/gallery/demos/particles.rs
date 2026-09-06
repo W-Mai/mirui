@@ -62,7 +62,7 @@ pub fn particle_system(world: &mut World) {
             };
             p.x += p.vx;
             p.y += p.vy;
-            p.phase += Fixed::from_raw(5);
+            p.phase += Fixed::from_ratio(5, 256);
 
             if p.x < Fixed::from_int(2) || p.x > Fixed::from_int(bw - 6) {
                 p.vx = Fixed::ZERO - p.vx;
@@ -154,7 +154,11 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         Color::rgba(255, 100, 200, 40),
         Color::rgba(100, 255, 150, 50),
     ];
-    let ring_speeds = [Fixed::from_raw(12), Fixed::from_raw(8), Fixed::from_raw(15)];
+    let ring_speeds = [
+        Fixed::from_ratio(3, 64),
+        Fixed::from_ratio(1, 32),
+        Fixed::from_ratio(15, 256),
+    ];
     let ring_max = [
         Fixed::from_int(20),
         Fixed::from_int(16),
@@ -192,7 +196,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     let bar_configs: [(Color, Fixed, Fixed, bool, i32, i32); 3] = [
         (
             Color::rgba(255, 200, 50, 180),
-            Fixed::from_raw(45),
+            Fixed::from_ratio(45, 256),
             Fixed::from_int(10),
             false,
             30,
@@ -200,7 +204,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         ),
         (
             Color::rgba(50, 255, 200, 160),
-            Fixed::from_raw(33),
+            Fixed::from_ratio(33, 256),
             Fixed::from_int(80),
             false,
             25,
@@ -208,7 +212,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         ),
         (
             Color::rgba(200, 50, 255, 140),
-            Fixed::from_raw(55),
+            Fixed::from_ratio(55, 256),
             Fixed::from_int(20),
             true,
             5,
@@ -268,10 +272,10 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
     ];
 
     for color in particle_colors {
-        let px = Fixed::from_raw(rng() % (100 * 256));
-        let py = Fixed::from_raw(rng() % (100 * 256));
-        let vx = Fixed::from_raw(rng() % 200 - 100);
-        let vy = Fixed::from_raw(rng() % 200 - 100);
+        let px = Fixed::from_ratio(rng() % (100 * 256), 256);
+        let py = Fixed::from_ratio(rng() % (100 * 256), 256);
+        let vx = Fixed::from_ratio(rng() % 200 - 100, 256);
+        let vy = Fixed::from_ratio(rng() % 200 - 100, 256);
 
         let particle = WidgetBuilder::new(world)
             .bg_color(color)

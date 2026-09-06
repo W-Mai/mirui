@@ -165,8 +165,8 @@ impl<'a> RawImagePlan<'a> {
             has_planes |= plane.memory() != canonical;
             canonical_offset = canonical.data_end();
             data_len = plane.memory().data_end();
-            required_alignment_log2 = required_alignment_log2
-                .max(plane.memory().required_alignment().trailing_zeros() as u8);
+            required_alignment_log2 =
+                required_alignment_log2.max(plane.memory().required_alignment().log2());
         }
         let color_table_len = view.color_table().map_or(0, |table| table.as_bytes().len());
         let section_count = 2 + u16::from(has_planes) + u16::from(color_table_len != 0);
@@ -363,7 +363,7 @@ fn validate_planes(asset: RawImageAsset<'_, '_>) -> Result<(u32, u8), ImageEncod
             });
         }
         previous_end = memory.data_end();
-        alignment_log2 = alignment_log2.max(memory.required_alignment().trailing_zeros() as u8);
+        alignment_log2 = alignment_log2.max(memory.required_alignment().log2());
     }
     Ok((previous_end, alignment_log2))
 }
@@ -406,7 +406,7 @@ mod tests {
         let layouts = [PlaneMemoryLayout::builder(surface.plane(0).unwrap())
             .with_stride(4)
             .with_data_offset(64)
-            .with_alignment(64)
+            .with_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap()];
         let palette = [0x5a; 64];
@@ -474,7 +474,7 @@ mod tests {
             .with_allocation_extent(4, 2)
             .with_stride(16)
             .with_data_offset(64)
-            .with_alignment(64)
+            .with_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
         let pixels = [0x5a; 32];

@@ -159,7 +159,7 @@ fn section_presence_selects_one_parser_without_fallback() {
 fn file_position_survives_dispatch_for_both_storage_forms() {
     let surface = SurfaceDescriptor::new(4, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let layout = PlaneMemoryLayout::builder(surface.plane(0).unwrap())
-        .with_alignment(64)
+        .with_alignment(crate::ByteAlignment::new(64).unwrap())
         .build()
         .unwrap();
     let raw = RawImageAsset::new(surface, &[&[42; 4]])
@@ -174,7 +174,7 @@ fn file_position_survives_dispatch_for_both_storage_forms() {
         ))
     ));
     let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 42])
-        .with_input_alignment(64)
+        .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
         .encode()
         .unwrap();
     let mut slots = [None];

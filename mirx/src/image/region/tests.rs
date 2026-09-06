@@ -61,8 +61,8 @@ fn all_layouts_preserve_exact_samples_metadata_and_aligned_crop_geometry() {
             .region_plan(
                 region,
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_plane_alignment(64)
+                    .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                    .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64)
                     .with_width_multiple(4)
                     .with_height_multiple(4),
@@ -181,7 +181,7 @@ fn region_and_buffer_errors_never_change_output() {
     let plan = surface
         .region_plan(
             surface.region(1, 0, 2, 1).unwrap(),
-            SurfaceRequirements::new().with_base_alignment(64),
+            SurfaceRequirements::new().with_base_alignment(crate::ByteAlignment::new(64).unwrap()),
         )
         .unwrap();
     let mut output = Buffer([0xa5; 1024]);

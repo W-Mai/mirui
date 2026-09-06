@@ -3,6 +3,7 @@ use core::iter::FusedIterator;
 use super::{
     PlaneGeometry, PlaneMemoryError, PlaneMemoryLayout, Region, SurfaceDescriptor, samples,
 };
+use crate::ByteAlignment;
 
 /// Backend allocation constraints for every plane of a decoded surface.
 ///
@@ -11,8 +12,8 @@ use super::{
 /// Width is measured in plane elements, height in rows, and stride in bytes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SurfaceRequirements {
-    base_alignment: u32,
-    plane_alignment: u32,
+    base_alignment: ByteAlignment,
+    plane_alignment: ByteAlignment,
     width_multiple: u32,
     height_multiple: u32,
     stride_multiple: u32,
@@ -21,20 +22,20 @@ pub struct SurfaceRequirements {
 impl SurfaceRequirements {
     pub const fn new() -> Self {
         Self {
-            base_alignment: 1,
-            plane_alignment: 1,
+            base_alignment: ByteAlignment::ONE,
+            plane_alignment: ByteAlignment::ONE,
             width_multiple: 1,
             height_multiple: 1,
             stride_multiple: 1,
         }
     }
 
-    pub const fn with_base_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_base_alignment(mut self, alignment: ByteAlignment) -> Self {
         self.base_alignment = alignment;
         self
     }
 
-    pub const fn with_plane_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_plane_alignment(mut self, alignment: ByteAlignment) -> Self {
         self.plane_alignment = alignment;
         self
     }
@@ -54,11 +55,11 @@ impl SurfaceRequirements {
         self
     }
 
-    pub const fn base_alignment(self) -> u32 {
+    pub const fn base_alignment(self) -> ByteAlignment {
         self.base_alignment
     }
 
-    pub const fn plane_alignment(self) -> u32 {
+    pub const fn plane_alignment(self) -> ByteAlignment {
         self.plane_alignment
     }
 
@@ -75,14 +76,6 @@ impl SurfaceRequirements {
     }
 
     pub(super) fn validate(self) -> Result<(), SurfacePlanError> {
-        if !valid_alignment(self.base_alignment) {
-            return Err(SurfacePlanError::InvalidBaseAlignment(self.base_alignment));
-        }
-        if !valid_alignment(self.plane_alignment) {
-            return Err(SurfacePlanError::InvalidPlaneAlignment(
-                self.plane_alignment,
-            ));
-        }
         if self.width_multiple == 0 {
             return Err(SurfacePlanError::InvalidWidthMultiple);
         }
@@ -106,18 +99,17 @@ impl Default for SurfaceRequirements {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BufferRequirements {
     byte_len: usize,
-    base_alignment: usize,
+    base_alignment: ByteAlignment,
 }
 
 impl BufferRequirements {
-    pub(crate) fn new(byte_len: u32, base_alignment: u32) -> Result<Self, SurfacePlanError> {
-        if !valid_alignment(base_alignment) {
-            return Err(SurfacePlanError::InvalidBaseAlignment(base_alignment));
-        }
+    pub(crate) fn new(
+        byte_len: u32,
+        base_alignment: ByteAlignment,
+    ) -> Result<Self, SurfacePlanError> {
         Ok(Self {
             byte_len: usize::try_from(byte_len).map_err(|_| SurfacePlanError::SizeOverflow)?,
-            base_alignment: usize::try_from(base_alignment)
-                .map_err(|_| SurfacePlanError::SizeOverflow)?,
+            base_alignment,
         })
     }
 
@@ -125,7 +117,7 @@ impl BufferRequirements {
         self.byte_len
     }
 
-    pub const fn base_alignment(self) -> usize {
+    pub const fn base_alignment(self) -> ByteAlignment {
         self.base_alignment
     }
 
@@ -140,10 +132,11 @@ impl BufferRequirements {
         if self.byte_len == 0 {
             return Ok(());
         }
-        if buffer.as_ptr() as usize % self.base_alignment != 0 {
+        let alignment = usize::try_from(self.base_alignment.get()).expect("u32 fits usize");
+        if buffer.as_ptr() as usize % alignment != 0 {
             return Err(BufferRequirementError::AddressUnaligned {
                 address: buffer.as_ptr() as usize,
-                alignment: self.base_alignment,
+                alignment,
             });
         }
         Ok(())
@@ -198,8 +191,8 @@ impl SurfaceMemoryPlan {
         self.buffer.byte_len as u32
     }
 
-    pub const fn base_alignment(self) -> u32 {
-        self.buffer.base_alignment as u32
+    pub const fn base_alignment(self) -> ByteAlignment {
+        self.buffer.base_alignment
     }
 
     pub const fn buffer_requirements(self) -> BufferRequirements {
@@ -316,8 +309,6 @@ impl FusedIterator for SurfaceMemoryPlanes {}
 #[non_exhaustive]
 pub enum SurfacePlanError {
     Region(super::RegionError),
-    InvalidBaseAlignment(u32),
-    InvalidPlaneAlignment(u32),
     InvalidWidthMultiple,
     InvalidHeightMultiple,
     InvalidStrideMultiple,
@@ -349,8 +340,8 @@ impl SurfaceRequirements {
                 .ok_or(SurfacePlanError::SizeOverflow)?;
         let stride =
             round_up(minimum_stride, self.stride_multiple).ok_or(SurfacePlanError::SizeOverflow)?;
-        let data_offset =
-            round_up(previous_end, self.plane_alignment).ok_or(SurfacePlanError::SizeOverflow)?;
+        let data_offset = round_up(previous_end, self.plane_alignment.get())
+            .ok_or(SurfacePlanError::SizeOverflow)?;
         PlaneMemoryLayout::builder(geometry)
             .with_allocation_extent(allocation_width, allocation_height)
             .with_stride(stride)
@@ -359,10 +350,6 @@ impl SurfaceRequirements {
             .build()
             .map_err(|error| SurfacePlanError::InvalidPlane { index, error })
     }
-}
-
-const fn valid_alignment(alignment: u32) -> bool {
-    alignment.is_power_of_two() && alignment <= (1 << 31)
 }
 
 fn round_up(value: u32, multiple: u32) -> Option<u32> {
@@ -408,8 +395,8 @@ mod tests {
         )
         .unwrap();
         let requirements = SurfaceRequirements::new()
-            .with_base_alignment(64)
-            .with_plane_alignment(64)
+            .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+            .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
             .with_width_multiple(8)
             .with_height_multiple(2)
             .with_stride_multiple(64);
@@ -436,8 +423,8 @@ mod tests {
         let plan = surface
             .memory_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_plane_alignment(64)
+                    .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                    .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                     .with_width_multiple(64)
                     .with_stride_multiple(64),
             )
@@ -457,10 +444,7 @@ mod tests {
     fn invalid_requirements_and_overflow_fail_before_a_plan_exists() {
         let surface =
             SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-        assert_eq!(
-            surface.memory_plan(SurfaceRequirements::new().with_base_alignment(3)),
-            Err(SurfacePlanError::InvalidBaseAlignment(3))
-        );
+        assert!(crate::ByteAlignment::new(3).is_err());
         assert_eq!(
             surface.memory_plan(SurfaceRequirements::new().with_width_multiple(0)),
             Err(SurfacePlanError::InvalidWidthMultiple)
@@ -505,7 +489,10 @@ mod tests {
         let surface =
             SurfaceDescriptor::new(8, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let plan = surface
-            .memory_plan(SurfaceRequirements::new().with_base_alignment(64))
+            .memory_plan(
+                SurfaceRequirements::new()
+                    .with_base_alignment(crate::ByteAlignment::new(64).unwrap()),
+            )
             .unwrap();
         let requirements = plan.buffer_requirements();
         let storage = vec![0; requirements.byte_len() + 64];
@@ -532,7 +519,10 @@ mod tests {
 
         let empty = SurfaceDescriptor::new(0, 0, SampleLayout::A8, ColorDescription::NONE)
             .unwrap()
-            .memory_plan(SurfaceRequirements::new().with_base_alignment(64))
+            .memory_plan(
+                SurfaceRequirements::new()
+                    .with_base_alignment(crate::ByteAlignment::new(64).unwrap()),
+            )
             .unwrap()
             .buffer_requirements();
         assert_eq!(empty.validate(&[]), Ok(()));

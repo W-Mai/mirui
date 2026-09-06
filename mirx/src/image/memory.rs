@@ -1,6 +1,7 @@
 use core::ops::Range;
 
 use super::PlaneGeometry;
+use crate::ByteAlignment;
 use crate::format::minimum_stride_for_bits;
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
@@ -45,7 +46,7 @@ impl PlaneMemoryLayout {
             allocation_height: plane.height(),
             stride: None,
             data_offset: 0,
-            alignment: 1,
+            alignment: ByteAlignment::ONE,
             flags: PlaneMemoryFlags::NONE,
         }
     }
@@ -72,8 +73,11 @@ impl PlaneMemoryLayout {
         self.data_offset
     }
 
-    pub const fn required_alignment(self) -> u32 {
-        1u32 << self.alignment_log2
+    pub const fn required_alignment(self) -> ByteAlignment {
+        match ByteAlignment::new(1u32 << self.alignment_log2) {
+            Ok(alignment) => alignment,
+            Err(_) => unreachable!(),
+        }
     }
 
     pub const fn flags(self) -> PlaneMemoryFlags {
@@ -118,7 +122,7 @@ impl PlaneMemoryLayout {
         let Some(address) = data_section_offset.checked_add(self.data_offset) else {
             return false;
         };
-        address % self.required_alignment() == 0
+        address % self.required_alignment().get() == 0
     }
 
     /// Checks the actual in-memory address without treating allocator behavior
@@ -127,7 +131,9 @@ impl PlaneMemoryLayout {
         let Some(bytes) = self.bytes(data_section) else {
             return false;
         };
-        bytes.as_ptr() as usize % self.required_alignment() as usize == 0
+        bytes.as_ptr() as usize
+            % usize::try_from(self.required_alignment().get()).expect("u32 fits usize")
+            == 0
     }
 
     /// Decodes and validates one fixed-width PLANES section record against its
@@ -164,7 +170,10 @@ impl PlaneMemoryLayout {
             .with_allocation_extent(allocation_width, allocation_height)
             .with_stride(stride)
             .with_data_offset(data_offset)
-            .with_alignment(1u32 << alignment_log2)
+            .with_alignment(
+                ByteAlignment::new(1u32 << alignment_log2)
+                    .expect("validated plane alignment exponent"),
+            )
             .with_flags(flags)
             .build()
             .map_err(PlaneMemoryRecordError::InvalidLayout)
@@ -199,7 +208,7 @@ pub struct PlaneMemoryBuilder {
     allocation_height: u32,
     stride: Option<u32>,
     data_offset: u32,
-    alignment: u32,
+    alignment: ByteAlignment,
     flags: PlaneMemoryFlags,
 }
 
@@ -233,7 +242,7 @@ impl PlaneMemoryBuilder {
     }
 
     /// Sets a power-of-two byte alignment for the plane start address.
-    pub const fn with_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_alignment(mut self, alignment: ByteAlignment) -> Self {
         self.alignment = alignment;
         self
     }
@@ -274,10 +283,7 @@ impl PlaneMemoryBuilder {
             .checked_add(byte_len)
             .ok_or(PlaneMemoryError::SizeOverflow)?;
 
-        if !self.alignment.is_power_of_two() || self.alignment > (1 << 31) {
-            return Err(PlaneMemoryError::InvalidAlignment(self.alignment));
-        }
-        if self.data_offset % self.alignment != 0 {
+        if self.data_offset % self.alignment.get() != 0 {
             return Err(PlaneMemoryError::DataOffsetUnaligned {
                 offset: self.data_offset,
                 alignment: self.alignment,
@@ -289,7 +295,7 @@ impl PlaneMemoryBuilder {
             allocation_height: self.allocation_height,
             stride,
             data_offset: self.data_offset,
-            alignment_log2: self.alignment.trailing_zeros() as u8,
+            alignment_log2: self.alignment.log2(),
             flags: self.flags,
         })
     }
@@ -299,12 +305,23 @@ impl PlaneMemoryBuilder {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PlaneMemoryError {
-    AllocationWidthTooSmall { minimum: u32, actual: u32 },
-    AllocationHeightTooSmall { minimum: u32, actual: u32 },
-    StrideTooSmall { minimum: u32, actual: u32 },
-    InvalidAlignment(u32),
+    AllocationWidthTooSmall {
+        minimum: u32,
+        actual: u32,
+    },
+    AllocationHeightTooSmall {
+        minimum: u32,
+        actual: u32,
+    },
+    StrideTooSmall {
+        minimum: u32,
+        actual: u32,
+    },
     InvalidAlignmentLog2(u8),
-    DataOffsetUnaligned { offset: u32, alignment: u32 },
+    DataOffsetUnaligned {
+        offset: u32,
+        alignment: ByteAlignment,
+    },
     SizeOverflow,
 }
 
@@ -351,7 +368,7 @@ mod tests {
             .with_allocation_extent(320, 192)
             .with_stride(1_280)
             .with_data_offset(64)
-            .with_alignment(64)
+            .with_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
 
@@ -394,18 +411,15 @@ mod tests {
                 actual: 1_275,
             })
         );
-        assert_eq!(
-            PlaneMemoryLayout::builder(plane).with_alignment(48).build(),
-            Err(PlaneMemoryError::InvalidAlignment(48))
-        );
+        assert!(crate::ByteAlignment::new(48).is_err());
         assert_eq!(
             PlaneMemoryLayout::builder(plane)
-                .with_alignment(64)
+                .with_alignment(crate::ByteAlignment::new(64).unwrap())
                 .with_data_offset(32)
                 .build(),
             Err(PlaneMemoryError::DataOffsetUnaligned {
                 offset: 32,
-                alignment: 64,
+                alignment: crate::ByteAlignment::new(64).unwrap(),
             })
         );
     }
@@ -428,7 +442,7 @@ mod tests {
             .with_allocation_extent(160, 96)
             .with_stride(640)
             .with_data_offset(1_280)
-            .with_alignment(256)
+            .with_alignment(crate::ByteAlignment::new(256).unwrap())
             .with_flags(PlaneMemoryFlags::from_bits_retain(0xa501))
             .build()
             .unwrap();
@@ -482,7 +496,7 @@ mod tests {
         let plane = SampleLayout::A8.plane_geometry(16, 4, 0).unwrap();
         let memory = PlaneMemoryLayout::builder(plane)
             .with_stride(16)
-            .with_alignment(64)
+            .with_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
         let aligned = Aligned([0; 128]);

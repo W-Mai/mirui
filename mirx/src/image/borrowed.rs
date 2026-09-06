@@ -252,7 +252,7 @@ impl<'a> SurfaceView<'a> {
             let memory = plane.memory();
             if memory.allocation_width() != plane.geometry().width()
                 || memory.allocation_height() != plane.geometry().height()
-                || memory.required_alignment() != 1
+                || memory.required_alignment() != crate::ByteAlignment::ONE
                 || memory.flags().bits() != 0
             {
                 return None;

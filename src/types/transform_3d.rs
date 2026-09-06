@@ -1,4 +1,4 @@
-use super::{Fixed, Fixed64, Point, Rect};
+use super::{Fixed, Fixed64, Point, Rect, fixed::storage};
 
 /// 3×3 homography for 2.5D widget warping. Uses [`Fixed64`] (Q48.16)
 /// instead of [`Fixed`] (Q24.8) because Q24.8 can't represent the small
@@ -18,7 +18,7 @@ pub struct Transform3D {
 
 #[inline]
 fn try_div(a: Fixed64, b: Fixed64) -> Option<Fixed64> {
-    if b.raw() == 0 { None } else { Some(a / b) }
+    if b.is_zero() { None } else { Some(a / b) }
 }
 
 impl Transform3D {
@@ -221,7 +221,7 @@ impl Transform3D {
         let xp = self.m00 * x + self.m01 * y + self.m02;
         let yp = self.m10 * x + self.m11 * y + self.m12;
         let w = self.m20 * x + self.m21 * y + self.m22;
-        if w.raw() <= 0 {
+        if !w.is_positive() {
             return None;
         }
         let sx = try_div(xp, w)?;
@@ -254,7 +254,7 @@ impl Transform3D {
     pub fn from_quad(src_rect: Rect, dst_quad: &[Point; 4]) -> Option<Self> {
         let ux = Fixed64::from_fixed(src_rect.w);
         let uy = Fixed64::from_fixed(src_rect.h);
-        if ux.raw() == 0 || uy.raw() == 0 {
+        if ux.is_zero() || uy.is_zero() {
             return None;
         }
 
@@ -275,7 +275,7 @@ impl Transform3D {
         let sy = q0y - q1y + q2y - q3y;
 
         let denom = dx1 * dy2 - dy1 * dx2;
-        if denom.raw() == 0 {
+        if denom.is_zero() {
             return None;
         }
 
@@ -317,7 +317,7 @@ impl Transform3D {
         let i = self.m00 * self.m11 - self.m01 * self.m10;
 
         let det = self.m00 * a + self.m01 * d + self.m02 * g;
-        if det.raw() == 0 {
+        if det.is_zero() {
             return None;
         }
 
@@ -348,10 +348,10 @@ impl Default for Transform3D {
 pub fn point_in_quad(q: &[Point; 4], p: Point) -> bool {
     // i64 cross: Q8.8 raw squared overflows i32 past ~180 px wide.
     let edge = |a: Point, b: Point| -> i64 {
-        let dx = (b.x.raw() as i64) - (a.x.raw() as i64);
-        let dy = (b.y.raw() as i64) - (a.y.raw() as i64);
-        let px = (p.x.raw() as i64) - (a.x.raw() as i64);
-        let py = (p.y.raw() as i64) - (a.y.raw() as i64);
+        let dx = i64::from(storage::to_i32(b.x)) - i64::from(storage::to_i32(a.x));
+        let dy = i64::from(storage::to_i32(b.y)) - i64::from(storage::to_i32(a.y));
+        let px = i64::from(storage::to_i32(p.x)) - i64::from(storage::to_i32(a.x));
+        let py = i64::from(storage::to_i32(p.y)) - i64::from(storage::to_i32(a.y));
         dx * py - dy * px
     };
     let s0 = edge(q[0], q[1]);
@@ -413,9 +413,13 @@ mod tests {
                 y: Fixed::ZERO,
             })
             .unwrap();
-        assert!(p.x.abs().raw() < 4, "x ≈ 0, got {}", p.x.to_f32());
         assert!(
-            (p.y - Fixed::ONE).abs().raw() < 4,
+            p.x.abs() < Fixed::from_ratio(1, 64),
+            "x ≈ 0, got {}",
+            p.x.to_f32()
+        );
+        assert!(
+            (p.y - Fixed::ONE).abs() < Fixed::from_ratio(1, 64),
             "y ≈ 1, got {}",
             p.y.to_f32()
         );
@@ -434,8 +438,8 @@ mod tests {
         };
         let pl = left.apply_point(p).unwrap();
         let pr = right.apply_point(p).unwrap();
-        assert!((pl.x - pr.x).abs().raw() < 20);
-        assert!((pl.y - pr.y).abs().raw() < 20);
+        assert!((pl.x - pr.x).abs() < Fixed::from_ratio(5, 64));
+        assert!((pl.y - pr.y).abs() < Fixed::from_ratio(5, 64));
     }
 
     #[test]
@@ -450,8 +454,8 @@ mod tests {
             y: Fixed::from_int(9),
         };
         let back = inv.apply_point(t.apply_point(p).unwrap()).unwrap();
-        assert!((back.x - p.x).abs().raw() < 20);
-        assert!((back.y - p.y).abs().raw() < 20);
+        assert!((back.x - p.x).abs() < Fixed::from_ratio(5, 64));
+        assert!((back.y - p.y).abs() < Fixed::from_ratio(5, 64));
     }
 
     #[test]
@@ -534,14 +538,14 @@ mod tests {
         for (i, c) in corners.iter().enumerate() {
             let out = h.apply_point(*c).expect("projects");
             assert!(
-                (out.x - dst[i].x).abs().raw() < 256,
+                (out.x - dst[i].x).abs() < Fixed::ONE,
                 "corner {} x: got {} want {}",
                 i,
                 out.x.to_f32(),
                 dst[i].x.to_f32()
             );
             assert!(
-                (out.y - dst[i].y).abs().raw() < 256,
+                (out.y - dst[i].y).abs() < Fixed::ONE,
                 "corner {} y: got {} want {}",
                 i,
                 out.y.to_f32(),
@@ -562,8 +566,8 @@ mod tests {
         };
         let p2 = t2d.apply_point(p);
         let p3 = t3d.apply_point(p).unwrap();
-        assert!((p2.x - p3.x).abs().raw() < 20);
-        assert!((p2.y - p3.y).abs().raw() < 20);
+        assert!((p2.x - p3.x).abs() < Fixed::from_ratio(5, 64));
+        assert!((p2.y - p3.y).abs() < Fixed::from_ratio(5, 64));
     }
 
     #[test]

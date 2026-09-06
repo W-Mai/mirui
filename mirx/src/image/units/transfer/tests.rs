@@ -31,8 +31,8 @@ fn every_layout_and_original_plane_places_only_owned_sample_bits() {
         let destination = surface
             .memory_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_plane_alignment(64)
+                    .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                    .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64)
                     .with_width_multiple(8)
                     .with_height_multiple(2),
@@ -77,8 +77,8 @@ fn every_layout_and_original_plane_places_only_owned_sample_bits() {
                 let decoded = unit
                     .decode_plan(
                         SurfaceRequirements::new()
-                            .with_base_alignment(64)
-                            .with_plane_alignment(64)
+                            .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                            .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                             .with_stride_multiple(16),
                     )
                     .unwrap()
@@ -138,7 +138,9 @@ fn placement_errors_preserve_the_complete_target() {
         .decode_into(&mut unit)
         .unwrap();
     let target = surface
-        .memory_plan(SurfaceRequirements::new().with_base_alignment(64))
+        .memory_plan(
+            SurfaceRequirements::new().with_base_alignment(crate::ByteAlignment::new(64).unwrap()),
+        )
         .unwrap();
     let mut output = Buffer([0xa5; 4096]);
     assert!(matches!(

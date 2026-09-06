@@ -140,7 +140,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
         ) [
             Carousel,
             ScrollOffset {
-                x: Fixed::from_raw(scroll_x_raw),
+                x: Fixed::from_ratio(scroll_x_raw, 256),
                 y: Fixed::ZERO,
             },
             ScrollConfig {
@@ -190,7 +190,7 @@ fn render_at(scroll_x_raw: i32) -> Vec<u8> {
 fn main() {
     let dir = std::env::var("MIRUI_SNAPSHOT_DIR").unwrap_or_else(|_| ".".into());
     std::fs::create_dir_all(&dir).ok();
-    let base_x = Fixed::from_int(440).raw();
+    let base_x = 440 * 256;
     let mut prev: Option<Vec<u8>> = None;
     for step in 0..17 {
         let x_raw = base_x + step * 16;

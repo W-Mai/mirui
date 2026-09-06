@@ -105,7 +105,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
     /// No allocation or file I/O occurs. All failures precede final output writes.
     ///
     /// ```
-    /// use mirx::{PayloadLimits, coding::Rle, media::DataIntegrity, image::{
+    /// use mirx::{ByteAlignment, PayloadLimits, coding::Rle, media::DataIntegrity, image::{
     ///     ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageView,
     ///     SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitGroupRecord,
     /// }};
@@ -119,7 +119,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
     /// let mut slots = [None];
     /// let groups = image.groups_into(&mut slots, &mut CoverageBudget::new(100)).unwrap();
     /// let plan = groups.decode_region_plan(surface.region(2, 0, 2, 2).unwrap(),
-    ///     SurfaceRequirements::new().with_base_alignment(64).with_stride_multiple(64),
+    ///     SurfaceRequirements::new().with_base_alignment(ByteAlignment::new(64).unwrap()).with_stride_multiple(64),
     ///     &PayloadLimits::EMBEDDED).unwrap();
     /// assert_eq!(plan.unit_count(), 2);
     /// assert_eq!(plan.input_byte_len(), 4);
@@ -163,7 +163,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
             .map_err(DecodeError::Image)?;
         let mut workspace = 0;
         let mut input_bytes = 0;
-        let mut input_alignment = 1;
+        let mut input_alignment = crate::ByteAlignment::ONE;
         let mut input_addresses_aligned = true;
         let mut checksums = Checksums::default();
         for (index, group) in self.iter().enumerate() {

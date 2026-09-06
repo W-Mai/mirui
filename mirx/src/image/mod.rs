@@ -3,15 +3,15 @@
 //! Logical dimensions remain unchanged when a backend needs padded storage:
 //!
 //! ```
-//! use mirx::image::{ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements};
+//! use mirx::{ByteAlignment, image::{ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements}};
 //!
 //! let surface = SurfaceDescriptor::new(
 //!     319, 181, SampleLayout::RGBA8888, ColorDescription::SRGB,
 //! ).unwrap();
 //! let plan = surface.memory_plan(
 //!     SurfaceRequirements::new()
-//!         .with_base_alignment(64)
-//!         .with_plane_alignment(64)
+//!         .with_base_alignment(ByteAlignment::new(64).unwrap())
+//!         .with_plane_alignment(ByteAlignment::new(64).unwrap())
 //!         .with_width_multiple(64)
 //!         .with_stride_multiple(64),
 //! ).unwrap();

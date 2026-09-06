@@ -12,15 +12,20 @@ use mirx::{
     FramesEncoder, ImageAsset, Meta, MetaEntry, Palette, PayloadLimits, Reader, encode_chunks,
 };
 
+fn wire_fixed(bits: i32) -> mirx::Fixed {
+    mirx::Fixed::from_le_bytes(bits.to_le_bytes())
+}
+
 struct TrackingAllocator;
 
 #[test]
 fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
-        FrameCandidate, FramePolicy, FrameSelector, FrameSequence, FramesAsset, FramesView,
+        FramePolicy, FrameSequence, FramesView,
         coding::{FrameDelta, ScalarFrameDelta},
         image::{CoverageBudget, DecodeRequest, MemoryPlacement, ReferenceMode, UnitGroupRecord},
         media::{CodingId, CodingRecord},
+        payload::frames::{FrameCandidate, FrameSelector, FramesAsset},
     };
     #[repr(align(64))]
     struct Aligned([u8; 64]);
@@ -75,12 +80,12 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
             .unwrap();
         let request = DecodeRequest::new(
             SurfaceRequirements::new()
-                .with_base_alignment(64)
+                .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                 .with_stride_multiple(64),
         )
         .with_input(MemoryPlacement::Flash)
         .with_output(MemoryPlacement::SharedCoherent)
-        .with_workspace_alignment(64);
+        .with_workspace_alignment(mirx::ByteAlignment::new(64).unwrap());
         groups
             .decode_plan_for(request, &PayloadLimits::EMBEDDED)
             .unwrap()
@@ -97,7 +102,12 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
         assert_eq!(plan.canvas_requirements().byte_len(), 64);
         assert_eq!(plan.workspace_requirements().byte_len(), 1);
         let mut session = plan
-            .bind(&mut slots, &mut canvas.0, &mut workspace.0, &mut [])
+            .bind(mirx::PlaybackStorage {
+                groups: &mut slots,
+                canvas: &mut canvas.0,
+                workspace: &mut workspace.0,
+                backup: &mut [],
+            })
             .unwrap();
         assert_eq!(session.present(0).unwrap().plane(0).unwrap().bytes()[0], 7);
         assert_eq!(session.present(1).unwrap().plane(0).unwrap().bytes()[0], 9);
@@ -139,7 +149,7 @@ fn frequency_authoring_preflight_and_aligned_decode_allocate_nothing() {
         let plan = groups
             .decode_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
                 &PayloadLimits::EMBEDDED,
             )
@@ -165,7 +175,7 @@ fn owned_font_edits_and_emission_need_no_temporary_reference_arrays() {
     };
     let chars = ['A'];
     let metrics = [GlyphMetrics::default()];
-    let line = LineMetrics::new(Fixed::from_raw(256), Fixed::ZERO, Fixed::from_raw(256)).unwrap();
+    let line = LineMetrics::new(wire_fixed(256), Fixed::ZERO, wire_fixed(256)).unwrap();
     let raw = RawGlyphs::builder(GlyphMap::glyph_major(2, 2, 1).unwrap(), SampleLayout::A8)
         .build(&[7; 4])
         .unwrap();
@@ -182,7 +192,7 @@ fn owned_font_edits_and_emission_need_no_temporary_reference_arrays() {
         owned.set_codepoint(0, '中').unwrap();
         owned.set_line_metrics(0, line).unwrap();
         owned.glyph_metrics_mut(0).unwrap()[0] =
-            GlyphMetrics::new(Fixed::from_raw(517), Fixed::ZERO, Fixed::ZERO);
+            GlyphMetrics::new(wire_fixed(517), Fixed::ZERO, Fixed::ZERO);
         let mut output = [0; 512];
         let len = owned.encode_into(&mut output).unwrap();
         assert_eq!(owned.encoded_len(), Ok(len));
@@ -217,8 +227,7 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
     let (_, allocations) = count_allocations(|| {
         let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
         let metrics = [GlyphMetrics::default(); 2];
-        let line =
-            LineMetrics::new(Fixed::from_raw(256), Fixed::ZERO, Fixed::from_raw(256)).unwrap();
+        let line = LineMetrics::new(wire_fixed(256), Fixed::ZERO, wire_fixed(256)).unwrap();
         let raw = RawGlyphs::builder(map, SampleLayout::A8)
             .build(&[7; 8])
             .unwrap();
@@ -290,7 +299,7 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
 #[test]
 fn joined_face_selection_and_map_lookup_allocate_nothing() {
     use mirx::{
-        Fixed, FontRepresentation, FontRepresentationRequest,
+        FontRepresentation, FontRepresentationRequest,
         font::{
             FaceTables, FontCodepoints, GlyphMap, GlyphPacking, GlyphSurfaceRecord, LineMetrics,
             RepresentationRecord, RepresentationTable,
@@ -310,12 +319,7 @@ fn joined_face_selection_and_map_lookup_allocate_nothing() {
                 .unwrap();
         }
         let mut metrics = [0; 48];
-        let line = LineMetrics::new(
-            Fixed::from_raw(256),
-            Fixed::from_raw(-256),
-            Fixed::from_raw(512),
-        )
-        .unwrap();
+        let line = LineMetrics::new(wire_fixed(256), wire_fixed(-256), wire_fixed(512)).unwrap();
         line.encode_record_into(&mut metrics).unwrap();
         line.encode_record_into(&mut metrics[24..]).unwrap();
         let mut maps = [0; 16];
@@ -488,21 +492,17 @@ fn representation_record_binding_and_emission_allocate_nothing() {
 
 #[test]
 fn joined_glyph_lookup_and_metric_access_allocate_nothing() {
-    use mirx::{
-        Fixed,
-        font::{
-            FontCodepoints, GlyphMap, GlyphMetrics, GlyphTable, LineMetrics, MetricsTable,
-            RawGlyphs,
-        },
+    use mirx::font::{
+        FontCodepoints, GlyphMap, GlyphMetrics, GlyphTable, LineMetrics, MetricsTable, RawGlyphs,
     };
     let (_, allocations) = count_allocations(|| {
         let chars = [65, 0, 0, 0, 0x2d, 0x4e, 0, 0];
         let codepoints = FontCodepoints::open(&chars).unwrap();
-        let line = LineMetrics::new(Fixed(769), Fixed(-129), Fixed(1025)).unwrap();
+        let line = LineMetrics::new(wire_fixed(769), wire_fixed(-129), wire_fixed(1025)).unwrap();
         let mut records = [0; 36];
         line.encode_record_into(&mut records).unwrap();
         for i in 0..2 {
-            GlyphMetrics::new(Fixed(513 + i as i32), Fixed(-1), Fixed(769))
+            GlyphMetrics::new(wire_fixed(513 + i as i32), wire_fixed(-1), wire_fixed(769))
                 .encode_record_into(&mut records[12 + i * 12..])
                 .unwrap();
         }
@@ -516,7 +516,7 @@ fn joined_glyph_lookup_and_metric_access_allocate_nothing() {
         assert_eq!(table.line_metrics(), line);
         assert_eq!(table.glyph('A'), table.get(0));
         let glyph = table.glyph('中').unwrap();
-        assert_eq!(glyph.metrics().advance(), Fixed(514));
+        assert_eq!(glyph.metrics().advance(), wire_fixed(514));
         assert_eq!(
             glyph.raster().storage().plane(0).unwrap().bytes().as_ptr(),
             data[1..].as_ptr()
@@ -540,7 +540,7 @@ fn raw_glyph_cells_and_atlas_regions_borrow_without_allocation() {
         let cell = SampleLayout::A2.plane_geometry(5, 3, 0).unwrap();
         let memory = PlaneMemoryLayout::builder(cell)
             .with_stride(64)
-            .with_alignment(64)
+            .with_alignment(mirx::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
         let map = GlyphMap::glyph_major(5, 3, 2).unwrap();
@@ -558,7 +558,7 @@ fn raw_glyph_cells_and_atlas_regions_borrow_without_allocation() {
         let plan = glyph
             .memory_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             )
             .unwrap();
@@ -617,12 +617,12 @@ fn indexed_region_decode_borrows_palette_and_uses_only_caller_output_and_workspa
                 surface.region(1, 0, 2, 1).unwrap(),
                 DecodeRequest::new(
                     SurfaceRequirements::new()
-                        .with_base_alignment(64)
+                        .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                         .with_stride_multiple(64),
                 )
                 .with_input(MemoryPlacement::Flash)
                 .with_output(MemoryPlacement::SharedCoherent)
-                .with_workspace_alignment(4),
+                .with_workspace_alignment(mirx::ByteAlignment::new(4).unwrap()),
                 &PayloadLimits::EMBEDDED,
             )
             .unwrap();
@@ -709,7 +709,7 @@ fn exact_indexed_crops_reuse_caller_storage_and_borrow_the_palette() {
             .region_plan(
                 surface.region(3, 0, 5, 2).unwrap(),
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             )
             .unwrap();
@@ -756,7 +756,7 @@ fn prepared_image_decode_uses_only_caller_output_workspace_and_borrowed_palette(
         let plan = groups
             .decode_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
                 &PayloadLimits::EMBEDDED,
             )
@@ -841,15 +841,14 @@ fn native_wire_and_implicit_glyph_maps_allocate_nothing() {
 
 #[test]
 fn font_metric_records_and_borrowed_table_use_no_heap() {
-    use mirx::Fixed;
     use mirx::font::{GlyphMetrics, LineMetrics, MetricsTable};
     let mut bytes = [0; 36];
     let (glyph, allocations) = count_allocations(|| {
-        LineMetrics::new(Fixed(2560), Fixed(-768), Fixed(4096))
+        LineMetrics::new(wire_fixed(2560), wire_fixed(-768), wire_fixed(4096))
             .unwrap()
             .encode_record_into(&mut bytes)
             .unwrap();
-        GlyphMetrics::new(Fixed(512), Fixed(-384), Fixed(1024))
+        GlyphMetrics::new(wire_fixed(512), wire_fixed(-384), wire_fixed(1024))
             .encode_record_into(&mut bytes[12..])
             .unwrap();
         GlyphMetrics::default()
@@ -857,12 +856,12 @@ fn font_metric_records_and_borrowed_table_use_no_heap() {
             .unwrap();
         let table = MetricsTable::open(&bytes).unwrap();
         assert_eq!(table.len(), 2);
-        assert_eq!(table.line_metrics().line_height(), Fixed(4096));
+        assert_eq!(table.line_metrics().line_height(), wire_fixed(4096));
         assert_eq!(table.iter().count(), 2);
         table.get(0).unwrap()
     });
     assert_eq!(allocations, 0);
-    assert_eq!(glyph.bearing_x(), Fixed(-384));
+    assert_eq!(glyph.bearing_x(), wire_fixed(-384));
 }
 
 #[test]
@@ -919,8 +918,8 @@ fn raw_units_preflight_and_transfer_without_staging_or_heap() {
         let plan = unit
             .decode_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_plane_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+                    .with_plane_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             )
             .unwrap();
@@ -952,10 +951,10 @@ fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
         .with_index_encoding(UnitIndexEncoding::Lengths16)];
     let mut index = [0; 16];
     let index_len = UnitIndexEncoding::Lengths16
-        .encode_into(&[3, 2], 1, &mut index)
+        .encode_into(&[3, 2], mirx::ByteAlignment::ONE, &mut index)
         .unwrap();
     let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &[1, 1, 2, 0, 3])
-        .with_index(&index[..index_len])
+        .with_unit_index(&index[..index_len])
         .with_integrity(DataIntegrity::Indexed(&[3, 5]));
     let mut output = [0xad; 512];
     let (len, allocations) = count_allocations(|| {
@@ -983,7 +982,7 @@ fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
     });
     assert_eq!(allocations, 0);
     let changed = EncodedImageAsset::from_groups(surface, &codings, &records, &[1, 1, 2, 0, 4])
-        .with_index(&index[..index_len])
+        .with_unit_index(&index[..index_len])
         .with_integrity(DataIntegrity::Indexed(&[3, 5]));
     let (_, allocations) = count_allocations(|| {
         document
@@ -993,7 +992,7 @@ fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
             .unwrap()
     });
     assert_eq!(allocations, 1);
-    let invalid = asset.with_index(&index[..index_len - 1]);
+    let invalid = asset.with_unit_index(&index[..index_len - 1]);
     let (_, allocations) = count_allocations(|| {
         assert!(
             document
@@ -1018,7 +1017,9 @@ fn typed_encoded_edits_allocate_only_final_payloads_and_keep_noops_borrowed() {
         assert!(document.push_encoded_image(&malformed).is_err());
         assert!(
             document
-                .push_encoded_image(&asset.with_input_alignment(1 << 31))
+                .push_encoded_image(
+                    &asset.with_input_alignment(mirx::ByteAlignment::new(1 << 31).unwrap()),
+                )
                 .is_err()
         );
     });
@@ -1070,7 +1071,7 @@ fn encoded_document_queries_and_placement_allocate_no_samples_or_group_table() {
     };
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
-        .with_input_alignment(64)
+        .with_input_alignment(mirx::ByteAlignment::new(64).unwrap())
         .encode()
         .unwrap();
     let mut document = Document::new();
@@ -1090,7 +1091,10 @@ fn encoded_document_queries_and_placement_allocate_no_samples_or_group_table() {
     let (_, allocations) = count_allocations(|| {
         document.set_primary(id).unwrap();
         let image = document.image(id).unwrap().encoded().unwrap();
-        assert_eq!(image.input_alignment(), Ok(64));
+        assert_eq!(
+            image.input_alignment().map(mirx::ByteAlignment::get),
+            Ok(64)
+        );
         assert_eq!(document.primary_hints().stride(), 0);
         let size = document
             .encode_into(&mut output, &EncodeOptions::new())
@@ -1197,7 +1201,7 @@ fn constant_space_group_validation_has_no_hidden_table() {
     )
     .unwrap();
     let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x90, 128])
-        .with_input_alignment(64)
+        .with_input_alignment(mirx::ByteAlignment::new(64).unwrap())
         .encode()
         .unwrap();
     let (_, allocations) = count_allocations(|| {
@@ -1262,7 +1266,7 @@ fn encoded_image_authoring_and_decode_use_only_caller_storage() {
         let codec = Rle::new();
         let len = codec.encode_into(&[128; 17], &mut stream).unwrap();
         let asset = EncodedImageAsset::new(surface, codec.record(), &stream[..len])
-            .with_input_alignment(64);
+            .with_input_alignment(mirx::ByteAlignment::new(64).unwrap());
         let size = asset.encoded_len().unwrap();
         assert_eq!(asset.encode_into(&mut bytes), Ok(size));
         assert_eq!(asset.matches_payload(&bytes[..size]), Ok(true));
@@ -1295,11 +1299,14 @@ fn aligned_indexes_keep_checkpoints_and_exact_ranges_without_allocation() {
     let lengths = [3; 65];
     let (_, allocations) = count_allocations(|| {
         for encoding in [UnitIndexEncoding::Lengths16, UnitIndexEncoding::Lengths32] {
-            let len = encoding.encode_into(&lengths, 64, &mut bytes).unwrap();
+            let alignment = mirx::ByteAlignment::new(64).unwrap();
+            let len = encoding
+                .encode_into(&lengths, alignment, &mut bytes)
+                .unwrap();
             let index = if encoding == UnitIndexEncoding::Lengths16 {
-                UnitIndex::lengths16(65, &bytes[..len], 64)
+                UnitIndex::lengths16(65, &bytes[..len], alignment)
             } else {
-                UnitIndex::lengths32(65, &bytes[..len], 64)
+                UnitIndex::lengths32(65, &bytes[..len], alignment)
             }
             .unwrap();
             assert_eq!(index.byte_len(), 4099);
@@ -1428,7 +1435,7 @@ fn rle_planar_execution_allocates_neither_plane_tables_nor_staging() {
         let plan = unit
             .decode_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             )
             .unwrap();
@@ -1481,7 +1488,7 @@ fn pixel_unit_plan_and_strided_execution_need_no_staging_allocation() {
         let plan = unit
             .decode_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             )
             .unwrap();
@@ -1705,15 +1712,15 @@ fn unit_index_encoding_lookup_and_iteration_allocate_nothing() {
     let mut checkpointed = [0; 270];
     let (_, allocations) = count_allocations(|| {
         UnitIndexEncoding::Offsets
-            .encode_into(&lengths, 1, &mut offsets)
+            .encode_into(&lengths, mirx::ByteAlignment::ONE, &mut offsets)
             .unwrap();
         UnitIndexEncoding::Lengths16
-            .encode_into(&lengths, 1, &mut checkpointed)
+            .encode_into(&lengths, mirx::ByteAlignment::ONE, &mut checkpointed)
             .unwrap();
         for index in [
-            UnitIndex::fixed(129, 3, 1).unwrap(),
+            UnitIndex::fixed(129, 3, mirx::ByteAlignment::ONE).unwrap(),
             UnitIndex::offsets(&offsets).unwrap(),
-            UnitIndex::lengths16(129, &checkpointed, 1).unwrap(),
+            UnitIndex::lengths16(129, &checkpointed, mirx::ByteAlignment::ONE).unwrap(),
         ] {
             assert_eq!(index.byte_len(), 387);
             assert_eq!(index.get(64), Some(192..195));
@@ -1827,7 +1834,7 @@ fn image_plane_memory_record_round_trip_allocates_nothing() {
     let memory = PlaneMemoryLayout::builder(plane)
         .with_allocation_extent(320, 192)
         .with_stride(1_280)
-        .with_alignment(64)
+        .with_alignment(mirx::ByteAlignment::new(64).unwrap())
         .build()
         .unwrap();
     let mut record = [0; PLANE_RECORD_LEN];
@@ -1901,8 +1908,8 @@ fn image_surface_memory_planning_allocates_nothing() {
     )
     .unwrap();
     let requirements = SurfaceRequirements::new()
-        .with_base_alignment(64)
-        .with_plane_alignment(64)
+        .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+        .with_plane_alignment(mirx::ByteAlignment::new(64).unwrap())
         .with_width_multiple(64)
         .with_stride_multiple(64);
 
@@ -1915,7 +1922,10 @@ fn image_surface_memory_planning_allocates_nothing() {
         )
     });
 
-    assert_eq!(observed, (92_864, 64, 704));
+    assert_eq!(
+        observed,
+        (92_864, mirx::ByteAlignment::new(64).unwrap(), 704)
+    );
     assert_eq!(allocations, 0);
 }
 
@@ -2062,8 +2072,8 @@ fn raw_surface_transfer_uses_only_the_caller_buffer() {
     let plan = surface
         .memory_plan(
             SurfaceRequirements::new()
-                .with_base_alignment(64)
-                .with_plane_alignment(64)
+                .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+                .with_plane_alignment(mirx::ByteAlignment::new(64).unwrap())
                 .with_stride_multiple(64),
         )
         .unwrap();
@@ -2163,7 +2173,7 @@ fn image_units_resolve_shared_metadata_without_allocation() {
             UnitGroup::builder(surface, CodingRecord::new(CodingId::new(19), 1, &[]), &data)
                 .with_tiles(2, 2)
                 .with_selection(UnitSelection::list(6, &cells).unwrap())
-                .with_index(UnitIndex::fixed(2, 2, 1).unwrap())
+                .with_index(UnitIndex::fixed(2, 2, mirx::ByteAlignment::ONE).unwrap())
                 .build()
                 .unwrap();
         assert_eq!(group.iter().count(), 2);
@@ -2291,7 +2301,7 @@ fn decoded_unit_memory_planning_allocates_nothing() {
         let plan = unit
             .memory_plan(
                 SurfaceRequirements::new()
-                    .with_plane_alignment(64)
+                    .with_plane_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             )
             .unwrap();

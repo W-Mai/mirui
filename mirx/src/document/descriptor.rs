@@ -25,189 +25,201 @@ pub(super) struct EvaluatedFlags {
     pub(super) preserve_reserved_bits: bool,
 }
 
-/// Evaluates a complete descriptor candidate without changing document state.
-pub(super) fn evaluate_descriptor(
-    chunk_type: ChunkType,
-    flags: ChunkFlags,
-    payload: &[u8],
-    policy: RawChunkPolicy,
-    limits: PayloadLimits,
-) -> Result<EvaluatedDescriptor, EditError> {
-    let flags = policy.reserved_flag_bits.apply(flags)?;
-    evaluate_resolved_descriptor_with_flags(
-        chunk_type,
-        flags,
-        ResolvedNodePayload::Contiguous {
-            bytes: payload,
-            placement: PayloadPlacement::Unplaced,
-        },
-        policy,
-        limits,
-    )
-}
-
-pub(super) fn evaluate_descriptor_with_flags(
-    chunk_type: ChunkType,
-    evaluated_flags: EvaluatedFlags,
-    payload: &[u8],
-    policy: RawChunkPolicy,
-    limits: PayloadLimits,
-) -> Result<EvaluatedDescriptor, EditError> {
-    evaluate_resolved_descriptor_with_flags(
-        chunk_type,
-        evaluated_flags,
-        ResolvedNodePayload::Contiguous {
-            bytes: payload,
-            placement: PayloadPlacement::Unplaced,
-        },
-        policy,
-        limits,
-    )
-}
-
-fn evaluate_resolved_descriptor_with_flags(
-    chunk_type: ChunkType,
-    evaluated_flags: EvaluatedFlags,
-    payload: ResolvedNodePayload<'_>,
-    policy: RawChunkPolicy,
-    limits: PayloadLimits,
-) -> Result<EvaluatedDescriptor, EditError> {
-    let flags = evaluated_flags.flags;
-    let known_contract = if chunk_type == ChunkType::IMAGE {
-        match payload.validate_image_contract(&limits) {
-            Ok(_) => true,
-            Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
-            Err(error) => return Err(EditError::InvalidPayload(error)),
-        }
-    } else if chunk_type == ChunkType::FONT {
-        match payload.bytes() {
-            Some(_) => match payload
-                .font_view(&limits)
-                .and_then(|font| font.preflight(&limits))
-            {
-                Ok(()) => true,
-                Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
-                    false
-                }
-                Err(error) => {
-                    return Err(EditError::InvalidFont(error));
-                }
+impl RawChunkPolicy {
+    /// Evaluates a complete descriptor candidate without changing document state.
+    pub(super) fn evaluate(
+        self,
+        chunk_type: ChunkType,
+        flags: ChunkFlags,
+        payload: &[u8],
+        limits: PayloadLimits,
+    ) -> Result<EvaluatedDescriptor, EditError> {
+        let flags = self.reserved_flag_bits.apply(flags)?;
+        self.evaluate_resolved(
+            chunk_type,
+            flags,
+            ResolvedNodePayload::Contiguous {
+                bytes: payload,
+                placement: PayloadPlacement::Unplaced,
             },
-            None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
-            None => {
-                return Err(EditError::NonContiguousPayload {
-                    chunk_type: ChunkType::FONT,
-                });
-            }
-        }
-    } else if chunk_type == ChunkType::VECTOR {
-        match payload.bytes() {
-            Some(bytes) => match Scene::preflight(bytes, &limits) {
-                Ok(()) => true,
-                Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
-                    false
-                }
-                Err(error) => {
-                    return Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
-                        error,
-                    )));
-                }
-            },
-            None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
-            None => {
-                return Err(EditError::NonContiguousPayload {
-                    chunk_type: ChunkType::VECTOR,
-                });
-            }
-        }
-    } else if chunk_type == ChunkType::META {
-        match payload.bytes() {
-            Some(bytes) => match MetaView::open_payload(bytes, &limits) {
-                Ok(_) => true,
-                Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
-                    false
-                }
-                Err(error) => {
-                    return Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
-                        error,
-                    )));
-                }
-            },
-            None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
-            None => {
-                return Err(EditError::NonContiguousPayload {
-                    chunk_type: ChunkType::META,
-                });
-            }
-        }
-    } else if chunk_type == ChunkType::PALETTE {
-        match payload.bytes() {
-            Some(bytes) => match PaletteView::open_payload(bytes, &limits) {
-                Ok(_) => true,
-                Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
-                    false
-                }
-                Err(error) => {
-                    return Err(EditError::InvalidPalette(
-                        PaletteEncodeError::InvalidPayload(error),
-                    ));
-                }
-            },
-            None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
-            None => {
-                return Err(EditError::NonContiguousPayload {
-                    chunk_type: ChunkType::PALETTE,
-                });
-            }
-        }
-    } else if chunk_type == ChunkType::FRAMES {
-        match payload.bytes() {
-            Some(bytes) => match FramesView::open(bytes, &limits)
-                .and_then(FramesView::validate_data)
-            {
-                Ok(()) => true,
-                Err(_) if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => {
-                    false
-                }
-                Err(error) => {
-                    return Err(EditError::InvalidFrames(error));
-                }
-            },
-            None if matches!(policy.relocation, RelocationAssumption::AssumeRelocatable) => false,
-            None => {
-                return Err(EditError::NonContiguousPayload {
-                    chunk_type: ChunkType::FRAMES,
-                });
-            }
-        }
-    } else {
-        false
-    };
-
-    let relocatable =
-        known_contract || matches!(policy.relocation, RelocationAssumption::AssumeRelocatable);
-    if !relocatable {
-        return Err(EditError::RelocationAssumptionRequired { chunk_type });
+            limits,
+        )
     }
 
-    let critical_understood = known_contract
-        || matches!(
-            policy.critical_semantics,
-            CriticalAssumption::AssumeCriticalUnderstood
-        );
-    if flags.is_critical() && !critical_understood {
-        return Err(EditError::CriticalAssumptionRequired { chunk_type });
+    pub(super) fn evaluate_with_flags(
+        self,
+        chunk_type: ChunkType,
+        evaluated_flags: EvaluatedFlags,
+        payload: &[u8],
+        limits: PayloadLimits,
+    ) -> Result<EvaluatedDescriptor, EditError> {
+        self.evaluate_resolved(
+            chunk_type,
+            evaluated_flags,
+            ResolvedNodePayload::Contiguous {
+                bytes: payload,
+                placement: PayloadPlacement::Unplaced,
+            },
+            limits,
+        )
     }
 
-    Ok(EvaluatedDescriptor {
-        chunk_type,
-        flags,
-        capability: RewriteCapability::new(
-            relocatable,
-            critical_understood,
-            evaluated_flags.preserve_reserved_bits,
-        ),
-    })
+    fn evaluate_resolved(
+        self,
+        chunk_type: ChunkType,
+        evaluated_flags: EvaluatedFlags,
+        payload: ResolvedNodePayload<'_>,
+        limits: PayloadLimits,
+    ) -> Result<EvaluatedDescriptor, EditError> {
+        let flags = evaluated_flags.flags;
+        let known_contract = if chunk_type == ChunkType::IMAGE {
+            match payload.validate_image_contract(&limits) {
+                Ok(_) => true,
+                Err(_) if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) => {
+                    false
+                }
+                Err(error) => return Err(EditError::InvalidPayload(error)),
+            }
+        } else if chunk_type == ChunkType::FONT {
+            match payload.bytes() {
+                Some(_) => match payload
+                    .font_view(&limits)
+                    .and_then(|font| font.preflight(&limits))
+                {
+                    Ok(()) => true,
+                    Err(_)
+                        if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) =>
+                    {
+                        false
+                    }
+                    Err(error) => {
+                        return Err(EditError::InvalidFont(error));
+                    }
+                },
+                None if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) => false,
+                None => {
+                    return Err(EditError::NonContiguousPayload {
+                        chunk_type: ChunkType::FONT,
+                    });
+                }
+            }
+        } else if chunk_type == ChunkType::VECTOR {
+            match payload.bytes() {
+                Some(bytes) => match Scene::preflight(bytes, &limits) {
+                    Ok(()) => true,
+                    Err(_)
+                        if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) =>
+                    {
+                        false
+                    }
+                    Err(error) => {
+                        return Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
+                            error,
+                        )));
+                    }
+                },
+                None if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) => false,
+                None => {
+                    return Err(EditError::NonContiguousPayload {
+                        chunk_type: ChunkType::VECTOR,
+                    });
+                }
+            }
+        } else if chunk_type == ChunkType::META {
+            match payload.bytes() {
+                Some(bytes) => match MetaView::open_payload(bytes, &limits) {
+                    Ok(_) => true,
+                    Err(_)
+                        if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) =>
+                    {
+                        false
+                    }
+                    Err(error) => {
+                        return Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
+                            error,
+                        )));
+                    }
+                },
+                None if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) => false,
+                None => {
+                    return Err(EditError::NonContiguousPayload {
+                        chunk_type: ChunkType::META,
+                    });
+                }
+            }
+        } else if chunk_type == ChunkType::PALETTE {
+            match payload.bytes() {
+                Some(bytes) => match PaletteView::open_payload(bytes, &limits) {
+                    Ok(_) => true,
+                    Err(_)
+                        if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) =>
+                    {
+                        false
+                    }
+                    Err(error) => {
+                        return Err(EditError::InvalidPalette(
+                            PaletteEncodeError::InvalidPayload(error),
+                        ));
+                    }
+                },
+                None if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) => false,
+                None => {
+                    return Err(EditError::NonContiguousPayload {
+                        chunk_type: ChunkType::PALETTE,
+                    });
+                }
+            }
+        } else if chunk_type == ChunkType::FRAMES {
+            match payload.bytes() {
+                Some(bytes) => match FramesView::open(bytes, &limits)
+                    .and_then(FramesView::validate_data)
+                {
+                    Ok(()) => true,
+                    Err(_)
+                        if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) =>
+                    {
+                        false
+                    }
+                    Err(error) => {
+                        return Err(EditError::InvalidFrames(error));
+                    }
+                },
+                None if matches!(self.relocation, RelocationAssumption::AssumeRelocatable) => false,
+                None => {
+                    return Err(EditError::NonContiguousPayload {
+                        chunk_type: ChunkType::FRAMES,
+                    });
+                }
+            }
+        } else {
+            false
+        };
+
+        let relocatable =
+            known_contract || matches!(self.relocation, RelocationAssumption::AssumeRelocatable);
+        if !relocatable {
+            return Err(EditError::RelocationAssumptionRequired { chunk_type });
+        }
+
+        let critical_understood = known_contract
+            || matches!(
+                self.critical_semantics,
+                CriticalAssumption::AssumeCriticalUnderstood
+            );
+        if flags.is_critical() && !critical_understood {
+            return Err(EditError::CriticalAssumptionRequired { chunk_type });
+        }
+
+        Ok(EvaluatedDescriptor {
+            chunk_type,
+            flags,
+            capability: RewriteCapability::new(
+                relocatable,
+                critical_understood,
+                evaluated_flags.preserve_reserved_bits,
+            ),
+        })
+    }
 }
 
 impl EvaluatedDescriptor {
@@ -316,13 +328,7 @@ impl Document<'_> {
             let node = chunk_node(&self.state, index);
             let payload = descriptor_payload(self, node)?;
             let flags = policy.reserved_flag_bits.apply(node.flags)?;
-            evaluate_resolved_descriptor_with_flags(
-                chunk_type,
-                flags,
-                payload,
-                policy,
-                self.payload_limits,
-            )?
+            policy.evaluate_resolved(chunk_type, flags, payload, self.payload_limits)?
         };
         self.apply_type_descriptor(index, candidate);
         Ok(())
@@ -349,11 +355,10 @@ impl Document<'_> {
         let candidate = {
             let node = chunk_node(&self.state, index);
             let payload = descriptor_payload(self, node)?;
-            evaluate_resolved_descriptor_with_flags(
+            policy.evaluate_resolved(
                 node.chunk_type,
                 evaluated_flags,
                 payload,
-                policy,
                 self.payload_limits,
             )?
         };
@@ -371,13 +376,7 @@ impl Document<'_> {
             let node = chunk_node(&self.state, index);
             let payload = descriptor_payload(self, node)?;
             let flags = policy.reserved_flag_bits.apply(node.flags)?;
-            evaluate_resolved_descriptor_with_flags(
-                node.chunk_type,
-                flags,
-                payload,
-                policy,
-                self.payload_limits,
-            )?
+            policy.evaluate_resolved(node.chunk_type, flags, payload, self.payload_limits)?
         };
 
         let (exact, flags_changed) = {

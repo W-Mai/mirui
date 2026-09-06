@@ -51,6 +51,14 @@ pub struct MirxFramesPlan<'source> {
     meta: TextureMeta,
 }
 
+/// Caller-owned storage retained by a MIRX frame playback session.
+pub struct MirxFramesStorage<'source, 'storage> {
+    pub groups: &'storage mut [Option<mirx::image::UnitGroup<'source>>],
+    pub canvas: &'storage mut [u8],
+    pub workspace: &'storage mut [u8],
+    pub backup: &'storage mut [u8],
+}
+
 impl<'source> MirxFramesPlan<'source> {
     /// Opens the primary FRAMES chunk and validates every frame representation.
     ///
@@ -153,7 +161,7 @@ impl<'source> MirxFramesPlan<'source> {
         self.inner.output_sync()
     }
 
-    pub const fn input_alignment(self) -> u32 {
+    pub const fn input_alignment(self) -> mirx::ByteAlignment {
         self.inner.input_alignment()
     }
 
@@ -164,14 +172,22 @@ impl<'source> MirxFramesPlan<'source> {
     /// Binds reusable playback storage without reading encoded DATA again.
     pub fn bind<'storage>(
         self,
-        group_slots: &'storage mut [Option<mirx::image::UnitGroup<'source>>],
-        canvas: &'storage mut [u8],
-        workspace: &'storage mut [u8],
-        backup: &'storage mut [u8],
+        storage: MirxFramesStorage<'source, 'storage>,
     ) -> Result<MirxFramesSession<'source, 'storage>, MirxFramesError> {
+        let MirxFramesStorage {
+            groups,
+            canvas,
+            workspace,
+            backup,
+        } = storage;
         let timeline = self.timeline();
         Ok(MirxFramesSession {
-            inner: self.inner.bind(group_slots, canvas, workspace, backup)?,
+            inner: self.inner.bind(mirx::PlaybackStorage {
+                groups,
+                canvas,
+                workspace,
+                backup,
+            })?,
             timeline,
         })
     }
@@ -260,14 +276,14 @@ mod tests {
         let options = MirxTextureOptions::new()
             .with_requirements(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_width_multiple(64)
                     .with_stride_multiple(64),
             )
             .with_input_memory(mirx::image::MemoryPlacement::Flash)
             .with_output_memory(mirx::image::MemoryPlacement::SharedNoncoherent)
             .with_workspace_memory(mirx::image::MemoryPlacement::SharedCoherent)
-            .with_workspace_alignment(64);
+            .with_workspace_alignment(mirx::ByteAlignment::new(64).unwrap());
         let mut slots = [None];
         let plan = MirxFramesPlan::open(&bytes, options, &mut slots).unwrap();
         assert_eq!(plan.meta().width, 2);
@@ -290,7 +306,12 @@ mod tests {
         let mut canvas = Aligned([0; 256]);
         let mut workspace = Aligned([0; 64]);
         let mut session = plan
-            .bind(&mut slots, &mut canvas.0, &mut workspace.0, &mut [])
+            .bind(MirxFramesStorage {
+                groups: &mut slots,
+                canvas: &mut canvas.0,
+                workspace: &mut workspace.0,
+                backup: &mut [],
+            })
             .unwrap();
         assert_eq!(session.decode_request(), options.decode_request());
         assert_eq!(

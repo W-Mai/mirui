@@ -37,8 +37,9 @@ impl PluginImpl for ApiMisuse {
 
     fn smells() -> Vec<String> {
         vec![
-            "magic-fixed-half".into(),
-            "magic-fixed-one".into(),
+            "fixed-raw-api".into(),
+            "fixed-raw-use".into(),
+            "fixed-storage-boundary".into(),
             "manual-quad-bbox".into(),
             "point-floor".into(),
             "manual-pixel-bounds".into(),
@@ -58,6 +59,8 @@ impl PluginImpl for ApiMisuse {
         if input.language != "rust" {
             return findings;
         }
+
+        check_fixed_boundary(&input, &mut findings);
 
         // Skip test files for most rules
         let is_test = input.role == FileRole::Test;
@@ -80,43 +83,6 @@ impl PluginImpl for ApiMisuse {
 
         if is_test {
             return findings;
-        }
-
-        // --- Rule: magic-fixed-half / magic-fixed-one (via tree-sitter) ---
-        let magic_matches = tree_query::run_query(
-            "(call_expression
-                function: (scoped_identifier) @fn
-                arguments: (arguments (integer_literal) @val)
-            )"
-        );
-        for m in &magic_matches {
-            let fn_name = m.iter().find(|c| c.capture_name == "fn");
-            let val = m.iter().find(|c| c.capture_name == "val");
-            if let (Some(f), Some(v)) = (fn_name, val) {
-                if f.text == "Fixed::from_raw" {
-                    if v.text == "128" {
-                        findings.push(finding(
-                            "magic-fixed-half",
-                            Severity::Warning,
-                            &input.path,
-                            v.start_line,
-                            v.start_col,
-                            "Use `Fixed::HALF` instead of `Fixed::from_raw(128)`",
-                            "Replace with Fixed::HALF",
-                        ));
-                    } else if v.text == "256" {
-                        findings.push(finding(
-                            "magic-fixed-one",
-                            Severity::Warning,
-                            &input.path,
-                            v.start_line,
-                            v.start_col,
-                            "Use `Fixed::ONE` instead of `Fixed::from_raw(256)`",
-                            "Replace with Fixed::ONE",
-                        ));
-                    }
-                }
-            }
         }
 
         // --- Rule: stale-naming (via imports) ---
@@ -282,6 +248,72 @@ impl PluginImpl for ApiMisuse {
 
         findings
     }
+}
+
+fn check_fixed_boundary(input: &AnalysisInput, findings: &mut Vec<Finding>) {
+    let fixed_definition = input.path.ends_with("src/types/fixed.rs");
+    let allowed_storage = cha_plugin_sdk::option_list_str!(&input.options, "fixed_storage_paths")
+        .is_some_and(|paths| paths.iter().any(|path| path_matches(&input.path, path)));
+
+    for (index, line) in input.content.lines().enumerate() {
+        let line_number = index as u32 + 1;
+
+        if fixed_definition
+            && [
+                "pub struct Fixed(pub ",
+                "pub struct Fixed64(pub ",
+                "pub const fn from_raw",
+                "pub fn from_raw",
+                "pub const fn raw(",
+                "pub fn raw(",
+            ]
+            .iter()
+            .any(|needle| line.contains(needle))
+        {
+            findings.push(finding(
+                "fixed-raw-api",
+                Severity::Error,
+                &input.path,
+                line_number,
+                0,
+                "Fixed-point storage escaped through a public API",
+                "Keep the representation private and expose semantic or byte-level conversions",
+            ));
+        }
+
+        if !fixed_definition
+            && (line.contains("Fixed::from_raw(") || line.contains("Fixed64::from_raw("))
+        {
+            findings.push(finding(
+                "fixed-raw-use",
+                Severity::Error,
+                &input.path,
+                line_number,
+                0,
+                "Raw fixed-point construction bypasses the semantic API",
+                "Use Fixed::from_ratio, Fixed::from_int, or the reviewed storage boundary",
+            ));
+        }
+
+        if line.contains("fixed::storage") && !allowed_storage {
+            findings.push(finding(
+                "fixed-storage-boundary",
+                Severity::Error,
+                &input.path,
+                line_number,
+                0,
+                "Fixed-point storage access is outside the reviewed boundary",
+                "Use semantic Fixed operations or add the exact path after review",
+            ));
+        }
+    }
+}
+
+fn path_matches(actual: &str, configured: &str) -> bool {
+    actual == configured
+        || actual
+            .strip_suffix(configured)
+            .is_some_and(|prefix| prefix.ends_with('/') || prefix.ends_with('\\'))
 }
 
 // --- Spec ID detection (hex-only, no ASCII literals that could self-trigger) ---

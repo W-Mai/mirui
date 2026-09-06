@@ -599,19 +599,19 @@ impl MirxTextureOptions {
         self
     }
 
-    pub const fn with_workspace_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_workspace_alignment(mut self, alignment: mirx::ByteAlignment) -> Self {
         self.request = self.request.with_workspace_alignment(alignment);
         self
     }
 
-    pub const fn with_base_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_base_alignment(mut self, alignment: mirx::ByteAlignment) -> Self {
         self.request = self
             .request
             .with_requirements(self.request.requirements().with_base_alignment(alignment));
         self
     }
 
-    pub const fn with_plane_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_plane_alignment(mut self, alignment: mirx::ByteAlignment) -> Self {
         self.request = self
             .request
             .with_requirements(self.request.requirements().with_plane_alignment(alignment));
@@ -688,7 +688,7 @@ impl MirxTexturePlan<'_, '_> {
         self.memory.buffer_requirements().byte_len()
     }
 
-    pub const fn output_alignment(&self) -> usize {
+    pub const fn output_alignment(&self) -> mirx::ByteAlignment {
         self.memory.buffer_requirements().base_alignment()
     }
 
@@ -699,9 +699,9 @@ impl MirxTexturePlan<'_, '_> {
         }
     }
 
-    pub const fn workspace_alignment(&self) -> usize {
+    pub const fn workspace_alignment(&self) -> mirx::ByteAlignment {
         match self.inner {
-            MirxTexturePlanInner::Raw(_) => self.request.workspace_alignment() as usize,
+            MirxTexturePlanInner::Raw(_) => self.request.workspace_alignment(),
             MirxTexturePlanInner::Encoded(plan) => plan.workspace_requirements().base_alignment(),
         }
     }
@@ -867,10 +867,16 @@ impl Texture<'static> {
         let workspace_len = plan.workspace_len();
         let workspace_alignment = plan.workspace_alignment();
         let memory = plan.memory_plan();
-        let mut output = AlignedBytes::zeroed(output_len, output_alignment)
-            .ok_or(MirxLoadError::AllocationSizeOverflow)?;
-        let mut workspace = AlignedBytes::zeroed(workspace_len, workspace_alignment)
-            .ok_or(MirxLoadError::AllocationSizeOverflow)?;
+        let mut output = AlignedBytes::zeroed(
+            output_len,
+            usize::try_from(output_alignment.get()).expect("u32 fits usize"),
+        )
+        .ok_or(MirxLoadError::AllocationSizeOverflow)?;
+        let mut workspace = AlignedBytes::zeroed(
+            workspace_len,
+            usize::try_from(workspace_alignment.get()).expect("u32 fits usize"),
+        )
+        .ok_or(MirxLoadError::AllocationSizeOverflow)?;
         let decoded = plan.decode_into(output.as_mut_slice(), workspace.as_mut_slice())?;
         let width = decoded.width;
         let height = decoded.height;
@@ -1255,8 +1261,8 @@ mod tests {
     fn mirx_plan_applies_gpu_width_stride_and_address_constraints() {
         let bytes = build_encoded_rgb(TestCoding::Rle);
         let requirements = mirx::image::SurfaceRequirements::new()
-            .with_base_alignment(64)
-            .with_plane_alignment(64)
+            .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+            .with_plane_alignment(mirx::ByteAlignment::new(64).unwrap())
             .with_width_multiple(64)
             .with_stride_multiple(64);
         let options = MirxTextureOptions::new().with_requirements(requirements);
@@ -1283,14 +1289,14 @@ mod tests {
 
         let bytes = build_encoded_rgb(TestCoding::Pixel);
         let requirements = mirx::image::SurfaceRequirements::new()
-            .with_base_alignment(64)
+            .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
             .with_stride_multiple(64);
         let options = MirxTextureOptions::new()
             .with_requirements(requirements)
             .with_input_memory(mirx::image::MemoryPlacement::Flash)
             .with_output_memory(mirx::image::MemoryPlacement::SharedNoncoherent)
             .with_workspace_memory(mirx::image::MemoryPlacement::SharedCoherent)
-            .with_workspace_alignment(64);
+            .with_workspace_alignment(mirx::ByteAlignment::new(64).unwrap());
         let mut groups = [None];
         let plan = Texture::plan_mirx(bytes, options, &mut groups).unwrap();
         assert_eq!(plan.output_len(), 64);

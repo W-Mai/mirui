@@ -1,6 +1,7 @@
 use core::{iter::FusedIterator, ops::Range};
 
 use super::{AccessCapabilities, Region, RegionError, SurfaceDescriptor, TileGrid, TileGridError};
+use crate::ByteAlignment;
 use crate::media::{CodingRecord, UnitIndex, UnitIndexError, UnitSelection, UnitSelectionError};
 
 mod decode;
@@ -80,7 +81,7 @@ pub struct DecodeUnitRef<'a> {
     data: &'a [u8],
     offset: u32,
     reference: ReferenceMode,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
 }
 
 impl<'a> DecodeUnitRef<'a> {
@@ -107,11 +108,13 @@ impl<'a> DecodeUnitRef<'a> {
     pub const fn reference(self) -> ReferenceMode {
         self.reference
     }
-    pub const fn input_alignment(self) -> u32 {
+    pub const fn input_alignment(self) -> ByteAlignment {
         self.input_alignment
     }
     pub fn data_address_is_aligned(self) -> bool {
-        self.data.as_ptr() as usize % self.input_alignment as usize == 0
+        self.data.as_ptr() as usize
+            % usize::try_from(self.input_alignment.get()).expect("u32 fits usize")
+            == 0
     }
     /// Returns element coordinates for an included plane; absent planes return None.
     pub fn plane_region(self, index: u8) -> Option<Region> {
@@ -133,7 +136,7 @@ pub struct UnitGroup<'a> {
     selection: UnitSelection<'a>,
     index: UnitIndex<'a>,
     reference: ReferenceMode,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
 }
 
 impl<'a> UnitGroup<'a> {
@@ -151,7 +154,7 @@ impl<'a> UnitGroup<'a> {
             selection: None,
             index: None,
             reference: ReferenceMode::Independent,
-            input_alignment: 1,
+            input_alignment: ByteAlignment::ONE,
         }
     }
     pub const fn surface(self) -> SurfaceDescriptor {
@@ -178,7 +181,7 @@ impl<'a> UnitGroup<'a> {
     pub const fn reference(self) -> ReferenceMode {
         self.reference
     }
-    pub const fn input_alignment(self) -> u32 {
+    pub const fn input_alignment(self) -> ByteAlignment {
         self.input_alignment
     }
     pub const fn len(self) -> usize {
@@ -199,7 +202,10 @@ impl<'a> UnitGroup<'a> {
 
     /// Checks the actual group address; relative unit starts were checked at build time.
     pub fn data_addresses_are_aligned(self) -> bool {
-        self.is_empty() || self.data.as_ptr() as usize % self.input_alignment as usize == 0
+        self.is_empty()
+            || self.data.as_ptr() as usize
+                % usize::try_from(self.input_alignment.get()).expect("u32 fits usize")
+                == 0
     }
 
     pub fn get(self, ordinal: usize) -> Option<DecodeUnitRef<'a>> {
@@ -243,7 +249,7 @@ pub struct UnitGroupBuilder<'a> {
     selection: Option<UnitSelection<'a>>,
     index: Option<UnitIndex<'a>>,
     reference: ReferenceMode,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
 }
 
 impl<'a> UnitGroupBuilder<'a> {
@@ -274,16 +280,13 @@ impl<'a> UnitGroupBuilder<'a> {
         self
     }
     /// Requires every unit start offset to align; actual pointer alignment remains separate.
-    pub const fn with_input_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_input_alignment(mut self, alignment: ByteAlignment) -> Self {
         self.input_alignment = alignment;
         self
     }
 
     pub fn build(self) -> Result<UnitGroup<'a>, UnitGroupError> {
         let data_len = u32::try_from(self.data.len()).map_err(|_| UnitGroupError::SizeOverflow)?;
-        if !self.input_alignment.is_power_of_two() {
-            return Err(UnitGroupError::InvalidAlignment(self.input_alignment));
-        }
         let grid = self.grid()?;
         if let (GroupPlanes::Joint(_), Some(first)) = (self.planes, grid.get(0)) {
             for plane in 0..self.surface.plane_count() {
@@ -355,7 +358,7 @@ impl<'a> UnitGroupBuilder<'a> {
                     ordinal: ordinal as u32,
                 });
             }
-            if range.start % self.input_alignment != 0 {
+            if range.start % self.input_alignment.get() != 0 {
                 return Err(UnitGroupError::UnalignedUnit {
                     ordinal: ordinal as u32,
                     offset: range.start,
@@ -453,7 +456,6 @@ pub enum UnitGroupError {
     Selection(UnitSelectionError),
     Index(UnitIndexError),
     InvalidPlanes(GroupPlanes),
-    InvalidAlignment(u32),
     SizeOverflow,
     CellCountMismatch {
         expected: usize,
@@ -475,7 +477,7 @@ pub enum UnitGroupError {
     UnalignedUnit {
         ordinal: u32,
         offset: u32,
-        alignment: u32,
+        alignment: ByteAlignment,
     },
     NonCanonicalUnitStart {
         ordinal: u32,
@@ -513,7 +515,7 @@ mod tests {
             .unwrap();
         let mut ranges = [0; 16];
         UnitIndexEncoding::Offsets
-            .encode_into(&[3, 2, 3], 1, &mut ranges)
+            .encode_into(&[3, 2, 3], crate::ByteAlignment::ONE, &mut ranges)
             .unwrap();
         let data = [1, 2, 3, 4, 5, 6, 7, 8];
         let group = UnitGroup::builder(surface(), coding(), &data)
@@ -639,13 +641,13 @@ mod tests {
         ));
         assert!(matches!(
             UnitGroup::builder(surface(), coding(), &[1])
-                .with_index(UnitIndex::fixed(2, 1, 1).unwrap())
+                .with_index(UnitIndex::fixed(2, 1, crate::ByteAlignment::ONE).unwrap())
                 .build(),
             Err(UnitGroupError::UnitCountMismatch { .. })
         ));
         assert!(matches!(
             UnitGroup::builder(surface(), coding(), &[1])
-                .with_index(UnitIndex::fixed(1, 2, 1).unwrap())
+                .with_index(UnitIndex::fixed(1, 2, crate::ByteAlignment::ONE).unwrap())
                 .build(),
             Err(UnitGroupError::DataLengthMismatch { .. })
         ));
@@ -666,14 +668,14 @@ mod tests {
             SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let aligned = UnitGroup::builder(surface, coding(), &data.0[..128])
             .with_tiles(1, 1)
-            .with_input_alignment(64)
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
         assert!(aligned.data_addresses_are_aligned());
         assert!(aligned.iter().all(DecodeUnitRef::data_address_is_aligned));
         let unaligned = UnitGroup::builder(surface, coding(), &data.0[1..129])
             .with_tiles(1, 1)
-            .with_input_alignment(64)
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
         assert!(!unaligned.data_addresses_are_aligned());
@@ -682,21 +684,16 @@ mod tests {
         assert!(matches!(
             UnitGroup::builder(surface, coding(), &data.0[..126])
                 .with_tiles(1, 1)
-                .with_index(UnitIndex::fixed(2, 63, 1).unwrap())
-                .with_input_alignment(64)
+                .with_index(UnitIndex::fixed(2, 63, crate::ByteAlignment::ONE).unwrap())
+                .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
                 .build(),
             Err(UnitGroupError::UnalignedUnit {
                 ordinal: 1,
                 offset: 63,
-                alignment: 64
-            })
+                alignment,
+            }) if alignment == 64
         ));
-        assert_eq!(
-            UnitGroup::builder(surface, coding(), &[1])
-                .with_input_alignment(3)
-                .build(),
-            Err(UnitGroupError::InvalidAlignment(3))
-        );
+        assert!(crate::ByteAlignment::new(3).is_err());
     }
 
     #[test]
@@ -704,7 +701,7 @@ mod tests {
         let surface =
             SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let data = [1; 69];
-        let index = UnitIndex::fixed(2, 5, 64).unwrap();
+        let index = UnitIndex::fixed(2, 5, crate::ByteAlignment::new(64).unwrap()).unwrap();
         assert!(matches!(
             UnitGroup::builder(surface, coding(), &data)
                 .with_tiles(1, 1)
@@ -719,7 +716,7 @@ mod tests {
         let group = UnitGroup::builder(surface, coding(), &data)
             .with_tiles(1, 1)
             .with_index(index)
-            .with_input_alignment(64)
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
         assert_eq!(group.get(0).unwrap().data_range(), 0..5);

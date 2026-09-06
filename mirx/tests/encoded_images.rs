@@ -118,12 +118,12 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
             .with_tiles(2, 1)
             .with_selection(GroupSelection::List(1))
             .with_index_offset((i * 4) as u32)
-            .with_input_alignment(64)
+            .with_input_alignment(mirx::ByteAlignment::new(64).unwrap())
     });
     let index = [0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0];
     let asset =
         EncodedImageAsset::from_groups(surface, &codings, &records, &data[..192 + lengths[3]])
-            .with_index(&index)
+            .with_unit_index(&index)
             .with_integrity(DataIntegrity::Indexed(&[64, 128, 192, 198]));
     let mut document = Document::new();
     let id = document
@@ -150,7 +150,7 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
     let whole_plan = surface
         .memory_plan(
             SurfaceRequirements::new()
-                .with_base_alignment(64)
+                .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                 .with_stride_multiple(64),
         )
         .unwrap();
@@ -169,7 +169,7 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
         assert_eq!(unit.coding(), codings[ordinal]);
         let requirements = SurfaceRequirements::new()
             .with_stride_multiple(64)
-            .with_base_alignment(64);
+            .with_base_alignment(mirx::ByteAlignment::new(64).unwrap());
         let plan = unit.decode_plan(requirements).unwrap();
         let decoded = plan.decode_into(&mut output.0).unwrap();
         assert_eq!(
@@ -239,7 +239,7 @@ fn document_relocation_preserves_encoded_storage_alignment_and_derived_hints() {
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     for alignment in [1, 4, 16, 64, 256] {
         let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
-            .with_input_alignment(alignment)
+            .with_input_alignment(mirx::ByteAlignment::new(alignment).unwrap())
             .encode()
             .unwrap();
         let mut document = Document::new();
@@ -253,7 +253,10 @@ fn document_relocation_preserves_encoded_storage_alignment_and_derived_hints() {
             .unwrap();
         document.set_primary(id).unwrap();
         let image = document.image(id).unwrap().encoded().unwrap();
-        assert_eq!(image.input_alignment(), Ok(alignment));
+        assert_eq!(
+            image.input_alignment().map(mirx::ByteAlignment::get),
+            Ok(alignment)
+        );
         assert_eq!(
             document.get(id).unwrap().payload_bytes().unwrap().as_ptr(),
             payload.as_ptr()
@@ -360,7 +363,7 @@ fn opaque_encoded_relocation_remains_an_explicit_policy_and_keeps_alignment() {
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let payload =
         EncodedImageAsset::new(surface, CodingRecord::new(CodingId::new(511), 1, &[]), &[1])
-            .with_input_alignment(64)
+            .with_input_alignment(mirx::ByteAlignment::new(64).unwrap())
             .encode()
             .unwrap();
     let mut document = Document::new();
@@ -400,7 +403,10 @@ fn opaque_encoded_relocation_remains_an_explicit_policy_and_keeps_alignment() {
     let chunk = reader.chunks().next().unwrap();
     assert_eq!(chunk.payload(), payload);
     let image = chunk.image().unwrap().unwrap().encoded().unwrap();
-    assert_eq!(image.input_alignment(), Ok(64));
+    assert_eq!(
+        image.input_alignment().map(mirx::ByteAlignment::get),
+        Ok(64)
+    );
     image
         .validate_groups(&mut CoverageBudget::new(100))
         .unwrap();
@@ -464,8 +470,8 @@ fn critical_scalar_images_reach_aligned_caller_output_through_document_and_reade
             assert_eq!(unit.data(), &stream[..size]);
             unit.decode_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_plane_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+                    .with_plane_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             )
             .unwrap()
@@ -586,7 +592,7 @@ fn reader_limits_and_data_integrity_are_enforced_before_critical_success() {
 fn encoded_input_alignment_uses_the_chunk_position() {
     let surface = SurfaceDescriptor::new(4, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 42])
-        .with_input_alignment(64)
+        .with_input_alignment(mirx::ByteAlignment::new(64).unwrap())
         .encode()
         .unwrap();
     let unaligned = encode_chunks(&[(
@@ -600,8 +606,8 @@ fn encoded_input_alignment_uses_the_chunk_position() {
     assert!(matches!(
         error.failure(),
         PayloadValidationFailure::Image(ImageReadError::Encoded(
-            EncodedImageError::FileAddressUnaligned { alignment: 64, .. }
-        ))
+            EncodedImageError::FileAddressUnaligned { alignment, .. }
+        )) if alignment == 64
     ));
     let bytes = encode_chunks(&[
         (0xbeef, 0, &[0; 52]),
@@ -623,8 +629,8 @@ fn encoded_input_alignment_uses_the_chunk_position() {
 fn typed_encoded_replacement_refreshes_primary_and_repairs_source_placement() {
     use mirx::image::RawImageAsset;
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let asset =
-        EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]).with_input_alignment(64);
+    let asset = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
+        .with_input_alignment(mirx::ByteAlignment::new(64).unwrap());
     let payload = asset.encode().unwrap();
     // This low-level container has not satisfied the IMAGE alignment promise.
     let bytes = encode_chunks(&[(ChunkType::IMAGE.raw(), 0, &payload)]);

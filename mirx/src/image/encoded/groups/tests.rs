@@ -23,7 +23,7 @@ fn native_and_wire_groups_share_coverage_indexes_alignment_and_work() {
         UnitGroupRecord::new(1, 64..66)
             .unwrap()
             .with_planes(GroupPlanes::Plane(1))
-            .with_input_alignment(64),
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
     ];
     let mut data = [0; 66];
     data[..2].copy_from_slice(&[0x85, 42]);
@@ -91,19 +91,7 @@ fn native_records_cannot_bypass_wire_field_validation_or_implicit_rules() {
     source
         .validate_groups(&mut CoverageBudget::new(100))
         .unwrap();
-    let invalid = [UnitGroupRecord::new(0, 0..2)
-        .unwrap()
-        .with_input_alignment(3)];
-    let invalid = GroupSource {
-        records: GroupRecords::Native(&invalid),
-        ..source
-    };
-    assert!(invalid.input_alignment().is_err());
-    assert!(
-        invalid
-            .validate_groups(&mut CoverageBudget::new(100))
-            .is_err()
-    );
+    assert!(crate::ByteAlignment::new(3).is_err());
     let empty = GroupSource {
         records: GroupRecords::Native(&[]),
         ..source

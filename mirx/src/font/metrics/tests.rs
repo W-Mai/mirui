@@ -1,8 +1,12 @@
 use super::*;
 
+fn wire_fixed(bits: i32) -> Fixed {
+    Fixed::from_le_bytes(bits.to_le_bytes())
+}
+
 #[test]
 fn signed_fixed_records_preserve_precision_and_declared_line_spacing() {
-    let glyph = GlyphMetrics::new(Fixed(-1), Fixed(i32::MIN), Fixed(i32::MAX));
+    let glyph = GlyphMetrics::new(wire_fixed(-1), wire_fixed(i32::MIN), wire_fixed(i32::MAX));
     let mut bytes = [0x5a; GLYPH_METRICS_LEN + 1];
     assert_eq!(glyph.encode_record_into(&mut bytes), Ok(GLYPH_METRICS_LEN));
     assert_eq!(
@@ -10,14 +14,19 @@ fn signed_fixed_records_preserve_precision_and_declared_line_spacing() {
         [255, 255, 255, 255, 0, 0, 0, 128, 255, 255, 255, 127, 0x5a]
     );
     assert_eq!(GlyphMetrics::from_record(&bytes), Ok(glyph));
-    assert_eq!(glyph.advance(), Fixed(-1));
-    assert_eq!(glyph.bearing_x(), Fixed(i32::MIN));
-    assert_eq!(glyph.bearing_y(), Fixed(i32::MAX));
+    assert_eq!(glyph.advance(), wire_fixed(-1));
+    assert_eq!(glyph.bearing_x(), wire_fixed(i32::MIN));
+    assert_eq!(glyph.bearing_y(), wire_fixed(i32::MAX));
     for values in [[0, 0, 1], [i32::MAX, i32::MIN, 1], [2560, -768, 4096]] {
-        let line = LineMetrics::new(Fixed(values[0]), Fixed(values[1]), Fixed(values[2])).unwrap();
-        assert_eq!(line.ascent(), Fixed(values[0]));
-        assert_eq!(line.descent(), Fixed(values[1]));
-        assert_eq!(line.line_height(), Fixed(values[2]));
+        let line = LineMetrics::new(
+            wire_fixed(values[0]),
+            wire_fixed(values[1]),
+            wire_fixed(values[2]),
+        )
+        .unwrap();
+        assert_eq!(line.ascent(), wire_fixed(values[0]));
+        assert_eq!(line.descent(), wire_fixed(values[1]));
+        assert_eq!(line.line_height(), wire_fixed(values[2]));
         let mut bytes = [0x5a; LINE_METRICS_LEN + 1];
         line.encode_record_into(&mut bytes).unwrap();
         for (i, field) in values.into_iter().enumerate() {
@@ -30,19 +39,29 @@ fn signed_fixed_records_preserve_precision_and_declared_line_spacing() {
 
 #[test]
 fn validation_precedes_writes_and_accepts_only_complete_tables() {
-    let valid = LineMetrics::new(Fixed(10), Fixed(-3), Fixed(12)).unwrap();
+    let valid = LineMetrics::new(wire_fixed(10), wire_fixed(-3), wire_fixed(12)).unwrap();
     for (values, error) in [
-        ([-1, 0, 1], MetricsError::NegativeAscent(Fixed(-1))),
-        ([1, 1, 1], MetricsError::PositiveDescent(Fixed(1))),
-        ([0, 0, 0], MetricsError::NonPositiveLineHeight(Fixed(0))),
-        ([1, -1, -1], MetricsError::NonPositiveLineHeight(Fixed(-1))),
+        ([-1, 0, 1], MetricsError::NegativeAscent(wire_fixed(-1))),
+        ([1, 1, 1], MetricsError::PositiveDescent(wire_fixed(1))),
+        (
+            [0, 0, 0],
+            MetricsError::NonPositiveLineHeight(wire_fixed(0)),
+        ),
+        (
+            [1, -1, -1],
+            MetricsError::NonPositiveLineHeight(wire_fixed(-1)),
+        ),
     ] {
         let mut bytes = [0; LINE_METRICS_LEN];
         for (i, field) in values.into_iter().enumerate() {
             bytes[i * 4..i * 4 + 4].copy_from_slice(&i32::to_le_bytes(field));
         }
         assert_eq!(
-            LineMetrics::new(Fixed(values[0]), Fixed(values[1]), Fixed(values[2])),
+            LineMetrics::new(
+                wire_fixed(values[0]),
+                wire_fixed(values[1]),
+                wire_fixed(values[2])
+            ),
             Err(error)
         );
         assert_eq!(LineMetrics::from_record(&bytes), Err(error));
@@ -86,12 +105,16 @@ fn validation_precedes_writes_and_accepts_only_complete_tables() {
 fn unaligned_tables_share_ordinals_and_read_without_scanning() {
     #[repr(align(4))]
     struct Bytes([u8; 1 + LINE_METRICS_LEN + 6 * GLYPH_METRICS_LEN]);
-    let line = LineMetrics::new(Fixed(100), Fixed(-20), Fixed(150)).unwrap();
+    let line = LineMetrics::new(wire_fixed(100), wire_fixed(-20), wire_fixed(150)).unwrap();
     let mut bytes = Bytes([0; 1 + LINE_METRICS_LEN + 6 * GLYPH_METRICS_LEN]);
     line.encode_record_into(&mut bytes.0[1..]).unwrap();
     let mut glyphs = [GlyphMetrics::default(); 6];
     for (index, glyph) in glyphs.iter_mut().enumerate() {
-        *glyph = GlyphMetrics::new(Fixed(index as i32), Fixed(-1000), Fixed(90000));
+        *glyph = GlyphMetrics::new(
+            wire_fixed(index as i32),
+            wire_fixed(-1000),
+            wire_fixed(90000),
+        );
         glyph
             .encode_record_into(&mut bytes.0[1 + LINE_METRICS_LEN + index * GLYPH_METRICS_LEN..])
             .unwrap();

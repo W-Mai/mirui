@@ -90,7 +90,7 @@ fn asset_preflight_admits_exactly_supported_syntax_without_serializing() {
         assert!(asset.preflight(&limits).is_err());
     }
     // Small decoded output cannot authorize a two-gigabyte padding allocation.
-    let padded = asset.with_input_alignment(1 << 31);
+    let padded = asset.with_input_alignment(crate::ByteAlignment::new(1 << 31).unwrap());
     assert!(padded.encoded_len().unwrap() > 1 << 31);
     assert_eq!(
         padded.preflight(&PayloadLimits::EMBEDDED),
@@ -128,7 +128,7 @@ fn asset_preflight_charges_reader_work_and_canonical_output_without_double_profi
                 .unwrap();
             for alignment in [1, 64] {
                 let asset = EncodedImageAsset::new(surface, Rle::new().record(), &stream[..len])
-                    .with_input_alignment(alignment);
+                    .with_input_alignment(crate::ByteAlignment::new(alignment).unwrap());
                 let payload = asset.encode().unwrap();
                 let image = EncodedImageView::open(&payload).unwrap();
                 let minimum = (0..1024)
@@ -179,7 +179,10 @@ fn single_stream_omission_round_trips_each_scalar_profile() {
         assert_eq!(asset.surface(), surface);
         assert_eq!(asset.codings().collect::<Vec<_>>(), &[coding]);
         assert_eq!(asset.data(), &stream[..len]);
-        assert_eq!(asset.input_alignment(), Ok(1));
+        assert_eq!(
+            asset.input_alignment().map(crate::ByteAlignment::get),
+            Ok(1)
+        );
         assert_eq!(asset.color_table(), None);
         assert_eq!(asset.encoded_len(), Ok(92 + coding.params().len() + len));
         let bytes = asset.encode().unwrap();
@@ -215,8 +218,8 @@ fn stored_input_alignment_and_actual_addresses_are_distinct() {
     struct Aligned([u8; 512]);
     let surface = SurfaceDescriptor::new(4, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let stream = [0x83, 17];
-    let asset =
-        EncodedImageAsset::new(surface, Rle::new().record(), &stream).with_input_alignment(64);
+    let asset = EncodedImageAsset::new(surface, Rle::new().record(), &stream)
+        .with_input_alignment(crate::ByteAlignment::new(64).unwrap());
     let mut bytes = Aligned([0xad; 512]);
     let len = asset.encode_into(&mut bytes.0).unwrap();
     assert_eq!(len, 198);
@@ -247,7 +250,7 @@ fn stored_input_alignment_and_actual_addresses_are_distinct() {
     let unaligned = EncodedImageView::open_at(&bytes.0[..len], 1).unwrap();
     assert!(matches!(
         unaligned.groups_into(&mut slots, &mut CoverageBudget::new(100)),
-        Err(EncodedImageError::FileAddressUnaligned { alignment: 64, .. })
+        Err(EncodedImageError::FileAddressUnaligned { alignment, .. }) if alignment == 64
     ));
     // The writer accepts byte slices; serialization cannot align their allocation.
     let mut shifted = Aligned([0xad; 512]);
@@ -363,7 +366,8 @@ fn metadata_authoring_preserves_unknown_profiles_without_promising_decodability(
 fn omitted_empty_groups_and_preflight_errors_preserve_output() {
     let empty =
         SurfaceDescriptor::new(0, u32::MAX, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let asset = EncodedImageAsset::new(empty, Lz4::new().record(), &[]).with_input_alignment(64);
+    let asset = EncodedImageAsset::new(empty, Lz4::new().record(), &[])
+        .with_input_alignment(crate::ByteAlignment::new(64).unwrap());
     assert_eq!(asset.encoded_len(), Ok(92));
     let bytes = asset.encode().unwrap();
     let view = EncodedImageView::open(&bytes).unwrap();
@@ -376,11 +380,11 @@ fn omitted_empty_groups_and_preflight_errors_preserve_output() {
     for invalid in [
         EncodedImageAsset::new(empty, Lz4::new().record(), &[0]),
         EncodedImageAsset::new(empty, CodingRecord::new(CodingId::RAW, 1, &[]), &[]),
-        asset.with_input_alignment(3),
     ] {
         assert!(invalid.encode_into(&mut output).is_err());
         assert_eq!(output, [0xad; 256]);
     }
+    assert!(crate::ByteAlignment::new(3).is_err());
     assert_eq!(
         asset.encode_into(&mut output[..91]),
         Err(ImageEncodeError::BufferTooSmall {

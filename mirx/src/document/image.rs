@@ -592,7 +592,7 @@ mod tests {
                 crate::image::RawImageViewError::PlaneFileAddressUnaligned {
                     index: 0,
                     absolute_offset,
-                    alignment: 4
+                    alignment: crate::ByteAlignment::new(4).unwrap()
                 }
             )))
         );

@@ -25,13 +25,13 @@ fn explicit_memory_contract_is_checked_before_image_preflight() {
         .unwrap();
     let request = DecodeRequest::new(
         SurfaceRequirements::new()
-            .with_base_alignment(64)
+            .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
             .with_stride_multiple(64),
     )
     .with_input(MemoryPlacement::Flash)
     .with_output(MemoryPlacement::SharedNoncoherent)
     .with_workspace(MemoryPlacement::SharedCoherent)
-    .with_workspace_alignment(64);
+    .with_workspace_alignment(crate::ByteAlignment::new(64).unwrap());
     let plan = groups
         .decode_plan_for(request, &PayloadLimits::EMBEDDED)
         .unwrap();
@@ -130,7 +130,7 @@ fn complete_sub_byte_tiles_share_one_byte_workspace_and_exact_work_limits() {
         .groups_into(&mut slots, &mut CoverageBudget::new(1000))
         .unwrap();
     let requirements = SurfaceRequirements::new()
-        .with_base_alignment(64)
+        .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
         .with_stride_multiple(64);
     let plan = groups
         .decode_plan(requirements, &PayloadLimits::EMBEDDED)
@@ -211,7 +211,7 @@ fn all_input_and_binding_failures_precede_final_writes() {
         .unwrap();
     let plan = groups
         .decode_plan(
-            SurfaceRequirements::new().with_base_alignment(64),
+            SurfaceRequirements::new().with_base_alignment(crate::ByteAlignment::new(64).unwrap()),
             &PayloadLimits::EMBEDDED,
         )
         .unwrap();

@@ -1,15 +1,18 @@
-use mirx::image::{CacheSync, DecodeRequest, MemoryPlacement, SurfaceRequirements};
+use mirx::{
+    ByteAlignment,
+    image::{CacheSync, DecodeRequest, MemoryPlacement, SurfaceRequirements},
+};
 
 use super::Result;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct DecodeArgs {
-    output_alignment: u32,
-    plane_alignment: u32,
+    output_alignment: ByteAlignment,
+    plane_alignment: ByteAlignment,
     width_multiple: u32,
     height_multiple: u32,
     stride_multiple: u32,
-    workspace_alignment: u32,
+    workspace_alignment: ByteAlignment,
     input: MemoryPlacement,
     output: MemoryPlacement,
     workspace: MemoryPlacement,
@@ -67,12 +70,12 @@ impl DecodeArgs {
 impl Default for DecodeArgs {
     fn default() -> Self {
         Self {
-            output_alignment: 1,
-            plane_alignment: 1,
+            output_alignment: ByteAlignment::ONE,
+            plane_alignment: ByteAlignment::ONE,
             width_multiple: 1,
             height_multiple: 1,
             stride_multiple: 1,
-            workspace_alignment: 1,
+            workspace_alignment: ByteAlignment::ONE,
             input: MemoryPlacement::Cpu,
             output: MemoryPlacement::Cpu,
             workspace: MemoryPlacement::Cpu,
@@ -83,14 +86,14 @@ impl Default for DecodeArgs {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct ContractReport {
     request: DecodeRequest,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
     input_addresses_aligned: bool,
 }
 
 impl ContractReport {
     pub(super) const fn new(
         request: DecodeRequest,
-        input_alignment: u32,
+        input_alignment: ByteAlignment,
         input_addresses_aligned: bool,
     ) -> Self {
         Self {
@@ -104,7 +107,7 @@ impl ContractReport {
         self.request
     }
 
-    pub(super) const fn input_alignment(self) -> u32 {
+    pub(super) const fn input_alignment(self) -> ByteAlignment {
         self.input_alignment
     }
 
@@ -133,14 +136,12 @@ impl ContractReport {
     }
 }
 
-fn alignment(value: &str, option: &str) -> Result<u32> {
+fn alignment(value: &str, option: &str) -> Result<ByteAlignment> {
     let value = value
         .parse::<u32>()
         .map_err(|_| format!("{option} must be a positive power of two"))?;
-    if !value.is_power_of_two() {
-        return Err(format!("{option} must be a positive power of two").into());
-    }
-    Ok(value)
+    ByteAlignment::new(value)
+        .map_err(|_| format!("{option} must be a positive power of two").into())
 }
 
 fn multiple(value: &str, option: &str) -> Result<u32> {

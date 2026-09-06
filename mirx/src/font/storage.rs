@@ -145,7 +145,7 @@ impl<'map> RawGlyphBuilder<'map> {
         };
         // Widen alignment arithmetic so one huge cell need not have a
         // representable next-cell address that no glyph will ever use.
-        let alignment = u64::from(memory.required_alignment());
+        let alignment = u64::from(memory.required_alignment().get());
         let cell_step = u64::from(memory.byte_len()).div_ceil(alignment) * alignment;
         let span = match self.map.packing() {
             GlyphPacking::GlyphMajor if self.map.is_empty() => 0,

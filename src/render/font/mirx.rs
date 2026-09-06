@@ -192,6 +192,7 @@ impl MirxFontProvider {
                 .checked_add(output_cursor)
                 .ok_or(MirxFontError::SurfaceSizeOverflow { surface })?;
             let alignment = needed.base_alignment();
+            let alignment = usize::try_from(alignment.get()).expect("u32 fits usize");
             let padding = (alignment - address % alignment) % alignment;
             let span = padding
                 .checked_add(needed.byte_len())
@@ -229,6 +230,7 @@ impl MirxFontProvider {
             let needed = plan.memory_plan().buffer_requirements();
             let address = remaining.as_ptr() as usize;
             let alignment = needed.base_alignment();
+            let alignment = usize::try_from(alignment.get()).expect("u32 fits usize");
             let padding = (alignment - address % alignment) % alignment;
             let span = padding
                 .checked_add(needed.byte_len())
@@ -318,14 +320,14 @@ impl FontProvider for MirxFontProvider {
             }
         };
         Some(Glyph {
-            advance: crate::types::Fixed::from_raw(metric.advance().raw()),
+            advance: metric.advance().into(),
             kind: GlyphKind::Raster {
                 samples: plane.bytes(),
                 stride: plane.memory().stride(),
                 region,
                 representation: selected.record().representation(),
-                bearing_x: crate::types::Fixed::from_raw(metric.bearing_x().raw()),
-                bearing_y: crate::types::Fixed::from_raw(metric.bearing_y().raw()),
+                bearing_x: metric.bearing_x().into(),
+                bearing_y: metric.bearing_y().into(),
             },
         })
     }
@@ -339,9 +341,9 @@ impl FontProvider for MirxFontProvider {
                         selected.record().representation().design_ppem(),
                     ));
                 FontMetrics {
-                    ascender: crate::types::Fixed::from_raw(metrics.ascent().raw()) * scale,
-                    descender: crate::types::Fixed::from_raw(metrics.descent().raw()) * scale,
-                    line_height: crate::types::Fixed::from_raw(metrics.line_height().raw()) * scale,
+                    ascender: crate::types::Fixed::from(metrics.ascent()) * scale,
+                    descender: crate::types::Fixed::from(metrics.descent()) * scale,
+                    line_height: crate::types::Fixed::from(metrics.line_height()) * scale,
                 }
             })
             .unwrap_or(FontMetrics {
@@ -407,7 +409,7 @@ mod tests {
             SurfaceDescriptor::new(8, 4, SampleLayout::A1, ColorDescription::NONE).unwrap();
         let memory = PlaneMemoryLayout::builder(surface.plane(0).unwrap())
             .with_stride(64)
-            .with_alignment(64)
+            .with_alignment(mirx::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
         let samples = [0xa5; 256];
@@ -418,9 +420,9 @@ mod tests {
         let metrics = [
             GlyphMetrics::new(Fixed::from_int(4), Fixed::ZERO, Fixed::from_int(12)),
             GlyphMetrics::new(
-                Fixed::from_raw(5 * 256 + 128),
-                Fixed::from_raw(-128),
-                Fixed::from_raw(11 * 256 + 64),
+                Fixed::from_ratio(11, 2),
+                Fixed::from_ratio(-1, 2),
+                Fixed::from_ratio(45, 4),
             ),
         ];
         let line = LineMetrics::new(
@@ -452,7 +454,7 @@ mod tests {
     fn atlas_regions_and_fractional_metrics_reach_the_renderer_unchanged() {
         let provider = atlas_face();
         let glyph = provider.glyph('A', 16).unwrap();
-        assert_eq!(glyph.advance.raw(), 5 * 256 + 128);
+        assert_eq!(glyph.advance, crate::types::Fixed::from_ratio(11, 2));
         let GlyphKind::Raster {
             stride,
             region,
@@ -468,8 +470,8 @@ mod tests {
             (region.x(), region.y(), region.width(), region.height()),
             (3, 1, 3, 2)
         );
-        assert_eq!(bearing_x.raw(), -128);
-        assert_eq!(bearing_y.raw(), 11 * 256 + 64);
+        assert_eq!(bearing_x, crate::types::Fixed::from_ratio(-1, 2));
+        assert_eq!(bearing_y, crate::types::Fixed::from_ratio(45, 4));
         assert!(matches!(
             provider.glyph(' ', 16).unwrap().kind,
             GlyphKind::Raster { region, .. } if region.is_empty()
@@ -484,7 +486,10 @@ mod tests {
         assert_eq!(metrics.ascender, crate::types::Fixed::from_int(6));
         assert_eq!(metrics.descender, crate::types::Fixed::from_int(-2));
         assert_eq!(metrics.line_height, crate::types::Fixed::from_int(8));
-        assert_eq!(provider.glyph('A', 8).unwrap().advance.raw(), 5 * 256 + 128);
+        assert_eq!(
+            provider.glyph('A', 8).unwrap().advance,
+            crate::types::Fixed::from_ratio(11, 2)
+        );
     }
 
     #[test]
@@ -554,7 +559,7 @@ mod tests {
         let storage = MirxFontStorage::new(surfaces, output, &mut groups, &mut workspace)
             .with_requirements(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             );
         let provider =
@@ -605,7 +610,7 @@ mod tests {
         let storage = MirxFontStorage::new(surfaces, output, &mut groups, &mut workspace)
             .with_requirements(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             );
         assert!(matches!(

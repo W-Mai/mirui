@@ -22,7 +22,7 @@ fn planar_groups_share_profiles_and_preserve_alignment_without_unit_tables() {
         UnitGroupRecord::new(0, 64..66)
             .unwrap()
             .with_planes(GroupPlanes::Plane(1))
-            .with_input_alignment(64),
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
     ];
     let mut data = [0xa5; 66];
     data[..2].copy_from_slice(&[0x88, 16]);
@@ -30,15 +30,21 @@ fn planar_groups_share_profiles_and_preserve_alignment_without_unit_tables() {
     let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &data);
     assert_eq!(asset.codings().collect::<Vec<_>>(), &codings);
     assert_eq!(asset.groups(), Some(records.as_slice()));
-    assert_eq!(asset.index(), &[]);
-    assert_eq!(asset.input_alignment(), Ok(64));
+    assert_eq!(asset.unit_index(), &[]);
+    assert_eq!(
+        asset.input_alignment().map(crate::ByteAlignment::get),
+        Ok(64)
+    );
     asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
     let payload = asset.encode().unwrap();
     let view = EncodedImageView::open_at(&payload, 0).unwrap();
     view.preflight(&PayloadLimits::EMBEDDED).unwrap();
     assert_eq!(view.codings().len(), 1);
     assert_eq!(view.group_count(), 2);
-    assert_eq!(view.input_alignment(), Ok(64));
+    assert_eq!(
+        view.input_alignment().map(crate::ByteAlignment::get),
+        Ok(64)
+    );
     assert!(view.media().section(MediaSectionKind::UNIT_INDEX).is_none());
     assert_eq!(
         view.media()
@@ -86,11 +92,12 @@ fn variable_indexes_preserve_exact_lengths_padding_and_canonical_work() {
         UnitIndexEncoding::Lengths16,
         UnitIndexEncoding::Lengths32,
     ] {
-        let alignment = if encoding == UnitIndexEncoding::Offsets {
+        let alignment = crate::ByteAlignment::new(if encoding == UnitIndexEncoding::Offsets {
             1
         } else {
             64
-        };
+        })
+        .unwrap();
         let lengths = [3, 2, 2];
         let mut index_bytes = [0; 32];
         let index_len = encoding
@@ -109,7 +116,7 @@ fn variable_indexes_preserve_exact_lengths_padding_and_canonical_work() {
             .with_input_alignment(alignment)
             .with_index_encoding(encoding)];
         let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &data[..end])
-            .with_index(&index_bytes[..index_len]);
+            .with_unit_index(&index_bytes[..index_len]);
         let payload = asset.encode().unwrap();
         let image = EncodedImageView::open(&payload).unwrap();
         assert_eq!(
@@ -118,7 +125,7 @@ fn variable_indexes_preserve_exact_lengths_padding_and_canonical_work() {
                 .section(MediaSectionKind::UNIT_INDEX)
                 .unwrap()
                 .bytes(),
-            asset.index()
+            asset.unit_index()
         );
         let minimum = (0..8192)
             .find(|work| {
@@ -163,7 +170,6 @@ fn structural_errors_preserve_output_and_coverage_requires_bounded_admission() {
     let codings = [Rle::new().record()];
     let records = [UnitGroupRecord::new(0, 0..2).unwrap()];
     let valid = EncodedImageAsset::from_groups(surface, &codings, &records, &[0x81, 42]);
-    let malformed = [records[0].with_input_alignment(3)];
     let reference = [records[0].with_reference(ReferenceMode::Previous)];
     let missing_coding = [UnitGroupRecord::new(1, 0..2).unwrap()];
     let unreferenced = [UnitGroupRecord::new(0, 0..1).unwrap()];
@@ -171,19 +177,21 @@ fn structural_errors_preserve_output_and_coverage_requires_bounded_admission() {
     for invalid in [
         EncodedImageAsset::from_groups(surface, &[], &records, &[0x81, 42]),
         EncodedImageAsset::from_groups(surface, &codings, &[], &[0x81, 42]),
-        EncodedImageAsset::from_groups(surface, &codings, &malformed, &[0x81, 42]),
         EncodedImageAsset::from_groups(surface, &codings, &reference, &[0x81, 42]),
         EncodedImageAsset::from_groups(surface, &codings, &missing_coding, &[0x81, 42]),
         EncodedImageAsset::from_groups(surface, &codings, &unreferenced, &[0x81, 42]),
-        valid.with_input_alignment(64),
-        valid.with_index(&[0]),
-        EncodedImageAsset::new(surface, codings[0], &[0x81, 42]).with_index(&[0]),
+        valid.with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
+        valid.with_unit_index(&[0]),
+        EncodedImageAsset::new(surface, codings[0], &[0x81, 42]).with_unit_index(&[0]),
     ] {
         assert!(invalid.encode_into(&mut output).is_err());
         assert_eq!(output, [0xad; 512]);
     }
+    assert!(crate::ByteAlignment::new(3).is_err());
     assert_eq!(
-        valid.with_input_alignment(64).encoded_len(),
+        valid
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
+            .encoded_len(),
         Err(ImageEncodeError::ConflictingAlignment)
     );
     let overlapping = [records[0], UnitGroupRecord::new(0, 2..4).unwrap()];
@@ -201,7 +209,7 @@ fn structural_errors_preserve_output_and_coverage_requires_bounded_admission() {
             .is_err()
     );
     let many_codings = [codings[0]; 32];
-    let asset = EncodedImageAsset::from_groups(surface, &many_codings, &malformed, &[0x81, 42]);
+    let asset = EncodedImageAsset::from_groups(surface, &many_codings, &reference, &[0x81, 42]);
     // Resource gates must run before scanning even malformed native records.
     assert!(matches!(
         asset.preflight(&PayloadLimits::EMBEDDED.with_max_raster_groups(0)),

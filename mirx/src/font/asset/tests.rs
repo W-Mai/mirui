@@ -12,9 +12,9 @@ fn with_face(aligned: bool, indexed: bool, check: impl FnOnce(FontAsset<'_>)) {
     let chars = ['A', 'B'];
     let map = GlyphMap::glyph_major(2, 2, chars.len()).unwrap();
     let metrics = [GlyphMetrics::new(
-        Fixed::from_raw(640),
-        Fixed::from_raw(-128),
-        Fixed::from_raw(512),
+        Fixed::from_ratio(5, 2),
+        Fixed::from_ratio(-1, 2),
+        Fixed::from_int(2),
     ); 2];
     let raw_data = vec![7; if aligned { 256 } else { 8 }];
     let mut raw = RawGlyphs::builder(map, SampleLayout::A8);
@@ -22,7 +22,7 @@ fn with_face(aligned: bool, indexed: bool, check: impl FnOnce(FontAsset<'_>)) {
         raw = raw.with_memory_layout(
             PlaneMemoryLayout::builder(SampleLayout::A8.plane_geometry(2, 2, 0).unwrap())
                 .with_stride(64)
-                .with_alignment(64)
+                .with_alignment(crate::ByteAlignment::new(64).unwrap())
                 .build()
                 .unwrap(),
         );
@@ -32,7 +32,7 @@ fn with_face(aligned: bool, indexed: bool, check: impl FnOnce(FontAsset<'_>)) {
         Rle::new().record(),
         &[0x87, 42],
     )
-    .with_input_alignment(if aligned { 64 } else { 1 })
+    .with_input_alignment(crate::ByteAlignment::new(if aligned { 64 } else { 1 }).unwrap())
     .with_integrity(if indexed {
         DataIntegrity::Indexed(&[1, 2])
     } else {
@@ -46,21 +46,16 @@ fn with_face(aligned: bool, indexed: bool, check: impl FnOnce(FontAsset<'_>)) {
         RepresentationAsset::new(
             FontRepresentation::coverage(8, 12, 8).unwrap(),
             0,
-            LineMetrics::new(
-                Fixed::from_raw(2304),
-                Fixed::from_raw(-768),
-                Fixed::from_raw(3072),
-            )
-            .unwrap(),
+            LineMetrics::new(Fixed::from_int(9), Fixed::from_int(-3), Fixed::from_int(12)).unwrap(),
             &metrics,
         ),
         RepresentationAsset::new(
             FontRepresentation::coverage(8, 16, 8).unwrap(),
             0,
             LineMetrics::new(
-                Fixed::from_raw(3072),
-                Fixed::from_raw(-1024),
-                Fixed::from_raw(4096),
+                Fixed::from_int(12),
+                Fixed::from_int(-4),
+                Fixed::from_int(16),
             )
             .unwrap(),
             &metrics,
@@ -69,9 +64,9 @@ fn with_face(aligned: bool, indexed: bool, check: impl FnOnce(FontAsset<'_>)) {
             FontRepresentation::signed_distance(8, 3, 24, 17, 48, 8).unwrap(),
             1,
             LineMetrics::new(
-                Fixed::from_raw(4608),
-                Fixed::from_raw(-1536),
-                Fixed::from_raw(6144),
+                Fixed::from_int(18),
+                Fixed::from_int(-6),
+                Fixed::from_int(24),
             )
             .unwrap(),
             &metrics,
@@ -149,7 +144,10 @@ fn aligned_multi_data_integrity_excludes_only_inter_section_gaps() {
             let view = FontView::open_at(&bytes, 128, &PayloadLimits::EMBEDDED).unwrap();
             view.preflight(&PayloadLimits::EMBEDDED).unwrap();
             asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
-            assert_eq!(view.input_alignment(), Ok(64));
+            assert_eq!(
+                view.input_alignment().map(crate::ByteAlignment::get),
+                Ok(64)
+            );
             for data in view.media().sections_of_kind(MediaSectionKind::DATA) {
                 assert_eq!(data.descriptor().offset() % 64, 0);
             }
@@ -191,7 +189,7 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
         .unwrap();
     let surfaces = [GlyphSurfaceAsset::raw(raw)];
     let metrics = [GlyphMetrics::default(); 2];
-    let line = LineMetrics::new(Fixed::from_raw(256), Fixed::ZERO, Fixed::from_raw(256)).unwrap();
+    let line = LineMetrics::new(Fixed::ONE, Fixed::ZERO, Fixed::ONE).unwrap();
     let representations = [
         RepresentationAsset::new(
             FontRepresentation::coverage(4, 12, 1).unwrap(),

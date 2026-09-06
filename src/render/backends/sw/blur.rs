@@ -33,18 +33,15 @@ pub fn alpha_for_radius(radius: Fixed) -> Fixed {
         return Fixed::ZERO;
     }
     if radius >= Fixed::from_int(64) {
-        return Fixed::from_raw(TABLE[64]);
+        return Fixed::from_ratio(TABLE[64], 256);
     }
-    // Linear blend between TABLE[lo] and TABLE[lo+1] in raw Q24.8
-    // alpha space. frac.raw() is fixed-point in [0, 256); multiply
-    // by raw delta and shift back to land on the same scale as
-    // TABLE entries.
+    // Linear blend between adjacent Q24.8 table entries.
     let lo = radius.floor().to_int();
     let hi = (lo + 1).min(64);
-    let frac_raw = (radius - Fixed::from_int(lo)).raw();
+    let fraction = radius - Fixed::from_int(lo);
     let a_lo = TABLE[lo as usize];
     let a_hi = TABLE[hi as usize];
-    Fixed::from_raw(a_lo + ((a_hi - a_lo) * frac_raw / 256))
+    Fixed::from_ratio(a_lo, 256) + Fixed::from_ratio(a_hi - a_lo, 256) * fraction
 }
 
 /// Blur `tex` in place using the IIR exponential filter with decay
@@ -68,7 +65,7 @@ pub fn iir_blur_inplace(tex: &mut Texture, alpha: Fixed, region: Rect) {
     if x1 <= x0 || y1 <= y0 {
         return;
     }
-    let alpha_q = alpha.raw().clamp(0, 256);
+    let alpha_q = (alpha * Fixed::from_int(256)).to_int().clamp(0, 256);
     let one_minus_q = 256 - alpha_q;
     let rw = (x1 - x0) as usize;
     let rh = (y1 - y0) as usize;

@@ -1,4 +1,5 @@
 use super::EncodedImageError;
+use crate::ByteAlignment;
 use crate::image::{
     CoverageBudget, ReferenceMode, SurfaceDescriptor, UNIT_GROUP_RECORD_LEN, UnitGroup,
     UnitGroupRecord,
@@ -102,9 +103,9 @@ impl<'a> GroupSource<'a> {
         record.map_err(|error| EncodedImageError::Group { index, error })
     }
 
-    pub(crate) fn input_alignment(self) -> Result<u32, EncodedImageError> {
+    pub(crate) fn input_alignment(self) -> Result<ByteAlignment, EncodedImageError> {
         self.validate_tables()?;
-        let mut alignment = 1;
+        let mut alignment = ByteAlignment::ONE;
         for index in 0..self.group_count() {
             alignment = alignment.max(self.record(index)?.input_alignment());
         }
@@ -234,9 +235,10 @@ impl<'a> GroupSource<'a> {
                 return Err(EncodedImageError::ReferenceInStaticImage(index));
             }
             let alignment = record.input_alignment();
+            let alignment_bytes = alignment.get();
             let expected_start = data_end
-                .checked_add(alignment - 1)
-                .map(|end| end & !(alignment - 1))
+                .checked_add(alignment_bytes - 1)
+                .map(|end| end & !(alignment_bytes - 1))
                 .ok_or(EncodedImageError::SizeOverflow)?;
             if record.data_range().start != expected_start {
                 return Err(EncodedImageError::NonCanonicalDataRange {
@@ -250,7 +252,7 @@ impl<'a> GroupSource<'a> {
                     .checked_add(self.data_offset)
                     .and_then(|offset| offset.checked_add(record.data_range().start))
                     .ok_or(EncodedImageError::SizeOverflow)?;
-                if absolute_offset % alignment != 0 {
+                if absolute_offset % alignment_bytes != 0 {
                     return Err(EncodedImageError::FileAddressUnaligned {
                         index,
                         absolute_offset,

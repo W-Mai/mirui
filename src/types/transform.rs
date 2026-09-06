@@ -162,7 +162,7 @@ impl Transform {
             return TransformClass::Identity;
         }
 
-        let eps = Fixed::from_raw(4);
+        let eps = Fixed::from_ratio(1, 64);
         let near_zero = |v: Fixed| v.abs() < eps;
         let near_one = |v: Fixed| (v - Fixed::ONE).abs() < eps;
         let near_neg_one = |v: Fixed| (v + Fixed::ONE).abs() < eps;
@@ -253,9 +253,13 @@ mod tests {
             y: Fixed::ZERO,
         });
         // Fixed sin/cos has rounding; allow 1 LSB tolerance.
-        assert!(p.x.abs().raw() < 4, "x should be ~0, got {}", p.x.to_f32());
         assert!(
-            (p.y - Fixed::ONE).abs().raw() < 4,
+            p.x.abs() < Fixed::from_ratio(1, 64),
+            "x should be ~0, got {}",
+            p.x.to_f32()
+        );
+        assert!(
+            (p.y - Fixed::ONE).abs() < Fixed::from_ratio(1, 64),
             "y should be ~1, got {}",
             p.y.to_f32()
         );
@@ -267,13 +271,13 @@ mod tests {
         let t = Transform::rotate_deg(a);
         let inv = t.inverse().expect("rotation is always invertible");
         let round = t.compose(&inv);
-        let eps = 10;
-        assert!((round.m00 - Fixed::ONE).abs().raw() < eps);
-        assert!(round.m01.abs().raw() < eps);
-        assert!(round.tx.abs().raw() < eps);
-        assert!(round.m10.abs().raw() < eps);
-        assert!((round.m11 - Fixed::ONE).abs().raw() < eps);
-        assert!(round.ty.abs().raw() < eps);
+        let eps = Fixed::from_ratio(5, 128);
+        assert!((round.m00 - Fixed::ONE).abs() < eps);
+        assert!(round.m01.abs() < eps);
+        assert!(round.tx.abs() < eps);
+        assert!(round.m10.abs() < eps);
+        assert!((round.m11 - Fixed::ONE).abs() < eps);
+        assert!(round.ty.abs() < eps);
     }
 
     #[test]
@@ -289,12 +293,12 @@ mod tests {
         let bb = t.apply_rect_bbox(r);
         let diag = Fixed::from_f32(2.0_f32.sqrt() * 2.0);
         assert!(
-            (bb.w - diag).abs().raw() < 10,
+            (bb.w - diag).abs() < Fixed::from_ratio(5, 128),
             "bbox w should be ~{}, got {}",
             diag.to_f32(),
             bb.w.to_f32()
         );
-        assert!((bb.h - diag).abs().raw() < 10);
+        assert!((bb.h - diag).abs() < Fixed::from_ratio(5, 128));
     }
 
     #[test]
@@ -342,9 +346,9 @@ mod tests {
         let ab_c = a.compose(&b).compose(&c);
         let a_bc = a.compose(&b.compose(&c));
         // Allow small Fixed rounding drift.
-        let eps = 10;
-        assert!((ab_c.m00 - a_bc.m00).abs().raw() < eps);
-        assert!((ab_c.tx - a_bc.tx).abs().raw() < eps);
-        assert!((ab_c.ty - a_bc.ty).abs().raw() < eps);
+        let eps = Fixed::from_ratio(5, 128);
+        assert!((ab_c.m00 - a_bc.m00).abs() < eps);
+        assert!((ab_c.tx - a_bc.tx).abs() < eps);
+        assert!((ab_c.ty - a_bc.ty).abs() < eps);
     }
 }

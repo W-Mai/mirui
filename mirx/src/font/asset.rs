@@ -10,7 +10,7 @@ use super::{
     RepresentationRecord,
 };
 use crate::{
-    PayloadLimits,
+    ByteAlignment, PayloadLimits,
     image::{
         ColorDescription, EncodedImageAsset, EncodedStoragePlan, PLANE_RECORD_LEN,
         PlaneMemoryLayout, SurfaceDescriptor,
@@ -211,11 +211,13 @@ impl<'a> FontAsset<'a> {
     }
 
     /// Required payload placement for every aligned DATA body, independent of its pointer.
-    pub fn input_alignment(self) -> Result<u32, FontError> {
+    pub fn input_alignment(self) -> Result<ByteAlignment, FontError> {
         Plan::new(self)?;
-        self.surfaces.iter().try_fold(1, |alignment, surface| {
-            Ok(alignment.max(surface.plan()?.alignment()))
-        })
+        self.surfaces
+            .iter()
+            .try_fold(ByteAlignment::ONE, |alignment, surface| {
+                Ok(alignment.max(surface.plan()?.alignment()))
+            })
     }
 
     /// Writes only after validation and capacity checks; the output suffix is untouched.
@@ -270,9 +272,9 @@ impl Storage<'_> {
             Self::Encoded(plan) => plan.sections(),
         }
     }
-    fn alignment(self) -> u32 {
+    fn alignment(self) -> ByteAlignment {
         match self {
-            Self::Raw(memory) => memory.map_or(1, |p| p.required_alignment()),
+            Self::Raw(memory) => memory.map_or(ByteAlignment::ONE, |p| p.required_alignment()),
             Self::Encoded(plan) => plan.alignment(),
         }
     }
@@ -468,7 +470,7 @@ impl<S: Source> Plan<S> {
         })
     }
 
-    fn aligned(offset: usize, alignment: u32) -> Result<usize, FontError> {
+    fn aligned(offset: usize, alignment: ByteAlignment) -> Result<usize, FontError> {
         UnitIndex::aligned(
             u32::try_from(offset).map_err(|_| FontError::SizeOverflow)?,
             alignment,

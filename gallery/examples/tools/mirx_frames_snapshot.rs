@@ -6,7 +6,7 @@ use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
-use mirui::render::mirx_frames::MirxFramesPlan;
+use mirui::render::mirx_frames::{MirxFramesPlan, MirxFramesStorage};
 use mirui::render::texture::MirxTextureOptions;
 use mirx::image::{CacheSync, ColorDescription, MemoryPlacement, SampleLayout, SurfaceDescriptor};
 use mirx::{Document, FrameEncodingSet, FrameSequence, FramesEncoder};
@@ -62,7 +62,7 @@ fn encode_timeline() -> Vec<u8> {
         .expect("valid frame encoder")
         .with_profiles(FrameEncodingSet::lossless())
         .expect("valid lossless profiles")
-        .with_input_alignment(64)
+        .with_input_alignment(mirx::ByteAlignment::new(64).unwrap())
         .expect("valid input alignment");
     for (frame, duration) in [100, 250, 150].into_iter().enumerate() {
         encoder
@@ -95,9 +95,9 @@ fn main() {
         .with_input_memory(MemoryPlacement::Flash)
         .with_output_memory(MemoryPlacement::SharedNoncoherent)
         .with_workspace_memory(MemoryPlacement::SharedCoherent)
-        .with_workspace_alignment(64)
-        .with_base_alignment(64)
-        .with_plane_alignment(64)
+        .with_workspace_alignment(mirx::ByteAlignment::new(64).unwrap())
+        .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+        .with_plane_alignment(mirx::ByteAlignment::new(64).unwrap())
         .with_width_multiple(64)
         .with_stride_multiple(64);
     let mut groups = [None];
@@ -116,7 +116,12 @@ fn main() {
     assert!(plan.workspace_requirements().byte_len() <= workspace.0.len());
     assert_eq!(plan.backup_requirements().byte_len(), 0);
     let mut session = plan
-        .bind(&mut groups, &mut canvas.0, &mut workspace.0, &mut [])
+        .bind(MirxFramesStorage {
+            groups: &mut groups,
+            canvas: &mut canvas.0,
+            workspace: &mut workspace.0,
+            backup: &mut [],
+        })
         .expect("bind fixed playback storage");
 
     let sheet_width = WIDTH * SAMPLE_TICKS.len();

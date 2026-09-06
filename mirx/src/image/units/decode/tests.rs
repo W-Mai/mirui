@@ -40,8 +40,8 @@ fn rle_selected_rows_cover_known_layouts_and_normalize_only_sample_padding() {
         let plan = unit
             .decode_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_plane_alignment(64)
+                    .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                    .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64)
                     .with_height_multiple(4),
             )
@@ -97,7 +97,9 @@ fn rle_elements_cross_rows_and_planes_without_reset_or_staging() {
         .get(0)
         .unwrap();
     let plan = unit
-        .decode_plan(SurfaceRequirements::new().with_plane_alignment(16))
+        .decode_plan(
+            SurfaceRequirements::new().with_plane_alignment(crate::ByteAlignment::new(16).unwrap()),
+        )
         .unwrap();
     #[repr(align(16))]
     struct Buffer([u8; 48]);
@@ -203,8 +205,8 @@ fn pixel_runs_cross_rows_without_touching_stride_or_allocation_padding() {
     let plan = unit
         .decode_plan(
             SurfaceRequirements::new()
-                .with_base_alignment(64)
-                .with_plane_alignment(64)
+                .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                 .with_stride_multiple(64)
                 .with_height_multiple(4),
         )
@@ -317,7 +319,7 @@ fn invalid_profiles_streams_and_output_addresses_cannot_modify_destinations() {
     let plan = unit
         .decode_plan(
             requirements
-                .with_base_alignment(64)
+                .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
                 .with_stride_multiple(64),
         )
         .unwrap();
@@ -347,7 +349,7 @@ fn bytewise_scalar_input_and_output_alignment_are_independent() {
     struct Input([u8; 64]);
     let input = Input([1; 64]);
     let unit = UnitGroup::builder(source, codec.record(), &input.0[1..2])
-        .with_input_alignment(64)
+        .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
         .build()
         .unwrap()
         .get(0)

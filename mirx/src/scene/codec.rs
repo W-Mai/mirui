@@ -167,9 +167,7 @@ impl<'a> Reader<'a> {
 
     fn fixed(&mut self) -> Result<Fixed, CodecError> {
         let b = self.take(4)?;
-        Ok(Fixed::from_raw(i32::from_le_bytes([
-            b[0], b[1], b[2], b[3],
-        ])))
+        Ok(Fixed::from_le_bytes([b[0], b[1], b[2], b[3]]))
     }
 
     fn point(&mut self) -> Result<Point, CodecError> {
@@ -287,7 +285,7 @@ pub(super) fn write_varuint<W: ByteSink>(out: &mut W, mut value: u32) {
 }
 
 fn write_fixed<W: ByteSink>(out: &mut W, f: Fixed) {
-    out.extend_from_slice(&f.raw().to_le_bytes());
+    out.extend_from_slice(&f.to_le_bytes());
 }
 
 fn write_point<W: ByteSink>(out: &mut W, p: Point) {
@@ -847,7 +845,7 @@ fn field_bits(transform: &Transform, quad: &Option<[Point; 4]>, radius: Option<F
     if quad.is_some() {
         bits |= FIELD_QUAD;
     }
-    if matches!(radius, Some(r) if r.raw() != 0) {
+    if matches!(radius, Some(r) if r != Fixed::ZERO) {
         bits |= FIELD_RADIUS;
     }
     bits

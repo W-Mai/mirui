@@ -3,6 +3,7 @@ use super::preflight::Preflight;
 use alloc::vec::Vec;
 
 use crate::{
+    ByteAlignment,
     image::{
         ImageEncodeError, SURFACE_RECORD_LEN, SurfaceDescriptor, UNIT_GROUP_RECORD_LEN, UnitGroup,
         UnitGroupRecord,
@@ -49,7 +50,7 @@ pub struct EncodedImageAsset<'a> {
     integrity: DataIntegrity<'a>,
     data: &'a [u8],
     color_table: Option<&'a [u8]>,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -80,7 +81,7 @@ impl<'a> EncodedImageAsset<'a> {
             integrity: DataIntegrity::Whole,
             data,
             color_table: None,
-            input_alignment: 1,
+            input_alignment: ByteAlignment::ONE,
         }
     }
 
@@ -100,7 +101,7 @@ impl<'a> EncodedImageAsset<'a> {
             integrity: DataIntegrity::Whole,
             data,
             color_table: None,
-            input_alignment: 1,
+            input_alignment: ByteAlignment::ONE,
         }
     }
 
@@ -119,7 +120,7 @@ impl<'a> EncodedImageAsset<'a> {
             integrity: DataIntegrity::Whole,
             data,
             color_table: None,
-            input_alignment: 1,
+            input_alignment: ByteAlignment::ONE,
         }
     }
 
@@ -129,7 +130,7 @@ impl<'a> EncodedImageAsset<'a> {
     }
 
     /// Attaches combined selection/range index bytes without changing their encoding.
-    pub const fn with_index(mut self, bytes: &'a [u8]) -> Self {
+    pub const fn with_unit_index(mut self, bytes: &'a [u8]) -> Self {
         self.indexes = bytes;
         self
     }
@@ -147,7 +148,7 @@ impl<'a> EncodedImageAsset<'a> {
     }
     /// Sets single-stream alignment. Explicit groups declare their own alignment.
     /// A nondefault override combined with explicit groups is rejected.
-    pub const fn with_input_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_input_alignment(mut self, alignment: ByteAlignment) -> Self {
         self.input_alignment = alignment;
         self
     }
@@ -166,7 +167,7 @@ impl<'a> EncodedImageAsset<'a> {
     pub const fn groups(self) -> Option<&'a [UnitGroupRecord]> {
         self.groups
     }
-    pub const fn index(self) -> &'a [u8] {
+    pub const fn unit_index(self) -> &'a [u8] {
         self.indexes
     }
     pub const fn data(self) -> &'a [u8] {
@@ -176,7 +177,7 @@ impl<'a> EncodedImageAsset<'a> {
         self.color_table
     }
     /// Checked DATA alignment, derived from all groups; empty implicit streams need one.
-    pub fn input_alignment(self) -> Result<u32, ImageEncodeError> {
+    pub fn input_alignment(self) -> Result<ByteAlignment, ImageEncodeError> {
         Ok(Plan::metadata(self)?.alignment)
     }
 
@@ -264,7 +265,7 @@ struct Plan<'a> {
     integrity_len: usize,
     section_count: u16,
     group: Option<UnitGroupRecord>,
-    alignment: u32,
+    alignment: ByteAlignment,
     data_offset: usize,
     payload_len: usize,
 }
@@ -432,7 +433,7 @@ pub(crate) struct StoragePlan<'a> {
     asset: EncodedImageAsset<'a>,
     coding_len: usize,
     group: Option<UnitGroupRecord>,
-    alignment: u32,
+    alignment: ByteAlignment,
 }
 
 impl<'a> StoragePlan<'a> {
@@ -442,7 +443,7 @@ impl<'a> StoragePlan<'a> {
             .read_color_table(asset.color_table)
             .map_err(ImageEncodeError::from)?;
         let group = if asset.groups.is_some() {
-            if asset.input_alignment != 1 {
+            if asset.input_alignment != ByteAlignment::ONE {
                 return Err(ImageEncodeError::ConflictingAlignment);
             }
             None
@@ -461,7 +462,7 @@ impl<'a> StoragePlan<'a> {
                 .with_input_alignment(asset.input_alignment)
                 .build()
                 .map_err(ImageEncodeError::Group)?;
-            (!group.is_empty() && asset.input_alignment != 1).then(|| {
+            (!group.is_empty() && asset.input_alignment != ByteAlignment::ONE).then(|| {
                 UnitGroupRecord::new(0, 0..asset.data.len() as u32)
                     .expect("validated group range")
                     .with_input_alignment(asset.input_alignment)
@@ -480,7 +481,7 @@ impl<'a> StoragePlan<'a> {
             asset,
             coding_len,
             group,
-            alignment: 1,
+            alignment: ByteAlignment::ONE,
         };
         plan.alignment = plan
             .source()
@@ -528,7 +529,7 @@ impl<'a> StoragePlan<'a> {
             .map_err(ImageEncodeError::Preflight)
     }
 
-    pub(crate) const fn alignment(self) -> u32 {
+    pub(crate) const fn alignment(self) -> ByteAlignment {
         self.alignment
     }
 

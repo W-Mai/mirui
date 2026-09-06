@@ -70,9 +70,9 @@ impl Fixture {
                 .unwrap();
             let ppem = i32::from(metadata.design_ppem());
             LineMetrics::new(
-                Fixed::from_raw(ppem * 192),
-                Fixed::from_raw(-ppem * 64),
-                Fixed::from_raw(ppem * 256),
+                Fixed::from_ratio(ppem * 192, 256),
+                Fixed::from_ratio(-ppem * 64, 256),
+                Fixed::from_int(ppem),
             )
             .unwrap()
             .encode_record_into(&mut result.metrics[index * 36..])
@@ -121,8 +121,8 @@ fn one_face_binds_multiple_representations_and_shared_raw_encoded_storage() {
         .unwrap();
     assert_eq!(chosen.index(), 2);
     assert_eq!(
-        chosen.metrics().line_metrics().line_height().raw(),
-        24 * 256
+        chosen.metrics().line_metrics().line_height(),
+        Fixed::from_int(24)
     );
     for index in 0..2 {
         let FontGlyphs::Raw(glyphs) = view.glyphs(index).unwrap() else {
@@ -206,7 +206,7 @@ fn referenced_raw_alignment_checks_file_position_not_slice_alignment() {
     fixture.planes.resize(24, 0);
     PlaneMemoryLayout::builder(geometry)
         .with_stride(64)
-        .with_alignment(64)
+        .with_alignment(crate::ByteAlignment::new(64).unwrap())
         .build()
         .unwrap()
         .encode_record_into(&mut fixture.planes)
@@ -227,7 +227,10 @@ fn referenced_raw_alignment_checks_file_position_not_slice_alignment() {
         .offset();
     let base = (64 - offset % 64) % 64;
     let view = FontView::open_at(&bytes, base, &PayloadLimits::EMBEDDED).unwrap();
-    assert_eq!(view.input_alignment(), Ok(64));
+    assert_eq!(
+        view.input_alignment().map(crate::ByteAlignment::get),
+        Ok(64)
+    );
     assert!(matches!(
         FontView::open_at(&bytes, base + 1, &PayloadLimits::EMBEDDED),
         Err(FontError::FileAddressUnaligned { surface: 0, .. })
@@ -252,12 +255,12 @@ fn canonical_faces_solve_every_surface_alignment_from_any_container_cursor() {
     let geometry4 = SampleLayout::A4.plane_geometry(2, 2, 0).unwrap();
     let memory8 = PlaneMemoryLayout::builder(geometry8)
         .with_stride(64)
-        .with_alignment(64)
+        .with_alignment(crate::ByteAlignment::new(64).unwrap())
         .build()
         .unwrap();
     let memory4 = PlaneMemoryLayout::builder(geometry4)
         .with_stride(16)
-        .with_alignment(16)
+        .with_alignment(crate::ByteAlignment::new(16).unwrap())
         .build()
         .unwrap();
     let samples8 = [0x80; 256];
@@ -292,7 +295,10 @@ fn canonical_faces_solve_every_surface_alignment_from_any_container_cursor() {
         .encode()
         .unwrap();
     let view = FontView::open(&bytes, &PayloadLimits::EMBEDDED).unwrap();
-    assert_eq!(view.input_alignment(), Ok(64));
+    assert_eq!(
+        view.input_alignment().map(crate::ByteAlignment::get),
+        Ok(64)
+    );
 
     for cursor in 0..128 {
         let placed = view.aligned_file_offset(cursor, 4).unwrap();

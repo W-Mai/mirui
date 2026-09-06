@@ -254,7 +254,6 @@ pub enum MediaPayloadError {
         available: usize,
     },
     UnsupportedVersion(u8),
-    InvalidAlignment(u32),
     InvalidDataRange,
     MissingIntegrityTable,
     UnexpectedIntegrityTable,
@@ -296,7 +295,7 @@ pub enum MediaPayloadError {
     DataOffsetUnaligned {
         index: u16,
         absolute_offset: u32,
-        alignment: u32,
+        alignment: crate::ByteAlignment,
     },
     DataCrcMismatch {
         expected: u32,
@@ -518,7 +517,7 @@ impl<'a> MediaPayload<'a> {
     }
 
     /// Checks the real addresses of every DATA section for a runtime backend.
-    pub fn data_addresses_are_aligned(self, alignment: usize) -> bool {
+    pub fn data_addresses_are_aligned(self, alignment: crate::ByteAlignment) -> bool {
         self.sections_of_kind(MediaSectionKind::DATA)
             .all(|section| section.address_is_aligned(alignment))
     }
@@ -528,16 +527,13 @@ impl<'a> MediaPayload<'a> {
     pub fn validate_file_alignment(
         self,
         payload_file_offset: u32,
-        alignment: u32,
+        alignment: crate::ByteAlignment,
     ) -> Result<(), MediaPayloadError> {
-        if !alignment.is_power_of_two() {
-            return Err(MediaPayloadError::InvalidAlignment(alignment));
-        }
         for section in self.sections_of_kind(MediaSectionKind::DATA) {
             let absolute_offset = payload_file_offset
                 .checked_add(section.descriptor.offset)
                 .ok_or(MediaPayloadError::SizeOverflow)?;
-            if absolute_offset % alignment != 0 {
+            if absolute_offset % alignment.get() != 0 {
                 return Err(MediaPayloadError::DataOffsetUnaligned {
                     index: section.index,
                     absolute_offset,
@@ -571,8 +567,9 @@ impl<'a> MediaSection<'a> {
     }
 
     /// Checks the actual in-memory start address against a backend requirement.
-    pub fn address_is_aligned(self, alignment: usize) -> bool {
-        alignment.is_power_of_two() && (self.bytes.as_ptr() as usize) % alignment == 0
+    pub fn address_is_aligned(self, alignment: crate::ByteAlignment) -> bool {
+        let alignment = usize::try_from(alignment.get()).expect("u32 fits usize");
+        (self.bytes.as_ptr() as usize) % alignment == 0
     }
 }
 
@@ -1161,21 +1158,21 @@ mod tests {
         let bytes = payload(&sections, 0);
         let media = MediaPayload::open(&bytes).unwrap();
         assert_eq!(
-            media.validate_file_alignment(4, 64),
+            media.validate_file_alignment(4, crate::ByteAlignment::new(64).unwrap()),
             Err(MediaPayloadError::DataOffsetUnaligned {
                 index: 0,
                 absolute_offset: 68,
-                alignment: 64,
+                alignment: crate::ByteAlignment::new(64).unwrap(),
             })
         );
 
         let data = media.section(MediaSectionKind::DATA).unwrap();
         assert_eq!(
-            media.data_addresses_are_aligned(64),
-            data.address_is_aligned(64)
+            media.data_addresses_are_aligned(crate::ByteAlignment::new(64).unwrap()),
+            data.address_is_aligned(crate::ByteAlignment::new(64).unwrap())
         );
-        assert!(!data.address_is_aligned(0));
-        assert!(!data.address_is_aligned(3));
+        assert!(crate::ByteAlignment::new(0).is_err());
+        assert!(crate::ByteAlignment::new(3).is_err());
     }
 
     #[test]

@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+mod alignment;
 mod chunk;
 pub mod coding;
 mod crc32;
@@ -22,6 +23,7 @@ pub mod scene;
 pub mod types;
 mod wire;
 
+pub use alignment::{ByteAlignment, InvalidByteAlignment};
 pub use chunk::{
     ChunkFile, ImageChunk, ImageChunkInput, encode_chunk_generic, encode_chunk_image,
     encode_chunks, parse_chunk,
@@ -54,17 +56,9 @@ pub use media::CodingId;
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
 pub use payload::frames::{
-    BlendMode, CandidateRejection, DisposalMode, EncodedFrames, FRAME_COMPOSITION_RECORD_LEN,
-    FRAME_SEQUENCE_RECORD_LEN, FRAME_TIMING_HEADER_LEN, FrameCandidate, FrameChoice,
-    FrameComposition, FrameCompositionAsset, FrameCompositionError, FrameCompositionOverride,
-    FrameCompositionTable, FrameCounts, FrameDecodeError, FrameDecodePlan, FrameDisposalPlan,
-    FrameEncoding, FrameEncodingSet, FrameGroupIter, FrameGroups, FrameMap, FrameMapAsset,
-    FrameMapError, FrameMapIter, FramePolicy, FramePosition, FramePresentation,
-    FrameSelectionError, FrameSelector, FrameSequence, FrameSequenceError, FrameSession,
-    FrameStorage, FrameTimeline, FrameTiming, FrameTimingAsset, FrameTimingEncoding,
-    FrameTimingError, FrameWriteError, FrameWriteReport, FramesAsset, FramesEncodeError,
-    FramesEncoder, FramesError, FramesPlaybackPlan, FramesView, KeyframeIndex, KeyframeIndexAsset,
-    KeyframeIndexError, KeyframeIter,
+    BlendMode, DisposalMode, EncodedFrames, FrameDecodeError, FrameEncoding, FrameEncodingSet,
+    FramePolicy, FramePosition, FrameSequence, FrameSequenceError, FrameSession, FrameTimeline,
+    FrameWriteError, FramesEncoder, FramesError, FramesPlaybackPlan, FramesView, PlaybackStorage,
 };
 pub use payload::image::{ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
 pub use payload::meta::{

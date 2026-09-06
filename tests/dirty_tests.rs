@@ -71,7 +71,7 @@ mod tests {
         mirui::ui::set_position(
             &mut world,
             child,
-            Fixed::from_raw(10 * 256 + 200), // 10.78
+            Fixed::from_ratio(10 * 256 + 200, 256), // 10.78
             Fixed::from_int(20),
         );
 
@@ -84,14 +84,14 @@ mod tests {
         // Clear PrevRect, update style manually for next test
         world.remove::<PrevRect>(child);
         if let Some(style) = world.get_mut::<Style>(child) {
-            style.layout.left = Dimension::Px(Fixed::from_raw(10 * 256 + 200));
+            style.layout.left = Dimension::Px(Fixed::from_ratio(10 * 256 + 200, 256));
         }
 
         // Move from 10.78 to 11.2 — pixel x changes from 10 to 11
         mirui::ui::set_position(
             &mut world,
             child,
-            Fixed::from_raw(11 * 256 + 50), // 11.19
+            Fixed::from_ratio(11 * 256 + 50, 256), // 11.19
             Fixed::from_int(20),
         );
 
@@ -138,8 +138,8 @@ mod tests {
         mirui::ui::set_position(
             &mut world,
             child,
-            Fixed::from_raw(30 * 256 + 200), // 30.78
-            Fixed::from_raw(40 * 256 + 100), // 40.39
+            Fixed::from_ratio(30 * 256 + 200, 256), // 30.78
+            Fixed::from_ratio(40 * 256 + 100, 256), // 40.39
         );
 
         let transform = Viewport::new(128, 128, Fixed::ONE);
@@ -184,10 +184,10 @@ mod tests {
                 })
                 .id();
 
-            let old_x = Fixed::from_raw(rng() + rng() * 256);
-            let old_y = Fixed::from_raw(rng() + rng() * 256);
-            let new_x = Fixed::from_raw(rng() + rng() * 256);
-            let new_y = Fixed::from_raw(rng() + rng() * 256);
+            let old_x = Fixed::from_ratio(rng() + rng() * 256, 256);
+            let old_y = Fixed::from_ratio(rng() + rng() * 256, 256);
+            let new_x = Fixed::from_ratio(rng() + rng() * 256, 256);
+            let new_y = Fixed::from_ratio(rng() + rng() * 256, 256);
             let w = Fixed::from_int(8 + (rng() % 20));
             let h = Fixed::from_int(8 + (rng() % 20));
 
@@ -298,8 +298,8 @@ mod tests {
                 })
                 .id();
 
-            let start_x = Fixed::from_raw(rng() + (rng() % 40) * 256);
-            let start_y = Fixed::from_raw(rng() + (rng() % 40) * 256);
+            let start_x = Fixed::from_ratio(rng() + (rng() % 40) * 256, 256);
+            let start_y = Fixed::from_ratio(rng() + (rng() % 40) * 256, 256);
             let widget_w = Fixed::from_int(10 + (rng() % 8));
             let widget_h = Fixed::from_int(10 + (rng() % 8));
 
@@ -334,8 +334,8 @@ mod tests {
 
             // Simulate 10-30 frames of movement
             let num_frames = 10 + (rng() % 20) as usize;
-            let vel_x = Fixed::from_raw(rng() % 512 - 256); // -1..+1 px/frame
-            let vel_y = Fixed::from_raw(rng() % 512 - 256);
+            let vel_x = Fixed::from_ratio(rng() % 512 - 256, 256); // -1..+1 px/frame
+            let vel_y = Fixed::from_ratio(rng() % 512 - 256, 256);
             let mut pos_x = start_x;
             let mut pos_y = start_y;
 
@@ -426,8 +426,8 @@ mod tests {
             let mut velocities: Vec<(Fixed, Fixed)> = Vec::new();
 
             for _ in 0..NUM_WIDGETS {
-                let x = Fixed::from_raw(rng() + (rng() % 40) * 256);
-                let y = Fixed::from_raw(rng() + (rng() % 40) * 256);
+                let x = Fixed::from_ratio(rng() + (rng() % 40) * 256, 256);
+                let y = Fixed::from_ratio(rng() + (rng() % 40) * 256, 256);
                 let ww = Fixed::from_int(8 + (rng() % 6));
                 let wh = Fixed::from_int(8 + (rng() % 6));
 
@@ -453,8 +453,8 @@ mod tests {
                 children_vec.push(child);
                 positions.push((x, y));
                 velocities.push((
-                    Fixed::from_raw(rng() % 768 - 384),
-                    Fixed::from_raw(rng() % 768 - 384),
+                    Fixed::from_ratio(rng() % 768 - 384, 256),
+                    Fixed::from_ratio(rng() % 768 - 384, 256),
                 ));
             }
 

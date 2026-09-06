@@ -5,6 +5,7 @@ use super::{
     FrameStorage, FrameTimingError, FramesAsset, FramesEncodeError,
 };
 use crate::{
+    ByteAlignment,
     coding::{
         FrameDelta, FrameDeltaError, Frequency, FrequencyError, FrequencyGeometry, Lz4, Lz4Error,
         Pixel, PixelError, Rle, RleError,
@@ -197,6 +198,12 @@ impl EncodedFrames {
     }
 }
 
+impl AsRef<[u8]> for EncodedFrames {
+    fn as_ref(&self) -> &[u8] {
+        self.payload()
+    }
+}
+
 #[derive(Debug)]
 struct PreparedCandidate {
     candidate: FrameCandidate,
@@ -318,7 +325,7 @@ pub struct FramesEncoder {
     surface: SurfaceDescriptor,
     profiles: FrameEncodingSet,
     selector: FrameSelector,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
     tile_size: Option<(u32, u32)>,
     sample_bytes: usize,
     previous: Vec<u8>,
@@ -359,7 +366,7 @@ impl FramesEncoder {
             surface,
             profiles: FrameEncodingSet::default(),
             selector: FrameSelector::new(FramePolicy::new(sequence.max_delta_frames())),
-            input_alignment: 1,
+            input_alignment: ByteAlignment::ONE,
             tile_size: Some((32, 32)),
             sample_bytes,
             previous,
@@ -396,11 +403,11 @@ impl FramesEncoder {
     }
 
     /// Aligns every encoded unit start within DATA.
-    pub fn with_input_alignment(mut self, alignment: u32) -> Result<Self, FrameWriteError> {
+    pub fn with_input_alignment(
+        mut self,
+        alignment: ByteAlignment,
+    ) -> Result<Self, FrameWriteError> {
         self.ensure_not_started()?;
-        if !alignment.is_power_of_two() {
-            return Err(FrameWriteError::InvalidInputAlignment(alignment));
-        }
         self.input_alignment = alignment;
         Ok(self)
     }
@@ -589,17 +596,17 @@ impl FramesEncoder {
                 None,
             )?;
         }
-        if let Some(quality) = self.profiles.frequency_quality
-            && frequency_supported(self.surface)
-        {
-            let codec = Frequency::quantized(quality)?;
-            let (bytes, reconstructed) = encode_frequency(codec, self.surface, samples)?;
-            self.add_candidate(
-                FrameStorage::Keyframe,
-                FrameEncoding::FrequencyQuantized(quality),
-                bytes,
-                reconstructed,
-            )?;
+        if let Some(quality) = self.profiles.frequency_quality {
+            if frequency_supported(self.surface) {
+                let codec = Frequency::quantized(quality)?;
+                let (bytes, reconstructed) = encode_frequency(codec, self.surface, samples)?;
+                self.add_candidate(
+                    FrameStorage::Keyframe,
+                    FrameEncoding::FrequencyQuantized(quality),
+                    bytes,
+                    reconstructed,
+                )?;
+            }
         }
         if self.profiles.delta && !self.previous.is_empty() {
             let codec = FrameDelta::new();
@@ -608,13 +615,13 @@ impl FramesEncoder {
             bytes.truncate(len);
             self.add_candidate(FrameStorage::Delta, FrameEncoding::Delta, bytes, None)?;
         }
-        if let Some((tile_width, tile_height)) = self.tile_size
-            && !self.previous.is_empty()
-        {
-            let grid = self.surface.tile_grid(tile_width, tile_height)?;
-            let changed = ChangedTiles::collect(self.surface, grid, samples, &self.previous)?;
-            if !changed.is_empty() {
-                self.prepare_sparse_candidates(&changed)?;
+        if let Some((tile_width, tile_height)) = self.tile_size {
+            if !self.previous.is_empty() {
+                let grid = self.surface.tile_grid(tile_width, tile_height)?;
+                let changed = ChangedTiles::collect(self.surface, grid, samples, &self.previous)?;
+                if !changed.is_empty() {
+                    self.prepare_sparse_candidates(&changed)?;
+                }
             }
         }
         Ok(())
@@ -688,13 +695,14 @@ impl FramesEncoder {
         {
             self.add_sparse_candidate(changed, FrameEncoding::FrequencyReversible)?;
         }
-        if let Some(quality) = self.profiles.frequency_quality
-            && changed
+        if let Some(quality) = self.profiles.frequency_quality {
+            if changed
                 .grid
                 .iter()
                 .all(|region| frequency_region_supported(self.surface, region))
-        {
-            self.add_sparse_candidate(changed, FrameEncoding::FrequencyQuantized(quality))?;
+            {
+                self.add_sparse_candidate(changed, FrameEncoding::FrequencyQuantized(quality))?;
+            }
         }
         if self.profiles.delta {
             self.add_sparse_candidate(changed, FrameEncoding::Delta)?;
@@ -1135,8 +1143,8 @@ fn allocated(len: usize) -> Result<Vec<u8>, FrameWriteError> {
     Ok(bytes)
 }
 
-fn aligned_padding(offset: usize, alignment: u32) -> Result<usize, FrameWriteError> {
-    let alignment = usize::try_from(alignment).map_err(|_| FrameWriteError::SizeOverflow)?;
+fn aligned_padding(offset: usize, alignment: ByteAlignment) -> Result<usize, FrameWriteError> {
+    let alignment = usize::try_from(alignment.get()).expect("u32 fits usize");
     let aligned = offset
         .checked_add(alignment - 1)
         .map(|value| value & !(alignment - 1))
@@ -1339,7 +1347,6 @@ pub enum FrameWriteError {
     AllocationFailed,
     SizeOverflow,
     AlreadyStarted,
-    InvalidInputAlignment(u32),
     DeltaPolicyExceedsSequence { policy: u16, sequence: u16 },
     SampleLengthMismatch { expected: usize, actual: usize },
     TooManyFrames { expected: u32 },
@@ -1475,6 +1482,7 @@ mod tests {
             encoder.push(frame).unwrap();
         }
         let encoded = encoder.finish().unwrap();
+        assert_eq!(encoded.as_ref(), encoded.payload());
         assert_eq!(encoded.reports()[0].storage(), FrameStorage::Keyframe);
         assert_eq!(encoded.reports()[1].storage(), FrameStorage::Omitted);
         assert_eq!(encoded.reports()[2].storage(), FrameStorage::Delta);
@@ -1485,7 +1493,7 @@ mod tests {
         let mut canvas = [0; 16];
         let mut workspace = [0; 16];
         let mut playback = frames
-            .session(
+            .test_session(
                 SurfaceRequirements::new(),
                 PayloadLimits::HOST,
                 &mut groups,
@@ -1545,7 +1553,7 @@ mod tests {
             .unwrap()
             .with_profiles(profiles)
             .unwrap()
-            .with_input_alignment(64)
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
             .unwrap();
         encoder.push(&[1; 16]).unwrap();
         encoder.push(&[2; 16]).unwrap();
@@ -1649,7 +1657,7 @@ mod tests {
         let mut canvas = [0; 64];
         let mut workspace = [0; 64];
         let mut playback = frames
-            .session(
+            .test_session(
                 SurfaceRequirements::new(),
                 PayloadLimits::HOST,
                 &mut groups,
@@ -1725,7 +1733,7 @@ mod tests {
         let mut canvas = [0; 24];
         let mut workspace = [0; 24];
         let mut playback = frames
-            .session(
+            .test_session(
                 SurfaceRequirements::new(),
                 PayloadLimits::HOST,
                 &mut groups,
@@ -1787,7 +1795,7 @@ mod tests {
         let mut canvas = vec![0; second.len()];
         let mut workspace = vec![0; second.len()];
         let mut playback = frames
-            .session(
+            .test_session(
                 SurfaceRequirements::new(),
                 PayloadLimits::HOST,
                 &mut slots,
@@ -1830,7 +1838,7 @@ mod tests {
             .unwrap()
             .with_tiles(16, 8)
             .unwrap()
-            .with_input_alignment(64)
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
             .unwrap();
         encoder.push(&first).unwrap();
         assert_eq!(
@@ -1994,7 +2002,7 @@ mod tests {
             let mut canvas = vec![0; second.len()];
             let mut workspace = vec![0; second.len()];
             let mut playback = frames
-                .session(
+                .test_session(
                     SurfaceRequirements::new(),
                     PayloadLimits::HOST,
                     &mut slots,
@@ -2064,7 +2072,7 @@ mod tests {
         let mut canvas = vec![0; second.len()];
         let mut workspace = vec![0; second.len()];
         let mut playback = frames
-            .session(
+            .test_session(
                 SurfaceRequirements::new(),
                 PayloadLimits::HOST,
                 &mut slots,

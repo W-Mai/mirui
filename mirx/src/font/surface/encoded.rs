@@ -87,7 +87,7 @@ impl<'map, 'data> EncodedGlyphs<'map, 'data> {
     }
 
     /// Declared input alignment, not actual address suitability or codec support.
-    pub fn input_alignment(self) -> Result<u32, EncodedGlyphError> {
+    pub fn input_alignment(self) -> Result<crate::ByteAlignment, EncodedGlyphError> {
         self.image
             .input_alignment()
             .map_err(EncodedGlyphError::Encoding)

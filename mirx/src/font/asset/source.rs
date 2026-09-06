@@ -69,7 +69,7 @@ pub(in crate::font) trait Source: Copy {
                     &mut preflight,
                     bytes
                         + image.groups().map_or(0, |g| g.len() as u64 * 36)
-                        + image.index().len() as u64,
+                        + image.unit_index().len() as u64,
                 )?;
             }
         }

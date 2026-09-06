@@ -35,7 +35,7 @@ fn exact_sub_byte_regions_bound_staging_and_deduplicate_checksum_partitions() {
             .unwrap();
         let requested = surface.region(4, 0, 1, 2).unwrap();
         let requirements = SurfaceRequirements::new()
-            .with_base_alignment(64)
+            .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
             .with_stride_multiple(64);
         let plan = groups
             .decode_region_plan(requested, requirements, &PayloadLimits::EMBEDDED)
@@ -128,8 +128,8 @@ fn planar_yuv_queries_project_chroma_and_preserve_odd_outer_edges() {
         .decode_region_plan(
             surface.region(2, 0, 3, 3).unwrap(),
             SurfaceRequirements::new()
-                .with_base_alignment(64)
-                .with_plane_alignment(64)
+                .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                 .with_stride_multiple(64),
             &PayloadLimits::EMBEDDED,
         )
@@ -182,7 +182,7 @@ fn unselected_syntax_is_not_decoded_but_declared_checksum_expansion_remains_requ
         for integrity in [DataIntegrity::Whole, DataIntegrity::Indexed(&[2, 4])] {
             let mut payload =
                 EncodedImageAsset::from_groups(surface, &coding, &records, &[0x81, 42, 0xff, 0])
-                    .with_index(&[0, 0, 0, 0, 1, 0, 0, 0])
+                    .with_unit_index(&[0, 0, 0, 0, 1, 0, 0, 0])
                     .with_integrity(integrity)
                     .encode()
                     .unwrap();

@@ -15,14 +15,14 @@ fn asset(check: impl FnOnce(FontAsset<'_>)) {
         Rle::new().record(),
         &[0x87, 42],
     )
-    .with_input_alignment(64)
+    .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
     .with_integrity(DataIntegrity::Indexed(&[1, 2]));
     let surfaces = [
         GlyphSurfaceAsset::raw(raw),
         GlyphSurfaceAsset::Encoded { map, image },
     ];
     let metrics = [GlyphMetrics::default(); 2];
-    let line = LineMetrics::new(Fixed::from_raw(256), Fixed::ZERO, Fixed::from_raw(256)).unwrap();
+    let line = LineMetrics::new(Fixed::ONE, Fixed::ZERO, Fixed::ONE).unwrap();
     let representations = [
         RepresentationAsset::new(
             FontRepresentation::coverage(8, 12, 8).unwrap(),
@@ -54,17 +54,13 @@ fn owned_metadata_edits_preserve_encoded_data_and_shared_ordinals() {
     let stored = font.surface(1).unwrap().data().to_vec();
     assert_eq!(stored, [0x87, 42]);
     let metric = GlyphMetrics::new(
-        Fixed::from_raw(-17),
-        Fixed::from_raw(-65),
-        Fixed::from_raw(513),
+        Fixed::from_ratio(-17, 256),
+        Fixed::from_ratio(-65, 256),
+        Fixed::from_ratio(513, 256),
     );
     font.glyph_metrics_mut(1).unwrap()[0] = metric;
-    let line = LineMetrics::new(
-        Fixed::from_raw(1024),
-        Fixed::from_raw(-256),
-        Fixed::from_raw(1280),
-    )
-    .unwrap();
+    let line =
+        LineMetrics::new(Fixed::from_int(4), Fixed::from_int(-1), Fixed::from_int(5)).unwrap();
     font.set_line_metrics(1, line).unwrap();
     font.set_codepoint(1, '中').unwrap();
     assert!(font.set_codepoint(0, '中').is_err());
@@ -150,7 +146,7 @@ fn wire_owned_round_trip_preserves_raw_and_encoded_integrity_partitions() {
         .build(&[7; 8])
         .unwrap();
     let metrics = [GlyphMetrics::default(); 2];
-    let line = LineMetrics::new(Fixed::from_raw(256), Fixed::ZERO, Fixed::from_raw(256)).unwrap();
+    let line = LineMetrics::new(Fixed::ONE, Fixed::ZERO, Fixed::ONE).unwrap();
     let representations = [RepresentationAsset::new(
         FontRepresentation::coverage(8, 12, 8).unwrap(),
         0,

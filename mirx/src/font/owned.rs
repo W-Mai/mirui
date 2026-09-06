@@ -7,7 +7,7 @@ use super::{
     GlyphSurfaceAsset, LineMetrics, RawGlyphs, RepresentationAsset,
 };
 use crate::{
-    PayloadLimits,
+    ByteAlignment, PayloadLimits,
     image::{
         ColorDescription, EncodedImageAsset, ImageEncodeError, PlaneMemoryLayout, Region,
         SampleLayout, SurfaceDescriptor, UnitGroupRecord,
@@ -62,7 +62,7 @@ enum Storage {
         groups: Option<Vec<UnitGroupRecord>>,
         index: Vec<u8>,
         partitions: Option<Vec<u32>>,
-        alignment: u32,
+        alignment: ByteAlignment,
         data: Vec<u8>,
     },
 }
@@ -91,7 +91,7 @@ impl Font {
                         .map_err(|e| FontError::Image(ImageEncodeError::Codings(e)))?,
                 )?;
                 size.items::<UnitGroupRecord>(image.groups().map_or(0, <[UnitGroupRecord]>::len))?;
-                size.items::<u8>(image.index().len())?;
+                size.items::<u8>(image.unit_index().len())?;
             }
         }
         let codepoints = Self::copy(asset.codepoints())?;
@@ -143,10 +143,10 @@ impl Font {
                     Storage::Encoded {
                         codings,
                         groups: image.groups().map(Self::copy).transpose()?,
-                        index: Self::copy(image.index())?,
+                        index: Self::copy(image.unit_index())?,
                         partitions: image.integrity().partitions().map(Self::copy).transpose()?,
                         alignment: if image.groups().is_some() {
-                            1
+                            ByteAlignment::ONE
                         } else {
                             image.input_alignment().map_err(FontError::Image)?
                         },
@@ -252,7 +252,7 @@ impl Font {
                     CodingTable::open(codings).expect("validated coding table"),
                     data,
                 )
-                .with_index(index)
+                .with_unit_index(index)
                 .with_input_alignment(*alignment)
                 .with_integrity(
                     partitions

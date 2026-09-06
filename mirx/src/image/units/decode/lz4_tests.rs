@@ -41,8 +41,8 @@ fn history_spans_padded_rows_and_planes_for_every_known_layout() {
             let plan = unit
                 .decode_plan(
                     SurfaceRequirements::new()
-                        .with_base_alignment(64)
-                        .with_plane_alignment(64)
+                        .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                        .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                         .with_stride_multiple(64)
                         .with_height_multiple(4),
                 )
@@ -193,7 +193,7 @@ fn invalid_profile_history_and_output_fail_before_writes() {
     let plan = unit
         .decode_plan(
             SurfaceRequirements::new()
-                .with_base_alignment(64)
+                .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
                 .with_stride_multiple(64),
         )
         .unwrap();

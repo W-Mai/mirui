@@ -4,6 +4,7 @@ use super::{
     AccessCapabilities, CoverageBudget, CoverageError, SURFACE_RECORD_LEN, SurfaceDescriptor,
     SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroup, UnitGroupRecordError,
 };
+use crate::ByteAlignment;
 use crate::media::{
     CodingTable, CodingTableError, MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind,
 };
@@ -89,7 +90,7 @@ impl<'a> EncodedImageView<'a> {
     ///
     /// This scans only group records, without expanding units or checking
     /// coverage, codec syntax or actual backing addresses.
-    pub fn input_alignment(self) -> Result<u32, EncodedImageError> {
+    pub fn input_alignment(self) -> Result<ByteAlignment, EncodedImageError> {
         self.group_source().input_alignment()
     }
 
@@ -452,7 +453,7 @@ pub enum EncodedImageError {
     FileAddressUnaligned {
         index: usize,
         absolute_offset: u32,
-        alignment: u32,
+        alignment: ByteAlignment,
     },
     Coverage(CoverageError),
     SizeOverflow,

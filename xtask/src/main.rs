@@ -18,6 +18,7 @@ fn run() -> Result {
 
     match cmd {
         "ci" => cmd_ci(),
+        "cha" => cmd_cha(),
         "build" => cmd_build(),
         "test" => cmd_test(),
         "lint" => cmd_lint(),
@@ -34,7 +35,7 @@ fn run() -> Result {
         "mirx" => mirx::run(&args[1..]),
         _ => {
             eprintln!(
-                "usage: cargo xtask <ci|build|test|lint|size|wasm-check|wasm-build|web-serve|bump <major|minor|patch>|publish [--dry-run]|release|templates-bump|size-gate <binary>|gen-mirx <subcmd> ...|mirx <subcmd> ...>"
+                "usage: cargo xtask <ci|cha|build|test|lint|size|wasm-check|wasm-build|web-serve|bump <major|minor|patch>|publish [--dry-run]|release|templates-bump|size-gate <binary>|gen-mirx <subcmd> ...|mirx <subcmd> ...>"
             );
             std::process::exit(1);
         }
@@ -140,21 +141,98 @@ fn cmd_web_serve() -> Result {
 }
 
 fn cmd_cha() -> Result {
-    if Command::new("cha").arg("--version").output().is_err() {
-        println!("  ⏭ cha not found, skipping");
-        return Ok(());
+    const CHA_VERSION: &str = "cha 1.20.0";
+    const POLICY_ROOTS: &[&str] = &[
+        "src/",
+        "mirx/src/",
+        "mirx/tests/",
+        "mirui-macros/src/",
+        "tests/",
+        "gallery/examples/",
+        "xtask/src/",
+    ];
+
+    let version = Command::new("cha")
+        .arg("--version")
+        .output()
+        .map_err(|e| format!("cha {CHA_VERSION} is required: {e}"))?;
+    let installed = String::from_utf8_lossy(&version.stdout);
+    if !version.status.success() || installed.trim() != CHA_VERSION {
+        return Err(format!(
+            "cha version mismatch: expected `{CHA_VERSION}`, found `{}`",
+            installed.trim()
+        )
+        .into());
     }
-    let output = Command::new("cha")
-        .args(["analyze", "src/", "--format", "json"])
+
+    let health = Command::new("cha")
+        .args([
+            "analyze",
+            ".cha/plugin-src/fixtures/fixed_raw.rs",
+            "--plugin",
+            "api-misuse",
+            "--format",
+            "json",
+            "--fail-on",
+            "error",
+            "--no-cache",
+        ])
+        .current_dir(project_root())
         .output()?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let has_error = stdout.contains("\"severity\":\"error\"");
-    if has_error {
-        // Re-run in terminal mode so the developer sees human-readable output.
-        let _ = Command::new("cha").args(["analyze", "src/"]).status();
-        return Err("cha found error-level issues".into());
+    let health_stdout = String::from_utf8_lossy(&health.stdout);
+    let health_stderr = String::from_utf8_lossy(&health.stderr);
+    if health.status.success()
+        || !health_stdout.contains("fixed-raw-use")
+        || !health_stderr.trim().is_empty()
+    {
+        return Err(format!(
+            "cha api-misuse health check failed closed\nstdout:\n{health_stdout}\nstderr:\n{health_stderr}"
+        )
+        .into());
     }
-    println!("  ✓ no error-level cha findings");
+
+    let mut policy = Command::new("cha");
+    policy.arg("analyze").args(POLICY_ROOTS).args([
+        "--plugin",
+        "api-misuse",
+        "--format",
+        "json",
+        "--fail-on",
+        "error",
+        "--no-cache",
+    ]);
+    let policy = policy.current_dir(project_root()).output()?;
+    if !policy.status.success() || !policy.stderr.is_empty() {
+        let _ = Command::new("cha")
+            .arg("analyze")
+            .args(POLICY_ROOTS)
+            .args(["--plugin", "api-misuse", "--all", "--no-cache"])
+            .current_dir(project_root())
+            .status();
+        return Err(format!(
+            "cha api-misuse policy failed\n{}",
+            String::from_utf8_lossy(&policy.stderr)
+        )
+        .into());
+    }
+
+    let general = Command::new("cha")
+        .args(["analyze", "src/", "--format", "json", "--no-cache"])
+        .current_dir(project_root())
+        .output()?;
+    if !general.status.success() || !general.stderr.is_empty() {
+        let _ = Command::new("cha")
+            .args(["analyze", "src/", "--all", "--no-cache"])
+            .current_dir(project_root())
+            .status();
+        return Err(format!(
+            "cha general analysis failed\n{}",
+            String::from_utf8_lossy(&general.stderr)
+        )
+        .into());
+    }
+
+    println!("  ✓ api-misuse health check and repository policy passed");
     Ok(())
 }
 

@@ -744,9 +744,7 @@ pub fn sim_timeline_system(world: &mut World) {
                 let t_raw = if action_elapsed >= duration_ms as u32 {
                     Fixed::ONE
                 } else {
-                    Fixed::from_raw(
-                        (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
-                    )
+                    Fixed::from_ratio(action_elapsed as i32, duration_ms as i32)
                 };
                 let eased = ease(t_raw);
                 let x = from.x + eased * (to.x - from.x);
@@ -789,9 +787,7 @@ pub fn sim_timeline_system(world: &mut World) {
                     tl.rotate_emitted = 0;
                 }
             } else {
-                let t = Fixed::from_raw(
-                    (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
-                );
+                let t = Fixed::from_ratio(action_elapsed as i32, duration_ms as i32);
                 let eased = ease(t);
                 let x = from.x + eased * (to.x - from.x);
                 let y = from.y + eased * (to.y - from.y);
@@ -882,9 +878,7 @@ pub fn sim_timeline_system(world: &mut World) {
                     tl.rotate_emitted = 0;
                 }
             } else {
-                let t = Fixed::from_raw(
-                    (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
-                );
+                let t = Fixed::from_ratio(action_elapsed as i32, duration_ms as i32);
                 let eased = ease(t);
                 let dist = from_dist + eased * (to_dist - from_dist);
                 let (a, b) = two_fingers(dist);
@@ -999,9 +993,7 @@ pub fn sim_timeline_system(world: &mut World) {
                     tl.rotate_emitted = 0;
                 }
             } else {
-                let t = Fixed::from_raw(
-                    (action_elapsed as i32) * Fixed::ONE.raw() / (duration_ms as i32),
-                );
+                let t = Fixed::from_ratio(action_elapsed as i32, duration_ms as i32);
                 let eased = ease(t);
                 let angle = from_angle + eased * (to_angle - from_angle);
                 let (a, b) = two_fingers(angle);
@@ -2469,7 +2461,7 @@ mod tests {
             Fixed::ONE - final_scale
         };
         assert!(
-            drift <= Fixed::from_raw(8),
+            drift <= Fixed::from_ratio(1, 32),
             "demo shrink/expand roundtrip should return near 1.0x, got {:?}, deltas={:?}",
             final_scale,
             probe.deltas,

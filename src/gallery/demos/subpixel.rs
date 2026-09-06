@@ -82,7 +82,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         bar1,
         BarState {
             y: Fixed::from_int(20),
-            speed: Fixed::from_raw(9),
+            speed: Fixed::from_ratio(9, 256),
             snap: true,
             x: Fixed::from_int(10),
             right_anchored: false,
@@ -104,7 +104,7 @@ pub fn build_widgets(world: &mut World, parent: Entity) {
         bar2,
         BarState {
             y: Fixed::from_int(20),
-            speed: Fixed::from_raw(9),
+            speed: Fixed::from_ratio(9, 256),
             snap: false,
             x: Fixed::ZERO,
             right_anchored: true,

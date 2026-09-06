@@ -1,6 +1,7 @@
 use core::ops::Range;
 
 use super::{GroupPlanes, ReferenceMode, SurfaceDescriptor, UnitGroup, UnitGroupError};
+use crate::ByteAlignment;
 use crate::media::{
     CodingTable, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitSelection,
     UnitSelectionEncoding, UnitSelectionError,
@@ -34,7 +35,7 @@ pub struct UnitGroupRecord {
     index_encoding: Option<UnitIndexEncoding>,
     selection: GroupSelection,
     reference: ReferenceMode,
-    input_alignment: u32,
+    input_alignment: ByteAlignment,
 }
 
 impl UnitGroupRecord {
@@ -54,7 +55,7 @@ impl UnitGroupRecord {
             index_encoding: None,
             selection: GroupSelection::All,
             reference: ReferenceMode::Independent,
-            input_alignment: 1,
+            input_alignment: ByteAlignment::ONE,
         })
     }
 
@@ -84,7 +85,7 @@ impl UnitGroupRecord {
     pub const fn reference(self) -> ReferenceMode {
         self.reference
     }
-    pub const fn input_alignment(self) -> u32 {
+    pub const fn input_alignment(self) -> ByteAlignment {
         self.input_alignment
     }
 
@@ -117,7 +118,7 @@ impl UnitGroupRecord {
         self.reference = reference;
         self
     }
-    pub const fn with_input_alignment(mut self, alignment: u32) -> Self {
+    pub const fn with_input_alignment(mut self, alignment: ByteAlignment) -> Self {
         self.input_alignment = alignment;
         self
     }
@@ -177,7 +178,8 @@ impl UnitGroupRecord {
                 value: bytes[33],
             });
         }
-        record.input_alignment = 1 << bytes[33];
+        record.input_alignment =
+            ByteAlignment::new(1 << bytes[33]).expect("validated unit alignment exponent");
         if bytes[35] != 0 {
             return Err(UnitGroupRecordError::NonCanonical { offset: 35 });
         }
@@ -231,7 +233,7 @@ impl UnitGroupRecord {
             ReferenceMode::Independent => 0,
             ReferenceMode::Previous => 1,
         };
-        bytes[33] = self.input_alignment.trailing_zeros() as u8;
+        bytes[33] = self.input_alignment.log2();
         out[..UNIT_GROUP_RECORD_LEN].copy_from_slice(&bytes);
         Ok(UNIT_GROUP_RECORD_LEN)
     }
@@ -355,10 +357,7 @@ impl UnitGroupRecord {
         if self.planes == Some(GroupPlanes::Joint(0)) {
             return Err(UnitGroupRecordError::NonCanonical { offset: 29 });
         }
-        if !self.input_alignment.is_power_of_two() {
-            return Err(UnitGroupRecordError::InvalidAlignment(self.input_alignment));
-        }
-        if self.data_offset % self.input_alignment != 0 {
+        if self.data_offset % self.input_alignment.get() != 0 {
             return Err(UnitGroupRecordError::UnalignedData {
                 offset: self.data_offset,
                 alignment: self.input_alignment,
@@ -383,11 +382,21 @@ pub enum UnitGroupRecordError {
     Truncated,
     InvalidDataRange,
     SizeOverflow,
-    UnknownValue { offset: usize, value: u8 },
-    NonCanonical { offset: usize },
-    InvalidAlignment(u32),
-    UnalignedData { offset: u32, alignment: u32 },
-    BufferTooSmall { needed: usize, available: usize },
+    UnknownValue {
+        offset: usize,
+        value: u8,
+    },
+    NonCanonical {
+        offset: usize,
+    },
+    UnalignedData {
+        offset: u32,
+        alignment: ByteAlignment,
+    },
+    BufferTooSmall {
+        needed: usize,
+        available: usize,
+    },
     MissingCoding(u32),
     DataOutOfBounds,
     IndexOutOfBounds,
@@ -451,14 +460,18 @@ mod tests {
             let mut indexes = [0; 12];
             let index_len = encoding
                 .map(|e| {
-                    e.encode_into(&[a as u32, b as u32], 64, &mut indexes)
-                        .unwrap()
+                    e.encode_into(
+                        &[a as u32, b as u32],
+                        crate::ByteAlignment::new(64).unwrap(),
+                        &mut indexes,
+                    )
+                    .unwrap()
                 })
                 .unwrap_or(0);
             let mut record = UnitGroupRecord::new(0, 0..(64 + b) as u32)
                 .unwrap()
                 .with_tiles(13, 1)
-                .with_input_alignment(64);
+                .with_input_alignment(crate::ByteAlignment::new(64).unwrap());
             if let Some(encoding) = encoding {
                 record = record.with_index_encoding(encoding);
             }
@@ -550,7 +563,11 @@ mod tests {
                     .map(|encoding| encoding.encoded_len(6, selected).unwrap())
                     .unwrap_or(0);
                 let range_len = encoding
-                    .map(|encoding| encoding.encoded_len(&lengths, 1).unwrap())
+                    .map(|encoding| {
+                        encoding
+                            .encoded_len(&lengths, crate::ByteAlignment::ONE)
+                            .unwrap()
+                    })
                     .unwrap_or(0);
                 let mut indexes = vec![0xa5; selection_len + range_len];
                 if let Some(encoding) = selection_encoding {
@@ -558,7 +575,11 @@ mod tests {
                 }
                 if let Some(encoding) = encoding {
                     encoding
-                        .encode_into(&lengths, 1, &mut indexes[selection_len..])
+                        .encode_into(
+                            &lengths,
+                            crate::ByteAlignment::ONE,
+                            &mut indexes[selection_len..],
+                        )
                         .unwrap();
                 }
                 let data = vec![9; selected.len() * 2];
@@ -647,15 +668,15 @@ mod tests {
         for record in [
             base.with_tiles(0, 1),
             base.with_planes(GroupPlanes::Joint(0)),
-            base.with_input_alignment(3),
             base.with_index_offset(1),
             UnitGroupRecord::new(0, 1..4)
                 .unwrap()
-                .with_input_alignment(64),
+                .with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
         ] {
             assert!(record.encode_into(&mut out).is_err());
             assert_eq!(out, [0xa5; 37]);
         }
+        assert!(crate::ByteAlignment::new(3).is_err());
         assert!(base.encode_into(&mut out[..35]).is_err());
         assert_eq!(out, [0xa5; 37]);
         let codings = CodingTable::open(&CODINGS).unwrap();

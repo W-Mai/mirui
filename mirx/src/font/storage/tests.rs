@@ -18,7 +18,7 @@ fn repeated_cells_share_geometry_and_keep_allocation_rows_out_of_samples() {
             .with_allocation_extent(9, 5)
             .with_stride(16)
             .with_data_offset(64)
-            .with_alignment(64)
+            .with_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
         let mut data = Buffer([0x5a; 1024]);
@@ -53,7 +53,7 @@ fn repeated_cells_share_geometry_and_keep_allocation_rows_out_of_samples() {
             let plan = glyph
                 .memory_plan(
                     SurfaceRequirements::new()
-                        .with_base_alignment(64)
+                        .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
                         .with_stride_multiple(64),
                 )
                 .unwrap();
@@ -156,7 +156,7 @@ fn exact_spans_and_shared_memory_validation_reject_invalid_storage() {
     }
     let plane = SampleLayout::A8.plane_geometry(1, 1, 0).unwrap();
     let memory = PlaneMemoryLayout::builder(plane)
-        .with_alignment(64)
+        .with_alignment(crate::ByteAlignment::new(64).unwrap())
         .build()
         .unwrap();
     assert_eq!(
@@ -187,7 +187,7 @@ fn exact_spans_and_shared_memory_validation_reject_invalid_storage() {
     let huge = GlyphMap::glyph_major(u32::MAX, 1, 1).unwrap();
     let memory =
         PlaneMemoryLayout::builder(SampleLayout::A8.plane_geometry(u32::MAX, 1, 0).unwrap())
-            .with_alignment(64)
+            .with_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
     assert_eq!(
@@ -208,7 +208,7 @@ fn actual_address_unknown_flags_and_output_errors_are_independent() {
     let map = GlyphMap::glyph_major(3, 1, 2).unwrap();
     let plane = SampleLayout::A8.plane_geometry(3, 1, 0).unwrap();
     let memory = PlaneMemoryLayout::builder(plane)
-        .with_alignment(64)
+        .with_alignment(crate::ByteAlignment::new(64).unwrap())
         .build()
         .unwrap();
     let glyphs = RawGlyphs::builder(map, SampleLayout::A8)
@@ -220,7 +220,9 @@ fn actual_address_unknown_flags_and_output_errors_are_independent() {
     let glyph = glyphs.get(1).unwrap();
     assert!(!glyph.storage().plane(0).unwrap().address_is_aligned());
     let plan = glyph
-        .memory_plan(SurfaceRequirements::new().with_base_alignment(64))
+        .memory_plan(
+            SurfaceRequirements::new().with_base_alignment(crate::ByteAlignment::new(64).unwrap()),
+        )
         .unwrap();
     let mut output = Buffer([0xa5; 1024]);
     assert!(glyph.copy_into(&mut output.0[1..], plan).is_err());

@@ -15,13 +15,13 @@ fn input_alignment_is_a_shared_declaration_not_a_decode_claim() {
     let records = [
         UnitGroupRecord::new(0, 0..1)
             .unwrap()
-            .with_input_alignment(16),
+            .with_input_alignment(crate::ByteAlignment::new(16).unwrap()),
         UnitGroupRecord::new(0, 64..65)
             .unwrap()
-            .with_input_alignment(64),
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
         UnitGroupRecord::new(0, 68..69)
             .unwrap()
-            .with_input_alignment(4),
+            .with_input_alignment(crate::ByteAlignment::new(4).unwrap()),
     ];
     let bytes = payload(
         surface(),
@@ -33,7 +33,10 @@ fn input_alignment_is_a_shared_declaration_not_a_decode_claim() {
         None,
     );
     let image = EncodedImageView::open(&bytes).unwrap();
-    assert_eq!(image.input_alignment(), Ok(64));
+    assert_eq!(
+        image.input_alignment().map(crate::ByteAlignment::get),
+        Ok(64)
+    );
     // Declarations alone do not validate overlapping full-surface groups.
     assert!(
         image
@@ -43,7 +46,7 @@ fn input_alignment_is_a_shared_declaration_not_a_decode_claim() {
     let implicit = payload(surface(), &[coding()], None, None, &[0], None, None);
     assert_eq!(
         EncodedImageView::open(&implicit).unwrap().input_alignment(),
-        Ok(1)
+        Ok(crate::ByteAlignment::ONE)
     );
 }
 
@@ -609,7 +612,7 @@ fn palette_alignment_and_workspace_contracts_are_explicit() {
         &[coding()],
         Some(&[UnitGroupRecord::new(0, 0..4)
             .unwrap()
-            .with_input_alignment(64)]),
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap())]),
         None,
         &[1; 4],
         None,

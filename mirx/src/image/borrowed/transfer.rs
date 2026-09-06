@@ -248,8 +248,8 @@ mod tests {
                         .with_width_multiple(4)
                         .with_height_multiple(2)
                         .with_stride_multiple(3)
-                        .with_base_alignment(64)
-                        .with_plane_alignment(64),
+                        .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                        .with_plane_alignment(crate::ByteAlignment::new(64).unwrap()),
                 )
                 .unwrap();
             let mut output = Aligned([0xa5; 4096]);
@@ -304,7 +304,10 @@ mod tests {
             .view()
             .unwrap();
         let plan = surface
-            .memory_plan(SurfaceRequirements::new().with_base_alignment(64))
+            .memory_plan(
+                SurfaceRequirements::new()
+                    .with_base_alignment(crate::ByteAlignment::new(64).unwrap()),
+            )
             .unwrap();
         let mut output = Aligned([0xa5; 4096]);
         assert!(matches!(
@@ -356,7 +359,10 @@ mod tests {
                     .unwrap();
             let source = RawImageAsset::new(surface, &[&[]]).view().unwrap();
             let plan = surface
-                .memory_plan(SurfaceRequirements::new().with_base_alignment(64))
+                .memory_plan(
+                    SurfaceRequirements::new()
+                        .with_base_alignment(crate::ByteAlignment::new(64).unwrap()),
+                )
                 .unwrap();
             let mut output = [];
             let copied = source.copy_into(&mut output, plan).unwrap();

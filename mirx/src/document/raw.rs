@@ -1,8 +1,6 @@
 use alloc::vec::Vec;
 
-use super::descriptor::{
-    EvaluatedDescriptor, EvaluatedFlags, evaluate_descriptor, evaluate_descriptor_with_flags,
-};
+use super::descriptor::EvaluatedFlags;
 use super::payload::{PayloadPlacement, ResolvedNodePayload, resolve_node_payload};
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::{
@@ -176,26 +174,6 @@ impl RawChunkPolicy {
         self.reserved_flag_bits = reserved_flag_bits;
         self
     }
-
-    fn evaluate(
-        self,
-        chunk_type: ChunkType,
-        flags: ChunkFlags,
-        payload: &[u8],
-        limits: crate::PayloadLimits,
-    ) -> Result<EvaluatedDescriptor, EditError> {
-        evaluate_descriptor(chunk_type, flags, payload, self, limits)
-    }
-
-    fn evaluate_with_flags(
-        self,
-        chunk_type: ChunkType,
-        flags: EvaluatedFlags,
-        payload: &[u8],
-        limits: crate::PayloadLimits,
-    ) -> Result<EvaluatedDescriptor, EditError> {
-        evaluate_descriptor_with_flags(chunk_type, flags, payload, self, limits)
-    }
 }
 
 impl Default for RawChunkPolicy {
@@ -215,19 +193,19 @@ struct PreparedRaw<'a> {
 pub(super) struct ChunkIdPlan {
     first_counter: u32,
     count: u32,
-    following_counter: u32,
+    next_counter: u32,
 }
 
 impl ChunkIdPlan {
     pub(super) const fn new(next_id: u32, count: u32) -> Result<Self, EditError> {
-        let following_counter = match next_id.checked_add(count) {
+        let next_counter = match next_id.checked_add(count) {
             Some(counter) => counter,
             None => return Err(EditError::ChunkIdExhausted),
         };
         Ok(Self {
             first_counter: next_id,
             count,
-            following_counter,
+            next_counter,
         })
     }
 
@@ -241,8 +219,8 @@ impl ChunkIdPlan {
         }
     }
 
-    pub(super) const fn following_counter(self) -> u32 {
-        self.following_counter
+    pub(super) const fn next_counter(self) -> u32 {
+        self.next_counter
     }
 }
 
@@ -551,7 +529,7 @@ impl<'a> Document<'a> {
         reserve(&mut chunks.chunks, 1)?;
         chunks.chunks.insert(index, node);
 
-        self.next_id = ids.following_counter();
+        self.next_id = ids.next_counter();
         self.dirty = true;
         Ok(id)
     }
@@ -617,7 +595,7 @@ impl<'a> Document<'a> {
             unreachable!("FLAT layout was checked before raw insertion")
         };
         self.state = DocumentState::Chunk(promoted_chunk_set(record, nodes, promoted_id));
-        self.next_id = ids.following_counter();
+        self.next_id = ids.next_counter();
         self.dirty = true;
         Ok(inserted_id)
     }
@@ -839,18 +817,18 @@ mod tests {
     fn chunk_id_plans_cover_empty_boundary_and_batch_overflow() {
         let empty = ChunkIdPlan::new(u32::MAX, 0).unwrap();
         assert_eq!(empty.get(0), None);
-        assert_eq!(empty.following_counter(), u32::MAX);
+        assert_eq!(empty.next_counter(), u32::MAX);
 
         let last = ChunkIdPlan::new(u32::MAX - 1, 1).unwrap();
         assert_eq!(last.get(0), Some(ChunkId::new(u32::MAX - 1)));
         assert_eq!(last.get(1), None);
-        assert_eq!(last.following_counter(), u32::MAX);
+        assert_eq!(last.next_counter(), u32::MAX);
 
         let pair = ChunkIdPlan::new(u32::MAX - 2, 2).unwrap();
         assert_eq!(pair.get(0), Some(ChunkId::new(u32::MAX - 2)));
         assert_eq!(pair.get(1), Some(ChunkId::new(u32::MAX - 1)));
         assert_eq!(pair.get(2), None);
-        assert_eq!(pair.following_counter(), u32::MAX);
+        assert_eq!(pair.next_counter(), u32::MAX);
 
         assert_eq!(
             ChunkIdPlan::new(u32::MAX - 1, 2),

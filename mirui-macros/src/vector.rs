@@ -1,8 +1,8 @@
 //! `path!` and `scene!` — compile-time vector geometry.
 //!
-//! Numeric literals are folded to 24.8 fixed-point raw values at expansion
-//! time (`Fixed::from_f32` is not const), so both macros emit `&'static`
-//! slices usable in `const` / `static` with no runtime float work.
+//! Numeric literals are folded to exact Q24.8 ratios at expansion time, so
+//! both macros emit `&'static` slices usable in `const` / `static` with no
+//! runtime floating-point work.
 
 use proc_macro2::TokenStream;
 use quote::quote;
@@ -49,11 +49,11 @@ fn raw_byte(input: ParseStream) -> syn::Result<u8> {
 }
 
 fn fixed(raw: i32) -> TokenStream {
-    quote! { ::mirui::types::Fixed::from_raw(#raw) }
+    quote! { ::mirui::types::Fixed::from_ratio(#raw, 256) }
 }
 
 fn mirx_fixed(raw: i32) -> TokenStream {
-    quote! { ::mirx::Fixed::from_raw(#raw) }
+    quote! { ::mirx::Fixed::from_ratio(#raw, 256) }
 }
 
 fn parse_signed_f64(input: ParseStream) -> syn::Result<f64> {
@@ -1273,7 +1273,7 @@ fn stop_tokens(stops: &[(f64, u8, u8, u8, u8)]) -> Vec<TokenStream> {
             let off_raw = (*off * (1i32 << FRAC_BITS) as f64).round() as i32;
             quote! {
                 ::mirui::render::scene::GradientStop {
-                    offset: ::mirx::Fixed::from_raw(#off_raw),
+                    offset: ::mirx::Fixed::from_ratio(#off_raw, 256),
                     color: ::mirui::render::scene::MirxColor { r: #r, g: #g, b: #b, a: #a },
                 }
             }

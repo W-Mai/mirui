@@ -34,7 +34,7 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
     let (px_x0, px_y0, px_x1, px_y1) = area.pixel_bounds();
     let sw = src.width as i32;
     let sh = src.height as i32;
-    let half = Fixed64::from_raw(Fixed64::ONE.raw() >> 1);
+    let half = Fixed64::from_ratio(1, 2);
     for py in px_y0..px_y1 {
         let py_f = Fixed::from_int(py) + Fixed::HALF;
         let Some((x_l, x_r)) = quad_row_span(q, py_f) else {
@@ -60,7 +60,7 @@ pub fn blit_quad(dst: &mut Texture, src: &Texture, q: &[Point; 4], phys_clip: Re
         for px in x_l_px..x_r_px {
             let edge_cx = cx;
             cx += one;
-            if w.raw() > 0 {
+            if w.is_positive() {
                 let edge_cov = quad_pixel_coverage_row(&edges, None, edge_cx, py_f, &row);
                 if edge_cov != Fixed::ZERO {
                     let inv_w = Fixed64::ONE / w;
@@ -437,10 +437,14 @@ fn quad_row_span(q: &[Point; 4], py: Fixed) -> Option<(Fixed, Fixed)> {
         let a = q[i];
         let b = q[(i + 1) % 4];
         let dy = b.y - a.y;
-        if dy.raw() == 0 {
+        if dy.is_zero() {
             continue;
         }
-        let (y0, y1) = if dy.raw() > 0 { (a.y, b.y) } else { (b.y, a.y) };
+        let (y0, y1) = if dy.is_positive() {
+            (a.y, b.y)
+        } else {
+            (b.y, a.y)
+        };
         if py < y0 || py >= y1 {
             continue;
         }

@@ -521,7 +521,7 @@ impl<'a> Document<'a> {
             unreachable!("FLAT layout was checked before promotion")
         };
         self.state = DocumentState::Chunk(promoted_chunk_set(record, nodes, id));
-        self.next_id = ids.following_counter();
+        self.next_id = ids.next_counter();
         self.dirty = true;
         Ok(Some(id))
     }

@@ -3,8 +3,32 @@ use core::ops::{Add, AddAssign, Div, Mul, Neg, Sub, SubAssign};
 
 /// 24.8 fixed-point number.
 /// High 24 bits = integer part, low 8 bits = fractional part.
+///
+/// The storage representation is private. Construct values through semantic
+/// integer, floating-point, or ratio APIs instead of coupling application code
+/// to the fractional-bit layout.
+///
+/// ```compile_fail
+/// use mirui::types::Fixed;
+/// let value = Fixed(128);
+/// ```
+///
+/// ```compile_fail
+/// use mirui::types::Fixed;
+/// let value = Fixed::from_raw(128);
+/// ```
+///
+/// ```compile_fail
+/// use mirui::types::Fixed;
+/// let value = Fixed::ONE.raw();
+/// ```
+///
+/// ```compile_fail
+/// use mirui::types::Fixed;
+/// let value = Fixed::ONE.0;
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
-pub struct Fixed(pub i32);
+pub struct Fixed(i32);
 
 const FRAC_BITS: i32 = 8;
 const SCALE: i32 = 1 << FRAC_BITS; // 256
@@ -18,18 +42,44 @@ impl Fixed {
     pub const PI: Self = Self(804); // round(π * 256) = 804, error ≈ 0.001
 
     #[inline]
-    pub const fn from_raw(raw: i32) -> Self {
-        Self(raw)
-    }
-
-    #[inline]
     pub const fn from_int(v: i32) -> Self {
         Self(v << FRAC_BITS)
+    }
+
+    /// Constructs `numerator / denominator` with Q24.8 truncation toward zero.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `denominator` is zero or the scaled result exceeds Q24.8.
+    #[inline]
+    pub const fn from_ratio(numerator: i32, denominator: i32) -> Self {
+        assert!(denominator != 0, "fixed-point denominator must not be zero");
+        let raw = (numerator as i64 * SCALE as i64) / denominator as i64;
+        assert!(
+            raw >= i32::MIN as i64 && raw <= i32::MAX as i64,
+            "fixed-point ratio is out of range"
+        );
+        Self(raw as i32)
     }
 
     #[inline]
     pub const fn to_int(self) -> i32 {
         self.0 >> FRAC_BITS
+    }
+
+    #[inline]
+    pub const fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
+    pub const fn is_positive(self) -> bool {
+        self.0 > 0
+    }
+
+    #[inline]
+    pub const fn is_negative(self) -> bool {
+        self.0 < 0
     }
 
     /// Truncate toward zero. `to_int` is arithmetic-shift floor
@@ -72,11 +122,6 @@ impl Fixed {
     #[inline]
     pub const fn to_f32(self) -> f32 {
         self.0 as f32 / SCALE as f32
-    }
-
-    #[inline]
-    pub const fn raw(self) -> i32 {
-        self.0
     }
 
     #[inline]
@@ -237,13 +282,13 @@ fn atan2_rad(y: Fixed, x: Fixed) -> Fixed {
     // z = ay/ax in [0,1] when |y|<=|x|; swap branch tracks the
     // "atan(1/z)+π/2" identity for the other half.
     let (z, swap) = if ay <= ax {
-        (ay / ax.max(Fixed::from_raw(1)), false)
+        (ay / ax.max(Fixed::from_ratio(1, 256)), false)
     } else {
-        (ax / ay.max(Fixed::from_raw(1)), true)
+        (ax / ay.max(Fixed::from_ratio(1, 256)), true)
     };
 
     // tan(π/8) ≈ 0.4142136 → 0.4142136 * 256 = 106.04
-    let tan_pi_8 = Fixed::from_raw(106);
+    let tan_pi_8 = Fixed::from_ratio(106, 256);
     let (zp, offset) = if z > tan_pi_8 {
         ((z - Fixed::ONE) / (z + Fixed::ONE), quarter_pi)
     } else {
@@ -381,9 +426,24 @@ impl fmt::Debug for Fixed {
 /// Q48.16 fixed-point (i64 raw, 16 fractional bits). Used for intermediate
 /// values that need more precision or range than [`Fixed`] can provide —
 /// e.g. 3×3 homography matrix elements, distance-squared in quad rasterization.
+///
+/// ```compile_fail
+/// use mirui::types::Fixed64;
+/// let value = Fixed64(65_536);
+/// ```
+///
+/// ```compile_fail
+/// use mirui::types::Fixed64;
+/// let value = Fixed64::from_raw(65_536);
+/// ```
+///
+/// ```compile_fail
+/// use mirui::types::Fixed64;
+/// let value = Fixed64::ONE.raw();
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 #[repr(transparent)]
-pub struct Fixed64(pub i64);
+pub struct Fixed64(i64);
 
 const FRAC_BITS_64: i64 = 16;
 const SCALE_64: i64 = 1 << FRAC_BITS_64;
@@ -393,13 +453,24 @@ impl Fixed64 {
     pub const ONE: Self = Self(SCALE_64);
 
     #[inline]
-    pub const fn from_raw(raw: i64) -> Self {
-        Self(raw)
-    }
-
-    #[inline]
     pub const fn from_int(v: i64) -> Self {
         Self(v << FRAC_BITS_64)
+    }
+
+    /// Constructs `numerator / denominator` with Q48.16 truncation toward zero.
+    ///
+    /// # Panics
+    ///
+    /// Panics when `denominator` is zero or the scaled result exceeds Q48.16.
+    #[inline]
+    pub const fn from_ratio(numerator: i64, denominator: i64) -> Self {
+        assert!(denominator != 0, "fixed-point denominator must not be zero");
+        let raw = (numerator as i128 * SCALE_64 as i128) / denominator as i128;
+        assert!(
+            raw >= i64::MIN as i128 && raw <= i64::MAX as i128,
+            "fixed-point ratio is out of range"
+        );
+        Self(raw as i64)
     }
 
     #[inline]
@@ -408,8 +479,18 @@ impl Fixed64 {
     }
 
     #[inline]
-    pub const fn raw(self) -> i64 {
-        self.0
+    pub const fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+
+    #[inline]
+    pub const fn is_positive(self) -> bool {
+        self.0 > 0
+    }
+
+    #[inline]
+    pub const fn is_negative(self) -> bool {
+        self.0 < 0
     }
 
     #[inline]
@@ -577,6 +658,29 @@ impl From<Fixed64> for Fixed {
 impl fmt::Debug for Fixed64 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Fixed64({})", self.to_f32())
+    }
+}
+
+/// Crate-private access to the integer storage used by fixed-point kernels.
+///
+/// Keeping this under an explicit namespace makes representation-sensitive
+/// code reviewable without exposing raw integers in the public numeric API.
+pub(crate) mod storage {
+    use super::Fixed;
+
+    #[inline]
+    pub const fn to_i32(value: Fixed) -> i32 {
+        value.0
+    }
+
+    #[inline]
+    pub const fn from_le_bytes(bytes: [u8; 4]) -> Fixed {
+        Fixed(i32::from_le_bytes(bytes))
+    }
+
+    #[inline]
+    pub const fn to_le_bytes(value: Fixed) -> [u8; 4] {
+        value.0.to_le_bytes()
     }
 }
 
@@ -871,7 +975,7 @@ mod tests {
         let v = Fixed::from_int(169);
         let r_narrow = v.sqrt();
         let r_wide = Fixed64::from_fixed(v).sqrt().to_fixed();
-        assert!((r_narrow - r_wide).abs().raw() < 4);
+        assert!((r_narrow - r_wide).abs() < Fixed::from_ratio(1, 64));
     }
 
     #[test]
@@ -895,7 +999,7 @@ mod tests {
         ];
         for (y, x, expect) in cases {
             let got = Fixed::atan2(y, x);
-            let err = (got - expect).abs().raw();
+            let err = (got - expect).abs().0;
             assert!(
                 err <= tol,
                 "atan2({:?}, {:?}) = {:?}, want {:?}, err {} LSB",

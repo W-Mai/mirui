@@ -67,15 +67,15 @@ fn metrics_and_glyphs_select_the_same_representation_for_every_size_class() {
         let metrics = provider.metrics(requested);
         assert_eq!(
             metrics.ascender,
-            mirui::types::Fixed::from_raw(source.ascent().raw()) * scale
+            mirui::types::Fixed::from(source.ascent()) * scale
         );
         assert_eq!(
             metrics.descender,
-            mirui::types::Fixed::from_raw(source.descent().raw()) * scale
+            mirui::types::Fixed::from(source.descent()) * scale
         );
         assert_eq!(
             metrics.line_height,
-            mirui::types::Fixed::from_raw(source.line_height().raw()) * scale
+            mirui::types::Fixed::from(source.line_height()) * scale
         );
     }
 }

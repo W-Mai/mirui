@@ -25,13 +25,13 @@ impl LineMetrics {
         descent: Fixed,
         line_height: Fixed,
     ) -> Result<Self, MetricsError> {
-        if ascent.raw() < 0 {
+        if ascent.is_negative() {
             return Err(MetricsError::NegativeAscent(ascent));
         }
-        if descent.raw() > 0 {
+        if descent.is_positive() {
             return Err(MetricsError::PositiveDescent(descent));
         }
-        if line_height.raw() <= 0 {
+        if !line_height.is_positive() {
             return Err(MetricsError::NonPositiveLineHeight(line_height));
         }
         Ok(Self {
@@ -62,9 +62,9 @@ impl LineMetrics {
             });
         }
         Self::new(
-            Fixed::from_raw(read_u32_le(bytes, 0).unwrap() as i32),
-            Fixed::from_raw(read_u32_le(bytes, 4).unwrap() as i32),
-            Fixed::from_raw(read_u32_le(bytes, 8).unwrap() as i32),
+            Fixed::from_le_bytes(read_u32_le(bytes, 0).unwrap().to_le_bytes()),
+            Fixed::from_le_bytes(read_u32_le(bytes, 4).unwrap().to_le_bytes()),
+            Fixed::from_le_bytes(read_u32_le(bytes, 8).unwrap().to_le_bytes()),
         )
     }
 
@@ -82,9 +82,21 @@ impl LineMetrics {
 
     pub(crate) fn encode_record(self) -> [u8; LINE_METRICS_LEN] {
         let mut record = [0; LINE_METRICS_LEN];
-        write_u32_le(&mut record, 0, self.ascent.raw() as u32);
-        write_u32_le(&mut record, 4, self.descent.raw() as u32);
-        write_u32_le(&mut record, 8, self.line_height.raw() as u32);
+        write_u32_le(
+            &mut record,
+            0,
+            u32::from_le_bytes(self.ascent.to_le_bytes()),
+        );
+        write_u32_le(
+            &mut record,
+            4,
+            u32::from_le_bytes(self.descent.to_le_bytes()),
+        );
+        write_u32_le(
+            &mut record,
+            8,
+            u32::from_le_bytes(self.line_height.to_le_bytes()),
+        );
         record
     }
 }
@@ -133,9 +145,9 @@ impl GlyphMetrics {
             });
         }
         Ok(Self::new(
-            Fixed::from_raw(read_u32_le(bytes, 0).unwrap() as i32),
-            Fixed::from_raw(read_u32_le(bytes, 4).unwrap() as i32),
-            Fixed::from_raw(read_u32_le(bytes, 8).unwrap() as i32),
+            Fixed::from_le_bytes(read_u32_le(bytes, 0).unwrap().to_le_bytes()),
+            Fixed::from_le_bytes(read_u32_le(bytes, 4).unwrap().to_le_bytes()),
+            Fixed::from_le_bytes(read_u32_le(bytes, 8).unwrap().to_le_bytes()),
         ))
     }
 
@@ -153,9 +165,21 @@ impl GlyphMetrics {
 
     pub(crate) fn encode_record(self) -> [u8; GLYPH_METRICS_LEN] {
         let mut record = [0; GLYPH_METRICS_LEN];
-        write_u32_le(&mut record, 0, self.advance.raw() as u32);
-        write_u32_le(&mut record, 4, self.bearing_x.raw() as u32);
-        write_u32_le(&mut record, 8, self.bearing_y.raw() as u32);
+        write_u32_le(
+            &mut record,
+            0,
+            u32::from_le_bytes(self.advance.to_le_bytes()),
+        );
+        write_u32_le(
+            &mut record,
+            4,
+            u32::from_le_bytes(self.bearing_x.to_le_bytes()),
+        );
+        write_u32_le(
+            &mut record,
+            8,
+            u32::from_le_bytes(self.bearing_y.to_le_bytes()),
+        );
         record
     }
 }

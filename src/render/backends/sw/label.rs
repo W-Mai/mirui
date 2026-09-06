@@ -1,6 +1,6 @@
 use super::SwRenderer;
 use crate::render::font::{Font, GlyphKind};
-use crate::types::{Color, Fixed, Point, Rect};
+use crate::types::{Color, Fixed, Point, Rect, fixed::storage};
 
 impl SwRenderer<'_> {
     pub(super) fn draw_label_inner(
@@ -274,7 +274,7 @@ fn scaled_fixed(value: Fixed, design_ppem: u16, requested_size: u16, viewport: F
 }
 
 fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
-    let raw_scale = u64::try_from(scale.raw()).unwrap_or(0);
+    let raw_scale = u64::try_from(storage::to_i32(scale)).unwrap_or(0);
     let pixels = (u64::from(extent) * raw_scale).div_ceil(256);
     pixels.clamp(1, u64::from(u16::MAX)) as u16
 }
@@ -437,8 +437,8 @@ mod tests {
                     stride: 1,
                     region: mirx::image::Region::new(7, 9, 0, 0).unwrap(),
                     representation: mirx::FontRepresentation::coverage(1, 16, 0).unwrap(),
-                    bearing_x: Fixed::from_raw(-128),
-                    bearing_y: Fixed::from_raw(64),
+                    bearing_x: Fixed::from_ratio(-1, 2),
+                    bearing_y: Fixed::from_ratio(1, 4),
                 },
             })
         }

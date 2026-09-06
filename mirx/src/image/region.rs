@@ -19,12 +19,12 @@ impl SurfaceDescriptor {
     /// Plans storage for an exact region in logical surface coordinates.
     ///
     /// ```
-    /// use mirx::image::{ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements};
+    /// use mirx::{ByteAlignment, image::{ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements}};
     /// let surface = SurfaceDescriptor::new(5, 3, SampleLayout::NV12,
     ///     ColorDescription::BT709_YUV_LIMITED).unwrap();
     /// let region = surface.region(2, 0, 3, 3).unwrap();
     /// let plan = surface.region_plan(region, SurfaceRequirements::new()
-    ///     .with_base_alignment(64).with_plane_alignment(64).with_stride_multiple(64)).unwrap();
+    ///     .with_base_alignment(ByteAlignment::new(64).unwrap()).with_plane_alignment(ByteAlignment::new(64).unwrap()).with_stride_multiple(64)).unwrap();
     /// assert_eq!(plan.memory_plan().surface().width(), 3);
     /// assert_eq!(plan.plane_region(1).unwrap().width(), 2);
     /// assert_eq!(plan.memory_plan().byte_len(), 320);

@@ -51,18 +51,18 @@ impl Fixture {
             let ppem = i32::from(metadata.design_ppem());
             let metrics = &mut result.metrics[index * 36..(index + 1) * 36];
             LineMetrics::new(
-                Fixed::from_raw(ppem * 192),
-                Fixed::from_raw(-ppem * 64),
-                Fixed::from_raw(ppem * 256),
+                Fixed::from_ratio(ppem * 192, 256),
+                Fixed::from_ratio(-ppem * 64, 256),
+                Fixed::from_int(ppem),
             )
             .unwrap()
             .encode_record_into(metrics)
             .unwrap();
             for glyph in 0..2 {
                 GlyphMetrics::new(
-                    Fixed::from_raw(ppem * 128 + glyph as i32),
-                    Fixed::from_raw(-257),
-                    Fixed::from_raw(ppem * 256 + 511),
+                    Fixed::from_ratio(ppem * 128 + glyph as i32, 256),
+                    Fixed::from_ratio(-257, 256),
+                    Fixed::from_ratio(ppem * 256 + 511, 256),
                 )
                 .encode_record_into(&mut metrics[12 + glyph * 12..])
                 .unwrap();
@@ -111,17 +111,20 @@ fn size_selection_keeps_shared_ordinals_metrics_and_regions_together() {
         assert_eq!(chosen.record(), face.representations().get(index).unwrap());
         let design = i32::from(chosen.record().representation().design_ppem());
         assert_eq!(
-            chosen.metrics().line_metrics().line_height().raw(),
-            design * 256
+            chosen.metrics().line_metrics().line_height(),
+            Fixed::from_int(design)
         );
         assert_eq!(
-            chosen.metrics().get(1).unwrap().advance().raw(),
-            design * 128 + 1
+            chosen.metrics().get(1).unwrap().advance(),
+            Fixed::from_ratio(design * 128 + 1, 256)
         );
-        assert_eq!(chosen.metrics().get(0).unwrap().bearing_x().raw(), -257);
         assert_eq!(
-            chosen.metrics().get(0).unwrap().bearing_y().raw(),
-            design * 256 + 511
+            chosen.metrics().get(0).unwrap().bearing_x(),
+            Fixed::from_ratio(-257, 256)
+        );
+        assert_eq!(
+            chosen.metrics().get(0).unwrap().bearing_y(),
+            Fixed::from_ratio(design * 256 + 511, 256)
         );
         assert_eq!(chosen.map().len(), chosen.metrics().len());
         if index < 2 {

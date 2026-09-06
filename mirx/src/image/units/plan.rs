@@ -94,8 +94,8 @@ impl UnitMemoryPlan {
     pub const fn byte_len(self) -> u32 {
         self.buffer.byte_len() as u32
     }
-    pub const fn base_alignment(self) -> u32 {
-        self.buffer.base_alignment() as u32
+    pub const fn base_alignment(self) -> crate::ByteAlignment {
+        self.buffer.base_alignment()
     }
     pub fn plane_count(self) -> u8 {
         match self.planes {
@@ -232,8 +232,8 @@ mod tests {
             .unwrap()
             .memory_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_plane_alignment(64)
+                    .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
+                    .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             )
             .unwrap();
@@ -303,7 +303,7 @@ mod tests {
         let rgba =
             SurfaceDescriptor::new(20, 12, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
         let unit = UnitGroup::builder(rgba, coding(), &[1])
-            .with_input_alignment(64)
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap()
             .get(0)
@@ -314,7 +314,7 @@ mod tests {
         let padded = unit
             .memory_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(64)
+                    .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             )
             .unwrap();
@@ -383,7 +383,7 @@ mod tests {
             for requirements in [
                 SurfaceRequirements::new(),
                 SurfaceRequirements::new()
-                    .with_plane_alignment(64)
+                    .with_plane_alignment(crate::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64)
                     .with_width_multiple(8)
                     .with_height_multiple(2),

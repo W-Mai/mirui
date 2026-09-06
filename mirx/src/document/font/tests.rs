@@ -18,13 +18,13 @@ fn font() -> Font {
         .unwrap();
     let surfaces = [GlyphSurfaceAsset::raw(raw)];
     let metrics = [
-        GlyphMetrics::new(Fixed::from_raw(256), Fixed::ZERO, Fixed::from_raw(256)),
-        GlyphMetrics::new(Fixed::from_raw(320), Fixed::ZERO, Fixed::from_raw(256)),
+        GlyphMetrics::new(Fixed::ONE, Fixed::ZERO, Fixed::ONE),
+        GlyphMetrics::new(Fixed::from_ratio(5, 4), Fixed::ZERO, Fixed::ONE),
     ];
     let line = LineMetrics::new(
-        Fixed::from_raw(512),
-        Fixed::from_raw(-128),
-        Fixed::from_raw(640),
+        Fixed::from_int(2),
+        Fixed::from_ratio(-1, 2),
+        Fixed::from_ratio(5, 2),
     )
     .unwrap();
     let representations = [RepresentationAsset::new(

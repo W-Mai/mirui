@@ -116,7 +116,7 @@ mod tests {
             .unwrap()
             .with_profiles(profiles)
             .unwrap()
-            .with_input_alignment(input_alignment)
+            .with_input_alignment(crate::ByteAlignment::new(input_alignment).unwrap())
             .unwrap();
         encoder.push(&[value, value + 1]).unwrap();
         encoder.push(&[value + 2, value + 3]).unwrap();
@@ -151,11 +151,15 @@ mod tests {
             .unwrap();
         let chunk = reader.chunks().next().unwrap();
         let frames = chunk.frames(&PayloadLimits::HOST).unwrap().unwrap();
-        assert_eq!(frames.input_alignment(), Ok(64));
         assert_eq!(
-            frames
-                .media()
-                .validate_file_alignment(chunk.payload_offset(), 64),
+            frames.input_alignment().map(crate::ByteAlignment::get),
+            Ok(64)
+        );
+        assert_eq!(
+            frames.media().validate_file_alignment(
+                chunk.payload_offset(),
+                crate::ByteAlignment::new(64).unwrap(),
+            ),
             Ok(())
         );
     }

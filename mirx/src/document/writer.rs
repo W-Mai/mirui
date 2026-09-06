@@ -93,7 +93,8 @@ impl<'a> PayloadPlan<'a> {
                 let media = MediaPayload::open(payload).ok();
                 match media.and_then(|media| media.section(MediaSectionKind::DATA)) {
                     Some(data) => {
-                        let mut alignment = CONTAINER_ALIGNMENT;
+                        let mut alignment = crate::ByteAlignment::new(CONTAINER_ALIGNMENT)
+                            .expect("container alignment is valid");
                         match ImageRef::open(payload) {
                             Ok(ImageRef::Raw(view)) => {
                                 for plane in view.planes() {
@@ -131,7 +132,9 @@ impl<'a> PayloadPlan<'a> {
                             chunk_type,
                             payload,
                             data_offset: data.descriptor().offset(),
-                            alignment: CONTAINER_ALIGNMENT.max(alignment),
+                            alignment: crate::ByteAlignment::new(CONTAINER_ALIGNMENT)
+                                .expect("container alignment is valid")
+                                .max(alignment),
                         },
                         Err(_) => PlacementConstraint::Chunk(CONTAINER_ALIGNMENT),
                     },
@@ -156,7 +159,7 @@ enum PlacementConstraint<'a> {
         chunk_type: ChunkType,
         payload: &'a [u8],
         data_offset: u32,
-        alignment: u32,
+        alignment: crate::ByteAlignment,
     },
 }
 
@@ -175,7 +178,7 @@ impl PlacementConstraint<'_> {
                 data_offset,
                 alignment,
             } => {
-                let candidate = align_relative(cursor, data_offset, alignment)?;
+                let candidate = align_relative(cursor, data_offset, alignment.get())?;
                 MediaPayload::open(payload)
                     .and_then(|media| media.validate_file_alignment(candidate, alignment))
                     .map_err(|_| EncodeError::InvalidPayload { chunk_type })?;

@@ -83,11 +83,11 @@ pub const SMOOTH: SpringConfig = SpringConfig {
 };
 pub const SNAPPY: SpringConfig = SpringConfig {
     duration_ms: 300,
-    bounce: Fixed::from_raw(38),
+    bounce: Fixed::from_ratio(38, 256),
 };
 pub const BOUNCY: SpringConfig = SpringConfig {
     duration_ms: 500,
-    bounce: Fixed::from_raw(77),
+    bounce: Fixed::from_ratio(77, 256),
 };
 pub const INTERACTIVE: SpringConfig = SpringConfig {
     duration_ms: 200,
@@ -424,7 +424,12 @@ mod tests {
 
     #[test]
     fn spring_with_bounce_overshoots() {
-        let mut s = Spring::new(Fixed::ZERO, Fixed::from_int(100), 500, Fixed::from_raw(200));
+        let mut s = Spring::new(
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            500,
+            Fixed::from_ratio(25, 32),
+        );
         let mut max_pos = Fixed::ZERO;
         for _ in 0..200 {
             s.tick(16);
@@ -622,7 +627,7 @@ mod settle_threshold_check {
             let duration = 100u16 + ((rand() % 1901) as u16);
             // bounce ∈ [0, 0.7] — bounce ≥ 0.8 known to ring forever.
             let bounce_raw = (rand() % 180) as i32;
-            let bounce = Fixed::from_raw(bounce_raw);
+            let bounce = Fixed::from_ratio(bounce_raw, 256);
 
             let mut sp = Spring::new(Fixed::from_int(from), Fixed::from_int(to), duration, bounce);
             let budget_ms = (duration as u32 * 3).max(500);

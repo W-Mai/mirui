@@ -19,6 +19,11 @@
 
 #[cfg(all(feature = "quad-aa", feature = "std"))]
 use crate::types::Fixed64;
+#[cfg(any(
+    not(feature = "quad-aa"),
+    all(feature = "quad-aa", not(feature = "std"))
+))]
+use crate::types::fixed::storage;
 use crate::types::{Fixed, Point};
 
 /// Half the pixel diagonal extent along any unit normal: √2/2 ≈ 0.707.
@@ -77,14 +82,14 @@ pub(super) fn prepare_quad_edges(q: &[Point; 4], cw: bool) -> [PreparedEdge; 4] 
             } else {
                 Fixed64::ZERO
             };
-            (inv_len, Fixed64::from_raw(len_sq.raw() / 4))
+            (inv_len, len_sq / 4)
         };
         #[cfg(all(feature = "quad-aa", not(feature = "std")))]
         let (qx, qy) = {
             // Sample offset ±0.25 pixel along either axis shifts raw by
             // ±(n / 4). Precompute once per quad — the hot path reads
             // these instead of scaling nx / ny each sample.
-            (Fixed::from_raw(nx.raw() / 4), Fixed::from_raw(ny.raw() / 4))
+            (nx / 4, ny / 4)
         };
         PreparedEdge {
             base: a,
@@ -168,7 +173,7 @@ pub(super) fn quad_pixel_coverage_row_binary(
     // Any edge with a negative raw signed distance at the pixel center
     // excludes this pixel.
     for raw in row.raw.iter() {
-        if raw.raw() < 0 {
+        if raw.is_negative() {
             return Fixed::ZERO;
         }
     }
@@ -181,10 +186,10 @@ pub(super) fn quad_pixel_coverage_row_binary(
             let proj_a = dx * c.ua.x + dy * c.ua.y;
             let proj_b = dx * c.ub.x + dy * c.ub.y;
             if proj_a < Fixed::ZERO && proj_b < Fixed::ZERO {
-                let dx_raw = dx.raw() as i64;
-                let dy_raw = dy.raw() as i64;
+                let dx_raw = i64::from(storage::to_i32(dx));
+                let dy_raw = i64::from(storage::to_i32(dy));
                 let dist_sq = dx_raw * dx_raw + dy_raw * dy_raw;
-                let r_raw = c.radius.raw() as i64;
+                let r_raw = i64::from(storage::to_i32(c.radius));
                 if dist_sq > r_raw * r_raw {
                     return Fixed::ZERO;
                 }
@@ -236,9 +241,9 @@ pub(super) fn quad_pixel_coverage_row_supersample(
 
     match hit {
         0 => Fixed::ZERO,
-        1 => Fixed::from_raw(64),  // 0.25 in Q24.8
-        2 => Fixed::HALF,          // 0.5
-        3 => Fixed::from_raw(192), // 0.75
+        1 => Fixed::from_ratio(1, 4),
+        2 => Fixed::HALF, // 0.5
+        3 => Fixed::from_ratio(3, 4),
         _ => Fixed::ONE,
     }
 }
@@ -250,10 +255,10 @@ pub(super) fn quad_pixel_coverage_row_supersample(
 #[inline(always)]
 fn sample_inside(edges: &[PreparedEdge; 4], row: &EdgeRowState, sx: i32, sy: i32) -> bool {
     for (e, raw_center) in edges.iter().zip(row.raw.iter()) {
-        let qx = Fixed::from_raw(sx * e.qx.raw());
-        let qy = Fixed::from_raw(sy * e.qy.raw());
+        let qx = e.qx * sx;
+        let qy = e.qy * sy;
         let raw = *raw_center + qx + qy;
-        if raw.raw() < 0 {
+        if raw.is_negative() {
             return false;
         }
     }
@@ -266,8 +271,9 @@ fn sample_inside(edges: &[PreparedEdge; 4], row: &EdgeRowState, sx: i32, sy: i32
 #[inline]
 fn corner_sample_hit(c: &PreparedCorner, cx: Fixed, cy: Fixed) -> u32 {
     let r = c.radius;
-    let r_sq_raw = r.raw() as i64 * r.raw() as i64;
-    let quarter = Fixed::from_raw(64); // 0.25
+    let r_raw = i64::from(storage::to_i32(r));
+    let r_sq_raw = r_raw * r_raw;
+    let quarter = Fixed::from_ratio(1, 4);
     let offsets = [
         (-quarter, -quarter),
         (quarter, -quarter),
@@ -281,8 +287,8 @@ fn corner_sample_hit(c: &PreparedCorner, cx: Fixed, cy: Fixed) -> u32 {
         // |sample − center|² < r²: done as i64 to avoid Fixed overflow
         // on big corners; each multiply is a single RV32M `mulh` pair,
         // roughly the cost of a Fixed split multiply.
-        let sx_raw = sx.raw() as i64;
-        let sy_raw = sy.raw() as i64;
+        let sx_raw = i64::from(storage::to_i32(sx));
+        let sy_raw = i64::from(storage::to_i32(sy));
         if sx_raw * sx_raw + sy_raw * sy_raw < r_sq_raw {
             hit += 1;
         }
@@ -309,7 +315,7 @@ pub(super) fn quad_pixel_coverage_row_sdf(
         let raw_sq = raw * raw;
         if raw_sq >= e.half_len_sq {
             // Safely inside or outside the ±0.5 band.
-            if raw.raw() < 0 {
+            if raw.is_negative() {
                 return Fixed::ZERO;
             }
             continue;

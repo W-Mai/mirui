@@ -70,7 +70,10 @@ fn independent_glyph_units_share_scalar_plans_and_aligned_error_atomic_output() 
         assert_eq!(glyphs.len(), 2);
         assert!(!glyphs.is_empty());
         assert_eq!(glyphs.group_count(), 1);
-        assert_eq!(glyphs.input_alignment(), Ok(1));
+        assert_eq!(
+            glyphs.input_alignment().map(crate::ByteAlignment::get),
+            Ok(1)
+        );
         glyphs.preflight(&PayloadLimits::EMBEDDED).unwrap();
         assert_eq!(
             glyphs.preflight(&PayloadLimits::EMBEDDED.with_max_font_glyphs(1)),
@@ -92,7 +95,7 @@ fn independent_glyph_units_share_scalar_plans_and_aligned_error_atomic_output() 
         assert!(!groups.is_empty());
         assert_eq!(groups.group_count(), 1);
         let requirements = SurfaceRequirements::new()
-            .with_base_alignment(64)
+            .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
             .with_stride_multiple(64);
         for (index, value) in [(0, 1), (1, 2)] {
             let plan = groups
@@ -278,7 +281,7 @@ fn metadata_admission_does_not_imply_codec_support_or_valid_file_placement() {
         );
     }
     let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 1])
-        .with_input_alignment(64)
+        .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
         .encode()
         .unwrap();
     let glyphs = bind(
@@ -289,7 +292,10 @@ fn metadata_admission_does_not_imply_codec_support_or_valid_file_placement() {
         2,
         2,
     );
-    assert_eq!(glyphs.input_alignment(), Ok(64));
+    assert_eq!(
+        glyphs.input_alignment().map(crate::ByteAlignment::get),
+        Ok(64)
+    );
     for offset in [0, 64, 128] {
         glyphs
             .with_file_offset(offset)
