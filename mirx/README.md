@@ -136,6 +136,8 @@ fn inspect(bytes: &[u8]) {
 
 ## Image geometry
 
+![The common MIRX media directory and the typed IMAGE, FRAMES, and FONT section sets](docs/media-payload-layout.svg)
+
 IMAGE uses an 8-byte media header, 12-byte section entries, a 32-byte SURFACE record, optional PLANES and COLOR_TABLE sections, DATA, and a 4-byte DATA checksum by default. The header contains version, flags, section count, and metadata CRC only. Each section entry stores kind, flags, payload-relative offset, and byte size; typed schemas and surface geometry determine interpreted sizes. Tight RAW planes derive their stride and offsets from the surface; padded allocation extents, strides, offsets, and alignment use explicit plane records. FLAT keeps its compact packed-image layout.
 
 `MediaPayload::open` validates section ranges and metadata integrity without scanning DATA. The metadata CRC covers the header except its own checksum field, the directory, all non-DATA bytes and padding, and the stored DATA checksums. `MediaPayload::validate_data` separately verifies all declared DATA coverage. `RawImageView::open` and `open_at` perform both checks before exposing samples. Metadata inspection therefore does not imply that sample bytes have been verified; this borrowed-slice API does not perform streamed file reads.

@@ -1,0 +1,99 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="780" viewBox="0 0 960 780" role="img" aria-labelledby="title desc">
+  <title id="title">MIRX media payload directory and typed section layouts</title>
+  <desc id="desc">A chunk descriptor points to one media payload. The payload contains an eight-byte header, twelve-byte section directory entries, referenced section bodies, and data integrity. IMAGE, FRAMES, and FONT use the same directory while defining different required sections.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0L8 4L0 8Z" class="arrow-head"/></marker>
+    <style>
+      .bg{fill:#f8fafc}.panel{fill:#fff;stroke:#dbe3ee;stroke-width:1.5}.soft{fill:#f1f5f9;stroke:#dbe3ee;stroke-width:1.2}.title{fill:#0f172a;font:750 22px system-ui,sans-serif;letter-spacing:-.3px}.section-title{fill:#0f172a;font:730 15px system-ui,sans-serif}.head{fill:#0f172a;font:700 12px system-ui,sans-serif}.body{fill:#64748b;font:11px system-ui,sans-serif}.small{fill:#64748b;font:9.5px system-ui,sans-serif}.mono{fill:#334155;font:650 10px ui-monospace,SFMono-Regular,Menlo,monospace}.mono-small{fill:#64748b;font:650 9px ui-monospace,SFMono-Regular,Menlo,monospace}.wire{fill:none;stroke:#64748b;stroke-width:1.6;marker-end:url(#arrow)}.guide{fill:none;stroke:#94a3b8;stroke-width:1.2;stroke-dasharray:3 4}.arrow-head{fill:#64748b}.blue{fill:#e0f2fe;stroke:#38bdf8}.blue-text{fill:#0369a1}.violet{fill:#ede9fe;stroke:#a78bfa}.violet-text{fill:#6d28d9}.green{fill:#dcfce7;stroke:#4ade80}.green-text{fill:#047857}.amber{fill:#fef3c7;stroke:#f59e0b}.amber-text{fill:#92400e}.red{fill:#fee2e2;stroke:#f87171}.red-text{fill:#b91c1c}.record{stroke-width:1.2}.badge{font:750 9px ui-monospace,SFMono-Regular,Menlo,monospace}.stripe{fill:url(#stripe);stroke:#94a3b8}.bracket{fill:none;stroke:#94a3b8;stroke-width:1.4}.dot{fill:#64748b}
+      @media(prefers-color-scheme:dark){.bg{fill:#0b1120}.panel{fill:#111827;stroke:#334155}.soft{fill:#0f172a;stroke:#334155}.title,.section-title,.head{fill:#f8fafc}.body,.small,.mono-small{fill:#94a3b8}.mono{fill:#cbd5e1}.blue{fill:#0c4a6e;stroke:#0284c7}.blue-text{fill:#bae6fd}.violet{fill:#2e1065;stroke:#7c3aed}.violet-text{fill:#ddd6fe}.green{fill:#064e3b;stroke:#059669}.green-text{fill:#bbf7d0}.amber{fill:#78350f;stroke:#d97706}.amber-text{fill:#fde68a}.red{fill:#7f1d1d;stroke:#dc2626}.red-text{fill:#fecaca}.wire{stroke:#94a3b8}.guide,.bracket{stroke:#64748b}.arrow-head,.dot{fill:#94a3b8}}
+    </style>
+    <pattern id="stripe" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="8" height="8" fill="#e2e8f0"/><rect width="3" height="8" fill="#cbd5e1"/></pattern>
+  </defs>
+  <rect class="bg" width="960" height="780" rx="24"/>
+  <text class="title" x="40" y="46">One directory shape, three typed media schemas</text>
+  <text class="body" x="40" y="69">Directory entries locate sibling section bodies; they never contain or duplicate those bodies.</text>
+
+  <g data-audit-boundary="common-envelope">
+    <rect class="panel" x="40" y="94" width="880" height="190" rx="17"/>
+    <text class="section-title" x="64" y="123">Common media envelope</text>
+    <text class="small" x="896" y="123" text-anchor="end">little-endian · unaligned reads</text>
+    <rect class="blue record" x="64" y="145" width="150" height="58" rx="10"/>
+    <text class="head blue-text" x="139" y="169" text-anchor="middle">MediaHeader</text>
+    <text class="mono blue-text" x="139" y="188" text-anchor="middle">8 B</text>
+    <rect class="violet record" x="226" y="145" width="222" height="58" rx="10"/>
+    <text class="head violet-text" x="337" y="169" text-anchor="middle">MediaSectionDescriptor[N]</text>
+    <text class="mono violet-text" x="337" y="188" text-anchor="middle">12 B × section_count</text>
+    <rect class="soft record" x="460" y="145" width="270" height="58" rx="10"/>
+    <text class="head" x="595" y="169" text-anchor="middle">section bodies</text>
+    <text class="mono-small" x="595" y="188" text-anchor="middle">typed records · indexes · DATA</text>
+    <rect class="green record" x="742" y="145" width="154" height="58" rx="10"/>
+    <text class="head green-text" x="819" y="169" text-anchor="middle">integrity</text>
+    <text class="mono-small green-text" x="819" y="188" text-anchor="middle">CRC32 or INTEGRITY</text>
+    <path class="wire" d="M337 203V229H510"/>
+    <rect class="soft" x="510" y="216" width="318" height="46" rx="9"/>
+    <text class="mono" x="526" y="236">{ kind, flags, offset, size }</text>
+    <text class="small" x="526" y="252">offset + size references one sibling body</text>
+  </g>
+
+  <text class="section-title" x="40" y="321">Typed section sets</text>
+  <text class="body" x="40" y="343">A question mark marks a section omitted when its information is canonical or unused.</text>
+
+  <g transform="translate(40 364)" data-audit-boundary="typed-layouts">
+    <g>
+      <rect class="panel" width="280" height="278" rx="15"/>
+      <circle cx="25" cy="27" r="11" class="blue record"/><text class="badge blue-text" x="25" y="31" text-anchor="middle">I</text>
+      <text class="section-title" x="45" y="32">IMAGE</text>
+      <text class="small" x="18" y="55">one logical surface</text>
+      <rect class="blue record" x="18" y="70" width="244" height="30" rx="7"/><text class="mono blue-text" x="30" y="89">SURFACE · 32 B</text>
+      <rect class="soft record" x="18" y="106" width="118" height="30" rx="7"/><text class="mono" x="30" y="125">PLANES? · 24 B×P</text>
+      <rect class="soft record" x="144" y="106" width="118" height="30" rx="7"/><text class="mono" x="156" y="125">COLOR_TABLE?</text>
+      <rect class="violet record" x="18" y="142" width="244" height="30" rx="7"/><text class="mono violet-text" x="30" y="161">CODINGS? · 4 + 8 B×C + params</text>
+      <rect class="violet record" x="18" y="178" width="150" height="30" rx="7"/><text class="mono violet-text" x="30" y="197">UNIT_GROUPS? · 36 B×G</text>
+      <rect class="soft record" x="176" y="178" width="86" height="30" rx="7"/><text class="mono" x="188" y="197">UNIT_INDEX?</text>
+      <rect class="green record" x="18" y="214" width="244" height="30" rx="7"/><text class="mono green-text" x="30" y="233">DATA · stored sample stream</text>
+      <text class="small" x="18" y="259">RAW omits CODINGS.</text>
+      <text class="small" x="18" y="272">One coded stream may omit groups and index.</text>
+    </g>
+
+    <g transform="translate(300)">
+      <rect class="panel" width="280" height="278" rx="15"/>
+      <circle cx="25" cy="27" r="11" class="amber record"/><text class="badge amber-text" x="25" y="31" text-anchor="middle">F</text>
+      <text class="section-title" x="45" y="32">FRAMES</text>
+      <text class="small" x="18" y="55">one surface, ordered presentations</text>
+      <rect class="amber record" x="18" y="70" width="118" height="30" rx="7"/><text class="mono amber-text" x="30" y="89">SEQUENCE · 20 B</text>
+      <rect class="blue record" x="144" y="70" width="118" height="30" rx="7"/><text class="mono blue-text" x="156" y="89">SURFACE · 32 B</text>
+      <rect class="violet record" x="18" y="106" width="244" height="30" rx="7"/><text class="mono violet-text" x="30" y="125">CODINGS · 4 + 8 B×C + params</text>
+      <rect class="violet record" x="18" y="142" width="150" height="30" rx="7"/><text class="mono violet-text" x="30" y="161">UNIT_GROUPS · 36 B×G</text>
+      <rect class="soft record" x="176" y="142" width="86" height="30" rx="7"/><text class="mono" x="188" y="161">UNIT_INDEX?</text>
+      <rect class="amber record" x="18" y="178" width="244" height="30" rx="7"/><text class="mono-small amber-text" x="30" y="197">FRAME_MAP · TIMING? · COMPOSITION? · KEYFRAMES?</text>
+      <rect class="green record" x="18" y="214" width="244" height="30" rx="7"/><text class="mono green-text" x="30" y="233">DATA · independent or previous-frame units</text>
+      <text class="small" x="18" y="259">FRAME_MAP selects a contiguous group range.</text>
+      <text class="small" x="18" y="272">Optional COLOR_TABLE is shared by the sequence.</text>
+    </g>
+
+    <g transform="translate(600)">
+      <rect class="panel" width="280" height="278" rx="15"/>
+      <circle cx="25" cy="27" r="11" class="green record"/><text class="badge green-text" x="25" y="31" text-anchor="middle">T</text>
+      <text class="section-title" x="45" y="32">FONT</text>
+      <text class="small" x="18" y="55">one face, multiple representations</text>
+      <rect class="green record" x="18" y="70" width="118" height="30" rx="7"/><text class="mono-small green-text" x="30" y="89">CODEPOINTS · 4 B×N</text>
+      <rect class="green record" x="144" y="70" width="118" height="30" rx="7"/><text class="mono-small green-text" x="156" y="89">REPS · 16 B×R</text>
+      <rect class="soft record" x="18" y="106" width="118" height="30" rx="7"/><text class="mono" x="30" y="125">METRICS</text>
+      <rect class="blue record" x="144" y="106" width="118" height="30" rx="7"/><text class="mono blue-text" x="156" y="125">SURFACE_GROUPS</text>
+      <rect class="soft record" x="18" y="142" width="244" height="30" rx="7"/><text class="mono" x="30" y="161">GLYPH_MAPS? · PLANES?</text>
+      <rect class="violet record" x="18" y="178" width="244" height="30" rx="7"/><text class="mono violet-text" x="30" y="197">CODINGS? · UNIT_GROUPS? · UNIT_INDEX?</text>
+      <rect class="green record" x="18" y="214" width="244" height="30" rx="7"/><text class="mono green-text" x="30" y="233">DATA · glyph-major or atlas samples</text>
+      <text class="small" x="18" y="259">Surface records reference shared storage</text>
+      <text class="small" x="18" y="272">by directory ordinal.</text>
+    </g>
+  </g>
+
+  <g transform="translate(40 666)" data-audit-boundary="omission-rules">
+    <rect class="panel" width="880" height="78" rx="14"/>
+    <text class="head" x="20" y="25">Canonical omission keeps repeated media compact</text>
+    <circle class="dot" cx="23" cy="46" r="3"/><text class="small" x="34" y="50">tight RAW derives plane geometry and stride</text>
+    <circle class="dot" cx="311" cy="46" r="3"/><text class="small" x="322" y="50">fixed-size units derive byte ranges</text>
+    <circle class="dot" cx="572" cy="46" r="3"/><text class="small" x="583" y="50">group records are shared by tiles and frames</text>
+    <text class="mono-small" x="20" y="67">Stored input alignment, actual pointer alignment, decoded stride, and workspace alignment remain independent contracts.</text>
+  </g>
+</svg>
