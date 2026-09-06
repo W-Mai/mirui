@@ -5,7 +5,10 @@ use std::process::Command;
 use mirx::{
     ChunkFlags, ChunkType, Document, EncodeOptions, FrameEncoding, FrameEncodingSet, FramePolicy,
     FrameSequence, FrameStorage, FramesEncoder, PayloadLimits, Reader,
-    image::{BufferRequirements, SurfaceDescriptor, SurfaceMemoryPlan, SurfaceRequirements},
+    image::{
+        BufferRequirements, CacheSync, DecodeRequest, MemoryPlacement, SurfaceDescriptor,
+        SurfaceMemoryPlan, SurfaceRequirements,
+    },
 };
 
 use super::{Result, icu_program, probe_icu};
@@ -21,7 +24,7 @@ struct Options {
     max_delta_frames: u16,
     tiles: Option<(u32, u32)>,
     input_alignment: u32,
-    output_requirements: SurfaceRequirements,
+    decode_request: DecodeRequest,
     quality: Option<u8>,
 }
 
@@ -41,6 +44,10 @@ impl Options {
         let mut width_multiple = 1u32;
         let mut height_multiple = 1u32;
         let mut stride_multiple = 1u32;
+        let mut workspace_alignment = 1u32;
+        let mut input_memory = MemoryPlacement::Cpu;
+        let mut output_memory = MemoryPlacement::Cpu;
+        let mut workspace_memory = MemoryPlacement::Cpu;
         let mut quality = None;
         let mut cursor = 0;
         while cursor < args.len() {
@@ -97,6 +104,14 @@ impl Options {
                         .parse()
                         .map_err(|_| "--stride-multiple must be positive")?
                 }
+                "--workspace-align" => {
+                    workspace_alignment = value
+                        .parse()
+                        .map_err(|_| "--workspace-align must be a positive power of two")?
+                }
+                "--input-memory" => input_memory = parse_memory_placement(value)?,
+                "--output-memory" => output_memory = parse_memory_placement(value)?,
+                "--workspace-memory" => workspace_memory = parse_memory_placement(value)?,
                 "--quality" => {
                     quality = Some(
                         value
@@ -142,12 +157,30 @@ impl Options {
         if !plane_alignment.is_power_of_two() {
             return Err("--plane-align must be a positive power of two".into());
         }
+        if !workspace_alignment.is_power_of_two() {
+            return Err("--workspace-align must be a positive power of two".into());
+        }
         if width_multiple == 0 || height_multiple == 0 || stride_multiple == 0 {
             return Err("output width, height, and stride multiples must be positive".into());
         }
         if quality.is_some_and(|value| !(1..=100).contains(&value)) {
             return Err("--quality must be between 1 and 100".into());
         }
+        let decode_request = DecodeRequest::new(
+            SurfaceRequirements::new()
+                .with_base_alignment(output_alignment)
+                .with_plane_alignment(plane_alignment)
+                .with_width_multiple(width_multiple)
+                .with_height_multiple(height_multiple)
+                .with_stride_multiple(stride_multiple),
+        )
+        .with_input(input_memory)
+        .with_output(output_memory)
+        .with_workspace(workspace_memory)
+        .with_workspace_alignment(workspace_alignment);
+        decode_request
+            .validate_reconstruction()
+            .map_err(|error| format!("unsupported decode memory contract: {error:?}"))?;
         Ok(Self {
             inputs,
             output,
@@ -158,12 +191,7 @@ impl Options {
             max_delta_frames,
             tiles,
             input_alignment,
-            output_requirements: SurfaceRequirements::new()
-                .with_base_alignment(output_alignment)
-                .with_plane_alignment(plane_alignment)
-                .with_width_multiple(width_multiple)
-                .with_height_multiple(height_multiple)
-                .with_stride_multiple(stride_multiple),
+            decode_request,
             quality,
         })
     }
@@ -180,6 +208,8 @@ struct DecodedFrame {
 struct OutputReport {
     memory: SurfaceMemoryPlan,
     input_alignment: u32,
+    input_addresses_aligned: bool,
+    request: DecodeRequest,
     group_slots: usize,
     workspace: BufferRequirements,
     backup: BufferRequirements,
@@ -195,7 +225,7 @@ pub fn run(args: &[String]) -> Result {
     let first = frames.first().expect("validated frame list");
     first
         .surface
-        .memory_plan(options.output_requirements)
+        .memory_plan(options.decode_request.requirements())
         .map_err(|error| format!("invalid output requirements: {error:?}"))?;
     for (index, frame) in frames.iter().enumerate().skip(1) {
         if frame.surface != first.surface {
@@ -272,7 +302,7 @@ pub fn run(args: &[String]) -> Result {
     let bytes = document
         .encode(&EncodeOptions::new())
         .map_err(|error| format!("cannot encode FRAMES container: {error:?}"))?;
-    let output_report = inspect_output(&bytes, options.output_requirements)?;
+    let output_report = inspect_output(&bytes, options.decode_request)?;
     fs::write(&options.output, &bytes)?;
 
     println!(
@@ -299,10 +329,23 @@ pub fn run(args: &[String]) -> Result {
         bytes.len() as f64 / source_bytes as f64,
     );
     println!(
-        "  access: recovery <= {} frames, input alignment {} B, runtime {}",
+        "  access: recovery <= {} frames, input alignment {} B (host slice {}), runtime {}",
         max_delta_frames,
         output_report.input_alignment,
+        if output_report.input_addresses_aligned {
+            "aligned"
+        } else {
+            "misaligned"
+        },
         runtime_path(first.surface),
+    );
+    println!(
+        "  memory: input {}, output {}, workspace {}; cache input {}, output {}",
+        memory_name(output_report.request.input()),
+        memory_name(output_report.request.output()),
+        memory_name(output_report.request.workspace()),
+        cache_sync_name(output_report.request.input_sync()),
+        cache_sync_name(output_report.request.output_sync()),
     );
     println!(
         "  buffers: canvas {} B @ {} B, codec workspace {} B @ {} B, backup {} B @ {} B, group slots {}",
@@ -392,7 +435,7 @@ fn decode_frame(path: &Path, format: &str) -> Result<DecodedFrame> {
     })
 }
 
-fn inspect_output(bytes: &[u8], requirements: SurfaceRequirements) -> Result<OutputReport> {
+fn inspect_output(bytes: &[u8], request: DecodeRequest) -> Result<OutputReport> {
     let reader = Reader::open(bytes)
         .map_err(|error| format!("generated FRAMES container is invalid: {error:?}"))?;
     reader
@@ -414,13 +457,13 @@ fn inspect_output(bytes: &[u8], requirements: SurfaceRequirements) -> Result<Out
         .map_err(|error| format!("generated FRAMES DATA is invalid: {error:?}"))?;
     let mut group_slots = vec![None; frames.group_count()];
     let plan = frames
-        .playback_plan(requirements, PayloadLimits::HOST, &mut group_slots)
+        .playback_plan_for(request, PayloadLimits::HOST, &mut group_slots)
         .map_err(|error| format!("generated FRAMES playback plan failed: {error:?}"))?;
     Ok(OutputReport {
         memory: plan.memory_plan(),
-        input_alignment: frames
-            .input_alignment()
-            .map_err(|error| format!("generated FRAMES alignment is invalid: {error:?}"))?,
+        input_alignment: plan.input_alignment(),
+        input_addresses_aligned: plan.input_addresses_are_aligned(),
+        request: plan.request(),
         group_slots: plan.group_workspace_len(),
         workspace: plan.workspace_requirements(),
         backup: plan.backup_requirements(),
@@ -436,6 +479,38 @@ fn runtime_path(surface: SurfaceDescriptor) -> &'static str {
         | mirx::image::SampleLayout::RGBA8888
         | mirx::image::SampleLayout::BGRA8888 => "mirui borrowed Texture",
         _ => "mirx decoded surface; backend conversion required",
+    }
+}
+
+fn parse_memory_placement(value: &str) -> Result<MemoryPlacement> {
+    match value.to_ascii_lowercase().as_str() {
+        "cpu" => Ok(MemoryPlacement::Cpu),
+        "flash" => Ok(MemoryPlacement::Flash),
+        "shared-coherent" => Ok(MemoryPlacement::SharedCoherent),
+        "shared-noncoherent" => Ok(MemoryPlacement::SharedNoncoherent),
+        "device" => Ok(MemoryPlacement::Device),
+        _ => Err(format!(
+            "invalid memory placement {value:?}; expected cpu, flash, shared-coherent, shared-noncoherent, or device"
+        )
+        .into()),
+    }
+}
+
+fn memory_name(placement: MemoryPlacement) -> &'static str {
+    match placement {
+        MemoryPlacement::Cpu => "cpu",
+        MemoryPlacement::Flash => "flash",
+        MemoryPlacement::SharedCoherent => "shared-coherent",
+        MemoryPlacement::SharedNoncoherent => "shared-noncoherent",
+        MemoryPlacement::Device => "device",
+    }
+}
+
+fn cache_sync_name(sync: CacheSync) -> &'static str {
+    match sync {
+        CacheSync::None => "none",
+        CacheSync::InvalidateBeforeRead => "invalidate-before-read",
+        CacheSync::CleanAfterWrite => "clean-after-write",
     }
 }
 
@@ -516,6 +591,14 @@ mod tests {
             "2",
             "--stride-multiple",
             "64",
+            "--workspace-align",
+            "64",
+            "--input-memory",
+            "flash",
+            "--output-memory",
+            "shared-noncoherent",
+            "--workspace-memory",
+            "shared-coherent",
             "--quality",
             "70",
         ]))
@@ -524,11 +607,16 @@ mod tests {
         assert_eq!(options.tiles, Some((16, 8)));
         assert_eq!(options.input_alignment, 64);
         assert_eq!(options.play_count, 3);
-        assert_eq!(options.output_requirements.base_alignment(), 64);
-        assert_eq!(options.output_requirements.plane_alignment(), 64);
-        assert_eq!(options.output_requirements.width_multiple(), 8);
-        assert_eq!(options.output_requirements.height_multiple(), 2);
-        assert_eq!(options.output_requirements.stride_multiple(), 64);
+        let request = options.decode_request;
+        assert_eq!(request.requirements().base_alignment(), 64);
+        assert_eq!(request.requirements().plane_alignment(), 64);
+        assert_eq!(request.requirements().width_multiple(), 8);
+        assert_eq!(request.requirements().height_multiple(), 2);
+        assert_eq!(request.requirements().stride_multiple(), 64);
+        assert_eq!(request.workspace_alignment(), 64);
+        assert_eq!(request.input(), MemoryPlacement::Flash);
+        assert_eq!(request.output(), MemoryPlacement::SharedNoncoherent);
+        assert_eq!(request.workspace(), MemoryPlacement::SharedCoherent);
         assert_eq!(options.quality, Some(70));
         assert_eq!(options.max_delta_frames, 12);
     }
@@ -547,6 +635,28 @@ mod tests {
                 "a.mirx",
                 "--quality",
                 "0"
+            ]))
+            .is_err()
+        );
+        assert!(
+            Options::parse(&args(&[
+                "--in",
+                "a.png",
+                "--out",
+                "a.mirx",
+                "--workspace-align",
+                "3",
+            ]))
+            .is_err()
+        );
+        assert!(
+            Options::parse(&args(&[
+                "--in",
+                "a.png",
+                "--out",
+                "a.mirx",
+                "--output-memory",
+                "device",
             ]))
             .is_err()
         );
@@ -599,7 +709,7 @@ mod tests {
         let mut missing_primary = Document::new();
         missing_primary.push_frames(encoded.clone()).unwrap();
         let bytes = missing_primary.encode(&EncodeOptions::new()).unwrap();
-        assert!(inspect_output(&bytes, SurfaceRequirements::new()).is_err());
+        assert!(inspect_output(&bytes, DecodeRequest::default()).is_err());
 
         let mut document = Document::new();
         let id = document.push_frames(encoded).unwrap();
@@ -607,10 +717,16 @@ mod tests {
         let bytes = document.encode(&EncodeOptions::new()).unwrap();
         let report = inspect_output(
             &bytes,
-            SurfaceRequirements::new()
-                .with_base_alignment(64)
-                .with_width_multiple(64)
-                .with_stride_multiple(64),
+            DecodeRequest::new(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_width_multiple(64)
+                    .with_stride_multiple(64),
+            )
+            .with_input(MemoryPlacement::Flash)
+            .with_output(MemoryPlacement::SharedNoncoherent)
+            .with_workspace(MemoryPlacement::SharedCoherent)
+            .with_workspace_alignment(64),
         )
         .unwrap();
         assert_eq!(report.memory.byte_len(), 192);
@@ -618,6 +734,10 @@ mod tests {
         assert_eq!(report.memory.plane(0).unwrap().stride(), 192);
         assert_eq!(report.group_slots, 1);
         assert_eq!(report.workspace.byte_len(), 6);
+        assert_eq!(report.workspace.base_alignment(), 64);
         assert_eq!(report.backup.byte_len(), 0);
+        assert_eq!(report.request.input_sync(), CacheSync::None);
+        assert_eq!(report.request.output_sync(), CacheSync::CleanAfterWrite);
+        assert!(report.input_addresses_aligned);
     }
 }

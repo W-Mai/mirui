@@ -35,7 +35,13 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
     \
                      [--output-align <bytes>] [--plane-align <bytes>] [--width-multiple <pixels>] \
     \
-                     [--height-multiple <rows>] [--stride-multiple <bytes>] [--quality <1..100>]\n  \
+                     [--height-multiple <rows>] [--stride-multiple <bytes>] [--workspace-align <bytes>] \
+    \
+                     [--input-memory <cpu|flash|shared-coherent|shared-noncoherent>] \
+    \
+                     [--output-memory <cpu|shared-coherent|shared-noncoherent>] \
+    \
+                     [--workspace-memory <cpu|shared-coherent|shared-noncoherent>] [--quality <1..100>]\n  \
                  cargo xtask gen-mirx bundle <a.mirx> <b.mirx> ... --out <bundle.mirx>\n  \
                  cargo xtask gen-mirx vector --in <scene.txt> --out <scene.mirx>\n\
                  \n\
