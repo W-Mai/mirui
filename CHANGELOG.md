@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Scoped version bumps.** `cargo xtask bump` updates workspace members and explicit auxiliary crates without traversing local experiments or vendored manifests.
 - **Web gallery clock and default route.** The Web host installs the shared monotonic clock before demo setup, animated systems consume the framework delta-time resource, and an empty or unknown route opens Orbit Console.
 
 ### Added

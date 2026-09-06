@@ -5,6 +5,8 @@ mod mirx;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
+const AUXILIARY_VERSIONED_MANIFESTS: &[&str] = &[".cha/plugin-src/Cargo.toml"];
+
 fn main() {
     if let Err(e) = run() {
         eprintln!("error: {e}");
@@ -583,8 +585,10 @@ fn cmd_bump(level: &str) -> Result {
     let next = bump_version(&current, level)?;
     println!("  → bumping {current} → {next}");
 
-    // 1. [package].version in every Cargo.toml under the workspace.
-    for toml in find_cargo_tomls(&root) {
+    // 1. [package].version in workspace members and explicitly versioned
+    //    auxiliary crates. Never recurse through local experiments or vendored
+    //    source trees: those manifests own unrelated package versions.
+    for toml in versioned_cargo_tomls(&root)? {
         if rewrite_version(&toml, &next)? {
             println!("  → updated {toml}");
         }
@@ -1036,27 +1040,53 @@ fn read_version(root: &str) -> Result<String> {
         .ok_or_else(|| "could not find version".into())
 }
 
-fn find_cargo_tomls(root: &str) -> Vec<String> {
-    let mut result = Vec::new();
-    fn walk(dir: &std::path::Path, result: &mut Vec<String>) {
-        let Ok(entries) = std::fs::read_dir(dir) else {
-            return;
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                let name = path.file_name().unwrap_or_default().to_string_lossy();
-                if name != "target" && name != "node_modules" && name != ".git" {
-                    walk(&path, result);
-                }
-            } else if path.file_name().is_some_and(|f| f == "Cargo.toml") {
-                result.push(path.to_string_lossy().into_owned());
-            }
+fn versioned_cargo_tomls(root: &str) -> Result<Vec<String>> {
+    let output = Command::new("cargo")
+        .args(["metadata", "--no-deps", "--format-version", "1"])
+        .current_dir(root)
+        .output()?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned().into());
+    }
+
+    let mut manifests = workspace_manifests_from_metadata(&output.stdout)?;
+    for relative in AUXILIARY_VERSIONED_MANIFESTS {
+        let path = std::path::Path::new(root).join(relative);
+        if path.is_file() {
+            manifests.push(path.to_string_lossy().into_owned());
         }
     }
-    walk(std::path::Path::new(root), &mut result);
-    result.sort();
-    result
+    manifests.sort();
+    manifests.dedup();
+    Ok(manifests)
+}
+
+fn workspace_manifests_from_metadata(bytes: &[u8]) -> Result<Vec<String>> {
+    let metadata: serde_json::Value = serde_json::from_slice(bytes)?;
+    let members = metadata["workspace_members"]
+        .as_array()
+        .ok_or("cargo metadata omitted workspace_members")?;
+    let packages = metadata["packages"]
+        .as_array()
+        .ok_or("cargo metadata omitted packages")?;
+
+    let mut manifests = Vec::with_capacity(members.len());
+    for member in members {
+        let id = member
+            .as_str()
+            .ok_or("cargo metadata workspace member is not a string")?;
+        let package = packages
+            .iter()
+            .find(|package| package["id"].as_str() == Some(id))
+            .ok_or_else(|| format!("cargo metadata omitted workspace package {id}"))?;
+        let manifest = package["manifest_path"]
+            .as_str()
+            .ok_or_else(|| format!("cargo metadata package {id} omitted manifest_path"))?;
+        manifests.push(manifest.to_string());
+    }
+    manifests.sort();
+    manifests.dedup();
+    Ok(manifests)
 }
 
 fn rewrite_version(path: &str, next: &str) -> Result<bool> {
@@ -1113,6 +1143,35 @@ fn bump_version(version: &str, level: &str) -> Result<String> {
         "patch" => format!("{major}.{minor}.{}", patch + 1),
         _ => unreachable!(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::workspace_manifests_from_metadata;
+
+    #[test]
+    fn bump_targets_only_workspace_members() {
+        let metadata = br#"{
+            "workspace_members": ["root 0.42.0", "member 0.42.0"],
+            "packages": [
+                {
+                    "id": "root 0.42.0",
+                    "manifest_path": "/repo/Cargo.toml"
+                },
+                {
+                    "id": "member 0.42.0",
+                    "manifest_path": "/repo/member/Cargo.toml"
+                },
+                {
+                    "id": "local 9.9.9",
+                    "manifest_path": "/repo/.local/vendor/Cargo.toml"
+                }
+            ]
+        }"#;
+
+        let manifests = workspace_manifests_from_metadata(metadata).unwrap();
+        assert_eq!(manifests, ["/repo/Cargo.toml", "/repo/member/Cargo.toml"]);
+    }
 }
 
 fn cmd_templates_bump() -> Result {
