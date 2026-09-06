@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Web gallery clock and default route.** The Web host installs the shared monotonic clock before demo setup, animated systems consume the framework delta-time resource, and an empty or unknown route opens Orbit Console.
+
 ### Added
 
 - **Orbit Console showcase.** A 1024 × 640 interactive gallery scene combines the declarative widget tree, SDF text, fixed-point paths, gradients, custom render views, animation, mode selection, focus cycling, intensity control, and pause/resume state. A headless PNG renderer captures the same tree in a deterministic state for README imagery.

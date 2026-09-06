@@ -1,8 +1,6 @@
 # gallery-web — `web-canvas` backend gallery
 
-All 46 `mirui::gallery::demos` running on a `<canvas>` through the
-`web-canvas` backend, driven by `requestAnimationFrame`. The sidebar
-nav is generated from the `register_demos!` table in `src/lib.rs`.
+All registered `mirui::gallery::demos` run on a `<canvas>` through the `web-canvas` backend, driven by `requestAnimationFrame`. The sidebar nav is generated from the `register_demos!` table in `src/lib.rs`.
 
 ## Prerequisites
 
@@ -22,9 +20,7 @@ cd gallery/web
 trunk serve
 ```
 
-Opens a dev server at <http://127.0.0.1:8080/>, rebuilds and reloads
-the browser on edits. Pick a demo with `?demo=<slug>`, e.g.
-<http://127.0.0.1:8080/?demo=three_body>.
+Opens a dev server at <http://127.0.0.1:8080/?demo=orbit_console>, rebuilds and reloads the browser on edits. Orbit Console is the default; pick another demo with `?demo=<slug>`.
 
 ## Build for release
 

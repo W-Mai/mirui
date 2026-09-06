@@ -10,6 +10,7 @@ use alloc::vec;
 #[cfg(feature = "std")]
 use crate::app::plugins::StdInstantClockPlugin;
 use crate::core::reactive::Signal;
+use crate::ecs::DeltaTimeMs;
 use crate::prelude::*;
 use crate::render::command::DrawCommand;
 use crate::render::font::{FontManager, mirx as mirx_font};
@@ -96,7 +97,6 @@ pub struct ConsoleState {
     pub focused_node: u8,
     pub paused: bool,
     phase: Fixed,
-    last_tick_ms: Option<u32>,
     revision: u32,
 }
 
@@ -108,7 +108,6 @@ impl ConsoleState {
             focused_node: 1,
             paused: false,
             phase: Fixed::ZERO,
-            last_tick_ms: None,
             revision: 0,
         }
     }
@@ -120,7 +119,6 @@ impl ConsoleState {
             focused_node: 1,
             paused: false,
             phase: Fixed::from_int(32),
-            last_tick_ms: None,
             revision: 0,
         }
     }
@@ -162,17 +160,11 @@ impl ConsoleState {
         self.revision = self.revision.wrapping_add(1);
     }
 
-    fn advance(&mut self, now_ms: u32) -> bool {
-        let Some(previous) = self.last_tick_ms.replace(now_ms) else {
-            return false;
-        };
-        if self.paused {
+    fn advance(&mut self, delta_ms: u16) -> bool {
+        if self.paused || delta_ms == 0 {
             return false;
         }
-        let elapsed = now_ms.wrapping_sub(previous).min(100);
-        if elapsed == 0 {
-            return false;
-        }
+        let elapsed = u32::from(delta_ms.min(100));
         self.phase += self.mode.phase_delta(elapsed);
         while self.phase >= Fixed::from_int(360) {
             self.phase -= Fixed::from_int(360);
@@ -227,9 +219,9 @@ impl ConsoleModel {
         self.state.get_untracked()
     }
 
-    fn advance(&self, now_ms: u32) {
+    fn advance(&self, delta_ms: u16) {
         let mut state = self.snapshot();
-        if state.advance(now_ms) {
+        if state.advance(delta_ms) {
             self.state.set(state);
         }
     }
@@ -824,12 +816,9 @@ fn register_fonts(world: &mut World) {
 
 #[mirui_macros::system(order = ANIMATION)]
 pub fn console_animation_system(world: &mut World) {
-    let now_ms = world.resource::<MonoClock>().map(|clock| clock.now_ms());
-    let Some(now_ms) = now_ms else {
-        return;
-    };
+    let delta_ms = world.resource::<DeltaTimeMs>().map_or(16, |delta| delta.0);
     if let Some(model) = world.resource::<ConsoleModel>().cloned() {
-        model.advance(now_ms);
+        model.advance(delta_ms);
     }
 }
 
@@ -1341,8 +1330,10 @@ where
         .with_widget(signal_view())
         .with_widget(activity_view());
     if run_mode == DemoRunMode::Live {
-        app.add_plugin(StdInstantClockPlugin)
-            .add_system(console_animation_system::system());
+        if app.world.resource::<MonoClock>().is_none() {
+            app.add_plugin(StdInstantClockPlugin);
+        }
+        app.add_system(console_animation_system::system());
     }
     app.compose(parent, build_widgets);
 }
@@ -1409,14 +1400,25 @@ mod tests {
     #[test]
     fn animation_uses_elapsed_time_and_honors_pause() {
         let mut state = ConsoleState::live();
-        assert!(!state.advance(1_000));
-        assert!(state.advance(1_050));
+        assert!(state.advance(50));
         assert_eq!(state.phase(), Fixed::from_int(3));
+        assert!(!state.advance(0));
         let revision = state.revision();
         state.toggle_paused();
-        assert!(!state.advance(1_100));
+        assert!(!state.advance(50));
         assert_eq!(state.phase(), Fixed::from_int(3));
         assert_eq!(state.revision(), revision + 1);
+    }
+
+    #[test]
+    fn animation_system_consumes_framework_delta_time() {
+        let mut world = World::new();
+        world.insert_resource(ConsoleModel::new(ConsoleState::live()));
+        world.insert_resource(DeltaTimeMs(50));
+
+        console_animation_system(&mut world);
+
+        assert_eq!(state(&world).phase(), Fixed::from_int(3));
     }
 
     #[test]

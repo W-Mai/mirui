@@ -91,6 +91,7 @@ use alloc::rc::Rc;
 use core::cell::RefCell;
 
 type WebApp = gallery::mirui::app::App<gallery::ActiveSurface, gallery::ActiveFactory>;
+const DEFAULT_DEMO: &str = "orbit_console";
 
 thread_local! {
     static APP: RefCell<Option<Rc<RefCell<Option<WebApp>>>>> = const { RefCell::new(None) };
@@ -107,6 +108,7 @@ fn current_theme() -> gallery::mirui::ui::Theme {
 
 fn build_app_for(demo: &gallery::DemoEntry, backend: gallery::ActiveSurface) -> WebApp {
     let mut app = gallery::assemble_app(backend, gallery::ActiveFactory::default());
+    app.add_plugin(gallery::mirui::app::plugins::StdInstantClockPlugin);
     set_canvas_size(demo.width, demo.height);
     let root = {
         let mut setup = gallery::Setup { app: &mut app };
@@ -145,13 +147,18 @@ pub fn start() {
     console_error_panic_hook::set_once();
 
     DARK.with(|d| d.set(prefers_dark()));
-    let slug = read_demo_query().unwrap_or_else(|| "dsl".to_string());
-    let demo =
-        lookup_demo(&slug).unwrap_or_else(|| lookup_demo("dsl").expect("dsl demo registered"));
+    let slug = read_demo_query().unwrap_or_else(|| DEFAULT_DEMO.to_string());
+    let demo = lookup_demo(&slug)
+        .unwrap_or_else(|| lookup_demo(DEFAULT_DEMO).expect("default demo registered"));
     let app = build_app_for(demo, gallery::grab_canvas());
     let cell = Rc::new(RefCell::new(Some(app)));
     APP.with(|slot| *slot.borrow_mut() = Some(cell.clone()));
     gallery::mirui::app::Runner::<gallery::ActiveSurface, gallery::ActiveFactory>::drive_animation_frame(cell);
+}
+
+#[wasm_bindgen]
+pub fn default_demo_slug() -> String {
+    DEFAULT_DEMO.to_string()
 }
 
 #[wasm_bindgen]

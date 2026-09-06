@@ -1052,7 +1052,8 @@
     <script>
       window.addEventListener("TrunkApplicationStarted", () => {
         const params = new URLSearchParams(location.search);
-        let activeSlug = params.get("demo") || "dsl";
+        const defaultDemo = wasmBindings.default_demo_slug();
+        let activeSlug = params.get("demo") || defaultDemo;
 
         const navEl = document.getElementById("nav");
         navEl.innerHTML = wasmBindings.nav_html();
@@ -1074,10 +1075,10 @@
 
         let activeLink = navEl.querySelector(`a[data-demo="${CSS.escape(activeSlug)}"]`);
         if (!activeLink) {
-          // Unknown ?demo= slug: the wasm fell back to "dsl", so align the
+          // Unknown ?demo= slug: the wasm fell back to the default, so align the
           // page (active link, title, source, URL) with what's running.
-          activeSlug = "dsl";
-          activeLink = navEl.querySelector('a[data-demo="dsl"]');
+          activeSlug = defaultDemo;
+          activeLink = navEl.querySelector(`a[data-demo="${CSS.escape(defaultDemo)}"]`);
           history.replaceState({ demo: activeSlug }, "", "?demo=" + activeSlug);
         }
         if (activeLink) activeLink.classList.add("active");
@@ -1594,7 +1595,7 @@
         window.addEventListener("popstate", (e) => {
           const slug = (e.state && e.state.demo)
             || new URLSearchParams(location.search).get("demo")
-            || "dsl";
+            || defaultDemo;
           switchDemo(slug, false);
         });
 
