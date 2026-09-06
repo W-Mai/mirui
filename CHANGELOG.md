@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-09-07
+
 ### Fixed
 
 - **Scoped version bumps.** `cargo xtask bump` updates workspace members and explicit auxiliary crates without traversing local experiments or vendored manifests.
