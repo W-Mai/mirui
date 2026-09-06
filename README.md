@@ -9,6 +9,10 @@ WebAssembly. Renders with 24.8 fixed-point subpixel precision on a
 software rasterizer designed for MCUs without an FPU; optionally runs
 on top of SDL2 (CPU or hardware-accelerated) on desktop.
 
+![Orbit Console interactive showcase](docs/assets/orbit-console.png)
+
+`cargo run -p gallery --example orbit_console_demo` launches the interactive showcase.
+
 ## Features
 
 - **ECS architecture** — entities, components, systems, resources, queries; system scheduler with named priority slots
