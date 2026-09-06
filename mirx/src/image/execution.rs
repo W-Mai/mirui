@@ -104,6 +104,11 @@ impl DecodeRequest {
         self
     }
 
+    pub const fn with_requirements(mut self, requirements: SurfaceRequirements) -> Self {
+        self.requirements = requirements;
+        self
+    }
+
     pub const fn with_input(mut self, placement: MemoryPlacement) -> Self {
         self.input = placement;
         self
@@ -166,7 +171,8 @@ impl DecodeRequest {
         }
     }
 
-    pub(crate) const fn validate_reconstruction(self) -> Result<(), DecodeRequestError> {
+    /// Validates this request for the built-in CPU reconstruction path.
+    pub const fn validate_reconstruction(self) -> Result<(), DecodeRequestError> {
         if !matches!(self.execution, DecodeExecution::Reconstruct) {
             return Err(DecodeRequestError::UnsupportedExecution(self.execution));
         }

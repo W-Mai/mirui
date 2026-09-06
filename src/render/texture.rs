@@ -468,6 +468,7 @@ pub enum MirxLoadError {
     Surface(mirx::image::ImageEncodeError),
     Plan(mirx::image::SurfacePlanError),
     Groups(mirx::image::EncodedImageError),
+    Request(mirx::image::DecodeRequestError),
     Decode(mirx::image::DecodeError),
     Copy(mirx::image::SurfaceCopyError),
     /// Format mirx writes but mirui can't render (indexed, alpha-only, luma, RGB565A8).
@@ -480,6 +481,8 @@ pub enum MirxLoadError {
     DimensionOverflow,
     /// The aligned output or workspace allocation size overflowed `usize`.
     AllocationSizeOverflow,
+    /// The requested output or workspace must be supplied by the caller.
+    ExternalMemoryRequired,
 }
 
 impl From<mirx::ReadError> for MirxLoadError {
@@ -509,6 +512,12 @@ impl From<mirx::image::SurfacePlanError> for MirxLoadError {
 impl From<mirx::image::EncodedImageError> for MirxLoadError {
     fn from(err: mirx::image::EncodedImageError) -> Self {
         MirxLoadError::Groups(err)
+    }
+}
+
+impl From<mirx::image::DecodeRequestError> for MirxLoadError {
+    fn from(err: mirx::image::DecodeRequestError) -> Self {
+        MirxLoadError::Request(err)
     }
 }
 
@@ -542,17 +551,17 @@ pub(super) fn map_mirx_format(fmt: mirx::ColorFormat) -> Result<ColorFormat, Mir
     }
 }
 
-/// Runtime limits and physical allocation requirements for a MIRX texture.
+/// Decode execution, memory placement, physical layout, and limits for a MIRX texture.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MirxTextureOptions {
-    requirements: mirx::image::SurfaceRequirements,
+    request: mirx::image::DecodeRequest,
     limits: mirx::PayloadLimits,
 }
 
 impl MirxTextureOptions {
     pub const fn new() -> Self {
         Self {
-            requirements: mirx::image::SurfaceRequirements::new(),
+            request: mirx::image::DecodeRequest::new(mirx::image::SurfaceRequirements::new()),
             limits: mirx::PayloadLimits::EMBEDDED,
         }
     }
@@ -561,32 +570,72 @@ impl MirxTextureOptions {
         mut self,
         requirements: mirx::image::SurfaceRequirements,
     ) -> Self {
-        self.requirements = requirements;
+        self.request = self.request.with_requirements(requirements);
+        self
+    }
+
+    pub const fn with_decode_request(mut self, request: mirx::image::DecodeRequest) -> Self {
+        self.request = request;
+        self
+    }
+
+    pub const fn with_execution(mut self, execution: mirx::image::DecodeExecution) -> Self {
+        self.request = self.request.with_execution(execution);
+        self
+    }
+
+    pub const fn with_input_memory(mut self, placement: mirx::image::MemoryPlacement) -> Self {
+        self.request = self.request.with_input(placement);
+        self
+    }
+
+    pub const fn with_output_memory(mut self, placement: mirx::image::MemoryPlacement) -> Self {
+        self.request = self.request.with_output(placement);
+        self
+    }
+
+    pub const fn with_workspace_memory(mut self, placement: mirx::image::MemoryPlacement) -> Self {
+        self.request = self.request.with_workspace(placement);
+        self
+    }
+
+    pub const fn with_workspace_alignment(mut self, alignment: u32) -> Self {
+        self.request = self.request.with_workspace_alignment(alignment);
         self
     }
 
     pub const fn with_base_alignment(mut self, alignment: u32) -> Self {
-        self.requirements = self.requirements.with_base_alignment(alignment);
+        self.request = self
+            .request
+            .with_requirements(self.request.requirements().with_base_alignment(alignment));
         self
     }
 
     pub const fn with_plane_alignment(mut self, alignment: u32) -> Self {
-        self.requirements = self.requirements.with_plane_alignment(alignment);
+        self.request = self
+            .request
+            .with_requirements(self.request.requirements().with_plane_alignment(alignment));
         self
     }
 
     pub const fn with_width_multiple(mut self, multiple: u32) -> Self {
-        self.requirements = self.requirements.with_width_multiple(multiple);
+        self.request = self
+            .request
+            .with_requirements(self.request.requirements().with_width_multiple(multiple));
         self
     }
 
     pub const fn with_height_multiple(mut self, multiple: u32) -> Self {
-        self.requirements = self.requirements.with_height_multiple(multiple);
+        self.request = self
+            .request
+            .with_requirements(self.request.requirements().with_height_multiple(multiple));
         self
     }
 
     pub const fn with_stride_multiple(mut self, multiple: u32) -> Self {
-        self.requirements = self.requirements.with_stride_multiple(multiple);
+        self.request = self
+            .request
+            .with_requirements(self.request.requirements().with_stride_multiple(multiple));
         self
     }
 
@@ -596,7 +645,11 @@ impl MirxTextureOptions {
     }
 
     pub const fn requirements(self) -> mirx::image::SurfaceRequirements {
-        self.requirements
+        self.request.requirements()
+    }
+
+    pub const fn decode_request(self) -> mirx::image::DecodeRequest {
+        self.request
     }
 
     pub const fn limits(self) -> mirx::PayloadLimits {
@@ -622,10 +675,12 @@ enum MirxTexturePlanInner<'source, 'groups> {
 ///
 /// Group slots, encoded bytes, output, and codec workspace all remain owned by
 /// the caller. Planning validates the complete selected image before output is
-/// touched.
+/// touched and retains the decode request for cache maintenance at the adapter
+/// boundary.
 pub struct MirxTexturePlan<'source, 'groups> {
     inner: MirxTexturePlanInner<'source, 'groups>,
     memory: mirx::image::SurfaceMemoryPlan,
+    request: mirx::image::DecodeRequest,
 }
 
 impl MirxTexturePlan<'_, '_> {
@@ -646,9 +701,21 @@ impl MirxTexturePlan<'_, '_> {
 
     pub const fn workspace_alignment(&self) -> usize {
         match self.inner {
-            MirxTexturePlanInner::Raw(_) => 1,
+            MirxTexturePlanInner::Raw(_) => self.request.workspace_alignment() as usize,
             MirxTexturePlanInner::Encoded(plan) => plan.workspace_requirements().base_alignment(),
         }
+    }
+
+    pub const fn decode_request(&self) -> mirx::image::DecodeRequest {
+        self.request
+    }
+
+    pub const fn input_sync(&self) -> mirx::image::CacheSync {
+        self.request.input_sync()
+    }
+
+    pub const fn output_sync(&self) -> mirx::image::CacheSync {
+        self.request.output_sync()
     }
 
     pub const fn memory_plan(&self) -> mirx::image::SurfaceMemoryPlan {
@@ -716,8 +783,10 @@ impl Texture<'static> {
         options: MirxTextureOptions,
         group_slots: &'groups mut [Option<mirx::image::UnitGroup<'source>>],
     ) -> Result<MirxTexturePlan<'source, 'groups>, MirxLoadError> {
+        let request = options.decode_request();
+        request.validate_reconstruction()?;
         let image = open_mirx_image(bytes)?;
-        let memory = image.surface().memory_plan(options.requirements())?;
+        let memory = image.surface().memory_plan(request.requirements())?;
         // Reject unsupported render layouts during planning, before any output
         // or workspace allocation is requested.
         let descriptor = image.surface();
@@ -736,12 +805,14 @@ impl Texture<'static> {
                 let mut budget =
                     mirx::image::CoverageBudget::new(options.limits().max_raster_work());
                 let groups = image.groups_into(group_slots, &mut budget)?;
-                MirxTexturePlanInner::Encoded(
-                    groups.decode_plan(options.requirements(), &options.limits())?,
-                )
+                MirxTexturePlanInner::Encoded(groups.decode_plan_for(request, &options.limits())?)
             }
         };
-        Ok(MirxTexturePlan { inner, memory })
+        Ok(MirxTexturePlan {
+            inner,
+            memory,
+            request,
+        })
     }
 
     /// Returns display geometry without allocating or decoding samples.
@@ -775,8 +846,15 @@ impl Texture<'static> {
         bytes: &'static [u8],
         options: MirxTextureOptions,
     ) -> Result<Self, MirxLoadError> {
+        let request = options.decode_request();
+        request.validate_reconstruction()?;
+        if request.output() != mirx::image::MemoryPlacement::Cpu
+            || request.workspace() != mirx::image::MemoryPlacement::Cpu
+        {
+            return Err(MirxLoadError::ExternalMemoryRequired);
+        }
         let image = open_mirx_image(bytes)?;
-        if options.requirements() == mirx::image::SurfaceRequirements::new() {
+        if request == mirx::image::DecodeRequest::default() {
             if let mirx::image::ImageRef::Raw(surface) = image {
                 return texture_from_surface(surface);
             }
@@ -846,6 +924,7 @@ impl From<MirxLoadError> for crate::core::resource::LoadError {
             MirxLoadError::Surface(_) => "mirx flat surface is invalid",
             MirxLoadError::Plan(_) => "mirx output layout is invalid",
             MirxLoadError::Groups(_) => "mirx image groups are invalid",
+            MirxLoadError::Request(_) => "mirx decode request is unsupported",
             MirxLoadError::Decode(_) => "mirx image decode failed",
             MirxLoadError::Copy(_) => "mirx image transfer failed",
             MirxLoadError::UnsupportedFormat(_) => "mirx format not supported by mirui",
@@ -853,6 +932,9 @@ impl From<MirxLoadError> for crate::core::resource::LoadError {
             MirxLoadError::NoImageChunk => "mirx file has no IMAGE chunk",
             MirxLoadError::DimensionOverflow => "mirx image dimensions exceed u16",
             MirxLoadError::AllocationSizeOverflow => "mirx decode allocation size overflow",
+            MirxLoadError::ExternalMemoryRequired => {
+                "mirx output or workspace requires caller-owned memory"
+            }
         })
     }
 }
@@ -1128,6 +1210,16 @@ mod tests {
     }
 
     #[test]
+    fn raw_mirx_with_explicit_reconstruction_owns_the_output() {
+        let bytes = build_flat_rgb565_2x1();
+        let options =
+            MirxTextureOptions::new().with_input_memory(mirx::image::MemoryPlacement::Flash);
+        let tex = Texture::from_mirx_with(bytes, options).unwrap();
+        assert!(matches!(&tex.buf, TexBuf::Aligned(_)));
+        assert_eq!(tex.buf.as_slice(), &[0xAA, 0xBB, 0xCC, 0xDD]);
+    }
+
+    #[test]
     fn from_mirx_decodes_every_lossless_profile() {
         for coding in [
             TestCoding::Pixel,
@@ -1186,29 +1278,60 @@ mod tests {
         #[repr(align(64))]
         struct Output([u8; 256]);
 
+        #[repr(align(64))]
+        struct Workspace([u8; 64]);
+
         let bytes = build_encoded_rgb(TestCoding::Pixel);
         let requirements = mirx::image::SurfaceRequirements::new()
             .with_base_alignment(64)
             .with_stride_multiple(64);
+        let options = MirxTextureOptions::new()
+            .with_requirements(requirements)
+            .with_input_memory(mirx::image::MemoryPlacement::Flash)
+            .with_output_memory(mirx::image::MemoryPlacement::SharedNoncoherent)
+            .with_workspace_memory(mirx::image::MemoryPlacement::SharedCoherent)
+            .with_workspace_alignment(64);
         let mut groups = [None];
-        let plan = Texture::plan_mirx(
-            bytes,
-            MirxTextureOptions::new().with_requirements(requirements),
-            &mut groups,
-        )
-        .unwrap();
+        let plan = Texture::plan_mirx(bytes, options, &mut groups).unwrap();
         assert_eq!(plan.output_len(), 64);
         assert_eq!(plan.output_alignment(), 64);
         assert_eq!(plan.workspace_len(), 6);
+        assert_eq!(plan.workspace_alignment(), 64);
+        assert_eq!(plan.decode_request(), options.decode_request());
+        assert_eq!(plan.input_sync(), mirx::image::CacheSync::None);
+        assert_eq!(plan.output_sync(), mirx::image::CacheSync::CleanAfterWrite);
         let mut output = Output([0xa5; 256]);
-        let mut workspace = [0x5a; 16];
-        let texture = plan.decode_into(&mut output.0, &mut workspace).unwrap();
+        let mut workspace = Workspace([0x5a; 64]);
+        let texture = plan.decode_into(&mut output.0, &mut workspace.0).unwrap();
         assert_eq!(texture.buf.as_slice().as_ptr() as usize % 64, 0);
         assert_eq!(texture.stride, 64);
         assert_eq!(&texture.buf.as_slice()[..6], &[17, 42, 91, 111, 7, 203]);
         assert_eq!(&texture.buf.as_slice()[6..], &[0; 58]);
         assert_eq!(&output.0[64..], &[0xa5; 192]);
-        assert_eq!(&workspace[6..], &[0x5a; 10]);
+        assert_eq!(&workspace.0[6..], &[0x5a; 58]);
+    }
+
+    #[test]
+    fn managed_mirx_load_rejects_external_memory_and_invalid_execution() {
+        let bytes = build_encoded_rgb(TestCoding::Rle);
+        let external = MirxTextureOptions::new()
+            .with_output_memory(mirx::image::MemoryPlacement::SharedCoherent);
+        assert!(matches!(
+            Texture::from_mirx_with(bytes, external),
+            Err(MirxLoadError::ExternalMemoryRequired)
+        ));
+
+        let bad: &'static [u8] = Box::leak(Box::new([0u8; 8]));
+        let direct =
+            MirxTextureOptions::new().with_execution(mirx::image::DecodeExecution::DirectUpload);
+        assert!(matches!(
+            Texture::from_mirx_with(bad, direct),
+            Err(MirxLoadError::Request(
+                mirx::image::DecodeRequestError::UnsupportedExecution(
+                    mirx::image::DecodeExecution::DirectUpload
+                )
+            ))
+        ));
     }
 
     #[test]

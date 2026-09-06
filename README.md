@@ -111,7 +111,7 @@ cargo xtask gen-mirx frames --in frame-000.png --in frame-001.png --out animatio
 
 The frame generator prints the selected storage and coding for every frame, source-to-container ratio, loss policy, recovery bound, runtime path, exact aligned canvas/workspace/backup sizes, required group slots, and every decoded plane's offset, stride, and allocation extent.
 
-`Texture::from_mirx` keeps compatible RAW pixels borrowed and decodes compressed pixels into owned storage. `Texture::plan_mirx` exposes exact group-slot, output, alignment, and reusable workspace requirements for fixed caller buffers. `MirxTextureOptions` carries `PayloadLimits` plus `SurfaceRequirements`, including GPU/DMA width, stride, plane, and base-address constraints.
+`Texture::from_mirx` keeps compatible RAW pixels borrowed and decodes compressed pixels into managed CPU storage. `Texture::plan_mirx` exposes exact group-slot, output, alignment, and reusable workspace requirements for fixed caller buffers. `MirxTextureOptions` carries `PayloadLimits` plus `DecodeRequest`, including execution intent, input/output/workspace placement, cache synchronization, and independent GPU/DMA width, stride, plane, base-address, and workspace constraints. Non-CPU output or workspace placement requires the explicit caller-buffer plan instead of the managed loader.
 
 ```rust
 use mirui::render::texture::{MirxTextureOptions, Texture};
@@ -126,7 +126,7 @@ let texture = Texture::from_mirx_with(
 )?;
 ```
 
-`MirxFramesPlan::open` validates the primary FRAMES timeline and reports exact group-slot, aligned canvas, codec workspace, and restore-previous backup requirements. `bind` attaches caller-owned buffers once; `MirxFramesSession::present` reuses them and returns a borrowed `Texture` for each requested frame. `frame_at_ticks` and `present_at` resolve variable durations and finite or unbounded play counts directly from absolute sequence ticks without an allocated timing table.
+`MirxFramesPlan::open` validates the primary FRAMES timeline under the same `DecodeRequest` and reports encoded-address checks plus exact group-slot, aligned canvas, codec workspace, and restore-previous backup requirements. `bind` attaches caller-owned buffers once; `MirxFramesSession::present` reuses them and returns a borrowed `Texture` for each requested frame. The plan and session expose required input invalidation and output cleaning at the platform cache boundary. `frame_at_ticks` and `present_at` resolve variable durations and finite or unbounded play counts directly from absolute sequence ticks without an allocated timing table.
 
 `cargo run -p gallery --example mirx_frames_snapshot -- /tmp/mirx-frames.ppm` builds a compressed three-frame asset, enforces 64-byte input/output constraints, selects frames by timeline tick, and writes a contact sheet while reusing one playback canvas.
 

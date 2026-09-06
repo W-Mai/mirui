@@ -61,6 +61,10 @@ impl<'source> MirxFramesPlan<'source> {
         options: MirxTextureOptions,
         group_slots: &mut [Option<mirx::image::UnitGroup<'source>>],
     ) -> Result<Self, MirxFramesError> {
+        let request = options.decode_request();
+        request
+            .validate_reconstruction()
+            .map_err(mirx::FrameDecodeError::Request)?;
         let reader = mirx::Reader::open(bytes)?;
         let primary = reader.primary()?.ok_or(MirxFramesError::NoFramesChunk)?;
         let frames = primary
@@ -86,7 +90,7 @@ impl<'source> MirxFramesPlan<'source> {
                 .map_err(|_| MirxFramesError::DimensionOverflow)?,
             format,
         };
-        let inner = frames.playback_plan(options.requirements(), options.limits(), group_slots)?;
+        let inner = frames.playback_plan_for(request, options.limits(), group_slots)?;
         Ok(Self { inner, meta })
     }
 
@@ -137,6 +141,26 @@ impl<'source> MirxFramesPlan<'source> {
         self.inner.backup_requirements()
     }
 
+    pub const fn decode_request(self) -> mirx::image::DecodeRequest {
+        self.inner.request()
+    }
+
+    pub const fn input_sync(self) -> mirx::image::CacheSync {
+        self.inner.input_sync()
+    }
+
+    pub const fn output_sync(self) -> mirx::image::CacheSync {
+        self.inner.output_sync()
+    }
+
+    pub const fn input_alignment(self) -> u32 {
+        self.inner.input_alignment()
+    }
+
+    pub const fn input_addresses_are_aligned(self) -> bool {
+        self.inner.input_addresses_are_aligned()
+    }
+
     /// Binds reusable playback storage without reading encoded DATA again.
     pub fn bind<'storage>(
         self,
@@ -162,6 +186,18 @@ pub struct MirxFramesSession<'source, 'storage> {
 impl MirxFramesSession<'_, '_> {
     pub const fn current_frame(&self) -> Option<u32> {
         self.inner.current_frame()
+    }
+
+    pub const fn decode_request(&self) -> mirx::image::DecodeRequest {
+        self.inner.request()
+    }
+
+    pub const fn input_sync(&self) -> mirx::image::CacheSync {
+        self.inner.input_sync()
+    }
+
+    pub const fn output_sync(&self) -> mirx::image::CacheSync {
+        self.inner.output_sync()
     }
 
     pub fn reset(&mut self) {
@@ -221,12 +257,17 @@ mod tests {
     #[test]
     fn plan_binds_aligned_storage_and_presents_textures_without_reallocation() {
         let bytes = encoded_frames();
-        let options = MirxTextureOptions::new().with_requirements(
-            SurfaceRequirements::new()
-                .with_base_alignment(64)
-                .with_width_multiple(64)
-                .with_stride_multiple(64),
-        );
+        let options = MirxTextureOptions::new()
+            .with_requirements(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_width_multiple(64)
+                    .with_stride_multiple(64),
+            )
+            .with_input_memory(mirx::image::MemoryPlacement::Flash)
+            .with_output_memory(mirx::image::MemoryPlacement::SharedNoncoherent)
+            .with_workspace_memory(mirx::image::MemoryPlacement::SharedCoherent)
+            .with_workspace_alignment(64);
         let mut slots = [None];
         let plan = MirxFramesPlan::open(&bytes, options, &mut slots).unwrap();
         assert_eq!(plan.meta().width, 2);
@@ -240,12 +281,22 @@ mod tests {
         assert_eq!(plan.frame_at_ticks(115).unwrap().play(), 1);
         assert_eq!(plan.canvas_requirements().byte_len(), 192);
         assert_eq!(plan.canvas_requirements().base_alignment(), 64);
+        assert_eq!(plan.workspace_requirements().base_alignment(), 64);
+        assert_eq!(plan.decode_request(), options.decode_request());
+        assert_eq!(plan.input_sync(), mirx::image::CacheSync::None);
+        assert_eq!(plan.output_sync(), mirx::image::CacheSync::CleanAfterWrite);
+        assert!(plan.input_addresses_are_aligned());
 
         let mut canvas = Aligned([0; 256]);
-        let mut workspace = [0; 16];
+        let mut workspace = Aligned([0; 64]);
         let mut session = plan
-            .bind(&mut slots, &mut canvas.0, &mut workspace, &mut [])
+            .bind(&mut slots, &mut canvas.0, &mut workspace.0, &mut [])
             .unwrap();
+        assert_eq!(session.decode_request(), options.decode_request());
+        assert_eq!(
+            session.output_sync(),
+            mirx::image::CacheSync::CleanAfterWrite
+        );
         let first_ptr = {
             let texture = session.present(0).unwrap();
             assert_eq!(texture.stride, 192);
