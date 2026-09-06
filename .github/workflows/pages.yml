@@ -1,0 +1,56 @@
+name: Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: Install Trunk
+        uses: jetli/trunk-action@1346cc09eace4beb84e403e199a471346d4684c9 # v0.5.1
+        with:
+          version: v0.21.14
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+      - name: Build Web gallery
+        working-directory: gallery/web
+        run: trunk build --release --locked --public-url "${{ steps.pages.outputs.base_path }}/"
+      - name: Verify Pages bundle
+        run: |
+          test -s gallery/web/dist/index.html
+          test -n "$(find gallery/web/dist -maxdepth 1 -type f -name '*.js' -size +0c -print -quit)"
+          test -n "$(find gallery/web/dist -maxdepth 1 -type f -name '*.wasm' -size +0c -print -quit)"
+          grep --fixed-strings --quiet "${{ steps.pages.outputs.base_path }}/" gallery/web/dist/index.html
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: gallery/web/dist
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

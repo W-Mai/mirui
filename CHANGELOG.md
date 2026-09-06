@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **GitHub Pages Web gallery.** A release Trunk build publishes the interactive gallery through the official Pages artifact flow with repository-aware asset paths, serialized deployments, and Orbit Console as the default homepage.
 - **Orbit Console showcase.** A 1024 × 640 interactive gallery scene combines the declarative widget tree, SDF text, fixed-point paths, gradients, custom render views, animation, mode selection, focus cycling, intensity control, and pause/resume state. A headless PNG renderer captures the same tree in a deterministic state for README imagery.
 - **Validated MIRX access capabilities.** RAW surfaces report direct borrowing and, for known linear storage, whole, row, and exact-region access; prepared encoded groups report scalar whole/region reconstruction only after every coding profile is admitted; tiled groups expose independent units; preflighted FRAMES playback reports whole-frame presentation and bounded random seeking. Progressive and direct-upload access remain explicitly unsupported.
 - **Caller-owned MIRX font residency.** `MirxFontStorage` reconstructs encoded glyph surfaces once into an explicitly supplied persistent arena while reusing temporary group and codec workspace buffers. The resulting provider returns stable raster borrows with caller-selected base, plane, width, height, and stride constraints; RAW surfaces remain zero-copy.
