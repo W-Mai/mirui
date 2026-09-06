@@ -2,10 +2,12 @@ use super::buffer::{BufferError, Cursor, Emitter};
 use crate::media::{CodingId, CodingRecord};
 
 mod kernel;
-#[cfg(target_arch = "aarch64")]
-pub use kernel::NeonFrameDelta;
-#[cfg(target_arch = "x86_64")]
-pub use kernel::Sse2FrameDelta;
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "wasm32"
+))]
+use kernel::PortableFrameDelta;
 pub use kernel::{FrameDeltaKernel, ScalarFrameDelta};
 
 const REPEAT: u8 = 0x40;
@@ -101,6 +103,12 @@ impl FrameDelta {
     ) -> Result<FrameDeltaDecodePlan<'_>, FrameDeltaError> {
         let mut cursor = Cursor::new(input);
         let mut remaining = decoded_len;
+        #[cfg(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        ))]
+        let mut portable = false;
         while remaining > 0 {
             let (block, count) = Self::read(&mut cursor)?;
             remaining = remaining
@@ -109,13 +117,30 @@ impl FrameDelta {
             if matches!(block, ResidualBlock::Literal(bytes) if bytes.len() != count) {
                 return Err(FrameDeltaError::SizeOverflow);
             }
+            #[cfg(any(
+                target_arch = "x86_64",
+                target_arch = "aarch64",
+                target_arch = "wasm32"
+            ))]
+            {
+                portable |= portable_block_is_worthwhile(block, count);
+            }
         }
         if !cursor.is_empty() {
             return Err(FrameDeltaError::TrailingData {
                 offset: cursor.position,
             });
         }
-        Ok(FrameDeltaDecodePlan { input, decoded_len })
+        Ok(FrameDeltaDecodePlan {
+            input,
+            decoded_len,
+            #[cfg(any(
+                target_arch = "x86_64",
+                target_arch = "aarch64",
+                target_arch = "wasm32"
+            ))]
+            portable,
+        })
     }
 
     fn check_lengths(self, reference: &[u8], current: &[u8]) -> Result<(), FrameDeltaError> {
@@ -319,6 +344,12 @@ impl FrameDelta {
 pub struct FrameDeltaDecodePlan<'a> {
     input: &'a [u8],
     decoded_len: usize,
+    #[cfg(any(
+        target_arch = "x86_64",
+        target_arch = "aarch64",
+        target_arch = "wasm32"
+    ))]
+    portable: bool,
 }
 
 impl<'a> FrameDeltaDecodePlan<'a> {
@@ -354,13 +385,15 @@ impl<'a> FrameDeltaDecodePlan<'a> {
 
     /// Applies residuals to a buffer that already contains the predictor.
     pub fn apply_into(self, output: &mut [u8]) -> Result<usize, FrameDeltaError> {
-        #[cfg(target_arch = "aarch64")]
-        let mut kernel = NeonFrameDelta;
-        #[cfg(target_arch = "x86_64")]
-        let mut kernel = Sse2FrameDelta;
-        #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
-        let mut kernel = ScalarFrameDelta;
-        self.apply_with(output, &mut kernel)
+        #[cfg(any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "wasm32"
+        ))]
+        if self.portable {
+            return self.apply_with(output, &mut PortableFrameDelta);
+        }
+        self.apply_with(output, &mut ScalarFrameDelta)
     }
 
     /// Applies residuals through a caller-selected execution kernel.
@@ -412,6 +445,22 @@ pub(crate) enum ResidualBlock<'a> {
     Repeat(u8),
     Literal(&'a [u8]),
     Pattern(&'a [u8], usize),
+}
+
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "wasm32"
+))]
+fn portable_block_is_worthwhile(block: ResidualBlock<'_>, count: usize) -> bool {
+    if count < PortableFrameDelta::MIN_VECTOR_BYTES {
+        return false;
+    }
+    match block {
+        ResidualBlock::Repeat(_) | ResidualBlock::Literal(_) => true,
+        ResidualBlock::Pattern(residuals, _) => PortableFrameDelta::LANES % residuals.len() == 0,
+        ResidualBlock::Zero => false,
+    }
 }
 
 struct Encoding {

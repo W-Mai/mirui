@@ -1,5 +1,12 @@
 use super::*;
 
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "wasm32"
+))]
+use alloc::{vec, vec::Vec};
+
 #[test]
 fn profile_identity_and_bounds_are_exact() {
     let codec = FrameDelta::new();
@@ -147,42 +154,38 @@ fn validated_blocks_dispatch_through_the_selected_kernel() {
     );
 }
 
-#[cfg(target_arch = "aarch64")]
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "wasm32"
+))]
 #[test]
-fn neon_and_scalar_kernels_are_bit_exact() {
-    fn compare(input: &[u8], reference: &[u8]) {
-        let plan = FrameDelta::new().plan(input, reference.len()).unwrap();
-        let mut scalar = reference.to_vec();
-        plan.apply_with(&mut scalar, &mut ScalarFrameDelta).unwrap();
-        let mut neon = reference.to_vec();
-        plan.apply_with(&mut neon, &mut NeonFrameDelta).unwrap();
-        assert_eq!(neon, scalar);
-    }
+fn portable_and_scalar_kernels_are_bit_exact_for_every_tail_and_pattern_period() {
+    for len in 0..=129 {
+        let reference: Vec<_> = (0..len).map(|index| (index * 47) as u8).collect();
+        let literals: Vec<_> = (0..len).map(|index| (index * 29 + 7) as u8).collect();
 
-    compare(&[REPEAT | 15, 9], &[250; 16]);
-    compare(
-        &[
-            LITERAL | 15,
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-        ],
-        &[250; 16],
-    );
-    compare(&[PATTERN | 2, 38, 0, 1, 2, 3], &[250; 120]);
+        let mut scalar = reference.clone();
+        ScalarFrameDelta.add_literals(&mut scalar, &literals);
+        let mut portable = reference.clone();
+        PortableFrameDelta.add_literals(&mut portable, &literals);
+        assert_eq!(portable, scalar, "literal length {len}");
+
+        let mut scalar = reference.clone();
+        ScalarFrameDelta.add_repeat(&mut scalar, 251);
+        let mut portable = reference.clone();
+        PortableFrameDelta.add_repeat(&mut portable, 251);
+        assert_eq!(portable, scalar, "repeat length {len}");
+
+        for period in 1..=16 {
+            let residuals: Vec<_> = (0..period).map(|index| (index * 19 + 3) as u8).collect();
+            let mut scalar = reference.clone();
+            ScalarFrameDelta.add_pattern(&mut scalar, &residuals);
+            let mut portable = reference.clone();
+            PortableFrameDelta.add_pattern(&mut portable, &residuals);
+            assert_eq!(portable, scalar, "pattern length {len}, period {period}");
+        }
+    }
 
     let reference = core::array::from_fn::<_, 257, _>(|index| (index * 47) as u8);
     let current = core::array::from_fn::<_, 257, _>(|index| {
@@ -196,65 +199,35 @@ fn neon_and_scalar_kernels_are_bit_exact() {
     let plan = codec.plan(&encoded[..len], current.len()).unwrap();
     let mut scalar = reference;
     plan.apply_with(&mut scalar, &mut ScalarFrameDelta).unwrap();
-    let mut neon = reference;
-    plan.apply_with(&mut neon, &mut NeonFrameDelta).unwrap();
+    let mut portable = reference;
+    plan.apply_with(&mut portable, &mut PortableFrameDelta)
+        .unwrap();
     assert_eq!(scalar, current);
-    assert_eq!(neon, current);
+    assert_eq!(portable, current);
 }
 
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "wasm32"
+))]
 #[test]
-fn sse2_and_scalar_kernels_are_bit_exact() {
-    fn compare(input: &[u8], reference: &[u8]) {
-        let plan = FrameDelta::new().plan(input, reference.len()).unwrap();
-        let mut scalar = reference.to_vec();
-        plan.apply_with(&mut scalar, &mut ScalarFrameDelta).unwrap();
-        let mut sse2 = reference.to_vec();
-        plan.apply_with(&mut sse2, &mut Sse2FrameDelta).unwrap();
-        assert_eq!(sse2, scalar);
-    }
-
-    compare(&[REPEAT | 15, 9], &[250; 16]);
-    compare(
-        &[
-            LITERAL | 15,
-            0,
-            1,
-            2,
-            3,
-            4,
-            5,
-            6,
-            7,
-            8,
-            9,
-            10,
-            11,
-            12,
-            13,
-            14,
-            15,
-        ],
-        &[250; 16],
-    );
-    compare(&[PATTERN | 2, 38, 0, 1, 2, 3], &[250; 120]);
-
-    let reference = core::array::from_fn::<_, 257, _>(|index| (index * 47) as u8);
-    let current = core::array::from_fn::<_, 257, _>(|index| {
-        reference[index].wrapping_add([0, 7, 0, 249][index % 4])
-    });
+fn decode_plans_select_vectors_only_for_eligible_long_blocks() {
     let codec = FrameDelta::new();
-    let mut encoded = [0; 262];
-    let len = codec
-        .encode_into(&reference, &current, &mut encoded)
-        .unwrap();
-    let plan = codec.plan(&encoded[..len], current.len()).unwrap();
-    let mut scalar = reference;
-    plan.apply_with(&mut scalar, &mut ScalarFrameDelta).unwrap();
-    let mut sse2 = reference;
-    plan.apply_with(&mut sse2, &mut Sse2FrameDelta).unwrap();
-    assert_eq!(scalar, current);
-    assert_eq!(sse2, current);
+
+    let mut short = vec![LITERAL | 62];
+    short.extend(0..63);
+    assert!(!codec.plan(&short, 63).unwrap().portable);
+
+    let mut long = vec![LITERAL | 63];
+    long.extend(0..64);
+    assert!(codec.plan(&long, 64).unwrap().portable);
+
+    let incompatible_pattern = [PATTERN | 2, 20, 0, 1, 2, 3];
+    assert!(!codec.plan(&incompatible_pattern, 66).unwrap().portable);
+
+    let compatible_pattern = [PATTERN | 3, 14, 0, 1, 2, 3, 4];
+    assert!(codec.plan(&compatible_pattern, 64).unwrap().portable);
 }
 
 #[test]

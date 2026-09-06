@@ -37,197 +37,72 @@ impl FrameDeltaKernel for ScalarFrameDelta {
     }
 }
 
-/// x86-64 SSE2 frame residual execution.
-///
-/// SSE2 is part of the x86-64 baseline. Unaligned loads and stores keep input
-/// and output alignment independent; scalar tails preserve exact modulo-256
-/// behavior.
-#[cfg(target_arch = "x86_64")]
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "wasm32"
+))]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct Sse2FrameDelta;
+pub(crate) struct PortableFrameDelta;
 
-#[cfg(target_arch = "x86_64")]
-impl Sse2FrameDelta {
-    fn literal_vectors(output: &mut [u8], residuals: &[u8]) -> usize {
-        use core::arch::x86_64::{_mm_add_epi8, _mm_loadu_si128, _mm_storeu_si128};
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "wasm32"
+))]
+impl PortableFrameDelta {
+    pub(super) const LANES: usize = 16;
+    pub(super) const MIN_VECTOR_BYTES: usize = Self::LANES * 4;
 
-        let vectors = output.len() / 16;
-        for index in 0..vectors {
-            let offset = index * 16;
-            // SAFETY: each unaligned vector lies inside equal-length slices;
-            // x86-64 guarantees SSE2 support.
-            unsafe {
-                let value = _mm_loadu_si128(output.as_ptr().add(offset).cast());
-                let residual = _mm_loadu_si128(residuals.as_ptr().add(offset).cast());
-                _mm_storeu_si128(
-                    output.as_mut_ptr().add(offset).cast(),
-                    _mm_add_epi8(value, residual),
-                );
-            }
+    fn add_vectors(output: &mut [u8], residuals: impl Fn(usize) -> [u8; Self::LANES]) -> usize {
+        use wide::u8x16;
+
+        if output.len() < Self::MIN_VECTOR_BYTES {
+            return 0;
         }
-        vectors * 16
-    }
-
-    fn repeat_vectors(output: &mut [u8], residual: u8) -> usize {
-        use core::arch::x86_64::{_mm_add_epi8, _mm_loadu_si128, _mm_set1_epi8, _mm_storeu_si128};
-
-        let vectors = output.len() / 16;
-        // The signed argument preserves the residual byte's bit pattern.
-        let residual = unsafe { _mm_set1_epi8(residual as i8) };
-        for index in 0..vectors {
-            let offset = index * 16;
-            // SAFETY: each unaligned vector lies inside output; x86-64
-            // guarantees SSE2 support.
-            unsafe {
-                let value = _mm_loadu_si128(output.as_ptr().add(offset).cast());
-                _mm_storeu_si128(
-                    output.as_mut_ptr().add(offset).cast(),
-                    _mm_add_epi8(value, residual),
-                );
-            }
+        let vector_bytes = output.len() / Self::LANES * Self::LANES;
+        for (index, output) in output[..vector_bytes]
+            .chunks_exact_mut(Self::LANES)
+            .enumerate()
+        {
+            let output: &mut [u8; Self::LANES] = output
+                .try_into()
+                .expect("chunks_exact_mut yields one complete vector");
+            *output = (u8x16::new(*output) + u8x16::new(residuals(index))).to_array();
         }
-        vectors * 16
-    }
-
-    fn pattern_vectors(output: &mut [u8], residuals: &[u8; 16]) -> usize {
-        use core::arch::x86_64::{_mm_add_epi8, _mm_loadu_si128, _mm_storeu_si128};
-
-        let vectors = output.len() / 16;
-        // SAFETY: residuals contains one complete unaligned vector.
-        let residual = unsafe { _mm_loadu_si128(residuals.as_ptr().cast()) };
-        for index in 0..vectors {
-            let offset = index * 16;
-            // SAFETY: each unaligned vector lies inside output; x86-64
-            // guarantees SSE2 support.
-            unsafe {
-                let value = _mm_loadu_si128(output.as_ptr().add(offset).cast());
-                _mm_storeu_si128(
-                    output.as_mut_ptr().add(offset).cast(),
-                    _mm_add_epi8(value, residual),
-                );
-            }
-        }
-        vectors * 16
+        vector_bytes
     }
 }
 
-#[cfg(target_arch = "x86_64")]
-impl FrameDeltaKernel for Sse2FrameDelta {
+#[cfg(any(
+    target_arch = "x86_64",
+    target_arch = "aarch64",
+    target_arch = "wasm32"
+))]
+impl FrameDeltaKernel for PortableFrameDelta {
     fn add_literals(&mut self, output: &mut [u8], residuals: &[u8]) {
         debug_assert_eq!(output.len(), residuals.len());
-        let done = Self::literal_vectors(output, residuals);
+        let done = Self::add_vectors(output, |index| {
+            residuals[index * Self::LANES..][..Self::LANES]
+                .try_into()
+                .expect("validated equal-length literal vector")
+        });
         ScalarFrameDelta.add_literals(&mut output[done..], &residuals[done..]);
     }
 
     fn add_repeat(&mut self, output: &mut [u8], residual: u8) {
-        let done = Self::repeat_vectors(output, residual);
+        let done = Self::add_vectors(output, |_| [residual; Self::LANES]);
         ScalarFrameDelta.add_repeat(&mut output[done..], residual);
     }
 
     fn add_pattern(&mut self, output: &mut [u8], residuals: &[u8]) {
         debug_assert!(!residuals.is_empty());
-        if 16 % residuals.len() != 0 {
+        if Self::LANES % residuals.len() != 0 {
             ScalarFrameDelta.add_pattern(output, residuals);
             return;
         }
-        let mut lane = [0; 16];
-        for (index, value) in lane.iter_mut().enumerate() {
-            *value = residuals[index % residuals.len()];
-        }
-        let done = Self::pattern_vectors(output, &lane);
-        ScalarFrameDelta.add_pattern(&mut output[done..], residuals);
-    }
-}
-
-/// AArch64 NEON frame residual execution.
-///
-/// AArch64 always includes Advanced SIMD. Unaligned slice addresses are valid
-/// for the load/store instructions used here; scalar tails preserve exact
-/// modulo-256 behavior.
-#[cfg(target_arch = "aarch64")]
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct NeonFrameDelta;
-
-#[cfg(target_arch = "aarch64")]
-impl NeonFrameDelta {
-    fn literal_vectors(output: &mut [u8], residuals: &[u8]) -> usize {
-        use core::arch::aarch64::{vaddq_u8, vld1q_u8, vst1q_u8};
-
-        let vectors = output.len() / 16;
-        for index in 0..vectors {
-            let offset = index * 16;
-            // SAFETY: each vector lies inside equal-length slices. AArch64
-            // vector loads and stores permit unaligned addresses.
-            unsafe {
-                let value = vld1q_u8(output.as_ptr().add(offset));
-                let residual = vld1q_u8(residuals.as_ptr().add(offset));
-                vst1q_u8(output.as_mut_ptr().add(offset), vaddq_u8(value, residual));
-            }
-        }
-        vectors * 16
-    }
-
-    fn repeat_vectors(output: &mut [u8], residual: u8) -> usize {
-        use core::arch::aarch64::{vaddq_u8, vdupq_n_u8, vld1q_u8, vst1q_u8};
-
-        let vectors = output.len() / 16;
-        // SAFETY: constructing a vector has no memory precondition.
-        let residual = unsafe { vdupq_n_u8(residual) };
-        for index in 0..vectors {
-            let offset = index * 16;
-            // SAFETY: each vector lies inside output. AArch64 vector loads and
-            // stores permit unaligned addresses.
-            unsafe {
-                let value = vld1q_u8(output.as_ptr().add(offset));
-                vst1q_u8(output.as_mut_ptr().add(offset), vaddq_u8(value, residual));
-            }
-        }
-        vectors * 16
-    }
-
-    fn pattern_vectors(output: &mut [u8], residuals: &[u8; 16]) -> usize {
-        use core::arch::aarch64::{vaddq_u8, vld1q_u8, vst1q_u8};
-
-        let vectors = output.len() / 16;
-        // SAFETY: residuals contains one complete vector.
-        let residual = unsafe { vld1q_u8(residuals.as_ptr()) };
-        for index in 0..vectors {
-            let offset = index * 16;
-            // SAFETY: each vector lies inside output. AArch64 vector loads and
-            // stores permit unaligned addresses.
-            unsafe {
-                let value = vld1q_u8(output.as_ptr().add(offset));
-                vst1q_u8(output.as_mut_ptr().add(offset), vaddq_u8(value, residual));
-            }
-        }
-        vectors * 16
-    }
-}
-
-#[cfg(target_arch = "aarch64")]
-impl FrameDeltaKernel for NeonFrameDelta {
-    fn add_literals(&mut self, output: &mut [u8], residuals: &[u8]) {
-        debug_assert_eq!(output.len(), residuals.len());
-        let done = Self::literal_vectors(output, residuals);
-        ScalarFrameDelta.add_literals(&mut output[done..], &residuals[done..]);
-    }
-
-    fn add_repeat(&mut self, output: &mut [u8], residual: u8) {
-        let done = Self::repeat_vectors(output, residual);
-        ScalarFrameDelta.add_repeat(&mut output[done..], residual);
-    }
-
-    fn add_pattern(&mut self, output: &mut [u8], residuals: &[u8]) {
-        debug_assert!(!residuals.is_empty());
-        if 16 % residuals.len() != 0 {
-            ScalarFrameDelta.add_pattern(output, residuals);
-            return;
-        }
-        let mut lane = [0; 16];
-        for (index, value) in lane.iter_mut().enumerate() {
-            *value = residuals[index % residuals.len()];
-        }
-        let done = Self::pattern_vectors(output, &lane);
+        let lane = core::array::from_fn(|index| residuals[index % residuals.len()]);
+        let done = Self::add_vectors(output, |_| lane);
         ScalarFrameDelta.add_pattern(&mut output[done..], residuals);
     }
 }

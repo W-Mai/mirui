@@ -9,10 +9,6 @@ mod frequency;
 mod lz4;
 mod pixel;
 mod rle;
-#[cfg(target_arch = "aarch64")]
-pub use frame_delta::NeonFrameDelta;
-#[cfg(target_arch = "x86_64")]
-pub use frame_delta::Sse2FrameDelta;
 pub use frame_delta::{
     FrameDelta, FrameDeltaDecodePlan, FrameDeltaError, FrameDeltaKernel, ScalarFrameDelta,
 };
