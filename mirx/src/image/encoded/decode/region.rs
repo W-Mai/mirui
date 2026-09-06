@@ -2,8 +2,9 @@ use super::{DecodeError, EncodedImageError, ImageDecodePlan, ImageGroups, Prefli
 use crate::{
     PayloadLimits,
     image::{
-        BufferRequirements, DecodeUnitRef, DecodeUnits, EncodedImageView, GroupPlanes, Region,
-        RegionMemoryPlan, RegionUnits, SurfaceRequirements, UnitGroup, units::ScalarProfile,
+        BufferRequirements, DecodeRequest, DecodeUnitRef, DecodeUnits, EncodedImageView,
+        GroupPlanes, Region, RegionMemoryPlan, RegionUnits, SurfaceRequirements, UnitGroup,
+        units::ScalarProfile,
     },
 };
 
@@ -138,17 +139,32 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
         requirements: SurfaceRequirements,
         limits: &PayloadLimits,
     ) -> Result<ImageDecodePlan<'a, 'g>, DecodeError> {
+        self.decode_region_plan_for(requested, DecodeRequest::new(requirements), limits)
+    }
+
+    /// Preflights cropped reconstruction for explicit execution and memory policy.
+    pub fn decode_region_plan_for(
+        self,
+        requested: Region,
+        request: DecodeRequest,
+        limits: &PayloadLimits,
+    ) -> Result<ImageDecodePlan<'a, 'g>, DecodeError> {
+        request
+            .validate_reconstruction()
+            .map_err(DecodeError::Request)?;
         let mut preflight = Preflight::new(limits, self.len()).map_err(DecodeError::Image)?;
         let memory = self
             .image()
             .surface()
-            .region_plan(requested, requirements)
+            .region_plan(requested, request.requirements())
             .map_err(DecodeError::Memory)?;
         preflight
             .spend(u64::from(memory.memory_plan().byte_len()) + 2 * self.len() as u64)
             .map_err(DecodeError::Image)?;
         let mut workspace = 0;
         let mut input_bytes = 0;
+        let mut input_alignment = 1;
+        let mut input_addresses_aligned = true;
         let mut checksums = Checksums::default();
         for (index, group) in self.iter().enumerate() {
             let units = DecodeScope::Region.units(group, memory);
@@ -165,6 +181,8 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
                     .data_range()
                     .start;
             for unit in units {
+                input_alignment = input_alignment.max(unit.input_alignment());
+                input_addresses_aligned &= unit.data_address_is_aligned();
                 preflight.add_units(1).map_err(DecodeError::Image)?;
                 let selected_profile = match profile {
                     Some(profile) => profile,
@@ -214,10 +232,14 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
             groups: self,
             memory,
             scope: DecodeScope::Region,
-            workspace: BufferRequirements::new(workspace, 1).map_err(DecodeError::Memory)?,
+            request,
+            workspace: BufferRequirements::new(workspace, request.workspace_alignment())
+                .map_err(DecodeError::Memory)?,
             units: preflight.total_units(),
             work: preflight.work(),
             input_bytes,
+            input_alignment,
+            input_addresses_aligned,
             checksum_bytes: checksums.byte_len,
         })
     }

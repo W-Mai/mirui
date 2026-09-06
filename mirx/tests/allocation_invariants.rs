@@ -589,7 +589,10 @@ fn raw_glyph_cells_and_atlas_regions_borrow_without_allocation() {
 fn indexed_region_decode_borrows_palette_and_uses_only_caller_output_and_workspace() {
     use mirx::{
         coding::Rle,
-        image::{CoverageBudget, EncodedImageAsset, EncodedImageView, UnitGroupRecord},
+        image::{
+            CoverageBudget, DecodeRequest, EncodedImageAsset, EncodedImageView, MemoryPlacement,
+            UnitGroupRecord,
+        },
         media::DataIntegrity,
     };
     let surface = SurfaceDescriptor::new(4, 1, SampleLayout::I4, ColorDescription::SRGB).unwrap();
@@ -612,11 +615,16 @@ fn indexed_region_decode_borrows_palette_and_uses_only_caller_output_and_workspa
             .groups_into(&mut slots, &mut CoverageBudget::new(1000))
             .unwrap();
         let plan = groups
-            .decode_region_plan(
+            .decode_region_plan_for(
                 surface.region(1, 0, 2, 1).unwrap(),
-                SurfaceRequirements::new()
-                    .with_base_alignment(64)
-                    .with_stride_multiple(64),
+                DecodeRequest::new(
+                    SurfaceRequirements::new()
+                        .with_base_alignment(64)
+                        .with_stride_multiple(64),
+                )
+                .with_input(MemoryPlacement::Flash)
+                .with_output(MemoryPlacement::SharedCoherent)
+                .with_workspace_alignment(4),
                 &PayloadLimits::EMBEDDED,
             )
             .unwrap();

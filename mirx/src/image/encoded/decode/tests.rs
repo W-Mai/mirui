@@ -2,7 +2,8 @@ use super::*;
 use crate::{
     coding::Rle,
     image::{
-        ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageView, SampleLayout,
+        CacheSync, ColorDescription, CoverageBudget, DecodeExecution, DecodeRequest,
+        DecodeRequestError, EncodedImageAsset, EncodedImageView, MemoryPlacement, SampleLayout,
         SurfaceDescriptor, UnitGroupRecord,
     },
     media::{CodingId, CodingRecord, MediaSectionKind},
@@ -10,6 +11,74 @@ use crate::{
 
 #[repr(align(64))]
 struct Buffer([u8; 256]);
+
+#[test]
+fn explicit_memory_contract_is_checked_before_image_preflight() {
+    let surface = SurfaceDescriptor::new(4, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 42])
+        .encode()
+        .unwrap();
+    let image = EncodedImageView::open(&payload).unwrap();
+    let mut slots = [None];
+    let groups = image
+        .groups_into(&mut slots, &mut CoverageBudget::new(100))
+        .unwrap();
+    let request = DecodeRequest::new(
+        SurfaceRequirements::new()
+            .with_base_alignment(64)
+            .with_stride_multiple(64),
+    )
+    .with_input(MemoryPlacement::Flash)
+    .with_output(MemoryPlacement::SharedNoncoherent)
+    .with_workspace(MemoryPlacement::SharedCoherent)
+    .with_workspace_alignment(64);
+    let plan = groups
+        .decode_plan_for(request, &PayloadLimits::EMBEDDED)
+        .unwrap();
+    assert_eq!(plan.request(), request);
+    assert_eq!(plan.request().input_sync(), CacheSync::None);
+    assert_eq!(plan.request().output_sync(), CacheSync::CleanAfterWrite);
+    assert_eq!(plan.workspace_requirements().base_alignment(), 64);
+    assert_eq!(plan.input_alignment(), 1);
+    assert!(plan.input_addresses_are_aligned());
+    let mut output = Buffer([0xa5; 256]);
+    let mut workspace = Buffer([0x5a; 256]);
+    let decoded = plan.decode_into(&mut output.0, &mut workspace.0).unwrap();
+    assert_eq!(
+        decoded.plane(0).unwrap().row(0).unwrap(),
+        Some(&[42; 4][..])
+    );
+
+    for (request, expected) in [
+        (
+            DecodeRequest::default().with_execution(DecodeExecution::Compute),
+            DecodeRequestError::UnsupportedExecution(DecodeExecution::Compute),
+        ),
+        (
+            DecodeRequest::default().with_execution(DecodeExecution::DirectUpload),
+            DecodeRequestError::UnsupportedExecution(DecodeExecution::DirectUpload),
+        ),
+        (
+            DecodeRequest::default().with_input(MemoryPlacement::Device),
+            DecodeRequestError::InputNotReadable(MemoryPlacement::Device),
+        ),
+        (
+            DecodeRequest::default().with_output(MemoryPlacement::Flash),
+            DecodeRequestError::OutputNotWritable(MemoryPlacement::Flash),
+        ),
+        (
+            DecodeRequest::default().with_workspace(MemoryPlacement::Device),
+            DecodeRequestError::WorkspaceNotWritable(MemoryPlacement::Device),
+        ),
+    ] {
+        assert_eq!(
+            groups
+                .decode_plan_for(request, &PayloadLimits::EMBEDDED)
+                .unwrap_err(),
+            DecodeError::Request(expected)
+        );
+    }
+}
 
 #[test]
 fn empty_surfaces_omit_units_and_need_no_output_or_workspace() {

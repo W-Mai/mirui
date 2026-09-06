@@ -49,6 +49,7 @@ pub(crate) use color_table::ColorTableError;
 mod coverage;
 mod encode;
 mod encoded;
+mod execution;
 pub(crate) use encoded::Preflight as RasterPreflight;
 pub(crate) use encoded::StoragePlan as EncodedStoragePlan;
 pub(crate) use encoded::{CodingRecords, EncodedSections, GroupRecords, GroupSource};
@@ -76,6 +77,9 @@ pub(crate) use encoded::Preflight;
 pub use encoded::{
     DecodeError, EncodedImageAsset, EncodedImageError, EncodedImageView, ImageDecodePlan,
     ImageGroupIter, ImageGroups,
+};
+pub use execution::{
+    CacheSync, DecodeExecution, DecodeRequest, DecodeRequestError, MemoryPlacement,
 };
 pub use grid::{Region, RegionError, TileGrid, TileGridError, Tiles};
 pub use layout::{PlaneGeometries, PlaneGeometry, PlaneRole, SampleLayout};

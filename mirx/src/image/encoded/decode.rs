@@ -3,8 +3,8 @@ use crate::image::units::ScalarProfile;
 use crate::{
     PayloadLimits,
     image::{
-        BufferRequirementError, BufferRequirements, RegionMemoryPlan, SurfaceMemoryPlan,
-        SurfacePlanError, SurfaceRequirements, SurfaceView,
+        BufferRequirementError, BufferRequirements, CacheSync, DecodeRequest, DecodeRequestError,
+        RegionMemoryPlan, SurfaceMemoryPlan, SurfacePlanError, SurfaceRequirements, SurfaceView,
     },
 };
 
@@ -20,10 +20,13 @@ pub struct ImageDecodePlan<'a, 'g> {
     groups: ImageGroups<'a, 'g>,
     memory: RegionMemoryPlan,
     scope: DecodeScope,
+    request: DecodeRequest,
     workspace: BufferRequirements,
     units: u64,
     work: u64,
     input_bytes: u64,
+    input_alignment: u32,
+    input_addresses_aligned: bool,
     checksum_bytes: u64,
 }
 
@@ -59,20 +62,41 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
         requirements: SurfaceRequirements,
         limits: &PayloadLimits,
     ) -> Result<ImageDecodePlan<'a, 'g>, DecodeError> {
+        self.decode_plan_for(DecodeRequest::new(requirements), limits)
+    }
+
+    /// Preflights complete reconstruction for explicit execution and memory policy.
+    ///
+    /// The built-in decoder accepts reconstruction into CPU-accessible output.
+    /// Memory-mapped Flash is admitted as input, and coherent or explicitly
+    /// synchronized shared memory is admitted for input, output, and workspace.
+    /// Compute and direct-upload requests are rejected before image preflight.
+    pub fn decode_plan_for(
+        self,
+        request: DecodeRequest,
+        limits: &PayloadLimits,
+    ) -> Result<ImageDecodePlan<'a, 'g>, DecodeError> {
+        request
+            .validate_reconstruction()
+            .map_err(DecodeError::Request)?;
         let mut preflight = Preflight::new(limits, self.len()).map_err(DecodeError::Image)?;
         let memory = self
             .image()
             .surface()
-            .memory_plan(requirements)
+            .memory_plan(request.requirements())
             .map_err(DecodeError::Memory)?;
         preflight
             .spend(u64::from(memory.byte_len()) + u64::from(self.image.checksum_bytes))
             .map_err(DecodeError::Image)?;
         let mut workspace = 0;
         let mut input_bytes = 0;
+        let mut input_alignment = 1;
+        let mut input_addresses_aligned = true;
         for (index, group) in self.iter().enumerate() {
             preflight.group(index, group).map_err(DecodeError::Image)?;
             for unit in group.iter() {
+                input_alignment = input_alignment.max(unit.input_alignment());
+                input_addresses_aligned &= unit.data_address_is_aligned();
                 let unit_memory = unit
                     .memory_plan(SurfaceRequirements::new())
                     .expect("preflighted unit geometry");
@@ -98,16 +122,34 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
             groups: self,
             memory: RegionMemoryPlan::whole(memory),
             scope: DecodeScope::Whole,
-            workspace: BufferRequirements::new(workspace, 1).map_err(DecodeError::Memory)?,
+            request,
+            workspace: BufferRequirements::new(workspace, request.workspace_alignment())
+                .map_err(DecodeError::Memory)?,
             units: preflight.total_units(),
             work: preflight.work(),
             input_bytes,
+            input_alignment,
+            input_addresses_aligned,
             checksum_bytes: u64::from(self.image.checksum_bytes),
         })
     }
 }
 
 impl<'a> ImageDecodePlan<'a, '_> {
+    pub const fn request(self) -> DecodeRequest {
+        self.request
+    }
+
+    /// Cache action the caller must complete before planning or replaying input.
+    pub const fn input_sync(self) -> CacheSync {
+        self.request.input_sync()
+    }
+
+    /// Cache action the caller must complete before a device consumes output.
+    pub const fn output_sync(self) -> CacheSync {
+        self.request.output_sync()
+    }
+
     pub const fn memory_plan(self) -> SurfaceMemoryPlan {
         self.memory.memory_plan()
     }
@@ -120,6 +162,19 @@ impl<'a> ImageDecodePlan<'a, '_> {
     /// Selected encoded bytes, excluding alignment gaps and metadata.
     pub const fn input_byte_len(self) -> u64 {
         self.input_bytes
+    }
+
+    /// Maximum alignment promised for selected encoded unit starts.
+    pub const fn input_alignment(self) -> u32 {
+        self.input_alignment
+    }
+
+    /// Whether selected encoded unit starts satisfy their promise in this slice.
+    ///
+    /// Scalar reconstruction does not require this property. Direct device paths
+    /// must not substitute this runtime check for file-relative alignment.
+    pub const fn input_addresses_are_aligned(self) -> bool {
+        self.input_addresses_aligned
     }
 
     /// Actual DATA checksum bytes, including required partition expansion.
@@ -191,6 +246,7 @@ impl<'a> ImageDecodePlan<'a, '_> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum DecodeError {
+    Request(DecodeRequestError),
     Image(EncodedImageError),
     Memory(SurfacePlanError),
     Output(BufferRequirementError),
