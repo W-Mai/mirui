@@ -2,6 +2,7 @@ mod bundle;
 mod font;
 mod frames;
 mod image;
+mod memory;
 mod vector;
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
@@ -24,7 +25,17 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
                      [--format <rgba8888|rgb888|rgb565|rgb565-swapped|bgra8888|xrgb8888|i1|i2|i4|i8>] \
     \
                      [--coding <raw|pixel|rle|lz4|frequency-reversible|frequency-quantized>] \
-                     [--quality <1..100>] [--stride-align <raw-row-bytes>]\n  \
+                     [--quality <1..100>] [--stride-align <raw-row-bytes>] \
+    \
+                     [--output-align <bytes>] [--plane-align <bytes>] [--width-multiple <pixels>] \
+    \
+                     [--height-multiple <rows>] [--stride-multiple <bytes>] [--workspace-align <bytes>] \
+    \
+                     [--input-memory <cpu|flash|shared-coherent|shared-noncoherent>] \
+    \
+                     [--output-memory <cpu|shared-coherent|shared-noncoherent>] \
+    \
+                     [--workspace-memory <cpu|shared-coherent|shared-noncoherent>]\n  \
                  cargo xtask gen-mirx frames --in <frame> --in <frame> --out <animation.mirx> \
     \
                      [--format <rgba8888|rgb888|i1|i2|i4|i8>] [--duration <ticks>] \

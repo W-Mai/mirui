@@ -5,13 +5,10 @@ use std::process::Command;
 use mirx::{
     ChunkFlags, ChunkType, Document, EncodeOptions, FrameEncoding, FrameEncodingSet, FramePolicy,
     FrameSequence, FrameStorage, FramesEncoder, PayloadLimits, Reader,
-    image::{
-        BufferRequirements, CacheSync, DecodeRequest, MemoryPlacement, SurfaceDescriptor,
-        SurfaceMemoryPlan, SurfaceRequirements,
-    },
+    image::{BufferRequirements, DecodeRequest, SurfaceDescriptor, SurfaceMemoryPlan},
 };
 
-use super::{Result, icu_program, probe_icu};
+use super::{Result, icu_program, memory, probe_icu};
 
 #[derive(Debug, Eq, PartialEq)]
 struct Options {
@@ -39,15 +36,7 @@ impl Options {
         let mut max_delta_frames = 8;
         let mut tiles = Some((32, 32));
         let mut input_alignment = 1u32;
-        let mut output_alignment = 1u32;
-        let mut plane_alignment = 1u32;
-        let mut width_multiple = 1u32;
-        let mut height_multiple = 1u32;
-        let mut stride_multiple = 1u32;
-        let mut workspace_alignment = 1u32;
-        let mut input_memory = MemoryPlacement::Cpu;
-        let mut output_memory = MemoryPlacement::Cpu;
-        let mut workspace_memory = MemoryPlacement::Cpu;
+        let mut decode = memory::DecodeArgs::default();
         let mut quality = None;
         let mut cursor = 0;
         while cursor < args.len() {
@@ -79,39 +68,6 @@ impl Options {
                         .parse()
                         .map_err(|_| "--input-align must be a positive power of two")?
                 }
-                "--output-align" => {
-                    output_alignment = value
-                        .parse()
-                        .map_err(|_| "--output-align must be a positive power of two")?
-                }
-                "--plane-align" => {
-                    plane_alignment = value
-                        .parse()
-                        .map_err(|_| "--plane-align must be a positive power of two")?
-                }
-                "--width-multiple" => {
-                    width_multiple = value
-                        .parse()
-                        .map_err(|_| "--width-multiple must be positive")?
-                }
-                "--height-multiple" => {
-                    height_multiple = value
-                        .parse()
-                        .map_err(|_| "--height-multiple must be positive")?
-                }
-                "--stride-multiple" => {
-                    stride_multiple = value
-                        .parse()
-                        .map_err(|_| "--stride-multiple must be positive")?
-                }
-                "--workspace-align" => {
-                    workspace_alignment = value
-                        .parse()
-                        .map_err(|_| "--workspace-align must be a positive power of two")?
-                }
-                "--input-memory" => input_memory = parse_memory_placement(value)?,
-                "--output-memory" => output_memory = parse_memory_placement(value)?,
-                "--workspace-memory" => workspace_memory = parse_memory_placement(value)?,
                 "--quality" => {
                     quality = Some(
                         value
@@ -119,6 +75,7 @@ impl Options {
                             .map_err(|_| "--quality must be between 1 and 100")?,
                     )
                 }
+                _ if decode.parse(option, value)? => {}
                 _ => return Err(format!("unexpected argument: {option}").into()),
             }
             cursor += 2;
@@ -151,36 +108,10 @@ impl Options {
         if !input_alignment.is_power_of_two() {
             return Err("--input-align must be a positive power of two".into());
         }
-        if !output_alignment.is_power_of_two() {
-            return Err("--output-align must be a positive power of two".into());
-        }
-        if !plane_alignment.is_power_of_two() {
-            return Err("--plane-align must be a positive power of two".into());
-        }
-        if !workspace_alignment.is_power_of_two() {
-            return Err("--workspace-align must be a positive power of two".into());
-        }
-        if width_multiple == 0 || height_multiple == 0 || stride_multiple == 0 {
-            return Err("output width, height, and stride multiples must be positive".into());
-        }
         if quality.is_some_and(|value| !(1..=100).contains(&value)) {
             return Err("--quality must be between 1 and 100".into());
         }
-        let decode_request = DecodeRequest::new(
-            SurfaceRequirements::new()
-                .with_base_alignment(output_alignment)
-                .with_plane_alignment(plane_alignment)
-                .with_width_multiple(width_multiple)
-                .with_height_multiple(height_multiple)
-                .with_stride_multiple(stride_multiple),
-        )
-        .with_input(input_memory)
-        .with_output(output_memory)
-        .with_workspace(workspace_memory)
-        .with_workspace_alignment(workspace_alignment);
-        decode_request
-            .validate_reconstruction()
-            .map_err(|error| format!("unsupported decode memory contract: {error:?}"))?;
+        let decode_request = decode.request()?;
         Ok(Self {
             inputs,
             output,
@@ -207,9 +138,7 @@ struct DecodedFrame {
 #[derive(Debug)]
 struct OutputReport {
     memory: SurfaceMemoryPlan,
-    input_alignment: u32,
-    input_addresses_aligned: bool,
-    request: DecodeRequest,
+    contract: memory::ContractReport,
     group_slots: usize,
     workspace: BufferRequirements,
     backup: BufferRequirements,
@@ -329,24 +258,11 @@ pub fn run(args: &[String]) -> Result {
         bytes.len() as f64 / source_bytes as f64,
     );
     println!(
-        "  access: recovery <= {} frames, input alignment {} B (host slice {}), runtime {}",
+        "  access: recovery <= {} frames, runtime {}",
         max_delta_frames,
-        output_report.input_alignment,
-        if output_report.input_addresses_aligned {
-            "aligned"
-        } else {
-            "misaligned"
-        },
         runtime_path(first.surface),
     );
-    println!(
-        "  memory: input {}, output {}, workspace {}; cache input {}, output {}",
-        memory_name(output_report.request.input()),
-        memory_name(output_report.request.output()),
-        memory_name(output_report.request.workspace()),
-        cache_sync_name(output_report.request.input_sync()),
-        cache_sync_name(output_report.request.output_sync()),
-    );
+    output_report.contract.print();
     println!(
         "  buffers: canvas {} B @ {} B, codec workspace {} B @ {} B, backup {} B @ {} B, group slots {}",
         output_report.memory.byte_len(),
@@ -461,9 +377,11 @@ fn inspect_output(bytes: &[u8], request: DecodeRequest) -> Result<OutputReport> 
         .map_err(|error| format!("generated FRAMES playback plan failed: {error:?}"))?;
     Ok(OutputReport {
         memory: plan.memory_plan(),
-        input_alignment: plan.input_alignment(),
-        input_addresses_aligned: plan.input_addresses_are_aligned(),
-        request: plan.request(),
+        contract: memory::ContractReport::new(
+            plan.request(),
+            plan.input_alignment(),
+            plan.input_addresses_are_aligned(),
+        ),
         group_slots: plan.group_workspace_len(),
         workspace: plan.workspace_requirements(),
         backup: plan.backup_requirements(),
@@ -479,38 +397,6 @@ fn runtime_path(surface: SurfaceDescriptor) -> &'static str {
         | mirx::image::SampleLayout::RGBA8888
         | mirx::image::SampleLayout::BGRA8888 => "mirui borrowed Texture",
         _ => "mirx decoded surface; backend conversion required",
-    }
-}
-
-fn parse_memory_placement(value: &str) -> Result<MemoryPlacement> {
-    match value.to_ascii_lowercase().as_str() {
-        "cpu" => Ok(MemoryPlacement::Cpu),
-        "flash" => Ok(MemoryPlacement::Flash),
-        "shared-coherent" => Ok(MemoryPlacement::SharedCoherent),
-        "shared-noncoherent" => Ok(MemoryPlacement::SharedNoncoherent),
-        "device" => Ok(MemoryPlacement::Device),
-        _ => Err(format!(
-            "invalid memory placement {value:?}; expected cpu, flash, shared-coherent, shared-noncoherent, or device"
-        )
-        .into()),
-    }
-}
-
-fn memory_name(placement: MemoryPlacement) -> &'static str {
-    match placement {
-        MemoryPlacement::Cpu => "cpu",
-        MemoryPlacement::Flash => "flash",
-        MemoryPlacement::SharedCoherent => "shared-coherent",
-        MemoryPlacement::SharedNoncoherent => "shared-noncoherent",
-        MemoryPlacement::Device => "device",
-    }
-}
-
-fn cache_sync_name(sync: CacheSync) -> &'static str {
-    match sync {
-        CacheSync::None => "none",
-        CacheSync::InvalidateBeforeRead => "invalidate-before-read",
-        CacheSync::CleanAfterWrite => "clean-after-write",
     }
 }
 
@@ -553,6 +439,7 @@ fn encoding_name(encoding: FrameEncoding) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mirx::image::{CacheSync, MemoryPlacement, SurfaceRequirements};
 
     fn args(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).into()).collect()
@@ -736,8 +623,11 @@ mod tests {
         assert_eq!(report.workspace.byte_len(), 6);
         assert_eq!(report.workspace.base_alignment(), 64);
         assert_eq!(report.backup.byte_len(), 0);
-        assert_eq!(report.request.input_sync(), CacheSync::None);
-        assert_eq!(report.request.output_sync(), CacheSync::CleanAfterWrite);
-        assert!(report.input_addresses_aligned);
+        assert_eq!(report.contract.request().input_sync(), CacheSync::None);
+        assert_eq!(
+            report.contract.request().output_sync(),
+            CacheSync::CleanAfterWrite
+        );
+        assert!(report.contract.input_addresses_are_aligned());
     }
 }
