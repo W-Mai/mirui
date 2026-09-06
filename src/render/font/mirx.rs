@@ -6,6 +6,7 @@ use super::{Font, FontBackend, FontMetrics, FontProvider, Glyph, GlyphKind};
 use mirx::font::FontGlyphs;
 use mirx::{
     FontError, FontRepresentationFallback, FontRepresentationRequest, FontView, PayloadLimits,
+    image::{CoverageBudget, SurfaceRequirements, SurfaceView, UnitGroup},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -16,12 +17,68 @@ pub enum MirxFontError {
     MultipleFaces,
     InvalidFace(FontError),
     EncodedStorage,
+    SurfaceSlotsTooSmall {
+        needed: usize,
+        available: usize,
+    },
+    SurfaceOutputTooSmall {
+        surface: usize,
+        needed: usize,
+        available: usize,
+    },
+    SurfaceSizeOverflow {
+        surface: usize,
+    },
+    SurfaceWorkspace {
+        surface: usize,
+        error: mirx::image::BufferRequirementError,
+    },
+    EncodedSurface {
+        surface: usize,
+        error: mirx::font::EncodedGlyphError,
+    },
+}
+
+/// Caller-owned persistent and temporary storage for encoded FONT surfaces.
+///
+/// `surfaces` and `output` remain borrowed by the resulting provider. `groups`
+/// and `workspace` are temporary construction scratch and may be reused after
+/// the constructor returns.
+pub struct MirxFontStorage<'scratch> {
+    surfaces: &'static mut [Option<SurfaceView<'static>>],
+    output: &'static mut [u8],
+    groups: &'scratch mut [Option<UnitGroup<'static>>],
+    workspace: &'scratch mut [u8],
+    requirements: SurfaceRequirements,
+}
+
+impl<'scratch> MirxFontStorage<'scratch> {
+    pub fn new(
+        surfaces: &'static mut [Option<SurfaceView<'static>>],
+        output: &'static mut [u8],
+        groups: &'scratch mut [Option<UnitGroup<'static>>],
+        workspace: &'scratch mut [u8],
+    ) -> Self {
+        Self {
+            surfaces,
+            output,
+            groups,
+            workspace,
+            requirements: SurfaceRequirements::new(),
+        }
+    }
+
+    pub const fn with_requirements(mut self, requirements: SurfaceRequirements) -> Self {
+        self.requirements = requirements;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
 pub struct MirxFontProvider {
     face: FontView<'static>,
     default_size: u16,
+    decoded: &'static [Option<SurfaceView<'static>>],
 }
 
 impl MirxFontProvider {
@@ -40,7 +97,7 @@ impl MirxFontProvider {
             .map_err(MirxFontError::InvalidFace)?
             .expect("FONT filter");
         face.preflight(limits).map_err(MirxFontError::InvalidFace)?;
-        Self::from_view(face)
+        Self::from_raw_view(face)
     }
 
     /// Opens one standalone FONT payload whose backing storage is static.
@@ -50,15 +107,156 @@ impl MirxFontProvider {
     ) -> Result<Self, MirxFontError> {
         let face = FontView::open(payload, limits).map_err(MirxFontError::InvalidFace)?;
         face.preflight(limits).map_err(MirxFontError::InvalidFace)?;
-        Self::from_view(face)
+        Self::from_raw_view(face)
     }
 
-    fn from_view(face: FontView<'static>) -> Result<Self, MirxFontError> {
+    /// Opens exactly one FONT face and reconstructs encoded surfaces into
+    /// caller-owned persistent storage before returning the provider.
+    pub fn from_mirx_with_storage(
+        bytes: &'static [u8],
+        limits: &PayloadLimits,
+        storage: MirxFontStorage<'_>,
+    ) -> Result<Self, MirxFontError> {
+        let reader = mirx::Reader::open(bytes).map_err(|_| MirxFontError::Container)?;
+        let mut faces = reader
+            .chunks()
+            .filter(|chunk| chunk.chunk_type() == mirx::ChunkType::FONT);
+        let chunk = faces.next().ok_or(MirxFontError::MissingFace)?;
+        if faces.next().is_some() {
+            return Err(MirxFontError::MultipleFaces);
+        }
+        let face = chunk
+            .font(limits)
+            .map_err(MirxFontError::InvalidFace)?
+            .expect("FONT filter");
+        face.preflight(limits).map_err(MirxFontError::InvalidFace)?;
+        Self::from_view_with_storage(face, limits, storage)
+    }
+
+    /// Opens one standalone FONT payload and reconstructs encoded surfaces into
+    /// caller-owned persistent storage before returning the provider.
+    pub fn from_payload_with_storage(
+        payload: &'static [u8],
+        limits: &PayloadLimits,
+        storage: MirxFontStorage<'_>,
+    ) -> Result<Self, MirxFontError> {
+        let face = FontView::open(payload, limits).map_err(MirxFontError::InvalidFace)?;
+        face.preflight(limits).map_err(MirxFontError::InvalidFace)?;
+        Self::from_view_with_storage(face, limits, storage)
+    }
+
+    fn from_raw_view(face: FontView<'static>) -> Result<Self, MirxFontError> {
         for index in 0..face.tables().len() {
             if matches!(face.glyphs(index), Some(FontGlyphs::Encoded(_))) {
                 return Err(MirxFontError::EncodedStorage);
             }
         }
+        Ok(Self::from_view(face, &[]))
+    }
+
+    fn from_view_with_storage(
+        face: FontView<'static>,
+        limits: &PayloadLimits,
+        storage: MirxFontStorage<'_>,
+    ) -> Result<Self, MirxFontError> {
+        let MirxFontStorage {
+            surfaces,
+            output,
+            groups,
+            workspace,
+            requirements,
+        } = storage;
+        if surfaces.len() < face.surface_count() {
+            return Err(MirxFontError::SurfaceSlotsTooSmall {
+                needed: face.surface_count(),
+                available: surfaces.len(),
+            });
+        }
+
+        // Admission and exact arena placement complete before any persistent
+        // byte or view slot changes. The second pass replays immutable plans.
+        let mut output_cursor = 0usize;
+        let mut budget = CoverageBudget::new(limits.max_raster_work());
+        for surface in 0..face.surface_count() {
+            let Some(FontGlyphs::Encoded(encoded)) = Self::surface_storage(face, surface) else {
+                continue;
+            };
+            let prepared = encoded
+                .groups_into(groups, &mut budget)
+                .map_err(|error| MirxFontError::EncodedSurface { surface, error })?;
+            let plan = prepared
+                .decode_surface_plan(requirements, limits)
+                .map_err(|error| MirxFontError::EncodedSurface { surface, error })?;
+            let needed = plan.memory_plan().buffer_requirements();
+            let address = (output.as_ptr() as usize)
+                .checked_add(output_cursor)
+                .ok_or(MirxFontError::SurfaceSizeOverflow { surface })?;
+            let alignment = needed.base_alignment();
+            let padding = (alignment - address % alignment) % alignment;
+            let span = padding
+                .checked_add(needed.byte_len())
+                .ok_or(MirxFontError::SurfaceSizeOverflow { surface })?;
+            let available = output.len().saturating_sub(output_cursor);
+            if span > available {
+                return Err(MirxFontError::SurfaceOutputTooSmall {
+                    surface,
+                    needed: span,
+                    available,
+                });
+            }
+            needed
+                .validate(&output[output_cursor + padding..])
+                .expect("checked aligned surface range");
+            plan.workspace_requirements()
+                .validate(workspace)
+                .map_err(|error| MirxFontError::SurfaceWorkspace { surface, error })?;
+            output_cursor += span;
+        }
+
+        surfaces[..face.surface_count()].fill(None);
+        let mut remaining = output;
+        let mut budget = CoverageBudget::new(limits.max_raster_work());
+        for (surface, slot) in surfaces.iter_mut().enumerate().take(face.surface_count()) {
+            let Some(FontGlyphs::Encoded(encoded)) = Self::surface_storage(face, surface) else {
+                continue;
+            };
+            let prepared = encoded
+                .groups_into(groups, &mut budget)
+                .map_err(|error| MirxFontError::EncodedSurface { surface, error })?;
+            let plan = prepared
+                .decode_surface_plan(requirements, limits)
+                .map_err(|error| MirxFontError::EncodedSurface { surface, error })?;
+            let needed = plan.memory_plan().buffer_requirements();
+            let address = remaining.as_ptr() as usize;
+            let alignment = needed.base_alignment();
+            let padding = (alignment - address % alignment) % alignment;
+            let span = padding
+                .checked_add(needed.byte_len())
+                .expect("surface span admitted in the first pass");
+            let current = core::mem::take(&mut remaining);
+            let (allocation, rest) = current.split_at_mut(span);
+            remaining = rest;
+            let decoded = plan
+                .decode_into(&mut allocation[padding..], workspace)
+                .expect("immutable font surface admitted in the first pass");
+            *slot = Some(decoded);
+        }
+        Ok(Self::from_view(face, &surfaces[..face.surface_count()]))
+    }
+
+    fn surface_storage(face: FontView<'static>, surface: usize) -> Option<FontGlyphs<'static>> {
+        let representation = (0..face.tables().len()).find(|index| {
+            face.tables()
+                .get(*index)
+                .is_some_and(|value| usize::from(value.record().surface_index()) == surface)
+        })?;
+        face.glyphs(representation)
+    }
+
+    fn from_view(
+        face: FontView<'static>,
+        decoded: &'static [Option<SurfaceView<'static>>],
+    ) -> Self {
         let representations = face.tables().representations();
         let default_size = representations
             .iter()
@@ -78,7 +276,11 @@ impl MirxFontProvider {
                     .representation()
                     .design_ppem()
             });
-        Ok(Self { face, default_size })
+        Self {
+            face,
+            default_size,
+            decoded,
+        }
     }
 
     pub const fn default_size(self) -> u16 {
@@ -104,17 +306,23 @@ impl FontProvider for MirxFontProvider {
         let selected = self.selected(requested_size)?;
         let ordinal = self.face.tables().codepoints().binary_search(ch).ok()?;
         let metric = selected.metrics().get(ordinal)?;
-        let FontGlyphs::Raw(storage) = self.face.glyphs(selected.index())? else {
-            return None;
+        let (plane, region) = match self.face.glyphs(selected.index())? {
+            FontGlyphs::Raw(storage) => {
+                let raster = storage.get(ordinal)?;
+                (raster.storage().plane(0)?, raster.region())
+            }
+            FontGlyphs::Encoded(_) => {
+                let surface = usize::from(selected.record().surface_index());
+                let decoded = self.decoded.get(surface).copied().flatten()?;
+                (decoded.plane(0)?, selected.map().get(ordinal)?)
+            }
         };
-        let raster = storage.get(ordinal)?;
-        let plane = raster.storage().plane(0)?;
         Some(Glyph {
             advance: crate::types::Fixed::from_raw(metric.advance().raw()),
             kind: GlyphKind::Raster {
                 samples: plane.bytes(),
                 stride: plane.memory().stride(),
-                region: raster.region(),
+                region,
                 representation: selected.record().representation(),
                 bearing_x: crate::types::Fixed::from_raw(metric.bearing_x().raw()),
                 bearing_y: crate::types::Fixed::from_raw(metric.bearing_y().raw()),
@@ -150,6 +358,21 @@ pub fn font_from_mirx(
     limits: &PayloadLimits,
 ) -> Result<Font, MirxFontError> {
     let provider = MirxFontProvider::from_mirx(bytes, limits)?;
+    Ok(Font {
+        family,
+        size: provider.default_size(),
+        backend: FontBackend::Custom(Rc::new(provider)),
+    })
+}
+
+/// Builds a [`Font`] whose encoded surfaces reside in caller-owned storage.
+pub fn font_from_mirx_with_storage(
+    family: &'static str,
+    bytes: &'static [u8],
+    limits: &PayloadLimits,
+    storage: MirxFontStorage<'_>,
+) -> Result<Font, MirxFontError> {
+    let provider = MirxFontProvider::from_mirx_with_storage(bytes, limits, storage)?;
     Ok(Font {
         family,
         size: provider.default_size(),
@@ -290,5 +513,115 @@ mod tests {
             MirxFontProvider::from_payload(alloc::vec::Vec::leak(payload), &PayloadLimits::HOST),
             Err(MirxFontError::EncodedStorage)
         ));
+    }
+
+    fn encoded_face_payload() -> &'static [u8] {
+        let codepoints = ['A', 'B'];
+        let metrics = [GlyphMetrics::default(); 2];
+        let line = LineMetrics::new(Fixed::ZERO, Fixed::ZERO, Fixed::ONE).unwrap();
+        let map = GlyphMap::glyph_major(2, 2, codepoints.len()).unwrap();
+        let surface =
+            SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
+        let image = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
+        let representation = RepresentationAsset::new(
+            mirx::FontRepresentation::coverage(8, 1, 8).unwrap(),
+            0,
+            line,
+            &metrics,
+        );
+        alloc::vec::Vec::leak(
+            FontAsset::new(
+                &codepoints,
+                &[representation],
+                &[GlyphSurfaceAsset::Encoded { map, image }],
+            )
+            .encode()
+            .unwrap(),
+        )
+    }
+
+    #[test]
+    fn encoded_surfaces_reside_in_aligned_caller_storage() {
+        #[repr(align(64))]
+        struct Aligned([u8; 320]);
+
+        let payload = encoded_face_payload();
+        let surfaces = alloc::boxed::Box::leak(alloc::boxed::Box::new([None]));
+        let output =
+            &mut alloc::boxed::Box::leak(alloc::boxed::Box::new(Aligned([0xa5; 320]))).0[1..];
+        let mut groups = [None];
+        let mut workspace = [0x5a; 8];
+        let storage = MirxFontStorage::new(surfaces, output, &mut groups, &mut workspace)
+            .with_requirements(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_stride_multiple(64),
+            );
+        let provider =
+            MirxFontProvider::from_payload_with_storage(payload, &PayloadLimits::HOST, storage)
+                .unwrap();
+
+        for (ch, y) in [('A', 0), ('B', 2)] {
+            let glyph = provider.glyph(ch, 8).unwrap();
+            let GlyphKind::Raster {
+                samples,
+                stride,
+                region,
+                ..
+            } = glyph.kind
+            else {
+                panic!("raster glyph");
+            };
+            assert_eq!(samples.as_ptr() as usize % 64, 0);
+            assert_eq!(samples.len(), 256);
+            assert_eq!(stride, 64);
+            assert_eq!(region, Region::new(0, y, 2, 2).unwrap());
+            for row in 0..4 {
+                assert_eq!(&samples[row * 64..row * 64 + 2], &[42; 2]);
+                assert!(
+                    samples[row * 64 + 2..row * 64 + 64]
+                        .iter()
+                        .all(|byte| *byte == 0)
+                );
+            }
+        }
+
+        groups.fill(None);
+        workspace.fill(0);
+    }
+
+    #[test]
+    fn encoded_surface_admission_precedes_persistent_writes() {
+        #[repr(align(64))]
+        struct Short([u8; 255]);
+
+        let payload = encoded_face_payload();
+        let surfaces = alloc::boxed::Box::leak(alloc::boxed::Box::new([None]));
+        let surfaces_ptr = surfaces.as_ptr();
+        let output = &mut alloc::boxed::Box::leak(alloc::boxed::Box::new(Short([0xa5; 255]))).0;
+        let output_ptr = output.as_ptr();
+        let mut groups = [None];
+        let mut workspace = [0x5a; 8];
+        let storage = MirxFontStorage::new(surfaces, output, &mut groups, &mut workspace)
+            .with_requirements(
+                SurfaceRequirements::new()
+                    .with_base_alignment(64)
+                    .with_stride_multiple(64),
+            );
+        assert!(matches!(
+            MirxFontProvider::from_payload_with_storage(payload, &PayloadLimits::HOST, storage),
+            Err(MirxFontError::SurfaceOutputTooSmall {
+                surface: 0,
+                needed: 256,
+                available: 255,
+            })
+        ));
+
+        // SAFETY: construction failed, so no provider retains the static
+        // buffers; the leaked allocations remain live and uniquely owned here.
+        let output = unsafe { core::slice::from_raw_parts(output_ptr, 255) };
+        let surfaces = unsafe { core::slice::from_raw_parts(surfaces_ptr, 1) };
+        assert!(output.iter().all(|byte| *byte == 0xa5));
+        assert_eq!(surfaces, &[None]);
     }
 }

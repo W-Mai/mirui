@@ -149,6 +149,21 @@ impl<'data, 'g> GlyphGroups<'_, 'data, 'g> {
         self.groups.len()
     }
 
+    /// Plans reconstruction of the complete scalar glyph surface.
+    ///
+    /// This is the residency path for renderers that keep one immutable decoded
+    /// atlas or glyph-major surface. Prepared groups and encoded DATA remain
+    /// borrowed; output and codec workspace stay caller-owned.
+    pub fn decode_surface_plan(
+        self,
+        requirements: SurfaceRequirements,
+        limits: &PayloadLimits,
+    ) -> Result<ImageDecodePlan<'data, 'g>, EncodedGlyphError> {
+        self.groups
+            .decode_plan(requirements, limits)
+            .map_err(EncodedGlyphError::Decode)
+    }
+
     /// Plans one exact glyph region through shared unit preflight and cropped output.
     /// The result does not borrow map metadata; encoded DATA and prepared slots remain borrowed.
     pub fn decode_plan(
