@@ -6,8 +6,8 @@ pub use rows::{PlaneAccessError, PlaneRows};
 pub use transfer::SurfaceCopyError;
 
 use super::{
-    ColorDescription, ImageEncodeError, PlaneMemoryLayout, RawImageAsset, RawImageView,
-    SampleLayout, SurfaceDescriptor, SurfaceMemoryPlan, SurfacePlane,
+    AccessCapabilities, ColorDescription, ImageEncodeError, PlaneMemoryLayout, RawImageAsset,
+    RawImageView, SampleLayout, SurfaceDescriptor, SurfaceMemoryPlan, SurfacePlane,
 };
 use crate::{ColorFormat, ColorTableView, ImageView};
 
@@ -27,6 +27,14 @@ pub struct SurfaceView<'a> {
 }
 
 impl<'a> SurfaceView<'a> {
+    /// Reports direct sample access available from this validated surface.
+    pub fn access_capabilities(self) -> AccessCapabilities {
+        let has_linear_rows = self
+            .planes()
+            .all(|plane| plane.memory().flags().bits() == 0);
+        AccessCapabilities::raw_surface(has_linear_rows)
+    }
+
     pub const fn surface(self) -> SurfaceDescriptor {
         self.surface
     }

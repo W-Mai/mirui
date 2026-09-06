@@ -276,12 +276,16 @@ mod tests {
             .with_flags(PlaneMemoryFlags::from_bits_retain(0x80))
             .build()
             .unwrap()];
-        let plane = RawImageAsset::new(surface, &[&[0]])
+        let view = RawImageAsset::new(surface, &[&[0]])
             .with_memory_layouts(&memory)
             .view()
-            .unwrap()
-            .plane(0)
             .unwrap();
+        let access = view.access_capabilities();
+        assert!(access.supports_direct_borrow());
+        assert!(!access.supports_whole());
+        assert!(!access.supports_rows());
+        assert!(!access.supports_region());
+        let plane = view.plane(0).unwrap();
         assert_eq!(
             plane.rows().unwrap_err(),
             PlaneAccessError::UnsupportedFlags(0x80)

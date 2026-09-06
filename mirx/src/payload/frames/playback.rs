@@ -2,9 +2,10 @@ use super::{BlendMode, DisposalMode, FrameGroups, FramesError, FramesView};
 use crate::{
     PayloadLimits,
     image::{
-        BufferRequirementError, BufferRequirements, CacheSync, CoverageBudget, DecodeRequest,
-        DecodeRequestError, EncodedImageError, Preflight, ReferenceMode, ScalarProfile,
-        SurfaceMemoryPlan, SurfacePlanError, SurfaceRequirements, SurfaceView, UnitGroup,
+        AccessCapabilities, BufferRequirementError, BufferRequirements, CacheSync, CoverageBudget,
+        DecodeRequest, DecodeRequestError, EncodedImageError, Preflight, ReferenceMode,
+        ScalarProfile, SurfaceMemoryPlan, SurfacePlanError, SurfaceRequirements, SurfaceView,
+        UnitGroup,
     },
 };
 
@@ -606,6 +607,11 @@ impl<'a> FramesView<'a> {
 }
 
 impl<'a> FramesPlaybackPlan<'a> {
+    /// Reports access proven by complete sequence preflight.
+    pub const fn access_capabilities(self) -> AccessCapabilities {
+        AccessCapabilities::frames()
+    }
+
     pub const fn frames(self) -> FramesView<'a> {
         self.frames
     }

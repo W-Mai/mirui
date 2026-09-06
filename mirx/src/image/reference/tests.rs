@@ -29,6 +29,12 @@ fn common_metadata_preserves_distinct_sample_access_contracts() {
     assert_eq!(raw.surface(), surface());
     assert_eq!(raw.color_table().unwrap().as_bytes(), palette);
     assert_eq!(raw.raw().unwrap().plane(0).unwrap().bytes(), &[0x18, 0x1c]);
+    let access = raw.raw().unwrap().access_capabilities();
+    assert!(access.supports_whole());
+    assert!(access.supports_rows());
+    assert!(access.supports_region());
+    assert!(access.supports_direct_borrow());
+    assert!(!access.supports_direct_upload());
 
     let encoded_bytes = EncodedImageAsset::new(surface(), Rle::new().record(), &[1, 0x18, 0x1c])
         .with_color_table(&palette)
@@ -44,6 +50,12 @@ fn common_metadata_preserves_distinct_sample_access_contracts() {
     let groups = view
         .groups_into(&mut slots, &mut CoverageBudget::new(100))
         .unwrap();
+    let access = groups.access_capabilities().unwrap();
+    assert!(access.supports_whole());
+    assert!(access.supports_region());
+    assert!(!access.supports_rows());
+    assert!(!access.supports_direct_borrow());
+    assert!(!access.supports_direct_upload());
     groups.validate_unit(0, 0).unwrap();
     let plan = groups
         .get(0)
@@ -106,6 +118,13 @@ fn section_presence_selects_one_parser_without_fallback() {
     let groups = view
         .groups_into(&mut slots, &mut CoverageBudget::new(100))
         .unwrap();
+    assert_eq!(
+        groups.access_capabilities(),
+        Err(EncodedImageError::Coding {
+            group: 0,
+            error: UnitDecodeError::UnsupportedCoding(unknown.id()),
+        })
+    );
     assert_eq!(
         groups
             .get(0)

@@ -176,6 +176,8 @@ IMAGE uses an 8-byte media header, 12-byte section entries, a 32-byte SURFACE re
 
 Execution intent, memory placement, cache boundaries, alignment, and the implemented-versus-verified target ledger are documented in [decode execution and memory](docs/decode-memory.md).
 
+`SurfaceView`, prepared `ImageGroups`, individual `UnitGroup` values, and `FramesPlaybackPlan` report their proven access through `access_capabilities()`. The result distinguishes direct borrowing, whole surfaces, logical rows, independent units, exact regions, progressive delivery, bounded random-frame seeking, and direct upload without treating a representable execution intent as an implemented backend.
+
 Critical IMAGE chunks pass complete RAW or encoded preflight during `Reader::open_with`, using its configured `PayloadLimits`. `validate_known_payloads` applies the same gate explicitly to every implemented standard payload. Unknown encoded profiles remain inspectable in noncritical chunks but fail explicit or critical validation; metadata opening alone never establishes codec support.
 
 `Document::image` returns `ImageRef`, retaining RAW or encoded storage without allocating samples. `Document::push_image` and `DocumentChunkMut::replace_image` accept decoded `ImageSource` inputs: packed `ImageAsset`, planar `RawImageAsset`, `RawImageView`, or `SurfaceView`. Use `raw()` before accessing planes; its `packed()` projection returns `None` when the color or storage contract cannot be expressed as a packed image.

@@ -1,8 +1,8 @@
 use core::iter::FusedIterator;
 
 use super::{
-    CoverageBudget, CoverageError, SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceRecordError,
-    UNIT_GROUP_RECORD_LEN, UnitGroup, UnitGroupRecordError,
+    AccessCapabilities, CoverageBudget, CoverageError, SURFACE_RECORD_LEN, SurfaceDescriptor,
+    SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroup, UnitGroupRecordError,
 };
 use crate::media::{
     CodingTable, CodingTableError, MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind,
@@ -290,6 +290,20 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
         ImageGroupIter {
             groups: self.groups.iter(),
         }
+    }
+
+    /// Reports access implemented by the built-in scalar decoder.
+    ///
+    /// Every group is checked before the capability is returned. Unsupported
+    /// profile metadata is reported without reading encoded DATA or writing an
+    /// output buffer.
+    pub fn access_capabilities(self) -> Result<AccessCapabilities, EncodedImageError> {
+        for (group, value) in self.iter().enumerate() {
+            value
+                .access_capabilities()
+                .map_err(|error| EncodedImageError::Coding { group, error })?;
+        }
+        Ok(AccessCapabilities::encoded_image())
     }
     /// Verifies intersecting checksum coverage and returns actual bytes checked.
     pub fn validate_unit(self, group: usize, ordinal: usize) -> Result<u32, EncodedImageError> {

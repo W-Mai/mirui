@@ -93,6 +93,7 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
         let plan = frames
             .playback_plan_for(request, PayloadLimits::EMBEDDED, &mut slots)
             .unwrap();
+        assert!(plan.access_capabilities().supports_random_frame());
         assert_eq!(plan.canvas_requirements().byte_len(), 64);
         assert_eq!(plan.workspace_requirements().byte_len(), 1);
         let mut session = plan
@@ -1225,6 +1226,13 @@ fn image_storage_dispatch_does_not_allocate_or_decode() {
         assert_eq!(image.surface(), surface);
         assert_eq!(image.raw().unwrap().plane(0).unwrap().bytes(), &[42; 8]);
         assert!(image.encoded().is_none());
+        assert!(
+            image
+                .raw()
+                .unwrap()
+                .access_capabilities()
+                .supports_direct_borrow()
+        );
         let image = ImageRef::open_at(&encoded, 0).unwrap();
         assert_eq!(image.surface(), surface);
         assert!(image.raw().is_none());
@@ -1262,6 +1270,7 @@ fn encoded_image_authoring_and_decode_use_only_caller_storage() {
         let groups = view
             .groups_into(&mut slots, &mut CoverageBudget::new(100))
             .unwrap();
+        assert!(groups.access_capabilities().unwrap().supports_region());
         assert_eq!(groups.validate_unit(0, 0), Ok(len as u32));
         let plan = groups
             .get(0)

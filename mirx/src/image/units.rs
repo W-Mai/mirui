@@ -1,6 +1,6 @@
 use core::{iter::FusedIterator, ops::Range};
 
-use super::{Region, RegionError, SurfaceDescriptor, TileGrid, TileGridError};
+use super::{AccessCapabilities, Region, RegionError, SurfaceDescriptor, TileGrid, TileGridError};
 use crate::media::{CodingRecord, UnitIndex, UnitIndexError, UnitSelection, UnitSelectionError};
 
 mod decode;
@@ -186,6 +186,15 @@ impl<'a> UnitGroup<'a> {
     }
     pub const fn is_empty(self) -> bool {
         self.selection.is_empty()
+    }
+
+    /// Reports access implemented by the built-in scalar profile for this group.
+    ///
+    /// Unsupported coding identifiers, revisions, parameters, or sample layouts
+    /// are rejected before a capability is advertised.
+    pub fn access_capabilities(self) -> Result<AccessCapabilities, UnitDecodeError> {
+        ScalarProfile::new(self.coding, self.surface.sample_layout())?;
+        Ok(AccessCapabilities::encoded_group(self.grid.len() > 1))
     }
 
     /// Checks the actual group address; relative unit starts were checked at build time.

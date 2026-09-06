@@ -42,6 +42,7 @@
 #[cfg(test)]
 pub(crate) mod test_support;
 
+mod access;
 mod borrowed;
 mod color;
 mod color_table;
@@ -64,6 +65,7 @@ mod surface;
 mod units;
 mod view;
 
+pub use access::AccessCapabilities;
 pub use borrowed::{
     ImageSource, PlaneAccessError, PlaneRows, SurfaceCopyError, SurfacePlanes, SurfaceView,
 };
