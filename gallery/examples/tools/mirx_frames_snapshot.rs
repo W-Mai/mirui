@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use mirui::render::mirx_frames::MirxFramesPlan;
 use mirui::render::texture::MirxTextureOptions;
-use mirx::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
+use mirx::image::{CacheSync, ColorDescription, MemoryPlacement, SampleLayout, SurfaceDescriptor};
 use mirx::{Document, FrameEncodingSet, FrameSequence, FramesEncoder};
 
 const WIDTH: usize = 64;
@@ -92,6 +92,10 @@ fn output_path() -> PathBuf {
 fn main() {
     let bytes = encode_timeline();
     let options = MirxTextureOptions::new()
+        .with_input_memory(MemoryPlacement::Flash)
+        .with_output_memory(MemoryPlacement::SharedNoncoherent)
+        .with_workspace_memory(MemoryPlacement::SharedCoherent)
+        .with_workspace_alignment(64)
         .with_base_alignment(64)
         .with_plane_alignment(64)
         .with_width_multiple(64)
@@ -101,6 +105,10 @@ fn main() {
     assert_eq!(plan.frame_count(), 3);
     assert_eq!(plan.timeline().cycle_duration_ticks(), 500);
     assert_eq!(plan.group_workspace_len(), groups.len());
+    assert_eq!(plan.decode_request(), options.decode_request());
+    assert_eq!(plan.input_sync(), CacheSync::None);
+    assert_eq!(plan.output_sync(), CacheSync::CleanAfterWrite);
+    assert_eq!(plan.input_alignment(), 64);
 
     let mut canvas = Aligned([0; WIDTH * HEIGHT * 3]);
     let mut workspace = Aligned([0; WIDTH * HEIGHT * 4]);
@@ -143,10 +151,12 @@ fn main() {
     output.flush().expect("flush snapshot");
 
     eprintln!(
-        "saved {} ({} MIRX bytes, {}-byte canvas, {}-byte workspace, address/stride 64-byte aligned)",
+        "saved {} ({} MIRX bytes, {}-byte canvas, {}-byte workspace, address/stride 64-byte aligned, host input aligned: {}, output cache action: {:?})",
         path.display(),
         bytes.len(),
         plan.canvas_requirements().byte_len(),
         plan.workspace_requirements().byte_len(),
+        plan.input_addresses_are_aligned(),
+        plan.output_sync(),
     );
 }
