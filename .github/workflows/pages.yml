@@ -32,13 +32,15 @@ jobs:
         uses: actions/configure-pages@v5
       - name: Build Web gallery
         working-directory: gallery/web
-        run: trunk build --release --locked --public-url "${{ steps.pages.outputs.base_path }}/"
+        run: trunk build --release --locked --public-url /
       - name: Verify Pages bundle
         run: |
           test -s gallery/web/dist/index.html
           test -n "$(find gallery/web/dist -maxdepth 1 -type f -name '*.js' -size +0c -print -quit)"
           test -n "$(find gallery/web/dist -maxdepth 1 -type f -name '*.wasm' -size +0c -print -quit)"
-          grep --fixed-strings --quiet "${{ steps.pages.outputs.base_path }}/" gallery/web/dist/index.html
+          test "$(cat gallery/web/dist/CNAME)" = "mirui.rs"
+          grep --extended-regexp --quiet "from '/[^']+\\.js'" gallery/web/dist/index.html
+          grep --extended-regexp --quiet "module_or_path: '/[^']+\\.wasm'" gallery/web/dist/index.html
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v3
         with:
