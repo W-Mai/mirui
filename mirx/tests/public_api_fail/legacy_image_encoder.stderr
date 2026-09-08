@@ -1,13 +1,16 @@
-error[E0432]: unresolved imports `mirx::FlatImageInput`, `mirx::ImageChunkInput`, `mirx::encode_chunk_generic`, `mirx::encode_chunk_image`, `mirx::encode_flat`
+error[E0432]: unresolved imports `mirx::FlatImageInput`, `mirx::ImageChunkInput`, `mirx::encode_chunk_generic`, `mirx::encode_chunk_image`, `mirx::encode_chunks`, `mirx::encode_flat`
  --> tests/public_api_fail/legacy_image_encoder.rs:2:5
   |
-2 |     FlatImageInput, ImageChunkInput, encode_chunk_generic, encode_chunk_image, encode_flat,
-  |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^ no `encode_flat` in the root
+2 |     FlatImageInput, ImageChunkInput, encode_chunk_generic, encode_chunk_image, encode_chunks,
+  |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^ no `encode_chunks` in the root
   |     |               |                |                     |
   |     |               |                |                     no `encode_chunk_image` in the root
   |     |               |                no `encode_chunk_generic` in the root
   |     |               no `ImageChunkInput` in the root
+  |     |               help: a similar name exists in the module: `RawChunkInput`
   |     no `FlatImageInput` in the root
+3 |     encode_flat,
+  |     ^^^^^^^^^^^ no `encode_flat` in the root
   |
 note: found an item that was configured out
  --> src/lib.rs
@@ -21,15 +24,22 @@ note: found an item that was configured out
   |
   | #[cfg(test)]
   |       ---- the item is gated here
-  | pub(crate) use chunk::{ImageChunkInput, encode_chunk_image};
+  | pub(crate) use chunk::{ImageChunkInput, encode_chunk_image, encode_chunks};
   |                        ^^^^^^^^^^^^^^^
 note: found an item that was configured out
  --> src/lib.rs
   |
   | #[cfg(test)]
   |       ---- the item is gated here
-  | pub(crate) use chunk::{ImageChunkInput, encode_chunk_image};
+  | pub(crate) use chunk::{ImageChunkInput, encode_chunk_image, encode_chunks};
   |                                         ^^^^^^^^^^^^^^^^^^
+note: found an item that was configured out
+ --> src/lib.rs
+  |
+  | #[cfg(test)]
+  |       ---- the item is gated here
+  | pub(crate) use chunk::{ImageChunkInput, encode_chunk_image, encode_chunks};
+  |                                                             ^^^^^^^^^^^^^
 note: found an item that was configured out
  --> src/lib.rs
   |
@@ -37,13 +47,3 @@ note: found an item that was configured out
   |       ---- the item is gated here
   | pub(crate) use flat::{FlatImageInput, encode_flat};
   |                                       ^^^^^^^^^^^
-help: a similar name exists in the module
-  |
-2 -     FlatImageInput, ImageChunkInput, encode_chunk_generic, encode_chunk_image, encode_flat,
-2 +     FlatImageInput, RawChunkInput, encode_chunk_generic, encode_chunk_image, encode_flat,
-  |
-help: a similar name exists in the module
-  |
-2 -     FlatImageInput, ImageChunkInput, encode_chunk_generic, encode_chunk_image, encode_flat,
-2 +     FlatImageInput, ImageChunkInput, encode_chunk_generic, encode_chunks, encode_flat,
-  |

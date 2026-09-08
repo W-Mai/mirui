@@ -2,6 +2,8 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::borrow::Cow;
 use std::cell::Cell;
 
+mod support;
+
 use mirx::image::{
     ColorDescription, PLANE_RECORD_LEN, PlaneMemoryLayout, RawImageAsset, RawImageView,
     SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor, SurfaceRequirements,
@@ -9,8 +11,9 @@ use mirx::image::{
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
     ChunkFlags, ChunkType, Color, ColorFormat, Document, EncodeOptions, FrameSequence,
-    FramesEncoder, ImageAsset, Meta, MetaEntry, Palette, PayloadLimits, Reader, encode_chunks,
+    FramesEncoder, ImageAsset, Meta, MetaEntry, Palette, PayloadLimits, Reader,
 };
+use support::encode_chunks;
 
 fn wire_fixed(bits: i32) -> mirx::Fixed {
     mirx::Fixed::from_le_bytes(bits.to_le_bytes())

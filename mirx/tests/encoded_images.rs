@@ -1,15 +1,17 @@
+mod support;
+
 use mirx::{
     ChunkFlags, ChunkType, Document, EditError, EncodeOptions, Meta, PayloadInput, PayloadLimits,
     PayloadLocation, PayloadOrigin, PayloadValidationFailure, RawChunkInput, RawChunkPolicy,
     ReadError, ReadOptions, Reader,
     coding::{Frequency, FrequencyGeometry, Lz4, Pixel, Rle},
-    encode_chunks,
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageError, ImageReadError,
         SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitDecodeError,
     },
     media::{CodingId, CodingRecord, MediaPayloadError},
 };
+use support::encode_chunks;
 
 #[test]
 fn frequency_profiles_round_trip_through_container_preflight_and_decode() {

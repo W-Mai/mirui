@@ -289,12 +289,7 @@ pub(crate) fn encode_chunk_generic(chunk_type: u16, flags: u16, payload: &[u8]) 
     out
 }
 
-/// Multi-chunk file: writes `chunks` (each `(chunk_type, flags,
-/// payload)`) into one CHUNK-layout buffer, table then payloads. The
-/// reader resolves them through [`crate::Reader::chunks`]. Primary header fields stay zeroed —
-/// a multi-chunk file (e.g. several FONT representations) has no single
-/// primary.
-pub fn encode_chunks(chunks: &[(u16, u16, &[u8])]) -> Vec<u8> {
+pub(crate) fn encode_chunks(chunks: &[(u16, u16, &[u8])]) -> Vec<u8> {
     let count = chunks.len();
     let chunk_table_offset = CHUNK_FILE_HEADER_LEN;
     let payloads_start = chunk_table_offset + count * CHUNK_TABLE_ENTRY_LEN;
@@ -316,8 +311,6 @@ pub fn encode_chunks(chunks: &[(u16, u16, &[u8])]) -> Vec<u8> {
     out[8..10].copy_from_slice(&(count as u16).to_le_bytes());
     out[12..16].copy_from_slice(&(chunk_table_offset as u32).to_le_bytes());
     out[16..20].copy_from_slice(&(file_size as u32).to_le_bytes());
-    // Primary chunk type points at the first chunk so a reader has a
-    // hint, but no primary IMAGE decode happens for non-IMAGE types.
     if let Some((first_type, _, _)) = chunks.first() {
         out[20..22].copy_from_slice(&first_type.to_le_bytes());
     }

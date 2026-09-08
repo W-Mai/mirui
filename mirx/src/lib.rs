@@ -4,6 +4,7 @@
 extern crate alloc;
 
 mod alignment;
+#[cfg(test)]
 mod chunk;
 pub mod coding;
 mod crc32;
@@ -25,9 +26,8 @@ pub mod types;
 mod wire;
 
 pub use alignment::{ByteAlignment, InvalidByteAlignment};
-pub use chunk::encode_chunks;
 #[cfg(test)]
-pub(crate) use chunk::{ImageChunkInput, encode_chunk_image};
+pub(crate) use chunk::{ImageChunkInput, encode_chunk_image, encode_chunks};
 pub use crc32::compute as crc32;
 pub use document::{
     ChunkIter, ChunksOfType, CompatibilityPolicy, CriticalAssumption, Document, DocumentChunkMut,
