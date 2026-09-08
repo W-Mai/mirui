@@ -6,13 +6,11 @@
 
 use core::iter::FusedIterator;
 
-mod coding;
+pub(crate) mod coding;
 mod index;
 mod integrity;
 mod selection;
-pub use coding::{
-    CODING_RECORD_LEN, CODING_TABLE_HEADER_LEN, CodingRecord, CodingTable, CodingTableError,
-};
+pub(crate) use coding::{CODING_RECORD_LEN, CodingRecord, CodingTable, CodingTableError};
 pub use index::{
     UNIT_CHECKPOINT_INTERVAL, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges,
 };

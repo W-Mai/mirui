@@ -45,6 +45,7 @@ mod frequency;
 mod lz4;
 mod pixel;
 mod rle;
+pub use crate::media::coding::{CodingRecord, CodingTable, CodingTableError};
 pub use frame_delta::{
     FrameDelta, FrameDeltaDecodePlan, FrameDeltaError, FrameDeltaKernel, ScalarFrameDelta,
 };

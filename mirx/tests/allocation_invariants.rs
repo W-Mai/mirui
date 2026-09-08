@@ -27,12 +27,11 @@ struct TrackingAllocator;
 #[test]
 fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
-        coding::{CodingId, FrameDelta, ScalarFrameDelta},
+        coding::{CodingId, CodingRecord, FrameDelta, ScalarFrameDelta},
         frames::{
             FrameCandidate, FramePolicy, FrameSelector, FrameSequence, FramesAsset, FramesView,
         },
         image::{CoverageBudget, DecodeRequest, MemoryPlacement, ReferenceMode, UnitGroupRecord},
-        media::CodingRecord,
     };
     #[repr(align(64))]
     struct Aligned([u8; 64]);
@@ -306,10 +305,10 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
         assert_eq!(decoded, [42; 4]);
 
         let mut coding_body = [0; 12];
-        mirx::media::CodingTable::encode_into(&[Rle::new().record()], &mut coding_body).unwrap();
+        mirx::coding::CodingTable::encode_into(&[Rle::new().record()], &mut coding_body).unwrap();
         let image = EncodedImageAsset::from_codings(
             image.surface(),
-            mirx::media::CodingTable::open(&coding_body).unwrap(),
+            mirx::coding::CodingTable::open(&coding_body).unwrap(),
             image.data(),
         );
         let mut image_bytes = [0; 256];
@@ -607,10 +606,7 @@ fn data_check_planning_and_verification_borrow_partition_metadata() {
 
 #[test]
 fn sparse_region_queries_skip_extreme_empty_spans_without_allocation() {
-    use mirx::{
-        image::UnitGroup,
-        media::{CodingRecord, UnitSelection},
-    };
+    use mirx::{coding::CodingRecord, image::UnitGroup, media::UnitSelection};
     let surface =
         SurfaceDescriptor::new(1, u32::MAX, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let cells = (u32::MAX - 1).to_le_bytes();
@@ -723,10 +719,11 @@ fn prepared_image_decode_uses_only_caller_output_workspace_and_borrowed_palette(
 #[test]
 fn decoded_units_place_samples_in_shared_surface_storage_without_allocation() {
     use mirx::{
+        coding::CodingRecord,
         image::{
             ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitGroup,
         },
-        media::{CodingRecord, UnitSelection},
+        media::UnitSelection,
     };
     let surface = SurfaceDescriptor::new(9, 1, SampleLayout::A1, ColorDescription::NONE).unwrap();
     let selection_bytes = 1u32.to_le_bytes();
@@ -801,8 +798,8 @@ fn font_selection_retains_only_inline_metadata_without_source_allocation() {
 #[test]
 fn raw_units_preflight_and_transfer_without_staging_or_heap() {
     use mirx::{
+        coding::CodingRecord,
         image::{EncodedImageAsset, EncodedImageView, UnitGroup},
-        media::CodingRecord,
     };
     let surface = SurfaceDescriptor::new(
         5,
@@ -1599,10 +1596,7 @@ fn direct_directory_lookup_and_skips_allocate_nothing() {
 
 #[test]
 fn coding_table_read_and_caller_buffer_encoding_allocate_nothing() {
-    use mirx::{
-        coding::CodingId,
-        media::{CodingRecord, CodingTable},
-    };
+    use mirx::coding::{CodingId, CodingRecord, CodingTable};
     let records = [
         CodingRecord::new(CodingId::new(0x8000), 3, &[1, 2, 3]),
         CodingRecord::new(CodingId::new(0xffff), 0xffff, &[]),
@@ -2064,9 +2058,9 @@ fn sparse_unit_selection_borrows_and_encodes_without_allocation() {
 
 #[test]
 fn image_units_resolve_shared_metadata_without_allocation() {
-    use mirx::coding::CodingId;
+    use mirx::coding::{CodingId, CodingRecord};
     use mirx::image::UnitGroup;
-    use mirx::media::{CodingRecord, UnitIndex, UnitSelection};
+    use mirx::media::{UnitIndex, UnitSelection};
     let surface = SurfaceDescriptor::new(
         5,
         3,
@@ -2096,8 +2090,8 @@ fn image_units_resolve_shared_metadata_without_allocation() {
 
 #[test]
 fn group_record_read_write_and_resolution_allocate_nothing() {
+    use mirx::coding::CodingTable;
     use mirx::image::UnitGroupRecord;
-    use mirx::media::CodingTable;
     let surface = SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let codings = [1, 0, 0, 0, 19, 0, 1, 0, 0, 0, 0, 0];
     let data = [1, 2, 3, 4];
@@ -2120,9 +2114,9 @@ fn group_record_read_write_and_resolution_allocate_nothing() {
 
 #[test]
 fn image_coverage_and_selection_windows_allocate_nothing() {
-    use mirx::coding::CodingId;
+    use mirx::coding::{CodingId, CodingRecord};
     use mirx::image::{CoverageBudget, UnitGroup};
-    use mirx::media::{CodingRecord, UnitSelection};
+    use mirx::media::UnitSelection;
     let surface = SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let cells = [0; 4];
     let (_, allocations) = count_allocations(|| {
@@ -2187,9 +2181,8 @@ fn encoded_image_open_prepare_and_integrity_allocate_nothing() {
 
 #[test]
 fn decoded_unit_memory_planning_allocates_nothing() {
-    use mirx::coding::CodingId;
+    use mirx::coding::{CodingId, CodingRecord};
     use mirx::image::UnitGroup;
-    use mirx::media::CodingRecord;
     let surface = SurfaceDescriptor::new(
         5,
         3,

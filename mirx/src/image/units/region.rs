@@ -13,7 +13,7 @@ impl<'a> UnitGroup<'a> {
     ///
     /// ```
     /// use mirx::{image::{ColorDescription, SampleLayout, SurfaceDescriptor, UnitGroup},
-    ///     media::CodingRecord};
+    ///     coding::CodingRecord};
     /// let surface = SurfaceDescriptor::new(8, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
     /// let group = UnitGroup::builder(surface, CodingRecord::RAW, &[0; 16])
     ///     .with_tiles(2, 1).build().unwrap();

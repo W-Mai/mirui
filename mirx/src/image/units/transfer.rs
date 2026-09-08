@@ -13,7 +13,7 @@ impl DecodedUnit<'_> {
     ///
     /// ```
     /// use mirx::{image::{ColorDescription, SampleLayout, SurfaceDescriptor,
-    ///     SurfaceRequirements, UnitGroup}, media::CodingRecord};
+    ///     SurfaceRequirements, UnitGroup}, coding::CodingRecord};
     /// let surface = SurfaceDescriptor::new(9, 1, SampleLayout::A1, ColorDescription::NONE).unwrap();
     /// let group = UnitGroup::builder(surface, CodingRecord::RAW, &[0xe0, 0xa0, 0x40])
     ///     .with_tiles(3, 1).build().unwrap();
