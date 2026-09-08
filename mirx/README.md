@@ -68,7 +68,7 @@ This 1,661-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors
 | `PALETTE` | Ordered RGBA colors | `PaletteView` | `Palette` |
 | `FRAMES` | Timed coded surfaces with sparse and previous-frame groups | `FramesView` | `FramesAsset` / `FramesEncoder` / `EncodedFrames` |
 
-IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `Document::decode_font` and `decode_vector` make owned allocation visible at the call site.
+IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `ChunkRef::decode_vector` and `DocumentChunkRef::{decode_font, decode_vector}` make owned allocation visible at the call site.
 
 `FontView::open` admits one complete font face: Unicode-to-`GlyphId` lookup, one advance source, one or more raster representations, representation-major raster offsets, and referenced RAW or encoded scalar surfaces. `preflight` accumulates limits across every unique surface and validates DATA once. `FontAsset` writes borrowed authoring input, while owned `Font` retains the same representation and coding structure for transactional document edits. [FONT payload structure](docs/font-payload.md) defines the canonical sections and omission rules.
 
@@ -176,7 +176,7 @@ Execution intent, memory placement, cache boundaries, alignment, and the impleme
 
 Critical IMAGE chunks pass complete RAW or encoded preflight during `Reader::open_with`, using its configured `PayloadLimits`. `validate_known_payloads` applies the same gate explicitly to every implemented standard payload. Unknown encoded profiles remain inspectable in noncritical chunks but fail explicit or critical validation; metadata opening alone never establishes codec support.
 
-`Document::image` returns `ImageRef`, retaining RAW or encoded storage without allocating samples. `Document::push_image` and `DocumentChunkMut::replace_image` accept decoded `ImageSource` inputs: packed `ImageAsset`, planar `RawImageAsset`, `RawImageView`, or `SurfaceView`. Use `raw()` before accessing planes; its `packed()` projection returns `None` when the color or storage contract cannot be expressed as a packed image.
+`Document::get(id)?.image()` returns `ImageRef`, retaining RAW or encoded storage without allocating samples. `Document::push_image` and `DocumentChunkMut::replace_image` accept decoded `ImageSource` inputs: packed `ImageAsset`, planar `RawImageAsset`, `RawImageView`, or `SurfaceView`. Use `raw()` before accessing planes; its `packed()` projection returns `None` when the color or storage contract cannot be expressed as a packed image.
 
 Encoded payload bytes can be inserted through `push_raw` with `RawChunkPolicy::infer()`: bounded preflight establishes the understood contract before mutation. Primary dimensions and sample layout follow the surface; encoded primary stride is zero because output stride belongs to the decode plan. Document reordering and encoding preserve payload bytes and the maximum declared group input alignment. Unknown coding requires explicit raw capability assumptions and is not implicitly decoded for FLAT demotion.
 
@@ -369,10 +369,10 @@ document
 
 ### Typed chunk operations
 
-| Type | Access on `Document` | Add on `Document` | Edit on `DocumentChunkMut` |
+| Type | Access on `DocumentChunkRef` | Add on `Document` | Edit on `DocumentChunkMut` |
 | --- | --- | --- | --- |
 | `IMAGE` | `image` | `push_image` | `replace_image` |
-| `FONT` | `decode_font` | `push_font` | `replace_font`, `edit_font`, `try_edit_font` |
+| `FONT` | `font`, `decode_font` | `push_font` | `replace_font`, `edit_font`, `try_edit_font` |
 | `VECTOR` | `decode_vector` | `push_vector` | `replace_vector`, `edit_vector`, `try_edit_vector` |
 | `META` | `meta` | `push_meta` | `replace_meta`, `edit_meta`, `try_edit_meta` |
 | `PALETTE` | `palette` | `push_palette` | `replace_palette`, `edit_palette`, `try_edit_palette` |
@@ -400,7 +400,7 @@ let mut encoder = FramesEncoder::new(sequence, surface)
 encoder.push(&[255, 0, 0, 255, 0, 0, 0, 255]).unwrap();
 let mut document = Document::new();
 let id = document.push_frames(encoder.finish().unwrap()).unwrap();
-let frames = document.frames(id).unwrap();
+let frames = document.get(id).unwrap().frames().unwrap();
 # let _ = frames;
 ```
 

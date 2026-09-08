@@ -60,7 +60,7 @@ fn owned_font_round_trips_through_document_and_file() {
     let id = document
         .push_font_with_flags(&expected, ChunkFlags::CRITICAL)
         .unwrap();
-    assert_eq!(document.decode_font(id).unwrap(), expected);
+    assert_eq!(document.get(id).unwrap().decode_font().unwrap(), expected);
     assert_eq!(
         document.get(id).unwrap().payload_origin(),
         PayloadOrigin::OWNED
@@ -69,7 +69,7 @@ fn owned_font_round_trips_through_document_and_file() {
     let bytes = document.encode(&EncodeOptions::new()).unwrap();
     let reopened = Document::open(&bytes).unwrap();
     let id = reopened.chunks().next().unwrap().id();
-    assert_eq!(reopened.decode_font(id).unwrap(), expected);
+    assert_eq!(reopened.get(id).unwrap().decode_font().unwrap(), expected);
 }
 
 #[test]
@@ -81,7 +81,7 @@ fn retained_limits_gate_typed_reads_and_writes() {
     let document = Document::open_with(&source, &options).unwrap();
     let id = document.chunks().next().unwrap().id();
     assert!(matches!(
-        document.decode_font(id),
+        document.decode_font_at(id),
         Err(FontAccessError::InvalidPayload(FontError::Metadata(
             FontMetadataError::TooManyGlyphs { .. }
         )))
@@ -138,7 +138,7 @@ fn successful_metadata_edit_reauthors_canonical_payload() {
     assert!(document.is_dirty());
     assert_eq!(
         document
-            .decode_font(id)
+            .decode_font_at(id)
             .unwrap()
             .cmap()
             .iter()
@@ -208,7 +208,7 @@ fn malformed_existing_font_never_invokes_callback_but_accepts_replacement() {
     document.replace_font(id, &font()).unwrap();
     assert_eq!(
         document
-            .decode_font(id)
+            .decode_font_at(id)
             .unwrap()
             .cmap()
             .iter()

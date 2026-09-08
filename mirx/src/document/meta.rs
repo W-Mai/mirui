@@ -1,19 +1,39 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentState};
+use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
 use crate::payload::image::ImagePayloadError;
 use crate::{
     ChunkFlags, ChunkId, ChunkType, EditError, Meta, MetaAccessError, MetaDecodeError,
     MetaEncodeError, MetaView, TryEditError,
 };
 
+impl<'a> DocumentChunkRef<'a> {
+    /// Returns this chunk as a borrowed META view.
+    pub fn meta(&self) -> Result<MetaView<'a>, MetaAccessError> {
+        if self.chunk_type() != ChunkType::META {
+            return Err(MetaAccessError::UnexpectedChunkType {
+                actual: self.chunk_type(),
+            });
+        }
+        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
+            return Err(MetaAccessError::FutureSemanticsUnsupported);
+        }
+        let payload = resolve_node_payload(self.document(), self.node())
+            .map_err(meta_access_resolution_error)?;
+        let bytes = payload
+            .bytes()
+            .ok_or(MetaAccessError::NonContiguousPayload)?;
+        MetaView::open_payload(bytes, &self.document().payload_limits).map_err(Into::into)
+    }
+}
+
 impl Document<'_> {
     /// Resolves one validated, zero-allocation META view by stable identity.
     ///
     /// The document's retained resource profile bounds the entry scan and
     /// aggregate key/value bytes. Preserved trailing bytes do not block reads.
-    pub fn meta(&self, id: ChunkId) -> Result<MetaView<'_>, MetaAccessError> {
+    pub(super) fn meta_at(&self, id: ChunkId) -> Result<MetaView<'_>, MetaAccessError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(MetaAccessError::FutureSemanticsUnsupported);
         }
@@ -115,7 +135,7 @@ impl Document<'_> {
     ) -> Result<(), TryEditError<E>> {
         self.ensure_mutable()?;
         let limits = self.payload_limits;
-        let view = self.meta(id).map_err(meta_access_error_for_edit)?;
+        let view = self.meta_at(id).map_err(meta_access_error_for_edit)?;
         let mut meta =
             Meta::decode_view_with_limits(view, &limits).map_err(invalid_meta_decode_error)?;
         edit(&mut meta).map_err(TryEditError::Callback)?;
@@ -228,7 +248,9 @@ mod tests {
         );
         assert_eq!(
             document
-                .meta(meta_id)
+                .get(meta_id)
+                .unwrap()
+                .meta()
                 .unwrap()
                 .get_all("tag")
                 .map(|entry| entry.value)
@@ -242,7 +264,7 @@ mod tests {
         let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reopened = Document::open(&encoded).unwrap();
         let reopened_id = reopened.chunks().next().unwrap().id();
-        let view = reopened.meta(reopened_id).unwrap();
+        let view = reopened.meta_at(reopened_id).unwrap();
         assert_eq!(view.len(), 3);
         assert_eq!(
             view.get_last("vendor").unwrap().value,
@@ -291,7 +313,7 @@ mod tests {
         );
         assert_eq!(
             document
-                .meta(meta_id)
+                .meta_at(meta_id)
                 .unwrap()
                 .get_first("tag")
                 .unwrap()
@@ -315,7 +337,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             document
-                .meta(meta_id)
+                .meta_at(meta_id)
                 .unwrap()
                 .get_all("tag")
                 .map(|entry| entry.value)
@@ -379,7 +401,7 @@ mod tests {
         let mut document = Document::open_with(&source, &options).unwrap();
         let meta_id = document.chunks().next().unwrap().id();
 
-        assert_eq!(document.meta(meta_id).unwrap().len(), 3);
+        assert_eq!(document.meta_at(meta_id).unwrap().len(), 3);
         let called = Cell::new(false);
         assert_eq!(
             document.edit_meta(meta_id, |_| called.set(true)),
@@ -423,7 +445,7 @@ mod tests {
                 policy: RawChunkPolicy::infer(),
             })
             .unwrap();
-        assert_eq!(document.meta(valid_id).unwrap().len(), 3);
+        assert_eq!(document.meta_at(valid_id).unwrap().len(), 3);
 
         let mut invalid = payload.clone();
         let last = invalid.len() - 1;
@@ -450,7 +472,7 @@ mod tests {
             })
             .unwrap();
         assert!(matches!(
-            document.meta(opaque_id),
+            document.meta_at(opaque_id),
             Err(MetaAccessError::InvalidPayload(
                 MetaDecodeError::CrcMismatch { .. }
             ))
@@ -468,14 +490,20 @@ mod tests {
             Cow::Borrowed(&pixels),
         ))
         .unwrap();
-        assert_eq!(flat.meta(id(0)), Err(MetaAccessError::ChunkLayoutRequired));
+        assert_eq!(
+            flat.meta_at(id(0)),
+            Err(MetaAccessError::ChunkLayoutRequired)
+        );
 
         let expected = sample_meta();
         let payload = expected.encode_payload().unwrap();
         let source = meta_file(&payload, ChunkFlags::from_bits_retain(0x0002));
         let mut document = Document::open(&source).unwrap();
         let meta_id = document.chunks().next().unwrap().id();
-        assert_eq!(document.meta(id(99)), Err(MetaAccessError::InvalidChunkId));
+        assert_eq!(
+            document.meta_at(id(99)),
+            Err(MetaAccessError::InvalidChunkId)
+        );
 
         document.replace_meta(meta_id, &expected).unwrap();
         assert!(!document.is_dirty());
@@ -500,7 +528,7 @@ mod tests {
         let meta_id = preserving.chunks().next().unwrap().id();
         preserving.replace_meta(meta_id, &changed).unwrap();
         assert_eq!(preserving.get(meta_id).unwrap().flags().bits(), 0x0002);
-        assert_eq!(preserving.meta(meta_id).unwrap().len(), 4);
+        assert_eq!(preserving.meta_at(meta_id).unwrap().len(), 4);
 
         let malformed = {
             let mut bytes = payload.clone();
@@ -514,7 +542,7 @@ mod tests {
         let opaque = Document::open(&source).unwrap();
         let meta_id = opaque.chunks().next().unwrap().id();
         assert_eq!(
-            opaque.meta(meta_id),
+            opaque.meta_at(meta_id),
             Err(MetaAccessError::InvalidPayload(
                 MetaDecodeError::UnknownFlags(1)
             ))
@@ -530,7 +558,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            wrong_type.meta(font_id),
+            wrong_type.meta_at(font_id),
             Err(MetaAccessError::UnexpectedChunkType {
                 actual: ChunkType::FONT,
             })

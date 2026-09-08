@@ -579,6 +579,14 @@ mod tests {
         let bytes = vector_file(ChunkFlags::CRITICAL.bits(), &scene);
         let reader = Reader::open(&bytes).unwrap();
         assert_eq!(
+            reader
+                .chunks()
+                .next()
+                .unwrap()
+                .decode_vector(&PayloadLimits::EMBEDDED),
+            Ok(Some(scene.clone()))
+        );
+        assert_eq!(
             reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
             Ok(())
         );

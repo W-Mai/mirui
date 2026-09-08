@@ -216,7 +216,7 @@ mod tests {
             );
         }
 
-        let view = document.meta(id).unwrap();
+        let view = document.meta_at(id).unwrap();
         assert_eq!(view.len(), 2);
         assert_eq!(
             view.get_first("name").unwrap().value,

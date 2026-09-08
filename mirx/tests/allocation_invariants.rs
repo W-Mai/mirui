@@ -1002,7 +1002,13 @@ fn encoded_document_queries_and_placement_allocate_no_samples_or_group_table() {
     let mut output = [0; 512];
     let (_, allocations) = count_allocations(|| {
         document.set_primary(id).unwrap();
-        let image = document.image(id).unwrap().encoded().unwrap();
+        let image = document
+            .get(id)
+            .unwrap()
+            .image()
+            .unwrap()
+            .encoded()
+            .unwrap();
         assert_eq!(
             image.input_alignment().map(mirx::ByteAlignment::get),
             Ok(64)

@@ -252,7 +252,13 @@ fn document_relocation_preserves_encoded_storage_alignment_and_derived_hints() {
             })
             .unwrap();
         document.set_primary(id).unwrap();
-        let image = document.image(id).unwrap().encoded().unwrap();
+        let image = document
+            .get(id)
+            .unwrap()
+            .image()
+            .unwrap()
+            .encoded()
+            .unwrap();
         assert_eq!(
             image.input_alignment().map(mirx::ByteAlignment::get),
             Ok(alignment)
@@ -692,7 +698,7 @@ fn typed_encoded_replacement_refreshes_primary_and_repairs_source_placement() {
         .unwrap()
         .replace_image(&RawImageAsset::new(surface, &[&[42; 8]]))
         .unwrap();
-    assert!(document.image(id).unwrap().raw().is_some());
+    assert!(document.get(id).unwrap().image().unwrap().raw().is_some());
     assert_eq!(document.primary_hints().stride(), 8);
 }
 
@@ -718,7 +724,9 @@ fn typed_encoded_edit_failures_leave_flat_and_primary_storage_unchanged() {
     assert_eq!(document.layout(), Layout::Chunk);
     assert!(
         document
-            .image(document.primary().unwrap())
+            .get(document.primary().unwrap())
+            .unwrap()
+            .image()
             .unwrap()
             .raw()
             .is_some()

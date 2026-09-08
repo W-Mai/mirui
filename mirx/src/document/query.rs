@@ -47,6 +47,14 @@ pub struct DocumentChunkRef<'a> {
 }
 
 impl<'a> DocumentChunkRef<'a> {
+    pub(super) const fn document(&self) -> &'a Document<'a> {
+        self.document
+    }
+
+    pub(super) const fn node(&self) -> &'a ChunkNode<'a> {
+        self.node
+    }
+
     pub const fn id(&self) -> ChunkId {
         self.node.id
     }
@@ -224,8 +232,8 @@ mod tests {
     use super::*;
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
     use crate::{
-        ColorFormat, CriticalAssumption, EditError, FlatImageInput, PayloadInput, RawChunkInput,
-        RawChunkPolicy, RelocationAssumption, crc32, encode_chunks, encode_flat,
+        ColorFormat, CriticalAssumption, EditError, FlatImageInput, ImageDecodeError, PayloadInput,
+        RawChunkInput, RawChunkPolicy, RelocationAssumption, crc32, encode_chunks, encode_flat,
     };
 
     fn explicit_policy() -> RawChunkPolicy {
@@ -311,6 +319,11 @@ mod tests {
                 RawChunkInput::new(custom, b"payload".as_slice()).with_policy(explicit_policy()),
             )
             .unwrap();
+        let chunk = document.get(id).unwrap();
+        assert!(matches!(
+            chunk.image(),
+            Err(ImageDecodeError::UnexpectedChunkType { actual }) if actual == custom
+        ));
         assert!(document.get_mut(ChunkId::new(99)).is_none());
         assert_eq!(document.get_mut(id).unwrap().id(), id);
     }

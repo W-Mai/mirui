@@ -1,19 +1,39 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentState};
+use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
 use crate::payload::image::ImagePayloadError;
 use crate::{
     ChunkFlags, ChunkId, ChunkType, EditError, Palette, PaletteAccessError, PaletteDecodeError,
     PaletteEncodeError, PaletteView, TryEditError,
 };
 
+impl<'a> DocumentChunkRef<'a> {
+    /// Returns this chunk as a borrowed PALETTE view.
+    pub fn palette(&self) -> Result<PaletteView<'a>, PaletteAccessError> {
+        if self.chunk_type() != ChunkType::PALETTE {
+            return Err(PaletteAccessError::UnexpectedChunkType {
+                actual: self.chunk_type(),
+            });
+        }
+        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
+            return Err(PaletteAccessError::FutureSemanticsUnsupported);
+        }
+        let payload = resolve_node_payload(self.document(), self.node())
+            .map_err(palette_access_resolution_error)?;
+        let bytes = payload
+            .bytes()
+            .ok_or(PaletteAccessError::NonContiguousPayload)?;
+        PaletteView::open_payload(bytes, &self.document().payload_limits).map_err(Into::into)
+    }
+}
+
 impl Document<'_> {
     /// Resolves one validated, zero-allocation PALETTE view by stable identity.
     ///
     /// The document's retained resource profile bounds the color scan.
     /// Preserved trailing bytes do not block reads.
-    pub fn palette(&self, id: ChunkId) -> Result<PaletteView<'_>, PaletteAccessError> {
+    pub(super) fn palette_at(&self, id: ChunkId) -> Result<PaletteView<'_>, PaletteAccessError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(PaletteAccessError::FutureSemanticsUnsupported);
         }
@@ -119,7 +139,7 @@ impl Document<'_> {
     ) -> Result<(), TryEditError<E>> {
         self.ensure_mutable()?;
         let limits = self.payload_limits;
-        let view = self.palette(id).map_err(palette_access_error_for_edit)?;
+        let view = self.palette_at(id).map_err(palette_access_error_for_edit)?;
         let mut palette = Palette::decode_view_with_limits(view, &limits)
             .map_err(invalid_palette_decode_error)?;
         edit(&mut palette).map_err(TryEditError::Callback)?;
@@ -216,7 +236,9 @@ mod tests {
         );
         assert_eq!(
             document
-                .palette(palette_id)
+                .get(palette_id)
+                .unwrap()
+                .palette()
                 .unwrap()
                 .colors()
                 .iter()
@@ -227,7 +249,7 @@ mod tests {
         let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reopened = Document::open(&encoded).unwrap();
         let reopened_id = reopened.chunks().next().unwrap().id();
-        let view = reopened.palette(reopened_id).unwrap();
+        let view = reopened.palette_at(reopened_id).unwrap();
         assert_eq!(view.len(), 3);
         assert_eq!(view.colors().get(0), view.colors().get(2));
         assert_eq!(view.colors().get(1).unwrap().a, 0xdd);
@@ -269,7 +291,7 @@ mod tests {
             PayloadOrigin::OWNED
         );
         assert_eq!(
-            document.palette(palette_id).unwrap().colors().get(1),
+            document.palette_at(palette_id).unwrap().colors().get(1),
             Some(Color::rgba(1, 2, 3, 4))
         );
     }
@@ -291,7 +313,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             document
-                .palette(palette_id)
+                .palette_at(palette_id)
                 .unwrap()
                 .colors()
                 .iter()
@@ -333,7 +355,7 @@ mod tests {
         let mut document = Document::open_with(&source, &options).unwrap();
         let palette_id = document.chunks().next().unwrap().id();
 
-        assert_eq!(document.palette(palette_id).unwrap().len(), 3);
+        assert_eq!(document.palette_at(palette_id).unwrap().len(), 3);
         let called = Cell::new(false);
         assert_eq!(
             document.edit_palette(palette_id, |_| called.set(true)),
@@ -382,7 +404,7 @@ mod tests {
                 policy: RawChunkPolicy::infer(),
             })
             .unwrap();
-        assert_eq!(document.palette(valid_id).unwrap().len(), 3);
+        assert_eq!(document.palette_at(valid_id).unwrap().len(), 3);
 
         let mut invalid = payload.clone();
         let last = invalid.len() - 1;
@@ -409,7 +431,7 @@ mod tests {
             })
             .unwrap();
         assert!(matches!(
-            document.palette(opaque_id),
+            document.palette_at(opaque_id),
             Err(PaletteAccessError::InvalidPayload(
                 PaletteDecodeError::CrcMismatch { .. }
             ))
@@ -428,7 +450,7 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(
-            flat.palette(id(0)),
+            flat.palette_at(id(0)),
             Err(PaletteAccessError::ChunkLayoutRequired)
         );
 
@@ -438,7 +460,7 @@ mod tests {
         let mut document = Document::open(&source).unwrap();
         let palette_id = document.chunks().next().unwrap().id();
         assert_eq!(
-            document.palette(id(99)),
+            document.palette_at(id(99)),
             Err(PaletteAccessError::InvalidChunkId)
         );
 
@@ -465,7 +487,7 @@ mod tests {
         let palette_id = preserving.chunks().next().unwrap().id();
         preserving.replace_palette(palette_id, &changed).unwrap();
         assert_eq!(preserving.get(palette_id).unwrap().flags().bits(), 0x0002);
-        assert_eq!(preserving.palette(palette_id).unwrap().len(), 4);
+        assert_eq!(preserving.palette_at(palette_id).unwrap().len(), 4);
 
         let malformed = {
             let mut bytes = payload.clone();
@@ -479,7 +501,7 @@ mod tests {
         let opaque = Document::open(&source).unwrap();
         let palette_id = opaque.chunks().next().unwrap().id();
         assert_eq!(
-            opaque.palette(palette_id),
+            opaque.palette_at(palette_id),
             Err(PaletteAccessError::InvalidPayload(
                 PaletteDecodeError::UnknownFlags(1)
             ))
@@ -495,7 +517,7 @@ mod tests {
             })
             .unwrap();
         assert_eq!(
-            wrong_type.palette(font_id),
+            wrong_type.palette_at(font_id),
             Err(PaletteAccessError::UnexpectedChunkType {
                 actual: ChunkType::FONT,
             })
@@ -508,7 +530,7 @@ mod tests {
         let future = Document::open(&future).unwrap();
         let palette_id = future.chunks().next().unwrap().id();
         assert_eq!(
-            future.palette(palette_id),
+            future.palette_at(palette_id),
             Err(PaletteAccessError::FutureSemanticsUnsupported)
         );
 
@@ -527,7 +549,7 @@ mod tests {
             .set_type(image_id, ChunkType::PALETTE, explicit_policy())
             .unwrap();
         assert_eq!(
-            segmented.palette(image_id),
+            segmented.palette_at(image_id),
             Err(PaletteAccessError::NonContiguousPayload)
         );
     }

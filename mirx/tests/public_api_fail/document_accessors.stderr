@@ -1,0 +1,51 @@
+error[E0599]: no method named `image` found for reference `&Document<'_>` in the current scope
+ --> tests/public_api_fail/document_accessors.rs:4:22
+  |
+4 |     let _ = document.image(id);
+  |                      ^^^^^
+  |
+help: there is a method `flat_image` with a similar name, but with different arguments
+ --> src/document/mod.rs
+  |
+  |     pub fn flat_image(&self) -> Option<ImageView<'_>> {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no method named `decode_font` found for reference `&Document<'_>` in the current scope
+ --> tests/public_api_fail/document_accessors.rs:5:22
+  |
+5 |     let _ = document.decode_font(id);
+  |                      ^^^^^^^^^^^ method not found in `&Document<'_>`
+
+error[E0599]: no method named `decode_vector` found for reference `&Document<'_>` in the current scope
+ --> tests/public_api_fail/document_accessors.rs:6:22
+  |
+6 |     let _ = document.decode_vector(id);
+  |                      ^^^^^^^^^^^^^ method not found in `&Document<'_>`
+
+error[E0599]: no method named `meta` found for reference `&Document<'_>` in the current scope
+ --> tests/public_api_fail/document_accessors.rs:7:22
+  |
+7 |     let _ = document.meta(id);
+  |                      ^^^^ method not found in `&Document<'_>`
+
+error[E0599]: no method named `palette` found for reference `&Document<'_>` in the current scope
+ --> tests/public_api_fail/document_accessors.rs:8:22
+  |
+8 |     let _ = document.palette(id);
+  |                      ^^^^^^^
+  |
+help: there is a method `push_palette` with a similar name
+  |
+8 |     let _ = document.push_palette(id);
+  |                      +++++
+
+error[E0599]: no method named `frames` found for reference `&Document<'_>` in the current scope
+ --> tests/public_api_fail/document_accessors.rs:9:22
+  |
+9 |     let _ = document.frames(id);
+  |                      ^^^^^^
+  |
+help: there is a method `push_frames` with a similar name
+  |
+9 |     let _ = document.push_frames(id);
+  |                      +++++

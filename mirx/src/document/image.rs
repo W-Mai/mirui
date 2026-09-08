@@ -1,12 +1,31 @@
 use alloc::vec::Vec;
 
+#[cfg(test)]
+use super::DocumentState;
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentState};
+use super::{Compatibility, Document, DocumentChunkRef};
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageDecodeError, ImageEncodeError};
 
 #[cfg(test)]
 use crate::ImageAsset;
 use crate::image::{EncodedImageAsset, ImageRef, ImageSource};
+
+impl<'a> DocumentChunkRef<'a> {
+    /// Returns this chunk as a borrowed IMAGE view.
+    pub fn image(&self) -> Result<ImageRef<'a>, ImageDecodeError> {
+        if self.chunk_type() != ChunkType::IMAGE {
+            return Err(ImageDecodeError::UnexpectedChunkType {
+                actual: self.chunk_type(),
+            });
+        }
+        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
+            return Err(ImageDecodeError::FutureSemanticsUnsupported);
+        }
+        resolve_node_payload(self.document(), self.node())?
+            .image_view()
+            .map_err(Into::into)
+    }
+}
 
 impl Document<'_> {
     /// Resolves one IMAGE node by its stable document-session identity.
@@ -15,7 +34,8 @@ impl Document<'_> {
     /// source position for explicit group, integrity and decode checks, without
     /// allocating decoded samples. Preserved future container semantics must
     /// be normalized before typed payload access.
-    pub fn image(&self, id: ChunkId) -> Result<ImageRef<'_>, ImageDecodeError> {
+    #[cfg(test)]
+    pub(super) fn image(&self, id: ChunkId) -> Result<ImageRef<'_>, ImageDecodeError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(ImageDecodeError::FutureSemanticsUnsupported);
         }
@@ -269,7 +289,9 @@ mod tests {
             assert_eq!(chunk.flags(), flags, "{format:?}");
             assert_eq!(chunk.payload_origin(), PayloadOrigin::OWNED, "{format:?}");
             let image = document
-                .image(inserted)
+                .get(inserted)
+                .unwrap()
+                .image()
                 .unwrap()
                 .raw()
                 .unwrap()

@@ -254,7 +254,7 @@ Noncritical unknown coding can be inspected as encoded metadata and preserved as
 
 ## Document access and relocation
 
-`Document::image(id)` returns the same `ImageRef` distinction, including borrowed RAW surfaces from promoted FLAT nodes. Encoded access keeps its metadata-only contract. Inserting complete encoded payload bytes with `push_raw` and `RawChunkPolicy::infer()` checks syntax, integrity and document limits before changing state. Unknown profiles require explicit raw relocation and critical-understanding assumptions; metadata inspection grants neither.
+`Document::get(id)?.image()` returns the same `ImageRef` distinction, including borrowed RAW surfaces from promoted FLAT nodes. Encoded access keeps its metadata-only contract. Inserting complete encoded payload bytes with `push_raw` and `RawChunkPolicy::infer()` checks syntax, integrity and document limits before changing state. Unknown profiles require explicit raw relocation and critical-understanding assumptions; metadata inspection grants neither.
 
 Encoded primary hints contain the surface's sample layout and logical dimensions with stride zero. RAW hints retain the first stored plane's stride. A decode target chooses its own pitch and allocation extent; compressed DATA has no pixel-row stride.
 

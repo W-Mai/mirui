@@ -1,16 +1,37 @@
+#[cfg(test)]
+use super::DocumentState;
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentState};
+use super::{Compatibility, Document, DocumentChunkRef};
 use crate::payload::image::ImagePayloadError;
 use crate::{
     ChunkFlags, ChunkId, ChunkType, EditError, EncodedFrames, FramesAccessError, FramesView,
 };
+
+impl<'a> DocumentChunkRef<'a> {
+    /// Returns this chunk as a borrowed FRAMES view.
+    pub fn frames(&self) -> Result<FramesView<'a>, FramesAccessError> {
+        if self.chunk_type() != ChunkType::FRAMES {
+            return Err(FramesAccessError::UnexpectedChunkType {
+                actual: self.chunk_type(),
+            });
+        }
+        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
+            return Err(FramesAccessError::FutureSemanticsUnsupported);
+        }
+        resolve_node_payload(self.document(), self.node())
+            .map_err(frames_access_resolution_error)?
+            .frames_view(&self.document().payload_limits)
+            .map_err(Into::into)
+    }
+}
 
 impl Document<'_> {
     /// Resolves one validated, zero-allocation FRAMES view by stable identity.
     ///
     /// The view retains the source file position so declared input alignment
     /// is checked against the actual chunk placement.
-    pub fn frames(&self, id: ChunkId) -> Result<FramesView<'_>, FramesAccessError> {
+    #[cfg(test)]
+    pub(super) fn frames(&self, id: ChunkId) -> Result<FramesView<'_>, FramesAccessError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(FramesAccessError::FutureSemanticsUnsupported);
         }
@@ -127,7 +148,7 @@ mod tests {
     fn typed_insert_access_and_replacement_share_the_sectioned_contract() {
         let mut document = Document::new();
         let id = document.push_frames(encoded(1, 1)).unwrap();
-        let view = document.frames(id).unwrap();
+        let view = document.get(id).unwrap().frames().unwrap();
         assert_eq!(view.sequence().frame_count(), 2);
         assert_eq!(view.surface().sample_layout(), SampleLayout::A8);
 
@@ -136,7 +157,16 @@ mod tests {
             .unwrap()
             .replace_frames(encoded(10, 1))
             .unwrap();
-        assert_eq!(document.frames(id).unwrap().sequence().frame_count(), 2);
+        assert_eq!(
+            document
+                .get(id)
+                .unwrap()
+                .frames()
+                .unwrap()
+                .sequence()
+                .frame_count(),
+            2
+        );
         assert_eq!(document.get(id).unwrap().id(), id);
     }
 

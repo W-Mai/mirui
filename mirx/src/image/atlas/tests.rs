@@ -25,7 +25,7 @@ fn native_and_unaligned_wire_maps_have_identical_access() {
         let mut iter = map.iter();
         assert_eq!(iter.next(), Some(regions[0]));
         assert_eq!(iter.next_back(), Some(regions[3]));
-        assert_eq!(iter.nth(0), Some(regions[1]));
+        assert_eq!(iter.next(), Some(regions[1]));
         assert_eq!(iter.nth_back(0), Some(regions[2]));
         assert_eq!(iter.next(), None);
     }

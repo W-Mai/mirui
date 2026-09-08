@@ -86,7 +86,9 @@ fn planar_images_preserve_geometry_hints_alignment_and_noop_edits() {
             .unwrap()
             .id();
         let pointer = reopened
-            .image(id)
+            .get(id)
+            .unwrap()
+            .image()
             .unwrap()
             .raw()
             .unwrap()
@@ -98,7 +100,9 @@ fn planar_images_preserve_geometry_hints_alignment_and_noop_edits() {
         assert!(!reopened.is_dirty());
         assert_eq!(
             reopened
-                .image(id)
+                .get(id)
+                .unwrap()
+                .image()
                 .unwrap()
                 .raw()
                 .unwrap()

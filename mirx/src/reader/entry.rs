@@ -5,7 +5,7 @@ use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFileHeade
 use crate::wire::{read_u16_le, read_u32_le, slice};
 use crate::{
     ChunkFlags, ChunkType, FramesError, FramesView, MetaDecodeError, MetaView, PaletteDecodeError,
-    PaletteView, PayloadLimits, ReadError,
+    PaletteView, PayloadLimits, ReadError, Scene, VectorReadError,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -233,6 +233,14 @@ impl<'a> ChunkRef<'a> {
             return Ok(None);
         }
         FramesView::open_at(self.payload, self.payload_offset, limits).map(Some)
+    }
+
+    /// Decodes an owned VECTOR scene when this record has the VECTOR type.
+    pub fn decode_vector(&self, limits: &PayloadLimits) -> Result<Option<Scene>, VectorReadError> {
+        if self.chunk_type != ChunkType::VECTOR {
+            return Ok(None);
+        }
+        Scene::decode_with_limits(self.payload, limits).map(Some)
     }
 }
 

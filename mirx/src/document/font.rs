@@ -1,18 +1,52 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentState};
+use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
 use crate::payload::image::ImagePayloadError;
 use crate::{
     ChunkFlags, ChunkId, ChunkType, EditError, Font, FontAccessError, FontError, TryEditError,
 };
+
+impl<'a> DocumentChunkRef<'a> {
+    /// Returns this chunk as a borrowed FONT view.
+    pub fn font(&self) -> Result<crate::FontView<'a>, FontAccessError> {
+        if self.chunk_type() != ChunkType::FONT {
+            return Err(FontAccessError::UnexpectedChunkType {
+                actual: self.chunk_type(),
+            });
+        }
+        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
+            return Err(FontAccessError::FutureSemanticsUnsupported);
+        }
+        resolve_node_payload(self.document(), self.node())
+            .map_err(font_access_resolution_error)?
+            .font_view(&self.document().payload_limits)
+            .map_err(Into::into)
+    }
+
+    /// Decodes this chunk into an owned FONT value.
+    pub fn decode_font(&self) -> Result<Font, FontAccessError> {
+        if self.chunk_type() != ChunkType::FONT {
+            return Err(FontAccessError::UnexpectedChunkType {
+                actual: self.chunk_type(),
+            });
+        }
+        self.font()?;
+        let payload = resolve_node_payload(self.document(), self.node())
+            .map_err(font_access_resolution_error)?;
+        let bytes = payload
+            .bytes()
+            .ok_or(FontAccessError::NonContiguousPayload)?;
+        Font::decode_with_limits(bytes, &self.document().payload_limits).map_err(Into::into)
+    }
+}
 
 impl Document<'_> {
     /// Resolves and bounded-decodes one FONT node by its stable identity.
     ///
     /// The document's retained [`PayloadLimits`] profile bounds both owned
     /// FONT metadata and stored bytes. Preserved trailing bytes do not block typed reads.
-    pub fn decode_font(&self, id: ChunkId) -> Result<Font, FontAccessError> {
+    pub(super) fn decode_font_at(&self, id: ChunkId) -> Result<Font, FontAccessError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
             return Err(FontAccessError::FutureSemanticsUnsupported);
         }
@@ -121,7 +155,9 @@ impl Document<'_> {
         edit: impl FnOnce(&mut Font) -> Result<(), E>,
     ) -> Result<(), TryEditError<E>> {
         self.ensure_mutable()?;
-        let mut font = self.decode_font(id).map_err(font_access_error_for_edit)?;
+        let mut font = self
+            .decode_font_at(id)
+            .map_err(font_access_error_for_edit)?;
         edit(&mut font).map_err(TryEditError::Callback)?;
         self.replace_font(id, &font).map_err(Into::into)
     }
