@@ -7,21 +7,16 @@
 use core::iter::FusedIterator;
 
 pub(crate) mod coding;
-mod index;
+pub(crate) mod index;
 mod integrity;
-mod selection;
+pub(crate) mod selection;
 pub(crate) use coding::{CODING_RECORD_LEN, CodingRecord, CodingTable, CodingTableError};
-pub use index::{
-    UNIT_CHECKPOINT_INTERVAL, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges,
-};
+pub(crate) use index::{UnitIndex, UnitIndexEncoding, UnitIndexError};
 pub use integrity::{
     DataCheckPlan, DataIntegrity, INTEGRITY_RECORD_LEN, IntegrityError, IntegrityRange,
     IntegrityRanges, IntegrityTable,
 };
-pub use selection::{
-    SELECTION_CHECKPOINT_INTERVAL, SelectedUnits, UnitSelection, UnitSelectionEncoding,
-    UnitSelectionError,
-};
+pub(crate) use selection::{UnitSelection, UnitSelectionEncoding, UnitSelectionError};
 
 use crate::crc32::Crc32;
 use crate::wire::{read_u16_le, read_u32_le};

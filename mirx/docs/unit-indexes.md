@@ -1,6 +1,6 @@
 # Unit indexes
 
-`media::UnitIndex` maps a stored-unit ordinal to an exact coded byte range relative to group DATA. The group's grid and selection provide unit count and geometry. A returned range never includes bytes inserted to align the next unit. `byte_len()` is the complete physical DATA span, including inter-unit gaps but excluding any unnecessary final padding.
+`image::UnitIndex` maps a stored-unit ordinal to an exact coded byte range relative to group DATA. The group's grid and selection provide unit count and geometry. A returned range never includes bytes inserted to align the next unit. `byte_len()` is the complete physical DATA span, including inter-unit gaps but excluding any unnecessary final padding.
 
 | Form | Index body | Lookup | Inter-unit gaps |
 | --- | --- | --- | --- |

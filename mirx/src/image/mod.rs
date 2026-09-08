@@ -44,6 +44,10 @@ pub(crate) mod test_support;
 
 pub use crate::error::ImageAccessError;
 pub use crate::format::ColorFormat;
+pub use crate::media::index::{UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges};
+pub use crate::media::selection::{
+    SelectedUnits, UnitSelection, UnitSelectionEncoding, UnitSelectionError,
+};
 pub use crate::payload::image::{ImageAsset, ImageAssetEncodeError, ImagePayloadError, ImageView};
 
 mod access;
