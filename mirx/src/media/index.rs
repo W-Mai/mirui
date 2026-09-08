@@ -448,8 +448,6 @@ impl UnitIndexEncoding {
         Ok(needed)
     }
 
-    /// Encodes caller-supplied lengths without allocation or silent format changes.
-    /// Errors preserve the entire output; success preserves its unused suffix.
     pub(crate) fn encode_into(
         self,
         lengths: &[u32],
@@ -457,12 +455,9 @@ impl UnitIndexEncoding {
         out: &mut [u8],
     ) -> Result<usize, UnitIndexError> {
         let needed = self.encoded_len(lengths, alignment)?;
-        if out.len() < needed {
-            return Err(UnitIndexError::BufferTooSmall {
-                needed,
-                available: out.len(),
-            });
-        }
+        let out = out
+            .get_mut(..needed)
+            .expect("precomputed unit index capacity");
         let mut offset = 0u32;
         match self {
             Self::Offsets => {
@@ -538,10 +533,6 @@ pub enum UnitIndexError {
     LengthTooLarge {
         index: u32,
         bytes: u32,
-    },
-    BufferTooSmall {
-        needed: usize,
-        available: usize,
     },
     SizeOverflow,
 }
@@ -706,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn encoder_rejects_expansion_overflow_and_short_buffers_before_writing() {
+    fn encoder_rejects_expansion_and_overflow_before_writing() {
         let mut out = [0xa5; 32];
         assert!(matches!(
             UnitIndexEncoding::Lengths16.encode_into(&[65536], alignment(1), &mut out),
@@ -719,10 +710,6 @@ mod tests {
                     .encode_into(&[u32::MAX, 1], alignment(1), &mut out)
                     .is_err()
             );
-            assert!(matches!(
-                encoding.encode_into(&[1; 65], alignment(1), &mut out),
-                Err(UnitIndexError::BufferTooSmall { .. })
-            ));
             assert_eq!(out, [0xa5; 32]);
         }
     }

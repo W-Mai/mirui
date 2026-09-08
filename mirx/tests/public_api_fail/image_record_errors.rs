@@ -1,4 +1,7 @@
-use mirx::image::{EncodedGroupError, PlaneMemoryRecordError, SurfaceRecordError};
+use mirx::image::{
+    EncodedGroupError, PlaneMemoryRecordError, SurfaceRecordError, UnitIndexError,
+    UnitSelectionError,
+};
 
 fn main() {
     let _ = PlaneMemoryRecordError::BufferTooSmall {
@@ -12,5 +15,13 @@ fn main() {
     let _ = EncodedGroupError::BufferTooSmall {
         needed: 36,
         available: 35,
+    };
+    let _ = UnitIndexError::BufferTooSmall {
+        needed: 4,
+        available: 3,
+    };
+    let _ = UnitSelectionError::BufferTooSmall {
+        needed: 4,
+        available: 3,
     };
 }

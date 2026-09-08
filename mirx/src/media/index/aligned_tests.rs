@@ -115,11 +115,6 @@ fn alignment_width_overflow_and_noncanonical_checkpoints_are_atomic_errors() {
             .encode_into(&[u32::MAX, 0], alignment(64), &mut output)
             .is_err()
     );
-    assert!(
-        UnitIndexEncoding::Lengths32
-            .encode_into(&[1; 65], alignment(64), &mut output[..267])
-            .is_err()
-    );
     assert_eq!(output, [0xad; 272]);
     let len = UnitIndexEncoding::Lengths32
         .encode_into(&[1; 65], alignment(64), &mut output)

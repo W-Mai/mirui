@@ -1,17 +1,29 @@
 error[E0599]: no variant named `BufferTooSmall` found for enum `PlaneMemoryRecordError`
- --> tests/public_api_fail/image_record_errors.rs:4:37
+ --> tests/public_api_fail/image_record_errors.rs:7:37
   |
-4 |     let _ = PlaneMemoryRecordError::BufferTooSmall {
+7 |     let _ = PlaneMemoryRecordError::BufferTooSmall {
   |                                     ^^^^^^^^^^^^^^ variant not found in `PlaneMemoryRecordError`
 
 error[E0599]: no variant named `BufferTooSmall` found for enum `SurfaceRecordError`
- --> tests/public_api_fail/image_record_errors.rs:8:33
-  |
-8 |     let _ = SurfaceRecordError::BufferTooSmall {
-  |                                 ^^^^^^^^^^^^^^ variant not found in `SurfaceRecordError`
+  --> tests/public_api_fail/image_record_errors.rs:11:33
+   |
+11 |     let _ = SurfaceRecordError::BufferTooSmall {
+   |                                 ^^^^^^^^^^^^^^ variant not found in `SurfaceRecordError`
 
 error[E0599]: no variant named `BufferTooSmall` found for enum `EncodedGroupError`
-  --> tests/public_api_fail/image_record_errors.rs:12:32
+  --> tests/public_api_fail/image_record_errors.rs:15:32
    |
-12 |     let _ = EncodedGroupError::BufferTooSmall {
+15 |     let _ = EncodedGroupError::BufferTooSmall {
    |                                ^^^^^^^^^^^^^^ variant not found in `EncodedGroupError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `UnitIndexError`
+  --> tests/public_api_fail/image_record_errors.rs:19:29
+   |
+19 |     let _ = UnitIndexError::BufferTooSmall {
+   |                             ^^^^^^^^^^^^^^ variant not found in `UnitIndexError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `UnitSelectionError`
+  --> tests/public_api_fail/image_record_errors.rs:23:33
+   |
+23 |     let _ = UnitSelectionError::BufferTooSmall {
+   |                                 ^^^^^^^^^^^^^^ variant not found in `UnitSelectionError`

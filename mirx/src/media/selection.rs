@@ -345,7 +345,6 @@ impl UnitSelectionEncoding {
         Ok(needed)
     }
 
-    /// Writes a validated selection; errors leave the entire output unchanged.
     pub(crate) fn encode_into(
         self,
         cell_count: u32,
@@ -353,12 +352,9 @@ impl UnitSelectionEncoding {
         out: &mut [u8],
     ) -> Result<usize, UnitSelectionError> {
         let needed = self.encoded_len(cell_count, cells)?;
-        if out.len() < needed {
-            return Err(UnitSelectionError::BufferTooSmall {
-                needed,
-                available: out.len(),
-            });
-        }
+        let out = out
+            .get_mut(..needed)
+            .expect("precomputed unit selection capacity");
         match self {
             Self::List => {
                 for (index, &cell) in cells.iter().enumerate() {
@@ -411,10 +407,6 @@ pub enum UnitSelectionError {
         actual: u32,
     },
     NonZeroPadding,
-    BufferTooSmall {
-        needed: usize,
-        available: usize,
-    },
 }
 
 #[cfg(test)]
@@ -542,8 +534,6 @@ mod tests {
                 assert!(encoding.encode_into(10, cells, &mut out).is_err());
                 assert_eq!(out, [0xa5; 20]);
             }
-            assert!(encoding.encode_into(10, &[1], &mut out[..1]).is_err());
-            assert_eq!(out, [0xa5; 20]);
         }
     }
 
