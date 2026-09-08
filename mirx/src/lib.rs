@@ -51,7 +51,5 @@ pub(crate) use header::{
 };
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub(crate) use payload::image::{ImageAsset, ImagePayloadError, ImageView};
-pub use reader::{
-    ChunkRef, ComplianceFinding, EntryIter, FindingIter, PayloadLimits, PayloadLocation,
-    PayloadValidationError, PayloadValidationFailure, ReadOptions, Reader, TrailingBytesPolicy,
-};
+pub use reader::{ChunkRef, Reader};
+pub(crate) use reader::{PayloadLimits, ReadOptions, TrailingBytesPolicy};

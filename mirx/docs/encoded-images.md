@@ -82,7 +82,7 @@ let asset = EncodedImageAsset::new(
     codec.record_into(&mut params),
     &stream[..stream_len],
 );
-asset.preflight(&mirx::PayloadLimits::EMBEDDED).unwrap();
+asset.preflight(&mirx::reader::PayloadLimits::EMBEDDED).unwrap();
 ```
 
 Revision 1 accepts I8, A8, L8, RGB888, RGBA8888, BGRA8888 and the 8-bit planes of I420, YV12, NV12 and NV21. Sub-byte samples, RGB565, XRGB8888, P010 and P016 are rejected instead of being treated as byte lanes. A multi-plane unit concatenates one independently encoded plane stream per selected plane in derived plane order. Plane dimensions and component counts delimit those streams without stored length fields. Partial edge blocks repeat the nearest sample instead of injecting an artificial zero border. Every 8×8 block resets its coefficient state, and IMAGE groups remain the independently addressable unit boundary. Progressive-band access is not advertised by this revision.
@@ -160,7 +160,7 @@ Work includes group resolution and coverage, each unit's coded and decoded bytes
 `EncodedImageAsset::from_groups(surface, &codings, &groups, data)` borrows all inputs. Each `UnitGroupRecord` names one coding ordinal and a DATA range, with optional tile geometry, plane selection, sparse selection and range encoding. `with_unit_index(bytes)` supplies the combined UNIT_INDEX body; index offsets address that body, while DATA ranges address DATA. No per-unit descriptor array is generated.
 
 ```rust
-use mirx::{PayloadLimits, coding::Rle, image::{
+use mirx::{reader::PayloadLimits, coding::Rle, image::{
     ColorDescription, EncodedImageAsset, GroupPlanes, SampleLayout,
     SurfaceDescriptor, UnitGroupRecord,
 }};

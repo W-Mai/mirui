@@ -12,7 +12,7 @@ Representation count comes from 20-byte records; referenced surfaces use 24-byte
 Count limits are enforced before per-record parsing or duplicate comparisons. Zero disables the corresponding resource. Tight decoded cost is selection metadata, not a requested allocation; `max_decoded_bytes` therefore does not reject a borrowed atlas at this step. Execution applies its output, unit and work limits independently.
 
 ```rust
-use mirx::{PayloadLimits,
+use mirx::{reader::PayloadLimits,
     font::{FontRepresentation, FontRepresentationRequest, GlyphPacking, GlyphSurfaceRecord,
         RepresentationRecord, RepresentationTable},
     image::SampleLayout};

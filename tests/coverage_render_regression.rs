@@ -39,7 +39,7 @@ fn render_coverage_text(text: &str) -> Vec<u8> {
     let font = font_from_mirx(
         "MiSans-Regular",
         COVERAGE_FONT_BYTES,
-        &mirx::PayloadLimits::HOST,
+        &mirx::reader::PayloadLimits::HOST,
     )
     .expect("parse coverage face");
     app.world

@@ -12,8 +12,8 @@ error[E0432]: unresolved imports `mirx::Meta`, `mirx::MetaAccessError`, `mirx::M
   |            help: a similar name exists in the module: `meta`
   |
   = help: consider importing one of these items instead:
-          mirx::PayloadValidationFailure::Meta
           mirx::meta::Meta
+          mirx::reader::PayloadValidationFailure::Meta
   = help: consider importing this enum instead:
           mirx::meta::MetaAccessError
   = help: consider importing this enum instead:

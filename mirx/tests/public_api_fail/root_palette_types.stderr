@@ -20,8 +20,8 @@ error[E0432]: unresolved imports `mirx::ColorTableIter`, `mirx::ColorTableView`,
   = help: consider importing this struct instead:
           mirx::palette::ColorTableView
   = help: consider importing one of these items instead:
-          mirx::PayloadValidationFailure::Palette
           mirx::palette::Palette
+          mirx::reader::PayloadValidationFailure::Palette
   = help: consider importing this enum instead:
           mirx::palette::PaletteAccessError
   = help: consider importing this enum instead:

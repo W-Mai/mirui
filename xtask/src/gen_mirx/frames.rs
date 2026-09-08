@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use mirx::{
-    ChunkFlags, ChunkType, Document, EncodeOptions, PayloadLimits, Reader,
+    ChunkFlags, ChunkType, Document, EncodeOptions, Reader,
     frames::{
         FrameEncoding, FrameEncodingSet, FramePolicy, FrameSequence, FrameStorage, FramesEncoder,
     },
     image::{BufferRequirements, DecodeRequest, SurfaceDescriptor, SurfaceMemoryPlan},
+    reader::PayloadLimits,
     types::ByteAlignment,
 };
 

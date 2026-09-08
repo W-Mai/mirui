@@ -24,8 +24,9 @@ fn register_font(world: &mut World) {
     let Some(mgr) = world.resource::<FontManager>() else {
         return;
     };
-    let font: Font = mirx_font::font_from_mirx("MiSans-SDF-24", SDF_24, &mirx::PayloadLimits::HOST)
-        .expect("24px atlas");
+    let font: Font =
+        mirx_font::font_from_mirx("MiSans-SDF-24", SDF_24, &mirx::reader::PayloadLimits::HOST)
+            .expect("24px atlas");
     mgr.add_static(TOKEN_CJK.cache_key(), font);
 }
 

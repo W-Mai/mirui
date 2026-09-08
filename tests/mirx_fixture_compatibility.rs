@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use mirx::{Document, Layout, PayloadLimits, Reader};
+use mirx::{Document, Layout, Reader, reader::PayloadLimits};
 
 const FONT_FIXTURES: &[&[u8]] = &[
     include_bytes!("fixtures/misans_coverage_16_4bit.mirx"),

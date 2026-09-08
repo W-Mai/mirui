@@ -801,8 +801,12 @@ fn register_fonts(world: &mut World) {
     let Some(manager) = world.resource::<FontManager>() else {
         return;
     };
-    let base = mirx_font::font_from_mirx("Orbit Console", FONT_BYTES, &mirx::PayloadLimits::HOST)
-        .expect("Orbit Console font must decode");
+    let base = mirx_font::font_from_mirx(
+        "Orbit Console",
+        FONT_BYTES,
+        &mirx::reader::PayloadLimits::HOST,
+    )
+    .expect("Orbit Console font must decode");
     let mut body = base.clone();
     body.size = 14;
     let mut heading = base.clone();

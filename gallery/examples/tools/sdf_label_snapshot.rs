@@ -25,7 +25,12 @@ use mirui::ui::widgets::Text;
 const ATLAS_BYTES: &[u8] = include_bytes!("../../../tests/fixtures/misans_sdf_ascii_32.mirx");
 
 fn load_misans_font() -> Font {
-    font_from_mirx("MiSans-Regular", ATLAS_BYTES, &mirx::PayloadLimits::HOST).expect("parse font")
+    font_from_mirx(
+        "MiSans-Regular",
+        ATLAS_BYTES,
+        &mirx::reader::PayloadLimits::HOST,
+    )
+    .expect("parse font")
 }
 
 fn main() {

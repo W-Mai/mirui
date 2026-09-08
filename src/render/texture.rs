@@ -557,14 +557,14 @@ pub(super) fn map_mirx_format(fmt: mirx::image::ColorFormat) -> Result<ColorForm
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MirxTextureOptions {
     request: mirx::image::DecodeRequest,
-    limits: mirx::PayloadLimits,
+    limits: mirx::reader::PayloadLimits,
 }
 
 impl MirxTextureOptions {
     pub const fn new() -> Self {
         Self {
             request: mirx::image::DecodeRequest::new(mirx::image::SurfaceRequirements::new()),
-            limits: mirx::PayloadLimits::EMBEDDED,
+            limits: mirx::reader::PayloadLimits::EMBEDDED,
         }
     }
 
@@ -641,7 +641,7 @@ impl MirxTextureOptions {
         self
     }
 
-    pub const fn with_limits(mut self, limits: mirx::PayloadLimits) -> Self {
+    pub const fn with_limits(mut self, limits: mirx::reader::PayloadLimits) -> Self {
         self.limits = limits;
         self
     }
@@ -654,7 +654,7 @@ impl MirxTextureOptions {
         self.request
     }
 
-    pub const fn limits(self) -> mirx::PayloadLimits {
+    pub const fn limits(self) -> mirx::reader::PayloadLimits {
         self.limits
     }
 }

@@ -40,7 +40,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
     /// geometry and the work budget. No decoded bytes or plan array are allocated.
     ///
     /// ```
-    /// use mirx::{PayloadLimits, coding::Rle, image::{ColorDescription,
+    /// use mirx::{reader::PayloadLimits, coding::Rle, image::{ColorDescription,
     ///     CoverageBudget, EncodedImageAsset, EncodedImageView, SampleLayout,
     ///     SurfaceDescriptor, SurfaceRequirements}};
     /// let surface = SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();

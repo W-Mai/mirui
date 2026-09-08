@@ -4,11 +4,11 @@ use alloc::rc::Rc;
 
 use super::{Font, FontBackend, FontMetrics, FontProvider, Glyph, GlyphKind};
 use mirx::{
-    PayloadLimits,
     font::{
         FontError, FontGlyphs, FontRepresentationFallback, FontRepresentationRequest, FontView,
     },
     image::{CoverageBudget, SurfaceRequirements, SurfaceView, UnitGroup},
+    reader::PayloadLimits,
 };
 
 fn scale(value: mirx::types::Fixed, numerator: u16, denominator: u16) -> crate::types::Fixed {

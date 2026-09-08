@@ -3,7 +3,9 @@ use mirx::image::{
     SurfaceRequirements,
 };
 use mirx::meta::Meta;
-use mirx::{ChunkFlags, ChunkType, Document, EditError, EncodeOptions, PayloadLimits, Reader};
+use mirx::{
+    ChunkFlags, ChunkType, Document, EditError, EncodeOptions, Reader, reader::PayloadLimits,
+};
 
 #[repr(align(64))]
 struct AlignedFile([u8; 4096]);

@@ -40,8 +40,9 @@ pub fn register_font(world: &mut World) {
         return;
     };
     for (_, size) in STEPS {
-        let mut font = mirx_font::font_from_mirx("Bundle", BUNDLE, &mirx::PayloadLimits::HOST)
-            .expect("bundle parses");
+        let mut font =
+            mirx_font::font_from_mirx("Bundle", BUNDLE, &mirx::reader::PayloadLimits::HOST)
+                .expect("bundle parses");
         font.size = size;
         mgr.add_static(token(size).cache_key(), font);
     }
@@ -88,7 +89,8 @@ mod tests {
 
     #[test]
     fn bundle_font_reports_a_pixel_default_size() {
-        let font = mirx_font::font_from_mirx("Bundle", BUNDLE, &mirx::PayloadLimits::HOST).unwrap();
+        let font = mirx_font::font_from_mirx("Bundle", BUNDLE, &mirx::reader::PayloadLimits::HOST)
+            .unwrap();
         assert_eq!(font.size, 12);
     }
 

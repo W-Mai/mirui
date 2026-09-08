@@ -39,8 +39,12 @@ fn render_text(text: &str, font_token: FontToken, register_misans: bool) -> Vec<
     app.with_default_widgets().with_default_systems();
 
     if register_misans {
-        let font = font_from_mirx("MiSans-Regular", ATLAS_BYTES, &mirx::PayloadLimits::HOST)
-            .expect("parse font");
+        let font = font_from_mirx(
+            "MiSans-Regular",
+            ATLAS_BYTES,
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("parse font");
         app.world
             .resource::<FontManager>()
             .expect("FontManager")

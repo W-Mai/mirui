@@ -5,7 +5,7 @@
 `group_count()` reports caller workspace slots. `groups_into(slots, budget)` prepares those groups and returns `GlyphGroups` tied to the same map. `decode_plan(glyph_index, requirements, limits)` resolves the exact glyph region and returns an `ImageDecodePlan`; `decode_into(output, workspace)` then writes to caller storage. Neither preparation nor execution allocates decoded buffers.
 
 ```rust
-use mirx::{PayloadLimits, coding::Rle,
+use mirx::{reader::PayloadLimits, coding::Rle,
     font::{GlyphMap, GlyphPacking, GlyphSurfaceRecord},
     image::{ColorDescription, CoverageBudget, EncodedImageAsset, SampleLayout,
         SurfaceDescriptor, SurfaceRequirements}, media::MediaPayload};

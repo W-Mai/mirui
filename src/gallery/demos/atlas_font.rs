@@ -30,14 +30,20 @@ pub fn register_font(world: &mut World) {
     let Some(mgr) = world.resource::<FontManager>() else {
         return;
     };
-    let pixel10: Font =
-        mirx_font::font_from_mirx("FusionPixel-10", PIXEL_10, &mirx::PayloadLimits::HOST)
-            .expect("10px atlas");
-    let pixel12: Font =
-        mirx_font::font_from_mirx("FusionPixel-12", PIXEL_12, &mirx::PayloadLimits::HOST)
-            .expect("12px atlas");
+    let pixel10: Font = mirx_font::font_from_mirx(
+        "FusionPixel-10",
+        PIXEL_10,
+        &mirx::reader::PayloadLimits::HOST,
+    )
+    .expect("10px atlas");
+    let pixel12: Font = mirx_font::font_from_mirx(
+        "FusionPixel-12",
+        PIXEL_12,
+        &mirx::reader::PayloadLimits::HOST,
+    )
+    .expect("12px atlas");
     let sdf24: Font =
-        mirx_font::font_from_mirx("MiSans-SDF-24", SDF_24, &mirx::PayloadLimits::HOST)
+        mirx_font::font_from_mirx("MiSans-SDF-24", SDF_24, &mirx::reader::PayloadLimits::HOST)
             .expect("24px atlas");
     mgr.add_static(TOKEN_10.cache_key(), pixel10);
     mgr.add_static(TOKEN_12.cache_key(), pixel12);
@@ -93,9 +99,12 @@ mod tests {
 
     #[test]
     fn loads_three_atlases_at_their_sizes() {
-        let p10 = mirx_font::font_from_mirx("p10", PIXEL_10, &mirx::PayloadLimits::HOST).unwrap();
-        let p12 = mirx_font::font_from_mirx("p12", PIXEL_12, &mirx::PayloadLimits::HOST).unwrap();
-        let s24 = mirx_font::font_from_mirx("s24", SDF_24, &mirx::PayloadLimits::HOST).unwrap();
+        let p10 =
+            mirx_font::font_from_mirx("p10", PIXEL_10, &mirx::reader::PayloadLimits::HOST).unwrap();
+        let p12 =
+            mirx_font::font_from_mirx("p12", PIXEL_12, &mirx::reader::PayloadLimits::HOST).unwrap();
+        let s24 =
+            mirx_font::font_from_mirx("s24", SDF_24, &mirx::reader::PayloadLimits::HOST).unwrap();
         assert_eq!(p10.size, 10);
         assert_eq!(p12.size, 12);
         assert_eq!(s24.size, 24);

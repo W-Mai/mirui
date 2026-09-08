@@ -95,7 +95,7 @@ IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `ChunkRef::decode_
 `Reader` validates the common header, exact logical length, chunk table, payload ranges, primary selection, and configured resource limits. Chunk iteration and borrowed typed views continue to reference the input bytes.
 
 ```rust
-use mirx::{ChunkType, PayloadLimits, Reader};
+use mirx::{ChunkType, Reader, reader::PayloadLimits};
 
 fn inspect(bytes: &[u8]) {
     let reader = Reader::open(bytes).expect("valid MIRX container");

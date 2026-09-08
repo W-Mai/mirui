@@ -37,9 +37,12 @@ mirui_macros::animate!(ZoomSize, |world, entity, value| {
 
 pub fn register_font(world: &mut World) {
     if let Some(mgr) = world.resource::<FontManager>() {
-        let font =
-            mirx_font::font_from_mirx("MiSans-SDF-zoom", SDF_ATLAS, &mirx::PayloadLimits::HOST)
-                .expect("zoom atlas");
+        let font = mirx_font::font_from_mirx(
+            "MiSans-SDF-zoom",
+            SDF_ATLAS,
+            &mirx::reader::PayloadLimits::HOST,
+        )
+        .expect("zoom atlas");
         mgr.add_static(ZOOM_TOKEN.cache_key(), font);
     }
 }

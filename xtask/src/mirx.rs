@@ -6,9 +6,11 @@ use std::path::{Path, PathBuf};
 
 use mirx::{
     ChunkFlags, ChunkType, CriticalAssumption, Document, Layout, OpenOptions, PayloadInput,
-    PayloadLimits, PayloadLocation, PayloadValidationError, PrimaryHints, RawChunkInput,
-    RawChunkPolicy, RawTypePolicy, ReadOptions, Reader, RelocationAssumption, ReservedBitsPolicy,
-    TrailingBytesPolicy, crc32,
+    PrimaryHints, RawChunkInput, RawChunkPolicy, RawTypePolicy, Reader, RelocationAssumption,
+    ReservedBitsPolicy, crc32,
+    reader::{
+        PayloadLimits, PayloadLocation, PayloadValidationError, ReadOptions, TrailingBytesPolicy,
+    },
 };
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;

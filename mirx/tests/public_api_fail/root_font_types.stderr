@@ -22,8 +22,8 @@ error[E0432]: unresolved imports `mirx::Font`, `mirx::FontAccessError`, `mirx::F
   |     ^^^^^^^^^^^^^^^^^^  ^^^^^^^^
   |
   = help: consider importing one of these items instead:
-          mirx::PayloadValidationFailure::Font
           mirx::font::Font
+          mirx::reader::PayloadValidationFailure::Font
   = help: consider importing this enum instead:
           mirx::font::FontAccessError
   = help: consider importing this struct instead:

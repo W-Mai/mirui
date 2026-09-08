@@ -13,7 +13,7 @@ use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPaylo
 use mirx::meta::{Meta, MetaEntry};
 use mirx::palette::Palette;
 use mirx::types::{Color, Fixed};
-use mirx::{ChunkFlags, ChunkType, Document, EncodeOptions, PayloadLimits, Reader};
+use mirx::{ChunkFlags, ChunkType, Document, EncodeOptions, Reader, reader::PayloadLimits};
 use support::encode_chunks;
 
 fn wire_fixed(bits: i32) -> Fixed {
@@ -668,12 +668,12 @@ fn exact_indexed_crops_reuse_caller_storage_and_borrow_the_palette() {
 #[test]
 fn prepared_image_decode_uses_only_caller_output_workspace_and_borrowed_palette() {
     use mirx::{
-        PayloadLimits,
         coding::Rle,
         image::{
             ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageView, SampleLayout,
             SurfaceDescriptor, SurfaceRequirements,
         },
+        reader::PayloadLimits,
     };
     let surface = SurfaceDescriptor::new(3, 2, SampleLayout::I4, ColorDescription::SRGB).unwrap();
     let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 0xff])

@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use mirx::{
-    PayloadLimits, Reader,
+    Reader,
     image::{BufferRequirements, CoverageBudget, DecodeRequest, SurfaceMemoryPlan, SurfaceView},
+    reader::PayloadLimits,
 };
 
 use super::{Result, icu_program, memory, probe_icu};
