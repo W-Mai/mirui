@@ -9,7 +9,6 @@ use mirx::image::{
     ColorDescription, ColorFormat, ImageAsset, PLANE_RECORD_LEN, PlaneMemoryLayout, RawImageAsset,
     RawImageView, SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor, SurfaceRequirements,
 };
-use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::meta::{Meta, MetaEntry};
 use mirx::palette::Palette;
 use mirx::types::{Color, Fixed};
@@ -320,49 +319,6 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
 }
 
 #[test]
-fn encoded_glyph_planning_and_execution_allocate_nothing() {
-    use mirx::{
-        coding::Rle,
-        font::{GlyphMap, GlyphPacking, GlyphSurfaceRecord},
-        image::{CoverageBudget, EncodedImageAsset, UnitGroupRecord},
-    };
-    let surface = SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let bytes = EncodedImageAsset::from_groups(
-        surface,
-        &[Rle::new().record()],
-        &[UnitGroupRecord::new(0, 0..4).unwrap().with_tiles(2, 2)],
-        &[0x83, 1, 0x83, 2],
-    )
-    .encode()
-    .unwrap();
-    let (_, allocations) = count_allocations(|| {
-        let media = MediaPayload::open(&bytes).unwrap();
-        let record = GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 3)
-            .unwrap()
-            .with_codings(1)
-            .unwrap()
-            .with_groups(2, None)
-            .unwrap();
-        let glyphs = record
-            .encoded_glyphs(media, GlyphMap::cells(2, 2, 2).unwrap())
-            .unwrap();
-        glyphs.preflight(&PayloadLimits::EMBEDDED).unwrap();
-        let mut slots = [None];
-        let groups = glyphs
-            .groups_into(&mut slots, &mut CoverageBudget::new(1000))
-            .unwrap();
-        let plan = groups
-            .decode_plan(1, SurfaceRequirements::new(), &PayloadLimits::EMBEDDED)
-            .unwrap();
-        let mut output = [0; 4];
-        let mut workspace = [0; 4];
-        plan.decode_into(&mut output, &mut workspace).unwrap();
-        assert_eq!(output, [2; 4]);
-    });
-    assert_eq!(allocations, 0);
-}
-
-#[test]
 fn borrowed_representation_tables_resolve_and_select_without_allocation() {
     use mirx::font::{
         FontRepresentation, FontRepresentationRequest, GlyphPacking, GlyphSurfaceRecord,
@@ -396,52 +352,6 @@ fn borrowed_representation_tables_resolve_and_select_without_allocation() {
         assert_eq!(table.iter().nth_back(1), table.get(0));
         assert_eq!(table.iter().count(), 2);
         assert_eq!(table.get(1).unwrap().representation().decoded_bytes(), 64);
-    });
-    assert_eq!(allocations, 0);
-}
-
-#[test]
-fn referenced_raw_glyph_binding_allocates_nothing() {
-    use mirx::font::{GlyphMap, GlyphPacking, GlyphSurfaceRecord};
-    let surface = SurfaceDescriptor::new(3, 2, SampleLayout::A4, ColorDescription::NONE).unwrap();
-    let bytes = RawImageAsset::new(surface, &[&[0x12, 0x30, 0x45, 0x60]])
-        .encode()
-        .unwrap();
-    let (_, allocations) = count_allocations(|| {
-        let media = MediaPayload::open(&bytes).unwrap();
-        media.validate_data().unwrap();
-        let record =
-            GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 3, 1, 1).unwrap();
-        let glyphs = record
-            .raw_glyphs(media, GlyphMap::cells(3, 1, 2).unwrap())
-            .unwrap();
-        assert_eq!(
-            glyphs.get(1).unwrap().storage().plane(0).unwrap().bytes(),
-            &[0x45, 0x60]
-        );
-    });
-    assert_eq!(allocations, 0);
-}
-
-#[test]
-fn glyph_surface_records_and_directory_binding_allocate_nothing() {
-    use mirx::font::{GlyphPacking, GlyphSurfaceRecord};
-    let bytes = raw_a8_media_payload();
-    let (_, allocations) = count_allocations(|| {
-        let media = MediaPayload::open(&bytes).unwrap();
-        let record =
-            GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 1, 1, 1).unwrap();
-        record.validate_sections(media).unwrap();
-        let encoded = record
-            .with_codings(2)
-            .unwrap()
-            .with_groups(3, Some(4))
-            .unwrap();
-        assert_eq!(encoded.logical_extent(100).unwrap(), (1, 100));
-        let mut out = [0xa5; 25];
-        encoded.encode_record_into(&mut out[1..]).unwrap();
-        assert_eq!(GlyphSurfaceRecord::from_record(&out[1..]).unwrap(), encoded);
-        assert_eq!(out[0], 0xa5);
     });
     assert_eq!(allocations, 0);
 }
@@ -576,30 +486,6 @@ fn indexed_region_decode_borrows_palette_and_uses_only_caller_output_and_workspa
     assert_eq!(allocations, 0);
     assert_eq!(&output.0[64..], &[0xa5; 64]);
     assert_eq!(&workspace[1..], &[0x5a; 3]);
-}
-
-#[test]
-fn data_check_planning_and_verification_borrow_partition_metadata() {
-    use mirx::{
-        coding::Rle, image::EncodedImageAsset, media::MediaSectionKind, types::DataIntegrity,
-    };
-    let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 1, 0x83, 2])
-        .with_integrity(DataIntegrity::Indexed(&[2, 4]))
-        .encode()
-        .unwrap();
-    let (_, allocations) = count_allocations(|| {
-        let media = MediaPayload::open(&bytes).unwrap();
-        let start = media
-            .section(MediaSectionKind::DATA)
-            .unwrap()
-            .descriptor()
-            .offset();
-        let plan = media.data_check_plan(start..start + 1).unwrap();
-        assert_eq!(plan.byte_len(), 2);
-        plan.verify().unwrap();
-    });
-    assert_eq!(allocations, 0);
 }
 
 #[test]
@@ -1519,80 +1405,9 @@ fn typed_container() -> Vec<u8> {
     ])
 }
 
-fn empty_media_payload() -> Vec<u8> {
-    let mut bytes = vec![0; MEDIA_HEADER_LEN + MEDIA_CRC_LEN];
-    bytes[0] = 1;
-    let crc = crc32(&[1, 0, 0, 0, 0, 0, 0, 0]);
-    bytes[4..8].copy_from_slice(&crc.to_le_bytes());
-    bytes
-}
-
 fn raw_a8_media_payload() -> Vec<u8> {
     let surface = SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let section_count = 2u16;
-    let surface_offset = MEDIA_HEADER_LEN + usize::from(section_count) * MEDIA_SECTION_LEN;
-    let data_offset = surface_offset + SURFACE_RECORD_LEN;
-    let mut bytes = vec![0; data_offset + 1 + MEDIA_CRC_LEN];
-    bytes[0] = 1;
-    bytes[2..4].copy_from_slice(&section_count.to_le_bytes());
-
-    bytes[MEDIA_HEADER_LEN..MEDIA_HEADER_LEN + 2]
-        .copy_from_slice(&mirx::media::MediaSectionKind::SURFACE.raw().to_le_bytes());
-    bytes[MEDIA_HEADER_LEN + 2..MEDIA_HEADER_LEN + 4].copy_from_slice(&1u16.to_le_bytes());
-    bytes[MEDIA_HEADER_LEN + 4..MEDIA_HEADER_LEN + 8]
-        .copy_from_slice(&(surface_offset as u32).to_le_bytes());
-    bytes[MEDIA_HEADER_LEN + 8..MEDIA_HEADER_LEN + 12]
-        .copy_from_slice(&(SURFACE_RECORD_LEN as u32).to_le_bytes());
-
-    let data_entry = MEDIA_HEADER_LEN + MEDIA_SECTION_LEN;
-    bytes[data_entry..data_entry + 2]
-        .copy_from_slice(&mirx::media::MediaSectionKind::DATA.raw().to_le_bytes());
-    bytes[data_entry + 2..data_entry + 4].copy_from_slice(&1u16.to_le_bytes());
-    bytes[data_entry + 4..data_entry + 8].copy_from_slice(&(data_offset as u32).to_le_bytes());
-    bytes[data_entry + 8..data_entry + 12].copy_from_slice(&1u32.to_le_bytes());
-
-    surface
-        .encode_record_into(&mut bytes[surface_offset..data_offset])
-        .unwrap();
-    bytes[data_offset] = 0x7f;
-    let crc_offset = bytes.len() - MEDIA_CRC_LEN;
-    let crc = crc32(&bytes[data_offset..crc_offset]);
-    bytes[crc_offset..].copy_from_slice(&crc.to_le_bytes());
-    let mut metadata = bytes[..4].to_vec();
-    metadata.extend_from_slice(&bytes[8..data_offset]);
-    metadata.extend_from_slice(&bytes[crc_offset..]);
-    let crc = crc32(&metadata);
-    bytes[4..8].copy_from_slice(&crc.to_le_bytes());
-    bytes
-}
-
-#[test]
-fn common_media_inspection_allocates_nothing() {
-    let bytes = empty_media_payload();
-    let (observed, allocations) = count_allocations(|| {
-        let media = MediaPayload::open(&bytes).unwrap();
-        (media.header().section_count(), media.sections().count())
-    });
-    assert_eq!(observed, (0, 0));
-    assert_eq!(allocations, 0);
-}
-
-#[test]
-fn direct_directory_lookup_and_skips_allocate_nothing() {
-    let bytes = raw_a8_media_payload();
-    let (_, allocations) = count_allocations(|| {
-        let media = MediaPayload::open(&bytes).unwrap();
-        let first = media.get(0).unwrap();
-        let second = media.get(1).unwrap();
-        assert_eq!(first.index(), 0);
-        assert_eq!(second.index(), 1);
-        assert_eq!(media.sections().nth(1), Some(second));
-        assert_eq!(media.sections().nth_back(1), Some(first));
-        assert_eq!(media.sections().last(), Some(second));
-        assert_eq!(media.sections().count(), 2);
-        assert_eq!(media.get(usize::MAX), None);
-    });
-    assert_eq!(allocations, 0);
+    RawImageAsset::new(surface, &[&[0x7f]]).encode().unwrap()
 }
 
 #[test]
@@ -1670,47 +1485,6 @@ fn shared_tile_and_chroma_region_resolution_allocate_nothing() {
         assert_eq!((edge.width(), edge.height()), (63, 21));
     });
     assert_eq!(allocations, 0);
-}
-
-#[test]
-fn indexed_integrity_open_and_partial_verification_allocate_nothing() {
-    use mirx::media::{IntegrityRange, IntegrityTable, MediaFlags, MediaSectionKind};
-    let mut bytes = [0u8; 60];
-    bytes[..4].copy_from_slice(&[1, MediaFlags::INDEXED_INTEGRITY.bits(), 2, 0]);
-    for (index, (kind, offset, size)) in [
-        (MediaSectionKind::INTEGRITY, 32u32, 24u32),
-        (MediaSectionKind::DATA, 56, 4),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let entry = 8 + index * 12;
-        bytes[entry..entry + 2].copy_from_slice(&kind.raw().to_le_bytes());
-        bytes[entry + 2..entry + 4].copy_from_slice(&1u16.to_le_bytes());
-        bytes[entry + 4..entry + 8].copy_from_slice(&offset.to_le_bytes());
-        bytes[entry + 8..entry + 12].copy_from_slice(&size.to_le_bytes());
-    }
-    bytes[56..].copy_from_slice(&[1, 2, 3, 4]);
-    let ranges = [
-        IntegrityRange::new(56..58, crc32(&bytes[56..58])).unwrap(),
-        IntegrityRange::new(58..60, crc32(&bytes[58..60])).unwrap(),
-    ];
-    IntegrityTable::encode_into(&ranges, &mut bytes[32..56]).unwrap();
-    let mut metadata = bytes[..4].to_vec();
-    metadata.extend_from_slice(&bytes[8..56]);
-    bytes[4..8].copy_from_slice(&crc32(&metadata).to_le_bytes());
-    let mut copy = [0; 24];
-    let (_, allocations) = count_allocations(|| {
-        let media = MediaPayload::open(&bytes).unwrap();
-        assert_eq!(media.validate_data_range(56..57), Ok(2));
-        media.validate_data().unwrap();
-        let table = media.integrity().unwrap();
-        assert!(table.iter().eq(ranges));
-        IntegrityTable::encode_into(&[table.get(0).unwrap(), table.get(1).unwrap()], &mut copy)
-            .unwrap();
-    });
-    assert_eq!(allocations, 0);
-    assert_eq!(copy, bytes[32..56]);
 }
 
 #[test]

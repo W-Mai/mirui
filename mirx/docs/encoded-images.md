@@ -206,8 +206,6 @@ Whole-surface RAW without independent groups uses `RawImageAsset`, omitting CODI
 
 ## Complete scalar reconstruction
 
-`MediaPayload::data_check_plan(range)` separates checksum budgeting from execution. The payload-relative request must lie inside one DATA section. `byte_len()` reports the exact DATA bytes that `verify()` will scan: intersecting indexed partitions or all DATA bodies with whole-DATA integrity. Empty ranges cost zero. Planning reads metadata only, so corrupted DATA may still produce a plan; verification is required before consumption. This borrowed-slice operation does not implement partial file I/O.
-
 Shared encoded-section binding keeps directory selection separate from coding/group body validation. Whole preflight and reconstruction charge every DATA body covered by complete media validation, including bodies outside the selected surface. That total is derived once from directory metadata and adds no wire field. ROI plans retain their explicit partition or whole-DATA coverage; an empty ROI performs no sample checksum work.
 
 Prepared `ImageGroups` expose `decode_plan(requirements, limits)` for the complete surface. Planning reuses validated group slots, checks every scalar unit and complete DATA integrity, and returns an `ImageDecodePlan` without storing an expanded unit-plan table or allocating decoded bytes. RAW, PIXEL, RLE, LZ4 and both frequency profiles share this path.

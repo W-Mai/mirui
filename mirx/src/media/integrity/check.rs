@@ -28,19 +28,6 @@ impl<'a> MediaPayload<'a> {
     /// all DATA bodies for any nonempty request. Indexed integrity selects only
     /// intersecting partitions. Empty requests check no DATA bytes. Planning
     /// scans section metadata and uses bounded index lookups, not DATA reads.
-    ///
-    /// ```
-    /// use mirx::{coding::Rle, image::{ColorDescription, EncodedImageAsset, SampleLayout, SurfaceDescriptor},
-    ///     media::{MediaPayload, MediaSectionKind}, types::DataIntegrity};
-    /// let surface = SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    /// let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 1, 0x83, 2])
-    ///     .with_integrity(DataIntegrity::Indexed(&[2, 4])).encode().unwrap();
-    /// let media = MediaPayload::open(&payload).unwrap();
-    /// let start = media.section(MediaSectionKind::DATA).unwrap().descriptor().offset();
-    /// let plan = media.data_check_plan(start + 1..start + 2).unwrap();
-    /// assert_eq!(plan.byte_len(), 2);
-    /// plan.verify().unwrap();
-    /// ```
     pub fn data_check_plan(
         self,
         requested: Range<u32>,

@@ -9,108 +9,86 @@ error[E0432]: unresolved imports `mirx::media::SelectedUnits`, `mirx::media::Uni
   = help: consider importing this struct instead:
           mirx::image::UnitRanges
 
-error[E0603]: struct `UnitIndex` is private
- --> tests/public_api_fail/media_unit_types.rs:2:20
+error[E0603]: module `media` is private
+ --> tests/public_api_fail/media_unit_types.rs:1:11
   |
-2 |     SelectedUnits, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges, UnitSelection,
-  |                    ^^^^^^^^^ private struct
+1 | use mirx::media::{
+  |           ^^^^^ private module
   |
-note: the struct `UnitIndex` is defined here
- --> src/media.rs
+note: the module `media` is defined here
+ --> src/lib.rs
   |
-  | pub(crate) use index::{UnitIndex, UnitIndexEncoding, UnitIndexError};
-  |                        ^^^^^^^^^
-help: import `UnitIndex` directly
-  |
-2 |     SelectedUnits, mirx::media::index::UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges, UnitSelection,
-  |                    ++++++++++++++++++++
+  | pub(crate) mod media;
+  | ^^^^^^^^^^^^^^^^^^^^
 
-error[E0603]: enum `UnitIndexEncoding` is private
+error[E0603]: module `media` is private
+ --> tests/public_api_fail/media_unit_types.rs:1:11
+  |
+1 | use mirx::media::{
+  |           ^^^^^ private module
+  |
+help: consider importing this enum instead:
+      mirx::image::UnitIndexEncoding
  --> tests/public_api_fail/media_unit_types.rs:2:31
   |
 2 |     SelectedUnits, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges, UnitSelection,
-  |                               ^^^^^^^^^^^^^^^^^ private enum
+  |                               ^^^^^^^^^^^^^^^^^
+note: the module `media` is defined here
+ --> src/lib.rs
   |
-note: the enum `UnitIndexEncoding` is defined here
- --> src/media.rs
-  |
-  | pub(crate) use index::{UnitIndex, UnitIndexEncoding, UnitIndexError};
-  |                                   ^^^^^^^^^^^^^^^^^
-help: import `UnitIndexEncoding` directly
-  |
-2 |     SelectedUnits, UnitIndex, mirx::media::index::UnitIndexEncoding, UnitIndexError, UnitRanges, UnitSelection,
-  |                               ++++++++++++++++++++
+  | pub(crate) mod media;
+  | ^^^^^^^^^^^^^^^^^^^^
 
-error[E0603]: enum `UnitIndexError` is private
+error[E0603]: module `media` is private
+ --> tests/public_api_fail/media_unit_types.rs:1:11
+  |
+1 | use mirx::media::{
+  |           ^^^^^ private module
+  |
+help: consider importing this enum instead:
+      mirx::image::UnitIndexError
  --> tests/public_api_fail/media_unit_types.rs:2:50
   |
 2 |     SelectedUnits, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges, UnitSelection,
-  |                                                  ^^^^^^^^^^^^^^ private enum
+  |                                                  ^^^^^^^^^^^^^^
+note: the module `media` is defined here
+ --> src/lib.rs
   |
-note: the enum `UnitIndexError` is defined here
- --> src/media.rs
-  |
-  | pub(crate) use index::{UnitIndex, UnitIndexEncoding, UnitIndexError};
-  |                                                      ^^^^^^^^^^^^^^
-  |
- ::: src/media/index.rs
-  |
-  | #[non_exhaustive]
-  | ----------------- cannot be constructed because it is `#[non_exhaustive]`
-help: import `UnitIndexError` directly
-  |
-2 |     SelectedUnits, UnitIndex, UnitIndexEncoding, mirx::media::index::UnitIndexError, UnitRanges, UnitSelection,
-  |                                                  ++++++++++++++++++++
+  | pub(crate) mod media;
+  | ^^^^^^^^^^^^^^^^^^^^
 
-error[E0603]: struct `UnitSelection` is private
- --> tests/public_api_fail/media_unit_types.rs:2:78
+error[E0603]: module `media` is private
+ --> tests/public_api_fail/media_unit_types.rs:1:11
   |
-2 |     SelectedUnits, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges, UnitSelection,
-  |                                                                              ^^^^^^^^^^^^^ private struct
+1 | use mirx::media::{
+  |           ^^^^^ private module
   |
-note: the struct `UnitSelection` is defined here
- --> src/media.rs
-  |
-  | pub(crate) use selection::{UnitSelection, UnitSelectionEncoding, UnitSelectionError};
-  |                            ^^^^^^^^^^^^^
-help: import `UnitSelection` directly
-  |
-2 |     SelectedUnits, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges, mirx::media::selection::UnitSelection,
-  |                                                                              ++++++++++++++++++++++++
-
-error[E0603]: enum `UnitSelectionEncoding` is private
+help: consider importing this enum instead:
+      mirx::image::UnitSelectionEncoding
  --> tests/public_api_fail/media_unit_types.rs:3:5
   |
 3 |     UnitSelectionEncoding, UnitSelectionError,
-  |     ^^^^^^^^^^^^^^^^^^^^^ private enum
+  |     ^^^^^^^^^^^^^^^^^^^^^
+note: the module `media` is defined here
+ --> src/lib.rs
   |
-note: the enum `UnitSelectionEncoding` is defined here
- --> src/media.rs
-  |
-  | pub(crate) use selection::{UnitSelection, UnitSelectionEncoding, UnitSelectionError};
-  |                                           ^^^^^^^^^^^^^^^^^^^^^
-help: import `UnitSelectionEncoding` directly
-  |
-3 |     mirx::media::selection::UnitSelectionEncoding, UnitSelectionError,
-  |     ++++++++++++++++++++++++
+  | pub(crate) mod media;
+  | ^^^^^^^^^^^^^^^^^^^^
 
-error[E0603]: enum `UnitSelectionError` is private
+error[E0603]: module `media` is private
+ --> tests/public_api_fail/media_unit_types.rs:1:11
+  |
+1 | use mirx::media::{
+  |           ^^^^^ private module
+  |
+help: consider importing this enum instead:
+      mirx::image::UnitSelectionError
  --> tests/public_api_fail/media_unit_types.rs:3:28
   |
 3 |     UnitSelectionEncoding, UnitSelectionError,
-  |                            ^^^^^^^^^^^^^^^^^^ private enum
+  |                            ^^^^^^^^^^^^^^^^^^
+note: the module `media` is defined here
+ --> src/lib.rs
   |
-note: the enum `UnitSelectionError` is defined here
- --> src/media.rs
-  |
-  | pub(crate) use selection::{UnitSelection, UnitSelectionEncoding, UnitSelectionError};
-  |                                                                  ^^^^^^^^^^^^^^^^^^
-  |
- ::: src/media/selection.rs
-  |
-  | #[non_exhaustive]
-  | ----------------- cannot be constructed because it is `#[non_exhaustive]`
-help: import `UnitSelectionError` directly
-  |
-3 |     UnitSelectionEncoding, mirx::media::selection::UnitSelectionError,
-  |                            ++++++++++++++++++++++++
+  | pub(crate) mod media;
+  | ^^^^^^^^^^^^^^^^^^^^

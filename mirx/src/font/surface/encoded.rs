@@ -13,9 +13,7 @@ use crate::{
 };
 
 impl GlyphSurfaceRecord {
-    /// Binds encoded scalar glyph storage without decoding or scanning DATA.
-    /// Section identity, coding-table shape and implicit defaults are checked.
-    pub fn encoded_glyphs<'map, 'data>(
+    pub(crate) fn encoded_glyphs<'map, 'data>(
         self,
         media: MediaPayload<'data>,
         map: GlyphMap<'map>,

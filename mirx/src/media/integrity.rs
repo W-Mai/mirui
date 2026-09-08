@@ -87,9 +87,6 @@ impl IntegrityRange {
     pub const fn offset(self) -> u32 {
         self.offset
     }
-    pub const fn size(self) -> u32 {
-        self.size
-    }
     pub const fn checksum(self) -> u32 {
         self.checksum
     }
@@ -149,9 +146,6 @@ impl<'a> IntegrityTable<'a> {
     pub const fn len(self) -> usize {
         self.bytes.len() / INTEGRITY_RECORD_LEN
     }
-    pub const fn is_empty(self) -> bool {
-        self.bytes.is_empty()
-    }
     pub fn get(self, index: usize) -> Option<IntegrityRange> {
         if index >= self.len() {
             return None;
@@ -196,6 +190,7 @@ impl<'a> IntegrityTable<'a> {
         }
     }
 
+    #[cfg(test)]
     pub fn encoded_len(ranges: &[IntegrityRange]) -> Result<usize, IntegrityError> {
         let size = ranges
             .len()
@@ -214,7 +209,7 @@ impl<'a> IntegrityTable<'a> {
         Ok(size)
     }
 
-    /// Writes checked records without allocation; errors preserve all output.
+    #[cfg(test)]
     pub fn encode_into(ranges: &[IntegrityRange], out: &mut [u8]) -> Result<usize, IntegrityError> {
         let needed = Self::encoded_len(ranges)?;
         if out.len() < needed {

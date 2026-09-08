@@ -238,9 +238,10 @@ impl GlyphSurfaceRecord {
         Ok(GLYPH_SURFACE_RECORD_LEN)
     }
 
-    /// Checks direct directory bounds, expected kinds and exact REQUIRED flags.
-    /// This does not parse bodies, validate coverage or checksum sample bytes.
-    pub fn validate_sections(self, media: MediaPayload<'_>) -> Result<(), GlyphSurfaceRecordError> {
+    pub(crate) fn validate_sections(
+        self,
+        media: MediaPayload<'_>,
+    ) -> Result<(), GlyphSurfaceRecordError> {
         for (index, kind) in [
             (Some(self.data), MediaSectionKind::DATA),
             (self.planes_section(), MediaSectionKind::PLANES),

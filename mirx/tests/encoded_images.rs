@@ -10,8 +10,8 @@ use mirx::{
         ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageError, ImageReadError,
         SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitDecodeError,
     },
-    media::MediaPayloadError,
     reader::{PayloadLimits, PayloadLocation, PayloadValidationFailure, ReadError, ReadOptions},
+    types::PayloadError,
 };
 use support::encode_chunks;
 
@@ -577,7 +577,7 @@ fn reader_limits_and_data_integrity_are_enforced_before_critical_success() {
     assert!(matches!(
         error.failure(),
         PayloadValidationFailure::Image(ImageReadError::Encoded(EncodedImageError::Media(
-            MediaPayloadError::DataCrcMismatch { .. }
+            PayloadError::DataCrcMismatch { .. }
         )))
     ));
 }

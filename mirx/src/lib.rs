@@ -19,7 +19,7 @@ mod format;
 pub mod frames;
 mod header;
 pub mod image;
-pub mod media;
+pub(crate) mod media;
 #[path = "payload/meta.rs"]
 pub mod meta;
 mod model;

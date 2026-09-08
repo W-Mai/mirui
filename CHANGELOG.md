@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Canonical MIRX coding namespace.** Coding records, validated tables, profile identifiers, codecs, and decode plans use `mirx::coding`; duplicate `mirx::media` paths are private.
 - **Canonical MIRX unit namespace.** Unit selection and byte-range index values use `mirx::image`; duplicate `mirx::media` paths are private.
 - **Canonical MIRX integrity policy.** The shared `DataIntegrity` authoring value uses `mirx::types`; the duplicate `mirx::media` path is private.
+- **Private MIRX media plumbing.** Section directories, payload headers, integrity tables, and glyph-to-section binding remain behind typed IMAGE, FONT, and FRAMES views; shared payload validation failures use `mirx::types::PayloadError`.
 - **Canonical MIRX VECTOR paths.** Scene values, paint primitives, codec errors, and access errors live under `mirx::scene`; duplicate crate-root exports have been removed.
 - **Canonical MIRX FONT paths.** Font values, views, representation selection, and access errors live under `mirx::font`; duplicate crate-root exports have been removed.
 - **Private MIRX payload plumbing.** Typed payload codecs are exposed through their domain modules; the internal `payload` assembly module is no longer public.
@@ -101,11 +102,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Borrowed FONT representation tables.** Direct scalar-surface binding derives depth and decoded cost from shared records, with explicit representation-count bounds before parsing. Native and wire tables share identity validation and size ranking, returning inline records and selection results without allocation.
 
-- **Referenced RAW glyph binding.** Glyph surface records bind matching cell/atlas maps to exact PLANES and DATA sections through shared storage validation. Repeated section kinds retain precise ordinal addressing, and glyph lookup does not trigger implicit full-DATA checksum scans.
+- **Typed RAW glyph binding.** `FontView::glyphs` binds matching cell or atlas maps to validated sample storage without allocation or an implicit repeated DATA scan.
 
 - **Shared glyph surface records.** Fixed 24-byte records retain cell/atlas geometry and direct media-section references without repeating byte ranges. Checked storage states exclude conflicting RAW/encoded fields, and directory binding validates reference kinds and flags without allocation.
-
-- **Direct media-directory access.** Ordinal lookup and bidirectional iterator skips resolve only the selected section descriptor in constant time, without a decoded table. Type-filtered scanning and explicit DATA verification retain separate semantics.
 
 - **Compact FONT representation records.** Fixed 20-byte records retain class-dependent size semantics and shared surface/map ranges. Surface-derived sample depth and tight decoded cost are not duplicated; native binding rejects stale hints and typed parsing enforces canonical Coverage defaults.
 
@@ -115,7 +114,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Selected-region IMAGE decoding.** Exact cropped requests reuse scalar plans and caller-owned aligned output. Complete intersecting units share bounded staging, while checksum partition coalescing reports actual verification bytes separately from selected coded bytes. All input and buffer checks precede final writes.
 
-- **Planned DATA verification costs.** Borrowed checksum plans report exact scan bytes before verification. Indexed plans select intersecting partitions, whole-DATA plans expose full scan cost, and empty requests perform no checksum work.
+- **Typed DATA verification costs.** Encoded unit and region operations report exact checksum work; indexed coverage selects intersecting partitions, whole-DATA coverage charges every DATA body, and empty requests perform no checksum work.
 
 - **Bounded IMAGE spatial queries.** Borrowed region iterators select complete units with sparse rank jumps, explicit traversal bounds and preserved planar coordinates. Narrow and sparse requests avoid expanded unit tables and scans across unrelated cells or empty rows.
 
@@ -181,9 +180,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Shared image tile geometry.** `SurfaceDescriptor::tile_grid`, `image::Region`, and `TileGrid` derive regular regions without per-tile metadata. Joint YUV grids partition chroma samples without overlapping interior boundaries, and edge tiles retain odd logical dimensions. Lookup and bidirectional iterator skips are allocation-free and constant-time.
 
-- **Compact unit-range indexes.** `media::UnitIndex` exposes fixed, offset-table, and checkpointed-length byte ranges without allocation. `UnitIndexEncoding` provides checked caller-buffer encoding; sequential iteration and bounded random lookup share the validated range contract.
+- **Compact unit-range indexes.** `image::UnitIndex` exposes fixed, offset-table, and checkpointed-length byte ranges without allocation. `UnitIndexEncoding` provides checked caller-buffer encoding; sequential iteration and bounded random lookup share the validated range contract.
 
-- **Borrowed coding tables.** `media::CodingRecord` and `CodingTable` provide profile identity, revision, parameter slices, constant-time ordinal lookup, and checked caller-buffer encoding without allocation.
+- **Borrowed coding tables.** `coding::CodingRecord` and `CodingTable` provide profile identity, revision, parameter slices, constant-time ordinal lookup, and checked caller-buffer encoding without allocation.
 
 - **Borrowed RAW plane rows.** `SurfacePlane::row` and `rows` expose logical sample rows without stride padding, allocation-only rows, or hidden copies. Indexed and planar layouts share exact-size, double-ended iteration with constant-time skips; unknown physical storage flags are rejected.
 
@@ -195,7 +194,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Borrowed decoded surface access.** `SurfaceView` exposes the same plane geometry, stride, storage extent, and color-table access for sectioned RAW images, caller-owned planes, and packed FLAT or atlas images. Plane descriptors are stored inline; pixel and palette bytes retain their original storage. Canonical RAW encoding and exact payload comparison share one allocation-free emitter and omit derived default plane records.
 - **Sectioned IMAGE surface, memory, and RAW access.** Open `SampleLayout` values cover packed, indexed, alpha, luma, planar YUV, and interleaved YUV surfaces. `SurfaceDescriptor` and `PlaneMemoryLayout` separate logical geometry from allocation extent, stride, DATA offset, byte length, and address alignment. `SurfaceDescriptor::memory_plan` applies per-plane dimension, stride, offset, and alignment constraints; `BufferRequirements` validates the actual caller-buffer address before decoding. `RawImageView` validates the complete section set and borrows canonical or explicitly padded planes without allocation. `RawImageAsset` provides exact sizing, validation-first caller-buffer encoding, deterministic padding, and an allocating convenience method. Tight RAW layouts omit physical plane records, indexed color tables remain separate from sample planes, and YUV color descriptions require explicit matrix, range, and chroma siting.
-- **Sectioned MIRX media payload foundation.** `media::MediaPayload` validates and borrows the common IMAGE/FONT header, ordered section directory, CRC boundary, open section identifiers, and open `CodingId` values. File-relative DATA alignment and actual runtime addresses are checked independently without allocation.
+- **Sectioned MIRX payload foundation.** Typed IMAGE, FONT, and FRAMES views validate and borrow common media headers, ordered section directories, CRC boundaries, and open coding identifiers. File-relative DATA alignment and actual runtime addresses are checked independently without allocation.
 - **Validated MIRX font representation selection.** `FontRepresentation` models fixed-size coverage, ranged signed-distance, and application-defined glyph samples. `FontRepresentations::select` applies deterministic size matching, explicit kind preferences, and opt-in nearest fallback without allocation or file-order dependence. Selection retains one inline metadata value without borrowing the source table.
 - **MIRX `Reader` and `Document` APIs.** `Reader` provides strict, zero-allocation FLAT/CHUNK inspection, lazy chunk iteration, primary resolution, compliance findings, and bounded known-payload validation. `Document` provides source-backed copy-on-write editing with stable session-local chunk identities, ordered insert/remove/reorder operations, primary selection, raw capability policies, deterministic encoding, and byte-identical no-op finish.
 - **`DocumentChunkMut` for existing chunk edits.** `Document::get_mut` returns an exclusive handle for descriptor, raw payload, typed replacement, and transactional callback edits while keeping collection changes on `Document`.

@@ -34,7 +34,6 @@ pub(crate) mod output;
 pub struct MediaFlags(u8);
 
 impl MediaFlags {
-    pub const NONE: Self = Self(0);
     /// INTEGRITY records replace the whole-DATA checksum trailer.
     pub const INDEXED_INTEGRITY: Self = Self(1);
 
@@ -149,7 +148,8 @@ impl MediaHeader {
     pub const fn section_count(self) -> u16 {
         self.section_count
     }
-    pub const fn metadata_crc32(self) -> u32 {
+    #[cfg(test)]
+    const fn metadata_crc32(self) -> u32 {
         self.metadata_crc32
     }
 
@@ -432,18 +432,6 @@ impl<'a> MediaPayload<'a> {
     ///
     /// The index is not the nth occurrence of a kind. DATA integrity remains a
     /// separate check, and no decoded directory array or allocation is created.
-    ///
-    /// ```
-    /// use mirx::{image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor},
-    ///     media::{MediaPayload, MediaSectionKind}};
-    /// let surface = SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    /// let bytes = RawImageAsset::new(surface, &[&[7]]).encode().unwrap();
-    /// let media = MediaPayload::open(&bytes).unwrap();
-    /// assert_eq!(media.get(0).unwrap().descriptor().kind(), MediaSectionKind::SURFACE);
-    /// assert_eq!(media.get(1).unwrap().bytes(), &[7]);
-    /// assert!(media.get(usize::MAX).is_none());
-    /// media.validate_data().unwrap();
-    /// ```
     pub fn get(self, index: usize) -> Option<MediaSection<'a>> {
         self.sections().nth(index)
     }
@@ -470,8 +458,8 @@ impl<'a> MediaPayload<'a> {
         self.sections_of_kind(kind).next()
     }
 
-    /// Checks the real addresses of every DATA section for a runtime backend.
-    pub fn data_addresses_are_aligned(self, alignment: crate::ByteAlignment) -> bool {
+    #[cfg(test)]
+    fn data_addresses_are_aligned(self, alignment: crate::ByteAlignment) -> bool {
         self.sections_of_kind(MediaSectionKind::DATA)
             .all(|section| section.address_is_aligned(alignment))
     }
@@ -508,7 +496,8 @@ pub struct MediaSection<'a> {
 }
 
 impl<'a> MediaSection<'a> {
-    pub const fn index(self) -> u16 {
+    #[cfg(test)]
+    const fn index(self) -> u16 {
         self.index
     }
 
@@ -520,8 +509,8 @@ impl<'a> MediaSection<'a> {
         self.bytes
     }
 
-    /// Checks the actual in-memory start address against a backend requirement.
-    pub fn address_is_aligned(self, alignment: crate::ByteAlignment) -> bool {
+    #[cfg(test)]
+    fn address_is_aligned(self, alignment: crate::ByteAlignment) -> bool {
         let alignment = usize::try_from(alignment.get()).expect("u32 fits usize");
         (self.bytes.as_ptr() as usize) % alignment == 0
     }

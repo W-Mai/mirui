@@ -26,7 +26,7 @@ The complete span is 130 bytes. Decoder inputs have lengths 3, 5 and 2; none rec
 ## Read and write
 
 ```rust
-use mirx::media::{UnitIndex, UnitIndexEncoding};
+use mirx::image::{UnitIndex, UnitIndexEncoding};
 
 let lengths = [3, 5, 2];
 let mut bytes = [0; 10]; // one u32 checkpoint + three u16 lengths

@@ -6,26 +6,7 @@ use crate::{
 };
 
 impl GlyphSurfaceRecord {
-    /// Binds referenced RAW samples to a matching map without scanning DATA.
-    ///
-    /// Directory identity, map geometry, physical allocation and the exact DATA
-    /// span are checked. Complete face admission or a selected read plan must
-    /// establish DATA integrity separately. File and actual-address alignment
-    /// remain explicit checks on the returned storage.
-    ///
-    /// ```
-    /// use mirx::{font::{GlyphMap, GlyphPacking, GlyphSurfaceRecord},
-    ///     image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor},
-    ///     media::MediaPayload};
-    /// let surface = SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    /// let bytes = RawImageAsset::new(surface, &[&[1, 2, 3, 4]]).encode().unwrap();
-    /// let media = MediaPayload::open(&bytes).unwrap();
-    /// media.validate_data().unwrap();
-    /// let record = GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 1, 1).unwrap();
-    /// let glyphs = record.raw_glyphs(media, GlyphMap::cells(2, 1, 2).unwrap()).unwrap();
-    /// assert_eq!(glyphs.get(1).unwrap().storage().plane(0).unwrap().bytes(), &[3, 4]);
-    /// ```
-    pub fn raw_glyphs<'map, 'data>(
+    pub(crate) fn raw_glyphs<'map, 'data>(
         self,
         media: MediaPayload<'data>,
         map: GlyphMap<'map>,

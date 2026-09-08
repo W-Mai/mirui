@@ -80,9 +80,9 @@ IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `ChunkRef::decode_
 
 `font::GlyphSurfaceRecord` encodes 24 bytes of shared glyph geometry and direct section references. RAW physical allocation and encoded coding/group/index references are exclusive states; directory checks do not imply body or DATA validation. [Glyph surface records](docs/glyph-surfaces.md) describes the fields, omission rules and checked constructors.
 
-`GlyphSurfaceRecord::raw_glyphs(media, map)` binds matching scalar maps to exact referenced PLANES/DATA storage without allocation or repeated DATA scans. It returns the shared `RawGlyphs` access and transfer API; complete-face or selected-range integrity checks remain separate.
+`FontView::glyphs(representation_index)` binds the selected representation to its validated scalar map and sample storage. RAW representations return `RawGlyphs` without allocation or repeated DATA scans.
 
-`GlyphSurfaceRecord::encoded_glyphs(media, map)` binds compressed scalar samples to shared coding and group tables. Caller-owned group slots prepare exact glyph plans with bounded unit workspace, partition-aware integrity, sub-byte crops and independently aligned output. [Encoded glyph regions](docs/encoded-glyphs.md) describes whole-stream versus tiled memory costs and metadata lifetimes.
+Encoded representations reuse shared coding and group tables. Caller-owned group slots prepare exact glyph plans with bounded unit workspace, partition-aware integrity, sub-byte crops and independently aligned output. [Encoded glyph regions](docs/encoded-glyphs.md) describes whole-stream versus tiled memory costs and metadata lifetimes.
 
 `font::GlyphMap` derives fixed GlyphMajor cells without map bytes or borrows explicit Atlas2D rectangles. Native and wire maps share checked lookup and encoding without repeating per-glyph storage rules; see [glyph region maps](docs/glyph-maps.md).
 
@@ -128,7 +128,7 @@ fn inspect(bytes: &[u8]) {
 
 `ReadOptions` configures chunk-count limits, payload limits, and trailing-byte handling. `PayloadLimits::EMBEDDED` is the bounded default; `PayloadLimits::HOST` is the explicit larger profile for host tools. FONT and VECTOR provide zero-allocation preflight before bounded decoding.
 
-`parse`, `parse_flat`, and `parse_chunk` expose owned container metadata and packed image views. `Reader` exposes sectioned IMAGE references, including RAW planar YUV and encoded storage, without allocating container metadata. `ChunkRef::image` returns `ImageRef`; use `raw()` for borrowed samples or `encoded()` for explicit group/decode access.
+`Reader` exposes sectioned IMAGE references, including RAW planar YUV and encoded storage, without allocating container metadata. `ChunkRef::image` returns `ImageRef`; use `raw()` for borrowed samples or `encoded()` for explicit group/decode access.
 
 ## Image geometry
 
@@ -136,13 +136,11 @@ fn inspect(bytes: &[u8]) {
 
 IMAGE uses an 8-byte media header, 12-byte section entries, a 32-byte SURFACE record, optional PLANES and COLOR_TABLE sections, DATA, and a 4-byte DATA checksum by default. The header contains version, flags, section count, and metadata CRC only. Each section entry stores kind, flags, payload-relative offset, and byte size; typed schemas and surface geometry determine interpreted sizes. Tight RAW planes derive their stride and offsets from the surface; padded allocation extents, strides, offsets, and alignment use explicit plane records. FLAT keeps its compact packed-image layout.
 
-`MediaPayload::open` validates section ranges and metadata integrity without scanning DATA. The metadata CRC covers the header except its own checksum field, the directory, all non-DATA bytes and padding, and the stored DATA checksums. `MediaPayload::validate_data` separately verifies all declared DATA coverage. `RawImageView::open` and `open_at` perform both checks before exposing samples. Metadata inspection therefore does not imply that sample bytes have been verified; this borrowed-slice API does not perform streamed file reads.
+Typed IMAGE, FONT, and FRAMES views validate section ranges and metadata integrity before exposing domain values. RAW views also validate declared DATA coverage before exposing samples. Encoded views separate metadata inspection, profile preflight, selected integrity checks, and reconstruction so callers can budget each stage explicitly.
 
-`MediaPayload::get(index)` resolves a directory ordinal in constant time without allocating a decoded table. `sections()` supports direct forward/backward skips; `section(kind)` and `sections_of_kind(kind)` scan by type. Ordinal lookup neither counts occurrences of a kind nor verifies DATA integrity.
+The metadata CRC covers the header except its own checksum field, the directory, all non-DATA bytes and padding, and the stored DATA checksums. Metadata inspection therefore does not imply that encoded sample bytes have been verified; borrowed-slice readers do not perform streamed file reads.
 
-`MediaFlags::INDEXED_INTEGRITY` replaces the whole-DATA trailer with a required INTEGRITY section. Its 12-byte offset/size/CRC records partition DATA exactly, without gaps, overlapping checksums, or metadata coverage. `MediaPayload::validate_data_range` locates intersecting records by binary search and returns the actual number of bytes checksummed; the default integrity form still requires scanning all DATA for a partial request. `media::IntegrityTable` exposes borrowed records and checked caller-buffer encoding. RAW typed reads validate either form before exposing samples.
-
-`MediaPayload::data_check_plan(range)` reports that checksum byte count before scanning DATA. `DataCheckPlan::byte_len()` includes complete intersecting partitions, or all DATA bodies for whole-DATA coverage. `verify()` performs the planned checks; constructing a plan alone does not establish integrity. Planning and verification allocate nothing and perform no I/O.
+`DataIntegrity::Indexed` replaces the whole-DATA trailer with a required INTEGRITY section. Its 12-byte offset/size/CRC records partition DATA exactly, without gaps or overlap. Typed group and decode operations select intersecting partitions by binary search and report the actual checksum work; whole-DATA coverage still scans every DATA body for a nonempty request.
 
 `coding::CodingTable` borrows profile IDs, revisions, and parameter slices by ordinal without allocation or aligned casts. A table stores a 4-byte count, 8-byte records, and parameter bytes; cumulative parameter ends give constant-time lookup without separate offset/length pairs. Empty parameters select profile defaults. Unknown IDs and revisions remain representable, not implicitly decodable. RAW images omit CODINGS; the RAW view rejects coded sections.
 

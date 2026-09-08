@@ -1,52 +1,29 @@
-error[E0603]: struct `CodingRecord` is private
- --> tests/public_api_fail/media_coding_types.rs:1:19
+error[E0603]: module `media` is private
+ --> tests/public_api_fail/media_coding_types.rs:1:11
   |
 1 | use mirx::media::{CodingRecord, CodingTable, CodingTableError};
-  |                   ^^^^^^^^^^^^ private struct
+  |           ^^^^^ private module
   |
-note: the struct `CodingRecord` is defined here
- --> src/media.rs
+note: the module `media` is defined here
+ --> src/lib.rs
   |
-  | pub(crate) use coding::{CODING_RECORD_LEN, CodingRecord, CodingTable, CodingTableError};
-  |                                            ^^^^^^^^^^^^
-help: import `CodingRecord` directly
-  |
-1 | use mirx::media::{mirx::media::coding::CodingRecord, CodingTable, CodingTableError};
-  |                   +++++++++++++++++++++
+  | pub(crate) mod media;
+  | ^^^^^^^^^^^^^^^^^^^^
 
-error[E0603]: struct `CodingTable` is private
- --> tests/public_api_fail/media_coding_types.rs:1:33
+error[E0603]: module `media` is private
+ --> tests/public_api_fail/media_coding_types.rs:1:11
   |
 1 | use mirx::media::{CodingRecord, CodingTable, CodingTableError};
-  |                                 ^^^^^^^^^^^ private struct
+  |           ^^^^^ private module
   |
-note: the struct `CodingTable` is defined here
- --> src/media.rs
-  |
-  | pub(crate) use coding::{CODING_RECORD_LEN, CodingRecord, CodingTable, CodingTableError};
-  |                                                          ^^^^^^^^^^^
-help: import `CodingTable` directly
-  |
-1 | use mirx::media::{CodingRecord, mirx::media::coding::CodingTable, CodingTableError};
-  |                                 +++++++++++++++++++++
-
-error[E0603]: enum `CodingTableError` is private
+help: consider importing this enum instead:
+      mirx::coding::CodingTableError
  --> tests/public_api_fail/media_coding_types.rs:1:46
   |
 1 | use mirx::media::{CodingRecord, CodingTable, CodingTableError};
-  |                                              ^^^^^^^^^^^^^^^^ private enum
+  |                                              ^^^^^^^^^^^^^^^^
+note: the module `media` is defined here
+ --> src/lib.rs
   |
-note: the enum `CodingTableError` is defined here
- --> src/media.rs
-  |
-  | pub(crate) use coding::{CODING_RECORD_LEN, CodingRecord, CodingTable, CodingTableError};
-  |                                                                       ^^^^^^^^^^^^^^^^
-  |
- ::: src/media/coding.rs
-  |
-  | #[non_exhaustive]
-  | ----------------- cannot be constructed because it is `#[non_exhaustive]`
-help: import `CodingTableError` directly
-  |
-1 | use mirx::media::{CodingRecord, CodingTable, mirx::media::coding::CodingTableError};
-  |                                              +++++++++++++++++++++
+  | pub(crate) mod media;
+  | ^^^^^^^^^^^^^^^^^^^^
