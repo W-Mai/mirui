@@ -4,7 +4,7 @@ use super::{FontRepresentation, FontRepresentationError, FontRepresentationKind}
 use crate::image::{SampleLayout, SurfaceDescriptor, SurfacePlanError, SurfaceRequirements};
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
-pub const REPRESENTATION_RECORD_LEN: usize = 16;
+pub const REPRESENTATION_RECORD_LEN: usize = 20;
 
 /// Compact representation semantics and references to shared glyph storage.
 ///
@@ -15,6 +15,7 @@ pub struct RepresentationRecord {
     metadata: FontRepresentation,
     surface_index: u16,
     atlas_map_offset: u32,
+    atlas_map_count: u32,
 }
 
 impl RepresentationRecord {
@@ -23,11 +24,14 @@ impl RepresentationRecord {
             metadata,
             surface_index,
             atlas_map_offset: 0,
+            atlas_map_count: 0,
         }
     }
 
-    pub const fn with_atlas_map_offset(mut self, offset: u32) -> Self {
+    /// Uses region-record ordinals; zero offset and count omit the map.
+    pub const fn with_atlas_map_range(mut self, offset: u32, count: u32) -> Self {
         self.atlas_map_offset = offset;
+        self.atlas_map_count = count;
         self
     }
 
@@ -41,6 +45,10 @@ impl RepresentationRecord {
 
     pub const fn atlas_map_offset(self) -> u32 {
         self.atlas_map_offset
+    }
+
+    pub const fn atlas_map_count(self) -> u32 {
+        self.atlas_map_count
     }
 
     /// Resolves one record against logical surface metadata, without sample I/O.
@@ -66,11 +74,14 @@ impl RepresentationRecord {
             detail: read_u16_le(bytes, 8).unwrap(),
         }
         .resolve(surface)?;
-        Ok(Self {
+        let record = Self {
             metadata,
             surface_index: read_u16_le(bytes, 10).unwrap(),
             atlas_map_offset: read_u32_le(bytes, 12).unwrap(),
-        })
+            atlas_map_count: read_u32_le(bytes, 16).unwrap(),
+        };
+        record.validate_atlas_map_range()?;
+        Ok(record)
     }
 
     /// Rejects stale native depth or cost metadata before complete face emission.
@@ -98,7 +109,7 @@ impl RepresentationRecord {
         Ok(())
     }
 
-    /// Emits 16 canonical bytes without serializing derived surface facts.
+    /// Emits 20 canonical bytes without serializing derived surface facts.
     /// Capacity errors leave output unchanged; successful writes preserve suffixes.
     pub fn encode_record_into(self, out: &mut [u8]) -> Result<usize, RepresentationRecordError> {
         if out.len() < REPRESENTATION_RECORD_LEN {
@@ -107,6 +118,7 @@ impl RepresentationRecord {
                 available: out.len(),
             });
         }
+        self.validate_atlas_map_range()?;
         let fields = Fields::from_metadata(self.metadata);
         let mut record = [0; REPRESENTATION_RECORD_LEN];
         record[0] = fields.class;
@@ -116,8 +128,25 @@ impl RepresentationRecord {
         write_u16_le(&mut record, 8, fields.detail);
         write_u16_le(&mut record, 10, self.surface_index);
         write_u32_le(&mut record, 12, self.atlas_map_offset);
+        write_u32_le(&mut record, 16, self.atlas_map_count);
         out[..REPRESENTATION_RECORD_LEN].copy_from_slice(&record);
         Ok(REPRESENTATION_RECORD_LEN)
+    }
+
+    fn validate_atlas_map_range(self) -> Result<(), RepresentationRecordError> {
+        if self.atlas_map_count == 0 {
+            return if self.atlas_map_offset == 0 {
+                Ok(())
+            } else {
+                Err(RepresentationRecordError::EmptyAtlasMapRange {
+                    offset: self.atlas_map_offset,
+                })
+            };
+        }
+        self.atlas_map_offset
+            .checked_add(self.atlas_map_count)
+            .ok_or(RepresentationRecordError::AtlasMapRangeOverflow)?;
+        Ok(())
     }
 }
 
@@ -203,6 +232,8 @@ pub enum RepresentationRecordError {
     Truncated { needed: usize, available: usize },
     BufferTooSmall { needed: usize, available: usize },
     ReservedNonZero { offset: usize },
+    EmptyAtlasMapRange { offset: u32 },
+    AtlasMapRangeOverflow,
     UnknownClass(u8),
     NonCanonicalCoverage,
     UnsupportedLayout(SampleLayout),

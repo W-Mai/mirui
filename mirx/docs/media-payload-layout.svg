@@ -78,7 +78,7 @@
       <text class="small" x="18" y="55">one face, multiple representations</text>
       <rect class="green record" x="18" y="70" width="118" height="30" rx="7"/><text class="mono-small green-text" x="30" y="89">FACE · 20 B</text>
       <rect class="green record" x="144" y="70" width="118" height="30" rx="7"/><text class="mono-small green-text" x="156" y="89">CMAP · 6 B×C</text>
-      <rect class="soft record" x="18" y="106" width="118" height="30" rx="7"/><text class="mono-small" x="30" y="125">REPS · 16 B×R</text>
+      <rect class="soft record" x="18" y="106" width="118" height="30" rx="7"/><text class="mono-small" x="30" y="125">REPS · 20 B×R</text>
       <rect class="blue record" x="144" y="106" width="118" height="30" rx="7"/><text class="mono-small blue-text" x="156" y="125">SURFACES · 24 B×S</text>
       <rect class="soft record" x="18" y="142" width="244" height="30" rx="7"/><text class="mono-small" x="30" y="161">GLYPH_IDS? · ADVANCES | SHAPING</text>
       <rect class="violet record" x="18" y="178" width="244" height="30" rx="7"/><text class="mono-small violet-text" x="30" y="197">RASTER_METRICS · ATLAS_MAPS? · storage</text>

@@ -11,7 +11,7 @@
 
 GlyphMajor uses a vertical logical surface with width `cell_width` and height `glyph_count × cell_height`. Cells must be nonempty; count zero yields logical height zero. Checked arithmetic rejects coordinate overflow. Geometry reuses `image::TileGrid`; no expanded region array is created.
 
-Atlas2D validation and wire encoding belong to [`image::AtlasMap`](atlas-map.md). `GlyphMap` only binds that shared geometry to raster ordinals.
+Atlas2D validation and wire encoding belong to [`image::AtlasMap`](atlas-map.md). `GlyphMap` only binds that shared geometry to raster ordinals. A FONT representation stores the first region-record ordinal and record count; the count must equal `FACE.raster_count`, and shared representations repeat the same range.
 
 Packing is explicit, not inferred from map length. An empty Atlas2D table is not a GlyphMajor table. The complete face validates map cardinality against `FACE.raster_count`.
 

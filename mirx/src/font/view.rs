@@ -21,7 +21,7 @@ pub struct FontView<'a> {
     metadata: FontMetadata<'a>,
     surfaces: &'a [u8],
     maps: &'a [u8],
-    map_table_len: usize,
+    map_record_count: usize,
     file_offset: Option<u32>,
     metadata_work: u64,
     checksum_bytes: u32,
@@ -72,15 +72,12 @@ impl<'a> FontView<'a> {
         if maps.is_empty() && media.section(MediaSectionKind::ATLAS_MAPS).is_some() {
             return Err(FontError::EmptyAtlasMapSection);
         }
-        let map_table_len = glyph_count
-            .checked_mul(ATLAS_REGION_LEN)
-            .ok_or(FontError::SizeOverflow)?;
-        if maps.len() % map_table_len != 0 {
-            return Err(FontError::AtlasMapsLength {
-                table_len: map_table_len,
-                actual: maps.len(),
+        if maps.len() % ATLAS_REGION_LEN != 0 {
+            return Err(FontError::PartialAtlasMapRecords {
+                byte_len: maps.len(),
             });
         }
+        let map_record_count = maps.len() / ATLAS_REGION_LEN;
         let surface_count = surfaces.len() / GLYPH_SURFACE_RECORD_LEN;
         if surface_count > representation_count {
             return Err(FontError::UnreferencedSurface);
@@ -98,7 +95,7 @@ impl<'a> FontView<'a> {
             metadata,
             surfaces,
             maps,
-            map_table_len,
+            map_record_count,
             file_offset,
             metadata_work: 0,
             checksum_bytes: media
@@ -109,14 +106,21 @@ impl<'a> FontView<'a> {
         for index in 0..representation_count {
             view.resolve_representation(index)?;
         }
-        let map_count = maps.len() / map_table_len;
+        if map_record_count % glyph_count != 0 {
+            return Err(FontError::AtlasMapRecordCount {
+                glyph_count,
+                actual: map_record_count,
+            });
+        }
+        let map_count = map_record_count / glyph_count;
         if map_count > representation_count {
             return Err(FontError::UnreferencedAtlasMaps);
         }
         for map_index in 0..map_count {
-            let offset = map_index * map_table_len;
+            let offset = map_index * glyph_count;
             if !metadata.representations().iter().any(|record| {
                 record.atlas_map_offset() as usize == offset
+                    && record.atlas_map_count() as usize == glyph_count
                     && metadata.representations().surface(record).packing() == GlyphPacking::Atlas2D
             }) {
                 return Err(FontError::UnreferencedAtlasMaps);
@@ -385,10 +389,11 @@ impl<'a> FontView<'a> {
         let surface = self.metadata.representations().surface(record);
         let map = match surface.packing() {
             GlyphPacking::GlyphMajor => {
-                if record.atlas_map_offset() != 0 {
-                    return Err(FontError::CellMapOffset {
+                if record.atlas_map_offset() != 0 || record.atlas_map_count() != 0 {
+                    return Err(FontError::CellAtlasMapRange {
                         representation: index,
                         offset: record.atlas_map_offset(),
+                        count: record.atlas_map_count(),
                     });
                 }
                 GlyphMap::cells(
@@ -402,22 +407,44 @@ impl<'a> FontView<'a> {
                 })?
             }
             GlyphPacking::Atlas2D => {
+                let count = record.atlas_map_count() as usize;
+                if count == 0 {
+                    return Err(FontError::MissingAtlasMapRange {
+                        representation: index,
+                    });
+                }
+                if count != self.metadata.glyph_count() {
+                    return Err(FontError::AtlasMapCount {
+                        representation: index,
+                        expected: self.metadata.glyph_count(),
+                        actual: count,
+                    });
+                }
                 let offset = record.atlas_map_offset() as usize;
-                if offset % self.map_table_len != 0 {
+                if offset % self.metadata.glyph_count() != 0 {
                     return Err(FontError::AtlasMapOffset {
                         representation: index,
                         offset: record.atlas_map_offset(),
                     });
                 }
-                let end = offset
-                    .checked_add(self.map_table_len)
-                    .ok_or(FontError::SizeOverflow)?;
-                let bytes = self
-                    .maps
-                    .get(offset..end)
-                    .ok_or(FontError::AtlasMapOutOfBounds {
+                let end = offset.checked_add(count).ok_or(FontError::SizeOverflow)?;
+                if end > self.map_record_count {
+                    return Err(FontError::AtlasMapOutOfBounds {
                         representation: index,
-                    })?;
+                    });
+                }
+                let byte_offset = offset
+                    .checked_mul(ATLAS_REGION_LEN)
+                    .ok_or(FontError::SizeOverflow)?;
+                let byte_end = end
+                    .checked_mul(ATLAS_REGION_LEN)
+                    .ok_or(FontError::SizeOverflow)?;
+                let bytes =
+                    self.maps
+                        .get(byte_offset..byte_end)
+                        .ok_or(FontError::AtlasMapOutOfBounds {
+                            representation: index,
+                        })?;
                 GlyphMap::atlas(
                     AtlasMap::open(surface.width(), surface.height(), bytes).map_err(|error| {
                         FontError::AtlasMap {
@@ -649,14 +676,26 @@ pub enum FontError {
         data_offset: u32,
     },
     EmptyAtlasMapSection,
-    AtlasMapsLength {
-        table_len: usize,
+    PartialAtlasMapRecords {
+        byte_len: usize,
+    },
+    AtlasMapRecordCount {
+        glyph_count: usize,
         actual: usize,
     },
     UnreferencedAtlasMaps,
-    CellMapOffset {
+    CellAtlasMapRange {
         representation: usize,
         offset: u32,
+        count: u32,
+    },
+    MissingAtlasMapRange {
+        representation: usize,
+    },
+    AtlasMapCount {
+        representation: usize,
+        expected: usize,
+        actual: usize,
     },
     AtlasMapOffset {
         representation: usize,

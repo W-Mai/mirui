@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Validated shaping indexes.** FONT admission rejects malformed Unicode cmap tables and any scalar-to-glyph disagreement between `CMAP_INDEX` and the embedded shaping face.
 - **Shared atlas maps.** `image::AtlasMap` provides checked native and wire rectangle views for `ATLAS_MAPS` sections without allocation or domain-specific metadata.
 - **Direct FONT atlas binding.** Derived cells store no map bytes; atlas representations accept validated `image::AtlasMap` values and use the shared atlas parser and encoder.
+- **Explicit FONT atlas ranges.** Representation records identify `ATLAS_MAPS` regions by record offset and count; canonical omission, full-map sharing, cardinality and unused-record checks are enforced during face admission.
 - **Precise MIRX font scaling.** Face-unit advances and line metrics scale directly from stored Q24.8 values without quantizing the intermediate size ratio.
 
 ### Added
@@ -71,7 +72,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Direct media-directory access.** Ordinal lookup and bidirectional iterator skips resolve only the selected section descriptor in constant time, without a decoded table. Type-filtered scanning and explicit DATA verification retain separate semantics.
 
-- **Compact FONT representation records.** Fixed 16-byte records retain class-dependent size semantics and shared surface/map references. Surface-derived sample depth and tight decoded cost are not duplicated; native binding rejects stale hints and typed parsing enforces canonical Coverage defaults.
+- **Compact FONT representation records.** Fixed 20-byte records retain class-dependent size semantics and shared surface/map ranges. Surface-derived sample depth and tight decoded cost are not duplicated; native binding rejects stale hints and typed parsing enforces canonical Coverage defaults.
 
 - **Joined glyph lookup.** Shared Unicode, metric and RAW sample tables require equal cardinality before access. Character and ordinal lookup return paired measurements and raster samples without allocation or metadata-lifetime coupling, preserving missing characters and empty glyph regions.
 

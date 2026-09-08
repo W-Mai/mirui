@@ -326,10 +326,31 @@ pub(super) struct Plan<S: Source> {
     metadata_end: usize,
     pub(super) len: usize,
     integrity_len: usize,
+    atlas_records: usize,
     indexed: bool,
 }
 
 impl<S: Source> Plan<S> {
+    fn atlas_record_count(asset: S) -> Result<usize, FontError> {
+        asset.atlas_maps().try_fold(0usize, |count, map| {
+            count.checked_add(map.len()).ok_or(FontError::SizeOverflow)
+        })
+    }
+
+    fn atlas_map_range(asset: S, index: usize) -> Result<(u32, u32), FontError> {
+        let offset = asset
+            .atlas_maps()
+            .take(index)
+            .try_fold(0usize, |offset, map| {
+                offset.checked_add(map.len()).ok_or(FontError::SizeOverflow)
+            })?;
+        let count = asset.atlas_map(index).ok_or(FontError::SizeOverflow)?.len();
+        Ok((
+            u32::try_from(offset).map_err(|_| FontError::SizeOverflow)?,
+            u32::try_from(count).map_err(|_| FontError::SizeOverflow)?,
+        ))
+    }
+
     fn table_size(asset: S) -> Result<u64, FontError> {
         let glyphs = usize::from(asset.face().raster_count());
         let lengths = [
@@ -345,16 +366,16 @@ impl<S: Source> Plan<S> {
             u32::try_from(length).map_err(|_| FontError::SizeOverflow)?;
         }
         let [
-            glyphs,
+            _glyphs,
             cmap,
             glyph_ids,
             representations,
             metrics,
             surfaces,
-            maps,
+            _,
         ] = lengths.map(|n| n as u64);
-        let map_bytes = maps
-            .checked_mul(glyphs * ATLAS_REGION_LEN as u64)
+        let map_bytes = (Self::atlas_record_count(asset)? as u64)
+            .checked_mul(ATLAS_REGION_LEN as u64)
             .ok_or(FontError::SizeOverflow)?;
         let source_bytes = match asset.advance_source() {
             FontAdvanceSource::Advances(values) => values.len() as u64 * ADVANCE_RECORD_LEN as u64,
@@ -386,6 +407,7 @@ impl<S: Source> Plan<S> {
     fn metadata(asset: S) -> Result<Self, FontError> {
         let mut size = Self::table_size(asset)?;
         let glyph_count = usize::from(asset.face().raster_count());
+        let atlas_records = Self::atlas_record_count(asset)?;
         if asset.surface_count() > asset.representation_count()
             || asset.atlas_map_count() > asset.representation_count()
         {
@@ -564,6 +586,7 @@ impl<S: Source> Plan<S> {
             metadata_end,
             len,
             integrity_len: integrity_len as usize,
+            atlas_records,
             indexed,
         })
     }
@@ -588,7 +611,6 @@ impl<S: Source> Plan<S> {
     }
 
     fn visit_metadata_sections(self, mut visitor: impl FnMut(MediaSectionKind, usize)) {
-        let glyphs = usize::from(self.asset.face().raster_count());
         visitor(MediaSectionKind::FACE, FACE_RECORD_LEN);
         visitor(
             MediaSectionKind::CMAP_INDEX,
@@ -619,7 +641,7 @@ impl<S: Source> Plan<S> {
         if self.asset.atlas_map_count() != 0 {
             visitor(
                 MediaSectionKind::ATLAS_MAPS,
-                self.asset.atlas_map_count() * glyphs * ATLAS_REGION_LEN,
+                self.atlas_records * ATLAS_REGION_LEN,
             );
         }
     }
@@ -695,10 +717,16 @@ impl<S: Source> Plan<S> {
         }
         for r in self.asset.representations() {
             let mut bytes = [0; REPRESENTATION_RECORD_LEN];
-            RepresentationRecord::new(r.metadata, r.surface)
-                .with_atlas_map_offset(r.atlas_map.map_or(0, |id| {
-                    id * self.asset.face().raster_count() as u32 * ATLAS_REGION_LEN as u32
-                }))
+            let record = RepresentationRecord::new(r.metadata, r.surface);
+            let record = match r.atlas_map {
+                Some(index) => {
+                    let (offset, count) = Self::atlas_map_range(self.asset, index as usize)
+                        .expect("validated atlas map");
+                    record.with_atlas_map_range(offset, count)
+                }
+                None => record,
+            };
+            record
                 .encode_record_into(&mut bytes)
                 .expect("validated representation");
             output.write(&bytes);

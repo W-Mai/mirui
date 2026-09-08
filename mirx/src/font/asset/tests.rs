@@ -182,9 +182,11 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
         Region::new(0, 0, 0, 0).unwrap(),
         Region::new(1, 0, 1, 1).unwrap(),
     ];
+    let alternate_regions = [regions[1], regions[0]];
     let atlas = AtlasMap::new(2, 1, &regions).unwrap();
+    let alternate_atlas = AtlasMap::new(2, 1, &alternate_regions).unwrap();
     let map = GlyphMap::atlas(atlas);
-    let maps = [atlas];
+    let maps = [atlas, alternate_atlas];
     let raw = RawGlyphs::builder(map, SampleLayout::A4)
         .build(&[0x7f])
         .unwrap();
@@ -194,6 +196,11 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
             .with_atlas_map(0),
         RepresentationAsset::new(FontRepresentation::coverage(4, 16, 1).unwrap(), 0)
             .with_atlas_map(0),
+        RepresentationAsset::new(
+            FontRepresentation::signed_distance(4, 3, 24, 17, 48, 1).unwrap(),
+            0,
+        )
+        .with_atlas_map(1),
     ];
     let face = FontFace::new(
         1_000,
@@ -205,7 +212,7 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
     )
     .unwrap();
     let advances = [Fixed::ONE; 2];
-    let raster_metrics = [RasterMetrics::default(); 4];
+    let raster_metrics = [RasterMetrics::default(); 6];
     let asset = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
         .with_rasters(&representations, &raster_metrics, &surfaces)
         .with_atlas_maps(&maps);
@@ -219,29 +226,42 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
             .unwrap()
             .bytes()
             .len(),
-        32
+        64
     );
-    for index in 0..2 {
+    for index in 0..3 {
         assert_eq!(
             view.representation(index)
                 .unwrap()
                 .record()
                 .atlas_map_offset(),
-            0
+            u32::from(index == 2) * 2
+        );
+        assert_eq!(
+            view.representation(index)
+                .unwrap()
+                .record()
+                .atlas_map_count(),
+            2
         );
         let FontGlyphs::Raw(glyphs) = view.glyphs(index).unwrap() else {
             panic!("RAW");
         };
         let plan = glyphs
-            .get(1)
+            .get(usize::from(index != 2))
             .unwrap()
             .memory_plan(SurfaceRequirements::new())
             .unwrap();
         let mut out = [0];
-        glyphs.get(1).unwrap().copy_into(&mut out, plan).unwrap();
+        glyphs
+            .get(usize::from(index != 2))
+            .unwrap()
+            .copy_into(&mut out, plan)
+            .unwrap();
         assert_eq!(out, [0xf0]);
     }
-    let extras = [atlas, atlas];
+    let owned = super::super::Font::decode(&bytes).unwrap();
+    assert_eq!(owned.encode().unwrap(), bytes);
+    let extras = [atlas, alternate_atlas, atlas];
     assert_eq!(
         asset.with_atlas_maps(&extras).encoded_len(),
         Err(FontError::UnreferencedStorage)

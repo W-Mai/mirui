@@ -5,7 +5,8 @@ use crate::{
     font::{
         CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontRepresentation,
         FontRepresentationRequest, GlyphId, GlyphMap, GlyphPacking, GlyphSurfaceAsset,
-        RasterMetrics, RawGlyphs, RepresentationAsset, RepresentationRecord,
+        REPRESENTATION_RECORD_LEN, RasterMetrics, RawGlyphs, RepresentationAsset,
+        RepresentationRecord,
     },
     image::{PlaneMemoryLayout, SampleLayout, SurfaceRequirements},
     media::{CodingTable, MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION},
@@ -35,10 +36,25 @@ fn payload(sections: &[(MediaSectionKind, &[u8])]) -> Vec<u8> {
     out
 }
 
+fn set_atlas_map_range(bytes: &[u8], representation: usize, offset: u32, count: u32) -> Vec<u8> {
+    let media = MediaPayload::open(bytes).unwrap();
+    let table = media
+        .section(MediaSectionKind::REPRESENTATIONS)
+        .unwrap()
+        .descriptor()
+        .offset() as usize;
+    let record = table + representation * REPRESENTATION_RECORD_LEN;
+    let mut bytes = bytes.to_vec();
+    write_u32_le(&mut bytes, record + 12, offset);
+    write_u32_le(&mut bytes, record + 16, count);
+    crate::media::refresh_checksums(&mut bytes);
+    bytes
+}
+
 struct Fixture {
     face: [u8; 20],
     cmap: [u8; 12],
-    records: [u8; 48],
+    records: [u8; REPRESENTATION_RECORD_LEN * 3],
     advances: [u8; 8],
     raster_metrics: [u8; 48],
     surfaces: [u8; 48],
@@ -51,7 +67,7 @@ impl Fixture {
         let mut result = Self {
             face: [0; 20],
             cmap: [0; 12],
-            records: [0; 48],
+            records: [0; REPRESENTATION_RECORD_LEN * 3],
             advances: [0; 8],
             raster_metrics: [0; 48],
             surfaces: [0; 48],
@@ -87,7 +103,7 @@ impl Fixture {
         .enumerate()
         {
             RepresentationRecord::new(metadata, u16::from(index == 2))
-                .encode_record_into(&mut result.records[index * 16..])
+                .encode_record_into(&mut result.records[index * REPRESENTATION_RECORD_LEN..])
                 .unwrap();
             for ordinal in 0..2 {
                 RasterMetrics::new(Fixed::ZERO, Fixed::from_int(metadata.design_ppem().into()))
@@ -413,6 +429,19 @@ fn directory_ownership_and_required_sections_are_unambiguous() {
 
 #[test]
 fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
+    let cells = Fixture::new().bytes();
+    assert_eq!(
+        FontView::open(
+            &set_atlas_map_range(&cells, 0, 0, 2),
+            &PayloadLimits::EMBEDDED,
+        )
+        .unwrap_err(),
+        FontError::CellAtlasMapRange {
+            representation: 0,
+            offset: 0,
+            count: 2,
+        }
+    );
     let mut fixture = Fixture::new();
     for index in 0..2 {
         let data_section = 7 + index as u16;
@@ -424,6 +453,19 @@ fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
         }
         record
             .encode_record_into(&mut fixture.surfaces[index * 24..])
+            .unwrap();
+    }
+    for (index, metadata) in [
+        FontRepresentation::coverage(8, 12, 0).unwrap(),
+        FontRepresentation::coverage(8, 16, 0).unwrap(),
+        FontRepresentation::signed_distance(8, 3, 24, 17, 48, 0).unwrap(),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        RepresentationRecord::new(metadata, u16::from(index == 2))
+            .with_atlas_map_range(0, 2)
+            .encode_record_into(&mut fixture.records[index * REPRESENTATION_RECORD_LEN..])
             .unwrap();
     }
     let original = fixture.bytes();
@@ -461,12 +503,57 @@ fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
             .is_empty()
     );
 
+    for (offset, count, expected) in [
+        (0, 0, FontError::MissingAtlasMapRange { representation: 0 }),
+        (
+            0,
+            1,
+            FontError::AtlasMapCount {
+                representation: 0,
+                expected: 2,
+                actual: 1,
+            },
+        ),
+        (
+            1,
+            2,
+            FontError::AtlasMapOffset {
+                representation: 0,
+                offset: 1,
+            },
+        ),
+    ] {
+        assert_eq!(
+            FontView::open(
+                &set_atlas_map_range(&bytes, 0, offset, count),
+                &PayloadLimits::EMBEDDED,
+            )
+            .unwrap_err(),
+            expected
+        );
+    }
+
     let orphan = [0; 64];
     sections[9].1 = &orphan;
     assert!(matches!(
         FontView::open(&payload(&sections), &PayloadLimits::EMBEDDED),
         Err(FontError::UnreferencedAtlasMaps)
     ));
+    let partial_map = [0; 48];
+    sections[9].1 = &partial_map;
+    assert_eq!(
+        FontView::open(&payload(&sections), &PayloadLimits::EMBEDDED).unwrap_err(),
+        FontError::AtlasMapRecordCount {
+            glyph_count: 2,
+            actual: 3,
+        }
+    );
+    let partial_record = [0];
+    sections[9].1 = &partial_record;
+    assert_eq!(
+        FontView::open(&payload(&sections), &PayloadLimits::EMBEDDED).unwrap_err(),
+        FontError::PartialAtlasMapRecords { byte_len: 1 }
+    );
     sections.pop();
     assert!(matches!(
         FontView::open(&payload(&sections), &PayloadLimits::EMBEDDED),

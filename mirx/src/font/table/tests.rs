@@ -32,12 +32,12 @@ fn representations() -> [FontRepresentation; 4] {
     ]
 }
 
-fn records() -> [u8; 64] {
-    let mut bytes = [0; 64];
+fn records() -> [u8; REPRESENTATION_RECORD_LEN * 4] {
+    let mut bytes = [0; REPRESENTATION_RECORD_LEN * 4];
     for (index, metadata) in representations().into_iter().enumerate() {
         RepresentationRecord::new(metadata, u16::from(index > 1))
-            .with_atlas_map_offset(if index > 1 { 32 } else { 0 })
-            .encode_record_into(&mut bytes[index * 16..])
+            .with_atlas_map_range(if index > 1 { 2 } else { 0 }, if index > 1 { 2 } else { 0 })
+            .encode_record_into(&mut bytes[index * REPRESENTATION_RECORD_LEN..])
             .unwrap();
     }
     bytes
@@ -90,9 +90,11 @@ fn native_and_wire_tables_share_identity_and_selection_semantics() {
         assert_eq!(table.get(index).unwrap().representation(), expected);
     }
     let mut duplicate = records;
-    duplicate[16..32].copy_from_slice(&records[..16]);
+    duplicate[REPRESENTATION_RECORD_LEN..REPRESENTATION_RECORD_LEN * 2]
+        .copy_from_slice(&records[..REPRESENTATION_RECORD_LEN]);
     // Different storage references do not make the same semantic representation unique.
-    duplicate[28] = 17;
+    duplicate[REPRESENTATION_RECORD_LEN + 12] = 17;
+    duplicate[REPRESENTATION_RECORD_LEN + 16] = 1;
     assert!(matches!(
         RepresentationTable::open(&duplicate, &surfaces, 2, &PayloadLimits::EMBEDDED),
         Err(RepresentationTableError::Selection(
@@ -109,7 +111,7 @@ fn scalar_application_classes_keep_full_identifiers_and_explicit_selection() {
     let surfaces = surfaces();
     for kind in [0, 1, u16::MAX] {
         let metadata = FontRepresentation::application(kind, 20, 10, 40, 64).unwrap();
-        let mut records = [0; 16];
+        let mut records = [0; REPRESENTATION_RECORD_LEN];
         RepresentationRecord::new(metadata, 0)
             .encode_record_into(&mut records)
             .unwrap();
@@ -155,14 +157,14 @@ fn limits_precede_record_interpretation_and_partial_tables_never_open() {
     ));
     assert!(matches!(
         RepresentationTable::open(
-            &records[..16],
+            &records[..REPRESENTATION_RECORD_LEN],
             &surfaces,
             2,
             &PayloadLimits::EMBEDDED.with_max_font_representations(0)
         ),
         Err(RepresentationTableError::TooManyRepresentations { .. })
     ));
-    for length in 1..16 {
+    for length in 1..REPRESENTATION_RECORD_LEN {
         assert!(matches!(
             RepresentationTable::open(&records[..length], &surfaces, 2, &PayloadLimits::HOST),
             Err(RepresentationTableError::PartialRecords {
@@ -194,7 +196,7 @@ fn limits_precede_record_interpretation_and_partial_tables_never_open() {
 
 #[test]
 fn surface_ordinals_geometry_and_derived_costs_have_one_authority() {
-    let mut bytes = [0; 16];
+    let mut bytes = [0; REPRESENTATION_RECORD_LEN];
     RepresentationRecord::new(FontRepresentation::coverage(4, 16, 999).unwrap(), u16::MAX)
         .encode_record_into(&mut bytes)
         .unwrap();
@@ -225,7 +227,7 @@ fn surface_ordinals_geometry_and_derived_costs_have_one_authority() {
         RepresentationTable::open(&bytes, &surfaces, 3, &PayloadLimits::HOST),
         Err(RepresentationTableError::TooManySurfaces { actual: 65537 })
     ));
-    let mut record = [0; 16];
+    let mut record = [0; REPRESENTATION_RECORD_LEN];
     RepresentationRecord::new(FontRepresentation::coverage(4, 16, 0).unwrap(), 0)
         .encode_record_into(&mut record)
         .unwrap();
@@ -265,7 +267,7 @@ fn surface_ordinals_geometry_and_derived_costs_have_one_authority() {
 #[test]
 fn unaligned_iteration_and_selected_values_do_not_retain_source_lifetimes() {
     let (selected, record) = {
-        let mut record_bytes = [0xff; 65];
+        let mut record_bytes = [0xff; REPRESENTATION_RECORD_LEN * 4 + 1];
         record_bytes[1..].copy_from_slice(&records());
         let mut surface_bytes = [0xff; 49];
         surface_bytes[1..].copy_from_slice(&surfaces());

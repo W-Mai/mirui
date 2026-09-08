@@ -19,12 +19,12 @@ fn independent_bytes_keep_size_defaults_and_references_explicit() {
     let surface = surface(SampleLayout::A4);
     let coverage =
         RepresentationRecord::new(FontRepresentation::coverage(4, 16, 9).unwrap(), 0x1234)
-            .with_atlas_map_offset(0x87654321);
+            .with_atlas_map_range(0x07654321, 0x10203040);
     let sdf = RepresentationRecord::new(
         FontRepresentation::signed_distance(4, 3, 24, 17, 48, 9).unwrap(),
         2,
     )
-    .with_atlas_map_offset(32);
+    .with_atlas_map_range(2, 4);
     let app = RepresentationRecord::new(
         FontRepresentation::application(1, 20, 12, 48, 9).unwrap(),
         4,
@@ -33,21 +33,35 @@ fn independent_bytes_keep_size_defaults_and_references_explicit() {
         (
             coverage,
             [
-                0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0x34, 0x12, 0x21, 0x43, 0x65, 0x87,
+                0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0x34, 0x12, 0x21, 0x43, 0x65, 0x07, 0x40, 0x30,
+                0x20, 0x10,
             ],
         ),
-        (sdf, [1, 0, 24, 0, 17, 0, 48, 0, 3, 0, 2, 0, 32, 0, 0, 0]),
-        (app, [2, 0, 20, 0, 12, 0, 48, 0, 1, 0, 4, 0, 0, 0, 0, 0]),
+        (
+            sdf,
+            [
+                1, 0, 24, 0, 17, 0, 48, 0, 3, 0, 2, 0, 2, 0, 0, 0, 4, 0, 0, 0,
+            ],
+        ),
+        (
+            app,
+            [
+                2, 0, 20, 0, 12, 0, 48, 0, 1, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            ],
+        ),
     ] {
         assert_eq!(
             RepresentationRecord::from_record(&bytes, surface),
             Ok(record)
         );
-        let mut out = [0xa5; 18];
-        assert_eq!(record.encode_record_into(&mut out), Ok(16));
-        assert_eq!(&out[..16], &bytes);
-        assert_eq!(&out[16..], &[0xa5; 2]);
-        let mut unaligned = [0xa5; 17];
+        let mut out = [0xa5; REPRESENTATION_RECORD_LEN + 2];
+        assert_eq!(
+            record.encode_record_into(&mut out),
+            Ok(REPRESENTATION_RECORD_LEN)
+        );
+        assert_eq!(&out[..REPRESENTATION_RECORD_LEN], &bytes);
+        assert_eq!(&out[REPRESENTATION_RECORD_LEN..], &[0xa5; 2]);
+        let mut unaligned = [0xa5; REPRESENTATION_RECORD_LEN + 1];
         unaligned[1..].copy_from_slice(&bytes);
         assert_eq!(
             RepresentationRecord::from_record(&unaligned[1..], surface),
@@ -56,14 +70,15 @@ fn independent_bytes_keep_size_defaults_and_references_explicit() {
         assert_eq!(record.validate_for(surface), Ok(()));
     }
     assert_eq!(coverage.surface_index(), 0x1234);
-    assert_eq!(coverage.atlas_map_offset(), 0x87654321);
+    assert_eq!(coverage.atlas_map_offset(), 0x07654321);
+    assert_eq!(coverage.atlas_map_count(), 0x10203040);
     assert_eq!(coverage.representation().min_ppem(), 16);
     assert_eq!(coverage.representation().max_ppem(), 16);
 }
 
 #[test]
 fn sample_depth_and_cost_come_only_from_the_bound_surface() {
-    let bytes = [0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let bytes = [0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     for (layout, bits, size) in [
         (SampleLayout::A1, 1, 3),
         (SampleLayout::A2, 2, 6),
@@ -77,7 +92,7 @@ fn sample_depth_and_cost_come_only_from_the_bound_surface() {
             FontRepresentationKind::Coverage { bits }
         );
         assert_eq!(record.representation().decoded_bytes(), size);
-        let mut encoded = [0; 16];
+        let mut encoded = [0; REPRESENTATION_RECORD_LEN];
         record.encode_record_into(&mut encoded).unwrap();
         assert_eq!(encoded, bytes);
     }
@@ -124,7 +139,7 @@ fn sample_depth_and_cost_come_only_from_the_bound_surface() {
 #[test]
 fn malformed_class_size_and_reserved_fields_are_rejected_before_access() {
     let surface = surface(SampleLayout::A8);
-    let valid = [0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let valid = [0, 0, 16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     for offset in 4..10 {
         let mut bytes = valid;
         bytes[offset] = 1;
@@ -163,24 +178,48 @@ fn malformed_class_size_and_reserved_fields_are_rejected_before_access() {
         bytes[8] = spread;
         assert!(RepresentationRecord::from_record(&bytes, surface).is_err());
     }
-    for len in 0..16 {
+    for len in 0..REPRESENTATION_RECORD_LEN {
         assert_eq!(
             RepresentationRecord::from_record(&valid[..len], surface),
             Err(RepresentationRecordError::Truncated {
-                needed: 16,
+                needed: REPRESENTATION_RECORD_LEN,
                 available: len
             })
         );
         let record = RepresentationRecord::from_record(&valid, surface).unwrap();
-        let mut short = [0xa5; 16];
+        let mut short = [0xa5; REPRESENTATION_RECORD_LEN];
         assert_eq!(
             record.encode_record_into(&mut short[..len]),
             Err(RepresentationRecordError::BufferTooSmall {
-                needed: 16,
+                needed: REPRESENTATION_RECORD_LEN,
                 available: len
             })
         );
-        assert_eq!(short, [0xa5; 16]);
+        assert_eq!(short, [0xa5; REPRESENTATION_RECORD_LEN]);
+    }
+
+    let mut empty_range = valid;
+    empty_range[12] = 1;
+    assert_eq!(
+        RepresentationRecord::from_record(&empty_range, surface),
+        Err(RepresentationRecordError::EmptyAtlasMapRange { offset: 1 })
+    );
+    let mut overflowing_range = valid;
+    overflowing_range[12..16].copy_from_slice(&u32::MAX.to_le_bytes());
+    overflowing_range[16] = 2;
+    assert_eq!(
+        RepresentationRecord::from_record(&overflowing_range, surface),
+        Err(RepresentationRecordError::AtlasMapRangeOverflow)
+    );
+    for record in [
+        RepresentationRecord::new(FontRepresentation::coverage(8, 16, 15).unwrap(), 0)
+            .with_atlas_map_range(1, 0),
+        RepresentationRecord::new(FontRepresentation::coverage(8, 16, 15).unwrap(), 0)
+            .with_atlas_map_range(u32::MAX, 2),
+    ] {
+        let mut out = [0xa5; REPRESENTATION_RECORD_LEN];
+        assert!(record.encode_record_into(&mut out).is_err());
+        assert_eq!(out, [0xa5; REPRESENTATION_RECORD_LEN]);
     }
 }
 
@@ -190,7 +229,7 @@ fn application_kinds_and_extreme_surface_sizes_remain_unambiguous() {
         let surface = surface(SampleLayout::RGBA8888);
         let metadata = FontRepresentation::application(kind, 16, 1, u16::MAX, 60).unwrap();
         let record = RepresentationRecord::new(metadata, u16::MAX);
-        let mut bytes = [0; 16];
+        let mut bytes = [0; REPRESENTATION_RECORD_LEN];
         record.encode_record_into(&mut bytes).unwrap();
         assert_eq!(bytes[0], 2);
         assert_eq!(&bytes[8..10], &kind.to_le_bytes());
@@ -200,7 +239,7 @@ fn application_kinds_and_extreme_surface_sizes_remain_unambiguous() {
             Ok(record)
         );
     }
-    let bytes = [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let bytes = [0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let empty = SurfaceDescriptor::new(
         0,
         u32::MAX,

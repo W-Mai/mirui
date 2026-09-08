@@ -2,7 +2,7 @@
 
 `font::RepresentationTable` borrows exact REPRESENTATIONS and SURFACE_GROUPS bodies. Each representation resolves its scalar surface by ordinal, derives sample depth and tight decoded cost, and uses the same duplicate-identity and size-selection rules as native `FontRepresentations`. No decoded metadata array is allocated.
 
-Representation count comes from 16-byte records; referenced surfaces use 24-byte records. GlyphMajor logical height derives from shared glyph count, while Atlas2D keeps its stored extent. Surface index 65535 is valid when 65536 surface records are present: this index has no absent sentinel and is not a common-directory reference.
+Representation count comes from 20-byte records; referenced surfaces use 24-byte records. GlyphMajor logical height derives from shared glyph count, while Atlas2D keeps its stored extent. Surface index 65535 is valid when 65536 surface records are present: this index has no absent sentinel and is not a common-directory reference.
 
 | Limit | Embedded | Host | Scope |
 | --- | ---: | ---: | --- |
@@ -19,7 +19,7 @@ use mirx::{FontRepresentation, FontRepresentationRequest, PayloadLimits,
 let mut surfaces = [0; 24];
 GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 8, 8, 0).unwrap()
     .encode_record_into(&mut surfaces).unwrap();
-let mut records = [0; 16];
+let mut records = [0; 20];
 RepresentationRecord::new(FontRepresentation::coverage(4, 16, 64).unwrap(), 0)
     .encode_record_into(&mut records).unwrap();
 let table = RepresentationTable::open(&records, &surfaces, 2, &PayloadLimits::EMBEDDED).unwrap();

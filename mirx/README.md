@@ -74,7 +74,7 @@ IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `Document::decode_
 
 `FontRepresentations::select` matches fixed-size coverage and ranged signed-distance representations with explicit preferences and fallback. The returned `FontRepresentationMatch` owns one inline metadata value and its source index; selection allocates nothing and does not extend the representation table's lifetime.
 
-`font::RepresentationRecord` encodes 16 bytes of size semantics and shared surface/map references. Sample depth and decoded selection cost come from the bound surface, while fixed Coverage omits repeated range values. [Font representation records](docs/font-representations.md) defines canonical fields and native binding checks.
+`font::RepresentationRecord` encodes 20 bytes of size semantics and shared surface/map ranges. Sample depth and decoded selection cost come from the bound surface, while fixed Coverage omits repeated range values. [Font representation records](docs/font-representations.md) defines canonical fields and native binding checks.
 
 `font::RepresentationTable` borrows representation/surface bodies and resolves scalar storage facts without a decoded metadata array. Native and wire tables share duplicate validation and size selection; count limits precede record interpretation. [Borrowed representation tables](docs/representation-tables.md) describes the bounds and direct iteration API.
 

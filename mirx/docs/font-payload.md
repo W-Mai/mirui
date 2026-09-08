@@ -22,4 +22,4 @@ FONT MediaPayload
 
 `RASTER_METRICS` contains `representation_count × N` pairs of signed 24.8 offsets in design-ppem pixels. Empty glyphs retain identity, advance, and offsets while their map region has zero width or height.
 
-Each representation references one `SURFACE_GROUPS` record. Several representations may share a surface. GlyphMajor maps derive fixed cells from surface geometry and store no map bytes. Atlas2D maps bind a validated `image::AtlasMap` from `ATLAS_MAPS`; several representations may share the same map.
+Each representation references one `SURFACE_GROUPS` record. Several representations may share a surface. GlyphMajor maps derive fixed cells from surface geometry and store a zero offset/count pair. Atlas2D maps bind a validated `image::AtlasMap` range from `ATLAS_MAPS`; offsets and counts use region-record ordinals, and several representations may reference the same complete range.

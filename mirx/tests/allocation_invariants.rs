@@ -360,7 +360,10 @@ fn encoded_glyph_planning_and_execution_allocate_nothing() {
 fn borrowed_representation_tables_resolve_and_select_without_allocation() {
     use mirx::{
         FontRepresentation, FontRepresentationRequest,
-        font::{GlyphPacking, GlyphSurfaceRecord, RepresentationRecord, RepresentationTable},
+        font::{
+            GlyphPacking, GlyphSurfaceRecord, REPRESENTATION_RECORD_LEN, RepresentationRecord,
+            RepresentationTable,
+        },
     };
     let (_, allocations) = count_allocations(|| {
         let mut surfaces = [0; 24];
@@ -368,7 +371,7 @@ fn borrowed_representation_tables_resolve_and_select_without_allocation() {
             .unwrap()
             .encode_record_into(&mut surfaces)
             .unwrap();
-        let mut records = [0; 32];
+        let mut records = [0; REPRESENTATION_RECORD_LEN * 2];
         RepresentationRecord::new(FontRepresentation::coverage(4, 16, 64).unwrap(), 0)
             .encode_record_into(&mut records)
             .unwrap();
@@ -376,7 +379,7 @@ fn borrowed_representation_tables_resolve_and_select_without_allocation() {
             FontRepresentation::signed_distance(4, 3, 24, 17, 48, 64).unwrap(),
             0,
         )
-        .encode_record_into(&mut records[16..])
+        .encode_record_into(&mut records[REPRESENTATION_RECORD_LEN..])
         .unwrap();
         let table =
             RepresentationTable::open(&records, &surfaces, 2, &PayloadLimits::EMBEDDED).unwrap();
@@ -447,9 +450,9 @@ fn representation_record_binding_and_emission_allocate_nothing() {
         let surface =
             SurfaceDescriptor::new(5, 3, SampleLayout::A4, ColorDescription::NONE).unwrap();
         let metadata = FontRepresentation::signed_distance(4, 3, 24, 17, 48, 9).unwrap();
-        let record = RepresentationRecord::new(metadata, 2).with_atlas_map_offset(32);
+        let record = RepresentationRecord::new(metadata, 2).with_atlas_map_range(32, 4);
         record.validate_for(surface).unwrap();
-        let mut bytes = [0xa5; 17];
+        let mut bytes = [0xa5; 21];
         record.encode_record_into(&mut bytes[1..]).unwrap();
         let decoded = RepresentationRecord::from_record(&bytes[1..], surface).unwrap();
         assert_eq!(decoded, record);

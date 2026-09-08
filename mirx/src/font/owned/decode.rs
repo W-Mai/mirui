@@ -39,10 +39,9 @@ impl Font {
         view.preflight_in(&mut preflight)?;
         let glyphs = usize::from(view.face().raster_count());
         let representation_count = view.representations().len();
-        let map_len = glyphs * ATLAS_REGION_LEN;
         let map_count = media
             .section(MediaSectionKind::ATLAS_MAPS)
-            .map_or(0, |s| s.bytes().len() / map_len);
+            .map_or(0, |s| s.bytes().len() / ATLAS_REGION_LEN / glyphs);
         let mut size = OwnedSize::new(limits.max_decoded_bytes());
         size.items::<CmapEntry>(view.cmap().len())?;
         size.items::<GlyphId>(view.metadata().glyph_ids().map_or(0, |ids| ids.len()))?;
@@ -126,7 +125,7 @@ impl Font {
                 metadata: source.record().representation(),
                 surface: source.record().surface_index(),
                 atlas_map: (source.map().packing() == GlyphPacking::Atlas2D)
-                    .then_some(source.record().atlas_map_offset() / map_len as u32),
+                    .then_some(source.record().atlas_map_offset() / glyphs as u32),
             });
         }
         let mut raster_metrics = Self::reserve(glyphs * representation_count)?;
@@ -145,7 +144,8 @@ impl Font {
                 .map(|r| view.representation(r).expect("representation ordinal"))
                 .find(|r| {
                     r.map().packing() == GlyphPacking::Atlas2D
-                        && r.record().atlas_map_offset() as usize == index * map_len
+                        && r.record().atlas_map_offset() as usize == index * glyphs
+                        && r.record().atlas_map_count() as usize == glyphs
                 })
                 .expect("referenced map");
             let map = representation.map();
