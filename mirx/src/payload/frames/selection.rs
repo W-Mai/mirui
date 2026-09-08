@@ -1,4 +1,4 @@
-use crate::media::CodingId;
+use crate::coding::CodingId;
 
 /// Storage relationship of one encoded frame candidate.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -1,5 +1,8 @@
-use super::buffer::{BufferError, Cursor, Emitter};
-use crate::media::{CodingId, CodingRecord};
+use super::{
+    CodingId,
+    buffer::{BufferError, Cursor, Emitter},
+};
+use crate::media::CodingRecord;
 
 #[cfg(test)]
 mod tests;

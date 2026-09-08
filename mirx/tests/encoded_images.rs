@@ -5,12 +5,12 @@ use mirx::{
     ChunkFlags, ChunkType, Document, EditError, EncodeOptions, PayloadInput, PayloadLimits,
     PayloadLocation, PayloadOrigin, PayloadValidationFailure, RawChunkInput, RawChunkPolicy,
     ReadError, ReadOptions, Reader,
-    coding::{Frequency, FrequencyGeometry, Lz4, Pixel, Rle},
+    coding::{CodingId, Frequency, FrequencyGeometry, Lz4, Pixel, Rle},
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageError, ImageReadError,
         SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitDecodeError,
     },
-    media::{CodingId, CodingRecord, MediaPayloadError},
+    media::{CodingRecord, MediaPayloadError},
 };
 use support::encode_chunks;
 

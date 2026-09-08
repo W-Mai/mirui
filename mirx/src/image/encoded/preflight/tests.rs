@@ -2,13 +2,13 @@ use super::super::tests::payload;
 use super::*;
 
 use crate::{
-    coding::{Lz4, Pixel, Rle},
+    coding::{CodingId, Lz4, Pixel, Rle},
     image::{
         ColorDescription, CoverageError, EncodedImageAsset, SampleLayout, SurfaceDescriptor,
         UnitGroupRecord,
         test_support::{data_offset, refresh_crc},
     },
-    media::{CodingId, CodingRecord},
+    media::CodingRecord,
 };
 
 #[test]

@@ -296,7 +296,7 @@ impl<'a> FrameDecodePlan<'a, '_> {
                 let plan = unit
                     .decode_plan(SurfaceRequirements::new())
                     .expect("immutable preflighted frame unit");
-                let decoded = if unit.coding().id() == crate::CodingId::FRAME_DELTA {
+                let decoded = if unit.coding().id() == crate::coding::CodingId::FRAME_DELTA {
                     let reference = SurfaceView::from_plan(
                         self.memory,
                         &*canvas,

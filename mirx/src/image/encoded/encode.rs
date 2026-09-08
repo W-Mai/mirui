@@ -4,14 +4,15 @@ use alloc::vec::Vec;
 
 use crate::{
     ByteAlignment,
+    coding::CodingId,
     image::{
         ImageEncodeError, SURFACE_RECORD_LEN, SurfaceDescriptor, UNIT_GROUP_RECORD_LEN, UnitGroup,
         UnitGroupRecord,
     },
     media::{
-        CODING_RECORD_LEN, CodingId, CodingRecord, CodingTable, DataIntegrity,
-        INTEGRITY_RECORD_LEN, IntegrityRange, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION,
-        MediaFlags, MediaSectionKind, UnitIndex, output::PayloadOutput,
+        CODING_RECORD_LEN, CodingRecord, CodingTable, DataIntegrity, INTEGRITY_RECORD_LEN,
+        IntegrityRange, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaFlags,
+        MediaSectionKind, UnitIndex, output::PayloadOutput,
     },
     wire::write_u16_le,
 };

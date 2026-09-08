@@ -1,10 +1,10 @@
 use super::*;
 use crate::image::AtlasMap;
 use crate::{
-    coding::{Lz4, Rle},
+    coding::{CodingId, Lz4, Rle},
     font::{GlyphPacking, RawGlyphs},
     image::{EncodedImageAsset, Region, SampleLayout, UnitGroupRecord},
-    media::{CodingId, CodingRecord, DataIntegrity, MediaSectionKind},
+    media::{CodingRecord, DataIntegrity, MediaSectionKind},
 };
 
 #[repr(align(64))]

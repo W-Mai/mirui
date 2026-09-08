@@ -251,8 +251,9 @@ pub enum CoverageError {
 mod tests {
     use super::*;
     use crate::{
+        coding::CodingId,
         image::{ColorDescription, Region, SampleLayout},
-        media::{CodingId, CodingRecord, UnitSelection, UnitSelectionEncoding},
+        media::{CodingRecord, UnitSelection, UnitSelectionEncoding},
     };
 
     fn coding() -> CodingRecord<'static> {

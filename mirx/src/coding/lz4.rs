@@ -1,5 +1,8 @@
-use super::buffer::{BufferError, Cursor};
-use crate::media::{CodingId, CodingRecord};
+use super::{
+    CodingId,
+    buffer::{BufferError, Cursor},
+};
+use crate::media::CodingRecord;
 
 mod encode;
 pub use encode::Lz4Encoder;

@@ -1,4 +1,4 @@
-use super::CodingId;
+use crate::coding::CodingId;
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
 /// Byte width of a coding table's record count.

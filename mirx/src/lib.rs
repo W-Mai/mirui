@@ -50,7 +50,6 @@ pub(crate) use header::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, FILE_HEADER_LEN, FLAT_HEADER_LEN, VERSION_MAJOR,
     VERSION_MINOR,
 };
-pub use media::CodingId;
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub(crate) use payload::image::{ImageAsset, ImagePayloadError, ImageView};
 pub use reader::{

@@ -270,7 +270,7 @@ impl<'a> RawImagePlan<'a> {
 #[non_exhaustive]
 pub enum ImageEncodeError {
     Preflight(super::EncodedImageError),
-    UnexpectedCoding(crate::media::CodingId),
+    UnexpectedCoding(crate::coding::CodingId),
     /// Explicit groups cannot be combined with an asset-level alignment override.
     ConflictingAlignment,
     Codings(crate::media::CodingTableError),

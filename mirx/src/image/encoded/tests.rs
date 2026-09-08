@@ -1,7 +1,8 @@
 use super::*;
+use crate::coding::CodingId;
 use crate::image::{ColorDescription, GroupSelection, ReferenceMode, SampleLayout};
 use crate::media::{
-    CodingId, CodingRecord, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionFlags,
+    CodingRecord, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionFlags,
 };
 use crate::wire::{write_u16_le, write_u32_le};
 use alloc::{vec, vec::Vec};

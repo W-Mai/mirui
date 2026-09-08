@@ -490,8 +490,9 @@ pub enum UnitGroupError {
 mod tests {
     use super::*;
     use crate::{
+        coding::CodingId,
         image::{ColorDescription, SampleLayout},
-        media::{CodingId, UnitIndexEncoding, UnitSelectionEncoding},
+        media::{UnitIndexEncoding, UnitSelectionEncoding},
     };
 
     fn surface() -> SurfaceDescriptor {

@@ -191,7 +191,7 @@ fn referenced_sections_require_exact_identity_not_body_or_sample_validation() {
         );
     }
     // Directory identity does not imply that a coding body is understood.
-    let coding = crate::media::CodingRecord::new(crate::media::CodingId::new(0xff00), 0, &[]);
+    let coding = crate::media::CodingRecord::new(crate::coding::CodingId::new(0xff00), 0, &[]);
     let bytes = EncodedImageAsset::new(surface, coding, &[17])
         .encode()
         .unwrap();

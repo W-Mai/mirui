@@ -206,8 +206,9 @@ impl FusedIterator for UnitPlanes {}
 mod tests {
     use super::*;
     use crate::{
+        coding::CodingId,
         image::{ColorDescription, SampleLayout, UnitGroup},
-        media::{CodingId, CodingRecord},
+        media::CodingRecord,
     };
 
     fn coding() -> CodingRecord<'static> {

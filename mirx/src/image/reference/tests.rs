@@ -1,12 +1,12 @@
 use super::*;
 use crate::{
-    coding::Rle,
+    coding::{CodingId, Rle},
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, PlaneMemoryLayout, RawImageAsset,
         SampleLayout, SurfaceRequirements, UnitDecodeError,
         test_support::{data_offset, refresh_crc},
     },
-    media::{CodingId, CodingRecord},
+    media::CodingRecord,
     wire::write_u16_le,
 };
 

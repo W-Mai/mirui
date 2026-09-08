@@ -7,16 +7,16 @@ use super::{
 use crate::{
     ByteAlignment,
     coding::{
-        FrameDelta, FrameDeltaError, Frequency, FrequencyError, FrequencyGeometry, Lz4, Lz4Error,
-        Pixel, PixelError, Rle, RleError,
+        CodingId, FrameDelta, FrameDeltaError, Frequency, FrequencyError, FrequencyGeometry, Lz4,
+        Lz4Error, Pixel, PixelError, Rle, RleError,
     },
     image::{
         GroupSelection, ReferenceMode, Region, RegionError, SurfaceDescriptor, TileGrid,
         TileGridError, UNIT_GROUP_RECORD_LEN, UnitGroupRecord,
     },
     media::{
-        CODING_RECORD_LEN, CodingId, CodingRecord, UnitIndexEncoding, UnitIndexError,
-        UnitSelectionEncoding, UnitSelectionError,
+        CODING_RECORD_LEN, CodingRecord, UnitIndexEncoding, UnitIndexError, UnitSelectionEncoding,
+        UnitSelectionError,
     },
 };
 

@@ -25,12 +25,12 @@ struct TrackingAllocator;
 #[test]
 fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
-        coding::{FrameDelta, ScalarFrameDelta},
+        coding::{CodingId, FrameDelta, ScalarFrameDelta},
         frames::{
             FrameCandidate, FramePolicy, FrameSelector, FrameSequence, FramesAsset, FramesView,
         },
         image::{CoverageBudget, DecodeRequest, MemoryPlacement, ReferenceMode, UnitGroupRecord},
-        media::{CodingId, CodingRecord},
+        media::CodingRecord,
     };
     #[repr(align(64))]
     struct Aligned([u8; 64]);
@@ -1602,7 +1602,10 @@ fn direct_directory_lookup_and_skips_allocate_nothing() {
 
 #[test]
 fn coding_table_read_and_caller_buffer_encoding_allocate_nothing() {
-    use mirx::media::{CodingId, CodingRecord, CodingTable};
+    use mirx::{
+        coding::CodingId,
+        media::{CodingRecord, CodingTable},
+    };
     let records = [
         CodingRecord::new(CodingId::new(0x8000), 3, &[1, 2, 3]),
         CodingRecord::new(CodingId::new(0xffff), 0xffff, &[]),
@@ -2064,8 +2067,9 @@ fn sparse_unit_selection_borrows_and_encodes_without_allocation() {
 
 #[test]
 fn image_units_resolve_shared_metadata_without_allocation() {
+    use mirx::coding::CodingId;
     use mirx::image::UnitGroup;
-    use mirx::media::{CodingId, CodingRecord, UnitIndex, UnitSelection};
+    use mirx::media::{CodingRecord, UnitIndex, UnitSelection};
     let surface = SurfaceDescriptor::new(
         5,
         3,
@@ -2119,8 +2123,9 @@ fn group_record_read_write_and_resolution_allocate_nothing() {
 
 #[test]
 fn image_coverage_and_selection_windows_allocate_nothing() {
+    use mirx::coding::CodingId;
     use mirx::image::{CoverageBudget, UnitGroup};
-    use mirx::media::{CodingId, CodingRecord, UnitSelection};
+    use mirx::media::{CodingRecord, UnitSelection};
     let surface = SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let cells = [0; 4];
     let (_, allocations) = count_allocations(|| {
@@ -2185,8 +2190,9 @@ fn encoded_image_open_prepare_and_integrity_allocate_nothing() {
 
 #[test]
 fn decoded_unit_memory_planning_allocates_nothing() {
+    use mirx::coding::CodingId;
     use mirx::image::UnitGroup;
-    use mirx::media::{CodingId, CodingRecord};
+    use mirx::media::CodingRecord;
     let surface = SurfaceDescriptor::new(
         5,
         3,

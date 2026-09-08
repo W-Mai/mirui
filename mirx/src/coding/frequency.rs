@@ -1,8 +1,8 @@
-use super::buffer::{BufferError, Cursor, Emitter};
-use crate::{
-    image::SampleLayout,
-    media::{CodingId, CodingRecord},
+use super::{
+    CodingId,
+    buffer::{BufferError, Cursor, Emitter},
 };
+use crate::{image::SampleLayout, media::CodingRecord};
 
 #[cfg(test)]
 mod tests;

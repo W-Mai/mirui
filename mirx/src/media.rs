@@ -35,50 +35,6 @@ pub const MEDIA_VERSION: u8 = 1;
 
 pub(crate) mod output;
 
-/// Open identifier for one stored coding profile.
-///
-/// Unknown values remain representable so raw editing never depends on the
-/// decoder profiles compiled into the current application.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CodingId(u16);
-
-impl CodingId {
-    /// Uncoded bytes described directly by the payload's memory records.
-    pub const RAW: Self = Self(0);
-    /// Independent lossless RGB/RGBA pixel state stream.
-    pub const PIXEL: Self = Self(1);
-    /// Independent lossless byte or fixed-width element run-length stream.
-    pub const RLE: Self = Self(2);
-    /// Independent LZ4 blocks without frames, dictionaries, or size prefixes.
-    pub const LZ4: Self = Self(3);
-    /// Reversible color decorrelation and integer 8x8 frequency blocks.
-    pub const FREQUENCY_REVERSIBLE: Self = Self(4);
-    /// Quantized integer 8x8 frequency blocks with explicit quality.
-    pub const FREQUENCY_QUANTIZED: Self = Self(5);
-    /// Previous-frame byte prediction with run and repeating-pattern residual coding.
-    pub const FRAME_DELTA: Self = Self(6);
-
-    pub const fn new(value: u16) -> Self {
-        Self(value)
-    }
-
-    pub const fn raw(self) -> u16 {
-        self.0
-    }
-}
-
-impl From<u16> for CodingId {
-    fn from(value: u16) -> Self {
-        Self::new(value)
-    }
-}
-
-impl From<CodingId> for u16 {
-    fn from(value: CodingId) -> Self {
-        value.raw()
-    }
-}
-
 /// Open media-payload flags.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct MediaFlags(u8);
@@ -1101,9 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn coding_and_section_ids_retain_unknown_values() {
-        assert_eq!(CodingId::RAW.raw(), 0);
-        assert_eq!(CodingId::new(0xbeef).raw(), 0xbeef);
+    fn section_ids_retain_unknown_values() {
         assert_eq!(MediaSectionKind::new(0), None);
         assert_eq!(
             MediaSectionKind::new(0x8001).map(|kind| kind.raw()),

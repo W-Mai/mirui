@@ -1207,14 +1207,15 @@ mod tests {
 
     use super::*;
     use crate::{
+        coding::CodingId,
         frames::{
             BlendMode, DisposalMode, FrameCompositionAsset, FrameCompositionOverride,
             FrameMapAsset, FrameTimingAsset, KeyframeIndexAsset,
         },
         image::{ColorDescription, CoverageError, SampleLayout, UnitGroupRecord},
         media::{
-            CodingId, CodingRecord, DataIntegrity, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN,
-            MEDIA_VERSION, MediaSectionKind, output::PayloadOutput,
+            CodingRecord, DataIntegrity, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION,
+            MediaSectionKind, output::PayloadOutput,
         },
         wire::write_u16_le,
     };

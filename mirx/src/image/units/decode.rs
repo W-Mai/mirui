@@ -1,7 +1,7 @@
 use super::{DecodeUnitRef, UnitMemoryPlan, output::UnitOutput};
 use crate::{
     coding::{
-        FrameDelta, FrameDeltaDecodePlan, FrameDeltaError, Frequency, FrequencyError,
+        CodingId, FrameDelta, FrameDeltaDecodePlan, FrameDeltaError, Frequency, FrequencyError,
         FrequencyGeometry, Lz4, Lz4DecodePlan, Lz4Error, Pixel, PixelDecodePlan, PixelError, Rle,
         RleDecodePlan, RleError,
     },
@@ -9,7 +9,7 @@ use crate::{
         BufferRequirementError, ReferenceMode, SampleLayout, SurfaceCopyError, SurfacePlanError,
         SurfacePlane, SurfaceRequirements, SurfaceView,
     },
-    media::{CodingId, CodingRecord},
+    media::CodingRecord,
 };
 
 #[cfg(test)]

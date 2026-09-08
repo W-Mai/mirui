@@ -1,11 +1,11 @@
 use super::*;
 use crate::{
-    coding::Rle,
+    coding::{CodingId, Rle},
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, GroupSelection, SampleLayout,
         SurfaceDescriptor, UnitGroupRecord,
     },
-    media::{CodingId, CodingRecord, DataIntegrity, MediaSectionKind},
+    media::{CodingRecord, DataIntegrity, MediaSectionKind},
 };
 
 #[repr(align(64))]

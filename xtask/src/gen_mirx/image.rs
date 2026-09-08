@@ -146,11 +146,11 @@ impl Options {
             .get(0)
             .ok_or("generated IMAGE has no coding record")?;
         let expected = match self.coding.as_str() {
-            "pixel" => mirx::CodingId::PIXEL,
-            "rle" => mirx::CodingId::RLE,
-            "lz4" => mirx::CodingId::LZ4,
-            "frequency-reversible" => mirx::CodingId::FREQUENCY_REVERSIBLE,
-            "frequency-quantized" => mirx::CodingId::FREQUENCY_QUANTIZED,
+            "pixel" => mirx::coding::CodingId::PIXEL,
+            "rle" => mirx::coding::CodingId::RLE,
+            "lz4" => mirx::coding::CodingId::LZ4,
+            "frequency-reversible" => mirx::coding::CodingId::FREQUENCY_REVERSIBLE,
+            "frequency-quantized" => mirx::coding::CodingId::FREQUENCY_QUANTIZED,
             _ => unreachable!("validated coding profile"),
         };
         if record.id() != expected {
