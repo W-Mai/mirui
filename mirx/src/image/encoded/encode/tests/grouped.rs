@@ -30,7 +30,7 @@ fn planar_groups_share_profiles_and_preserve_alignment_without_unit_tables() {
     let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &data);
     assert_eq!(asset.codings().collect::<Vec<_>>(), &codings);
     assert_eq!(asset.groups(), Some(records.as_slice()));
-    assert_eq!(asset.unit_index(), &[]);
+    assert!(asset.unit_index().is_empty());
     assert_eq!(
         asset.input_alignment().map(crate::ByteAlignment::get),
         Ok(64)

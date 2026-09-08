@@ -22,7 +22,7 @@ fn encoded(codec: Frequency, geometry: FrequencyGeometry, samples: &[u8]) -> Vec
 fn records_keep_loss_policy_and_quality_explicit() {
     let mut params = [0xa5];
     let reversible = Frequency::reversible();
-    assert_eq!(reversible.record_into(&mut params).params(), &[]);
+    assert!(reversible.record_into(&mut params).params().is_empty());
     assert_eq!(params, [0xa5]);
     assert_eq!(
         Frequency::from_record(CodingRecord::new(CodingId::FREQUENCY_REVERSIBLE, 1, &[])),

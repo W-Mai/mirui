@@ -367,7 +367,7 @@ mod tests {
             let mut output = [];
             let copied = source.copy_into(&mut output, plan).unwrap();
             assert_eq!(copied.surface(), surface);
-            assert_eq!(copied.plane(0).unwrap().bytes(), []);
+            assert!(copied.plane(0).unwrap().bytes().is_empty());
         }
     }
 }
