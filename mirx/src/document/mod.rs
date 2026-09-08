@@ -1,8 +1,6 @@
 #[cfg(test)]
 mod atomic_tests;
 mod chunk_mut;
-#[cfg(test)]
-mod compatibility_tests;
 mod demotion;
 #[cfg(test)]
 mod demotion_tests;
@@ -31,7 +29,7 @@ mod vector;
 mod writer;
 
 pub use chunk_mut::DocumentChunkMut;
-pub use options::{CompatibilityPolicy, EncodeOptions, LayoutPolicy, OpenOptions, RawTypePolicy};
+pub use options::{EncodeOptions, LayoutPolicy, OpenOptions, RawTypePolicy};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub use raw::{
     CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
@@ -74,10 +72,6 @@ impl FileMetadata {
 
     pub const fn file_flags(self) -> u8 {
         self.file_flags
-    }
-
-    pub const fn has_future_semantics(self) -> bool {
-        self.version_minor > VERSION_MINOR || self.file_flags != 0
     }
 }
 
@@ -269,14 +263,7 @@ enum PrimaryHintState {
 #[derive(Debug, Eq, PartialEq)]
 enum DocumentState<'a> {
     Flat(FlatRecord<'a>),
-    OpaqueFlat(PrimaryHints),
     Chunk(ChunkSet<'a>),
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Compatibility {
-    Current,
-    FutureReadOnly,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -289,7 +276,7 @@ enum TrailingState {
 impl DocumentState<'_> {
     const fn layout(&self) -> Layout {
         match self {
-            Self::Flat(_) | Self::OpaqueFlat(_) => Layout::Flat,
+            Self::Flat(_) => Layout::Flat,
             Self::Chunk(_) => Layout::Chunk,
         }
     }
@@ -299,7 +286,6 @@ struct OpenedDocument<'a> {
     logical_len: usize,
     file: FileMeta,
     state: DocumentState<'a>,
-    compatibility: Compatibility,
     trailing: TrailingState,
     dirty: bool,
     next_id: u32,
@@ -382,7 +368,6 @@ pub struct Document<'a> {
     logical_len: usize,
     file: FileMeta,
     state: DocumentState<'a>,
-    compatibility: Compatibility,
     trailing: TrailingState,
     payload_limits: PayloadLimits,
     dirty: bool,
@@ -398,11 +383,8 @@ impl<'a> Document<'a> {
     /// Opens a borrowed document with explicit resource and rewrite policies.
     ///
     /// Payload limits are copied into the document for later typed access and
-    /// edits. Future container semantics, trailing bytes, and raw capabilities
-    /// follow
-    /// [`OpenOptions::with_compatibility`],
-    /// [`OpenOptions::with_trailing_bytes`], and
-    /// [`OpenOptions::with_raw_type_policies`] respectively.
+    /// edits. Trailing bytes and raw capabilities follow the corresponding
+    /// open options.
     pub fn open_with(source: &'a [u8], options: &OpenOptions<'_>) -> Result<Self, DocumentError> {
         Self::from_origin(Origin::Borrowed(source), options)
     }
@@ -415,11 +397,8 @@ impl<'a> Document<'a> {
     /// Opens an owned document with explicit resource and rewrite policies.
     ///
     /// Payload limits are copied into the document for later typed access and
-    /// edits. Future container semantics, trailing bytes, and raw capabilities
-    /// follow
-    /// [`OpenOptions::with_compatibility`],
-    /// [`OpenOptions::with_trailing_bytes`], and
-    /// [`OpenOptions::with_raw_type_policies`] respectively.
+    /// edits. Trailing bytes and raw capabilities follow the corresponding
+    /// open options.
     pub fn from_vec_with(
         source: Vec<u8>,
         options: &OpenOptions<'_>,
@@ -446,7 +425,6 @@ impl<'a> Document<'a> {
             logical_len: 0,
             file: FileMeta::CURRENT,
             state: DocumentState::Flat(record),
-            compatibility: Compatibility::Current,
             trailing: TrailingState::None,
             payload_limits,
             dirty: true,
@@ -471,7 +449,6 @@ impl<'a> Document<'a> {
                 primary_hints: PrimaryHintState::Missing,
                 promoted_flat: None,
             }),
-            compatibility: Compatibility::Current,
             trailing: TrailingState::None,
             payload_limits,
             dirty: true,
@@ -497,9 +474,6 @@ impl<'a> Document<'a> {
         match &self.state {
             DocumentState::Chunk(_) => return Ok(None),
             DocumentState::Flat(_) => {}
-            DocumentState::OpaqueFlat(_) => {
-                unreachable!("writable FLAT documents must have validated image semantics")
-            }
         }
 
         let ids = raw::ChunkIdPlan::new(self.next_id, 1)?;
@@ -580,13 +554,8 @@ impl<'a> Document<'a> {
     /// Explicitly discards preserved bytes after the logical MIRX boundary.
     ///
     /// The source allocation is retained. This removes the trailing-byte edit
-    /// blocker and marks the document for a later rewrite. Future container
-    /// semantics must be normalized while opening before trailing bytes can be
-    /// discarded.
+    /// blocker and marks the document for a later rewrite.
     pub fn discard_trailing_bytes(&mut self) -> Result<(), EditError> {
-        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
-            return Err(EditError::FutureSemanticsReadOnly);
-        }
         if matches!(self.trailing, TrailingState::Preserved) {
             self.trailing = TrailingState::Discarded;
             self.dirty = true;
@@ -594,9 +563,7 @@ impl<'a> Document<'a> {
         Ok(())
     }
 
-    /// Returns the validated image planes of a current-semantics FLAT document.
-    ///
-    /// Future-semantics FLAT sources remain opaque and return `None`.
+    /// Returns the validated image planes of a FLAT document.
     pub fn flat_image(&self) -> Option<ImageView<'_>> {
         let DocumentState::Flat(record) = &self.state else {
             return None;
@@ -617,7 +584,6 @@ impl<'a> Document<'a> {
             logical_len: opened.logical_len,
             file: opened.file,
             state: opened.state,
-            compatibility: opened.compatibility,
             trailing: opened.trailing,
             payload_limits: options.payload_limits(),
             dirty: opened.dirty,
@@ -638,9 +604,6 @@ impl<'a> Document<'a> {
     }
 
     pub(super) const fn ensure_mutable(&self) -> Result<(), EditError> {
-        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
-            return Err(EditError::FutureSemanticsReadOnly);
-        }
         if matches!(self.trailing, TrailingState::Preserved) {
             return Err(EditError::PreservedTrailingBytesReadOnly);
         }
@@ -753,60 +716,35 @@ fn inspect_source<'document>(
         .with_max_chunks(options.max_chunks())
         .with_payload_limits(options.payload_limits())
         .with_trailing_bytes(options.trailing_bytes_policy());
-    let reader = match options.compatibility_policy() {
-        CompatibilityPolicy::Preserve => Reader::open_structural_with(source, &read_options)?,
-        CompatibilityPolicy::NormalizeToCurrent => {
-            Reader::open_structural_as_current_with(source, &read_options)?
-        }
-    };
+    let reader = Reader::open_structural_with(source, &read_options)?;
     let header = reader.file_header();
-    let normalize_future = reader.has_future_semantics()
-        && matches!(
-            options.compatibility_policy(),
-            CompatibilityPolicy::NormalizeToCurrent
-        );
-    let compatibility = if reader.has_future_semantics() && !normalize_future {
-        Compatibility::FutureReadOnly
-    } else {
-        Compatibility::Current
-    };
     let trailing = if reader.has_trailing_bytes() {
         TrailingState::Preserved
     } else {
         TrailingState::None
     };
     let (state, next_id, state_dirty) = match (reader.layout(), reader.flat_image()) {
-        (Layout::Flat, None) => (DocumentState::OpaqueFlat(reader.primary_hints()), 0, false),
         (Layout::Flat, Some(image)) => (
             DocumentState::Flat(inspect_flat_image(image, reader.logical_len())?),
             0,
             false,
         ),
+        (Layout::Flat, None) => unreachable!("validated FLAT documents expose an image"),
         (Layout::Chunk, _) => {
-            let (chunks, next_id, dirty) = inspect_chunks(
-                &reader,
-                options,
-                !reader.has_future_semantics() || normalize_future,
-                !reader.has_future_semantics(),
-            )?;
+            let (chunks, next_id, dirty) = inspect_chunks(&reader, options, true, true)?;
             (DocumentState::Chunk(chunks), next_id, dirty)
         }
     };
     Ok(OpenedDocument {
         logical_len: reader.logical_len(),
-        file: if normalize_future {
-            FileMeta::CURRENT
-        } else {
-            FileMeta {
-                version_major: header.version_major,
-                version_minor: header.version_minor,
-                file_flags: header.flags,
-            }
+        file: FileMeta {
+            version_major: header.version_major,
+            version_minor: header.version_minor,
+            file_flags: header.flags,
         },
         state,
-        compatibility,
         trailing,
-        dirty: normalize_future || state_dirty,
+        dirty: state_dirty,
         next_id,
     })
 }
@@ -1130,6 +1068,27 @@ mod tests {
     }
 
     #[test]
+    fn rejects_noncurrent_container_semantics() {
+        let mut higher_minor = flat_source();
+        higher_minor[5] = VERSION_MINOR + 1;
+        let checksum = crc32(&higher_minor[..24]);
+        higher_minor[24..28].copy_from_slice(&checksum.to_le_bytes());
+        assert!(matches!(
+            take_error(Document::open(&higher_minor)),
+            DocumentError::Read(ReadError::UnsupportedVersion { .. })
+        ));
+
+        let mut flagged = flat_source();
+        flagged[7] = 1;
+        let checksum = crc32(&flagged[..24]);
+        flagged[24..28].copy_from_slice(&checksum.to_le_bytes());
+        assert_eq!(
+            take_error(Document::open(&flagged)),
+            DocumentError::Read(ReadError::ReservedNonZero { offset: 7 })
+        );
+    }
+
+    #[test]
     fn new_has_current_editable_dirty_state_without_a_source() {
         let document = Document::new();
 
@@ -1167,62 +1126,6 @@ mod tests {
         assert_eq!(document.chunks().len(), 0);
         assert_eq!(document.primary(), None);
         assert_eq!(document.payload_limits(), PayloadLimits::EMBEDDED);
-    }
-
-    #[test]
-    fn future_flat_sources_are_retained_as_opaque_state() {
-        for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-            let mut source = flat_source();
-            source[5] = minor;
-            source[7] = flags;
-            let checksum = crc32(&source[..24]);
-            source[24..28].copy_from_slice(&checksum.to_le_bytes());
-
-            let document = Document::open(&source).unwrap();
-            assert_eq!(document.layout(), Layout::Flat);
-            assert_eq!(
-                document.state,
-                DocumentState::OpaqueFlat(PrimaryHints::new(
-                    crate::image::SampleLayout::from_color_format(ColorFormat::A8),
-                    2,
-                    1,
-                    2,
-                ))
-            );
-            assert!(!document.is_dirty());
-            assert_eq!(document.file_metadata().version_minor(), minor);
-            assert_eq!(document.file_metadata().file_flags(), flags);
-            assert!(document.file_metadata().has_future_semantics());
-            assert_eq!(document.next_id, 0);
-            assert_eq!(document.origin.source().unwrap().as_ptr(), source.as_ptr());
-            assert_eq!(document.flat_image(), None);
-        }
-    }
-
-    #[test]
-    fn future_chunk_sources_keep_their_source_state_and_metadata() {
-        for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-            let mut source = encode_chunks(&[(0xbeef, 0xa500, b"future")]);
-            source[5] = minor;
-            source[7] = flags;
-            let checksum = crc32(&source[..40]);
-            source[40..44].copy_from_slice(&checksum.to_le_bytes());
-
-            let document = Document::open(&source).unwrap();
-            assert_eq!(document.layout(), Layout::Chunk);
-            let chunks = chunk_set(&document);
-            assert_eq!(chunks.chunks.len(), 1);
-            assert_eq!(chunks.chunks[0].id, ChunkId::new(0));
-            assert_eq!(chunks.chunks[0].chunk_type.raw(), 0xbeef);
-            assert_eq!(chunks.chunks[0].flags.bits(), 0xa500);
-            assert_eq!(chunks.primary, Some(ChunkId::new(0)));
-            assert!(!document.is_dirty());
-            assert_eq!(document.next_id, 1);
-            assert_eq!(document.file_metadata().version_minor(), minor);
-            assert_eq!(document.file_metadata().file_flags(), flags);
-            assert!(document.file_metadata().has_future_semantics());
-            assert_eq!(document.origin.source().unwrap().as_ptr(), source.as_ptr());
-        }
     }
 
     #[test]

@@ -275,15 +275,6 @@ fn open_reserved_policy_preserves_rejects_or_normalizes_as_a_capability_grant() 
     assert_eq!(node(&normalized, 0).flags, ChunkFlags::NONE);
     assert_capability(node(&normalized, 0), true, true, false);
     assert!(normalized.is_dirty());
-
-    let mut future_source = source;
-    future_source[5] += 1;
-    let checksum = crc32(&future_source[..40]);
-    future_source[40..44].copy_from_slice(&checksum.to_le_bytes());
-    let future = Document::open_with(&future_source, &options_for(&normalize)).unwrap();
-    assert_eq!(node(&future, 0).flags, reserved);
-    assert_capability(node(&future, 0), true, true, false);
-    assert!(!future.is_dirty());
 }
 
 #[test]

@@ -42,7 +42,6 @@ struct NodeSnapshot {
 struct DocumentSnapshot {
     logical_len: usize,
     file: FileMeta,
-    compatibility: Compatibility,
     trailing: TrailingState,
     dirty: bool,
     next_id: u32,
@@ -190,14 +189,11 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
                     nodes,
                 )
             }
-            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => {
-                (None, PrimaryHintState::Missing, 0, 0, Vec::new())
-            }
+            DocumentState::Flat(_) => (None, PrimaryHintState::Missing, 0, 0, Vec::new()),
         };
     DocumentSnapshot {
         logical_len: document.logical_len,
         file: document.file,
-        compatibility: document.compatibility,
         trailing: document.trailing,
         dirty: document.dirty,
         next_id: document.next_id,
@@ -337,7 +333,7 @@ fn valid_frames_can_be_selected_as_primary_without_explicit_hints() {
 }
 
 #[test]
-fn legacy_zero_stale_none_future_and_flat_sources_remain_unambiguous() {
+fn legacy_zero_stale_none_and_flat_sources_remain_unambiguous() {
     let mut custom_zero = encode_chunks(&[(CUSTOM.raw(), 0, b"custom")]);
     set_wire_primary(&mut custom_zero, CUSTOM.raw(), PrimaryHints::ZERO);
     let custom = Document::open(&custom_zero).unwrap();
@@ -356,63 +352,6 @@ fn legacy_zero_stale_none_future_and_flat_sources_remain_unambiguous() {
         assert_eq!(document.primary_hints(), PrimaryHints::ZERO);
     }
 
-    let image = image_payload(2, 2, 9);
-    let mut future = encode_chunks(&[(ChunkType::IMAGE.raw(), 0, image.as_slice())]);
-    set_wire_primary(&mut future, ChunkType::IMAGE.raw(), WIRE_HINTS);
-    future[5] = VERSION_MINOR + 1;
-    refresh_header_crc(&mut future);
-    let normalized_future_image = Document::open_with(
-        &future,
-        &OpenOptions::new().with_compatibility(CompatibilityPolicy::NormalizeToCurrent),
-    )
-    .unwrap();
-    assert_eq!(
-        chunk_hint_state(&normalized_future_image),
-        PrimaryHintState::Derived
-    );
-    assert_eq!(normalized_future_image.primary_hints(), image_hints(2, 2));
-    assert!(normalized_future_image.is_dirty());
-
-    let future = Document::open(&future).unwrap();
-    assert_eq!(future.compatibility, Compatibility::FutureReadOnly);
-    assert_eq!(
-        chunk_hint_state(&future),
-        PrimaryHintState::PreservedOpaque(WIRE_HINTS)
-    );
-    assert_eq!(future.primary_hints(), WIRE_HINTS);
-
-    let mut future_custom = encode_chunks(&[(CUSTOM.raw(), 0, b"custom")]);
-    set_wire_primary(&mut future_custom, CUSTOM.raw(), WIRE_HINTS);
-    future_custom[5] = VERSION_MINOR + 1;
-    refresh_header_crc(&mut future_custom);
-    let normalized = Document::open_with(
-        &future_custom,
-        &OpenOptions::new().with_compatibility(CompatibilityPolicy::NormalizeToCurrent),
-    )
-    .unwrap();
-    assert_eq!(normalized.compatibility, Compatibility::Current);
-    assert_eq!(chunk_hint_state(&normalized), PrimaryHintState::Missing);
-    assert_eq!(normalized.primary_hints(), PrimaryHints::ZERO);
-    assert!(normalized.is_dirty());
-
-    for (wire_hints, expected_state) in [
-        (NON_IMAGE_HINTS, PrimaryHintState::KnownNonImageDefault),
-        (SUGGESTED_HINTS, PrimaryHintState::Explicit(SUGGESTED_HINTS)),
-    ] {
-        let mut future_meta = encode_chunks(&[(ChunkType::META.raw(), 0, b"meta")]);
-        set_wire_primary(&mut future_meta, ChunkType::META.raw(), wire_hints);
-        future_meta[5] = VERSION_MINOR + 1;
-        refresh_header_crc(&mut future_meta);
-        let normalized = Document::open_with(
-            &future_meta,
-            &OpenOptions::new().with_compatibility(CompatibilityPolicy::NormalizeToCurrent),
-        )
-        .unwrap();
-        assert_eq!(chunk_hint_state(&normalized), expected_state);
-        assert_eq!(normalized.primary_hints(), wire_hints);
-        assert!(normalized.is_dirty());
-    }
-
     let flat_source = crate::encode_flat(&crate::FlatImageInput {
         width: 3,
         height: 2,
@@ -423,39 +362,6 @@ fn legacy_zero_stale_none_future_and_flat_sources_remain_unambiguous() {
     });
     let flat = Document::open(&flat_source).unwrap();
     assert_eq!(flat.primary_hints(), image_hints(3, 2));
-
-    let mut future_flat = flat_source;
-    future_flat[5] = VERSION_MINOR + 1;
-    future_flat[8] = WIRE_HINTS.sample_layout().raw() as u8;
-    future_flat[12..16].copy_from_slice(&WIRE_HINTS.width().to_le_bytes());
-    future_flat[16..20].copy_from_slice(&WIRE_HINTS.height().to_le_bytes());
-    future_flat[20..24].copy_from_slice(&WIRE_HINTS.stride().to_le_bytes());
-    let checksum = crc32(&future_flat[..24]);
-    future_flat[24..28].copy_from_slice(&checksum.to_le_bytes());
-    let future_flat_pointer = future_flat.as_ptr();
-    let future_flat_len = future_flat.len();
-    let future_flat_capacity = future_flat.capacity();
-    let borrowed_future_flat = Document::open(&future_flat).unwrap();
-    assert_eq!(
-        borrowed_future_flat.state,
-        DocumentState::OpaqueFlat(WIRE_HINTS)
-    );
-    assert_eq!(borrowed_future_flat.primary_hints(), WIRE_HINTS);
-    assert_eq!(
-        borrowed_future_flat.origin.source().unwrap().as_ptr(),
-        future_flat_pointer
-    );
-
-    let owned_future_flat = Document::from_vec(future_flat).unwrap();
-    assert_eq!(
-        owned_future_flat.state,
-        DocumentState::OpaqueFlat(WIRE_HINTS)
-    );
-    assert_eq!(owned_future_flat.primary_hints(), WIRE_HINTS);
-    let owned_snapshot = snapshot(&owned_future_flat);
-    assert_eq!(owned_snapshot.origin_pointer, future_flat_pointer as usize);
-    assert_eq!(owned_snapshot.origin_len, future_flat_len);
-    assert_eq!(owned_snapshot.origin_capacity, Some(future_flat_capacity));
 }
 
 #[test]

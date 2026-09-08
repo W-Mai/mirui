@@ -189,7 +189,7 @@ impl<'source> Document<'source> {
     pub fn chunks(&self) -> ChunkIter<'_> {
         let nodes = match &self.state {
             DocumentState::Chunk(chunks) => chunks.chunks.as_slice(),
-            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => &[],
+            DocumentState::Flat(_) => &[],
         };
         ChunkIter::new(self, nodes)
     }
@@ -220,7 +220,7 @@ impl<'source> Document<'source> {
     pub const fn primary(&self) -> Option<ChunkId> {
         match &self.state {
             DocumentState::Chunk(chunks) => chunks.primary,
-            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => None,
+            DocumentState::Flat(_) => None,
         }
     }
 }
@@ -230,7 +230,7 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
-    use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
+    use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, chunk_type};
     use crate::{
         ColorFormat, CriticalAssumption, EditError, FlatImageInput, PayloadInput, RawChunkInput,
         RawChunkPolicy, RelocationAssumption, crc32, encode_chunks, encode_flat,
@@ -245,11 +245,6 @@ mod tests {
 
     fn set_primary(source: &mut [u8], chunk_type: u16) {
         source[20..22].copy_from_slice(&chunk_type.to_le_bytes());
-        refresh_chunk_header_crc(source);
-    }
-
-    fn set_future_semantics(source: &mut [u8]) {
-        source[5] = VERSION_MINOR + 1;
         refresh_chunk_header_crc(source);
     }
 
@@ -272,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn flat_opaque_flat_and_empty_chunk_documents_have_empty_queries() {
+    fn flat_and_empty_chunk_documents_have_empty_queries() {
         let flat_source = encode_flat(&FlatImageInput {
             width: 1,
             height: 1,
@@ -283,15 +278,9 @@ mod tests {
         });
         let flat = Document::open(&flat_source).unwrap();
 
-        let mut opaque_source = flat_source.clone();
-        opaque_source[5] = VERSION_MINOR + 1;
-        let checksum = crc32(&opaque_source[..24]);
-        opaque_source[24..28].copy_from_slice(&checksum.to_le_bytes());
-        let opaque = Document::open(&opaque_source).unwrap();
-
         let new = Document::new();
         let id = ChunkId::new(0);
-        for document in [&flat, &opaque, &new] {
+        for document in [&flat, &new] {
             assert_eq!(document.chunks().len(), 0);
             assert_eq!(document.chunks().size_hint(), (0, Some(0)));
             assert!(document.get(id).is_none());
@@ -435,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn primary_query_handles_zero_stale_custom_duplicate_and_future_headers() {
+    fn primary_query_handles_zero_stale_custom_and_duplicate_types() {
         let custom = ChunkType::new(0xbeef).unwrap();
         let chunks = [
             (chunk_type::META, 0, b"meta".as_slice()),
@@ -455,12 +444,6 @@ mod tests {
         set_primary(&mut custom_source, custom.raw());
         let custom_document = Document::open(&custom_source).unwrap();
         assert_eq!(custom_document.primary(), Some(ChunkId::new(1)));
-
-        set_future_semantics(&mut custom_source);
-        let future_document = Document::open(&custom_source).unwrap();
-        assert!(future_document.file_metadata().has_future_semantics());
-        assert_eq!(future_document.chunks().len(), 3);
-        assert_eq!(future_document.primary(), Some(ChunkId::new(1)));
     }
 
     #[test]

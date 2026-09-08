@@ -152,24 +152,16 @@ mod tests {
     }
 
     #[test]
-    fn stale_type_and_future_headers_remain_queryable() {
-        for (minor, flags) in [
-            (VERSION_MINOR, 0),
-            (VERSION_MINOR + 1, 0),
-            (VERSION_MINOR, 0x80),
-        ] {
-            let mut bytes = encode_chunks(&[(chunk_type::META, 0, b"meta")]);
-            bytes[5] = minor;
-            bytes[7] = flags;
-            set_primary(&mut bytes, chunk_type::VECTOR, 0xa5, 3, 4, 12);
-            let reader = Reader::open(&bytes).unwrap();
-            assert_eq!(reader.primary(), Ok(None));
-            assert_eq!(
-                reader.primary_hints(),
-                PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 3, 4, 12)
-            );
-            assert_eq!(reader.chunks().next().unwrap().payload(), b"meta");
-        }
+    fn stale_type_remains_queryable() {
+        let mut bytes = encode_chunks(&[(chunk_type::META, 0, b"meta")]);
+        set_primary(&mut bytes, chunk_type::VECTOR, 0xa5, 3, 4, 12);
+        let reader = Reader::open(&bytes).unwrap();
+        assert_eq!(reader.primary(), Ok(None));
+        assert_eq!(
+            reader.primary_hints(),
+            PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 3, 4, 12)
+        );
+        assert_eq!(reader.chunks().next().unwrap().payload(), b"meta");
     }
 
     #[test]

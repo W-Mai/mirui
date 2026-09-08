@@ -36,7 +36,6 @@ impl ChunkTableMeta {
     pub(crate) fn inspect(
         bytes: &[u8],
         header: ChunkFileHeader,
-        enforce_reserved: bool,
         max_chunks: u16,
     ) -> Result<Self, ReadError> {
         if header.chunk_count > max_chunks {
@@ -81,10 +80,7 @@ impl ChunkTableMeta {
                     available: bytes.len(),
                 })?;
 
-            if let (true, Some(relative)) = (
-                enforce_reserved,
-                record[12..16].iter().position(|&byte| byte != 0),
-            ) {
+            if let Some(relative) = record[12..16].iter().position(|&byte| byte != 0) {
                 return Err(ReadError::ReservedNonZero {
                     offset: record_offset + 12 + relative,
                 });
@@ -338,7 +334,7 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::header::{CHUNK_FILE_HEADER_LEN, VERSION_MINOR, chunk_type};
+    use crate::header::{CHUNK_FILE_HEADER_LEN, chunk_type};
     use crate::{ReadOptions, Reader, crc32, encode_chunks};
 
     #[test]
@@ -458,29 +454,13 @@ mod tests {
     }
 
     #[test]
-    fn honors_chunk_limits_and_preserves_future_entry_bytes() {
+    fn honors_chunk_limits() {
         let bytes = encode_chunks(&[(chunk_type::META, 0, b"a"), (chunk_type::FONT, 0, b"b")]);
         let options = ReadOptions::new().with_max_chunks(1);
         assert_eq!(
             Reader::open_with(&bytes, &options),
             Err(ReadError::TooManyChunks { count: 2, limit: 1 })
         );
-
-        for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-            let mut future = bytes.clone();
-            future[5] = minor;
-            future[7] = flags;
-            future[CHUNK_FILE_HEADER_LEN + 12] = 0x55;
-            let checksum = crc32(&future[..40]);
-            future[40..44].copy_from_slice(&checksum.to_le_bytes());
-            let reader = Reader::open(&future).unwrap();
-            assert!(reader.has_future_semantics());
-            assert_eq!(reader.chunks().len(), 2);
-
-            future[CHUNK_FILE_HEADER_LEN..CHUNK_FILE_HEADER_LEN + 2]
-                .copy_from_slice(&0u16.to_le_bytes());
-            assert_eq!(Reader::open(&future), Err(ReadError::InvalidChunkType));
-        }
 
         let over_default = usize::from(ReadOptions::DEFAULT_MAX_CHUNKS) + 1;
         let chunks = vec![(chunk_type::META, 0, b"" as &[u8]); over_default];

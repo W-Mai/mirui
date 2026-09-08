@@ -78,9 +78,6 @@ enum StateSnapshot {
         main: StorageSnapshot,
         extra: Option<StorageSnapshot>,
     },
-    OpaqueFlat {
-        hints: PrimaryHints,
-    },
     Chunk {
         vector_pointer: usize,
         vector_capacity: usize,
@@ -97,7 +94,6 @@ struct DocumentSnapshot {
     logical_len: usize,
     file: FileMeta,
     layout: Layout,
-    compatibility: Compatibility,
     trailing: TrailingState,
     payload_limits: PayloadLimits,
     dirty: bool,
@@ -267,7 +263,6 @@ fn flat_state_snapshot(document: &Document<'_>, record: &FlatRecord<'_>) -> Stat
 fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
     let state = match &document.state {
         DocumentState::Flat(record) => flat_state_snapshot(document, record),
-        DocumentState::OpaqueFlat(hints) => StateSnapshot::OpaqueFlat { hints: *hints },
         DocumentState::Chunk(chunks) => StateSnapshot::Chunk {
             vector_pointer: chunks.chunks.as_ptr() as usize,
             vector_capacity: chunks.chunks.capacity(),
@@ -295,7 +290,6 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
         logical_len: document.logical_len,
         file: document.file,
         layout: document.layout(),
-        compatibility: document.compatibility,
         trailing: document.trailing,
         payload_limits: document.payload_limits,
         dirty: document.dirty,
@@ -412,11 +406,6 @@ fn set_wire_primary(source: &mut [u8], chunk_type: ChunkType, hints: PrimaryHint
     refresh_header_crc(source);
 }
 
-fn make_future(source: &mut [u8]) {
-    source[5] = VERSION_MINOR + 1;
-    refresh_header_crc(source);
-}
-
 fn mixed_document() -> Document<'static> {
     let mut source = encode_chunks(&[
         (TYPE_A.raw(), 0, b"source-primary"),
@@ -521,35 +510,11 @@ fn complete_snapshot_distinguishes_origin_and_document_state_variants() {
         borrowed_snapshot.state,
         StateSnapshot::Flat { .. }
     ));
-
-    let mut future_flat = flat_source;
-    make_future(&mut future_flat);
-    let opaque_flat = Document::from_vec(future_flat).unwrap();
-    let opaque_snapshot = snapshot(&opaque_flat);
-    assert_eq!(opaque_snapshot.origin.kind, OriginKind::Owned);
-    assert!(matches!(
-        opaque_snapshot.state,
-        StateSnapshot::OpaqueFlat { .. }
-    ));
 }
 
 #[test]
-fn global_edit_blockers_precede_exact_noops_without_state_changes() {
-    let mut future_source = encode_chunks(&[(TYPE_A.raw(), 0, b"source")]);
-    set_wire_primary(&mut future_source, TYPE_A, WIRE_HINTS);
-    make_future(&mut future_source);
-    future_source.extend_from_slice(b"tail");
+fn trailing_edit_blocker_precedes_exact_noops_without_state_changes() {
     let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
-    let mut future = Document::from_vec_with(future_source, &options).unwrap();
-    let primary = future.primary().unwrap();
-    let before = snapshot(&future);
-    let result = future.replace_raw(
-        primary,
-        PayloadInput::Borrowed(b"source"),
-        RawChunkPolicy::infer(),
-    );
-    assert_atomic_error(&future, &before, result, EditError::FutureSemanticsReadOnly);
-
     let mut trailing_source = encode_chunks(&[(TYPE_A.raw(), 0, b"source")]);
     set_wire_primary(&mut trailing_source, TYPE_A, WIRE_HINTS);
     trailing_source.extend_from_slice(b"tail");
@@ -955,13 +920,6 @@ fn flat_replacement_blockers_precede_payload_validation_atomically() {
         result,
         EditError::PreservedTrailingBytesReadOnly,
     );
-
-    let mut future_source = trailing_source;
-    make_future(&mut future_source);
-    let mut future = Document::open_with(&future_source, &options).unwrap();
-    let before = snapshot(&future);
-    let result = future.replace_flat_image(bad_asset());
-    assert_atomic_error(&future, &before, result, EditError::FutureSemanticsReadOnly);
 }
 
 #[test]
@@ -1050,4 +1008,30 @@ fn typed_image_replace_failures_and_noops_preserve_complete_state() {
         result,
         EditError::ReservedFlagBits { bits: 2 },
     );
+}
+
+#[test]
+fn discarding_trailing_bytes_retains_the_owned_source_allocation() {
+    let mut source = encode_chunks(&[(TYPE_A.raw(), 0, b"source")]);
+    let logical_len = source.len();
+    source.extend_from_slice(b"tail");
+    let expected = (source.as_ptr(), source.len(), source.capacity());
+    let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
+    let mut document = Document::from_vec_with(source, &options).unwrap();
+
+    let allocation = |document: &Document<'_>| match &document.origin {
+        Origin::Owned(bytes) => (bytes.as_ptr(), bytes.len(), bytes.capacity()),
+        Origin::New | Origin::Borrowed(_) => panic!("expected owned origin"),
+    };
+    assert_eq!(allocation(&document), expected);
+    assert_eq!(document.logical_len, logical_len);
+
+    document.discard_trailing_bytes().unwrap();
+    assert_eq!(allocation(&document), expected);
+    assert_eq!(document.logical_len, logical_len);
+    assert!(document.is_dirty());
+
+    let after = snapshot(&document);
+    document.discard_trailing_bytes().unwrap();
+    assert_eq!(snapshot(&document), after);
 }

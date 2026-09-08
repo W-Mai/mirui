@@ -7,8 +7,8 @@ use super::payload::{
     resolve_node_payload,
 };
 use super::{
-    ChunkSet, Compatibility, Document, DocumentState, EncodeOptions, FlatRecord, LayoutPolicy,
-    PayloadStorage, PrimaryHintState, TrailingState,
+    ChunkSet, Document, DocumentState, EncodeOptions, FlatRecord, LayoutPolicy, PayloadStorage,
+    PrimaryHintState, TrailingState,
 };
 use crate::header::FileHeader;
 use crate::image::ImageRef;
@@ -586,10 +586,6 @@ impl<'source> Document<'source> {
                     .map_err(|_| EncodeError::NotRepresentableAsFlat)?;
                 Ok(LayoutPlan::Flat(plan_flat_image(candidate.image)?))
             }
-            (DocumentState::OpaqueFlat(_), _) => {
-                debug_assert!(matches!(self.compatibility, Compatibility::FutureReadOnly));
-                Err(EncodeError::FutureSemanticsReadOnly)
-            }
         }
     }
 }
@@ -682,9 +678,6 @@ fn emit_file_header(layout: Layout, out: &mut [u8]) {
 }
 
 fn ensure_rewrite_allowed(document: &Document<'_>) -> Result<(), EncodeError> {
-    if matches!(document.compatibility, Compatibility::FutureReadOnly) {
-        return Err(EncodeError::FutureSemanticsReadOnly);
-    }
     if matches!(document.trailing, TrailingState::Preserved) {
         return Err(EncodeError::PreservedTrailingBytesReadOnly);
     }
@@ -827,13 +820,12 @@ mod tests {
 
     use super::*;
     use crate::document::{
-        CompatibilityPolicy, CriticalAssumption, OpenOptions, PayloadInput, RawChunkInput,
-        RawChunkPolicy, RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
+        CriticalAssumption, OpenOptions, PayloadInput, RawChunkInput, RawChunkPolicy,
+        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
     };
     use crate::wire::{read_u16_le, read_u32_le};
     use crate::{
-        FlatImageInput, ImageView, Layout, Reader, TrailingBytesPolicy, VERSION_MINOR, crc32,
-        encode_chunks, encode_flat,
+        FlatImageInput, ImageView, Layout, Reader, TrailingBytesPolicy, encode_chunks, encode_flat,
     };
 
     const CUSTOM_A: ChunkType = match ChunkType::new(0xa001) {
@@ -928,16 +920,6 @@ mod tests {
             main: &main,
             extra: None,
         })
-    }
-
-    fn set_future_minor(source: &mut [u8]) {
-        source[5] = VERSION_MINOR + 1;
-        let checksum_offset = match Layout::from_u8(source[6]).unwrap() {
-            Layout::Flat => 24,
-            Layout::Chunk => 40,
-        };
-        let checksum = crc32(&source[..checksum_offset]);
-        source[checksum_offset..checksum_offset + 4].copy_from_slice(&checksum.to_le_bytes());
     }
 
     fn chunk_set_mut<'document, 'source>(
@@ -1218,15 +1200,7 @@ mod tests {
     }
 
     #[test]
-    fn global_blockers_and_primary_missing_precede_capabilities() {
-        let mut future_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"future")]);
-        set_future_minor(&mut future_source);
-        let future = Document::open(&future_source).unwrap();
-        assert_eq!(
-            future.encoded_len(&EncodeOptions::new().with_layout_policy(LayoutPolicy::ForceFlat)),
-            Err(EncodeError::FutureSemanticsReadOnly)
-        );
-
+    fn trailing_blocker_and_primary_missing_precede_capabilities() {
         let mut trailing_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"trailing")]);
         trailing_source.extend_from_slice(b"tail");
         let trailing = Document::open_with(
@@ -1634,17 +1608,6 @@ mod tests {
         );
         assert_eq!(ample, before);
 
-        let mut future_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"future")]);
-        set_future_minor(&mut future_source);
-        let future = Document::open(&future_source).unwrap();
-        let mut ample = vec![0x44; future_source.len() + 32];
-        let before = ample.clone();
-        assert_eq!(
-            future.encode_into(&mut ample, &options),
-            Err(EncodeError::FutureSemanticsReadOnly)
-        );
-        assert_eq!(ample, before);
-
         let mut trailing_source = encode_chunks(&[(CUSTOM_B.raw(), 0, b"trailing")]);
         trailing_source.extend_from_slice(b"tail");
         let trailing = Document::open_with(
@@ -1795,33 +1758,7 @@ mod tests {
     }
 
     #[test]
-    fn finish_clean_passthrough_ignores_future_and_noncanonical_opaque_state() {
-        let mut future_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"future")]);
-        set_future_minor(&mut future_source);
-        let future_pointer = future_source.as_ptr();
-        let future = Document::open(&future_source).unwrap();
-        assert!(!future.is_dirty());
-        assert!(future.file_metadata().has_future_semantics());
-        let finished = future.finish().unwrap();
-        let Cow::Borrowed(bytes) = finished else {
-            panic!("unchanged future source must remain borrowed");
-        };
-        assert_eq!(bytes, future_source);
-        assert_eq!(bytes.as_ptr(), future_pointer);
-
-        let mut future_flat_source = flat_source();
-        set_future_minor(&mut future_flat_source);
-        let future_flat_pointer = future_flat_source.as_ptr();
-        let future_flat = Document::open(&future_flat_source).unwrap();
-        assert!(!future_flat.is_dirty());
-        assert!(matches!(future_flat.state, DocumentState::OpaqueFlat(_)));
-        let finished = future_flat.finish().unwrap();
-        let Cow::Borrowed(bytes) = finished else {
-            panic!("unchanged future FLAT source must remain borrowed");
-        };
-        assert_eq!(bytes, future_flat_source);
-        assert_eq!(bytes.as_ptr(), future_flat_pointer);
-
+    fn finish_clean_passthrough_keeps_noncanonical_opaque_state() {
         let noncanonical = encode_chunks(&[(CUSTOM_A.raw(), 0, b"x"), (CUSTOM_B.raw(), 0, b"yz")]);
         assert_eq!(read_u32_le(&noncanonical, 48), Some(76));
         assert_eq!(read_u32_le(&noncanonical, 64), Some(77));
@@ -1884,30 +1821,12 @@ mod tests {
     }
 
     #[test]
-    fn finish_dirty_future_and_trailing_states_keep_default_error_priority() {
-        let mut future_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"future")]);
-        set_future_minor(&mut future_source);
-        future_source.extend_from_slice(b"tail");
-        let preserve_trailing =
-            OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
-        let mut future = Document::open_with(&future_source, &preserve_trailing).unwrap();
-        assert!(matches!(
-            future.compatibility,
-            Compatibility::FutureReadOnly
-        ));
-        assert!(matches!(future.trailing, TrailingState::Preserved));
-        future.dirty = true;
-        assert_eq!(future.finish(), Err(EncodeError::FutureSemanticsReadOnly));
-
+    fn finish_dirty_trailing_state_keeps_default_error() {
         let mut trailing_source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"trailing")]);
-        set_future_minor(&mut trailing_source);
         trailing_source.extend_from_slice(b"tail");
-        let options = OpenOptions::new()
-            .with_compatibility(CompatibilityPolicy::NormalizeToCurrent)
-            .with_trailing_bytes(TrailingBytesPolicy::Preserve);
-        let trailing = Document::open_with(&trailing_source, &options).unwrap();
-        assert!(trailing.is_dirty());
-        assert!(matches!(trailing.compatibility, Compatibility::Current));
+        let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
+        let mut trailing = Document::open_with(&trailing_source, &options).unwrap();
+        trailing.dirty = true;
         assert!(matches!(trailing.trailing, TrailingState::Preserved));
         assert_eq!(
             trailing.finish(),

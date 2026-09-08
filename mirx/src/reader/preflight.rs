@@ -11,7 +11,6 @@ use crate::{ChunkType, ReadError};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PayloadLocation {
-    FlatImage,
     Chunk {
         index: u16,
         chunk_type: ChunkType,
@@ -48,13 +47,6 @@ impl PayloadValidationError {
         self.failure
     }
 
-    const fn at_flat(failure: PayloadValidationFailure) -> Self {
-        Self {
-            location: PayloadLocation::FlatImage,
-            failure,
-        }
-    }
-
     fn at_chunk(chunk: ChunkRef<'_>, failure: PayloadValidationFailure) -> Self {
         Self {
             location: PayloadLocation::Chunk {
@@ -84,13 +76,7 @@ impl<'a> Reader<'a> {
         limits: &PayloadLimits,
     ) -> Result<(), PayloadValidationError> {
         if matches!(self.header, ContainerHeader::Flat(_)) {
-            return if self.has_future_semantics {
-                Err(PayloadValidationError::at_flat(
-                    PayloadValidationFailure::UnsupportedStandardPayload,
-                ))
-            } else {
-                Ok(())
-            };
+            return Ok(());
         }
 
         for chunk in self.chunks() {
@@ -213,7 +199,7 @@ mod tests {
     use super::*;
     use crate::font::FontMetadataError;
     use crate::frames::{FrameSequence, FramesEncoder};
-    use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
+    use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, chunk_type};
     use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
     use crate::meta::MetaValueRef;
     use crate::scene::SceneOp;
@@ -359,16 +345,6 @@ mod tests {
     fn mark_first_chunk_critical(bytes: &mut [u8]) {
         bytes[CHUNK_FILE_HEADER_LEN + 2..CHUNK_FILE_HEADER_LEN + 4]
             .copy_from_slice(&ChunkFlags::CRITICAL.bits().to_le_bytes());
-    }
-
-    fn refresh_header_crc(bytes: &mut [u8]) {
-        let checksum = crc32(&bytes[..40]);
-        bytes[40..44].copy_from_slice(&checksum.to_le_bytes());
-    }
-
-    fn refresh_flat_crc(bytes: &mut [u8]) {
-        let checksum = crc32(&bytes[..24]);
-        bytes[24..28].copy_from_slice(&checksum.to_le_bytes());
     }
 
     fn assert_critical_image_failure(bytes: &[u8], expected: ImageReadError) {
@@ -840,7 +816,7 @@ mod tests {
     }
 
     #[test]
-    fn current_flat_is_already_validated_but_future_flat_is_unsupported() {
+    fn flat_is_already_validated() {
         let pixel = [0];
         let current = encode_flat(&FlatImageInput {
             width: 1,
@@ -856,22 +832,6 @@ mod tests {
                 .validate_known_payloads(&PayloadLimits::EMBEDDED),
             Ok(())
         );
-
-        for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-            let mut future = current.clone();
-            future[5] = minor;
-            future[7] = flags;
-            refresh_flat_crc(&mut future);
-            let reader = Reader::open(&future).unwrap();
-            assert_eq!(reader.flat_image(), None);
-            assert_eq!(
-                reader.validate_known_payloads(&PayloadLimits::EMBEDDED),
-                Err(PayloadValidationError {
-                    location: PayloadLocation::FlatImage,
-                    failure: PayloadValidationFailure::UnsupportedStandardPayload,
-                })
-            );
-        }
     }
 
     #[test]
@@ -1009,78 +969,6 @@ mod tests {
                 )),
             })
         );
-    }
-
-    #[test]
-    fn future_container_semantics_do_not_disable_critical_checks() {
-        for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-            let mut valid = image_file(ChunkFlags::CRITICAL.bits());
-            valid[5] = minor;
-            valid[7] = flags;
-            refresh_header_crc(&mut valid);
-            assert!(Reader::open(&valid).is_ok());
-
-            let mut valid_meta = meta_file(ChunkFlags::CRITICAL.bits());
-            valid_meta[5] = minor;
-            valid_meta[7] = flags;
-            refresh_header_crc(&mut valid_meta);
-            assert!(Reader::open(&valid_meta).is_ok());
-
-            let mut valid_palette = palette_file(ChunkFlags::CRITICAL.bits());
-            valid_palette[5] = minor;
-            valid_palette[7] = flags;
-            refresh_header_crc(&mut valid_palette);
-            assert!(Reader::open(&valid_palette).is_ok());
-
-            let mut malformed_meta = meta_file(ChunkFlags::CRITICAL.bits());
-            set_payload_byte(&mut malformed_meta, 1, 1);
-            malformed_meta[5] = minor;
-            malformed_meta[7] = flags;
-            refresh_header_crc(&mut malformed_meta);
-            assert!(matches!(
-                Reader::open(&malformed_meta),
-                Err(ReadError::CriticalPayload(PayloadValidationError {
-                    failure: PayloadValidationFailure::Meta(MetaDecodeError::UnknownFlags(1)),
-                    ..
-                }))
-            ));
-
-            let mut malformed_font = font_file(ChunkFlags::CRITICAL.bits());
-            mutate_font_payload(&mut malformed_font, |payload| payload[0] = 2);
-            malformed_font[5] = minor;
-            malformed_font[7] = flags;
-            refresh_header_crc(&mut malformed_font);
-            assert!(matches!(
-                Reader::open(&malformed_font),
-                Err(ReadError::CriticalPayload(PayloadValidationError {
-                    failure: PayloadValidationFailure::Font(FontError::Media(
-                        crate::media::MediaPayloadError::UnsupportedVersion(2)
-                    ),),
-                    ..
-                }))
-            ));
-
-            let mut valid_vector = vector_file(ChunkFlags::CRITICAL.bits(), &Scene::default());
-            valid_vector[5] = minor;
-            valid_vector[7] = flags;
-            refresh_header_crc(&mut valid_vector);
-            assert!(Reader::open(&valid_vector).is_ok());
-
-            let mut malformed_vector = vector_file(ChunkFlags::CRITICAL.bits(), &Scene::default());
-            set_payload_byte(&mut malformed_vector, 1, 2);
-            malformed_vector[5] = minor;
-            malformed_vector[7] = flags;
-            refresh_header_crc(&mut malformed_vector);
-            assert!(matches!(
-                Reader::open(&malformed_vector),
-                Err(ReadError::CriticalPayload(PayloadValidationError {
-                    failure: PayloadValidationFailure::Vector(VectorReadError::Codec(
-                        crate::scene::CodecError::UnknownVersion(2),
-                    )),
-                    ..
-                }))
-            ));
-        }
     }
 
     #[test]

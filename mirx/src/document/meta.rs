@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
+use super::{Document, DocumentChunkRef, DocumentState};
 use crate::meta::{Meta, MetaDecodeError, MetaEncodeError, MetaView};
 use crate::payload::image::ImagePayloadError;
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError, meta::MetaAccessError};
@@ -13,9 +13,6 @@ impl<'a> DocumentChunkRef<'a> {
             return Err(MetaAccessError::UnexpectedChunkType {
                 actual: self.chunk_type(),
             });
-        }
-        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
-            return Err(MetaAccessError::FutureSemanticsUnsupported);
         }
         let payload = resolve_node_payload(self.document(), self.node())
             .map_err(meta_access_resolution_error)?;
@@ -32,9 +29,6 @@ impl Document<'_> {
     /// The document's retained resource profile bounds the entry scan and
     /// aggregate key/value bytes. Preserved trailing bytes do not block reads.
     pub(super) fn meta_at(&self, id: ChunkId) -> Result<MetaView<'_>, MetaAccessError> {
-        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
-            return Err(MetaAccessError::FutureSemanticsUnsupported);
-        }
         let DocumentState::Chunk(chunks) = &self.state else {
             return Err(MetaAccessError::ChunkLayoutRequired);
         };
@@ -168,7 +162,6 @@ fn meta_edit_resolution_error(_: ImagePayloadError) -> EditError {
 
 fn meta_access_error_for_edit(error: MetaAccessError) -> EditError {
     match error {
-        MetaAccessError::FutureSemanticsUnsupported => EditError::FutureSemanticsReadOnly,
         MetaAccessError::ChunkLayoutRequired => EditError::ChunkLayoutRequired,
         MetaAccessError::InvalidChunkId => EditError::InvalidChunkId,
         MetaAccessError::UnexpectedChunkType { .. } => EditError::InvalidChunkType,

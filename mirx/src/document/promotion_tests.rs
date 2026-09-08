@@ -8,8 +8,7 @@ use super::*;
 use crate::{
     ColorFormat, CriticalAssumption, EncodeError, EncodeOptions, FlatImageInput, ImageAsset,
     ImageView, LayoutPolicy, OpenOptions, PayloadOrigin, RawChunkInput, ReadOptions, Reader,
-    RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, VERSION_MINOR, crc32,
-    encode_chunks, encode_flat,
+    RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, encode_flat,
 };
 
 const CUSTOM: ChunkType = match ChunkType::new(0xbeef) {
@@ -35,7 +34,6 @@ struct FlatSnapshot {
     origin_capacity: Option<usize>,
     logical_len: usize,
     file: FileMeta,
-    compatibility: Compatibility,
     trailing: TrailingState,
     dirty: bool,
     next_id: u32,
@@ -114,7 +112,6 @@ fn flat_snapshot(document: &Document<'_>) -> FlatSnapshot {
         origin_capacity,
         logical_len: document.logical_len,
         file: document.file,
-        compatibility: document.compatibility,
         trailing: document.trailing,
         dirty: document.dirty,
         next_id: document.next_id,
@@ -153,11 +150,6 @@ fn promoted_id(document: &Document<'_>) -> ChunkId {
         .find(|node| matches!(node.payload, PayloadStorage::PromotedFlat))
         .unwrap()
         .id
-}
-
-fn refresh_flat_crc(source: &mut [u8]) {
-    let checksum = crc32(&source[..24]);
-    source[24..28].copy_from_slice(&checksum.to_le_bytes());
 }
 
 #[test]
@@ -500,29 +492,7 @@ fn promotion_failures_keep_flat_storage_and_global_blocker_priority() {
     );
     assert_eq!(flat_snapshot(&exhausted), before);
 
-    let mut future_source = source.clone();
-    future_source[5] = VERSION_MINOR + 1;
-    refresh_flat_crc(&mut future_source);
-    future_source.extend_from_slice(b"tail");
     let options = OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
-    let mut future = Document::open_with(&future_source, &options).unwrap();
-    assert_eq!(
-        future.promote_to_chunk(),
-        Err(EditError::FutureSemanticsReadOnly)
-    );
-
-    let mut future_chunk = encode_chunks(&[(ChunkType::META.raw(), 0, b"meta")]);
-    future_chunk[5] = VERSION_MINOR + 1;
-    let checksum = crc32(&future_chunk[..40]);
-    future_chunk[40..44].copy_from_slice(&checksum.to_le_bytes());
-    future_chunk.extend_from_slice(b"tail");
-    let mut future_with_trailing = Document::open_with(&future_chunk, &options).unwrap();
-    assert_eq!(future_with_trailing.trailing, TrailingState::Preserved);
-    assert_eq!(
-        future_with_trailing.promote_to_chunk(),
-        Err(EditError::FutureSemanticsReadOnly)
-    );
-
     let mut trailing_source = source.clone();
     trailing_source.extend_from_slice(b"tail");
     let mut trailing = Document::open_with(&trailing_source, &options).unwrap();

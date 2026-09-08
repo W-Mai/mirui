@@ -37,7 +37,7 @@ impl Document<'_> {
     pub fn demote_to_flat(&mut self) -> Result<bool, EditError> {
         self.ensure_mutable()?;
         match &self.state {
-            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => return Ok(false),
+            DocumentState::Flat(_) => return Ok(false),
             DocumentState::Chunk(_) => {}
         }
 

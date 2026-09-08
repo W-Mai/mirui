@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
+use super::{Document, DocumentChunkRef, DocumentState};
 use crate::palette::{Palette, PaletteDecodeError, PaletteEncodeError, PaletteView};
 use crate::payload::image::ImagePayloadError;
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError, palette::PaletteAccessError};
@@ -13,9 +13,6 @@ impl<'a> DocumentChunkRef<'a> {
             return Err(PaletteAccessError::UnexpectedChunkType {
                 actual: self.chunk_type(),
             });
-        }
-        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
-            return Err(PaletteAccessError::FutureSemanticsUnsupported);
         }
         let payload = resolve_node_payload(self.document(), self.node())
             .map_err(palette_access_resolution_error)?;
@@ -32,9 +29,6 @@ impl Document<'_> {
     /// The document's retained resource profile bounds the color scan.
     /// Preserved trailing bytes do not block reads.
     pub(super) fn palette_at(&self, id: ChunkId) -> Result<PaletteView<'_>, PaletteAccessError> {
-        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
-            return Err(PaletteAccessError::FutureSemanticsUnsupported);
-        }
         let DocumentState::Chunk(chunks) = &self.state else {
             return Err(PaletteAccessError::ChunkLayoutRequired);
         };
@@ -172,7 +166,6 @@ fn palette_edit_resolution_error(_: ImagePayloadError) -> EditError {
 
 fn palette_access_error_for_edit(error: PaletteAccessError) -> EditError {
     match error {
-        PaletteAccessError::FutureSemanticsUnsupported => EditError::FutureSemanticsReadOnly,
         PaletteAccessError::ChunkLayoutRequired => EditError::ChunkLayoutRequired,
         PaletteAccessError::InvalidChunkId => EditError::InvalidChunkId,
         PaletteAccessError::UnexpectedChunkType { .. } => EditError::InvalidChunkType,
@@ -519,17 +512,6 @@ mod tests {
             Err(PaletteAccessError::UnexpectedChunkType {
                 actual: ChunkType::FONT,
             })
-        );
-
-        let mut future = palette_file(&payload, ChunkFlags::NONE);
-        future[5] = crate::VERSION_MINOR + 1;
-        let checksum = crc32(&future[..40]);
-        future[40..44].copy_from_slice(&checksum.to_le_bytes());
-        let future = Document::open(&future).unwrap();
-        let palette_id = future.chunks().next().unwrap().id();
-        assert_eq!(
-            future.palette_at(palette_id),
-            Err(PaletteAccessError::FutureSemanticsUnsupported)
         );
 
         let mut segmented = Document::new_flat(ImageAsset::new(

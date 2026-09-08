@@ -224,10 +224,8 @@ impl Document<'_> {
     ///
     /// Valid IMAGE and FRAMES hints are derived from the validated payload. Known
     /// non-image primaries use [`crate::image::SampleLayout::NONE`], zero stride, and either
-    /// explicit suggested dimensions or zero geometry. Future opaque FLAT
-    /// documents expose their preserved raw header hints without interpreting
-    /// the format. Documents without a primary and primaries whose hints are
-    /// missing return [`PrimaryHints::ZERO`].
+    /// explicit suggested dimensions or zero geometry. Documents without a
+    /// primary and primaries whose hints are missing return [`PrimaryHints::ZERO`].
     pub fn primary_hints(&self) -> PrimaryHints {
         let DocumentState::Chunk(chunks) = &self.state else {
             return match &self.state {
@@ -237,7 +235,6 @@ impl Document<'_> {
                     record.image.height,
                     record.image.stride,
                 ),
-                DocumentState::OpaqueFlat(hints) => *hints,
                 DocumentState::Chunk(_) => unreachable!("CHUNK handled before FLAT hints"),
             };
         };
@@ -387,8 +384,8 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::super::{
-        Compatibility, FileMeta, Origin, PayloadInput, PayloadStorage, RawChunkInput,
-        RawChunkPolicy, RelocationAssumption, RewriteCapability, TrailingState,
+        FileMeta, Origin, PayloadInput, PayloadStorage, RawChunkInput, RawChunkPolicy,
+        RelocationAssumption, RewriteCapability, TrailingState,
     };
     use super::*;
     use crate::{
@@ -431,7 +428,6 @@ mod tests {
     struct DocumentSnapshot {
         logical_len: usize,
         file: FileMeta,
-        compatibility: Compatibility,
         trailing: TrailingState,
         dirty: bool,
         next_id: u32,
@@ -544,14 +540,11 @@ mod tests {
                     nodes,
                 )
             }
-            DocumentState::Flat(_) | DocumentState::OpaqueFlat(_) => {
-                (None, PrimaryHintState::Missing, 0, 0, Vec::new())
-            }
+            DocumentState::Flat(_) => (None, PrimaryHintState::Missing, 0, 0, Vec::new()),
         };
         DocumentSnapshot {
             logical_len: document.logical_len,
             file: document.file,
-            compatibility: document.compatibility,
             trailing: document.trailing,
             dirty: document.dirty,
             next_id: document.next_id,
@@ -579,7 +572,6 @@ mod tests {
     ) {
         assert_eq!(after.logical_len, before.logical_len);
         assert_eq!(after.file, before.file);
-        assert_eq!(after.compatibility, before.compatibility);
         assert_eq!(after.trailing, before.trailing);
         assert_eq!(after.next_id, before.next_id);
         assert_eq!(after.origin_kind, before.origin_kind);

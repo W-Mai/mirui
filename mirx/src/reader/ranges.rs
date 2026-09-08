@@ -194,18 +194,3 @@ fn overlapping_payloads_remain_legal() {
         .collect::<Vec<_>>();
     assert_eq!(chunks, [b"abcdef".as_slice(), b"cdef".as_slice()]);
 }
-
-#[test]
-fn future_headers_keep_logical_and_structural_range_checks() {
-    for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-        let mut bytes = encode_chunks(&[(chunk_type::META, 0, b"body")]);
-        bytes[5] = minor;
-        bytes[7] = flags;
-        set_payload_range(&mut bytes, 0, CHUNK_FILE_HEADER_LEN as u32, 1);
-        refresh_crc(&mut bytes);
-        assert!(matches!(
-            Reader::open(&bytes),
-            Err(ReadError::ChunkPayloadOverlapsTable { .. })
-        ));
-    }
-}

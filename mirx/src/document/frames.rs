@@ -1,7 +1,7 @@
 #[cfg(test)]
 use super::DocumentState;
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentChunkRef};
+use super::{Document, DocumentChunkRef};
 use crate::frames::{EncodedFrames, FramesView};
 use crate::payload::image::ImagePayloadError;
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError, frames::FramesAccessError};
@@ -13,9 +13,6 @@ impl<'a> DocumentChunkRef<'a> {
             return Err(FramesAccessError::UnexpectedChunkType {
                 actual: self.chunk_type(),
             });
-        }
-        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
-            return Err(FramesAccessError::FutureSemanticsUnsupported);
         }
         resolve_node_payload(self.document(), self.node())
             .map_err(frames_access_resolution_error)?
@@ -31,9 +28,6 @@ impl Document<'_> {
     /// is checked against the actual chunk placement.
     #[cfg(test)]
     pub(super) fn frames(&self, id: ChunkId) -> Result<FramesView<'_>, FramesAccessError> {
-        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
-            return Err(FramesAccessError::FutureSemanticsUnsupported);
-        }
         let DocumentState::Chunk(chunks) = &self.state else {
             return Err(FramesAccessError::ChunkLayoutRequired);
         };

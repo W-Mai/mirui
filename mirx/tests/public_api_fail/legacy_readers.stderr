@@ -12,6 +12,3 @@ error[E0432]: unresolved imports `mirx::ChunkFile`, `mirx::FlatImage`, `mirx::Im
   |     |          no `FlatImage` in the root
   |     no `ChunkFile` in the root
   |     help: a similar name exists in the module: `ChunkType`
-  |
-  = help: consider importing this variant instead:
-          mirx::PayloadLocation::FlatImage

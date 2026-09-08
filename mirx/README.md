@@ -420,7 +420,7 @@ let frames = document.get(id).unwrap().frames().unwrap();
 
 Modified CHUNK output is deterministic: descriptor order is stable, padding is canonical, payload alignment is checked, primary hints are derived from typed payloads when possible, and CRCs cover the defined envelope.
 
-## Raw and future payloads
+## Opaque payloads
 
 Raw mutation is explicit about assumptions that cannot be proven from opaque bytes:
 
@@ -447,7 +447,7 @@ let input = RawChunkInput::new(ChunkType::new(0x8000).unwrap(), payload)
 - `ReservedBitsPolicy` rejects, preserves, or normalizes reserved flag bits.
 - `RawTypePolicy` grants a policy to matching source chunks during open.
 
-Higher minor versions and nonzero file flags are preserved as read-only future semantics by default. `CompatibilityPolicy::NormalizeToCurrent` is the explicit rewrite path. Preserved trailing bytes likewise remain read-only until `discard_trailing_bytes()` is called.
+Reader and document opening accept only the current MIRX container version and zero file flags. Unknown chunk types and coding identifiers remain representable within that current container. Preserved trailing bytes remain read-only until `discard_trailing_bytes()` is called.
 
 ## Command-line workflow
 
@@ -490,7 +490,7 @@ Decimal and `0x`-prefixed values are accepted. File edits are failure-safe: the 
 | Edit atomicity | Failed typed or structural edits leave document state unchanged |
 | No-op identity | An unchanged document returns its original bytes exactly |
 | Output stability | Modified documents use deterministic ordering, padding, and metadata |
-| Forward handling | Unknown types are preserved; future semantics remain read-only by default |
+| Open registries | Unknown chunk types and coding identifiers are preserved in current containers |
 | Portability | `no_std + alloc`, Rust 1.85 compatible; target-gated portable vectors with scalar fallback |
 
 ## License

@@ -1,0 +1,11 @@
+error[E0432]: unresolved import `mirx::CompatibilityPolicy`
+ --> tests/public_api_fail/compatibility_policy.rs:1:5
+  |
+1 | use mirx::CompatibilityPolicy;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^ no `CompatibilityPolicy` in the root
+
+error[E0432]: unresolved import `mirx::document::CompatibilityPolicy`
+ --> tests/public_api_fail/compatibility_policy.rs:2:5
+  |
+2 | use mirx::document::CompatibilityPolicy as DocumentCompatibilityPolicy;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `CompatibilityPolicy` in `document`

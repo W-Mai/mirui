@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Current MIRX container semantics.** Reader and document opening now reject unsupported minor versions and nonzero file flags; compatibility normalization and future-read-only states have been removed.
 - **Canonical MIRX coding identity.** Open profile identifiers live under `mirx::coding::CodingId`; duplicate crate-root and `media` paths have been removed.
 - **Canonical MIRX access errors.** Typed access errors live with their payload domains; IMAGE access uses `ImageAccessError`; duplicate crate-root exports and the misleading `ImageDecodeError` name have been removed.
 - **Canonical MIRX value paths.** Shared color and geometry values live under `mirx::types`; VECTOR paths live under `mirx::scene`; duplicate crate-root exports have been removed.

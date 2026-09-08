@@ -59,28 +59,6 @@ fn exact_flat_length_includes_main_and_extra_planes() {
 }
 
 #[test]
-fn future_flat_treats_the_complete_source_as_opaque() {
-    for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-        let mut bytes = flat_file(ColorFormat::A8, 1, 1, 1);
-        bytes[5] = minor;
-        bytes[7] = flags;
-        bytes[8] = 0xfe;
-        bytes[9] = 0x55;
-        bytes.extend_from_slice(&[1, 2, 3]);
-        let checksum = crc32(&bytes[..24]);
-        bytes[24..28].copy_from_slice(&checksum.to_le_bytes());
-
-        let reader = Reader::open(&bytes).unwrap();
-        assert!(reader.has_future_semantics());
-        assert_eq!(reader.logical_len(), bytes.len());
-        assert_eq!(reader.logical_source(), bytes.as_slice());
-        assert_eq!(reader.trailing_bytes(), b"");
-        assert!(!reader.has_trailing_bytes());
-        assert_eq!(reader.flat_image(), None);
-    }
-}
-
-#[test]
 fn chunk_file_size_defines_the_logical_boundary() {
     let mut bytes = encode_chunks(&[(chunk_type::META, 0, b"meta")]);
     let logical_len = bytes.len();
@@ -125,29 +103,6 @@ fn rejects_invalid_or_truncated_chunk_file_sizes_after_crc_validation() {
             available: needed - 1,
         })
     );
-}
-
-#[test]
-fn future_chunk_headers_keep_the_same_explicit_boundary() {
-    for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-        let mut bytes = encode_chunks(&[(chunk_type::META, 0, b"meta")]);
-        let logical_len = bytes.len();
-        bytes[5] = minor;
-        bytes[7] = flags;
-        bytes.extend_from_slice(b"tail");
-        let checksum = crc32(&bytes[..40]);
-        bytes[40..44].copy_from_slice(&checksum.to_le_bytes());
-
-        assert!(matches!(
-            Reader::open(&bytes),
-            Err(ReadError::TrailingBytes { .. })
-        ));
-        let options = ReadOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve);
-        let reader = Reader::open_with(&bytes, &options).unwrap();
-        assert!(reader.has_future_semantics());
-        assert_eq!(reader.logical_len(), logical_len);
-        assert_eq!(reader.trailing_bytes(), b"tail");
-    }
 }
 
 #[test]

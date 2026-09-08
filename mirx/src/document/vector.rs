@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
+use super::{Document, DocumentChunkRef, DocumentState};
 use crate::payload::image::ImagePayloadError;
 use crate::scene::{Scene, VectorAccessError, VectorEncodeError, VectorReadError};
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError};
@@ -16,9 +16,6 @@ impl<'a> DocumentChunkRef<'a> {
             return Err(VectorAccessError::UnexpectedChunkType {
                 actual: self.chunk_type(),
             });
-        }
-        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
-            return Err(VectorAccessError::FutureSemanticsUnsupported);
         }
         let payload = resolve_node_payload(self.document(), self.node())
             .map_err(vector_access_resolution_error)?;
@@ -35,9 +32,6 @@ impl Document<'_> {
     /// The document's retained [`crate::PayloadLimits`] profile bounds every owned
     /// scene component. Preserved trailing bytes do not block typed reads.
     pub(super) fn decode_vector_at(&self, id: ChunkId) -> Result<Scene, VectorAccessError> {
-        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
-            return Err(VectorAccessError::FutureSemanticsUnsupported);
-        }
         let DocumentState::Chunk(chunks) = &self.state else {
             return Err(VectorAccessError::ChunkLayoutRequired);
         };
@@ -168,7 +162,6 @@ fn vector_edit_resolution_error(_: ImagePayloadError) -> EditError {
 
 fn vector_access_error_for_edit(error: VectorAccessError) -> EditError {
     match error {
-        VectorAccessError::FutureSemanticsUnsupported => EditError::FutureSemanticsReadOnly,
         VectorAccessError::ChunkLayoutRequired => EditError::ChunkLayoutRequired,
         VectorAccessError::InvalidChunkId => EditError::InvalidChunkId,
         VectorAccessError::UnexpectedChunkType { .. } => EditError::InvalidChunkType,
@@ -186,7 +179,6 @@ mod tests {
     use core::{cell::Cell, mem::size_of};
 
     use super::*;
-    use crate::header::VERSION_MINOR;
     use crate::path::{Path, PathCmd};
     use crate::scene::{
         FillRule, GradientStop, GradientUnits, LineCap, LineJoin, LinearGradient, Paint,
@@ -194,10 +186,9 @@ mod tests {
     };
     use crate::types::{Color, Fixed, Point, Transform};
     use crate::{
-        ColorFormat, CompatibilityPolicy, CriticalAssumption, EncodeOptions, ImageAsset, Layout,
-        OpenOptions, PayloadInput, PayloadLimits, PayloadOrigin, RawChunkInput, RawChunkPolicy,
-        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, crc32,
-        encode_chunks,
+        ColorFormat, CriticalAssumption, EncodeOptions, ImageAsset, Layout, OpenOptions,
+        PayloadInput, PayloadLimits, PayloadOrigin, RawChunkInput, RawChunkPolicy, RawTypePolicy,
+        RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, crc32, encode_chunks,
     };
 
     fn id(counter: u32) -> ChunkId {
@@ -288,11 +279,6 @@ mod tests {
             Cow::Borrowed(&[1, 2, 3, 4]),
         ))
         .unwrap()
-    }
-
-    fn refresh_chunk_header_crc(source: &mut [u8]) {
-        let checksum = crc32(&source[..40]);
-        source[40..44].copy_from_slice(&checksum.to_le_bytes());
     }
 
     #[test]
@@ -712,20 +698,6 @@ mod tests {
         let trailing = Document::open_with(&trailing_source, &options).unwrap();
         let vector_id = trailing.chunks().next().unwrap().id();
         assert_eq!(trailing.decode_vector_at(vector_id).unwrap(), expected);
-
-        trailing_source[5] = VERSION_MINOR + 1;
-        refresh_chunk_header_crc(&mut trailing_source);
-        let future = Document::open_with(&trailing_source, &options).unwrap();
-        let vector_id = future.chunks().next().unwrap().id();
-        assert_eq!(
-            future.decode_vector_at(vector_id),
-            Err(VectorAccessError::FutureSemanticsUnsupported)
-        );
-        let normalized_options =
-            options.with_compatibility(CompatibilityPolicy::NormalizeToCurrent);
-        let normalized = Document::open_with(&trailing_source, &normalized_options).unwrap();
-        let vector_id = normalized.chunks().next().unwrap().id();
-        assert_eq!(normalized.decode_vector_at(vector_id).unwrap(), expected);
     }
 
     #[test]

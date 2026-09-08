@@ -1,7 +1,7 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
+use super::{Document, DocumentChunkRef, DocumentState};
 use crate::font::{Font, FontAccessError, FontError, FontView};
 use crate::payload::image::ImagePayloadError;
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError};
@@ -13,9 +13,6 @@ impl<'a> DocumentChunkRef<'a> {
             return Err(FontAccessError::UnexpectedChunkType {
                 actual: self.chunk_type(),
             });
-        }
-        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
-            return Err(FontAccessError::FutureSemanticsUnsupported);
         }
         resolve_node_payload(self.document(), self.node())
             .map_err(font_access_resolution_error)?
@@ -46,9 +43,6 @@ impl Document<'_> {
     /// The document's retained [`PayloadLimits`] profile bounds both owned
     /// FONT metadata and stored bytes. Preserved trailing bytes do not block typed reads.
     pub(super) fn decode_font_at(&self, id: ChunkId) -> Result<Font, FontAccessError> {
-        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
-            return Err(FontAccessError::FutureSemanticsUnsupported);
-        }
         let DocumentState::Chunk(chunks) = &self.state else {
             return Err(FontAccessError::ChunkLayoutRequired);
         };
@@ -179,7 +173,6 @@ fn font_edit_resolution_error(_: ImagePayloadError) -> EditError {
 
 fn font_access_error_for_edit(error: FontAccessError) -> EditError {
     match error {
-        FontAccessError::FutureSemanticsUnsupported => EditError::FutureSemanticsReadOnly,
         FontAccessError::ChunkLayoutRequired => EditError::ChunkLayoutRequired,
         FontAccessError::InvalidChunkId => EditError::InvalidChunkId,
         FontAccessError::UnexpectedChunkType { .. } => EditError::InvalidChunkType,

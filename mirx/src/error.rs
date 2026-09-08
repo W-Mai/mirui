@@ -133,8 +133,6 @@ impl From<ReadError> for DocumentError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum EditError {
-    /// The source uses future container semantics that were preserved at open.
-    FutureSemanticsReadOnly,
     /// The source retains bytes after its logical MIRX boundary.
     PreservedTrailingBytesReadOnly,
     InvalidChunkId,
@@ -179,8 +177,6 @@ pub enum EditError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FontAccessError {
-    /// The container uses preserved semantics newer than this typed accessor.
-    FutureSemanticsUnsupported,
     /// Stable chunk identities are available only in CHUNK layout.
     ChunkLayoutRequired,
     /// The identity does not name a live chunk in this document session.
@@ -208,8 +204,6 @@ impl From<FontError> for FontAccessError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum VectorAccessError {
-    /// The container uses preserved semantics newer than this typed accessor.
-    FutureSemanticsUnsupported,
     /// Stable chunk identities are available only in CHUNK layout.
     ChunkLayoutRequired,
     /// The identity does not name a live chunk in this document session.
@@ -228,8 +222,6 @@ pub enum VectorAccessError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum MetaAccessError {
-    /// The container uses preserved semantics newer than this typed accessor.
-    FutureSemanticsUnsupported,
     /// Stable chunk identities are available only in CHUNK layout.
     ChunkLayoutRequired,
     /// The identity does not name a live chunk in this document session.
@@ -252,8 +244,6 @@ impl From<MetaDecodeError> for MetaAccessError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PaletteAccessError {
-    /// The container uses preserved semantics newer than this typed accessor.
-    FutureSemanticsUnsupported,
     /// Stable chunk identities are available only in CHUNK layout.
     ChunkLayoutRequired,
     /// The identity does not name a live chunk in this document session.
@@ -276,8 +266,6 @@ impl From<PaletteDecodeError> for PaletteAccessError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum FramesAccessError {
-    /// The container uses preserved semantics newer than this typed accessor.
-    FutureSemanticsUnsupported,
     /// Stable chunk identities are available only in CHUNK layout.
     ChunkLayoutRequired,
     /// The identity does not name a live chunk in this document session.
@@ -323,8 +311,6 @@ impl<E> From<EditError> for TryEditError<E> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ImageAccessError {
-    /// The container uses preserved semantics newer than this typed accessor.
-    FutureSemanticsUnsupported,
     /// Stable chunk identities are available only in CHUNK layout.
     ChunkLayoutRequired,
     /// The identity does not name a live chunk in this document session.
@@ -345,8 +331,6 @@ impl From<ImagePayloadError> for ImageAccessError {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum EncodeError {
-    /// The source uses preserved container semantics newer than MIRX 1.0.
-    FutureSemanticsReadOnly,
     /// The source retains bytes after its logical MIRX boundary.
     PreservedTrailingBytesReadOnly,
     /// The selected output layout cannot represent the document without loss.

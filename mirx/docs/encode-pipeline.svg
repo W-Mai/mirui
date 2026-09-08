@@ -22,7 +22,7 @@
     <path class="line" d="M150 56H190"/>
     <g transform="translate(198)">
       <rect class="card" width="142" height="112" rx="15"/><circle class="step-violet" cx="28" cy="28" r="14"/><text class="step-violet-text" x="28" y="28" font-family="system-ui,sans-serif" font-size="14" font-weight="800" text-anchor="middle" dominant-baseline="middle">2</text>
-      <text class="head" x="20" y="59">Policy check</text><text class="body" x="20" y="80">future semantics</text><text class="mono" x="20" y="99">raw capability</text>
+      <text class="head" x="20" y="59">Policy check</text><text class="body" x="20" y="80">current semantics</text><text class="mono" x="20" y="99">raw capability</text>
     </g>
     <path class="line" d="M348 56H388"/>
     <g transform="translate(396)">

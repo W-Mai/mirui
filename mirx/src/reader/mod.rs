@@ -50,15 +50,12 @@ pub struct Reader<'a> {
     header: ContainerHeader,
     flat_image: Option<ImageView<'a>>,
     chunk_table: Option<ChunkTableMeta>,
-    has_future_semantics: bool,
 }
 
 impl<'a> Reader<'a> {
     /// Validates the container structure and critical payload semantics without
     /// allocating.
     ///
-    /// Higher minor versions and nonzero file flags are retained and marked as
-    /// future semantics. Their layout-specific reserved bytes are not interpreted.
     pub fn open(bytes: &'a [u8]) -> Result<Self, ReadError> {
         Self::open_with(bytes, &ReadOptions::default())
     }
@@ -77,54 +74,27 @@ impl<'a> Reader<'a> {
         bytes: &'a [u8],
         options: &ReadOptions,
     ) -> Result<Self, ReadError> {
-        Self::open_structural_impl(bytes, options, false)
+        Self::open_structural_impl(bytes, options)
     }
 
-    /// Opens a structurally valid source while interpreting layout-specific
-    /// fields under the current container contract.
-    ///
-    /// This is restricted to document compatibility normalization. Public
-    /// reader entry points continue to preserve future layout semantics.
-    pub(crate) fn open_structural_as_current_with(
-        bytes: &'a [u8],
-        options: &ReadOptions,
-    ) -> Result<Self, ReadError> {
-        Self::open_structural_impl(bytes, options, true)
-    }
-
-    fn open_structural_impl(
-        bytes: &'a [u8],
-        options: &ReadOptions,
-        interpret_future_as_current: bool,
-    ) -> Result<Self, ReadError> {
+    fn open_structural_impl(bytes: &'a [u8], options: &ReadOptions) -> Result<Self, ReadError> {
         let file = parse_file_header(bytes)?;
-        let has_future_semantics = file.version_minor > VERSION_MINOR || file.flags != 0;
-        let enforce_current_semantics = !has_future_semantics || interpret_future_as_current;
         let (header, flat_image, chunk_table, logical_len) = match file.layout {
             Layout::Flat => {
-                let header = parse_flat_header(bytes, file, enforce_current_semantics)?;
-                if enforce_current_semantics {
-                    let (image, logical_len) = ImageView::from_flat(bytes, header)?;
-                    (
-                        ContainerHeader::Flat(header),
-                        Some(image),
-                        None,
-                        logical_len,
-                    )
-                } else {
-                    (ContainerHeader::Flat(header), None, None, bytes.len())
-                }
+                let header = parse_flat_header(bytes, file)?;
+                let (image, logical_len) = ImageView::from_flat(bytes, header)?;
+                (
+                    ContainerHeader::Flat(header),
+                    Some(image),
+                    None,
+                    logical_len,
+                )
             }
             Layout::Chunk => {
-                let header = parse_chunk_header(bytes, file, enforce_current_semantics)?;
+                let header = parse_chunk_header(bytes, file)?;
                 let logical_len = chunk_logical_len(header, bytes.len())?;
                 let logical_bytes = &bytes[..logical_len];
-                let table = ChunkTableMeta::inspect(
-                    logical_bytes,
-                    header,
-                    enforce_current_semantics,
-                    options.max_chunks(),
-                )?;
+                let table = ChunkTableMeta::inspect(logical_bytes, header, options.max_chunks())?;
                 (
                     ContainerHeader::Chunk(header),
                     None,
@@ -149,7 +119,6 @@ impl<'a> Reader<'a> {
             header,
             flat_image,
             chunk_table,
-            has_future_semantics,
         })
     }
 
@@ -181,10 +150,6 @@ impl<'a> Reader<'a> {
         self.file_header().layout
     }
 
-    pub const fn has_future_semantics(&self) -> bool {
-        self.has_future_semantics
-    }
-
     pub const fn source(&self) -> &'a [u8] {
         self.bytes
     }
@@ -205,10 +170,7 @@ impl<'a> Reader<'a> {
         self.logical_len < self.bytes.len()
     }
 
-    /// Returns the validated FLAT image for current container semantics.
-    ///
-    /// Future headers remain source-preservable but are not interpreted as a
-    /// current image payload.
+    /// Returns the validated FLAT image.
     pub const fn flat_image(&self) -> Option<ImageView<'a>> {
         self.flat_image
     }
@@ -247,11 +209,14 @@ fn parse_file_header(bytes: &[u8]) -> Result<FileHeader, ReadError> {
 
     let version_major = bytes[4];
     let version_minor = bytes[5];
-    if version_major != VERSION_MAJOR {
+    if version_major != VERSION_MAJOR || version_minor != VERSION_MINOR {
         return Err(ReadError::UnsupportedVersion {
             major: version_major,
             minor: version_minor,
         });
+    }
+    if bytes[7] != 0 {
+        return Err(ReadError::ReservedNonZero { offset: 7 });
     }
 
     let layout = Layout::from_u8(bytes[6]).ok_or(ReadError::UnknownLayout(bytes[6]))?;
@@ -263,15 +228,9 @@ fn parse_file_header(bytes: &[u8]) -> Result<FileHeader, ReadError> {
     })
 }
 
-fn parse_flat_header(
-    bytes: &[u8],
-    file: FileHeader,
-    enforce_current_semantics: bool,
-) -> Result<FlatHeader, ReadError> {
+fn parse_flat_header(bytes: &[u8], file: FileHeader) -> Result<FlatHeader, ReadError> {
     require_len(bytes, FLAT_HEADER_LEN)?;
-    if enforce_current_semantics {
-        require_zero(bytes, &[9, 10, 11])?;
-    }
+    require_zero(bytes, &[9, 10, 11])?;
     validate_crc(bytes, 24, 24)?;
 
     Ok(FlatHeader {
@@ -284,15 +243,9 @@ fn parse_flat_header(
     })
 }
 
-fn parse_chunk_header(
-    bytes: &[u8],
-    file: FileHeader,
-    enforce_current_semantics: bool,
-) -> Result<ChunkFileHeader, ReadError> {
+fn parse_chunk_header(bytes: &[u8], file: FileHeader) -> Result<ChunkFileHeader, ReadError> {
     require_len(bytes, CHUNK_FILE_HEADER_LEN)?;
-    if enforce_current_semantics {
-        require_zero(bytes, &[10, 11, 36, 37, 38, 39])?;
-    }
+    require_zero(bytes, &[10, 11, 36, 37, 38, 39])?;
     validate_crc(bytes, 40, 40)?;
 
     Ok(ChunkFileHeader {
@@ -402,7 +355,6 @@ mod tests {
         let reader = Reader::open(&flat).unwrap();
         assert_eq!(reader.layout(), Layout::Flat);
         assert_eq!(reader.source().as_ptr(), flat.as_ptr());
-        assert!(!reader.has_future_semantics());
         assert!(matches!(reader.header(), ContainerHeader::Flat(_)));
 
         let chunk = chunk_header(VERSION_MINOR, 0);
@@ -469,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn current_reserved_bytes_are_zero_but_future_headers_are_preserved() {
+    fn rejects_reserved_bytes_and_unsupported_header_semantics() {
         for offset in [9, 10, 11] {
             let mut current = flat_header(VERSION_MINOR, 0);
             current[offset] = 1;
@@ -492,17 +444,16 @@ mod tests {
             );
         }
 
-        for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-            let mut future = flat_file(minor, flags);
-            future[9] = 0x7f;
-            future[8] = 0xfe;
-            let checksum = crc32(&future[..24]);
-            future[24..28].copy_from_slice(&checksum.to_le_bytes());
-            let reader = Reader::open(&future).unwrap();
-            assert!(reader.has_future_semantics());
-            assert_eq!(reader.file_header().version_minor, minor);
-            assert_eq!(reader.file_header().flags, flags);
-            assert_eq!(reader.flat_image(), None);
-        }
+        let higher_minor = flat_file(VERSION_MINOR + 1, 0);
+        assert!(matches!(
+            Reader::open(&higher_minor),
+            Err(ReadError::UnsupportedVersion { .. })
+        ));
+
+        let flagged = flat_file(VERSION_MINOR, 0x80);
+        assert_eq!(
+            Reader::open(&flagged),
+            Err(ReadError::ReservedNonZero { offset: 7 })
+        );
     }
 }

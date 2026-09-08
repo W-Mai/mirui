@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 #[cfg(test)]
 use super::DocumentState;
 use super::payload::resolve_node_payload;
-use super::{Compatibility, Document, DocumentChunkRef};
+use super::{Document, DocumentChunkRef};
 use crate::payload::image::ImageAssetEncodeError;
 use crate::{ChunkFlags, ChunkId, ChunkType, EditError, image::ImageAccessError};
 
@@ -19,9 +19,6 @@ impl<'a> DocumentChunkRef<'a> {
                 actual: self.chunk_type(),
             });
         }
-        if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
-            return Err(ImageAccessError::FutureSemanticsUnsupported);
-        }
         resolve_node_payload(self.document(), self.node())?
             .image_view()
             .map_err(Into::into)
@@ -33,13 +30,9 @@ impl Document<'_> {
     ///
     /// RAW and promoted samples remain borrowed. Encoded metadata retains the
     /// source position for explicit group, integrity and decode checks, without
-    /// allocating decoded samples. Preserved future container semantics must
-    /// be normalized before typed payload access.
+    /// allocating decoded samples.
     #[cfg(test)]
     pub(super) fn image(&self, id: ChunkId) -> Result<ImageRef<'_>, ImageAccessError> {
-        if matches!(self.compatibility, Compatibility::FutureReadOnly) {
-            return Err(ImageAccessError::FutureSemanticsUnsupported);
-        }
         let DocumentState::Chunk(chunks) = &self.state else {
             return Err(ImageAccessError::ChunkLayoutRequired);
         };
@@ -185,11 +178,11 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::header::{CHUNK_FILE_HEADER_LEN, VERSION_MINOR};
+    use crate::header::CHUNK_FILE_HEADER_LEN;
     use crate::{
-        ColorFormat, CompatibilityPolicy, CriticalAssumption, EncodeOptions, ImagePayloadError,
-        Layout, OpenOptions, PayloadOrigin, RawChunkPolicy, RawTypePolicy, Reader,
-        RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, crc32, encode_chunks,
+        ColorFormat, CriticalAssumption, EncodeOptions, ImagePayloadError, Layout, OpenOptions,
+        PayloadOrigin, RawChunkPolicy, RawTypePolicy, Reader, RelocationAssumption,
+        ReservedBitsPolicy, TrailingBytesPolicy, crc32, encode_chunks,
     };
 
     const FORMATS: [ColorFormat; 16] = [
@@ -513,7 +506,7 @@ mod tests {
     }
 
     #[test]
-    fn typed_query_reports_lookup_type_payload_and_compatibility_boundaries() {
+    fn typed_query_reports_lookup_type_and_payload_boundaries() {
         let source = encode_chunks(&[
             (ChunkType::META.raw(), 0, b"not an image"),
             (ChunkType::IMAGE.raw(), 0, b"short"),
@@ -549,31 +542,6 @@ mod tests {
         assert_eq!(
             trailing
                 .image(trailing_id)
-                .unwrap()
-                .raw()
-                .unwrap()
-                .packed()
-                .unwrap()
-                .main(),
-            valid_main
-        );
-
-        with_trailing[5] = VERSION_MINOR + 1;
-        refresh_chunk_header_crc(&mut with_trailing);
-        let future = Document::open_with(&with_trailing, &options).unwrap();
-        let future_id = future.chunks().next().unwrap().id();
-        assert_eq!(
-            future.image(future_id),
-            Err(ImageAccessError::FutureSemanticsUnsupported)
-        );
-
-        let normalized_options =
-            options.with_compatibility(CompatibilityPolicy::NormalizeToCurrent);
-        let normalized = Document::open_with(&with_trailing, &normalized_options).unwrap();
-        let normalized_id = normalized.chunks().next().unwrap().id();
-        assert_eq!(
-            normalized
-                .image(normalized_id)
                 .unwrap()
                 .raw()
                 .unwrap()
@@ -680,14 +648,6 @@ mod tests {
         assert_eq!(
             trailing.push_image_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
             Err(EditError::PreservedTrailingBytesReadOnly)
-        );
-
-        trailing_source[5] = VERSION_MINOR + 1;
-        refresh_chunk_header_crc(&mut trailing_source);
-        let mut future = Document::open_with(&trailing_source, &options).unwrap();
-        assert_eq!(
-            future.push_image_with_flags(&invalid, ChunkFlags::from_bits_retain(2)),
-            Err(EditError::FutureSemanticsReadOnly)
         );
     }
 

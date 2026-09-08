@@ -4,9 +4,9 @@ use alloc::vec::Vec;
 
 use super::*;
 use crate::{
-    CHUNK_FILE_HEADER_LEN, ColorFormat, CompatibilityPolicy, EncodeError, EncodeOptions,
-    FlatImageInput, LayoutPolicy, OpenOptions, PayloadInput, RawChunkInput, RawChunkPolicy,
-    RawTypePolicy, Reader, TrailingBytesPolicy, VERSION_MINOR, crc32, encode_flat,
+    CHUNK_FILE_HEADER_LEN, ColorFormat, EncodeError, EncodeOptions, FlatImageInput, LayoutPolicy,
+    OpenOptions, PayloadInput, RawChunkInput, RawChunkPolicy, RawTypePolicy, Reader,
+    TrailingBytesPolicy, crc32, encode_flat,
 };
 
 const FORMATS: [ColorFormat; 16] = [
@@ -586,24 +586,9 @@ fn nonrepresentable_smallest_falls_back_and_force_flat_is_atomic() {
 }
 
 #[test]
-fn global_write_blockers_precede_layout_and_representability() {
+fn trailing_write_blocker_precedes_layout_and_representability() {
     let payload = image_payload(ColorFormat::A8, 1, 1, 1, 0);
     let source = encoded_image_chunk(&payload);
-
-    let mut future_with_tail = source.clone();
-    future_with_tail[5] = VERSION_MINOR + 1;
-    let checksum = crc32(&future_with_tail[..40]);
-    future_with_tail[40..44].copy_from_slice(&checksum.to_le_bytes());
-    future_with_tail.extend_from_slice(b"tail");
-    let mut future = Document::open_with(
-        &future_with_tail,
-        &OpenOptions::new().with_trailing_bytes(TrailingBytesPolicy::Preserve),
-    )
-    .unwrap();
-    assert_eq!(
-        future.demote_to_flat(),
-        Err(EditError::FutureSemanticsReadOnly)
-    );
 
     let mut with_tail = source.clone();
     with_tail.extend_from_slice(b"tail");
@@ -618,18 +603,6 @@ fn global_write_blockers_precede_layout_and_representability() {
     );
     trailing.discard_trailing_bytes().unwrap();
     assert_eq!(trailing.demote_to_flat(), Ok(true));
-
-    let mut future_source = source;
-    future_source[5] = VERSION_MINOR + 1;
-    let checksum = crc32(&future_source[..40]);
-    future_source[40..44].copy_from_slice(&checksum.to_le_bytes());
-    let mut normalized = Document::open_with(
-        &future_source,
-        &OpenOptions::new().with_compatibility(CompatibilityPolicy::NormalizeToCurrent),
-    )
-    .unwrap();
-    assert_eq!(normalized.file, FileMeta::CURRENT);
-    assert_eq!(normalized.demote_to_flat(), Ok(true));
 
     let mut flat_with_tail = encode_flat(&FlatImageInput {
         width: 1,

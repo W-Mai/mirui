@@ -123,11 +123,11 @@ impl<'a> Reader<'a> {
     /// Streams non-fatal container compliance issues without allocating.
     pub fn compliance_findings(&self) -> FindingIter<'a> {
         let primary_check = match self.header {
-            ContainerHeader::Chunk(header) if !self.has_future_semantics => PrimaryCheck::Inspect {
+            ContainerHeader::Chunk(header) => PrimaryCheck::Inspect {
                 chunk_type: ChunkType::new(header.primary_chunk_type),
                 hints: self.primary_hints(),
             },
-            ContainerHeader::Flat(_) | ContainerHeader::Chunk(_) => PrimaryCheck::Skip,
+            ContainerHeader::Flat(_) => PrimaryCheck::Skip,
         };
         FindingIter::new(self.chunks(), primary_check)
     }
@@ -335,38 +335,6 @@ mod tests {
             Reader::open(&bytes).unwrap().compliance_findings().next(),
             None
         );
-    }
-
-    #[test]
-    fn future_headers_suppress_primary_findings_but_keep_objective_overlaps() {
-        for (minor, flags) in [(VERSION_MINOR + 1, 0), (VERSION_MINOR, 0x80)] {
-            let mut bytes = encode_chunks(&[
-                (chunk_type::META, 0, b"abcdef"),
-                (chunk_type::FONT, 0, b"uvwxyz"),
-            ]);
-            bytes[5] = minor;
-            bytes[7] = flags;
-            set_primary(
-                &mut bytes,
-                chunk_type::VECTOR,
-                PrimaryHints::new(crate::image::SampleLayout::new(0xa5), 3, 4, 12),
-            );
-            let start = payload_offset(&bytes, 0);
-            set_payload_range(&mut bytes, 1, start + 2, 3);
-
-            assert_eq!(
-                Reader::open(&bytes)
-                    .unwrap()
-                    .compliance_findings()
-                    .collect::<alloc::vec::Vec<_>>(),
-                vec![ComplianceFinding::OverlappingPayloads {
-                    first_index: 0,
-                    second_index: 1,
-                    overlap_offset: start + 2,
-                    overlap_size: 3,
-                }]
-            );
-        }
     }
 
     #[test]

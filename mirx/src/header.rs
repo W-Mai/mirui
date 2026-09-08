@@ -3,11 +3,10 @@ use crate::error::ParseError;
 
 pub const MAGIC: [u8; 4] = *b"MIRX";
 
-/// Reader rejects files whose major differs (cross-major is breaking).
+/// Current MIRX major version.
 pub const VERSION_MAJOR: u8 = 1;
 
-/// Higher minors are tolerated as long as they only add chunks/fields the
-/// reader can skip.
+/// Current MIRX minor version.
 pub const VERSION_MINOR: u8 = 0;
 
 pub const FILE_HEADER_LEN: usize = 8;
@@ -55,7 +54,7 @@ impl FileHeader {
         }
         let version_major = buf[4];
         let version_minor = buf[5];
-        if version_major != VERSION_MAJOR {
+        if version_major != VERSION_MAJOR || version_minor != VERSION_MINOR {
             return Err(ParseError::UnsupportedVersion {
                 major: version_major,
                 minor: version_minor,
@@ -63,6 +62,9 @@ impl FileHeader {
         }
         let layout = Layout::from_u8(buf[6]).ok_or(ParseError::UnknownLayout(buf[6]))?;
         let flags = buf[7];
+        if flags != 0 {
+            return Err(ParseError::ReservedNonZero);
+        }
         Ok(Self {
             version_major,
             version_minor,
