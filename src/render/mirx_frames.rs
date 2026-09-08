@@ -9,7 +9,7 @@ pub enum MirxFramesError {
     Read(mirx::ReadError),
     Frames(mirx::FramesError),
     Playback(mirx::FrameDecodeError),
-    UnsupportedFormat(mirx::ColorFormat),
+    UnsupportedFormat(mirx::image::ColorFormat),
     UnsupportedLayout(mirx::image::SampleLayout),
     NoFramesChunk,
     DimensionOverflow,
@@ -335,10 +335,10 @@ mod tests {
 
     #[test]
     fn plan_rejects_static_images_and_unsupported_render_layouts() {
-        let flat = Document::new_flat(mirx::ImageAsset::new(
+        let flat = Document::new_flat(mirx::image::ImageAsset::new(
             1,
             1,
-            mirx::ColorFormat::RGB565,
+            mirx::image::ColorFormat::RGB565,
             2,
             alloc::borrow::Cow::Borrowed(&[0, 0]),
         ))

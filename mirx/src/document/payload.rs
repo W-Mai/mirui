@@ -2,7 +2,9 @@ use alloc::vec::Vec;
 
 use super::{ChunkNode, Document, DocumentState, FlatRecord, PayloadStorage};
 use crate::image::{EncodedImageAsset, EncodedImageView, ImageRef, RawImageView, SurfaceView};
-use crate::payload::image::{ImageEncodeError, ImagePayloadError, ImagePayloadPlan, ImagePlanes};
+use crate::payload::image::{
+    ImageAssetEncodeError, ImagePayloadError, ImagePayloadPlan, ImagePlanes,
+};
 use crate::{ChunkType, EncodeError, ImageView, PayloadLimits, PrimaryHints};
 
 #[derive(Clone, Copy)]
@@ -275,14 +277,14 @@ fn plan_image_payload(image: ResolvedImagePlanes<'_>) -> Result<ImagePayloadPlan
     })
 }
 
-fn encode_error_for_image_encoding(error: ImageEncodeError) -> EncodeError {
+fn encode_error_for_image_encoding(error: ImageAssetEncodeError) -> EncodeError {
     match error {
-        ImageEncodeError::InvalidPayload(_) => EncodeError::InvalidPayload {
+        ImageAssetEncodeError::InvalidPayload(_) => EncodeError::InvalidPayload {
             chunk_type: ChunkType::IMAGE,
         },
-        ImageEncodeError::BufferTooSmall { needed, available } => {
+        ImageAssetEncodeError::BufferTooSmall { needed, available } => {
             EncodeError::BufferTooSmall { needed, available }
         }
-        ImageEncodeError::AllocationFailed => EncodeError::AllocationFailed,
+        ImageAssetEncodeError::AllocationFailed => EncodeError::AllocationFailed,
     }
 }

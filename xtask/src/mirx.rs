@@ -989,7 +989,8 @@ fn type_name(chunk_type: ChunkType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mirx::{ColorFormat, Document, ImageAsset, PrimaryHints};
+    use mirx::image::{ColorFormat, ImageAsset};
+    use mirx::{Document, PrimaryHints};
     use std::borrow::Cow;
     use std::sync::atomic::{AtomicU32, Ordering};
 

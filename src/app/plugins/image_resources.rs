@@ -201,10 +201,10 @@ mod tests {
     }
 
     fn build_flat_rgb565_2x1() -> &'static [u8] {
-        let bytes = mirx::Document::new_flat(mirx::ImageAsset::new(
+        let bytes = mirx::Document::new_flat(mirx::image::ImageAsset::new(
             2,
             1,
-            mirx::ColorFormat::RGB565,
+            mirx::image::ColorFormat::RGB565,
             4,
             alloc::borrow::Cow::Borrowed(&[0xAA, 0xBB, 0xCC, 0xDD]),
         ))

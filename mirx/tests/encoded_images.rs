@@ -329,7 +329,7 @@ fn document_relocation_preserves_encoded_storage_alignment_and_derived_hints() {
 
 #[test]
 fn document_inference_checks_encoded_syntax_and_limits_before_mutation() {
-    use mirx::ImagePayloadError;
+    use mirx::image::ImagePayloadError;
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let valid = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
         .encode()
@@ -706,7 +706,8 @@ fn typed_encoded_replacement_refreshes_primary_and_repairs_source_placement() {
 
 #[test]
 fn typed_encoded_edit_failures_leave_flat_and_primary_storage_unchanged() {
-    use mirx::{ColorFormat, ImageAsset, Layout};
+    use mirx::Layout;
+    use mirx::image::{ColorFormat, ImageAsset};
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let valid = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
     let invalid = EncodedImageAsset::new(surface, Rle::new().record(), &[0xff]);

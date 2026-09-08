@@ -617,8 +617,8 @@ mod tests {
 
     #[test]
     fn reports_flat_storage_without_a_chunk_primary() {
-        use mirx::image::SurfaceRequirements;
-        use mirx::{ColorFormat, Document, ImageAsset};
+        use mirx::Document;
+        use mirx::image::{ColorFormat, ImageAsset, SurfaceRequirements};
         use std::borrow::Cow;
 
         let bytes = Document::new_flat(ImageAsset::new(

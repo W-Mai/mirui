@@ -42,6 +42,9 @@
 #[cfg(test)]
 pub(crate) mod test_support;
 
+pub use crate::format::ColorFormat;
+pub use crate::payload::image::{ImageAsset, ImageAssetEncodeError, ImagePayloadError, ImageView};
+
 mod access;
 mod atlas;
 mod borrowed;

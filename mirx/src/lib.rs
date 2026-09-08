@@ -47,7 +47,7 @@ pub use font::{
     FontRepresentationPreference, FontRepresentationRequest, FontRepresentations,
     FontSelectionError, FontView,
 };
-pub use format::ColorFormat;
+pub(crate) use format::ColorFormat;
 pub use header::Layout;
 pub(crate) use header::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, FILE_HEADER_LEN, FLAT_HEADER_LEN, VERSION_MAJOR,
@@ -61,7 +61,7 @@ pub use payload::frames::{
     FramePolicy, FramePosition, FrameSequence, FrameSequenceError, FrameSession, FrameTimeline,
     FrameWriteError, FramesEncoder, FramesError, FramesPlaybackPlan, FramesView, PlaybackStorage,
 };
-pub use payload::image::{ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
+pub(crate) use payload::image::{ImageAsset, ImagePayloadError, ImageView};
 pub use payload::meta::{
     Meta, MetaDecodeError, MetaEncodeError, MetaEntry, MetaEntryIter, MetaEntryRef,
     MetaMutationError, MetaValue, MetaValueRef, MetaView,

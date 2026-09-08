@@ -37,13 +37,13 @@ impl From<ImageReadError> for ImagePayloadError {
 /// Failure while encoding a canonical MIRX IMAGE payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum ImageEncodeError {
+pub enum ImageAssetEncodeError {
     InvalidPayload(ImagePayloadError),
     BufferTooSmall { needed: usize, available: usize },
     AllocationFailed,
 }
 
-impl From<ImagePayloadError> for ImageEncodeError {
+impl From<ImagePayloadError> for ImageAssetEncodeError {
     fn from(value: ImagePayloadError) -> Self {
         Self::InvalidPayload(value)
     }
@@ -130,7 +130,7 @@ impl<'a> ImageAsset<'a> {
     }
 
     /// Returns the exact size of this asset's canonical IMAGE payload.
-    pub fn encoded_payload_len(&self) -> Result<usize, ImageEncodeError> {
+    pub fn encoded_payload_len(&self) -> Result<usize, ImageAssetEncodeError> {
         Ok(self.payload_plan()?.encoded_len())
     }
 
@@ -138,19 +138,19 @@ impl<'a> ImageAsset<'a> {
     ///
     /// The complete asset is validated before output capacity is inspected.
     /// Errors leave `out` unchanged, and success preserves any unused suffix.
-    pub fn encode_payload_into(&self, out: &mut [u8]) -> Result<usize, ImageEncodeError> {
+    pub fn encode_payload_into(&self, out: &mut [u8]) -> Result<usize, ImageAssetEncodeError> {
         self.payload_plan()?.copy_payload_into(out)
     }
 
     /// Allocates and encodes one exact-length canonical IMAGE payload.
-    pub fn encode_payload(&self) -> Result<Vec<u8>, ImageEncodeError> {
+    pub fn encode_payload(&self) -> Result<Vec<u8>, ImageAssetEncodeError> {
         self.payload_plan()?.payload_to_vec()
     }
 
-    pub(crate) fn payload_plan(&self) -> Result<ImagePayloadPlan<'_>, ImageEncodeError> {
+    pub(crate) fn payload_plan(&self) -> Result<ImagePayloadPlan<'_>, ImageAssetEncodeError> {
         let planes = ImagePlanes::new(self.meta, self.main(), self.extra())
-            .map_err(ImageEncodeError::InvalidPayload)?;
-        ImagePayloadPlan::from_planes(planes).map_err(ImageEncodeError::InvalidPayload)
+            .map_err(ImageAssetEncodeError::InvalidPayload)?;
+        ImagePayloadPlan::from_planes(planes).map_err(ImageAssetEncodeError::InvalidPayload)
     }
 
     pub(crate) const fn meta(&self) -> ImageMeta {
@@ -314,11 +314,11 @@ impl<'a> ImagePayloadPlan<'a> {
         self.payload_size
     }
 
-    pub(crate) fn copy_payload_into(self, out: &mut [u8]) -> Result<usize, ImageEncodeError> {
+    pub(crate) fn copy_payload_into(self, out: &mut [u8]) -> Result<usize, ImageAssetEncodeError> {
         self.surface().encode_into(out).map_err(Into::into)
     }
 
-    pub(crate) fn payload_to_vec(self) -> Result<Vec<u8>, ImageEncodeError> {
+    pub(crate) fn payload_to_vec(self) -> Result<Vec<u8>, ImageAssetEncodeError> {
         self.surface().encode().map_err(Into::into)
     }
 
@@ -332,7 +332,7 @@ impl<'a> ImagePayloadPlan<'a> {
     }
 }
 
-impl From<SurfaceEncodeError> for ImageEncodeError {
+impl From<SurfaceEncodeError> for ImageAssetEncodeError {
     fn from(error: SurfaceEncodeError) -> Self {
         match error {
             SurfaceEncodeError::Preflight(error) => {
@@ -632,7 +632,7 @@ mod tests {
         let before = short.clone();
         assert_eq!(
             valid.encode_payload_into(&mut short),
-            Err(ImageEncodeError::BufferTooSmall {
+            Err(ImageAssetEncodeError::BufferTooSmall {
                 needed,
                 available: needed - 1,
             })
@@ -644,7 +644,7 @@ mod tests {
         let mut output = [0xa5; 8];
         assert_eq!(
             bad_main.encode_payload_into(&mut output),
-            Err(ImageEncodeError::InvalidPayload(
+            Err(ImageAssetEncodeError::InvalidPayload(
                 ImagePayloadError::MainPlaneLengthMismatch {
                     expected: 4,
                     actual: 3,
@@ -658,7 +658,7 @@ mod tests {
                 .with_extra(Cow::Borrowed(&[5]));
         assert_eq!(
             bad_extra.encode_payload_into(&mut output),
-            Err(ImageEncodeError::InvalidPayload(
+            Err(ImageAssetEncodeError::InvalidPayload(
                 ImagePayloadError::ExtraPlaneLengthMismatch {
                     expected: 2,
                     actual: 1,
@@ -670,7 +670,7 @@ mod tests {
         let bad_stride = ImageAsset::new(2, 1, ColorFormat::RGB565, 3, Cow::Borrowed(&[]));
         assert_eq!(
             bad_stride.encode_payload_into(&mut output),
-            Err(ImageEncodeError::InvalidPayload(
+            Err(ImageAssetEncodeError::InvalidPayload(
                 ImagePayloadError::StrideTooSmall {
                     minimum: 4,
                     actual: 3,
@@ -686,7 +686,7 @@ mod tests {
             ImageAsset::new(u32::MAX, 1, ColorFormat::RGBA8888, 0, Cow::Borrowed(&[]));
         assert_eq!(
             geometry_overflow.encoded_payload_len(),
-            Err(ImageEncodeError::InvalidPayload(
+            Err(ImageAssetEncodeError::InvalidPayload(
                 ImagePayloadError::SizeOverflow
             ))
         );

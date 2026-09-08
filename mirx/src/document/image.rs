@@ -4,7 +4,8 @@ use alloc::vec::Vec;
 use super::DocumentState;
 use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef};
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageDecodeError, ImageEncodeError};
+use crate::payload::image::ImageAssetEncodeError;
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageDecodeError};
 
 #[cfg(test)]
 use crate::ImageAsset;
@@ -168,11 +169,11 @@ fn encode_image_for_edit(image: &(impl ImageSource + ?Sized)) -> Result<Vec<u8>,
         .map_err(|error| image_encode_error_for_edit(error.into()))
 }
 
-fn image_encode_error_for_edit(error: ImageEncodeError) -> EditError {
+fn image_encode_error_for_edit(error: ImageAssetEncodeError) -> EditError {
     match error {
-        ImageEncodeError::InvalidPayload(error) => EditError::InvalidPayload(error),
-        ImageEncodeError::AllocationFailed => EditError::AllocationFailed,
-        ImageEncodeError::BufferTooSmall { .. } => {
+        ImageAssetEncodeError::InvalidPayload(error) => EditError::InvalidPayload(error),
+        ImageAssetEncodeError::AllocationFailed => EditError::AllocationFailed,
+        ImageAssetEncodeError::BufferTooSmall { .. } => {
             unreachable!("allocating IMAGE encoder has no caller-provided buffer")
         }
     }

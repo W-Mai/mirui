@@ -472,7 +472,7 @@ pub enum MirxLoadError {
     Decode(mirx::image::DecodeError),
     Copy(mirx::image::SurfaceCopyError),
     /// Format mirx writes but mirui can't render (indexed, alpha-only, luma, RGB565A8).
-    UnsupportedFormat(mirx::ColorFormat),
+    UnsupportedFormat(mirx::image::ColorFormat),
     /// The decoded surface requires more than one physical plane.
     UnsupportedLayout(mirx::image::SampleLayout),
     /// Parsed OK but no IMAGE chunk (e.g. VECTOR-only file).
@@ -539,14 +539,16 @@ impl From<core::num::TryFromIntError> for MirxLoadError {
     }
 }
 
-pub(super) fn map_mirx_format(fmt: mirx::ColorFormat) -> Result<ColorFormat, MirxLoadError> {
+pub(super) fn map_mirx_format(fmt: mirx::image::ColorFormat) -> Result<ColorFormat, MirxLoadError> {
     match fmt {
-        mirx::ColorFormat::RGB565 => Ok(ColorFormat::RGB565),
-        mirx::ColorFormat::RGB565Swapped => Ok(ColorFormat::RGB565Swapped),
-        mirx::ColorFormat::RGB888 => Ok(ColorFormat::RGB888),
+        mirx::image::ColorFormat::RGB565 => Ok(ColorFormat::RGB565),
+        mirx::image::ColorFormat::RGB565Swapped => Ok(ColorFormat::RGB565Swapped),
+        mirx::image::ColorFormat::RGB888 => Ok(ColorFormat::RGB888),
         // XRGB and RGBA share byte layout; opaque-vs-blend lives in AlphaMode.
-        mirx::ColorFormat::XRGB8888 | mirx::ColorFormat::RGBA8888 => Ok(ColorFormat::RGBA8888),
-        mirx::ColorFormat::BGRA8888 => Ok(ColorFormat::BGRA8888),
+        mirx::image::ColorFormat::XRGB8888 | mirx::image::ColorFormat::RGBA8888 => {
+            Ok(ColorFormat::RGBA8888)
+        }
+        mirx::image::ColorFormat::BGRA8888 => Ok(ColorFormat::BGRA8888),
         other => Err(MirxLoadError::UnsupportedFormat(other)),
     }
 }
@@ -1110,10 +1112,10 @@ mod tests {
     use crate::core::resource::HasProbe;
 
     fn build_flat_rgb565_2x1() -> &'static [u8] {
-        let bytes = mirx::Document::new_flat(mirx::ImageAsset::new(
+        let bytes = mirx::Document::new_flat(mirx::image::ImageAsset::new(
             2,
             1,
-            mirx::ColorFormat::RGB565,
+            mirx::image::ColorFormat::RGB565,
             4,
             alloc::borrow::Cow::Borrowed(&[0xAA, 0xBB, 0xCC, 0xDD]),
         ))

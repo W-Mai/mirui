@@ -260,7 +260,7 @@ assert_eq!(uv.rows().unwrap().count(), 1);
 `ColorFormat::bits_per_pixel()` is the canonical main-plane pixel depth. `ColorFormat::minimum_stride(width)` derives the smallest valid row stride, including sub-byte indexed and alpha formats.
 
 ```rust
-use mirx::ColorFormat;
+use mirx::image::ColorFormat;
 
 assert_eq!(ColorFormat::A1.bits_per_pixel(), 1);
 assert_eq!(ColorFormat::A1.minimum_stride(13), Some(2));
@@ -311,7 +311,7 @@ extern crate alloc;
 
 use alloc::borrow::Cow;
 
-use mirx::{ColorFormat, Document, EncodeOptions, ImageAsset};
+use mirx::{Document, EncodeOptions, image::{ColorFormat, ImageAsset}};
 
 let pixels = [0_u8, 64, 128, 255];
 let stride = ColorFormat::A8.minimum_stride(2).unwrap();
