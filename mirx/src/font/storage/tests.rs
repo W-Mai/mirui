@@ -271,7 +271,7 @@ fn empty_cells_and_empty_atlas_regions_do_not_create_sample_work() {
     assert_eq!(glyphs.get(0), None);
     assert!(glyphs.file_address_is_aligned(u32::MAX));
     assert!(glyphs.data_addresses_are_aligned());
-    let regions = [Region::new(0, u32::MAX, 0, 0).unwrap()];
+    let regions = [Region::new(0, 0, 0, 0).unwrap()];
     let map = GlyphMap::atlas(0, u32::MAX, &regions).unwrap();
     let glyph = RawGlyphs::builder(map, SampleLayout::A8)
         .build(&[])

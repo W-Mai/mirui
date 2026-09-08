@@ -57,9 +57,9 @@ fn atlas_native_and_unaligned_wire_share_bounds_empty_glyphs_and_canonical_bytes
         Region::new(1, 1, 3, 4).unwrap(),
         Region::new(1, 1, 3, 4).unwrap(),
         Region::new(2, 2, 2, 3).unwrap(),
-        Region::new(7, 9, 0, 0).unwrap(),
-        Region::new(7, 0, 0, 9).unwrap(),
-        Region::new(0, 9, 7, 0).unwrap(),
+        Region::new(0, 0, 0, 0).unwrap(),
+        Region::new(4, 2, 1, 1).unwrap(),
+        Region::new(6, 8, 1, 1).unwrap(),
     ];
     let map = GlyphMap::atlas(7, 9, &regions).unwrap();
     assert_eq!(map.cell_extent(), None);
@@ -120,9 +120,19 @@ fn malformed_or_overflowing_region_records_never_escape_validation() {
         ));
     }
     for region in [
+        Region::new(7, 9, 0, 0).unwrap(),
+        Region::new(7, 0, 0, 9).unwrap(),
+        Region::new(0, 9, 7, 0).unwrap(),
+    ] {
+        assert!(matches!(
+            GlyphMap::atlas(10, 10, &[region]),
+            Err(GlyphMapError::NonCanonicalEmpty { index: 0 })
+        ));
+    }
+    for region in [
         Region::new(9, 0, 2, 1).unwrap(),
         Region::new(0, 9, 1, 2).unwrap(),
-        Region::new(11, 10, 0, 0).unwrap(),
+        Region::new(11, 10, 1, 1).unwrap(),
     ] {
         let source = [region];
         assert!(matches!(
@@ -146,7 +156,8 @@ fn malformed_or_overflowing_region_records_never_escape_validation() {
     for axis in [0, 4] {
         let mut bytes = [0; GLYPH_REGION_LEN];
         bytes[axis..axis + 4].copy_from_slice(&u32::MAX.to_le_bytes());
-        bytes[axis + 8..axis + 12].copy_from_slice(&1u32.to_le_bytes());
+        bytes[8..12].copy_from_slice(&1u32.to_le_bytes());
+        bytes[12..16].copy_from_slice(&1u32.to_le_bytes());
         assert!(matches!(
             GlyphMap::from_records(u32::MAX, u32::MAX, &bytes),
             Err(GlyphMapError::InvalidRegion {

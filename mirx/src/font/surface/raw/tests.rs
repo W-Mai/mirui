@@ -105,7 +105,7 @@ fn one_physical_record_preserves_cell_gaps_atlas_regions_and_address_checks() {
         );
         let regions = [
             Region::new(1, 1, 3, 2).unwrap(),
-            Region::new(5, 3, 0, 0).unwrap(),
+            Region::new(0, 0, 0, 0).unwrap(),
         ];
         let map = GlyphMap::atlas(5, 3, &regions).unwrap();
         let bytes = payload(&[

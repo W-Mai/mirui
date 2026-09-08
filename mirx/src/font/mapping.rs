@@ -59,6 +59,23 @@ impl AtlasRecords<'_> {
         }
     }
 
+    fn fields(self, index: usize) -> Option<(u32, u32, u32, u32)> {
+        match self {
+            Self::Native(regions) => regions
+                .get(index)
+                .map(|region| (region.x(), region.y(), region.width(), region.height())),
+            Self::Wire(bytes) => {
+                let offset = index.checked_mul(GLYPH_REGION_LEN)?;
+                Some((
+                    read_u32_le(bytes, offset)?,
+                    read_u32_le(bytes, offset + 4)?,
+                    read_u32_le(bytes, offset + 8)?,
+                    read_u32_le(bytes, offset + 12)?,
+                ))
+            }
+        }
+    }
+
     fn validate(self, width: u32, height: u32) -> Result<(), GlyphMapError> {
         let size = self
             .len()
@@ -66,6 +83,13 @@ impl AtlasRecords<'_> {
             .ok_or(GlyphMapError::SizeOverflow)?;
         u32::try_from(size).map_err(|_| GlyphMapError::SizeOverflow)?;
         for index in 0..self.len() {
+            let (x, y, region_width, region_height) =
+                self.fields(index).expect("valid record index");
+            if (region_width == 0 || region_height == 0)
+                && (x != 0 || y != 0 || region_width != 0 || region_height != 0)
+            {
+                return Err(GlyphMapError::NonCanonicalEmpty { index });
+            }
             let region = self
                 .get(index)
                 .expect("valid record index")
@@ -333,6 +357,7 @@ pub enum GlyphMapError {
     Grid(TileGridError),
     PartialRecord { byte_len: usize },
     InvalidRegion { index: usize, error: RegionError },
+    NonCanonicalEmpty { index: usize },
     BufferTooSmall { needed: usize, available: usize },
 }
 

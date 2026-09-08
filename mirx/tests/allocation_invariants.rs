@@ -822,7 +822,7 @@ fn native_wire_and_implicit_glyph_maps_allocate_nothing() {
     use mirx::{font::GlyphMap, image::Region};
     let regions = [
         Region::new(1, 2, 3, 4).unwrap(),
-        Region::new(7, 9, 0, 0).unwrap(),
+        Region::new(0, 0, 0, 0).unwrap(),
     ];
     let mut bytes = [0; 32];
     let (region, allocations) = count_allocations(|| {

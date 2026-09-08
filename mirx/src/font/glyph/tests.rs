@@ -110,7 +110,7 @@ fn resolved_glyph_outlives_all_metadata_and_preserves_empty_rasters() {
             .unwrap();
         let metrics = MetricsTable::open(&bytes[1..]).unwrap();
         let regions = [
-            Region::new(2, 2, 0, 0).unwrap(),
+            Region::new(0, 0, 0, 0).unwrap(),
             Region::new(1, 0, 1, 2).unwrap(),
         ];
         let map = GlyphMap::atlas(2, 2, &regions).unwrap();

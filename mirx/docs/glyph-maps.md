@@ -11,7 +11,7 @@
 
 GlyphMajor uses a vertical logical surface with width `cell_width` and height `glyph_count × cell_height`. Cells must be nonempty; count zero yields logical height zero. Checked arithmetic rejects coordinate overflow. Geometry reuses `image::TileGrid`; no expanded region array is created.
 
-Atlas2D records are four little-endian `u32` fields: x at byte 0, y at byte 4, width at byte 8 and height at byte 12. The byte length derives the record count without a table header. Every exclusive right/bottom edge must fit the shared atlas extent. Empty rectangles are valid for glyphs without raster samples. Shared and overlapping rectangles are valid because map entries reference samples rather than perform writes.
+Atlas2D records are four little-endian `u32` fields: x at byte 0, y at byte 4, width at byte 8 and height at byte 12. The byte length derives the record count without a table header. Every exclusive right/bottom edge must fit the shared atlas extent. The all-zero record is the only empty-glyph encoding; any other zero width or height is rejected. Shared and overlapping nonempty rectangles are valid because map entries reference samples rather than perform writes.
 
 Packing is explicit, not inferred from map length. An empty Atlas2D table is not a GlyphMajor table. The complete face must validate map cardinality against its shared codepoints.
 
@@ -28,7 +28,7 @@ assert_eq!(cells.encode_into(&mut [])?, 0);
 
 let regions = [
     Region::new(1, 2, 5, 7).unwrap(),
-    Region::new(16, 16, 0, 0).unwrap(), // No raster samples.
+    Region::new(0, 0, 0, 0).unwrap(), // No raster samples.
 ];
 let atlas = GlyphMap::atlas(16, 16, &regions)?;
 let mut bytes = [0; 32];

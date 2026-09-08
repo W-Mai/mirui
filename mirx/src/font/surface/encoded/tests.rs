@@ -163,7 +163,7 @@ fn implicit_atlas_streams_preserve_packed_regions_and_release_map_metadata() {
         let plan = {
             let regions = [
                 Region::new(1, 1, 5, 2).unwrap(),
-                Region::new(9, 3, 0, 0).unwrap(),
+                Region::new(0, 0, 0, 0).unwrap(),
             ];
             let map = GlyphMap::atlas(9, 3, &regions).unwrap();
             let glyphs = bind(&bytes, map, layout, GlyphPacking::Atlas2D, 9, 3);
@@ -215,7 +215,7 @@ fn selected_glyph_integrity_respects_partition_scope_and_empty_requests() {
         let regions = [
             Region::new(0, 0, 2, 2).unwrap(),
             Region::new(0, 2, 2, 2).unwrap(),
-            Region::new(2, 4, 0, 0).unwrap(),
+            Region::new(0, 0, 0, 0).unwrap(),
         ];
         let glyphs = bind(
             &bytes,

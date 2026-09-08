@@ -73,7 +73,7 @@ impl Fixture {
             8,
             &[
                 Region::new(1, 2, 3, 4).unwrap(),
-                Region::new(8, 8, 0, 0).unwrap(),
+                Region::new(0, 0, 0, 0).unwrap(),
             ],
         )
         .unwrap()
@@ -131,7 +131,7 @@ fn size_selection_keeps_shared_ordinals_metrics_and_regions_together() {
             assert_eq!(chosen.map().get(1), Some(Region::new(0, 8, 8, 8).unwrap()));
         } else {
             assert_eq!(chosen.map().get(0), Some(Region::new(1, 2, 3, 4).unwrap()));
-            assert_eq!(chosen.map().get(1), Some(Region::new(8, 8, 0, 0).unwrap()));
+            assert_eq!(chosen.map().get(1), Some(Region::new(0, 0, 0, 0).unwrap()));
         }
     }
     let nearest = face
