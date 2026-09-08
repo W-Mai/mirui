@@ -1,9 +1,10 @@
-error[E0432]: unresolved imports `mirx::document::PayloadInput`, `mirx::document::RawChunkInput`
+error[E0432]: unresolved imports `mirx::document::PayloadInput`, `mirx::document::RawChunkInput`, `mirx::document::RawTypePolicy`
  --> tests/public_api_fail/document_raw_authoring.rs:1:22
   |
-1 | use mirx::document::{PayloadInput, RawChunkInput, RawChunkPolicy};
-  |                      ^^^^^^^^^^^^  ^^^^^^^^^^^^^ no `RawChunkInput` in `document`
-  |                      |
+1 | use mirx::document::{PayloadInput, RawChunkInput, RawChunkPolicy, RawTypePolicy};
+  |                      ^^^^^^^^^^^^  ^^^^^^^^^^^^^                  ^^^^^^^^^^^^^ no `RawTypePolicy` in `document`
+  |                      |             |
+  |                      |             no `RawChunkInput` in `document`
   |                      no `PayloadInput` in `document`
   |
 note: found an item that was configured out
@@ -26,7 +27,7 @@ note: found an item that was configured out
 error[E0603]: struct `RawChunkPolicy` is private
  --> tests/public_api_fail/document_raw_authoring.rs:1:51
   |
-1 | use mirx::document::{PayloadInput, RawChunkInput, RawChunkPolicy};
+1 | use mirx::document::{PayloadInput, RawChunkInput, RawChunkPolicy, RawTypePolicy};
   |                                                   ^^^^^^^^^^^^^^ private struct
   |
 note: the struct `RawChunkPolicy` is defined here
@@ -36,5 +37,5 @@ note: the struct `RawChunkPolicy` is defined here
   |                ^^^^^^^^^^^^^^^^^^^
 help: import `RawChunkPolicy` directly
   |
-1 | use mirx::document::{PayloadInput, RawChunkInput, mirx::document::raw::RawChunkPolicy};
+1 | use mirx::document::{PayloadInput, RawChunkInput, mirx::document::raw::RawChunkPolicy, RawTypePolicy};
   |                                                   +++++++++++++++++++++

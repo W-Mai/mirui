@@ -821,8 +821,9 @@ mod tests {
     use super::*;
     use crate::document::{
         CriticalAssumption, OpenOptions, PayloadInput, RawChunkInput, RawChunkPolicy,
-        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
+        RelocationAssumption, ReservedBitsPolicy,
     };
+    use crate::extension::SourcePolicy;
     use crate::wire::{read_u16_le, read_u32_le};
     use crate::{
         FlatImageInput, ImageView, Layout, Reader, TrailingBytesPolicy, encode_chunks, encode_flat,
@@ -1181,15 +1182,13 @@ mod tests {
         );
 
         let source = encode_chunks(&[(CUSTOM_B.raw(), 0, b"preserved")]);
-        let policies = [RawTypePolicy {
+        let policies = [SourcePolicy {
             chunk_type: CUSTOM_B,
             policy: relocatable_policy(),
         }];
-        let preserved = Document::open_with(
-            &source,
-            &OpenOptions::new().with_raw_type_policies(&policies),
-        )
-        .unwrap();
+        let preserved =
+            Document::open_with(&source, &OpenOptions::new().with_source_policies(&policies))
+                .unwrap();
         assert_eq!(
             chunk_plan(&preserved, &EncodeOptions::new()).primary(),
             WirePrimary {
@@ -1232,15 +1231,13 @@ mod tests {
     #[test]
     fn capability_errors_follow_table_and_descriptor_priority() {
         let source = encode_chunks(&[(CUSTOM_A.raw(), 0x0002, b"reserved")]);
-        let policies = [RawTypePolicy {
+        let policies = [SourcePolicy {
             chunk_type: CUSTOM_A,
             policy: relocatable_policy(),
         }];
-        let reserved = Document::open_with(
-            &source,
-            &OpenOptions::new().with_raw_type_policies(&policies),
-        )
-        .unwrap();
+        let reserved =
+            Document::open_with(&source, &OpenOptions::new().with_source_policies(&policies))
+                .unwrap();
         assert_eq!(
             reserved.encoded_len(&EncodeOptions::new()),
             Err(EncodeError::ReservedFlagBits {
@@ -1254,13 +1251,13 @@ mod tests {
             (CUSTOM_A.raw(), 0, b"first"),
             (CUSTOM_B.raw(), 0, b"second"),
         ]);
-        let first_only = [RawTypePolicy {
+        let first_only = [SourcePolicy {
             chunk_type: CUSTOM_A,
             policy: relocatable_policy(),
         }];
         let relocation = Document::open_with(
             &source,
-            &OpenOptions::new().with_raw_type_policies(&first_only),
+            &OpenOptions::new().with_source_policies(&first_only),
         )
         .unwrap();
         assert_eq!(
@@ -1552,20 +1549,18 @@ mod tests {
         source[64..68].copy_from_slice(&(first_offset + 2).to_le_bytes());
         source[68..72].copy_from_slice(&2u32.to_le_bytes());
         let policies = [
-            RawTypePolicy {
+            SourcePolicy {
                 chunk_type: CUSTOM_A,
                 policy: relocatable_policy(),
             },
-            RawTypePolicy {
+            SourcePolicy {
                 chunk_type: CUSTOM_B,
                 policy: relocatable_policy(),
             },
         ];
-        let document = Document::open_with(
-            &source,
-            &OpenOptions::new().with_raw_type_policies(&policies),
-        )
-        .unwrap();
+        let document =
+            Document::open_with(&source, &OpenOptions::new().with_source_policies(&policies))
+                .unwrap();
 
         let encoded = document.encode(&EncodeOptions::new()).unwrap();
         let reader = Reader::open(&encoded).unwrap();
@@ -1775,11 +1770,11 @@ mod tests {
     #[test]
     fn finish_dirty_and_new_documents_use_default_encoding() {
         let source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"source")]);
-        let policies = [RawTypePolicy {
+        let policies = [SourcePolicy {
             chunk_type: CUSTOM_A,
             policy: relocatable_policy(),
         }];
-        let open_options = OpenOptions::new().with_raw_type_policies(&policies);
+        let open_options = OpenOptions::new().with_source_policies(&policies);
 
         let mut expected_document = Document::open_with(&source, &open_options).unwrap();
         expected_document
@@ -1839,13 +1834,13 @@ mod tests {
         let mut source = encode_chunks(&[(CUSTOM_A.raw(), 0, b"source")]);
         let logical_len = source.len();
         source.extend_from_slice(b"tail");
-        let policies = [RawTypePolicy {
+        let policies = [SourcePolicy {
             chunk_type: CUSTOM_A,
             policy: relocatable_policy(),
         }];
         let options = OpenOptions::new()
             .with_trailing_bytes(TrailingBytesPolicy::Preserve)
-            .with_raw_type_policies(&policies);
+            .with_source_policies(&policies);
         let mut document = Document::open_with(&source, &options).unwrap();
 
         assert!(!document.is_dirty());
@@ -1870,11 +1865,11 @@ mod tests {
         let mut source = Vec::with_capacity(encoded.len() + 41);
         source.extend_from_slice(&encoded);
         let source_pointer = source.as_ptr();
-        let policies = [RawTypePolicy {
+        let policies = [SourcePolicy {
             chunk_type: CUSTOM_A,
             policy: relocatable_policy(),
         }];
-        let open_options = OpenOptions::new().with_raw_type_policies(&policies);
+        let open_options = OpenOptions::new().with_source_policies(&policies);
         let mut document = Document::from_vec_with(source, &open_options).unwrap();
         assert_eq!(document.origin.source().unwrap().as_ptr(), source_pointer);
 

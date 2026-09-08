@@ -1,5 +1,7 @@
+#[cfg(test)]
 use super::RawChunkPolicy;
-use crate::{ChunkType, PayloadLimits, TrailingBytesPolicy};
+use crate::extension::SourcePolicy;
+use crate::{PayloadLimits, TrailingBytesPolicy};
 
 /// Selection policy for an encoded document layout.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -45,16 +47,9 @@ impl Default for EncodeOptions {
     }
 }
 
-/// Type-wide raw capability policy applied while opening a document.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RawTypePolicy {
-    pub chunk_type: ChunkType,
-    pub policy: RawChunkPolicy,
-}
-
 /// Limits and capability grants used during open.
 ///
-/// Raw type policies are searched from the end, so a later duplicate takes
+/// Source policies are searched from the end, so a later duplicate takes
 /// precedence. The policy slice is not retained after opening; evaluated
 /// capabilities are copied into the corresponding document nodes. Payload
 /// limits are copied into the document for later typed access and edits.
@@ -63,7 +58,7 @@ pub struct OpenOptions<'p> {
     max_chunks: u16,
     payload_limits: PayloadLimits,
     trailing_bytes: TrailingBytesPolicy,
-    raw_type_policies: &'p [RawTypePolicy],
+    source_policies: &'p [SourcePolicy],
 }
 
 impl<'p> OpenOptions<'p> {
@@ -75,7 +70,7 @@ impl<'p> OpenOptions<'p> {
             max_chunks: Self::DEFAULT_MAX_CHUNKS,
             payload_limits: PayloadLimits::EMBEDDED,
             trailing_bytes: TrailingBytesPolicy::Reject,
-            raw_type_policies: &[],
+            source_policies: &[],
         }
     }
 
@@ -85,7 +80,7 @@ impl<'p> OpenOptions<'p> {
             max_chunks: Self::HOST_MAX_CHUNKS,
             payload_limits: PayloadLimits::HOST,
             trailing_bytes: TrailingBytesPolicy::Reject,
-            raw_type_policies: &[],
+            source_policies: &[],
         }
     }
 
@@ -122,21 +117,21 @@ impl<'p> OpenOptions<'p> {
         self.trailing_bytes
     }
 
-    /// Sets the ordered type policies used to classify opened raw nodes.
+    /// Sets the ordered policies used to classify opened source chunks.
     ///
     /// For current container semantics,
-    /// [`ReservedBitsPolicy::Preserve`](crate::document::ReservedBitsPolicy::Preserve)
+    /// [`ReservedFlags::Preserve`](crate::extension::ReservedFlags::Preserve)
     /// grants reserved-bit preservation and
-    /// [`ReservedBitsPolicy::Normalize`](crate::document::ReservedBitsPolicy::Normalize)
+    /// [`ReservedFlags::Normalize`](crate::extension::ReservedFlags::Normalize)
     /// clears those bits and marks the document dirty. The default reject
     /// policy leaves opened bits unchanged without granting preservation.
-    pub const fn with_raw_type_policies(mut self, policies: &'p [RawTypePolicy]) -> Self {
-        self.raw_type_policies = policies;
+    pub const fn with_source_policies(mut self, policies: &'p [SourcePolicy]) -> Self {
+        self.source_policies = policies;
         self
     }
 
-    pub const fn raw_type_policies(&self) -> &'p [RawTypePolicy] {
-        self.raw_type_policies
+    pub const fn source_policies(&self) -> &'p [SourcePolicy] {
+        self.source_policies
     }
 }
 
@@ -164,14 +159,14 @@ mod tests {
         assert_eq!(FORCED.layout_policy(), LayoutPolicy::ForceChunk);
     }
 
-    const POLICY: RawTypePolicy = RawTypePolicy {
-        chunk_type: ChunkType::META,
-        policy: RawChunkPolicy {
+    const POLICY: SourcePolicy = SourcePolicy::new(
+        crate::ChunkType::META,
+        RawChunkPolicy {
             relocation: RelocationAssumption::AssumeRelocatable,
             critical_semantics: CriticalAssumption::AssumeCriticalUnderstood,
             reserved_flag_bits: ReservedBitsPolicy::Preserve,
         },
-    };
+    );
 
     #[test]
     fn default_and_host_profiles_are_explicit_and_const_constructible() {
@@ -181,23 +176,23 @@ mod tests {
         assert_eq!(DEFAULT.max_chunks(), 256);
         assert_eq!(DEFAULT.payload_limits(), PayloadLimits::EMBEDDED);
         assert_eq!(DEFAULT.trailing_bytes_policy(), TrailingBytesPolicy::Reject);
-        assert!(DEFAULT.raw_type_policies().is_empty());
+        assert!(DEFAULT.source_policies().is_empty());
         assert_eq!(OpenOptions::default(), DEFAULT);
 
         assert_eq!(HOST.max_chunks(), 4_096);
         assert_eq!(HOST.payload_limits(), PayloadLimits::HOST);
         assert_eq!(HOST.trailing_bytes_policy(), TrailingBytesPolicy::Reject);
-        assert!(HOST.raw_type_policies().is_empty());
+        assert!(HOST.source_policies().is_empty());
     }
 
     #[test]
     fn builders_retain_the_borrowed_policy_slice_without_allocation() {
-        const POLICIES: [RawTypePolicy; 1] = [POLICY];
+        const POLICIES: [SourcePolicy; 1] = [POLICY];
         const OPTIONS: OpenOptions<'static> = OpenOptions::new()
             .with_max_chunks(17)
             .with_payload_limits(PayloadLimits::HOST)
             .with_trailing_bytes(TrailingBytesPolicy::Preserve)
-            .with_raw_type_policies(&POLICIES);
+            .with_source_policies(&POLICIES);
 
         assert_eq!(OPTIONS.max_chunks(), 17);
         assert_eq!(OPTIONS.payload_limits(), PayloadLimits::HOST);
@@ -205,9 +200,9 @@ mod tests {
             OPTIONS.trailing_bytes_policy(),
             TrailingBytesPolicy::Preserve
         );
-        assert_eq!(OPTIONS.raw_type_policies(), &POLICIES);
-        assert_eq!(OPTIONS.raw_type_policies().as_ptr(), POLICIES.as_ptr());
-        assert!(size_of::<RawTypePolicy>() <= 8);
+        assert_eq!(OPTIONS.source_policies(), &POLICIES);
+        assert_eq!(OPTIONS.source_policies().as_ptr(), POLICIES.as_ptr());
+        assert!(size_of::<SourcePolicy>() <= 8);
         // Includes inline media limits and a 64-bit raster work budget.
         #[cfg(target_pointer_width = "32")]
         assert!(size_of::<OpenOptions<'_>>() <= 88);

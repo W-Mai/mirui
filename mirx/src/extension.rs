@@ -9,6 +9,19 @@ pub use crate::document::raw::{
     ReservedBitsPolicy as ReservedFlags,
 };
 
+/// Rewrite policy granted to matching source chunks while opening a document.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SourcePolicy {
+    pub chunk_type: ChunkType,
+    pub policy: Policy,
+}
+
+impl SourcePolicy {
+    pub const fn new(chunk_type: ChunkType, policy: Policy) -> Self {
+        Self { chunk_type, policy }
+    }
+}
+
 /// One opaque chunk value admitted as a complete descriptor and payload.
 #[derive(Debug, Eq, PartialEq)]
 pub struct Extension<'a> {

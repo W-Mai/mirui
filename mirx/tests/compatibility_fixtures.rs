@@ -3,8 +3,8 @@ use std::borrow::Cow;
 use mirx::image::ColorFormat;
 use mirx::{
     ChunkType, Document, Layout, Reader,
-    document::{OpenOptions, RawTypePolicy},
-    extension::{Critical, Policy, Relocation, ReservedFlags},
+    document::OpenOptions,
+    extension::{Critical, Policy, Relocation, ReservedFlags, SourcePolicy},
 };
 
 fn decode_hex(source: &str) -> Vec<u8> {
@@ -75,18 +75,18 @@ fn chunk_golden_preserves_entries_and_supports_checked_rewrite() {
     assert_eq!(finished.as_ref(), bytes);
 
     let policies = [
-        RawTypePolicy {
+        SourcePolicy {
             chunk_type: first_type,
             policy: relocatable_policy(),
         },
-        RawTypePolicy {
+        SourcePolicy {
             chunk_type: second_type,
             policy: relocatable_policy(),
         },
     ];
     let mut document = Document::open_with(
         &bytes,
-        &OpenOptions::host_tools().with_raw_type_policies(&policies),
+        &OpenOptions::host_tools().with_source_policies(&policies),
     )
     .unwrap();
     let mut chunks = document.chunks();

@@ -180,8 +180,9 @@ mod tests {
     use super::*;
     use crate::document::{
         CriticalAssumption, EncodeOptions, OpenOptions, PayloadOrigin, RawChunkPolicy,
-        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
+        RelocationAssumption, ReservedBitsPolicy,
     };
+    use crate::extension::SourcePolicy;
     use crate::header::CHUNK_FILE_HEADER_LEN;
     use crate::{
         ColorFormat, ImagePayloadError, Layout, Reader, TrailingBytesPolicy, crc32, encode_chunks,
@@ -870,7 +871,7 @@ mod tests {
             PayloadOrigin::ORIGINAL_SOURCE
         );
 
-        let policies = [RawTypePolicy {
+        let policies = [SourcePolicy {
             chunk_type: ChunkType::IMAGE,
             policy: RawChunkPolicy {
                 relocation: RelocationAssumption::Infer,
@@ -878,7 +879,7 @@ mod tests {
                 reserved_flag_bits: ReservedBitsPolicy::Preserve,
             },
         }];
-        let options = OpenOptions::new().with_raw_type_policies(&policies);
+        let options = OpenOptions::new().with_source_policies(&policies);
         let mut preserved = Document::open_with(&source, &options).unwrap();
         let preserved_id = preserved.chunks().next().unwrap().id();
         preserved

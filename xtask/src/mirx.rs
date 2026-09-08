@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 use crc32fast::hash as crc32;
 use mirx::{
     ChunkFlags, ChunkType, Document, Layout, PrimaryHints, Reader,
-    document::{OpenOptions, RawTypePolicy},
+    document::OpenOptions,
     extension::{
         Critical as CriticalAssumption, Extension, Policy as RawChunkPolicy,
-        Relocation as RelocationAssumption, ReservedFlags as ReservedBitsPolicy,
+        Relocation as RelocationAssumption, ReservedFlags as ReservedBitsPolicy, SourcePolicy,
     },
     reader::{
         PayloadLimits, PayloadLocation, PayloadValidationError, ReadOptions, TrailingBytesPolicy,
@@ -201,10 +201,10 @@ impl RawPolicyArgs {
             .with_reserved_bits(self.reserved_flag_bits)
     }
 
-    fn source_policies(&self) -> Vec<RawTypePolicy> {
+    fn source_policies(&self) -> Vec<SourcePolicy> {
         self.source_types
             .iter()
-            .map(|&(chunk_type, critical)| RawTypePolicy {
+            .map(|&(chunk_type, critical)| SourcePolicy {
                 chunk_type,
                 policy: RawChunkPolicy::infer()
                     .with_relocation(RelocationAssumption::AssumeRelocatable)
@@ -564,7 +564,7 @@ fn insert_raw_bytes(
     flags: ChunkFlags,
     payload: Vec<u8>,
     policy: RawChunkPolicy,
-    source_policies: &[RawTypePolicy],
+    source_policies: &[SourcePolicy],
 ) -> std::result::Result<Vec<u8>, String> {
     let mut document = open_edit_document(source, Some(chunk_type), policy, source_policies)?;
     document
@@ -584,7 +584,7 @@ fn replace_raw_bytes(
     expected_crc: Option<u32>,
     payload: Vec<u8>,
     policy: RawChunkPolicy,
-    source_policies: &[RawTypePolicy],
+    source_policies: &[SourcePolicy],
 ) -> std::result::Result<Vec<u8>, String> {
     let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
     let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
@@ -610,7 +610,7 @@ fn remove_chunk_bytes(
     expected_type: Option<ChunkType>,
     expected_crc: Option<u32>,
     policy: RawChunkPolicy,
-    source_policies: &[RawTypePolicy],
+    source_policies: &[SourcePolicy],
 ) -> std::result::Result<Vec<u8>, String> {
     let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
     let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
@@ -627,7 +627,7 @@ fn move_chunk_bytes(
     expected_type: Option<ChunkType>,
     expected_crc: Option<u32>,
     policy: RawChunkPolicy,
-    source_policies: &[RawTypePolicy],
+    source_policies: &[SourcePolicy],
 ) -> std::result::Result<Vec<u8>, String> {
     let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
     let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
@@ -650,7 +650,7 @@ fn set_primary_bytes(
     expected_type: Option<ChunkType>,
     expected_crc: Option<u32>,
     policy: RawChunkPolicy,
-    source_policies: &[RawTypePolicy],
+    source_policies: &[SourcePolicy],
 ) -> std::result::Result<Vec<u8>, String> {
     let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
     let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
@@ -667,7 +667,7 @@ fn clear_primary_bytes(
     expected_type: Option<ChunkType>,
     expected_crc: Option<u32>,
     policy: RawChunkPolicy,
-    source_policies: &[RawTypePolicy],
+    source_policies: &[SourcePolicy],
 ) -> std::result::Result<Vec<u8>, String> {
     let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
     let primary = document
@@ -687,7 +687,7 @@ fn open_edit_document(
     source: Vec<u8>,
     grant_type: Option<ChunkType>,
     policy: RawChunkPolicy,
-    source_policies: &[RawTypePolicy],
+    source_policies: &[SourcePolicy],
 ) -> std::result::Result<Document<'static>, String> {
     if grant_type.is_none() {
         if matches!(
@@ -702,9 +702,9 @@ fn open_edit_document(
     }
     let mut raw_policies = source_policies.to_vec();
     if let Some(chunk_type) = grant_type {
-        raw_policies.push(RawTypePolicy { chunk_type, policy });
+        raw_policies.push(SourcePolicy { chunk_type, policy });
     }
-    let open_options = OpenOptions::host_tools().with_raw_type_policies(&raw_policies);
+    let open_options = OpenOptions::host_tools().with_source_policies(&raw_policies);
     Document::from_vec_with(source, &open_options)
         .map_err(|error| format!("container error: {error:?}"))
 }
@@ -1299,13 +1299,13 @@ mod tests {
             &[],
         )
         .unwrap();
-        let raw_policy = [RawTypePolicy {
+        let raw_policy = [SourcePolicy {
             chunk_type: custom,
             policy: critical_policy,
         }];
         let reopened = Document::open_with(
             &replaced_critical,
-            &OpenOptions::host_tools().with_raw_type_policies(&raw_policy),
+            &OpenOptions::host_tools().with_source_policies(&raw_policy),
         )
         .unwrap();
         assert_eq!(
@@ -1426,7 +1426,7 @@ mod tests {
         let other = ChunkType::new(0xcafe).unwrap();
         let mut mixed = encode_chunks(&[(custom.raw(), 0, b"left"), (other.raw(), 0, b"right")]);
         clear_primary(&mut mixed);
-        let source_policies = [RawTypePolicy {
+        let source_policies = [SourcePolicy {
             chunk_type: custom,
             policy,
         }];

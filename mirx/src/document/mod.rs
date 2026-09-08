@@ -30,7 +30,7 @@ mod writer;
 
 pub use crate::error::{DocumentError, EditError, EncodeError, TryEditError};
 pub use chunk_mut::DocumentChunkMut;
-pub use options::{EncodeOptions, LayoutPolicy, OpenOptions, RawTypePolicy};
+pub use options::{EncodeOptions, LayoutPolicy, OpenOptions};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub(crate) use raw::RawChunkPolicy;
 pub use raw::RemovedChunkMetadata;
@@ -710,7 +710,7 @@ fn inspect_chunks<'document>(
     for chunk in entries {
         let preflight = preflight_chunk(chunk, &options.payload_limits());
         let known_contract = matches!(preflight, Ok(PreflightStatus::Validated));
-        let policy = raw_type_policy(options, chunk.chunk_type());
+        let policy = extension_policy(options, chunk.chunk_type());
         let (descriptor, normalized) = EvaluatedDescriptor::for_open(
             chunk.chunk_type(),
             chunk.flags(),
@@ -764,9 +764,9 @@ fn inspect_chunks<'document>(
     ))
 }
 
-fn raw_type_policy(options: &OpenOptions<'_>, chunk_type: ChunkType) -> Option<RawChunkPolicy> {
+fn extension_policy(options: &OpenOptions<'_>, chunk_type: ChunkType) -> Option<RawChunkPolicy> {
     options
-        .raw_type_policies()
+        .source_policies()
         .iter()
         .rev()
         .find(|entry| entry.chunk_type == chunk_type)

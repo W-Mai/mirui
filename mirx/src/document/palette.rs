@@ -184,8 +184,9 @@ mod tests {
     use super::*;
     use crate::document::{
         CriticalAssumption, EncodeOptions, OpenOptions, PayloadInput, PayloadOrigin, RawChunkInput,
-        RawChunkPolicy, RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
+        RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy,
     };
+    use crate::extension::SourcePolicy;
     use crate::{ColorFormat, ImageAsset, PayloadLimits, crc32, encode_chunks, types::Color};
 
     fn id(counter: u32) -> ChunkId {
@@ -465,7 +466,7 @@ mod tests {
         );
         assert!(!document.is_dirty());
 
-        let policies = [RawTypePolicy {
+        let policies = [SourcePolicy {
             chunk_type: ChunkType::PALETTE,
             policy: RawChunkPolicy {
                 relocation: RelocationAssumption::Infer,
@@ -473,7 +474,7 @@ mod tests {
                 reserved_flag_bits: ReservedBitsPolicy::Preserve,
             },
         }];
-        let options = OpenOptions::new().with_raw_type_policies(&policies);
+        let options = OpenOptions::new().with_source_policies(&policies);
         let mut preserving = Document::open_with(&source, &options).unwrap();
         let palette_id = preserving.chunks().next().unwrap().id();
         preserving.replace_palette(palette_id, &changed).unwrap();

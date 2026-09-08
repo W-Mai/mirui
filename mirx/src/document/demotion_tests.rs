@@ -322,15 +322,12 @@ fn source_backed_images_keep_strict_absolute_alignment() {
     let checksum = crc32(&source[..40]);
     source[40..44].copy_from_slice(&checksum.to_le_bytes());
 
-    let policies = [RawTypePolicy {
+    let policies = [crate::extension::SourcePolicy {
         chunk_type: ChunkType::IMAGE,
         policy: relocatable_policy(),
     }];
-    let mut document = Document::open_with(
-        &source,
-        &OpenOptions::new().with_raw_type_policies(&policies),
-    )
-    .unwrap();
+    let mut document =
+        Document::open_with(&source, &OpenOptions::new().with_source_policies(&policies)).unwrap();
     let DocumentState::Chunk(chunks) = &document.state else {
         panic!("expected CHUNK document");
     };

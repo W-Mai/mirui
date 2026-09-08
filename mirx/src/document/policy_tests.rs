@@ -2,6 +2,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::*;
+use crate::extension::SourcePolicy;
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, chunk_type};
 use crate::reader::ReadError;
 use crate::{
@@ -94,8 +95,8 @@ fn assert_capability(
     );
 }
 
-fn options_for<'p>(policies: &'p [RawTypePolicy]) -> OpenOptions<'p> {
-    OpenOptions::new().with_raw_type_policies(policies)
+fn options_for<'p>(policies: &'p [SourcePolicy]) -> OpenOptions<'p> {
+    OpenOptions::new().with_source_policies(policies)
 }
 
 fn valid_image_payload() -> Vec<u8> {
@@ -146,7 +147,7 @@ fn reader_remains_strict_while_document_accepts_explicit_critical_capability() {
             DocumentError::Read(strict.clone())
         );
 
-        let relocate_only = [RawTypePolicy {
+        let relocate_only = [SourcePolicy {
             chunk_type,
             policy: relocatable_policy(ReservedBitsPolicy::Reject),
         }];
@@ -155,7 +156,7 @@ fn reader_remains_strict_while_document_accepts_explicit_critical_capability() {
             DocumentError::Read(strict)
         );
 
-        let critical_only = [RawTypePolicy {
+        let critical_only = [SourcePolicy {
             chunk_type,
             policy: policy(
                 RelocationAssumption::Infer,
@@ -167,7 +168,7 @@ fn reader_remains_strict_while_document_accepts_explicit_critical_capability() {
         assert_capability(node(&document, 0), false, true, false);
         assert!(!document.is_dirty());
 
-        let complete = [RawTypePolicy {
+        let complete = [SourcePolicy {
             chunk_type,
             policy: complete_policy(ReservedBitsPolicy::Reject),
         }];
@@ -183,11 +184,11 @@ fn duplicate_type_policy_uses_the_last_entry_without_retaining_the_slice() {
     let strict = reader_error(Reader::open(&source));
 
     let rejected = [
-        RawTypePolicy {
+        SourcePolicy {
             chunk_type: custom_type(),
             policy: complete_policy(ReservedBitsPolicy::Reject),
         },
-        RawTypePolicy {
+        SourcePolicy {
             chunk_type: custom_type(),
             policy: RawChunkPolicy::infer(),
         },
@@ -199,11 +200,11 @@ fn duplicate_type_policy_uses_the_last_entry_without_retaining_the_slice() {
 
     let document = {
         let accepted = [
-            RawTypePolicy {
+            SourcePolicy {
                 chunk_type: custom_type(),
                 policy: RawChunkPolicy::infer(),
             },
-            RawTypePolicy {
+            SourcePolicy {
                 chunk_type: custom_type(),
                 policy: complete_policy(ReservedBitsPolicy::Reject),
             },
@@ -249,7 +250,7 @@ fn open_reserved_policy_preserves_rejects_or_normalizes_as_a_capability_grant() 
     assert_capability(node(&default, 0), false, false, false);
     assert!(!default.is_dirty());
 
-    let reject = [RawTypePolicy {
+    let reject = [SourcePolicy {
         chunk_type: custom_type(),
         policy: complete_policy(ReservedBitsPolicy::Reject),
     }];
@@ -258,7 +259,7 @@ fn open_reserved_policy_preserves_rejects_or_normalizes_as_a_capability_grant() 
     assert_capability(node(&rejected_policy, 0), true, true, false);
     assert!(!rejected_policy.is_dirty());
 
-    let preserve = [RawTypePolicy {
+    let preserve = [SourcePolicy {
         chunk_type: custom_type(),
         policy: complete_policy(ReservedBitsPolicy::Preserve),
     }];
@@ -267,7 +268,7 @@ fn open_reserved_policy_preserves_rejects_or_normalizes_as_a_capability_grant() 
     assert_capability(node(&preserved, 0), true, true, true);
     assert!(!preserved.is_dirty());
 
-    let normalize = [RawTypePolicy {
+    let normalize = [SourcePolicy {
         chunk_type: custom_type(),
         policy: complete_policy(ReservedBitsPolicy::Normalize),
     }];
@@ -317,7 +318,7 @@ fn from_vec_with_retains_the_source_allocation_and_copies_only_capabilities() {
         source[offset..].as_ptr()
     };
     let document = {
-        let policies = [RawTypePolicy {
+        let policies = [SourcePolicy {
             chunk_type: custom_type(),
             policy: complete_policy(ReservedBitsPolicy::Reject),
         }];
@@ -430,7 +431,7 @@ fn set_raw_policy_validates_layout_id_and_critical_assumption_before_apply() {
     );
 
     let source = encode_chunks(&[(custom_type().raw(), ChunkFlags::CRITICAL.bits(), b"opaque")]);
-    let grants = [RawTypePolicy {
+    let grants = [SourcePolicy {
         chunk_type: custom_type(),
         policy: complete_policy(ReservedBitsPolicy::Reject),
     }];

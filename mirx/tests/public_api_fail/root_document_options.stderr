@@ -15,5 +15,3 @@ error[E0432]: unresolved imports `mirx::EncodeOptions`, `mirx::LayoutPolicy`, `m
   = help: consider importing one of these structs instead:
           std::fs::OpenOptions
           mirx::document::OpenOptions
-  = help: consider importing this struct instead:
-          mirx::document::RawTypePolicy

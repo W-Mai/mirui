@@ -181,8 +181,9 @@ mod tests {
     use super::*;
     use crate::document::{
         CriticalAssumption, EncodeOptions, OpenOptions, PayloadInput, PayloadOrigin, RawChunkInput,
-        RawChunkPolicy, RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
+        RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy,
     };
+    use crate::extension::SourcePolicy;
     use crate::path::{Path, PathCmd};
     use crate::scene::{
         FillRule, GradientStop, GradientUnits, LineCap, LineJoin, LinearGradient, Paint,
@@ -800,11 +801,11 @@ mod tests {
         );
         assert!(!document.is_dirty());
 
-        let policies = [RawTypePolicy {
+        let policies = [SourcePolicy {
             chunk_type: ChunkType::VECTOR,
             policy: preserve_policy(),
         }];
-        let options = OpenOptions::new().with_raw_type_policies(&policies);
+        let options = OpenOptions::new().with_source_policies(&policies);
         let mut granted = Document::open_with(&source, &options).unwrap();
         let vector_id = granted.chunks().next().unwrap().id();
         granted.replace_vector(vector_id, &expected).unwrap();

@@ -664,13 +664,13 @@ fn primary_flag_changes_preserve_explicit_and_opaque_hints_atomically() {
         critical_semantics: CriticalAssumption::AssumeCriticalUnderstood,
         reserved_flag_bits: ReservedBitsPolicy::Normalize,
     };
-    let open_policies = [RawTypePolicy {
+    let open_policies = [crate::extension::SourcePolicy {
         chunk_type: CUSTOM,
         policy: normalize_policy,
     }];
     let normalized_open = Document::open_with(
         &source,
-        &OpenOptions::new().with_raw_type_policies(&open_policies),
+        &OpenOptions::new().with_source_policies(&open_policies),
     )
     .unwrap();
     assert_eq!(

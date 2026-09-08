@@ -445,7 +445,7 @@ let extension = Extension::borrowed(ChunkType::new(0x8000).unwrap(), payload)
 - `Relocation` controls whether opaque payload bytes may move.
 - `Critical` records whether a critical custom contract is understood.
 - `ReservedFlags` rejects, preserves, or normalizes reserved flag bits.
-- `RawTypePolicy` grants a policy to matching source chunks during open.
+- `SourcePolicy` grants a policy to matching source chunks during open.
 
 Reader and document opening accept only the current MIRX container version and zero file flags. Unknown chunk types and coding identifiers remain representable within that current container. Preserved trailing bytes remain read-only until `discard_trailing_bytes()` is called.
 
