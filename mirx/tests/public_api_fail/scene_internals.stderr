@@ -1,0 +1,59 @@
+error[E0603]: struct `VectorChunkHeader` is private
+ --> tests/public_api_fail/scene_internals.rs:1:19
+  |
+1 | use mirx::scene::{VectorChunkHeader, codec, header, op, paint};
+  |                   ^^^^^^^^^^^^^^^^^ private struct
+  |
+note: the struct `VectorChunkHeader` is defined here
+ --> src/scene/mod.rs
+  |
+  | pub(crate) use header::VectorChunkHeader;
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: module `codec` is private
+ --> tests/public_api_fail/scene_internals.rs:1:38
+  |
+1 | use mirx::scene::{VectorChunkHeader, codec, header, op, paint};
+  |                                      ^^^^^ private module
+  |
+note: the module `codec` is defined here
+ --> src/scene/mod.rs
+  |
+  | mod codec;
+  | ^^^^^^^^^
+
+error[E0603]: module `header` is private
+ --> tests/public_api_fail/scene_internals.rs:1:45
+  |
+1 | use mirx::scene::{VectorChunkHeader, codec, header, op, paint};
+  |                                             ^^^^^^ private module
+  |
+note: the module `header` is defined here
+ --> src/scene/mod.rs
+  |
+  | mod header;
+  | ^^^^^^^^^^
+
+error[E0603]: module `op` is private
+ --> tests/public_api_fail/scene_internals.rs:1:53
+  |
+1 | use mirx::scene::{VectorChunkHeader, codec, header, op, paint};
+  |                                                     ^^ private module
+  |
+note: the module `op` is defined here
+ --> src/scene/mod.rs
+  |
+  | mod op;
+  | ^^^^^^
+
+error[E0603]: module `paint` is private
+ --> tests/public_api_fail/scene_internals.rs:1:57
+  |
+1 | use mirx::scene::{VectorChunkHeader, codec, header, op, paint};
+  |                                                         ^^^^^ private module
+  |
+note: the module `paint` is defined here
+ --> src/scene/mod.rs
+  |
+  | mod paint;
+  | ^^^^^^^^^
