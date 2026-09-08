@@ -463,7 +463,7 @@ impl<'a> Texture<'a> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MirxLoadError {
-    Read(mirx::ReadError),
+    Read(mirx::reader::ReadError),
     Image(mirx::image::ImageReadError),
     Surface(mirx::image::ImageEncodeError),
     Plan(mirx::image::SurfacePlanError),
@@ -485,8 +485,8 @@ pub enum MirxLoadError {
     ExternalMemoryRequired,
 }
 
-impl From<mirx::ReadError> for MirxLoadError {
-    fn from(err: mirx::ReadError) -> Self {
+impl From<mirx::reader::ReadError> for MirxLoadError {
+    fn from(err: mirx::reader::ReadError) -> Self {
         MirxLoadError::Read(err)
     }
 }
@@ -1350,7 +1350,7 @@ mod tests {
         let bad: &'static [u8] = Box::leak(Box::new([0u8; 8]));
         assert!(matches!(
             Texture::from_mirx(bad),
-            Err(MirxLoadError::Read(mirx::ReadError::BadMagic))
+            Err(MirxLoadError::Read(mirx::reader::ReadError::BadMagic))
         ));
     }
 
@@ -1430,7 +1430,7 @@ mod tests {
         let err = m.add_mirx_bytes("bad", bad).unwrap_err();
         assert!(matches!(
             err,
-            MirxLoadError::Read(mirx::ReadError::BadMagic)
+            MirxLoadError::Read(mirx::reader::ReadError::BadMagic)
         ));
     }
 

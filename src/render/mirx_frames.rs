@@ -10,7 +10,7 @@ use mirx::frames::{
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum MirxFramesError {
-    Read(mirx::ReadError),
+    Read(mirx::reader::ReadError),
     Frames(FramesError),
     Playback(FrameDecodeError),
     UnsupportedFormat(mirx::image::ColorFormat),
@@ -19,8 +19,8 @@ pub enum MirxFramesError {
     DimensionOverflow,
 }
 
-impl From<mirx::ReadError> for MirxFramesError {
-    fn from(error: mirx::ReadError) -> Self {
+impl From<mirx::reader::ReadError> for MirxFramesError {
+    fn from(error: mirx::reader::ReadError) -> Self {
         Self::Read(error)
     }
 }

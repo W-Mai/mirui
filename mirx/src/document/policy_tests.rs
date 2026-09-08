@@ -3,6 +3,7 @@ use alloc::vec::Vec;
 
 use super::*;
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, chunk_type};
+use crate::reader::ReadError;
 use crate::{
     ColorFormat, CriticalAssumption, EditError, FlatImageInput, ImageChunkInput, PayloadInput,
     RawChunkInput, RelocationAssumption, ReservedBitsPolicy, crc32, encode_chunk_image,

@@ -1,6 +1,6 @@
 use mirx::{
     ComplianceFinding, EntryIter, FindingIter, PayloadLimits, PayloadLocation,
-    PayloadValidationError, PayloadValidationFailure, ReadOptions, TrailingBytesPolicy,
+    PayloadValidationError, PayloadValidationFailure, ReadError, ReadOptions, TrailingBytesPolicy,
 };
 
 fn main() {}

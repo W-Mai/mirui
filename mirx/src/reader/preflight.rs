@@ -1,11 +1,12 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
+use crate::ChunkType;
 use crate::font::{FontError, FontView};
 use crate::frames::FramesError;
 use crate::image::{ImageReadError, ImageRef};
 use crate::meta::MetaDecodeError;
 use crate::palette::PaletteDecodeError;
+use crate::reader::ReadError;
 use crate::scene::{Scene, VectorReadError};
-use crate::{ChunkType, ReadError};
 
 /// Source location of a payload validation result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

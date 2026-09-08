@@ -3,14 +3,14 @@ mod support;
 use mirx::meta::Meta;
 use mirx::{
     ChunkFlags, ChunkType, Document, EditError, EncodeOptions, PayloadInput, PayloadOrigin,
-    RawChunkInput, RawChunkPolicy, ReadError, Reader,
+    RawChunkInput, RawChunkPolicy, Reader,
     coding::{CodingId, Frequency, FrequencyGeometry, Lz4, Pixel, Rle},
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageError, ImageReadError,
         SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitDecodeError,
     },
     media::{CodingRecord, MediaPayloadError},
-    reader::{PayloadLimits, PayloadLocation, PayloadValidationFailure, ReadOptions},
+    reader::{PayloadLimits, PayloadLocation, PayloadValidationFailure, ReadError, ReadOptions},
 };
 use support::encode_chunks;
 

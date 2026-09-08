@@ -9,6 +9,7 @@ mod primary;
 #[cfg(test)]
 mod ranges;
 
+pub use crate::error::ReadError;
 pub use entry::{ChunkRef, EntryIter};
 pub use finding::{ComplianceFinding, FindingIter};
 pub use limits::PayloadLimits;
@@ -17,7 +18,6 @@ pub use preflight::{PayloadLocation, PayloadValidationError, PayloadValidationFa
 pub(crate) use preflight::{PreflightStatus, preflight_chunk, require_understood_critical};
 
 use crate::ImageView;
-use crate::ReadError;
 use crate::crc32;
 use crate::header::{
     CHUNK_FILE_HEADER_LEN, ChunkFileHeader, FILE_HEADER_LEN, FLAT_HEADER_LEN, FileHeader,

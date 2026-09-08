@@ -1,13 +1,14 @@
 use alloc::{borrow::Cow, vec::Vec};
 
+use crate::ColorFormat;
 use crate::header::{FLAT_HEADER_LEN, FlatHeader};
 use crate::image::{
     EncodedImageError, ImageEncodeError as SurfaceEncodeError, ImageReadError, RawImageView,
     RawImageViewError, SurfaceView,
 };
 use crate::palette::ColorTableView;
+use crate::reader::ReadError;
 use crate::wire::slice;
-use crate::{ColorFormat, ReadError};
 
 /// Failure while validating MIRX image metadata, planes, or an IMAGE payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

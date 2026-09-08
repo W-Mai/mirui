@@ -43,10 +43,10 @@ use primary::open_primary_hint_state;
 use source::{Origin, SourceRange};
 
 use crate::payload::image::{ImageAssetParts, ImageMeta, validate_image_planes};
-use crate::reader::{PreflightStatus, preflight_chunk, require_understood_critical};
+use crate::reader::{PreflightStatus, ReadError, preflight_chunk, require_understood_critical};
 use crate::{
     ChunkFlags, ChunkId, ChunkType, DocumentError, EditError, FLAT_HEADER_LEN, ImageAsset,
-    ImageView, Layout, PayloadLimits, PrimaryHints, ReadError, ReadOptions, Reader,
+    ImageView, Layout, PayloadLimits, PrimaryHints, ReadOptions, Reader,
 };
 
 #[cfg(test)]

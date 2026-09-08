@@ -1,5 +1,5 @@
-use super::{ContainerHeader, Reader};
-use crate::{ChunkRef, ChunkType, PrimaryHints, ReadError};
+use super::{ContainerHeader, ReadError, Reader};
+use crate::{ChunkRef, ChunkType, PrimaryHints};
 
 impl<'a> Reader<'a> {
     /// Resolves the first table entry matching the wire primary type.

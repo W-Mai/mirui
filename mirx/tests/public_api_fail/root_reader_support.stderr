@@ -1,4 +1,4 @@
-error[E0432]: unresolved imports `mirx::ComplianceFinding`, `mirx::EntryIter`, `mirx::FindingIter`, `mirx::PayloadLocation`, `mirx::PayloadValidationError`, `mirx::PayloadValidationFailure`
+error[E0432]: unresolved imports `mirx::ComplianceFinding`, `mirx::EntryIter`, `mirx::FindingIter`, `mirx::PayloadLocation`, `mirx::PayloadValidationError`, `mirx::PayloadValidationFailure`, `mirx::ReadError`
  --> tests/public_api_fail/root_reader_support.rs:2:5
   |
 2 |     ComplianceFinding, EntryIter, FindingIter, PayloadLimits, PayloadLocation,
@@ -7,9 +7,10 @@ error[E0432]: unresolved imports `mirx::ComplianceFinding`, `mirx::EntryIter`, `
   |     |                  |          no `FindingIter` in the root
   |     |                  no `EntryIter` in the root
   |     no `ComplianceFinding` in the root
-3 |     PayloadValidationError, PayloadValidationFailure, ReadOptions, TrailingBytesPolicy,
-  |     ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^ no `PayloadValidationFailure` in the root
-  |     |
+3 |     PayloadValidationError, PayloadValidationFailure, ReadError, ReadOptions, TrailingBytesPolicy,
+  |     ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^ no `ReadError` in the root
+  |     |                       |
+  |     |                       no `PayloadValidationFailure` in the root
   |     no `PayloadValidationError` in the root
   |
   = help: consider importing this enum instead:
@@ -24,6 +25,8 @@ error[E0432]: unresolved imports `mirx::ComplianceFinding`, `mirx::EntryIter`, `
           mirx::reader::PayloadValidationError
   = help: consider importing this enum instead:
           mirx::reader::PayloadValidationFailure
+  = help: consider importing this enum instead:
+          mirx::reader::ReadError
 
 error[E0603]: struct `PayloadLimits` is private
  --> tests/public_api_fail/root_reader_support.rs:2:48
@@ -42,10 +45,10 @@ help: import `PayloadLimits` directly
   |                                                ++++++++++++++++++++++
 
 error[E0603]: struct `ReadOptions` is private
- --> tests/public_api_fail/root_reader_support.rs:3:55
+ --> tests/public_api_fail/root_reader_support.rs:3:66
   |
-3 |     PayloadValidationError, PayloadValidationFailure, ReadOptions, TrailingBytesPolicy,
-  |                                                       ^^^^^^^^^^^ private struct
+3 |     PayloadValidationError, PayloadValidationFailure, ReadError, ReadOptions, TrailingBytesPolicy,
+  |                                                                  ^^^^^^^^^^^ private struct
   |
 note: the struct `ReadOptions` is defined here
  --> src/lib.rs
@@ -54,14 +57,14 @@ note: the struct `ReadOptions` is defined here
   |                                        ^^^^^^^^^^^
 help: import `ReadOptions` directly
   |
-3 |     PayloadValidationError, PayloadValidationFailure, mirx::reader::options::ReadOptions, TrailingBytesPolicy,
-  |                                                       +++++++++++++++++++++++
+3 |     PayloadValidationError, PayloadValidationFailure, ReadError, mirx::reader::options::ReadOptions, TrailingBytesPolicy,
+  |                                                                  +++++++++++++++++++++++
 
 error[E0603]: enum `TrailingBytesPolicy` is private
- --> tests/public_api_fail/root_reader_support.rs:3:68
+ --> tests/public_api_fail/root_reader_support.rs:3:79
   |
-3 |     PayloadValidationError, PayloadValidationFailure, ReadOptions, TrailingBytesPolicy,
-  |                                                                    ^^^^^^^^^^^^^^^^^^^ private enum
+3 |     PayloadValidationError, PayloadValidationFailure, ReadError, ReadOptions, TrailingBytesPolicy,
+  |                                                                               ^^^^^^^^^^^^^^^^^^^ private enum
   |
 note: the enum `TrailingBytesPolicy` is defined here
  --> src/lib.rs
@@ -70,5 +73,5 @@ note: the enum `TrailingBytesPolicy` is defined here
   |                                                     ^^^^^^^^^^^^^^^^^^^
 help: import `TrailingBytesPolicy` directly
   |
-3 |     PayloadValidationError, PayloadValidationFailure, ReadOptions, mirx::reader::options::TrailingBytesPolicy,
-  |                                                                    +++++++++++++++++++++++
+3 |     PayloadValidationError, PayloadValidationFailure, ReadError, ReadOptions, mirx::reader::options::TrailingBytesPolicy,
+  |                                                                               +++++++++++++++++++++++
