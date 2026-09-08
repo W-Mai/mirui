@@ -16,7 +16,7 @@ pub fn encode_chunks(chunks: &[(u16, u16, &[u8])]) -> Vec<u8> {
     if let Some((chunk_type, _, _)) = chunks.first() {
         bytes[20..22].copy_from_slice(&chunk_type.to_le_bytes());
     }
-    let header_crc = mirx::crc32(&bytes[..40]);
+    let header_crc = crc32(&bytes[..40]);
     bytes[40..44].copy_from_slice(&header_crc.to_le_bytes());
 
     let mut payload_offset = payload_start;
@@ -31,4 +31,8 @@ pub fn encode_chunks(chunks: &[(u16, u16, &[u8])]) -> Vec<u8> {
     }
 
     bytes
+}
+
+pub fn crc32(bytes: &[u8]) -> u32 {
+    crc32fast::hash(bytes)
 }

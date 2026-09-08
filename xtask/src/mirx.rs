@@ -4,8 +4,9 @@ use std::fs::{self, File};
 use std::io::{self, Write as IoWrite};
 use std::path::{Path, PathBuf};
 
+use crc32fast::hash as crc32;
 use mirx::{
-    ChunkFlags, ChunkType, Document, Layout, PrimaryHints, Reader, crc32,
+    ChunkFlags, ChunkType, Document, Layout, PrimaryHints, Reader,
     document::{
         CriticalAssumption, OpenOptions, PayloadInput, RawChunkInput, RawChunkPolicy,
         RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,

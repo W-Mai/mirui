@@ -1,0 +1,11 @@
+error[E0603]: module `crc32` is private
+ --> tests/public_api_fail/root_crc32.rs:1:11
+  |
+1 | use mirx::crc32;
+  |           ^^^^^ private module
+  |
+note: the module `crc32` is defined here
+ --> src/lib.rs
+  |
+  | mod crc32;
+  | ^^^^^^^^^

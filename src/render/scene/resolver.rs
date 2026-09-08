@@ -76,7 +76,7 @@ mod tests {
         if let Some((chunk_type, _, _)) = chunks.first() {
             bytes[20..22].copy_from_slice(&chunk_type.to_le_bytes());
         }
-        let header_crc = mirx::crc32(&bytes[..40]);
+        let header_crc = crc32fast::hash(&bytes[..40]);
         bytes[40..44].copy_from_slice(&header_crc.to_le_bytes());
 
         let mut payload_offset = payload_start;

@@ -5,6 +5,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
+crc32fast = "1"
 mirx = { path = "../mirx" }
 mirui = { path = "..", default-features = false, features = ["std"] }
 serde_json = "1"

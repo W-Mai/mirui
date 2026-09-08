@@ -16,7 +16,7 @@ use mirx::types::{Color, Fixed};
 use mirx::{
     ChunkFlags, ChunkType, Document, Reader, document::EncodeOptions, reader::PayloadLimits,
 };
-use support::encode_chunks;
+use support::{crc32, encode_chunks};
 
 fn wire_fixed(bits: i32) -> Fixed {
     Fixed::from_le_bytes(bits.to_le_bytes())
@@ -1531,7 +1531,7 @@ fn typed_container() -> Vec<u8> {
 fn empty_media_payload() -> Vec<u8> {
     let mut bytes = vec![0; MEDIA_HEADER_LEN + MEDIA_CRC_LEN];
     bytes[0] = 1;
-    let crc = mirx::crc32(&[1, 0, 0, 0, 0, 0, 0, 0]);
+    let crc = crc32(&[1, 0, 0, 0, 0, 0, 0, 0]);
     bytes[4..8].copy_from_slice(&crc.to_le_bytes());
     bytes
 }
@@ -1565,12 +1565,12 @@ fn raw_a8_media_payload() -> Vec<u8> {
         .unwrap();
     bytes[data_offset] = 0x7f;
     let crc_offset = bytes.len() - MEDIA_CRC_LEN;
-    let crc = mirx::crc32(&bytes[data_offset..crc_offset]);
+    let crc = crc32(&bytes[data_offset..crc_offset]);
     bytes[crc_offset..].copy_from_slice(&crc.to_le_bytes());
     let mut metadata = bytes[..4].to_vec();
     metadata.extend_from_slice(&bytes[8..data_offset]);
     metadata.extend_from_slice(&bytes[crc_offset..]);
-    let crc = mirx::crc32(&metadata);
+    let crc = crc32(&metadata);
     bytes[4..8].copy_from_slice(&crc.to_le_bytes());
     bytes
 }
@@ -1704,13 +1704,13 @@ fn indexed_integrity_open_and_partial_verification_allocate_nothing() {
     }
     bytes[56..].copy_from_slice(&[1, 2, 3, 4]);
     let ranges = [
-        IntegrityRange::new(56..58, mirx::crc32(&bytes[56..58])).unwrap(),
-        IntegrityRange::new(58..60, mirx::crc32(&bytes[58..60])).unwrap(),
+        IntegrityRange::new(56..58, crc32(&bytes[56..58])).unwrap(),
+        IntegrityRange::new(58..60, crc32(&bytes[58..60])).unwrap(),
     ];
     IntegrityTable::encode_into(&ranges, &mut bytes[32..56]).unwrap();
     let mut metadata = bytes[..4].to_vec();
     metadata.extend_from_slice(&bytes[8..56]);
-    bytes[4..8].copy_from_slice(&mirx::crc32(&metadata).to_le_bytes());
+    bytes[4..8].copy_from_slice(&crc32(&metadata).to_le_bytes());
     let mut copy = [0; 24];
     let (_, allocations) = count_allocations(|| {
         let media = MediaPayload::open(&bytes).unwrap();
@@ -2170,13 +2170,13 @@ fn encoded_image_open_prepare_and_integrity_allocate_nothing() {
     bytes[80] = 19;
     bytes[82] = 1;
     bytes[88..92].copy_from_slice(&[1, 2, 3, 4]);
-    let checksum = mirx::crc32(&bytes[88..92]);
+    let checksum = crc32(&bytes[88..92]);
     bytes[92..96].copy_from_slice(&checksum.to_le_bytes());
     let mut metadata = [0; 88];
     metadata[..4].copy_from_slice(&bytes[..4]);
     metadata[4..84].copy_from_slice(&bytes[8..88]);
     metadata[84..].copy_from_slice(&bytes[92..]);
-    bytes[4..8].copy_from_slice(&mirx::crc32(&metadata).to_le_bytes());
+    bytes[4..8].copy_from_slice(&crc32(&metadata).to_le_bytes());
     let mut workspace = [None];
     let (_, allocations) = count_allocations(|| {
         let image = EncodedImageView::open(&bytes).unwrap();
