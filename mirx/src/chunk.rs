@@ -2,15 +2,19 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use crate::crc32;
+#[cfg(test)]
 use crate::error::ParseError;
 use crate::format::ColorFormat;
 use crate::header::{
-    CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkEntry, ChunkFileHeader, FILE_HEADER_LEN,
-    FileHeader, Layout, VERSION_MAJOR, VERSION_MINOR, chunk_type,
+    CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, FILE_HEADER_LEN, FileHeader, Layout,
+    VERSION_MAJOR, VERSION_MINOR, chunk_type,
 };
+#[cfg(test)]
+use crate::header::{ChunkEntry, ChunkFileHeader};
 
 /// Borrows the chunk table and IMAGE chunk pixel data from the input buffer.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
 pub struct ChunkFile<'a> {
     pub header: ChunkFileHeader,
     pub entries: Vec<ChunkEntry>,
@@ -19,6 +23,7 @@ pub struct ChunkFile<'a> {
     pub primary_image: Option<ImageChunk<'a>>,
 }
 
+#[cfg(test)]
 impl<'a> ChunkFile<'a> {
     /// First chunk payload of `chunk_type` referencing the original buffer
     /// `buf`. Returns `None` if no entry of that type exists or the entry's
@@ -53,6 +58,7 @@ impl<'a> ChunkFile<'a> {
 /// Only RAW IMAGE payloads with a packed surface are decoded; other payloads
 /// surface as [`ParseError::InvalidImage`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
 pub struct ImageChunk<'a> {
     pub width: u32,
     pub height: u32,
@@ -75,6 +81,7 @@ pub struct ImageChunkInput<'a> {
     pub extra: Option<&'a [u8]>,
 }
 
+#[cfg(test)]
 pub fn parse_chunk(buf: &[u8]) -> Result<ChunkFile<'_>, ParseError> {
     let file = FileHeader::parse(buf)?;
     if file.layout != Layout::Chunk {
@@ -172,6 +179,7 @@ pub fn parse_chunk(buf: &[u8]) -> Result<ChunkFile<'_>, ParseError> {
     })
 }
 
+#[cfg(test)]
 fn parse_image_chunk<'a>(buf: &'a [u8], entry: &ChunkEntry) -> Result<ImageChunk<'a>, ParseError> {
     let start = entry.chunk_offset as usize;
     let end = start
@@ -250,8 +258,7 @@ pub fn encode_chunk_image(image: &ImageChunkInput<'_>) -> Vec<u8> {
 /// header inside `payload`. The primary header fields (color_format,
 /// width, height, stride) are zeroed because they don't apply.
 ///
-/// `payload` is written verbatim; the chunk reader uses
-/// [`ChunkFile::chunk_payload`] to slice it back out.
+/// `payload` is written verbatim and available through [`crate::ChunkRef::payload`].
 pub fn encode_chunk_generic(chunk_type: u16, flags: u16, payload: &[u8]) -> Vec<u8> {
     let chunk_table_offset = CHUNK_FILE_HEADER_LEN as u32;
     let chunk_start = chunk_table_offset as usize + CHUNK_TABLE_ENTRY_LEN;
@@ -290,8 +297,7 @@ pub fn encode_chunk_generic(chunk_type: u16, flags: u16, payload: &[u8]) -> Vec<
 
 /// Multi-chunk file: writes `chunks` (each `(chunk_type, flags,
 /// payload)`) into one CHUNK-layout buffer, table then payloads. The
-/// reader resolves them via [`ChunkFile::chunk_payload`] /
-/// [`ChunkFile::chunk_payloads`]. Primary header fields stay zeroed —
+/// reader resolves them through [`crate::Reader::chunks`]. Primary header fields stay zeroed —
 /// a multi-chunk file (e.g. several FONT representations) has no single
 /// primary. `encode_chunk_generic` is the one-chunk special case.
 pub fn encode_chunks(chunks: &[(u16, u16, &[u8])]) -> Vec<u8> {

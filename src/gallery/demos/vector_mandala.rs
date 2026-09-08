@@ -101,9 +101,11 @@ fn build_frame(cx: Fixed, cy: Fixed, petals: u8, spin_deg: Fixed) -> Scene {
     );
 
     s.group(center, |s| {
-        let parsed = mirx::parse_chunk(EMBLEM_MIRX).expect("baked EMBLEM_MIRX must parse");
-        let payload = parsed
-            .chunk_payload(EMBLEM_MIRX, mirx::chunk_type::VECTOR)
+        let reader = mirx::Reader::open(EMBLEM_MIRX).expect("baked EMBLEM_MIRX must parse");
+        let payload = reader
+            .chunks()
+            .find(|chunk| chunk.chunk_type() == mirx::ChunkType::VECTOR)
+            .map(|chunk| chunk.payload())
             .expect("baked EMBLEM_MIRX must contain a VECTOR chunk");
         let emblem = Scene::decode(payload).expect("baked EMBLEM_MIRX must decode");
         s.extend_from_slice(&emblem.ops);
@@ -297,9 +299,11 @@ mod tests {
 
     #[test]
     fn baked_emblem_mirx_decodes_to_a_filled_path() {
-        let parsed = mirx::parse_chunk(EMBLEM_MIRX).unwrap();
-        let payload = parsed
-            .chunk_payload(EMBLEM_MIRX, mirx::chunk_type::VECTOR)
+        let reader = mirx::Reader::open(EMBLEM_MIRX).unwrap();
+        let payload = reader
+            .chunks()
+            .find(|chunk| chunk.chunk_type() == mirx::ChunkType::VECTOR)
+            .map(|chunk| chunk.payload())
             .unwrap();
         let scene = Scene::decode(payload).unwrap();
         assert_eq!(scene.ops.len(), 1);

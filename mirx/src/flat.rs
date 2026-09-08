@@ -1,6 +1,7 @@
 use alloc::vec::Vec;
 
 use crate::crc32;
+#[cfg(test)]
 use crate::error::ParseError;
 use crate::format::ColorFormat;
 use crate::header::{
@@ -9,6 +10,7 @@ use crate::header::{
 
 /// Borrows pixel data from the input buffer; no allocations.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg(test)]
 pub struct FlatImage<'a> {
     pub width: u32,
     pub height: u32,
@@ -31,6 +33,7 @@ pub struct FlatImageInput<'a> {
     pub extra: Option<&'a [u8]>,
 }
 
+#[cfg(test)]
 pub fn parse_flat(buf: &[u8]) -> Result<FlatImage<'_>, ParseError> {
     let file = FileHeader::parse(buf)?;
     if file.layout != Layout::Flat {

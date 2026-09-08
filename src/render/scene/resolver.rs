@@ -105,34 +105,42 @@ mod tests {
 
     #[test]
     fn vector_image_font_coexist_in_one_file() {
-        use mirx::{ChunkEntry, chunk_type, encode_chunks, parse_chunk};
+        use mirx::{ChunkType, Reader, chunk_type, encode_chunks};
 
         let vector = encode_scene(&[blit(ResourceRef::Index(0))]).unwrap();
         let image: &[u8] = &[0xAA, 0xBB, 0xCC, 0xDD];
         let font: &[u8] = &[0x01, 0x00, 0x10, 0x00];
 
         let chunks: alloc::vec::Vec<(u16, u16, &[u8])> = vec![
-            (
-                chunk_type::VECTOR,
-                ChunkEntry::FLAG_CRITICAL,
-                vector.as_slice(),
-            ),
-            (chunk_type::IMAGE, ChunkEntry::FLAG_CRITICAL, image),
-            (chunk_type::FONT, ChunkEntry::FLAG_CRITICAL, font),
+            (chunk_type::VECTOR, 0, vector.as_slice()),
+            (chunk_type::IMAGE, 0, image),
+            (chunk_type::FONT, 0, font),
         ];
         let bytes = encode_chunks(&chunks);
-        let parsed = parse_chunk(&bytes).unwrap();
+        let reader = Reader::open(&bytes).unwrap();
 
         assert_eq!(
-            parsed.chunk_payload(&bytes, chunk_type::VECTOR).unwrap(),
+            reader
+                .chunks()
+                .find(|chunk| chunk.chunk_type() == ChunkType::VECTOR)
+                .unwrap()
+                .payload(),
             vector.as_slice()
         );
         assert_eq!(
-            parsed.chunk_payload(&bytes, chunk_type::IMAGE).unwrap(),
+            reader
+                .chunks()
+                .find(|chunk| chunk.chunk_type() == ChunkType::IMAGE)
+                .unwrap()
+                .payload(),
             image
         );
         assert_eq!(
-            parsed.chunk_payload(&bytes, chunk_type::FONT).unwrap(),
+            reader
+                .chunks()
+                .find(|chunk| chunk.chunk_type() == ChunkType::FONT)
+                .unwrap()
+                .payload(),
             font
         );
     }

@@ -114,13 +114,6 @@ mod tests {
             set_primary(&mut bytes, 0xbeef, layout.raw(), 320, 240, 640);
             let reader = Reader::open(&bytes).unwrap();
             assert_eq!(reader.primary_hints().sample_layout(), layout);
-            assert_eq!(
-                crate::parse_chunk(&bytes)
-                    .unwrap()
-                    .header
-                    .primary_sample_layout,
-                layout.raw()
-            );
             assert_eq!(reader.primary_hints().known_color_format(), None);
         }
     }

@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 
 use super::*;
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, chunk_type};
-use crate::{ColorFormat, crc32, encode_chunks, parse_chunk, parse_flat};
+use crate::{ColorFormat, crc32, encode_chunks};
 
 fn flat_file(format: ColorFormat, width: u32, height: u32, stride: u32) -> Vec<u8> {
     let main_len = usize::try_from(stride.checked_mul(height).unwrap()).unwrap();
@@ -55,8 +55,6 @@ fn exact_flat_length_includes_main_and_extra_planes() {
         assert!(reader.has_trailing_bytes());
         assert_eq!(reader.source(), bytes.as_slice());
         assert_eq!(reader.flat_image().unwrap().format(), format);
-
-        assert!(parse_flat(&bytes).is_ok());
     }
 }
 
@@ -101,7 +99,6 @@ fn chunk_file_size_defines_the_logical_boundary() {
     assert_eq!(reader.logical_source(), &bytes[..logical_len]);
     assert_eq!(reader.trailing_bytes(), b"tail");
     assert_eq!(reader.chunks().next().unwrap().payload(), b"meta");
-    assert!(parse_chunk(&bytes).is_ok());
 }
 
 #[test]

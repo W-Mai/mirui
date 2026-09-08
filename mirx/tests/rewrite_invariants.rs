@@ -1,6 +1,6 @@
 use mirx::{
     ChunkFlags, ChunkId, ChunkType, CriticalAssumption, Document, PayloadInput, PrimaryHints,
-    RawChunkInput, RawChunkPolicy, Reader, RelocationAssumption, ReservedBitsPolicy, parse_chunk,
+    RawChunkInput, RawChunkPolicy, Reader, RelocationAssumption, ReservedBitsPolicy,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -100,15 +100,5 @@ fn generated_raw_sequences_rewrite_deterministically_and_reopen_every_payload() 
                         && actual.payload() == expected.payload
                 })
         );
-
-        let legacy = parse_chunk(&first).unwrap();
-        assert_eq!(legacy.entries.len(), expected.len(), "seed {seed}");
-        for expected in &expected {
-            assert_eq!(
-                legacy.chunk_payload(&first, expected.chunk_type.raw()),
-                Some(expected.payload.as_slice()),
-                "seed {seed}"
-            );
-        }
     }
 }

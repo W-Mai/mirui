@@ -24,10 +24,7 @@ pub mod types;
 mod wire;
 
 pub use alignment::{ByteAlignment, InvalidByteAlignment};
-pub use chunk::{
-    ChunkFile, ImageChunk, ImageChunkInput, encode_chunk_generic, encode_chunk_image,
-    encode_chunks, parse_chunk,
-};
+pub use chunk::{ImageChunkInput, encode_chunk_generic, encode_chunk_image, encode_chunks};
 pub use crc32::compute as crc32;
 pub use document::{
     ChunkIter, ChunksOfType, CompatibilityPolicy, CriticalAssumption, Document, DocumentChunkMut,
@@ -39,7 +36,7 @@ pub use error::{
     DocumentError, EditError, EncodeError, FontAccessError, FramesAccessError, ImageDecodeError,
     MetaAccessError, PaletteAccessError, ParseError, ReadError, TryEditError, VectorAccessError,
 };
-pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
+pub use flat::{FlatImageInput, encode_flat};
 pub use font::{
     Font, FontAsset, FontError, FontRepresentation, FontRepresentationError,
     FontRepresentationFallback, FontRepresentationKind, FontRepresentationMatch,

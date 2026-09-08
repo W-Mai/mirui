@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **One checked MIRX read path.** `Reader::open` is the container entry point; the weaker `MirxFile`, `parse`, and `peek_header` facades have been removed.
+- **One checked MIRX read path.** `Reader::open` is the container entry point; the weaker `MirxFile`, `parse`, `peek_header`, `parse_flat`, and `parse_chunk` facades and their temporary container views have been removed.
 - **Glyph-ID FONT payloads.** FONT faces map Unicode scalars to `GlyphId`, optionally map sparse glyph IDs to raster ordinals, separate face-unit advances from representation-major raster offsets, and carry either compact advances or bounded shaping data. The codepoint-ordinal and representation-local metrics layout has been removed.
 - **Validated shaping indexes.** FONT admission rejects malformed Unicode cmap tables and any scalar-to-glyph disagreement between `CMAP_INDEX` and the embedded shaping face.
 - **Shared atlas maps.** `image::AtlasMap` provides checked native and wire rectangle views for `ATLAS_MAPS` sections without allocation or domain-specific metadata.

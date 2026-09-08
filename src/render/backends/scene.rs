@@ -133,9 +133,11 @@ mod tests {
             &payload,
         );
 
-        let parsed = mirx::parse_chunk(&mirx_bytes).unwrap();
-        let extracted = parsed
-            .chunk_payload(&mirx_bytes, mirx::chunk_type::VECTOR)
+        let reader = mirx::Reader::open(&mirx_bytes).unwrap();
+        let extracted = reader
+            .chunks()
+            .find(|chunk| chunk.chunk_type() == mirx::ChunkType::VECTOR)
+            .map(|chunk| chunk.payload())
             .unwrap();
         let back = Scene::decode(extracted).unwrap();
 
