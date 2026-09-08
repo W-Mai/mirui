@@ -1,0 +1,17 @@
+error[E0432]: unresolved imports `mirx::ChunkFile`, `mirx::FlatImage`, `mirx::ImageChunk`, `mirx::MirxFile`, `mirx::parse`, `mirx::parse_chunk`, `mirx::parse_flat`, `mirx::peek_header`
+ --> tests/public_api_fail/legacy_readers.rs:2:5
+  |
+2 |     ChunkFile, FlatImage, ImageChunk, MirxFile, parse, parse_chunk, parse_flat, peek_header,
+  |     ^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^  ^^^^^  ^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^ no `peek_header` in the root
+  |     |          |          |           |         |      |            |
+  |     |          |          |           |         |      |            no `parse_flat` in the root
+  |     |          |          |           |         |      no `parse_chunk` in the root
+  |     |          |          |           |         no `parse` in the root
+  |     |          |          |           no `MirxFile` in the root
+  |     |          |          no `ImageChunk` in the root
+  |     |          no `FlatImage` in the root
+  |     no `ChunkFile` in the root
+  |     help: a similar name exists in the module: `ChunkType`
+  |
+  = help: consider importing this variant instead:
+          mirx::PayloadLocation::FlatImage
