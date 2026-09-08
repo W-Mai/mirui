@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Canonical FONT record authoring.** FACE, CMAP_INDEX and RASTER_METRICS values encode directly into caller-owned buffers with exact capacity checks.
 - **Canonical empty FONT glyphs.** Atlas glyph maps use one all-zero record for a glyph with no raster samples and reject every other zero-width or zero-height rectangle.
 
 ## [0.43.0] - 2026-09-07

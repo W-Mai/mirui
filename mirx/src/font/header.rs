@@ -1,4 +1,7 @@
-use crate::{Fixed, wire::read_u16_le};
+use crate::{
+    Fixed,
+    wire::{read_u16_le, write_u16_le},
+};
 
 pub const FACE_RECORD_LEN: usize = 20;
 
@@ -70,6 +73,24 @@ impl FontFace {
         )
     }
 
+    pub fn encode_record_into(self, output: &mut [u8]) -> Result<usize, FontFaceError> {
+        if output.len() < FACE_RECORD_LEN {
+            return Err(FontFaceError::BufferTooSmall {
+                needed: FACE_RECORD_LEN,
+                available: output.len(),
+            });
+        }
+        let mut record = [0; FACE_RECORD_LEN];
+        write_u16_le(&mut record, 0, self.units_per_em);
+        write_u16_le(&mut record, 2, self.default_glyph.get());
+        write_u16_le(&mut record, 4, self.raster_count);
+        record[8..12].copy_from_slice(&self.ascender.to_le_bytes());
+        record[12..16].copy_from_slice(&self.descender.to_le_bytes());
+        record[16..20].copy_from_slice(&self.line_gap.to_le_bytes());
+        output[..FACE_RECORD_LEN].copy_from_slice(&record);
+        Ok(FACE_RECORD_LEN)
+    }
+
     pub const fn units_per_em(self) -> u16 {
         self.units_per_em
     }
@@ -107,6 +128,7 @@ impl FontFace {
 #[non_exhaustive]
 pub enum FontFaceError {
     Truncated { needed: usize, available: usize },
+    BufferTooSmall { needed: usize, available: usize },
     TrailingBytes { byte_len: usize },
     ZeroUnitsPerEm,
     ZeroRasterCount,
@@ -130,13 +152,19 @@ mod tests {
 
     #[test]
     fn face_record_preserves_identity_counts_and_signed_metrics() {
-        let face = FontFace::from_record(&face()).unwrap();
-        assert_eq!(face.units_per_em(), 1_000);
-        assert_eq!(face.default_glyph(), super::super::GlyphId::new(7));
-        assert_eq!(face.raster_count(), 23);
-        assert_eq!(face.ascender().to_le_bytes(), 800_i32.to_le_bytes());
-        assert_eq!(face.descender().to_le_bytes(), (-200_i32).to_le_bytes());
-        assert_eq!(face.line_gap().to_le_bytes(), 100_i32.to_le_bytes());
+        let bytes = face();
+        let value = FontFace::from_record(&bytes).unwrap();
+        assert_eq!(value.units_per_em(), 1_000);
+        assert_eq!(value.default_glyph(), super::super::GlyphId::new(7));
+        assert_eq!(value.raster_count(), 23);
+        assert_eq!(value.ascender().to_le_bytes(), 800_i32.to_le_bytes());
+        assert_eq!(value.descender().to_le_bytes(), (-200_i32).to_le_bytes());
+        assert_eq!(value.line_gap().to_le_bytes(), 100_i32.to_le_bytes());
+
+        let mut output = [0x5a; FACE_RECORD_LEN + 1];
+        assert_eq!(value.encode_record_into(&mut output), Ok(FACE_RECORD_LEN));
+        assert_eq!(output[..FACE_RECORD_LEN], bytes);
+        assert_eq!(output[FACE_RECORD_LEN], 0x5a);
     }
 
     #[test]

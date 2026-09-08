@@ -44,12 +44,28 @@ pub struct RasterMetrics {
 }
 
 impl RasterMetrics {
+    pub const fn new(offset_x: Fixed, offset_y: Fixed) -> Self {
+        Self { offset_x, offset_y }
+    }
+
     pub const fn offset_x(self) -> Fixed {
         self.offset_x
     }
 
     pub const fn offset_y(self) -> Fixed {
         self.offset_y
+    }
+
+    pub fn encode_record_into(self, output: &mut [u8]) -> Result<usize, PlacementError> {
+        if output.len() < RASTER_METRICS_RECORD_LEN {
+            return Err(PlacementError::BufferTooSmall {
+                needed: RASTER_METRICS_RECORD_LEN,
+                available: output.len(),
+            });
+        }
+        output[..4].copy_from_slice(&self.offset_x.to_le_bytes());
+        output[4..RASTER_METRICS_RECORD_LEN].copy_from_slice(&self.offset_y.to_le_bytes());
+        Ok(RASTER_METRICS_RECORD_LEN)
     }
 }
 
@@ -93,6 +109,7 @@ impl<'a> RasterMetricsTable<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PlacementError {
+    BufferTooSmall { needed: usize, available: usize },
     PartialAdvance { byte_len: usize },
     PartialRasterMetrics { byte_len: usize },
 }
@@ -116,6 +133,14 @@ mod tests {
         let metric = RasterMetricsTable::open(&bytes).unwrap().get(0).unwrap();
         assert_eq!(metric.offset_x().to_le_bytes(), (-384_i32).to_le_bytes());
         assert_eq!(metric.offset_y().to_le_bytes(), 640_i32.to_le_bytes());
+
+        let mut output = [0x5a; RASTER_METRICS_RECORD_LEN + 1];
+        assert_eq!(
+            metric.encode_record_into(&mut output),
+            Ok(RASTER_METRICS_RECORD_LEN)
+        );
+        assert_eq!(output[..RASTER_METRICS_RECORD_LEN], bytes);
+        assert_eq!(output[RASTER_METRICS_RECORD_LEN], 0x5a);
     }
 
     #[test]

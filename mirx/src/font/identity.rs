@@ -28,12 +28,28 @@ pub struct CmapEntry {
 }
 
 impl CmapEntry {
+    pub const fn new(scalar: char, glyph_id: GlyphId) -> Self {
+        Self { scalar, glyph_id }
+    }
+
     pub const fn scalar(self) -> char {
         self.scalar
     }
 
     pub const fn glyph_id(self) -> GlyphId {
         self.glyph_id
+    }
+
+    pub fn encode_record_into(self, output: &mut [u8]) -> Result<usize, CmapIndexError> {
+        if output.len() < CMAP_INDEX_RECORD_LEN {
+            return Err(CmapIndexError::BufferTooSmall {
+                needed: CMAP_INDEX_RECORD_LEN,
+                available: output.len(),
+            });
+        }
+        output[..4].copy_from_slice(&(self.scalar as u32).to_le_bytes());
+        output[4..CMAP_INDEX_RECORD_LEN].copy_from_slice(&self.glyph_id.get().to_le_bytes());
+        Ok(CMAP_INDEX_RECORD_LEN)
     }
 }
 
@@ -114,6 +130,10 @@ impl<'a> CmapIndex<'a> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum CmapIndexError {
+    BufferTooSmall {
+        needed: usize,
+        available: usize,
+    },
     PartialRecord {
         byte_len: usize,
     },
@@ -273,6 +293,15 @@ mod tests {
         assert_eq!(cmap.lookup('C'), None);
         assert_eq!(cmap.get(2).unwrap().scalar(), '\u{10ffff}');
         assert_eq!(cmap.iter().count(), 3);
+
+        let mut output = [0x5a; CMAP_INDEX_RECORD_LEN + 1];
+        assert_eq!(
+            CmapEntry::new('中', GlyphId::new(42)).encode_record_into(&mut output),
+            Ok(CMAP_INDEX_RECORD_LEN)
+        );
+        assert_eq!(&output[..4], &('中' as u32).to_le_bytes());
+        assert_eq!(&output[4..6], &42_u16.to_le_bytes());
+        assert_eq!(output[6], 0x5a);
     }
 
     #[test]
