@@ -63,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Checked fixed FONT records.** Internal representation emitters return validated fixed byte arrays and glyph-surface emitters are infallible; public record errors no longer contain writer-capacity variants.
 - **Infallible fixed IMAGE records.** Internal surface and plane-memory emitters return fixed byte arrays; their public decode errors no longer include writer-capacity variants.
 - **Checked encoded-group records.** Internal group emitters return validated fixed byte arrays; semantic group errors no longer include writer-capacity variants.
+- **Semantic coding-table errors.** Public coding-table errors describe stored data and size arithmetic without internal writer-capacity states.
 
 ### Added
 

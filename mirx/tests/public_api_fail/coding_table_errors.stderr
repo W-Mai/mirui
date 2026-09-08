@@ -1,0 +1,5 @@
+error[E0599]: no variant named `BufferTooSmall` found for enum `CodingTableError`
+ --> tests/public_api_fail/coding_table_errors.rs:4:31
+  |
+4 |     let _ = CodingTableError::BufferTooSmall {
+  |                               ^^^^^^^^^^^^^^ variant not found in `CodingTableError`

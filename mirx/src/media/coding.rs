@@ -173,12 +173,9 @@ impl<'a> CodingTable<'a> {
         out: &mut [u8],
     ) -> Result<usize, CodingTableError> {
         let needed = Self::encoded_iter_len(records.clone())?;
-        if out.len() < needed {
-            return Err(CodingTableError::BufferTooSmall {
-                needed,
-                available: out.len(),
-            });
-        }
+        let out = out
+            .get_mut(..needed)
+            .expect("precomputed coding table capacity");
         write_u32_le(out, 0, records.len() as u32);
         let params_start = CODING_TABLE_HEADER_LEN + records.len() * CODING_RECORD_LEN;
         let mut params_end = 0;
@@ -201,7 +198,6 @@ pub enum CodingTableError {
     EmptyTable,
     InvalidParameterEnd { index: u32, end: u32 },
     UnreferencedParameters,
-    BufferTooSmall { needed: usize, available: usize },
     SizeOverflow,
 }
 
@@ -269,15 +265,10 @@ mod tests {
     }
 
     #[test]
-    fn encoding_errors_are_atomic_and_default_parameters_cost_no_body_bytes() {
+    fn encoding_validation_and_default_parameters_cost_no_body_bytes() {
         let defaults = [CodingRecord::new(CodingId::new(123), 7, &[])];
         assert_eq!(CodingTable::encoded_len(&defaults), Ok(12));
         let mut out = [0xa5; 11];
-        assert!(matches!(
-            CodingTable::encode_into(&defaults, &mut out),
-            Err(CodingTableError::BufferTooSmall { .. })
-        ));
-        assert_eq!(out, [0xa5; 11]);
         assert_eq!(
             CodingTable::encode_into(&[], &mut out),
             Err(CodingTableError::EmptyTable)
