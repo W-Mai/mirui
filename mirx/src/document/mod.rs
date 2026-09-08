@@ -33,7 +33,6 @@ pub use chunk_mut::DocumentChunkMut;
 pub use options::{EncodeOptions, LayoutPolicy, OpenOptions};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub(crate) use raw::RawChunkPolicy;
-pub use raw::RemovedChunkMetadata;
 #[cfg(test)]
 pub(crate) use raw::{
     CriticalAssumption, PayloadInput, RawChunkInput, RelocationAssumption, ReservedBitsPolicy,

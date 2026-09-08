@@ -456,9 +456,7 @@ fn promoted_removal_materializes_before_commit_and_clears_sidecar() {
 
     let mut without_materialization = Document::open(&source).unwrap();
     let image_id = without_materialization.promote_to_chunk().unwrap().unwrap();
-    let removed = without_materialization.remove(image_id).unwrap();
-    assert_eq!(removed.id, image_id);
-    assert!(removed.was_primary);
+    without_materialization.remove(image_id).unwrap();
     let DocumentState::Chunk(chunks) = &without_materialization.state else {
         panic!("expected CHUNK document");
     };

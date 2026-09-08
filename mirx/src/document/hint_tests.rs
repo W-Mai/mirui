@@ -604,8 +604,7 @@ fn opaque_primary_transitions_preserve_only_untouched_wire_hints() {
         .unwrap();
     assert_eq!(snapshot(&document), before_type_noop);
 
-    let removed = document.remove(primary).unwrap();
-    assert!(removed.was_primary);
+    document.remove(primary).unwrap();
     assert_eq!(document.primary(), None);
     assert_eq!(chunk_hint_state(&document), PrimaryHintState::Missing);
     assert_eq!(document.primary_hints(), PrimaryHints::ZERO);

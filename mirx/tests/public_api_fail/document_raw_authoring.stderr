@@ -1,11 +1,12 @@
-error[E0432]: unresolved imports `mirx::document::PayloadInput`, `mirx::document::RawChunkInput`, `mirx::document::RawTypePolicy`
- --> tests/public_api_fail/document_raw_authoring.rs:1:22
+error[E0432]: unresolved imports `mirx::document::PayloadInput`, `mirx::document::RawChunkInput`, `mirx::document::RawTypePolicy`, `mirx::document::RemovedChunkMetadata`
+ --> tests/public_api_fail/document_raw_authoring.rs:2:5
   |
-1 | use mirx::document::{PayloadInput, RawChunkInput, RawChunkPolicy, RawTypePolicy};
-  |                      ^^^^^^^^^^^^  ^^^^^^^^^^^^^                  ^^^^^^^^^^^^^ no `RawTypePolicy` in `document`
-  |                      |             |
-  |                      |             no `RawChunkInput` in `document`
-  |                      no `PayloadInput` in `document`
+2 |     PayloadInput, RawChunkInput, RawChunkPolicy, RawTypePolicy, RemovedChunkMetadata,
+  |     ^^^^^^^^^^^^  ^^^^^^^^^^^^^                  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^ no `RemovedChunkMetadata` in `document`
+  |     |             |                              |
+  |     |             |                              no `RawTypePolicy` in `document`
+  |     |             no `RawChunkInput` in `document`
+  |     no `PayloadInput` in `document`
   |
 note: found an item that was configured out
  --> src/document/mod.rs
@@ -25,10 +26,10 @@ note: found an item that was configured out
   |                                       ^^^^^^^^^^^^^
 
 error[E0603]: struct `RawChunkPolicy` is private
- --> tests/public_api_fail/document_raw_authoring.rs:1:51
+ --> tests/public_api_fail/document_raw_authoring.rs:2:34
   |
-1 | use mirx::document::{PayloadInput, RawChunkInput, RawChunkPolicy, RawTypePolicy};
-  |                                                   ^^^^^^^^^^^^^^ private struct
+2 |     PayloadInput, RawChunkInput, RawChunkPolicy, RawTypePolicy, RemovedChunkMetadata,
+  |                                  ^^^^^^^^^^^^^^ private struct
   |
 note: the struct `RawChunkPolicy` is defined here
  --> src/document/mod.rs
@@ -37,5 +38,5 @@ note: the struct `RawChunkPolicy` is defined here
   |                ^^^^^^^^^^^^^^^^^^^
 help: import `RawChunkPolicy` directly
   |
-1 | use mirx::document::{PayloadInput, RawChunkInput, mirx::document::raw::RawChunkPolicy, RawTypePolicy};
-  |                                                   +++++++++++++++++++++
+2 |     PayloadInput, RawChunkInput, mirx::document::raw::RawChunkPolicy, RawTypePolicy, RemovedChunkMetadata,
+  |                                  +++++++++++++++++++++

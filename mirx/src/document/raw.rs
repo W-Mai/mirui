@@ -85,15 +85,6 @@ impl<'a> RawChunkInput<'a> {
     }
 }
 
-/// Descriptor retained after a chunk is removed from a document.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct RemovedChunkMetadata {
-    pub id: ChunkId,
-    pub chunk_type: ChunkType,
-    pub flags: ChunkFlags,
-    pub was_primary: bool,
-}
-
 /// Whether raw payload bytes may move when the document is encoded.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
@@ -498,11 +489,11 @@ impl<'a> Document<'a> {
     }
 
     /// Removes `id` without materializing its payload bytes.
-    pub fn remove(&mut self, id: ChunkId) -> Result<RemovedChunkMetadata, EditError> {
+    pub fn remove(&mut self, id: ChunkId) -> Result<(), EditError> {
         self.ensure_mutable()?;
         let index = chunk_index(&self.state, id)?;
-        let (_, meta) = self.remove_at(index);
-        Ok(meta)
+        self.remove_at(index);
+        Ok(())
     }
 
     /// Removes `id` and returns an owned copy of its encoded payload.
@@ -670,7 +661,7 @@ impl<'a> Document<'a> {
             }
         };
 
-        let (node, _) = self.remove_at(index);
+        let node = self.remove_at(index);
         match (copied, node.payload) {
             (Some(bytes), PayloadStorage::SourceRange(_) | PayloadStorage::Borrowed(_)) => {
                 Ok(bytes)
@@ -681,7 +672,7 @@ impl<'a> Document<'a> {
         }
     }
 
-    fn remove_at(&mut self, index: usize) -> (ChunkNode<'a>, RemovedChunkMetadata) {
+    fn remove_at(&mut self, index: usize) -> ChunkNode<'a> {
         let DocumentState::Chunk(chunks) = &mut self.state else {
             unreachable!("layout checked before committing removal");
         };
@@ -697,14 +688,8 @@ impl<'a> Document<'a> {
             chunks.primary = None;
             chunks.primary_hints = super::PrimaryHintState::Missing;
         }
-        let meta = RemovedChunkMetadata {
-            id: node.id,
-            chunk_type: node.chunk_type,
-            flags: node.flags,
-            was_primary,
-        };
         self.dirty = true;
-        (node, meta)
+        node
     }
 }
 
@@ -1543,7 +1528,7 @@ mod tests {
     }
 
     #[test]
-    fn removal_returns_descriptor_clears_only_removed_primary_and_keeps_ids_monotonic() {
+    fn removal_clears_only_removed_primary_and_keeps_ids_monotonic() {
         let mut source = encode_chunks(&[
             (chunk_type::META, 0xa500, b"meta"),
             (chunk_type::FONT, 0, b"primary"),
@@ -1554,27 +1539,14 @@ mod tests {
         let original_ids = ids(&document);
         let original_next = document.next_id;
 
-        let non_primary = document.remove(original_ids[0]).unwrap();
-        assert_eq!(
-            non_primary,
-            RemovedChunkMetadata {
-                id: original_ids[0],
-                chunk_type: ChunkType::META,
-                flags: ChunkFlags::from_bits_retain(0xa500),
-                was_primary: false,
-            }
-        );
+        document.remove(original_ids[0]).unwrap();
         assert_eq!(document.primary(), Some(original_ids[1]));
         assert_eq!(ids(&document), [original_ids[1], original_ids[2]]);
         assert_eq!(document.next_id, original_next);
         assert!(document.is_dirty());
 
         document.dirty = false;
-        let primary = document.remove(original_ids[1]).unwrap();
-        assert!(primary.was_primary);
-        assert_eq!(primary.id, original_ids[1]);
-        assert_eq!(primary.chunk_type, ChunkType::FONT);
-        assert_eq!(primary.flags, ChunkFlags::NONE);
+        document.remove(original_ids[1]).unwrap();
         assert_eq!(document.primary(), None);
         assert_eq!(ids(&document), [original_ids[2]]);
         assert_eq!(

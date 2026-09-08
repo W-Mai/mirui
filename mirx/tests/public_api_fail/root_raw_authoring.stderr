@@ -12,6 +12,3 @@ error[E0432]: unresolved imports `mirx::CriticalAssumption`, `mirx::PayloadInput
   |     ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^ no `ReservedBitsPolicy` in the root
   |     |
   |     no `RemovedChunkMetadata` in the root
-  |
-  = help: consider importing this struct instead:
-          mirx::document::RemovedChunkMetadata
