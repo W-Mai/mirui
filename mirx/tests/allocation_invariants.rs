@@ -983,7 +983,9 @@ fn typed_encoded_edits_allocate_only_final_payloads_and_keep_noops_borrowed() {
 #[test]
 fn encoded_document_queries_and_placement_allocate_no_samples_or_group_table() {
     use mirx::{
-        PayloadInput, RawChunkInput, RawChunkPolicy, coding::Rle, image::EncodedImageAsset,
+        coding::Rle,
+        document::{PayloadInput, RawChunkInput, RawChunkPolicy},
+        image::EncodedImageAsset,
     };
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])

@@ -2,9 +2,11 @@ use std::borrow::Cow;
 
 use mirx::image::ColorFormat;
 use mirx::{
-    ChunkType, CriticalAssumption, Document, Layout, RawChunkPolicy, Reader, RelocationAssumption,
-    ReservedBitsPolicy,
-    document::{OpenOptions, RawTypePolicy},
+    ChunkType, Document, Layout, Reader,
+    document::{
+        CriticalAssumption, OpenOptions, RawChunkPolicy, RawTypePolicy, RelocationAssumption,
+        ReservedBitsPolicy,
+    },
 };
 
 fn decode_hex(source: &str) -> Vec<u8> {

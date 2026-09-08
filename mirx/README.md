@@ -426,8 +426,8 @@ Raw mutation is explicit about assumptions that cannot be proven from opaque byt
 
 ```rust,no_run
 use mirx::{
-    ChunkFlags, ChunkType, CriticalAssumption, RawChunkInput, RawChunkPolicy,
-    RelocationAssumption, ReservedBitsPolicy,
+    ChunkFlags, ChunkType,
+    document::{CriticalAssumption, RawChunkInput, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy},
 };
 
 # let payload: &[u8] = &[];

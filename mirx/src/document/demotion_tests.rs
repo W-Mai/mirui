@@ -4,8 +4,8 @@ use alloc::vec::Vec;
 
 use super::*;
 use crate::{
-    CHUNK_FILE_HEADER_LEN, ColorFormat, FlatImageInput, PayloadInput, RawChunkInput,
-    RawChunkPolicy, Reader, TrailingBytesPolicy, crc32, encode_flat,
+    CHUNK_FILE_HEADER_LEN, ColorFormat, FlatImageInput, Reader, TrailingBytesPolicy, crc32,
+    encode_flat,
 };
 
 const FORMATS: [ColorFormat; 16] = [

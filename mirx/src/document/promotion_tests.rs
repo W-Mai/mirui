@@ -6,8 +6,7 @@ use core::cell::Cell;
 use super::payload::ResolvedNodePayload;
 use super::*;
 use crate::{
-    ColorFormat, CriticalAssumption, FlatImageInput, ImageAsset, ImageView, PayloadOrigin,
-    RawChunkInput, ReadOptions, Reader, RelocationAssumption, ReservedBitsPolicy,
+    ColorFormat, FlatImageInput, ImageAsset, ImageView, PayloadOrigin, ReadOptions, Reader,
     TrailingBytesPolicy, encode_flat,
 };
 

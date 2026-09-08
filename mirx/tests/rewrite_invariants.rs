@@ -1,6 +1,9 @@
 use mirx::{
-    ChunkFlags, ChunkId, ChunkType, CriticalAssumption, Document, PayloadInput, PrimaryHints,
-    RawChunkInput, RawChunkPolicy, Reader, RelocationAssumption, ReservedBitsPolicy,
+    ChunkFlags, ChunkId, ChunkType, Document, PrimaryHints, Reader,
+    document::{
+        CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
+        ReservedBitsPolicy,
+    },
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

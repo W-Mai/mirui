@@ -125,9 +125,9 @@ impl<'p> OpenOptions<'p> {
     /// Sets the ordered type policies used to classify opened raw nodes.
     ///
     /// For current container semantics,
-    /// [`ReservedBitsPolicy::Preserve`](crate::ReservedBitsPolicy::Preserve)
+    /// [`ReservedBitsPolicy::Preserve`](crate::document::ReservedBitsPolicy::Preserve)
     /// grants reserved-bit preservation and
-    /// [`ReservedBitsPolicy::Normalize`](crate::ReservedBitsPolicy::Normalize)
+    /// [`ReservedBitsPolicy::Normalize`](crate::document::ReservedBitsPolicy::Normalize)
     /// clears those bits and marks the document dirty. The default reject
     /// policy leaves opened bits unchanged without granting preservation.
     pub const fn with_raw_type_policies(mut self, policies: &'p [RawTypePolicy]) -> Self {
@@ -151,7 +151,7 @@ mod tests {
     use core::mem::size_of;
 
     use super::*;
-    use crate::{CriticalAssumption, RelocationAssumption, ReservedBitsPolicy};
+    use crate::document::{CriticalAssumption, RelocationAssumption, ReservedBitsPolicy};
 
     #[test]
     fn encode_options_are_const_and_keep_layout_policy_explicit() {

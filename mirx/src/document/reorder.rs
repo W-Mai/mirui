@@ -132,11 +132,11 @@ mod tests {
 
     use super::*;
     use crate::document::source::SourceRange;
-    use crate::{
-        ChunkFlags, ChunkType, ColorFormat, CriticalAssumption, FlatImageInput, PayloadInput,
-        RawChunkInput, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy, encode_chunks,
-        encode_flat,
+    use crate::document::{
+        CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
+        ReservedBitsPolicy,
     };
+    use crate::{ChunkFlags, ChunkType, ColorFormat, FlatImageInput, encode_chunks, encode_flat};
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct NodeSnapshot {

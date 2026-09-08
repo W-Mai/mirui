@@ -178,13 +178,12 @@ mod tests {
     use core::{cell::Cell, mem::size_of};
 
     use super::*;
-    use crate::document::{EncodeOptions, OpenOptions, RawTypePolicy};
-    use crate::meta::{MetaEntry, MetaValue, MetaValueRef};
-    use crate::{
-        ColorFormat, CriticalAssumption, ImageAsset, PayloadInput, PayloadLimits, PayloadOrigin,
-        RawChunkInput, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy, crc32,
-        encode_chunks,
+    use crate::document::{
+        CriticalAssumption, EncodeOptions, OpenOptions, PayloadInput, RawChunkInput,
+        RawChunkPolicy, RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
     };
+    use crate::meta::{MetaEntry, MetaValue, MetaValueRef};
+    use crate::{ColorFormat, ImageAsset, PayloadLimits, PayloadOrigin, crc32, encode_chunks};
 
     fn id(counter: u32) -> ChunkId {
         ChunkId::new(counter)

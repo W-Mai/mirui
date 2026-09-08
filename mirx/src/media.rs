@@ -981,7 +981,7 @@ mod tests {
         let bytes = indexed_image();
         let mut document = crate::Document::new();
         let id = document
-            .push_raw(crate::RawChunkInput::new(
+            .push_raw(crate::document::RawChunkInput::new(
                 crate::ChunkType::IMAGE,
                 bytes.as_slice(),
             ))

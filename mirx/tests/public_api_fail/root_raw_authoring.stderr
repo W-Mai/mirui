@@ -1,0 +1,29 @@
+error[E0432]: unresolved imports `mirx::CriticalAssumption`, `mirx::PayloadInput`, `mirx::RawChunkInput`, `mirx::RawChunkPolicy`, `mirx::RelocationAssumption`, `mirx::RemovedChunkMetadata`, `mirx::ReservedBitsPolicy`
+ --> tests/public_api_fail/root_raw_authoring.rs:2:5
+  |
+2 |     CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
+  |     ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^ no `RelocationAssumption` in the root
+  |     |                   |             |              |
+  |     |                   |             |              no `RawChunkPolicy` in the root
+  |     |                   |             no `RawChunkInput` in the root
+  |     |                   no `PayloadInput` in the root
+  |     no `CriticalAssumption` in the root
+3 |     RemovedChunkMetadata, ReservedBitsPolicy,
+  |     ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^ no `ReservedBitsPolicy` in the root
+  |     |
+  |     no `RemovedChunkMetadata` in the root
+  |
+  = help: consider importing this enum instead:
+          mirx::document::CriticalAssumption
+  = help: consider importing this enum instead:
+          mirx::document::PayloadInput
+  = help: consider importing this struct instead:
+          mirx::document::RawChunkInput
+  = help: consider importing this struct instead:
+          mirx::document::RawChunkPolicy
+  = help: consider importing this enum instead:
+          mirx::document::RelocationAssumption
+  = help: consider importing this struct instead:
+          mirx::document::RemovedChunkMetadata
+  = help: consider importing this enum instead:
+          mirx::document::ReservedBitsPolicy

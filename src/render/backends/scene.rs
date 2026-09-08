@@ -130,7 +130,7 @@ mod tests {
         let mut document = mirx::Document::new();
         document
             .push_raw(
-                mirx::RawChunkInput::new(mirx::ChunkType::VECTOR, payload)
+                mirx::document::RawChunkInput::new(mirx::ChunkType::VECTOR, payload)
                     .with_flags(mirx::ChunkFlags::CRITICAL),
             )
             .unwrap();

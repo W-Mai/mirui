@@ -327,7 +327,10 @@ mod tests {
             assert!(raw.packed().is_none());
             let mut document = crate::Document::new();
             let id = document
-                .push_raw(crate::RawChunkInput::new(crate::ChunkType::IMAGE, changed))
+                .push_raw(crate::document::RawChunkInput::new(
+                    crate::ChunkType::IMAGE,
+                    changed,
+                ))
                 .unwrap();
             document.set_primary(id).unwrap();
             assert_eq!(

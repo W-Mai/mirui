@@ -483,9 +483,10 @@ mod tests {
 
     use super::*;
     use crate::document::source::SourceRange;
+    use crate::document::{PayloadInput, RawChunkInput};
     use crate::{
         CHUNK_FILE_HEADER_LEN, ChunkFlags, ColorFormat, FlatImageInput, ImageChunkInput,
-        PayloadInput, RawChunkInput, encode_chunk_image, encode_chunks, encode_flat,
+        encode_chunk_image, encode_chunks, encode_flat,
     };
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]

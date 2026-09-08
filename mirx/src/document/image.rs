@@ -178,11 +178,13 @@ mod tests {
     use alloc::vec;
 
     use super::*;
-    use crate::document::{EncodeOptions, OpenOptions, RawTypePolicy};
+    use crate::document::{
+        CriticalAssumption, EncodeOptions, OpenOptions, RawChunkPolicy, RawTypePolicy,
+        RelocationAssumption, ReservedBitsPolicy,
+    };
     use crate::header::CHUNK_FILE_HEADER_LEN;
     use crate::{
-        ColorFormat, CriticalAssumption, ImagePayloadError, Layout, PayloadOrigin, RawChunkPolicy,
-        Reader, RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, crc32,
+        ColorFormat, ImagePayloadError, Layout, PayloadOrigin, Reader, TrailingBytesPolicy, crc32,
         encode_chunks,
     };
 
@@ -329,10 +331,10 @@ mod tests {
         let main = [1, 2, 3, 4];
         let mut authored = Document::new();
         authored
-            .push_raw(crate::RawChunkInput {
+            .push_raw(crate::document::RawChunkInput {
                 chunk_type: ChunkType::META,
                 flags: ChunkFlags::NONE,
-                payload: crate::PayloadInput::Borrowed(b"opaque"),
+                payload: crate::document::PayloadInput::Borrowed(b"opaque"),
                 policy: RawChunkPolicy {
                     relocation: RelocationAssumption::AssumeRelocatable,
                     critical_semantics: CriticalAssumption::Infer,
@@ -415,18 +417,18 @@ mod tests {
         let owned_payload_pointer = owned_payload.as_ptr();
         let mut mixed = Document::new();
         let borrowed_id = mixed
-            .push_raw(crate::RawChunkInput {
+            .push_raw(crate::document::RawChunkInput {
                 chunk_type: ChunkType::IMAGE,
                 flags: ChunkFlags::NONE,
-                payload: crate::PayloadInput::Borrowed(&borrowed_payload),
+                payload: crate::document::PayloadInput::Borrowed(&borrowed_payload),
                 policy: RawChunkPolicy::infer(),
             })
             .unwrap();
         let owned_id = mixed
-            .push_raw(crate::RawChunkInput {
+            .push_raw(crate::document::RawChunkInput {
                 chunk_type: ChunkType::IMAGE,
                 flags: ChunkFlags::NONE,
-                payload: crate::PayloadInput::Owned(owned_payload),
+                payload: crate::document::PayloadInput::Owned(owned_payload),
                 policy: RawChunkPolicy::infer(),
             })
             .unwrap();
@@ -818,10 +820,10 @@ mod tests {
             Err(EditError::InvalidChunkId)
         );
         let meta = document
-            .push_raw(crate::RawChunkInput {
+            .push_raw(crate::document::RawChunkInput {
                 chunk_type: ChunkType::META,
                 flags: ChunkFlags::NONE,
-                payload: crate::PayloadInput::Borrowed(b"opaque"),
+                payload: crate::document::PayloadInput::Borrowed(b"opaque"),
                 policy: RawChunkPolicy {
                     relocation: RelocationAssumption::AssumeRelocatable,
                     critical_semantics: CriticalAssumption::Infer,

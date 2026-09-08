@@ -7,7 +7,6 @@ error[E0432]: unresolved imports `mirx::FlatImageInput`, `mirx::ImageChunkInput`
   |     |               |                |                     no `encode_chunk_image` in the root
   |     |               |                no `encode_chunk_generic` in the root
   |     |               no `ImageChunkInput` in the root
-  |     |               help: a similar name exists in the module: `RawChunkInput`
   |     no `FlatImageInput` in the root
 3 |     encode_flat,
   |     ^^^^^^^^^^^ no `encode_flat` in the root

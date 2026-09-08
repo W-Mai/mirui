@@ -25,7 +25,7 @@ use mirui::render::command::CompositeMode;
 use mirui::render::scene::codec::encode_scene;
 use mirui::render::scene::{ResourceRef, SceneOp};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
-use mirx::{ChunkFlags, ChunkType, Document, RawChunkInput};
+use mirx::{ChunkFlags, ChunkType, Document, document::RawChunkInput};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 

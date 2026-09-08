@@ -5,10 +5,7 @@ use super::*;
 use crate::frames::{EncodedFrames, FrameSequence, FramesEncoder};
 use crate::header::{CHUNK_FILE_HEADER_LEN, chunk_type};
 use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
-use crate::{
-    ColorFormat, CriticalAssumption, ImageChunkInput, PayloadInput, RawChunkInput,
-    RelocationAssumption, ReservedBitsPolicy, crc32, encode_chunk_image, encode_chunks,
-};
+use crate::{ColorFormat, ImageChunkInput, crc32, encode_chunk_image, encode_chunks};
 
 const CUSTOM: ChunkType = match ChunkType::new(0xbeef) {
     Some(chunk_type) => chunk_type,

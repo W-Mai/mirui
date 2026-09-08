@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Canonical MIRX read errors.** `ReadError` lives under `mirx::reader`; the duplicate crate-root export has been removed.
 - **Canonical MIRX document errors.** Open, edit, callback, and encode failures live under `mirx::document`; duplicate crate-root exports have been removed.
 - **Canonical MIRX document options.** Open, encode, layout, and raw-type policies live under `mirx::document`; duplicate crate-root exports have been removed.
+- **Canonical MIRX raw authoring paths.** Raw payload inputs, rewrite policies, assumptions, and removed-chunk metadata live under `mirx::document`; duplicate crate-root exports have been removed.
 - **Canonical MIRX VECTOR paths.** Scene values, paint primitives, codec errors, and access errors live under `mirx::scene`; duplicate crate-root exports have been removed.
 - **Canonical MIRX FONT paths.** Font values, views, representation selection, and access errors live under `mirx::font`; duplicate crate-root exports have been removed.
 - **Private MIRX payload plumbing.** Typed payload codecs are exposed through their domain modules; the internal `payload` assembly module is no longer public.

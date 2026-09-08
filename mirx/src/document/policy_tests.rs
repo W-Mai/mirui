@@ -5,8 +5,7 @@ use super::*;
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, chunk_type};
 use crate::reader::ReadError;
 use crate::{
-    ColorFormat, CriticalAssumption, FlatImageInput, ImageChunkInput, PayloadInput, RawChunkInput,
-    RelocationAssumption, ReservedBitsPolicy, crc32, encode_chunk_image, encode_chunks,
+    ColorFormat, FlatImageInput, ImageChunkInput, crc32, encode_chunk_image, encode_chunks,
     encode_flat,
 };
 

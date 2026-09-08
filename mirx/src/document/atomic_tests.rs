@@ -6,8 +6,7 @@ use alloc::vec::Vec;
 use super::*;
 use crate::header::CHUNK_FILE_HEADER_LEN;
 use crate::{
-    ColorFormat, CriticalAssumption, FlatImageInput, ImageAsset, ImageChunkInput,
-    ImagePayloadError, PayloadInput, RawChunkInput, RelocationAssumption, ReservedBitsPolicy,
+    ColorFormat, FlatImageInput, ImageAsset, ImageChunkInput, ImagePayloadError,
     TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
 };
 

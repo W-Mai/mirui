@@ -230,12 +230,13 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
-    use crate::document::EditError;
+    use crate::document::{
+        CriticalAssumption, EditError, PayloadInput, RawChunkInput, RawChunkPolicy,
+        RelocationAssumption,
+    };
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, chunk_type};
     use crate::{
-        ColorFormat, CriticalAssumption, FlatImageInput, PayloadInput, RawChunkInput,
-        RawChunkPolicy, RelocationAssumption, crc32, encode_chunks, encode_flat,
-        image::ImageAccessError,
+        ColorFormat, FlatImageInput, crc32, encode_chunks, encode_flat, image::ImageAccessError,
     };
 
     fn explicit_policy() -> RawChunkPolicy {

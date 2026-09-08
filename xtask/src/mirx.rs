@@ -5,9 +5,11 @@ use std::io::{self, Write as IoWrite};
 use std::path::{Path, PathBuf};
 
 use mirx::{
-    ChunkFlags, ChunkType, CriticalAssumption, Document, Layout, PayloadInput, PrimaryHints,
-    RawChunkInput, RawChunkPolicy, Reader, RelocationAssumption, ReservedBitsPolicy, crc32,
-    document::{OpenOptions, RawTypePolicy},
+    ChunkFlags, ChunkType, Document, Layout, PrimaryHints, Reader, crc32,
+    document::{
+        CriticalAssumption, OpenOptions, PayloadInput, RawChunkInput, RawChunkPolicy,
+        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
+    },
     reader::{
         PayloadLimits, PayloadLocation, PayloadValidationError, ReadOptions, TrailingBytesPolicy,
     },

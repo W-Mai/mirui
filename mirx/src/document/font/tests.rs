@@ -2,16 +2,13 @@ use alloc::{borrow::Cow, vec::Vec};
 use core::cell::Cell;
 
 use super::*;
-use crate::document::EncodeOptions;
+use crate::document::{EncodeOptions, RawChunkPolicy};
 use crate::font::{
     CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontMetadataError, FontRepresentation,
     GlyphId, GlyphMap, GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
 };
 use crate::image::SampleLayout;
-use crate::{
-    ColorFormat, ImageAsset, PayloadLimits, PayloadOrigin, RawChunkPolicy, encode_chunks,
-    types::Fixed,
-};
+use crate::{ColorFormat, ImageAsset, PayloadLimits, PayloadOrigin, encode_chunks, types::Fixed};
 
 fn font() -> Font {
     let map = GlyphMap::cells(2, 2, 2).unwrap();
@@ -176,13 +173,15 @@ fn identity_type_and_layout_errors_precede_callbacks() {
 
     let mut document = Document::new();
     let meta = document
-        .push_raw(crate::RawChunkInput {
+        .push_raw(crate::document::RawChunkInput {
             chunk_type: ChunkType::META,
             flags: ChunkFlags::NONE,
-            payload: crate::PayloadInput::Borrowed(b"meta"),
+            payload: crate::document::PayloadInput::Borrowed(b"meta"),
             policy: RawChunkPolicy::infer()
-                .with_relocation(crate::RelocationAssumption::AssumeRelocatable)
-                .with_critical_semantics(crate::CriticalAssumption::AssumeCriticalUnderstood),
+                .with_relocation(crate::document::RelocationAssumption::AssumeRelocatable)
+                .with_critical_semantics(
+                    crate::document::CriticalAssumption::AssumeCriticalUnderstood,
+                ),
         })
         .unwrap();
     assert_eq!(

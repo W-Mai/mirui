@@ -2,10 +2,9 @@ mod support;
 
 use mirx::meta::Meta;
 use mirx::{
-    ChunkFlags, ChunkType, Document, PayloadInput, PayloadOrigin, RawChunkInput, RawChunkPolicy,
-    Reader,
+    ChunkFlags, ChunkType, Document, PayloadOrigin, Reader,
     coding::{CodingId, Frequency, FrequencyGeometry, Lz4, Pixel, Rle},
-    document::{EditError, EncodeOptions},
+    document::{EditError, EncodeOptions, PayloadInput, RawChunkInput, RawChunkPolicy},
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageError, ImageReadError,
         SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitDecodeError,
@@ -369,7 +368,7 @@ fn document_inference_checks_encoded_syntax_and_limits_before_mutation() {
 
 #[test]
 fn opaque_encoded_relocation_remains_an_explicit_policy_and_keeps_alignment() {
-    use mirx::{CriticalAssumption, RelocationAssumption, ReservedBitsPolicy};
+    use mirx::document::{CriticalAssumption, RelocationAssumption, ReservedBitsPolicy};
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let payload =
         EncodedImageAsset::new(surface, CodingRecord::new(CodingId::new(511), 1, &[]), &[1])

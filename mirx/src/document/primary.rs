@@ -388,10 +388,8 @@ mod tests {
         RewriteCapability, TrailingState,
     };
     use super::*;
-    use crate::{
-        ChunkFlags, CriticalAssumption, FlatImageInput, ReservedBitsPolicy, crc32, encode_chunks,
-        encode_flat,
-    };
+    use crate::document::{CriticalAssumption, ReservedBitsPolicy};
+    use crate::{ChunkFlags, FlatImageInput, crc32, encode_chunks, encode_flat};
 
     const TYPE_A: ChunkType = match ChunkType::new(0xa001) {
         Some(chunk_type) => chunk_type,
