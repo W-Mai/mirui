@@ -440,7 +440,9 @@ impl<S: Source> Plan<S> {
                 });
             }
             FontAdvanceSource::Shaping(bytes) => {
-                ShapingData::open(bytes).map_err(FontError::Shaping)?;
+                ShapingData::open(bytes)
+                    .and_then(|shaping| shaping.validate_cmap_entries(asset.cmap()))
+                    .map_err(FontError::Shaping)?;
             }
             FontAdvanceSource::Advances(_) => {}
         }

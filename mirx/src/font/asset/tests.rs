@@ -270,6 +270,20 @@ fn invalid_assets_and_capacity_fail_before_output_writes() {
             .is_err()
         );
         assert_eq!(output, before);
+        let shaping = super::super::shaping::test_sfnt();
+        assert!(matches!(
+            FontAsset {
+                advance_source: FontAdvanceSource::Shaping(&shaping),
+                ..asset
+            }
+            .encode_into(&mut output),
+            Err(FontError::Shaping(super::super::ShapingDataError::CmapMismatch {
+                scalar,
+                shaping: Some(shaping),
+                index: Some(index),
+            })) if scalar == 'A' as u32 && shaping == GlyphId::new(1) && index == GlyphId::NOTDEF
+        ));
+        assert_eq!(output, before);
         let mut representations = asset.representations.to_vec();
         representations[0].surface = u16::MAX;
         assert!(

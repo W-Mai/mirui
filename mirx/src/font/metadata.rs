@@ -92,6 +92,9 @@ impl<'a> FontMetadata<'a> {
             shaping
                 .preflight(limits)
                 .map_err(FontMetadataError::Shaping)?;
+            shaping
+                .validate_cmap(cmap)
+                .map_err(FontMetadataError::Shaping)?;
         }
 
         let representations = RepresentationTable::open(

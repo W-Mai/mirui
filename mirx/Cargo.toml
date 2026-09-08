@@ -24,5 +24,8 @@ publish = true
 default = []
 std = []
 
+[dependencies]
+ttf-parser = { version = "0.25.1", default-features = false, features = ["no-std-float"] }
+
 [target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "wasm32"))'.dependencies]
 wide = { version = "0.7.33", default-features = false }

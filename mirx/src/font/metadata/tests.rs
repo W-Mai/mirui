@@ -58,7 +58,7 @@ impl Fixture {
         let mut cmap = [0; 2 * super::super::CMAP_INDEX_RECORD_LEN];
         for (record, (scalar, glyph)) in cmap
             .chunks_exact_mut(super::super::CMAP_INDEX_RECORD_LEN)
-            .zip([('A', 0_u16), ('B', 1)])
+            .zip([('A', 1_u16), ('B', 1)])
         {
             record[..4].copy_from_slice(&(scalar as u32).to_le_bytes());
             record[4..].copy_from_slice(&glyph.to_le_bytes());
@@ -118,22 +118,7 @@ impl Fixture {
 }
 
 fn shaping() -> Vec<u8> {
-    const TAGS: [[u8; 4]; 8] = [
-        *b"OS/2", *b"cmap", *b"glyf", *b"head", *b"hhea", *b"hmtx", *b"loca", *b"maxp",
-    ];
-    let directory_len =
-        super::super::SFNT_HEADER_LEN + TAGS.len() * super::super::SFNT_TABLE_RECORD_LEN;
-    let mut bytes = vec![0; directory_len + TAGS.len() * 4];
-    bytes[..4].copy_from_slice(&[0, 1, 0, 0]);
-    bytes[4..6].copy_from_slice(&(TAGS.len() as u16).to_be_bytes());
-    for (index, tag) in TAGS.into_iter().enumerate() {
-        let record = super::super::SFNT_HEADER_LEN + index * super::super::SFNT_TABLE_RECORD_LEN;
-        bytes[record..record + 4].copy_from_slice(&tag);
-        bytes[record + 8..record + 12]
-            .copy_from_slice(&(directory_len as u32 + index as u32 * 4).to_be_bytes());
-        bytes[record + 12..record + 16].copy_from_slice(&4_u32.to_be_bytes());
-    }
-    bytes
+    super::super::shaping::test_sfnt()
 }
 
 #[test]
@@ -188,6 +173,43 @@ fn metadata_requires_exactly_one_advance_source() {
     assert!(matches!(
         FontMetadata::open(&payload(&conflicting), &PayloadLimits::EMBEDDED),
         Err(FontMetadataError::ConflictingAdvanceSources)
+    ));
+}
+
+#[test]
+fn metadata_rejects_cmap_disagreement_in_both_directions() {
+    let shaping = shaping();
+    let mut fixture = Fixture::new();
+    fixture.cmap[10..12].copy_from_slice(&0_u16.to_le_bytes());
+    let mut sections = fixture.sections().to_vec();
+    sections.retain(|(kind, _)| *kind != MediaSectionKind::ADVANCES.raw());
+    sections.push((MediaSectionKind::SHAPING.raw(), &shaping));
+    assert!(matches!(
+        FontMetadata::open(&payload(&sections), &PayloadLimits::EMBEDDED),
+        Err(FontMetadataError::Shaping(ShapingDataError::CmapMismatch {
+            scalar,
+            shaping: Some(shaping),
+            index: Some(index),
+        })) if scalar == 'B' as u32 && shaping == GlyphId::new(1) && index == GlyphId::NOTDEF
+    ));
+
+    let fixture = Fixture::new();
+    let mut sections = fixture.sections().to_vec();
+    sections.retain(|(kind, _)| {
+        *kind != MediaSectionKind::ADVANCES.raw() && *kind != MediaSectionKind::CMAP_INDEX.raw()
+    });
+    sections.push((
+        MediaSectionKind::CMAP_INDEX.raw(),
+        &fixture.cmap[..super::super::CMAP_INDEX_RECORD_LEN],
+    ));
+    sections.push((MediaSectionKind::SHAPING.raw(), &shaping));
+    assert!(matches!(
+        FontMetadata::open(&payload(&sections), &PayloadLimits::EMBEDDED),
+        Err(FontMetadataError::Shaping(ShapingDataError::CmapMismatch {
+            scalar,
+            shaping: Some(shaping),
+            index: None,
+        })) if scalar == 'B' as u32 && shaping == GlyphId::new(1)
     ));
 }
 
