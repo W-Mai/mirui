@@ -62,7 +62,7 @@ This 1,661-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors
 | Type | Purpose | Read access | Authoring value |
 | --- | --- | --- | --- |
 | `IMAGE` | RAW and coded packed, indexed, alpha, and planar YUV surfaces | `ImageRef` | `ImageAsset` / `RawImageAsset` / `EncodedImageAsset` |
-| `FONT` | Shared Unicode, metrics, maps, and RAW or coded glyph surfaces | `FontView` | `FontAsset` / `Font` |
+| `FONT` | Glyph identity, shaping data, placement, and RAW or coded raster representations | `FontView` | `FontAsset` / `Font` |
 | `VECTOR` | Ordered scene operations | Bounded decode | `Scene` |
 | `META` | Ordered text, bytes, and extension values | `MetaView` | `Meta` |
 | `PALETTE` | Ordered RGBA colors | `PaletteView` | `Palette` |
@@ -70,7 +70,7 @@ This 1,661-byte layout contains a 44-byte CHUNK header, five 16-byte descriptors
 
 IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `Document::decode_font` and `decode_vector` make owned allocation visible at the call site.
 
-`FontView::open` admits one complete font face: a shared Unicode ordinal table, one or more representation-specific metric/map records, and referenced RAW or encoded scalar surfaces. `preflight` accumulates limits across every unique surface and validates DATA once. `FontAsset` writes borrowed authoring input, while owned `Font` retains the same representation and coding structure for transactional document edits.
+`FontView::open` admits one complete font face: Unicode-to-`GlyphId` lookup, one advance source, one or more raster representations, representation-major raster offsets, and referenced RAW or encoded scalar surfaces. `preflight` accumulates limits across every unique surface and validates DATA once. `FontAsset` writes borrowed authoring input, while owned `Font` retains the same representation and coding structure for transactional document edits. [FONT payload structure](docs/font-payload.md) defines the canonical sections and omission rules.
 
 `FontRepresentations::select` matches fixed-size coverage and ranged signed-distance representations with explicit preferences and fallback. The returned `FontRepresentationMatch` owns one inline metadata value and its source index; selection allocates nothing and does not extend the representation table's lifetime.
 
@@ -78,21 +78,17 @@ IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `Document::decode_
 
 `font::RepresentationTable` borrows representation/surface bodies and resolves scalar storage facts without a decoded metadata array. Native and wire tables share duplicate validation and size selection; count limits precede record interpretation. [Borrowed representation tables](docs/representation-tables.md) describes the bounds and direct iteration API.
 
-`font::FaceTables` joins shared Unicode ordinals to representation-specific metrics and maps. Size selection returns their matching records together; direct access does not rescan atlas maps or allocate metadata. [Joined face tables](docs/font-tables.md) describes exact table boundaries, fixed-cell omission and complete atlas-map sharing.
-
 `font::GlyphSurfaceRecord` encodes 24 bytes of shared glyph geometry and direct section references. RAW physical allocation and encoded coding/group/index references are exclusive states; directory checks do not imply body or DATA validation. [Glyph surface records](docs/glyph-surfaces.md) describes the fields, omission rules and checked constructors.
 
 `GlyphSurfaceRecord::raw_glyphs(media, map)` binds matching scalar maps to exact referenced PLANES/DATA storage without allocation or repeated DATA scans. It returns the shared `RawGlyphs` access and transfer API; complete-face or selected-range integrity checks remain separate.
 
 `GlyphSurfaceRecord::encoded_glyphs(media, map)` binds compressed scalar samples to shared coding and group tables. Caller-owned group slots prepare exact glyph plans with bounded unit workspace, partition-aware integrity, sub-byte crops and independently aligned output. [Encoded glyph regions](docs/encoded-glyphs.md) describes whole-stream versus tiled memory costs and metadata lifetimes.
 
-`font::MetricsTable` borrows representation-specific line and glyph measurements as signed 24.8 values, without repeating codepoints or raster storage fields. [Font metric records](docs/font-metrics.md) describes the byte layout, coordinate conventions and allocation-free access.
-
 `font::GlyphMap` derives fixed GlyphMajor cells without map bytes or borrows explicit Atlas2D rectangles. Native and wire maps share checked lookup and encoding without repeating per-glyph storage rules; see [glyph region maps](docs/glyph-maps.md).
 
 `font::RawGlyphs` binds those maps to scalar sample storage. A shared `PlaneMemoryLayout` describes each independently aligned cell or the complete atlas. Constant-time lookup returns a `GlyphRaster`; its exact region copies into caller-owned output through the image memory and stride contract, without allocating or retaining map metadata. [Borrowed glyph storage](docs/glyph-storage.md) covers cell gaps, sub-byte atlas origins and source/output alignment.
 
-`font::GlyphTable` joins shared codepoints, representation metrics and RAW glyph storage after checking equal counts. `glyph(char)` returns matching measurements and samples through one ordinal; the result borrows only sample bytes. [Joined glyph lookup](docs/glyph-lookup.md) covers missing characters, empty raster regions and design-ppem metrics.
+`FontView::map_char` resolves a Unicode scalar to `GlyphId`. `raster_ordinal`, `advance`, `raster_metrics`, `representation`, and `glyphs` keep identity, placement, selection, and sample access separate while borrowing the original payload.
 
 ## Runtime reading
 
@@ -276,18 +272,23 @@ assert_eq!(ColorFormat::RGBA8888.minimum_stride(13), Some(52));
 
 Formats with a separate palette or alpha plane report the depth of the main plane. `ColorFormat::extra_size(width, height, stride)` calculates the required extra-plane byte count.
 
-## Font codepoint tables
+## Font identity tables
 
-`FontCodepoints` borrows a CODEPOINTS section body: strictly increasing little-endian `u32` Unicode scalar values. It rejects surrogates, out-of-range values, duplicates, unordered records, and partial entries. Glyph ordinals come from table positions, so raster representations can share one Unicode directory. `get`, `binary_search`, and double-ended iteration require no allocation or pointer alignment.
+`font::CmapIndex` borrows sorted six-byte records that map Unicode scalars to `GlyphId`. Raster ordinals are identity-mapped when `GLYPH_IDS` is absent; sparse fonts store one sorted glyph ID per raster ordinal. Both paths use binary search without allocation.
 
 ```rust
-use mirx::FontCodepoints;
+use mirx::font::{CmapEntry, CmapIndex, GlyphId};
 
-let bytes = [0x41, 0, 0, 0, 0x2d, 0x4e, 0, 0];
-let codepoints = FontCodepoints::open(&bytes).unwrap();
-assert_eq!(codepoints.binary_search('A'), Ok(0));
-assert_eq!(codepoints.get(1), Some('中'));
-assert_eq!(codepoints.binary_search('B'), Err(1));
+let mut bytes = [0; 12];
+CmapEntry::new('A', GlyphId::new(3))
+    .encode_record_into(&mut bytes)
+    .unwrap();
+CmapEntry::new('中', GlyphId::new(9))
+    .encode_record_into(&mut bytes[6..])
+    .unwrap();
+let cmap = CmapIndex::open(&bytes).unwrap();
+assert_eq!(cmap.lookup('中'), Some(GlyphId::new(9)));
+assert_eq!(cmap.lookup('B'), None);
 ```
 
 ## Authoring a document

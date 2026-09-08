@@ -12,17 +12,17 @@ fn open(bytes: &'static [u8]) -> MirxFontProvider {
 }
 
 #[test]
-fn face_retains_sdf_contract_and_sorted_codepoints() {
+fn face_retains_sdf_contract_and_sorted_cmap() {
     let provider = open(ASCII_FONT);
-    let tables = provider.view().tables();
-    let record = tables.representations().get(0).unwrap().representation();
+    let view = provider.view();
+    let record = view.representations().get(0).unwrap().representation();
     assert_eq!(record.design_ppem(), 32);
     assert!(matches!(
         record.kind(),
         FontRepresentationKind::SignedDistance { bits: 4, spread: 4 }
     ));
-    let codepoints: Vec<_> = tables.codepoints().into_iter().collect();
-    assert!(codepoints.windows(2).all(|pair| pair[0] < pair[1]));
+    let scalars: Vec<_> = view.cmap().iter().map(|entry| entry.scalar()).collect();
+    assert!(scalars.windows(2).all(|pair| pair[0] < pair[1]));
 }
 
 #[test]

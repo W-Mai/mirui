@@ -169,13 +169,21 @@ fn owned_font_edits_and_emission_need_no_temporary_reference_arrays() {
     use mirx::{
         Fixed,
         font::{
-            Font, FontAsset, FontRepresentation, GlyphMap, GlyphMetrics, GlyphSurfaceAsset,
-            LineMetrics, RawGlyphs, RepresentationAsset,
+            CmapEntry, Font, FontAdvanceSource, FontAsset, FontFace, FontRepresentation, GlyphId,
+            GlyphMap, GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
         },
     };
-    let chars = ['A'];
-    let metrics = [GlyphMetrics::default()];
-    let line = LineMetrics::new(wire_fixed(256), Fixed::ZERO, wire_fixed(256)).unwrap();
+    let cmap = [CmapEntry::new('A', GlyphId::NOTDEF)];
+    let advances = [wire_fixed(256)];
+    let face = FontFace::new(
+        1_000,
+        GlyphId::NOTDEF,
+        1,
+        wire_fixed(256),
+        Fixed::ZERO,
+        Fixed::ZERO,
+    )
+    .unwrap();
     let raw = RawGlyphs::builder(GlyphMap::glyph_major(2, 2, 1).unwrap(), SampleLayout::A8)
         .build(&[7; 4])
         .unwrap();
@@ -183,16 +191,20 @@ fn owned_font_edits_and_emission_need_no_temporary_reference_arrays() {
     let representations = [RepresentationAsset::new(
         FontRepresentation::coverage(8, 12, 4).unwrap(),
         0,
-        line,
-        &metrics,
     )];
-    let asset = FontAsset::new(&chars, &representations, &surfaces);
+    let raster_metrics = [RasterMetrics::default()];
+    let asset = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances)).with_rasters(
+        &representations,
+        &raster_metrics,
+        &surfaces,
+    );
     let mut owned = Font::from_asset(asset, &PayloadLimits::EMBEDDED).unwrap();
     let (_, allocations) = count_allocations(|| {
-        owned.set_codepoint(0, '中').unwrap();
-        owned.set_line_metrics(0, line).unwrap();
-        owned.glyph_metrics_mut(0).unwrap()[0] =
-            GlyphMetrics::new(wire_fixed(517), Fixed::ZERO, Fixed::ZERO);
+        owned
+            .set_cmap_entry(0, CmapEntry::new('中', GlyphId::NOTDEF))
+            .unwrap();
+        owned.advances_mut().unwrap()[0] = wire_fixed(517);
+        owned.raster_metrics_mut()[0] = RasterMetrics::new(Fixed::ZERO, Fixed::ZERO);
         let mut output = [0; 512];
         let len = owned.encode_into(&mut output).unwrap();
         assert_eq!(owned.encoded_len(), Ok(len));
@@ -219,15 +231,19 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
         Fixed,
         coding::Rle,
         font::{
-            FontAsset, FontGlyphs, FontRepresentation, FontRepresentationRequest, FontView,
-            GlyphMap, GlyphMetrics, GlyphSurfaceAsset, LineMetrics, RawGlyphs, RepresentationAsset,
+            CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontGlyphs, FontRepresentation,
+            FontRepresentationRequest, FontView, GlyphId, GlyphMap, GlyphSurfaceAsset,
+            RasterMetrics, RawGlyphs, RepresentationAsset,
         },
         image::{CoverageBudget, EncodedImageAsset},
     };
     let (_, allocations) = count_allocations(|| {
         let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
-        let metrics = [GlyphMetrics::default(); 2];
-        let line = LineMetrics::new(wire_fixed(256), Fixed::ZERO, wire_fixed(256)).unwrap();
+        let cmap = [
+            CmapEntry::new('A', GlyphId::new(0)),
+            CmapEntry::new('B', GlyphId::new(1)),
+        ];
+        let advances = [wire_fixed(256); 2];
         let raw = RawGlyphs::builder(map, SampleLayout::A8)
             .build(&[7; 8])
             .unwrap();
@@ -241,20 +257,24 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
             GlyphSurfaceAsset::Encoded { map, image },
         ];
         let representations = [
-            RepresentationAsset::new(
-                FontRepresentation::coverage(8, 12, 8).unwrap(),
-                0,
-                line,
-                &metrics,
-            ),
+            RepresentationAsset::new(FontRepresentation::coverage(8, 12, 8).unwrap(), 0),
             RepresentationAsset::new(
                 FontRepresentation::signed_distance(8, 3, 24, 17, 48, 8).unwrap(),
                 1,
-                line,
-                &metrics,
             ),
         ];
-        let asset = FontAsset::new(&['A', 'B'], &representations, &surfaces);
+        let face = FontFace::new(
+            1_000,
+            GlyphId::NOTDEF,
+            2,
+            wire_fixed(256),
+            Fixed::ZERO,
+            Fixed::ZERO,
+        )
+        .unwrap();
+        let raster_metrics = [RasterMetrics::default(); 4];
+        let asset = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
+            .with_rasters(&representations, &raster_metrics, &surfaces);
         asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
         let mut output = [0; 512];
         let len = asset.encode_into(&mut output).unwrap();
@@ -262,10 +282,7 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
         assert!(asset.matches_payload(&output[..len]).unwrap());
         let font = FontView::open(&output[..len], &PayloadLimits::EMBEDDED).unwrap();
         font.preflight(&PayloadLimits::EMBEDDED).unwrap();
-        let chosen = font
-            .tables()
-            .select(FontRepresentationRequest::new(24))
-            .unwrap();
+        let chosen = font.select(FontRepresentationRequest::new(24)).unwrap();
         assert_eq!(chosen.index(), 1);
         let FontGlyphs::Encoded(glyphs) = font.glyphs(chosen.index()).unwrap() else {
             panic!("encoded");
@@ -292,55 +309,6 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
         let image_len = image.encode_into(&mut image_bytes).unwrap();
         assert!(image.matches_payload(&image_bytes[..image_len]).unwrap());
         image.preflight(&PayloadLimits::EMBEDDED).unwrap();
-    });
-    assert_eq!(allocations, 0);
-}
-
-#[test]
-fn joined_face_selection_and_map_lookup_allocate_nothing() {
-    use mirx::{
-        FontRepresentation, FontRepresentationRequest,
-        font::{
-            FaceTables, FontCodepoints, GlyphMap, GlyphPacking, GlyphSurfaceRecord, LineMetrics,
-            RepresentationRecord, RepresentationTable,
-        },
-        image::Region,
-    };
-    let (_, allocations) = count_allocations(|| {
-        let mut surfaces = [0; 24];
-        GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::Atlas2D, 8, 8, 0)
-            .unwrap()
-            .encode_record_into(&mut surfaces)
-            .unwrap();
-        let mut records = [0; 32];
-        for (index, size) in [12, 16].into_iter().enumerate() {
-            RepresentationRecord::new(FontRepresentation::coverage(8, size, 64).unwrap(), 0)
-                .encode_record_into(&mut records[index * 16..])
-                .unwrap();
-        }
-        let mut metrics = [0; 48];
-        let line = LineMetrics::new(wire_fixed(256), wire_fixed(-256), wire_fixed(512)).unwrap();
-        line.encode_record_into(&mut metrics).unwrap();
-        line.encode_record_into(&mut metrics[24..]).unwrap();
-        let mut maps = [0; 16];
-        GlyphMap::atlas(8, 8, &[Region::new(1, 2, 3, 4).unwrap()])
-            .unwrap()
-            .encode_into(&mut maps)
-            .unwrap();
-        let codepoint = ('一' as u32).to_le_bytes();
-        let table =
-            RepresentationTable::open(&records, &surfaces, 1, &PayloadLimits::EMBEDDED).unwrap();
-        let face = FaceTables::new(
-            FontCodepoints::open(&codepoint).unwrap(),
-            table,
-            &metrics,
-            &maps,
-        )
-        .unwrap();
-        let selected = face.select(FontRepresentationRequest::new(16)).unwrap();
-        assert_eq!(selected.index(), 1);
-        assert_eq!(selected.map().get(0).unwrap().x(), 1);
-        assert_eq!(selected.metrics().len(), 1);
     });
     assert_eq!(allocations, 0);
 }
@@ -486,42 +454,6 @@ fn representation_record_binding_and_emission_allocate_nothing() {
         let decoded = RepresentationRecord::from_record(&bytes[1..], surface).unwrap();
         assert_eq!(decoded, record);
         assert_eq!(bytes[0], 0xa5);
-    });
-    assert_eq!(allocations, 0);
-}
-
-#[test]
-fn joined_glyph_lookup_and_metric_access_allocate_nothing() {
-    use mirx::font::{
-        FontCodepoints, GlyphMap, GlyphMetrics, GlyphTable, LineMetrics, MetricsTable, RawGlyphs,
-    };
-    let (_, allocations) = count_allocations(|| {
-        let chars = [65, 0, 0, 0, 0x2d, 0x4e, 0, 0];
-        let codepoints = FontCodepoints::open(&chars).unwrap();
-        let line = LineMetrics::new(wire_fixed(769), wire_fixed(-129), wire_fixed(1025)).unwrap();
-        let mut records = [0; 36];
-        line.encode_record_into(&mut records).unwrap();
-        for i in 0..2 {
-            GlyphMetrics::new(wire_fixed(513 + i as i32), wire_fixed(-1), wire_fixed(769))
-                .encode_record_into(&mut records[12 + i * 12..])
-                .unwrap();
-        }
-        let metrics = MetricsTable::open(&records).unwrap();
-        let map = GlyphMap::glyph_major(1, 1, 2).unwrap();
-        let data = [11, 22];
-        let glyphs = RawGlyphs::builder(map, SampleLayout::A8)
-            .build(&data)
-            .unwrap();
-        let table = GlyphTable::new(codepoints, metrics, glyphs).unwrap();
-        assert_eq!(table.line_metrics(), line);
-        assert_eq!(table.glyph('A'), table.get(0));
-        let glyph = table.glyph('中').unwrap();
-        assert_eq!(glyph.metrics().advance(), wire_fixed(514));
-        assert_eq!(
-            glyph.raster().storage().plane(0).unwrap().bytes().as_ptr(),
-            data[1..].as_ptr()
-        );
-        assert!(table.glyph('B').is_none());
     });
     assert_eq!(allocations, 0);
 }
@@ -837,31 +769,6 @@ fn native_wire_and_implicit_glyph_maps_allocate_nothing() {
     });
     assert_eq!(allocations, 0);
     assert_eq!(region, Region::new(0, 81, 7, 9).unwrap());
-}
-
-#[test]
-fn font_metric_records_and_borrowed_table_use_no_heap() {
-    use mirx::font::{GlyphMetrics, LineMetrics, MetricsTable};
-    let mut bytes = [0; 36];
-    let (glyph, allocations) = count_allocations(|| {
-        LineMetrics::new(wire_fixed(2560), wire_fixed(-768), wire_fixed(4096))
-            .unwrap()
-            .encode_record_into(&mut bytes)
-            .unwrap();
-        GlyphMetrics::new(wire_fixed(512), wire_fixed(-384), wire_fixed(1024))
-            .encode_record_into(&mut bytes[12..])
-            .unwrap();
-        GlyphMetrics::default()
-            .encode_record_into(&mut bytes[24..])
-            .unwrap();
-        let table = MetricsTable::open(&bytes).unwrap();
-        assert_eq!(table.len(), 2);
-        assert_eq!(table.line_metrics().line_height(), wire_fixed(4096));
-        assert_eq!(table.iter().count(), 2);
-        table.get(0).unwrap()
-    });
-    assert_eq!(allocations, 0);
-    assert_eq!(glyph.bearing_x(), wire_fixed(-384));
 }
 
 #[test]
@@ -2087,19 +1994,6 @@ fn raw_surface_transfer_uses_only_the_caller_buffer() {
     });
     assert_eq!(allocations, 0);
     assert_eq!(&output.0[192..], &[0xa5; 64]);
-}
-
-#[test]
-fn shared_font_codepoints_validate_and_search_without_decoding_an_array() {
-    let bytes = [0x41, 0, 0, 0, 0x2d, 0x4e, 0, 0, 0, 0xf6, 1, 0];
-    let (_, allocations) = count_allocations(|| {
-        let table = mirx::FontCodepoints::open(&bytes).unwrap();
-        assert_eq!(table.binary_search('中'), Ok(1));
-        assert_eq!(table.binary_search('B'), Err(1));
-        assert_eq!(table.iter().next_back(), Some('😀'));
-        assert_eq!(table.as_bytes().as_ptr(), bytes.as_ptr());
-    });
-    assert_eq!(allocations, 0);
 }
 
 #[test]

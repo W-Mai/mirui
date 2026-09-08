@@ -32,4 +32,4 @@ let decoded = RepresentationRecord::from_record(&bytes, surface).unwrap();
 assert_eq!(decoded, record);
 ```
 
-Reading and writing one record allocate nothing and tolerate unaligned input addresses. Short output errors preserve all bytes; success preserves the suffix. `from_record` consumes only its 16-byte prefix. A complete representation table derives count from its exact byte length; metric tables share representation and glyph ordinals instead of storing repeated offsets and counts in this record.
+Reading and writing one record allocate nothing and tolerate unaligned input addresses. Short output errors preserve all bytes; success preserves the suffix. `from_record` consumes only its 16-byte prefix. A complete representation table derives count from its exact byte length; representation-major raster offsets remain in the separate `RASTER_METRICS` section.

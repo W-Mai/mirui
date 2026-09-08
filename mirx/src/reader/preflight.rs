@@ -209,6 +209,7 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
+    use crate::font::FontMetadataError;
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
     use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
     use crate::{
@@ -247,8 +248,8 @@ mod tests {
 
     fn valid_font_payload() -> Vec<u8> {
         use crate::font::{
-            FontAsset, FontRepresentation, GlyphMap, GlyphMetrics, GlyphSurfaceAsset, LineMetrics,
-            RawGlyphs, RepresentationAsset,
+            CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontRepresentation, GlyphId,
+            GlyphMap, GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
         };
         use crate::image::SampleLayout;
         let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
@@ -256,16 +257,27 @@ mod tests {
             .build(&[0; 8])
             .unwrap();
         let surfaces = [GlyphSurfaceAsset::raw(raw)];
-        let metrics = [GlyphMetrics::default(); 2];
-        let line =
-            LineMetrics::new(crate::Fixed::ONE, crate::Fixed::ZERO, crate::Fixed::ONE).unwrap();
         let representations = [RepresentationAsset::new(
             FontRepresentation::coverage(8, 12, 8).unwrap(),
             0,
-            line,
-            &metrics,
         )];
-        FontAsset::new(&['A', 'B'], &representations, &surfaces)
+        let face = FontFace::new(
+            1_000,
+            GlyphId::NOTDEF,
+            2,
+            crate::Fixed::ONE,
+            crate::Fixed::ZERO,
+            crate::Fixed::ZERO,
+        )
+        .unwrap();
+        let cmap = [
+            CmapEntry::new('A', GlyphId::new(0)),
+            CmapEntry::new('B', GlyphId::new(1)),
+        ];
+        let advances = [crate::Fixed::ONE; 2];
+        let raster_metrics = [RasterMetrics::default(); 2];
+        FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
+            .with_rasters(&representations, &raster_metrics, &surfaces)
             .encode()
             .unwrap()
     }
@@ -512,10 +524,12 @@ mod tests {
                     chunk_type: ChunkType::FONT,
                     payload_offset: payload_offset(&bytes, 0),
                 },
-                failure: PayloadValidationFailure::Font(FontError::TooManyGlyphs {
-                    actual: 2,
-                    limit: 1
-                }),
+                failure: PayloadValidationFailure::Font(FontError::Metadata(
+                    FontMetadataError::TooManyGlyphs {
+                        actual: 2,
+                        limit: 1,
+                    },
+                )),
             }))
         );
     }
@@ -533,11 +547,11 @@ mod tests {
         mutate_font_payload(&mut noncritical, |payload| {
             let media = crate::media::MediaPayload::open(payload).unwrap();
             let offset = media
-                .section(crate::media::MediaSectionKind::CODEPOINTS)
+                .section(crate::media::MediaSectionKind::CMAP_INDEX)
                 .unwrap()
                 .descriptor()
                 .offset() as usize;
-            payload[offset + 4..offset + 8].copy_from_slice(&('A' as u32).to_le_bytes());
+            payload[offset + 6..offset + 10].copy_from_slice(&('A' as u32).to_le_bytes());
         });
         let reader = Reader::open(&noncritical).unwrap();
         assert_eq!(
@@ -548,13 +562,13 @@ mod tests {
                     chunk_type: ChunkType::FONT,
                     payload_offset: payload_offset(&noncritical, 0),
                 },
-                failure: PayloadValidationFailure::Font(FontError::Codepoints(
-                    crate::font::FontCodepointError::NotSorted {
+                failure: PayloadValidationFailure::Font(FontError::Metadata(
+                    crate::font::FontMetadataError::Cmap(crate::font::CmapIndexError::NotSorted {
                         index: 1,
-                        previous: 'A' as u32,
-                        current: 'A' as u32,
-                    }
-                ),),
+                        previous: 'A',
+                        current: 'A',
+                    }),
+                )),
             })
         );
     }

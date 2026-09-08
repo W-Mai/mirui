@@ -1,13 +1,13 @@
 use super::{
-    EncodedGlyphError, EncodedGlyphs, FaceRepresentation, FaceTables, FaceTablesError,
-    FontCodepointError, FontCodepoints, GLYPH_SURFACE_RECORD_LEN, GlyphMap, GlyphSurfaceRecord,
-    GlyphSurfaceRecordError, REPRESENTATION_RECORD_LEN, RawGlyphs, RepresentationTable,
-    RepresentationTableError,
+    EncodedGlyphError, EncodedGlyphs, FontMetadata, FontMetadataError, FontRepresentationRequest,
+    GLYPH_REGION_LEN, GLYPH_SURFACE_RECORD_LEN, GlyphId, GlyphMap, GlyphPacking,
+    GlyphSurfaceRecord, GlyphSurfaceRecordError, RasterMetrics, RawGlyphs, RepresentationRecord,
+    RepresentationTable, ShapingData,
 };
 use crate::{
     ByteAlignment, PayloadLimits,
     image::{CoverageBudget, CoverageError, EncodedImageError, RasterPreflight},
-    media::{MediaPayload, MediaPayloadError, MediaSection, MediaSectionFlags, MediaSectionKind},
+    media::{MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind},
 };
 
 /// Borrowed metadata and referenced sample storage for one FONT face.
@@ -15,8 +15,10 @@ use crate::{
 #[derive(Clone, Copy, Debug)]
 pub struct FontView<'a> {
     media: MediaPayload<'a>,
-    tables: FaceTables<'a>,
+    metadata: FontMetadata<'a>,
     surfaces: &'a [u8],
+    maps: &'a [u8],
+    map_table_len: usize,
     file_offset: Option<u32>,
     metadata_work: u64,
     checksum_bytes: u32,
@@ -54,24 +56,32 @@ impl<'a> FontView<'a> {
         budget
             .spend_many(u64::from(media.header().section_count()))
             .map_err(FontError::Work)?;
-        let sections = Sections::open(media)?;
-        let codepoint_bytes = sections.required(0, MediaSectionKind::CODEPOINTS)?;
-        let record_bytes = sections.required(1, MediaSectionKind::REPRESENTATIONS)?;
-        let metrics = sections.required(2, MediaSectionKind::METRICS)?;
-        let surfaces = sections.required(3, MediaSectionKind::SURFACE_GROUPS)?;
-        let maps = sections.slots[4].map_or(&[][..], MediaSection::bytes);
-        let glyph_count = codepoint_bytes.len() / 4;
-        let representation_count = record_bytes.len() / REPRESENTATION_RECORD_LEN;
-        Self::check_counts(glyph_count, representation_count, limits)?;
-        if glyph_count == 0 {
-            return Err(FontError::EmptyGlyphTable);
+        let metadata = FontMetadata::open_media(media, limits).map_err(FontError::Metadata)?;
+        let glyph_count = metadata.glyph_count();
+        let representation_count = metadata.representations().len();
+        let surfaces = media
+            .section(MediaSectionKind::SURFACE_GROUPS)
+            .expect("metadata requires surface groups")
+            .bytes();
+        let maps = media
+            .section(MediaSectionKind::GLYPH_MAPS)
+            .map_or(&[][..], MediaSection::bytes);
+        if maps.is_empty() && media.section(MediaSectionKind::GLYPH_MAPS).is_some() {
+            return Err(FontError::EmptyMapSection);
+        }
+        let map_table_len = glyph_count
+            .checked_mul(GLYPH_REGION_LEN)
+            .ok_or(FontError::SizeOverflow)?;
+        if maps.len() % map_table_len != 0 {
+            return Err(FontError::MapsLength {
+                table_len: map_table_len,
+                actual: maps.len(),
+            });
         }
         let surface_count = surfaces.len() / GLYPH_SURFACE_RECORD_LEN;
         if surface_count > representation_count {
             return Err(FontError::UnreferencedSurface);
         }
-        // Admission covers Unicode/map scans, repeated inline record resolution,
-        // reference ownership and each encoded body's own bounded parsing.
         let glyphs = glyph_count as u64;
         let representations = representation_count as u64;
         let surface_count = surface_count as u64;
@@ -80,16 +90,12 @@ impl<'a> FontView<'a> {
             + representations * (glyphs + representations + surface_count + directory_count + 16)
             + directory_count * surface_count;
         budget.spend_many(work).map_err(FontError::Work)?;
-        let codepoints = FontCodepoints::open(codepoint_bytes).map_err(FontError::Codepoints)?;
-        let representations =
-            RepresentationTable::open(record_bytes, surfaces, glyph_count, limits)
-                .map_err(FontError::Representations)?;
-        let tables = FaceTables::new(codepoints, representations, metrics, maps)
-            .map_err(FontError::Tables)?;
         let mut view = Self {
             media,
-            tables,
+            metadata,
             surfaces,
+            maps,
+            map_table_len,
             file_offset,
             metadata_work: 0,
             checksum_bytes: media
@@ -97,6 +103,22 @@ impl<'a> FontView<'a> {
                 .map(|section| section.descriptor().size())
                 .sum(),
         };
+        for index in 0..representation_count {
+            view.resolve_representation(index)?;
+        }
+        let map_count = maps.len() / map_table_len;
+        if map_count > representation_count {
+            return Err(FontError::UnreferencedMaps);
+        }
+        for map_index in 0..map_count {
+            let offset = map_index * map_table_len;
+            if !metadata.representations().iter().any(|record| {
+                record.glyph_map_offset() as usize == offset
+                    && metadata.representations().surface(record).packing() == GlyphPacking::Atlas2D
+            }) {
+                return Err(FontError::UnreferencedMaps);
+            }
+        }
         for index in 0..view.surface_count() {
             let representation = view
                 .surface_representation(index)
@@ -123,7 +145,7 @@ impl<'a> FontView<'a> {
             view.check_file(index, record, storage)?;
         }
         for (index, section) in media.sections().enumerate() {
-            if Sections::is_storage(section.descriptor().kind())
+            if is_storage(section.descriptor().kind())
                 && !(0..view.surface_count()).any(|surface| {
                     let record = view.surface_record(surface);
                     [
@@ -145,31 +167,38 @@ impl<'a> FontView<'a> {
         Ok(view)
     }
 
-    fn check_counts(
-        glyphs: usize,
-        representations: usize,
-        limits: &PayloadLimits,
-    ) -> Result<(), FontError> {
-        if glyphs > limits.max_font_glyphs() as usize {
-            return Err(FontError::TooManyGlyphs {
-                limit: limits.max_font_glyphs(),
-                actual: glyphs,
-            });
-        }
-        if representations > limits.max_font_representations() as usize {
-            return Err(FontError::TooManyRepresentations {
-                limit: limits.max_font_representations(),
-                actual: representations,
-            });
-        }
-        Ok(())
-    }
-
     pub const fn media(self) -> MediaPayload<'a> {
         self.media
     }
-    pub const fn tables(self) -> FaceTables<'a> {
-        self.tables
+    pub const fn metadata(self) -> FontMetadata<'a> {
+        self.metadata
+    }
+    pub const fn face(self) -> super::FontFace {
+        self.metadata.face()
+    }
+    pub const fn cmap(self) -> super::CmapIndex<'a> {
+        self.metadata.cmap()
+    }
+    pub const fn shaping_data(self) -> Option<ShapingData<'a>> {
+        self.metadata.shaping_data()
+    }
+    pub const fn representations(self) -> RepresentationTable<'a> {
+        self.metadata.representations()
+    }
+    pub fn map_char(self, scalar: char) -> Option<GlyphId> {
+        self.metadata.map_char(scalar)
+    }
+    pub fn glyph_id(self, ordinal: usize) -> Option<GlyphId> {
+        self.metadata.glyph_id(ordinal)
+    }
+    pub fn raster_ordinal(self, glyph_id: GlyphId) -> Option<usize> {
+        self.metadata.raster_ordinal(glyph_id)
+    }
+    pub fn advance(self, glyph_id: GlyphId) -> Option<crate::Fixed> {
+        self.metadata.advance(glyph_id)
+    }
+    pub fn raster_metrics(self, representation: usize, glyph_id: GlyphId) -> Option<RasterMetrics> {
+        self.metadata.raster_metrics(representation, glyph_id)
     }
     pub const fn surface_count(self) -> usize {
         self.surfaces.len() / GLYPH_SURFACE_RECORD_LEN
@@ -178,8 +207,7 @@ impl<'a> FontView<'a> {
     /// Resolves sample storage after metadata admission, without DATA verification.
     /// Encoded sample requests verify their declared integrity through decode plans.
     pub fn glyphs(self, representation: usize) -> Option<FontGlyphs<'a>> {
-        self.tables
-            .get(representation)
+        self.representation(representation)
             .map(|value| self.bind(value).expect("admitted immutable storage"))
     }
 
@@ -190,7 +218,27 @@ impl<'a> FontView<'a> {
 
     /// Validates each unique surface under one raster budget, then checks DATA once.
     pub fn preflight(self, limits: &PayloadLimits) -> Result<(), FontError> {
-        Self::check_counts(self.tables.glyph_count(), self.tables.len(), limits)?;
+        if self.metadata.glyph_count() > limits.max_font_glyphs() as usize {
+            return Err(FontError::TooManyGlyphs {
+                limit: limits.max_font_glyphs(),
+                actual: self.metadata.glyph_count(),
+            });
+        }
+        if self.metadata.cmap().len() > limits.max_font_cmap_entries() as usize {
+            return Err(FontError::TooManyCmapEntries {
+                limit: limits.max_font_cmap_entries(),
+                actual: self.metadata.cmap().len(),
+            });
+        }
+        if self.metadata.representations().len() > limits.max_font_representations() as usize {
+            return Err(FontError::TooManyRepresentations {
+                limit: limits.max_font_representations(),
+                actual: self.metadata.representations().len(),
+            });
+        }
+        if let Some(shaping) = self.metadata.shaping_data() {
+            shaping.preflight(limits).map_err(FontError::Shaping)?;
+        }
         let mut preflight = RasterPreflight::new(limits, 0).map_err(FontError::Raster)?;
         self.preflight_in(&mut preflight)
     }
@@ -319,15 +367,97 @@ impl<'a> FontView<'a> {
         }
     }
 
-    pub(super) fn surface_representation(self, index: usize) -> Option<FaceRepresentation<'a>> {
-        self.tables
+    pub fn representation(self, index: usize) -> Option<FontRepresentationView<'a>> {
+        self.resolve_representation(index)
+            .expect("admitted representation")
+    }
+
+    fn resolve_representation(
+        self,
+        index: usize,
+    ) -> Result<Option<FontRepresentationView<'a>>, FontError> {
+        let Some(record) = self.metadata.representations().get(index) else {
+            return Ok(None);
+        };
+        let surface = self.metadata.representations().surface(record);
+        let map = match surface.packing() {
+            GlyphPacking::GlyphMajor => {
+                if record.glyph_map_offset() != 0 {
+                    return Err(FontError::ImplicitMapOffset {
+                        representation: index,
+                        offset: record.glyph_map_offset(),
+                    });
+                }
+                GlyphMap::glyph_major(
+                    surface.width(),
+                    surface.height(),
+                    self.metadata.glyph_count(),
+                )
+                .map_err(|error| FontError::Map {
+                    representation: index,
+                    error,
+                })?
+            }
+            GlyphPacking::Atlas2D => {
+                let offset = record.glyph_map_offset() as usize;
+                if offset % self.map_table_len != 0 {
+                    return Err(FontError::MapOffset {
+                        representation: index,
+                        offset: record.glyph_map_offset(),
+                    });
+                }
+                let end = offset
+                    .checked_add(self.map_table_len)
+                    .ok_or(FontError::SizeOverflow)?;
+                let bytes = self
+                    .maps
+                    .get(offset..end)
+                    .ok_or(FontError::MapOutOfBounds {
+                        representation: index,
+                    })?;
+                GlyphMap::from_records(surface.width(), surface.height(), bytes).map_err(
+                    |error| FontError::Map {
+                        representation: index,
+                        error,
+                    },
+                )?
+            }
+        };
+        Ok(Some(FontRepresentationView {
+            index,
+            used_fallback: false,
+            record,
+            surface,
+            map,
+            metadata: self.metadata,
+        }))
+    }
+
+    pub fn select(
+        self,
+        request: FontRepresentationRequest,
+    ) -> Result<FontRepresentationView<'a>, FontError> {
+        let selected = self
+            .metadata
+            .representations()
+            .select(request)
+            .map_err(FontError::Selection)?;
+        let mut representation = self
+            .representation(selected.index())
+            .expect("selected representation");
+        representation.used_fallback = selected.used_fallback();
+        Ok(representation)
+    }
+
+    pub(super) fn surface_representation(self, index: usize) -> Option<FontRepresentationView<'a>> {
+        self.metadata
             .representations()
             .iter()
             .position(|record| usize::from(record.surface_index()) == index)
-            .and_then(|index| self.tables.get(index))
+            .and_then(|index| self.representation(index))
     }
 
-    fn bind(self, representation: FaceRepresentation<'a>) -> Result<FontGlyphs<'a>, FontError> {
+    fn bind(self, representation: FontRepresentationView<'a>) -> Result<FontGlyphs<'a>, FontError> {
         let surface = representation.surface();
         let index = usize::from(representation.record().surface_index());
         if surface.codings_section().is_some() {
@@ -383,6 +513,40 @@ impl<'a> FontView<'a> {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct FontRepresentationView<'a> {
+    index: usize,
+    used_fallback: bool,
+    record: RepresentationRecord,
+    surface: GlyphSurfaceRecord,
+    map: GlyphMap<'a>,
+    metadata: FontMetadata<'a>,
+}
+
+impl<'a> FontRepresentationView<'a> {
+    pub const fn index(self) -> usize {
+        self.index
+    }
+    pub const fn used_fallback(self) -> bool {
+        self.used_fallback
+    }
+    pub const fn record(self) -> RepresentationRecord {
+        self.record
+    }
+    pub const fn surface(self) -> GlyphSurfaceRecord {
+        self.surface
+    }
+    pub const fn map(self) -> GlyphMap<'a> {
+        self.map
+    }
+    pub fn advance(self, glyph_id: GlyphId) -> Option<crate::Fixed> {
+        self.metadata.advance(glyph_id)
+    }
+    pub fn raster_metrics(self, glyph_id: GlyphId) -> Option<RasterMetrics> {
+        self.metadata.raster_metrics(self.index, glyph_id)
+    }
+}
+
 /// Borrowed glyph storage; RAW bytes and encoded streams retain distinct contracts.
 #[derive(Clone, Copy, Debug)]
 pub enum FontGlyphs<'a> {
@@ -399,61 +563,15 @@ impl<'a> FontGlyphs<'a> {
     }
 }
 
-struct Sections<'a> {
-    slots: [Option<MediaSection<'a>>; 5],
-}
-
-impl<'a> Sections<'a> {
-    fn open(media: MediaPayload<'a>) -> Result<Self, FontError> {
-        let mut result = Self { slots: [None; 5] };
-        for section in media.sections() {
-            let descriptor = section.descriptor();
-            let kind = descriptor.kind();
-            let slot = match kind {
-                MediaSectionKind::CODEPOINTS => Some(0),
-                MediaSectionKind::REPRESENTATIONS => Some(1),
-                MediaSectionKind::METRICS => Some(2),
-                MediaSectionKind::SURFACE_GROUPS => Some(3),
-                MediaSectionKind::GLYPH_MAPS => Some(4),
-                MediaSectionKind::SURFACE | MediaSectionKind::COLOR_TABLE => {
-                    return Err(FontError::UnexpectedSection(kind));
-                }
-                _ => None,
-            };
-            let known =
-                slot.is_some() || Self::is_storage(kind) || kind == MediaSectionKind::INTEGRITY;
-            if known && descriptor.flags() != MediaSectionFlags::REQUIRED {
-                return Err(FontError::SectionFlags(kind));
-            }
-            if !known && descriptor.flags().is_required() {
-                return Err(FontError::UnknownRequiredSection(kind));
-            }
-            if let Some(slot) = slot {
-                if result.slots[slot].replace(section).is_some() {
-                    return Err(FontError::DuplicateSection(kind));
-                }
-                if slot == 4 && section.bytes().is_empty() {
-                    return Err(FontError::EmptyMapSection);
-                }
-            }
-        }
-        Ok(result)
-    }
-    fn is_storage(kind: MediaSectionKind) -> bool {
-        matches!(
-            kind,
-            MediaSectionKind::DATA
-                | MediaSectionKind::PLANES
-                | MediaSectionKind::CODINGS
-                | MediaSectionKind::UNIT_GROUPS
-                | MediaSectionKind::UNIT_INDEX
-        )
-    }
-    fn required(&self, index: usize, kind: MediaSectionKind) -> Result<&'a [u8], FontError> {
-        self.slots[index]
-            .map(MediaSection::bytes)
-            .ok_or(FontError::MissingSection(kind))
-    }
+fn is_storage(kind: MediaSectionKind) -> bool {
+    matches!(
+        kind,
+        MediaSectionKind::DATA
+            | MediaSectionKind::PLANES
+            | MediaSectionKind::CODINGS
+            | MediaSectionKind::UNIT_GROUPS
+            | MediaSectionKind::UNIT_INDEX
+    )
 }
 
 /// Invalid face metadata, storage references, declared placement or raster preflight.
@@ -467,9 +585,6 @@ pub enum FontError {
     Image(crate::image::ImageEncodeError),
     Cardinality,
     GlyphOutOfBounds {
-        index: usize,
-    },
-    RepresentationOutOfBounds {
         index: usize,
     },
     OwnedBytesLimitExceeded {
@@ -493,9 +608,10 @@ pub enum FontError {
         available: usize,
     },
     Media(MediaPayloadError),
-    Codepoints(FontCodepointError),
-    Representations(RepresentationTableError),
-    Tables(FaceTablesError),
+    Metadata(FontMetadataError),
+    Cmap(super::CmapIndexError),
+    GlyphIds(super::GlyphIdsError),
+    Shaping(super::ShapingDataError),
     Surface {
         index: usize,
         error: GlyphSurfaceRecordError,
@@ -510,13 +626,12 @@ pub enum FontError {
     },
     Raster(EncodedImageError),
     Work(CoverageError),
-    MissingSection(MediaSectionKind),
-    DuplicateSection(MediaSectionKind),
-    UnexpectedSection(MediaSectionKind),
-    UnknownRequiredSection(MediaSectionKind),
-    SectionFlags(MediaSectionKind),
     UnknownMediaFlags,
     TooManyGlyphs {
+        limit: u32,
+        actual: usize,
+    },
+    TooManyCmapEntries {
         limit: u32,
         actual: usize,
     },
@@ -528,8 +643,42 @@ pub enum FontError {
         surface: usize,
         data_offset: u32,
     },
-    EmptyGlyphTable,
     EmptyMapSection,
+    MapsLength {
+        table_len: usize,
+        actual: usize,
+    },
+    UnreferencedMaps,
+    ImplicitMapOffset {
+        representation: usize,
+        offset: u32,
+    },
+    MapOffset {
+        representation: usize,
+        offset: u32,
+    },
+    Map {
+        representation: usize,
+        error: super::GlyphMapError,
+    },
+    GlyphIdCount {
+        expected: usize,
+        actual: usize,
+    },
+    AdvanceCount {
+        expected: usize,
+        actual: usize,
+    },
+    RasterMetricCount {
+        expected: usize,
+        actual: usize,
+    },
+    MissingRasterGlyph(GlyphId),
+    NonCanonicalGlyphIds,
+    ShapingBytesLimitExceeded {
+        limit: usize,
+        actual: usize,
+    },
     UnreferencedSurface,
     UnreferencedSection {
         index: usize,

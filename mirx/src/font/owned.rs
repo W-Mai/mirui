@@ -3,11 +3,11 @@ use core::mem::size_of;
 
 use super::asset::{Plan, source::Source};
 use super::{
-    FontAsset, FontCodepointError, FontError, GlyphMap, GlyphMetrics, GlyphPacking,
-    GlyphSurfaceAsset, LineMetrics, RawGlyphs, RepresentationAsset,
+    CmapEntry, FontAdvanceSource, FontAsset, FontError, FontFace, GlyphId, GlyphMap, GlyphPacking,
+    GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
 };
 use crate::{
-    ByteAlignment, PayloadLimits,
+    ByteAlignment, Fixed, PayloadLimits,
     image::{
         ColorDescription, EncodedImageAsset, ImageEncodeError, PlaneMemoryLayout, Region,
         SampleLayout, SurfaceDescriptor, UnitGroupRecord,
@@ -19,8 +19,12 @@ use crate::{
 /// Structural fields are private so borrowed emission cannot observe invalid references.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Font {
-    codepoints: Vec<char>,
+    face: FontFace,
+    cmap: Vec<CmapEntry>,
+    glyph_ids: Option<Vec<GlyphId>>,
+    advance_source: AdvanceSource,
     representations: Vec<Representation>,
+    raster_metrics: Vec<RasterMetrics>,
     surfaces: Vec<Surface>,
     maps: Vec<Map>,
 }
@@ -29,9 +33,13 @@ pub struct Font {
 struct Representation {
     metadata: super::FontRepresentation,
     surface: u16,
-    line: LineMetrics,
-    metrics: Vec<GlyphMetrics>,
     map: Option<u32>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum AdvanceSource {
+    Advances(Vec<Fixed>),
+    Shaping(Vec<u8>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -72,13 +80,16 @@ impl Font {
     pub fn from_asset(asset: FontAsset<'_>, limits: &PayloadLimits) -> Result<Self, FontError> {
         asset.preflight(limits)?;
         let mut size = OwnedSize::new(limits.max_decoded_bytes());
-        size.items::<char>(asset.codepoints().len())?;
+        size.items::<CmapEntry>(asset.cmap().len())?;
+        size.items::<GlyphId>(asset.glyph_ids().map_or(0, <[GlyphId]>::len))?;
+        match asset.advance_source() {
+            FontAdvanceSource::Advances(values) => size.items::<Fixed>(values.len())?,
+            FontAdvanceSource::Shaping(bytes) => size.items::<u8>(bytes.len())?,
+        }
         size.items::<Representation>(asset.representations().len())?;
+        size.items::<RasterMetrics>(asset.raster_metrics().len())?;
         size.items::<Surface>(asset.surfaces().len())?;
         size.items::<Map>(asset.maps().len())?;
-        for r in asset.representations() {
-            size.items::<GlyphMetrics>(r.metrics().len())?;
-        }
         for map in asset.maps() {
             size.items::<Region>(map.len())?;
         }
@@ -94,17 +105,21 @@ impl Font {
                 size.items::<u8>(image.unit_index().len())?;
             }
         }
-        let codepoints = Self::copy(asset.codepoints())?;
+        let cmap = Self::copy(asset.cmap())?;
+        let glyph_ids = asset.glyph_ids().map(Self::copy).transpose()?;
+        let advance_source = match asset.advance_source() {
+            FontAdvanceSource::Advances(values) => AdvanceSource::Advances(Self::copy(values)?),
+            FontAdvanceSource::Shaping(bytes) => AdvanceSource::Shaping(Self::copy(bytes)?),
+        };
         let mut representations = Self::reserve(asset.representations().len())?;
         for r in asset.representations() {
             representations.push(Representation {
                 metadata: r.metadata(),
                 surface: r.surface_index(),
-                line: r.line_metrics(),
-                metrics: Self::copy(r.metrics())?,
                 map: r.map_index(),
             });
         }
+        let raster_metrics = Self::copy(asset.raster_metrics())?;
         let mut maps = Self::reserve(asset.maps().len())?;
         for map in asset.maps() {
             let mut regions = Self::reserve(map.len())?;
@@ -163,8 +178,12 @@ impl Font {
             });
         }
         Ok(Self {
-            codepoints,
+            face: asset.face(),
+            cmap,
+            glyph_ids,
+            advance_source,
             representations,
+            raster_metrics,
             surfaces,
             maps,
         })
@@ -183,8 +202,23 @@ impl Font {
         Ok(owned)
     }
 
-    pub fn codepoints(&self) -> &[char] {
-        &self.codepoints
+    pub const fn face(&self) -> FontFace {
+        self.face
+    }
+    pub fn cmap(&self) -> &[CmapEntry] {
+        &self.cmap
+    }
+    pub fn glyph_ids(&self) -> Option<&[GlyphId]> {
+        self.glyph_ids.as_deref()
+    }
+    pub fn advance_source(&self) -> FontAdvanceSource<'_> {
+        match &self.advance_source {
+            AdvanceSource::Advances(values) => FontAdvanceSource::Advances(values),
+            AdvanceSource::Shaping(bytes) => FontAdvanceSource::Shaping(bytes),
+        }
+    }
+    pub fn raster_metrics(&self) -> &[RasterMetrics] {
+        &self.raster_metrics
     }
     pub fn representation_count(&self) -> usize {
         self.representations.len()
@@ -192,19 +226,21 @@ impl Font {
     pub fn surface_count(&self) -> usize {
         self.surfaces.len()
     }
-    pub fn representation(&self, index: usize) -> Option<RepresentationAsset<'_>> {
+    pub fn representation(&self, index: usize) -> Option<RepresentationAsset> {
         self.representations.get(index).map(|r| {
-            let value = RepresentationAsset::new(r.metadata, r.surface, r.line, &r.metrics);
+            let value = RepresentationAsset::new(r.metadata, r.surface);
             r.map.map_or(value, |map| value.with_map(map))
         })
     }
     pub fn surface(&self, index: usize) -> Option<GlyphSurfaceAsset<'_>> {
         let surface = self.surfaces.get(index)?;
         let map = match surface.packing {
-            GlyphPacking::GlyphMajor => {
-                GlyphMap::glyph_major(surface.width, surface.height, self.codepoints.len())
-                    .expect("validated cells")
-            }
+            GlyphPacking::GlyphMajor => GlyphMap::glyph_major(
+                surface.width,
+                surface.height,
+                usize::from(self.face.raster_count()),
+            )
+            .expect("validated cells"),
             GlyphPacking::Atlas2D => {
                 let representation = self
                     .representations
@@ -267,51 +303,54 @@ impl Font {
         })
     }
 
-    /// Updates the shared Unicode ordinal without sorting or moving any glyph record.
-    pub fn set_codepoint(&mut self, index: usize, codepoint: char) -> Result<(), FontError> {
-        if index >= self.codepoints.len() {
+    pub fn set_cmap_entry(&mut self, index: usize, entry: CmapEntry) -> Result<(), FontError> {
+        if index >= self.cmap.len() {
             return Err(FontError::GlyphOutOfBounds { index });
         }
-        let previous = index
-            .checked_sub(1)
-            .and_then(|i| self.codepoints.get(i))
-            .copied();
-        let next = self.codepoints.get(index + 1).copied();
+        let previous = index.checked_sub(1).and_then(|i| self.cmap.get(i)).copied();
+        let next = self.cmap.get(index + 1).copied();
         let violation = previous
-            .filter(|&c| c >= codepoint)
-            .map(|c| (index, c, codepoint))
+            .filter(|value| value.scalar() >= entry.scalar())
+            .map(|value| (index, value.scalar(), entry.scalar()))
             .or_else(|| {
-                next.filter(|&c| c <= codepoint)
-                    .map(|c| (index + 1, codepoint, c))
+                next.filter(|value| value.scalar() <= entry.scalar())
+                    .map(|value| (index + 1, entry.scalar(), value.scalar()))
             });
         if let Some((index, previous, current)) = violation {
-            return Err(FontError::Codepoints(FontCodepointError::NotSorted {
+            return Err(FontError::Cmap(super::CmapIndexError::NotSorted {
                 index,
-                previous: previous as u32,
-                current: current as u32,
+                previous,
+                current,
             }));
         }
-        self.codepoints[index] = codepoint;
+        if Self::raster_ordinal(self.glyph_ids(), self.face.raster_count(), entry.glyph_id())
+            .is_none()
+        {
+            return Err(FontError::MissingRasterGlyph(entry.glyph_id()));
+        }
+        self.cmap[index] = entry;
         Ok(())
     }
 
-    pub fn set_line_metrics(
-        &mut self,
-        index: usize,
-        metrics: LineMetrics,
-    ) -> Result<(), FontError> {
-        self.representations
-            .get_mut(index)
-            .ok_or(FontError::RepresentationOutOfBounds { index })?
-            .line = metrics;
-        Ok(())
+    fn raster_ordinal(ids: Option<&[GlyphId]>, count: u16, glyph_id: GlyphId) -> Option<usize> {
+        match ids {
+            Some(ids) => ids.binary_search(&glyph_id).ok(),
+            None => {
+                let ordinal = usize::from(glyph_id.get());
+                (ordinal < usize::from(count)).then_some(ordinal)
+            }
+        }
     }
 
-    /// Mutable signed metrics with fixed cardinality; sample storage is unchanged.
-    pub fn glyph_metrics_mut(&mut self, representation: usize) -> Option<&mut [GlyphMetrics]> {
-        self.representations
-            .get_mut(representation)
-            .map(|r| r.metrics.as_mut_slice())
+    pub fn advances_mut(&mut self) -> Option<&mut [Fixed]> {
+        match &mut self.advance_source {
+            AdvanceSource::Advances(values) => Some(values),
+            AdvanceSource::Shaping(_) => None,
+        }
+    }
+
+    pub fn raster_metrics_mut(&mut self) -> &mut [RasterMetrics] {
+        &mut self.raster_metrics
     }
 
     pub fn preflight(&self, limits: &PayloadLimits) -> Result<(), FontError> {
@@ -345,8 +384,20 @@ impl Font {
 }
 
 impl Source for &Font {
-    fn codepoints(&self) -> &[char] {
-        &self.codepoints
+    fn face(&self) -> FontFace {
+        self.face
+    }
+    fn cmap(&self) -> &[CmapEntry] {
+        &self.cmap
+    }
+    fn glyph_ids(&self) -> Option<&[GlyphId]> {
+        self.glyph_ids.as_deref()
+    }
+    fn advance_source(&self) -> FontAdvanceSource<'_> {
+        Font::advance_source(self)
+    }
+    fn raster_metrics(&self) -> &[RasterMetrics] {
+        &self.raster_metrics
     }
     fn representation_count(&self) -> usize {
         self.representations.len()
@@ -357,7 +408,7 @@ impl Source for &Font {
     fn map_count(&self) -> usize {
         self.maps.len()
     }
-    fn representation(&self, index: usize) -> Option<RepresentationAsset<'_>> {
+    fn representation(&self, index: usize) -> Option<RepresentationAsset> {
         Font::representation(self, index)
     }
     fn map(&self, index: usize) -> Option<GlyphMap<'_>> {

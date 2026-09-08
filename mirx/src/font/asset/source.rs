@@ -1,19 +1,24 @@
 use super::{
-    FontAsset, FontError, GlyphMap, GlyphSurfaceAsset, Plan, RepresentationAsset, Storage,
+    CmapEntry, FontAdvanceSource, FontAsset, FontError, FontFace, GlyphId, GlyphMap,
+    GlyphSurfaceAsset, Plan, RasterMetrics, RepresentationAsset, Storage,
 };
 use crate::{PayloadLimits, image::RasterPreflight, media::INTEGRITY_RECORD_LEN};
 
 /// Inline access for canonical emission; implementations retain metadata storage.
 pub(in crate::font) trait Source: Copy {
-    fn codepoints(&self) -> &[char];
+    fn face(&self) -> FontFace;
+    fn cmap(&self) -> &[CmapEntry];
+    fn glyph_ids(&self) -> Option<&[GlyphId]>;
+    fn advance_source(&self) -> FontAdvanceSource<'_>;
+    fn raster_metrics(&self) -> &[RasterMetrics];
     fn representation_count(&self) -> usize;
     fn surface_count(&self) -> usize;
     fn map_count(&self) -> usize;
-    fn representation(&self, index: usize) -> Option<RepresentationAsset<'_>>;
+    fn representation(&self, index: usize) -> Option<RepresentationAsset>;
     fn surface(&self, index: usize) -> Option<GlyphSurfaceAsset<'_>>;
     fn map(&self, index: usize) -> Option<GlyphMap<'_>>;
 
-    fn representations(&self) -> impl ExactSizeIterator<Item = RepresentationAsset<'_>> {
+    fn representations(&self) -> impl ExactSizeIterator<Item = RepresentationAsset> {
         (0..self.representation_count())
             .map(|index| self.representation(index).expect("representation ordinal"))
     }
@@ -25,10 +30,17 @@ pub(in crate::font) trait Source: Copy {
     }
 
     fn preflight(self, limits: &PayloadLimits) -> Result<(), FontError> {
-        if self.codepoints().len() > limits.max_font_glyphs() as usize {
+        let glyphs = usize::from(self.face().raster_count());
+        if glyphs > limits.max_font_glyphs() as usize {
             return Err(FontError::TooManyGlyphs {
                 limit: limits.max_font_glyphs(),
-                actual: self.codepoints().len(),
+                actual: glyphs,
+            });
+        }
+        if self.cmap().len() > limits.max_font_cmap_entries() as usize {
+            return Err(FontError::TooManyCmapEntries {
+                limit: limits.max_font_cmap_entries(),
+                actual: self.cmap().len(),
             });
         }
         if self.representation_count() > limits.max_font_representations() as usize {
@@ -37,18 +49,23 @@ pub(in crate::font) trait Source: Copy {
                 actual: self.representation_count(),
             });
         }
+        if let FontAdvanceSource::Shaping(bytes) = self.advance_source()
+            && bytes.len() > limits.max_font_shaping_bytes()
+        {
+            return Err(FontError::ShapingBytesLimitExceeded {
+                limit: limits.max_font_shaping_bytes(),
+                actual: bytes.len(),
+            });
+        }
         Plan::table_size(self)?;
         let mut preflight = RasterPreflight::new(limits, 0).map_err(FontError::Raster)?;
         let charge = |p: &mut RasterPreflight<'_>, n| p.spend(n).map_err(FontError::Raster);
         let count = self.representation_count() as u64;
         let metadata_work = count
             .checked_mul(
-                count
-                    + self.codepoints().len() as u64
-                    + self.surface_count() as u64
-                    + self.map_count() as u64,
+                count + glyphs as u64 + self.surface_count() as u64 + self.map_count() as u64,
             )
-            .and_then(|n| n.checked_add(self.codepoints().len() as u64))
+            .and_then(|n| n.checked_add(self.cmap().len() as u64))
             .ok_or(FontError::SizeOverflow)?;
         charge(&mut preflight, metadata_work)?;
         for surface in self.surfaces() {
@@ -87,8 +104,20 @@ pub(in crate::font) trait Source: Copy {
 }
 
 impl Source for FontAsset<'_> {
-    fn codepoints(&self) -> &[char] {
-        self.codepoints
+    fn face(&self) -> FontFace {
+        self.face
+    }
+    fn cmap(&self) -> &[CmapEntry] {
+        self.cmap
+    }
+    fn glyph_ids(&self) -> Option<&[GlyphId]> {
+        self.glyph_ids
+    }
+    fn advance_source(&self) -> FontAdvanceSource<'_> {
+        self.advance_source
+    }
+    fn raster_metrics(&self) -> &[RasterMetrics] {
+        self.raster_metrics
     }
     fn representation_count(&self) -> usize {
         self.representations.len()
@@ -99,7 +128,7 @@ impl Source for FontAsset<'_> {
     fn map_count(&self) -> usize {
         self.maps.len()
     }
-    fn representation(&self, index: usize) -> Option<RepresentationAsset<'_>> {
+    fn representation(&self, index: usize) -> Option<RepresentationAsset> {
         self.representations.get(index).copied()
     }
     fn surface(&self, index: usize) -> Option<GlyphSurfaceAsset<'_>> {

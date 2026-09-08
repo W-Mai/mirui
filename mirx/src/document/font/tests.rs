@@ -3,7 +3,8 @@ use core::cell::Cell;
 
 use super::*;
 use crate::font::{
-    GlyphMap, GlyphMetrics, GlyphSurfaceAsset, LineMetrics, RawGlyphs, RepresentationAsset,
+    CmapEntry, FontAdvanceSource, FontFace, FontMetadataError, GlyphId, GlyphMap,
+    GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
 };
 use crate::image::SampleLayout;
 use crate::{
@@ -17,24 +18,31 @@ fn font() -> Font {
         .build(&[0x11; 8])
         .unwrap();
     let surfaces = [GlyphSurfaceAsset::raw(raw)];
-    let metrics = [
-        GlyphMetrics::new(Fixed::ONE, Fixed::ZERO, Fixed::ONE),
-        GlyphMetrics::new(Fixed::from_ratio(5, 4), Fixed::ZERO, Fixed::ONE),
+    let cmap = [
+        CmapEntry::new('A', GlyphId::new(0)),
+        CmapEntry::new('B', GlyphId::new(1)),
     ];
-    let line = LineMetrics::new(
+    let advances = [Fixed::ONE, Fixed::from_ratio(5, 4)];
+    let face = FontFace::new(
+        1_000,
+        GlyphId::NOTDEF,
+        2,
         Fixed::from_int(2),
         Fixed::from_ratio(-1, 2),
-        Fixed::from_ratio(5, 2),
+        Fixed::ZERO,
     )
     .unwrap();
     let representations = [RepresentationAsset::new(
         FontRepresentation::coverage(8, 12, 8).unwrap(),
         0,
-        line,
-        &metrics,
     )];
+    let raster_metrics = [RasterMetrics::new(Fixed::ZERO, Fixed::ONE); 2];
     Font::from_asset(
-        FontAsset::new(&['A', 'B'], &representations, &surfaces),
+        FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances)).with_rasters(
+            &representations,
+            &raster_metrics,
+            &surfaces,
+        ),
         &PayloadLimits::HOST,
     )
     .unwrap()
@@ -74,9 +82,9 @@ fn retained_limits_gate_typed_reads_and_writes() {
     let id = document.chunks().next().unwrap().id();
     assert!(matches!(
         document.decode_font(id),
-        Err(FontAccessError::InvalidPayload(
-            FontError::TooManyGlyphs { .. }
-        ))
+        Err(FontAccessError::InvalidPayload(FontError::Metadata(
+            FontMetadataError::TooManyGlyphs { .. }
+        )))
     ));
     let mut authored = Document::new_with_limits(low);
     assert!(matches!(
@@ -102,7 +110,8 @@ fn no_op_and_failed_callbacks_preserve_source_storage() {
 
     assert_eq!(
         document.try_edit_font(id, |font| {
-            font.set_codepoint(1, '中').unwrap();
+            font.set_cmap_entry(1, CmapEntry::new('中', GlyphId::new(1)))
+                .unwrap();
             Err("cancel")
         }),
         Err(TryEditError::Callback("cancel"))
@@ -121,10 +130,22 @@ fn successful_metadata_edit_reauthors_canonical_payload() {
     let mut document = Document::open(&source).unwrap();
     let id = document.chunks().next().unwrap().id();
     document
-        .edit_font(id, |font| font.set_codepoint(1, '中').unwrap())
+        .edit_font(id, |font| {
+            font.set_cmap_entry(1, CmapEntry::new('中', GlyphId::new(1)))
+                .unwrap()
+        })
         .unwrap();
     assert!(document.is_dirty());
-    assert_eq!(document.decode_font(id).unwrap().codepoints(), ['A', '中']);
+    assert_eq!(
+        document
+            .decode_font(id)
+            .unwrap()
+            .cmap()
+            .iter()
+            .map(|entry| entry.scalar())
+            .collect::<Vec<_>>(),
+        ['A', '中']
+    );
     assert_eq!(
         document.get(id).unwrap().payload_origin(),
         PayloadOrigin::OWNED
@@ -185,5 +206,14 @@ fn malformed_existing_font_never_invokes_callback_but_accepts_replacement() {
     ));
     assert!(!called.get());
     document.replace_font(id, &font()).unwrap();
-    assert_eq!(document.decode_font(id).unwrap().codepoints(), ['A', 'B']);
+    assert_eq!(
+        document
+            .decode_font(id)
+            .unwrap()
+            .cmap()
+            .iter()
+            .map(|entry| entry.scalar())
+            .collect::<Vec<_>>(),
+        ['A', 'B']
+    );
 }

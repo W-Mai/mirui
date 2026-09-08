@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Glyph-ID FONT payloads.** FONT faces map Unicode scalars to `GlyphId`, optionally map sparse glyph IDs to raster ordinals, separate face-unit advances from representation-major raster offsets, and carry either compact advances or bounded shaping data. The codepoint-ordinal and representation-local metrics layout has been removed.
+- **Precise MIRX font scaling.** Face-unit advances and line metrics scale directly from stored Q24.8 values without quantizing the intermediate size ratio.
+
 ### Added
 
 - **Canonical FONT record authoring.** FACE, CMAP_INDEX and RASTER_METRICS values encode directly into caller-owned buffers with exact capacity checks.

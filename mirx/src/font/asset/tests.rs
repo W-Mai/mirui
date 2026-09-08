@@ -9,13 +9,12 @@ use crate::{
 use alloc::vec;
 
 fn with_face(aligned: bool, indexed: bool, check: impl FnOnce(FontAsset<'_>)) {
-    let chars = ['A', 'B'];
-    let map = GlyphMap::glyph_major(2, 2, chars.len()).unwrap();
-    let metrics = [GlyphMetrics::new(
-        Fixed::from_ratio(5, 2),
-        Fixed::from_ratio(-1, 2),
-        Fixed::from_int(2),
-    ); 2];
+    let cmap = [
+        CmapEntry::new('A', GlyphId::new(0)),
+        CmapEntry::new('B', GlyphId::new(1)),
+    ];
+    let advances = [Fixed::from_ratio(5, 2); 2];
+    let map = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
     let raw_data = vec![7; if aligned { 256 } else { 8 }];
     let mut raw = RawGlyphs::builder(map, SampleLayout::A8);
     if aligned {
@@ -43,36 +42,30 @@ fn with_face(aligned: bool, indexed: bool, check: impl FnOnce(FontAsset<'_>)) {
         GlyphSurfaceAsset::Encoded { map, image },
     ];
     let representations = [
-        RepresentationAsset::new(
-            FontRepresentation::coverage(8, 12, 8).unwrap(),
-            0,
-            LineMetrics::new(Fixed::from_int(9), Fixed::from_int(-3), Fixed::from_int(12)).unwrap(),
-            &metrics,
-        ),
-        RepresentationAsset::new(
-            FontRepresentation::coverage(8, 16, 8).unwrap(),
-            0,
-            LineMetrics::new(
-                Fixed::from_int(12),
-                Fixed::from_int(-4),
-                Fixed::from_int(16),
-            )
-            .unwrap(),
-            &metrics,
-        ),
+        RepresentationAsset::new(FontRepresentation::coverage(8, 12, 8).unwrap(), 0),
+        RepresentationAsset::new(FontRepresentation::coverage(8, 16, 8).unwrap(), 0),
         RepresentationAsset::new(
             FontRepresentation::signed_distance(8, 3, 24, 17, 48, 8).unwrap(),
             1,
-            LineMetrics::new(
-                Fixed::from_int(18),
-                Fixed::from_int(-6),
-                Fixed::from_int(24),
-            )
-            .unwrap(),
-            &metrics,
         ),
     ];
-    check(FontAsset::new(&chars, &representations, &surfaces));
+    let face = FontFace::new(
+        1_000,
+        GlyphId::NOTDEF,
+        2,
+        Fixed::from_int(750),
+        Fixed::from_int(-250),
+        Fixed::from_int(200),
+    )
+    .unwrap();
+    let raster_metrics = [RasterMetrics::new(Fixed::from_ratio(-1, 2), Fixed::from_int(2)); 6];
+    check(
+        FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances)).with_rasters(
+            &representations,
+            &raster_metrics,
+            &surfaces,
+        ),
+    );
 }
 
 #[test]
@@ -88,7 +81,7 @@ fn canonical_native_face_reuses_surfaces_and_reader_geometry() {
         assert_eq!(asset.encode().unwrap(), &bytes[..len]);
         let view = FontView::open(&bytes[..len], &PayloadLimits::EMBEDDED).unwrap();
         view.preflight(&PayloadLimits::EMBEDDED).unwrap();
-        assert_eq!(view.media().header().section_count(), 7);
+        assert_eq!(view.media().header().section_count(), 9);
         assert_eq!(
             view.media()
                 .sections_of_kind(MediaSectionKind::DATA)
@@ -108,17 +101,21 @@ fn canonical_native_face_reuses_surfaces_and_reader_geometry() {
             0
         );
         assert_eq!(
-            view.tables().codepoints().iter().collect::<Vec<_>>(),
+            view.cmap()
+                .iter()
+                .map(|entry| entry.scalar())
+                .collect::<Vec<_>>(),
             ['A', 'B']
         );
-        let selected = view
-            .tables()
-            .select(FontRepresentationRequest::new(24))
-            .unwrap();
+        let selected = view.select(FontRepresentationRequest::new(24)).unwrap();
         assert_eq!(selected.index(), 2);
         assert_eq!(
-            selected.metrics().get(1),
-            Some(asset.representations[2].metrics[1])
+            selected.raster_metrics(GlyphId::new(1)),
+            Some(asset.raster_metrics[5])
+        );
+        assert_eq!(
+            selected.advance(GlyphId::new(1)),
+            Some(Fixed::from_ratio(5, 2))
         );
         let FontGlyphs::Encoded(glyphs) = view.glyphs(2).unwrap() else {
             panic!("encoded");
@@ -177,7 +174,10 @@ fn aligned_multi_data_integrity_excludes_only_inter_section_gaps() {
 
 #[test]
 fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
-    let chars = [' ', 'A'];
+    let cmap = [
+        CmapEntry::new(' ', GlyphId::new(0)),
+        CmapEntry::new('A', GlyphId::new(1)),
+    ];
     let regions = [
         Region::new(0, 0, 0, 0).unwrap(),
         Region::new(1, 0, 1, 1).unwrap(),
@@ -188,25 +188,24 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
         .build(&[0x7f])
         .unwrap();
     let surfaces = [GlyphSurfaceAsset::raw(raw)];
-    let metrics = [GlyphMetrics::default(); 2];
-    let line = LineMetrics::new(Fixed::ONE, Fixed::ZERO, Fixed::ONE).unwrap();
     let representations = [
-        RepresentationAsset::new(
-            FontRepresentation::coverage(4, 12, 1).unwrap(),
-            0,
-            line,
-            &metrics,
-        )
-        .with_map(0),
-        RepresentationAsset::new(
-            FontRepresentation::coverage(4, 16, 1).unwrap(),
-            0,
-            line,
-            &metrics,
-        )
-        .with_map(0),
+        RepresentationAsset::new(FontRepresentation::coverage(4, 12, 1).unwrap(), 0).with_map(0),
+        RepresentationAsset::new(FontRepresentation::coverage(4, 16, 1).unwrap(), 0).with_map(0),
     ];
-    let asset = FontAsset::new(&chars, &representations, &surfaces).with_maps(&maps);
+    let face = FontFace::new(
+        1_000,
+        GlyphId::NOTDEF,
+        2,
+        Fixed::ONE,
+        Fixed::ZERO,
+        Fixed::ZERO,
+    )
+    .unwrap();
+    let advances = [Fixed::ONE; 2];
+    let raster_metrics = [RasterMetrics::default(); 4];
+    let asset = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
+        .with_rasters(&representations, &raster_metrics, &surfaces)
+        .with_maps(&maps);
     let bytes = asset.encode().unwrap();
     let view = FontView::open(&bytes, &PayloadLimits::EMBEDDED).unwrap();
     view.preflight(&PayloadLimits::EMBEDDED).unwrap();
@@ -221,8 +220,7 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
     );
     for index in 0..2 {
         assert_eq!(
-            view.tables()
-                .get(index)
+            view.representation(index)
                 .unwrap()
                 .record()
                 .glyph_map_offset(),
@@ -259,10 +257,13 @@ fn invalid_assets_and_capacity_fail_before_output_writes() {
         let short = output.len() - 1;
         assert!(asset.encode_into(&mut output[..short]).is_err());
         assert_eq!(output, before);
-        let unsorted = ['B', 'A'];
+        let unsorted = [
+            CmapEntry::new('B', GlyphId::new(0)),
+            CmapEntry::new('A', GlyphId::new(1)),
+        ];
         assert!(
             FontAsset {
-                codepoints: &unsorted,
+                cmap: &unsorted,
                 ..asset
             }
             .encode_into(&mut output)

@@ -13,13 +13,13 @@ fn open() -> MirxFontProvider {
 #[test]
 fn face_retains_generation_geometry() {
     let provider = open();
-    let record = provider.view().tables().representations().get(0).unwrap();
+    let record = provider.view().representations().get(0).unwrap();
     assert_eq!(record.representation().design_ppem(), 16);
     assert!(matches!(
         record.representation().kind(),
         FontRepresentationKind::Coverage { bits: 4 }
     ));
-    assert_eq!(provider.view().tables().glyph_count(), 69);
+    assert_eq!(provider.view().face().raster_count(), 69);
 }
 
 #[test]

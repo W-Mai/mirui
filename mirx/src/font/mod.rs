@@ -1,12 +1,8 @@
 mod asset;
-mod codepoints;
-mod face;
-mod glyph;
 mod header;
 mod identity;
 mod mapping;
 mod metadata;
-mod metrics;
 mod owned;
 mod placement;
 mod record;
@@ -17,12 +13,9 @@ mod surface;
 mod table;
 mod view;
 
-pub use asset::{FontAsset, GlyphSurfaceAsset, RepresentationAsset};
+pub use asset::{FontAdvanceSource, FontAsset, GlyphSurfaceAsset, RepresentationAsset};
 pub use owned::Font;
 
-pub use codepoints::{FontCodepointError, FontCodepointIter, FontCodepoints};
-pub use face::{FaceRepresentation, FaceTables, FaceTablesError};
-pub use glyph::{Glyph, GlyphTable, GlyphTableError};
 pub use header::{FACE_RECORD_LEN, FontFace, FontFaceError};
 pub use identity::{
     CMAP_INDEX_RECORD_LEN, CmapEntry, CmapIndex, CmapIndexError, GLYPH_ID_RECORD_LEN, GlyphId,
@@ -30,10 +23,6 @@ pub use identity::{
 };
 pub use mapping::{GLYPH_REGION_LEN, GlyphMap, GlyphMapError, GlyphPacking, GlyphRegions};
 pub use metadata::{FontMetadata, FontMetadataError};
-pub use metrics::{
-    GLYPH_METRICS_LEN, GlyphMetrics, GlyphMetricsIter, LINE_METRICS_LEN, LineMetrics, MetricsError,
-    MetricsTable,
-};
 pub use placement::{
     ADVANCE_RECORD_LEN, Advances, PlacementError, RASTER_METRICS_RECORD_LEN, RasterMetrics,
     RasterMetricsTable,
@@ -46,7 +35,7 @@ pub use surface::{
     GlyphSurfaceRecordError,
 };
 pub use table::{RepresentationIter, RepresentationTable, RepresentationTableError};
-pub use view::{FontError, FontGlyphs, FontView};
+pub use view::{FontError, FontGlyphs, FontRepresentationView, FontView};
 
 pub use crate::font::representation::{
     FontRepresentation, FontRepresentationError, FontRepresentationFallback,

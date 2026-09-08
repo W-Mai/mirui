@@ -21,7 +21,7 @@
     <g transform="translate(293)">
       <rect class="card" width="274" height="126" rx="16" data-audit-boundary="font-card"/>
       <circle cx="36" cy="34" r="17" fill="#d1fae5"/><path d="M27 42l7-18h4l7 18M30 35h12" class="icon" stroke="#059669"/>
-      <text class="head" x="64" y="39">FONT</text><text class="body" x="24" y="72">glyph metrics · atlas data</text><text class="body" x="24" y="92">bounded preflight before decode</text>
+      <text class="head" x="64" y="39">FONT</text><text class="body" x="24" y="72">glyph identity · raster data</text><text class="body" x="24" y="92">bounded preflight before decode</text>
       <g transform="translate(188 24)" data-audit-contained-by="font-card" data-audit-min-inset="24 24 0 0"><rect width="62" height="20" rx="10" fill="#d1fae5"/><text class="tag" x="31" y="10" fill="#047857" text-anchor="middle" dominant-baseline="middle">decoded</text></g>
     </g>
     <g transform="translate(586)">

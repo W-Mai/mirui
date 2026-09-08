@@ -9,7 +9,7 @@ pub struct PayloadLimits {
     max_raster_units: u32,
     max_raster_work: u64,
     max_font_glyphs: u32,
-    max_font_codepoints: u32,
+    max_font_cmap_entries: u32,
     max_font_representations: u32,
     max_font_shaping_bytes: usize,
     max_scene_ops: u32,
@@ -31,7 +31,7 @@ impl PayloadLimits {
         max_raster_units: 65_535,
         max_raster_work: 16 * 1024 * 1024,
         max_font_glyphs: 4_096,
-        max_font_codepoints: 16_384,
+        max_font_cmap_entries: 16_384,
         max_font_representations: 64,
         max_font_shaping_bytes: 512 * 1024,
         max_scene_ops: 4_096,
@@ -52,7 +52,7 @@ impl PayloadLimits {
         max_raster_units: 16 * 1024 * 1024,
         max_raster_work: 1024 * 1024 * 1024,
         max_font_glyphs: 65_535,
-        max_font_codepoints: 1_000_000,
+        max_font_cmap_entries: 1_000_000,
         max_font_representations: 1_024,
         max_font_shaping_bytes: 64 * 1024 * 1024,
         max_scene_ops: 1_000_000,
@@ -115,12 +115,12 @@ impl PayloadLimits {
         self
     }
 
-    pub const fn max_font_codepoints(self) -> u32 {
-        self.max_font_codepoints
+    pub const fn max_font_cmap_entries(self) -> u32 {
+        self.max_font_cmap_entries
     }
 
-    pub const fn with_max_font_codepoints(mut self, value: u32) -> Self {
-        self.max_font_codepoints = value;
+    pub const fn with_max_font_cmap_entries(mut self, value: u32) -> Self {
+        self.max_font_cmap_entries = value;
         self
     }
 
@@ -243,7 +243,7 @@ mod tests {
         assert_eq!(embedded.max_raster_units(), 65_535);
         assert_eq!(embedded.max_raster_work(), 16_777_216);
         assert_eq!(embedded.max_font_glyphs(), 4_096);
-        assert_eq!(embedded.max_font_codepoints(), 16_384);
+        assert_eq!(embedded.max_font_cmap_entries(), 16_384);
         assert_eq!(embedded.max_font_representations(), 64);
         assert_eq!(embedded.max_font_shaping_bytes(), 524_288);
         assert_eq!(embedded.max_scene_ops(), 4_096);
@@ -262,7 +262,7 @@ mod tests {
         assert_eq!(host.max_raster_units(), 16_777_216);
         assert_eq!(host.max_raster_work(), 1_073_741_824);
         assert_eq!(host.max_font_glyphs(), 65_535);
-        assert_eq!(host.max_font_codepoints(), 1_000_000);
+        assert_eq!(host.max_font_cmap_entries(), 1_000_000);
         assert_eq!(host.max_font_representations(), 1_024);
         assert_eq!(host.max_font_shaping_bytes(), 67_108_864);
         assert_eq!(host.max_scene_ops(), 1_000_000);
@@ -290,7 +290,7 @@ mod tests {
             .with_max_raster_units(0)
             .with_max_raster_work(0)
             .with_max_font_glyphs(1)
-            .with_max_font_codepoints(11)
+            .with_max_font_cmap_entries(11)
             .with_max_font_representations(0)
             .with_max_font_shaping_bytes(12)
             .with_max_scene_ops(2)
@@ -308,7 +308,7 @@ mod tests {
         assert_eq!(limits.max_raster_units(), 0);
         assert_eq!(limits.max_raster_work(), 0);
         assert_eq!(limits.max_font_glyphs(), 1);
-        assert_eq!(limits.max_font_codepoints(), 11);
+        assert_eq!(limits.max_font_cmap_entries(), 11);
         assert_eq!(limits.max_font_representations(), 0);
         assert_eq!(limits.max_font_shaping_bytes(), 12);
         assert_eq!(limits.max_scene_ops(), 2);

@@ -16,7 +16,7 @@ fn open() -> MirxFontProvider {
 
 #[test]
 fn face_holds_all_representations() {
-    assert_eq!(open().view().tables().len(), 3);
+    assert_eq!(open().view().representations().len(), 3);
 }
 
 #[test]
@@ -44,12 +44,11 @@ fn oversized_request_routes_to_sdf() {
 }
 
 #[test]
-fn metrics_and_glyphs_select_the_same_representation_for_every_size_class() {
+fn glyphs_follow_representation_selection_while_face_metrics_scale() {
     let provider = open();
     for requested in [10, 11, 12, 64] {
         let selected = provider
             .view()
-            .tables()
             .select(
                 FontRepresentationRequest::new(requested)
                     .with_fallback(FontRepresentationFallback::Nearest),
@@ -61,21 +60,14 @@ fn metrics_and_glyphs_select_the_same_representation_for_every_size_class() {
         };
         assert_eq!(representation, selected.record().representation());
 
-        let source = selected.metrics().line_metrics();
-        let scale = mirui::types::Fixed::from_int(i32::from(requested))
-            / mirui::types::Fixed::from_int(i32::from(representation.design_ppem()));
+        let source = provider.view().face();
+        let scale = f32::from(requested) / f32::from(source.units_per_em());
+        let ascender = mirui::types::Fixed::from_f32(source.ascender().to_f32() * scale);
+        let descender = mirui::types::Fixed::from_f32(source.descender().to_f32() * scale);
+        let line_gap = mirui::types::Fixed::from_f32(source.line_gap().to_f32() * scale);
         let metrics = provider.metrics(requested);
-        assert_eq!(
-            metrics.ascender,
-            mirui::types::Fixed::from(source.ascent()) * scale
-        );
-        assert_eq!(
-            metrics.descender,
-            mirui::types::Fixed::from(source.descent()) * scale
-        );
-        assert_eq!(
-            metrics.line_height,
-            mirui::types::Fixed::from(source.line_height()) * scale
-        );
+        assert_eq!(metrics.ascender, ascender);
+        assert_eq!(metrics.descender, descender);
+        assert_eq!(metrics.line_height, ascender - descender + line_gap);
     }
 }

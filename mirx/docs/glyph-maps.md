@@ -1,6 +1,6 @@
 # Glyph region maps
 
-`font::GlyphMap` maps shared glyph ordinals to logical raster regions. It accepts implicit fixed cells, borrowed native `Region` values, or borrowed little-endian atlas records. Every path exposes the same checked lookup, iteration and caller-buffer encoding API without allocation.
+`font::GlyphMap` maps raster ordinals to logical raster regions. It accepts implicit fixed cells, borrowed native `Region` values, or borrowed little-endian atlas records. Every path exposes the same checked lookup, iteration and caller-buffer encoding API without allocation.
 
 ## Two packings
 
@@ -13,7 +13,7 @@ GlyphMajor uses a vertical logical surface with width `cell_width` and height `g
 
 Atlas2D records are four little-endian `u32` fields: x at byte 0, y at byte 4, width at byte 8 and height at byte 12. The byte length derives the record count without a table header. Every exclusive right/bottom edge must fit the shared atlas extent. The all-zero record is the only empty-glyph encoding; any other zero width or height is rejected. Shared and overlapping nonempty rectangles are valid because map entries reference samples rather than perform writes.
 
-Packing is explicit, not inferred from map length. An empty Atlas2D table is not a GlyphMajor table. The complete face must validate map cardinality against its shared codepoints.
+Packing is explicit, not inferred from map length. An empty Atlas2D table is not a GlyphMajor table. The complete face validates map cardinality against `FACE.raster_count`.
 
 ## Construct, encode and read
 
@@ -43,8 +43,8 @@ Native and wire atlas validation scan records once, after checking the table's r
 
 ## Logical regions are not memory offsets
 
-The map contains no codepoints, metrics, coding IDs, DATA offsets, stride or alignment. Coordinates remain samples, including sub-byte x positions. Physical padding and per-glyph allocation gaps must be resolved through storage layout; a vertical logical GlyphMajor surface does not imply one contiguous physical plane.
+The map contains no Unicode scalars, glyph IDs, placement, coding IDs, DATA offsets, stride or alignment. Coordinates remain samples, including sub-byte x positions. Physical padding and per-glyph allocation gaps must be resolved through storage layout; a vertical logical GlyphMajor surface does not imply one contiguous physical plane.
 
-A mapped glyph need not equal one decode unit. Whole-atlas coding can require a shared decoded surface; tiled coding can require multiple units for one rectangle. The map itself performs neither decoding nor unit selection. Line and pen placement use [font metric records](font-metrics.md); sample storage and caller output remain separate contracts.
+A mapped glyph need not equal one decode unit. Whole-atlas coding can require a shared decoded surface; tiled coding can require multiple units for one rectangle. The map itself performs neither decoding nor unit selection. Identity and placement use the [FONT payload structure](font-payload.md); sample storage and caller output remain separate contracts.
 
 `font::RawGlyphs` binds either map to scalar RAW samples using shared physical plane rules. Its [borrowed storage contract](glyph-storage.md) accounts for cell allocation rows, alignment gaps and exact atlas regions without treating them as one implicit contiguous bitmap.

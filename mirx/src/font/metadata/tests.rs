@@ -104,12 +104,15 @@ impl Fixture {
 
     fn sections(&self) -> [(u16, &[u8]); 6] {
         [
-            (FONT_RASTER_METRICS_SECTION_ID, &self.raster_metrics),
-            (FONT_FACE_SECTION_ID, &self.face),
-            (FONT_SURFACE_GROUPS_SECTION_ID, &self.surfaces),
-            (FONT_ADVANCES_SECTION_ID, &self.advances),
-            (FONT_CMAP_INDEX_SECTION_ID, &self.cmap),
-            (FONT_REPRESENTATIONS_SECTION_ID, &self.representations),
+            (MediaSectionKind::RASTER_METRICS.raw(), &self.raster_metrics),
+            (MediaSectionKind::FACE.raw(), &self.face),
+            (MediaSectionKind::SURFACE_GROUPS.raw(), &self.surfaces),
+            (MediaSectionKind::ADVANCES.raw(), &self.advances),
+            (MediaSectionKind::CMAP_INDEX.raw(), &self.cmap),
+            (
+                MediaSectionKind::REPRESENTATIONS.raw(),
+                &self.representations,
+            ),
         ]
     }
 }
@@ -160,7 +163,7 @@ fn metadata_requires_exactly_one_advance_source() {
     let without_advances = payload(
         &sections
             .into_iter()
-            .filter(|(kind, _)| *kind != FONT_ADVANCES_SECTION_ID)
+            .filter(|(kind, _)| *kind != MediaSectionKind::ADVANCES.raw())
             .collect::<Vec<_>>(),
     );
     assert!(matches!(
@@ -170,8 +173,8 @@ fn metadata_requires_exactly_one_advance_source() {
 
     let shaping = shaping();
     let mut shaped = fixture.sections().to_vec();
-    shaped.retain(|(kind, _)| *kind != FONT_ADVANCES_SECTION_ID);
-    shaped.push((FONT_SHAPING_SECTION_ID, &shaping));
+    shaped.retain(|(kind, _)| *kind != MediaSectionKind::ADVANCES.raw());
+    shaped.push((MediaSectionKind::SHAPING.raw(), &shaping));
     let bytes = payload(&shaped);
     assert!(
         FontMetadata::open(&bytes, &PayloadLimits::EMBEDDED)
@@ -181,7 +184,7 @@ fn metadata_requires_exactly_one_advance_source() {
     );
 
     let mut conflicting = fixture.sections().to_vec();
-    conflicting.push((FONT_SHAPING_SECTION_ID, &shaping));
+    conflicting.push((MediaSectionKind::SHAPING.raw(), &shaping));
     assert!(matches!(
         FontMetadata::open(&payload(&conflicting), &PayloadLimits::EMBEDDED),
         Err(FontMetadataError::ConflictingAdvanceSources)
@@ -198,9 +201,9 @@ fn metadata_validates_sparse_identity_and_all_cardinalities() {
     cmap[4..6].copy_from_slice(&7_u16.to_le_bytes());
     cmap[10..12].copy_from_slice(&7_u16.to_le_bytes());
     let mut sections = fixture.sections().to_vec();
-    sections.retain(|(kind, _)| *kind != FONT_CMAP_INDEX_SECTION_ID);
-    sections.push((FONT_CMAP_INDEX_SECTION_ID, &cmap));
-    sections.push((FONT_GLYPH_IDS_SECTION_ID, &glyph_ids));
+    sections.retain(|(kind, _)| *kind != MediaSectionKind::CMAP_INDEX.raw());
+    sections.push((MediaSectionKind::CMAP_INDEX.raw(), &cmap));
+    sections.push((MediaSectionKind::GLYPH_IDS.raw(), &glyph_ids));
     let bytes = payload(&sections);
     let metadata = FontMetadata::open(&bytes, &PayloadLimits::EMBEDDED).unwrap();
     assert_eq!(metadata.map_char('A'), Some(GlyphId::new(7)));
@@ -208,7 +211,7 @@ fn metadata_validates_sparse_identity_and_all_cardinalities() {
 
     let short_ids = &glyph_ids[..2];
     let mut sections = fixture.sections().to_vec();
-    sections.push((FONT_GLYPH_IDS_SECTION_ID, short_ids));
+    sections.push((MediaSectionKind::GLYPH_IDS.raw(), short_ids));
     assert!(matches!(
         FontMetadata::open(&payload(&sections), &PayloadLimits::EMBEDDED),
         Err(FontMetadataError::GlyphIdCount {
@@ -231,8 +234,11 @@ fn metadata_rejects_cmap_targets_without_rasters_and_limit_aliasing() {
     let fixture = Fixture::new();
     let bytes = payload(&fixture.sections());
     assert!(matches!(
-        FontMetadata::open(&bytes, &PayloadLimits::EMBEDDED.with_max_font_codepoints(1)),
-        Err(FontMetadataError::TooManyCodepoints {
+        FontMetadata::open(
+            &bytes,
+            &PayloadLimits::EMBEDDED.with_max_font_cmap_entries(1)
+        ),
+        Err(FontMetadataError::TooManyCmapEntries {
             limit: 1,
             actual: 2
         })

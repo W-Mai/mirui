@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    font::{FontError, FontGlyphs, FontView, GLYPH_REGION_LEN},
+    font::{CmapEntry, FontError, FontGlyphs, FontView, GLYPH_REGION_LEN, GlyphId, RasterMetrics},
     image::{RasterPreflight, UNIT_GROUP_RECORD_LEN},
     media::{IntegrityRanges, MediaPayload, MediaSectionKind},
 };
@@ -17,11 +17,15 @@ impl Font {
         let media = view.media();
         for section in media.sections() {
             match section.descriptor().kind() {
-                MediaSectionKind::CODEPOINTS
+                MediaSectionKind::FACE
+                | MediaSectionKind::CMAP_INDEX
                 | MediaSectionKind::REPRESENTATIONS
-                | MediaSectionKind::METRICS
+                | MediaSectionKind::ADVANCES
                 | MediaSectionKind::GLYPH_MAPS
                 | MediaSectionKind::SURFACE_GROUPS
+                | MediaSectionKind::GLYPH_IDS
+                | MediaSectionKind::RASTER_METRICS
+                | MediaSectionKind::SHAPING
                 | MediaSectionKind::DATA
                 | MediaSectionKind::PLANES
                 | MediaSectionKind::CODINGS
@@ -33,16 +37,23 @@ impl Font {
         }
         let mut preflight = RasterPreflight::new(limits, 0).map_err(FontError::Raster)?;
         view.preflight_in(&mut preflight)?;
-        let glyphs = view.tables().glyph_count();
-        let representation_count = view.tables().len();
+        let glyphs = usize::from(view.face().raster_count());
+        let representation_count = view.representations().len();
         let map_len = glyphs * GLYPH_REGION_LEN;
         let map_count = media
             .section(MediaSectionKind::GLYPH_MAPS)
             .map_or(0, |s| s.bytes().len() / map_len);
         let mut size = OwnedSize::new(limits.max_decoded_bytes());
-        size.items::<char>(glyphs)?;
+        size.items::<CmapEntry>(view.cmap().len())?;
+        size.items::<GlyphId>(view.metadata().glyph_ids().map_or(0, |ids| ids.len()))?;
+        if let Some(advances) = view.metadata().advances() {
+            size.items::<Fixed>(advances.len())?;
+        }
+        if let Some(shaping) = view.shaping_data() {
+            size.items::<u8>(shaping.as_bytes().len())?;
+        }
         size.items::<Representation>(representation_count)?;
-        size.items::<GlyphMetrics>(glyphs * representation_count)?;
+        size.items::<RasterMetrics>(glyphs * representation_count)?;
         size.items::<Map>(map_count)?;
         size.items::<Region>(map_count * glyphs)?;
         size.items::<Surface>(view.surface_count())?;
@@ -88,26 +99,50 @@ impl Font {
             )
             .map_err(FontError::Raster)?;
 
-        let mut codepoints = Self::reserve(glyphs)?;
-        codepoints.extend(view.tables().codepoints());
+        let mut cmap = Self::reserve(view.cmap().len())?;
+        cmap.extend(view.cmap().iter());
+        let glyph_ids = view
+            .metadata()
+            .glyph_ids()
+            .map(|ids| {
+                let mut values = Self::reserve(ids.len())?;
+                values.extend((0..ids.len()).map(|index| ids.get(index).expect("glyph ID")));
+                Ok::<_, FontError>(values)
+            })
+            .transpose()?;
+        let advance_source = if let Some(advances) = view.metadata().advances() {
+            let mut values = Self::reserve(advances.len())?;
+            values.extend((0..advances.len()).map(|index| advances.get(index).expect("advance")));
+            AdvanceSource::Advances(values)
+        } else {
+            AdvanceSource::Shaping(Self::copy(
+                view.shaping_data().expect("advance source").as_bytes(),
+            )?)
+        };
         let mut representations = Self::reserve(representation_count)?;
         for index in 0..representation_count {
-            let source = view.tables().get(index).expect("representation ordinal");
-            let mut metrics = Self::reserve(glyphs)?;
-            metrics.extend(source.metrics().iter());
+            let source = view.representation(index).expect("representation ordinal");
             representations.push(Representation {
                 metadata: source.record().representation(),
                 surface: source.record().surface_index(),
-                line: source.metrics().line_metrics(),
-                metrics,
                 map: (source.map().packing() == GlyphPacking::Atlas2D)
                     .then_some(source.record().glyph_map_offset() / map_len as u32),
             });
         }
+        let mut raster_metrics = Self::reserve(glyphs * representation_count)?;
+        for representation in 0..representation_count {
+            for ordinal in 0..glyphs {
+                let glyph_id = view.glyph_id(ordinal).expect("raster glyph ID");
+                raster_metrics.push(
+                    view.raster_metrics(representation, glyph_id)
+                        .expect("raster metrics"),
+                );
+            }
+        }
         let mut maps = Self::reserve(map_count)?;
         for index in 0..map_count {
             let representation = (0..representation_count)
-                .map(|r| view.tables().get(r).expect("representation ordinal"))
+                .map(|r| view.representation(r).expect("representation ordinal"))
                 .find(|r| {
                     r.map().packing() == GlyphPacking::Atlas2D
                         && r.record().glyph_map_offset() as usize == index * map_len
@@ -189,8 +224,12 @@ impl Font {
             });
         }
         Ok(Self {
-            codepoints,
+            face: view.face(),
+            cmap,
+            glyph_ids,
+            advance_source,
             representations,
+            raster_metrics,
             surfaces,
             maps,
         })

@@ -3,9 +3,9 @@ use crate::{
     Fixed,
     coding::Rle,
     font::{
-        FontAsset, FontRepresentation, FontRepresentationRequest, GlyphMap, GlyphMetrics,
-        GlyphPacking, GlyphSurfaceAsset, LineMetrics, RawGlyphs, RepresentationAsset,
-        RepresentationRecord,
+        CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontRepresentation,
+        FontRepresentationRequest, GlyphId, GlyphMap, GlyphPacking, GlyphSurfaceAsset,
+        RasterMetrics, RawGlyphs, RepresentationAsset, RepresentationRecord,
     },
     image::{PlaneMemoryLayout, SampleLayout, SurfaceRequirements},
     media::{CodingTable, MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION},
@@ -36,9 +36,11 @@ fn payload(sections: &[(MediaSectionKind, &[u8])]) -> Vec<u8> {
 }
 
 struct Fixture {
-    codepoints: [u8; 8],
+    face: [u8; 20],
+    cmap: [u8; 12],
     records: [u8; 48],
-    metrics: [u8; 108],
+    advances: [u8; 8],
+    raster_metrics: [u8; 48],
     surfaces: [u8; 48],
     codings: [u8; 12],
     data: Vec<u8>,
@@ -47,16 +49,35 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let mut result = Self {
-            codepoints: [0; 8],
+            face: [0; 20],
+            cmap: [0; 12],
             records: [0; 48],
-            metrics: [0; 108],
+            advances: [0; 8],
+            raster_metrics: [0; 48],
             surfaces: [0; 48],
             codings: [0; 12],
             data: vec![7; 8],
             planes: Vec::new(),
         };
-        result.codepoints[..4].copy_from_slice(&('A' as u32).to_le_bytes());
-        result.codepoints[4..].copy_from_slice(&('B' as u32).to_le_bytes());
+        FontFace::new(
+            1_000,
+            GlyphId::NOTDEF,
+            2,
+            Fixed::from_int(750),
+            Fixed::from_int(-250),
+            Fixed::from_int(200),
+        )
+        .unwrap()
+        .encode_record_into(&mut result.face)
+        .unwrap();
+        for (record, entry) in result.cmap.chunks_exact_mut(6).zip([
+            CmapEntry::new('A', GlyphId::new(0)),
+            CmapEntry::new('B', GlyphId::new(1)),
+        ]) {
+            entry.encode_record_into(record).unwrap();
+        }
+        result.advances[..4].copy_from_slice(&Fixed::from_int(500).to_le_bytes());
+        result.advances[4..].copy_from_slice(&Fixed::from_int(600).to_le_bytes());
         for (index, metadata) in [
             FontRepresentation::coverage(8, 12, 8).unwrap(),
             FontRepresentation::coverage(8, 16, 8).unwrap(),
@@ -68,23 +89,19 @@ impl Fixture {
             RepresentationRecord::new(metadata, u16::from(index == 2))
                 .encode_record_into(&mut result.records[index * 16..])
                 .unwrap();
-            let ppem = i32::from(metadata.design_ppem());
-            LineMetrics::new(
-                Fixed::from_ratio(ppem * 192, 256),
-                Fixed::from_ratio(-ppem * 64, 256),
-                Fixed::from_int(ppem),
-            )
-            .unwrap()
-            .encode_record_into(&mut result.metrics[index * 36..])
-            .unwrap();
+            for ordinal in 0..2 {
+                RasterMetrics::new(Fixed::ZERO, Fixed::from_int(metadata.design_ppem().into()))
+                    .encode_record_into(&mut result.raster_metrics[(index * 2 + ordinal) * 8..])
+                    .unwrap();
+            }
         }
-        GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 5)
+        GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 7)
             .unwrap()
             .encode_record_into(&mut result.surfaces)
             .unwrap();
-        GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 6)
+        GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 8)
             .unwrap()
-            .with_codings(4)
+            .with_codings(6)
             .unwrap()
             .encode_record_into(&mut result.surfaces[24..])
             .unwrap();
@@ -93,9 +110,11 @@ impl Fixture {
     }
     fn bytes(&self) -> Vec<u8> {
         let mut sections = vec![
-            (MediaSectionKind::CODEPOINTS, &self.codepoints[..]),
+            (MediaSectionKind::FACE, &self.face[..]),
+            (MediaSectionKind::CMAP_INDEX, &self.cmap[..]),
             (MediaSectionKind::REPRESENTATIONS, &self.records),
-            (MediaSectionKind::METRICS, &self.metrics),
+            (MediaSectionKind::ADVANCES, &self.advances),
+            (MediaSectionKind::RASTER_METRICS, &self.raster_metrics),
             (MediaSectionKind::SURFACE_GROUPS, &self.surfaces),
             (MediaSectionKind::CODINGS, &self.codings),
             (MediaSectionKind::DATA, &self.data),
@@ -114,14 +133,11 @@ fn one_face_binds_multiple_representations_and_shared_raw_encoded_storage() {
     let view = FontView::open(&bytes, &PayloadLimits::EMBEDDED).unwrap();
     view.preflight(&PayloadLimits::EMBEDDED).unwrap();
     assert_eq!(view.surface_count(), 2);
-    assert_eq!(view.tables().len(), 3);
-    let chosen = view
-        .tables()
-        .select(FontRepresentationRequest::new(24))
-        .unwrap();
+    assert_eq!(view.representations().len(), 3);
+    let chosen = view.select(FontRepresentationRequest::new(24)).unwrap();
     assert_eq!(chosen.index(), 2);
     assert_eq!(
-        chosen.metrics().line_metrics().line_height(),
+        chosen.raster_metrics(GlyphId::new(1)).unwrap().offset_y(),
         Fixed::from_int(24)
     );
     for index in 0..2 {
@@ -154,7 +170,7 @@ fn unique_surfaces_share_one_preflight_budget_without_duplicate_representation_w
     let mut fixture = Fixture::new();
     GlyphSurfaceRecord::from_record(&fixture.surfaces)
         .unwrap()
-        .with_codings(4)
+        .with_codings(6)
         .unwrap()
         .encode_record_into(&mut fixture.surfaces)
         .unwrap();
@@ -180,7 +196,7 @@ fn metadata_inspection_and_complete_integrity_have_distinct_failure_boundaries()
     let mut bytes = Fixture::new().bytes();
     let start = MediaPayload::open(&bytes)
         .unwrap()
-        .get(5)
+        .get(7)
         .unwrap()
         .descriptor()
         .offset() as usize;
@@ -214,14 +230,14 @@ fn referenced_raw_alignment_checks_file_position_not_slice_alignment() {
     fixture.data.resize(256, 7);
     GlyphSurfaceRecord::from_record(&fixture.surfaces)
         .unwrap()
-        .with_planes(7)
+        .with_planes(9)
         .unwrap()
         .encode_record_into(&mut fixture.surfaces)
         .unwrap();
     let bytes = fixture.bytes();
     let offset = MediaPayload::open(&bytes)
         .unwrap()
-        .get(5)
+        .get(7)
         .unwrap()
         .descriptor()
         .offset();
@@ -243,14 +259,13 @@ fn referenced_raw_alignment_checks_file_position_not_slice_alignment() {
 
 #[test]
 fn canonical_faces_solve_every_surface_alignment_from_any_container_cursor() {
-    let codepoints = ['A', 'B'];
-    let metrics = [
-        GlyphMetrics::new(Fixed::from_int(2), Fixed::ZERO, Fixed::from_int(2)),
-        GlyphMetrics::new(Fixed::from_int(2), Fixed::ZERO, Fixed::from_int(2)),
+    let cmap = [
+        CmapEntry::new('A', GlyphId::new(0)),
+        CmapEntry::new('B', GlyphId::new(1)),
     ];
-    let line = LineMetrics::new(Fixed::from_int(2), Fixed::ZERO, Fixed::from_int(2)).unwrap();
-    let map8 = GlyphMap::glyph_major(2, 2, codepoints.len()).unwrap();
-    let map4 = GlyphMap::glyph_major(2, 2, codepoints.len()).unwrap();
+    let advances = [Fixed::from_int(2); 2];
+    let map8 = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
+    let map4 = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
     let geometry8 = SampleLayout::A8.plane_geometry(2, 2, 0).unwrap();
     let geometry4 = SampleLayout::A4.plane_geometry(2, 2, 0).unwrap();
     let memory8 = PlaneMemoryLayout::builder(geometry8)
@@ -278,20 +293,21 @@ fn canonical_faces_solve_every_surface_alignment_from_any_container_cursor() {
         GlyphSurfaceAsset::raw(glyphs4),
     ];
     let representations = [
-        RepresentationAsset::new(
-            FontRepresentation::coverage(8, 12, 8).unwrap(),
-            0,
-            line,
-            &metrics,
-        ),
-        RepresentationAsset::new(
-            FontRepresentation::coverage(4, 16, 4).unwrap(),
-            1,
-            line,
-            &metrics,
-        ),
+        RepresentationAsset::new(FontRepresentation::coverage(8, 12, 8).unwrap(), 0),
+        RepresentationAsset::new(FontRepresentation::coverage(4, 16, 4).unwrap(), 1),
     ];
-    let bytes = FontAsset::new(&codepoints, &representations, &surfaces)
+    let face = FontFace::new(
+        1_000,
+        GlyphId::NOTDEF,
+        2,
+        Fixed::from_int(750),
+        Fixed::from_int(-250),
+        Fixed::from_int(200),
+    )
+    .unwrap();
+    let raster_metrics = [RasterMetrics::default(); 4];
+    let bytes = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
+        .with_rasters(&representations, &raster_metrics, &surfaces)
         .encode()
         .unwrap();
     let view = FontView::open(&bytes, &PayloadLimits::EMBEDDED).unwrap();
@@ -313,9 +329,11 @@ fn directory_ownership_and_required_sections_are_unambiguous() {
     let original = Fixture::new().bytes();
     let inspect = |bytes: &[u8]| FontView::open(bytes, &PayloadLimits::EMBEDDED).map(|_| ());
     for (index, kind) in [
-        MediaSectionKind::CODEPOINTS,
+        MediaSectionKind::FACE,
+        MediaSectionKind::CMAP_INDEX,
         MediaSectionKind::REPRESENTATIONS,
-        MediaSectionKind::METRICS,
+        MediaSectionKind::ADVANCES,
+        MediaSectionKind::RASTER_METRICS,
         MediaSectionKind::SURFACE_GROUPS,
     ]
     .into_iter()
@@ -326,12 +344,20 @@ fn directory_ownership_and_required_sections_are_unambiguous() {
         write_u16_le(&mut bytes, entry, 500);
         write_u16_le(&mut bytes, entry + 2, 0);
         crate::media::refresh_checksums(&mut bytes);
-        assert_eq!(inspect(&bytes), Err(FontError::MissingSection(kind)));
+        let missing = if kind == MediaSectionKind::ADVANCES {
+            FontMetadataError::MissingAdvanceSource
+        } else {
+            FontMetadataError::MissingSection(kind)
+        };
+        assert_eq!(inspect(&bytes), Err(FontError::Metadata(missing)));
         for flags in [0, 2, 3, u16::MAX] {
             let mut bytes = original.clone();
             write_u16_le(&mut bytes, entry + 2, flags);
             crate::media::refresh_checksums(&mut bytes);
-            assert_eq!(inspect(&bytes), Err(FontError::SectionFlags(kind)));
+            assert_eq!(
+                inspect(&bytes),
+                Err(FontError::Metadata(FontMetadataError::SectionFlags(kind)))
+            );
         }
     }
     let media = MediaPayload::open(&original).unwrap();
@@ -341,14 +367,9 @@ fn directory_ownership_and_required_sections_are_unambiguous() {
         .collect();
     for (kind, body, expected) in [
         (
-            MediaSectionKind::CODEPOINTS,
-            &[0; 4][..],
-            FontError::DuplicateSection(MediaSectionKind::CODEPOINTS),
-        ),
-        (
-            MediaSectionKind::SURFACE,
-            &[][..],
-            FontError::UnexpectedSection(MediaSectionKind::SURFACE),
+            MediaSectionKind::FACE,
+            &[0; 20][..],
+            FontError::Metadata(FontMetadataError::DuplicateSection(MediaSectionKind::FACE)),
         ),
         (
             MediaSectionKind::GLYPH_MAPS,
@@ -358,17 +379,19 @@ fn directory_ownership_and_required_sections_are_unambiguous() {
         (
             MediaSectionKind::PLANES,
             &[][..],
-            FontError::UnreferencedSection { index: 7 },
+            FontError::UnreferencedSection { index: 9 },
         ),
         (
             MediaSectionKind::DATA,
             &[][..],
-            FontError::UnreferencedSection { index: 7 },
+            FontError::UnreferencedSection { index: 9 },
         ),
         (
             MediaSectionKind::new(500).unwrap(),
             &[1, 2, 3][..],
-            FontError::UnknownRequiredSection(MediaSectionKind::new(500).unwrap()),
+            FontError::Metadata(FontMetadataError::UnknownRequiredSection(
+                MediaSectionKind::new(500).unwrap(),
+            )),
         ),
     ] {
         sections.push((kind, body));
@@ -379,12 +402,12 @@ fn directory_ownership_and_required_sections_are_unambiguous() {
     let mut optional = payload(&sections);
     write_u16_le(
         &mut optional,
-        MEDIA_HEADER_LEN + 7 * MEDIA_SECTION_LEN + 2,
+        MEDIA_HEADER_LEN + 9 * MEDIA_SECTION_LEN + 2,
         0,
     );
     crate::media::refresh_checksums(&mut optional);
     let view = FontView::open(&optional, &PayloadLimits::EMBEDDED).unwrap();
-    assert_eq!(view.media().get(7).unwrap().bytes(), &[1, 2, 3]);
+    assert_eq!(view.media().get(9).unwrap().bytes(), &[1, 2, 3]);
     view.preflight(&PayloadLimits::EMBEDDED).unwrap();
 }
 
@@ -392,12 +415,12 @@ fn directory_ownership_and_required_sections_are_unambiguous() {
 fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
     let mut fixture = Fixture::new();
     for index in 0..2 {
-        let data_section = 5 + index as u16;
+        let data_section = 7 + index as u16;
         let mut record =
             GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::Atlas2D, 0, 0, data_section)
                 .unwrap();
         if index == 1 {
-            record = record.with_codings(4).unwrap();
+            record = record.with_codings(6).unwrap();
         }
         record
             .encode_record_into(&mut fixture.surfaces[index * 24..])
@@ -409,15 +432,20 @@ fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
         .sections()
         .map(|section| (section.descriptor().kind(), section.bytes()))
         .collect();
-    sections[5].1 = &[];
-    sections[6].1 = &[];
+    sections[7].1 = &[];
+    sections[8].1 = &[];
     let map = [0; 32];
     sections.push((MediaSectionKind::GLYPH_MAPS, &map));
     let bytes = payload(&sections);
     let view = FontView::open(&bytes, &PayloadLimits::EMBEDDED).unwrap();
     view.preflight(&PayloadLimits::EMBEDDED).unwrap();
     assert_eq!(
-        view.tables().get(0).unwrap().map().get(0).unwrap().width(),
+        view.representation(0)
+            .unwrap()
+            .map()
+            .get(0)
+            .unwrap()
+            .width(),
         0
     );
     let FontGlyphs::Raw(raw) = view.glyphs(0).unwrap() else {
@@ -434,14 +462,14 @@ fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
     );
 
     let orphan = [0; 64];
-    sections[7].1 = &orphan;
+    sections[9].1 = &orphan;
     assert!(matches!(
         FontView::open(&payload(&sections), &PayloadLimits::EMBEDDED),
-        Err(FontError::Tables(FaceTablesError::UnreferencedMaps))
+        Err(FontError::UnreferencedMaps)
     ));
     sections.pop();
     assert!(matches!(
         FontView::open(&payload(&sections), &PayloadLimits::EMBEDDED),
-        Err(FontError::Tables(FaceTablesError::MapOutOfBounds { .. }))
+        Err(FontError::MapOutOfBounds { .. })
     ));
 }

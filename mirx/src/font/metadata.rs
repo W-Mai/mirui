@@ -9,16 +9,6 @@ use crate::{
     media::{MediaPayload, MediaPayloadError, MediaSection, MediaSectionFlags, MediaSectionKind},
 };
 
-pub(crate) const FONT_FACE_SECTION_ID: u16 = 0x0010;
-pub(crate) const FONT_CMAP_INDEX_SECTION_ID: u16 = 0x0011;
-pub(crate) const FONT_REPRESENTATIONS_SECTION_ID: u16 = 0x0012;
-pub(crate) const FONT_ADVANCES_SECTION_ID: u16 = 0x0013;
-pub(crate) const FONT_GLYPH_MAPS_SECTION_ID: u16 = 0x0014;
-pub(crate) const FONT_SURFACE_GROUPS_SECTION_ID: u16 = 0x0015;
-pub(crate) const FONT_GLYPH_IDS_SECTION_ID: u16 = 0x0016;
-pub(crate) const FONT_RASTER_METRICS_SECTION_ID: u16 = 0x0017;
-pub(crate) const FONT_SHAPING_SECTION_ID: u16 = 0x0018;
-
 const FONT_SECTION_COUNT: usize = 9;
 
 #[derive(Clone, Copy, Debug)]
@@ -35,6 +25,13 @@ pub struct FontMetadata<'a> {
 impl<'a> FontMetadata<'a> {
     pub fn open(bytes: &'a [u8], limits: &PayloadLimits) -> Result<Self, FontMetadataError> {
         let media = MediaPayload::open(bytes).map_err(FontMetadataError::Media)?;
+        Self::open_media(media, limits)
+    }
+
+    pub(crate) fn open_media(
+        media: MediaPayload<'a>,
+        limits: &PayloadLimits,
+    ) -> Result<Self, FontMetadataError> {
         let sections = Sections::open(media)?;
         let face =
             FontFace::from_record(sections.required(FACE)?).map_err(FontMetadataError::Face)?;
@@ -47,9 +44,9 @@ impl<'a> FontMetadata<'a> {
         }
 
         let cmap = CmapIndex::open(sections.required(CMAP)?).map_err(FontMetadataError::Cmap)?;
-        if cmap.len() > limits.max_font_codepoints() as usize {
-            return Err(FontMetadataError::TooManyCodepoints {
-                limit: limits.max_font_codepoints(),
+        if cmap.len() > limits.max_font_cmap_entries() as usize {
+            return Err(FontMetadataError::TooManyCmapEntries {
+                limit: limits.max_font_cmap_entries(),
                 actual: cmap.len(),
             });
         }
@@ -144,12 +141,24 @@ impl<'a> FontMetadata<'a> {
         self.cmap
     }
 
+    pub const fn glyph_ids(self) -> Option<GlyphIds<'a>> {
+        self.glyph_ids
+    }
+
+    pub const fn advances(self) -> Option<Advances<'a>> {
+        self.advances
+    }
+
     pub const fn shaping_data(self) -> Option<ShapingData<'a>> {
         self.shaping
     }
 
     pub const fn representations(self) -> RepresentationTable<'a> {
         self.representations
+    }
+
+    pub const fn glyph_count(self) -> usize {
+        self.face.raster_count() as usize
     }
 
     pub fn map_char(self, scalar: char) -> Option<GlyphId> {
@@ -219,16 +228,16 @@ impl<'a> Sections<'a> {
         for section in media.sections() {
             let descriptor = section.descriptor();
             let kind = descriptor.kind();
-            let slot = match kind.raw() {
-                FONT_FACE_SECTION_ID => Some(FACE),
-                FONT_CMAP_INDEX_SECTION_ID => Some(CMAP),
-                FONT_REPRESENTATIONS_SECTION_ID => Some(REPRESENTATIONS),
-                FONT_ADVANCES_SECTION_ID => Some(ADVANCES),
-                FONT_GLYPH_MAPS_SECTION_ID => Some(GLYPH_MAPS),
-                FONT_SURFACE_GROUPS_SECTION_ID => Some(SURFACE_GROUPS),
-                FONT_GLYPH_IDS_SECTION_ID => Some(GLYPH_IDS),
-                FONT_RASTER_METRICS_SECTION_ID => Some(RASTER_METRICS),
-                FONT_SHAPING_SECTION_ID => Some(SHAPING),
+            let slot = match kind {
+                MediaSectionKind::FACE => Some(FACE),
+                MediaSectionKind::CMAP_INDEX => Some(CMAP),
+                MediaSectionKind::REPRESENTATIONS => Some(REPRESENTATIONS),
+                MediaSectionKind::ADVANCES => Some(ADVANCES),
+                MediaSectionKind::GLYPH_MAPS => Some(GLYPH_MAPS),
+                MediaSectionKind::SURFACE_GROUPS => Some(SURFACE_GROUPS),
+                MediaSectionKind::GLYPH_IDS => Some(GLYPH_IDS),
+                MediaSectionKind::RASTER_METRICS => Some(RASTER_METRICS),
+                MediaSectionKind::SHAPING => Some(SHAPING),
                 _ => None,
             };
             let known = slot.is_some() || Self::is_storage(kind);
@@ -270,18 +279,17 @@ impl<'a> Sections<'a> {
 }
 
 fn section_kind(slot: usize) -> MediaSectionKind {
-    let raw = [
-        FONT_FACE_SECTION_ID,
-        FONT_CMAP_INDEX_SECTION_ID,
-        FONT_REPRESENTATIONS_SECTION_ID,
-        FONT_ADVANCES_SECTION_ID,
-        FONT_GLYPH_MAPS_SECTION_ID,
-        FONT_SURFACE_GROUPS_SECTION_ID,
-        FONT_GLYPH_IDS_SECTION_ID,
-        FONT_RASTER_METRICS_SECTION_ID,
-        FONT_SHAPING_SECTION_ID,
-    ][slot];
-    MediaSectionKind::new(raw).expect("nonzero FONT section ID")
+    [
+        MediaSectionKind::FACE,
+        MediaSectionKind::CMAP_INDEX,
+        MediaSectionKind::REPRESENTATIONS,
+        MediaSectionKind::ADVANCES,
+        MediaSectionKind::GLYPH_MAPS,
+        MediaSectionKind::SURFACE_GROUPS,
+        MediaSectionKind::GLYPH_IDS,
+        MediaSectionKind::RASTER_METRICS,
+        MediaSectionKind::SHAPING,
+    ][slot]
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -299,7 +307,7 @@ pub enum FontMetadataError {
     UnknownRequiredSection(MediaSectionKind),
     SectionFlags(MediaSectionKind),
     TooManyGlyphs { limit: u32, actual: usize },
-    TooManyCodepoints { limit: u32, actual: usize },
+    TooManyCmapEntries { limit: u32, actual: usize },
     GlyphIdCount { expected: usize, actual: usize },
     AdvanceCount { expected: usize, actual: usize },
     RasterMetricCount { expected: usize, actual: usize },

@@ -4,13 +4,14 @@ pub(super) mod source;
 use source::Source;
 
 use super::{
-    FontCodepointError, FontError, FontRepresentation, FontRepresentations, GLYPH_METRICS_LEN,
-    GLYPH_REGION_LEN, GLYPH_SURFACE_RECORD_LEN, GlyphMap, GlyphMetrics, GlyphPacking,
-    GlyphSurfaceRecord, LINE_METRICS_LEN, LineMetrics, REPRESENTATION_RECORD_LEN, RawGlyphs,
-    RepresentationRecord,
+    ADVANCE_RECORD_LEN, CMAP_INDEX_RECORD_LEN, CmapEntry, FACE_RECORD_LEN, FontError, FontFace,
+    FontRepresentation, FontRepresentations, GLYPH_ID_RECORD_LEN, GLYPH_REGION_LEN,
+    GLYPH_SURFACE_RECORD_LEN, GlyphId, GlyphMap, GlyphPacking, GlyphSurfaceRecord,
+    RASTER_METRICS_RECORD_LEN, REPRESENTATION_RECORD_LEN, RasterMetrics, RawGlyphs,
+    RepresentationRecord, ShapingData,
 };
 use crate::{
-    ByteAlignment, PayloadLimits,
+    ByteAlignment, Fixed, PayloadLimits,
     image::{
         ColorDescription, EncodedImageAsset, EncodedStoragePlan, PLANE_RECORD_LEN,
         PlaneMemoryLayout, SurfaceDescriptor,
@@ -23,28 +24,19 @@ use crate::{
     wire::write_u16_le,
 };
 
-/// One representation's size semantics, hinted metrics and shared storage references.
+/// One representation's size semantics and shared storage references.
 #[derive(Clone, Copy, Debug)]
-pub struct RepresentationAsset<'a> {
+pub struct RepresentationAsset {
     metadata: FontRepresentation,
     surface: u16,
-    line: LineMetrics,
-    metrics: &'a [GlyphMetrics],
     map: Option<u32>,
 }
 
-impl<'a> RepresentationAsset<'a> {
-    pub const fn new(
-        metadata: FontRepresentation,
-        surface: u16,
-        line: LineMetrics,
-        metrics: &'a [GlyphMetrics],
-    ) -> Self {
+impl RepresentationAsset {
+    pub const fn new(metadata: FontRepresentation, surface: u16) -> Self {
         Self {
             metadata,
             surface,
-            line,
-            metrics,
             map: None,
         }
     }
@@ -61,15 +53,15 @@ impl<'a> RepresentationAsset<'a> {
     pub const fn surface_index(self) -> u16 {
         self.surface
     }
-    pub const fn line_metrics(self) -> LineMetrics {
-        self.line
-    }
-    pub const fn metrics(self) -> &'a [GlyphMetrics] {
-        self.metrics
-    }
     pub const fn map_index(self) -> Option<u32> {
         self.map
     }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FontAdvanceSource<'a> {
+    Advances(&'a [Fixed]),
+    Shaping(&'a [u8]),
 }
 
 /// One shared scalar sample allocation, independent of representation metrics.
@@ -165,38 +157,73 @@ impl<'a> GlyphSurfaceAsset<'a> {
     }
 }
 
-/// Borrowed native authoring input for one face with shared codepoints and surfaces.
+/// Borrowed native authoring input for one face with shared glyphs and surfaces.
 /// Directory positions and byte offsets are assigned by the writer.
 #[derive(Clone, Copy, Debug)]
 pub struct FontAsset<'a> {
-    codepoints: &'a [char],
-    representations: &'a [RepresentationAsset<'a>],
+    face: FontFace,
+    cmap: &'a [CmapEntry],
+    glyph_ids: Option<&'a [GlyphId]>,
+    advance_source: FontAdvanceSource<'a>,
+    representations: &'a [RepresentationAsset],
+    raster_metrics: &'a [RasterMetrics],
     surfaces: &'a [GlyphSurfaceAsset<'a>],
     maps: &'a [GlyphMap<'a>],
 }
 
 impl<'a> FontAsset<'a> {
     pub const fn new(
-        codepoints: &'a [char],
-        representations: &'a [RepresentationAsset<'a>],
-        surfaces: &'a [GlyphSurfaceAsset<'a>],
+        face: FontFace,
+        cmap: &'a [CmapEntry],
+        advance_source: FontAdvanceSource<'a>,
     ) -> Self {
         Self {
-            codepoints,
-            representations,
-            surfaces,
+            face,
+            cmap,
+            glyph_ids: None,
+            advance_source,
+            representations: &[],
+            raster_metrics: &[],
+            surfaces: &[],
             maps: &[],
         }
+    }
+    pub const fn with_rasters(
+        mut self,
+        representations: &'a [RepresentationAsset],
+        raster_metrics: &'a [RasterMetrics],
+        surfaces: &'a [GlyphSurfaceAsset<'a>],
+    ) -> Self {
+        self.representations = representations;
+        self.raster_metrics = raster_metrics;
+        self.surfaces = surfaces;
+        self
+    }
+    pub const fn with_glyph_ids(mut self, glyph_ids: &'a [GlyphId]) -> Self {
+        self.glyph_ids = Some(glyph_ids);
+        self
     }
     pub const fn with_maps(mut self, maps: &'a [GlyphMap<'a>]) -> Self {
         self.maps = maps;
         self
     }
-    pub const fn codepoints(self) -> &'a [char] {
-        self.codepoints
+    pub const fn face(self) -> FontFace {
+        self.face
     }
-    pub const fn representations(self) -> &'a [RepresentationAsset<'a>] {
+    pub const fn cmap(self) -> &'a [CmapEntry] {
+        self.cmap
+    }
+    pub const fn glyph_ids(self) -> Option<&'a [GlyphId]> {
+        self.glyph_ids
+    }
+    pub const fn advance_source(self) -> FontAdvanceSource<'a> {
+        self.advance_source
+    }
+    pub const fn representations(self) -> &'a [RepresentationAsset] {
         self.representations
+    }
+    pub const fn raster_metrics(self) -> &'a [RasterMetrics] {
+        self.raster_metrics
     }
     pub const fn surfaces(self) -> &'a [GlyphSurfaceAsset<'a>] {
         self.surfaces
@@ -305,26 +332,42 @@ pub(super) struct Plan<S: Source> {
 
 impl<S: Source> Plan<S> {
     fn table_size(asset: S) -> Result<u64, FontError> {
+        let glyphs = usize::from(asset.face().raster_count());
         let lengths = [
-            asset.codepoints().len(),
+            glyphs,
+            asset.cmap().len(),
+            asset.glyph_ids().map_or(0, <[GlyphId]>::len),
             asset.representation_count(),
+            asset.raster_metrics().len(),
             asset.surface_count(),
             asset.map_count(),
         ];
         for length in lengths {
             u32::try_from(length).map_err(|_| FontError::SizeOverflow)?;
         }
-        let [glyphs, representations, surfaces, maps] = lengths.map(|n| n as u64);
-        let metrics = representations
-            .checked_mul(LINE_METRICS_LEN as u64 + glyphs * GLYPH_METRICS_LEN as u64)
-            .ok_or(FontError::SizeOverflow)?;
+        let [
+            glyphs,
+            cmap,
+            glyph_ids,
+            representations,
+            metrics,
+            surfaces,
+            maps,
+        ] = lengths.map(|n| n as u64);
         let map_bytes = maps
             .checked_mul(glyphs * GLYPH_REGION_LEN as u64)
             .ok_or(FontError::SizeOverflow)?;
-        let size = (glyphs * 4
+        let source_bytes = match asset.advance_source() {
+            FontAdvanceSource::Advances(values) => values.len() as u64 * ADVANCE_RECORD_LEN as u64,
+            FontAdvanceSource::Shaping(bytes) => bytes.len() as u64,
+        };
+        let size = (FACE_RECORD_LEN as u64
+            + cmap * CMAP_INDEX_RECORD_LEN as u64
+            + glyph_ids * GLYPH_ID_RECORD_LEN as u64
             + representations * REPRESENTATION_RECORD_LEN as u64
+            + metrics * RASTER_METRICS_RECORD_LEN as u64
             + surfaces * GLYPH_SURFACE_RECORD_LEN as u64)
-            .checked_add(metrics)
+            .checked_add(source_bytes)
             .and_then(|n| n.checked_add(map_bytes))
             .ok_or(FontError::SizeOverflow)?;
         u32::try_from(size).map_err(|_| FontError::SizeOverflow)?;
@@ -343,22 +386,73 @@ impl<S: Source> Plan<S> {
 
     fn metadata(asset: S) -> Result<Self, FontError> {
         let mut size = Self::table_size(asset)?;
-        if asset.codepoints().is_empty() {
-            return Err(FontError::EmptyGlyphTable);
-        }
+        let glyph_count = usize::from(asset.face().raster_count());
         if asset.surface_count() > asset.representation_count()
             || asset.map_count() > asset.representation_count()
         {
             return Err(FontError::UnreferencedStorage);
         }
-        for (index, pair) in asset.codepoints().windows(2).enumerate() {
-            if pair[0] >= pair[1] {
-                return Err(FontError::Codepoints(FontCodepointError::NotSorted {
+        for (index, pair) in asset.cmap().windows(2).enumerate() {
+            if pair[0].scalar() >= pair[1].scalar() {
+                return Err(FontError::Cmap(super::CmapIndexError::NotSorted {
                     index: index + 1,
-                    previous: pair[0] as u32,
-                    current: pair[1] as u32,
+                    previous: pair[0].scalar(),
+                    current: pair[1].scalar(),
                 }));
             }
+        }
+        if let Some(ids) = asset.glyph_ids() {
+            if ids.len() != glyph_count {
+                return Err(FontError::GlyphIdCount {
+                    expected: glyph_count,
+                    actual: ids.len(),
+                });
+            }
+            for (index, pair) in ids.windows(2).enumerate() {
+                if pair[0] >= pair[1] {
+                    return Err(FontError::GlyphIds(super::GlyphIdsError::NotSorted {
+                        index: index + 1,
+                        previous: pair[0],
+                        current: pair[1],
+                    }));
+                }
+            }
+            if ids
+                .iter()
+                .enumerate()
+                .all(|(ordinal, id)| id.get() as usize == ordinal)
+            {
+                return Err(FontError::NonCanonicalGlyphIds);
+            }
+        }
+        for glyph_id in core::iter::once(asset.face().default_glyph())
+            .chain(asset.cmap().iter().map(|entry| entry.glyph_id()))
+        {
+            if Self::raster_ordinal(asset, glyph_id).is_none() {
+                return Err(FontError::MissingRasterGlyph(glyph_id));
+            }
+        }
+        match asset.advance_source() {
+            FontAdvanceSource::Advances(values) if values.len() != glyph_count => {
+                return Err(FontError::AdvanceCount {
+                    expected: glyph_count,
+                    actual: values.len(),
+                });
+            }
+            FontAdvanceSource::Shaping(bytes) => {
+                ShapingData::open(bytes).map_err(FontError::Shaping)?;
+            }
+            FontAdvanceSource::Advances(_) => {}
+        }
+        let expected_metrics = asset
+            .representation_count()
+            .checked_mul(glyph_count)
+            .ok_or(FontError::SizeOverflow)?;
+        if asset.raster_metrics().len() != expected_metrics {
+            return Err(FontError::RasterMetricCount {
+                expected: expected_metrics,
+                actual: asset.raster_metrics().len(),
+            });
         }
         FontRepresentations::validate_by(asset.representation_count(), |i| {
             asset
@@ -373,9 +467,7 @@ impl<S: Source> Plan<S> {
                     representation: index,
                 },
             )?;
-            if representation.metrics.len() != asset.codepoints().len()
-                || surface.map().len() != asset.codepoints().len()
-            {
+            if surface.map().len() != glyph_count {
                 return Err(FontError::Cardinality);
             }
             RepresentationRecord::new(representation.metadata, representation.surface)
@@ -388,7 +480,7 @@ impl<S: Source> Plan<S> {
                         representation: index,
                     })?;
                     if map.packing() != GlyphPacking::Atlas2D
-                        || map.len() != asset.codepoints().len()
+                        || map.len() != glyph_count
                         || map.iter().any(|region| {
                             region.right() > surface.map().width()
                                 || region.bottom() > surface.map().height()
@@ -414,7 +506,10 @@ impl<S: Source> Plan<S> {
                 return Err(FontError::UnreferencedStorage);
             }
         }
-        let mut sections = 4 + usize::from(asset.map_count() != 0) + asset.surface_count();
+        let mut sections = 6
+            + usize::from(asset.glyph_ids().is_some())
+            + usize::from(asset.map_count() != 0)
+            + asset.surface_count();
         let indexed = asset
             .surfaces()
             .any(|s| s.integrity().partitions().is_some());
@@ -470,6 +565,16 @@ impl<S: Source> Plan<S> {
         })
     }
 
+    fn raster_ordinal(asset: S, glyph_id: GlyphId) -> Option<usize> {
+        match asset.glyph_ids() {
+            Some(ids) => ids.binary_search(&glyph_id).ok(),
+            None => {
+                let ordinal = usize::from(glyph_id.get());
+                (ordinal < usize::from(asset.face().raster_count())).then_some(ordinal)
+            }
+        }
+    }
+
     fn aligned(offset: usize, alignment: ByteAlignment) -> Result<usize, FontError> {
         UnitIndex::aligned(
             u32::try_from(offset).map_err(|_| FontError::SizeOverflow)?,
@@ -479,28 +584,45 @@ impl<S: Source> Plan<S> {
         .map_err(|_| FontError::SizeOverflow)
     }
 
-    fn metadata_sections(self) -> [(MediaSectionKind, usize); 5] {
-        let n = self.asset.codepoints().len();
-        let r = self.asset.representation_count();
-        [
-            (MediaSectionKind::CODEPOINTS, n * 4),
-            (
-                MediaSectionKind::REPRESENTATIONS,
-                r * REPRESENTATION_RECORD_LEN,
+    fn visit_metadata_sections(self, mut visitor: impl FnMut(MediaSectionKind, usize)) {
+        let glyphs = usize::from(self.asset.face().raster_count());
+        visitor(MediaSectionKind::FACE, FACE_RECORD_LEN);
+        visitor(
+            MediaSectionKind::CMAP_INDEX,
+            self.asset.cmap().len() * CMAP_INDEX_RECORD_LEN,
+        );
+        if let Some(ids) = self.asset.glyph_ids() {
+            visitor(MediaSectionKind::GLYPH_IDS, ids.len() * GLYPH_ID_RECORD_LEN);
+        }
+        visitor(
+            MediaSectionKind::REPRESENTATIONS,
+            self.asset.representation_count() * REPRESENTATION_RECORD_LEN,
+        );
+        match self.asset.advance_source() {
+            FontAdvanceSource::Advances(values) => visitor(
+                MediaSectionKind::ADVANCES,
+                values.len() * ADVANCE_RECORD_LEN,
             ),
-            (
-                MediaSectionKind::METRICS,
-                r * (LINE_METRICS_LEN + n * GLYPH_METRICS_LEN),
-            ),
-            (
-                MediaSectionKind::SURFACE_GROUPS,
-                self.asset.surface_count() * GLYPH_SURFACE_RECORD_LEN,
-            ),
-            (
+            FontAdvanceSource::Shaping(bytes) => visitor(MediaSectionKind::SHAPING, bytes.len()),
+        }
+        visitor(
+            MediaSectionKind::RASTER_METRICS,
+            self.asset.raster_metrics().len() * RASTER_METRICS_RECORD_LEN,
+        );
+        visitor(
+            MediaSectionKind::SURFACE_GROUPS,
+            self.asset.surface_count() * GLYPH_SURFACE_RECORD_LEN,
+        );
+        if self.asset.map_count() != 0 {
+            visitor(
                 MediaSectionKind::GLYPH_MAPS,
-                self.asset.map_count() * n * GLYPH_REGION_LEN,
-            ),
-        ]
+                self.asset.map_count() * glyphs * GLYPH_REGION_LEN,
+            );
+        }
+    }
+
+    fn metadata_section_count(self) -> u16 {
+        6 + u16::from(self.asset.glyph_ids().is_some()) + u16::from(self.asset.map_count() != 0)
     }
 
     fn visit_data(&self, mut visitor: impl FnMut(GlyphSurfaceAsset<'_>, usize)) {
@@ -527,13 +649,10 @@ impl<S: Source> Plan<S> {
         write_u16_le(&mut header, 2, self.sections);
         output.header(&header);
         let mut offset = MEDIA_HEADER_LEN + usize::from(self.sections) * MEDIA_SECTION_LEN;
-        for (kind, len) in self.metadata_sections() {
-            if kind == MediaSectionKind::GLYPH_MAPS && len == 0 {
-                continue;
-            }
+        self.visit_metadata_sections(|kind, len| {
             output.section(kind, offset, len);
             offset += len;
-        }
+        });
         for surface in self.asset.surfaces() {
             for (kind, len) in surface
                 .plan()
@@ -552,27 +671,51 @@ impl<S: Source> Plan<S> {
         self.visit_data(|surface, offset| {
             output.section(MediaSectionKind::DATA, offset, surface.data().len())
         });
-        for &codepoint in self.asset.codepoints() {
-            output.write(&(codepoint as u32).to_le_bytes());
+        let mut face = [0; FACE_RECORD_LEN];
+        self.asset
+            .face()
+            .encode_record_into(&mut face)
+            .expect("validated face");
+        output.write(&face);
+        for &entry in self.asset.cmap() {
+            let mut bytes = [0; CMAP_INDEX_RECORD_LEN];
+            entry
+                .encode_record_into(&mut bytes)
+                .expect("complete cmap record");
+            output.write(&bytes);
+        }
+        if let Some(ids) = self.asset.glyph_ids() {
+            for id in ids {
+                output.write(&id.get().to_le_bytes());
+            }
         }
         for r in self.asset.representations() {
             let mut bytes = [0; REPRESENTATION_RECORD_LEN];
             RepresentationRecord::new(r.metadata, r.surface)
                 .with_glyph_map_offset(r.map.map_or(0, |id| {
-                    id * self.asset.codepoints().len() as u32 * GLYPH_REGION_LEN as u32
+                    id * self.asset.face().raster_count() as u32 * GLYPH_REGION_LEN as u32
                 }))
                 .encode_record_into(&mut bytes)
                 .expect("validated representation");
             output.write(&bytes);
         }
-        for r in self.asset.representations() {
-            output.write(&r.line.encode_record());
-            for metric in r.metrics {
-                output.write(&metric.encode_record());
+        match self.asset.advance_source() {
+            FontAdvanceSource::Advances(values) => {
+                for value in values {
+                    output.write(&value.to_le_bytes());
+                }
             }
+            FontAdvanceSource::Shaping(bytes) => output.write(bytes),
+        }
+        for metric in self.asset.raster_metrics() {
+            let mut bytes = [0; RASTER_METRICS_RECORD_LEN];
+            metric
+                .encode_record_into(&mut bytes)
+                .expect("complete raster metrics record");
+            output.write(&bytes);
         }
         let data_base = self.sections - self.asset.surface_count() as u16;
-        let mut section = 4 + u16::from(self.asset.map_count() != 0);
+        let mut section = self.metadata_section_count();
         for (index, surface) in self.asset.surfaces().enumerate() {
             let map = surface.map();
             let (width, height) = map.cell_extent().unwrap_or((map.width(), map.height()));

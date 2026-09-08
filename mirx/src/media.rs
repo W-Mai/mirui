@@ -120,11 +120,15 @@ impl MediaSectionKind {
     pub const UNIT_INDEX: Self = Self(0x0007);
     pub const INTEGRITY: Self = Self(0x0008);
 
-    pub const CODEPOINTS: Self = Self(0x0011);
+    pub const FACE: Self = Self(0x0010);
+    pub const CMAP_INDEX: Self = Self(0x0011);
     pub const REPRESENTATIONS: Self = Self(0x0012);
-    pub const METRICS: Self = Self(0x0013);
+    pub const ADVANCES: Self = Self(0x0013);
     pub const GLYPH_MAPS: Self = Self(0x0014);
     pub const SURFACE_GROUPS: Self = Self(0x0015);
+    pub const GLYPH_IDS: Self = Self(0x0016);
+    pub const RASTER_METRICS: Self = Self(0x0017);
+    pub const SHAPING: Self = Self(0x0018);
 
     pub const SEQUENCE: Self = Self(0x0021);
     pub const FRAME_MAP: Self = Self(0x0022);

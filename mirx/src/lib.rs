@@ -41,10 +41,10 @@ pub use error::{
 };
 pub use flat::{FlatImage, FlatImageInput, encode_flat, parse_flat};
 pub use font::{
-    Font, FontAsset, FontCodepointError, FontCodepointIter, FontCodepoints, FontError,
-    FontRepresentation, FontRepresentationError, FontRepresentationFallback,
-    FontRepresentationKind, FontRepresentationMatch, FontRepresentationPreference,
-    FontRepresentationRequest, FontRepresentations, FontSelectionError, FontView,
+    Font, FontAsset, FontError, FontRepresentation, FontRepresentationError,
+    FontRepresentationFallback, FontRepresentationKind, FontRepresentationMatch,
+    FontRepresentationPreference, FontRepresentationRequest, FontRepresentations,
+    FontSelectionError, FontView,
 };
 pub use format::ColorFormat;
 pub use header::{

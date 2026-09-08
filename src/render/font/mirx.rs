@@ -1,4 +1,4 @@
-//! One-face MIRX font provider with representation-specific metrics and geometry.
+//! One-face MIRX font provider with shared placement and representation-specific geometry.
 
 use alloc::rc::Rc;
 
@@ -8,6 +8,16 @@ use mirx::{
     FontError, FontRepresentationFallback, FontRepresentationRequest, FontView, PayloadLimits,
     image::{CoverageBudget, SurfaceRequirements, SurfaceView, UnitGroup},
 };
+
+fn scale(value: mirx::Fixed, numerator: u16, denominator: u16) -> crate::types::Fixed {
+    let raw = i64::from(i32::from_le_bytes(value.to_le_bytes())) * i64::from(numerator)
+        / i64::from(denominator);
+    let raw: i32 = raw
+        .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
+        .try_into()
+        .unwrap();
+    mirx::Fixed::from_le_bytes(raw.to_le_bytes()).into()
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
@@ -146,7 +156,7 @@ impl MirxFontProvider {
     }
 
     fn from_raw_view(face: FontView<'static>) -> Result<Self, MirxFontError> {
-        for index in 0..face.tables().len() {
+        for index in 0..face.representations().len() {
             if matches!(face.glyphs(index), Some(FontGlyphs::Encoded(_))) {
                 return Err(MirxFontError::EncodedStorage);
             }
@@ -247,9 +257,8 @@ impl MirxFontProvider {
     }
 
     fn surface_storage(face: FontView<'static>, surface: usize) -> Option<FontGlyphs<'static>> {
-        let representation = (0..face.tables().len()).find(|index| {
-            face.tables()
-                .get(*index)
+        let representation = (0..face.representations().len()).find(|index| {
+            face.representation(*index)
                 .is_some_and(|value| usize::from(value.record().surface_index()) == surface)
         })?;
         face.glyphs(representation)
@@ -259,7 +268,7 @@ impl MirxFontProvider {
         face: FontView<'static>,
         decoded: &'static [Option<SurfaceView<'static>>],
     ) -> Self {
-        let representations = face.tables().representations();
+        let representations = face.representations();
         let default_size = representations
             .iter()
             .map(|record| record.representation())
@@ -292,9 +301,8 @@ impl MirxFontProvider {
         self.face
     }
 
-    fn selected(&self, size: u16) -> Option<mirx::font::FaceRepresentation<'static>> {
+    fn selected(&self, size: u16) -> Option<mirx::font::FontRepresentationView<'static>> {
         self.face
-            .tables()
             .select(
                 FontRepresentationRequest::new(size)
                     .with_fallback(FontRepresentationFallback::Nearest),
@@ -306,8 +314,9 @@ impl MirxFontProvider {
 impl FontProvider for MirxFontProvider {
     fn glyph(&self, ch: char, requested_size: u16) -> Option<Glyph> {
         let selected = self.selected(requested_size)?;
-        let ordinal = self.face.tables().codepoints().binary_search(ch).ok()?;
-        let metric = selected.metrics().get(ordinal)?;
+        let glyph_id = self.face.map_char(ch)?;
+        let ordinal = self.face.raster_ordinal(glyph_id)?;
+        let metric = selected.raster_metrics(glyph_id)?;
         let (plane, region) = match self.face.glyphs(selected.index())? {
             FontGlyphs::Raw(storage) => {
                 let raster = storage.get(ordinal)?;
@@ -320,30 +329,40 @@ impl FontProvider for MirxFontProvider {
             }
         };
         Some(Glyph {
-            advance: metric.advance().into(),
+            advance: scale(
+                selected.advance(glyph_id)?,
+                requested_size,
+                self.face.face().units_per_em(),
+            ),
             kind: GlyphKind::Raster {
                 samples: plane.bytes(),
                 stride: plane.memory().stride(),
                 region,
                 representation: selected.record().representation(),
-                bearing_x: metric.bearing_x().into(),
-                bearing_y: metric.bearing_y().into(),
+                bearing_x: scale(
+                    metric.offset_x(),
+                    requested_size,
+                    selected.record().representation().design_ppem(),
+                ),
+                bearing_y: scale(
+                    metric.offset_y(),
+                    requested_size,
+                    selected.record().representation().design_ppem(),
+                ),
             },
         })
     }
 
     fn metrics(&self, requested_size: u16) -> FontMetrics {
         self.selected(requested_size)
-            .map(|selected| {
-                let metrics = selected.metrics().line_metrics();
-                let scale = crate::types::Fixed::from_int(i32::from(requested_size))
-                    / crate::types::Fixed::from_int(i32::from(
-                        selected.record().representation().design_ppem(),
-                    ));
+            .map(|_| {
+                let face = self.face.face();
                 FontMetrics {
-                    ascender: crate::types::Fixed::from(metrics.ascent()) * scale,
-                    descender: crate::types::Fixed::from(metrics.descent()) * scale,
-                    line_height: crate::types::Fixed::from(metrics.line_height()) * scale,
+                    ascender: scale(face.ascender(), requested_size, face.units_per_em()),
+                    descender: scale(face.descender(), requested_size, face.units_per_em()),
+                    line_height: scale(face.ascender(), requested_size, face.units_per_em())
+                        - scale(face.descender(), requested_size, face.units_per_em())
+                        + scale(face.line_gap(), requested_size, face.units_per_em()),
                 }
             })
             .unwrap_or(FontMetrics {
@@ -389,8 +408,8 @@ mod tests {
         Fixed,
         coding::Rle,
         font::{
-            FontAsset, GlyphMap, GlyphMetrics, GlyphSurfaceAsset, LineMetrics, RawGlyphs,
-            RepresentationAsset,
+            CmapEntry, FontAdvanceSource, FontAsset, FontFace, GlyphId, GlyphMap,
+            GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
         },
         image::{
             ColorDescription, EncodedImageAsset, PlaneMemoryLayout, Region, SampleLayout,
@@ -399,7 +418,10 @@ mod tests {
     };
 
     fn atlas_face() -> MirxFontProvider {
-        let codepoints = [' ', 'A'];
+        let cmap = [
+            CmapEntry::new(' ', GlyphId::new(0)),
+            CmapEntry::new('A', GlyphId::new(1)),
+        ];
         let regions = [
             Region::new(0, 0, 0, 0).unwrap(),
             Region::new(3, 1, 3, 2).unwrap(),
@@ -417,35 +439,32 @@ mod tests {
             .with_memory_layout(memory)
             .build(&samples)
             .unwrap();
-        let metrics = [
-            GlyphMetrics::new(Fixed::from_int(4), Fixed::ZERO, Fixed::from_int(12)),
-            GlyphMetrics::new(
-                Fixed::from_ratio(11, 2),
-                Fixed::from_ratio(-1, 2),
-                Fixed::from_ratio(45, 4),
-            ),
+        let advances = [Fixed::from_int(250), Fixed::from_ratio(1_375, 4)];
+        let face = FontFace::new(
+            1_000,
+            GlyphId::NOTDEF,
+            2,
+            Fixed::from_int(750),
+            Fixed::from_int(-250),
+            Fixed::ZERO,
+        )
+        .unwrap();
+        let representation =
+            RepresentationAsset::new(mirx::FontRepresentation::coverage(1, 16, 4).unwrap(), 0)
+                .with_map(0);
+        let raster_metrics = [
+            RasterMetrics::new(Fixed::ZERO, Fixed::from_int(12)),
+            RasterMetrics::new(Fixed::from_ratio(-1, 2), Fixed::from_ratio(45, 4)),
         ];
-        let line = LineMetrics::new(
-            Fixed::from_int(12),
-            Fixed::from_int(-4),
-            Fixed::from_int(16),
-        )
-        .unwrap();
-        let representation = RepresentationAsset::new(
-            mirx::FontRepresentation::coverage(1, 16, 4).unwrap(),
-            0,
-            line,
-            &metrics,
-        )
-        .with_map(0);
-        let payload = FontAsset::new(
-            &codepoints,
-            &[representation],
-            &[GlyphSurfaceAsset::raw(glyphs)],
-        )
-        .with_maps(&[map])
-        .encode()
-        .unwrap();
+        let payload = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
+            .with_rasters(
+                &[representation],
+                &raster_metrics,
+                &[GlyphSurfaceAsset::raw(glyphs)],
+            )
+            .with_maps(&[map])
+            .encode()
+            .unwrap();
         MirxFontProvider::from_payload(alloc::vec::Vec::leak(payload), &PayloadLimits::HOST)
             .unwrap()
     }
@@ -480,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn size_specific_line_and_glyph_metrics_use_one_representation() {
+    fn face_metrics_and_glyph_advances_scale_with_requested_size() {
         let provider = atlas_face();
         let metrics = provider.metrics(8);
         assert_eq!(metrics.ascender, crate::types::Fixed::from_int(6));
@@ -488,32 +507,34 @@ mod tests {
         assert_eq!(metrics.line_height, crate::types::Fixed::from_int(8));
         assert_eq!(
             provider.glyph('A', 8).unwrap().advance,
-            crate::types::Fixed::from_ratio(11, 2)
+            crate::types::Fixed::from_ratio(11, 4)
         );
     }
 
     #[test]
     fn encoded_surfaces_require_an_explicit_decode_workspace_provider() {
-        let codepoints = ['A', 'B'];
-        let metrics = [GlyphMetrics::default(); 2];
-        let line = LineMetrics::new(Fixed::ZERO, Fixed::ZERO, Fixed::ONE).unwrap();
-        let map = GlyphMap::glyph_major(2, 2, codepoints.len()).unwrap();
+        let cmap = [
+            CmapEntry::new('A', GlyphId::new(0)),
+            CmapEntry::new('B', GlyphId::new(1)),
+        ];
+        let advances = [Fixed::ONE; 2];
+        let face =
+            FontFace::new(1, GlyphId::NOTDEF, 2, Fixed::ONE, Fixed::ZERO, Fixed::ZERO).unwrap();
+        let map = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
         let surface =
             SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let image = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
-        let representation = RepresentationAsset::new(
-            mirx::FontRepresentation::coverage(8, 1, 8).unwrap(),
-            0,
-            line,
-            &metrics,
-        );
-        let payload = FontAsset::new(
-            &codepoints,
-            &[representation],
-            &[GlyphSurfaceAsset::Encoded { map, image }],
-        )
-        .encode()
-        .unwrap();
+        let representation =
+            RepresentationAsset::new(mirx::FontRepresentation::coverage(8, 1, 8).unwrap(), 0);
+        let raster_metrics = [RasterMetrics::default(); 2];
+        let payload = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
+            .with_rasters(
+                &[representation],
+                &raster_metrics,
+                &[GlyphSurfaceAsset::Encoded { map, image }],
+            )
+            .encode()
+            .unwrap();
         assert!(matches!(
             MirxFontProvider::from_payload(alloc::vec::Vec::leak(payload), &PayloadLimits::HOST),
             Err(MirxFontError::EncodedStorage)
@@ -521,27 +542,29 @@ mod tests {
     }
 
     fn encoded_face_payload() -> &'static [u8] {
-        let codepoints = ['A', 'B'];
-        let metrics = [GlyphMetrics::default(); 2];
-        let line = LineMetrics::new(Fixed::ZERO, Fixed::ZERO, Fixed::ONE).unwrap();
-        let map = GlyphMap::glyph_major(2, 2, codepoints.len()).unwrap();
+        let cmap = [
+            CmapEntry::new('A', GlyphId::new(0)),
+            CmapEntry::new('B', GlyphId::new(1)),
+        ];
+        let advances = [Fixed::ONE; 2];
+        let face =
+            FontFace::new(1, GlyphId::NOTDEF, 2, Fixed::ONE, Fixed::ZERO, Fixed::ZERO).unwrap();
+        let map = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
         let surface =
             SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let image = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
-        let representation = RepresentationAsset::new(
-            mirx::FontRepresentation::coverage(8, 1, 8).unwrap(),
-            0,
-            line,
-            &metrics,
-        );
+        let representation =
+            RepresentationAsset::new(mirx::FontRepresentation::coverage(8, 1, 8).unwrap(), 0);
+        let raster_metrics = [RasterMetrics::default(); 2];
         alloc::vec::Vec::leak(
-            FontAsset::new(
-                &codepoints,
-                &[representation],
-                &[GlyphSurfaceAsset::Encoded { map, image }],
-            )
-            .encode()
-            .unwrap(),
+            FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
+                .with_rasters(
+                    &[representation],
+                    &raster_metrics,
+                    &[GlyphSurfaceAsset::Encoded { map, image }],
+                )
+                .encode()
+                .unwrap(),
         )
     }
 

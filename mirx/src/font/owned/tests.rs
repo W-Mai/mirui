@@ -21,23 +21,35 @@ fn asset(check: impl FnOnce(FontAsset<'_>)) {
         GlyphSurfaceAsset::raw(raw),
         GlyphSurfaceAsset::Encoded { map, image },
     ];
-    let metrics = [GlyphMetrics::default(); 2];
-    let line = LineMetrics::new(Fixed::ONE, Fixed::ZERO, Fixed::ONE).unwrap();
     let representations = [
-        RepresentationAsset::new(
-            FontRepresentation::coverage(8, 12, 8).unwrap(),
-            0,
-            line,
-            &metrics,
-        ),
+        RepresentationAsset::new(FontRepresentation::coverage(8, 12, 8).unwrap(), 0),
         RepresentationAsset::new(
             FontRepresentation::signed_distance(8, 3, 24, 17, 48, 8).unwrap(),
             1,
-            line,
-            &metrics,
         ),
     ];
-    check(FontAsset::new(&['A', 'B'], &representations, &surfaces));
+    let face = FontFace::new(
+        1_000,
+        GlyphId::NOTDEF,
+        2,
+        Fixed::ONE,
+        Fixed::ZERO,
+        Fixed::ZERO,
+    )
+    .unwrap();
+    let cmap = [
+        CmapEntry::new('A', GlyphId::new(0)),
+        CmapEntry::new('B', GlyphId::new(1)),
+    ];
+    let advances = [Fixed::ONE; 2];
+    let raster_metrics = [RasterMetrics::default(); 4];
+    check(
+        FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances)).with_rasters(
+            &representations,
+            &raster_metrics,
+            &surfaces,
+        ),
+    );
 }
 
 #[test]
@@ -53,28 +65,37 @@ fn owned_metadata_edits_preserve_encoded_data_and_shared_ordinals() {
     assert!(font.matches_payload(&source).unwrap());
     let stored = font.surface(1).unwrap().data().to_vec();
     assert_eq!(stored, [0x87, 42]);
-    let metric = GlyphMetrics::new(
-        Fixed::from_ratio(-17, 256),
-        Fixed::from_ratio(-65, 256),
-        Fixed::from_ratio(513, 256),
+    let metric = RasterMetrics::new(Fixed::from_ratio(-17, 256), Fixed::from_ratio(-65, 256));
+    font.raster_metrics_mut()[2] = metric;
+    font.advances_mut().unwrap()[0] = Fixed::from_ratio(513, 256);
+    font.set_cmap_entry(1, CmapEntry::new('中', GlyphId::new(1)))
+        .unwrap();
+    assert!(
+        font.set_cmap_entry(0, CmapEntry::new('中', GlyphId::new(0)))
+            .is_err()
     );
-    font.glyph_metrics_mut(1).unwrap()[0] = metric;
-    let line =
-        LineMetrics::new(Fixed::from_int(4), Fixed::from_int(-1), Fixed::from_int(5)).unwrap();
-    font.set_line_metrics(1, line).unwrap();
-    font.set_codepoint(1, '中').unwrap();
-    assert!(font.set_codepoint(0, '中').is_err());
-    assert!(font.set_codepoint(usize::MAX, 'x').is_err());
-    assert!(font.set_line_metrics(usize::MAX, line).is_err());
-    assert!(font.glyph_metrics_mut(usize::MAX).is_none());
-    assert_eq!(font.codepoints(), ['A', '中']);
+    assert!(
+        font.set_cmap_entry(usize::MAX, CmapEntry::new('x', GlyphId::new(0)))
+            .is_err()
+    );
+    assert_eq!(
+        font.cmap()
+            .iter()
+            .map(|entry| entry.scalar())
+            .collect::<Vec<_>>(),
+        ['A', '中']
+    );
     assert_eq!(font.surface(1).unwrap().data(), stored);
     font.preflight(&PayloadLimits::EMBEDDED).unwrap();
     let bytes = font.encode().unwrap();
     let view = FontView::open_at(&bytes, 0, &PayloadLimits::EMBEDDED).unwrap();
     view.preflight(&PayloadLimits::EMBEDDED).unwrap();
-    assert_eq!(view.tables().get(1).unwrap().metrics().get(0), Some(metric));
-    assert_eq!(view.tables().get(1).unwrap().metrics().line_metrics(), line);
+    let representation = view.representation(1).unwrap();
+    assert_eq!(representation.raster_metrics(GlyphId::new(0)), Some(metric));
+    assert_eq!(
+        representation.advance(GlyphId::new(0)),
+        Some(Fixed::from_ratio(513, 256))
+    );
     assert!(matches!(view.glyphs(1), Some(FontGlyphs::Encoded(_))));
     let mut output = alloc::vec![0xcc; font.encoded_len().unwrap() + 8];
     let len = font.encode_into(&mut output).unwrap();
@@ -140,21 +161,35 @@ fn wire_owned_round_trip_preserves_raw_and_encoded_integrity_partitions() {
             assert!(Font::decode_with_limits(&original, &limits).is_err());
         }
     });
-    let chars = ['A', 'B'];
+    let cmap = [
+        CmapEntry::new('A', GlyphId::new(0)),
+        CmapEntry::new('B', GlyphId::new(1)),
+    ];
     let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
     let raw = RawGlyphs::builder(map, SampleLayout::A8)
         .build(&[7; 8])
         .unwrap();
-    let metrics = [GlyphMetrics::default(); 2];
-    let line = LineMetrics::new(Fixed::ONE, Fixed::ZERO, Fixed::ONE).unwrap();
     let representations = [RepresentationAsset::new(
         FontRepresentation::coverage(8, 12, 8).unwrap(),
         0,
-        line,
-        &metrics,
     )];
     let surfaces = [GlyphSurfaceAsset::raw(raw).with_integrity(DataIntegrity::Indexed(&[4, 8]))];
-    let asset = FontAsset::new(&chars, &representations, &surfaces);
+    let face = FontFace::new(
+        1_000,
+        GlyphId::NOTDEF,
+        2,
+        Fixed::ONE,
+        Fixed::ZERO,
+        Fixed::ZERO,
+    )
+    .unwrap();
+    let advances = [Fixed::ONE; 2];
+    let raster_metrics = [RasterMetrics::default(); 2];
+    let asset = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances)).with_rasters(
+        &representations,
+        &raster_metrics,
+        &surfaces,
+    );
     let original = asset.encode().unwrap();
     let font = Font::decode_with_limits(&original, &PayloadLimits::EMBEDDED).unwrap();
     assert_eq!(font.encode().unwrap(), original);
@@ -163,7 +198,11 @@ fn wire_owned_round_trip_preserves_raw_and_encoded_integrity_partitions() {
         DataIntegrity::Indexed(&[4, 8])
     );
     let bad_surfaces = [GlyphSurfaceAsset::raw(raw).with_integrity(DataIntegrity::Indexed(&[3]))];
-    let bad = FontAsset::new(&chars, &representations, &bad_surfaces);
+    let bad = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances)).with_rasters(
+        &representations,
+        &raster_metrics,
+        &bad_surfaces,
+    );
     let mut output = [0xcc; 512];
     assert!(matches!(
         bad.encode_into(&mut output),
