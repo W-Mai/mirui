@@ -2,9 +2,10 @@ mod support;
 
 use mirx::meta::Meta;
 use mirx::{
-    ChunkFlags, ChunkType, Document, EditError, EncodeOptions, PayloadInput, PayloadOrigin,
-    RawChunkInput, RawChunkPolicy, Reader,
+    ChunkFlags, ChunkType, Document, EncodeOptions, PayloadInput, PayloadOrigin, RawChunkInput,
+    RawChunkPolicy, Reader,
     coding::{CodingId, Frequency, FrequencyGeometry, Lz4, Pixel, Rle},
+    document::EditError,
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageError, ImageReadError,
         SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitDecodeError,

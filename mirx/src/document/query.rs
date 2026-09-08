@@ -4,8 +4,8 @@ use core::iter::FusedIterator;
 use core::slice;
 
 use super::payload::{encode_error_for_image, resolve_node_payload};
-use super::{ChunkNode, Document, DocumentChunkMut, DocumentState, PayloadStorage};
-use crate::{ChunkFlags, ChunkId, ChunkType, EncodeError};
+use super::{ChunkNode, Document, DocumentChunkMut, DocumentState, EncodeError, PayloadStorage};
+use crate::{ChunkFlags, ChunkId, ChunkType};
 
 /// Logical provenance of a document payload.
 ///
@@ -230,9 +230,10 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
+    use crate::document::EditError;
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, chunk_type};
     use crate::{
-        ColorFormat, CriticalAssumption, EditError, FlatImageInput, PayloadInput, RawChunkInput,
+        ColorFormat, CriticalAssumption, FlatImageInput, PayloadInput, RawChunkInput,
         RawChunkPolicy, RelocationAssumption, crc32, encode_chunks, encode_flat,
         image::ImageAccessError,
     };

@@ -28,6 +28,7 @@ mod source;
 mod vector;
 mod writer;
 
+pub use crate::error::{DocumentError, EditError, EncodeError, TryEditError};
 pub use chunk_mut::DocumentChunkMut;
 pub use options::{EncodeOptions, LayoutPolicy, OpenOptions, RawTypePolicy};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
@@ -45,8 +46,8 @@ use source::{Origin, SourceRange};
 use crate::payload::image::{ImageAssetParts, ImageMeta, validate_image_planes};
 use crate::reader::{PreflightStatus, ReadError, preflight_chunk, require_understood_critical};
 use crate::{
-    ChunkFlags, ChunkId, ChunkType, DocumentError, EditError, FLAT_HEADER_LEN, ImageAsset,
-    ImageView, Layout, PayloadLimits, PrimaryHints, ReadOptions, Reader,
+    ChunkFlags, ChunkId, ChunkType, FLAT_HEADER_LEN, ImageAsset, ImageView, Layout, PayloadLimits,
+    PrimaryHints, ReadOptions, Reader,
 };
 
 #[cfg(test)]

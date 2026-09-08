@@ -1,10 +1,12 @@
-use super::{ChunkNode, Document, DocumentState, PayloadInput, RawChunkPolicy};
+use super::{
+    ChunkNode, Document, DocumentState, EditError, PayloadInput, RawChunkPolicy, TryEditError,
+};
 use crate::font::Font;
 use crate::frames::EncodedFrames;
 use crate::meta::Meta;
 use crate::palette::Palette;
 use crate::scene::Scene;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError};
+use crate::{ChunkFlags, ChunkId, ChunkType};
 
 /// Mutable handle to one chunk in an editable document.
 ///

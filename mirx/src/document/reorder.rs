@@ -1,6 +1,6 @@
 use super::primary::{PrimaryProjection, ensure_primary_projection};
-use super::{Document, DocumentState};
-use crate::{ChunkId, EditError};
+use super::{Document, DocumentState, EditError};
+use crate::ChunkId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum RelativePosition {

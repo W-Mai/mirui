@@ -1,6 +1,8 @@
 use super::payload::{ResolvedImagePlanes, ResolvedNodePayload, resolve_node_payload};
-use super::{ChunkSet, Document, DocumentState, FlatRecord, PayloadStorage, SourceRange};
-use crate::{ChunkFlags, ChunkType, EditError, FLAT_HEADER_LEN};
+use super::{
+    ChunkSet, Document, DocumentState, EditError, FlatRecord, PayloadStorage, SourceRange,
+};
+use crate::{ChunkFlags, ChunkType, FLAT_HEADER_LEN};
 
 #[derive(Clone, Copy)]
 pub(super) struct FlatCandidate<'a> {

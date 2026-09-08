@@ -332,7 +332,7 @@ mod tests {
             document.set_primary(id).unwrap();
             assert_eq!(
                 document.demote_to_flat(),
-                Err(crate::EditError::NotRepresentableAsFlat)
+                Err(crate::document::EditError::NotRepresentableAsFlat)
             );
         }
     }

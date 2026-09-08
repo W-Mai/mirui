@@ -1,10 +1,10 @@
 #[cfg(test)]
 use super::DocumentState;
 use super::payload::resolve_node_payload;
-use super::{Document, DocumentChunkRef};
+use super::{Document, DocumentChunkRef, EditError};
 use crate::frames::{EncodedFrames, FramesView};
 use crate::payload::image::ImagePayloadError;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, frames::FramesAccessError};
+use crate::{ChunkFlags, ChunkId, ChunkType, frames::FramesAccessError};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed FRAMES view.

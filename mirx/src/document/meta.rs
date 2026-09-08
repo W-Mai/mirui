@@ -1,10 +1,10 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Document, DocumentChunkRef, DocumentState};
+use super::{Document, DocumentChunkRef, DocumentState, EditError, TryEditError};
 use crate::meta::{Meta, MetaDecodeError, MetaEncodeError, MetaView};
 use crate::payload::image::ImagePayloadError;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError, meta::MetaAccessError};
+use crate::{ChunkFlags, ChunkId, ChunkType, meta::MetaAccessError};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed META view.

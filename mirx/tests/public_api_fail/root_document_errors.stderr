@@ -1,0 +1,18 @@
+error[E0432]: unresolved imports `mirx::DocumentError`, `mirx::EditError`, `mirx::EncodeError`, `mirx::TryEditError`
+ --> tests/public_api_fail/root_document_errors.rs:1:12
+  |
+1 | use mirx::{DocumentError, EditError, EncodeError, TryEditError};
+  |            ^^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^^^^^^ no `TryEditError` in the root
+  |            |              |          |
+  |            |              |          no `EncodeError` in the root
+  |            |              no `EditError` in the root
+  |            no `DocumentError` in the root
+  |
+  = help: consider importing this enum instead:
+          mirx::document::DocumentError
+  = help: consider importing this enum instead:
+          mirx::document::EditError
+  = help: consider importing this enum instead:
+          mirx::document::EncodeError
+  = help: consider importing this enum instead:
+          mirx::document::TryEditError

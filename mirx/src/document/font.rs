@@ -1,10 +1,10 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Document, DocumentChunkRef, DocumentState};
+use super::{Document, DocumentChunkRef, DocumentState, EditError, TryEditError};
 use crate::font::{Font, FontAccessError, FontError, FontView};
 use crate::payload::image::ImagePayloadError;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError};
+use crate::{ChunkFlags, ChunkId, ChunkType};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed FONT view.

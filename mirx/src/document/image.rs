@@ -3,9 +3,9 @@ use alloc::vec::Vec;
 #[cfg(test)]
 use super::DocumentState;
 use super::payload::resolve_node_payload;
-use super::{Document, DocumentChunkRef};
+use super::{Document, DocumentChunkRef, EditError};
 use crate::payload::image::ImageAssetEncodeError;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, image::ImageAccessError};
+use crate::{ChunkFlags, ChunkId, ChunkType, image::ImageAccessError};
 
 #[cfg(test)]
 use crate::ImageAsset;

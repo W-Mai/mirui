@@ -4,11 +4,11 @@ use super::descriptor::EvaluatedFlags;
 use super::payload::{PayloadPlacement, ResolvedNodePayload, resolve_node_payload};
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::{
-    ChunkNode, ChunkSet, Document, DocumentState, PayloadStorage, PrimaryHintState,
-    RewriteCapability, promoted_chunk_set, promoted_flat_node,
+    ChunkNode, ChunkSet, Document, DocumentState, EditError, EncodeError, PayloadStorage,
+    PrimaryHintState, RewriteCapability, promoted_chunk_set, promoted_flat_node,
 };
 use crate::payload::image::ImagePayloadError;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, EncodeError};
+use crate::{ChunkFlags, ChunkId, ChunkType};
 
 /// Encoded payload bytes supplied to a raw document mutation.
 #[derive(Debug, Eq, PartialEq)]

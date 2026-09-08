@@ -347,7 +347,7 @@ Opening a CHUNK document allocates one node table with `O(chunk_count)` entries.
 ```rust,no_run
 use mirx::{ChunkType, Document, meta::MetaEntry};
 
-# fn edit(bytes: &[u8]) -> Result<(), mirx::EditError> {
+# fn edit(bytes: &[u8]) -> Result<(), mirx::document::EditError> {
 let mut document = Document::open(bytes).expect("valid MIRX container");
 let meta_id = document
     .chunks_of_type(ChunkType::META)

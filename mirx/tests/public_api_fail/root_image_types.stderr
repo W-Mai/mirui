@@ -2,10 +2,8 @@ error[E0432]: unresolved imports `mirx::ImageAccessError`, `mirx::ImageDecodeErr
  --> tests/public_api_fail/root_image_types.rs:2:18
   |
 2 |     ColorFormat, ImageAccessError, ImageAsset, ImageDecodeError, ImageEncodeError,
-  |                  ^^^^^^^^^^^^^^^^              ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
-  |                  |                             |                 |
-  |                  |                             |                 no `ImageEncodeError` in the root
-  |                  |                             |                 help: a similar name exists in the module: `EncodeError`
+  |                  ^^^^^^^^^^^^^^^^              ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^ no `ImageEncodeError` in the root
+  |                  |                             |
   |                  |                             no `ImageDecodeError` in the root
   |                  no `ImageAccessError` in the root
   |

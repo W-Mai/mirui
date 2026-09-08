@@ -9,6 +9,7 @@ error[E0432]: unresolved imports `mirx::Font`, `mirx::FontAccessError`, `mirx::F
   |     |     |                no `FontAsset` in the root
   |     |     no `FontAccessError` in the root
   |     no `Font` in the root
+  |     help: a similar name exists in the module (notice the capitalization): `font`
 3 |     FontRepresentationFallback, FontRepresentationKind, FontRepresentationMatch,
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^ no `FontRepresentationMatch` in the root
   |     |                           |
@@ -42,13 +43,3 @@ error[E0432]: unresolved imports `mirx::Font`, `mirx::FontAccessError`, `mirx::F
           mirx::font::FontRepresentationMatch
   = help: consider importing this enum instead:
           mirx::font::FontRepresentationPreference
-help: a similar name exists in the module (notice the capitalization)
-  |
-2 -     Font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
-2 +     font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
-  |
-help: a similar name exists in the module
-  |
-2 -     Font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
-2 +     Font, FontAccessError, FontAsset, EditError, FontRepresentation, FontRepresentationError,
-  |

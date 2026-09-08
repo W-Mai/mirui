@@ -1,11 +1,11 @@
 use alloc::vec::Vec;
 
-use super::{ChunkNode, Document, DocumentState, FlatRecord, PayloadStorage};
+use super::{ChunkNode, Document, DocumentState, EncodeError, FlatRecord, PayloadStorage};
 use crate::image::{EncodedImageAsset, EncodedImageView, ImageRef, RawImageView, SurfaceView};
 use crate::payload::image::{
     ImageAssetEncodeError, ImagePayloadError, ImagePayloadPlan, ImagePlanes,
 };
-use crate::{ChunkType, EncodeError, ImageView, PayloadLimits, PrimaryHints};
+use crate::{ChunkType, ImageView, PayloadLimits, PrimaryHints};
 
 #[derive(Clone, Copy)]
 pub(super) enum PayloadPlacement {

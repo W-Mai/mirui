@@ -1,10 +1,10 @@
 use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
-use super::{Document, DocumentChunkRef, DocumentState};
+use super::{Document, DocumentChunkRef, DocumentState, EditError, TryEditError};
 use crate::payload::image::ImagePayloadError;
 use crate::scene::{Scene, VectorAccessError, VectorEncodeError, VectorReadError};
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError};
+use crate::{ChunkFlags, ChunkId, ChunkType};
 
 #[cfg(test)]
 use crate::scene::{CodecError, SceneOp, VectorChunkHeader};
