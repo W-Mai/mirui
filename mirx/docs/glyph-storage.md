@@ -16,7 +16,7 @@ use mirx::{ByteAlignment, font::{GlyphMap, RawGlyphs}, image::{
     ColorDescription, PlaneMemoryLayout, SampleLayout, SurfaceDescriptor, SurfaceRequirements,
 }};
 
-let map = GlyphMap::glyph_major(5, 3, 2).unwrap();
+let map = GlyphMap::cells(5, 3, 2).unwrap();
 let cell = SurfaceDescriptor::new(5, 3, SampleLayout::A4, ColorDescription::NONE).unwrap();
 let memory = PlaneMemoryLayout::builder(cell.plane(0).unwrap())
     .with_stride(64)

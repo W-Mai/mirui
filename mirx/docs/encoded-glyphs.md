@@ -15,7 +15,7 @@ let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]).en
 let media = MediaPayload::open(&bytes).unwrap();
 let record = GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 2).unwrap()
     .with_codings(1).unwrap();
-let glyphs = record.encoded_glyphs(media, GlyphMap::glyph_major(2, 2, 2).unwrap()).unwrap();
+let glyphs = record.encoded_glyphs(media, GlyphMap::cells(2, 2, 2).unwrap()).unwrap();
 let mut slots = [None];
 let groups = glyphs.groups_into(&mut slots, &mut CoverageBudget::new(100)).unwrap();
 let plan = groups.decode_plan(1, SurfaceRequirements::new(), &PayloadLimits::EMBEDDED).unwrap();

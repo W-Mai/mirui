@@ -2,11 +2,7 @@
 
 use core::iter::FusedIterator;
 
-use crate::image::{
-    ATLAS_REGION_LEN, AtlasMap, AtlasMapError, Region, RegionError, TileGrid, TileGridError,
-};
-
-pub const GLYPH_REGION_LEN: usize = ATLAS_REGION_LEN;
+use crate::image::{AtlasMap, Region, TileGrid, TileGridError};
 
 /// Logical raster organization, independent of coding and physical alignment.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,12 +20,7 @@ enum MapSource<'a> {
     Atlas(AtlasMap<'a>),
 }
 
-/// Validated glyph-ordinal mapping with allocation-free native and wire access.
-///
-/// Coordinates address logical samples, not byte offsets. Fixed-cell maps
-/// omit records; atlas maps store x/y/width/height without repeating codepoints,
-/// metrics, coding or alignment. Shared and overlapping atlas regions are
-/// permitted: they reference existing samples rather than write to them.
+/// Allocation-free raster-ordinal binding for derived cells or a shared atlas.
 #[derive(Clone, Copy, Debug)]
 pub struct GlyphMap<'a> {
     source: MapSource<'a>,
@@ -40,7 +31,7 @@ impl<'a> GlyphMap<'a> {
     ///
     /// Cell dimensions must be nonzero. Physical row and cell padding are not
     /// described by this map; their addresses require the storage layout.
-    pub fn glyph_major(width: u32, height: u32, count: usize) -> Result<Self, GlyphMapError> {
+    pub fn cells(width: u32, height: u32, count: usize) -> Result<Self, GlyphMapError> {
         let count = u32::try_from(count).map_err(|_| GlyphMapError::SizeOverflow)?;
         let total_height = height
             .checked_mul(count)
@@ -52,25 +43,10 @@ impl<'a> GlyphMap<'a> {
         })
     }
 
-    /// Borrows native rectangles and validates every region against the atlas.
-    pub fn atlas(width: u32, height: u32, regions: &'a [Region]) -> Result<Self, GlyphMapError> {
-        AtlasMap::new(width, height, regions)
-            .map(|map| Self {
-                source: MapSource::Atlas(map),
-            })
-            .map_err(map_atlas_error)
-    }
-
-    /// Borrows an exact atlas-map body of little-endian 16-byte records.
-    ///
-    /// Count derives from byte length. Empty maps remain Atlas2D, not implicit
-    /// GlyphMajor. No record alignment or decoded-array allocation is required.
-    pub fn from_records(width: u32, height: u32, bytes: &'a [u8]) -> Result<Self, GlyphMapError> {
-        AtlasMap::open(width, height, bytes)
-            .map(|map| Self {
-                source: MapSource::Atlas(map),
-            })
-            .map_err(map_atlas_error)
+    pub const fn atlas(map: AtlasMap<'a>) -> Self {
+        Self {
+            source: MapSource::Atlas(map),
+        }
     }
 
     pub const fn packing(self) -> GlyphPacking {
@@ -101,6 +77,13 @@ impl<'a> GlyphMap<'a> {
         }
     }
 
+    pub const fn atlas_map(self) -> Option<AtlasMap<'a>> {
+        match self.source {
+            MapSource::Grid(_) => None,
+            MapSource::Atlas(map) => Some(map),
+        }
+    }
+
     pub fn len(self) -> usize {
         match self.source {
             MapSource::Grid(grid) => grid.len(),
@@ -124,37 +107,6 @@ impl<'a> GlyphMap<'a> {
             map: self,
             front: 0,
             back: self.len(),
-        }
-    }
-
-    /// Exact map byte count; implicit fixed cells require zero bytes.
-    pub fn encoded_len(self) -> usize {
-        match self.source {
-            MapSource::Grid(_) => 0,
-            MapSource::Atlas(map) => map.encoded_len(),
-        }
-    }
-
-    /// Emits canonical map bytes without allocation or partially written errors.
-    /// The output suffix is preserved, including all output for implicit maps.
-    pub fn encode_into(self, out: &mut [u8]) -> Result<usize, GlyphMapError> {
-        match self.source {
-            MapSource::Grid(_) => Ok(0),
-            MapSource::Atlas(map) => map.encode_into(out).map_err(map_atlas_error),
-        }
-    }
-}
-
-fn map_atlas_error(error: AtlasMapError) -> GlyphMapError {
-    match error {
-        AtlasMapError::SizeOverflow => GlyphMapError::SizeOverflow,
-        AtlasMapError::PartialRecord { byte_len } => GlyphMapError::PartialRecord { byte_len },
-        AtlasMapError::InvalidRegion { index, error } => {
-            GlyphMapError::InvalidRegion { index, error }
-        }
-        AtlasMapError::NonCanonicalEmpty { index } => GlyphMapError::NonCanonicalEmpty { index },
-        AtlasMapError::BufferTooSmall { needed, available } => {
-            GlyphMapError::BufferTooSmall { needed, available }
         }
     }
 }
@@ -237,16 +189,12 @@ impl ExactSizeIterator for GlyphRegions<'_> {
 
 impl FusedIterator for GlyphRegions<'_> {}
 
-/// Invalid map geometry, record bounds, or output capacity.
+/// Invalid implicit-cell geometry.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum GlyphMapError {
     SizeOverflow,
     Grid(TileGridError),
-    PartialRecord { byte_len: usize },
-    InvalidRegion { index: usize, error: RegionError },
-    NonCanonicalEmpty { index: usize },
-    BufferTooSmall { needed: usize, available: usize },
 }
 
 #[cfg(test)]

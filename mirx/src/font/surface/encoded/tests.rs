@@ -1,4 +1,5 @@
 use super::*;
+use crate::image::AtlasMap;
 use crate::{
     coding::{Lz4, Rle},
     font::{GlyphPacking, RawGlyphs},
@@ -61,7 +62,7 @@ fn independent_glyph_units_share_scalar_plans_and_aligned_error_atomic_output() 
             .unwrap();
         let glyphs = bind(
             &bytes,
-            GlyphMap::glyph_major(2, 2, 2).unwrap(),
+            GlyphMap::cells(2, 2, 2).unwrap(),
             SampleLayout::A8,
             GlyphPacking::GlyphMajor,
             2,
@@ -165,7 +166,7 @@ fn implicit_atlas_streams_preserve_packed_regions_and_release_map_metadata() {
                 Region::new(1, 1, 5, 2).unwrap(),
                 Region::new(0, 0, 0, 0).unwrap(),
             ];
-            let map = GlyphMap::atlas(9, 3, &regions).unwrap();
+            let map = GlyphMap::atlas(AtlasMap::new(9, 3, &regions).unwrap());
             let glyphs = bind(&bytes, map, layout, GlyphPacking::Atlas2D, 9, 3);
             let raw_glyphs = RawGlyphs::builder(map, layout).build(&raw[..len]).unwrap();
             let glyph = raw_glyphs.get(0).unwrap();
@@ -219,7 +220,7 @@ fn selected_glyph_integrity_respects_partition_scope_and_empty_requests() {
         ];
         let glyphs = bind(
             &bytes,
-            GlyphMap::atlas(2, 4, &regions).unwrap(),
+            GlyphMap::atlas(AtlasMap::new(2, 4, &regions).unwrap()),
             SampleLayout::A8,
             GlyphPacking::Atlas2D,
             2,
@@ -253,7 +254,7 @@ fn selected_glyph_integrity_respects_partition_scope_and_empty_requests() {
 #[test]
 fn metadata_admission_does_not_imply_codec_support_or_valid_file_placement() {
     let surface = SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let map = GlyphMap::glyph_major(2, 2, 1).unwrap();
+    let map = GlyphMap::cells(2, 2, 1).unwrap();
     for coding in [
         CodingRecord::new(CodingId::new(500), 1, &[]),
         CodingRecord::new(CodingId::PIXEL, 1, &[]),
@@ -324,9 +325,9 @@ fn metadata_admission_does_not_imply_codec_support_or_valid_file_placement() {
     ));
     let record = raw.with_codings(1).unwrap().with_groups(2, None).unwrap();
     assert!(matches!(
-        record.encoded_glyphs(media, GlyphMap::glyph_major(1, 1, 4).unwrap()),
+        record.encoded_glyphs(media, GlyphMap::cells(1, 1, 4).unwrap()),
         Err(EncodedGlyphError::Record(
-            GlyphSurfaceRecordError::MapMismatch
+            GlyphSurfaceRecordError::RasterMapMismatch
         ))
     ));
     assert!(

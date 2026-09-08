@@ -21,7 +21,7 @@ pub use identity::{
     CMAP_INDEX_RECORD_LEN, CmapEntry, CmapIndex, CmapIndexError, GLYPH_ID_RECORD_LEN, GlyphId,
     GlyphIds, GlyphIdsError,
 };
-pub use mapping::{GLYPH_REGION_LEN, GlyphMap, GlyphMapError, GlyphPacking, GlyphRegions};
+pub use mapping::{GlyphMap, GlyphMapError, GlyphPacking, GlyphRegions};
 pub use metadata::{FontMetadata, FontMetadataError};
 pub use placement::{
     ADVANCE_RECORD_LEN, Advances, PlacementError, RASTER_METRICS_RECORD_LEN, RasterMetrics,

@@ -9,7 +9,7 @@ use super::{
 use crate::{
     ByteAlignment, Fixed, PayloadLimits,
     image::{
-        ColorDescription, EncodedImageAsset, ImageEncodeError, PlaneMemoryLayout, Region,
+        AtlasMap, ColorDescription, EncodedImageAsset, ImageEncodeError, PlaneMemoryLayout, Region,
         SampleLayout, SurfaceDescriptor, UnitGroupRecord,
     },
     media::{CodingTable, DataIntegrity, output::PayloadOutput},
@@ -33,7 +33,7 @@ pub struct Font {
 struct Representation {
     metadata: super::FontRepresentation,
     surface: u16,
-    map: Option<u32>,
+    atlas_map: Option<u32>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -89,8 +89,8 @@ impl Font {
         size.items::<Representation>(asset.representations().len())?;
         size.items::<RasterMetrics>(asset.raster_metrics().len())?;
         size.items::<Surface>(asset.surfaces().len())?;
-        size.items::<Map>(asset.maps().len())?;
-        for map in asset.maps() {
+        size.items::<Map>(asset.atlas_maps().len())?;
+        for map in asset.atlas_maps() {
             size.items::<Region>(map.len())?;
         }
         for surface in asset.surfaces() {
@@ -116,12 +116,12 @@ impl Font {
             representations.push(Representation {
                 metadata: r.metadata(),
                 surface: r.surface_index(),
-                map: r.map_index(),
+                atlas_map: r.atlas_map_index(),
             });
         }
         let raster_metrics = Self::copy(asset.raster_metrics())?;
-        let mut maps = Self::reserve(asset.maps().len())?;
-        for map in asset.maps() {
+        let mut maps = Self::reserve(asset.atlas_maps().len())?;
+        for map in asset.atlas_maps() {
             let mut regions = Self::reserve(map.len())?;
             regions.extend(map.iter());
             maps.push(Map {
@@ -229,13 +229,13 @@ impl Font {
     pub fn representation(&self, index: usize) -> Option<RepresentationAsset> {
         self.representations.get(index).map(|r| {
             let value = RepresentationAsset::new(r.metadata, r.surface);
-            r.map.map_or(value, |map| value.with_map(map))
+            r.atlas_map.map_or(value, |map| value.with_atlas_map(map))
         })
     }
     pub fn surface(&self, index: usize) -> Option<GlyphSurfaceAsset<'_>> {
         let surface = self.surfaces.get(index)?;
         let map = match surface.packing {
-            GlyphPacking::GlyphMajor => GlyphMap::glyph_major(
+            GlyphPacking::GlyphMajor => GlyphMap::cells(
                 surface.width,
                 surface.height,
                 usize::from(self.face.raster_count()),
@@ -247,9 +247,12 @@ impl Font {
                     .iter()
                     .find(|r| usize::from(r.surface) == index)
                     .expect("referenced surface");
-                let regions = &self.maps[representation.map.expect("atlas map") as usize].regions;
-                GlyphMap::atlas(surface.width, surface.height, regions)
-                    .expect("validated atlas bounds")
+                let regions =
+                    &self.maps[representation.atlas_map.expect("atlas map") as usize].regions;
+                GlyphMap::atlas(
+                    AtlasMap::new(surface.width, surface.height, regions)
+                        .expect("validated atlas bounds"),
+                )
             }
         };
         Some(match &surface.storage {
@@ -405,15 +408,15 @@ impl Source for &Font {
     fn surface_count(&self) -> usize {
         self.surfaces.len()
     }
-    fn map_count(&self) -> usize {
+    fn atlas_map_count(&self) -> usize {
         self.maps.len()
     }
     fn representation(&self, index: usize) -> Option<RepresentationAsset> {
         Font::representation(self, index)
     }
-    fn map(&self, index: usize) -> Option<GlyphMap<'_>> {
+    fn atlas_map(&self, index: usize) -> Option<AtlasMap<'_>> {
         self.maps.get(index).map(|map| {
-            GlyphMap::atlas(map.width, map.height, &map.regions).expect("validated owned map")
+            AtlasMap::new(map.width, map.height, &map.regions).expect("validated owned map")
         })
     }
     fn surface(&self, index: usize) -> Option<GlyphSurfaceAsset<'_>> {

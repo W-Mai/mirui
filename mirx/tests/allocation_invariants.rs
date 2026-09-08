@@ -184,7 +184,7 @@ fn owned_font_edits_and_emission_need_no_temporary_reference_arrays() {
         Fixed::ZERO,
     )
     .unwrap();
-    let raw = RawGlyphs::builder(GlyphMap::glyph_major(2, 2, 1).unwrap(), SampleLayout::A8)
+    let raw = RawGlyphs::builder(GlyphMap::cells(2, 2, 1).unwrap(), SampleLayout::A8)
         .build(&[7; 4])
         .unwrap();
     let surfaces = [GlyphSurfaceAsset::raw(raw)];
@@ -238,7 +238,7 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
         image::{CoverageBudget, EncodedImageAsset},
     };
     let (_, allocations) = count_allocations(|| {
-        let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
+        let map = GlyphMap::cells(2, 2, 2).unwrap();
         let cmap = [
             CmapEntry::new('A', GlyphId::new(0)),
             CmapEntry::new('B', GlyphId::new(1)),
@@ -338,7 +338,7 @@ fn encoded_glyph_planning_and_execution_allocate_nothing() {
             .with_groups(2, None)
             .unwrap();
         let glyphs = record
-            .encoded_glyphs(media, GlyphMap::glyph_major(2, 2, 2).unwrap())
+            .encoded_glyphs(media, GlyphMap::cells(2, 2, 2).unwrap())
             .unwrap();
         glyphs.preflight(&PayloadLimits::EMBEDDED).unwrap();
         let mut slots = [None];
@@ -407,7 +407,7 @@ fn referenced_raw_glyph_binding_allocates_nothing() {
         let record =
             GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 3, 1, 1).unwrap();
         let glyphs = record
-            .raw_glyphs(media, GlyphMap::glyph_major(3, 1, 2).unwrap())
+            .raw_glyphs(media, GlyphMap::cells(3, 1, 2).unwrap())
             .unwrap();
         assert_eq!(
             glyphs.get(1).unwrap().storage().plane(0).unwrap().bytes(),
@@ -462,7 +462,7 @@ fn representation_record_binding_and_emission_allocate_nothing() {
 fn raw_glyph_cells_and_atlas_regions_borrow_without_allocation() {
     use mirx::{
         font::{GlyphMap, RawGlyphs},
-        image::Region,
+        image::{AtlasMap, Region},
     };
     #[repr(align(64))]
     struct Buffer([u8; 512]);
@@ -475,7 +475,7 @@ fn raw_glyph_cells_and_atlas_regions_borrow_without_allocation() {
             .with_alignment(mirx::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
-        let map = GlyphMap::glyph_major(5, 3, 2).unwrap();
+        let map = GlyphMap::cells(5, 3, 2).unwrap();
         let glyphs = RawGlyphs::builder(map, SampleLayout::A2)
             .with_memory_layout(memory)
             .build(&source.0[..384])
@@ -496,7 +496,7 @@ fn raw_glyph_cells_and_atlas_regions_borrow_without_allocation() {
             .unwrap();
         glyph.copy_into(&mut output.0, plan).unwrap();
         let regions = [Region::new(1, 1, 3, 2).unwrap()];
-        let map = GlyphMap::atlas(5, 3, &regions).unwrap();
+        let map = GlyphMap::atlas(AtlasMap::new(5, 3, &regions).unwrap());
         let glyph = RawGlyphs::builder(map, SampleLayout::A2)
             .with_memory_layout(memory)
             .build(&source.0[..192])
@@ -766,8 +766,7 @@ fn native_wire_atlas_and_implicit_glyph_maps_allocate_nothing() {
         let wire = AtlasMap::open(7, 9, &bytes).unwrap();
         assert_eq!(wire.iter().count(), 2);
         assert_eq!(wire.get(1), native.get(1));
-        let implicit = GlyphMap::glyph_major(7, 9, 10).unwrap();
-        assert_eq!(implicit.encode_into(&mut []), Ok(0));
+        let implicit = GlyphMap::cells(7, 9, 10).unwrap();
         implicit.get(9).unwrap()
     });
     assert_eq!(allocations, 0);

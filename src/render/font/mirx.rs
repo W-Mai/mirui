@@ -412,7 +412,7 @@ mod tests {
             GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
         },
         image::{
-            ColorDescription, EncodedImageAsset, PlaneMemoryLayout, Region, SampleLayout,
+            AtlasMap, ColorDescription, EncodedImageAsset, PlaneMemoryLayout, Region, SampleLayout,
             SurfaceDescriptor,
         },
     };
@@ -426,7 +426,8 @@ mod tests {
             Region::new(0, 0, 0, 0).unwrap(),
             Region::new(3, 1, 3, 2).unwrap(),
         ];
-        let map = GlyphMap::atlas(8, 4, &regions).unwrap();
+        let atlas = AtlasMap::new(8, 4, &regions).unwrap();
+        let map = GlyphMap::atlas(atlas);
         let surface =
             SurfaceDescriptor::new(8, 4, SampleLayout::A1, ColorDescription::NONE).unwrap();
         let memory = PlaneMemoryLayout::builder(surface.plane(0).unwrap())
@@ -451,7 +452,7 @@ mod tests {
         .unwrap();
         let representation =
             RepresentationAsset::new(mirx::FontRepresentation::coverage(1, 16, 4).unwrap(), 0)
-                .with_map(0);
+                .with_atlas_map(0);
         let raster_metrics = [
             RasterMetrics::new(Fixed::ZERO, Fixed::from_int(12)),
             RasterMetrics::new(Fixed::from_ratio(-1, 2), Fixed::from_ratio(45, 4)),
@@ -462,7 +463,7 @@ mod tests {
                 &raster_metrics,
                 &[GlyphSurfaceAsset::raw(glyphs)],
             )
-            .with_maps(&[map])
+            .with_atlas_maps(&[atlas])
             .encode()
             .unwrap();
         MirxFontProvider::from_payload(alloc::vec::Vec::leak(payload), &PayloadLimits::HOST)
@@ -520,7 +521,7 @@ mod tests {
         let advances = [Fixed::ONE; 2];
         let face =
             FontFace::new(1, GlyphId::NOTDEF, 2, Fixed::ONE, Fixed::ZERO, Fixed::ZERO).unwrap();
-        let map = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
+        let map = GlyphMap::cells(2, 2, cmap.len()).unwrap();
         let surface =
             SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let image = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
@@ -549,7 +550,7 @@ mod tests {
         let advances = [Fixed::ONE; 2];
         let face =
             FontFace::new(1, GlyphId::NOTDEF, 2, Fixed::ONE, Fixed::ZERO, Fixed::ZERO).unwrap();
-        let map = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
+        let map = GlyphMap::cells(2, 2, cmap.len()).unwrap();
         let surface =
             SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let image = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);

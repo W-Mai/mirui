@@ -254,7 +254,7 @@ fn surface_ordinals_geometry_and_derived_costs_have_one_authority() {
     assert!(matches!(
         RepresentationTable::open(&record, &surface, 2, &PayloadLimits::HOST),
         Err(RepresentationTableError::Surface {
-            error: GlyphSurfaceRecordError::Map(_),
+            error: GlyphSurfaceRecordError::CellMap(_),
             ..
         })
     ));

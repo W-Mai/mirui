@@ -3,7 +3,7 @@ use crate::{
     Fixed,
     coding::Rle,
     font::{FontGlyphs, FontRepresentationRequest, FontView},
-    image::{Region, SampleLayout, SurfaceRequirements},
+    image::{AtlasMap, Region, SampleLayout, SurfaceRequirements},
     media::MediaPayload,
 };
 use alloc::vec;
@@ -14,7 +14,7 @@ fn with_face(aligned: bool, indexed: bool, check: impl FnOnce(FontAsset<'_>)) {
         CmapEntry::new('B', GlyphId::new(1)),
     ];
     let advances = [Fixed::from_ratio(5, 2); 2];
-    let map = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
+    let map = GlyphMap::cells(2, 2, cmap.len()).unwrap();
     let raw_data = vec![7; if aligned { 256 } else { 8 }];
     let mut raw = RawGlyphs::builder(map, SampleLayout::A8);
     if aligned {
@@ -182,15 +182,18 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
         Region::new(0, 0, 0, 0).unwrap(),
         Region::new(1, 0, 1, 1).unwrap(),
     ];
-    let map = GlyphMap::atlas(2, 1, &regions).unwrap();
-    let maps = [map];
+    let atlas = AtlasMap::new(2, 1, &regions).unwrap();
+    let map = GlyphMap::atlas(atlas);
+    let maps = [atlas];
     let raw = RawGlyphs::builder(map, SampleLayout::A4)
         .build(&[0x7f])
         .unwrap();
     let surfaces = [GlyphSurfaceAsset::raw(raw)];
     let representations = [
-        RepresentationAsset::new(FontRepresentation::coverage(4, 12, 1).unwrap(), 0).with_map(0),
-        RepresentationAsset::new(FontRepresentation::coverage(4, 16, 1).unwrap(), 0).with_map(0),
+        RepresentationAsset::new(FontRepresentation::coverage(4, 12, 1).unwrap(), 0)
+            .with_atlas_map(0),
+        RepresentationAsset::new(FontRepresentation::coverage(4, 16, 1).unwrap(), 0)
+            .with_atlas_map(0),
     ];
     let face = FontFace::new(
         1_000,
@@ -205,7 +208,7 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
     let raster_metrics = [RasterMetrics::default(); 4];
     let asset = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
         .with_rasters(&representations, &raster_metrics, &surfaces)
-        .with_maps(&maps);
+        .with_atlas_maps(&maps);
     let bytes = asset.encode().unwrap();
     let view = FontView::open(&bytes, &PayloadLimits::EMBEDDED).unwrap();
     view.preflight(&PayloadLimits::EMBEDDED).unwrap();
@@ -238,14 +241,18 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
         glyphs.get(1).unwrap().copy_into(&mut out, plan).unwrap();
         assert_eq!(out, [0xf0]);
     }
-    let extras = [map, map];
+    let extras = [atlas, atlas];
     assert_eq!(
-        asset.with_maps(&extras).encoded_len(),
+        asset.with_atlas_maps(&extras).encoded_len(),
         Err(FontError::UnreferencedStorage)
     );
     assert!(matches!(
-        FontAsset { maps: &[], ..asset }.encoded_len(),
-        Err(FontError::MapOutOfBounds { .. })
+        FontAsset {
+            atlas_maps: &[],
+            ..asset
+        }
+        .encoded_len(),
+        Err(FontError::AtlasMapOutOfBounds { .. })
     ));
 }
 

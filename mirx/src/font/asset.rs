@@ -5,16 +5,15 @@ use source::Source;
 
 use super::{
     ADVANCE_RECORD_LEN, CMAP_INDEX_RECORD_LEN, CmapEntry, FACE_RECORD_LEN, FontError, FontFace,
-    FontRepresentation, FontRepresentations, GLYPH_ID_RECORD_LEN, GLYPH_REGION_LEN,
-    GLYPH_SURFACE_RECORD_LEN, GlyphId, GlyphMap, GlyphPacking, GlyphSurfaceRecord,
-    RASTER_METRICS_RECORD_LEN, REPRESENTATION_RECORD_LEN, RasterMetrics, RawGlyphs,
-    RepresentationRecord, ShapingData,
+    FontRepresentation, FontRepresentations, GLYPH_ID_RECORD_LEN, GLYPH_SURFACE_RECORD_LEN,
+    GlyphId, GlyphMap, GlyphPacking, GlyphSurfaceRecord, RASTER_METRICS_RECORD_LEN,
+    REPRESENTATION_RECORD_LEN, RasterMetrics, RawGlyphs, RepresentationRecord, ShapingData,
 };
 use crate::{
     ByteAlignment, Fixed, PayloadLimits,
     image::{
-        ColorDescription, EncodedImageAsset, EncodedStoragePlan, PLANE_RECORD_LEN,
-        PlaneMemoryLayout, SurfaceDescriptor,
+        ATLAS_REGION_LEN, AtlasMap, ColorDescription, EncodedImageAsset, EncodedStoragePlan,
+        PLANE_RECORD_LEN, PlaneMemoryLayout, SurfaceDescriptor,
     },
     media::{
         DataIntegrity, INTEGRITY_RECORD_LEN, IntegrityRange, MEDIA_CRC_LEN, MEDIA_HEADER_LEN,
@@ -29,7 +28,7 @@ use crate::{
 pub struct RepresentationAsset {
     metadata: FontRepresentation,
     surface: u16,
-    map: Option<u32>,
+    atlas_map: Option<u32>,
 }
 
 impl RepresentationAsset {
@@ -37,14 +36,14 @@ impl RepresentationAsset {
         Self {
             metadata,
             surface,
-            map: None,
+            atlas_map: None,
         }
     }
 
-    /// References a shared Atlas2D map supplied through `FontAsset::with_maps`.
+    /// References a shared Atlas2D map supplied through `FontAsset::with_atlas_maps`.
     /// GlyphMajor representations omit this reference.
-    pub const fn with_map(mut self, map: u32) -> Self {
-        self.map = Some(map);
+    pub const fn with_atlas_map(mut self, map: u32) -> Self {
+        self.atlas_map = Some(map);
         self
     }
     pub const fn metadata(self) -> FontRepresentation {
@@ -53,8 +52,8 @@ impl RepresentationAsset {
     pub const fn surface_index(self) -> u16 {
         self.surface
     }
-    pub const fn map_index(self) -> Option<u32> {
-        self.map
+    pub const fn atlas_map_index(self) -> Option<u32> {
+        self.atlas_map
     }
 }
 
@@ -168,7 +167,7 @@ pub struct FontAsset<'a> {
     representations: &'a [RepresentationAsset],
     raster_metrics: &'a [RasterMetrics],
     surfaces: &'a [GlyphSurfaceAsset<'a>],
-    maps: &'a [GlyphMap<'a>],
+    atlas_maps: &'a [AtlasMap<'a>],
 }
 
 impl<'a> FontAsset<'a> {
@@ -185,7 +184,7 @@ impl<'a> FontAsset<'a> {
             representations: &[],
             raster_metrics: &[],
             surfaces: &[],
-            maps: &[],
+            atlas_maps: &[],
         }
     }
     pub const fn with_rasters(
@@ -203,8 +202,8 @@ impl<'a> FontAsset<'a> {
         self.glyph_ids = Some(glyph_ids);
         self
     }
-    pub const fn with_maps(mut self, maps: &'a [GlyphMap<'a>]) -> Self {
-        self.maps = maps;
+    pub const fn with_atlas_maps(mut self, maps: &'a [AtlasMap<'a>]) -> Self {
+        self.atlas_maps = maps;
         self
     }
     pub const fn face(self) -> FontFace {
@@ -228,8 +227,8 @@ impl<'a> FontAsset<'a> {
     pub const fn surfaces(self) -> &'a [GlyphSurfaceAsset<'a>] {
         self.surfaces
     }
-    pub const fn maps(self) -> &'a [GlyphMap<'a>] {
-        self.maps
+    pub const fn atlas_maps(self) -> &'a [AtlasMap<'a>] {
+        self.atlas_maps
     }
 
     /// Exact canonical size after structural validation; DATA is not decoded.
@@ -340,7 +339,7 @@ impl<S: Source> Plan<S> {
             asset.representation_count(),
             asset.raster_metrics().len(),
             asset.surface_count(),
-            asset.map_count(),
+            asset.atlas_map_count(),
         ];
         for length in lengths {
             u32::try_from(length).map_err(|_| FontError::SizeOverflow)?;
@@ -355,7 +354,7 @@ impl<S: Source> Plan<S> {
             maps,
         ] = lengths.map(|n| n as u64);
         let map_bytes = maps
-            .checked_mul(glyphs * GLYPH_REGION_LEN as u64)
+            .checked_mul(glyphs * ATLAS_REGION_LEN as u64)
             .ok_or(FontError::SizeOverflow)?;
         let source_bytes = match asset.advance_source() {
             FontAdvanceSource::Advances(values) => values.len() as u64 * ADVANCE_RECORD_LEN as u64,
@@ -388,7 +387,7 @@ impl<S: Source> Plan<S> {
         let mut size = Self::table_size(asset)?;
         let glyph_count = usize::from(asset.face().raster_count());
         if asset.surface_count() > asset.representation_count()
-            || asset.map_count() > asset.representation_count()
+            || asset.atlas_map_count() > asset.representation_count()
         {
             return Err(FontError::UnreferencedStorage);
         }
@@ -475,42 +474,44 @@ impl<S: Source> Plan<S> {
             RepresentationRecord::new(representation.metadata, representation.surface)
                 .validate_for(surface.descriptor())
                 .map_err(FontError::Record)?;
-            match (surface.map().packing(), representation.map) {
+            match (surface.map().packing(), representation.atlas_map) {
                 (GlyphPacking::GlyphMajor, None) => {}
                 (GlyphPacking::Atlas2D, Some(id)) => {
-                    let map = asset.map(id as usize).ok_or(FontError::MapOutOfBounds {
-                        representation: index,
-                    })?;
-                    if map.packing() != GlyphPacking::Atlas2D
-                        || map.len() != glyph_count
+                    let map =
+                        asset
+                            .atlas_map(id as usize)
+                            .ok_or(FontError::AtlasMapOutOfBounds {
+                                representation: index,
+                            })?;
+                    if map.len() != glyph_count
                         || map.iter().any(|region| {
                             region.right() > surface.map().width()
                                 || region.bottom() > surface.map().height()
                         })
                     {
-                        return Err(FontError::MapMismatch {
+                        return Err(FontError::AtlasMapMismatch {
                             representation: index,
                         });
                     }
                 }
                 _ => {
-                    return Err(FontError::MapMismatch {
+                    return Err(FontError::AtlasMapMismatch {
                         representation: index,
                     });
                 }
             }
         }
-        for index in 0..asset.map_count() {
+        for index in 0..asset.atlas_map_count() {
             if !asset
                 .representations()
-                .any(|r| r.map.map(|id| id as usize) == Some(index))
+                .any(|r| r.atlas_map.map(|id| id as usize) == Some(index))
             {
                 return Err(FontError::UnreferencedStorage);
             }
         }
         let mut sections = 6
             + usize::from(asset.glyph_ids().is_some())
-            + usize::from(asset.map_count() != 0)
+            + usize::from(asset.atlas_map_count() != 0)
             + asset.surface_count();
         let indexed = asset
             .surfaces()
@@ -615,16 +616,17 @@ impl<S: Source> Plan<S> {
             MediaSectionKind::SURFACE_GROUPS,
             self.asset.surface_count() * GLYPH_SURFACE_RECORD_LEN,
         );
-        if self.asset.map_count() != 0 {
+        if self.asset.atlas_map_count() != 0 {
             visitor(
                 MediaSectionKind::ATLAS_MAPS,
-                self.asset.map_count() * glyphs * GLYPH_REGION_LEN,
+                self.asset.atlas_map_count() * glyphs * ATLAS_REGION_LEN,
             );
         }
     }
 
     fn metadata_section_count(self) -> u16 {
-        6 + u16::from(self.asset.glyph_ids().is_some()) + u16::from(self.asset.map_count() != 0)
+        6 + u16::from(self.asset.glyph_ids().is_some())
+            + u16::from(self.asset.atlas_map_count() != 0)
     }
 
     fn visit_data(&self, mut visitor: impl FnMut(GlyphSurfaceAsset<'_>, usize)) {
@@ -694,8 +696,8 @@ impl<S: Source> Plan<S> {
         for r in self.asset.representations() {
             let mut bytes = [0; REPRESENTATION_RECORD_LEN];
             RepresentationRecord::new(r.metadata, r.surface)
-                .with_atlas_map_offset(r.map.map_or(0, |id| {
-                    id * self.asset.face().raster_count() as u32 * GLYPH_REGION_LEN as u32
+                .with_atlas_map_offset(r.atlas_map.map_or(0, |id| {
+                    id * self.asset.face().raster_count() as u32 * ATLAS_REGION_LEN as u32
                 }))
                 .encode_record_into(&mut bytes)
                 .expect("validated representation");
@@ -762,7 +764,7 @@ impl<S: Source> Plan<S> {
                 .expect("validated surface record");
             output.write(&bytes);
         }
-        for map in self.asset.maps() {
+        for map in self.asset.atlas_maps() {
             for region in map {
                 output.write(&region.x().to_le_bytes());
                 output.write(&region.y().to_le_bytes());

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    font::{CmapEntry, FontError, FontGlyphs, FontView, GLYPH_REGION_LEN, GlyphId, RasterMetrics},
-    image::{RasterPreflight, UNIT_GROUP_RECORD_LEN},
+    font::{CmapEntry, FontError, FontGlyphs, FontView, GlyphId, RasterMetrics},
+    image::{ATLAS_REGION_LEN, RasterPreflight, UNIT_GROUP_RECORD_LEN},
     media::{IntegrityRanges, MediaPayload, MediaSectionKind},
 };
 
@@ -39,7 +39,7 @@ impl Font {
         view.preflight_in(&mut preflight)?;
         let glyphs = usize::from(view.face().raster_count());
         let representation_count = view.representations().len();
-        let map_len = glyphs * GLYPH_REGION_LEN;
+        let map_len = glyphs * ATLAS_REGION_LEN;
         let map_count = media
             .section(MediaSectionKind::ATLAS_MAPS)
             .map_or(0, |s| s.bytes().len() / map_len);
@@ -125,7 +125,7 @@ impl Font {
             representations.push(Representation {
                 metadata: source.record().representation(),
                 surface: source.record().surface_index(),
-                map: (source.map().packing() == GlyphPacking::Atlas2D)
+                atlas_map: (source.map().packing() == GlyphPacking::Atlas2D)
                     .then_some(source.record().atlas_map_offset() / map_len as u32),
             });
         }

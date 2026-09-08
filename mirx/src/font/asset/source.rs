@@ -1,8 +1,12 @@
 use super::{
-    CmapEntry, FontAdvanceSource, FontAsset, FontError, FontFace, GlyphId, GlyphMap,
-    GlyphSurfaceAsset, Plan, RasterMetrics, RepresentationAsset, Storage,
+    CmapEntry, FontAdvanceSource, FontAsset, FontError, FontFace, GlyphId, GlyphSurfaceAsset, Plan,
+    RasterMetrics, RepresentationAsset, Storage,
 };
-use crate::{PayloadLimits, image::RasterPreflight, media::INTEGRITY_RECORD_LEN};
+use crate::{
+    PayloadLimits,
+    image::{AtlasMap, RasterPreflight},
+    media::INTEGRITY_RECORD_LEN,
+};
 
 /// Inline access for canonical emission; implementations retain metadata storage.
 pub(in crate::font) trait Source: Copy {
@@ -13,10 +17,10 @@ pub(in crate::font) trait Source: Copy {
     fn raster_metrics(&self) -> &[RasterMetrics];
     fn representation_count(&self) -> usize;
     fn surface_count(&self) -> usize;
-    fn map_count(&self) -> usize;
+    fn atlas_map_count(&self) -> usize;
     fn representation(&self, index: usize) -> Option<RepresentationAsset>;
     fn surface(&self, index: usize) -> Option<GlyphSurfaceAsset<'_>>;
-    fn map(&self, index: usize) -> Option<GlyphMap<'_>>;
+    fn atlas_map(&self, index: usize) -> Option<AtlasMap<'_>>;
 
     fn representations(&self) -> impl ExactSizeIterator<Item = RepresentationAsset> {
         (0..self.representation_count())
@@ -25,8 +29,8 @@ pub(in crate::font) trait Source: Copy {
     fn surfaces(&self) -> impl ExactSizeIterator<Item = GlyphSurfaceAsset<'_>> {
         (0..self.surface_count()).map(|index| self.surface(index).expect("surface ordinal"))
     }
-    fn maps(&self) -> impl ExactSizeIterator<Item = GlyphMap<'_>> {
-        (0..self.map_count()).map(|index| self.map(index).expect("map ordinal"))
+    fn atlas_maps(&self) -> impl ExactSizeIterator<Item = AtlasMap<'_>> {
+        (0..self.atlas_map_count()).map(|index| self.atlas_map(index).expect("atlas map ordinal"))
     }
 
     fn preflight(self, limits: &PayloadLimits) -> Result<(), FontError> {
@@ -63,7 +67,7 @@ pub(in crate::font) trait Source: Copy {
         let count = self.representation_count() as u64;
         let metadata_work = count
             .checked_mul(
-                count + glyphs as u64 + self.surface_count() as u64 + self.map_count() as u64,
+                count + glyphs as u64 + self.surface_count() as u64 + self.atlas_map_count() as u64,
             )
             .and_then(|n| n.checked_add(self.cmap().len() as u64))
             .ok_or(FontError::SizeOverflow)?;
@@ -125,8 +129,8 @@ impl Source for FontAsset<'_> {
     fn surface_count(&self) -> usize {
         self.surfaces.len()
     }
-    fn map_count(&self) -> usize {
-        self.maps.len()
+    fn atlas_map_count(&self) -> usize {
+        self.atlas_maps.len()
     }
     fn representation(&self, index: usize) -> Option<RepresentationAsset> {
         self.representations.get(index).copied()
@@ -134,7 +138,7 @@ impl Source for FontAsset<'_> {
     fn surface(&self, index: usize) -> Option<GlyphSurfaceAsset<'_>> {
         self.surfaces.get(index).copied()
     }
-    fn map(&self, index: usize) -> Option<GlyphMap<'_>> {
-        self.maps.get(index).copied()
+    fn atlas_map(&self, index: usize) -> Option<AtlasMap<'_>> {
+        self.atlas_maps.get(index).copied()
     }
 }

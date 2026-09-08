@@ -1,4 +1,5 @@
 use super::*;
+use crate::image::AtlasMap;
 use crate::image::{PlaneAccessError, PlaneMemoryFlags};
 
 #[repr(align(64))]
@@ -12,7 +13,7 @@ fn repeated_cells_share_geometry_and_keep_allocation_rows_out_of_samples() {
         SampleLayout::A4,
         SampleLayout::A8,
     ] {
-        let map = GlyphMap::glyph_major(5, 3, 3).unwrap();
+        let map = GlyphMap::cells(5, 3, 3).unwrap();
         let cell = SurfaceDescriptor::new(5, 3, layout, ColorDescription::NONE).unwrap();
         let memory = PlaneMemoryLayout::builder(cell.plane(0).unwrap())
             .with_allocation_extent(9, 5)
@@ -94,7 +95,7 @@ fn atlas_regions_share_samples_and_do_not_retain_map_or_source_lifetimes() {
             Region::new(1, 0, 3, 2).unwrap(),
             Region::new(1, 0, 3, 2).unwrap(),
         ];
-        let map = GlyphMap::atlas(5, 2, &regions).unwrap();
+        let map = GlyphMap::atlas(AtlasMap::new(5, 2, &regions).unwrap());
         let glyphs = RawGlyphs::builder(map, SampleLayout::A4)
             .build(&data)
             .unwrap();
@@ -109,7 +110,7 @@ fn atlas_regions_share_samples_and_do_not_retain_map_or_source_lifetimes() {
     let decoded = {
         let local_data = data;
         let regions = [glyph.region()];
-        let map = GlyphMap::atlas(5, 2, &regions).unwrap();
+        let map = GlyphMap::atlas(AtlasMap::new(5, 2, &regions).unwrap());
         let local = RawGlyphs::builder(map, SampleLayout::A4)
             .build(&local_data)
             .unwrap()
@@ -131,7 +132,7 @@ fn atlas_regions_share_samples_and_do_not_retain_map_or_source_lifetimes() {
 
 #[test]
 fn exact_spans_and_shared_memory_validation_reject_invalid_storage() {
-    let map = GlyphMap::glyph_major(1, 1, 2).unwrap();
+    let map = GlyphMap::cells(1, 1, 2).unwrap();
     for layout in [
         SampleLayout::I4,
         SampleLayout::RGBA8888,
@@ -169,14 +170,14 @@ fn exact_spans_and_shared_memory_validation_reject_invalid_storage() {
             actual: 64
         }
     );
-    let wrong = GlyphMap::glyph_major(2, 1, 2).unwrap();
+    let wrong = GlyphMap::cells(2, 1, 2).unwrap();
     assert!(matches!(
         RawGlyphs::builder(wrong, SampleLayout::A8)
             .with_memory_layout(memory)
             .build(&[]),
         Err(GlyphStorageError::Memory(_))
     ));
-    let large = GlyphMap::glyph_major(1, 1, u32::MAX as usize).unwrap();
+    let large = GlyphMap::cells(1, 1, u32::MAX as usize).unwrap();
     assert_eq!(
         RawGlyphs::builder(large, SampleLayout::A8)
             .with_memory_layout(memory)
@@ -184,7 +185,7 @@ fn exact_spans_and_shared_memory_validation_reject_invalid_storage() {
             .unwrap_err(),
         GlyphStorageError::SizeOverflow
     );
-    let huge = GlyphMap::glyph_major(u32::MAX, 1, 1).unwrap();
+    let huge = GlyphMap::cells(u32::MAX, 1, 1).unwrap();
     let memory =
         PlaneMemoryLayout::builder(SampleLayout::A8.plane_geometry(u32::MAX, 1, 0).unwrap())
             .with_alignment(crate::ByteAlignment::new(64).unwrap())
@@ -205,7 +206,7 @@ fn exact_spans_and_shared_memory_validation_reject_invalid_storage() {
 #[test]
 fn actual_address_unknown_flags_and_output_errors_are_independent() {
     let data = Buffer([0x7f; 1024]);
-    let map = GlyphMap::glyph_major(3, 1, 2).unwrap();
+    let map = GlyphMap::cells(3, 1, 2).unwrap();
     let plane = SampleLayout::A8.plane_geometry(3, 1, 0).unwrap();
     let memory = PlaneMemoryLayout::builder(plane)
         .with_alignment(crate::ByteAlignment::new(64).unwrap())
@@ -262,7 +263,7 @@ fn actual_address_unknown_flags_and_output_errors_are_independent() {
 
 #[test]
 fn empty_cells_and_empty_atlas_regions_do_not_create_sample_work() {
-    let map = GlyphMap::glyph_major(7, 9, 0).unwrap();
+    let map = GlyphMap::cells(7, 9, 0).unwrap();
     let glyphs = RawGlyphs::builder(map, SampleLayout::A1)
         .build(&[])
         .unwrap();
@@ -272,7 +273,7 @@ fn empty_cells_and_empty_atlas_regions_do_not_create_sample_work() {
     assert!(glyphs.file_address_is_aligned(u32::MAX));
     assert!(glyphs.data_addresses_are_aligned());
     let regions = [Region::new(0, 0, 0, 0).unwrap()];
-    let map = GlyphMap::atlas(0, u32::MAX, &regions).unwrap();
+    let map = GlyphMap::atlas(AtlasMap::new(0, u32::MAX, &regions).unwrap());
     let glyph = RawGlyphs::builder(map, SampleLayout::A8)
         .build(&[])
         .unwrap()
@@ -283,7 +284,7 @@ fn empty_cells_and_empty_atlas_regions_do_not_create_sample_work() {
     let mut out = [0xa5; 4];
     glyph.copy_into(&mut out, plan).unwrap();
     assert_eq!(out, [0xa5; 4]);
-    let map = GlyphMap::atlas(2, 2, &[]).unwrap();
+    let map = GlyphMap::atlas(AtlasMap::new(2, 2, &[]).unwrap());
     let glyphs = RawGlyphs::builder(map, SampleLayout::A8)
         .build(&[1; 4])
         .unwrap();

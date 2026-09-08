@@ -13,7 +13,7 @@ use crate::{
 };
 
 fn font() -> Font {
-    let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
+    let map = GlyphMap::cells(2, 2, 2).unwrap();
     let raw = RawGlyphs::builder(map, SampleLayout::A8)
         .build(&[0x11; 8])
         .unwrap();

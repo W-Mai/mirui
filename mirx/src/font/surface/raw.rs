@@ -22,7 +22,7 @@ impl GlyphSurfaceRecord {
     /// let media = MediaPayload::open(&bytes).unwrap();
     /// media.validate_data().unwrap();
     /// let record = GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 1, 1).unwrap();
-    /// let glyphs = record.raw_glyphs(media, GlyphMap::glyph_major(2, 1, 2).unwrap()).unwrap();
+    /// let glyphs = record.raw_glyphs(media, GlyphMap::cells(2, 1, 2).unwrap()).unwrap();
     /// assert_eq!(glyphs.get(1).unwrap().storage().plane(0).unwrap().bytes(), &[3, 4]);
     /// ```
     pub fn raw_glyphs<'map, 'data>(
@@ -73,7 +73,7 @@ impl GlyphSurfaceRecord {
             GlyphPacking::Atlas2D => (map.width(), map.height()),
         };
         if self.packing() != map.packing() || (self.width(), self.height()) != extent {
-            return Err(GlyphSurfaceRecordError::MapMismatch);
+            return Err(GlyphSurfaceRecordError::RasterMapMismatch);
         }
         Ok(())
     }

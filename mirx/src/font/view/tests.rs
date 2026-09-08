@@ -264,8 +264,8 @@ fn canonical_faces_solve_every_surface_alignment_from_any_container_cursor() {
         CmapEntry::new('B', GlyphId::new(1)),
     ];
     let advances = [Fixed::from_int(2); 2];
-    let map8 = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
-    let map4 = GlyphMap::glyph_major(2, 2, cmap.len()).unwrap();
+    let map8 = GlyphMap::cells(2, 2, cmap.len()).unwrap();
+    let map4 = GlyphMap::cells(2, 2, cmap.len()).unwrap();
     let geometry8 = SampleLayout::A8.plane_geometry(2, 2, 0).unwrap();
     let geometry4 = SampleLayout::A4.plane_geometry(2, 2, 0).unwrap();
     let memory8 = PlaneMemoryLayout::builder(geometry8)
@@ -374,7 +374,7 @@ fn directory_ownership_and_required_sections_are_unambiguous() {
         (
             MediaSectionKind::ATLAS_MAPS,
             &[][..],
-            FontError::EmptyMapSection,
+            FontError::EmptyAtlasMapSection,
         ),
         (
             MediaSectionKind::PLANES,
@@ -465,11 +465,11 @@ fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
     sections[9].1 = &orphan;
     assert!(matches!(
         FontView::open(&payload(&sections), &PayloadLimits::EMBEDDED),
-        Err(FontError::UnreferencedMaps)
+        Err(FontError::UnreferencedAtlasMaps)
     ));
     sections.pop();
     assert!(matches!(
         FontView::open(&payload(&sections), &PayloadLimits::EMBEDDED),
-        Err(FontError::MapOutOfBounds { .. })
+        Err(FontError::AtlasMapOutOfBounds { .. })
     ));
 }

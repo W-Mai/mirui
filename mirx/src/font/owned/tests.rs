@@ -6,7 +6,7 @@ use crate::{
 };
 
 fn asset(check: impl FnOnce(FontAsset<'_>)) {
-    let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
+    let map = GlyphMap::cells(2, 2, 2).unwrap();
     let raw = RawGlyphs::builder(map, SampleLayout::A8)
         .build(&[7; 8])
         .unwrap();
@@ -165,7 +165,7 @@ fn wire_owned_round_trip_preserves_raw_and_encoded_integrity_partitions() {
         CmapEntry::new('A', GlyphId::new(0)),
         CmapEntry::new('B', GlyphId::new(1)),
     ];
-    let map = GlyphMap::glyph_major(2, 2, 2).unwrap();
+    let map = GlyphMap::cells(2, 2, 2).unwrap();
     let raw = RawGlyphs::builder(map, SampleLayout::A8)
         .build(&[7; 8])
         .unwrap();

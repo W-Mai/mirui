@@ -1,12 +1,15 @@
 use super::{
     EncodedGlyphError, EncodedGlyphs, FontMetadata, FontMetadataError, FontRepresentationRequest,
-    GLYPH_REGION_LEN, GLYPH_SURFACE_RECORD_LEN, GlyphId, GlyphMap, GlyphPacking,
-    GlyphSurfaceRecord, GlyphSurfaceRecordError, RasterMetrics, RawGlyphs, RepresentationRecord,
-    RepresentationTable, ShapingData,
+    GLYPH_SURFACE_RECORD_LEN, GlyphId, GlyphMap, GlyphPacking, GlyphSurfaceRecord,
+    GlyphSurfaceRecordError, RasterMetrics, RawGlyphs, RepresentationRecord, RepresentationTable,
+    ShapingData,
 };
 use crate::{
     ByteAlignment, PayloadLimits,
-    image::{CoverageBudget, CoverageError, EncodedImageError, RasterPreflight},
+    image::{
+        ATLAS_REGION_LEN, AtlasMap, AtlasMapError, CoverageBudget, CoverageError,
+        EncodedImageError, RasterPreflight,
+    },
     media::{MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind},
 };
 
@@ -67,13 +70,13 @@ impl<'a> FontView<'a> {
             .section(MediaSectionKind::ATLAS_MAPS)
             .map_or(&[][..], MediaSection::bytes);
         if maps.is_empty() && media.section(MediaSectionKind::ATLAS_MAPS).is_some() {
-            return Err(FontError::EmptyMapSection);
+            return Err(FontError::EmptyAtlasMapSection);
         }
         let map_table_len = glyph_count
-            .checked_mul(GLYPH_REGION_LEN)
+            .checked_mul(ATLAS_REGION_LEN)
             .ok_or(FontError::SizeOverflow)?;
         if maps.len() % map_table_len != 0 {
-            return Err(FontError::MapsLength {
+            return Err(FontError::AtlasMapsLength {
                 table_len: map_table_len,
                 actual: maps.len(),
             });
@@ -108,7 +111,7 @@ impl<'a> FontView<'a> {
         }
         let map_count = maps.len() / map_table_len;
         if map_count > representation_count {
-            return Err(FontError::UnreferencedMaps);
+            return Err(FontError::UnreferencedAtlasMaps);
         }
         for map_index in 0..map_count {
             let offset = map_index * map_table_len;
@@ -116,7 +119,7 @@ impl<'a> FontView<'a> {
                 record.atlas_map_offset() as usize == offset
                     && metadata.representations().surface(record).packing() == GlyphPacking::Atlas2D
             }) {
-                return Err(FontError::UnreferencedMaps);
+                return Err(FontError::UnreferencedAtlasMaps);
             }
         }
         for index in 0..view.surface_count() {
@@ -383,17 +386,17 @@ impl<'a> FontView<'a> {
         let map = match surface.packing() {
             GlyphPacking::GlyphMajor => {
                 if record.atlas_map_offset() != 0 {
-                    return Err(FontError::ImplicitMapOffset {
+                    return Err(FontError::CellMapOffset {
                         representation: index,
                         offset: record.atlas_map_offset(),
                     });
                 }
-                GlyphMap::glyph_major(
+                GlyphMap::cells(
                     surface.width(),
                     surface.height(),
                     self.metadata.glyph_count(),
                 )
-                .map_err(|error| FontError::Map {
+                .map_err(|error| FontError::CellMap {
                     representation: index,
                     error,
                 })?
@@ -401,7 +404,7 @@ impl<'a> FontView<'a> {
             GlyphPacking::Atlas2D => {
                 let offset = record.atlas_map_offset() as usize;
                 if offset % self.map_table_len != 0 {
-                    return Err(FontError::MapOffset {
+                    return Err(FontError::AtlasMapOffset {
                         representation: index,
                         offset: record.atlas_map_offset(),
                     });
@@ -412,15 +415,17 @@ impl<'a> FontView<'a> {
                 let bytes = self
                     .maps
                     .get(offset..end)
-                    .ok_or(FontError::MapOutOfBounds {
+                    .ok_or(FontError::AtlasMapOutOfBounds {
                         representation: index,
                     })?;
-                GlyphMap::from_records(surface.width(), surface.height(), bytes).map_err(
-                    |error| FontError::Map {
-                        representation: index,
-                        error,
-                    },
-                )?
+                GlyphMap::atlas(
+                    AtlasMap::open(surface.width(), surface.height(), bytes).map_err(|error| {
+                        FontError::AtlasMap {
+                            representation: index,
+                            error,
+                        }
+                    })?,
+                )
             }
         };
         Ok(Some(FontRepresentationView {
@@ -595,10 +600,10 @@ pub enum FontError {
     SurfaceOutOfBounds {
         representation: usize,
     },
-    MapOutOfBounds {
+    AtlasMapOutOfBounds {
         representation: usize,
     },
-    MapMismatch {
+    AtlasMapMismatch {
         representation: usize,
     },
     UnreferencedStorage,
@@ -643,23 +648,27 @@ pub enum FontError {
         surface: usize,
         data_offset: u32,
     },
-    EmptyMapSection,
-    MapsLength {
+    EmptyAtlasMapSection,
+    AtlasMapsLength {
         table_len: usize,
         actual: usize,
     },
-    UnreferencedMaps,
-    ImplicitMapOffset {
+    UnreferencedAtlasMaps,
+    CellMapOffset {
         representation: usize,
         offset: u32,
     },
-    MapOffset {
+    AtlasMapOffset {
         representation: usize,
         offset: u32,
     },
-    Map {
+    CellMap {
         representation: usize,
         error: super::GlyphMapError,
+    },
+    AtlasMap {
+        representation: usize,
+        error: AtlasMapError,
     },
     GlyphIdCount {
         expected: usize,

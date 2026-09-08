@@ -1,4 +1,5 @@
 use super::*;
+use crate::image::AtlasMap;
 use crate::{
     image::{PlaneMemoryFlags, Region, SampleLayout},
     media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaSectionKind},
@@ -31,7 +32,7 @@ fn repeated_data_sections_bind_exact_ordinals_without_checksumming_samples() {
         (MediaSectionKind::DATA, &[1, 2]),
         (MediaSectionKind::DATA, &[3, 4]),
     ]);
-    let map = GlyphMap::glyph_major(1, 1, 2).unwrap();
+    let map = GlyphMap::cells(1, 1, 2).unwrap();
     let first =
         GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 1, 1, 0).unwrap();
     let second =
@@ -85,7 +86,7 @@ fn one_physical_record_preserves_cell_gaps_atlas_regions_and_address_checks() {
             .with_planes(0)
             .unwrap();
         let glyphs = record
-            .raw_glyphs(media, GlyphMap::glyph_major(5, 3, 2).unwrap())
+            .raw_glyphs(media, GlyphMap::cells(5, 3, 2).unwrap())
             .unwrap();
         assert_eq!(glyphs.memory_layout(), memory);
         assert_eq!(glyphs.byte_len(), 176);
@@ -107,7 +108,7 @@ fn one_physical_record_preserves_cell_gaps_atlas_regions_and_address_checks() {
             Region::new(1, 1, 3, 2).unwrap(),
             Region::new(0, 0, 0, 0).unwrap(),
         ];
-        let map = GlyphMap::atlas(5, 3, &regions).unwrap();
+        let map = GlyphMap::atlas(AtlasMap::new(5, 3, &regions).unwrap());
         let bytes = payload(&[
             (MediaSectionKind::PLANES, &plane_bytes),
             (MediaSectionKind::DATA, &data[..112]),
@@ -131,15 +132,15 @@ fn mismatched_maps_plane_shapes_and_data_spans_cannot_bind() {
     let bytes = payload(&[(MediaSectionKind::DATA, &[1, 2, 3, 4])]);
     let media = MediaPayload::open(&bytes).unwrap();
     for map in [
-        GlyphMap::glyph_major(1, 2, 2).unwrap(),
-        GlyphMap::atlas(2, 1, &[]).unwrap(),
+        GlyphMap::cells(1, 2, 2).unwrap(),
+        GlyphMap::atlas(AtlasMap::new(2, 1, &[]).unwrap()),
     ] {
         assert!(matches!(
             record.raw_glyphs(media, map),
-            Err(GlyphSurfaceRecordError::MapMismatch)
+            Err(GlyphSurfaceRecordError::RasterMapMismatch)
         ));
     }
-    let map = GlyphMap::glyph_major(2, 1, 2).unwrap();
+    let map = GlyphMap::cells(2, 1, 2).unwrap();
     assert!(matches!(
         record.with_codings(1).unwrap().raw_glyphs(media, map),
         Err(GlyphSurfaceRecordError::ExpectedRawStorage)
@@ -151,7 +152,7 @@ fn mismatched_maps_plane_shapes_and_data_spans_cannot_bind() {
         Err(GlyphSurfaceRecordError::UnsupportedLayout(_))
     ));
     assert!(matches!(
-        record.raw_glyphs(media, GlyphMap::glyph_major(2, 1, 1).unwrap()),
+        record.raw_glyphs(media, GlyphMap::cells(2, 1, 1).unwrap()),
         Err(GlyphSurfaceRecordError::Storage(_))
     ));
     for length in [0, 23, 25, 48] {
@@ -191,7 +192,7 @@ fn empty_glyphs_and_unknown_physical_flags_retain_shared_storage_rules() {
         GlyphSurfaceRecord::new(SampleLayout::A1, GlyphPacking::GlyphMajor, 1, 1, 0).unwrap();
     assert!(
         record
-            .raw_glyphs(media, GlyphMap::glyph_major(1, 1, 0).unwrap())
+            .raw_glyphs(media, GlyphMap::cells(1, 1, 0).unwrap())
             .unwrap()
             .is_empty()
     );
@@ -212,7 +213,7 @@ fn empty_glyphs_and_unknown_physical_flags_retain_shared_storage_rules() {
     let glyphs = record
         .raw_glyphs(
             MediaPayload::open(&bytes).unwrap(),
-            GlyphMap::glyph_major(1, 1, 1).unwrap(),
+            GlyphMap::cells(1, 1, 1).unwrap(),
         )
         .unwrap();
     assert_eq!(glyphs.memory_layout().flags().bits(), 1);

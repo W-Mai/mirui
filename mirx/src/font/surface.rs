@@ -48,7 +48,7 @@ impl GlyphSurfaceRecord {
     ) -> Result<Self, GlyphSurfaceRecordError> {
         SectionRef::new(data_section, MediaSectionKind::DATA)?;
         if packing == GlyphPacking::GlyphMajor {
-            GlyphMap::glyph_major(width, height, 0).map_err(GlyphSurfaceRecordError::Map)?;
+            GlyphMap::cells(width, height, 0).map_err(GlyphSurfaceRecordError::CellMap)?;
         }
         Ok(Self {
             layout,
@@ -161,8 +161,8 @@ impl GlyphSurfaceRecord {
     pub fn logical_extent(self, glyph_count: usize) -> Result<(u32, u32), GlyphSurfaceRecordError> {
         match self.packing {
             GlyphPacking::GlyphMajor => {
-                let map = GlyphMap::glyph_major(self.width, self.height, glyph_count)
-                    .map_err(GlyphSurfaceRecordError::Map)?;
+                let map = GlyphMap::cells(self.width, self.height, glyph_count)
+                    .map_err(GlyphSurfaceRecordError::CellMap)?;
                 Ok((map.width(), map.height()))
             }
             GlyphPacking::Atlas2D => Ok((self.width, self.height)),
@@ -307,7 +307,7 @@ pub enum GlyphSurfaceRecordError {
         offset: usize,
     },
     UnknownPacking(u8),
-    Map(GlyphMapError),
+    CellMap(GlyphMapError),
     ReservedSection {
         kind: MediaSectionKind,
     },
@@ -327,7 +327,7 @@ pub enum GlyphSurfaceRecordError {
         flags: MediaSectionFlags,
     },
     ExpectedRawStorage,
-    MapMismatch,
+    RasterMapMismatch,
     UnsupportedLayout(SampleLayout),
     PlaneRecordLength {
         actual: usize,
