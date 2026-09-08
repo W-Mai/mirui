@@ -105,16 +105,16 @@ mod tests {
 
     #[test]
     fn vector_image_font_coexist_in_one_file() {
-        use mirx::{ChunkType, Reader, chunk_type, encode_chunks};
+        use mirx::{ChunkType, Reader, encode_chunks};
 
         let vector = encode_scene(&[blit(ResourceRef::Index(0))]).unwrap();
         let image: &[u8] = &[0xAA, 0xBB, 0xCC, 0xDD];
         let font: &[u8] = &[0x01, 0x00, 0x10, 0x00];
 
         let chunks: alloc::vec::Vec<(u16, u16, &[u8])> = vec![
-            (chunk_type::VECTOR, 0, vector.as_slice()),
-            (chunk_type::IMAGE, 0, image),
-            (chunk_type::FONT, 0, font),
+            (ChunkType::VECTOR.raw(), 0, vector.as_slice()),
+            (ChunkType::IMAGE.raw(), 0, image),
+            (ChunkType::FONT.raw(), 0, font),
         ];
         let bytes = encode_chunks(&chunks);
         let reader = Reader::open(&bytes).unwrap();

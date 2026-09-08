@@ -1,0 +1,14 @@
+error[E0432]: unresolved imports `mirx::ChunkEntry`, `mirx::ChunkFileHeader`, `mirx::ContainerHeader`, `mirx::FileHeader`, `mirx::FlatHeader`, `mirx::MAGIC`, `mirx::chunk_type`
+ --> tests/public_api_fail/wire_headers.rs:2:5
+  |
+2 |     ChunkEntry, ChunkFileHeader, ContainerHeader, FileHeader, FlatHeader, MAGIC, chunk_type,
+  |     ^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^  ^^^^^  ^^^^^^^^^^
+  |     |           |                |                |           |           |      |
+  |     |           |                |                |           |           |      no `chunk_type` in the root
+  |     |           |                |                |           |           |      help: a similar name exists in the module: `ChunkType`
+  |     |           |                |                |           |           no `MAGIC` in the root
+  |     |           |                |                |           no `FlatHeader` in the root
+  |     |           |                |                no `FileHeader` in the root
+  |     |           |                no `ContainerHeader` in the root
+  |     |           no `ChunkFileHeader` in the root
+  |     no `ChunkEntry` in the root

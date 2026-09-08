@@ -895,15 +895,14 @@ fn inspect_bytes(bytes: &[u8]) -> std::result::Result<String, String> {
         .with_payload_limits(PayloadLimits::HOST)
         .with_trailing_bytes(TrailingBytesPolicy::Preserve);
     let reader = Reader::open_with(bytes, &options).map_err(|error| format!("{error:?}"))?;
-    let header = reader.file_header();
     let mut report = String::new();
     writeln!(
         report,
         "version={}.{} layout={} file_flags=0x{:02x} logical_size={} trailing_size={} future={}",
-        header.version_major,
-        header.version_minor,
+        reader.version_major(),
+        reader.version_minor(),
         layout_name(reader.layout()),
-        header.flags,
+        reader.file_flags(),
         reader.logical_len(),
         reader.trailing_bytes().len(),
         reader.has_future_semantics(),

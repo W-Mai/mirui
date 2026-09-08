@@ -28,13 +28,13 @@ use entry::ChunkTableMeta;
 
 /// Parsed MIRX container header without payload allocation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ContainerHeader {
+pub(crate) enum ContainerHeader {
     Flat(FlatHeader),
     Chunk(ChunkFileHeader),
 }
 
 impl ContainerHeader {
-    pub const fn file(self) -> FileHeader {
+    pub(crate) const fn file(self) -> FileHeader {
         match self {
             Self::Flat(header) => header.file,
             Self::Chunk(header) => header.file,
@@ -153,12 +153,28 @@ impl<'a> Reader<'a> {
         })
     }
 
-    pub const fn header(&self) -> ContainerHeader {
+    #[cfg(test)]
+    const fn header(&self) -> ContainerHeader {
         self.header
     }
 
-    pub const fn file_header(&self) -> FileHeader {
+    pub(crate) const fn file_header(&self) -> FileHeader {
         self.header.file()
+    }
+
+    /// Returns the file format major version.
+    pub const fn version_major(&self) -> u8 {
+        self.file_header().version_major
+    }
+
+    /// Returns the file format minor version.
+    pub const fn version_minor(&self) -> u8 {
+        self.file_header().version_minor
+    }
+
+    /// Returns the uninterpreted file-level flag bits.
+    pub const fn file_flags(&self) -> u8 {
+        self.file_header().flags
     }
 
     pub const fn layout(&self) -> Layout {

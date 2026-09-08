@@ -10,14 +10,14 @@ use super::{
     ChunkSet, Compatibility, Document, DocumentState, EncodeOptions, FlatRecord, LayoutPolicy,
     PayloadStorage, PrimaryHintState, TrailingState,
 };
+use crate::header::FileHeader;
 use crate::image::ImageRef;
 use crate::media::{MediaPayload, MediaSectionKind};
 use crate::payload::image::{ImagePayloadError, ImagePayloadPlan};
 use crate::wire::{write_u16_le, write_u32_le};
 use crate::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFlags, ChunkType, EncodeError,
-    FILE_HEADER_LEN, FLAT_HEADER_LEN, FileHeader, Layout, PrimaryHints, VERSION_MAJOR,
-    VERSION_MINOR, crc32,
+    FILE_HEADER_LEN, FLAT_HEADER_LEN, Layout, PrimaryHints, VERSION_MAJOR, VERSION_MINOR, crc32,
 };
 
 #[cfg(test)]

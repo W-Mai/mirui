@@ -1,3 +1,4 @@
+#[cfg(test)]
 use crate::error::ParseError;
 
 pub const MAGIC: [u8; 4] = *b"MIRX";
@@ -44,6 +45,7 @@ pub struct FileHeader {
 }
 
 impl FileHeader {
+    #[cfg(test)]
     pub fn parse(buf: &[u8]) -> Result<Self, ParseError> {
         if buf.len() < FILE_HEADER_LEN {
             return Err(ParseError::Truncated);
@@ -114,7 +116,8 @@ impl ChunkEntry {
     /// Bit 0 marks critical chunks; unknown critical chunks must be rejected.
     pub const FLAG_CRITICAL: u16 = 1 << 0;
 
-    pub const fn is_critical(&self) -> bool {
+    #[cfg(test)]
+    pub(crate) const fn is_critical(&self) -> bool {
         self.chunk_flags & Self::FLAG_CRITICAL != 0
     }
 }

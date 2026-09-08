@@ -145,7 +145,8 @@ mod tests {
     use core::mem::{needs_drop, size_of};
 
     use super::*;
-    use crate::{ChunkType, Reader, chunk_type, crc32, encode_chunks};
+    use crate::header::chunk_type;
+    use crate::{ChunkType, Reader, crc32, encode_chunks};
 
     fn palette_payload(colors: &[u8]) -> Vec<u8> {
         assert!(colors.chunks_exact(COLOR_LEN).remainder().is_empty());

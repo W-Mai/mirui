@@ -44,10 +44,10 @@ pub use font::{
     FontSelectionError, FontView,
 };
 pub use format::ColorFormat;
-pub use header::{
-    CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkEntry, ChunkFileHeader, FILE_HEADER_LEN,
-    FLAT_HEADER_LEN, FileHeader, FlatHeader, Layout, MAGIC, VERSION_MAJOR, VERSION_MINOR,
-    chunk_type,
+pub use header::Layout;
+pub(crate) use header::{
+    CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, FILE_HEADER_LEN, FLAT_HEADER_LEN, VERSION_MAJOR,
+    VERSION_MINOR,
 };
 pub use media::CodingId;
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
@@ -67,9 +67,8 @@ pub use payload::palette::{
 };
 pub use payload::{ColorTableIter, ColorTableView};
 pub use reader::{
-    ChunkRef, ComplianceFinding, ContainerHeader, EntryIter, FindingIter, PayloadLimits,
-    PayloadLocation, PayloadValidationError, PayloadValidationFailure, ReadOptions, Reader,
-    TrailingBytesPolicy,
+    ChunkRef, ComplianceFinding, EntryIter, FindingIter, PayloadLimits, PayloadLocation,
+    PayloadValidationError, PayloadValidationFailure, ReadOptions, Reader, TrailingBytesPolicy,
 };
 pub use scene::{
     CodecError, CompositeMode, FillRule, GradientStop, GradientUnits, LineCap, LineJoin,
