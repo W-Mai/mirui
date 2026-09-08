@@ -1,6 +1,8 @@
-use crate::wire::{read_u32_le, write_u32_le};
+use crate::wire::read_u32_le;
+#[cfg(test)]
+use crate::wire::write_u32_le;
 
-pub const FRAME_TIMING_HEADER_LEN: usize = 4;
+pub(crate) const FRAME_TIMING_HEADER_LEN: usize = 4;
 const SPARSE_ENTRY_LEN: usize = 8;
 
 /// Physical representation selected for a nonempty FRAME_TIMING section.
@@ -21,7 +23,7 @@ pub struct FrameTiming<'a> {
 
 /// Authoring view that chooses the smaller dense or sparse timing column.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FrameTimingAsset<'a> {
+pub(crate) struct FrameTimingAsset<'a> {
     durations: &'a [u32],
     default_duration_ticks: u32,
     override_count: usize,
@@ -219,7 +221,7 @@ impl<'a> FrameTiming<'a> {
 }
 
 impl<'a> FrameTimingAsset<'a> {
-    pub fn new(
+    pub(super) fn new(
         durations: &'a [u32],
         default_duration_ticks: u32,
     ) -> Result<Self, FrameTimingError> {
@@ -249,15 +251,11 @@ impl<'a> FrameTimingAsset<'a> {
     }
 
     /// Returns true when every frame uses the sequence default and no section is emitted.
-    pub const fn is_empty(self) -> bool {
+    pub(super) const fn is_empty(self) -> bool {
         self.encoding.is_none()
     }
 
-    pub const fn frame_count(self) -> usize {
-        self.durations.len()
-    }
-
-    pub const fn encoding(self) -> Option<FrameTimingEncoding> {
+    pub(super) const fn encoding(self) -> Option<FrameTimingEncoding> {
         self.encoding
     }
 
@@ -269,7 +267,7 @@ impl<'a> FrameTimingAsset<'a> {
         self.default_duration_ticks
     }
 
-    pub fn encoded_len(self) -> usize {
+    pub(super) fn encoded_len(self) -> usize {
         match self.encoding {
             None => 0,
             Some(FrameTimingEncoding::Dense) => FRAME_TIMING_HEADER_LEN + self.durations.len() * 4,
@@ -280,7 +278,8 @@ impl<'a> FrameTimingAsset<'a> {
     }
 
     /// Writes the canonical nonempty section; an omitted table writes zero bytes.
-    pub fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameTimingError> {
+    #[cfg(test)]
+    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameTimingError> {
         let needed = self.encoded_len();
         if output.len() < needed {
             return Err(FrameTimingError::BufferTooSmall {

@@ -2,10 +2,11 @@ use alloc::vec::Vec;
 use core::ops::Range;
 
 use super::{
-    FRAME_SEQUENCE_RECORD_LEN, FrameComposition, FrameCompositionAsset, FrameCompositionError,
-    FrameCompositionOverride, FrameCompositionTable, FrameCounts, FrameMap, FrameMapError,
-    FrameSequence, FrameSequenceError, FrameTiming, FrameTimingAsset, FrameTimingEncoding,
-    FrameTimingError, KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError,
+    FrameComposition, FrameCompositionError, FrameCompositionOverride, FrameCompositionTable,
+    FrameCounts, FrameMap, FrameMapError, FrameSequence, FrameSequenceError, FrameTiming,
+    FrameTimingEncoding, FrameTimingError, KeyframeIndex, KeyframeIndexError,
+    composition::FrameCompositionAsset, keyframes::KeyframeIndexAsset,
+    sequence::FRAME_SEQUENCE_RECORD_LEN, timing::FrameTimingAsset,
 };
 
 /// Failure while validating or encoding a FRAMES asset.
@@ -1309,13 +1310,11 @@ pub enum FramesError {
 mod tests {
     use alloc::{vec, vec::Vec};
 
+    use super::super::frame_map::FrameMapAsset;
     use super::*;
     use crate::{
         coding::CodingId,
-        frames::{
-            BlendMode, DisposalMode, FrameCompositionAsset, FrameCompositionOverride,
-            FrameMapAsset, FrameTimingAsset, KeyframeIndexAsset,
-        },
+        frames::{BlendMode, DisposalMode, FrameCompositionOverride},
         image::{ColorDescription, CoverageError, SampleLayout, UnitGroup, UnitGroupRecord},
         media::{
             CodingRecord, DataIntegrity, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION,

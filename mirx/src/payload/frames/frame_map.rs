@@ -1,6 +1,8 @@
 use core::ops::Range;
 
-use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
+use crate::wire::{read_u16_le, read_u32_le};
+#[cfg(test)]
+use crate::wire::{write_u16_le, write_u32_le};
 
 /// Borrowed frame-to-group ranges stored as cumulative u16 or u32 endpoints.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -12,8 +14,9 @@ pub struct FrameMap<'a> {
 }
 
 /// Authoring view over cumulative group endpoints, one value per frame.
+#[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FrameMapAsset<'a> {
+pub(crate) struct FrameMapAsset<'a> {
     ends: &'a [u32],
     group_count: u32,
     width: MapWidth,
@@ -91,10 +94,6 @@ impl<'a> FrameMap<'a> {
         self.group_count
     }
 
-    pub const fn encoded_len(self) -> usize {
-        self.bytes.len()
-    }
-
     pub fn get(self, frame: u32) -> Option<Range<u32>> {
         if frame >= self.frame_count {
             return None;
@@ -126,8 +125,9 @@ impl<'a> IntoIterator for FrameMap<'a> {
     }
 }
 
+#[cfg(test)]
 impl<'a> FrameMapAsset<'a> {
-    pub fn new(ends: &'a [u32]) -> Result<Self, FrameMapError> {
+    pub(super) fn new(ends: &'a [u32]) -> Result<Self, FrameMapError> {
         if ends.is_empty() {
             return Err(FrameMapError::Empty);
         }
@@ -159,20 +159,12 @@ impl<'a> FrameMapAsset<'a> {
         })
     }
 
-    pub const fn frame_count(self) -> usize {
-        self.ends.len()
-    }
-
-    pub const fn group_count(self) -> u32 {
-        self.group_count
-    }
-
-    pub const fn encoded_len(self) -> usize {
+    pub(super) const fn encoded_len(self) -> usize {
         self.ends.len() * self.width.bytes()
     }
 
     /// Writes canonical cumulative endpoints; errors preserve the output.
-    pub fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameMapError> {
+    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameMapError> {
         let needed = self.encoded_len();
         if output.len() < needed {
             return Err(FrameMapError::BufferTooSmall {
@@ -237,7 +229,7 @@ impl<'a> FrameCounts<'a> {
         self.group_count
     }
 
-    pub const fn encoded_len(self) -> usize {
+    pub(super) const fn encoded_len(self) -> usize {
         self.counts.len() * self.width.bytes()
     }
 
@@ -246,7 +238,8 @@ impl<'a> FrameCounts<'a> {
     }
 
     /// Writes accumulated endpoints directly from counts without allocating.
-    pub fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameMapError> {
+    #[cfg(test)]
+    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameMapError> {
         let needed = self.encoded_len();
         if output.len() < needed {
             return Err(FrameMapError::BufferTooSmall {

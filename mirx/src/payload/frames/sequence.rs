@@ -1,6 +1,6 @@
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
-pub const FRAME_SEQUENCE_RECORD_LEN: usize = 20;
+pub(crate) const FRAME_SEQUENCE_RECORD_LEN: usize = 20;
 const MAX_TIMESCALE_HZ: u32 = 1_000_000;
 
 /// How decoded samples combine with the current presentation canvas.
@@ -136,7 +136,7 @@ impl FrameSequence {
     }
 
     /// Reads one complete canonical record without requiring aligned storage.
-    pub fn open(bytes: &[u8]) -> Result<Self, FrameSequenceError> {
+    pub(super) fn open(bytes: &[u8]) -> Result<Self, FrameSequenceError> {
         let bytes =
             bytes
                 .get(..FRAME_SEQUENCE_RECORD_LEN)
@@ -157,7 +157,7 @@ impl FrameSequence {
         Ok(sequence)
     }
 
-    pub fn encode_record(self) -> [u8; FRAME_SEQUENCE_RECORD_LEN] {
+    pub(super) fn encode_record(self) -> [u8; FRAME_SEQUENCE_RECORD_LEN] {
         let mut bytes = [0; FRAME_SEQUENCE_RECORD_LEN];
         write_u32_le(&mut bytes, 0, self.frame_count);
         write_u32_le(&mut bytes, 4, self.timescale_hz);

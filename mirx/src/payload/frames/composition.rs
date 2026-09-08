@@ -4,7 +4,7 @@ use crate::{
     wire::{read_u32_le, write_u32_le},
 };
 
-pub const FRAME_COMPOSITION_RECORD_LEN: usize = 24;
+pub(crate) const FRAME_COMPOSITION_RECORD_LEN: usize = 24;
 const HAS_REGION: u8 = 1;
 
 /// Resolved composition state for one presentation frame.
@@ -181,12 +181,12 @@ impl<'a> FrameCompositionTable<'a> {
 
 /// Validated native sparse composition overrides.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FrameCompositionAsset<'a> {
+pub(crate) struct FrameCompositionAsset<'a> {
     records: &'a [FrameCompositionOverride],
 }
 
 impl<'a> FrameCompositionAsset<'a> {
-    pub fn new(
+    pub(super) fn new(
         records: &'a [FrameCompositionOverride],
         sequence: FrameSequence,
         surface: SurfaceDescriptor,
@@ -206,15 +206,7 @@ impl<'a> FrameCompositionAsset<'a> {
         Ok(Self { records })
     }
 
-    pub const fn len(self) -> usize {
-        self.records.len()
-    }
-
-    pub const fn is_empty(self) -> bool {
-        false
-    }
-
-    pub const fn encoded_len(self) -> usize {
+    pub(super) const fn encoded_len(self) -> usize {
         self.records.len() * FRAME_COMPOSITION_RECORD_LEN
     }
 
@@ -223,7 +215,8 @@ impl<'a> FrameCompositionAsset<'a> {
     }
 
     /// Errors preserve the complete output buffer.
-    pub fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameCompositionError> {
+    #[cfg(test)]
+    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameCompositionError> {
         let needed = self.encoded_len();
         if output.len() < needed {
             return Err(FrameCompositionError::BufferTooSmall {

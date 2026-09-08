@@ -1,5 +1,7 @@
 use super::FrameSequence;
-use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
+use crate::wire::{read_u16_le, read_u32_le};
+#[cfg(test)]
+use crate::wire::{write_u16_le, write_u32_le};
 
 /// Borrowed sorted recovery points for bounded random access.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -11,7 +13,7 @@ pub struct KeyframeIndex<'a> {
 
 /// Validated native recovery points before canonical wire emission.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct KeyframeIndexAsset<'a> {
+pub(crate) struct KeyframeIndexAsset<'a> {
     frames: &'a [u32],
     sequence: FrameSequence,
     width: IndexWidth,
@@ -105,7 +107,10 @@ impl<'a> IntoIterator for KeyframeIndex<'a> {
 }
 
 impl<'a> KeyframeIndexAsset<'a> {
-    pub fn new(frames: &'a [u32], sequence: FrameSequence) -> Result<Self, KeyframeIndexError> {
+    pub(super) fn new(
+        frames: &'a [u32],
+        sequence: FrameSequence,
+    ) -> Result<Self, KeyframeIndexError> {
         let width = IndexWidth::for_sequence(sequence);
         validate(frames.iter().copied(), sequence)?;
         frames
@@ -119,15 +124,7 @@ impl<'a> KeyframeIndexAsset<'a> {
         })
     }
 
-    pub const fn len(self) -> usize {
-        self.frames.len()
-    }
-
-    pub const fn is_empty(self) -> bool {
-        false
-    }
-
-    pub const fn encoded_len(self) -> usize {
+    pub(super) const fn encoded_len(self) -> usize {
         self.frames.len() * self.width.bytes()
     }
 
@@ -140,7 +137,8 @@ impl<'a> KeyframeIndexAsset<'a> {
     }
 
     /// Writes canonical indices after validating capacity; errors preserve output.
-    pub fn encode_into(self, output: &mut [u8]) -> Result<usize, KeyframeIndexError> {
+    #[cfg(test)]
+    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, KeyframeIndexError> {
         let needed = self.encoded_len();
         if output.len() < needed {
             return Err(KeyframeIndexError::BufferTooSmall {
@@ -156,10 +154,6 @@ impl<'a> KeyframeIndexAsset<'a> {
             }
         }
         Ok(needed)
-    }
-
-    pub const fn sequence(self) -> FrameSequence {
-        self.sequence
     }
 }
 

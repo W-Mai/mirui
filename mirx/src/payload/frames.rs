@@ -23,15 +23,14 @@ mod timing;
 
 pub use crate::error::FramesAccessError;
 pub use composition::{
-    FRAME_COMPOSITION_RECORD_LEN, FrameComposition, FrameCompositionAsset, FrameCompositionError,
-    FrameCompositionOverride, FrameCompositionTable,
+    FrameComposition, FrameCompositionError, FrameCompositionOverride, FrameCompositionTable,
 };
 pub use encode::{
     EncodedFrames, FrameEncoding, FrameEncodingSet, FrameWriteError, FrameWriteReport,
     FramesEncoder,
 };
-pub use frame_map::{FrameCounts, FrameMap, FrameMapAsset, FrameMapError, FrameMapIter};
-pub use keyframes::{KeyframeIndex, KeyframeIndexAsset, KeyframeIndexError, KeyframeIter};
+pub use frame_map::{FrameCounts, FrameMap, FrameMapError, FrameMapIter};
+pub use keyframes::{KeyframeIndex, KeyframeIndexError, KeyframeIter};
 pub use playback::{
     FrameDecodeError, FrameDecodePlan, FrameDisposalPlan, FrameSession, FramesPlaybackPlan,
     PlaybackStorage,
@@ -44,10 +43,6 @@ pub use selection::{
     CandidateRejection, FrameCandidate, FrameChoice, FramePolicy, FrameSelectionError,
     FrameSelector, FrameStorage,
 };
-pub use sequence::{
-    BlendMode, DisposalMode, FRAME_SEQUENCE_RECORD_LEN, FrameSequence, FrameSequenceError,
-};
+pub use sequence::{BlendMode, DisposalMode, FrameSequence, FrameSequenceError};
 pub use timeline::{FramePosition, FrameTimeline};
-pub use timing::{
-    FRAME_TIMING_HEADER_LEN, FrameTiming, FrameTimingAsset, FrameTimingEncoding, FrameTimingError,
-};
+pub use timing::{FrameTiming, FrameTimingEncoding, FrameTimingError};

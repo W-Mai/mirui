@@ -1,0 +1,82 @@
+error[E0432]: unresolved imports `mirx::frames::FRAME_COMPOSITION_RECORD_LEN`, `mirx::frames::FRAME_SEQUENCE_RECORD_LEN`, `mirx::frames::FRAME_TIMING_HEADER_LEN`, `mirx::frames::FrameCompositionAsset`, `mirx::frames::FrameMapAsset`, `mirx::frames::FrameTimingAsset`, `mirx::frames::KeyframeIndexAsset`
+ --> tests/public_api_fail/frames_record_authoring.rs:2:5
+  |
+2 |     FRAME_COMPOSITION_RECORD_LEN, FRAME_SEQUENCE_RECORD_LEN, FRAME_TIMING_HEADER_LEN,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^ no `FRAME_TIMING_HEADER_LEN` in `frames`
+  |     |                             |
+  |     |                             no `FRAME_SEQUENCE_RECORD_LEN` in `frames`
+  |     no `FRAME_COMPOSITION_RECORD_LEN` in `frames`
+3 |     FrameCompositionAsset, FrameCounts, FrameMap, FrameMapAsset, FrameSequence,
+  |     ^^^^^^^^^^^^^^^^^^^^^                         ^^^^^^^^^^^^^ no `FrameMapAsset` in `frames`
+  |     |
+  |     no `FrameCompositionAsset` in `frames`
+4 |     FrameTimingAsset, KeyframeIndexAsset,
+  |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^ no `KeyframeIndexAsset` in `frames`
+  |     |
+  |     no `FrameTimingAsset` in `frames`
+  |
+help: a similar name exists in the module
+  |
+3 -     FrameCompositionAsset, FrameCounts, FrameMap, FrameMapAsset, FrameSequence,
+3 +     FrameComposition, FrameCounts, FrameMap, FrameMapAsset, FrameSequence,
+  |
+help: a similar name exists in the module
+  |
+3 -     FrameCompositionAsset, FrameCounts, FrameMap, FrameMapAsset, FrameSequence,
+3 +     FrameCompositionAsset, FrameCounts, FrameMap, FramesAsset, FrameSequence,
+  |
+help: a similar name exists in the module
+  |
+4 -     FrameTimingAsset, KeyframeIndexAsset,
+4 +     FrameTiming, KeyframeIndexAsset,
+  |
+help: a similar name exists in the module
+  |
+4 -     FrameTimingAsset, KeyframeIndexAsset,
+4 +     FrameTimingAsset, KeyframeIndex,
+  |
+
+error[E0624]: associated function `open` is private
+  --> tests/public_api_fail/frames_record_authoring.rs:12:28
+   |
+12 |     let _ = FrameSequence::open;
+   |                            ^^^^ private associated function
+   |
+  ::: src/payload/frames/sequence.rs
+   |
+   |     pub(super) fn open(bytes: &[u8]) -> Result<Self, FrameSequenceError> {
+   |     -------------------------------------------------------------------- private associated function defined here
+
+error[E0624]: method `encode_record` is private
+  --> tests/public_api_fail/frames_record_authoring.rs:13:28
+   |
+13 |     let _ = FrameSequence::encode_record;
+   |                            ^^^^^^^^^^^^^ private method
+   |
+  ::: src/payload/frames/sequence.rs
+   |
+   |     pub(super) fn encode_record(self) -> [u8; FRAME_SEQUENCE_RECORD_LEN] {
+   |     -------------------------------------------------------------------- private method defined here
+
+error[E0624]: method `encoded_len` is private
+  --> tests/public_api_fail/frames_record_authoring.rs:14:26
+   |
+14 |     let _ = FrameCounts::encoded_len;
+   |                          ^^^^^^^^^^^ private method
+   |
+  ::: src/payload/frames/frame_map.rs
+   |
+   |     pub(super) const fn encoded_len(self) -> usize {
+   |     ---------------------------------------------- private method defined here
+
+error[E0599]: no function or associated item named `encode_into` found for struct `FrameCounts<'a>` in the current scope
+  --> tests/public_api_fail/frames_record_authoring.rs:15:26
+   |
+15 |     let _ = FrameCounts::encode_into;
+   |                          ^^^^^^^^^^^ function or associated item not found in `FrameCounts<'_>`
+
+error[E0599]: no function or associated item named `encoded_len` found for struct `mirx::frames::FrameMap<'a>` in the current scope
+  --> tests/public_api_fail/frames_record_authoring.rs:16:23
+   |
+16 |     let _ = FrameMap::encoded_len;
+   |                       ^^^^^^^^^^^ function or associated item not found in `mirx::frames::FrameMap<'_>`
