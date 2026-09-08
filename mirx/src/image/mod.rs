@@ -73,7 +73,8 @@ mod units;
 mod view;
 
 pub use access::AccessCapabilities;
-pub use atlas::{ATLAS_REGION_LEN, AtlasMap, AtlasMapError, AtlasRegions};
+pub(crate) use atlas::ATLAS_REGION_LEN;
+pub use atlas::{AtlasMap, AtlasMapError, AtlasRegions};
 pub use borrowed::{
     ImageSource, PlaneAccessError, PlaneRows, SurfaceCopyError, SurfacePlanes, SurfaceView,
 };
@@ -93,8 +94,9 @@ pub use execution::{
 };
 pub use grid::{Region, RegionError, TileGrid, TileGridError, Tiles};
 pub use layout::{PlaneGeometries, PlaneGeometry, PlaneRole, SampleLayout};
+pub(crate) use memory::PLANE_RECORD_LEN;
 pub use memory::{
-    PLANE_RECORD_LEN, PlaneMemoryBuilder, PlaneMemoryError, PlaneMemoryFlags, PlaneMemoryLayout,
+    PlaneMemoryBuilder, PlaneMemoryError, PlaneMemoryFlags, PlaneMemoryLayout,
     PlaneMemoryRecordError,
 };
 pub use plan::{
@@ -103,9 +105,8 @@ pub use plan::{
 };
 pub use reference::{ImageReadError, ImageRef};
 pub use region::RegionMemoryPlan;
-pub use surface::{
-    SURFACE_RECORD_LEN, SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError,
-};
+pub(crate) use surface::SURFACE_RECORD_LEN;
+pub use surface::{SurfaceDescriptor, SurfaceError, SurfaceFlags, SurfaceRecordError};
 pub(crate) use units::ScalarProfile;
 pub use units::{
     DecodeUnitRef, DecodeUnits, DecodedUnit, EncodedGroupError, GroupPlanes, ReferenceMode,

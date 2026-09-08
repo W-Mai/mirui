@@ -6,8 +6,8 @@ mod support;
 
 use mirx::frames::{FrameSequence, FramesEncoder};
 use mirx::image::{
-    ColorDescription, ColorFormat, ImageAsset, PLANE_RECORD_LEN, PlaneMemoryLayout, RawImageAsset,
-    RawImageView, SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor, SurfaceRequirements,
+    ColorDescription, ColorFormat, ImageAsset, PlaneMemoryLayout, RawImageAsset, RawImageView,
+    SampleLayout, SurfaceDescriptor, SurfaceRequirements,
 };
 use mirx::meta::{Meta, MetaEntry};
 use mirx::palette::Palette;
@@ -578,7 +578,7 @@ fn decoded_units_place_samples_in_shared_surface_storage_without_allocation() {
 }
 
 #[test]
-fn native_wire_atlas_and_implicit_glyph_maps_allocate_nothing() {
+fn native_stored_atlas_and_implicit_glyph_maps_allocate_nothing() {
     use mirx::{
         font::GlyphMap,
         image::{AtlasMap, Region},
@@ -587,10 +587,12 @@ fn native_wire_atlas_and_implicit_glyph_maps_allocate_nothing() {
         Region::new(1, 2, 3, 4).unwrap(),
         Region::new(0, 0, 0, 0).unwrap(),
     ];
-    let mut bytes = [0; 32];
+    let bytes = [
+        1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0,
+    ];
     let (region, allocations) = count_allocations(|| {
         let native = AtlasMap::new(7, 9, &regions).unwrap();
-        native.encode_into(&mut bytes).unwrap();
         let wire = AtlasMap::open(7, 9, &bytes).unwrap();
         assert_eq!(wire.iter().count(), 2);
         assert_eq!(wire.get(1), native.get(1));
@@ -1391,42 +1393,6 @@ fn image_plane_geometry_allocates_nothing() {
             .sum::<u32>()
     });
     assert_eq!(observed, 1_278);
-    assert_eq!(allocations, 0);
-}
-
-#[test]
-fn image_surface_record_round_trip_allocates_nothing() {
-    let surface = SurfaceDescriptor::new(
-        319,
-        181,
-        SampleLayout::NV12,
-        ColorDescription::BT709_YUV_LIMITED,
-    )
-    .unwrap();
-    let mut record = [0; SURFACE_RECORD_LEN];
-    surface.encode_record_into(&mut record).unwrap();
-
-    let (observed, allocations) =
-        count_allocations(|| SurfaceDescriptor::from_record(&record).unwrap());
-    assert_eq!(observed, surface);
-    assert_eq!(allocations, 0);
-}
-
-#[test]
-fn image_plane_memory_record_round_trip_allocates_nothing() {
-    let plane = SampleLayout::RGBA8888.plane_geometry(319, 181, 0).unwrap();
-    let memory = PlaneMemoryLayout::builder(plane)
-        .with_allocation_extent(320, 192)
-        .with_stride(1_280)
-        .with_alignment(mirx::types::ByteAlignment::new(64).unwrap())
-        .build()
-        .unwrap();
-    let mut record = [0; PLANE_RECORD_LEN];
-    memory.encode_record_into(&mut record).unwrap();
-
-    let (observed, allocations) =
-        count_allocations(|| PlaneMemoryLayout::from_record(plane, &record).unwrap());
-    assert_eq!(observed, memory);
     assert_eq!(allocations, 0);
 }
 

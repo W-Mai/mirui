@@ -10,7 +10,12 @@ fn native_and_unaligned_wire_maps_have_identical_access() {
     ];
     let native = AtlasMap::new(7, 9, &regions).unwrap();
     let mut storage = [0x5a; 2 + 4 * ATLAS_REGION_LEN];
-    native.encode_into(&mut storage[1..]).unwrap();
+    for (record, region) in storage[1..].chunks_exact_mut(ATLAS_REGION_LEN).zip(regions) {
+        record[0..4].copy_from_slice(&region.x().to_le_bytes());
+        record[4..8].copy_from_slice(&region.y().to_le_bytes());
+        record[8..12].copy_from_slice(&region.width().to_le_bytes());
+        record[12..16].copy_from_slice(&region.height().to_le_bytes());
+    }
     let wire_end = storage.len() - 1;
     let wire = AtlasMap::open(7, 9, &storage[1..wire_end]).unwrap();
 
@@ -29,29 +34,6 @@ fn native_and_unaligned_wire_maps_have_identical_access() {
         assert_eq!(iter.nth_back(0), Some(regions[2]));
         assert_eq!(iter.next(), None);
     }
-}
-
-#[test]
-fn canonical_encoding_checks_capacity_before_writing() {
-    let regions = [Region::new(2, 3, 4, 5).unwrap()];
-    let map = AtlasMap::new(8, 8, &regions).unwrap();
-    let mut output = [0x5a; ATLAS_REGION_LEN + 1];
-    assert_eq!(map.encode_into(&mut output), Ok(ATLAS_REGION_LEN));
-    assert_eq!(output[ATLAS_REGION_LEN], 0x5a);
-    assert_eq!(
-        &output[..ATLAS_REGION_LEN],
-        &[2, 0, 0, 0, 3, 0, 0, 0, 4, 0, 0, 0, 5, 0, 0, 0]
-    );
-
-    let mut short = [0x5a; ATLAS_REGION_LEN - 1];
-    assert_eq!(
-        map.encode_into(&mut short),
-        Err(AtlasMapError::BufferTooSmall {
-            needed: ATLAS_REGION_LEN,
-            available: ATLAS_REGION_LEN - 1,
-        })
-    );
-    assert_eq!(short, [0x5a; ATLAS_REGION_LEN - 1]);
 }
 
 #[test]
@@ -104,5 +86,4 @@ fn empty_map_retains_its_extent() {
     let map = AtlasMap::open(0, u32::MAX, &[]).unwrap();
     assert_eq!((map.width(), map.height()), (0, u32::MAX));
     assert!(map.is_empty());
-    assert_eq!(map.encoded_len(), 0);
 }

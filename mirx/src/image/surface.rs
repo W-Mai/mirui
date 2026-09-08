@@ -4,7 +4,7 @@ use super::{
 };
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
-pub const SURFACE_RECORD_LEN: usize = 32;
+pub(crate) const SURFACE_RECORD_LEN: usize = 32;
 
 /// Open flags attached to one decoded surface descriptor.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -153,7 +153,7 @@ impl SurfaceDescriptor {
     /// An all-zero color tuple expands to the canonical layout default for
     /// alpha-only and RGB-like surfaces. YUV surfaces have no implicit color
     /// default and reject the same tuple.
-    pub fn from_record(bytes: &[u8]) -> Result<Self, SurfaceRecordError> {
+    pub(crate) fn from_record(bytes: &[u8]) -> Result<Self, SurfaceRecordError> {
         if bytes.len() < SURFACE_RECORD_LEN {
             return Err(SurfaceRecordError::Truncated {
                 needed: SURFACE_RECORD_LEN,
@@ -205,7 +205,7 @@ impl SurfaceDescriptor {
     ///
     /// Unused bytes in `out` are preserved. Common alpha and sRGB color
     /// descriptions plus square pixels use their zero-valued wire defaults.
-    pub fn encode_record_into(&self, out: &mut [u8]) -> Result<usize, SurfaceRecordError> {
+    pub(crate) fn encode_record_into(&self, out: &mut [u8]) -> Result<usize, SurfaceRecordError> {
         if out.len() < SURFACE_RECORD_LEN {
             return Err(SurfaceRecordError::BufferTooSmall {
                 needed: SURFACE_RECORD_LEN,

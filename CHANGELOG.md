@@ -56,6 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Semantic MIRX FRAMES authoring.** `FramesAsset::new` accepts borrowed `UnitGroup` values and per-frame group counts, sharing canonical coding, index and aligned DATA construction with IMAGE authoring.
 - **Private MIRX group storage.** Group records, sparse-map encodings and stored range-index constructors are internal; typed readers expose validated semantic groups, selections and ranges. Group storage failures are reported through `EncodedGroupError`.
 - **Private MIRX FONT record storage.** Record lengths, byte serializers and section-ordinal builders are internal; `FontAsset` and `GlyphSurfaceAsset` provide semantic authoring while typed views retain read-only record projections.
+- **Private MIRX IMAGE record storage.** Surface, plane-memory and atlas record lengths and serializers are internal; semantic descriptors, builders and maps remain available to typed readers and asset writers.
 
 ### Added
 

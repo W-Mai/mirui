@@ -1,0 +1,97 @@
+error[E0603]: constant `ATLAS_REGION_LEN` is private
+ --> tests/public_api_fail/image_record_authoring.rs:2:5
+  |
+2 |     ATLAS_REGION_LEN, AtlasMap, PLANE_RECORD_LEN, PlaneMemoryLayout, SURFACE_RECORD_LEN,
+  |     ^^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `ATLAS_REGION_LEN` is defined here
+ --> src/image/mod.rs
+  |
+  | pub(crate) use atlas::ATLAS_REGION_LEN;
+  |                ^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: constant `PLANE_RECORD_LEN` is private
+ --> tests/public_api_fail/image_record_authoring.rs:2:33
+  |
+2 |     ATLAS_REGION_LEN, AtlasMap, PLANE_RECORD_LEN, PlaneMemoryLayout, SURFACE_RECORD_LEN,
+  |                                 ^^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `PLANE_RECORD_LEN` is defined here
+ --> src/image/mod.rs
+  |
+  | pub(crate) use memory::PLANE_RECORD_LEN;
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: constant `SURFACE_RECORD_LEN` is private
+ --> tests/public_api_fail/image_record_authoring.rs:2:70
+  |
+2 |     ATLAS_REGION_LEN, AtlasMap, PLANE_RECORD_LEN, PlaneMemoryLayout, SURFACE_RECORD_LEN,
+  |                                                                      ^^^^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `SURFACE_RECORD_LEN` is defined here
+ --> src/image/mod.rs
+  |
+  | pub(crate) use surface::SURFACE_RECORD_LEN;
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0599]: no function or associated item named `encoded_len` found for struct `mirx::image::AtlasMap<'a>` in the current scope
+ --> tests/public_api_fail/image_record_authoring.rs:7:23
+  |
+7 |     let _ = AtlasMap::encoded_len;
+  |                       ^^^^^^^^^^^ function or associated item not found in `mirx::image::AtlasMap<'_>`
+
+error[E0599]: no function or associated item named `encode_into` found for struct `mirx::image::AtlasMap<'a>` in the current scope
+ --> tests/public_api_fail/image_record_authoring.rs:8:23
+  |
+8 |     let _ = AtlasMap::encode_into;
+  |                       ^^^^^^^^^^^ function or associated item not found in `mirx::image::AtlasMap<'_>`
+
+error[E0624]: associated function `from_record` is private
+ --> tests/public_api_fail/image_record_authoring.rs:9:32
+  |
+9 |       let _ = PlaneMemoryLayout::from_record;
+  |                                  ^^^^^^^^^^^ private associated function
+  |
+ ::: src/image/memory.rs
+  |
+  | /     pub(crate) fn from_record(
+  | |         plane: PlaneGeometry,
+  | |         bytes: &[u8],
+  | |     ) -> Result<Self, PlaneMemoryRecordError> {
+  | |_____________________________________________- private associated function defined here
+
+error[E0624]: method `encode_record_into` is private
+  --> tests/public_api_fail/image_record_authoring.rs:10:32
+   |
+10 |       let _ = PlaneMemoryLayout::encode_record_into;
+   |                                  ^^^^^^^^^^^^^^^^^^ private method
+   |
+  ::: src/image/memory.rs
+   |
+   | /     pub(crate) fn encode_record_into(
+   | |         &self,
+   | |         out: &mut [u8],
+   | |     ) -> Result<usize, PlaneMemoryRecordError> {
+   | |______________________________________________- private method defined here
+
+error[E0624]: associated function `from_record` is private
+  --> tests/public_api_fail/image_record_authoring.rs:11:32
+   |
+11 |     let _ = SurfaceDescriptor::from_record;
+   |                                ^^^^^^^^^^^ private associated function
+   |
+  ::: src/image/surface.rs
+   |
+   |     pub(crate) fn from_record(bytes: &[u8]) -> Result<Self, SurfaceRecordError> {
+   |     --------------------------------------------------------------------------- private associated function defined here
+
+error[E0624]: method `encode_record_into` is private
+  --> tests/public_api_fail/image_record_authoring.rs:12:32
+   |
+12 |     let _ = SurfaceDescriptor::encode_record_into;
+   |                                ^^^^^^^^^^^^^^^^^^ private method
+   |
+  ::: src/image/surface.rs
+   |
+   |     pub(crate) fn encode_record_into(&self, out: &mut [u8]) -> Result<usize, SurfaceRecordError> {
+   |     -------------------------------------------------------------------------------------------- private method defined here

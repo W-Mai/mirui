@@ -84,7 +84,7 @@ IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `ChunkRef::decode_
 
 Encoded representations reuse shared coding and group tables. Caller-owned group slots prepare exact glyph plans with bounded unit workspace, partition-aware integrity, sub-byte crops and independently aligned output. [Encoded glyph regions](docs/encoded-glyphs.md) describes whole-stream versus tiled memory costs and metadata lifetimes.
 
-`font::GlyphMap` derives fixed GlyphMajor cells without map bytes or borrows explicit Atlas2D rectangles. Native and wire maps share checked lookup and encoding without repeating per-glyph storage rules; see [glyph region maps](docs/glyph-maps.md).
+`font::GlyphMap` derives fixed GlyphMajor cells without map bytes or borrows explicit Atlas2D rectangles. Native and stored maps share checked lookup without repeating per-glyph storage rules; typed asset writers own record serialization. See [glyph region maps](docs/glyph-maps.md).
 
 `font::RawGlyphs` binds those maps to scalar sample storage. A shared `PlaneMemoryLayout` describes each independently aligned cell or the complete atlas. Constant-time lookup returns a `GlyphRaster`; its exact region copies into caller-owned output through the image memory and stride contract, without allocating or retaining map metadata. [Borrowed glyph storage](docs/glyph-storage.md) covers cell gaps, sub-byte atlas origins and source/output alignment.
 

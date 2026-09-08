@@ -3,9 +3,9 @@
 use core::iter::FusedIterator;
 
 use super::{Region, RegionError};
-use crate::wire::{read_u32_le, write_u32_le};
+use crate::wire::read_u32_le;
 
-pub const ATLAS_REGION_LEN: usize = 16;
+pub(crate) const ATLAS_REGION_LEN: usize = 16;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Records<'a> {
@@ -130,33 +130,6 @@ impl<'a> AtlasMap<'a> {
             back: self.len(),
         }
     }
-
-    pub fn encoded_len(self) -> usize {
-        self.records.len() * ATLAS_REGION_LEN
-    }
-
-    /// Writes canonical records while preserving bytes beyond the returned length.
-    pub fn encode_into(self, out: &mut [u8]) -> Result<usize, AtlasMapError> {
-        let needed = self.encoded_len();
-        if out.len() < needed {
-            return Err(AtlasMapError::BufferTooSmall {
-                needed,
-                available: out.len(),
-            });
-        }
-        match self.records {
-            Records::Wire(bytes) => out[..needed].copy_from_slice(bytes),
-            Records::Native(_) => {
-                for (record, region) in out[..needed].chunks_exact_mut(ATLAS_REGION_LEN).zip(self) {
-                    write_u32_le(record, 0, region.x());
-                    write_u32_le(record, 4, region.y());
-                    write_u32_le(record, 8, region.width());
-                    write_u32_le(record, 12, region.height());
-                }
-            }
-        }
-        Ok(needed)
-    }
 }
 
 impl<'a> IntoIterator for AtlasMap<'a> {
@@ -243,7 +216,6 @@ pub enum AtlasMapError {
     PartialRecord { byte_len: usize },
     InvalidRegion { index: usize, error: RegionError },
     NonCanonicalEmpty { index: usize },
-    BufferTooSmall { needed: usize, available: usize },
 }
 
 #[cfg(test)]

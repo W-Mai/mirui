@@ -5,7 +5,7 @@ use crate::ByteAlignment;
 use crate::format::minimum_stride_for_bits;
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
-pub const PLANE_RECORD_LEN: usize = 24;
+pub(crate) const PLANE_RECORD_LEN: usize = 24;
 
 /// Open flags attached to one physical plane-memory record.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
@@ -138,7 +138,10 @@ impl PlaneMemoryLayout {
 
     /// Decodes and validates one fixed-width PLANES section record against its
     /// derived logical plane.
-    pub fn from_record(plane: PlaneGeometry, bytes: &[u8]) -> Result<Self, PlaneMemoryRecordError> {
+    pub(crate) fn from_record(
+        plane: PlaneGeometry,
+        bytes: &[u8],
+    ) -> Result<Self, PlaneMemoryRecordError> {
         if bytes.len() < PLANE_RECORD_LEN {
             return Err(PlaneMemoryRecordError::Truncated {
                 needed: PLANE_RECORD_LEN,
@@ -181,7 +184,10 @@ impl PlaneMemoryLayout {
 
     /// Encodes the canonical 24-byte PLANES section record into `out`.
     /// Unused bytes in `out` are preserved.
-    pub fn encode_record_into(&self, out: &mut [u8]) -> Result<usize, PlaneMemoryRecordError> {
+    pub(crate) fn encode_record_into(
+        &self,
+        out: &mut [u8],
+    ) -> Result<usize, PlaneMemoryRecordError> {
         if out.len() < PLANE_RECORD_LEN {
             return Err(PlaneMemoryRecordError::BufferTooSmall {
                 needed: PLANE_RECORD_LEN,
