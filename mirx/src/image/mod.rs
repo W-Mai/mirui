@@ -43,6 +43,7 @@
 pub(crate) mod test_support;
 
 mod access;
+mod atlas;
 mod borrowed;
 mod color;
 mod color_table;
@@ -66,6 +67,7 @@ mod units;
 mod view;
 
 pub use access::AccessCapabilities;
+pub use atlas::{ATLAS_REGION_LEN, AtlasMap, AtlasMapError, AtlasRegions};
 pub use borrowed::{
     ImageSource, PlaneAccessError, PlaneRows, SurfaceCopyError, SurfacePlanes, SurfaceView,
 };

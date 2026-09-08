@@ -2,10 +2,11 @@
 
 use core::iter::FusedIterator;
 
-use crate::image::{Region, RegionError, TileGrid, TileGridError};
-use crate::wire::{read_u32_le, write_u32_le};
+use crate::image::{
+    ATLAS_REGION_LEN, AtlasMap, AtlasMapError, Region, RegionError, TileGrid, TileGridError,
+};
 
-pub const GLYPH_REGION_LEN: usize = 16;
+pub const GLYPH_REGION_LEN: usize = ATLAS_REGION_LEN;
 
 /// Logical raster organization, independent of coding and physical alignment.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -20,89 +21,7 @@ pub enum GlyphPacking {
 #[derive(Clone, Copy, Debug)]
 enum MapSource<'a> {
     Grid(TileGrid),
-    Atlas {
-        width: u32,
-        height: u32,
-        records: AtlasRecords<'a>,
-    },
-}
-
-#[derive(Clone, Copy, Debug)]
-enum AtlasRecords<'a> {
-    Native(&'a [Region]),
-    Wire(&'a [u8]),
-}
-
-impl AtlasRecords<'_> {
-    fn len(self) -> usize {
-        match self {
-            Self::Native(regions) => regions.len(),
-            Self::Wire(bytes) => bytes.len() / GLYPH_REGION_LEN,
-        }
-    }
-
-    fn get(self, index: usize) -> Option<Result<Region, RegionError>> {
-        match self {
-            Self::Native(regions) => regions.get(index).copied().map(Ok),
-            Self::Wire(bytes) => {
-                if index >= self.len() {
-                    return None;
-                }
-                let offset = index * GLYPH_REGION_LEN;
-                Some(Region::new(
-                    read_u32_le(bytes, offset).unwrap(),
-                    read_u32_le(bytes, offset + 4).unwrap(),
-                    read_u32_le(bytes, offset + 8).unwrap(),
-                    read_u32_le(bytes, offset + 12).unwrap(),
-                ))
-            }
-        }
-    }
-
-    fn fields(self, index: usize) -> Option<(u32, u32, u32, u32)> {
-        match self {
-            Self::Native(regions) => regions
-                .get(index)
-                .map(|region| (region.x(), region.y(), region.width(), region.height())),
-            Self::Wire(bytes) => {
-                let offset = index.checked_mul(GLYPH_REGION_LEN)?;
-                Some((
-                    read_u32_le(bytes, offset)?,
-                    read_u32_le(bytes, offset + 4)?,
-                    read_u32_le(bytes, offset + 8)?,
-                    read_u32_le(bytes, offset + 12)?,
-                ))
-            }
-        }
-    }
-
-    fn validate(self, width: u32, height: u32) -> Result<(), GlyphMapError> {
-        let size = self
-            .len()
-            .checked_mul(GLYPH_REGION_LEN)
-            .ok_or(GlyphMapError::SizeOverflow)?;
-        u32::try_from(size).map_err(|_| GlyphMapError::SizeOverflow)?;
-        for index in 0..self.len() {
-            let (x, y, region_width, region_height) =
-                self.fields(index).expect("valid record index");
-            if (region_width == 0 || region_height == 0)
-                && (x != 0 || y != 0 || region_width != 0 || region_height != 0)
-            {
-                return Err(GlyphMapError::NonCanonicalEmpty { index });
-            }
-            let region = self
-                .get(index)
-                .expect("valid record index")
-                .map_err(|error| GlyphMapError::InvalidRegion { index, error })?;
-            if region.right() > width || region.bottom() > height {
-                return Err(GlyphMapError::InvalidRegion {
-                    index,
-                    error: RegionError::OutOfBounds,
-                });
-            }
-        }
-        Ok(())
-    }
+    Atlas(AtlasMap<'a>),
 }
 
 /// Validated glyph-ordinal mapping with allocation-free native and wire access.
@@ -135,7 +54,11 @@ impl<'a> GlyphMap<'a> {
 
     /// Borrows native rectangles and validates every region against the atlas.
     pub fn atlas(width: u32, height: u32, regions: &'a [Region]) -> Result<Self, GlyphMapError> {
-        Self::from_atlas(width, height, AtlasRecords::Native(regions))
+        AtlasMap::new(width, height, regions)
+            .map(|map| Self {
+                source: MapSource::Atlas(map),
+            })
+            .map_err(map_atlas_error)
     }
 
     /// Borrows an exact atlas-map body of little-endian 16-byte records.
@@ -143,62 +66,45 @@ impl<'a> GlyphMap<'a> {
     /// Count derives from byte length. Empty maps remain Atlas2D, not implicit
     /// GlyphMajor. No record alignment or decoded-array allocation is required.
     pub fn from_records(width: u32, height: u32, bytes: &'a [u8]) -> Result<Self, GlyphMapError> {
-        u32::try_from(bytes.len()).map_err(|_| GlyphMapError::SizeOverflow)?;
-        if bytes.len() % GLYPH_REGION_LEN != 0 {
-            return Err(GlyphMapError::PartialRecord {
-                byte_len: bytes.len(),
-            });
-        }
-        Self::from_atlas(width, height, AtlasRecords::Wire(bytes))
-    }
-
-    fn from_atlas(
-        width: u32,
-        height: u32,
-        records: AtlasRecords<'a>,
-    ) -> Result<Self, GlyphMapError> {
-        records.validate(width, height)?;
-        Ok(Self {
-            source: MapSource::Atlas {
-                width,
-                height,
-                records,
-            },
-        })
+        AtlasMap::open(width, height, bytes)
+            .map(|map| Self {
+                source: MapSource::Atlas(map),
+            })
+            .map_err(map_atlas_error)
     }
 
     pub const fn packing(self) -> GlyphPacking {
         match self.source {
             MapSource::Grid(_) => GlyphPacking::GlyphMajor,
-            MapSource::Atlas { .. } => GlyphPacking::Atlas2D,
+            MapSource::Atlas(_) => GlyphPacking::Atlas2D,
         }
     }
 
     pub const fn width(self) -> u32 {
         match self.source {
             MapSource::Grid(grid) => grid.width(),
-            MapSource::Atlas { width, .. } => width,
+            MapSource::Atlas(map) => map.width(),
         }
     }
 
     pub const fn height(self) -> u32 {
         match self.source {
             MapSource::Grid(grid) => grid.height(),
-            MapSource::Atlas { height, .. } => height,
+            MapSource::Atlas(map) => map.height(),
         }
     }
 
     pub const fn cell_extent(self) -> Option<(u32, u32)> {
         match self.source {
             MapSource::Grid(grid) => Some((grid.tile_width(), grid.tile_height())),
-            MapSource::Atlas { .. } => None,
+            MapSource::Atlas(_) => None,
         }
     }
 
     pub fn len(self) -> usize {
         match self.source {
             MapSource::Grid(grid) => grid.len(),
-            MapSource::Atlas { records, .. } => records.len(),
+            MapSource::Atlas(map) => map.len(),
         }
     }
 
@@ -209,9 +115,7 @@ impl<'a> GlyphMap<'a> {
     pub fn get(self, index: usize) -> Option<Region> {
         match self.source {
             MapSource::Grid(grid) => grid.get(index),
-            MapSource::Atlas { records, .. } => records
-                .get(index)
-                .map(|r| r.expect("validated glyph region")),
+            MapSource::Atlas(map) => map.get(index),
         }
     }
 
@@ -227,36 +131,31 @@ impl<'a> GlyphMap<'a> {
     pub fn encoded_len(self) -> usize {
         match self.source {
             MapSource::Grid(_) => 0,
-            MapSource::Atlas { records, .. } => records.len() * GLYPH_REGION_LEN,
+            MapSource::Atlas(map) => map.encoded_len(),
         }
     }
 
     /// Emits canonical map bytes without allocation or partially written errors.
     /// The output suffix is preserved, including all output for implicit maps.
     pub fn encode_into(self, out: &mut [u8]) -> Result<usize, GlyphMapError> {
-        let needed = self.encoded_len();
-        if out.len() < needed {
-            return Err(GlyphMapError::BufferTooSmall {
-                needed,
-                available: out.len(),
-            });
-        }
         match self.source {
-            MapSource::Grid(_) => {}
-            MapSource::Atlas {
-                records: AtlasRecords::Wire(bytes),
-                ..
-            } => out[..needed].copy_from_slice(bytes),
-            MapSource::Atlas { .. } => {
-                for (record, region) in out[..needed].chunks_exact_mut(GLYPH_REGION_LEN).zip(self) {
-                    write_u32_le(record, 0, region.x());
-                    write_u32_le(record, 4, region.y());
-                    write_u32_le(record, 8, region.width());
-                    write_u32_le(record, 12, region.height());
-                }
-            }
+            MapSource::Grid(_) => Ok(0),
+            MapSource::Atlas(map) => map.encode_into(out).map_err(map_atlas_error),
         }
-        Ok(needed)
+    }
+}
+
+fn map_atlas_error(error: AtlasMapError) -> GlyphMapError {
+    match error {
+        AtlasMapError::SizeOverflow => GlyphMapError::SizeOverflow,
+        AtlasMapError::PartialRecord { byte_len } => GlyphMapError::PartialRecord { byte_len },
+        AtlasMapError::InvalidRegion { index, error } => {
+            GlyphMapError::InvalidRegion { index, error }
+        }
+        AtlasMapError::NonCanonicalEmpty { index } => GlyphMapError::NonCanonicalEmpty { index },
+        AtlasMapError::BufferTooSmall { needed, available } => {
+            GlyphMapError::BufferTooSmall { needed, available }
+        }
     }
 }
 

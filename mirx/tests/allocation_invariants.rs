@@ -750,17 +750,20 @@ fn decoded_units_place_samples_in_shared_surface_storage_without_allocation() {
 }
 
 #[test]
-fn native_wire_and_implicit_glyph_maps_allocate_nothing() {
-    use mirx::{font::GlyphMap, image::Region};
+fn native_wire_atlas_and_implicit_glyph_maps_allocate_nothing() {
+    use mirx::{
+        font::GlyphMap,
+        image::{AtlasMap, Region},
+    };
     let regions = [
         Region::new(1, 2, 3, 4).unwrap(),
         Region::new(0, 0, 0, 0).unwrap(),
     ];
     let mut bytes = [0; 32];
     let (region, allocations) = count_allocations(|| {
-        let native = GlyphMap::atlas(7, 9, &regions).unwrap();
+        let native = AtlasMap::new(7, 9, &regions).unwrap();
         native.encode_into(&mut bytes).unwrap();
-        let wire = GlyphMap::from_records(7, 9, &bytes).unwrap();
+        let wire = AtlasMap::open(7, 9, &bytes).unwrap();
         assert_eq!(wire.iter().count(), 2);
         assert_eq!(wire.get(1), native.get(1));
         let implicit = GlyphMap::glyph_major(7, 9, 10).unwrap();
