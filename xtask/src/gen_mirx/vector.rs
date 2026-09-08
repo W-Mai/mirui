@@ -25,7 +25,7 @@ use mirui::render::command::CompositeMode;
 use mirui::render::scene::codec::encode_scene;
 use mirui::render::scene::{ResourceRef, SceneOp};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
-use mirx::{ChunkEntry, chunk_type, encode_chunk_generic};
+use mirx::{ChunkFlags, ChunkType, Document, RawChunkInput};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -51,15 +51,22 @@ pub fn run(args: &[String]) -> Result {
 
     let text = fs::read_to_string(&input)?;
     let ops = parse_scene(&text)?;
-    let payload = encode_scene(&ops).map_err(|e| format!("encode failed: {e:?}"))?;
-    let bytes = encode_chunk_generic(chunk_type::VECTOR, ChunkEntry::FLAG_CRITICAL, &payload);
-    fs::write(&out, &bytes)?;
+    let op_count = ops.len();
+    let payload = encode_scene(&ops).map_err(|error| format!("encode failed: {error:?}"))?;
+    let mut document = Document::new();
+    document
+        .push_raw(RawChunkInput::new(ChunkType::VECTOR, payload).with_flags(ChunkFlags::CRITICAL))
+        .map_err(|error| format!("container rejected VECTOR payload: {error:?}"))?;
+    let bytes = document
+        .finish()
+        .map_err(|error| format!("container encoding failed: {error:?}"))?;
+    fs::write(&out, bytes.as_ref())?;
 
     println!(
         "wrote {} bytes to {} ({} ops)",
         bytes.len(),
         out.display(),
-        ops.len(),
+        op_count,
     );
     Ok(())
 }

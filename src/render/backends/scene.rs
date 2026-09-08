@@ -127,11 +127,14 @@ mod tests {
         assert_eq!(scene.ops.len(), 2);
 
         let payload = scene.encode().unwrap();
-        let mirx_bytes = mirx::encode_chunk_generic(
-            mirx::chunk_type::VECTOR,
-            mirx::ChunkEntry::FLAG_CRITICAL,
-            &payload,
-        );
+        let mut document = mirx::Document::new();
+        document
+            .push_raw(
+                mirx::RawChunkInput::new(mirx::ChunkType::VECTOR, payload)
+                    .with_flags(mirx::ChunkFlags::CRITICAL),
+            )
+            .unwrap();
+        let mirx_bytes = document.finish().unwrap();
 
         let reader = mirx::Reader::open(&mirx_bytes).unwrap();
         let extracted = reader
