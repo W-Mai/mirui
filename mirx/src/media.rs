@@ -124,7 +124,7 @@ impl MediaSectionKind {
     pub const CMAP_INDEX: Self = Self(0x0011);
     pub const REPRESENTATIONS: Self = Self(0x0012);
     pub const ADVANCES: Self = Self(0x0013);
-    pub const GLYPH_MAPS: Self = Self(0x0014);
+    pub const ATLAS_MAPS: Self = Self(0x0014);
     pub const SURFACE_GROUPS: Self = Self(0x0015);
     pub const GLYPH_IDS: Self = Self(0x0016);
     pub const RASTER_METRICS: Self = Self(0x0017);

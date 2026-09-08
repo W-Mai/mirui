@@ -10,7 +10,7 @@ FONT MediaPayload
 ├─ ADVANCES | SHAPING   exactly one placement source
 ├─ REPRESENTATIONS      coverage, signed-distance, or application records
 ├─ RASTER_METRICS       representation-major raster offsets
-├─ GLYPH_MAPS?          Atlas2D regions, omitted for derived GlyphMajor cells
+├─ ATLAS_MAPS?          Atlas2D regions, omitted for derived GlyphMajor cells
 ├─ SURFACE_GROUPS       shared scalar surface records
 ├─ storage metadata     PLANES, CODINGS, UNIT_GROUPS, UNIT_INDEX, INTEGRITY
 └─ DATA                 RAW or coded sample bytes

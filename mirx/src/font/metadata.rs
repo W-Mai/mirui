@@ -213,7 +213,7 @@ const FACE: usize = 0;
 const CMAP: usize = 1;
 const REPRESENTATIONS: usize = 2;
 const ADVANCES: usize = 3;
-const GLYPH_MAPS: usize = 4;
+const ATLAS_MAPS: usize = 4;
 const SURFACE_GROUPS: usize = 5;
 const GLYPH_IDS: usize = 6;
 const RASTER_METRICS: usize = 7;
@@ -236,7 +236,7 @@ impl<'a> Sections<'a> {
                 MediaSectionKind::CMAP_INDEX => Some(CMAP),
                 MediaSectionKind::REPRESENTATIONS => Some(REPRESENTATIONS),
                 MediaSectionKind::ADVANCES => Some(ADVANCES),
-                MediaSectionKind::GLYPH_MAPS => Some(GLYPH_MAPS),
+                MediaSectionKind::ATLAS_MAPS => Some(ATLAS_MAPS),
                 MediaSectionKind::SURFACE_GROUPS => Some(SURFACE_GROUPS),
                 MediaSectionKind::GLYPH_IDS => Some(GLYPH_IDS),
                 MediaSectionKind::RASTER_METRICS => Some(RASTER_METRICS),
@@ -287,7 +287,7 @@ fn section_kind(slot: usize) -> MediaSectionKind {
         MediaSectionKind::CMAP_INDEX,
         MediaSectionKind::REPRESENTATIONS,
         MediaSectionKind::ADVANCES,
-        MediaSectionKind::GLYPH_MAPS,
+        MediaSectionKind::ATLAS_MAPS,
         MediaSectionKind::SURFACE_GROUPS,
         MediaSectionKind::GLYPH_IDS,
         MediaSectionKind::RASTER_METRICS,

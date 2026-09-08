@@ -14,7 +14,7 @@ pub const REPRESENTATION_RECORD_LEN: usize = 16;
 pub struct RepresentationRecord {
     metadata: FontRepresentation,
     surface_index: u16,
-    glyph_map_offset: u32,
+    atlas_map_offset: u32,
 }
 
 impl RepresentationRecord {
@@ -22,12 +22,12 @@ impl RepresentationRecord {
         Self {
             metadata,
             surface_index,
-            glyph_map_offset: 0,
+            atlas_map_offset: 0,
         }
     }
 
-    pub const fn with_glyph_map_offset(mut self, offset: u32) -> Self {
-        self.glyph_map_offset = offset;
+    pub const fn with_atlas_map_offset(mut self, offset: u32) -> Self {
+        self.atlas_map_offset = offset;
         self
     }
 
@@ -39,8 +39,8 @@ impl RepresentationRecord {
         self.surface_index
     }
 
-    pub const fn glyph_map_offset(self) -> u32 {
-        self.glyph_map_offset
+    pub const fn atlas_map_offset(self) -> u32 {
+        self.atlas_map_offset
     }
 
     /// Resolves one record against logical surface metadata, without sample I/O.
@@ -69,7 +69,7 @@ impl RepresentationRecord {
         Ok(Self {
             metadata,
             surface_index: read_u16_le(bytes, 10).unwrap(),
-            glyph_map_offset: read_u32_le(bytes, 12).unwrap(),
+            atlas_map_offset: read_u32_le(bytes, 12).unwrap(),
         })
     }
 
@@ -115,7 +115,7 @@ impl RepresentationRecord {
         write_u16_le(&mut record, 6, fields.max_ppem);
         write_u16_le(&mut record, 8, fields.detail);
         write_u16_le(&mut record, 10, self.surface_index);
-        write_u32_le(&mut record, 12, self.glyph_map_offset);
+        write_u32_le(&mut record, 12, self.atlas_map_offset);
         out[..REPRESENTATION_RECORD_LEN].copy_from_slice(&record);
         Ok(REPRESENTATION_RECORD_LEN)
     }

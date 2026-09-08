@@ -447,7 +447,7 @@ fn representation_record_binding_and_emission_allocate_nothing() {
         let surface =
             SurfaceDescriptor::new(5, 3, SampleLayout::A4, ColorDescription::NONE).unwrap();
         let metadata = FontRepresentation::signed_distance(4, 3, 24, 17, 48, 9).unwrap();
-        let record = RepresentationRecord::new(metadata, 2).with_glyph_map_offset(32);
+        let record = RepresentationRecord::new(metadata, 2).with_atlas_map_offset(32);
         record.validate_for(surface).unwrap();
         let mut bytes = [0xa5; 17];
         record.encode_record_into(&mut bytes[1..]).unwrap();

@@ -372,7 +372,7 @@ fn directory_ownership_and_required_sections_are_unambiguous() {
             FontError::Metadata(FontMetadataError::DuplicateSection(MediaSectionKind::FACE)),
         ),
         (
-            MediaSectionKind::GLYPH_MAPS,
+            MediaSectionKind::ATLAS_MAPS,
             &[][..],
             FontError::EmptyMapSection,
         ),
@@ -435,7 +435,7 @@ fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
     sections[7].1 = &[];
     sections[8].1 = &[];
     let map = [0; 32];
-    sections.push((MediaSectionKind::GLYPH_MAPS, &map));
+    sections.push((MediaSectionKind::ATLAS_MAPS, &map));
     let bytes = payload(&sections);
     let view = FontView::open(&bytes, &PayloadLimits::EMBEDDED).unwrap();
     view.preflight(&PayloadLimits::EMBEDDED).unwrap();

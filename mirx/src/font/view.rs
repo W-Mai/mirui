@@ -64,9 +64,9 @@ impl<'a> FontView<'a> {
             .expect("metadata requires surface groups")
             .bytes();
         let maps = media
-            .section(MediaSectionKind::GLYPH_MAPS)
+            .section(MediaSectionKind::ATLAS_MAPS)
             .map_or(&[][..], MediaSection::bytes);
-        if maps.is_empty() && media.section(MediaSectionKind::GLYPH_MAPS).is_some() {
+        if maps.is_empty() && media.section(MediaSectionKind::ATLAS_MAPS).is_some() {
             return Err(FontError::EmptyMapSection);
         }
         let map_table_len = glyph_count
@@ -113,7 +113,7 @@ impl<'a> FontView<'a> {
         for map_index in 0..map_count {
             let offset = map_index * map_table_len;
             if !metadata.representations().iter().any(|record| {
-                record.glyph_map_offset() as usize == offset
+                record.atlas_map_offset() as usize == offset
                     && metadata.representations().surface(record).packing() == GlyphPacking::Atlas2D
             }) {
                 return Err(FontError::UnreferencedMaps);
@@ -382,10 +382,10 @@ impl<'a> FontView<'a> {
         let surface = self.metadata.representations().surface(record);
         let map = match surface.packing() {
             GlyphPacking::GlyphMajor => {
-                if record.glyph_map_offset() != 0 {
+                if record.atlas_map_offset() != 0 {
                     return Err(FontError::ImplicitMapOffset {
                         representation: index,
-                        offset: record.glyph_map_offset(),
+                        offset: record.atlas_map_offset(),
                     });
                 }
                 GlyphMap::glyph_major(
@@ -399,11 +399,11 @@ impl<'a> FontView<'a> {
                 })?
             }
             GlyphPacking::Atlas2D => {
-                let offset = record.glyph_map_offset() as usize;
+                let offset = record.atlas_map_offset() as usize;
                 if offset % self.map_table_len != 0 {
                     return Err(FontError::MapOffset {
                         representation: index,
-                        offset: record.glyph_map_offset(),
+                        offset: record.atlas_map_offset(),
                     });
                 }
                 let end = offset

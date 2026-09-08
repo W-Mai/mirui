@@ -11,7 +11,7 @@
 |6–7|max_ppem:u16|Zero for Coverage; inclusive interval maximum otherwise|
 |8–9|detail:u16|Zero for Coverage; SDF spread or application kind|
 |10–11|surface_index:u16|Shared surface-group ordinal|
-|12–15|glyph_map_offset:u32|Offset relative to GLYPH_MAPS|
+|12–15|atlas_map_offset:u32|Offset relative to ATLAS_MAPS|
 
 All multi-byte fields are little-endian. Coverage reconstructs its fixed range from design ppem and rejects nonzero range/detail fields. SDF requires a positive spread and a valid interval containing design ppem. Application identifiers retain all `u16` values, including 0 and 1, without colliding with standard classes. Typed parsing rejects unknown classes and nonzero reserved bytes.
 
@@ -23,7 +23,7 @@ use mirx::{FontRepresentation, font::{RepresentationRecord, REPRESENTATION_RECOR
 
 let surface = SurfaceDescriptor::new(8, 16, SampleLayout::A4, ColorDescription::NONE).unwrap();
 let metadata = FontRepresentation::signed_distance(4, 3, 24, 17, 48, 64).unwrap();
-let record = RepresentationRecord::new(metadata, 2).with_glyph_map_offset(32);
+let record = RepresentationRecord::new(metadata, 2).with_atlas_map_offset(32);
 record.validate_for(surface).unwrap();
 let mut bytes = [0; REPRESENTATION_RECORD_LEN];
 record.encode_record_into(&mut bytes).unwrap();

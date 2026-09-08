@@ -90,7 +90,7 @@ fn canonical_native_face_reuses_surfaces_and_reader_geometry() {
         );
         assert_eq!(
             view.media()
-                .sections_of_kind(MediaSectionKind::GLYPH_MAPS)
+                .sections_of_kind(MediaSectionKind::ATLAS_MAPS)
                 .count(),
             0
         );
@@ -211,7 +211,7 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
     view.preflight(&PayloadLimits::EMBEDDED).unwrap();
     assert_eq!(
         view.media()
-            .sections_of_kind(MediaSectionKind::GLYPH_MAPS)
+            .sections_of_kind(MediaSectionKind::ATLAS_MAPS)
             .next()
             .unwrap()
             .bytes()
@@ -223,7 +223,7 @@ fn atlas_map_sharing_and_empty_glyphs_have_explicit_ownership() {
             view.representation(index)
                 .unwrap()
                 .record()
-                .glyph_map_offset(),
+                .atlas_map_offset(),
             0
         );
         let FontGlyphs::Raw(glyphs) = view.glyphs(index).unwrap() else {

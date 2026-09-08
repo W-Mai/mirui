@@ -19,12 +19,12 @@ fn independent_bytes_keep_size_defaults_and_references_explicit() {
     let surface = surface(SampleLayout::A4);
     let coverage =
         RepresentationRecord::new(FontRepresentation::coverage(4, 16, 9).unwrap(), 0x1234)
-            .with_glyph_map_offset(0x87654321);
+            .with_atlas_map_offset(0x87654321);
     let sdf = RepresentationRecord::new(
         FontRepresentation::signed_distance(4, 3, 24, 17, 48, 9).unwrap(),
         2,
     )
-    .with_glyph_map_offset(32);
+    .with_atlas_map_offset(32);
     let app = RepresentationRecord::new(
         FontRepresentation::application(1, 20, 12, 48, 9).unwrap(),
         4,
@@ -56,7 +56,7 @@ fn independent_bytes_keep_size_defaults_and_references_explicit() {
         assert_eq!(record.validate_for(surface), Ok(()));
     }
     assert_eq!(coverage.surface_index(), 0x1234);
-    assert_eq!(coverage.glyph_map_offset(), 0x87654321);
+    assert_eq!(coverage.atlas_map_offset(), 0x87654321);
     assert_eq!(coverage.representation().min_ppem(), 16);
     assert_eq!(coverage.representation().max_ppem(), 16);
 }

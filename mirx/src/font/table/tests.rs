@@ -36,7 +36,7 @@ fn records() -> [u8; 64] {
     let mut bytes = [0; 64];
     for (index, metadata) in representations().into_iter().enumerate() {
         RepresentationRecord::new(metadata, u16::from(index > 1))
-            .with_glyph_map_offset(if index > 1 { 32 } else { 0 })
+            .with_atlas_map_offset(if index > 1 { 32 } else { 0 })
             .encode_record_into(&mut bytes[index * 16..])
             .unwrap();
     }

@@ -617,7 +617,7 @@ impl<S: Source> Plan<S> {
         );
         if self.asset.map_count() != 0 {
             visitor(
-                MediaSectionKind::GLYPH_MAPS,
+                MediaSectionKind::ATLAS_MAPS,
                 self.asset.map_count() * glyphs * GLYPH_REGION_LEN,
             );
         }
@@ -694,7 +694,7 @@ impl<S: Source> Plan<S> {
         for r in self.asset.representations() {
             let mut bytes = [0; REPRESENTATION_RECORD_LEN];
             RepresentationRecord::new(r.metadata, r.surface)
-                .with_glyph_map_offset(r.map.map_or(0, |id| {
+                .with_atlas_map_offset(r.map.map_or(0, |id| {
                     id * self.asset.face().raster_count() as u32 * GLYPH_REGION_LEN as u32
                 }))
                 .encode_record_into(&mut bytes)
