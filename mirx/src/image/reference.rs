@@ -2,10 +2,8 @@ use super::{
     EncodedImageError, EncodedImageView, RawImageView, RawImageViewError, SurfaceDescriptor,
     SurfaceView,
 };
-use crate::{
-    ColorTableView,
-    media::{MediaPayload, MediaPayloadError, MediaSectionKind},
-};
+use crate::media::{MediaPayload, MediaPayloadError, MediaSectionKind};
+use crate::palette::ColorTableView;
 
 #[cfg(test)]
 mod tests;

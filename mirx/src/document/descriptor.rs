@@ -4,10 +4,8 @@ use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, Reser
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
 use crate::frames::FramesView;
 use crate::meta::{MetaEncodeError, MetaView};
-use crate::{
-    ChunkFlags, ChunkType, EditError, PaletteEncodeError, PaletteView, PayloadLimits, Scene,
-    VectorEncodeError,
-};
+use crate::palette::{PaletteEncodeError, PaletteView};
+use crate::{ChunkFlags, ChunkType, EditError, PayloadLimits, Scene, VectorEncodeError};
 
 #[cfg(test)]
 use super::PayloadStorage;

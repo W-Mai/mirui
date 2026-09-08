@@ -1,5 +1,5 @@
 use super::SurfaceDescriptor;
-use crate::payload::ColorTableView;
+use crate::palette::ColorTableView;
 
 impl SurfaceDescriptor {
     pub(crate) fn read_color_table(

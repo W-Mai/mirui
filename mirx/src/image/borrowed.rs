@@ -9,7 +9,8 @@ use super::{
     AccessCapabilities, ColorDescription, ImageEncodeError, PlaneMemoryLayout, RawImageAsset,
     RawImageView, SampleLayout, SurfaceDescriptor, SurfaceMemoryPlan, SurfacePlane,
 };
-use crate::{ColorFormat, ColorTableView, ImageView};
+use crate::palette::ColorTableView;
+use crate::{ColorFormat, ImageView};
 
 // All decodable sample layouts have at most three planes. Unknown layouts
 // remain opaque and cannot construct a SurfaceDescriptor.

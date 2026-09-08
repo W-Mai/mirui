@@ -2,11 +2,9 @@ use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
+use crate::palette::{Palette, PaletteDecodeError, PaletteEncodeError, PaletteView};
 use crate::payload::image::ImagePayloadError;
-use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, Palette, PaletteAccessError, PaletteDecodeError,
-    PaletteEncodeError, PaletteView, TryEditError,
-};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, PaletteAccessError, TryEditError};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed PALETTE view.

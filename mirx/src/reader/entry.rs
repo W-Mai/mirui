@@ -4,11 +4,9 @@ use core::iter::FusedIterator;
 use crate::frames::{FramesError, FramesView};
 use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ChunkFileHeader};
 use crate::meta::{MetaDecodeError, MetaView};
+use crate::palette::{PaletteDecodeError, PaletteView};
 use crate::wire::{read_u16_le, read_u32_le, slice};
-use crate::{
-    ChunkFlags, ChunkType, PaletteDecodeError, PaletteView, PayloadLimits, ReadError, Scene,
-    VectorReadError,
-};
+use crate::{ChunkFlags, ChunkType, PayloadLimits, ReadError, Scene, VectorReadError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct EntryRecord {

@@ -8,7 +8,7 @@ use crate::ByteAlignment;
 use crate::media::{
     CodingTable, CodingTableError, MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind,
 };
-use crate::payload::ColorTableView;
+use crate::palette::ColorTableView;
 
 mod decode;
 mod encode;

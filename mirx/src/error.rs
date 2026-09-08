@@ -26,8 +26,8 @@ use crate::font::FontError;
 use crate::frames::FramesError;
 use crate::meta::{MetaDecodeError, MetaEncodeError};
 use crate::model::{ChunkType, InvalidChunkType};
+use crate::palette::{PaletteDecodeError, PaletteEncodeError};
 use crate::payload::image::ImagePayloadError;
-use crate::payload::palette::{PaletteDecodeError, PaletteEncodeError};
 use crate::reader::PayloadValidationError;
 use crate::scene::{VectorEncodeError, VectorReadError};
 

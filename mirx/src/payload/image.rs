@@ -1,11 +1,11 @@
 use alloc::{borrow::Cow, vec::Vec};
 
-use super::ColorTableView;
 use crate::header::{FLAT_HEADER_LEN, FlatHeader};
 use crate::image::{
     EncodedImageError, ImageEncodeError as SurfaceEncodeError, ImageReadError, RawImageView,
     RawImageViewError, SurfaceView,
 };
+use crate::palette::ColorTableView;
 use crate::wire::slice;
 use crate::{ColorFormat, ReadError};
 

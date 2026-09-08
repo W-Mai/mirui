@@ -1,12 +1,13 @@
-use super::{
-    ColorTableView,
-    envelope::{Envelope, EnvelopeError, ExactEnvelope},
-};
-use crate::{ColorFormat, reader::PayloadLimits, wire::read_u32_le};
-
+#[path = "color_table.rs"]
+mod color_table;
+#[path = "palette/owned.rs"]
 mod owned;
 
+pub use color_table::{ColorTableIter, ColorTableView};
 pub use owned::{Palette, PaletteEncodeError, PaletteMutationError};
+
+use crate::payload::envelope::{Envelope, EnvelopeError, ExactEnvelope};
+use crate::{ColorFormat, reader::PayloadLimits, wire::read_u32_le};
 
 const HEADER_LEN: usize = 8;
 const COLOR_LEN: usize = 4;

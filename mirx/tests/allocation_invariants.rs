@@ -11,7 +11,8 @@ use mirx::image::{
 };
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::meta::{Meta, MetaEntry};
-use mirx::{ChunkFlags, ChunkType, Color, Document, EncodeOptions, Palette, PayloadLimits, Reader};
+use mirx::palette::Palette;
+use mirx::{ChunkFlags, ChunkType, Color, Document, EncodeOptions, PayloadLimits, Reader};
 use support::encode_chunks;
 
 fn wire_fixed(bits: i32) -> mirx::Fixed {

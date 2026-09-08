@@ -5,7 +5,7 @@ use super::{
     SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor, SurfaceRecordError,
 };
 use crate::media::{MediaPayload, MediaPayloadError, MediaSection, MediaSectionKind};
-use crate::payload::ColorTableView;
+use crate::palette::ColorTableView;
 
 /// Borrowed zero-allocation view of one RAW sectioned IMAGE payload.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

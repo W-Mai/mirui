@@ -1,0 +1,11 @@
+error[E0603]: module `payload` is private
+ --> tests/public_api_fail/payload_module.rs:1:11
+  |
+1 | use mirx::payload;
+  |           ^^^^^^^ private module
+  |
+note: the module `payload` is defined here
+ --> src/lib.rs
+  |
+  | mod payload;
+  | ^^^^^^^^^^^

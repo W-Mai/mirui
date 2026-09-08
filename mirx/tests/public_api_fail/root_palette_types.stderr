@@ -1,0 +1,45 @@
+error[E0432]: unresolved imports `mirx::ColorTableIter`, `mirx::ColorTableView`, `mirx::Palette`, `mirx::PaletteDecodeError`, `mirx::PaletteEncodeError`, `mirx::PaletteMutationError`, `mirx::PaletteView`
+ --> tests/public_api_fail/root_palette_types.rs:2:5
+  |
+2 |     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteEncodeError,
+  |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^ no `PaletteEncodeError` in the root
+  |     |               |               |        |
+  |     |               |               |        no `PaletteDecodeError` in the root
+  |     |               |               no `Palette` in the root
+  |     |               no `ColorTableView` in the root
+  |     no `ColorTableIter` in the root
+3 |     PaletteMutationError, PaletteView,
+  |     ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^ no `PaletteView` in the root
+  |     |
+  |     no `PaletteMutationError` in the root
+  |
+  = help: consider importing this struct instead:
+          mirx::palette::ColorTableIter
+  = help: consider importing this struct instead:
+          mirx::palette::ColorTableView
+  = help: consider importing one of these items instead:
+          mirx::PayloadValidationFailure::Palette
+          mirx::palette::Palette
+  = help: consider importing this enum instead:
+          mirx::palette::PaletteDecodeError
+  = help: consider importing this enum instead:
+          mirx::palette::PaletteEncodeError
+  = help: consider importing this enum instead:
+          mirx::palette::PaletteMutationError
+  = help: consider importing this struct instead:
+          mirx::palette::PaletteView
+help: a similar name exists in the module
+  |
+2 -     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteEncodeError,
+2 +     ColorTableIter, ColorTableView, palette, PaletteDecodeError, PaletteEncodeError,
+  |
+help: a similar name exists in the module
+  |
+2 -     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteEncodeError,
+2 +     ColorTableIter, ColorTableView, Palette, PaletteAccessError, PaletteEncodeError,
+  |
+help: a similar name exists in the module
+  |
+2 -     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteEncodeError,
+2 +     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteAccessError,
+  |

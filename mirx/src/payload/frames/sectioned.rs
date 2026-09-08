@@ -57,7 +57,7 @@ use crate::{
         MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION, MediaFlags, MediaPayload,
         MediaPayloadError, MediaSection, MediaSectionKind, UnitIndex, output::PayloadOutput,
     },
-    payload::ColorTableView,
+    palette::ColorTableView,
     wire::write_u16_le,
 };
 

@@ -1,5 +1,0 @@
-error[E0432]: unresolved import `mirx::payload::frames`
- --> tests/public_api_fail/payload_frames.rs:1:20
-  |
-1 | use mirx::payload::frames::{FrameSequence, FramesView};
-  |                    ^^^^^^ could not find `frames` in `payload`
