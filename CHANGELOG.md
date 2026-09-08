@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Lean MIRX removal contract.** `Document::remove` returns success without duplicating descriptor state; `remove_to_vec` remains the payload-recovery operation.
 - **Explicit MIRX typed edit guards.** `edit_font`, `edit_vector`, `edit_meta`, and `edit_palette` return owned working values; `commit()` applies the validated replacement and dropping a guard discards it.
 - **Private MIRX VECTOR wire machinery.** Scene values and errors remain public while operation tags, payload headers, codecs, and their implementation modules are internal.
+- **Typed MIRX views hide the generic media container.** IMAGE, FONT, and FRAMES views expose semantic queries, validation, and decode operations without returning section directories.
 - **Canonical MIRX VECTOR paths.** Scene values, paint primitives, codec errors, and access errors live under `mirx::scene`; duplicate crate-root exports have been removed.
 - **Canonical MIRX FONT paths.** Font values, views, representation selection, and access errors live under `mirx::font`; duplicate crate-root exports have been removed.
 - **Private MIRX payload plumbing.** Typed payload codecs are exposed through their domain modules; the internal `payload` assembly module is no longer public.

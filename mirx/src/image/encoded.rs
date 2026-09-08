@@ -60,7 +60,7 @@ impl<'a> EncodedImageView<'a> {
         let media = MediaPayload::open(payload).map_err(EncodedImageError::Media)?;
         Self::from_media(media, Some(file_offset))
     }
-    pub const fn media(self) -> MediaPayload<'a> {
+    pub(crate) const fn media(self) -> MediaPayload<'a> {
         self.media
     }
     pub const fn surface(self) -> SurfaceDescriptor {

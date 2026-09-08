@@ -742,7 +742,7 @@ impl<'a> FramesView<'a> {
         Ok(view)
     }
 
-    pub const fn media(self) -> MediaPayload<'a> {
+    pub(crate) const fn media(self) -> MediaPayload<'a> {
         self.media
     }
 

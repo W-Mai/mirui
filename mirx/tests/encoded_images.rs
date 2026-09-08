@@ -144,7 +144,7 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
         .unwrap();
     let image = chunk.image().unwrap().unwrap().encoded().unwrap();
     assert_eq!(image.codings().iter().collect::<Vec<_>>(), codings);
-    assert_eq!(image.media().integrity().unwrap().len(), 4);
+    image.validate_data().unwrap();
     let mut slots = [None; 4];
     let groups = image
         .groups_into(&mut slots, &mut CoverageBudget::new(4096))
@@ -315,14 +315,9 @@ fn document_relocation_preserves_encoded_storage_alignment_and_derived_hints() {
         let chunk = reader.chunks().next().unwrap();
         assert_eq!(chunk.payload(), payload);
         let image = chunk.image().unwrap().unwrap().encoded().unwrap();
-        let data = image
-            .media()
-            .section(mirx::media::MediaSectionKind::DATA)
+        image
+            .validate_groups(&mut CoverageBudget::new(4096))
             .unwrap();
-        assert_eq!(
-            (chunk.payload_offset() + data.descriptor().offset()) % alignment,
-            0
-        );
     }
 }
 

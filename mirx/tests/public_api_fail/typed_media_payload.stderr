@@ -1,0 +1,43 @@
+error[E0624]: method `media` is private
+ --> tests/public_api_fail/typed_media_payload.rs:8:18
+  |
+8 |     let _ = view.media();
+  |                  ^^^^^ private method
+  |
+ ::: src/font/view.rs
+  |
+  |     pub(crate) const fn media(self) -> MediaPayload<'a> {
+  |     --------------------------------------------------- private method defined here
+
+error[E0624]: method `media` is private
+  --> tests/public_api_fail/typed_media_payload.rs:12:18
+   |
+12 |     let _ = view.media();
+   |                  ^^^^^ private method
+   |
+  ::: src/payload/frames/sectioned.rs
+   |
+   |     pub(crate) const fn media(self) -> MediaPayload<'a> {
+   |     --------------------------------------------------- private method defined here
+
+error[E0624]: method `media` is private
+  --> tests/public_api_fail/typed_media_payload.rs:16:18
+   |
+16 |     let _ = view.media();
+   |                  ^^^^^ private method
+   |
+  ::: src/image/view.rs
+   |
+   |     pub(crate) const fn media(self) -> MediaPayload<'a> {
+   |     --------------------------------------------------- private method defined here
+
+error[E0624]: method `media` is private
+  --> tests/public_api_fail/typed_media_payload.rs:20:18
+   |
+20 |     let _ = view.media();
+   |                  ^^^^^ private method
+   |
+  ::: src/image/encoded.rs
+   |
+   |     pub(crate) const fn media(self) -> MediaPayload<'a> {
+   |     --------------------------------------------------- private method defined here

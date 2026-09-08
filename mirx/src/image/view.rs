@@ -31,7 +31,7 @@ impl<'a> RawImageView<'a> {
         Self::from_media(media, Some(payload_file_offset))
     }
 
-    pub const fn media(self) -> MediaPayload<'a> {
+    pub(crate) const fn media(self) -> MediaPayload<'a> {
         self.media
     }
 
