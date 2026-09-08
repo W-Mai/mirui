@@ -62,8 +62,7 @@ pub struct CodingTable<'a> {
 }
 
 impl<'a> CodingTable<'a> {
-    /// Validates the entire table without decoding any profile parameters.
-    pub fn open(bytes: &'a [u8]) -> Result<Self, CodingTableError> {
+    pub(crate) fn open(bytes: &'a [u8]) -> Result<Self, CodingTableError> {
         u32::try_from(bytes.len()).map_err(|_| CodingTableError::SizeOverflow)?;
         let count = read_u32_le(bytes, 0).ok_or(CodingTableError::Truncated)?;
         if count == 0 {
@@ -137,8 +136,7 @@ impl<'a> CodingTable<'a> {
         (0..self.len()).map(move |index| self.get(index).expect("validated coding ordinal"))
     }
 
-    /// Computes the exact size, rejecting an empty table and u32 overflow.
-    pub fn encoded_len(records: &[CodingRecord<'_>]) -> Result<usize, CodingTableError> {
+    pub(crate) fn encoded_len(records: &[CodingRecord<'_>]) -> Result<usize, CodingTableError> {
         Self::encoded_iter_len(records.iter().copied())
     }
 
@@ -162,9 +160,8 @@ impl<'a> CodingTable<'a> {
         Ok(size)
     }
 
-    /// Encodes into caller storage; validation errors leave the buffer intact.
-    /// Bytes after the returned length are never written.
-    pub fn encode_into(
+    #[cfg(test)]
+    pub(crate) fn encode_into(
         records: &[CodingRecord<'_>],
         out: &mut [u8],
     ) -> Result<usize, CodingTableError> {

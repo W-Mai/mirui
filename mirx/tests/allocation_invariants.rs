@@ -302,18 +302,6 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
         let mut decoded = [0; 4];
         plan.decode_into(&mut decoded, &mut [0; 8]).unwrap();
         assert_eq!(decoded, [42; 4]);
-
-        let mut coding_body = [0; 12];
-        mirx::coding::CodingTable::encode_into(&[Rle::new().record()], &mut coding_body).unwrap();
-        let image = EncodedImageAsset::from_codings(
-            image.surface(),
-            mirx::coding::CodingTable::open(&coding_body).unwrap(),
-            image.data(),
-        );
-        let mut image_bytes = [0; 256];
-        let image_len = image.encode_into(&mut image_bytes).unwrap();
-        assert!(image.matches_payload(&image_bytes[..image_len]).unwrap());
-        image.preflight(&PayloadLimits::EMBEDDED).unwrap();
     });
     assert_eq!(allocations, 0);
 }
@@ -1411,30 +1399,6 @@ fn raw_a8_media_payload() -> Vec<u8> {
 }
 
 #[test]
-fn coding_table_read_and_caller_buffer_encoding_allocate_nothing() {
-    use mirx::coding::{CodingId, CodingRecord, CodingTable};
-    let records = [
-        CodingRecord::new(CodingId::new(0x8000), 3, &[1, 2, 3]),
-        CodingRecord::new(CodingId::new(0xffff), 0xffff, &[]),
-    ];
-    let mut encoded = [0; 23];
-    let mut copy = [0; 23];
-    let (result, allocations) = count_allocations(|| {
-        let len = CodingTable::encode_into(&records, &mut encoded).unwrap();
-        let table = CodingTable::open(&encoded[..len]).unwrap();
-        assert!(table.iter().eq(records));
-        assert_eq!(
-            table.get(0).unwrap().params().as_ptr(),
-            encoded[20..].as_ptr()
-        );
-        CodingTable::encode_into(&[table.get(0).unwrap(), table.get(1).unwrap()], &mut copy)
-    });
-    assert_eq!(result, Ok(23));
-    assert_eq!(allocations, 0);
-    assert_eq!(encoded, copy);
-}
-
-#[test]
 fn unit_index_encoding_lookup_and_iteration_allocate_nothing() {
     use mirx::image::{UnitIndex, UnitIndexEncoding};
     let lengths = [3; 129];
@@ -1864,11 +1828,17 @@ fn image_units_resolve_shared_metadata_without_allocation() {
 
 #[test]
 fn group_record_read_write_and_resolution_allocate_nothing() {
-    use mirx::coding::CodingTable;
-    use mirx::image::UnitGroupRecord;
+    use mirx::{
+        coding::{CodingId, CodingRecord},
+        image::{EncodedImageAsset, EncodedImageView, UnitGroupRecord},
+    };
     let surface = SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let codings = [1, 0, 0, 0, 19, 0, 1, 0, 0, 0, 0, 0];
     let data = [1, 2, 3, 4];
+    let payload =
+        EncodedImageAsset::new(surface, CodingRecord::new(CodingId::new(19), 1, &[]), &data)
+            .encode()
+            .unwrap();
+    let codings = EncodedImageView::open(&payload).unwrap().codings();
     let mut bytes = [0; 36];
     let (_, allocations) = count_allocations(|| {
         UnitGroupRecord::new(0, 0..4)
@@ -1878,7 +1848,7 @@ fn group_record_read_write_and_resolution_allocate_nothing() {
             .unwrap();
         let group = UnitGroupRecord::open(&bytes)
             .unwrap()
-            .resolve(surface, CodingTable::open(&codings).unwrap(), &data, &[])
+            .resolve(surface, codings, &data, &[])
             .unwrap();
         assert_eq!(group.get(1).unwrap().data().as_ptr(), data[2..].as_ptr());
         assert_eq!(group.get(1).unwrap().region().x(), 1);

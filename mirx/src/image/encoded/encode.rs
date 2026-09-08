@@ -106,9 +106,7 @@ impl<'a> EncodedImageAsset<'a> {
         }
     }
 
-    /// Borrows a retained coding table without materializing a native record array.
-    /// Omitted groups require exactly one coding; explicit groups use `with_groups`.
-    pub const fn from_codings(
+    pub(crate) const fn from_codings(
         surface: SurfaceDescriptor,
         codings: CodingTable<'a>,
         data: &'a [u8],

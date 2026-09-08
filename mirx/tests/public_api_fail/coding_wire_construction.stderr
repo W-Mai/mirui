@@ -1,0 +1,42 @@
+error[E0624]: associated function `from_codings` is private
+ --> tests/public_api_fail/coding_wire_construction.rs:7:32
+  |
+7 |       let _ = EncodedImageAsset::from_codings(surface, table, data);
+  |                                  ^^^^^^^^^^^^ private associated function
+  |
+ ::: src/image/encoded/encode.rs
+  |
+  | /     pub(crate) const fn from_codings(
+  | |         surface: SurfaceDescriptor,
+  | |         codings: CodingTable<'a>,
+  | |         data: &'a [u8],
+  | |     ) -> Self {
+  | |_____________- private associated function defined here
+
+error[E0624]: associated function `open` is private
+  --> tests/public_api_fail/coding_wire_construction.rs:12:26
+   |
+12 |     let _ = CodingTable::open(&bytes);
+   |                          ^^^^ private associated function
+   |
+  ::: src/media/coding.rs
+   |
+   |     pub(crate) fn open(bytes: &'a [u8]) -> Result<Self, CodingTableError> {
+   |     --------------------------------------------------------------------- private associated function defined here
+
+error[E0624]: associated function `encoded_len` is private
+  --> tests/public_api_fail/coding_wire_construction.rs:13:26
+   |
+13 |     let _ = CodingTable::encoded_len(&[CodingRecord::RAW]);
+   |                          ^^^^^^^^^^^ private associated function
+   |
+  ::: src/media/coding.rs
+   |
+   |     pub(crate) fn encoded_len(records: &[CodingRecord<'_>]) -> Result<usize, CodingTableError> {
+   |     ------------------------------------------------------------------------------------------ private associated function defined here
+
+error[E0599]: no function or associated item named `encode_into` found for struct `CodingTable<'a>` in the current scope
+  --> tests/public_api_fail/coding_wire_construction.rs:14:26
+   |
+14 |     let _ = CodingTable::encode_into(&[CodingRecord::RAW], &mut bytes);
+   |                          ^^^^^^^^^^^ function or associated item not found in `CodingTable<'_>`
