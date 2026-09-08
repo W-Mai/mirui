@@ -86,7 +86,7 @@ fn frequency_profiles_round_trip_through_container_preflight_and_decode() {
 #[test]
 fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
     use mirx::image::{GroupSelection, Region, UnitGroupRecord};
-    use mirx::media::DataIntegrity;
+    use mirx::types::DataIntegrity;
     let surface =
         SurfaceDescriptor::new(8, 1, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
     let pixel = Pixel::new(SampleLayout::RGB888).unwrap();

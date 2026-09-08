@@ -188,7 +188,7 @@ Low-level encoding checks records, profile references, static reference rules an
 
 ## Checksum partitions
 
-The default `DataIntegrity::Whole` uses one four-byte DATA CRC trailer. `asset.with_integrity(DataIntegrity::Indexed(&ends))` writes a required INTEGRITY section instead, with one twelve-byte range/CRC record per partition and no whole-DATA trailer. `DataIntegrity` is in `mirx::media`. Ends are cumulative offsets relative to DATA, starting implicitly at zero; they must strictly increase and finish at DATA length. Empty DATA accepts an empty partition list. The writer computes payload-relative offsets and CRCs after placement, without allocating a temporary table.
+The default `DataIntegrity::Whole` uses one four-byte DATA CRC trailer. `asset.with_integrity(DataIntegrity::Indexed(&ends))` writes a required INTEGRITY section instead, with one twelve-byte range/CRC record per partition and no whole-DATA trailer. `DataIntegrity` is in `mirx::types`. Ends are cumulative offsets relative to DATA, starting implicitly at zero; they must strictly increase and finish at DATA length. Empty DATA accepts an empty partition list. The writer computes payload-relative offsets and CRCs after placement, without allocating a temporary table.
 
 For DATA containing two four-byte units, `Indexed(&[4, 8])` allows each unit's checksum to read four bytes. If the second unit starts at byte 64, `Indexed(&[64, 68])` folds the gap into the first partition: checking the first unit reads 64 bytes, while checking the second reads four. `Indexed(&[4, 64, 68])` isolates the gap but costs another twelve-byte record. No per-unit checksum is inserted automatically.
 

@@ -8,13 +8,14 @@ use core::iter::FusedIterator;
 
 pub(crate) mod coding;
 pub(crate) mod index;
-mod integrity;
+pub(crate) mod integrity;
 pub(crate) mod selection;
 pub(crate) use coding::{CODING_RECORD_LEN, CodingRecord, CodingTable, CodingTableError};
 pub(crate) use index::{UnitIndex, UnitIndexEncoding, UnitIndexError};
+pub(crate) use integrity::DataIntegrity;
 pub use integrity::{
-    DataCheckPlan, DataIntegrity, INTEGRITY_RECORD_LEN, IntegrityError, IntegrityRange,
-    IntegrityRanges, IntegrityTable,
+    DataCheckPlan, INTEGRITY_RECORD_LEN, IntegrityError, IntegrityRange, IntegrityRanges,
+    IntegrityTable,
 };
 pub(crate) use selection::{UnitSelection, UnitSelectionEncoding, UnitSelectionError};
 

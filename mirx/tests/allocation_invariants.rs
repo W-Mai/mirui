@@ -529,7 +529,7 @@ fn indexed_region_decode_borrows_palette_and_uses_only_caller_output_and_workspa
             CoverageBudget, DecodeRequest, EncodedImageAsset, EncodedImageView, MemoryPlacement,
             UnitGroupRecord,
         },
-        media::DataIntegrity,
+        types::DataIntegrity,
     };
     let surface = SurfaceDescriptor::new(4, 1, SampleLayout::I4, ColorDescription::SRGB).unwrap();
     let coding = [Rle::new().record()];
@@ -581,9 +581,7 @@ fn indexed_region_decode_borrows_palette_and_uses_only_caller_output_and_workspa
 #[test]
 fn data_check_planning_and_verification_borrow_partition_metadata() {
     use mirx::{
-        coding::Rle,
-        image::EncodedImageAsset,
-        media::{DataIntegrity, MediaSectionKind},
+        coding::Rle, image::EncodedImageAsset, media::MediaSectionKind, types::DataIntegrity,
     };
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let bytes = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 1, 0x83, 2])
@@ -857,7 +855,7 @@ fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
     use mirx::{
         coding::Rle,
         image::{EncodedImageAsset, EncodedImageView, UnitGroupRecord, UnitIndexEncoding},
-        media::DataIntegrity,
+        types::DataIntegrity,
     };
     let surface = SurfaceDescriptor::new(3, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let codings = [Rle::new().record()];

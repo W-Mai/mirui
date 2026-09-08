@@ -31,7 +31,7 @@ impl<'a> MediaPayload<'a> {
     ///
     /// ```
     /// use mirx::{coding::Rle, image::{ColorDescription, EncodedImageAsset, SampleLayout, SurfaceDescriptor},
-    ///     media::{DataIntegrity, MediaPayload, MediaSectionKind}};
+    ///     media::{MediaPayload, MediaSectionKind}, types::DataIntegrity};
     /// let surface = SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
     /// let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x83, 1, 0x83, 2])
     ///     .with_integrity(DataIntegrity::Indexed(&[2, 4])).encode().unwrap();

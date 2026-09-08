@@ -105,7 +105,7 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
     /// No allocation or file I/O occurs. All failures precede final output writes.
     ///
     /// ```
-    /// use mirx::{reader::PayloadLimits, types::ByteAlignment, coding::Rle, media::DataIntegrity, image::{
+    /// use mirx::{reader::PayloadLimits, types::{ByteAlignment, DataIntegrity}, coding::Rle, image::{
     ///     ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageView,
     ///     SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitGroupRecord,
     /// }};

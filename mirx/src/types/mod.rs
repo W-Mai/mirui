@@ -7,6 +7,7 @@ pub mod rect;
 pub mod transform;
 
 pub use crate::alignment::{ByteAlignment, InvalidByteAlignment};
+pub use crate::media::integrity::DataIntegrity;
 pub use color::Color;
 pub use fixed::Fixed;
 pub use point::Point;

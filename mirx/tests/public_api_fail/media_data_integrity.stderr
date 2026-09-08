@@ -1,0 +1,15 @@
+error[E0603]: enum `DataIntegrity` is private
+ --> tests/public_api_fail/media_data_integrity.rs:1:18
+  |
+1 | use mirx::media::DataIntegrity;
+  |                  ^^^^^^^^^^^^^ private enum
+  |
+note: the enum `DataIntegrity` is defined here
+ --> src/media.rs
+  |
+  | pub(crate) use integrity::DataIntegrity;
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^
+help: import `DataIntegrity` directly
+  |
+1 | use mirx::media::integrity::DataIntegrity;
+  |                  +++++++++++
