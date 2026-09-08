@@ -362,12 +362,9 @@ fn encoded_glyph_planning_and_execution_allocate_nothing() {
 
 #[test]
 fn borrowed_representation_tables_resolve_and_select_without_allocation() {
-    use mirx::{
-        FontRepresentation, FontRepresentationRequest,
-        font::{
-            GlyphPacking, GlyphSurfaceRecord, REPRESENTATION_RECORD_LEN, RepresentationRecord,
-            RepresentationTable,
-        },
+    use mirx::font::{
+        FontRepresentation, FontRepresentationRequest, GlyphPacking, GlyphSurfaceRecord,
+        REPRESENTATION_RECORD_LEN, RepresentationRecord, RepresentationTable,
     };
     let (_, allocations) = count_allocations(|| {
         let mut surfaces = [0; 24];
@@ -449,7 +446,7 @@ fn glyph_surface_records_and_directory_binding_allocate_nothing() {
 
 #[test]
 fn representation_record_binding_and_emission_allocate_nothing() {
-    use mirx::{FontRepresentation, font::RepresentationRecord};
+    use mirx::font::{FontRepresentation, RepresentationRecord};
     let (_, allocations) = count_allocations(|| {
         let surface =
             SurfaceDescriptor::new(5, 3, SampleLayout::A4, ColorDescription::NONE).unwrap();
@@ -782,7 +779,7 @@ fn native_wire_atlas_and_implicit_glyph_maps_allocate_nothing() {
 
 #[test]
 fn font_selection_retains_only_inline_metadata_without_source_allocation() {
-    use mirx::{FontRepresentation, FontRepresentationRequest, FontRepresentations};
+    use mirx::font::{FontRepresentation, FontRepresentationRequest, FontRepresentations};
     let (selected, allocations) = count_allocations(|| {
         let records = [
             FontRepresentation::coverage(4, 16, 512).unwrap(),

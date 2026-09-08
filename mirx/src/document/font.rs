@@ -2,14 +2,13 @@ use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
+use crate::font::{Font, FontAccessError, FontError, FontView};
 use crate::payload::image::ImagePayloadError;
-use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, Font, FontAccessError, FontError, TryEditError,
-};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed FONT view.
-    pub fn font(&self) -> Result<crate::FontView<'a>, FontAccessError> {
+    pub fn font(&self) -> Result<FontView<'a>, FontAccessError> {
         if self.chunk_type() != ChunkType::FONT {
             return Err(FontAccessError::UnexpectedChunkType {
                 actual: self.chunk_type(),

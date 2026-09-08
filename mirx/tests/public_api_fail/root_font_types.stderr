@@ -1,0 +1,59 @@
+error[E0432]: unresolved imports `mirx::Font`, `mirx::FontAccessError`, `mirx::FontAsset`, `mirx::FontError`, `mirx::FontRepresentation`, `mirx::FontRepresentationError`, `mirx::FontRepresentationFallback`, `mirx::FontRepresentationKind`, `mirx::FontRepresentationMatch`, `mirx::FontRepresentationPreference`, `mirx::FontRepresentationRequest`, `mirx::FontRepresentations`, `mirx::FontSelectionError`, `mirx::FontView`
+ --> tests/public_api_fail/root_font_types.rs:2:5
+  |
+2 |     Font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
+  |     ^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^ no `FontRepresentationError` in the root
+  |     |     |                |          |          |
+  |     |     |                |          |          no `FontRepresentation` in the root
+  |     |     |                |          no `FontError` in the root
+  |     |     |                no `FontAsset` in the root
+  |     |     no `FontAccessError` in the root
+  |     no `Font` in the root
+3 |     FontRepresentationFallback, FontRepresentationKind, FontRepresentationMatch,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^ no `FontRepresentationMatch` in the root
+  |     |                           |
+  |     |                           no `FontRepresentationKind` in the root
+  |     no `FontRepresentationFallback` in the root
+4 |     FontRepresentationPreference, FontRepresentationRequest, FontRepresentations,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^
+  |     |
+  |     no `FontRepresentationPreference` in the root
+5 |     FontSelectionError, FontView,
+  |     ^^^^^^^^^^^^^^^^^^  ^^^^^^^^
+  |
+  = help: consider importing one of these items instead:
+          mirx::PayloadValidationFailure::Font
+          mirx::font::Font
+  = help: consider importing this enum instead:
+          mirx::font::FontAccessError
+  = help: consider importing this struct instead:
+          mirx::font::FontAsset
+  = help: consider importing this enum instead:
+          mirx::font::FontError
+  = help: consider importing this struct instead:
+          mirx::font::FontRepresentation
+  = help: consider importing this enum instead:
+          mirx::font::FontRepresentationError
+  = help: consider importing this enum instead:
+          mirx::font::FontRepresentationFallback
+  = help: consider importing this enum instead:
+          mirx::font::FontRepresentationKind
+  = help: consider importing this struct instead:
+          mirx::font::FontRepresentationMatch
+  = help: consider importing this enum instead:
+          mirx::font::FontRepresentationPreference
+help: a similar name exists in the module (notice the capitalization)
+  |
+2 -     Font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
+2 +     font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
+  |
+help: a similar name exists in the module
+  |
+2 -     Font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
+2 +     Font, MetaAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
+  |
+help: a similar name exists in the module
+  |
+2 -     Font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
+2 +     Font, FontAccessError, FontAsset, EditError, FontRepresentation, FontRepresentationError,
+  |

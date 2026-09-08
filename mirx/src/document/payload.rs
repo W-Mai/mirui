@@ -43,13 +43,15 @@ impl<'a> ResolvedNodePayload<'a> {
     pub(super) fn font_view(
         self,
         limits: &PayloadLimits,
-    ) -> Result<crate::FontView<'a>, crate::FontError> {
+    ) -> Result<crate::font::FontView<'a>, crate::font::FontError> {
         match self {
             Self::Contiguous { bytes, placement } => match placement {
-                PayloadPlacement::Fixed(offset) => crate::FontView::open_at(bytes, offset, limits),
-                PayloadPlacement::Unplaced => crate::FontView::open(bytes, limits),
+                PayloadPlacement::Fixed(offset) => {
+                    crate::font::FontView::open_at(bytes, offset, limits)
+                }
+                PayloadPlacement::Unplaced => crate::font::FontView::open(bytes, limits),
             },
-            Self::PromotedImage(_) => Err(crate::FontError::SizeOverflow),
+            Self::PromotedImage(_) => Err(crate::font::FontError::SizeOverflow),
         }
     }
     pub(super) const fn bytes(self) -> Option<&'a [u8]> {

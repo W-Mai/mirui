@@ -720,7 +720,7 @@ mod tests {
 
         assert_eq!(
             document.set_type(id, ChunkType::FONT, RawChunkPolicy::infer()),
-            Err(EditError::InvalidFont(crate::FontError::Media(
+            Err(EditError::InvalidFont(crate::font::FontError::Media(
                 crate::media::MediaPayloadError::UnsupportedVersion(b'n')
             )))
         );

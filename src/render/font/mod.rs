@@ -39,7 +39,7 @@ pub enum GlyphKind {
         samples: &'static [u8],
         stride: u32,
         region: ::mirx::image::Region,
-        representation: ::mirx::FontRepresentation,
+        representation: ::mirx::font::FontRepresentation,
         bearing_x: crate::types::Fixed,
         bearing_y: crate::types::Fixed,
     },

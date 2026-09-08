@@ -5,7 +5,8 @@
 use mirui::render::font::mirx::MirxFontProvider;
 use mirui::render::font::{FontProvider, GlyphKind};
 use mirx::{
-    FontRepresentationFallback, FontRepresentationKind, FontRepresentationRequest, PayloadLimits,
+    PayloadLimits,
+    font::{FontRepresentationFallback, FontRepresentationKind, FontRepresentationRequest},
 };
 
 const BUNDLE: &[u8] = include_bytes!("../src/gallery/demos/assets/multi_font_bundle.mirx");

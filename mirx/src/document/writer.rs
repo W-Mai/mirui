@@ -83,7 +83,7 @@ impl<'a> PayloadPlan<'a> {
     ) -> PlacementConstraint<'a> {
         match self {
             Self::Verbatim(payload) if chunk_type == ChunkType::FONT => {
-                if crate::FontView::open(payload, &limits).is_ok() {
+                if crate::font::FontView::open(payload, &limits).is_ok() {
                     PlacementConstraint::Font { payload, limits }
                 } else {
                     PlacementConstraint::Chunk(CONTAINER_ALIGNMENT)
@@ -167,7 +167,7 @@ impl PlacementConstraint<'_> {
     fn place(self, cursor: u32) -> Result<u32, EncodeError> {
         match self {
             Self::Chunk(alignment) => align_up(cursor, alignment),
-            Self::Font { payload, limits } => crate::FontView::open(payload, &limits)
+            Self::Font { payload, limits } => crate::font::FontView::open(payload, &limits)
                 .and_then(|view| view.aligned_file_offset(cursor, CONTAINER_ALIGNMENT))
                 .map_err(|_| EncodeError::InvalidPayload {
                     chunk_type: ChunkType::FONT,

@@ -19,7 +19,7 @@ All multi-byte fields are little-endian. Coverage reconstructs its fixed range f
 Coverage accepts A1/A2/A4/A8; signed distance accepts A4/A8. Application semantics can bind any understood sample layout. Decoded cost comes from the shared surface planner's tight byte count, excluding stored compression, row/allocation padding and backend scratch. Complete face binding must resolve the surface index, check glyph-map bounds and validate native metadata with `validate_for(surface)` before emission. A record alone does not prove those references are valid.
 
 ```rust
-use mirx::{FontRepresentation, font::{RepresentationRecord, REPRESENTATION_RECORD_LEN},
+use mirx::{font::{FontRepresentation, RepresentationRecord, REPRESENTATION_RECORD_LEN},
     image::{ColorDescription, SampleLayout, SurfaceDescriptor}};
 
 let surface = SurfaceDescriptor::new(8, 16, SampleLayout::A4, ColorDescription::NONE).unwrap();

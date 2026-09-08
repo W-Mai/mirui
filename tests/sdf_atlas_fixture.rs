@@ -2,7 +2,8 @@
 
 use mirui::render::font::mirx::MirxFontProvider;
 use mirui::render::font::{FontProvider, GlyphKind};
-use mirx::{FontRepresentationKind, PayloadLimits};
+use mirx::PayloadLimits;
+use mirx::font::FontRepresentationKind;
 
 const ASCII_FONT: &[u8] = include_bytes!("fixtures/misans_sdf_ascii_32.mirx");
 const CJK_FONT: &[u8] = include_bytes!("fixtures/misans_sdf_cjk_32.mirx");

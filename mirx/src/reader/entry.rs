@@ -192,11 +192,11 @@ impl<'a> ChunkRef<'a> {
     pub fn font(
         &self,
         limits: &PayloadLimits,
-    ) -> Result<Option<crate::FontView<'a>>, crate::FontError> {
+    ) -> Result<Option<crate::font::FontView<'a>>, crate::font::FontError> {
         if self.chunk_type != ChunkType::FONT {
             return Ok(None);
         }
-        crate::FontView::open_at(self.payload, self.payload_offset, limits).map(Some)
+        crate::font::FontView::open_at(self.payload, self.payload_offset, limits).map(Some)
     }
 
     /// Returns a borrowed META view when this record has the META type.

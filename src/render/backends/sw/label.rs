@@ -69,7 +69,7 @@ impl SwRenderer<'_> {
                     let width = scaled_extent(region.width(), glyph_scale);
                     let height = scaled_extent(region.height(), glyph_scale);
                     match representation.kind() {
-                        mirx::FontRepresentationKind::Coverage { bits } => self
+                        mirx::font::FontRepresentationKind::Coverage { bits } => self
                             .blit_coverage_region(
                                 samples,
                                 *stride,
@@ -83,7 +83,7 @@ impl SwRenderer<'_> {
                                 color,
                                 opa,
                             ),
-                        mirx::FontRepresentationKind::SignedDistance { bits, spread } => self
+                        mirx::font::FontRepresentationKind::SignedDistance { bits, spread } => self
                             .blit_sdf_region(
                                 samples,
                                 *stride,
@@ -98,7 +98,7 @@ impl SwRenderer<'_> {
                                 color,
                                 opa,
                             ),
-                        mirx::FontRepresentationKind::Application(_) => {}
+                        mirx::font::FontRepresentationKind::Application(_) => {}
                         _ => {}
                     }
                 }
@@ -436,7 +436,7 @@ mod tests {
                     samples: &[],
                     stride: 1,
                     region: mirx::image::Region::new(7, 9, 0, 0).unwrap(),
-                    representation: mirx::FontRepresentation::coverage(1, 16, 0).unwrap(),
+                    representation: mirx::font::FontRepresentation::coverage(1, 16, 0).unwrap(),
                     bearing_x: Fixed::from_ratio(-1, 2),
                     bearing_y: Fixed::from_ratio(1, 4),
                 },

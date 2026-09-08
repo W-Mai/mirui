@@ -42,17 +42,11 @@ pub use document::{
     RemovedChunkMetadata, ReservedBitsPolicy,
 };
 pub use error::{
-    DocumentError, EditError, EncodeError, FontAccessError, FramesAccessError, ImageDecodeError,
-    MetaAccessError, PaletteAccessError, ParseError, ReadError, TryEditError, VectorAccessError,
+    DocumentError, EditError, EncodeError, FramesAccessError, ImageDecodeError, MetaAccessError,
+    PaletteAccessError, ParseError, ReadError, TryEditError, VectorAccessError,
 };
 #[cfg(test)]
 pub(crate) use flat::{FlatImageInput, encode_flat};
-pub use font::{
-    Font, FontAsset, FontError, FontRepresentation, FontRepresentationError,
-    FontRepresentationFallback, FontRepresentationKind, FontRepresentationMatch,
-    FontRepresentationPreference, FontRepresentationRequest, FontRepresentations,
-    FontSelectionError, FontView,
-};
 pub(crate) use format::ColorFormat;
 pub use header::Layout;
 pub(crate) use header::{

@@ -3,9 +3,11 @@
 use alloc::rc::Rc;
 
 use super::{Font, FontBackend, FontMetrics, FontProvider, Glyph, GlyphKind};
-use mirx::font::FontGlyphs;
 use mirx::{
-    FontError, FontRepresentationFallback, FontRepresentationRequest, FontView, PayloadLimits,
+    PayloadLimits,
+    font::{
+        FontError, FontGlyphs, FontRepresentationFallback, FontRepresentationRequest, FontView,
+    },
     image::{CoverageBudget, SurfaceRequirements, SurfaceView, UnitGroup},
 };
 
@@ -275,7 +277,7 @@ impl MirxFontProvider {
             .filter(|representation| {
                 matches!(
                     representation.kind(),
-                    mirx::FontRepresentationKind::Coverage { .. }
+                    mirx::font::FontRepresentationKind::Coverage { .. }
                 )
             })
             .map(|representation| representation.design_ppem())
@@ -450,9 +452,11 @@ mod tests {
             Fixed::ZERO,
         )
         .unwrap();
-        let representation =
-            RepresentationAsset::new(mirx::FontRepresentation::coverage(1, 16, 4).unwrap(), 0)
-                .with_atlas_map(0);
+        let representation = RepresentationAsset::new(
+            mirx::font::FontRepresentation::coverage(1, 16, 4).unwrap(),
+            0,
+        )
+        .with_atlas_map(0);
         let raster_metrics = [
             RasterMetrics::new(Fixed::ZERO, Fixed::from_int(12)),
             RasterMetrics::new(Fixed::from_ratio(-1, 2), Fixed::from_ratio(45, 4)),
@@ -525,8 +529,10 @@ mod tests {
         let surface =
             SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let image = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
-        let representation =
-            RepresentationAsset::new(mirx::FontRepresentation::coverage(8, 1, 8).unwrap(), 0);
+        let representation = RepresentationAsset::new(
+            mirx::font::FontRepresentation::coverage(8, 1, 8).unwrap(),
+            0,
+        );
         let raster_metrics = [RasterMetrics::default(); 2];
         let payload = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
             .with_rasters(
@@ -554,8 +560,10 @@ mod tests {
         let surface =
             SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let image = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42]);
-        let representation =
-            RepresentationAsset::new(mirx::FontRepresentation::coverage(8, 1, 8).unwrap(), 0);
+        let representation = RepresentationAsset::new(
+            mirx::font::FontRepresentation::coverage(8, 1, 8).unwrap(),
+            0,
+        );
         let raster_metrics = [RasterMetrics::default(); 2];
         alloc::vec::Vec::leak(
             FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))

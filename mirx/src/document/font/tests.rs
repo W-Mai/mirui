@@ -3,13 +3,13 @@ use core::cell::Cell;
 
 use super::*;
 use crate::font::{
-    CmapEntry, FontAdvanceSource, FontFace, FontMetadataError, GlyphId, GlyphMap,
-    GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
+    CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontMetadataError, FontRepresentation,
+    GlyphId, GlyphMap, GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
 };
 use crate::image::SampleLayout;
 use crate::{
-    ColorFormat, EncodeOptions, Fixed, FontAsset, FontRepresentation, ImageAsset, PayloadLimits,
-    PayloadOrigin, RawChunkPolicy, encode_chunks,
+    ColorFormat, EncodeOptions, Fixed, ImageAsset, PayloadLimits, PayloadOrigin, RawChunkPolicy,
+    encode_chunks,
 };
 
 fn font() -> Font {

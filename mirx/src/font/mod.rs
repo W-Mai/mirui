@@ -13,6 +13,7 @@ mod surface;
 mod table;
 mod view;
 
+pub use crate::error::FontAccessError;
 pub use asset::{FontAdvanceSource, FontAsset, GlyphSurfaceAsset, RepresentationAsset};
 pub use owned::Font;
 

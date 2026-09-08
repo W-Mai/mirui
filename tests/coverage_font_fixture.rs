@@ -2,7 +2,8 @@
 
 use mirui::render::font::mirx::MirxFontProvider;
 use mirui::render::font::{FontProvider, GlyphKind};
-use mirx::{FontRepresentationKind, PayloadLimits};
+use mirx::PayloadLimits;
+use mirx::font::FontRepresentationKind;
 
 const FONT_BYTES: &[u8] = include_bytes!("fixtures/misans_coverage_16_4bit.mirx");
 
