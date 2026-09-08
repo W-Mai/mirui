@@ -252,13 +252,8 @@ pub(crate) fn encode_chunk_image(image: &ImageChunkInput<'_>) -> Vec<u8> {
     out
 }
 
-/// Single-chunk file with an arbitrary `chunk_type` and a raw payload.
-/// FONT / VECTOR / custom critical chunks all wrap their format-specific
-/// header inside `payload`. The primary header fields (color_format,
-/// width, height, stride) are zeroed because they don't apply.
-///
-/// `payload` is written verbatim and available through [`crate::ChunkRef::payload`].
-pub fn encode_chunk_generic(chunk_type: u16, flags: u16, payload: &[u8]) -> Vec<u8> {
+#[cfg(test)]
+pub(crate) fn encode_chunk_generic(chunk_type: u16, flags: u16, payload: &[u8]) -> Vec<u8> {
     let chunk_table_offset = CHUNK_FILE_HEADER_LEN as u32;
     let chunk_start = chunk_table_offset as usize + CHUNK_TABLE_ENTRY_LEN;
     let chunk_size = payload.len();
@@ -298,7 +293,7 @@ pub fn encode_chunk_generic(chunk_type: u16, flags: u16, payload: &[u8]) -> Vec<
 /// payload)`) into one CHUNK-layout buffer, table then payloads. The
 /// reader resolves them through [`crate::Reader::chunks`]. Primary header fields stay zeroed —
 /// a multi-chunk file (e.g. several FONT representations) has no single
-/// primary. `encode_chunk_generic` is the one-chunk special case.
+/// primary.
 pub fn encode_chunks(chunks: &[(u16, u16, &[u8])]) -> Vec<u8> {
     let count = chunks.len();
     let chunk_table_offset = CHUNK_FILE_HEADER_LEN;
