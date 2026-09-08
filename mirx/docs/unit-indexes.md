@@ -23,21 +23,27 @@ DATA 0..3      unit 0: 3 coded bytes
 
 The complete span is 130 bytes. Decoder inputs have lengths 3, 5 and 2; none receives the gaps. DATA integrity coverage still includes those physical gaps. Independent decodability, sample coverage and reference availability are separate group/profile checks.
 
-## Read and write
+## Semantic construction
 
 ```rust
-use mirx::image::{UnitIndex, UnitIndexEncoding};
+use mirx::{image::{UnitIndex, UnitSelection}, types::ByteAlignment};
 
-let lengths = [3, 5, 2];
-let mut bytes = [0; 10]; // one u32 checkpoint + three u16 lengths
-UnitIndexEncoding::Lengths16.encode_into(&lengths, 64, &mut bytes).unwrap();
-let index = UnitIndex::lengths16(3, &bytes, 64).unwrap();
+let alignment = ByteAlignment::new(64).unwrap();
+let ranges = [0..3, 64..69, 128..130];
+let index = UnitIndex::ranges(&ranges, alignment).unwrap();
+let cells = [0, 2, 5];
+let selection = UnitSelection::cells(6, &cells).unwrap();
 assert_eq!(index.get(1), Some(64..69));
 assert_eq!(index.byte_len(), 130);
 assert!(index.iter().rev().eq([128..130, 64..69, 0..3]));
+assert!(selection.iter().eq([0, 2, 5]));
 ```
 
-`UnitIndex::fixed(count, unit_bytes, alignment)` omits the table. `lengths16` and `lengths32` accept count, table bytes and alignment; `offsets` derives count from its table. Opening checks every checkpoint, length, total bound and alignment. Forward/reverse iteration advances in constant time per adjacent range; skips use bounded direct lookup, without expanded arrays or scans over skipped units.
+`UnitIndex::fixed(count, unit_bytes, alignment)` derives equal ranges. `UnitIndex::ranges` borrows ordinary Rust ranges and validates canonical aligned starts. `UnitSelection::cells` borrows ordered grid-cell ordinals. These forms are suitable for runtime composition and typed authoring without materializing MIRX wire tables.
+
+## Stored forms
+
+`lengths16` and `lengths32` accept count, table bytes and alignment; `offsets` derives count from its table. Opening checks every checkpoint, length, total bound and alignment. Forward/reverse iteration advances in constant time per adjacent range; skips use bounded direct lookup, without expanded arrays or scans over skipped units.
 
 `UnitIndexEncoding::encoded_len(lengths, alignment)` and `encode_into(lengths, alignment, output)` share validation. Overflow, unrepresentable lengths, invalid alignment and insufficient output leave the entire destination unchanged. Success preserves the suffix. Offsets reject any alignment request that would require inserting gaps; the caller selects a length-table form explicitly. Lengths16 rejects lengths above 65,535 instead of silently switching width.
 

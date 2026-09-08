@@ -1402,6 +1402,8 @@ fn raw_a8_media_payload() -> Vec<u8> {
 fn unit_index_encoding_lookup_and_iteration_allocate_nothing() {
     use mirx::image::{UnitIndex, UnitIndexEncoding};
     let lengths = [3; 129];
+    let ranges: [core::ops::Range<u32>; 129] =
+        core::array::from_fn(|index| index as u32 * 3..index as u32 * 3 + 3);
     let mut offsets = [0; 520];
     let mut checkpointed = [0; 270];
     let (_, allocations) = count_allocations(|| {
@@ -1413,6 +1415,7 @@ fn unit_index_encoding_lookup_and_iteration_allocate_nothing() {
             .unwrap();
         for index in [
             UnitIndex::fixed(129, 3, mirx::types::ByteAlignment::ONE).unwrap(),
+            UnitIndex::ranges(&ranges, mirx::types::ByteAlignment::ONE).unwrap(),
             UnitIndex::offsets(&offsets).unwrap(),
             UnitIndex::lengths16(129, &checkpointed, mirx::types::ByteAlignment::ONE).unwrap(),
         ] {
@@ -1779,6 +1782,7 @@ fn sparse_unit_selection_borrows_and_encodes_without_allocation() {
             .encode_into(512, &cells, &mut bitmap)
             .unwrap();
         for selection in [
+            UnitSelection::cells(512, &cells).unwrap(),
             UnitSelection::list(512, &list).unwrap(),
             UnitSelection::bitmap(512, &bitmap).unwrap(),
         ] {

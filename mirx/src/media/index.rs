@@ -20,6 +20,7 @@ enum Storage<'a> {
         size: u32,
         step: u32,
     },
+    Ranges(&'a [Range<u32>]),
     Offsets(&'a [u8]),
     Lengths {
         checkpoints: &'a [u8],
@@ -89,6 +90,39 @@ impl<'a> UnitIndex<'a> {
             },
             count,
             byte_len,
+            alignment,
+        })
+    }
+
+    /// Borrows canonical DATA-relative ranges.
+    pub fn ranges(
+        ranges: &'a [Range<u32>],
+        alignment: ByteAlignment,
+    ) -> Result<Self, UnitIndexError> {
+        u32::try_from(ranges.len()).map_err(|_| UnitIndexError::SizeOverflow)?;
+        let mut previous_end = 0;
+        for (index, range) in ranges.iter().enumerate() {
+            if range.end < range.start {
+                return Err(UnitIndexError::InvalidRange {
+                    index: index as u32,
+                    start: range.start,
+                    end: range.end,
+                });
+            }
+            let expected = Self::aligned(previous_end, alignment)?;
+            if range.start != expected {
+                return Err(UnitIndexError::RangeStartMismatch {
+                    index: index as u32,
+                    expected,
+                    actual: range.start,
+                });
+            }
+            previous_end = range.end;
+        }
+        Ok(Self {
+            storage: Storage::Ranges(ranges),
+            count: ranges.len(),
+            byte_len: previous_end,
             alignment,
         })
     }
@@ -215,6 +249,7 @@ impl<'a> UnitIndex<'a> {
         }
         let start = match self.storage {
             Storage::Fixed { step, .. } => index as u32 * step,
+            Storage::Ranges(ranges) => ranges.get(index)?.start,
             Storage::Offsets(bytes) => read_u32_le(bytes, index * 4)?,
             Storage::Lengths {
                 checkpoints,
@@ -246,6 +281,10 @@ impl<'a> UnitIndex<'a> {
     fn unit_len(self, index: usize) -> u32 {
         match self.storage {
             Storage::Fixed { size, .. } => size,
+            Storage::Ranges(ranges) => {
+                let range = &ranges[index];
+                range.end - range.start
+            }
             Storage::Offsets(bytes) => {
                 read_u32_le(bytes, (index + 1) * 4).unwrap()
                     - read_u32_le(bytes, index * 4).unwrap()
@@ -465,6 +504,16 @@ impl UnitIndexEncoding {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum UnitIndexError {
+    InvalidRange {
+        index: u32,
+        start: u32,
+        end: u32,
+    },
+    RangeStartMismatch {
+        index: u32,
+        expected: u32,
+        actual: u32,
+    },
     UnalignedOffset {
         index: u32,
         offset: u32,
@@ -509,6 +558,7 @@ mod tests {
         let checkpointed = [0, 0, 0, 0, 2, 0, 0, 0, 3, 0];
         let expected = [0..2, 2..2, 2..5];
         for index in [
+            UnitIndex::ranges(&expected, alignment(1)).unwrap(),
             UnitIndex::offsets(&offsets).unwrap(),
             UnitIndex::lengths16(3, &checkpointed, alignment(1)).unwrap(),
         ] {
@@ -606,6 +656,24 @@ mod tests {
 
     #[test]
     fn malformed_offsets_and_checkpoint_sums_are_rejected() {
+        assert!(matches!(
+            UnitIndex::ranges(&[0..2, 1..3], alignment(1)),
+            Err(UnitIndexError::RangeStartMismatch { .. })
+        ));
+        assert!(matches!(
+            UnitIndex::ranges(&[2..1], alignment(1)),
+            Err(UnitIndexError::InvalidRange { .. })
+        ));
+        assert!(matches!(
+            UnitIndex::ranges(&[0..3, 64..65], alignment(1)),
+            Err(UnitIndexError::RangeStartMismatch { .. })
+        ));
+        assert_eq!(
+            UnitIndex::ranges(&[0..3, 64..65], alignment(64))
+                .unwrap()
+                .byte_len(),
+            65
+        );
         for len in [0, 1, 2, 3, 5, 6, 7] {
             assert!(UnitIndex::offsets(&[0; 7][..len]).is_err());
         }

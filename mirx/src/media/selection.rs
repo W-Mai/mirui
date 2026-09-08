@@ -9,6 +9,7 @@ const CHECKPOINT_BYTES: usize = SELECTION_CHECKPOINT_INTERVAL / 8;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum Storage<'a> {
     All,
+    Cells(&'a [u32]),
     List(&'a [u8]),
     Bitmap {
         checkpoints: &'a [u8],
@@ -34,6 +35,21 @@ impl<'a> UnitSelection<'a> {
             storage: Storage::All,
             cell_count,
             count: usize::try_from(cell_count).map_err(|_| UnitSelectionError::SizeOverflow)?,
+        })
+    }
+
+    /// Borrows strictly increasing grid-cell ordinals.
+    pub fn cells(cell_count: u32, cells: &'a [u32]) -> Result<Self, UnitSelectionError> {
+        u32::try_from(cells.len()).map_err(|_| UnitSelectionError::SizeOverflow)?;
+        let mut previous = None;
+        for &cell in cells {
+            Self::validate_cell(cell_count, cell, previous)?;
+            previous = Some(cell);
+        }
+        Ok(Self {
+            storage: Storage::Cells(cells),
+            cell_count,
+            count: cells.len(),
         })
     }
 
@@ -113,6 +129,7 @@ impl<'a> UnitSelection<'a> {
         }
         match self.storage {
             Storage::All => Some(index as u32),
+            Storage::Cells(cells) => cells.get(index).copied(),
             Storage::List(bytes) => read_u32_le(bytes, index * 4),
             Storage::Bitmap { checkpoints, bits } => {
                 let mut low = 0;
@@ -175,6 +192,7 @@ impl<'a> UnitSelection<'a> {
         }
         match self.storage {
             Storage::All => cell as usize,
+            Storage::Cells(cells) => cells.partition_point(|candidate| *candidate < cell),
             Storage::List(bytes) => {
                 let mut low = 0;
                 let mut high = self.count;
@@ -405,6 +423,9 @@ mod tests {
         for cell_count in [0, 1, 7, 8, 9, 255, 256, 257, 511, 512, 513, 2049] {
             for step in [1, 2, 7, 257, 800] {
                 let cells: alloc::vec::Vec<u32> = (0..cell_count).step_by(step).collect();
+                let native = UnitSelection::cells(cell_count, &cells).unwrap();
+                assert!(native.iter().eq(cells.iter().copied()));
+                assert!(native.iter().rev().eq(cells.iter().rev().copied()));
                 for encoding in [UnitSelectionEncoding::List, UnitSelectionEncoding::Bitmap] {
                     let size = encoding.encoded_len(cell_count, &cells).unwrap();
                     let mut bytes = vec![0xa5; size + 2];
@@ -477,6 +498,14 @@ mod tests {
 
     #[test]
     fn invalid_maps_and_encoder_errors_never_change_output() {
+        assert!(matches!(
+            UnitSelection::cells(1, &[1]),
+            Err(UnitSelectionError::CellOutOfBounds { .. })
+        ));
+        assert!(matches!(
+            UnitSelection::cells(2, &[1, 1]),
+            Err(UnitSelectionError::CellsNotIncreasing { .. })
+        ));
         assert_eq!(
             UnitSelection::list(10, &[0]),
             Err(UnitSelectionError::Truncated)
