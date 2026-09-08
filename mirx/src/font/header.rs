@@ -13,6 +13,30 @@ pub struct FontFace {
 }
 
 impl FontFace {
+    pub const fn new(
+        units_per_em: u16,
+        default_glyph: super::GlyphId,
+        raster_count: u16,
+        ascender: Fixed,
+        descender: Fixed,
+        line_gap: Fixed,
+    ) -> Result<Self, FontFaceError> {
+        if units_per_em == 0 {
+            return Err(FontFaceError::ZeroUnitsPerEm);
+        }
+        if raster_count == 0 {
+            return Err(FontFaceError::ZeroRasterCount);
+        }
+        Ok(Self {
+            units_per_em,
+            default_glyph,
+            raster_count,
+            ascender,
+            descender,
+            line_gap,
+        })
+    }
+
     pub fn from_record(bytes: &[u8]) -> Result<Self, FontFaceError> {
         if bytes.len() < FACE_RECORD_LEN {
             return Err(FontFaceError::Truncated {
@@ -36,16 +60,14 @@ impl FontFace {
         if read_u16_le(bytes, 6).expect("complete face record") != 0 {
             return Err(FontFaceError::ReservedNonZero);
         }
-        Ok(Self {
+        Self::new(
             units_per_em,
-            default_glyph: super::GlyphId::new(
-                read_u16_le(bytes, 2).expect("complete face record"),
-            ),
+            super::GlyphId::new(read_u16_le(bytes, 2).expect("complete face record")),
             raster_count,
-            ascender: Self::fixed(bytes, 8),
-            descender: Self::fixed(bytes, 12),
-            line_gap: Self::fixed(bytes, 16),
-        })
+            Self::fixed(bytes, 8),
+            Self::fixed(bytes, 12),
+            Self::fixed(bytes, 16),
+        )
     }
 
     pub const fn units_per_em(self) -> u16 {

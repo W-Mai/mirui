@@ -5,6 +5,7 @@ mod glyph;
 mod header;
 mod identity;
 mod mapping;
+mod metadata;
 mod metrics;
 mod owned;
 mod placement;
@@ -28,6 +29,7 @@ pub use identity::{
     GlyphIds, GlyphIdsError,
 };
 pub use mapping::{GLYPH_REGION_LEN, GlyphMap, GlyphMapError, GlyphPacking, GlyphRegions};
+pub use metadata::{FontMetadata, FontMetadataError};
 pub use metrics::{
     GLYPH_METRICS_LEN, GlyphMetrics, GlyphMetricsIter, LINE_METRICS_LEN, LineMetrics, MetricsError,
     MetricsTable,
