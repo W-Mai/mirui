@@ -1,6 +1,6 @@
 use std::borrow::Cow;
 
-use mirx::{Document, Layout, MirxFile, PayloadLimits, Reader, parse, parse_chunk};
+use mirx::{Document, Layout, PayloadLimits, Reader};
 
 const FONT_FIXTURES: &[&[u8]] = &[
     include_bytes!("fixtures/misans_coverage_16_4bit.mirx"),
@@ -11,12 +11,9 @@ const FONT_FIXTURES: &[&[u8]] = &[
 #[test]
 fn shipped_font_fixtures_open_through_container_and_document_paths() {
     for &bytes in FONT_FIXTURES {
-        let parsed = parse_chunk(bytes).unwrap();
-        assert!(!parsed.entries.is_empty());
-        assert!(matches!(parse(bytes).unwrap(), MirxFile::Chunk(_)));
-
         let reader = Reader::open(bytes).unwrap();
         assert_eq!(reader.layout(), Layout::Chunk);
+        assert!(reader.chunks().next().is_some());
         reader
             .validate_known_payloads(&PayloadLimits::HOST)
             .unwrap();

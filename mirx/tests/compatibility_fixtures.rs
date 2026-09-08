@@ -1,9 +1,8 @@
 use std::borrow::Cow;
 
 use mirx::{
-    ChunkType, ColorFormat, CriticalAssumption, Document, Layout, MirxFile, OpenOptions,
-    RawChunkPolicy, RawTypePolicy, Reader, RelocationAssumption, ReservedBitsPolicy, parse,
-    parse_chunk, parse_flat,
+    ChunkType, ColorFormat, CriticalAssumption, Document, Layout, OpenOptions, RawChunkPolicy,
+    RawTypePolicy, Reader, RelocationAssumption, ReservedBitsPolicy,
 };
 
 fn decode_hex(source: &str) -> Vec<u8> {
@@ -22,20 +21,17 @@ const fn relocatable_policy() -> RawChunkPolicy {
 }
 
 #[test]
-fn flat_golden_opens_through_legacy_reader_and_document_paths() {
+fn flat_golden_opens_through_reader_and_document_paths() {
     let bytes = decode_hex(include_str!("fixtures/flat-a8-v1.hex"));
     assert_eq!(bytes.len(), 32);
 
-    let legacy = parse_flat(&bytes).unwrap();
-    assert_eq!((legacy.width, legacy.height, legacy.stride), (2, 2, 2));
-    assert_eq!(legacy.format, ColorFormat::A8);
-    assert_eq!(legacy.main, [0x00, 0x40, 0x80, 0xff]);
-    assert!(legacy.extra.is_none());
-    assert!(matches!(parse(&bytes).unwrap(), MirxFile::Flat(_)));
-
     let reader = Reader::open(&bytes).unwrap();
     assert_eq!(reader.layout(), Layout::Flat);
-    assert_eq!(reader.flat_image().unwrap().main(), legacy.main);
+    let image = reader.flat_image().unwrap();
+    assert_eq!((image.width(), image.height(), image.stride()), (2, 2, 2));
+    assert_eq!(image.format(), ColorFormat::A8);
+    assert_eq!(image.main(), [0x00, 0x40, 0x80, 0xff]);
+    assert!(image.extra().is_none());
 
     let finished = Document::open(&bytes).unwrap().finish().unwrap();
     assert!(matches!(finished, Cow::Borrowed(_)));
@@ -43,25 +39,28 @@ fn flat_golden_opens_through_legacy_reader_and_document_paths() {
 }
 
 #[test]
-fn chunk_golden_preserves_legacy_entries_and_supports_checked_rewrite() {
+fn chunk_golden_preserves_entries_and_supports_checked_rewrite() {
     let bytes = decode_hex(include_str!("fixtures/chunk-custom-v1.hex"));
     assert_eq!(bytes.len(), 87);
     let first_type = ChunkType::new(0xbeef).unwrap();
     let second_type = ChunkType::new(0xcafe).unwrap();
 
-    let legacy = parse_chunk(&bytes).unwrap();
-    assert_eq!(legacy.entries.len(), 2);
+    let reader = Reader::open(&bytes).unwrap();
+    assert_eq!(reader.chunks().len(), 2);
     assert_eq!(
-        legacy.chunk_payload(&bytes, first_type.raw()),
+        reader
+            .chunks()
+            .find(|chunk| chunk.chunk_type() == first_type)
+            .map(|chunk| chunk.payload()),
         Some(b"abc".as_slice())
     );
     assert_eq!(
-        legacy.chunk_payload(&bytes, second_type.raw()),
+        reader
+            .chunks()
+            .find(|chunk| chunk.chunk_type() == second_type)
+            .map(|chunk| chunk.payload()),
         Some(b"WXYZ".as_slice())
     );
-    assert!(matches!(parse(&bytes).unwrap(), MirxFile::Chunk(_)));
-
-    let reader = Reader::open(&bytes).unwrap();
     assert_eq!(
         reader
             .chunks()
@@ -102,13 +101,19 @@ fn chunk_golden_preserves_legacy_entries_and_supports_checked_rewrite() {
             .collect::<Vec<_>>(),
         [b"WXYZ".as_slice(), b"abc".as_slice()]
     );
-    let legacy_rewritten = parse_chunk(&rewritten).unwrap();
+    let rewritten = Reader::open(&rewritten).unwrap();
     assert_eq!(
-        legacy_rewritten.chunk_payload(&rewritten, first_type.raw()),
+        rewritten
+            .chunks()
+            .find(|chunk| chunk.chunk_type() == first_type)
+            .map(|chunk| chunk.payload()),
         Some(b"abc".as_slice())
     );
     assert_eq!(
-        legacy_rewritten.chunk_payload(&rewritten, second_type.raw()),
+        rewritten
+            .chunks()
+            .find(|chunk| chunk.chunk_type() == second_type)
+            .map(|chunk| chunk.payload()),
         Some(b"WXYZ".as_slice())
     );
 }

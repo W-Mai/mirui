@@ -80,22 +80,3 @@ pub use scene::{
     VectorChunkHeader, VectorEncodeError, VectorReadError,
 };
 pub use types::{Color, Fixed, Point, Rect, Transform};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MirxFile<'a> {
-    Flat(FlatImage<'a>),
-    Chunk(ChunkFile<'a>),
-}
-
-pub fn parse(buf: &[u8]) -> Result<MirxFile<'_>, ParseError> {
-    let header = FileHeader::parse(buf)?;
-    match header.layout {
-        Layout::Flat => parse_flat(buf).map(MirxFile::Flat),
-        Layout::Chunk => parse_chunk(buf).map(MirxFile::Chunk),
-    }
-}
-
-/// Only validates the common prefix; layout-specific bytes are untouched.
-pub fn peek_header(buf: &[u8]) -> Result<FileHeader, ParseError> {
-    FileHeader::parse(buf)
-}
