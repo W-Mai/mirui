@@ -1,0 +1,23 @@
+error[E0599]: no variant named `BufferTooSmall` found for enum `FrameCompositionError`
+ --> tests/public_api_fail/frames_record_errors.rs:6:36
+  |
+6 |     let _ = FrameCompositionError::BufferTooSmall {
+  |                                    ^^^^^^^^^^^^^^ variant not found in `FrameCompositionError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `FrameMapError`
+  --> tests/public_api_fail/frames_record_errors.rs:10:28
+   |
+10 |     let _ = FrameMapError::BufferTooSmall {
+   |                            ^^^^^^^^^^^^^^ variant not found in `FrameMapError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `FrameTimingError`
+  --> tests/public_api_fail/frames_record_errors.rs:14:31
+   |
+14 |     let _ = FrameTimingError::BufferTooSmall {
+   |                               ^^^^^^^^^^^^^^ variant not found in `FrameTimingError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `KeyframeIndexError`
+  --> tests/public_api_fail/frames_record_errors.rs:18:33
+   |
+18 |     let _ = KeyframeIndexError::BufferTooSmall {
+   |                                 ^^^^^^^^^^^^^^ variant not found in `KeyframeIndexError`

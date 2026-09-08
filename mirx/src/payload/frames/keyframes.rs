@@ -136,16 +136,10 @@ impl<'a> KeyframeIndexAsset<'a> {
         self.width.bytes()
     }
 
-    /// Writes canonical indices after validating capacity; errors preserve output.
     #[cfg(test)]
-    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, KeyframeIndexError> {
+    pub(super) fn encode_into(self, output: &mut [u8]) -> usize {
         let needed = self.encoded_len();
-        if output.len() < needed {
-            return Err(KeyframeIndexError::BufferTooSmall {
-                needed,
-                available: output.len(),
-            });
-        }
+        assert!(output.len() >= needed);
         for (index, &frame) in self.frames.iter().enumerate() {
             let offset = index * self.width.bytes();
             match self.width {
@@ -153,7 +147,7 @@ impl<'a> KeyframeIndexAsset<'a> {
                 IndexWidth::U32 => write_u32_le(&mut output[..needed], offset, frame),
             }
         }
-        Ok(needed)
+        needed
     }
 }
 
@@ -287,10 +281,6 @@ pub enum KeyframeIndexError {
         tail_frames: u32,
         limit: u16,
     },
-    BufferTooSmall {
-        needed: usize,
-        available: usize,
-    },
     SizeOverflow,
 }
 
@@ -314,7 +304,7 @@ mod tests {
         let asset = KeyframeIndexAsset::new(&frames, sequence).unwrap();
         assert_eq!(asset.encoded_len(), 6);
         let mut bytes = [0xff; 8];
-        let len = asset.encode_into(&mut bytes).unwrap();
+        let len = asset.encode_into(&mut bytes);
         assert_eq!(&bytes[len..], &[0xff; 2]);
         let index = KeyframeIndex::open(&bytes[..len], sequence).unwrap();
         assert_eq!(index.iter().collect::<Vec<_>>(), frames);
@@ -348,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn roots_order_bounds_and_output_capacity_are_strict() {
+    fn roots_order_and_bounds_are_strict() {
         let sequence = sequence(5, 4);
         assert_eq!(
             KeyframeIndexAsset::new(&[], sequence),
@@ -372,17 +362,6 @@ mod tests {
                 frame_count: 5
             })
         );
-        let frames = [0];
-        let asset = KeyframeIndexAsset::new(&frames, sequence).unwrap();
-        let mut output = [0xa5; 1];
-        assert_eq!(
-            asset.encode_into(&mut output),
-            Err(KeyframeIndexError::BufferTooSmall {
-                needed: 2,
-                available: 1
-            })
-        );
-        assert_eq!(output, [0xa5]);
     }
 
     #[test]
@@ -395,7 +374,7 @@ mod tests {
         let asset = KeyframeIndexAsset::new(&frames, sequence).unwrap();
         assert_eq!(asset.encoded_len(), 8);
         let mut bytes = [0; 8];
-        asset.encode_into(&mut bytes).unwrap();
+        asset.encode_into(&mut bytes);
         let index = KeyframeIndex::open(&bytes, sequence).unwrap();
         assert_eq!(index.get(1), Some(65_536));
     }

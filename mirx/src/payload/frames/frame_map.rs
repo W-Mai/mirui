@@ -13,7 +13,6 @@ pub struct FrameMap<'a> {
     width: MapWidth,
 }
 
-/// Authoring view over cumulative group endpoints, one value per frame.
 #[cfg(test)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct FrameMapAsset<'a> {
@@ -163,15 +162,9 @@ impl<'a> FrameMapAsset<'a> {
         self.ends.len() * self.width.bytes()
     }
 
-    /// Writes canonical cumulative endpoints; errors preserve the output.
-    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameMapError> {
+    pub(super) fn encode_into(self, output: &mut [u8]) -> usize {
         let needed = self.encoded_len();
-        if output.len() < needed {
-            return Err(FrameMapError::BufferTooSmall {
-                needed,
-                available: output.len(),
-            });
-        }
+        assert!(output.len() >= needed);
         for (index, &end) in self.ends.iter().enumerate() {
             let offset = index * self.width.bytes();
             match self.width {
@@ -179,7 +172,7 @@ impl<'a> FrameMapAsset<'a> {
                 MapWidth::U32 => write_u32_le(&mut output[..needed], offset, end),
             }
         }
-        Ok(needed)
+        needed
     }
 }
 
@@ -237,26 +230,20 @@ impl<'a> FrameCounts<'a> {
         self.counts
     }
 
-    /// Writes accumulated endpoints directly from counts without allocating.
     #[cfg(test)]
-    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameMapError> {
+    pub(super) fn encode_into(self, output: &mut [u8]) -> usize {
         let needed = self.encoded_len();
-        if output.len() < needed {
-            return Err(FrameMapError::BufferTooSmall {
-                needed,
-                available: output.len(),
-            });
-        }
+        assert!(output.len() >= needed);
         let mut end = 0u32;
         for (index, &count) in self.counts.iter().enumerate() {
-            end = end.checked_add(count).ok_or(FrameMapError::SizeOverflow)?;
+            end = end.checked_add(count).expect("validated frame counts");
             let offset = index * self.width.bytes();
             match self.width {
                 MapWidth::U16 => write_u16_le(&mut output[..needed], offset, end as u16),
                 MapWidth::U32 => write_u32_le(&mut output[..needed], offset, end),
             }
         }
-        Ok(needed)
+        needed
     }
 }
 
@@ -341,10 +328,6 @@ pub enum FrameMapError {
     NonCanonicalWide {
         group_count: u32,
     },
-    BufferTooSmall {
-        needed: usize,
-        available: usize,
-    },
     SizeOverflow,
 }
 
@@ -360,7 +343,7 @@ mod tests {
         let asset = FrameMapAsset::new(&ends).unwrap();
         assert_eq!(asset.encoded_len(), 8);
         let mut bytes = [0xff; 12];
-        let len = asset.encode_into(&mut bytes).unwrap();
+        let len = asset.encode_into(&mut bytes);
         assert_eq!(len, 8);
         assert_eq!(&bytes[len..], &[0xff; 4]);
         let map = FrameMap::open(&bytes[..len], 4).unwrap();
@@ -377,7 +360,7 @@ mod tests {
         let counts = [2, 1, 0, 2];
         let counted = FrameCounts::new(&counts).unwrap();
         let mut bytes = [0; 8];
-        assert_eq!(counted.encode_into(&mut bytes), Ok(8));
+        assert_eq!(counted.encode_into(&mut bytes), 8);
         let map = FrameMap::open(&bytes, 4).unwrap();
         assert_eq!(
             map.iter().collect::<vec::Vec<_>>(),
@@ -391,7 +374,7 @@ mod tests {
         let asset = FrameMapAsset::new(&ends).unwrap();
         assert_eq!(asset.encoded_len(), 8);
         let mut bytes = [0; 8];
-        asset.encode_into(&mut bytes).unwrap();
+        asset.encode_into(&mut bytes);
         let map = FrameMap::open(&bytes, 2).unwrap();
         assert_eq!(map.get(1), Some(1..65_536));
 
@@ -405,7 +388,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_maps_and_short_outputs_are_rejected() {
+    fn malformed_maps_are_rejected() {
         assert_eq!(FrameMapAsset::new(&[]), Err(FrameMapError::Empty));
         assert_eq!(
             FrameMapAsset::new(&[0]),
@@ -426,15 +409,6 @@ mod tests {
                 actual: 3,
             })
         );
-        let asset = FrameMapAsset::new(&[1, 2]).unwrap();
-        let mut short = [0; 3];
-        assert_eq!(
-            asset.encode_into(&mut short),
-            Err(FrameMapError::BufferTooSmall {
-                needed: 4,
-                available: 3,
-            })
-        );
     }
 
     #[test]
@@ -442,7 +416,7 @@ mod tests {
         let ends = [1, 3, 3, 7, 8];
         let asset = FrameMapAsset::new(&ends).unwrap();
         let mut bytes = [0; 10];
-        asset.encode_into(&mut bytes).unwrap();
+        asset.encode_into(&mut bytes);
         let map = FrameMap::open(&bytes, 5).unwrap();
         let mut iter = map.iter();
         assert_eq!(iter.nth(2), Some(3..3));

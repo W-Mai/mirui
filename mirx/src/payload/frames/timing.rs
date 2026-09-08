@@ -277,18 +277,12 @@ impl<'a> FrameTimingAsset<'a> {
         }
     }
 
-    /// Writes the canonical nonempty section; an omitted table writes zero bytes.
     #[cfg(test)]
-    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameTimingError> {
+    pub(super) fn encode_into(self, output: &mut [u8]) -> usize {
         let needed = self.encoded_len();
-        if output.len() < needed {
-            return Err(FrameTimingError::BufferTooSmall {
-                needed,
-                available: output.len(),
-            });
-        }
+        assert!(output.len() >= needed);
         let Some(encoding) = self.encoding else {
-            return Ok(0);
+            return 0;
         };
         output[..needed].fill(0);
         output[0] = match encoding {
@@ -308,7 +302,7 @@ impl<'a> FrameTimingAsset<'a> {
             cursor += 4;
         }
         debug_assert_eq!(cursor, needed);
-        Ok(needed)
+        needed
     }
 }
 
@@ -382,10 +376,6 @@ pub enum FrameTimingError {
         expected: FrameTimingEncoding,
         actual: FrameTimingEncoding,
     },
-    BufferTooSmall {
-        needed: usize,
-        available: usize,
-    },
     SizeOverflow,
 }
 
@@ -398,7 +388,7 @@ mod tests {
         let asset = FrameTimingAsset::new(&[40, 40, 40], 40).unwrap();
         assert!(asset.is_empty());
         assert_eq!(asset.encoded_len(), 0);
-        assert_eq!(asset.encode_into(&mut []), Ok(0));
+        assert_eq!(asset.encode_into(&mut []), 0);
     }
 
     #[test]
@@ -407,7 +397,7 @@ mod tests {
         let asset = FrameTimingAsset::new(&durations, 40).unwrap();
         assert_eq!(asset.encoding(), Some(FrameTimingEncoding::Sparse));
         let mut bytes = [0; 20];
-        let len = asset.encode_into(&mut bytes).unwrap();
+        let len = asset.encode_into(&mut bytes);
         assert_eq!(len, 20);
         let timing = FrameTiming::open(&bytes[..len], 5, 40).unwrap();
         assert_eq!(timing.encoding(), FrameTimingEncoding::Sparse);
@@ -424,7 +414,7 @@ mod tests {
         let asset = FrameTimingAsset::new(&durations, 10).unwrap();
         assert_eq!(asset.encoding(), Some(FrameTimingEncoding::Sparse));
         let mut bytes = [0; 12];
-        let len = asset.encode_into(&mut bytes).unwrap();
+        let len = asset.encode_into(&mut bytes);
         let timing = FrameTiming::open(&bytes[..len], 1_000, 10).unwrap();
 
         assert_eq!(timing.cycle_duration_ticks(), 10_015);
@@ -442,7 +432,7 @@ mod tests {
         let asset = FrameTimingAsset::new(&durations, 40).unwrap();
         assert_eq!(asset.encoding(), Some(FrameTimingEncoding::Dense));
         let mut bytes = [0; 20];
-        asset.encode_into(&mut bytes).unwrap();
+        asset.encode_into(&mut bytes);
         let timing = FrameTiming::open(&bytes, 4, 40).unwrap();
         assert_eq!(timing.encoding(), FrameTimingEncoding::Dense);
         assert_eq!(timing.duration(2), Some(60));
@@ -473,18 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_tables_and_capacity_failures_preserve_output() {
-        let asset = FrameTimingAsset::new(&[40, 80, 40], 40).unwrap();
-        let mut short = [0xa5; 11];
-        assert_eq!(
-            asset.encode_into(&mut short),
-            Err(FrameTimingError::BufferTooSmall {
-                needed: 12,
-                available: 11,
-            })
-        );
-        assert_eq!(short, [0xa5; 11]);
-
+    fn malformed_tables_are_rejected() {
         let mut unordered = [0; 20];
         unordered[0] = 1;
         write_u32_le(&mut unordered, 4, 2);

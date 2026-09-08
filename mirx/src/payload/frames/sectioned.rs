@@ -1421,16 +1421,16 @@ mod tests {
             output.write(&group);
         }
         let mut map_bytes = vec![0; map.encoded_len()];
-        map.encode_into(&mut map_bytes).unwrap();
+        map.encode_into(&mut map_bytes);
         output.write(&map_bytes);
         let mut timing_bytes = vec![0; durations.encoded_len()];
-        durations.encode_into(&mut timing_bytes).unwrap();
+        durations.encode_into(&mut timing_bytes);
         output.write(&timing_bytes);
         let mut composition_bytes = vec![0; compositions.encoded_len()];
-        compositions.encode_into(&mut composition_bytes).unwrap();
+        compositions.encode_into(&mut composition_bytes);
         output.write(&composition_bytes);
         let mut keyframe_bytes = vec![0; keyframes.encoded_len()];
-        keyframes.encode_into(&mut keyframe_bytes).unwrap();
+        keyframes.encode_into(&mut keyframe_bytes);
         output.write(&keyframe_bytes);
         output.begin_data(DataIntegrity::Whole);
         output.write(&[0xaa, 0xbb]);

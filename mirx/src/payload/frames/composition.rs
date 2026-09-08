@@ -214,22 +214,16 @@ impl<'a> FrameCompositionAsset<'a> {
         self.records
     }
 
-    /// Errors preserve the complete output buffer.
     #[cfg(test)]
-    pub(super) fn encode_into(self, output: &mut [u8]) -> Result<usize, FrameCompositionError> {
+    pub(super) fn encode_into(self, output: &mut [u8]) -> usize {
         let needed = self.encoded_len();
-        if output.len() < needed {
-            return Err(FrameCompositionError::BufferTooSmall {
-                needed,
-                available: output.len(),
-            });
-        }
+        assert!(output.len() >= needed);
         for (index, record) in self.records.iter().copied().enumerate() {
             let start = index * FRAME_COMPOSITION_RECORD_LEN;
             output[start..start + FRAME_COMPOSITION_RECORD_LEN]
                 .copy_from_slice(&record.encode_record());
         }
-        Ok(needed)
+        needed
     }
 }
 
@@ -310,7 +304,6 @@ pub enum FrameCompositionError {
     RedundantDefault { frame: u32 },
     EmptyRegion { frame: u32 },
     Region { frame: u32, error: RegionError },
-    BufferTooSmall { needed: usize, available: usize },
     SizeOverflow,
 }
 
@@ -342,7 +335,7 @@ mod tests {
         ];
         let asset = FrameCompositionAsset::new(&records, sequence(), surface()).unwrap();
         let mut bytes = [0; FRAME_COMPOSITION_RECORD_LEN * 2];
-        asset.encode_into(&mut bytes).unwrap();
+        asset.encode_into(&mut bytes);
         let table = FrameCompositionTable::open(&bytes, sequence(), surface()).unwrap();
         assert_eq!(
             table.get(0),
@@ -444,7 +437,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_flags_reserved_fields_and_capacity_are_rejected() {
+    fn malformed_flags_and_reserved_fields_are_rejected() {
         let record = FrameCompositionOverride::new(
             1,
             FrameComposition::new(BlendMode::SourceOver, DisposalMode::Keep),
@@ -452,7 +445,7 @@ mod tests {
         let records = [record];
         let asset = FrameCompositionAsset::new(&records, sequence(), surface()).unwrap();
         let mut bytes = [0; FRAME_COMPOSITION_RECORD_LEN];
-        asset.encode_into(&mut bytes).unwrap();
+        asset.encode_into(&mut bytes);
 
         let mut unknown = bytes;
         unknown[22] = 2;
@@ -466,14 +459,5 @@ mod tests {
             FrameCompositionTable::open(&unknown, sequence(), surface()),
             Err(FrameCompositionError::NonCanonicalReserved { frame: 1 })
         );
-        let mut short = [0xa5; FRAME_COMPOSITION_RECORD_LEN - 1];
-        assert_eq!(
-            asset.encode_into(&mut short),
-            Err(FrameCompositionError::BufferTooSmall {
-                needed: FRAME_COMPOSITION_RECORD_LEN,
-                available: FRAME_COMPOSITION_RECORD_LEN - 1,
-            })
-        );
-        assert_eq!(short, [0xa5; FRAME_COMPOSITION_RECORD_LEN - 1]);
     }
 }
