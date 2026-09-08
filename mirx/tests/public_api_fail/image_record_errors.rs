@@ -1,4 +1,4 @@
-use mirx::image::{PlaneMemoryRecordError, SurfaceRecordError};
+use mirx::image::{EncodedGroupError, PlaneMemoryRecordError, SurfaceRecordError};
 
 fn main() {
     let _ = PlaneMemoryRecordError::BufferTooSmall {
@@ -8,5 +8,9 @@ fn main() {
     let _ = SurfaceRecordError::BufferTooSmall {
         needed: 32,
         available: 31,
+    };
+    let _ = EncodedGroupError::BufferTooSmall {
+        needed: 36,
+        available: 35,
     };
 }

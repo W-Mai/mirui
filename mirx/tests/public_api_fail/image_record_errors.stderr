@@ -9,3 +9,9 @@ error[E0599]: no variant named `BufferTooSmall` found for enum `SurfaceRecordErr
   |
 8 |     let _ = SurfaceRecordError::BufferTooSmall {
   |                                 ^^^^^^^^^^^^^^ variant not found in `SurfaceRecordError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `EncodedGroupError`
+  --> tests/public_api_fail/image_record_errors.rs:12:32
+   |
+12 |     let _ = EncodedGroupError::BufferTooSmall {
+   |                                ^^^^^^^^^^^^^^ variant not found in `EncodedGroupError`

@@ -181,15 +181,8 @@ impl UnitGroupRecord {
         Ok(record)
     }
 
-    /// Encodes one record; validation or capacity errors preserve all output.
-    pub fn encode_into(self, out: &mut [u8]) -> Result<usize, UnitGroupRecordError> {
+    pub fn encode_record(self) -> Result<[u8; UNIT_GROUP_RECORD_LEN], UnitGroupRecordError> {
         self.validate()?;
-        if out.len() < UNIT_GROUP_RECORD_LEN {
-            return Err(UnitGroupRecordError::BufferTooSmall {
-                needed: UNIT_GROUP_RECORD_LEN,
-                available: out.len(),
-            });
-        }
         let mut bytes = [0; UNIT_GROUP_RECORD_LEN];
         write_u32_le(&mut bytes, 0, self.coding_index);
         write_u32_le(&mut bytes, 4, self.data_offset);
@@ -228,8 +221,7 @@ impl UnitGroupRecord {
             ReferenceMode::Previous => 1,
         };
         bytes[33] = self.input_alignment.log2();
-        out[..UNIT_GROUP_RECORD_LEN].copy_from_slice(&bytes);
-        Ok(UNIT_GROUP_RECORD_LEN)
+        Ok(bytes)
     }
 
     #[cfg(test)]
@@ -388,10 +380,6 @@ pub enum EncodedGroupError {
         offset: u32,
         alignment: ByteAlignment,
     },
-    BufferTooSmall {
-        needed: usize,
-        available: usize,
-    },
     MissingCoding(u32),
     DataOutOfBounds,
     IndexOutOfBounds,
@@ -472,8 +460,7 @@ mod tests {
             if let Some(encoding) = encoding {
                 record = record.with_index_encoding(encoding);
             }
-            let mut wire = [0; UNIT_GROUP_RECORD_LEN];
-            record.encode_into(&mut wire).unwrap();
+            let wire = record.encode_record().unwrap();
             let group = UnitGroupRecord::open(&wire)
                 .unwrap()
                 .resolve(surface, codings, &data.0[..64 + b], &indexes[..index_len])
@@ -517,11 +504,7 @@ mod tests {
         assert_eq!(unit.reference(), ReferenceMode::Previous);
         assert_eq!(unit.coding().id().raw(), 0x1234);
         assert_eq!(unit.coding().params(), &[8, 9]);
-        let mut out = [0xa5; 38];
-        assert_eq!(record.encode_into(&mut out[1..]), Ok(36));
-        assert_eq!(&out[1..37], RECORD);
-        assert_eq!(out[0], 0xa5);
-        assert_eq!(out[37], 0xa5);
+        assert_eq!(record.encode_record(), Ok(RECORD));
         let authored = UnitGroupRecord::new(0, 4..12)
             .unwrap()
             .with_tiles(2, 2)
@@ -587,8 +570,7 @@ mod tests {
                 if let Some(encoding) = encoding {
                     record = record.with_index_encoding(encoding);
                 }
-                let mut bytes = [0; 36];
-                record.encode_into(&mut bytes).unwrap();
+                let bytes = record.encode_record().unwrap();
                 let group = UnitGroupRecord::open(&bytes)
                     .unwrap()
                     .resolve(surface(), codings, &data, &indexes)
@@ -615,8 +597,7 @@ mod tests {
             .unwrap()
             .with_tiles(1, 1)
             .with_planes(GroupPlanes::Plane(1));
-        let mut planar_bytes = [0; 36];
-        planar_record.encode_into(&mut planar_bytes).unwrap();
+        let planar_bytes = planar_record.encode_record().unwrap();
         assert_eq!(planar_bytes[29], 1);
         assert_eq!(planar_bytes[34], 1);
         let planar = UnitGroupRecord::open(&planar_bytes)
@@ -661,7 +642,6 @@ mod tests {
             Err(UnitGroupRecordError::NonCanonical { offset: 16 })
         );
         let base = UnitGroupRecord::new(0, 0..4).unwrap();
-        let mut out = [0xa5; 37];
         for record in [
             base.with_tiles(0, 1),
             base.with_planes(GroupPlanes::Joint(0)),
@@ -670,12 +650,9 @@ mod tests {
                 .unwrap()
                 .with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
         ] {
-            assert!(record.encode_into(&mut out).is_err());
-            assert_eq!(out, [0xa5; 37]);
+            assert!(record.encode_record().is_err());
         }
         assert!(crate::ByteAlignment::new(3).is_err());
-        assert!(base.encode_into(&mut out[..35]).is_err());
-        assert_eq!(out, [0xa5; 37]);
         let codings = CodingTable::open(&CODINGS).unwrap();
         let record = UnitGroupRecord::open(&RECORD).unwrap();
         assert_eq!(

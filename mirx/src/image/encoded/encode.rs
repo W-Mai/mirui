@@ -1039,11 +1039,7 @@ impl<'a> StoragePlan<'a> {
             output.write(record.params());
         }
         self.visit_group_records(|group| {
-            let mut bytes = [0; UNIT_GROUP_RECORD_LEN];
-            group
-                .encode_into(&mut bytes)
-                .expect("validated group record");
-            output.write(&bytes);
+            output.write(&group.encode_record().expect("validated group record"));
         })
         .expect("validated group records");
         self.asset.write_indexes(output);

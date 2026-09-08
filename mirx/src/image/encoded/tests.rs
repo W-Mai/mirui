@@ -126,9 +126,8 @@ pub(super) fn payload(
     if let Some(groups) = groups {
         let mut bytes = vec![0; groups.len() * UNIT_GROUP_RECORD_LEN];
         for (index, group) in groups.iter().enumerate() {
-            group
-                .encode_into(&mut bytes[index * UNIT_GROUP_RECORD_LEN..])
-                .unwrap();
+            bytes[index * UNIT_GROUP_RECORD_LEN..(index + 1) * UNIT_GROUP_RECORD_LEN]
+                .copy_from_slice(&group.encode_record().unwrap());
         }
         sections.push((MediaSectionKind::UNIT_GROUPS, bytes));
     }

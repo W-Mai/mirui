@@ -1410,9 +1410,7 @@ mod tests {
         CodingTable::encode_into(&coding, &mut coding_bytes).unwrap();
         output.write(&coding_bytes);
         for record in records {
-            let mut group = [0; UNIT_GROUP_RECORD_LEN];
-            record.encode_into(&mut group).unwrap();
-            output.write(&group);
+            output.write(&record.encode_record().unwrap());
         }
         let mut map_bytes = vec![0; map.encoded_len()];
         map.encode_into(&mut map_bytes);
