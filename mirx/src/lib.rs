@@ -37,8 +37,8 @@ pub(crate) use chunk::{ImageChunkInput, encode_chunk_image, encode_chunks};
 pub use crc32::compute as crc32;
 pub use document::{
     ChunkIter, ChunksOfType, CriticalAssumption, Document, DocumentChunkMut, DocumentChunkRef,
-    EncodeOptions, LayoutPolicy, OpenOptions, PayloadInput, PayloadOrigin, RawChunkInput,
-    RawChunkPolicy, RawTypePolicy, RelocationAssumption, RemovedChunkMetadata, ReservedBitsPolicy,
+    PayloadInput, PayloadOrigin, RawChunkInput, RawChunkPolicy, RelocationAssumption,
+    RemovedChunkMetadata, ReservedBitsPolicy,
 };
 #[cfg(test)]
 pub(crate) use flat::{FlatImageInput, encode_flat};

@@ -3,10 +3,7 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::*;
-use crate::{
-    ColorFormat, EncodeOptions, FlatImageInput, ImagePayloadError, LayoutPolicy, Reader,
-    encode_flat,
-};
+use crate::{ColorFormat, FlatImageInput, ImagePayloadError, Reader, encode_flat};
 
 const ALL_FORMATS: [ColorFormat; 16] = [
     ColorFormat::I1,

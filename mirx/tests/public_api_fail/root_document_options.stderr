@@ -1,0 +1,19 @@
+error[E0432]: unresolved imports `mirx::EncodeOptions`, `mirx::LayoutPolicy`, `mirx::OpenOptions`, `mirx::RawTypePolicy`
+ --> tests/public_api_fail/root_document_options.rs:1:12
+  |
+1 | use mirx::{EncodeOptions, LayoutPolicy, OpenOptions, RawTypePolicy};
+  |            ^^^^^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^^^^^^^^^ no `RawTypePolicy` in the root
+  |            |              |             |
+  |            |              |             no `OpenOptions` in the root
+  |            |              no `LayoutPolicy` in the root
+  |            no `EncodeOptions` in the root
+  |
+  = help: consider importing this struct instead:
+          mirx::document::EncodeOptions
+  = help: consider importing this enum instead:
+          mirx::document::LayoutPolicy
+  = help: consider importing one of these structs instead:
+          std::fs::OpenOptions
+          mirx::document::OpenOptions
+  = help: consider importing this struct instead:
+          mirx::document::RawTypePolicy

@@ -311,7 +311,7 @@ extern crate alloc;
 
 use alloc::borrow::Cow;
 
-use mirx::{Document, EncodeOptions, image::{ColorFormat, ImageAsset}};
+use mirx::{Document, document::EncodeOptions, image::{ColorFormat, ImageAsset}};
 
 let pixels = [0_u8, 64, 128, 255];
 let stride = ColorFormat::A8.minimum_stride(2).unwrap();

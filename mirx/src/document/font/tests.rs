@@ -2,14 +2,15 @@ use alloc::{borrow::Cow, vec::Vec};
 use core::cell::Cell;
 
 use super::*;
+use crate::document::EncodeOptions;
 use crate::font::{
     CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontMetadataError, FontRepresentation,
     GlyphId, GlyphMap, GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
 };
 use crate::image::SampleLayout;
 use crate::{
-    ColorFormat, EncodeOptions, ImageAsset, PayloadLimits, PayloadOrigin, RawChunkPolicy,
-    encode_chunks, types::Fixed,
+    ColorFormat, ImageAsset, PayloadLimits, PayloadOrigin, RawChunkPolicy, encode_chunks,
+    types::Fixed,
 };
 
 fn font() -> Font {
@@ -77,7 +78,7 @@ fn retained_limits_gate_typed_reads_and_writes() {
     let expected = font();
     let source = file(&expected, ChunkFlags::NONE);
     let low = PayloadLimits::HOST.with_max_font_glyphs(1);
-    let options = crate::OpenOptions::new().with_payload_limits(low);
+    let options = crate::document::OpenOptions::new().with_payload_limits(low);
     let document = Document::open_with(&source, &options).unwrap();
     let id = document.chunks().next().unwrap().id();
     assert!(matches!(

@@ -178,11 +178,12 @@ mod tests {
     use alloc::vec;
 
     use super::*;
+    use crate::document::{EncodeOptions, OpenOptions, RawTypePolicy};
     use crate::header::CHUNK_FILE_HEADER_LEN;
     use crate::{
-        ColorFormat, CriticalAssumption, EncodeOptions, ImagePayloadError, Layout, OpenOptions,
-        PayloadOrigin, RawChunkPolicy, RawTypePolicy, Reader, RelocationAssumption,
-        ReservedBitsPolicy, TrailingBytesPolicy, crc32, encode_chunks,
+        ColorFormat, CriticalAssumption, ImagePayloadError, Layout, PayloadOrigin, RawChunkPolicy,
+        Reader, RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, crc32,
+        encode_chunks,
     };
 
     const FORMATS: [ColorFormat; 16] = [

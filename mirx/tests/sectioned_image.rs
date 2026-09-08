@@ -4,7 +4,8 @@ use mirx::image::{
 };
 use mirx::meta::Meta;
 use mirx::{
-    ChunkFlags, ChunkType, Document, EncodeOptions, Reader, document::EditError,
+    ChunkFlags, ChunkType, Document, Reader,
+    document::{EditError, EncodeOptions},
     reader::PayloadLimits,
 };
 

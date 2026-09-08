@@ -179,6 +179,7 @@ mod tests {
     use core::{cell::Cell, mem::size_of};
 
     use super::*;
+    use crate::document::{EncodeOptions, OpenOptions, RawTypePolicy};
     use crate::path::{Path, PathCmd};
     use crate::scene::{
         FillRule, GradientStop, GradientUnits, LineCap, LineJoin, LinearGradient, Paint,
@@ -186,9 +187,9 @@ mod tests {
     };
     use crate::types::{Color, Fixed, Point, Transform};
     use crate::{
-        ColorFormat, CriticalAssumption, EncodeOptions, ImageAsset, Layout, OpenOptions,
-        PayloadInput, PayloadLimits, PayloadOrigin, RawChunkInput, RawChunkPolicy, RawTypePolicy,
-        RelocationAssumption, ReservedBitsPolicy, TrailingBytesPolicy, crc32, encode_chunks,
+        ColorFormat, CriticalAssumption, ImageAsset, Layout, PayloadInput, PayloadLimits,
+        PayloadOrigin, RawChunkInput, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy,
+        TrailingBytesPolicy, crc32, encode_chunks,
     };
 
     fn id(counter: u32) -> ChunkId {

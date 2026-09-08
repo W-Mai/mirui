@@ -987,7 +987,9 @@ mod tests {
             ))
             .unwrap();
         document.set_primary(id).unwrap();
-        let encoded = document.encode(&crate::EncodeOptions::new()).unwrap();
+        let encoded = document
+            .encode(&crate::document::EncodeOptions::new())
+            .unwrap();
         let reader = crate::Reader::open(&encoded).unwrap();
         let chunk = reader.chunks().next().unwrap();
         assert_eq!(chunk.payload(), bytes);

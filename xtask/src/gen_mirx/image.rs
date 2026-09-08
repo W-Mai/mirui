@@ -570,7 +570,7 @@ mod tests {
             ColorDescription, EncodedImageAsset, MemoryPlacement, SampleLayout, SurfaceDescriptor,
             SurfaceRequirements,
         };
-        use mirx::{Document, EncodeOptions, coding::Rle};
+        use mirx::{Document, coding::Rle, document::EncodeOptions};
 
         let surface =
             SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();

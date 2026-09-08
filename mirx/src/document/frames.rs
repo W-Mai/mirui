@@ -108,10 +108,11 @@ fn frames_edit_resolution_error(_: ImagePayloadError) -> EditError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::document::EncodeOptions;
     use crate::frames::{FrameEncodingSet, FrameSequence, FramesEncoder};
     use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
     use crate::meta::Meta;
-    use crate::{EncodeOptions, PayloadLimits, Reader};
+    use crate::{PayloadLimits, Reader};
 
     fn encoded(value: u8, input_alignment: u32) -> EncodedFrames {
         let sequence = FrameSequence::new(2, 1_000, 40)

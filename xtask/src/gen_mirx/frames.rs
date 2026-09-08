@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use mirx::{
-    ChunkFlags, ChunkType, Document, EncodeOptions, Reader,
+    ChunkFlags, ChunkType, Document, Reader,
+    document::EncodeOptions,
     frames::{
         FrameEncoding, FrameEncodingSet, FramePolicy, FrameSequence, FrameStorage, FramesEncoder,
     },
