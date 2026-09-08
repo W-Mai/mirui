@@ -4,7 +4,7 @@ use super::{FontRepresentation, FontRepresentationError, FontRepresentationKind}
 use crate::image::{SampleLayout, SurfaceDescriptor, SurfacePlanError, SurfaceRequirements};
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
-pub const REPRESENTATION_RECORD_LEN: usize = 20;
+pub(in crate::font) const REPRESENTATION_RECORD_LEN: usize = 20;
 
 /// Compact representation semantics and references to shared glyph storage.
 ///
@@ -19,7 +19,7 @@ pub struct RepresentationRecord {
 }
 
 impl RepresentationRecord {
-    pub const fn new(metadata: FontRepresentation, surface_index: u16) -> Self {
+    pub(in crate::font) const fn new(metadata: FontRepresentation, surface_index: u16) -> Self {
         Self {
             metadata,
             surface_index,
@@ -29,7 +29,7 @@ impl RepresentationRecord {
     }
 
     /// Uses region-record ordinals; zero offset and count omit the map.
-    pub const fn with_atlas_map_range(mut self, offset: u32, count: u32) -> Self {
+    pub(in crate::font) const fn with_atlas_map_range(mut self, offset: u32, count: u32) -> Self {
         self.atlas_map_offset = offset;
         self.atlas_map_count = count;
         self
@@ -53,7 +53,7 @@ impl RepresentationRecord {
 
     /// Resolves one record against logical surface metadata, without sample I/O.
     /// Trailing bytes are not consumed; the complete face checks referenced tables.
-    pub fn from_record(
+    pub(in crate::font) fn from_record(
         bytes: &[u8],
         surface: SurfaceDescriptor,
     ) -> Result<Self, RepresentationRecordError> {
@@ -85,7 +85,10 @@ impl RepresentationRecord {
     }
 
     /// Rejects stale native depth or cost metadata before complete face emission.
-    pub fn validate_for(self, surface: SurfaceDescriptor) -> Result<(), RepresentationRecordError> {
+    pub(in crate::font) fn validate_for(
+        self,
+        surface: SurfaceDescriptor,
+    ) -> Result<(), RepresentationRecordError> {
         let resolved = Fields::from_metadata(self.metadata).resolve(surface)?;
         match (self.metadata.kind(), resolved.kind()) {
             (
@@ -111,7 +114,10 @@ impl RepresentationRecord {
 
     /// Emits 20 canonical bytes without serializing derived surface facts.
     /// Capacity errors leave output unchanged; successful writes preserve suffixes.
-    pub fn encode_record_into(self, out: &mut [u8]) -> Result<usize, RepresentationRecordError> {
+    pub(in crate::font) fn encode_record_into(
+        self,
+        out: &mut [u8],
+    ) -> Result<usize, RepresentationRecordError> {
         if out.len() < REPRESENTATION_RECORD_LEN {
             return Err(RepresentationRecordError::BufferTooSmall {
                 needed: REPRESENTATION_RECORD_LEN,

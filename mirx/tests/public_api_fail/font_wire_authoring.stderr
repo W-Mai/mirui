@@ -1,0 +1,227 @@
+error[E0432]: unresolved imports `mirx::font::SFNT_HEADER_LEN`, `mirx::font::SFNT_TABLE_RECORD_LEN`
+ --> tests/public_api_fail/font_wire_authoring.rs:5:5
+  |
+5 |     SFNT_HEADER_LEN, SFNT_TABLE_RECORD_LEN,
+  |     ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^
+  |     |                |
+  |     |                no `SFNT_TABLE_RECORD_LEN` in `font`
+  |     |                help: a similar name exists in the module: `FACE_RECORD_LEN`
+  |     no `SFNT_HEADER_LEN` in `font`
+
+error[E0603]: constant `ADVANCE_RECORD_LEN` is private
+ --> tests/public_api_fail/font_wire_authoring.rs:2:5
+  |
+2 |     ADVANCE_RECORD_LEN, CMAP_INDEX_RECORD_LEN, FACE_RECORD_LEN, GLYPH_ID_RECORD_LEN,
+  |     ^^^^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `ADVANCE_RECORD_LEN` is defined here
+ --> src/font/mod.rs
+  |
+  | pub(in crate::font) use placement::{ADVANCE_RECORD_LEN, RASTER_METRICS_RECORD_LEN};
+  |                                     ^^^^^^^^^^^^^^^^^^
+
+error[E0603]: constant `CMAP_INDEX_RECORD_LEN` is private
+ --> tests/public_api_fail/font_wire_authoring.rs:2:25
+  |
+2 |     ADVANCE_RECORD_LEN, CMAP_INDEX_RECORD_LEN, FACE_RECORD_LEN, GLYPH_ID_RECORD_LEN,
+  |                         ^^^^^^^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `CMAP_INDEX_RECORD_LEN` is defined here
+ --> src/font/mod.rs
+  |
+  | pub(in crate::font) use identity::{CMAP_INDEX_RECORD_LEN, GLYPH_ID_RECORD_LEN};
+  |                                    ^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: constant `FACE_RECORD_LEN` is private
+ --> tests/public_api_fail/font_wire_authoring.rs:2:48
+  |
+2 |     ADVANCE_RECORD_LEN, CMAP_INDEX_RECORD_LEN, FACE_RECORD_LEN, GLYPH_ID_RECORD_LEN,
+  |                                                ^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `FACE_RECORD_LEN` is defined here
+ --> src/font/mod.rs
+  |
+  | pub(in crate::font) use header::FACE_RECORD_LEN;
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: constant `GLYPH_ID_RECORD_LEN` is private
+ --> tests/public_api_fail/font_wire_authoring.rs:2:65
+  |
+2 |     ADVANCE_RECORD_LEN, CMAP_INDEX_RECORD_LEN, FACE_RECORD_LEN, GLYPH_ID_RECORD_LEN,
+  |                                                                 ^^^^^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `GLYPH_ID_RECORD_LEN` is defined here
+ --> src/font/mod.rs
+  |
+  | pub(in crate::font) use identity::{CMAP_INDEX_RECORD_LEN, GLYPH_ID_RECORD_LEN};
+  |                                                           ^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: constant `GLYPH_SURFACE_RECORD_LEN` is private
+ --> tests/public_api_fail/font_wire_authoring.rs:3:5
+  |
+3 |     GLYPH_SURFACE_RECORD_LEN, CmapEntry, FontFace, GlyphPacking, GlyphSurfaceRecord,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `GLYPH_SURFACE_RECORD_LEN` is defined here
+ --> src/font/mod.rs
+  |
+  | pub(in crate::font) use surface::GLYPH_SURFACE_RECORD_LEN;
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: constant `RASTER_METRICS_RECORD_LEN` is private
+ --> tests/public_api_fail/font_wire_authoring.rs:4:5
+  |
+4 |     RASTER_METRICS_RECORD_LEN, REPRESENTATION_RECORD_LEN, RasterMetrics, RepresentationRecord,
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `RASTER_METRICS_RECORD_LEN` is defined here
+ --> src/font/mod.rs
+  |
+  | pub(in crate::font) use placement::{ADVANCE_RECORD_LEN, RASTER_METRICS_RECORD_LEN};
+  |                                                         ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0603]: constant `REPRESENTATION_RECORD_LEN` is private
+ --> tests/public_api_fail/font_wire_authoring.rs:4:32
+  |
+4 |     RASTER_METRICS_RECORD_LEN, REPRESENTATION_RECORD_LEN, RasterMetrics, RepresentationRecord,
+  |                                ^^^^^^^^^^^^^^^^^^^^^^^^^ private constant
+  |
+note: the constant `REPRESENTATION_RECORD_LEN` is defined here
+ --> src/font/mod.rs
+  |
+  | pub(in crate::font) use record::REPRESENTATION_RECORD_LEN;
+  |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0624]: associated function `new` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:10:35
+   |
+10 |     let _ = RepresentationRecord::new;
+   |                                   ^^^ private associated function
+   |
+  ::: src/font/record.rs
+   |
+   |     pub(in crate::font) const fn new(metadata: FontRepresentation, surface_index: u16) -> Self {
+   |     ------------------------------------------------------------------------------------------ private associated function defined here
+
+error[E0624]: associated function `from_record` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:11:35
+   |
+11 |       let _ = RepresentationRecord::from_record;
+   |                                     ^^^^^^^^^^^ private associated function
+   |
+  ::: src/font/record.rs
+   |
+   | /     pub(in crate::font) fn from_record(
+   | |         bytes: &[u8],
+   | |         surface: SurfaceDescriptor,
+   | |     ) -> Result<Self, RepresentationRecordError> {
+   | |________________________________________________- private associated function defined here
+
+error[E0624]: method `encode_record_into` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:12:35
+   |
+12 |       let _ = RepresentationRecord::encode_record_into;
+   |                                     ^^^^^^^^^^^^^^^^^^ private method
+   |
+  ::: src/font/record.rs
+   |
+   | /     pub(in crate::font) fn encode_record_into(
+   | |         self,
+   | |         out: &mut [u8],
+   | |     ) -> Result<usize, RepresentationRecordError> {
+   | |_________________________________________________- private method defined here
+
+error[E0624]: associated function `new` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:13:33
+   |
+13 |       let _ = GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 1, 1, 0);
+   |                                   ^^^ private associated function
+   |
+  ::: src/font/surface.rs
+   |
+   | /     pub(in crate::font) fn new(
+   | |         layout: SampleLayout,
+   | |         packing: GlyphPacking,
+   | |         width: u32,
+   | |         height: u32,
+   | |         data_section: u16,
+   | |     ) -> Result<Self, GlyphSurfaceRecordError> {
+   | |______________________________________________- private associated function defined here
+
+error[E0624]: associated function `from_record` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:14:33
+   |
+14 |     let _ = GlyphSurfaceRecord::from_record;
+   |                                 ^^^^^^^^^^^ private associated function
+   |
+  ::: src/font/surface.rs
+   |
+   |     pub(in crate::font) fn from_record(bytes: &[u8]) -> Result<Self, GlyphSurfaceRecordError> {
+   |     ----------------------------------------------------------------------------------------- private associated function defined here
+
+error[E0624]: method `encode_record_into` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:15:33
+   |
+15 |       let _ = GlyphSurfaceRecord::encode_record_into;
+   |                                   ^^^^^^^^^^^^^^^^^^ private method
+   |
+  ::: src/font/surface.rs
+   |
+   | /     pub(in crate::font) fn encode_record_into(
+   | |         self,
+   | |         out: &mut [u8],
+   | |     ) -> Result<usize, GlyphSurfaceRecordError> {
+   | |_______________________________________________- private method defined here
+
+error[E0624]: associated function `from_record` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:16:23
+   |
+16 |     let _ = FontFace::from_record;
+   |                       ^^^^^^^^^^^ private associated function
+   |
+  ::: src/font/header.rs
+   |
+   |     pub(in crate::font) fn from_record(bytes: &[u8]) -> Result<Self, FontFaceError> {
+   |     ------------------------------------------------------------------------------- private associated function defined here
+
+error[E0624]: method `encode_record_into` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:17:23
+   |
+17 |       let _ = FontFace::encode_record_into;
+   |                         ^^^^^^^^^^^^^^^^^^ private method
+   |
+  ::: src/font/header.rs
+   |
+   | /     pub(in crate::font) fn encode_record_into(
+   | |         self,
+   | |         output: &mut [u8],
+   | |     ) -> Result<usize, FontFaceError> {
+   | |_____________________________________- private method defined here
+
+error[E0624]: method `encode_record_into` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:18:24
+   |
+18 |       let _ = CmapEntry::encode_record_into;
+   |                          ^^^^^^^^^^^^^^^^^^ private method
+   |
+  ::: src/font/identity.rs
+   |
+   | /     pub(in crate::font) fn encode_record_into(
+   | |         self,
+   | |         output: &mut [u8],
+   | |     ) -> Result<usize, CmapIndexError> {
+   | |______________________________________- private method defined here
+
+error[E0624]: method `encode_record_into` is private
+  --> tests/public_api_fail/font_wire_authoring.rs:19:28
+   |
+19 |       let _ = RasterMetrics::encode_record_into;
+   |                              ^^^^^^^^^^^^^^^^^^ private method
+   |
+  ::: src/font/placement.rs
+   |
+   | /     pub(in crate::font) fn encode_record_into(
+   | |         self,
+   | |         output: &mut [u8],
+   | |     ) -> Result<usize, PlacementError> {
+   | |______________________________________- private method defined here

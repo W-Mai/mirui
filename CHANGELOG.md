@@ -55,10 +55,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Encoded FONT raster storage.** FONT authoring and ownership consume encoded surface plans directly, preserving generated group tables, indexes, aligned DATA and integrity coverage without assuming one contiguous source slice; `GlyphSurfaceAsset::data` has been removed.
 - **Semantic MIRX FRAMES authoring.** `FramesAsset::new` accepts borrowed `UnitGroup` values and per-frame group counts, sharing canonical coding, index and aligned DATA construction with IMAGE authoring.
 - **Private MIRX group storage.** Group records, sparse-map encodings and stored range-index constructors are internal; typed readers expose validated semantic groups, selections and ranges. Group storage failures are reported through `EncodedGroupError`.
+- **Private MIRX FONT record storage.** Record lengths, byte serializers and section-ordinal builders are internal; `FontAsset` and `GlyphSurfaceAsset` provide semantic authoring while typed views retain read-only record projections.
 
 ### Added
 
-- **Canonical FONT record authoring.** FACE, CMAP_INDEX and RASTER_METRICS values encode directly into caller-owned buffers with exact capacity checks.
 - **Canonical empty FONT glyphs.** Atlas glyph maps use one all-zero record for a glyph with no raster samples and reject every other zero-width or zero-height rectangle.
 
 ## [0.43.0] - 2026-09-07

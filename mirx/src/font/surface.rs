@@ -5,7 +5,7 @@ use crate::image::{PlaneMemoryRecordError, SampleLayout};
 use crate::media::{MediaPayload, MediaSectionFlags, MediaSectionKind};
 use crate::wire::{read_u16_le, read_u32_le, write_u16_le, write_u32_le};
 
-pub const GLYPH_SURFACE_RECORD_LEN: usize = 24;
+pub(in crate::font) const GLYPH_SURFACE_RECORD_LEN: usize = 24;
 
 mod encoded;
 mod raw;
@@ -39,7 +39,7 @@ pub struct GlyphSurfaceRecord {
 impl GlyphSurfaceRecord {
     /// Creates tight RAW storage. Unknown sample identifiers remain representable.
     /// Width and height describe one cell or the complete atlas, respectively.
-    pub fn new(
+    pub(in crate::font) fn new(
         layout: SampleLayout,
         packing: GlyphPacking,
         width: u32,
@@ -61,7 +61,10 @@ impl GlyphSurfaceRecord {
     }
 
     /// Attaches one shared RAW allocation record; encoded storage rejects it.
-    pub fn with_planes(mut self, section: u16) -> Result<Self, GlyphSurfaceRecordError> {
+    pub(in crate::font) fn with_planes(
+        mut self,
+        section: u16,
+    ) -> Result<Self, GlyphSurfaceRecordError> {
         SectionRef::new(section, MediaSectionKind::PLANES)?;
         let Storage::Raw { planes } = &mut self.storage else {
             return Err(GlyphSurfaceRecordError::ConflictingStorage);
@@ -72,7 +75,10 @@ impl GlyphSurfaceRecord {
 
     /// Selects encoded storage without a RAW physical allocation record.
     /// Existing groups retain their references when replacing a coding table.
-    pub fn with_codings(mut self, section: u16) -> Result<Self, GlyphSurfaceRecordError> {
+    pub(in crate::font) fn with_codings(
+        mut self,
+        section: u16,
+    ) -> Result<Self, GlyphSurfaceRecordError> {
         SectionRef::new(section, MediaSectionKind::CODINGS)?;
         match &mut self.storage {
             Storage::Raw { planes: Some(_) } => {
@@ -90,7 +96,7 @@ impl GlyphSurfaceRecord {
     }
 
     /// Attaches encoded groups together with their optional shared index body.
-    pub fn with_groups(
+    pub(in crate::font) fn with_groups(
         mut self,
         section: u16,
         index_section: Option<u16>,
@@ -118,25 +124,25 @@ impl GlyphSurfaceRecord {
     pub const fn height(self) -> u32 {
         self.height
     }
-    pub const fn data_section(self) -> u16 {
+    pub(in crate::font) const fn data_section(self) -> u16 {
         self.data
     }
 
-    pub const fn planes_section(self) -> Option<u16> {
+    pub(in crate::font) const fn planes_section(self) -> Option<u16> {
         match self.storage {
             Storage::Raw { planes } => planes,
             Storage::Encoded { .. } => None,
         }
     }
 
-    pub const fn codings_section(self) -> Option<u16> {
+    pub(in crate::font) const fn codings_section(self) -> Option<u16> {
         match self.storage {
             Storage::Raw { .. } => None,
             Storage::Encoded { codings, .. } => Some(codings),
         }
     }
 
-    pub const fn groups_section(self) -> Option<u16> {
+    pub(in crate::font) const fn groups_section(self) -> Option<u16> {
         match self.storage {
             Storage::Encoded {
                 groups: Some((groups, _)),
@@ -146,7 +152,7 @@ impl GlyphSurfaceRecord {
         }
     }
 
-    pub const fn index_section(self) -> Option<u16> {
+    pub(in crate::font) const fn index_section(self) -> Option<u16> {
         match self.storage {
             Storage::Encoded {
                 groups: Some((_, index)),
@@ -158,7 +164,10 @@ impl GlyphSurfaceRecord {
 
     /// Derives logical dimensions through the shared checked glyph-map geometry.
     /// Atlas dimensions do not depend on glyph count.
-    pub fn logical_extent(self, glyph_count: usize) -> Result<(u32, u32), GlyphSurfaceRecordError> {
+    pub(in crate::font) fn logical_extent(
+        self,
+        glyph_count: usize,
+    ) -> Result<(u32, u32), GlyphSurfaceRecordError> {
         match self.packing {
             GlyphPacking::GlyphMajor => {
                 let map = GlyphMap::cells(self.width, self.height, glyph_count)
@@ -170,7 +179,7 @@ impl GlyphSurfaceRecord {
     }
 
     /// Reads one canonical 24-byte prefix without resolving section references.
-    pub fn from_record(bytes: &[u8]) -> Result<Self, GlyphSurfaceRecordError> {
+    pub(in crate::font) fn from_record(bytes: &[u8]) -> Result<Self, GlyphSurfaceRecordError> {
         if bytes.len() < GLYPH_SURFACE_RECORD_LEN {
             return Err(GlyphSurfaceRecordError::Truncated {
                 needed: GLYPH_SURFACE_RECORD_LEN,
@@ -214,7 +223,10 @@ impl GlyphSurfaceRecord {
 
     /// Emits canonical references, retaining any output suffix unchanged.
     /// Insufficient capacity leaves all output untouched.
-    pub fn encode_record_into(self, out: &mut [u8]) -> Result<usize, GlyphSurfaceRecordError> {
+    pub(in crate::font) fn encode_record_into(
+        self,
+        out: &mut [u8],
+    ) -> Result<usize, GlyphSurfaceRecordError> {
         if out.len() < GLYPH_SURFACE_RECORD_LEN {
             return Err(GlyphSurfaceRecordError::BufferTooSmall {
                 needed: GLYPH_SURFACE_RECORD_LEN,

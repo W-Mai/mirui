@@ -310,62 +310,6 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
 }
 
 #[test]
-fn borrowed_representation_tables_resolve_and_select_without_allocation() {
-    use mirx::font::{
-        FontRepresentation, FontRepresentationRequest, GlyphPacking, GlyphSurfaceRecord,
-        REPRESENTATION_RECORD_LEN, RepresentationRecord, RepresentationTable,
-    };
-    let (_, allocations) = count_allocations(|| {
-        let mut surfaces = [0; 24];
-        GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 8, 8, 0)
-            .unwrap()
-            .encode_record_into(&mut surfaces)
-            .unwrap();
-        let mut records = [0; REPRESENTATION_RECORD_LEN * 2];
-        RepresentationRecord::new(FontRepresentation::coverage(4, 16, 64).unwrap(), 0)
-            .encode_record_into(&mut records)
-            .unwrap();
-        RepresentationRecord::new(
-            FontRepresentation::signed_distance(4, 3, 24, 17, 48, 64).unwrap(),
-            0,
-        )
-        .encode_record_into(&mut records[REPRESENTATION_RECORD_LEN..])
-        .unwrap();
-        let table =
-            RepresentationTable::open(&records, &surfaces, 2, &PayloadLimits::EMBEDDED).unwrap();
-        assert_eq!(
-            table
-                .select(FontRepresentationRequest::new(24))
-                .unwrap()
-                .index(),
-            1
-        );
-        assert_eq!(table.iter().nth_back(1), table.get(0));
-        assert_eq!(table.iter().count(), 2);
-        assert_eq!(table.get(1).unwrap().representation().decoded_bytes(), 64);
-    });
-    assert_eq!(allocations, 0);
-}
-
-#[test]
-fn representation_record_binding_and_emission_allocate_nothing() {
-    use mirx::font::{FontRepresentation, RepresentationRecord};
-    let (_, allocations) = count_allocations(|| {
-        let surface =
-            SurfaceDescriptor::new(5, 3, SampleLayout::A4, ColorDescription::NONE).unwrap();
-        let metadata = FontRepresentation::signed_distance(4, 3, 24, 17, 48, 9).unwrap();
-        let record = RepresentationRecord::new(metadata, 2).with_atlas_map_range(32, 4);
-        record.validate_for(surface).unwrap();
-        let mut bytes = [0xa5; 21];
-        record.encode_record_into(&mut bytes[1..]).unwrap();
-        let decoded = RepresentationRecord::from_record(&bytes[1..], surface).unwrap();
-        assert_eq!(decoded, record);
-        assert_eq!(bytes[0], 0xa5);
-    });
-    assert_eq!(allocations, 0);
-}
-
-#[test]
 fn raw_glyph_cells_and_atlas_regions_borrow_without_allocation() {
     use mirx::{
         font::{GlyphMap, RawGlyphs},

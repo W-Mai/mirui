@@ -11,23 +11,7 @@ Representation count comes from 20-byte records; referenced surfaces use 24-byte
 
 Count limits are enforced before per-record parsing or duplicate comparisons. Zero disables the corresponding resource. Tight decoded cost is selection metadata, not a requested allocation; `max_decoded_bytes` therefore does not reject a borrowed atlas at this step. Execution applies its output, unit and work limits independently.
 
-```rust
-use mirx::{reader::PayloadLimits,
-    font::{FontRepresentation, FontRepresentationRequest, GlyphPacking, GlyphSurfaceRecord,
-        RepresentationRecord, RepresentationTable},
-    image::SampleLayout};
-
-let mut surfaces = [0; 24];
-GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 8, 8, 0).unwrap()
-    .encode_record_into(&mut surfaces).unwrap();
-let mut records = [0; 20];
-RepresentationRecord::new(FontRepresentation::coverage(4, 16, 64).unwrap(), 0)
-    .encode_record_into(&mut records).unwrap();
-let table = RepresentationTable::open(&records, &surfaces, 2, &PayloadLimits::EMBEDDED).unwrap();
-let selected = table.select(FontRepresentationRequest::new(16)).unwrap();
-assert_eq!(selected.representation().decoded_bytes(), 64);
-assert_eq!(table.get(0).unwrap().surface_index(), 0);
-```
+`FontView::representations` returns the admitted table. `get`, iteration and `select` operate on that borrowed view without exposing record serialization or section ordinals to authoring code.
 
 `get` and direct iterator skips resolve only the selected record in constant time. Iteration is exact-size, fused and double-ended. `select` returns an inline `FontRepresentationMatch`; neither that result nor an individual record borrows the source table. Requests, exact Coverage preference, SDF intervals and fallback retain the native selector's semantics.
 

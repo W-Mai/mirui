@@ -1,6 +1,6 @@
 # Glyph surface records
 
-`font::GlyphSurfaceRecord` stores shared sample geometry and directory references in 24 bytes. Section offsets and lengths remain in the common media directory; glyphs do not repeat them. RAW allocation and encoded input are mutually exclusive storage states.
+`font::GlyphSurfaceRecord` is the read-only typed projection of shared sample geometry and directory references stored in 24 bytes. Section offsets and lengths remain in the common media directory; glyphs do not repeat them. RAW allocation and encoded input are mutually exclusive storage states. `GlyphSurfaceAsset` supplies semantic storage while the writer assigns directory ordinals.
 
 | Bytes | Field | Meaning |
 | --- | --- | --- |
@@ -31,25 +31,23 @@ GlyphSurfaceRecord
                UNIT_INDEX? ───────► group indexes
 ```
 
-`with_planes` rejects encoded storage; `with_codings` rejects a RAW allocation. `with_groups(section, index_section)` requires coding and attaches an optional index together with its owning groups. Native calls cannot pass the absent-reference sentinel as a real ordinal. Parsing enforces the same constraints and rejects unknown packing or nonzero reserved bytes.
+The writer rejects a physical allocation on encoded storage and rejects coding or group references on RAW storage. Native authoring never receives directory ordinals or the absent-reference sentinel. Parsing enforces the same constraints and rejects unknown packing or nonzero reserved bytes.
 
 ```rust
-use mirx::font::{GlyphPacking, GlyphSurfaceRecord, GLYPH_SURFACE_RECORD_LEN};
+use mirx::font::{GlyphMap, GlyphSurfaceAsset, RawGlyphs};
 use mirx::image::SampleLayout;
 
-let record = GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 12, 16, 7)?
-    .with_codings(8)?.with_groups(9, Some(10))?;
-assert_eq!(record.logical_extent(96)?, (12, 1536));
-let mut bytes = [0; GLYPH_SURFACE_RECORD_LEN];
-record.encode_record_into(&mut bytes)?;
-assert_eq!(GlyphSurfaceRecord::from_record(&bytes)?, record);
-# Ok::<(), mirx::font::GlyphSurfaceRecordError>(())
+let map = GlyphMap::cells(2, 2, 2).unwrap();
+let samples = [0_u8; 4];
+let glyphs = RawGlyphs::builder(map, SampleLayout::A4).build(&samples).unwrap();
+let surface = GlyphSurfaceAsset::raw(glyphs);
+assert_eq!(surface.map().cell_extent(), Some((2, 2)));
 ```
 
-`validate_sections(media)` checks direct directory ordinals, expected kinds and exact REQUIRED flags in constant space. It does not establish body validity, complete face cardinality, coding support, coverage or DATA integrity. Referenced immutable sections may be shared by several records. RAW binding requires one exact 24-byte PLANES record when present; implicit encoded storage requires exactly one coding record when groups are absent.
+Complete `FontView` validation checks direct directory ordinals, expected kinds and exact REQUIRED flags in constant space. It then establishes body validity, complete face cardinality and storage binding without conflating those checks with DATA integrity. Referenced immutable sections may be shared by several records. RAW binding requires one exact 24-byte PLANES record when present; implicit encoded storage requires exactly one coding record when groups are absent.
 
-`raw_glyphs(media, map)` binds matching scalar maps to the referenced RAW PLANES and DATA through `RawGlyphs`. It requires identical packing and cell/atlas dimensions, parses the exact physical record and checks the complete DATA span, including shared cell-alignment gaps. Encoded storage and unsupported scalar layouts are rejected. The returned storage borrows the original DATA and reuses existing glyph lookup and crop transfer.
+`FontView::glyphs` binds matching scalar maps to the referenced RAW PLANES and DATA through `RawGlyphs`. It requires identical packing and cell/atlas dimensions, parses the exact physical record and checks the complete DATA span, including shared cell-alignment gaps. Encoded storage and unsupported scalar layouts are rejected. The returned storage borrows the original DATA and reuses existing glyph lookup and crop transfer.
 
 This low-level binding does not checksum samples. Verify the complete face or selected DATA range before trusted consumption; repeated glyph binding must not silently rescan all representations. Source-address and file-address checks remain explicit on `RawGlyphs`. Unknown physical flags remain inspectable, while row access and sample copying reject unsupported storage interpretation.
 
-Record reads and writes allocate nothing and accept unaligned input. Parsing consumes a 24-byte prefix; complete tables must have an exact multiple of that size. Short output errors preserve all bytes, and successful writes leave the suffix unchanged.
+Record reads allocate nothing and accept unaligned input. Complete tables must have an exact multiple of the stored record size. Serialization and section binding remain private to the checked FONT reader and writer.

@@ -3,7 +3,7 @@ use crate::{
     wire::{read_u16_le, write_u16_le},
 };
 
-pub const FACE_RECORD_LEN: usize = 20;
+pub(in crate::font) const FACE_RECORD_LEN: usize = 20;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FontFace {
@@ -40,7 +40,7 @@ impl FontFace {
         })
     }
 
-    pub fn from_record(bytes: &[u8]) -> Result<Self, FontFaceError> {
+    pub(in crate::font) fn from_record(bytes: &[u8]) -> Result<Self, FontFaceError> {
         if bytes.len() < FACE_RECORD_LEN {
             return Err(FontFaceError::Truncated {
                 needed: FACE_RECORD_LEN,
@@ -73,7 +73,10 @@ impl FontFace {
         )
     }
 
-    pub fn encode_record_into(self, output: &mut [u8]) -> Result<usize, FontFaceError> {
+    pub(in crate::font) fn encode_record_into(
+        self,
+        output: &mut [u8],
+    ) -> Result<usize, FontFaceError> {
         if output.len() < FACE_RECORD_LEN {
             return Err(FontFaceError::BufferTooSmall {
                 needed: FACE_RECORD_LEN,

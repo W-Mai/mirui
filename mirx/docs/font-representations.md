@@ -1,6 +1,6 @@
 # Font representation records
 
-`font::RepresentationRecord` stores 20 bytes of size semantics and shared storage references. Its in-memory `FontRepresentation` also contains sample depth and decoded selection cost; these facts are derived from the bound `SurfaceDescriptor`, not serialized again.
+`font::RepresentationRecord` is the read-only typed projection of 20 stored bytes of size semantics and shared storage references. Its `FontRepresentation` also contains sample depth and decoded selection cost; these facts are derived from the bound surface, not serialized again. `RepresentationAsset` is the semantic authoring value; `FontAsset` assigns records and section references during checked encoding.
 
 | Bytes | Field | Meaning |
 | --- | --- | --- |
@@ -16,21 +16,16 @@
 
 All multi-byte fields are little-endian. Coverage reconstructs its fixed range from design ppem and rejects nonzero range/detail fields. SDF requires a positive spread and a valid interval containing design ppem. Application identifiers retain all `u16` values, including 0 and 1, without colliding with standard classes. Typed parsing rejects unknown classes and nonzero reserved bytes.
 
-Coverage accepts A1/A2/A4/A8; signed distance accepts A4/A8. Application semantics can bind any understood sample layout. Decoded cost comes from the shared surface planner's tight byte count, excluding stored compression, row/allocation padding and backend scratch. Complete face binding must resolve the surface index, check glyph-map bounds and validate native metadata with `validate_for(surface)` before emission. A record alone does not prove those references are valid.
+Coverage accepts A1/A2/A4/A8; signed distance accepts A4/A8. Application semantics can bind any understood sample layout. Decoded cost comes from the shared surface planner's tight byte count, excluding stored compression, row/allocation padding and backend scratch. Complete face binding resolves the surface index, checks glyph-map bounds and validates native metadata before emission. A record alone does not prove those references are valid.
 
 ```rust
-use mirx::{font::{FontRepresentation, RepresentationRecord, REPRESENTATION_RECORD_LEN},
-    image::{ColorDescription, SampleLayout, SurfaceDescriptor}};
+use mirx::font::{FontRepresentation, RepresentationAsset};
 
-let surface = SurfaceDescriptor::new(8, 16, SampleLayout::A4, ColorDescription::NONE).unwrap();
 let metadata = FontRepresentation::signed_distance(4, 3, 24, 17, 48, 64).unwrap();
-let record = RepresentationRecord::new(metadata, 2).with_atlas_map_range(32, 4);
-record.validate_for(surface).unwrap();
-let mut bytes = [0; REPRESENTATION_RECORD_LEN];
-record.encode_record_into(&mut bytes).unwrap();
-assert_eq!(bytes, [1, 0, 24, 0, 17, 0, 48, 0, 3, 0, 2, 0, 32, 0, 0, 0, 4, 0, 0, 0]);
-let decoded = RepresentationRecord::from_record(&bytes, surface).unwrap();
-assert_eq!(decoded, record);
+let representation = RepresentationAsset::new(metadata, 2).with_atlas_map(1);
+assert_eq!(representation.metadata(), metadata);
+assert_eq!(representation.surface_index(), 2);
+assert_eq!(representation.atlas_map_index(), Some(1));
 ```
 
-An omitted map uses zero offset and zero count. A nonzero offset with zero count and any overflowing range are noncanonical. Reading and writing one record allocate nothing and tolerate unaligned input addresses. Short output errors preserve all bytes; success preserves the suffix. `from_record` consumes only its 20-byte prefix. A complete representation table derives count from its exact byte length; representation-major raster offsets remain in the separate `RASTER_METRICS` section.
+An omitted map uses zero offset and zero count. A nonzero offset with zero count and any overflowing range are noncanonical. Record parsing allocates nothing and tolerates unaligned input addresses. A complete representation table derives count from its exact byte length; representation-major raster offsets remain in the separate `RASTER_METRICS` section. Record serialization and stored map ranges are private writer details.

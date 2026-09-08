@@ -2,8 +2,8 @@ use core::{iter::FusedIterator, slice::ChunksExact};
 
 use crate::wire::{read_u16_le, read_u32_le};
 
-pub const CMAP_INDEX_RECORD_LEN: usize = 6;
-pub const GLYPH_ID_RECORD_LEN: usize = 2;
+pub(in crate::font) const CMAP_INDEX_RECORD_LEN: usize = 6;
+pub(in crate::font) const GLYPH_ID_RECORD_LEN: usize = 2;
 
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -40,7 +40,10 @@ impl CmapEntry {
         self.glyph_id
     }
 
-    pub fn encode_record_into(self, output: &mut [u8]) -> Result<usize, CmapIndexError> {
+    pub(in crate::font) fn encode_record_into(
+        self,
+        output: &mut [u8],
+    ) -> Result<usize, CmapIndexError> {
         if output.len() < CMAP_INDEX_RECORD_LEN {
             return Err(CmapIndexError::BufferTooSmall {
                 needed: CMAP_INDEX_RECORD_LEN,

@@ -1,7 +1,7 @@
 use crate::types::Fixed;
 
-pub const ADVANCE_RECORD_LEN: usize = 4;
-pub const RASTER_METRICS_RECORD_LEN: usize = 8;
+pub(in crate::font) const ADVANCE_RECORD_LEN: usize = 4;
+pub(in crate::font) const RASTER_METRICS_RECORD_LEN: usize = 8;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Advances<'a> {
@@ -56,7 +56,10 @@ impl RasterMetrics {
         self.offset_y
     }
 
-    pub fn encode_record_into(self, output: &mut [u8]) -> Result<usize, PlacementError> {
+    pub(in crate::font) fn encode_record_into(
+        self,
+        output: &mut [u8],
+    ) -> Result<usize, PlacementError> {
         if output.len() < RASTER_METRICS_RECORD_LEN {
             return Err(PlacementError::BufferTooSmall {
                 needed: RASTER_METRICS_RECORD_LEN,

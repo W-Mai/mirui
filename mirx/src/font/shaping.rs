@@ -1,8 +1,8 @@
 use super::{CmapEntry, CmapIndex, GlyphId};
 use crate::PayloadLimits;
 
-pub const SFNT_HEADER_LEN: usize = 12;
-pub const SFNT_TABLE_RECORD_LEN: usize = 16;
+const SFNT_HEADER_LEN: usize = 12;
+const SFNT_TABLE_RECORD_LEN: usize = 16;
 
 const TRUETYPE: [u8; 4] = [0x00, 0x01, 0x00, 0x00];
 const OPENTYPE_CFF: [u8; 4] = *b"OTTO";

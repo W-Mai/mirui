@@ -74,11 +74,11 @@ IMAGE, FONT, META, PALETTE, and FRAMES expose borrowed views. `ChunkRef::decode_
 
 `FontRepresentations::select` matches fixed-size coverage and ranged signed-distance representations with explicit preferences and fallback. The returned `FontRepresentationMatch` owns one inline metadata value and its source index; selection allocates nothing and does not extend the representation table's lifetime.
 
-`font::RepresentationRecord` encodes 20 bytes of size semantics and shared surface/map ranges. Sample depth and decoded selection cost come from the bound surface, while fixed Coverage omits repeated range values. [Font representation records](docs/font-representations.md) defines canonical fields and native binding checks.
+`font::RepresentationRecord` is a read-only projection of one stored representation. Sample depth and decoded selection cost come from the bound surface, while fixed Coverage omits repeated range values. `RepresentationAsset` supplies the corresponding semantic authoring value. [Font representation records](docs/font-representations.md) defines the canonical fields and binding checks.
 
 `font::RepresentationTable` borrows representation/surface bodies and resolves scalar storage facts without a decoded metadata array. Native and wire tables share duplicate validation and size selection; count limits precede record interpretation. [Borrowed representation tables](docs/representation-tables.md) describes the bounds and direct iteration API.
 
-`font::GlyphSurfaceRecord` encodes 24 bytes of shared glyph geometry and direct section references. RAW physical allocation and encoded coding/group/index references are exclusive states; directory checks do not imply body or DATA validation. [Glyph surface records](docs/glyph-surfaces.md) describes the fields, omission rules and checked constructors.
+`font::GlyphSurfaceRecord` is a read-only projection of shared glyph geometry. RAW physical allocation and encoded coding/group/index references are exclusive states; directory checks do not imply body or DATA validation. `GlyphSurfaceAsset` supplies RAW or encoded storage without exposing directory ordinals. [Glyph surface records](docs/glyph-surfaces.md) describes the fields and omission rules.
 
 `FontView::glyphs(representation_index)` binds the selected representation to its validated scalar map and sample storage. RAW representations return `RawGlyphs` without allocation or repeated DATA scans.
 
@@ -275,15 +275,9 @@ Formats with a separate palette or alpha plane report the depth of the main plan
 `font::CmapIndex` borrows sorted six-byte records that map Unicode scalars to `GlyphId`. Raster ordinals are identity-mapped when `GLYPH_IDS` is absent; sparse fonts store one sorted glyph ID per raster ordinal. Both paths use binary search without allocation.
 
 ```rust
-use mirx::font::{CmapEntry, CmapIndex, GlyphId};
+use mirx::font::{CmapIndex, GlyphId};
 
-let mut bytes = [0; 12];
-CmapEntry::new('A', GlyphId::new(3))
-    .encode_record_into(&mut bytes)
-    .unwrap();
-CmapEntry::new('中', GlyphId::new(9))
-    .encode_record_into(&mut bytes[6..])
-    .unwrap();
+let bytes = [65, 0, 0, 0, 3, 0, 45, 78, 0, 0, 9, 0];
 let cmap = CmapIndex::open(&bytes).unwrap();
 assert_eq!(cmap.lookup('中'), Some(GlyphId::new(9)));
 assert_eq!(cmap.lookup('B'), None);
