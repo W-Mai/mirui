@@ -1,6 +1,3 @@
-use alloc::{borrow::Cow, vec::Vec};
-use core::cell::Cell;
-
 use super::*;
 use crate::document::{EncodeOptions, PayloadOrigin, RawChunkPolicy};
 use crate::font::{
@@ -9,6 +6,7 @@ use crate::font::{
 };
 use crate::image::SampleLayout;
 use crate::{ColorFormat, ImageAsset, PayloadLimits, encode_chunks, types::Fixed};
+use alloc::{borrow::Cow, vec::Vec};
 
 fn font() -> Font {
     let map = GlyphMap::cells(2, 2, 2).unwrap();
@@ -93,27 +91,29 @@ fn retained_limits_gate_typed_reads_and_writes() {
 }
 
 #[test]
-fn no_op_and_failed_callbacks_preserve_source_storage() {
+fn no_op_and_discarded_edits_preserve_source_storage() {
     let expected = font();
     let source = file(&expected, ChunkFlags::NONE);
     let mut document = Document::open(&source).unwrap();
     let id = document.chunks().next().unwrap().id();
     let original = document.get(id).unwrap().payload_bytes().unwrap().as_ptr();
-    document.edit_font(id, |_| {}).unwrap();
+    document
+        .get_mut(id)
+        .unwrap()
+        .edit_font()
+        .unwrap()
+        .commit()
+        .unwrap();
     assert!(!document.is_dirty());
     assert_eq!(
         document.get(id).unwrap().payload_bytes().unwrap().as_ptr(),
         original
     );
 
-    assert_eq!(
-        document.try_edit_font(id, |font| {
-            font.set_cmap_entry(1, CmapEntry::new('中', GlyphId::new(1)))
-                .unwrap();
-            Err("cancel")
-        }),
-        Err(TryEditError::Callback("cancel"))
-    );
+    let mut edit = document.get_mut(id).unwrap().edit_font().unwrap();
+    edit.set_cmap_entry(1, CmapEntry::new('中', GlyphId::new(1)))
+        .unwrap();
+    drop(edit);
     assert!(!document.is_dirty());
     assert_eq!(
         document.get(id).unwrap().payload_bytes().unwrap().as_ptr(),
@@ -127,12 +127,10 @@ fn successful_metadata_edit_reauthors_canonical_payload() {
     let source = file(&expected, ChunkFlags::NONE);
     let mut document = Document::open(&source).unwrap();
     let id = document.chunks().next().unwrap().id();
-    document
-        .edit_font(id, |font| {
-            font.set_cmap_entry(1, CmapEntry::new('中', GlyphId::new(1)))
-                .unwrap()
-        })
+    let mut edit = document.get_mut(id).unwrap().edit_font().unwrap();
+    edit.set_cmap_entry(1, CmapEntry::new('中', GlyphId::new(1)))
         .unwrap();
+    edit.commit().unwrap();
     assert!(document.is_dirty());
     assert_eq!(
         document
@@ -151,8 +149,7 @@ fn successful_metadata_edit_reauthors_canonical_payload() {
 }
 
 #[test]
-fn identity_type_and_layout_errors_precede_callbacks() {
-    let called = Cell::new(false);
+fn layout_and_type_errors_precede_working_value_creation() {
     let main = [1, 2, 3, 4];
     let mut flat = Document::new_flat(ImageAsset::new(
         2,
@@ -162,14 +159,7 @@ fn identity_type_and_layout_errors_precede_callbacks() {
         Cow::Borrowed(&main),
     ))
     .unwrap();
-    assert_eq!(
-        flat.try_edit_font(ChunkId::new(0), |_| {
-            called.set(true);
-            Ok::<_, ()>(())
-        }),
-        Err(TryEditError::Edit(EditError::ChunkLayoutRequired))
-    );
-    assert!(!called.get());
+    assert!(flat.get_mut(ChunkId::new(0)).is_none());
 
     let mut document = Document::new();
     let meta = document
@@ -184,27 +174,21 @@ fn identity_type_and_layout_errors_precede_callbacks() {
                 ),
         })
         .unwrap();
-    assert_eq!(
-        document.try_edit_font(meta, |_| {
-            called.set(true);
-            Ok::<_, ()>(())
-        }),
-        Err(TryEditError::Edit(EditError::InvalidChunkType))
-    );
-    assert!(!called.get());
+    assert!(matches!(
+        document.get_mut(meta).unwrap().edit_font(),
+        Err(EditError::InvalidChunkType)
+    ));
 }
 
 #[test]
-fn malformed_existing_font_never_invokes_callback_but_accepts_replacement() {
+fn malformed_existing_font_rejects_edit_but_accepts_replacement() {
     let source = encode_chunks(&[(ChunkType::FONT.raw(), 0, b"bad")]);
     let mut document = Document::open(&source).unwrap();
     let id = document.chunks().next().unwrap().id();
-    let called = Cell::new(false);
     assert!(matches!(
-        document.edit_font(id, |_| called.set(true)),
+        document.get_mut(id).unwrap().edit_font(),
         Err(EditError::InvalidFont(_))
     ));
-    assert!(!called.get());
     document.replace_font(id, &font()).unwrap();
     assert_eq!(
         document

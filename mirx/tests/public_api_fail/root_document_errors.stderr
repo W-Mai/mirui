@@ -14,5 +14,3 @@ error[E0432]: unresolved imports `mirx::DocumentError`, `mirx::EditError`, `mirx
           mirx::document::EditError
   = help: consider importing this enum instead:
           mirx::document::EncodeError
-  = help: consider importing this enum instead:
-          mirx::document::TryEditError

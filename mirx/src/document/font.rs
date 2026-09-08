@@ -1,7 +1,5 @@
-use core::convert::Infallible;
-
 use super::payload::resolve_node_payload;
-use super::{Document, DocumentChunkRef, DocumentState, EditError, TryEditError};
+use super::{Document, DocumentChunkRef, DocumentState, EditError};
 use crate::font::{Font, FontAccessError, FontError, FontView};
 use crate::payload::image::ImagePayloadError;
 use crate::{ChunkFlags, ChunkId, ChunkType};
@@ -120,39 +118,9 @@ impl Document<'_> {
         )
     }
 
-    /// Transactionally edits one owned FONT working value.
-    ///
-    /// Decode, callback, validation, reserve, or encode failure leaves the
-    /// document node unchanged. Panics and callback side effects are not caught.
-    pub(super) fn edit_font(
-        &mut self,
-        id: ChunkId,
-        edit: impl FnOnce(&mut Font),
-    ) -> Result<(), EditError> {
-        match self.try_edit_font(id, |font| {
-            edit(font);
-            Ok::<(), Infallible>(())
-        }) {
-            Ok(()) => Ok(()),
-            Err(TryEditError::Edit(error)) => Err(error),
-            Err(TryEditError::Callback(never)) => match never {},
-        }
-    }
-
-    /// Transactionally edits one FONT with a fallible caller callback.
-    ///
-    /// A callback error is returned without post-validation or replacement.
-    pub(super) fn try_edit_font<E>(
-        &mut self,
-        id: ChunkId,
-        edit: impl FnOnce(&mut Font) -> Result<(), E>,
-    ) -> Result<(), TryEditError<E>> {
+    pub(super) fn begin_font_edit(&mut self, id: ChunkId) -> Result<Font, EditError> {
         self.ensure_mutable()?;
-        let mut font = self
-            .decode_font_at(id)
-            .map_err(font_access_error_for_edit)?;
-        edit(&mut font).map_err(TryEditError::Callback)?;
-        self.replace_font(id, &font).map_err(Into::into)
+        self.decode_font_at(id).map_err(font_access_error_for_edit)
     }
 }
 

@@ -1,7 +1,5 @@
-use core::convert::Infallible;
-
 use super::payload::resolve_node_payload;
-use super::{Document, DocumentChunkRef, DocumentState, EditError, TryEditError};
+use super::{Document, DocumentChunkRef, DocumentState, EditError};
 use crate::meta::{Meta, MetaDecodeError, MetaEncodeError, MetaView};
 use crate::payload::image::ImagePayloadError;
 use crate::{ChunkFlags, ChunkId, ChunkType, meta::MetaAccessError};
@@ -98,40 +96,11 @@ impl Document<'_> {
         )
     }
 
-    /// Transactionally edits one owned META working value.
-    ///
-    /// Decode, callback, validation, reserve, or encode failure leaves the
-    /// document node unchanged. Panics and callback side effects are not caught.
-    pub(super) fn edit_meta(
-        &mut self,
-        id: ChunkId,
-        edit: impl FnOnce(&mut Meta),
-    ) -> Result<(), EditError> {
-        match self.try_edit_meta(id, |meta| {
-            edit(meta);
-            Ok::<(), Infallible>(())
-        }) {
-            Ok(()) => Ok(()),
-            Err(TryEditError::Edit(error)) => Err(error),
-            Err(TryEditError::Callback(never)) => match never {},
-        }
-    }
-
-    /// Transactionally edits one META value with a fallible callback.
-    ///
-    /// A callback error is returned without post-validation or replacement.
-    pub(super) fn try_edit_meta<E>(
-        &mut self,
-        id: ChunkId,
-        edit: impl FnOnce(&mut Meta) -> Result<(), E>,
-    ) -> Result<(), TryEditError<E>> {
+    pub(super) fn begin_meta_edit(&mut self, id: ChunkId) -> Result<Meta, EditError> {
         self.ensure_mutable()?;
         let limits = self.payload_limits;
         let view = self.meta_at(id).map_err(meta_access_error_for_edit)?;
-        let mut meta =
-            Meta::decode_view_with_limits(view, &limits).map_err(invalid_meta_decode_error)?;
-        edit(&mut meta).map_err(TryEditError::Callback)?;
-        self.replace_meta(id, &meta).map_err(Into::into)
+        Meta::decode_view_with_limits(view, &limits).map_err(invalid_meta_decode_error)
     }
 }
 
@@ -175,7 +144,7 @@ fn meta_access_error_for_edit(error: MetaAccessError) -> EditError {
 #[cfg(test)]
 mod tests {
     use alloc::{borrow::Cow, vec, vec::Vec};
-    use core::{cell::Cell, mem::size_of};
+    use core::mem::size_of;
 
     use super::*;
     use crate::document::{
@@ -317,17 +286,15 @@ mod tests {
     }
 
     #[test]
-    fn edits_commit_only_after_callback_and_validation_succeed() {
+    fn edits_commit_only_after_explicit_commit_and_validation() {
         let payload = sample_meta().encode_payload().unwrap();
         let source = meta_file(&payload, ChunkFlags::NONE);
         let mut document = Document::open(&source).unwrap();
         let meta_id = document.chunks().next().unwrap().id();
 
-        document
-            .edit_meta(meta_id, |meta| {
-                meta.insert(1, MetaEntry::text("tag", "middle")).unwrap();
-            })
-            .unwrap();
+        let mut edit = document.get_mut(meta_id).unwrap().edit_meta().unwrap();
+        edit.insert(1, MetaEntry::text("tag", "middle")).unwrap();
+        edit.commit().unwrap();
         assert_eq!(
             document
                 .meta_at(meta_id)
@@ -343,28 +310,20 @@ mod tests {
         );
 
         let before = document.encode(&EncodeOptions::new()).unwrap();
-        assert_eq!(
-            document.try_edit_meta(meta_id, |_| Err::<(), _>("stop")),
-            Err(TryEditError::Callback("stop"))
-        );
+        drop(document.get_mut(meta_id).unwrap().edit_meta().unwrap());
         assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), before);
 
+        let mut edit = document.get_mut(meta_id).unwrap().edit_meta().unwrap();
+        edit.entries.push(MetaEntry::text("", "invalid"));
         assert!(matches!(
-            document.edit_meta(meta_id, |meta| {
-                meta.entries.push(MetaEntry::text("", "invalid"));
-            }),
+            edit.commit(),
             Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
                 MetaDecodeError::EmptyKey { .. }
             )))
         ));
         assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), before);
 
-        let called = Cell::new(false);
-        assert_eq!(
-            document.edit_meta(id(99), |_| called.set(true)),
-            Err(EditError::InvalidChunkId)
-        );
-        assert!(!called.get());
+        assert!(document.get_mut(id(99)).is_none());
     }
 
     #[test]
@@ -396,17 +355,15 @@ mod tests {
         let meta_id = document.chunks().next().unwrap().id();
 
         assert_eq!(document.meta_at(meta_id).unwrap().len(), 3);
-        let called = Cell::new(false);
-        assert_eq!(
-            document.edit_meta(meta_id, |_| called.set(true)),
+        assert!(matches!(
+            document.get_mut(meta_id).unwrap().edit_meta(),
             Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
                 MetaDecodeError::DecodedBytesLimitExceeded {
-                    needed: decoded,
+                    needed,
                     limit: 0,
                 }
-            )))
-        );
-        assert!(!called.get());
+            ))) if needed == decoded
+        ));
 
         let mut authored = Document::new_with_limits(exact.with_max_meta_entries(2));
         assert_eq!(

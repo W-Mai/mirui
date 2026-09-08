@@ -1,7 +1,5 @@
-use core::convert::Infallible;
-
 use super::payload::resolve_node_payload;
-use super::{Document, DocumentChunkRef, DocumentState, EditError, TryEditError};
+use super::{Document, DocumentChunkRef, DocumentState, EditError};
 use crate::payload::image::ImagePayloadError;
 use crate::scene::{Scene, VectorAccessError, VectorEncodeError, VectorReadError};
 use crate::{ChunkFlags, ChunkId, ChunkType};
@@ -99,39 +97,10 @@ impl Document<'_> {
         )
     }
 
-    /// Transactionally edits one owned VECTOR working value.
-    ///
-    /// Decode, callback, validation, reserve, or encode failure leaves the
-    /// document node unchanged. Panics and callback side effects are not caught.
-    pub(super) fn edit_vector(
-        &mut self,
-        id: ChunkId,
-        edit: impl FnOnce(&mut Scene),
-    ) -> Result<(), EditError> {
-        match self.try_edit_vector(id, |scene| {
-            edit(scene);
-            Ok::<(), Infallible>(())
-        }) {
-            Ok(()) => Ok(()),
-            Err(TryEditError::Edit(error)) => Err(error),
-            Err(TryEditError::Callback(never)) => match never {},
-        }
-    }
-
-    /// Transactionally edits one VECTOR with a fallible caller callback.
-    ///
-    /// A callback error is returned without post-validation or replacement.
-    pub(super) fn try_edit_vector<E>(
-        &mut self,
-        id: ChunkId,
-        edit: impl FnOnce(&mut Scene) -> Result<(), E>,
-    ) -> Result<(), TryEditError<E>> {
+    pub(super) fn begin_vector_edit(&mut self, id: ChunkId) -> Result<Scene, EditError> {
         self.ensure_mutable()?;
-        let mut scene = self
-            .decode_vector_at(id)
-            .map_err(vector_access_error_for_edit)?;
-        edit(&mut scene).map_err(TryEditError::Callback)?;
-        self.replace_vector(id, &scene).map_err(Into::into)
+        self.decode_vector_at(id)
+            .map_err(vector_access_error_for_edit)
     }
 }
 
@@ -176,7 +145,7 @@ fn vector_access_error_for_edit(error: VectorAccessError) -> EditError {
 #[cfg(test)]
 mod tests {
     use alloc::{borrow::Cow, string::String, vec, vec::Vec};
-    use core::{cell::Cell, mem::size_of};
+    use core::mem::size_of;
 
     use super::*;
     use crate::document::{
@@ -531,7 +500,7 @@ mod tests {
     }
 
     #[test]
-    fn edits_commit_only_after_callback_and_validation_succeed() {
+    fn edits_commit_only_after_explicit_commit_and_validation() {
         let expected = representative_scene();
         let source = vector_file(&expected.encode_payload().unwrap(), ChunkFlags::NONE);
         let mut document = Document::open(&source).unwrap();
@@ -543,13 +512,9 @@ mod tests {
             .unwrap()
             .as_ptr();
 
-        assert_eq!(
-            document.try_edit_vector(vector_id, |working| {
-                working.ops.clear();
-                Err("rejected")
-            }),
-            Err(TryEditError::Callback("rejected"))
-        );
+        let mut edit = document.get_mut(vector_id).unwrap().edit_vector().unwrap();
+        edit.ops.clear();
+        drop(edit);
         assert_eq!(
             document
                 .get(vector_id)
@@ -561,10 +526,10 @@ mod tests {
         );
         assert!(!document.is_dirty());
 
+        let mut edit = document.get_mut(vector_id).unwrap().edit_vector().unwrap();
+        edit.ops.push(SceneOp::GroupEnd);
         assert_eq!(
-            document.edit_vector(vector_id, |working| {
-                working.ops.push(SceneOp::GroupEnd);
-            }),
+            edit.commit(),
             Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
                 VectorReadError::Codec(CodecError::UnbalancedGroup)
             )))
@@ -580,11 +545,9 @@ mod tests {
         );
         assert!(!document.is_dirty());
 
-        document
-            .edit_vector(vector_id, |working| {
-                working.ops.insert(0, SceneOp::PopClip);
-            })
-            .unwrap();
+        let mut edit = document.get_mut(vector_id).unwrap().edit_vector().unwrap();
+        edit.ops.insert(0, SceneOp::PopClip);
+        edit.commit().unwrap();
         assert!(document.is_dirty());
         assert!(matches!(
             document.decode_vector_at(vector_id).unwrap().ops.first(),
@@ -593,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn post_callback_limit_failure_preserves_the_original_payload() {
+    fn commit_limit_failure_preserves_the_original_payload() {
         let expected = representative_scene();
         let source = vector_file(&expected.encode_payload().unwrap(), ChunkFlags::NONE);
         let limits = PayloadLimits::HOST.with_max_scene_ops(5);
@@ -603,22 +566,14 @@ mod tests {
         let payload = document.get(vector_id).unwrap().payload_bytes().unwrap();
         let original_pointer = payload.as_ptr();
         let original_bytes = payload.to_vec();
-        let calls = Cell::new(0);
-
+        let mut edit = document.get_mut(vector_id).unwrap().edit_vector().unwrap();
+        edit.ops.push(SceneOp::PopClip);
         assert_eq!(
-            document.try_edit_vector(vector_id, |working| {
-                calls.set(calls.get() + 1);
-                working.ops.push(SceneOp::PopClip);
-                Ok::<(), ()>(())
-            }),
-            Err(TryEditError::Edit(EditError::InvalidVector(
-                VectorEncodeError::InvalidPayload(VectorReadError::TooManySceneOps {
-                    count: 6,
-                    limit: 5,
-                })
+            edit.commit(),
+            Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
+                VectorReadError::TooManySceneOps { count: 6, limit: 5 }
             )))
         );
-        assert_eq!(calls.get(), 1);
         let payload = document.get(vector_id).unwrap().payload_bytes().unwrap();
         assert_eq!(payload.as_ptr(), original_pointer);
         assert_eq!(payload, original_bytes);
@@ -642,7 +597,13 @@ mod tests {
             Scene::default()
         );
 
-        document.edit_vector(vector_id, |_| {}).unwrap();
+        document
+            .get_mut(vector_id)
+            .unwrap()
+            .edit_vector()
+            .unwrap()
+            .commit()
+            .unwrap();
 
         let canonical = Scene::default().encode_payload().unwrap();
         let rewritten = document.get(vector_id).unwrap().payload_bytes().unwrap();
@@ -657,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    fn access_and_edit_errors_keep_container_payload_and_callback_layers_distinct() {
+    fn access_and_edit_errors_keep_container_and_payload_layers_distinct() {
         let expected = representative_scene();
         let payload = expected.encode_payload().unwrap();
         let source = encode_chunks(&[
@@ -682,12 +643,10 @@ mod tests {
             document.decode_vector_at(malformed),
             Err(VectorAccessError::InvalidPayload(_))
         ));
-        let called = Cell::new(false);
         assert!(matches!(
-            document.edit_vector(malformed, |_| called.set(true)),
+            document.get_mut(malformed).unwrap().edit_vector(),
             Err(EditError::InvalidVector(_))
         ));
-        assert!(!called.get());
 
         let flat = flat_document();
         assert_eq!(
@@ -724,12 +683,12 @@ mod tests {
             document.decode_vector_at(promoted),
             Err(VectorAccessError::NonContiguousPayload)
         );
-        assert_eq!(
-            document.edit_vector(promoted, |_| {}),
+        assert!(matches!(
+            document.get_mut(promoted).unwrap().edit_vector(),
             Err(EditError::NonContiguousPayload {
                 chunk_type: ChunkType::VECTOR
             })
-        );
+        ));
 
         let replacement = representative_scene();
         document.replace_vector(promoted, &replacement).unwrap();

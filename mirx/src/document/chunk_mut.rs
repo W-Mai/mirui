@@ -1,5 +1,5 @@
 use super::raw::RawChunkPolicy;
-use super::{ChunkNode, Document, DocumentState, EditError, TryEditError};
+use super::{ChunkEdit, ChunkNode, Document, DocumentState, EditError};
 use crate::extension::Extension;
 use crate::font::Font;
 use crate::frames::EncodedFrames;
@@ -72,19 +72,16 @@ impl<'document, 'source> DocumentChunkMut<'document, 'source> {
         self.document.replace_font(id, font)
     }
 
-    /// Transactionally edits this chunk as an owned FONT value.
-    pub fn edit_font(&mut self, edit: impl FnOnce(&mut Font)) -> Result<(), EditError> {
+    /// Opens an owned FONT working value for explicit commit.
+    pub fn edit_font(self) -> Result<ChunkEdit<'document, 'source, Font>, EditError> {
         let id = self.id();
-        self.document.edit_font(id, edit)
-    }
-
-    /// Transactionally edits this chunk as a FONT with a fallible callback.
-    pub fn try_edit_font<E>(
-        &mut self,
-        edit: impl FnOnce(&mut Font) -> Result<(), E>,
-    ) -> Result<(), TryEditError<E>> {
-        let id = self.id();
-        self.document.try_edit_font(id, edit)
+        let value = self.document.begin_font_edit(id)?;
+        Ok(ChunkEdit::new(
+            self.document,
+            id,
+            value,
+            Document::replace_font,
+        ))
     }
 
     /// Replaces this chunk with a checked VECTOR payload.
@@ -93,19 +90,16 @@ impl<'document, 'source> DocumentChunkMut<'document, 'source> {
         self.document.replace_vector(id, scene)
     }
 
-    /// Transactionally edits this chunk as an owned VECTOR scene.
-    pub fn edit_vector(&mut self, edit: impl FnOnce(&mut Scene)) -> Result<(), EditError> {
+    /// Opens an owned VECTOR working value for explicit commit.
+    pub fn edit_vector(self) -> Result<ChunkEdit<'document, 'source, Scene>, EditError> {
         let id = self.id();
-        self.document.edit_vector(id, edit)
-    }
-
-    /// Transactionally edits this chunk as a VECTOR with a fallible callback.
-    pub fn try_edit_vector<E>(
-        &mut self,
-        edit: impl FnOnce(&mut Scene) -> Result<(), E>,
-    ) -> Result<(), TryEditError<E>> {
-        let id = self.id();
-        self.document.try_edit_vector(id, edit)
+        let value = self.document.begin_vector_edit(id)?;
+        Ok(ChunkEdit::new(
+            self.document,
+            id,
+            value,
+            Document::replace_vector,
+        ))
     }
 
     /// Replaces this chunk with a checked META payload.
@@ -114,19 +108,16 @@ impl<'document, 'source> DocumentChunkMut<'document, 'source> {
         self.document.replace_meta(id, meta)
     }
 
-    /// Transactionally edits this chunk as an owned META value.
-    pub fn edit_meta(&mut self, edit: impl FnOnce(&mut Meta)) -> Result<(), EditError> {
+    /// Opens an owned META working value for explicit commit.
+    pub fn edit_meta(self) -> Result<ChunkEdit<'document, 'source, Meta>, EditError> {
         let id = self.id();
-        self.document.edit_meta(id, edit)
-    }
-
-    /// Transactionally edits this chunk as META with a fallible callback.
-    pub fn try_edit_meta<E>(
-        &mut self,
-        edit: impl FnOnce(&mut Meta) -> Result<(), E>,
-    ) -> Result<(), TryEditError<E>> {
-        let id = self.id();
-        self.document.try_edit_meta(id, edit)
+        let value = self.document.begin_meta_edit(id)?;
+        Ok(ChunkEdit::new(
+            self.document,
+            id,
+            value,
+            Document::replace_meta,
+        ))
     }
 
     /// Replaces this chunk with a checked PALETTE payload.
@@ -135,19 +126,16 @@ impl<'document, 'source> DocumentChunkMut<'document, 'source> {
         self.document.replace_palette(id, palette)
     }
 
-    /// Transactionally edits this chunk as an owned PALETTE value.
-    pub fn edit_palette(&mut self, edit: impl FnOnce(&mut Palette)) -> Result<(), EditError> {
+    /// Opens an owned PALETTE working value for explicit commit.
+    pub fn edit_palette(self) -> Result<ChunkEdit<'document, 'source, Palette>, EditError> {
         let id = self.id();
-        self.document.edit_palette(id, edit)
-    }
-
-    /// Transactionally edits this chunk as PALETTE with a fallible callback.
-    pub fn try_edit_palette<E>(
-        &mut self,
-        edit: impl FnOnce(&mut Palette) -> Result<(), E>,
-    ) -> Result<(), TryEditError<E>> {
-        let id = self.id();
-        self.document.try_edit_palette(id, edit)
+        let value = self.document.begin_palette_edit(id)?;
+        Ok(ChunkEdit::new(
+            self.document,
+            id,
+            value,
+            Document::replace_palette,
+        ))
     }
 
     /// Replaces this chunk with a checked FRAMES payload.
@@ -170,7 +158,7 @@ mod tests {
     use crate::meta::{MetaEntry, MetaValueRef};
 
     #[test]
-    fn typed_replacement_and_callbacks_stay_scoped_to_the_handle() {
+    fn typed_replacement_and_explicit_edits_stay_scoped_to_the_handle() {
         let mut original = Meta::new();
         original.push(MetaEntry::text("name", "before")).unwrap();
         let mut document = Document::new();
@@ -178,17 +166,20 @@ mod tests {
 
         let mut replacement = Meta::new();
         replacement.push(MetaEntry::text("name", "after")).unwrap();
-        {
-            let mut chunk = document.get_mut(id).unwrap();
-            chunk.replace_meta(&replacement).unwrap();
-            chunk
-                .edit_meta(|meta| meta.push(MetaEntry::text("kind", "asset")).unwrap())
-                .unwrap();
-            assert_eq!(
-                chunk.try_edit_meta(|_| Err::<(), _>("stop")),
-                Err(TryEditError::Callback("stop"))
-            );
-        }
+        document
+            .get_mut(id)
+            .unwrap()
+            .replace_meta(&replacement)
+            .unwrap();
+        let mut edit = document.get_mut(id).unwrap().edit_meta().unwrap();
+        edit.push(MetaEntry::text("kind", "asset")).unwrap();
+        edit.commit().unwrap();
+
+        let mut discarded = document.get_mut(id).unwrap().edit_meta().unwrap();
+        discarded
+            .push(MetaEntry::text("discarded", "true"))
+            .unwrap();
+        drop(discarded);
 
         let view = document.meta_at(id).unwrap();
         assert_eq!(view.len(), 2);
@@ -200,5 +191,6 @@ mod tests {
             view.get_first("kind").unwrap().value,
             MetaValueRef::Text("asset")
         );
+        assert!(view.get_first("discarded").is_none());
     }
 }

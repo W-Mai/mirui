@@ -5,6 +5,7 @@ mod demotion;
 #[cfg(test)]
 mod demotion_tests;
 mod descriptor;
+mod edit;
 #[cfg(test)]
 mod flat_tests;
 mod font;
@@ -28,8 +29,9 @@ mod source;
 mod vector;
 mod writer;
 
-pub use crate::error::{DocumentError, EditError, EncodeError, TryEditError};
+pub use crate::error::{DocumentError, EditError, EncodeError};
 pub use chunk_mut::DocumentChunkMut;
+pub use edit::ChunkEdit;
 pub use options::{EncodeOptions, LayoutPolicy, OpenOptions};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
 pub(crate) use raw::RawChunkPolicy;

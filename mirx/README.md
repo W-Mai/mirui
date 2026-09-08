@@ -342,7 +342,7 @@ Chunk IDs remain stable across insert, remove, and reorder operations within a d
 
 ![Untouched payloads remain borrowed while one edited payload is materialized and replaced transactionally](docs/copy-on-write.svg)
 
-Opening a CHUNK document allocates one node table with `O(chunk_count)` entries. Payload bytes stay in the source buffer until an operation needs ownership. Typed edits decode only the selected payload, run the callback on a working value, validate and encode its replacement, then commit the change. Any failure leaves the document unchanged.
+Opening a CHUNK document allocates one node table with `O(chunk_count)` entries. Payload bytes stay in the source buffer until an operation needs ownership. A typed edit decodes only the selected payload into a working value. `commit()` validates and encodes the replacement atomically; dropping the working value leaves the document unchanged.
 
 ```rust,no_run
 use mirx::{ChunkType, Document, meta::MetaEntry};
@@ -355,27 +355,27 @@ let meta_id = document
     .expect("META chunk")
     .id();
 
-document
+let mut edit = document
     .get_mut(meta_id)
     .expect("stable chunk id")
-    .edit_meta(|meta| {
-        meta.push(MetaEntry::text("locale", "en-US")).unwrap();
-    })?;
+    .edit_meta()?;
+edit.push(MetaEntry::text("locale", "en-US")).unwrap();
+edit.commit()?;
 # Ok(())
 # }
 ```
 
-`edit_*` callbacks mutate owned values. `try_edit_*` additionally keeps caller errors separate from MIRX validation and encoding errors.
+Typed edit guards implement `DerefMut` to their owned value. Only `commit()` changes the document.
 
 ### Typed chunk operations
 
 | Type | Access on `DocumentChunkRef` | Add on `Document` | Edit on `DocumentChunkMut` |
 | --- | --- | --- | --- |
 | `IMAGE` | `image` | `push_image` | `replace_image` |
-| `FONT` | `font`, `decode_font` | `push_font` | `replace_font`, `edit_font`, `try_edit_font` |
-| `VECTOR` | `decode_vector` | `push_vector` | `replace_vector`, `edit_vector`, `try_edit_vector` |
-| `META` | `meta` | `push_meta` | `replace_meta`, `edit_meta`, `try_edit_meta` |
-| `PALETTE` | `palette` | `push_palette` | `replace_palette`, `edit_palette`, `try_edit_palette` |
+| `FONT` | `font`, `decode_font` | `push_font` | `replace_font`, `edit_font` |
+| `VECTOR` | `decode_vector` | `push_vector` | `replace_vector`, `edit_vector` |
+| `META` | `meta` | `push_meta` | `replace_meta`, `edit_meta` |
+| `PALETTE` | `palette` | `push_palette` | `replace_palette`, `edit_palette` |
 | `FRAMES` | `frames` | `push_frames` | `replace_frames` |
 
 Typed `push_*` methods use `ChunkFlags::NONE`. Their `push_*_with_flags(value, flags)` counterparts retain explicit descriptor control.

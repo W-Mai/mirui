@@ -1,0 +1,40 @@
+error[E0432]: unresolved import `mirx::document::TryEditError`
+ --> tests/public_api_fail/callback_chunk_edits.rs:1:5
+  |
+1 | use mirx::document::TryEditError;
+  |     ^^^^^^^^^^^^^^^^------------
+  |     |               |
+  |     |               help: a similar name exists in the module: `EditError`
+  |     no `TryEditError` in `document`
+
+error[E0061]: this method takes 0 arguments but 1 argument was supplied
+ --> tests/public_api_fail/callback_chunk_edits.rs:8:10
+  |
+8 |         .edit_meta(|_| {})
+  |          ^^^^^^^^^ ------ unexpected argument of type `{closure@$DIR/tests/public_api_fail/callback_chunk_edits.rs:8:20: 8:23}`
+  |
+note: method defined here
+ --> src/document/chunk_mut.rs
+  |
+  |     pub fn edit_meta(self) -> Result<ChunkEdit<'document, 'source, Meta>, EditError> {
+  |            ^^^^^^^^^
+help: remove the extra argument
+  |
+8 -         .edit_meta(|_| {})
+8 +         .edit_meta()
+  |
+
+error[E0599]: no method named `try_edit_meta` found for struct `DocumentChunkMut<'document, 'source>` in the current scope
+  --> tests/public_api_fail/callback_chunk_edits.rs:16:10
+   |
+13 | /     document
+14 | |         .get_mut(id)
+15 | |         .unwrap()
+16 | |         .try_edit_meta(|_| Ok::<_, ()>(()))
+   | |_________-^^^^^^^^^^^^^
+   |
+help: there is a method `edit_meta` with a similar name, but with different arguments
+  --> src/document/chunk_mut.rs
+   |
+   |     pub fn edit_meta(self) -> Result<ChunkEdit<'document, 'source, Meta>, EditError> {
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

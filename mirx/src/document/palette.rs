@@ -1,7 +1,5 @@
-use core::convert::Infallible;
-
 use super::payload::resolve_node_payload;
-use super::{Document, DocumentChunkRef, DocumentState, EditError, TryEditError};
+use super::{Document, DocumentChunkRef, DocumentState, EditError};
 use crate::palette::{Palette, PaletteDecodeError, PaletteEncodeError, PaletteView};
 use crate::payload::image::ImagePayloadError;
 use crate::{ChunkFlags, ChunkId, ChunkType, palette::PaletteAccessError};
@@ -102,40 +100,11 @@ impl Document<'_> {
         )
     }
 
-    /// Transactionally edits one owned PALETTE working value.
-    ///
-    /// Decode, callback, validation, reserve, or encode failure leaves the
-    /// document node unchanged. Panics and callback side effects are not caught.
-    pub(super) fn edit_palette(
-        &mut self,
-        id: ChunkId,
-        edit: impl FnOnce(&mut Palette),
-    ) -> Result<(), EditError> {
-        match self.try_edit_palette(id, |palette| {
-            edit(palette);
-            Ok::<(), Infallible>(())
-        }) {
-            Ok(()) => Ok(()),
-            Err(TryEditError::Edit(error)) => Err(error),
-            Err(TryEditError::Callback(never)) => match never {},
-        }
-    }
-
-    /// Transactionally edits one PALETTE value with a fallible callback.
-    ///
-    /// A callback error is returned without post-validation or replacement.
-    pub(super) fn try_edit_palette<E>(
-        &mut self,
-        id: ChunkId,
-        edit: impl FnOnce(&mut Palette) -> Result<(), E>,
-    ) -> Result<(), TryEditError<E>> {
+    pub(super) fn begin_palette_edit(&mut self, id: ChunkId) -> Result<Palette, EditError> {
         self.ensure_mutable()?;
         let limits = self.payload_limits;
         let view = self.palette_at(id).map_err(palette_access_error_for_edit)?;
-        let mut palette = Palette::decode_view_with_limits(view, &limits)
-            .map_err(invalid_palette_decode_error)?;
-        edit(&mut palette).map_err(TryEditError::Callback)?;
-        self.replace_palette(id, &palette).map_err(Into::into)
+        Palette::decode_view_with_limits(view, &limits).map_err(invalid_palette_decode_error)
     }
 }
 
@@ -179,7 +148,7 @@ fn palette_access_error_for_edit(error: PaletteAccessError) -> EditError {
 #[cfg(test)]
 mod tests {
     use alloc::{borrow::Cow, vec, vec::Vec};
-    use core::{cell::Cell, mem::size_of};
+    use core::mem::size_of;
 
     use super::*;
     use crate::document::{
@@ -289,20 +258,20 @@ mod tests {
     }
 
     #[test]
-    fn edits_commit_only_after_callback_and_validation_succeed() {
+    fn edits_commit_only_after_explicit_commit() {
         let payload = sample_palette().encode_payload().unwrap();
         let source = palette_file(&payload, ChunkFlags::NONE);
         let mut document = Document::open(&source).unwrap();
         let palette_id = document.chunks().next().unwrap().id();
 
-        document
-            .edit_palette(palette_id, |palette| {
-                palette
-                    .insert(1, Color::rgba(0x01, 0x02, 0x03, 0x04))
-                    .unwrap();
-                palette.move_color(3, 0).unwrap();
-            })
+        let mut edit = document
+            .get_mut(palette_id)
+            .unwrap()
+            .edit_palette()
             .unwrap();
+        edit.insert(1, Color::rgba(0x01, 0x02, 0x03, 0x04)).unwrap();
+        edit.move_color(3, 0).unwrap();
+        edit.commit().unwrap();
         assert_eq!(
             document
                 .palette_at(palette_id)
@@ -319,18 +288,16 @@ mod tests {
         );
 
         let before = document.encode(&EncodeOptions::new()).unwrap();
-        assert_eq!(
-            document.try_edit_palette(palette_id, |_| Err::<(), _>("stop")),
-            Err(TryEditError::Callback("stop"))
+        drop(
+            document
+                .get_mut(palette_id)
+                .unwrap()
+                .edit_palette()
+                .unwrap(),
         );
         assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), before);
 
-        let called = Cell::new(false);
-        assert_eq!(
-            document.edit_palette(id(99), |_| called.set(true)),
-            Err(EditError::InvalidChunkId)
-        );
-        assert!(!called.get());
+        assert!(document.get_mut(id(99)).is_none());
     }
 
     #[test]
@@ -348,17 +315,15 @@ mod tests {
         let palette_id = document.chunks().next().unwrap().id();
 
         assert_eq!(document.palette_at(palette_id).unwrap().len(), 3);
-        let called = Cell::new(false);
-        assert_eq!(
-            document.edit_palette(palette_id, |_| called.set(true)),
+        assert!(matches!(
+            document.get_mut(palette_id).unwrap().edit_palette(),
             Err(EditError::InvalidPalette(
                 PaletteEncodeError::InvalidPayload(PaletteDecodeError::DecodedBytesLimitExceeded {
-                    needed: decoded,
+                    needed,
                     limit: 0,
                 })
-            ))
-        );
-        assert!(!called.get());
+            )) if needed == decoded
+        ));
 
         let mut authored = Document::new_with_limits(exact.with_max_palette_colors(2));
         assert_eq!(

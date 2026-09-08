@@ -277,20 +277,6 @@ impl From<VectorReadError> for VectorAccessError {
     }
 }
 
-/// Failure from a transactional typed edit with a fallible callback.
-#[derive(Clone, Debug, Eq, PartialEq)]
-#[non_exhaustive]
-pub enum TryEditError<E> {
-    Edit(EditError),
-    Callback(E),
-}
-
-impl<E> From<EditError> for TryEditError<E> {
-    fn from(value: EditError) -> Self {
-        Self::Edit(value)
-    }
-}
-
 /// Failures while resolving and decoding an IMAGE node from a document.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]

@@ -36,7 +36,7 @@
   <g transform="translate(646 106)">
     <text class="head" x="0" y="0">Transactional replacement</text>
     <rect class="owned" y="18" width="274" height="56" rx="10"/><text class="mono" x="16" y="42">1 · decode selected payload</text><text class="small" x="16" y="59">working value owns only META data</text>
-    <rect class="owned" y="82" width="274" height="56" rx="10"/><text class="mono" x="16" y="106">2 · run callback + validate</text><text class="small" x="16" y="123">any error discards working state</text>
+    <rect class="owned" y="82" width="274" height="56" rx="10"/><text class="mono" x="16" y="106">2 · edit working value</text><text class="small" x="16" y="123">drop discards working state</text>
     <rect class="ok" y="146" width="274" height="56" rx="10"/><text class="mono" x="16" y="170">3 · encode then commit</text><text class="small" x="16" y="187">node 1 swaps to owned bytes</text>
     <text class="small" x="0" y="226">IMAGE and FONT remain borrowed</text>
   </g>
