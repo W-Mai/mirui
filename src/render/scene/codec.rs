@@ -19,35 +19,38 @@ pub enum CodecError {
     BadComposite(u8),
 }
 
-impl From<mirx::CodecError> for CodecError {
-    fn from(e: mirx::CodecError) -> Self {
+impl From<mirx::scene::CodecError> for CodecError {
+    fn from(e: mirx::scene::CodecError) -> Self {
         match e {
-            mirx::CodecError::UnexpectedEof => Self::UnexpectedEof,
-            mirx::CodecError::BadMagic => Self::BadMagic,
-            mirx::CodecError::UnknownVersion(v) => Self::UnknownVersion(v),
-            mirx::CodecError::UnknownTag(t) => Self::UnknownTag(t),
-            mirx::CodecError::CrcMismatch { expected, actual } => {
+            mirx::scene::CodecError::UnexpectedEof => Self::UnexpectedEof,
+            mirx::scene::CodecError::BadMagic => Self::BadMagic,
+            mirx::scene::CodecError::UnknownVersion(v) => Self::UnknownVersion(v),
+            mirx::scene::CodecError::UnknownTag(t) => Self::UnknownTag(t),
+            mirx::scene::CodecError::CrcMismatch { expected, actual } => {
                 Self::CrcMismatch { expected, actual }
             }
-            mirx::CodecError::BadFillRule(b) => Self::BadFillRule(b),
-            mirx::CodecError::BadResourceKind(b) => Self::BadResourceKind(b),
-            mirx::CodecError::BadUtf8 => Self::BadUtf8,
-            mirx::CodecError::UnbalancedGroup => Self::UnbalancedGroup,
-            mirx::CodecError::BadSkipOffset => Self::BadSkipOffset,
-            mirx::CodecError::UnsupportedScale(s) => Self::UnsupportedScale(s),
-            mirx::CodecError::UnknownFlags(f) => Self::UnknownFlags(f),
-            mirx::CodecError::BadComposite(b) => Self::BadComposite(b),
+            mirx::scene::CodecError::BadFillRule(b) => Self::BadFillRule(b),
+            mirx::scene::CodecError::BadResourceKind(b) => Self::BadResourceKind(b),
+            mirx::scene::CodecError::BadUtf8 => Self::BadUtf8,
+            mirx::scene::CodecError::UnbalancedGroup => Self::UnbalancedGroup,
+            mirx::scene::CodecError::BadSkipOffset => Self::BadSkipOffset,
+            mirx::scene::CodecError::UnsupportedScale(s) => Self::UnsupportedScale(s),
+            mirx::scene::CodecError::UnknownFlags(f) => Self::UnknownFlags(f),
+            mirx::scene::CodecError::BadComposite(b) => Self::BadComposite(b),
         }
     }
 }
 
 pub fn encode_scene(ops: &[SceneOp]) -> Result<Vec<u8>, CodecError> {
-    let mirx_ops: alloc::vec::Vec<mirx::SceneOp> = ops.iter().cloned().map(Into::into).collect();
-    mirx::Scene::from_ops(mirx_ops).encode().map_err(Into::into)
+    let mirx_ops: alloc::vec::Vec<mirx::scene::SceneOp> =
+        ops.iter().cloned().map(Into::into).collect();
+    mirx::scene::Scene::from_ops(mirx_ops)
+        .encode()
+        .map_err(Into::into)
 }
 
 pub fn decode_scene(payload: &[u8]) -> Result<Vec<SceneOp>, CodecError> {
-    let scene = mirx::Scene::decode(payload).map_err(CodecError::from)?;
+    let scene = mirx::scene::Scene::decode(payload).map_err(CodecError::from)?;
     Ok(scene.ops.into_iter().map(Into::into).collect())
 }
 

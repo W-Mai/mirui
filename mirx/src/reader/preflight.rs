@@ -4,7 +4,8 @@ use crate::frames::FramesError;
 use crate::image::{ImageReadError, ImageRef};
 use crate::meta::MetaDecodeError;
 use crate::palette::PaletteDecodeError;
-use crate::{ChunkType, ReadError, Scene, VectorReadError};
+use crate::scene::{Scene, VectorReadError};
+use crate::{ChunkType, ReadError};
 
 /// Source location of a payload validation result.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -215,9 +216,10 @@ mod tests {
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
     use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
     use crate::meta::MetaValueRef;
+    use crate::scene::SceneOp;
     use crate::{
-        ChunkFlags, ColorFormat, FlatImageInput, ImageChunkInput, ReadOptions, SceneOp,
-        TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
+        ChunkFlags, ColorFormat, FlatImageInput, ImageChunkInput, ReadOptions, TrailingBytesPolicy,
+        crc32, encode_chunk_image, encode_chunks, encode_flat,
     };
 
     fn valid_image_payload() -> Vec<u8> {
@@ -630,7 +632,7 @@ mod tests {
                     payload_offset: payload_offset(&critical, 0),
                 },
                 failure: PayloadValidationFailure::Vector(VectorReadError::Codec(
-                    crate::CodecError::UnknownVersion(2),
+                    crate::scene::CodecError::UnknownVersion(2),
                 )),
             }))
         );
@@ -647,7 +649,7 @@ mod tests {
                     payload_offset: payload_offset(&noncritical, 0),
                 },
                 failure: PayloadValidationFailure::Vector(VectorReadError::Codec(
-                    crate::CodecError::UnknownVersion(2),
+                    crate::scene::CodecError::UnknownVersion(2),
                 )),
             })
         );
@@ -1073,7 +1075,7 @@ mod tests {
                 Reader::open(&malformed_vector),
                 Err(ReadError::CriticalPayload(PayloadValidationError {
                     failure: PayloadValidationFailure::Vector(VectorReadError::Codec(
-                        crate::CodecError::UnknownVersion(2),
+                        crate::scene::CodecError::UnknownVersion(2),
                     )),
                     ..
                 }))

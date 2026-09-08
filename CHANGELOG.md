@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Canonical MIRX VECTOR paths.** Scene values, paint primitives, codec errors, and access errors live under `mirx::scene`; duplicate crate-root exports have been removed.
 - **Canonical MIRX FONT paths.** Font values, views, representation selection, and access errors live under `mirx::font`; duplicate crate-root exports have been removed.
 - **Private MIRX payload plumbing.** Typed payload codecs are exposed through their domain modules; the internal `payload` assembly module is no longer public.
 - **Canonical MIRX PALETTE paths.** Ordered palette values, borrowed color tables, iterators, and codec errors live under `mirx::palette`; duplicate crate-root and `payload` paths have been removed.

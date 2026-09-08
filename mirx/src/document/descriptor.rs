@@ -5,7 +5,8 @@ use super::{ChunkNode, Document, DocumentState, RewriteCapability};
 use crate::frames::FramesView;
 use crate::meta::{MetaEncodeError, MetaView};
 use crate::palette::{PaletteEncodeError, PaletteView};
-use crate::{ChunkFlags, ChunkType, EditError, PayloadLimits, Scene, VectorEncodeError};
+use crate::scene::{Scene, VectorEncodeError};
+use crate::{ChunkFlags, ChunkType, EditError, PayloadLimits};
 
 #[cfg(test)]
 use super::PayloadStorage;

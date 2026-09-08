@@ -4,7 +4,7 @@ use crate::render::raster::FillRule;
 use crate::render::texture::Texture;
 use crate::types::{Color, Fixed, Opa, Point, Rect, Transform};
 
-pub use mirx::{LineCap, LineJoin, Paint};
+pub use mirx::scene::{LineCap, LineJoin, Paint};
 
 /// Non-premultiplied alpha: `src` channels are multiplied by `src.a / 255`
 /// before the per-variant formula and folded back onto `dst` via the

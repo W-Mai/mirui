@@ -43,7 +43,7 @@ pub use document::{
 };
 pub use error::{
     DocumentError, EditError, EncodeError, FramesAccessError, ImageDecodeError, MetaAccessError,
-    PaletteAccessError, ParseError, ReadError, TryEditError, VectorAccessError,
+    PaletteAccessError, ParseError, ReadError, TryEditError,
 };
 #[cfg(test)]
 pub(crate) use flat::{FlatImageInput, encode_flat};
@@ -60,10 +60,5 @@ pub(crate) use payload::image::{ImageAsset, ImagePayloadError, ImageView};
 pub use reader::{
     ChunkRef, ComplianceFinding, EntryIter, FindingIter, PayloadLimits, PayloadLocation,
     PayloadValidationError, PayloadValidationFailure, ReadOptions, Reader, TrailingBytesPolicy,
-};
-pub use scene::{
-    CodecError, CompositeMode, FillRule, GradientStop, GradientUnits, LineCap, LineJoin,
-    LinearGradient, Paint, RadialGradient, ResourceRef, Scene, SceneOp, SpreadMode,
-    VectorChunkHeader, VectorEncodeError, VectorReadError,
 };
 pub use types::{Color, Fixed, Point, Rect, Transform};

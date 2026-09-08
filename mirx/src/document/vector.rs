@@ -3,10 +3,11 @@ use core::convert::Infallible;
 use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
 use crate::payload::image::ImagePayloadError;
-use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, Scene, TryEditError, VectorAccessError,
-    VectorEncodeError, VectorReadError,
-};
+use crate::scene::{Scene, VectorAccessError, VectorEncodeError, VectorReadError};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError};
+
+#[cfg(test)]
+use crate::scene::{CodecError, SceneOp, VectorChunkHeader};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Decodes this chunk into an owned VECTOR scene.
@@ -210,7 +211,7 @@ mod tests {
     fn representative_scene() -> Scene {
         let path = Path::from_cmds(vec![PathCmd::MoveTo(point(1, 2)), PathCmd::Close]);
         Scene::from_ops(vec![
-            crate::SceneOp::GroupBegin {
+            SceneOp::GroupBegin {
                 transform: None,
                 opacity: Some(200),
                 clip: Some(ResourceRef::Token(String::from("clip"))),
@@ -218,7 +219,7 @@ mod tests {
                 filter: None,
                 disjoint_hint: false,
             },
-            crate::SceneOp::FillPath {
+            SceneOp::FillPath {
                 path,
                 transform: Transform::IDENTITY,
                 paint: Paint::LinearGradient(LinearGradient {
@@ -235,7 +236,7 @@ mod tests {
                 opa: 255,
                 fill_rule: FillRule::NonZero,
             },
-            crate::SceneOp::StrokePath {
+            SceneOp::StrokePath {
                 path: Path::from_cmds(vec![PathCmd::Close]),
                 transform: Transform::IDENTITY,
                 paint: Paint::Color(Color::rgb(4, 5, 6)),
@@ -246,7 +247,7 @@ mod tests {
                 miter_limit: Fixed::from_int(4),
                 dash: Cow::Owned(vec![Fixed::ONE, Fixed::from_int(2)]),
             },
-            crate::SceneOp::Label {
+            SceneOp::Label {
                 font: ResourceRef::Token(String::from("font")),
                 pos: point(2, 3),
                 transform: Transform::IDENTITY,
@@ -254,7 +255,7 @@ mod tests {
                 opa: 230,
                 text: String::from("hi"),
             },
-            crate::SceneOp::GroupEnd,
+            SceneOp::GroupEnd,
         ])
     }
 
@@ -369,7 +370,7 @@ mod tests {
         let expected = representative_scene();
         let payload = expected.encode_payload().unwrap();
         let source = vector_file(&payload, ChunkFlags::NONE);
-        let decoded_bytes = 5 * size_of::<crate::SceneOp>()
+        let decoded_bytes = 5 * size_of::<SceneOp>()
             + 4 * size_of::<PathCmd>()
             + size_of::<GradientStop>()
             + 2 * size_of::<Fixed>()
@@ -442,7 +443,7 @@ mod tests {
                 policy: RawChunkPolicy::infer(),
             }),
             Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
-                VectorReadError::Codec(crate::CodecError::BadMagic)
+                VectorReadError::Codec(CodecError::BadMagic)
             )))
         );
         assert_eq!(malformed.chunks().len(), 0);
@@ -573,10 +574,10 @@ mod tests {
 
         assert_eq!(
             document.edit_vector(vector_id, |working| {
-                working.ops.push(crate::SceneOp::GroupEnd);
+                working.ops.push(SceneOp::GroupEnd);
             }),
             Err(EditError::InvalidVector(VectorEncodeError::InvalidPayload(
-                VectorReadError::Codec(crate::CodecError::UnbalancedGroup)
+                VectorReadError::Codec(CodecError::UnbalancedGroup)
             )))
         );
         assert_eq!(
@@ -592,13 +593,13 @@ mod tests {
 
         document
             .edit_vector(vector_id, |working| {
-                working.ops.insert(0, crate::SceneOp::PopClip);
+                working.ops.insert(0, SceneOp::PopClip);
             })
             .unwrap();
         assert!(document.is_dirty());
         assert!(matches!(
             document.decode_vector_at(vector_id).unwrap().ops.first(),
-            Some(crate::SceneOp::PopClip)
+            Some(SceneOp::PopClip)
         ));
     }
 
@@ -618,7 +619,7 @@ mod tests {
         assert_eq!(
             document.try_edit_vector(vector_id, |working| {
                 calls.set(calls.get() + 1);
-                working.ops.push(crate::SceneOp::PopClip);
+                working.ops.push(SceneOp::PopClip);
                 Ok::<(), ()>(())
             }),
             Err(TryEditError::Edit(EditError::InvalidVector(
@@ -639,7 +640,7 @@ mod tests {
     #[test]
     fn typed_empty_edit_canonicalizes_extension_records_and_crc() {
         let body = [0x40, 0x01, 0xa5, 0x00];
-        let mut payload = vec![crate::VectorChunkHeader::MAGIC, 1, 8, 0];
+        let mut payload = vec![VectorChunkHeader::MAGIC, 1, 8, 0];
         payload.extend_from_slice(&crc32(&body).to_le_bytes());
         payload.extend_from_slice(&body);
         assert_eq!(Scene::preflight(&payload, &PayloadLimits::HOST), Ok(()));
@@ -771,7 +772,7 @@ mod tests {
 
     #[test]
     fn structural_and_reserved_flag_errors_precede_payload_work() {
-        let invalid = Scene::from_ops(vec![crate::SceneOp::GroupEnd]);
+        let invalid = Scene::from_ops(vec![SceneOp::GroupEnd]);
         let mut flat = flat_document();
         assert_eq!(
             flat.replace_vector(id(0), &invalid),

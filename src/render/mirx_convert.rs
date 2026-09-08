@@ -161,17 +161,17 @@ impl From<Path> for mirx::Path {
     }
 }
 
-impl From<mirx::ResourceRef> for ResourceRef {
-    fn from(r: mirx::ResourceRef) -> Self {
+impl From<mirx::scene::ResourceRef> for ResourceRef {
+    fn from(r: mirx::scene::ResourceRef) -> Self {
         match r {
-            mirx::ResourceRef::Token(s) => Self::Token(Cow::Owned(s)),
-            mirx::ResourceRef::Index(i) => Self::Index(i),
-            mirx::ResourceRef::Inline(p) => Self::Inline(p.into()),
+            mirx::scene::ResourceRef::Token(s) => Self::Token(Cow::Owned(s)),
+            mirx::scene::ResourceRef::Index(i) => Self::Index(i),
+            mirx::scene::ResourceRef::Inline(p) => Self::Inline(p.into()),
         }
     }
 }
 
-impl From<ResourceRef> for mirx::ResourceRef {
+impl From<ResourceRef> for mirx::scene::ResourceRef {
     fn from(r: ResourceRef) -> Self {
         match r {
             ResourceRef::Token(s) => Self::Token(s.into_owned()),
@@ -181,16 +181,16 @@ impl From<ResourceRef> for mirx::ResourceRef {
     }
 }
 
-impl From<mirx::FillRule> for FillRule {
-    fn from(r: mirx::FillRule) -> Self {
+impl From<mirx::scene::FillRule> for FillRule {
+    fn from(r: mirx::scene::FillRule) -> Self {
         match r {
-            mirx::FillRule::EvenOdd => Self::EvenOdd,
-            mirx::FillRule::NonZero => Self::NonZero,
+            mirx::scene::FillRule::EvenOdd => Self::EvenOdd,
+            mirx::scene::FillRule::NonZero => Self::NonZero,
         }
     }
 }
 
-impl From<FillRule> for mirx::FillRule {
+impl From<FillRule> for mirx::scene::FillRule {
     fn from(r: FillRule) -> Self {
         match r {
             FillRule::EvenOdd => Self::EvenOdd,
@@ -199,21 +199,21 @@ impl From<FillRule> for mirx::FillRule {
     }
 }
 
-impl From<mirx::CompositeMode> for CompositeMode {
-    fn from(m: mirx::CompositeMode) -> Self {
+impl From<mirx::scene::CompositeMode> for CompositeMode {
+    fn from(m: mirx::scene::CompositeMode) -> Self {
         match m {
-            mirx::CompositeMode::SourceOver => Self::SourceOver,
-            mirx::CompositeMode::Add => Self::Add,
-            mirx::CompositeMode::Screen => Self::Screen,
-            mirx::CompositeMode::Multiply => Self::Multiply,
-            mirx::CompositeMode::Darken => Self::Darken,
-            mirx::CompositeMode::Lighten => Self::Lighten,
-            mirx::CompositeMode::Difference => Self::Difference,
+            mirx::scene::CompositeMode::SourceOver => Self::SourceOver,
+            mirx::scene::CompositeMode::Add => Self::Add,
+            mirx::scene::CompositeMode::Screen => Self::Screen,
+            mirx::scene::CompositeMode::Multiply => Self::Multiply,
+            mirx::scene::CompositeMode::Darken => Self::Darken,
+            mirx::scene::CompositeMode::Lighten => Self::Lighten,
+            mirx::scene::CompositeMode::Difference => Self::Difference,
         }
     }
 }
 
-impl From<CompositeMode> for mirx::CompositeMode {
+impl From<CompositeMode> for mirx::scene::CompositeMode {
     fn from(m: CompositeMode) -> Self {
         match m {
             CompositeMode::SourceOver => Self::SourceOver,
@@ -227,10 +227,10 @@ impl From<CompositeMode> for mirx::CompositeMode {
     }
 }
 
-impl From<mirx::SceneOp> for SceneOp {
-    fn from(op: mirx::SceneOp) -> Self {
+impl From<mirx::scene::SceneOp> for SceneOp {
+    fn from(op: mirx::scene::SceneOp) -> Self {
         match op {
-            mirx::SceneOp::GroupBegin {
+            mirx::scene::SceneOp::GroupBegin {
                 transform,
                 opacity,
                 clip,
@@ -245,8 +245,8 @@ impl From<mirx::SceneOp> for SceneOp {
                 filter: filter.map(Into::into),
                 disjoint_hint,
             },
-            mirx::SceneOp::GroupEnd => Self::GroupEnd,
-            mirx::SceneOp::PushClip {
+            mirx::scene::SceneOp::GroupEnd => Self::GroupEnd,
+            mirx::scene::SceneOp::PushClip {
                 path,
                 transform,
                 fill_rule,
@@ -255,8 +255,8 @@ impl From<mirx::SceneOp> for SceneOp {
                 transform: transform.into(),
                 fill_rule: fill_rule.into(),
             },
-            mirx::SceneOp::PopClip => Self::PopClip,
-            mirx::SceneOp::FillPath {
+            mirx::scene::SceneOp::PopClip => Self::PopClip,
+            mirx::scene::SceneOp::FillPath {
                 path,
                 transform,
                 paint,
@@ -269,7 +269,7 @@ impl From<mirx::SceneOp> for SceneOp {
                 opa,
                 fill_rule: fill_rule.into(),
             },
-            mirx::SceneOp::StrokePath {
+            mirx::scene::SceneOp::StrokePath {
                 path,
                 transform,
                 paint,
@@ -295,7 +295,7 @@ impl From<mirx::SceneOp> for SceneOp {
                     .collect::<alloc::vec::Vec<_>>()
                     .into(),
             },
-            mirx::SceneOp::FillRect {
+            mirx::scene::SceneOp::FillRect {
                 area,
                 transform,
                 quad,
@@ -310,7 +310,7 @@ impl From<mirx::SceneOp> for SceneOp {
                 radius: radius.into(),
                 opa,
             },
-            mirx::SceneOp::Border {
+            mirx::scene::SceneOp::Border {
                 area,
                 transform,
                 quad,
@@ -327,7 +327,7 @@ impl From<mirx::SceneOp> for SceneOp {
                 radius: radius.into(),
                 opa,
             },
-            mirx::SceneOp::Label {
+            mirx::scene::SceneOp::Label {
                 font,
                 pos,
                 transform,
@@ -342,7 +342,7 @@ impl From<mirx::SceneOp> for SceneOp {
                 opa,
                 text: Cow::Owned(text),
             },
-            mirx::SceneOp::Line {
+            mirx::scene::SceneOp::Line {
                 p1,
                 p2,
                 transform,
@@ -357,7 +357,7 @@ impl From<mirx::SceneOp> for SceneOp {
                 width: width.into(),
                 opa,
             },
-            mirx::SceneOp::Arc {
+            mirx::scene::SceneOp::Arc {
                 center,
                 transform,
                 radius,
@@ -376,7 +376,7 @@ impl From<mirx::SceneOp> for SceneOp {
                 width: width.into(),
                 opa,
             },
-            mirx::SceneOp::Blit {
+            mirx::scene::SceneOp::Blit {
                 texture,
                 pos,
                 size,
@@ -399,7 +399,7 @@ impl From<mirx::SceneOp> for SceneOp {
     }
 }
 
-impl From<SceneOp> for mirx::SceneOp {
+impl From<SceneOp> for mirx::scene::SceneOp {
     fn from(op: SceneOp) -> Self {
         match op {
             SceneOp::GroupBegin {
@@ -571,16 +571,16 @@ impl From<SceneOp> for mirx::SceneOp {
     }
 }
 
-impl From<mirx::Scene> for Scene {
-    fn from(s: mirx::Scene) -> Self {
+impl From<mirx::scene::Scene> for Scene {
+    fn from(s: mirx::scene::Scene) -> Self {
         let ops: Vec<SceneOp> = s.ops.into_iter().map(Into::into).collect();
         Self { ops }
     }
 }
 
-impl From<Scene> for mirx::Scene {
+impl From<Scene> for mirx::scene::Scene {
     fn from(s: Scene) -> Self {
-        let ops: Vec<mirx::SceneOp> = s.ops.into_iter().map(Into::into).collect();
+        let ops: Vec<mirx::scene::SceneOp> = s.ops.into_iter().map(Into::into).collect();
         Self::from_ops(ops)
     }
 }

@@ -20,27 +20,32 @@ fn paint_color(paint: &Paint) -> Color {
     }
 }
 
-fn map_units(c: mirx::Point, units: mirx::GradientUnits, bbox: Rect) -> Fixed {
+fn map_units(c: mirx::Point, units: mirx::scene::GradientUnits, bbox: Rect) -> Fixed {
     let cx: Fixed = c.x.into();
     match units {
-        mirx::GradientUnits::UserSpaceOnUse => cx,
-        mirx::GradientUnits::ObjectBoundingBox => bbox.x + cx * bbox.w,
+        mirx::scene::GradientUnits::UserSpaceOnUse => cx,
+        mirx::scene::GradientUnits::ObjectBoundingBox => bbox.x + cx * bbox.w,
     }
 }
 
-fn map_units_y(c: mirx::Point, units: mirx::GradientUnits, bbox: Rect) -> Fixed {
+fn map_units_y(c: mirx::Point, units: mirx::scene::GradientUnits, bbox: Rect) -> Fixed {
     let cy: Fixed = c.y.into();
     match units {
-        mirx::GradientUnits::UserSpaceOnUse => cy,
-        mirx::GradientUnits::ObjectBoundingBox => bbox.y + cy * bbox.h,
+        mirx::scene::GradientUnits::UserSpaceOnUse => cy,
+        mirx::scene::GradientUnits::ObjectBoundingBox => bbox.y + cy * bbox.h,
     }
 }
 
-fn map_scalar(v: mirx::Fixed, units: mirx::GradientUnits, bbox: Rect, axis_w: bool) -> Fixed {
+fn map_scalar(
+    v: mirx::Fixed,
+    units: mirx::scene::GradientUnits,
+    bbox: Rect,
+    axis_w: bool,
+) -> Fixed {
     let v: Fixed = v.into();
     match units {
-        mirx::GradientUnits::UserSpaceOnUse => v,
-        mirx::GradientUnits::ObjectBoundingBox => {
+        mirx::scene::GradientUnits::UserSpaceOnUse => v,
+        mirx::scene::GradientUnits::ObjectBoundingBox => {
             if axis_w {
                 v * bbox.w
             } else {
@@ -50,10 +55,10 @@ fn map_scalar(v: mirx::Fixed, units: mirx::GradientUnits, bbox: Rect, axis_w: bo
     }
 }
 
-fn apply_spread(t: Fixed, spread: mirx::SpreadMode) -> Fixed {
+fn apply_spread(t: Fixed, spread: mirx::scene::SpreadMode) -> Fixed {
     match spread {
-        mirx::SpreadMode::Pad => t,
-        mirx::SpreadMode::Repeat => {
+        mirx::scene::SpreadMode::Pad => t,
+        mirx::scene::SpreadMode::Repeat => {
             if t < Fixed::ZERO {
                 let mut r = t;
                 while r < Fixed::ZERO {
@@ -64,7 +69,7 @@ fn apply_spread(t: Fixed, spread: mirx::SpreadMode) -> Fixed {
                 t - t.floor()
             }
         }
-        mirx::SpreadMode::Reflect => {
+        mirx::scene::SpreadMode::Reflect => {
             let mut r = t;
             if r < Fixed::ZERO {
                 r = -r;
@@ -124,7 +129,7 @@ fn sample_gradient(paint: &Paint, px: i32, py: i32, bbox: Rect) -> Color {
     }
 }
 
-fn sample_stops(stops: &[mirx::GradientStop], t: Fixed) -> Color {
+fn sample_stops(stops: &[mirx::scene::GradientStop], t: Fixed) -> Color {
     if stops.is_empty() {
         return Color::rgba(0, 0, 0, 0);
     }
@@ -468,7 +473,7 @@ mod gradient_tests {
     use crate::render::canvas::Canvas;
     use crate::render::path::Path;
     use crate::render::texture::{ColorFormat, Texture};
-    use mirx::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
+    use mirx::scene::{GradientStop, GradientUnits, LinearGradient, SpreadMode};
 
     fn linear_paint_obb() -> Paint {
         Paint::LinearGradient(LinearGradient {

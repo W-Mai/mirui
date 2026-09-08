@@ -3,7 +3,8 @@ use crate::font::Font;
 use crate::frames::EncodedFrames;
 use crate::meta::Meta;
 use crate::palette::Palette;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, Scene, TryEditError};
+use crate::scene::Scene;
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError};
 
 /// Mutable handle to one chunk in an editable document.
 ///

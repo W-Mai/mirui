@@ -4,7 +4,7 @@ use crate::types::{Fixed, Point, Transform};
 
 use super::path::{Path, PathCmd};
 
-pub use mirx::{LineCap, LineJoin};
+pub use mirx::scene::{LineCap, LineJoin};
 
 /// Cap so a pathological path can't pin tens of KB on a 200 KB MCU heap.
 pub const MAX_SEG_CAP: usize = 2048;

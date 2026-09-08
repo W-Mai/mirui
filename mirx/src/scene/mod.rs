@@ -3,6 +3,7 @@ pub mod header;
 pub mod op;
 pub mod paint;
 
+pub use crate::error::VectorAccessError;
 pub use codec::{CodecError, VectorEncodeError, VectorReadError};
 pub use header::VectorChunkHeader;
 pub use op::{CompositeMode, FillRule, LineCap, LineJoin, ResourceRef, Scene, SceneOp};

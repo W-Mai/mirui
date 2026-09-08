@@ -83,10 +83,10 @@ pub struct WebCanvasRenderer<'a> {
     viewport: Viewport,
 }
 
-fn map_point(c: mirx::Point, units: mirx::GradientUnits, bbox: Option<Rect>) -> (f64, f64) {
+fn map_point(c: mirx::Point, units: mirx::scene::GradientUnits, bbox: Option<Rect>) -> (f64, f64) {
     match units {
-        mirx::GradientUnits::UserSpaceOnUse => (c.x.to_f32() as f64, c.y.to_f32() as f64),
-        mirx::GradientUnits::ObjectBoundingBox => {
+        mirx::scene::GradientUnits::UserSpaceOnUse => (c.x.to_f32() as f64, c.y.to_f32() as f64),
+        mirx::scene::GradientUnits::ObjectBoundingBox => {
             let b = bbox.unwrap_or(Rect::new(0, 0, Fixed::ONE, Fixed::ONE));
             let cx: Fixed = c.x.into();
             let cy: Fixed = c.y.into();
@@ -98,10 +98,10 @@ fn map_point(c: mirx::Point, units: mirx::GradientUnits, bbox: Option<Rect>) -> 
     }
 }
 
-fn map_scalar_grad(v: mirx::Fixed, units: mirx::GradientUnits, bbox: Option<Rect>) -> f64 {
+fn map_scalar_grad(v: mirx::Fixed, units: mirx::scene::GradientUnits, bbox: Option<Rect>) -> f64 {
     match units {
-        mirx::GradientUnits::UserSpaceOnUse => v.to_f32().max(0.0) as f64,
-        mirx::GradientUnits::ObjectBoundingBox => {
+        mirx::scene::GradientUnits::UserSpaceOnUse => v.to_f32().max(0.0) as f64,
+        mirx::scene::GradientUnits::ObjectBoundingBox => {
             let b = bbox.unwrap_or(Rect::new(0, 0, Fixed::ONE, Fixed::ONE));
             let vf: Fixed = v.into();
             (vf * b.w).to_f32().max(0.0) as f64
@@ -112,7 +112,7 @@ fn map_scalar_grad(v: mirx::Fixed, units: mirx::GradientUnits, bbox: Option<Rect
 fn map_gradient_points(
     start: mirx::Point,
     end: mirx::Point,
-    units: mirx::GradientUnits,
+    units: mirx::scene::GradientUnits,
     bbox: Option<Rect>,
 ) -> (f64, f64, f64, f64) {
     let (sx, sy) = map_point(start, units, bbox);
@@ -1193,7 +1193,7 @@ fn css_color_with_opa(c: impl Into<Color>, opa: u8) -> String {
     )
 }
 
-fn add_gradient_stops(gradient: &CanvasGradient, stops: &[mirx::GradientStop], opa: u8) {
+fn add_gradient_stops(gradient: &CanvasGradient, stops: &[mirx::scene::GradientStop], opa: u8) {
     for stop in stops {
         let offset: Fixed = stop.offset.into();
         let _ = gradient.add_color_stop(

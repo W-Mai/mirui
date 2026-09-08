@@ -6,7 +6,7 @@ use super::font::Font;
 use super::path::Path;
 use super::texture::Texture;
 
-pub use mirx::{LineCap, LineJoin, Paint};
+pub use mirx::scene::{LineCap, LineJoin, Paint};
 
 /// Rasterization interface. All coordinate parameters (`area`, `clip`,
 /// `pos`, path points, widths, radii, `dst`, `dst_size`) are in

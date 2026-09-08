@@ -17,8 +17,11 @@ use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
 pub use mirx::{
-    Color as MirxColor, Fixed as MirxFixed, GradientStop, GradientUnits, LineCap, LineJoin,
-    LinearGradient, Paint, RadialGradient, SpreadMode,
+    Color as MirxColor, Fixed as MirxFixed,
+    scene::{
+        GradientStop, GradientUnits, LineCap, LineJoin, LinearGradient, Paint, RadialGradient,
+        SpreadMode,
+    },
 };
 
 /// Reference to a font / texture / subtree resource.
