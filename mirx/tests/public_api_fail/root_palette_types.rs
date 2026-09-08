@@ -1,6 +1,6 @@
 use mirx::{
-    ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteEncodeError,
-    PaletteMutationError, PaletteView,
+    ColorTableIter, ColorTableView, Palette, PaletteAccessError, PaletteDecodeError,
+    PaletteEncodeError, PaletteMutationError, PaletteView,
 };
 
 fn main() {}

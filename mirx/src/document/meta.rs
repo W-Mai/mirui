@@ -4,7 +4,7 @@ use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
 use crate::meta::{Meta, MetaDecodeError, MetaEncodeError, MetaView};
 use crate::payload::image::ImagePayloadError;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, MetaAccessError, TryEditError};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError, meta::MetaAccessError};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed META view.

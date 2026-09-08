@@ -1,19 +1,21 @@
-error[E0432]: unresolved imports `mirx::FrameDecodeError`, `mirx::FrameSequence`, `mirx::FramesEncoder`, `mirx::FramesView`, `mirx::PlaybackStorage`
- --> tests/public_api_fail/root_frames_types.rs:1:12
+error[E0432]: unresolved imports `mirx::FrameDecodeError`, `mirx::FrameSequence`, `mirx::FramesAccessError`, `mirx::FramesEncoder`, `mirx::FramesView`, `mirx::PlaybackStorage`
+ --> tests/public_api_fail/root_frames_types.rs:2:5
   |
-1 | use mirx::{FrameDecodeError, FrameSequence, FramesEncoder, FramesView, PlaybackStorage};
-  |            ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^^ no `PlaybackStorage` in the root
-  |            |                 |              |              |
-  |            |                 |              |              no `FramesView` in the root
-  |            |                 |              no `FramesEncoder` in the root
-  |            |                 no `FrameSequence` in the root
-  |            no `FrameDecodeError` in the root
-  |            help: a similar name exists in the module: `ImageDecodeError`
+2 |     FrameDecodeError, FrameSequence, FramesAccessError, FramesEncoder, FramesView, PlaybackStorage,
+  |     ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^  ^^^^^^^^^^  ^^^^^^^^^^^^^^^ no `PlaybackStorage` in the root
+  |     |                 |              |                  |              |
+  |     |                 |              |                  |              no `FramesView` in the root
+  |     |                 |              |                  no `FramesEncoder` in the root
+  |     |                 |              no `FramesAccessError` in the root
+  |     |                 no `FrameSequence` in the root
+  |     no `FrameDecodeError` in the root
   |
   = help: consider importing this enum instead:
           mirx::frames::FrameDecodeError
   = help: consider importing this struct instead:
           mirx::frames::FrameSequence
+  = help: consider importing this enum instead:
+          mirx::frames::FramesAccessError
   = help: consider importing this struct instead:
           mirx::frames::FramesEncoder
   = help: consider importing this struct instead:

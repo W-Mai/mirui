@@ -1,3 +1,3 @@
-use mirx::{Meta, MetaDecodeError, MetaEntry, MetaValue, MetaView};
+use mirx::{Meta, MetaAccessError, MetaDecodeError, MetaEntry, MetaValue, MetaView};
 
 fn main() {}

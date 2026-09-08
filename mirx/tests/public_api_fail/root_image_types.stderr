@@ -1,20 +1,24 @@
-error[E0432]: unresolved import `mirx::ImageEncodeError`
- --> tests/public_api_fail/root_image_types.rs:1:37
+error[E0432]: unresolved imports `mirx::ImageAccessError`, `mirx::ImageDecodeError`, `mirx::ImageEncodeError`
+ --> tests/public_api_fail/root_image_types.rs:2:18
   |
-1 | use mirx::{ColorFormat, ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
-  |                                     ^^^^^^^^^^^^^^^^
-  |                                     |
-  |                                     no `ImageEncodeError` in the root
-  |                                     help: a similar name exists in the module: `ImageDecodeError`
+2 |     ColorFormat, ImageAccessError, ImageAsset, ImageDecodeError, ImageEncodeError,
+  |                  ^^^^^^^^^^^^^^^^              ^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^
+  |                  |                             |                 |
+  |                  |                             |                 no `ImageEncodeError` in the root
+  |                  |                             |                 help: a similar name exists in the module: `EncodeError`
+  |                  |                             no `ImageDecodeError` in the root
+  |                  no `ImageAccessError` in the root
   |
+  = help: consider importing this enum instead:
+          mirx::image::ImageAccessError
   = help: consider importing this enum instead:
           mirx::image::ImageEncodeError
 
 error[E0603]: enum `ColorFormat` is private
- --> tests/public_api_fail/root_image_types.rs:1:12
+ --> tests/public_api_fail/root_image_types.rs:2:5
   |
-1 | use mirx::{ColorFormat, ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
-  |            ^^^^^^^^^^^ private enum
+2 |     ColorFormat, ImageAccessError, ImageAsset, ImageDecodeError, ImageEncodeError,
+  |     ^^^^^^^^^^^ private enum
   |
 note: the enum `ColorFormat` is defined here
  --> src/lib.rs
@@ -23,14 +27,14 @@ note: the enum `ColorFormat` is defined here
   |                ^^^^^^^^^^^^^^^^^^^
 help: import `ColorFormat` directly
   |
-1 | use mirx::{mirx::format::ColorFormat, ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
-  |            ++++++++++++++
+2 |     mirx::format::ColorFormat, ImageAccessError, ImageAsset, ImageDecodeError, ImageEncodeError,
+  |     ++++++++++++++
 
 error[E0603]: struct `ImageAsset` is private
- --> tests/public_api_fail/root_image_types.rs:1:25
+ --> tests/public_api_fail/root_image_types.rs:2:36
   |
-1 | use mirx::{ColorFormat, ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
-  |                         ^^^^^^^^^^ private struct
+2 |     ColorFormat, ImageAccessError, ImageAsset, ImageDecodeError, ImageEncodeError,
+  |                                    ^^^^^^^^^^ private struct
   |
 note: the struct `ImageAsset` is defined here
  --> src/lib.rs
@@ -39,14 +43,14 @@ note: the struct `ImageAsset` is defined here
   |                                 ^^^^^^^^^^
 help: import `ImageAsset` directly
   |
-1 | use mirx::{ColorFormat, mirx::payload::image::ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
-  |                         ++++++++++++++++++++++
+2 |     ColorFormat, ImageAccessError, mirx::payload::image::ImageAsset, ImageDecodeError, ImageEncodeError,
+  |                                    ++++++++++++++++++++++
 
 error[E0603]: enum `ImagePayloadError` is private
- --> tests/public_api_fail/root_image_types.rs:1:55
+ --> tests/public_api_fail/root_image_types.rs:3:5
   |
-1 | use mirx::{ColorFormat, ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
-  |                                                       ^^^^^^^^^^^^^^^^^ private enum
+3 |     ImagePayloadError, ImageView,
+  |     ^^^^^^^^^^^^^^^^^ private enum
   |
 note: the enum `ImagePayloadError` is defined here
  --> src/lib.rs
@@ -60,14 +64,14 @@ note: the enum `ImagePayloadError` is defined here
   | ----------------- cannot be constructed because it is `#[non_exhaustive]`
 help: import `ImagePayloadError` directly
   |
-1 | use mirx::{ColorFormat, ImageAsset, ImageEncodeError, mirx::payload::image::ImagePayloadError, ImageView};
-  |                                                       ++++++++++++++++++++++
+3 |     mirx::payload::image::ImagePayloadError, ImageView,
+  |     ++++++++++++++++++++++
 
 error[E0603]: struct `ImageView` is private
- --> tests/public_api_fail/root_image_types.rs:1:74
+ --> tests/public_api_fail/root_image_types.rs:3:24
   |
-1 | use mirx::{ColorFormat, ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
-  |                                                                          ^^^^^^^^^ private struct
+3 |     ImagePayloadError, ImageView,
+  |                        ^^^^^^^^^ private struct
   |
 note: the struct `ImageView` is defined here
  --> src/lib.rs
@@ -76,5 +80,5 @@ note: the struct `ImageView` is defined here
   |                                                                ^^^^^^^^^
 help: import `ImageView` directly
   |
-1 | use mirx::{ColorFormat, ImageAsset, ImageEncodeError, ImagePayloadError, mirx::payload::image::ImageView};
-  |                                                                          ++++++++++++++++++++++
+3 |     ImagePayloadError, mirx::payload::image::ImageView,
+  |                        ++++++++++++++++++++++

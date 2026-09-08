@@ -1,3 +1,6 @@
-use mirx::{ColorFormat, ImageAsset, ImageEncodeError, ImagePayloadError, ImageView};
+use mirx::{
+    ColorFormat, ImageAccessError, ImageAsset, ImageDecodeError, ImageEncodeError,
+    ImagePayloadError, ImageView,
+};
 
 fn main() {}

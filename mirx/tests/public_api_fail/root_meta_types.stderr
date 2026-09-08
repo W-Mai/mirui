@@ -1,17 +1,21 @@
-error[E0432]: unresolved imports `mirx::Meta`, `mirx::MetaDecodeError`, `mirx::MetaEntry`, `mirx::MetaValue`, `mirx::MetaView`
+error[E0432]: unresolved imports `mirx::Meta`, `mirx::MetaAccessError`, `mirx::MetaDecodeError`, `mirx::MetaEntry`, `mirx::MetaValue`, `mirx::MetaView`
  --> tests/public_api_fail/root_meta_types.rs:1:12
   |
-1 | use mirx::{Meta, MetaDecodeError, MetaEntry, MetaValue, MetaView};
-  |            ^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^ no `MetaView` in the root
-  |            |     |                |          |
-  |            |     |                |          no `MetaValue` in the root
-  |            |     |                no `MetaEntry` in the root
-  |            |     no `MetaDecodeError` in the root
+1 | use mirx::{Meta, MetaAccessError, MetaDecodeError, MetaEntry, MetaValue, MetaView};
+  |            ^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^^  ^^^^^^^^ no `MetaView` in the root
+  |            |     |                |                |          |
+  |            |     |                |                |          no `MetaValue` in the root
+  |            |     |                |                no `MetaEntry` in the root
+  |            |     |                no `MetaDecodeError` in the root
+  |            |     no `MetaAccessError` in the root
   |            no `Meta` in the root
+  |            help: a similar name exists in the module: `meta`
   |
   = help: consider importing one of these items instead:
           mirx::PayloadValidationFailure::Meta
           mirx::meta::Meta
+  = help: consider importing this enum instead:
+          mirx::meta::MetaAccessError
   = help: consider importing this enum instead:
           mirx::meta::MetaDecodeError
   = help: consider importing this struct instead:
@@ -20,13 +24,3 @@ error[E0432]: unresolved imports `mirx::Meta`, `mirx::MetaDecodeError`, `mirx::M
           mirx::meta::MetaValue
   = help: consider importing this struct instead:
           mirx::meta::MetaView
-help: a similar name exists in the module
-  |
-1 - use mirx::{Meta, MetaDecodeError, MetaEntry, MetaValue, MetaView};
-1 + use mirx::{meta, MetaDecodeError, MetaEntry, MetaValue, MetaView};
-  |
-help: a similar name exists in the module
-  |
-1 - use mirx::{Meta, MetaDecodeError, MetaEntry, MetaValue, MetaView};
-1 + use mirx::{Meta, ImageDecodeError, MetaEntry, MetaValue, MetaView};
-  |

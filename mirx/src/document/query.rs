@@ -232,8 +232,9 @@ mod tests {
     use super::*;
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
     use crate::{
-        ColorFormat, CriticalAssumption, EditError, FlatImageInput, ImageDecodeError, PayloadInput,
-        RawChunkInput, RawChunkPolicy, RelocationAssumption, crc32, encode_chunks, encode_flat,
+        ColorFormat, CriticalAssumption, EditError, FlatImageInput, PayloadInput, RawChunkInput,
+        RawChunkPolicy, RelocationAssumption, crc32, encode_chunks, encode_flat,
+        image::ImageAccessError,
     };
 
     fn explicit_policy() -> RawChunkPolicy {
@@ -322,7 +323,7 @@ mod tests {
         let chunk = document.get(id).unwrap();
         assert!(matches!(
             chunk.image(),
-            Err(ImageDecodeError::UnexpectedChunkType { actual }) if actual == custom
+            Err(ImageAccessError::UnexpectedChunkType { actual }) if actual == custom
         ));
         assert!(document.get_mut(ChunkId::new(99)).is_none());
         assert_eq!(document.get_mut(id).unwrap().id(), id);

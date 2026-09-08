@@ -322,7 +322,7 @@ impl<E> From<EditError> for TryEditError<E> {
 /// Failures while resolving and decoding an IMAGE node from a document.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum ImageDecodeError {
+pub enum ImageAccessError {
     /// The container uses preserved semantics newer than this typed accessor.
     FutureSemanticsUnsupported,
     /// Stable chunk identities are available only in CHUNK layout.
@@ -335,7 +335,7 @@ pub enum ImageDecodeError {
     InvalidPayload(ImagePayloadError),
 }
 
-impl From<ImagePayloadError> for ImageDecodeError {
+impl From<ImagePayloadError> for ImageAccessError {
     fn from(value: ImagePayloadError) -> Self {
         Self::InvalidPayload(value)
     }

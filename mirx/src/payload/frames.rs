@@ -21,6 +21,7 @@ mod timeline;
 #[path = "frames/timing.rs"]
 mod timing;
 
+pub use crate::error::FramesAccessError;
 pub use composition::{
     FRAME_COMPOSITION_RECORD_LEN, FrameComposition, FrameCompositionAsset, FrameCompositionError,
     FrameCompositionOverride, FrameCompositionTable,

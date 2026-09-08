@@ -5,7 +5,7 @@ use super::DocumentState;
 use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef};
 use crate::payload::image::ImageAssetEncodeError;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, ImageDecodeError};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, image::ImageAccessError};
 
 #[cfg(test)]
 use crate::ImageAsset;
@@ -13,14 +13,14 @@ use crate::image::{EncodedImageAsset, ImageRef, ImageSource};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed IMAGE view.
-    pub fn image(&self) -> Result<ImageRef<'a>, ImageDecodeError> {
+    pub fn image(&self) -> Result<ImageRef<'a>, ImageAccessError> {
         if self.chunk_type() != ChunkType::IMAGE {
-            return Err(ImageDecodeError::UnexpectedChunkType {
+            return Err(ImageAccessError::UnexpectedChunkType {
                 actual: self.chunk_type(),
             });
         }
         if matches!(self.document().compatibility, Compatibility::FutureReadOnly) {
-            return Err(ImageDecodeError::FutureSemanticsUnsupported);
+            return Err(ImageAccessError::FutureSemanticsUnsupported);
         }
         resolve_node_payload(self.document(), self.node())?
             .image_view()
@@ -36,20 +36,20 @@ impl Document<'_> {
     /// allocating decoded samples. Preserved future container semantics must
     /// be normalized before typed payload access.
     #[cfg(test)]
-    pub(super) fn image(&self, id: ChunkId) -> Result<ImageRef<'_>, ImageDecodeError> {
+    pub(super) fn image(&self, id: ChunkId) -> Result<ImageRef<'_>, ImageAccessError> {
         if matches!(self.compatibility, Compatibility::FutureReadOnly) {
-            return Err(ImageDecodeError::FutureSemanticsUnsupported);
+            return Err(ImageAccessError::FutureSemanticsUnsupported);
         }
         let DocumentState::Chunk(chunks) = &self.state else {
-            return Err(ImageDecodeError::ChunkLayoutRequired);
+            return Err(ImageAccessError::ChunkLayoutRequired);
         };
         let node = chunks
             .chunks
             .iter()
             .find(|node| node.id == id)
-            .ok_or(ImageDecodeError::InvalidChunkId)?;
+            .ok_or(ImageAccessError::InvalidChunkId)?;
         if node.chunk_type != ChunkType::IMAGE {
-            return Err(ImageDecodeError::UnexpectedChunkType {
+            return Err(ImageAccessError::UnexpectedChunkType {
                 actual: node.chunk_type,
             });
         }
@@ -482,7 +482,7 @@ mod tests {
         let mut promoted = Document::new_flat(a8_asset(&promoted_main, 2, 2)).unwrap();
         assert_eq!(
             promoted.image(id(0)),
-            Err(ImageDecodeError::ChunkLayoutRequired)
+            Err(ImageAccessError::ChunkLayoutRequired)
         );
         let inserted = promoted
             .push_image(&a8_asset(&inserted_main, 2, 2))
@@ -524,17 +524,17 @@ mod tests {
         let image = chunks.next().unwrap();
         assert_eq!(
             document.image(meta.id()),
-            Err(ImageDecodeError::UnexpectedChunkType {
+            Err(ImageAccessError::UnexpectedChunkType {
                 actual: ChunkType::META,
             })
         );
         assert_eq!(
             document.image(id(99)),
-            Err(ImageDecodeError::InvalidChunkId)
+            Err(ImageAccessError::InvalidChunkId)
         );
         assert!(matches!(
             document.image(image.id()),
-            Err(ImageDecodeError::InvalidPayload(ImagePayloadError::Media(
+            Err(ImageAccessError::InvalidPayload(ImagePayloadError::Media(
                 _
             )))
         ));
@@ -564,7 +564,7 @@ mod tests {
         let future_id = future.chunks().next().unwrap().id();
         assert_eq!(
             future.image(future_id),
-            Err(ImageDecodeError::FutureSemanticsUnsupported)
+            Err(ImageAccessError::FutureSemanticsUnsupported)
         );
 
         let normalized_options =
@@ -611,7 +611,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             document.image(image_id),
-            Err(ImageDecodeError::InvalidPayload(ImagePayloadError::Media(
+            Err(ImageAccessError::InvalidPayload(ImagePayloadError::Media(
                 crate::image::RawImageViewError::PlaneFileAddressUnaligned {
                     index: 0,
                     absolute_offset,

@@ -4,7 +4,7 @@ use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
 use crate::palette::{Palette, PaletteDecodeError, PaletteEncodeError, PaletteView};
 use crate::payload::image::ImagePayloadError;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, PaletteAccessError, TryEditError};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, TryEditError, palette::PaletteAccessError};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed PALETTE view.

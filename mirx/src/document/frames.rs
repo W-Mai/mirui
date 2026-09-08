@@ -4,7 +4,7 @@ use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef};
 use crate::frames::{EncodedFrames, FramesView};
 use crate::payload::image::ImagePayloadError;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, FramesAccessError};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, frames::FramesAccessError};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed FRAMES view.

@@ -1,17 +1,19 @@
-error[E0432]: unresolved imports `mirx::ColorTableIter`, `mirx::ColorTableView`, `mirx::Palette`, `mirx::PaletteDecodeError`, `mirx::PaletteEncodeError`, `mirx::PaletteMutationError`, `mirx::PaletteView`
+error[E0432]: unresolved imports `mirx::ColorTableIter`, `mirx::ColorTableView`, `mirx::Palette`, `mirx::PaletteAccessError`, `mirx::PaletteDecodeError`, `mirx::PaletteEncodeError`, `mirx::PaletteMutationError`, `mirx::PaletteView`
  --> tests/public_api_fail/root_palette_types.rs:2:5
   |
-2 |     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteEncodeError,
-  |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^ no `PaletteEncodeError` in the root
+2 |     ColorTableIter, ColorTableView, Palette, PaletteAccessError, PaletteDecodeError,
+  |     ^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^  ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^ no `PaletteDecodeError` in the root
   |     |               |               |        |
-  |     |               |               |        no `PaletteDecodeError` in the root
+  |     |               |               |        no `PaletteAccessError` in the root
   |     |               |               no `Palette` in the root
+  |     |               |               help: a similar name exists in the module: `palette`
   |     |               no `ColorTableView` in the root
   |     no `ColorTableIter` in the root
-3 |     PaletteMutationError, PaletteView,
-  |     ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^ no `PaletteView` in the root
-  |     |
-  |     no `PaletteMutationError` in the root
+3 |     PaletteEncodeError, PaletteMutationError, PaletteView,
+  |     ^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^ no `PaletteView` in the root
+  |     |                   |
+  |     |                   no `PaletteMutationError` in the root
+  |     no `PaletteEncodeError` in the root
   |
   = help: consider importing this struct instead:
           mirx::palette::ColorTableIter
@@ -21,6 +23,8 @@ error[E0432]: unresolved imports `mirx::ColorTableIter`, `mirx::ColorTableView`,
           mirx::PayloadValidationFailure::Palette
           mirx::palette::Palette
   = help: consider importing this enum instead:
+          mirx::palette::PaletteAccessError
+  = help: consider importing this enum instead:
           mirx::palette::PaletteDecodeError
   = help: consider importing this enum instead:
           mirx::palette::PaletteEncodeError
@@ -28,18 +32,3 @@ error[E0432]: unresolved imports `mirx::ColorTableIter`, `mirx::ColorTableView`,
           mirx::palette::PaletteMutationError
   = help: consider importing this struct instead:
           mirx::palette::PaletteView
-help: a similar name exists in the module
-  |
-2 -     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteEncodeError,
-2 +     ColorTableIter, ColorTableView, palette, PaletteDecodeError, PaletteEncodeError,
-  |
-help: a similar name exists in the module
-  |
-2 -     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteEncodeError,
-2 +     ColorTableIter, ColorTableView, Palette, PaletteAccessError, PaletteEncodeError,
-  |
-help: a similar name exists in the module
-  |
-2 -     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteEncodeError,
-2 +     ColorTableIter, ColorTableView, Palette, PaletteDecodeError, PaletteAccessError,
-  |

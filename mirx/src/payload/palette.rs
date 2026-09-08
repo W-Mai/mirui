@@ -3,6 +3,7 @@ mod color_table;
 #[path = "palette/owned.rs"]
 mod owned;
 
+pub use crate::error::PaletteAccessError;
 pub use color_table::{ColorTableIter, ColorTableView};
 pub use owned::{Palette, PaletteEncodeError, PaletteMutationError};
 

@@ -7,6 +7,7 @@ use crate::wire::{read_u16_le, read_u32_le};
 #[path = "meta/owned.rs"]
 mod owned;
 
+pub use crate::error::MetaAccessError;
 pub use owned::{Meta, MetaEncodeError, MetaEntry, MetaMutationError, MetaValue};
 
 const HEADER_LEN: usize = 4;

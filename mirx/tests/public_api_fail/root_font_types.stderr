@@ -50,10 +50,5 @@ help: a similar name exists in the module (notice the capitalization)
 help: a similar name exists in the module
   |
 2 -     Font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
-2 +     Font, MetaAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
-  |
-help: a similar name exists in the module
-  |
-2 -     Font, FontAccessError, FontAsset, FontError, FontRepresentation, FontRepresentationError,
 2 +     Font, FontAccessError, FontAsset, EditError, FontRepresentation, FontRepresentationError,
   |
