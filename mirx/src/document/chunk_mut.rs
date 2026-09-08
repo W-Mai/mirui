@@ -1,6 +1,7 @@
 use super::{ChunkNode, Document, DocumentState, PayloadInput, RawChunkPolicy};
 use crate::frames::EncodedFrames;
-use crate::{ChunkFlags, ChunkId, ChunkType, EditError, Font, Meta, Palette, Scene, TryEditError};
+use crate::meta::Meta;
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, Font, Palette, Scene, TryEditError};
 
 /// Mutable handle to one chunk in an editable document.
 ///
@@ -191,7 +192,7 @@ impl<'document, 'source> DocumentChunkMut<'document, 'source> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{MetaEntry, MetaValueRef};
+    use crate::meta::{MetaEntry, MetaValueRef};
 
     #[test]
     fn typed_replacement_and_callbacks_stay_scoped_to_the_handle() {

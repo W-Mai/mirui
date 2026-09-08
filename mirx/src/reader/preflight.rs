@@ -1,9 +1,9 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
 use crate::frames::FramesError;
 use crate::image::{ImageReadError, ImageRef};
+use crate::meta::MetaDecodeError;
 use crate::{
-    ChunkType, FontError, FontView, MetaDecodeError, PaletteDecodeError, ReadError, Scene,
-    VectorReadError,
+    ChunkType, FontError, FontView, PaletteDecodeError, ReadError, Scene, VectorReadError,
 };
 
 /// Source location of a payload validation result.
@@ -214,6 +214,7 @@ mod tests {
     use crate::frames::{FrameSequence, FramesEncoder};
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
     use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
+    use crate::meta::MetaValueRef;
     use crate::{
         ChunkFlags, ColorFormat, FlatImageInput, ImageChunkInput, ReadOptions, SceneOp,
         TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
@@ -665,10 +666,7 @@ mod tests {
 
         let chunk = reader.chunks().next().unwrap();
         let meta = chunk.meta(&limits).unwrap().unwrap();
-        assert_eq!(
-            meta.get_first("k").unwrap().value,
-            crate::MetaValueRef::Text("v")
-        );
+        assert_eq!(meta.get_first("k").unwrap().value, MetaValueRef::Text("v"));
 
         const EXTENSION: [u8; 21] = [
             0x01, 0x00, 0x01, 0x00, 0x01, 0x00, 0x80, 0xa5, 0x04, 0x00, 0x00, 0x00, 0x78, 0xde,

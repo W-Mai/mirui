@@ -2,11 +2,9 @@ use core::convert::Infallible;
 
 use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef, DocumentState};
+use crate::meta::{Meta, MetaDecodeError, MetaEncodeError, MetaView};
 use crate::payload::image::ImagePayloadError;
-use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, Meta, MetaAccessError, MetaDecodeError,
-    MetaEncodeError, MetaView, TryEditError,
-};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, MetaAccessError, TryEditError};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed META view.
@@ -187,6 +185,7 @@ mod tests {
     use core::{cell::Cell, mem::size_of};
 
     use super::*;
+    use crate::meta::{MetaEntry, MetaValue, MetaValueRef};
     use crate::{
         ColorFormat, CriticalAssumption, EncodeOptions, ImageAsset, OpenOptions, PayloadInput,
         PayloadLimits, PayloadOrigin, RawChunkInput, RawChunkPolicy, RawTypePolicy,
@@ -199,23 +198,24 @@ mod tests {
 
     fn sample_meta() -> Meta {
         Meta::from_entries(vec![
-            crate::MetaEntry::text("tag", "first"),
-            crate::MetaEntry::bytes("tag", vec![0x00, 0xff]),
-            crate::MetaEntry::extension("vendor", 0x80, 0xa5, vec![1, 2, 3]),
+            MetaEntry::text("tag", "first"),
+            MetaEntry::bytes("tag", vec![0x00, 0xff]),
+            MetaEntry::extension("vendor", 0x80, 0xa5, vec![1, 2, 3]),
         ])
     }
 
     fn decoded_bytes(meta: &Meta) -> usize {
-        meta.entries.len() * size_of::<crate::MetaEntry>()
+        meta.entries.len() * size_of::<MetaEntry>()
             + meta
                 .entries
                 .iter()
                 .map(|entry| {
                     entry.key.len()
                         + match &entry.value {
-                            crate::MetaValue::Text(value) => value.len(),
-                            crate::MetaValue::Bytes(value)
-                            | crate::MetaValue::Extension { bytes: value, .. } => value.len(),
+                            MetaValue::Text(value) => value.len(),
+                            MetaValue::Bytes(value) | MetaValue::Extension { bytes: value, .. } => {
+                                value.len()
+                            }
                         }
                 })
                 .sum::<usize>()
@@ -256,8 +256,8 @@ mod tests {
                 .map(|entry| entry.value)
                 .collect::<Vec<_>>(),
             [
-                crate::MetaValueRef::Text("first"),
-                crate::MetaValueRef::Bytes(&[0x00, 0xff]),
+                MetaValueRef::Text("first"),
+                MetaValueRef::Bytes(&[0x00, 0xff]),
             ]
         );
 
@@ -268,7 +268,7 @@ mod tests {
         assert_eq!(view.len(), 3);
         assert_eq!(
             view.get_last("vendor").unwrap().value,
-            crate::MetaValueRef::Extension {
+            MetaValueRef::Extension {
                 kind: 0x80,
                 flags: 0xa5,
                 bytes: &[1, 2, 3],
@@ -303,7 +303,7 @@ mod tests {
         );
 
         let mut changed = expected.clone();
-        changed.entries[0] = crate::MetaEntry::text("tag", "changed");
+        changed.entries[0] = MetaEntry::text("tag", "changed");
         document.replace_meta(meta_id, &changed).unwrap();
         assert!(document.is_dirty());
         assert_eq!(document.chunks().next().unwrap().id(), meta_id);
@@ -318,7 +318,7 @@ mod tests {
                 .get_first("tag")
                 .unwrap()
                 .value,
-            crate::MetaValueRef::Text("changed")
+            MetaValueRef::Text("changed")
         );
     }
 
@@ -331,8 +331,7 @@ mod tests {
 
         document
             .edit_meta(meta_id, |meta| {
-                meta.insert(1, crate::MetaEntry::text("tag", "middle"))
-                    .unwrap();
+                meta.insert(1, MetaEntry::text("tag", "middle")).unwrap();
             })
             .unwrap();
         assert_eq!(
@@ -343,9 +342,9 @@ mod tests {
                 .map(|entry| entry.value)
                 .collect::<Vec<_>>(),
             [
-                crate::MetaValueRef::Text("first"),
-                crate::MetaValueRef::Text("middle"),
-                crate::MetaValueRef::Bytes(&[0x00, 0xff]),
+                MetaValueRef::Text("first"),
+                MetaValueRef::Text("middle"),
+                MetaValueRef::Bytes(&[0x00, 0xff]),
             ]
         );
 
@@ -358,7 +357,7 @@ mod tests {
 
         assert!(matches!(
             document.edit_meta(meta_id, |meta| {
-                meta.entries.push(crate::MetaEntry::text("", "invalid"));
+                meta.entries.push(MetaEntry::text("", "invalid"));
             }),
             Err(EditError::InvalidMeta(MetaEncodeError::InvalidPayload(
                 MetaDecodeError::EmptyKey { .. }
@@ -385,9 +384,10 @@ mod tests {
             .map(|entry| {
                 entry.key.len()
                     + match &entry.value {
-                        crate::MetaValue::Text(value) => value.len(),
-                        crate::MetaValue::Bytes(value)
-                        | crate::MetaValue::Extension { bytes: value, .. } => value.len(),
+                        MetaValue::Text(value) => value.len(),
+                        MetaValue::Bytes(value) | MetaValue::Extension { bytes: value, .. } => {
+                            value.len()
+                        }
                     }
             })
             .sum::<usize>();
@@ -508,7 +508,7 @@ mod tests {
         document.replace_meta(meta_id, &expected).unwrap();
         assert!(!document.is_dirty());
         let mut changed = expected.clone();
-        changed.entries.push(crate::MetaEntry::text("new", "value"));
+        changed.entries.push(MetaEntry::text("new", "value"));
         assert_eq!(
             document.replace_meta(meta_id, &changed),
             Err(EditError::ReservedFlagBits { bits: 0x0002 })

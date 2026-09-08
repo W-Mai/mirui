@@ -1,7 +1,8 @@
 mod support;
 
+use mirx::meta::Meta;
 use mirx::{
-    ChunkFlags, ChunkType, Document, EditError, EncodeOptions, Meta, PayloadInput, PayloadLimits,
+    ChunkFlags, ChunkType, Document, EditError, EncodeOptions, PayloadInput, PayloadLimits,
     PayloadLocation, PayloadOrigin, PayloadValidationFailure, RawChunkInput, RawChunkPolicy,
     ReadError, ReadOptions, Reader,
     coding::{Frequency, FrequencyGeometry, Lz4, Pixel, Rle},

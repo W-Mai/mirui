@@ -3,7 +3,6 @@ mod color_table;
 #[allow(dead_code)]
 pub(crate) mod envelope;
 pub mod image;
-pub mod meta;
 pub mod palette;
 
 pub use color_table::{ColorTableIter, ColorTableView};

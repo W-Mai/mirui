@@ -19,6 +19,8 @@ pub mod frames;
 mod header;
 pub mod image;
 pub mod media;
+#[path = "payload/meta.rs"]
+pub mod meta;
 mod model;
 pub mod path;
 pub mod payload;
@@ -59,10 +61,6 @@ pub use media::CodingId;
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
 pub(crate) use payload::image::{ImageAsset, ImagePayloadError, ImageView};
-pub use payload::meta::{
-    Meta, MetaDecodeError, MetaEncodeError, MetaEntry, MetaEntryIter, MetaEntryRef,
-    MetaMutationError, MetaValue, MetaValueRef, MetaView,
-};
 pub use payload::palette::{
     Palette, PaletteDecodeError, PaletteEncodeError, PaletteMutationError, PaletteView,
 };

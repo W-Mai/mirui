@@ -116,6 +116,7 @@ mod tests {
     use super::*;
     use crate::frames::{FrameEncodingSet, FrameSequence, FramesEncoder};
     use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
+    use crate::meta::Meta;
     use crate::{EncodeOptions, PayloadLimits, Reader};
 
     fn encoded(value: u8, input_alignment: u32) -> EncodedFrames {
@@ -195,7 +196,7 @@ mod tests {
     #[test]
     fn typed_access_rejects_other_chunk_types_and_unknown_ids() {
         let mut document = Document::new();
-        let meta = crate::Meta::new();
+        let meta = Meta::new();
         let meta_id = document.push_meta(&meta).unwrap();
         assert!(matches!(
             document.frames(meta_id),

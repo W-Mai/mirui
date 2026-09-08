@@ -1,0 +1,5 @@
+error[E0432]: unresolved import `mirx::payload::meta`
+ --> tests/public_api_fail/payload_meta.rs:1:20
+  |
+1 | use mirx::payload::meta::{Meta, MetaEntry, MetaView};
+  |                    ^^^^ could not find `meta` in `payload`

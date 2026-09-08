@@ -345,7 +345,7 @@ Chunk IDs remain stable across insert, remove, and reorder operations within a d
 Opening a CHUNK document allocates one node table with `O(chunk_count)` entries. Payload bytes stay in the source buffer until an operation needs ownership. Typed edits decode only the selected payload, run the callback on a working value, validate and encode its replacement, then commit the change. Any failure leaves the document unchanged.
 
 ```rust,no_run
-use mirx::{ChunkType, Document, MetaEntry};
+use mirx::{ChunkType, Document, meta::MetaEntry};
 
 # fn edit(bytes: &[u8]) -> Result<(), mirx::EditError> {
 let mut document = Document::open(bytes).expect("valid MIRX container");

@@ -3,9 +3,10 @@ use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_prima
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
 use crate::frames::FramesView;
+use crate::meta::{MetaEncodeError, MetaView};
 use crate::{
-    ChunkFlags, ChunkType, EditError, MetaEncodeError, MetaView, PaletteEncodeError, PaletteView,
-    PayloadLimits, Scene, VectorEncodeError,
+    ChunkFlags, ChunkType, EditError, PaletteEncodeError, PaletteView, PayloadLimits, Scene,
+    VectorEncodeError,
 };
 
 #[cfg(test)]

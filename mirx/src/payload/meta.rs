@@ -1,9 +1,10 @@
 use core::{iter::FusedIterator, str};
 
-use super::envelope::{Envelope, EnvelopeError, ExactEnvelope, checked_payload_len};
+use crate::payload::envelope::{Envelope, EnvelopeError, ExactEnvelope, checked_payload_len};
 use crate::reader::PayloadLimits;
 use crate::wire::{read_u16_le, read_u32_le};
 
+#[path = "meta/owned.rs"]
 mod owned;
 
 pub use owned::{Meta, MetaEncodeError, MetaEntry, MetaMutationError, MetaValue};

@@ -2,9 +2,8 @@ use mirx::image::{
     ColorDescription, ImageSource, RawImageAsset, RawImageView, SampleLayout, SurfaceDescriptor,
     SurfaceRequirements,
 };
-use mirx::{
-    ChunkFlags, ChunkType, Document, EditError, EncodeOptions, Meta, PayloadLimits, Reader,
-};
+use mirx::meta::Meta;
+use mirx::{ChunkFlags, ChunkType, Document, EditError, EncodeOptions, PayloadLimits, Reader};
 
 #[repr(align(64))]
 struct AlignedFile([u8; 4096]);
