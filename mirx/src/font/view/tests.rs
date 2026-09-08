@@ -4,8 +4,8 @@ use crate::{
     font::{
         CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontRepresentation,
         FontRepresentationRequest, GlyphId, GlyphMap, GlyphPacking, GlyphSurfaceAsset,
-        REPRESENTATION_RECORD_LEN, RasterMetrics, RawGlyphs, RepresentationAsset,
-        RepresentationRecord,
+        RASTER_METRICS_RECORD_LEN, REPRESENTATION_RECORD_LEN, RasterMetrics, RawGlyphs,
+        RepresentationAsset, RepresentationRecord,
     },
     image::{PlaneMemoryLayout, SampleLayout, SurfaceRequirements},
     media::{CodingTable, MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION},
@@ -75,7 +75,7 @@ impl Fixture {
             data: vec![7; 8],
             planes: Vec::new(),
         };
-        FontFace::new(
+        result.face = FontFace::new(
             1_000,
             GlyphId::NOTDEF,
             2,
@@ -84,13 +84,12 @@ impl Fixture {
             Fixed::from_int(200),
         )
         .unwrap()
-        .encode_record_into(&mut result.face)
-        .unwrap();
+        .encode_record();
         for (record, entry) in result.cmap.chunks_exact_mut(6).zip([
             CmapEntry::new('A', GlyphId::new(0)),
             CmapEntry::new('B', GlyphId::new(1)),
         ]) {
-            entry.encode_record_into(record).unwrap();
+            record.copy_from_slice(&entry.encode_record());
         }
         result.advances[..4].copy_from_slice(&Fixed::from_int(500).to_le_bytes());
         result.advances[4..].copy_from_slice(&Fixed::from_int(600).to_le_bytes());
@@ -106,9 +105,14 @@ impl Fixture {
                 .encode_record_into(&mut result.records[index * REPRESENTATION_RECORD_LEN..])
                 .unwrap();
             for ordinal in 0..2 {
-                RasterMetrics::new(Fixed::ZERO, Fixed::from_int(metadata.design_ppem().into()))
-                    .encode_record_into(&mut result.raster_metrics[(index * 2 + ordinal) * 8..])
-                    .unwrap();
+                let offset = (index * 2 + ordinal) * RASTER_METRICS_RECORD_LEN;
+                result.raster_metrics[offset..offset + RASTER_METRICS_RECORD_LEN].copy_from_slice(
+                    &RasterMetrics::new(
+                        Fixed::ZERO,
+                        Fixed::from_int(metadata.design_ppem().into()),
+                    )
+                    .encode_record(),
+                );
             }
         }
         GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 7)

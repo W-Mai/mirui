@@ -184,44 +184,35 @@ error[E0624]: associated function `from_record` is private
    |     pub(in crate::font) fn from_record(bytes: &[u8]) -> Result<Self, FontFaceError> {
    |     ------------------------------------------------------------------------------- private associated function defined here
 
-error[E0624]: method `encode_record_into` is private
+error[E0624]: method `encode_record` is private
   --> tests/public_api_fail/font_wire_authoring.rs:17:23
    |
-17 |       let _ = FontFace::encode_record_into;
-   |                         ^^^^^^^^^^^^^^^^^^ private method
+17 |     let _ = FontFace::encode_record;
+   |                       ^^^^^^^^^^^^^ private method
    |
   ::: src/font/header.rs
    |
-   | /     pub(in crate::font) fn encode_record_into(
-   | |         self,
-   | |         output: &mut [u8],
-   | |     ) -> Result<usize, FontFaceError> {
-   | |_____________________________________- private method defined here
+   |     pub(in crate::font) fn encode_record(self) -> [u8; FACE_RECORD_LEN] {
+   |     ------------------------------------------------------------------- private method defined here
 
-error[E0624]: method `encode_record_into` is private
+error[E0624]: method `encode_record` is private
   --> tests/public_api_fail/font_wire_authoring.rs:18:24
    |
-18 |       let _ = CmapEntry::encode_record_into;
-   |                          ^^^^^^^^^^^^^^^^^^ private method
+18 |     let _ = CmapEntry::encode_record;
+   |                        ^^^^^^^^^^^^^ private method
    |
   ::: src/font/identity.rs
    |
-   | /     pub(in crate::font) fn encode_record_into(
-   | |         self,
-   | |         output: &mut [u8],
-   | |     ) -> Result<usize, CmapIndexError> {
-   | |______________________________________- private method defined here
+   |     pub(in crate::font) fn encode_record(self) -> [u8; CMAP_INDEX_RECORD_LEN] {
+   |     ------------------------------------------------------------------------- private method defined here
 
-error[E0624]: method `encode_record_into` is private
+error[E0624]: method `encode_record` is private
   --> tests/public_api_fail/font_wire_authoring.rs:19:28
    |
-19 |       let _ = RasterMetrics::encode_record_into;
-   |                              ^^^^^^^^^^^^^^^^^^ private method
+19 |     let _ = RasterMetrics::encode_record;
+   |                            ^^^^^^^^^^^^^ private method
    |
   ::: src/font/placement.rs
    |
-   | /     pub(in crate::font) fn encode_record_into(
-   | |         self,
-   | |         output: &mut [u8],
-   | |     ) -> Result<usize, PlacementError> {
-   | |______________________________________- private method defined here
+   |     pub(in crate::font) fn encode_record(self) -> [u8; RASTER_METRICS_RECORD_LEN] {
+   |     ----------------------------------------------------------------------------- private method defined here

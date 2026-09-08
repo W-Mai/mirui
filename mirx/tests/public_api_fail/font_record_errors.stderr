@@ -1,0 +1,17 @@
+error[E0599]: no variant named `BufferTooSmall` found for enum `FontFaceError`
+ --> tests/public_api_fail/font_record_errors.rs:4:28
+  |
+4 |     let _ = FontFaceError::BufferTooSmall {
+  |                            ^^^^^^^^^^^^^^ variant not found in `FontFaceError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `CmapIndexError`
+ --> tests/public_api_fail/font_record_errors.rs:8:29
+  |
+8 |     let _ = CmapIndexError::BufferTooSmall {
+  |                             ^^^^^^^^^^^^^^ variant not found in `CmapIndexError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `PlacementError`
+  --> tests/public_api_fail/font_record_errors.rs:12:29
+   |
+12 |     let _ = PlacementError::BufferTooSmall {
+   |                             ^^^^^^^^^^^^^^ variant not found in `PlacementError`

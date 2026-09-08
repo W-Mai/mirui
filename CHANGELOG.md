@@ -59,6 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Private MIRX IMAGE record storage.** Surface, plane-memory and atlas record lengths and serializers are internal; semantic descriptors, builders and maps remain available to typed readers and asset writers.
 - **Private MIRX FRAMES record storage.** Frame-map, timing, composition and keyframe writer sidecars, record lengths and byte emitters are internal; `FramesAsset` accepts semantic counts, durations, composition overrides and keyframe ordinals.
 - **Semantic MIRX FRAMES errors.** Frame map, timing, composition and keyframe errors describe validation failures without hidden record-writer capacity variants.
+- **Infallible fixed FONT records.** Internal FACE, CMAP and raster-metrics emitters return fixed byte arrays; their public validation errors no longer include writer-capacity variants.
 
 ### Added
 

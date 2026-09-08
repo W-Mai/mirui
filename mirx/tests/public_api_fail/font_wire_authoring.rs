@@ -14,9 +14,9 @@ fn main() {
     let _ = GlyphSurfaceRecord::from_record;
     let _ = GlyphSurfaceRecord::encode_record_into;
     let _ = FontFace::from_record;
-    let _ = FontFace::encode_record_into;
-    let _ = CmapEntry::encode_record_into;
-    let _ = RasterMetrics::encode_record_into;
+    let _ = FontFace::encode_record;
+    let _ = CmapEntry::encode_record;
+    let _ = RasterMetrics::encode_record;
     let _ = (
         ADVANCE_RECORD_LEN,
         CMAP_INDEX_RECORD_LEN,

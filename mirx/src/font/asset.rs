@@ -718,18 +718,9 @@ impl<S: Source> Plan<S> {
         self.visit_data(|_, storage, offset| {
             output.section(MediaSectionKind::DATA, offset, storage.data_len())
         });
-        let mut face = [0; FACE_RECORD_LEN];
-        self.asset
-            .face()
-            .encode_record_into(&mut face)
-            .expect("validated face");
-        output.write(&face);
+        output.write(&self.asset.face().encode_record());
         for &entry in self.asset.cmap() {
-            let mut bytes = [0; CMAP_INDEX_RECORD_LEN];
-            entry
-                .encode_record_into(&mut bytes)
-                .expect("complete cmap record");
-            output.write(&bytes);
+            output.write(&entry.encode_record());
         }
         if let Some(ids) = self.asset.glyph_ids() {
             for id in ids {
@@ -761,11 +752,7 @@ impl<S: Source> Plan<S> {
             FontAdvanceSource::Shaping(bytes) => output.write(bytes),
         }
         for metric in self.asset.raster_metrics() {
-            let mut bytes = [0; RASTER_METRICS_RECORD_LEN];
-            metric
-                .encode_record_into(&mut bytes)
-                .expect("complete raster metrics record");
-            output.write(&bytes);
+            output.write(&metric.encode_record());
         }
         let data_base = self.sections - self.asset.surface_count() as u16;
         let mut section = self.metadata_section_count();
