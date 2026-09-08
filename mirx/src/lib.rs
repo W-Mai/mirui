@@ -40,7 +40,7 @@ pub use document::{
     EncodeOptions, LayoutPolicy, OpenOptions, PayloadInput, PayloadOrigin, RawChunkInput,
     RawChunkPolicy, RawTypePolicy, RelocationAssumption, RemovedChunkMetadata, ReservedBitsPolicy,
 };
-pub use error::{DocumentError, EditError, EncodeError, ParseError, ReadError, TryEditError};
+pub use error::{DocumentError, EditError, EncodeError, ReadError, TryEditError};
 #[cfg(test)]
 pub(crate) use flat::{FlatImageInput, encode_flat};
 pub(crate) use format::ColorFormat;

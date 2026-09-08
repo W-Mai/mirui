@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **No redundant MIRX container metadata.** Successful open proves MIRX 1.0 with zero file flags; Reader version/flag queries and Document metadata storage have been removed.
+- **No redundant MIRX container metadata.** Successful open proves MIRX 1.0 with zero file flags; Reader version/flag queries, Document metadata storage, and the legacy parser error have been removed.
 - **Current MIRX container semantics.** Reader and document opening now reject unsupported minor versions and nonzero file flags; compatibility normalization and future-read-only states have been removed.
 - **Canonical MIRX coding identity.** Open profile identifiers live under `mirx::coding::CodingId`; duplicate crate-root and `media` paths have been removed.
 - **Canonical MIRX access errors.** Typed access errors live with their payload domains; IMAGE access uses `ImageAccessError`; duplicate crate-root exports and the misleading `ImageDecodeError` name have been removed.
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Canonical MIRX FRAMES paths.** Frame sequence, encoding, playback, and selection types live under `mirx::frames`; duplicate crate-root and `payload::frames` paths have been removed.
 - **Canonical MIRX IMAGE paths.** `ColorFormat`, `ImageAsset`, `ImageAssetEncodeError`, `ImageEncodeError`, `ImagePayloadError`, and `ImageView` live under `mirx::image`; duplicate crate-root exports have been removed.
 - **Checked typed authoring.** `Document::new_flat` and typed `Document::push_*` operations replace the panic-based `FlatImageInput`, `ImageChunkInput`, `encode_flat`, `encode_chunk_image`, `encode_chunk_generic`, and tuple-based `encode_chunks` surface.
-- **Semantic MIRX reader metadata.** `Reader` exposes version and file flags as scalar queries; wire header structs, byte lengths, magic bytes, and numeric chunk constants are internal.
+- **Semantic MIRX reader metadata.** `Reader` exposes the validated layout while wire headers, version fields, file flags, byte lengths, magic bytes, and numeric chunk constants remain internal.
 - **Chunk-bound MIRX projections.** `Document::get` returns the subject for IMAGE, FONT, VECTOR, META, PALETTE, and FRAMES access; document-level ID accessors have been removed, and VECTOR decoding is available directly from both chunk handle families.
 - **Checked VECTOR generation.** `cargo xtask gen-mirx vector` routes encoded scenes through `Document` admission before writing the container.
 - **One checked MIRX read path.** `Reader::open` is the container entry point; the weaker `MirxFile`, `parse`, `peek_header`, `parse_flat`, and `parse_chunk` facades and their temporary container views have been removed.

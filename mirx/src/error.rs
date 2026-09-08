@@ -1,24 +1,15 @@
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParseError {
+pub(crate) enum ParseError {
     InvalidImage(crate::ImagePayloadError),
     Truncated,
     BadMagic,
-    UnsupportedVersion {
-        major: u8,
-        minor: u8,
-    },
+    UnsupportedVersion { major: u8, minor: u8 },
     UnknownLayout(u8),
-    HeaderCrcMismatch {
-        expected: u32,
-        actual: u32,
-    },
+    HeaderCrcMismatch { expected: u32, actual: u32 },
     UnknownColorFormat(u8),
     DimensionOverflow,
-    /// Critical chunks (chunk_flags bit 0) the reader doesn't recognise must
-    /// be rejected per spec rather than skipped.
     UnknownCriticalChunk(u16),
-    /// Reserved-byte slots are required to be zero by spec; non-zero is a
-    /// hard reject.
     ReservedNonZero,
 }
 
@@ -35,7 +26,6 @@ use crate::scene::{VectorEncodeError, VectorReadError};
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum ReadError {
-    Parse(ParseError),
     Truncated {
         needed: usize,
         available: usize,
@@ -101,12 +91,6 @@ pub enum ReadError {
         payload_offset: u32,
     },
     InvalidChunkType,
-}
-
-impl From<ParseError> for ReadError {
-    fn from(value: ParseError) -> Self {
-        Self::Parse(value)
-    }
 }
 
 impl From<InvalidChunkType> for ReadError {

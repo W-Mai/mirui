@@ -1,0 +1,35 @@
+error[E0432]: unresolved import `mirx::ParseError`
+ --> tests/public_api_fail/parse_error.rs:1:5
+  |
+1 | use mirx::ParseError;
+  |     ^^^^^^^^^^^^^^^^ no `ParseError` in the root
+  |
+help: consider importing this type alias instead
+  |
+1 - use mirx::ParseError;
+1 + use std::string::ParseError;
+  |
+
+error[E0432]: unresolved import `mirx::error::ParseError`
+ --> tests/public_api_fail/parse_error.rs:2:5
+  |
+2 | use mirx::error::ParseError as ModuleParseError;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `ParseError` in `error`
+  |
+help: consider importing this type alias instead
+  |
+2 - use mirx::error::ParseError as ModuleParseError;
+2 + use std::string::ParseError as ModuleParseError;
+  |
+
+error[E0603]: module `error` is private
+ --> tests/public_api_fail/parse_error.rs:2:11
+  |
+2 | use mirx::error::ParseError as ModuleParseError;
+  |           ^^^^^ private module
+  |
+note: the module `error` is defined here
+ --> src/lib.rs
+  |
+  | mod error;
+  | ^^^^^^^^^
