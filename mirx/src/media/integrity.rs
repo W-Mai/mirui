@@ -212,12 +212,9 @@ impl<'a> IntegrityTable<'a> {
     #[cfg(test)]
     pub fn encode_into(ranges: &[IntegrityRange], out: &mut [u8]) -> Result<usize, IntegrityError> {
         let needed = Self::encoded_len(ranges)?;
-        if out.len() < needed {
-            return Err(IntegrityError::BufferTooSmall {
-                needed,
-                available: out.len(),
-            });
-        }
+        let out = out
+            .get_mut(..needed)
+            .expect("precomputed integrity table capacity");
         for (index, range) in ranges.iter().enumerate() {
             let offset = index * INTEGRITY_RECORD_LEN;
             out[offset..offset + INTEGRITY_RECORD_LEN].copy_from_slice(&range.encode_record());
@@ -319,7 +316,6 @@ pub enum IntegrityError {
     RangesOverlapOrReversed { index: u32 },
     InvalidCoverage { offset: u32 },
     IncompleteCoverage { offset: u32 },
-    BufferTooSmall { needed: usize, available: usize },
     SizeOverflow,
 }
 
@@ -352,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_ranges_and_encoder_failures_are_bounded_and_atomic() {
+    fn invalid_ranges_are_bounded_and_atomic() {
         for end in 1..BYTES.len() {
             if end % 12 != 0 {
                 assert!(IntegrityTable::open(&BYTES[..end]).is_err());
@@ -377,8 +373,6 @@ mod tests {
         ];
         let mut out = [0xa5; 24];
         assert!(IntegrityTable::encode_into(&records, &mut out).is_err());
-        assert_eq!(out, [0xa5; 24]);
-        assert!(IntegrityTable::encode_into(&records[..1], &mut out[..11]).is_err());
         assert_eq!(out, [0xa5; 24]);
     }
 }

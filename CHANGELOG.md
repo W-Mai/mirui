@@ -65,6 +65,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Checked encoded-group records.** Internal group emitters return validated fixed byte arrays; semantic group errors no longer include writer-capacity variants.
 - **Semantic coding-table errors.** Public coding-table errors describe stored data and size arithmetic without internal writer-capacity states.
 - **Semantic MIRX unit-table errors.** Unit index and selection errors describe malformed values and size arithmetic without internal writer-capacity states.
+- **Semantic MIRX integrity errors.** Integrity failures describe stored ranges, coverage and size arithmetic without test-fixture writer-capacity states.
 
 ### Added
 
