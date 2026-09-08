@@ -1,0 +1,40 @@
+error[E0432]: unresolved imports `mirx::document::PayloadInput`, `mirx::document::RawChunkInput`
+ --> tests/public_api_fail/document_raw_authoring.rs:1:22
+  |
+1 | use mirx::document::{PayloadInput, RawChunkInput, RawChunkPolicy};
+  |                      ^^^^^^^^^^^^  ^^^^^^^^^^^^^ no `RawChunkInput` in `document`
+  |                      |
+  |                      no `PayloadInput` in `document`
+  |
+note: found an item that was configured out
+ --> src/document/mod.rs
+  |
+  | #[cfg(test)]
+  |       ---- the item is gated here
+  | pub(crate) use raw::{
+  |     CriticalAssumption, PayloadInput, RawChunkInput, RelocationAssumption, ReservedBitsPolicy,
+  |                         ^^^^^^^^^^^^
+note: found an item that was configured out
+ --> src/document/mod.rs
+  |
+  | #[cfg(test)]
+  |       ---- the item is gated here
+  | pub(crate) use raw::{
+  |     CriticalAssumption, PayloadInput, RawChunkInput, RelocationAssumption, ReservedBitsPolicy,
+  |                                       ^^^^^^^^^^^^^
+
+error[E0603]: struct `RawChunkPolicy` is private
+ --> tests/public_api_fail/document_raw_authoring.rs:1:51
+  |
+1 | use mirx::document::{PayloadInput, RawChunkInput, RawChunkPolicy};
+  |                                                   ^^^^^^^^^^^^^^ private struct
+  |
+note: the struct `RawChunkPolicy` is defined here
+ --> src/document/mod.rs
+  |
+  | pub(crate) use raw::RawChunkPolicy;
+  |                ^^^^^^^^^^^^^^^^^^^
+help: import `RawChunkPolicy` directly
+  |
+1 | use mirx::document::{PayloadInput, RawChunkInput, mirx::document::raw::RawChunkPolicy};
+  |                                                   +++++++++++++++++++++

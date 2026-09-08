@@ -7,9 +7,10 @@ use std::path::{Path, PathBuf};
 use crc32fast::hash as crc32;
 use mirx::{
     ChunkFlags, ChunkType, Document, Layout, PrimaryHints, Reader,
-    document::{
-        CriticalAssumption, OpenOptions, PayloadInput, RawChunkInput, RawChunkPolicy,
-        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
+    document::{OpenOptions, RawTypePolicy},
+    extension::{
+        Critical as CriticalAssumption, Extension, Policy as RawChunkPolicy,
+        Relocation as RelocationAssumption, ReservedFlags as ReservedBitsPolicy,
     },
     reader::{
         PayloadLimits, PayloadLocation, PayloadValidationError, ReadOptions, TrailingBytesPolicy,
@@ -567,8 +568,8 @@ fn insert_raw_bytes(
 ) -> std::result::Result<Vec<u8>, String> {
     let mut document = open_edit_document(source, Some(chunk_type), policy, source_policies)?;
     document
-        .push_raw(
-            RawChunkInput::new(chunk_type, payload)
+        .push_extension(
+            Extension::owned(chunk_type, payload)
                 .with_flags(flags)
                 .with_policy(policy),
         )
@@ -587,10 +588,18 @@ fn replace_raw_bytes(
 ) -> std::result::Result<Vec<u8>, String> {
     let mut document = open_edit_document(source, expected_type, policy, source_policies)?;
     let id = guarded_document_chunk(&document, index, expected_type, expected_crc)?;
+    let (chunk_type, flags) = document
+        .get(id)
+        .map(|chunk| (chunk.chunk_type(), chunk.flags()))
+        .ok_or_else(|| "edit error: invalid chunk ID".to_owned())?;
     document
         .get_mut(id)
         .ok_or_else(|| "edit error: invalid chunk ID".to_owned())?
-        .replace_raw(PayloadInput::Owned(payload), policy)
+        .replace_extension(
+            Extension::owned(chunk_type, payload)
+                .with_flags(flags)
+                .with_policy(policy),
+        )
         .map_err(|error| format!("edit error: {error:?}"))?;
     finish_document(document)
 }

@@ -25,7 +25,7 @@ use mirui::render::command::CompositeMode;
 use mirui::render::scene::codec::encode_scene;
 use mirui::render::scene::{ResourceRef, SceneOp};
 use mirui::types::{Color, Fixed, Point, Rect, Transform};
-use mirx::{ChunkFlags, ChunkType, Document, document::RawChunkInput};
+use mirx::{ChunkFlags, ChunkType, Document, extension::Extension};
 
 type Result<T = ()> = std::result::Result<T, Box<dyn std::error::Error>>;
 
@@ -55,7 +55,9 @@ pub fn run(args: &[String]) -> Result {
     let payload = encode_scene(&ops).map_err(|error| format!("encode failed: {error:?}"))?;
     let mut document = Document::new();
     document
-        .push_raw(RawChunkInput::new(ChunkType::VECTOR, payload).with_flags(ChunkFlags::CRITICAL))
+        .push_extension(
+            Extension::owned(ChunkType::VECTOR, payload).with_flags(ChunkFlags::CRITICAL),
+        )
         .map_err(|error| format!("container rejected VECTOR payload: {error:?}"))?;
     let bytes = document
         .finish()

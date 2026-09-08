@@ -13,17 +13,5 @@ error[E0432]: unresolved imports `mirx::CriticalAssumption`, `mirx::PayloadInput
   |     |
   |     no `RemovedChunkMetadata` in the root
   |
-  = help: consider importing this enum instead:
-          mirx::document::CriticalAssumption
-  = help: consider importing this enum instead:
-          mirx::document::PayloadInput
-  = help: consider importing this struct instead:
-          mirx::document::RawChunkInput
-  = help: consider importing this struct instead:
-          mirx::document::RawChunkPolicy
-  = help: consider importing this enum instead:
-          mirx::document::RelocationAssumption
   = help: consider importing this struct instead:
           mirx::document::RemovedChunkMetadata
-  = help: consider importing this enum instead:
-          mirx::document::ReservedBitsPolicy

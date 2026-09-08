@@ -13,7 +13,7 @@ use crate::{ChunkFlags, ChunkId, ChunkType};
 /// Encoded payload bytes supplied to a raw document mutation.
 #[derive(Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum PayloadInput<'a> {
+pub(crate) enum PayloadInput<'a> {
     Borrowed(&'a [u8]),
     Owned(Vec<u8>),
 }
@@ -37,7 +37,7 @@ impl<'a> From<Vec<u8>> for PayloadInput<'a> {
 }
 
 impl<'a> PayloadInput<'a> {
-    fn as_bytes(&self) -> &[u8] {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
         match self {
             Self::Borrowed(bytes) => bytes,
             Self::Owned(bytes) => bytes.as_slice(),
@@ -54,16 +54,16 @@ impl<'a> PayloadInput<'a> {
 
 /// Raw chunk fields supplied to an insertion operation.
 #[derive(Debug, Eq, PartialEq)]
-pub struct RawChunkInput<'a> {
-    pub chunk_type: ChunkType,
-    pub flags: ChunkFlags,
-    pub payload: PayloadInput<'a>,
-    pub policy: RawChunkPolicy,
+pub(crate) struct RawChunkInput<'a> {
+    pub(crate) chunk_type: ChunkType,
+    pub(crate) flags: ChunkFlags,
+    pub(crate) payload: PayloadInput<'a>,
+    pub(crate) policy: RawChunkPolicy,
 }
 
 impl<'a> RawChunkInput<'a> {
     /// Creates a raw chunk input with no flags and conservative inference.
-    pub fn new(chunk_type: ChunkType, payload: impl Into<PayloadInput<'a>>) -> Self {
+    pub(crate) fn new(chunk_type: ChunkType, payload: impl Into<PayloadInput<'a>>) -> Self {
         Self {
             chunk_type,
             flags: ChunkFlags::NONE,
@@ -72,12 +72,14 @@ impl<'a> RawChunkInput<'a> {
         }
     }
 
-    pub const fn with_flags(mut self, flags: ChunkFlags) -> Self {
+    #[cfg(test)]
+    pub(crate) const fn with_flags(mut self, flags: ChunkFlags) -> Self {
         self.flags = flags;
         self
     }
 
-    pub const fn with_policy(mut self, policy: RawChunkPolicy) -> Self {
+    #[cfg(test)]
+    pub(crate) const fn with_policy(mut self, policy: RawChunkPolicy) -> Self {
         self.policy = policy;
         self
     }
@@ -261,12 +263,12 @@ impl<'a> Document<'a> {
     /// A FLAT document is promoted atomically before the append. The returned
     /// identity belongs to the appended node; use [`Document::promote_to_chunk`]
     /// when the promoted IMAGE identity is also needed.
-    pub fn push_raw(&mut self, input: RawChunkInput<'a>) -> Result<ChunkId, EditError> {
+    pub(crate) fn push_raw(&mut self, input: RawChunkInput<'a>) -> Result<ChunkId, EditError> {
         self.insert_raw_at(InsertPosition::End, input)
     }
 
     /// Inserts one encoded chunk immediately before `anchor`.
-    pub fn insert_raw_before(
+    pub(crate) fn insert_raw_before(
         &mut self,
         anchor: ChunkId,
         input: RawChunkInput<'a>,
@@ -275,7 +277,7 @@ impl<'a> Document<'a> {
     }
 
     /// Inserts one encoded chunk immediately after `anchor`.
-    pub fn insert_raw_after(
+    pub(crate) fn insert_raw_after(
         &mut self,
         anchor: ChunkId,
         input: RawChunkInput<'a>,
@@ -283,6 +285,7 @@ impl<'a> Document<'a> {
         self.insert_raw_at(InsertPosition::After(anchor), input)
     }
 
+    #[cfg(test)]
     pub(super) fn replace_raw_at(
         &mut self,
         index: usize,
@@ -297,6 +300,45 @@ impl<'a> Document<'a> {
                 prepare_replacement(chunk_type, flags, payload, policy, limits)
             },
         )
+    }
+
+    pub(super) fn replace_extension_at(
+        &mut self,
+        index: usize,
+        input: RawChunkInput<'a>,
+    ) -> Result<(), EditError> {
+        self.ensure_mutable()?;
+        let limits = self.payload_limits;
+        let prepared = prepare_raw(input, limits)?;
+        let (is_primary, unchanged) = {
+            let DocumentState::Chunk(chunks) = &self.state else {
+                unreachable!("layout checked before preparing extension replacement");
+            };
+            ensure_primary_projection(
+                chunks,
+                PrimaryProjection::SetType {
+                    index,
+                    chunk_type: prepared.chunk_type,
+                },
+            )?;
+            let node = &chunks.chunks[index];
+            let payload = resolve_node_payload(self, node).map_err(EditError::InvalidPayload)?;
+            let candidate = prepared
+                .payload
+                .resolve_contiguous(&self.origin)
+                .expect("prepared extension payload is contiguous");
+            (
+                chunks.primary == Some(node.id),
+                node.chunk_type == prepared.chunk_type
+                    && node.flags == prepared.flags
+                    && node.capability == prepared.capability
+                    && payload.equals(candidate),
+            )
+        };
+        if unchanged {
+            return Ok(());
+        }
+        self.commit_prepared_replacement(index, is_primary, prepared)
     }
 
     pub(super) fn replace_typed_owned_with<P, Plan, Equal, Encode, ResolveError>(
@@ -368,6 +410,7 @@ impl<'a> Document<'a> {
         )
     }
 
+    #[cfg(test)]
     fn replace_payload_at_with<C, P>(
         &mut self,
         index: usize,
@@ -437,6 +480,8 @@ impl<'a> Document<'a> {
         };
         let node = &mut chunks.chunks[index];
         let replaced_promoted = matches!(node.payload, PayloadStorage::PromotedFlat);
+        node.chunk_type = prepared.chunk_type;
+        node.flags = prepared.flags;
         node.payload = prepared.payload;
         node.capability = prepared.capability;
         if replaced_promoted {
@@ -716,6 +761,7 @@ fn prepare_raw(
     })
 }
 
+#[cfg(test)]
 fn prepare_replacement(
     chunk_type: ChunkType,
     flags: ChunkFlags,

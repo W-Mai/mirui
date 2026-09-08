@@ -1,0 +1,40 @@
+error[E0599]: no method named `set_type` found for struct `DocumentChunkMut<'document, 'source>` in the current scope
+ --> tests/public_api_fail/granular_chunk_mutation.rs:6:11
+  |
+6 |     chunk.set_type(ChunkType::META, Policy::infer()).unwrap();
+  |           ^^^^^^^^ method not found in `DocumentChunkMut<'_, '_>`
+
+error[E0599]: no method named `set_raw_policy` found for struct `DocumentChunkMut<'document, 'source>` in the current scope
+ --> tests/public_api_fail/granular_chunk_mutation.rs:7:11
+  |
+7 |     chunk.set_raw_policy(Policy::infer()).unwrap();
+  |           ^^^^^^^^^^^^^^ method not found in `DocumentChunkMut<'_, '_>`
+
+error[E0599]: no method named `replace_raw` found for struct `DocumentChunkMut<'document, 'source>` in the current scope
+ --> tests/public_api_fail/granular_chunk_mutation.rs:8:11
+  |
+8 |     chunk.replace_raw(b"payload", Policy::infer()).unwrap();
+  |           ^^^^^^^^^^^
+  |
+help: there is a method `replace_frames` with a similar name, but with different arguments
+ --> src/document/chunk_mut.rs
+  |
+  |     pub fn replace_frames(&mut self, frames: EncodedFrames) -> Result<(), EditError> {
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error[E0061]: this method takes 1 argument but 2 arguments were supplied
+ --> tests/public_api_fail/granular_chunk_mutation.rs:9:11
+  |
+9 |     chunk.set_flags(ChunkFlags::NONE, Policy::infer()).unwrap();
+  |           ^^^^^^^^^                   --------------- unexpected argument #2 of type `Policy`
+  |
+note: method defined here
+ --> src/document/chunk_mut.rs
+  |
+  |     pub fn set_flags(&mut self, flags: ChunkFlags) -> Result<(), EditError> {
+  |            ^^^^^^^^^
+help: remove the extra argument
+  |
+9 -     chunk.set_flags(ChunkFlags::NONE, Policy::infer()).unwrap();
+9 +     chunk.set_flags(ChunkFlags::NONE).unwrap();
+  |

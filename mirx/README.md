@@ -178,7 +178,7 @@ Critical IMAGE chunks pass complete RAW or encoded preflight during `Reader::ope
 
 `Document::get(id)?.image()` returns `ImageRef`, retaining RAW or encoded storage without allocating samples. `Document::push_image` and `DocumentChunkMut::replace_image` accept decoded `ImageSource` inputs: packed `ImageAsset`, planar `RawImageAsset`, `RawImageView`, or `SurfaceView`. Use `raw()` before accessing planes; its `packed()` projection returns `None` when the color or storage contract cannot be expressed as a packed image.
 
-Encoded payload bytes can be inserted through `push_raw` with `RawChunkPolicy::infer()`: bounded preflight establishes the understood contract before mutation. Primary dimensions and sample layout follow the surface; encoded primary stride is zero because output stride belongs to the decode plan. Document reordering and encoding preserve payload bytes and the maximum declared group input alignment. Unknown coding requires explicit raw capability assumptions and is not implicitly decoded for FLAT demotion.
+Encoded payload bytes can be inserted as an atomic `extension::Extension`: bounded preflight establishes the understood contract before mutation. Primary dimensions and sample layout follow the surface; encoded primary stride is zero because output stride belongs to the decode plan. Document reordering and encoding preserve payload bytes and the maximum declared group input alignment. Unknown coding requires an explicit extension policy and is not implicitly decoded for FLAT demotion.
 
 `Document::push_encoded_image` and `DocumentChunkMut::replace_encoded_image` accept `EncodedImageAsset` directly. Metadata, scalar syntax and resource limits are checked before allocating one final payload. Exact canonical replacements retain their existing storage without allocation; a misaligned source position is repaired through owned storage and checked file placement. `EncodedImageAsset::preflight` exposes the same admission checks independently, including a work charge for the complete output span and padding.
 
@@ -298,13 +298,13 @@ assert_eq!(cmap.lookup('B'), None);
 `Document` owns operations that change the collection or container-wide state:
 
 - query with `chunks`, `get`, and `chunks_of_type`;
-- append or position raw chunks with `push_raw`, `insert_raw_before`, and `insert_raw_after`;
+- append or position opaque chunks with `push_extension`, `insert_extension_before`, and `insert_extension_after`;
 - append standard payloads with `push_image`, `push_font`, `push_vector`, `push_meta`, `push_palette`, and `push_frames`;
 - remove or reorder with `remove`, `move_before`, and `move_after`;
 - manage the primary chunk with `set_primary`, `set_primary_with_hints`, and `clear_primary`;
 - convert layouts with `promote_to_chunk` and `demote_to_flat`.
 
-`Document::get_mut(id)` returns a `DocumentChunkMut` scoped to one existing chunk. The handle exposes `set_type`, `set_flags`, `set_raw_policy`, `replace_raw`, and all typed replacement or transactional edit methods. This keeps document-wide operations separate from chunk-local mutation.
+`Document::get_mut(id)` returns a `DocumentChunkMut` scoped to one existing chunk. The handle exposes checked `set_flags`, atomic `replace_extension`, and typed replacement or transactional edit methods. This keeps document-wide operations separate from chunk-local mutation and prevents partial opaque descriptor edits.
 
 ```rust
 extern crate alloc;
@@ -420,31 +420,31 @@ let frames = document.get(id).unwrap().frames().unwrap();
 
 Modified CHUNK output is deterministic: descriptor order is stable, padding is canonical, payload alignment is checked, primary hints are derived from typed payloads when possible, and CRCs cover the defined envelope.
 
-## Opaque payloads
+## Opaque extensions
 
-Raw mutation is explicit about assumptions that cannot be proven from opaque bytes:
+An `Extension` carries type, flags, payload ownership, and rewrite policy as one value:
 
 ```rust,no_run
 use mirx::{
     ChunkFlags, ChunkType,
-    document::{CriticalAssumption, RawChunkInput, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy},
+    extension::{Critical, Extension, Policy, Relocation, ReservedFlags},
 };
 
 # let payload: &[u8] = &[];
-let policy = RawChunkPolicy::infer()
-    .with_relocation(RelocationAssumption::AssumeRelocatable)
-    .with_critical_semantics(CriticalAssumption::AssumeCriticalUnderstood)
-    .with_reserved_bits(ReservedBitsPolicy::Preserve);
+let policy = Policy::infer()
+    .with_relocation(Relocation::AssumeRelocatable)
+    .with_critical_semantics(Critical::AssumeCriticalUnderstood)
+    .with_reserved_bits(ReservedFlags::Preserve);
 
-let input = RawChunkInput::new(ChunkType::new(0x8000).unwrap(), payload)
+let extension = Extension::borrowed(ChunkType::new(0x8000).unwrap(), payload)
     .with_flags(ChunkFlags::CRITICAL)
     .with_policy(policy);
-# let _ = input;
+# let _ = extension;
 ```
 
-- `RelocationAssumption` controls whether opaque payload bytes may move.
-- `CriticalAssumption` records whether a critical custom contract is understood.
-- `ReservedBitsPolicy` rejects, preserves, or normalizes reserved flag bits.
+- `Relocation` controls whether opaque payload bytes may move.
+- `Critical` records whether a critical custom contract is understood.
+- `ReservedFlags` rejects, preserves, or normalizes reserved flag bits.
 - `RawTypePolicy` grants a policy to matching source chunks during open.
 
 Reader and document opening accept only the current MIRX container version and zero file flags. Unknown chunk types and coding identifiers remain representable within that current container. Preserved trailing bytes remain read-only until `discard_trailing_bytes()` is called.

@@ -3,10 +3,8 @@ use std::borrow::Cow;
 use mirx::image::ColorFormat;
 use mirx::{
     ChunkType, Document, Layout, Reader,
-    document::{
-        CriticalAssumption, OpenOptions, RawChunkPolicy, RawTypePolicy, RelocationAssumption,
-        ReservedBitsPolicy,
-    },
+    document::{OpenOptions, RawTypePolicy},
+    extension::{Critical, Policy, Relocation, ReservedFlags},
 };
 
 fn decode_hex(source: &str) -> Vec<u8> {
@@ -16,11 +14,11 @@ fn decode_hex(source: &str) -> Vec<u8> {
         .collect()
 }
 
-const fn relocatable_policy() -> RawChunkPolicy {
-    RawChunkPolicy {
-        relocation: RelocationAssumption::AssumeRelocatable,
-        critical_semantics: CriticalAssumption::Infer,
-        reserved_flag_bits: ReservedBitsPolicy::Reject,
+const fn relocatable_policy() -> Policy {
+    Policy {
+        relocation: Relocation::AssumeRelocatable,
+        critical_semantics: Critical::Infer,
+        reserved_flag_bits: ReservedFlags::Reject,
     }
 }
 

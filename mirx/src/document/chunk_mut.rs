@@ -1,6 +1,6 @@
-use super::{
-    ChunkNode, Document, DocumentState, EditError, PayloadInput, RawChunkPolicy, TryEditError,
-};
+use super::raw::RawChunkPolicy;
+use super::{ChunkNode, Document, DocumentState, EditError, TryEditError};
+use crate::extension::Extension;
 use crate::font::Font;
 use crate::frames::EncodedFrames;
 use crate::meta::Meta;
@@ -35,46 +35,16 @@ impl<'document, 'source> DocumentChunkMut<'document, 'source> {
         self.node().flags
     }
 
-    /// Changes the chunk type after validating its existing encoded payload.
-    pub fn set_type(
-        &mut self,
-        chunk_type: ChunkType,
-        policy: RawChunkPolicy,
-    ) -> Result<(), EditError> {
-        self.document.set_type_at(self.index, chunk_type, policy)
-    }
-
     /// Changes the chunk flags after validating its existing encoded payload.
-    pub fn set_flags(
-        &mut self,
-        flags: ChunkFlags,
-        policy: RawChunkPolicy,
-    ) -> Result<(), EditError> {
-        self.document.set_flags_at(self.index, flags, policy)
+    pub fn set_flags(&mut self, flags: ChunkFlags) -> Result<(), EditError> {
+        self.document
+            .set_flags_at(self.index, flags, RawChunkPolicy::infer())
     }
 
-    /// Re-evaluates the rewrite capability of this raw chunk.
-    ///
-    /// Capability-only changes do not alter encoded output and therefore do
-    /// not mark the document dirty. Normalizing reserved flag bits does.
-    pub fn set_raw_policy(&mut self, policy: RawChunkPolicy) -> Result<(), EditError> {
-        self.document.set_raw_policy_at(self.index, policy)
-    }
-
-    /// Replaces the encoded payload without changing the chunk descriptor.
-    ///
-    /// An exact byte match is a no-op and retains the existing storage and
-    /// rewrite capability. Otherwise the replacement is checked with the same
-    /// raw-payload policy used by insertion. Because this operation preserves
-    /// the chunk descriptor, reserved-bit normalization is rejected when the
-    /// existing flags contain reserved bits; use [`Self::set_flags`] to clear
-    /// them.
-    pub fn replace_raw(
-        &mut self,
-        payload: PayloadInput<'source>,
-        policy: RawChunkPolicy,
-    ) -> Result<(), EditError> {
-        self.document.replace_raw_at(self.index, payload, policy)
+    /// Replaces type, flags, payload, and rewrite policy atomically.
+    pub fn replace_extension(&mut self, extension: Extension<'source>) -> Result<(), EditError> {
+        self.document
+            .replace_extension_at(self.index, extension.into_raw())
     }
 
     /// Replaces this chunk with a checked IMAGE payload.

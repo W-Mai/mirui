@@ -982,11 +982,7 @@ fn typed_encoded_edits_allocate_only_final_payloads_and_keep_noops_borrowed() {
 
 #[test]
 fn encoded_document_queries_and_placement_allocate_no_samples_or_group_table() {
-    use mirx::{
-        coding::Rle,
-        document::{PayloadInput, RawChunkInput, RawChunkPolicy},
-        image::EncodedImageAsset,
-    };
+    use mirx::{coding::Rle, extension::Extension, image::EncodedImageAsset};
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let payload = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
         .with_input_alignment(mirx::types::ByteAlignment::new(64).unwrap())
@@ -995,12 +991,9 @@ fn encoded_document_queries_and_placement_allocate_no_samples_or_group_table() {
     let mut document = Document::new();
     let (_, allocations) = count_allocations(|| {
         document
-            .push_raw(RawChunkInput {
-                chunk_type: ChunkType::IMAGE,
-                flags: ChunkFlags::CRITICAL,
-                payload: PayloadInput::Borrowed(&payload),
-                policy: RawChunkPolicy::infer(),
-            })
+            .push_extension(
+                Extension::borrowed(ChunkType::IMAGE, &payload).with_flags(ChunkFlags::CRITICAL),
+            )
             .unwrap();
     });
     assert_eq!(allocations, 1, "only the document node table is owned");

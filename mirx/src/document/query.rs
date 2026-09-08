@@ -231,8 +231,7 @@ mod tests {
 
     use super::*;
     use crate::document::{
-        CriticalAssumption, EditError, PayloadInput, RawChunkInput, RawChunkPolicy,
-        RelocationAssumption,
+        CriticalAssumption, RawChunkInput, RawChunkPolicy, RelocationAssumption,
     };
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, chunk_type};
     use crate::{
@@ -321,34 +320,36 @@ mod tests {
     }
 
     #[test]
-    fn mutable_handle_edits_descriptor_and_payload_in_place() {
-        let first_type = ChunkType::new(0x8001).unwrap();
-        let second_type = ChunkType::new(0x8002).unwrap();
-        let source = encode_chunks(&[(first_type.raw(), 0, b"old")]);
-        let mut document = Document::open(&source).unwrap();
-        let id = ChunkId::new(0);
+    fn mutable_handle_edits_flags_and_typed_payload_in_place() {
+        let mut original = crate::meta::Meta::new();
+        original
+            .push(crate::meta::MetaEntry::text("value", "old"))
+            .unwrap();
+        let mut replacement = crate::meta::Meta::new();
+        replacement
+            .push(crate::meta::MetaEntry::text("value", "new"))
+            .unwrap();
+        let mut document = Document::new();
+        let id = document.push_meta(&original).unwrap();
 
         {
             let mut chunk = document.get_mut(id).unwrap();
             assert_eq!(chunk.id(), id);
-            assert_eq!(chunk.chunk_type(), first_type);
+            assert_eq!(chunk.chunk_type(), ChunkType::META);
             assert_eq!(chunk.flags(), ChunkFlags::NONE);
-            chunk
-                .set_flags(ChunkFlags::CRITICAL, explicit_policy())
-                .unwrap();
-            chunk.set_type(second_type, explicit_policy()).unwrap();
-            chunk.set_raw_policy(explicit_policy()).unwrap();
-            chunk
-                .replace_raw(PayloadInput::Borrowed(b"new"), explicit_policy())
-                .unwrap();
-            assert_eq!(chunk.chunk_type(), second_type);
+            chunk.set_flags(ChunkFlags::CRITICAL).unwrap();
+            chunk.replace_meta(&replacement).unwrap();
+            assert_eq!(chunk.chunk_type(), ChunkType::META);
             assert_eq!(chunk.flags(), ChunkFlags::CRITICAL);
         }
 
         let chunk = document.get(id).unwrap();
-        assert_eq!(chunk.chunk_type(), second_type);
+        assert_eq!(chunk.chunk_type(), ChunkType::META);
         assert_eq!(chunk.flags(), ChunkFlags::CRITICAL);
-        assert_eq!(chunk.payload_bytes(), Some(b"new".as_slice()));
+        assert_eq!(
+            chunk.meta().unwrap().get_first("value").unwrap().value,
+            crate::meta::MetaValueRef::Text("new")
+        );
         assert!(document.is_dirty());
 
         document.remove(id).unwrap();
@@ -356,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn mutable_handle_keeps_failed_and_no_op_edits_atomic() {
+    fn mutable_handle_keeps_no_op_flag_edits_clean() {
         let custom = ChunkType::new(0x8001).unwrap();
         let primary_type = ChunkType::new(0x8002).unwrap();
         let source = encode_chunks(&[
@@ -368,16 +369,7 @@ mod tests {
 
         {
             let mut chunk = document.get_mut(id).unwrap();
-            chunk
-                .set_flags(ChunkFlags::NONE, RawChunkPolicy::infer())
-                .unwrap();
-            assert_eq!(chunk.chunk_type(), custom);
-            assert_eq!(chunk.flags(), ChunkFlags::NONE);
-            let result = chunk.set_type(ChunkType::IMAGE, RawChunkPolicy::infer());
-            assert!(
-                matches!(result, Err(EditError::InvalidPayload(_))),
-                "{result:?}"
-            );
+            chunk.set_flags(ChunkFlags::NONE).unwrap();
             assert_eq!(chunk.chunk_type(), custom);
             assert_eq!(chunk.flags(), ChunkFlags::NONE);
         }

@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Canonical MIRX raw authoring paths.** Raw payload inputs, rewrite policies, assumptions, and removed-chunk metadata live under `mirx::document`; duplicate crate-root exports have been removed.
 - **Canonical MIRX document query paths.** Document iterators and payload provenance live under `mirx::document`; duplicate crate-root exports have been removed.
 - **Private MIRX checksums.** Container and payload checksums are handled by validated readers and writers instead of a crate-root checksum function.
+- **Scoped MIRX descriptor edits.** Chunk flags are checked by `DocumentChunkMut::set_flags`; granular raw type, policy, and payload setters are no longer public.
+- **Atomic MIRX extension authoring.** `extension::Extension` carries type, flags, payload ownership, and rewrite policy through insertion and replacement as one validated value.
 - **Canonical MIRX VECTOR paths.** Scene values, paint primitives, codec errors, and access errors live under `mirx::scene`; duplicate crate-root exports have been removed.
 - **Canonical MIRX FONT paths.** Font values, views, representation selection, and access errors live under `mirx::font`; duplicate crate-root exports have been removed.
 - **Private MIRX payload plumbing.** Typed payload codecs are exposed through their domain modules; the internal `payload` assembly module is no longer public.

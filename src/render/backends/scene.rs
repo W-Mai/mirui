@@ -129,8 +129,8 @@ mod tests {
         let payload = scene.encode().unwrap();
         let mut document = mirx::Document::new();
         document
-            .push_raw(
-                mirx::document::RawChunkInput::new(mirx::ChunkType::VECTOR, payload)
+            .push_extension(
+                mirx::extension::Extension::owned(mirx::ChunkType::VECTOR, payload)
                     .with_flags(mirx::ChunkFlags::CRITICAL),
             )
             .unwrap();

@@ -4,9 +4,8 @@ use mirx::meta::Meta;
 use mirx::{
     ChunkFlags, ChunkType, Document, Reader,
     coding::{CodingId, Frequency, FrequencyGeometry, Lz4, Pixel, Rle},
-    document::{
-        EditError, EncodeOptions, PayloadInput, PayloadOrigin, RawChunkInput, RawChunkPolicy,
-    },
+    document::{EditError, EncodeOptions, PayloadOrigin},
+    extension::{Critical, Extension, Policy, Relocation, ReservedFlags},
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageError, ImageReadError,
         SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitDecodeError,
@@ -249,12 +248,9 @@ fn document_relocation_preserves_encoded_storage_alignment_and_derived_hints() {
             .unwrap();
         let mut document = Document::new();
         let id = document
-            .push_raw(RawChunkInput {
-                chunk_type: ChunkType::IMAGE,
-                flags: ChunkFlags::CRITICAL,
-                payload: PayloadInput::Borrowed(&payload),
-                policy: RawChunkPolicy::infer(),
-            })
+            .push_extension(
+                Extension::borrowed(ChunkType::IMAGE, &payload).with_flags(ChunkFlags::CRITICAL),
+            )
             .unwrap();
         document.set_primary(id).unwrap();
         let image = document
@@ -305,7 +301,7 @@ fn document_relocation_preserves_encoded_storage_alignment_and_derived_hints() {
         reopened
             .get_mut(id)
             .unwrap()
-            .set_flags(ChunkFlags::NONE, RawChunkPolicy::infer())
+            .set_flags(ChunkFlags::NONE)
             .unwrap();
         assert_eq!(
             reopened.demote_to_flat(),
@@ -355,12 +351,7 @@ fn document_inference_checks_encoded_syntax_and_limits_before_mutation() {
         let mut document = Document::new_with_limits(limits);
         let before = document.encode(&EncodeOptions::new()).unwrap();
         assert!(matches!(
-            document.push_raw(RawChunkInput {
-                chunk_type: ChunkType::IMAGE,
-                flags: ChunkFlags::NONE,
-                payload: PayloadInput::Borrowed(payload),
-                policy: RawChunkPolicy::infer(),
-            }),
+            document.push_extension(Extension::borrowed(ChunkType::IMAGE, payload)),
             Err(EditError::InvalidPayload(ImagePayloadError::Encoded(_)))
         ));
         assert_eq!(document.encode(&EncodeOptions::new()).unwrap(), before);
@@ -370,7 +361,6 @@ fn document_inference_checks_encoded_syntax_and_limits_before_mutation() {
 
 #[test]
 fn opaque_encoded_relocation_remains_an_explicit_policy_and_keeps_alignment() {
-    use mirx::document::{CriticalAssumption, RelocationAssumption, ReservedBitsPolicy};
     let surface = SurfaceDescriptor::new(8, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let payload =
         EncodedImageAsset::new(surface, CodingRecord::new(CodingId::new(511), 1, &[]), &[1])
@@ -379,16 +369,13 @@ fn opaque_encoded_relocation_remains_an_explicit_policy_and_keeps_alignment() {
             .unwrap();
     let mut document = Document::new();
     let id = document
-        .push_raw(RawChunkInput {
-            chunk_type: ChunkType::IMAGE,
-            flags: ChunkFlags::NONE,
-            payload: PayloadInput::Borrowed(&payload),
-            policy: RawChunkPolicy {
-                relocation: RelocationAssumption::AssumeRelocatable,
-                critical_semantics: CriticalAssumption::Infer,
-                reserved_flag_bits: ReservedBitsPolicy::Reject,
-            },
-        })
+        .push_extension(
+            Extension::borrowed(ChunkType::IMAGE, &payload).with_policy(Policy {
+                relocation: Relocation::AssumeRelocatable,
+                critical_semantics: Critical::Infer,
+                reserved_flag_bits: ReservedFlags::Reject,
+            }),
+        )
         .unwrap();
     assert_eq!(
         document.set_primary(id),
@@ -397,13 +384,14 @@ fn opaque_encoded_relocation_remains_an_explicit_policy_and_keeps_alignment() {
         })
     );
     assert_eq!(
-        document.get_mut(id).unwrap().set_flags(
-            ChunkFlags::CRITICAL,
-            RawChunkPolicy {
-                relocation: RelocationAssumption::AssumeRelocatable,
-                critical_semantics: CriticalAssumption::Infer,
-                reserved_flag_bits: ReservedBitsPolicy::Reject,
-            }
+        document.get_mut(id).unwrap().replace_extension(
+            Extension::borrowed(ChunkType::IMAGE, &payload)
+                .with_flags(ChunkFlags::CRITICAL)
+                .with_policy(Policy {
+                    relocation: Relocation::AssumeRelocatable,
+                    critical_semantics: Critical::Infer,
+                    reserved_flag_bits: ReservedFlags::Reject,
+                })
         ),
         Err(EditError::CriticalAssumptionRequired {
             chunk_type: ChunkType::IMAGE

@@ -22,7 +22,7 @@ mod primary;
 #[cfg(test)]
 mod promotion_tests;
 mod query;
-mod raw;
+pub(crate) mod raw;
 mod reorder;
 mod source;
 mod vector;
@@ -32,9 +32,11 @@ pub use crate::error::{DocumentError, EditError, EncodeError, TryEditError};
 pub use chunk_mut::DocumentChunkMut;
 pub use options::{EncodeOptions, LayoutPolicy, OpenOptions, RawTypePolicy};
 pub use query::{ChunkIter, ChunksOfType, DocumentChunkRef, PayloadOrigin};
-pub use raw::{
-    CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
-    RemovedChunkMetadata, ReservedBitsPolicy,
+pub(crate) use raw::RawChunkPolicy;
+pub use raw::RemovedChunkMetadata;
+#[cfg(test)]
+pub(crate) use raw::{
+    CriticalAssumption, PayloadInput, RawChunkInput, RelocationAssumption, ReservedBitsPolicy,
 };
 
 use alloc::{borrow::Cow, vec::Vec};

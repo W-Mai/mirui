@@ -1,4 +1,5 @@
 use super::payload::{PayloadPlacement, ResolvedNodePayload, resolve_node_payload};
+#[cfg(test)]
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, EditError, RewriteCapability};
@@ -47,6 +48,7 @@ impl RawChunkPolicy {
         )
     }
 
+    #[cfg(test)]
     pub(super) fn evaluate_with_flags(
         self,
         chunk_type: ChunkType,
@@ -308,6 +310,7 @@ impl Document<'_> {
         self.set_raw_policy_at(index, policy)
     }
 
+    #[cfg(test)]
     pub(super) fn set_type_at(
         &mut self,
         index: usize,
@@ -367,6 +370,7 @@ impl Document<'_> {
         Ok(())
     }
 
+    #[cfg(test)]
     pub(super) fn set_raw_policy_at(
         &mut self,
         index: usize,
@@ -405,6 +409,7 @@ impl Document<'_> {
         Ok(())
     }
 
+    #[cfg(test)]
     fn apply_type_descriptor(&mut self, index: usize, candidate: EvaluatedDescriptor) {
         let primary_hints = {
             let DocumentState::Chunk(chunks) = &self.state else {

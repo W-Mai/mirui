@@ -10,6 +10,7 @@ pub mod coding;
 mod crc32;
 pub mod document;
 mod error;
+pub mod extension;
 #[cfg(test)]
 mod flat;
 pub mod font;

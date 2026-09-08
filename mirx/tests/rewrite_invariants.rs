@@ -1,9 +1,6 @@
 use mirx::{
-    ChunkFlags, ChunkId, ChunkType, Document, PrimaryHints, Reader,
-    document::{
-        CriticalAssumption, PayloadInput, RawChunkInput, RawChunkPolicy, RelocationAssumption,
-        ReservedBitsPolicy,
-    },
+    ChunkId, ChunkType, Document, PrimaryHints, Reader,
+    extension::{Critical, Extension, Policy, Relocation, ReservedFlags},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -13,11 +10,11 @@ struct ExpectedChunk {
     payload: Vec<u8>,
 }
 
-const fn relocatable_policy() -> RawChunkPolicy {
-    RawChunkPolicy {
-        relocation: RelocationAssumption::AssumeRelocatable,
-        critical_semantics: CriticalAssumption::Infer,
-        reserved_flag_bits: ReservedBitsPolicy::Reject,
+const fn relocatable_policy() -> Policy {
+    Policy {
+        relocation: Relocation::AssumeRelocatable,
+        critical_semantics: Critical::Infer,
+        reserved_flag_bits: ReservedFlags::Reject,
     }
 }
 
@@ -45,12 +42,9 @@ fn generated_raw_sequences_rewrite_deterministically_and_reopen_every_payload() 
             let payload_len = next_random(&mut state) as usize % 33;
             let payload = generated_payload(&mut state, payload_len);
             let id = document
-                .push_raw(RawChunkInput {
-                    chunk_type,
-                    flags: ChunkFlags::NONE,
-                    payload: PayloadInput::Owned(payload.clone()),
-                    policy: relocatable_policy(),
-                })
+                .push_extension(
+                    Extension::owned(chunk_type, payload.clone()).with_policy(relocatable_policy()),
+                )
                 .unwrap();
             expected.push(ExpectedChunk {
                 id,
@@ -72,9 +66,9 @@ fn generated_raw_sequences_rewrite_deterministically_and_reopen_every_payload() 
         document
             .get_mut(expected[0].id)
             .unwrap()
-            .replace_raw(
-                PayloadInput::Owned(replacement.clone()),
-                relocatable_policy(),
+            .replace_extension(
+                Extension::owned(expected[0].chunk_type, replacement.clone())
+                    .with_policy(relocatable_policy()),
             )
             .unwrap();
         expected[0].payload = replacement;
