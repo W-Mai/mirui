@@ -661,7 +661,7 @@ mod tests {
             Err(UnitIndexError::RangeStartMismatch { .. })
         ));
         assert!(matches!(
-            UnitIndex::ranges(&[2..1], alignment(1)),
+            UnitIndex::ranges(&[core::ops::Range { start: 2, end: 1 }], alignment(1)),
             Err(UnitIndexError::InvalidRange { .. })
         ));
         assert!(matches!(

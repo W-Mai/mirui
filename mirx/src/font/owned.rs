@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use core::mem::size_of;
 
-use super::asset::{Plan, source::Source};
+use super::asset::{Plan, Storage as AssetStorage, source::Source};
 use super::{
     CmapEntry, FontAdvanceSource, FontAsset, FontError, FontFace, GlyphId, GlyphMap, GlyphPacking,
     GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
@@ -9,8 +9,8 @@ use super::{
 use crate::{
     ByteAlignment, PayloadLimits,
     image::{
-        AtlasMap, ColorDescription, EncodedImageAsset, ImageEncodeError, PlaneMemoryLayout, Region,
-        SampleLayout, SurfaceDescriptor, UnitGroupRecord,
+        AtlasMap, ColorDescription, EncodedImageAsset, PlaneMemoryLayout, Region, SampleLayout,
+        SurfaceDescriptor, UnitGroupRecord,
     },
     media::{CodingTable, DataIntegrity, output::PayloadOutput},
     types::Fixed,
@@ -95,15 +95,13 @@ impl Font {
             size.items::<Region>(map.len())?;
         }
         for surface in asset.surfaces() {
-            size.items::<u8>(surface.data().len())?;
+            let storage = surface.plan()?;
+            size.items::<u8>(storage.data_len())?;
             size.items::<u32>(surface.integrity().partitions().map_or(0, <[u32]>::len))?;
-            if let GlyphSurfaceAsset::Encoded { image, .. } = surface {
-                size.items::<u8>(
-                    CodingTable::encoded_iter_len(image.codings())
-                        .map_err(|e| FontError::Image(ImageEncodeError::Codings(e)))?,
-                )?;
-                size.items::<UnitGroupRecord>(image.groups().map_or(0, <[UnitGroupRecord]>::len))?;
-                size.items::<u8>(image.unit_index().len())?;
+            if let AssetStorage::Encoded(storage) = storage {
+                size.items::<u8>(storage.coding_len())?;
+                size.items::<UnitGroupRecord>(storage.group_record_count())?;
+                size.items::<u8>(storage.index_len())?;
             }
         }
         let cmap = Self::copy(asset.cmap())?;
@@ -150,23 +148,40 @@ impl Font {
                 }
                 GlyphSurfaceAsset::Encoded { image, .. } => {
                     layout = image.surface().sample_layout();
-                    let len = CodingTable::encoded_iter_len(image.codings())
-                        .map_err(|e| FontError::Image(ImageEncodeError::Codings(e)))?;
-                    let mut codings = Self::reserve(len)?;
-                    codings.resize(len, 0);
+                    let storage = match surface.plan()? {
+                        AssetStorage::Encoded(storage) => storage,
+                        AssetStorage::Raw { .. } => unreachable!(),
+                    };
+                    let mut codings = Self::reserve(storage.coding_len())?;
+                    codings.resize(storage.coding_len(), 0);
                     CodingTable::encode_iter_into(image.codings(), &mut codings)
                         .expect("validated coding body");
+                    let groups = if storage.group_record_count() == 0 {
+                        None
+                    } else {
+                        let mut groups = Self::reserve(storage.group_record_count())?;
+                        storage
+                            .visit_group_records(|record| groups.push(record))
+                            .map_err(FontError::Image)?;
+                        Some(groups)
+                    };
+                    let mut index = Self::reserve(storage.index_len())?;
+                    index.resize(storage.index_len(), 0);
+                    storage.write_index_into(&mut index);
+                    let mut data = Self::reserve(storage.data_len())?;
+                    data.resize(storage.data_len(), 0);
+                    storage.write_data_into(&mut data);
                     Storage::Encoded {
                         codings,
-                        groups: image.groups().map(Self::copy).transpose()?,
-                        index: Self::copy(image.unit_index())?,
-                        partitions: image.integrity().partitions().map(Self::copy).transpose()?,
-                        alignment: if image.groups().is_some() {
+                        alignment: if groups.is_some() {
                             ByteAlignment::ONE
                         } else {
-                            image.input_alignment().map_err(FontError::Image)?
+                            storage.alignment()
                         },
-                        data: Self::copy(image.data())?,
+                        groups,
+                        index,
+                        partitions: image.integrity().partitions().map(Self::copy).transpose()?,
+                        data,
                     }
                 }
             };

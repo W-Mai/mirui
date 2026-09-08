@@ -80,18 +80,15 @@ pub(in crate::font) trait Source: Copy {
                     .partitions()
                     .map_or(0, |p| p.len() as u64 * INTEGRITY_RECORD_LEN as u64),
             )?;
-            if let GlyphSurfaceAsset::Encoded { image, .. } = surface {
-                charge(&mut preflight, image.codings().len() as u64 * 8)?;
-                let bytes = image
-                    .codings()
-                    .try_fold(0u64, |n, c| n.checked_add(c.params().len() as u64))
+            if matches!(surface, GlyphSurfaceAsset::Encoded { .. }) {
+                let storage = surface.plan()?;
+                let bytes = storage
+                    .sections()
+                    .into_iter()
+                    .flatten()
+                    .try_fold(0u64, |total, (_, len)| total.checked_add(len as u64))
                     .ok_or(FontError::SizeOverflow)?;
-                charge(
-                    &mut preflight,
-                    bytes
-                        + image.groups().map_or(0, |g| g.len() as u64 * 36)
-                        + image.unit_index().len() as u64,
-                )?;
+                charge(&mut preflight, bytes)?;
             }
         }
         let plan = Plan::metadata(self)?;

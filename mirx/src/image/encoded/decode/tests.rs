@@ -121,7 +121,7 @@ fn complete_sub_byte_tiles_share_one_byte_workspace_and_exact_work_limits() {
     let data = [
         0x80, 0xe0, 0x80, 0xa0, 0x80, 0x40, 0x80, 0x20, 0x80, 0x60, 0x80, 0xc0,
     ];
-    let payload = EncodedImageAsset::from_groups(surface, &coding, &groups, &data)
+    let payload = EncodedImageAsset::from_records(surface, &coding, &groups, &data)
         .encode()
         .unwrap();
     let image = EncodedImageView::open(&payload).unwrap();

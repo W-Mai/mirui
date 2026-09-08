@@ -1,4 +1,5 @@
 use alloc::vec::Vec;
+use core::ops::Range;
 
 pub(super) mod source;
 use source::Source;
@@ -101,12 +102,6 @@ impl<'a> GlyphSurfaceAsset<'a> {
             Self::Encoded { map, .. } => map,
         }
     }
-    pub const fn data(self) -> &'a [u8] {
-        match self {
-            Self::Raw { glyphs, .. } => glyphs.as_bytes(),
-            Self::Encoded { image, .. } => image.data(),
-        }
-    }
     fn descriptor(self) -> SurfaceDescriptor {
         match self {
             Self::Raw { glyphs, .. } => SurfaceDescriptor::new(
@@ -125,7 +120,7 @@ impl<'a> GlyphSurfaceAsset<'a> {
             Self::Encoded { image, .. } => image.integrity(),
         }
     }
-    fn plan(self) -> Result<Storage<'a>, FontError> {
+    pub(in crate::font) fn plan(self) -> Result<Storage<'a>, FontError> {
         match self {
             Self::Raw { glyphs, .. } => {
                 let map = glyphs.map();
@@ -135,9 +130,10 @@ impl<'a> GlyphSurfaceAsset<'a> {
                     .plane_geometry(width, height, 0)
                     .expect("scalar geometry");
                 let tight = PlaneMemoryLayout::tight(plane).expect("validated tight span");
-                Ok(Storage::Raw(
-                    (tight != glyphs.memory_layout()).then_some(glyphs.memory_layout()),
-                ))
+                Ok(Storage::Raw {
+                    memory: (tight != glyphs.memory_layout()).then_some(glyphs.memory_layout()),
+                    data: glyphs.as_bytes(),
+                })
             }
             Self::Encoded { map, image } => {
                 let surface = image.surface();
@@ -284,37 +280,63 @@ impl<'a> FontAsset<'a> {
 }
 
 #[derive(Clone, Copy)]
-enum Storage<'a> {
-    Raw(Option<PlaneMemoryLayout>),
+pub(in crate::font) enum Storage<'a> {
+    Raw {
+        memory: Option<PlaneMemoryLayout>,
+        data: &'a [u8],
+    },
     Encoded(EncodedStoragePlan<'a>),
 }
 impl Storage<'_> {
-    fn sections(self) -> [Option<(MediaSectionKind, usize)>; 3] {
+    pub(in crate::font) fn sections(self) -> [Option<(MediaSectionKind, usize)>; 3] {
         match self {
-            Self::Raw(plane) => [
-                plane.map(|_| (MediaSectionKind::PLANES, PLANE_RECORD_LEN)),
+            Self::Raw { memory, .. } => [
+                memory.map(|_| (MediaSectionKind::PLANES, PLANE_RECORD_LEN)),
                 None,
                 None,
             ],
             Self::Encoded(plan) => plan.sections(),
         }
     }
-    fn alignment(self) -> ByteAlignment {
+    pub(in crate::font) fn alignment(self) -> ByteAlignment {
         match self {
-            Self::Raw(memory) => memory.map_or(ByteAlignment::ONE, |p| p.required_alignment()),
+            Self::Raw { memory, .. } => {
+                memory.map_or(ByteAlignment::ONE, |p| p.required_alignment())
+            }
             Self::Encoded(plan) => plan.alignment(),
+        }
+    }
+    pub(in crate::font) fn data_len(self) -> usize {
+        match self {
+            Self::Raw { data, .. } => data.len(),
+            Self::Encoded(plan) => plan.data_len(),
+        }
+    }
+    fn data_crc(self, range: Range<u32>) -> u32 {
+        match self {
+            Self::Raw { data, .. } => crate::crc32(&data[range.start as usize..range.end as usize]),
+            Self::Encoded(plan) => plan.data_crc(range),
+        }
+    }
+    fn emit_data(self, output: &mut PayloadOutput<'_>) {
+        match self {
+            Self::Raw { data, .. } => output.write(data),
+            Self::Encoded(plan) => plan.emit_data(output),
         }
     }
     fn emit(self, output: &mut PayloadOutput<'_>) {
         match self {
-            Self::Raw(Some(memory)) => {
+            Self::Raw {
+                memory: Some(memory),
+                ..
+            } => {
                 let mut bytes = [0; PLANE_RECORD_LEN];
                 memory
                     .encode_record_into(&mut bytes)
                     .expect("validated plane");
                 output.write(&bytes);
             }
-            Self::Raw(None) => {}
+            Self::Raw { memory: None, .. } => {}
             Self::Encoded(plan) => plan.emit_metadata(output),
         }
     }
@@ -550,7 +572,7 @@ impl<S: Source> Plan<S> {
             let storage = surface.plan()?;
             surface
                 .integrity()
-                .section_len(surface.data().len())
+                .section_len(storage.data_len())
                 .map_err(FontError::Integrity)?;
             for (_, len) in storage.sections().into_iter().flatten() {
                 sections += 1;
@@ -560,7 +582,7 @@ impl<S: Source> Plan<S> {
                 let count = surface
                     .integrity()
                     .partitions()
-                    .map_or(usize::from(!surface.data().is_empty()), <[u32]>::len);
+                    .map_or(usize::from(storage.data_len() != 0), <[u32]>::len);
                 integrity_len += count as u64 * INTEGRITY_RECORD_LEN as u64;
             }
         }
@@ -572,9 +594,10 @@ impl<S: Source> Plan<S> {
         let metadata_end = u32::try_from(size).map_err(|_| FontError::SizeOverflow)? as usize;
         let mut end = metadata_end;
         for surface in asset.surfaces() {
-            end = Self::aligned(end, surface.plan()?.alignment())?;
+            let storage = surface.plan()?;
+            end = Self::aligned(end, storage.alignment())?;
             end = end
-                .checked_add(surface.data().len())
+                .checked_add(storage.data_len())
                 .ok_or(FontError::SizeOverflow)?;
         }
         let len = end
@@ -652,16 +675,13 @@ impl<S: Source> Plan<S> {
             + u16::from(self.asset.atlas_map_count() != 0)
     }
 
-    fn visit_data(&self, mut visitor: impl FnMut(GlyphSurfaceAsset<'_>, usize)) {
+    fn visit_data(&self, mut visitor: impl FnMut(GlyphSurfaceAsset<'_>, Storage<'_>, usize)) {
         let mut offset = self.metadata_end;
         for surface in self.asset.surfaces() {
-            offset = Self::aligned(
-                offset,
-                surface.plan().expect("validated storage").alignment(),
-            )
-            .expect("validated span");
-            visitor(surface, offset);
-            offset += surface.data().len();
+            let storage = surface.plan().expect("validated storage");
+            offset = Self::aligned(offset, storage.alignment()).expect("validated span");
+            visitor(surface, storage, offset);
+            offset += storage.data_len();
         }
     }
 
@@ -695,8 +715,8 @@ impl<S: Source> Plan<S> {
         if self.indexed {
             output.section(MediaSectionKind::INTEGRITY, offset, self.integrity_len);
         }
-        self.visit_data(|surface, offset| {
-            output.section(MediaSectionKind::DATA, offset, surface.data().len())
+        self.visit_data(|_, storage, offset| {
+            output.section(MediaSectionKind::DATA, offset, storage.data_len())
         });
         let mut face = [0; FACE_RECORD_LEN];
         self.asset
@@ -805,9 +825,9 @@ impl<S: Source> Plan<S> {
             surface.plan().expect("validated storage").emit(&mut output);
         }
         if self.indexed {
-            self.visit_data(|surface, offset| {
+            self.visit_data(|surface, storage, offset| {
                 let mut start = 0;
-                let end = surface.data().len() as u32;
+                let end = storage.data_len() as u32;
                 let whole = [end];
                 let ends =
                     surface
@@ -815,7 +835,7 @@ impl<S: Source> Plan<S> {
                         .partitions()
                         .unwrap_or(if end == 0 { &[] } else { &whole });
                 for &end in ends {
-                    let crc = crate::crc32(&surface.data()[start as usize..end as usize]);
+                    let crc = storage.data_crc(start..end);
                     let range =
                         IntegrityRange::new(offset as u32 + start..offset as u32 + end, crc)
                             .expect("validated integrity range");
@@ -825,7 +845,7 @@ impl<S: Source> Plan<S> {
             });
         }
         debug_assert_eq!(output.position(), self.metadata_end);
-        self.visit_data(|surface, offset| {
+        self.visit_data(|_, storage, offset| {
             output.begin_metadata();
             output.pad_to(offset);
             output.begin_data(if self.indexed {
@@ -833,7 +853,7 @@ impl<S: Source> Plan<S> {
             } else {
                 DataIntegrity::Whole
             });
-            output.write(surface.data());
+            storage.emit_data(&mut output);
         });
         debug_assert_eq!(
             output.position() + if self.indexed { 0 } else { MEDIA_CRC_LEN },

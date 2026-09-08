@@ -1,0 +1,43 @@
+error[E0624]: associated function `from_records` is private
+  --> tests/public_api_fail/image_wire_authoring.rs:14:32
+   |
+14 |       let _ = EncodedImageAsset::from_records(surface, codings, groups, data);
+   |                                  ^^^^^^^^^^^^ private associated function
+   |
+  ::: src/image/encoded/encode.rs
+   |
+   | /     pub(crate) const fn from_records(
+   | |         surface: SurfaceDescriptor,
+   | |         codings: &'a [CodingRecord<'a>],
+   | |         groups: &'a [UnitGroupRecord],
+   | |         data: &'a [u8],
+   | |     ) -> Self {
+   | |_____________- private associated function defined here
+
+error[E0624]: method `with_groups` is private
+  --> tests/public_api_fail/image_wire_authoring.rs:16:10
+   |
+16 |         .with_groups(groups)
+   |          ^^^^^^^^^^^ private method
+   |
+  ::: src/image/encoded/encode.rs
+   |
+   |     pub(crate) const fn with_groups(mut self, groups: &'a [UnitGroupRecord]) -> Self {
+   |     -------------------------------------------------------------------------------- private method defined here
+
+error[E0624]: method `with_unit_index` is private
+  --> tests/public_api_fail/image_wire_authoring.rs:18:70
+   |
+18 |     let _ = EncodedImageAsset::new(surface, CodingRecord::RAW, data).with_unit_index(&[]);
+   |                                                                      ^^^^^^^^^^^^^^^ private method
+   |
+  ::: src/image/encoded/encode.rs
+   |
+   |     pub(crate) const fn with_unit_index(mut self, bytes: &'a [u8]) -> Self {
+   |     ---------------------------------------------------------------------- private method defined here
+
+error[E0599]: no method named `data` found for enum `GlyphSurfaceAsset<'a>` in the current scope
+  --> tests/public_api_fail/image_wire_authoring.rs:19:20
+   |
+19 |     let _ = glyphs.data();
+   |                    ^^^^ method not found in `GlyphSurfaceAsset<'a>`

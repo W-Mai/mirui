@@ -10,7 +10,7 @@ fn indexed_authoring_has_exact_local_coverage_and_no_whole_data_trailer() {
     let surface = SurfaceDescriptor::new(4, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
     let codings = [Rle::new().record()];
     let records = [UnitGroupRecord::new(0, 0..4).unwrap().with_tiles(2, 1)];
-    let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &[0x81, 42, 0x81, 43]);
+    let asset = EncodedImageAsset::from_records(surface, &codings, &records, &[0x81, 42, 0x81, 43]);
     let whole = asset.encode().unwrap();
     assert_eq!(asset.integrity(), DataIntegrity::Whole);
     let indexed = asset.with_integrity(DataIntegrity::Indexed(&[2, 4]));
@@ -74,7 +74,7 @@ fn partitioned_padding_and_work_bounds_match_wire_admission() {
     data[..2].copy_from_slice(&[0x81, 42]);
     data[64..].copy_from_slice(&[0x81, 43]);
     for ends in [&[64, 66][..], &[2, 64, 66][..]] {
-        let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &data)
+        let asset = EncodedImageAsset::from_records(surface, &codings, &records, &data)
             .with_integrity(DataIntegrity::Indexed(ends));
         let payload = asset.encode().unwrap();
         let image = EncodedImageView::open_at(&payload, 0).unwrap();

@@ -5,7 +5,7 @@ use crate::image::{
     UnitGroupRecord,
 };
 use crate::media::{CodingRecord, CodingTable, CodingTableError};
-use core::ops::Range;
+use core::{iter::FusedIterator, ops::Range};
 
 #[cfg(test)]
 mod tests;
@@ -14,6 +14,7 @@ mod tests;
 pub(crate) enum CodingRecords<'a> {
     Wire(CodingTable<'a>),
     Native(&'a [CodingRecord<'a>]),
+    Groups(&'a [UnitGroup<'a>]),
 }
 
 impl<'a> CodingRecords<'a> {
@@ -21,12 +22,31 @@ impl<'a> CodingRecords<'a> {
         match self {
             Self::Wire(table) => table.len(),
             Self::Native(records) => records.len(),
+            Self::Groups(groups) => groups
+                .iter()
+                .enumerate()
+                .filter(|(index, group)| {
+                    !groups[..*index]
+                        .iter()
+                        .any(|candidate| candidate.coding() == group.coding())
+                })
+                .count(),
         }
     }
     pub(crate) fn get(self, index: usize) -> Option<CodingRecord<'a>> {
-        match self {
-            Self::Wire(table) => table.get(index),
-            Self::Native(records) => records.get(index).copied(),
+        self.iter().nth(index)
+    }
+
+    pub(crate) fn iter(self) -> CodingRecordsIter<'a> {
+        CodingRecordsIter {
+            source: self,
+            front: 0,
+            back: match self {
+                Self::Wire(table) => table.len(),
+                Self::Native(records) => records.len(),
+                Self::Groups(groups) => groups.len(),
+            },
+            remaining: self.len(),
         }
     }
 
@@ -34,9 +54,81 @@ impl<'a> CodingRecords<'a> {
         match self {
             Self::Wire(table) => Ok(table.byte_len()),
             Self::Native(records) => CodingTable::encoded_len(records),
+            Self::Groups(_) => CodingTable::encoded_iter_len(self.iter()),
+        }
+    }
+
+    pub(crate) fn index_of(self, coding: CodingRecord<'_>) -> Option<u32> {
+        self.iter()
+            .position(|candidate| candidate == coding)
+            .and_then(|index| u32::try_from(index).ok())
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct CodingRecordsIter<'a> {
+    source: CodingRecords<'a>,
+    front: usize,
+    back: usize,
+    remaining: usize,
+}
+
+impl<'a> CodingRecordsIter<'a> {
+    fn get(&self, index: usize) -> Option<CodingRecord<'a>> {
+        match self.source {
+            CodingRecords::Wire(table) => table.get(index),
+            CodingRecords::Native(records) => records.get(index).copied(),
+            CodingRecords::Groups(groups) => groups.get(index).map(|group| group.coding()),
+        }
+    }
+
+    fn is_unique(&self, index: usize, coding: CodingRecord<'_>) -> bool {
+        match self.source {
+            CodingRecords::Groups(groups) => !groups[..index]
+                .iter()
+                .any(|candidate| candidate.coding() == coding),
+            _ => true,
         }
     }
 }
+
+impl<'a> Iterator for CodingRecordsIter<'a> {
+    type Item = CodingRecord<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.front < self.back {
+            let index = self.front;
+            self.front += 1;
+            let coding = self.get(index)?;
+            if self.is_unique(index, coding) {
+                self.remaining -= 1;
+                return Some(coding);
+            }
+        }
+        None
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        (self.remaining, Some(self.remaining))
+    }
+}
+
+impl DoubleEndedIterator for CodingRecordsIter<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        while self.front < self.back {
+            self.back -= 1;
+            let coding = self.get(self.back)?;
+            if self.is_unique(self.back, coding) {
+                self.remaining -= 1;
+                return Some(coding);
+            }
+        }
+        None
+    }
+}
+
+impl ExactSizeIterator for CodingRecordsIter<'_> {}
+impl FusedIterator for CodingRecordsIter<'_> {}
 
 #[derive(Clone, Copy)]
 pub(crate) enum GroupRecords<'a> {

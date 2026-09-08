@@ -2,6 +2,7 @@ use super::*;
 use crate::{
     coding::Rle,
     font::{FontGlyphs, FontRepresentation, FontView},
+    image::{UnitGroup, UnitSelection},
     types::Fixed,
 };
 
@@ -52,6 +53,13 @@ fn asset(check: impl FnOnce(FontAsset<'_>)) {
     );
 }
 
+fn stored_data(surface: GlyphSurfaceAsset<'_>) -> &[u8] {
+    match surface {
+        GlyphSurfaceAsset::Raw { glyphs, .. } => glyphs.as_bytes(),
+        GlyphSurfaceAsset::Encoded { image, .. } => image.data(),
+    }
+}
+
 #[test]
 fn owned_metadata_edits_preserve_encoded_data_and_shared_ordinals() {
     let mut result = None;
@@ -63,7 +71,7 @@ fn owned_metadata_edits_preserve_encoded_data_and_shared_ordinals() {
     let mut font = result.unwrap();
     let source = font.encode().unwrap();
     assert!(font.matches_payload(&source).unwrap());
-    let stored = font.surface(1).unwrap().data().to_vec();
+    let stored = stored_data(font.surface(1).unwrap()).to_vec();
     assert_eq!(stored, [0x87, 42]);
     let metric = RasterMetrics::new(Fixed::from_ratio(-17, 256), Fixed::from_ratio(-65, 256));
     font.raster_metrics_mut()[2] = metric;
@@ -85,7 +93,7 @@ fn owned_metadata_edits_preserve_encoded_data_and_shared_ordinals() {
             .collect::<Vec<_>>(),
         ['A', '中']
     );
-    assert_eq!(font.surface(1).unwrap().data(), stored);
+    assert_eq!(stored_data(font.surface(1).unwrap()), stored);
     font.preflight(&PayloadLimits::EMBEDDED).unwrap();
     let bytes = font.encode().unwrap();
     let view = FontView::open_at(&bytes, 0, &PayloadLimits::EMBEDDED).unwrap();
@@ -101,6 +109,65 @@ fn owned_metadata_edits_preserve_encoded_data_and_shared_ordinals() {
     let len = font.encode_into(&mut output).unwrap();
     assert_eq!(&output[..len], bytes);
     assert_eq!(&output[len..], &[0xcc; 8]);
+}
+
+#[test]
+fn semantic_image_groups_survive_font_emission_and_ownership() {
+    let map = GlyphMap::cells(2, 2, 2).unwrap();
+    let surface = SurfaceDescriptor::new(2, 4, SampleLayout::A8, ColorDescription::NONE).unwrap();
+    let first_data = [0x83, 42];
+    let second_data = [0x83, 43];
+    let first_cell = [0];
+    let second_cell = [1];
+    let groups = [
+        UnitGroup::builder(surface, Rle::new().record(), &first_data)
+            .with_tiles(2, 2)
+            .with_selection(UnitSelection::cells(2, &first_cell).unwrap())
+            .build()
+            .unwrap(),
+        UnitGroup::builder(surface, Rle::new().record(), &second_data)
+            .with_tiles(2, 2)
+            .with_selection(UnitSelection::cells(2, &second_cell).unwrap())
+            .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
+            .build()
+            .unwrap(),
+    ];
+    let image = EncodedImageAsset::from_groups(surface, &groups)
+        .with_integrity(DataIntegrity::Indexed(&[64, 66]));
+    let surfaces = [GlyphSurfaceAsset::Encoded { map, image }];
+    let representations = [RepresentationAsset::new(
+        FontRepresentation::coverage(8, 12, 8).unwrap(),
+        0,
+    )];
+    let face = FontFace::new(
+        1_000,
+        GlyphId::NOTDEF,
+        2,
+        Fixed::ONE,
+        Fixed::ZERO,
+        Fixed::ZERO,
+    )
+    .unwrap();
+    let cmap = [
+        CmapEntry::new('A', GlyphId::new(0)),
+        CmapEntry::new('B', GlyphId::new(1)),
+    ];
+    let advances = [Fixed::ONE; 2];
+    let metrics = [RasterMetrics::default(); 2];
+    let asset = FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances)).with_rasters(
+        &representations,
+        &metrics,
+        &surfaces,
+    );
+    asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
+    let bytes = asset.encode().unwrap();
+    let font = Font::from_asset(asset, &PayloadLimits::EMBEDDED).unwrap();
+    assert_eq!(font.encode().unwrap(), bytes);
+    font.preflight(&PayloadLimits::EMBEDDED).unwrap();
+    FontView::open_at(&bytes, 0, &PayloadLimits::EMBEDDED)
+        .unwrap()
+        .preflight(&PayloadLimits::EMBEDDED)
+        .unwrap();
 }
 
 #[test]

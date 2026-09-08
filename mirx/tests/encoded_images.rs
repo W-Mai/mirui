@@ -8,7 +8,8 @@ use mirx::{
     extension::{Critical, Extension, Policy, Relocation, ReservedFlags},
     image::{
         ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageError, ImageReadError,
-        SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitDecodeError,
+        SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitDecodeError, UnitGroup,
+        UnitSelection,
     },
     reader::{PayloadLimits, PayloadLocation, PayloadValidationFailure, ReadError, ReadOptions},
     types::PayloadError,
@@ -85,7 +86,7 @@ fn frequency_profiles_round_trip_through_container_preflight_and_decode() {
 
 #[test]
 fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
-    use mirx::image::{GroupSelection, Region, UnitGroupRecord};
+    use mirx::image::Region;
     use mirx::types::DataIntegrity;
     let surface =
         SurfaceDescriptor::new(8, 1, SampleLayout::RGB888, ColorDescription::SRGB).unwrap();
@@ -116,19 +117,17 @@ fn grouped_profiles_round_trip_typed_edits_and_independent_aligned_tiles() {
             .unwrap(),
         samples[3].len(),
     ];
-    let records: [_; 4] = core::array::from_fn(|i| {
-        UnitGroupRecord::new(i as u32, (64 * i) as u32..(64 * i + lengths[i]) as u32)
-            .unwrap()
+    let cells = [[0], [1], [2], [3]];
+    let groups: [UnitGroup<'_>; 4] = core::array::from_fn(|i| {
+        UnitGroup::builder(surface, codings[i], &data[64 * i..64 * i + lengths[i]])
             .with_tiles(2, 1)
-            .with_selection(GroupSelection::List(1))
-            .with_index_offset((i * 4) as u32)
+            .with_selection(UnitSelection::cells(4, &cells[i]).unwrap())
             .with_input_alignment(mirx::types::ByteAlignment::new(64).unwrap())
+            .build()
+            .unwrap()
     });
-    let index = [0, 0, 0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0];
-    let asset =
-        EncodedImageAsset::from_groups(surface, &codings, &records, &data[..192 + lengths[3]])
-            .with_unit_index(&index)
-            .with_integrity(DataIntegrity::Indexed(&[64, 128, 192, 198]));
+    let asset = EncodedImageAsset::from_groups(surface, &groups)
+        .with_integrity(DataIntegrity::Indexed(&[64, 128, 192, 198]));
     let mut document = Document::new();
     let id = document
         .push_encoded_image_with_flags(&asset, ChunkFlags::CRITICAL)

@@ -425,19 +425,21 @@ fn indexed_region_decode_borrows_palette_and_uses_only_caller_output_and_workspa
         coding::Rle,
         image::{
             CoverageBudget, DecodeRequest, EncodedImageAsset, EncodedImageView, MemoryPlacement,
-            UnitGroupRecord,
+            UnitGroup,
         },
         types::DataIntegrity,
     };
     let surface = SurfaceDescriptor::new(4, 1, SampleLayout::I4, ColorDescription::SRGB).unwrap();
-    let coding = [Rle::new().record()];
-    let records = [UnitGroupRecord::new(0, 0..4).unwrap().with_tiles(2, 1)];
-    let payload =
-        EncodedImageAsset::from_groups(surface, &coding, &records, &[0x80, 0x12, 0x80, 0x34])
-            .with_color_table(&[0; 64])
-            .with_integrity(DataIntegrity::Indexed(&[2, 4]))
-            .encode()
-            .unwrap();
+    let data = [0x80, 0x12, 0x80, 0x34];
+    let groups = [UnitGroup::builder(surface, Rle::new().record(), &data)
+        .with_tiles(2, 1)
+        .build()
+        .unwrap()];
+    let payload = EncodedImageAsset::from_groups(surface, &groups)
+        .with_color_table(&[0; 64])
+        .with_integrity(DataIntegrity::Indexed(&[2, 4]))
+        .encode()
+        .unwrap();
     #[repr(align(64))]
     struct Buffer([u8; 128]);
     let mut output = Buffer([0xa5; 128]);
@@ -684,9 +686,10 @@ fn raw_units_preflight_and_transfer_without_staging_or_heap() {
     )
     .unwrap();
     let samples = [128; 27];
-    let records = [mirx::image::UnitGroupRecord::new(0, 0..27).unwrap()];
-    let codings = [CodingRecord::RAW];
-    let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &samples);
+    let groups = [UnitGroup::builder(surface, CodingRecord::RAW, &samples)
+        .build()
+        .unwrap()];
+    let asset = EncodedImageAsset::from_groups(surface, &groups);
     #[repr(align(64))]
     struct Aligned([u8; 512]);
     let mut output = Aligned([0xad; 512]);
@@ -725,24 +728,21 @@ fn raw_units_preflight_and_transfer_without_staging_or_heap() {
 }
 
 #[test]
-fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
+fn grouped_authoring_uses_semantic_groups_and_allocates_only_changed_payloads() {
     use mirx::{
         coding::Rle,
-        image::{EncodedImageAsset, EncodedImageView, UnitGroupRecord, UnitIndexEncoding},
+        image::{EncodedImageAsset, EncodedImageView, UnitGroup, UnitIndex},
         types::DataIntegrity,
     };
     let surface = SurfaceDescriptor::new(3, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let codings = [Rle::new().record()];
-    let records = [UnitGroupRecord::new(0, 0..5)
-        .unwrap()
+    let data = [1, 1, 2, 0, 3];
+    let ranges = [0..3, 3..5];
+    let groups = [UnitGroup::builder(surface, Rle::new().record(), &data)
         .with_tiles(2, 1)
-        .with_index_encoding(UnitIndexEncoding::Lengths16)];
-    let mut index = [0; 16];
-    let index_len = UnitIndexEncoding::Lengths16
-        .encode_into(&[3, 2], mirx::types::ByteAlignment::ONE, &mut index)
-        .unwrap();
-    let asset = EncodedImageAsset::from_groups(surface, &codings, &records, &[1, 1, 2, 0, 3])
-        .with_unit_index(&index[..index_len])
+        .with_index(UnitIndex::ranges(&ranges, mirx::types::ByteAlignment::ONE).unwrap())
+        .build()
+        .unwrap()];
+    let asset = EncodedImageAsset::from_groups(surface, &groups)
         .with_integrity(DataIntegrity::Indexed(&[3, 5]));
     let mut output = [0xad; 512];
     let (len, allocations) = count_allocations(|| {
@@ -769,8 +769,15 @@ fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
             .unwrap()
     });
     assert_eq!(allocations, 0);
-    let changed = EncodedImageAsset::from_groups(surface, &codings, &records, &[1, 1, 2, 0, 4])
-        .with_unit_index(&index[..index_len])
+    let changed_data = [1, 1, 2, 0, 4];
+    let changed_groups = [
+        UnitGroup::builder(surface, Rle::new().record(), &changed_data)
+            .with_tiles(2, 1)
+            .with_index(UnitIndex::ranges(&ranges, mirx::types::ByteAlignment::ONE).unwrap())
+            .build()
+            .unwrap(),
+    ];
+    let changed = EncodedImageAsset::from_groups(surface, &changed_groups)
         .with_integrity(DataIntegrity::Indexed(&[3, 5]));
     let (_, allocations) = count_allocations(|| {
         document
@@ -780,7 +787,7 @@ fn grouped_authoring_uses_caller_tables_and_allocates_only_changed_payloads() {
             .unwrap()
     });
     assert_eq!(allocations, 1);
-    let invalid = asset.with_unit_index(&index[..index_len - 1]);
+    let invalid = asset.with_integrity(DataIntegrity::Indexed(&[3, 4]));
     let (_, allocations) = count_allocations(|| {
         assert!(
             document

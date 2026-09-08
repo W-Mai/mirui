@@ -255,7 +255,7 @@ impl<'a> FramesAsset<'a> {
 
     fn storage(self) -> EncodedImageAsset<'a> {
         let mut storage =
-            EncodedImageAsset::from_groups(self.surface, self.codings, self.groups, self.data)
+            EncodedImageAsset::from_records(self.surface, self.codings, self.groups, self.data)
                 .with_unit_index(self.indexes)
                 .with_integrity(self.integrity);
         if let Some(table) = self.color_table {

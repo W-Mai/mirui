@@ -15,7 +15,7 @@ fn retained_coding_tables_emit_identical_native_bytes_without_record_arrays() {
     let data = [0x83, 7];
     let codings = [Rle::new().record(), CodingRecord::RAW];
     let records = [UnitGroupRecord::new(0, 0..2).unwrap()];
-    let native = EncodedImageAsset::from_groups(surface, &codings, &records, &data);
+    let native = EncodedImageAsset::from_records(surface, &codings, &records, &data);
     let bytes = native.encode().unwrap();
     let image = EncodedImageView::open(&bytes).unwrap();
     let retained =

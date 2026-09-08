@@ -107,13 +107,13 @@ impl<'a, 'g> ImageGroups<'a, 'g> {
     /// ```
     /// use mirx::{reader::PayloadLimits, types::{ByteAlignment, DataIntegrity}, coding::Rle, image::{
     ///     ColorDescription, CoverageBudget, EncodedImageAsset, EncodedImageView,
-    ///     SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitGroupRecord,
+    ///     SampleLayout, SurfaceDescriptor, SurfaceRequirements, UnitGroup,
     /// }};
     /// let surface = SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    /// let codings = [Rle::new().record()];
-    /// let records = [UnitGroupRecord::new(0, 0..8).unwrap().with_tiles(2, 1)];
     /// let data = [0x81, 10, 0x81, 20, 0x81, 30, 0x81, 40];
-    /// let bytes = EncodedImageAsset::from_groups(surface, &codings, &records, &data)
+    /// let groups = [UnitGroup::builder(surface, Rle::new().record(), &data)
+    ///     .with_tiles(2, 1).build().unwrap()];
+    /// let bytes = EncodedImageAsset::from_groups(surface, &groups)
     ///     .with_integrity(DataIntegrity::Indexed(&[2, 4, 6, 8])).encode().unwrap();
     /// let image = EncodedImageView::open(&bytes).unwrap();
     /// let mut slots = [None];

@@ -57,7 +57,7 @@ fn independent_glyph_units_share_scalar_plans_and_aligned_error_atomic_output() 
         let records = [UnitGroupRecord::new(0, 0..data.len() as u32)
             .unwrap()
             .with_tiles(2, 2)];
-        let bytes = EncodedImageAsset::from_groups(surface, &codings, &records, data)
+        let bytes = EncodedImageAsset::from_records(surface, &codings, &records, data)
             .encode()
             .unwrap();
         let glyphs = bind(
@@ -202,7 +202,7 @@ fn selected_glyph_integrity_respects_partition_scope_and_empty_requests() {
     let records = [UnitGroupRecord::new(0, 0..4).unwrap().with_tiles(2, 2)];
     for integrity in [DataIntegrity::Whole, DataIntegrity::Indexed(&[2, 4])] {
         let mut bytes =
-            EncodedImageAsset::from_groups(surface, &codings, &records, &[0x83, 1, 0x83, 2])
+            EncodedImageAsset::from_records(surface, &codings, &records, &[0x83, 1, 0x83, 2])
                 .with_integrity(integrity)
                 .encode()
                 .unwrap();

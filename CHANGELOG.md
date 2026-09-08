@@ -51,6 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Direct FONT atlas binding.** Derived cells store no map bytes; atlas representations accept validated `image::AtlasMap` values and use the shared atlas parser and encoder.
 - **Explicit FONT atlas ranges.** Representation records identify `ATLAS_MAPS` regions by record offset and count; canonical omission, full-map sharing, cardinality and unused-record checks are enforced during face admission.
 - **Precise MIRX font scaling.** Face-unit advances and line metrics scale directly from stored Q24.8 values without quantizing the intermediate size ratio.
+- **Semantic MIRX grouped IMAGE authoring.** `EncodedImageAsset::from_groups` accepts borrowed `UnitGroup` values, deduplicates coding profiles, chooses canonical compact selection and range tables, and emits aligned shared DATA without caller-authored wire records.
+- **Encoded FONT raster storage.** FONT authoring and ownership consume encoded surface plans directly, preserving generated group tables, indexes, aligned DATA and integrity coverage without assuming one contiguous source slice; `GlyphSurfaceAsset::data` has been removed.
 
 ### Added
 

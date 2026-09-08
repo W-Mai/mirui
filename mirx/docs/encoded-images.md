@@ -132,7 +132,7 @@ Use `groups_into` when subsequent access benefits from prepared groups. Its call
 
 Use `validate_groups` when only a validation result is needed. It stores no group table, validates all immutable records once, then resolves them again as the coverage algorithm needs them. Every resolution charges one record visit plus its declared DATA span and the entire UNIT_INDEX section length before index/group parsing. DATA span conservatively bounds nonempty unit visits; index bytes bound selection/range scans. Geometric work is charged separately through the same budget.
 
-Native authoring records and borrowed wire records use one group-resolution and coverage implementation. Authoring does not serialize a temporary coding/group table for validation; native records must satisfy the same field, range, reference and alignment rules as wire records.
+Semantic authoring groups and borrowed wire records use one group-resolution and coverage implementation. Authoring does not serialize temporary coding, group or index tables for validation.
 
 This conservative accounting can reject a many-group image earlier than cached validation, especially when groups share a large index section. Increase the explicit budget or provide workspace instead of assuming an index guarantees cheap validation. Exhaustion never returns success. These units describe bounded work, not actual bytes read, memory usage or elapsed time. Neither validation path decodes samples or verifies DATA checksums.
 
@@ -157,34 +157,35 @@ Work includes group resolution and coverage, each unit's coded and decoded bytes
 
 ## Grouped authoring
 
-`EncodedImageAsset::from_groups(surface, &codings, &groups, data)` borrows all inputs. Each `UnitGroupRecord` names one coding ordinal and a DATA range, with optional tile geometry, plane selection, sparse selection and range encoding. `with_unit_index(bytes)` supplies the combined UNIT_INDEX body; index offsets address that body, while DATA ranges address DATA. No per-unit descriptor array is generated.
+`EncodedImageAsset::from_groups(surface, groups)` borrows checked `UnitGroup` values. Each group carries its coding profile, DATA slice, tile geometry, plane selection, sparse selection, byte ranges and input alignment. The encoder deduplicates equal coding profiles, assigns coding ordinals and DATA offsets, chooses canonical compact tables, and emits no per-unit descriptor array.
 
 ```rust
 use mirx::{reader::PayloadLimits, coding::Rle, image::{
     ColorDescription, EncodedImageAsset, GroupPlanes, SampleLayout,
-    SurfaceDescriptor, UnitGroupRecord,
+    SurfaceDescriptor, UnitGroup,
 }};
 
 let surface = SurfaceDescriptor::new(
     3, 3, SampleLayout::NV12, ColorDescription::BT709_YUV_LIMITED,
 ).unwrap();
-let codings = [Rle::new().record()];
+let y = [0x88, 16];
+let uv = [0x87, 128];
 let groups = [
-    UnitGroupRecord::new(0, 0..2).unwrap().with_planes(GroupPlanes::Plane(0)),
-    UnitGroupRecord::new(0, 2..4).unwrap().with_planes(GroupPlanes::Plane(1)),
+    UnitGroup::builder(surface, Rle::new().record(), &y)
+        .with_planes(GroupPlanes::Plane(0)).build().unwrap(),
+    UnitGroup::builder(surface, Rle::new().record(), &uv)
+        .with_planes(GroupPlanes::Plane(1)).build().unwrap(),
 ];
-// Nine luma bytes followed by eight interleaved chroma bytes after decoding.
-let data = [0x88, 16, 0x87, 128];
-let asset = EncodedImageAsset::from_groups(surface, &codings, &groups, &data);
+let asset = EncodedImageAsset::from_groups(surface, &groups);
 asset.preflight(&PayloadLimits::EMBEDDED).unwrap();
 let mut payload = [0; 256];
 let len = asset.encode_into(&mut payload).unwrap();
 assert_eq!(asset.matches_payload(&payload[..len]), Ok(true));
 ```
 
-Explicit group arrays remain explicit, including a one-group array. Empty arrays are invalid. Empty index bytes omit UNIT_INDEX; fixed-size units need no range index. Variable-size units use `UnitIndexEncoding::encode_into` with the same alignment as their group. Sparse selection bytes precede range bytes within each group's index range. The writer preserves caller-selected index encodings and DATA padding, and aligns the DATA origin to the maximum group requirement. An asset-level alignment override is only available for the single-stream constructor; combining it with explicit groups is an error. `asset.input_alignment()` returns the checked effective alignment.
+Explicit group arrays remain explicit, including a one-group array. Empty arrays are invalid. Fixed-size units and full-grid selections need no index bytes. `UnitIndex::ranges` supplies variable DATA ranges, while `UnitSelection::cells` supplies sparse grid cells; both borrow native Rust slices. The encoder selects list or bitmap selection and fixed, offset or length range storage by canonical encoded size. Groups are concatenated in order with zero-filled alignment gaps, and the DATA origin uses the maximum group requirement. The asset-level alignment override belongs to the single-stream constructor. `asset.input_alignment()` returns the checked effective alignment.
 
-Low-level encoding checks records, profile references, static reference rules and exact DATA/index consumption before writing. Full static coverage and codec support remain bounded `preflight` checks: overlapping or incomplete groups cannot enter typed Document edits. Group count and minimum native table size are checked before table scans; output-span work is charged before index resolution. Single-stream default omission and bytes remain unchanged.
+Low-level encoding checks semantic groups, static reference rules and exact DATA/index construction before writing. Full static coverage and codec support remain bounded `preflight` checks: overlapping or incomplete groups cannot enter typed Document edits. Group count and minimum table size are checked before group scans; output-span work is charged before index resolution. Single-stream default omission and bytes remain unchanged.
 
 ## Checksum partitions
 

@@ -24,7 +24,7 @@ fn exact_sub_byte_regions_bound_staging_and_deduplicate_checksum_partitions() {
         (DataIntegrity::Indexed(&[12]), 12),
         (DataIntegrity::Indexed(&[4, 8, 12]), 8),
     ] {
-        let payload = EncodedImageAsset::from_groups(surface, &coding, &records, &data)
+        let payload = EncodedImageAsset::from_records(surface, &coding, &records, &data)
             .with_integrity(integrity)
             .encode()
             .unwrap();
@@ -115,7 +115,7 @@ fn planar_yuv_queries_project_chroma_and_preserve_odd_outer_edges() {
         0x83, 1, 0x83, 2, 0x81, 3, 0x81, 4, 0x81, 5, 0x80, 6, 0x81, 80, 0x81, 81, 0x81, 82, 0x81,
         83, 0x81, 84, 0x81, 85,
     ];
-    let payload = EncodedImageAsset::from_groups(surface, &coding, &records, &data)
+    let payload = EncodedImageAsset::from_records(surface, &coding, &records, &data)
         .with_integrity(DataIntegrity::Indexed(&[6, 12, 18, 24]))
         .encode()
         .unwrap();
@@ -181,7 +181,7 @@ fn unselected_syntax_is_not_decoded_but_declared_checksum_expansion_remains_requ
         let coding = [Rle::new().record(), other];
         for integrity in [DataIntegrity::Whole, DataIntegrity::Indexed(&[2, 4])] {
             let mut payload =
-                EncodedImageAsset::from_groups(surface, &coding, &records, &[0x81, 42, 0xff, 0])
+                EncodedImageAsset::from_records(surface, &coding, &records, &[0x81, 42, 0xff, 0])
                     .with_unit_index(&[0, 0, 0, 0, 1, 0, 0, 0])
                     .with_integrity(integrity)
                     .encode()

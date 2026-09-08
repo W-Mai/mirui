@@ -77,6 +77,20 @@ impl<'a> Preflight<'a> {
         Ok(())
     }
 
+    pub(crate) fn native_groups(
+        &mut self,
+        surface: crate::image::SurfaceDescriptor,
+        groups: &[UnitGroup<'_>],
+    ) -> Result<(), EncodedImageError> {
+        surface
+            .validate_coverage(groups, &mut self.budget)
+            .map_err(EncodedImageError::Coverage)?;
+        for (index, &group) in groups.iter().enumerate() {
+            self.group(index, group)?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn total_units(&self) -> u64 {
         self.total_units
     }
