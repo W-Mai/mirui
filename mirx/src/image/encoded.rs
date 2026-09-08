@@ -1,8 +1,8 @@
 use core::iter::FusedIterator;
 
 use super::{
-    AccessCapabilities, CoverageBudget, CoverageError, SURFACE_RECORD_LEN, SurfaceDescriptor,
-    SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroup, UnitGroupRecordError,
+    AccessCapabilities, CoverageBudget, CoverageError, EncodedGroupError, SURFACE_RECORD_LEN,
+    SurfaceDescriptor, SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroup,
 };
 use crate::ByteAlignment;
 use crate::media::{
@@ -429,7 +429,7 @@ pub enum EncodedImageError {
     },
     Group {
         index: usize,
-        error: UnitGroupRecordError,
+        error: EncodedGroupError,
     },
     ReferenceInStaticImage(usize),
     EmptyGroup(usize),

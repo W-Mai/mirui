@@ -26,13 +26,9 @@ error[E0603]: module `media` is private
   |
 1 | use mirx::media::{
   |           ^^^^^ private module
-  |
-help: consider importing this enum instead:
-      mirx::image::UnitIndexEncoding
- --> tests/public_api_fail/media_unit_types.rs:2:31
-  |
 2 |     SelectedUnits, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges, UnitSelection,
-  |                               ^^^^^^^^^^^^^^^^^
+  |                               ----------------- enum `UnitIndexEncoding` is not publicly re-exported
+  |
 note: the module `media` is defined here
  --> src/lib.rs
   |
@@ -62,13 +58,10 @@ error[E0603]: module `media` is private
   |
 1 | use mirx::media::{
   |           ^^^^^ private module
-  |
-help: consider importing this enum instead:
-      mirx::image::UnitSelectionEncoding
- --> tests/public_api_fail/media_unit_types.rs:3:5
-  |
+2 |     SelectedUnits, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges, UnitSelection,
 3 |     UnitSelectionEncoding, UnitSelectionError,
-  |     ^^^^^^^^^^^^^^^^^^^^^
+  |     --------------------- enum `UnitSelectionEncoding` is not publicly re-exported
+  |
 note: the module `media` is defined here
  --> src/lib.rs
   |

@@ -9,7 +9,7 @@
 | Lengths16 | `u32[ceil(N / 64)]` checkpoints, then `u16[N]` coded lengths | One checkpoint plus at most 63 earlier lengths | Derived from shared alignment |
 | Lengths32 | `u32[ceil(N / 64)]` checkpoints, then `u32[N]` coded lengths | One checkpoint plus at most 63 earlier lengths | Derived from shared alignment |
 
-All fields are little-endian and read bytewise; the table address need not be aligned. Checkpoints are physical starts of units 0, 64, 128 and so on. The first is zero. Every unit starts at `align_up(previous_end, alignment)`. Its end is that start plus its actual coded length. Count comes from the group, and alignment comes from `UnitGroupRecord::input_alignment`; neither is repeated in the index body.
+All fields are little-endian and read bytewise; the table address need not be aligned. Checkpoints are physical starts of units 0, 64, 128 and so on. The first is zero. Every unit starts at `align_up(previous_end, alignment)`. Its end is that start plus its actual coded length. Count and input alignment come from shared group metadata and are not repeated in the index body.
 
 For coded lengths `[3, 5, 2]` and alignment `64`:
 
@@ -43,8 +43,8 @@ assert!(selection.iter().eq([0, 2, 5]));
 
 ## Stored forms
 
-`lengths16` and `lengths32` accept count, table bytes and alignment; `offsets` derives count from its table. Opening checks every checkpoint, length, total bound and alignment. Forward/reverse iteration advances in constant time per adjacent range; skips use bounded direct lookup, without expanded arrays or scans over skipped units.
+Typed IMAGE and FRAMES readers open stored index and selection tables internally, checking every checkpoint, length, total bound and alignment. They expose validated `UnitIndex` and `UnitSelection` values rather than raw table constructors. Forward and reverse iteration advances in constant time per adjacent item; skips use bounded lookup without expanded arrays or scans over skipped units.
 
-`UnitIndexEncoding::encoded_len(lengths, alignment)` and `encode_into(lengths, alignment, output)` share validation. Overflow, unrepresentable lengths, invalid alignment and insufficient output leave the entire destination unchanged. Success preserves the suffix. Offsets reject any alignment request that would require inserting gaps; the caller selects a length-table form explicitly. Lengths16 rejects lengths above 65,535 instead of silently switching width.
+`EncodedImageAsset::from_groups` and `FramesAsset::new` select the smallest canonical representation from semantic groups. Full selections and fixed coded lengths omit their tables. Sparse selections choose a sorted list or checkpointed bitmap; variable lengths choose adjacent offsets, checkpointed `u16` lengths or checkpointed `u32` lengths. Authoring rejects overflow and noncanonical ranges before writing output.
 
-Group records use index mode 0 for fixed, 1 for offsets, 2 for Lengths16 and 3 for Lengths32. Fixed coded length is uniquely recovered from DATA span, unit count and shared alignment. The last actual end is authoritative: no next start is calculated after the last unit, so an otherwise valid range ending at `u32::MAX` remains representable. Empty generic ranges are supported by the index, but nonempty encoded IMAGE units reject them.
+Stored group metadata uses index mode 0 for fixed, 1 for offsets, 2 for Lengths16 and 3 for Lengths32. Fixed coded length is uniquely recovered from DATA span, unit count and shared alignment. The last actual end is authoritative: no next start is calculated after the last unit, so an otherwise valid range ending at `u32::MAX` remains representable. Empty generic ranges are supported by the semantic index, but nonempty encoded IMAGE units reject them.

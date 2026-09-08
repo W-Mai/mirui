@@ -1,0 +1,33 @@
+error[E0432]: unresolved imports `mirx::image::UnitIndexEncoding`, `mirx::image::UnitSelectionEncoding`
+ --> tests/public_api_fail/image_wire_types.rs:2:38
+  |
+2 |     GroupSelection, UnitGroupRecord, UnitIndexEncoding, UnitSelectionEncoding,
+  |                                      ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^^^^
+  |                                      |                  |
+  |                                      |                  no `UnitSelectionEncoding` in `image`
+  |                                      |                  help: a similar name exists in the module: `UnitSelectionError`
+  |                                      no `UnitIndexEncoding` in `image`
+
+error[E0603]: enum `GroupSelection` is private
+ --> tests/public_api_fail/image_wire_types.rs:2:5
+  |
+2 |     GroupSelection, UnitGroupRecord, UnitIndexEncoding, UnitSelectionEncoding,
+  |     ^^^^^^^^^^^^^^ private enum
+  |
+note: the enum `GroupSelection` is defined here
+ --> src/image/mod.rs
+  |
+  | pub(crate) use units::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord};
+  |                        ^^^^^^^^^^^^^^
+
+error[E0603]: struct `UnitGroupRecord` is private
+ --> tests/public_api_fail/image_wire_types.rs:2:21
+  |
+2 |     GroupSelection, UnitGroupRecord, UnitIndexEncoding, UnitSelectionEncoding,
+  |                     ^^^^^^^^^^^^^^^ private struct
+  |
+note: the struct `UnitGroupRecord` is defined here
+ --> src/image/mod.rs
+  |
+  | pub(crate) use units::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord};
+  |                                                               ^^^^^^^^^^^^^^^

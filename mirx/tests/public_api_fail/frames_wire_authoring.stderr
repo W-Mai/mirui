@@ -1,0 +1,10 @@
+error[E0599]: no method named `with_unit_index` found for struct `FramesAsset<'a>` in the current scope
+  --> tests/public_api_fail/frames_wire_authoring.rs:14:10
+   |
+12 |       let _ = FramesAsset::new(sequence, surface, groups, counts)
+   |  _____________-
+13 | |         .unwrap()
+14 | |         .with_unit_index(&[]);
+   | |         -^^^^^^^^^^^^^^^ method not found in `FramesAsset<'_>`
+   | |_________|
+   |

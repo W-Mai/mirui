@@ -524,15 +524,15 @@ impl FramesEncoder {
             });
         }
         let records: Vec<_> = self.codings.iter().map(FrameEncoding::record).collect();
-        let mut asset = FramesAsset::new(
+        let mut asset = FramesAsset::from_records(
             self.sequence,
             self.surface,
             &records,
             &self.groups,
             &self.frame_group_counts,
+            &self.indexes,
             &self.data,
-        )?
-        .with_unit_index(&self.indexes);
+        )?;
         if !self.color_table.is_empty() {
             asset = asset.with_color_table(&self.color_table);
         }
@@ -1362,7 +1362,7 @@ pub enum FrameWriteError {
     TileGrid(TileGridError),
     UnitSelection(UnitSelectionError),
     UnitIndex(UnitIndexError),
-    Group(crate::image::UnitGroupRecordError),
+    Group(crate::image::EncodedGroupError),
     Timing(FrameTimingError),
     Payload(FramesEncodeError),
 }
@@ -1427,8 +1427,8 @@ impl From<UnitIndexError> for FrameWriteError {
     }
 }
 
-impl From<crate::image::UnitGroupRecordError> for FrameWriteError {
-    fn from(error: crate::image::UnitGroupRecordError) -> Self {
+impl From<crate::image::EncodedGroupError> for FrameWriteError {
+    fn from(error: crate::image::EncodedGroupError) -> Self {
         Self::Group(error)
     }
 }

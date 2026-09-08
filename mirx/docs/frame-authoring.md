@@ -2,6 +2,8 @@
 
 `FramesEncoder` converts decoded tight frames into one canonical sectioned `FRAMES` payload. The source surface remains the only owner of width, height, sample layout, color description, and derived plane geometry.
 
+`FramesAsset::new(sequence, surface, groups, frame_group_counts)` is the borrowed authoring path for already encoded units. Each `UnitGroup` owns its coding profile, selection, ranges, reference rule and DATA slice. The encoder deduplicates profiles, chooses canonical compact tables and lays out aligned DATA; callers do not construct group records or combined index bytes.
+
 `FramesPlaybackPlan::access_capabilities()` reports complete-frame playback and bounded random-frame seeking only after every frame path has passed preflight. Sparse updates and previous-frame residuals are internal storage choices; they do not advertise arbitrary image-region playback, progressive delivery, or direct GPU upload.
 
 Each `push` compares complete representations. RAW is the independent fallback; RLE, native pixel coding, LZ4, and reversible frequency coding are independent lossless keyframe candidates; `FrameDelta` predicts from the previous reconstructed frame. Quantized frequency coding participates only when configured through `FrameEncodingSet::with_quantized_frequency` and admitted through `FramePolicy::allow_lossy`. An unchanged frame can omit groups and DATA entirely. Changed tiles also compete through every enabled profile. The selector compares group records, selection and range indexes, new coding-table entries, DATA alignment padding, and encoded bytes rather than comparing codec bodies alone.

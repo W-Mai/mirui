@@ -44,10 +44,8 @@ pub(crate) mod test_support;
 
 pub use crate::error::ImageAccessError;
 pub use crate::format::ColorFormat;
-pub use crate::media::index::{UnitIndex, UnitIndexEncoding, UnitIndexError, UnitRanges};
-pub use crate::media::selection::{
-    SelectedUnits, UnitSelection, UnitSelectionEncoding, UnitSelectionError,
-};
+pub use crate::media::index::{UnitIndex, UnitIndexError, UnitRanges};
+pub use crate::media::selection::{SelectedUnits, UnitSelection, UnitSelectionError};
 pub use crate::payload::image::{ImageAsset, ImageAssetEncodeError, ImagePayloadError, ImageView};
 
 mod access;
@@ -110,9 +108,9 @@ pub use surface::{
 };
 pub(crate) use units::ScalarProfile;
 pub use units::{
-    DecodeUnitRef, DecodeUnits, DecodedUnit, GroupPlanes, GroupSelection, ReferenceMode,
-    RegionUnits, UNIT_GROUP_RECORD_LEN, UnitDecodeError, UnitDecodePlan, UnitGroup,
-    UnitGroupBuilder, UnitGroupError, UnitGroupRecord, UnitGroupRecordError, UnitMemoryPlan,
-    UnitPlane, UnitPlanes,
+    DecodeUnitRef, DecodeUnits, DecodedUnit, EncodedGroupError, GroupPlanes, ReferenceMode,
+    RegionUnits, UnitDecodeError, UnitDecodePlan, UnitGroup, UnitGroupBuilder, UnitGroupError,
+    UnitMemoryPlan, UnitPlane, UnitPlanes,
 };
+pub(crate) use units::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord};
 pub use view::{RawImagePlanes, RawImageView, RawImageViewError, SurfacePlane};

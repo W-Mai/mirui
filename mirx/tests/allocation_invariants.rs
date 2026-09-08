@@ -30,7 +30,7 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
         frames::{
             FrameCandidate, FramePolicy, FrameSelector, FrameSequence, FramesAsset, FramesView,
         },
-        image::{CoverageBudget, DecodeRequest, MemoryPlacement, ReferenceMode, UnitGroupRecord},
+        image::{CoverageBudget, DecodeRequest, MemoryPlacement, ReferenceMode, UnitGroup},
     };
     #[repr(align(64))]
     struct Aligned([u8; 64]);
@@ -70,12 +70,15 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
             .unwrap();
         assert_eq!(direct, [9]);
         let groups = [
-            UnitGroupRecord::new(0, 0..1).unwrap(),
-            UnitGroupRecord::new(1, 1..1 + delta_len as u32)
-                .unwrap()
-                .with_reference(ReferenceMode::Previous),
+            UnitGroup::builder(surface, codings[0], &data[..1])
+                .build()
+                .unwrap(),
+            UnitGroup::builder(surface, codings[1], &data[1..1 + delta_len])
+                .with_reference(ReferenceMode::Previous)
+                .build()
+                .unwrap(),
         ];
-        let asset = FramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &data).unwrap();
+        let asset = FramesAsset::new(sequence, surface, &groups, &[1, 1]).unwrap();
         let len = asset.encode_into(&mut output).unwrap();
         assert_eq!(asset.encoded_len(), Ok(len));
         let frames = FramesView::open(&output[..len], &PayloadLimits::EMBEDDED).unwrap();
@@ -486,8 +489,8 @@ fn sparse_region_queries_skip_extreme_empty_spans_without_allocation() {
     };
     let surface =
         SurfaceDescriptor::new(1, u32::MAX, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let cells = (u32::MAX - 1).to_le_bytes();
-    let selection = UnitSelection::list(u32::MAX, &cells).unwrap();
+    let cells = [u32::MAX - 1];
+    let selection = UnitSelection::cells(u32::MAX, &cells).unwrap();
     let group = UnitGroup::builder(surface, CodingRecord::RAW, &[42])
         .with_tiles(1, 1)
         .with_selection(selection)
@@ -603,8 +606,8 @@ fn decoded_units_place_samples_in_shared_surface_storage_without_allocation() {
         },
     };
     let surface = SurfaceDescriptor::new(9, 1, SampleLayout::A1, ColorDescription::NONE).unwrap();
-    let selection_bytes = 1u32.to_le_bytes();
-    let selection = UnitSelection::list(3, &selection_bytes).unwrap();
+    let cells = [1];
+    let selection = UnitSelection::cells(3, &cells).unwrap();
     let unit = UnitGroup::builder(surface, CodingRecord::RAW, &[0b1010_0000])
         .with_tiles(3, 1)
         .with_selection(selection)
@@ -1089,32 +1092,17 @@ fn encoded_image_authoring_and_decode_use_only_caller_storage() {
 }
 
 #[test]
-fn aligned_indexes_keep_checkpoints_and_exact_ranges_without_allocation() {
-    use mirx::image::{UnitIndex, UnitIndexEncoding};
-    let mut bytes = [0xad; 272];
-    let lengths = [3; 65];
+fn aligned_native_indexes_keep_exact_ranges_without_allocation() {
+    use mirx::image::UnitIndex;
+    let ranges: [core::ops::Range<u32>; 65] =
+        core::array::from_fn(|index| index as u32 * 64..index as u32 * 64 + 3);
     let (_, allocations) = count_allocations(|| {
-        for encoding in [UnitIndexEncoding::Lengths16, UnitIndexEncoding::Lengths32] {
-            let alignment = mirx::types::ByteAlignment::new(64).unwrap();
-            let len = encoding
-                .encode_into(&lengths, alignment, &mut bytes)
-                .unwrap();
-            let index = if encoding == UnitIndexEncoding::Lengths16 {
-                UnitIndex::lengths16(65, &bytes[..len], alignment)
-            } else {
-                UnitIndex::lengths32(65, &bytes[..len], alignment)
-            }
-            .unwrap();
-            assert_eq!(index.byte_len(), 4099);
-            assert_eq!(index.get(64), Some(4096..4099));
-            assert!(index.iter().eq((0..65).map(|i| i * 64..i * 64 + 3)));
-            assert!(
-                index
-                    .iter()
-                    .rev()
-                    .eq((0..65).rev().map(|i| i * 64..i * 64 + 3))
-            );
-        }
+        let index =
+            UnitIndex::ranges(&ranges, mirx::types::ByteAlignment::new(64).unwrap()).unwrap();
+        assert_eq!(index.byte_len(), 4099);
+        assert_eq!(index.get(64), Some(4096..4099));
+        assert!(index.iter().eq(ranges.clone()));
+        assert!(index.iter().rev().eq(ranges.clone().into_iter().rev()));
     });
     assert_eq!(allocations, 0);
 }
@@ -1406,25 +1394,14 @@ fn raw_a8_media_payload() -> Vec<u8> {
 }
 
 #[test]
-fn unit_index_encoding_lookup_and_iteration_allocate_nothing() {
-    use mirx::image::{UnitIndex, UnitIndexEncoding};
-    let lengths = [3; 129];
+fn native_unit_index_lookup_and_iteration_allocate_nothing() {
+    use mirx::image::UnitIndex;
     let ranges: [core::ops::Range<u32>; 129] =
         core::array::from_fn(|index| index as u32 * 3..index as u32 * 3 + 3);
-    let mut offsets = [0; 520];
-    let mut checkpointed = [0; 270];
     let (_, allocations) = count_allocations(|| {
-        UnitIndexEncoding::Offsets
-            .encode_into(&lengths, mirx::types::ByteAlignment::ONE, &mut offsets)
-            .unwrap();
-        UnitIndexEncoding::Lengths16
-            .encode_into(&lengths, mirx::types::ByteAlignment::ONE, &mut checkpointed)
-            .unwrap();
         for index in [
             UnitIndex::fixed(129, 3, mirx::types::ByteAlignment::ONE).unwrap(),
             UnitIndex::ranges(&ranges, mirx::types::ByteAlignment::ONE).unwrap(),
-            UnitIndex::offsets(&offsets).unwrap(),
-            UnitIndex::lengths16(129, &checkpointed, mirx::types::ByteAlignment::ONE).unwrap(),
         ] {
             assert_eq!(index.byte_len(), 387);
             assert_eq!(index.get(64), Some(192..195));
@@ -1776,28 +1753,15 @@ fn logical_plane_rows_borrow_without_allocating() {
 }
 
 #[test]
-fn sparse_unit_selection_borrows_and_encodes_without_allocation() {
-    use mirx::image::{UnitSelection, UnitSelectionEncoding};
+fn sparse_unit_selection_borrows_without_allocation() {
+    use mirx::image::UnitSelection;
     let cells = [0, 7, 255, 256, 511];
-    let mut list = [0; 20];
-    let mut bitmap = [0; 72];
     let (_, allocations) = count_allocations(|| {
-        UnitSelectionEncoding::List
-            .encode_into(512, &cells, &mut list)
-            .unwrap();
-        UnitSelectionEncoding::Bitmap
-            .encode_into(512, &cells, &mut bitmap)
-            .unwrap();
-        for selection in [
-            UnitSelection::cells(512, &cells).unwrap(),
-            UnitSelection::list(512, &list).unwrap(),
-            UnitSelection::bitmap(512, &bitmap).unwrap(),
-        ] {
-            assert!(selection.iter().eq(cells));
-            assert_eq!(selection.get(4), Some(511));
-            assert_eq!(selection.position(256), Some(3));
-            assert_eq!(selection.iter().nth_back(2), Some(255));
-        }
+        let selection = UnitSelection::cells(512, &cells).unwrap();
+        assert!(selection.iter().eq(cells));
+        assert_eq!(selection.get(4), Some(511));
+        assert_eq!(selection.position(256), Some(3));
+        assert_eq!(selection.iter().nth_back(2), Some(255));
         assert_eq!(
             UnitSelection::all(u32::MAX).unwrap().iter().last(),
             Some(u32::MAX - 1)
@@ -1817,13 +1781,13 @@ fn image_units_resolve_shared_metadata_without_allocation() {
         ColorDescription::BT709_YUV_LIMITED,
     )
     .unwrap();
-    let cells = [0, 0, 0, 0, 5, 0, 0, 0];
+    let cells = [0, 5];
     let data = [1, 2, 3, 4];
     let (_, allocations) = count_allocations(|| {
         let group =
             UnitGroup::builder(surface, CodingRecord::new(CodingId::new(19), 1, &[]), &data)
                 .with_tiles(2, 2)
-                .with_selection(UnitSelection::list(6, &cells).unwrap())
+                .with_selection(UnitSelection::cells(6, &cells).unwrap())
                 .with_index(UnitIndex::fixed(2, 2, mirx::types::ByteAlignment::ONE).unwrap())
                 .build()
                 .unwrap();
@@ -1838,43 +1802,13 @@ fn image_units_resolve_shared_metadata_without_allocation() {
 }
 
 #[test]
-fn group_record_read_write_and_resolution_allocate_nothing() {
-    use mirx::{
-        coding::{CodingId, CodingRecord},
-        image::{EncodedImageAsset, EncodedImageView, UnitGroupRecord},
-    };
-    let surface = SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let data = [1, 2, 3, 4];
-    let payload =
-        EncodedImageAsset::new(surface, CodingRecord::new(CodingId::new(19), 1, &[]), &data)
-            .encode()
-            .unwrap();
-    let codings = EncodedImageView::open(&payload).unwrap().codings();
-    let mut bytes = [0; 36];
-    let (_, allocations) = count_allocations(|| {
-        UnitGroupRecord::new(0, 0..4)
-            .unwrap()
-            .with_tiles(1, 1)
-            .encode_into(&mut bytes)
-            .unwrap();
-        let group = UnitGroupRecord::open(&bytes)
-            .unwrap()
-            .resolve(surface, codings, &data, &[])
-            .unwrap();
-        assert_eq!(group.get(1).unwrap().data().as_ptr(), data[2..].as_ptr());
-        assert_eq!(group.get(1).unwrap().region().x(), 1);
-    });
-    assert_eq!(allocations, 0);
-}
-
-#[test]
 fn image_coverage_and_selection_windows_allocate_nothing() {
     use mirx::coding::{CodingId, CodingRecord};
     use mirx::image::{CoverageBudget, UnitGroup, UnitSelection};
     let surface = SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-    let cells = [0; 4];
+    let cells = [0];
     let (_, allocations) = count_allocations(|| {
-        let selection = UnitSelection::list(2, &cells).unwrap();
+        let selection = UnitSelection::cells(2, &cells).unwrap();
         assert_eq!(selection.range(0..1).unwrap().len(), 1);
         let group = UnitGroup::builder(
             surface,

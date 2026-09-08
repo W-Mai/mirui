@@ -2,17 +2,19 @@ use core::ops::Range;
 
 use super::{GroupPlanes, ReferenceMode, SurfaceDescriptor, UnitGroup, UnitGroupError};
 use crate::ByteAlignment;
+#[cfg(test)]
+use crate::media::CodingTable;
 use crate::media::{
-    CodingTable, UnitIndex, UnitIndexEncoding, UnitIndexError, UnitSelection,
-    UnitSelectionEncoding, UnitSelectionError,
+    UnitIndex, UnitIndexEncoding, UnitIndexError, UnitSelection, UnitSelectionEncoding,
+    UnitSelectionError,
 };
 use crate::wire::{read_u32_le, write_u32_le};
 
-pub const UNIT_GROUP_RECORD_LEN: usize = 36;
+pub(crate) const UNIT_GROUP_RECORD_LEN: usize = 36;
 
 /// Selected-cell representation in a group's combined UNIT_INDEX body.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum GroupSelection {
+pub(crate) enum GroupSelection {
     #[default]
     All,
     /// Number of strictly ordered u32 grid-cell ordinals.
@@ -25,7 +27,7 @@ pub enum GroupSelection {
 /// DATA and UNIT_INDEX offsets are relative to their respective section bodies.
 /// Selection bytes precede byte-range index bytes; their lengths are derived.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct UnitGroupRecord {
+pub(crate) struct UnitGroupRecord {
     coding_index: u32,
     data_offset: u32,
     data_size: u32,
@@ -59,27 +61,19 @@ impl UnitGroupRecord {
         })
     }
 
-    pub const fn coding_index(self) -> u32 {
-        self.coding_index
-    }
     pub fn data_range(self) -> Range<u32> {
         self.data_offset..self.data_offset + self.data_size
     }
-    pub const fn index_offset(self) -> u32 {
+    #[cfg(test)]
+    pub(crate) const fn index_offset(self) -> u32 {
         self.index_offset
     }
-    pub const fn tiles(self) -> Option<(u32, u32)> {
-        self.tiles
-    }
-    /// None selects every surface plane in surface coordinates.
-    pub const fn planes(self) -> Option<GroupPlanes> {
-        self.planes
-    }
-    /// None derives fixed unit byte size from DATA length and selected count.
-    pub const fn index_encoding(self) -> Option<UnitIndexEncoding> {
+    #[cfg(test)]
+    pub(crate) const fn index_encoding(self) -> Option<UnitIndexEncoding> {
         self.index_encoding
     }
-    pub const fn selection(self) -> GroupSelection {
+    #[cfg(test)]
+    pub(crate) const fn selection(self) -> GroupSelection {
         self.selection
     }
     pub const fn reference(self) -> ReferenceMode {
@@ -238,9 +232,8 @@ impl UnitGroupRecord {
         Ok(UNIT_GROUP_RECORD_LEN)
     }
 
-    /// Resolves borrowed metadata and DATA through the checked runtime group.
-    /// Cross-group coverage, checksums and frame dependencies are not validated here.
-    pub fn resolve<'a>(
+    #[cfg(test)]
+    pub(crate) fn resolve<'a>(
         self,
         surface: SurfaceDescriptor,
         codings: CodingTable<'a>,
@@ -251,6 +244,7 @@ impl UnitGroupRecord {
             .map(|(group, _)| group)
     }
 
+    #[cfg(test)]
     pub(crate) fn resolve_with_index_range<'a>(
         self,
         surface: SurfaceDescriptor,
@@ -376,9 +370,10 @@ impl UnitGroupRecord {
     }
 }
 
+/// Failure while validating stored encoded-group metadata.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
-pub enum UnitGroupRecordError {
+pub enum EncodedGroupError {
     Truncated,
     InvalidDataRange,
     SizeOverflow,
@@ -404,6 +399,8 @@ pub enum UnitGroupRecordError {
     Index(UnitIndexError),
     Group(UnitGroupError),
 }
+
+pub(crate) type UnitGroupRecordError = EncodedGroupError;
 
 #[cfg(test)]
 mod tests {

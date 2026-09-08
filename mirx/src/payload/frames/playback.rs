@@ -962,11 +962,18 @@ mod tests {
         UnitSelectionEncoding::List
             .encode_into(2, &[1], &mut index)
             .unwrap();
-        let bytes = FramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &[1, 2, 9])
-            .unwrap()
-            .with_unit_index(&index)
-            .encode()
-            .unwrap();
+        let bytes = FramesAsset::from_records(
+            sequence,
+            surface,
+            &codings,
+            &groups,
+            &[1, 1],
+            &index,
+            &[1, 2, 9],
+        )
+        .unwrap()
+        .encode()
+        .unwrap();
         let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         let requirements = SurfaceRequirements::new()
             .with_base_alignment(crate::ByteAlignment::new(64).unwrap())
@@ -1025,12 +1032,13 @@ mod tests {
             1,
             FrameComposition::new(BlendMode::SourceOver, disposal),
         )];
-        FramesAsset::new(
+        FramesAsset::from_records(
             sequence,
             surface,
             &codings,
             &groups,
             &[1, 1],
+            &[],
             &[10, 20, 30, 255, 200, 0, 0, 128],
         )
         .unwrap()
@@ -1120,16 +1128,16 @@ mod tests {
             1,
             FrameComposition::new(BlendMode::Replace, DisposalMode::Clear),
         )];
-        let asset = FramesAsset::new(
+        let asset = FramesAsset::from_records(
             sequence,
             surface,
             &codings,
             &groups,
             &[1, 1, 0, 1],
+            &index,
             &[1, 2, 9, 3, 4],
         )
         .unwrap()
-        .with_unit_index(&index)
         .with_composition(&compositions)
         .unwrap();
         if index_keyframes {
@@ -1448,10 +1456,11 @@ mod tests {
         let surface =
             SurfaceDescriptor::new(2, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let codings = [CodingRecord::RAW, codec.record()];
-        let bytes = FramesAsset::new(sequence, surface, &codings, &groups, &[1, 1, 1], &data)
-            .unwrap()
-            .encode()
-            .unwrap();
+        let bytes =
+            FramesAsset::from_records(sequence, surface, &codings, &groups, &[1, 1, 1], &[], &data)
+                .unwrap()
+                .encode()
+                .unwrap();
         let frames = FramesView::open(&bytes, &PayloadLimits::HOST).unwrap();
         let data_offset = frames
             .media()

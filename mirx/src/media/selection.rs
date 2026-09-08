@@ -54,7 +54,7 @@ impl<'a> UnitSelection<'a> {
     }
 
     /// Borrows strictly increasing little-endian u32 grid-cell ordinals.
-    pub fn list(cell_count: u32, bytes: &'a [u8]) -> Result<Self, UnitSelectionError> {
+    pub(crate) fn list(cell_count: u32, bytes: &'a [u8]) -> Result<Self, UnitSelectionError> {
         u32::try_from(bytes.len()).map_err(|_| UnitSelectionError::SizeOverflow)?;
         if bytes.len() % 4 != 0 {
             return Err(UnitSelectionError::Truncated);
@@ -76,7 +76,7 @@ impl<'a> UnitSelection<'a> {
     ///
     /// There is one u32 checkpoint per 256 cells. Opening checks the entire
     /// map; lookup examines at most 32 bitmap bytes after finding a checkpoint.
-    pub fn bitmap(cell_count: u32, bytes: &'a [u8]) -> Result<Self, UnitSelectionError> {
+    pub(crate) fn bitmap(cell_count: u32, bytes: &'a [u8]) -> Result<Self, UnitSelectionError> {
         let needed = UnitSelectionEncoding::Bitmap.table_len(cell_count, 0)?;
         if bytes.len() != needed {
             return Err(UnitSelectionError::LengthMismatch {
@@ -309,7 +309,7 @@ impl FusedIterator for SelectedUnits<'_> {}
 
 /// Explicit sparse-map encoding; full selections may omit the map entirely.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum UnitSelectionEncoding {
+pub(crate) enum UnitSelectionEncoding {
     List,
     Bitmap,
 }
@@ -331,7 +331,11 @@ impl UnitSelectionEncoding {
         Ok(needed)
     }
 
-    pub fn encoded_len(self, cell_count: u32, cells: &[u32]) -> Result<usize, UnitSelectionError> {
+    pub(crate) fn encoded_len(
+        self,
+        cell_count: u32,
+        cells: &[u32],
+    ) -> Result<usize, UnitSelectionError> {
         let needed = self.table_len(cell_count, cells.len())?;
         let mut previous = None;
         for &cell in cells {
@@ -342,7 +346,7 @@ impl UnitSelectionEncoding {
     }
 
     /// Writes a validated selection; errors leave the entire output unchanged.
-    pub fn encode_into(
+    pub(crate) fn encode_into(
         self,
         cell_count: u32,
         cells: &[u32],

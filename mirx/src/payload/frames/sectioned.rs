@@ -50,7 +50,7 @@ use crate::{
     image::{
         CodingRecords, ColorTableError, CoverageBudget, EncodedImageAsset, EncodedImageError,
         EncodedStoragePlan, GroupRecords, GroupSource, ReferenceMode, SURFACE_RECORD_LEN,
-        SurfaceDescriptor, SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroupRecord,
+        SurfaceDescriptor, SurfaceRecordError, UNIT_GROUP_RECORD_LEN, UnitGroup, UnitGroupRecord,
     },
     media::{
         CodingRecord, CodingTable, CodingTableError, DataIntegrity, IntegrityRange,
@@ -108,27 +108,69 @@ pub struct FrameGroupIter<'a, 'g> {
 pub struct FramesAsset<'a> {
     sequence: FrameSequence,
     surface: SurfaceDescriptor,
-    codings: &'a [CodingRecord<'a>],
-    groups: &'a [UnitGroupRecord],
-    indexes: &'a [u8],
+    storage: FrameStorage<'a>,
     map: FrameCounts<'a>,
     timing: Option<FrameTimingAsset<'a>>,
     composition: Option<FrameCompositionAsset<'a>>,
     keyframes: Option<KeyframeIndexAsset<'a>>,
     integrity: DataIntegrity<'a>,
-    data: &'a [u8],
     color_table: Option<&'a [u8]>,
 }
 
+#[derive(Clone, Copy, Debug)]
+enum FrameStorage<'a> {
+    Groups(&'a [UnitGroup<'a>]),
+    Records {
+        codings: &'a [CodingRecord<'a>],
+        groups: &'a [UnitGroupRecord],
+        indexes: &'a [u8],
+        data: &'a [u8],
+    },
+}
+
 impl<'a> FramesAsset<'a> {
-    /// Defines one sequence from shared coding/group storage and per-frame group counts.
+    /// Defines one sequence from semantic groups and per-frame group counts.
     pub fn new(
+        sequence: FrameSequence,
+        surface: SurfaceDescriptor,
+        groups: &'a [UnitGroup<'a>],
+        frame_group_counts: &'a [u32],
+    ) -> Result<Self, FramesEncodeError> {
+        Self::from_storage(
+            sequence,
+            surface,
+            FrameStorage::Groups(groups),
+            frame_group_counts,
+        )
+    }
+
+    pub(crate) fn from_records(
         sequence: FrameSequence,
         surface: SurfaceDescriptor,
         codings: &'a [CodingRecord<'a>],
         groups: &'a [UnitGroupRecord],
         frame_group_counts: &'a [u32],
+        indexes: &'a [u8],
         data: &'a [u8],
+    ) -> Result<Self, FramesEncodeError> {
+        Self::from_storage(
+            sequence,
+            surface,
+            FrameStorage::Records {
+                codings,
+                groups,
+                indexes,
+                data,
+            },
+            frame_group_counts,
+        )
+    }
+
+    fn from_storage(
+        sequence: FrameSequence,
+        surface: SurfaceDescriptor,
+        storage: FrameStorage<'a>,
+        frame_group_counts: &'a [u32],
     ) -> Result<Self, FramesEncodeError> {
         let map = FrameCounts::new(frame_group_counts).map_err(FramesEncodeError::FrameMap)?;
         if map.frame_count() != sequence.frame_count() as usize {
@@ -137,24 +179,25 @@ impl<'a> FramesAsset<'a> {
                 actual: map.frame_count(),
             });
         }
-        if map.group_count() as usize != groups.len() {
+        let group_count = match storage {
+            FrameStorage::Groups(groups) => groups.len(),
+            FrameStorage::Records { groups, .. } => groups.len(),
+        };
+        if map.group_count() as usize != group_count {
             return Err(FramesEncodeError::GroupCountMismatch {
                 expected: map.group_count(),
-                actual: groups.len(),
+                actual: group_count,
             });
         }
         Ok(Self {
             sequence,
             surface,
-            codings,
-            groups,
-            indexes: &[],
+            storage,
             map,
             timing: None,
             composition: None,
             keyframes: None,
             integrity: DataIntegrity::Whole,
-            data,
             color_table: None,
         })
     }
@@ -193,12 +236,6 @@ impl<'a> FramesAsset<'a> {
             KeyframeIndexAsset::new(frames, self.sequence).map_err(FramesEncodeError::Keyframes)?,
         );
         Ok(self)
-    }
-
-    /// Supplies encoded unit-selection and byte-range indexes referenced by group records.
-    pub const fn with_unit_index(mut self, bytes: &'a [u8]) -> Self {
-        self.indexes = bytes;
-        self
     }
 
     pub const fn with_integrity(mut self, integrity: DataIntegrity<'a>) -> Self {
@@ -254,10 +291,17 @@ impl<'a> FramesAsset<'a> {
     }
 
     fn storage(self) -> EncodedImageAsset<'a> {
-        let mut storage =
-            EncodedImageAsset::from_records(self.surface, self.codings, self.groups, self.data)
-                .with_unit_index(self.indexes)
-                .with_integrity(self.integrity);
+        let mut storage = match self.storage {
+            FrameStorage::Groups(groups) => EncodedImageAsset::from_groups(self.surface, groups),
+            FrameStorage::Records {
+                codings,
+                groups,
+                indexes,
+                data,
+            } => EncodedImageAsset::from_records(self.surface, codings, groups, data)
+                .with_unit_index(indexes),
+        }
+        .with_integrity(self.integrity);
         if let Some(table) = self.color_table {
             storage = storage.with_color_table(table);
         }
@@ -278,10 +322,10 @@ impl<'a> FramesPlan<'a> {
     fn new(asset: FramesAsset<'a>) -> Result<Self, FramesEncodeError> {
         let storage =
             EncodedStoragePlan::new(asset.storage()).map_err(FramesEncodeError::Storage)?;
-        let source = storage.source();
-        source
-            .visit_groups_with_references(None, |_, _| {})
-            .map_err(FramesEncodeError::ReferenceStorage)?;
+        storage
+            .validate_with_references()
+            .map_err(FramesEncodeError::Storage)?;
+        let source = FrameGroupSource::new(asset, storage);
         validate_asset_references(asset, source)?;
 
         let timing_len = asset
@@ -294,7 +338,7 @@ impl<'a> FramesPlan<'a> {
         let keyframe_len = asset.keyframes.map_or(0, KeyframeIndexAsset::encoded_len);
         let integrity_len = asset
             .integrity
-            .section_len(asset.data.len())
+            .section_len(storage.data_len())
             .map_err(crate::image::ImageEncodeError::Integrity)
             .map_err(FramesEncodeError::Storage)?;
         let storage_sections = storage.sections();
@@ -335,7 +379,7 @@ impl<'a> FramesPlan<'a> {
         )
         .map_err(|_| FramesEncodeError::SizeOverflow)? as usize;
         let payload_len = data_offset
-            .checked_add(asset.data.len())
+            .checked_add(storage.data_len())
             .and_then(|len| len.checked_add(asset.integrity.trailer_len()))
             .ok_or(FramesEncodeError::SizeOverflow)?;
         u32::try_from(payload_len).map_err(|_| FramesEncodeError::SizeOverflow)?;
@@ -408,7 +452,7 @@ impl<'a> FramesPlan<'a> {
         output.section(
             MediaSectionKind::DATA,
             self.data_offset,
-            self.asset.data.len(),
+            self.storage.data_len(),
         );
 
         output.write(&self.asset.sequence.encode_record());
@@ -440,11 +484,11 @@ impl<'a> FramesPlan<'a> {
             &mut output,
             self.asset.integrity,
             self.data_offset,
-            self.asset.data,
+            self.storage,
         );
         output.pad_to(self.data_offset);
         output.begin_data(self.asset.integrity);
-        output.write(self.asset.data);
+        self.storage.emit_data(&mut output);
         debug_assert_eq!(
             output.position() + self.asset.integrity.trailer_len(),
             self.payload_len
@@ -455,7 +499,7 @@ impl<'a> FramesPlan<'a> {
 
 fn validate_asset_references(
     asset: FramesAsset<'_>,
-    source: GroupSource<'_>,
+    source: FrameGroupSource<'_>,
 ) -> Result<(), FramesEncodeError> {
     let mut budget = CoverageBudget::new(u64::MAX);
     let mut start = 0u32;
@@ -513,8 +557,70 @@ enum FrameReferenceError {
     Mixed { frame: u32 },
 }
 
+#[derive(Clone, Copy)]
+enum FrameGroupSource<'a> {
+    Groups {
+        surface: SurfaceDescriptor,
+        groups: &'a [UnitGroup<'a>],
+    },
+    Records(EncodedStoragePlan<'a>),
+}
+
+impl<'a> FrameGroupSource<'a> {
+    fn new(asset: FramesAsset<'a>, storage: EncodedStoragePlan<'a>) -> Self {
+        match asset.storage {
+            FrameStorage::Groups(groups) => Self::Groups {
+                surface: asset.surface,
+                groups,
+            },
+            FrameStorage::Records { .. } => Self::Records(storage),
+        }
+    }
+
+    fn reference(self, index: usize) -> Result<ReferenceMode, EncodedImageError> {
+        match self {
+            Self::Groups { groups, .. } => groups
+                .get(index)
+                .map(|group| group.reference())
+                .ok_or(EncodedImageError::GroupOutOfBounds(index)),
+            Self::Records(storage) => storage
+                .source()
+                .record(index)
+                .map(UnitGroupRecord::reference),
+        }
+    }
+
+    fn validate_group_range(
+        self,
+        range: Range<usize>,
+        budget: &mut CoverageBudget,
+    ) -> Result<(), EncodedImageError> {
+        match self {
+            Self::Groups { surface, groups } => surface
+                .validate_coverage(&groups[range], budget)
+                .map_err(EncodedImageError::Coverage),
+            Self::Records(storage) => storage.source().validate_group_range(range, budget),
+        }
+    }
+
+    fn validate_disjoint_group_range(
+        self,
+        range: Range<usize>,
+        budget: &mut CoverageBudget,
+    ) -> Result<(), EncodedImageError> {
+        match self {
+            Self::Groups { surface, groups } => surface
+                .validate_disjoint_coverage(&groups[range], budget)
+                .map_err(EncodedImageError::Coverage),
+            Self::Records(storage) => storage
+                .source()
+                .validate_disjoint_group_range(range, budget),
+        }
+    }
+}
+
 fn frame_reference(
-    source: GroupSource<'_>,
+    source: FrameGroupSource<'_>,
     frame: u32,
     range: Range<u32>,
 ) -> Result<ReferenceMode, FrameReferenceError> {
@@ -522,14 +628,12 @@ fn frame_reference(
         return Ok(ReferenceMode::Previous);
     }
     let first = source
-        .record(range.start as usize)
-        .map_err(FrameReferenceError::Storage)?
-        .reference();
+        .reference(range.start as usize)
+        .map_err(FrameReferenceError::Storage)?;
     for group in range.start + 1..range.end {
         let next = source
-            .record(group as usize)
-            .map_err(FrameReferenceError::Storage)?
-            .reference();
+            .reference(group as usize)
+            .map_err(FrameReferenceError::Storage)?;
         if next != first {
             return Err(FrameReferenceError::Mixed { frame });
         }
@@ -579,11 +683,11 @@ fn write_integrity(
     output: &mut PayloadOutput<'_>,
     integrity: DataIntegrity<'_>,
     data_offset: usize,
-    data: &[u8],
+    storage: EncodedStoragePlan<'_>,
 ) {
     let mut start = 0u32;
     for &end in integrity.partitions().unwrap_or(&[]) {
-        let checksum = crate::crc32(&data[start as usize..end as usize]);
+        let checksum = storage.data_crc(start..end);
         let range = IntegrityRange::new(
             data_offset as u32 + start..data_offset as u32 + end,
             checksum,
@@ -1212,7 +1316,7 @@ mod tests {
             BlendMode, DisposalMode, FrameCompositionAsset, FrameCompositionOverride,
             FrameMapAsset, FrameTimingAsset, KeyframeIndexAsset,
         },
-        image::{ColorDescription, CoverageError, SampleLayout, UnitGroupRecord},
+        image::{ColorDescription, CoverageError, SampleLayout, UnitGroup, UnitGroupRecord},
         media::{
             CodingRecord, DataIntegrity, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION,
             MediaSectionKind, output::PayloadOutput,
@@ -1392,12 +1496,13 @@ mod tests {
             FrameComposition::new(BlendMode::SourceOver, DisposalMode::Keep),
         )];
         let keyframes = [0];
-        let asset = FramesAsset::new(
+        let asset = FramesAsset::from_records(
             sequence,
             surface,
             &codings,
             &groups,
             &[1, 1, 0],
+            &[],
             &[0xaa, 0xbb],
         )
         .unwrap()
@@ -1441,21 +1546,22 @@ mod tests {
             .unwrap();
         let surface =
             SurfaceDescriptor::new(1, 1, SampleLayout::A8, ColorDescription::NONE).unwrap();
-        let codings = [CodingRecord::new(CodingId::new(42), 1, &[])];
+        let coding = CodingRecord::new(CodingId::new(42), 1, &[]);
+        let first = [1];
+        let second = [2];
         let groups = [
-            UnitGroupRecord::new(0, 0..1)
-                .unwrap()
-                .with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
-            UnitGroupRecord::new(0, 64..65)
-                .unwrap()
+            UnitGroup::builder(surface, coding, &first)
+                .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
+                .build()
+                .unwrap(),
+            UnitGroup::builder(surface, coding, &second)
                 .with_reference(ReferenceMode::Previous)
-                .with_input_alignment(crate::ByteAlignment::new(64).unwrap()),
+                .with_input_alignment(crate::ByteAlignment::new(64).unwrap())
+                .build()
+                .unwrap(),
         ];
-        let mut data = [0x5a; 65];
-        data[0] = 1;
-        data[64] = 2;
         let integrity_ends = [1, 64, 65];
-        let asset = FramesAsset::new(sequence, surface, &codings, &groups, &[1, 1], &data)
+        let asset = FramesAsset::new(sequence, surface, &groups, &[1, 1])
             .unwrap()
             .with_integrity(DataIntegrity::Indexed(&integrity_ends));
         let mut bytes = asset.encode().unwrap();
@@ -1466,7 +1572,18 @@ mod tests {
             .descriptor()
             .offset();
         assert_eq!(data_offset % 64, 0);
+        assert_eq!(media.section(MediaSectionKind::DATA).unwrap().bytes()[0], 1);
+        assert!(
+            media.section(MediaSectionKind::DATA).unwrap().bytes()[1..64]
+                .iter()
+                .all(|byte| *byte == 0)
+        );
+        assert_eq!(
+            media.section(MediaSectionKind::DATA).unwrap().bytes()[64],
+            2
+        );
         let frames = FramesView::open_at(&bytes, 64, &PayloadLimits::HOST).unwrap();
+        assert_eq!(frames.codings().len(), 1);
         frames.validate_data().unwrap();
 
         bytes[data_offset as usize + 32] ^= 1;

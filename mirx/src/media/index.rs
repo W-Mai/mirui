@@ -129,7 +129,7 @@ impl<'a> UnitIndex<'a> {
 
     /// Borrows little-endian u32 offsets, including the final range end.
     /// The first offset must be zero; subsequent offsets must be monotone.
-    pub fn offsets(bytes: &'a [u8]) -> Result<Self, UnitIndexError> {
+    pub(crate) fn offsets(bytes: &'a [u8]) -> Result<Self, UnitIndexError> {
         u32::try_from(bytes.len()).map_err(|_| UnitIndexError::SizeOverflow)?;
         if bytes.len() < 4 || bytes.len() % 4 != 0 {
             return Err(UnitIndexError::InvalidOffsetTableLength(bytes.len()));
@@ -165,7 +165,7 @@ impl<'a> UnitIndex<'a> {
     /// checkpoint and the total byte length; random access sums at most 63
     /// preceding lengths. Sequential iteration reads each length only once.
     /// Checkpoints are aligned physical starts; lengths exclude all padding.
-    pub fn lengths16(
+    pub(crate) fn lengths16(
         count: u32,
         bytes: &'a [u8],
         alignment: ByteAlignment,
@@ -174,7 +174,7 @@ impl<'a> UnitIndex<'a> {
     }
 
     /// Borrows u32 checkpoints and u32 lengths with the same 64-unit access bound.
-    pub fn lengths32(
+    pub(crate) fn lengths32(
         count: u32,
         bytes: &'a [u8],
         alignment: ByteAlignment,
@@ -389,7 +389,7 @@ impl FusedIterator for UnitRanges<'_> {}
 
 /// Explicit wire representation for a variable-size unit index.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum UnitIndexEncoding {
+pub(crate) enum UnitIndexEncoding {
     /// Adjacent u32 offsets, including the final end; no inter-unit gaps.
     Offsets,
     /// A physical-start checkpoint per 64 units, followed by u16 coded lengths.
@@ -416,7 +416,7 @@ impl UnitIndexEncoding {
         Ok(size)
     }
 
-    pub fn encoded_len(
+    pub(crate) fn encoded_len(
         self,
         lengths: &[u32],
         alignment: ByteAlignment,
@@ -450,7 +450,7 @@ impl UnitIndexEncoding {
 
     /// Encodes caller-supplied lengths without allocation or silent format changes.
     /// Errors preserve the entire output; success preserves its unused suffix.
-    pub fn encode_into(
+    pub(crate) fn encode_into(
         self,
         lengths: &[u32],
         alignment: ByteAlignment,

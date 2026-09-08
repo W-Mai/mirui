@@ -14,7 +14,8 @@ pub(crate) use decode::ScalarProfile;
 pub use decode::{DecodedUnit, UnitDecodeError, UnitDecodePlan};
 pub use plan::{UnitMemoryPlan, UnitPlane, UnitPlanes};
 pub use region::RegionUnits;
-pub use wire::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord, UnitGroupRecordError};
+pub use wire::EncodedGroupError;
+pub(crate) use wire::{GroupSelection, UNIT_GROUP_RECORD_LEN, UnitGroupRecord};
 
 /// Included planes and the coordinate space of a group's regions.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

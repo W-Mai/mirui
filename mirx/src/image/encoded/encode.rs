@@ -99,11 +99,6 @@ impl AuthoredGroupPlan {
                 super::EncodedImageError::EmptyGroup(group_index),
             ));
         }
-        if group.reference() != ReferenceMode::Independent {
-            return Err(ImageEncodeError::Preflight(
-                super::EncodedImageError::ReferenceInStaticImage(group_index),
-            ));
-        }
         let coding_index = codings
             .index_of(group.coding())
             .ok_or(ImageEncodeError::SizeOverflow)?;
@@ -915,13 +910,36 @@ impl<'a> StoragePlan<'a> {
                     super::EncodedImageError::InvalidGroupTableLength(0),
                 ));
             }
+            for (index, plan) in self.asset.group_plans().enumerate() {
+                plan?;
+                if groups[index].reference() != ReferenceMode::Independent {
+                    return Err(ImageEncodeError::Preflight(
+                        super::EncodedImageError::ReferenceInStaticImage(index),
+                    ));
+                }
+            }
+            Ok(())
+        } else {
+            self.source()
+                .visit_groups(None, |_, _| {})
+                .map_err(ImageEncodeError::Preflight)
+        }
+    }
+
+    pub(crate) fn validate_with_references(&self) -> Result<(), ImageEncodeError> {
+        if let Some(groups) = self.asset.authored_groups() {
+            if groups.is_empty() {
+                return Err(ImageEncodeError::Preflight(
+                    super::EncodedImageError::InvalidGroupTableLength(0),
+                ));
+            }
             for plan in self.asset.group_plans() {
                 plan?;
             }
             Ok(())
         } else {
             self.source()
-                .visit_groups(None, |_, _| {})
+                .visit_groups_with_references(None, |_, _| {})
                 .map_err(ImageEncodeError::Preflight)
         }
     }
