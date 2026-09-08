@@ -840,10 +840,11 @@ mod tests {
             write_u32_le(&mut bytes, entry + 4, offset);
             write_u32_le(&mut bytes, entry + 8, size);
         }
-        SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE)
-            .unwrap()
-            .encode_record_into(&mut bytes[44..76])
-            .unwrap();
+        bytes[44..76].copy_from_slice(
+            &SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE)
+                .unwrap()
+                .encode_record(),
+        );
         bytes[100..].copy_from_slice(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let ranges = [
             IntegrityRange::new(100..104, crate::crc32(&bytes[100..104])).unwrap(),

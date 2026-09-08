@@ -201,18 +201,7 @@ impl SurfaceDescriptor {
         Ok(surface)
     }
 
-    /// Encodes the canonical 32-byte SURFACE section record into `out`.
-    ///
-    /// Unused bytes in `out` are preserved. Common alpha and sRGB color
-    /// descriptions plus square pixels use their zero-valued wire defaults.
-    pub(crate) fn encode_record_into(&self, out: &mut [u8]) -> Result<usize, SurfaceRecordError> {
-        if out.len() < SURFACE_RECORD_LEN {
-            return Err(SurfaceRecordError::BufferTooSmall {
-                needed: SURFACE_RECORD_LEN,
-                available: out.len(),
-            });
-        }
-
+    pub(crate) fn encode_record(self) -> [u8; SURFACE_RECORD_LEN] {
         let mut record = [0; SURFACE_RECORD_LEN];
         write_u32_le(&mut record, 0, self.width);
         write_u32_le(&mut record, 4, self.height);
@@ -231,8 +220,7 @@ impl SurfaceDescriptor {
             write_u16_le(&mut record, 20, self.pixel_aspect_num);
             write_u16_le(&mut record, 22, self.pixel_aspect_den);
         }
-        out[..SURFACE_RECORD_LEN].copy_from_slice(&record);
-        Ok(SURFACE_RECORD_LEN)
+        record
     }
 }
 
@@ -261,12 +249,11 @@ pub enum SurfaceError {
     InvalidPixelAspect { numerator: u16, denominator: u16 },
 }
 
-/// Failure while decoding or encoding a SURFACE section record.
+/// Failure while decoding a SURFACE section record.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum SurfaceRecordError {
     Truncated { needed: usize, available: usize },
-    BufferTooSmall { needed: usize, available: usize },
     ReservedNonZero { offset: usize },
     InvalidSurface(SurfaceError),
 }
@@ -276,12 +263,7 @@ mod tests {
     use super::*;
 
     fn encode(surface: SurfaceDescriptor) -> [u8; SURFACE_RECORD_LEN] {
-        let mut bytes = [0xa5; SURFACE_RECORD_LEN];
-        assert_eq!(
-            surface.encode_record_into(&mut bytes),
-            Ok(SURFACE_RECORD_LEN)
-        );
-        bytes
+        surface.encode_record()
     }
 
     #[test]
@@ -386,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    fn record_boundaries_reserved_bytes_and_output_atomicity_are_checked() {
+    fn record_boundaries_and_reserved_bytes_are_checked() {
         let surface =
             SurfaceDescriptor::new(2, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let bytes = encode(surface);
@@ -408,15 +390,5 @@ mod tests {
                 Err(SurfaceRecordError::ReservedNonZero { offset })
             );
         }
-
-        let mut short = [0xa5; SURFACE_RECORD_LEN - 1];
-        assert_eq!(
-            surface.encode_record_into(&mut short),
-            Err(SurfaceRecordError::BufferTooSmall {
-                needed: SURFACE_RECORD_LEN,
-                available: SURFACE_RECORD_LEN - 1,
-            })
-        );
-        assert_eq!(short, [0xa5; SURFACE_RECORD_LEN - 1]);
     }
 }

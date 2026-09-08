@@ -235,20 +235,10 @@ impl<'a> RawImagePlan<'a> {
             self.data_len as usize,
         );
 
-        let mut surface = [0; SURFACE_RECORD_LEN];
-        self.view
-            .surface()
-            .encode_record_into(&mut surface)
-            .expect("exact surface record");
-        out.write(&surface);
+        out.write(&self.view.surface().encode_record());
         if self.planes_offset.is_some() {
             for plane in self.view.planes() {
-                let mut record = [0; PLANE_RECORD_LEN];
-                plane
-                    .memory()
-                    .encode_record_into(&mut record)
-                    .expect("exact plane record");
-                out.write(&record);
+                out.write(&plane.memory().encode_record());
             }
         }
         if let Some(table) = self.view.color_table() {

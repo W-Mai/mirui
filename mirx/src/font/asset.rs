@@ -330,11 +330,7 @@ impl Storage<'_> {
                 memory: Some(memory),
                 ..
             } => {
-                let mut bytes = [0; PLANE_RECORD_LEN];
-                memory
-                    .encode_record_into(&mut bytes)
-                    .expect("validated plane");
-                output.write(&bytes);
+                output.write(&memory.encode_record());
             }
             Self::Raw { memory: None, .. } => {}
             Self::Encoded(plan) => plan.emit_metadata(output),

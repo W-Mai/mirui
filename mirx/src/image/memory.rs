@@ -182,18 +182,7 @@ impl PlaneMemoryLayout {
             .map_err(PlaneMemoryRecordError::InvalidLayout)
     }
 
-    /// Encodes the canonical 24-byte PLANES section record into `out`.
-    /// Unused bytes in `out` are preserved.
-    pub(crate) fn encode_record_into(
-        &self,
-        out: &mut [u8],
-    ) -> Result<usize, PlaneMemoryRecordError> {
-        if out.len() < PLANE_RECORD_LEN {
-            return Err(PlaneMemoryRecordError::BufferTooSmall {
-                needed: PLANE_RECORD_LEN,
-                available: out.len(),
-            });
-        }
+    pub(crate) fn encode_record(self) -> [u8; PLANE_RECORD_LEN] {
         let mut record = [0; PLANE_RECORD_LEN];
         write_u32_le(&mut record, 0, self.allocation_width);
         write_u32_le(&mut record, 4, self.allocation_height);
@@ -201,8 +190,7 @@ impl PlaneMemoryLayout {
         write_u32_le(&mut record, 12, self.data_offset);
         write_u16_le(&mut record, 16, self.flags.bits());
         record[18] = self.alignment_log2;
-        out[..PLANE_RECORD_LEN].copy_from_slice(&record);
-        Ok(PLANE_RECORD_LEN)
+        record
     }
 }
 
@@ -331,12 +319,11 @@ pub enum PlaneMemoryError {
     SizeOverflow,
 }
 
-/// Failure while decoding or encoding a PLANES section record.
+/// Failure while decoding a PLANES section record.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum PlaneMemoryRecordError {
     Truncated { needed: usize, available: usize },
-    BufferTooSmall { needed: usize, available: usize },
     ReservedNonZero { offset: usize },
     InvalidLayout(PlaneMemoryError),
 }
@@ -452,8 +439,7 @@ mod tests {
             .with_flags(PlaneMemoryFlags::from_bits_retain(0xa501))
             .build()
             .unwrap();
-        let mut bytes = [0xa5; PLANE_RECORD_LEN];
-        assert_eq!(memory.encode_record_into(&mut bytes), Ok(PLANE_RECORD_LEN));
+        let bytes = memory.encode_record();
         assert_eq!(PlaneMemoryLayout::from_record(plane, &bytes), Ok(memory));
         assert_eq!(&bytes[19..], &[0; 5]);
     }
@@ -462,8 +448,7 @@ mod tests {
     fn record_boundaries_and_reserved_bytes_are_checked() {
         let plane = rgba_plane(2, 2);
         let memory = PlaneMemoryLayout::tight(plane).unwrap();
-        let mut bytes = [0; PLANE_RECORD_LEN];
-        memory.encode_record_into(&mut bytes).unwrap();
+        let bytes = memory.encode_record();
 
         for available in 0..PLANE_RECORD_LEN {
             assert_eq!(
@@ -482,16 +467,6 @@ mod tests {
                 Err(PlaneMemoryRecordError::ReservedNonZero { offset })
             );
         }
-
-        let mut short = [0xa5; PLANE_RECORD_LEN - 1];
-        assert_eq!(
-            memory.encode_record_into(&mut short),
-            Err(PlaneMemoryRecordError::BufferTooSmall {
-                needed: PLANE_RECORD_LEN,
-                available: PLANE_RECORD_LEN - 1,
-            })
-        );
-        assert_eq!(short, [0xa5; PLANE_RECORD_LEN - 1]);
     }
 
     #[test]

@@ -746,12 +746,7 @@ impl<'a> Plan<'a> {
             output.section(MediaSectionKind::INTEGRITY, offset, self.integrity_len);
         }
         output.section(MediaSectionKind::DATA, self.data_offset, self.data_len);
-        let mut surface = [0; SURFACE_RECORD_LEN];
-        self.asset
-            .surface
-            .encode_record_into(&mut surface)
-            .expect("surface record size");
-        output.write(&surface);
+        output.write(&self.asset.surface.encode_record());
         storage.emit_metadata(&mut output);
         if let Some(table) = self.asset.color_table {
             output.write(table);

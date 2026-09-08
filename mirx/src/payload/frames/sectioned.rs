@@ -457,12 +457,7 @@ impl<'a> FramesPlan<'a> {
         );
 
         output.write(&self.asset.sequence.encode_record());
-        let mut surface = [0; SURFACE_RECORD_LEN];
-        self.asset
-            .surface
-            .encode_record_into(&mut surface)
-            .expect("validated surface record");
-        output.write(&surface);
+        output.write(&self.asset.surface.encode_record());
         self.storage.emit_metadata(&mut output);
         write_frame_map(self.asset.map, &mut output);
         if let Some(timing) = timing {
@@ -1409,8 +1404,7 @@ mod tests {
             output.section(kind, offset, size);
         }
         output.write(&sequence.encode_record());
-        let mut surface_bytes = [0; SURFACE_RECORD_LEN];
-        surface.encode_record_into(&mut surface_bytes).unwrap();
+        let surface_bytes = surface.encode_record();
         output.write(&surface_bytes);
         let mut coding_bytes = vec![0; coding_len];
         CodingTable::encode_into(&coding, &mut coding_bytes).unwrap();

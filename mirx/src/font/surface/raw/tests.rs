@@ -72,8 +72,7 @@ fn one_physical_record_preserves_cell_gaps_atlas_regions_and_address_checks() {
             .with_data_offset(64)
             .build()
             .unwrap();
-        let mut plane_bytes = [0; PLANE_RECORD_LEN];
-        memory.encode_record_into(&mut plane_bytes).unwrap();
+        let plane_bytes = memory.encode_record();
         // 64 prefix + 48 cell + 16 gap + 48 cell = 176 bytes.
         let data = [0x5a; 176];
         let bytes = payload(&[
@@ -168,8 +167,7 @@ fn mismatched_maps_plane_shapes_and_data_spans_cannot_bind() {
     }
     let memory =
         PlaneMemoryLayout::tight(SampleLayout::A8.plane_geometry(2, 1, 0).unwrap()).unwrap();
-    let mut plane_bytes = [0; 24];
-    memory.encode_record_into(&mut plane_bytes).unwrap();
+    let mut plane_bytes = memory.encode_record();
     plane_bytes[19] = 1;
     let bytes = payload(&[
         (MediaSectionKind::DATA, &[1, 2, 3, 4]),
@@ -200,8 +198,7 @@ fn empty_glyphs_and_unknown_physical_flags_retain_shared_storage_rules() {
         .with_flags(PlaneMemoryFlags::from_bits_retain(1))
         .build()
         .unwrap();
-    let mut plane_bytes = [0; 24];
-    memory.encode_record_into(&mut plane_bytes).unwrap();
+    let plane_bytes = memory.encode_record();
     let bytes = payload(&[
         (MediaSectionKind::DATA, &[7]),
         (MediaSectionKind::PLANES, &plane_bytes),

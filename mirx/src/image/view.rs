@@ -408,9 +408,7 @@ mod tests {
     use crate::wire::{write_u16_le, write_u32_le};
 
     fn surface_record(surface: SurfaceDescriptor) -> [u8; SURFACE_RECORD_LEN] {
-        let mut record = [0; SURFACE_RECORD_LEN];
-        surface.encode_record_into(&mut record).unwrap();
-        record
+        surface.encode_record()
     }
 
     fn plane_record(
@@ -429,9 +427,7 @@ mod tests {
             .with_flags(PlaneMemoryFlags::from_bits_retain(0xa500))
             .build()
             .unwrap();
-        let mut record = [0; PLANE_RECORD_LEN];
-        memory.encode_record_into(&mut record).unwrap();
-        record
+        memory.encode_record()
     }
 
     fn payload(

@@ -244,14 +244,14 @@ fn metadata_inspection_and_complete_integrity_have_distinct_failure_boundaries()
 fn referenced_raw_alignment_checks_file_position_not_slice_alignment() {
     let mut fixture = Fixture::new();
     let geometry = SampleLayout::A8.plane_geometry(2, 2, 0).unwrap();
-    fixture.planes.resize(24, 0);
-    PlaneMemoryLayout::builder(geometry)
-        .with_stride(64)
-        .with_alignment(crate::ByteAlignment::new(64).unwrap())
-        .build()
-        .unwrap()
-        .encode_record_into(&mut fixture.planes)
-        .unwrap();
+    fixture.planes.extend_from_slice(
+        &PlaneMemoryLayout::builder(geometry)
+            .with_stride(64)
+            .with_alignment(crate::ByteAlignment::new(64).unwrap())
+            .build()
+            .unwrap()
+            .encode_record(),
+    );
     fixture.data.resize(256, 7);
     let surface = GlyphSurfaceRecord::from_record(&fixture.surfaces)
         .unwrap()

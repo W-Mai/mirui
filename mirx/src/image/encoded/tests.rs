@@ -116,12 +116,11 @@ pub(super) fn payload(
     palette: Option<&[u8]>,
     integrity: Option<&[u32]>,
 ) -> Vec<u8> {
-    let mut surface_bytes = vec![0; SURFACE_RECORD_LEN];
-    surface.encode_record_into(&mut surface_bytes).unwrap();
+    let surface_bytes = surface.encode_record();
     let mut coding_bytes = vec![0; CodingTable::encoded_len(codings).unwrap()];
     CodingTable::encode_into(codings, &mut coding_bytes).unwrap();
     let mut sections = vec![
-        (MediaSectionKind::SURFACE, surface_bytes),
+        (MediaSectionKind::SURFACE, surface_bytes.to_vec()),
         (MediaSectionKind::CODINGS, coding_bytes),
     ];
     if let Some(groups) = groups {
