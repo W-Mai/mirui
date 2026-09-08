@@ -179,11 +179,11 @@ mod tests {
 
     use super::*;
     use crate::document::{
-        CriticalAssumption, EncodeOptions, OpenOptions, PayloadInput, RawChunkInput,
+        CriticalAssumption, EncodeOptions, OpenOptions, PayloadInput, PayloadOrigin, RawChunkInput,
         RawChunkPolicy, RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
     };
     use crate::meta::{MetaEntry, MetaValue, MetaValueRef};
-    use crate::{ColorFormat, ImageAsset, PayloadLimits, PayloadOrigin, crc32, encode_chunks};
+    use crate::{ColorFormat, ImageAsset, PayloadLimits, crc32, encode_chunks};
 
     fn id(counter: u32) -> ChunkId {
         ChunkId::new(counter)

@@ -180,7 +180,7 @@ mod tests {
 
     use super::*;
     use crate::document::{
-        CriticalAssumption, EncodeOptions, OpenOptions, PayloadInput, RawChunkInput,
+        CriticalAssumption, EncodeOptions, OpenOptions, PayloadInput, PayloadOrigin, RawChunkInput,
         RawChunkPolicy, RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
     };
     use crate::path::{Path, PathCmd};
@@ -190,8 +190,7 @@ mod tests {
     };
     use crate::types::{Color, Fixed, Point, Transform};
     use crate::{
-        ColorFormat, ImageAsset, Layout, PayloadLimits, PayloadOrigin, TrailingBytesPolicy, crc32,
-        encode_chunks,
+        ColorFormat, ImageAsset, Layout, PayloadLimits, TrailingBytesPolicy, crc32, encode_chunks,
     };
 
     fn id(counter: u32) -> ChunkId {

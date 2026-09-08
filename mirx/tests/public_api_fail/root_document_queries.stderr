@@ -1,0 +1,25 @@
+error[E0432]: unresolved imports `mirx::ChunkIter`, `mirx::ChunksOfType`, `mirx::PayloadOrigin`
+ --> tests/public_api_fail/root_document_queries.rs:1:12
+  |
+1 | use mirx::{ChunkIter, ChunksOfType, PayloadOrigin};
+  |            ^^^^^^^^^  ^^^^^^^^^^^^  ^^^^^^^^^^^^^ no `PayloadOrigin` in the root
+  |            |          |
+  |            |          no `ChunksOfType` in the root
+  |            no `ChunkIter` in the root
+  |
+  = help: consider importing this struct instead:
+          mirx::document::ChunkIter
+  = help: consider importing this struct instead:
+          mirx::document::ChunksOfType
+  = help: consider importing this struct instead:
+          mirx::document::PayloadOrigin
+help: a similar name exists in the module
+  |
+1 - use mirx::{ChunkIter, ChunksOfType, PayloadOrigin};
+1 + use mirx::{ChunkId, ChunksOfType, PayloadOrigin};
+  |
+help: a similar name exists in the module
+  |
+1 - use mirx::{ChunkIter, ChunksOfType, PayloadOrigin};
+1 + use mirx::{ChunkIter, ChunkType, PayloadOrigin};
+  |

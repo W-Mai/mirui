@@ -6,8 +6,8 @@ use core::cell::Cell;
 use super::payload::ResolvedNodePayload;
 use super::*;
 use crate::{
-    ColorFormat, FlatImageInput, ImageAsset, ImageView, PayloadOrigin, ReadOptions, Reader,
-    TrailingBytesPolicy, encode_flat,
+    ColorFormat, FlatImageInput, ImageAsset, ImageView, ReadOptions, Reader, TrailingBytesPolicy,
+    encode_flat,
 };
 
 const CUSTOM: ChunkType = match ChunkType::new(0xbeef) {

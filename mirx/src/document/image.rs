@@ -179,13 +179,12 @@ mod tests {
 
     use super::*;
     use crate::document::{
-        CriticalAssumption, EncodeOptions, OpenOptions, RawChunkPolicy, RawTypePolicy,
-        RelocationAssumption, ReservedBitsPolicy,
+        CriticalAssumption, EncodeOptions, OpenOptions, PayloadOrigin, RawChunkPolicy,
+        RawTypePolicy, RelocationAssumption, ReservedBitsPolicy,
     };
     use crate::header::CHUNK_FILE_HEADER_LEN;
     use crate::{
-        ColorFormat, ImagePayloadError, Layout, PayloadOrigin, Reader, TrailingBytesPolicy, crc32,
-        encode_chunks,
+        ColorFormat, ImagePayloadError, Layout, Reader, TrailingBytesPolicy, crc32, encode_chunks,
     };
 
     const FORMATS: [ColorFormat; 16] = [

@@ -777,11 +777,12 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::*;
+    use crate::document::PayloadOrigin;
     use crate::header::{CHUNK_FILE_HEADER_LEN, chunk_type};
     use crate::meta::{MetaDecodeError, MetaEncodeError};
     use crate::{
-        ColorFormat, FlatImageInput, ImageChunkInput, PayloadOrigin, encode_chunk_image,
-        encode_chunks, encode_flat,
+        ColorFormat, FlatImageInput, ImageChunkInput, encode_chunk_image, encode_chunks,
+        encode_flat,
     };
 
     const fn assumed_policy() -> RawChunkPolicy {

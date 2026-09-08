@@ -2,13 +2,13 @@ use alloc::{borrow::Cow, vec::Vec};
 use core::cell::Cell;
 
 use super::*;
-use crate::document::{EncodeOptions, RawChunkPolicy};
+use crate::document::{EncodeOptions, PayloadOrigin, RawChunkPolicy};
 use crate::font::{
     CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontMetadataError, FontRepresentation,
     GlyphId, GlyphMap, GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
 };
 use crate::image::SampleLayout;
-use crate::{ColorFormat, ImageAsset, PayloadLimits, PayloadOrigin, encode_chunks, types::Fixed};
+use crate::{ColorFormat, ImageAsset, PayloadLimits, encode_chunks, types::Fixed};
 
 fn font() -> Font {
     let map = GlyphMap::cells(2, 2, 2).unwrap();
