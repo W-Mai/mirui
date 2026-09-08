@@ -9,6 +9,7 @@ pub mod coding;
 mod crc32;
 pub mod document;
 mod error;
+#[cfg(test)]
 mod flat;
 pub mod font;
 mod format;
@@ -38,7 +39,8 @@ pub use error::{
     DocumentError, EditError, EncodeError, FontAccessError, FramesAccessError, ImageDecodeError,
     MetaAccessError, PaletteAccessError, ParseError, ReadError, TryEditError, VectorAccessError,
 };
-pub use flat::{FlatImageInput, encode_flat};
+#[cfg(test)]
+pub(crate) use flat::{FlatImageInput, encode_flat};
 pub use font::{
     Font, FontAsset, FontError, FontRepresentation, FontRepresentationError,
     FontRepresentationFallback, FontRepresentationKind, FontRepresentationMatch,

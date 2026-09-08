@@ -335,14 +335,17 @@ mod tests {
 
     #[test]
     fn plan_rejects_static_images_and_unsupported_render_layouts() {
-        let flat = mirx::encode_flat(&mirx::FlatImageInput {
-            width: 1,
-            height: 1,
-            stride: 2,
-            format: mirx::ColorFormat::RGB565,
-            main: &[0, 0],
-            extra: None,
-        });
+        let flat = Document::new_flat(mirx::ImageAsset::new(
+            1,
+            1,
+            mirx::ColorFormat::RGB565,
+            2,
+            alloc::borrow::Cow::Borrowed(&[0, 0]),
+        ))
+        .unwrap()
+        .finish()
+        .unwrap()
+        .into_owned();
         assert!(matches!(
             MirxFramesPlan::open(&flat, MirxTextureOptions::new(), &mut []),
             Err(MirxFramesError::NoFramesChunk)

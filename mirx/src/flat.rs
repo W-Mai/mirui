@@ -24,7 +24,7 @@ pub struct FlatImage<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FlatImageInput<'a> {
+pub(crate) struct FlatImageInput<'a> {
     pub width: u32,
     pub height: u32,
     pub stride: u32,
@@ -96,7 +96,7 @@ pub fn parse_flat(buf: &[u8]) -> Result<FlatImage<'_>, ParseError> {
     })
 }
 
-pub fn encode_flat(input: &FlatImageInput<'_>) -> Vec<u8> {
+pub(crate) fn encode_flat(input: &FlatImageInput<'_>) -> Vec<u8> {
     let main_size = (input.stride as usize) * (input.height as usize);
     let expected_extra_size = input
         .format

@@ -989,7 +989,8 @@ fn type_name(chunk_type: ChunkType) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mirx::{ColorFormat, FlatImageInput, PrimaryHints, encode_chunks, encode_flat};
+    use mirx::{ColorFormat, Document, ImageAsset, PrimaryHints, encode_chunks};
+    use std::borrow::Cow;
     use std::sync::atomic::{AtomicU32, Ordering};
 
     static TEMP_FILE_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -1051,14 +1052,17 @@ mod tests {
 
     #[test]
     fn flat_and_trailing_bytes_are_reported_without_chunk_rows() {
-        let mut bytes = encode_flat(&FlatImageInput {
-            width: 2,
-            height: 1,
-            stride: ColorFormat::A8.minimum_stride(2).unwrap(),
-            format: ColorFormat::A8,
-            main: &[1, 2],
-            extra: None,
-        });
+        let mut bytes = Document::new_flat(ImageAsset::new(
+            2,
+            1,
+            ColorFormat::A8,
+            ColorFormat::A8.minimum_stride(2).unwrap(),
+            Cow::Borrowed(&[1, 2]),
+        ))
+        .unwrap()
+        .finish()
+        .unwrap()
+        .into_owned();
         bytes.extend_from_slice(b"tail");
 
         let report = inspect_bytes(&bytes).unwrap();
@@ -1098,14 +1102,17 @@ mod tests {
 
     #[test]
     fn validation_rejects_trailing_and_structurally_invalid_sources() {
-        let valid = encode_flat(&FlatImageInput {
-            width: 1,
-            height: 1,
-            stride: 1,
-            format: ColorFormat::A8,
-            main: &[7],
-            extra: None,
-        });
+        let valid = Document::new_flat(ImageAsset::new(
+            1,
+            1,
+            ColorFormat::A8,
+            1,
+            Cow::Borrowed(&[7]),
+        ))
+        .unwrap()
+        .finish()
+        .unwrap()
+        .into_owned();
         assert_eq!(
             validate_bytes(&valid, true),
             Ok("valid container and known payloads\n".into())

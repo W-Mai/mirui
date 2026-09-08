@@ -618,16 +618,20 @@ mod tests {
     #[test]
     fn reports_flat_storage_without_a_chunk_primary() {
         use mirx::image::SurfaceRequirements;
-        use mirx::{ColorFormat, FlatImageInput, encode_flat};
+        use mirx::{ColorFormat, Document, ImageAsset};
+        use std::borrow::Cow;
 
-        let bytes = encode_flat(&FlatImageInput {
-            width: 2,
-            height: 1,
-            stride: 8,
-            format: ColorFormat::RGBA8888,
-            main: &[1, 2, 3, 4, 5, 6, 7, 8],
-            extra: None,
-        });
+        let bytes = Document::new_flat(ImageAsset::new(
+            2,
+            1,
+            ColorFormat::RGBA8888,
+            8,
+            Cow::Borrowed(&[1, 2, 3, 4, 5, 6, 7, 8]),
+        ))
+        .unwrap()
+        .finish()
+        .unwrap()
+        .into_owned();
         let raw_options =
             Options::parse(&args(&["--in", "source.png", "--out", "asset.mirx"])).unwrap();
         raw_options

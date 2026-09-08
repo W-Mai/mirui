@@ -201,15 +201,18 @@ mod tests {
     }
 
     fn build_flat_rgb565_2x1() -> &'static [u8] {
-        let input = mirx::FlatImageInput {
-            width: 2,
-            height: 1,
-            stride: 4,
-            format: mirx::ColorFormat::RGB565,
-            main: &[0xAA, 0xBB, 0xCC, 0xDD],
-            extra: None,
-        };
-        Box::leak(mirx::encode_flat(&input).into_boxed_slice())
+        let bytes = mirx::Document::new_flat(mirx::ImageAsset::new(
+            2,
+            1,
+            mirx::ColorFormat::RGB565,
+            4,
+            alloc::borrow::Cow::Borrowed(&[0xAA, 0xBB, 0xCC, 0xDD]),
+        ))
+        .unwrap()
+        .finish()
+        .unwrap()
+        .into_owned();
+        Box::leak(bytes.into_boxed_slice())
     }
 
     #[test]
