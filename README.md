@@ -121,7 +121,7 @@ The frame generator prints the selected storage and coding for every frame, sour
 
 ```rust
 use mirui::render::texture::{MirxTextureOptions, Texture};
-use mirx::ByteAlignment;
+use mirx::types::ByteAlignment;
 
 let options = MirxTextureOptions::new()
     .with_base_alignment(ByteAlignment::new(64).unwrap())

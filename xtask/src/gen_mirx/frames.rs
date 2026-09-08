@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use mirx::{
-    ByteAlignment, ChunkFlags, ChunkType, Document, EncodeOptions, PayloadLimits, Reader,
+    ChunkFlags, ChunkType, Document, EncodeOptions, PayloadLimits, Reader,
     frames::{
         FrameEncoding, FrameEncodingSet, FramePolicy, FrameSequence, FrameStorage, FramesEncoder,
     },
     image::{BufferRequirements, DecodeRequest, SurfaceDescriptor, SurfaceMemoryPlan},
+    types::ByteAlignment,
 };
 
 use super::{Result, icu_program, memory, probe_icu};
@@ -608,14 +609,14 @@ mod tests {
             &bytes,
             DecodeRequest::new(
                 SurfaceRequirements::new()
-                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+                    .with_base_alignment(mirx::types::ByteAlignment::new(64).unwrap())
                     .with_width_multiple(64)
                     .with_stride_multiple(64),
             )
             .with_input(MemoryPlacement::Flash)
             .with_output(MemoryPlacement::SharedNoncoherent)
             .with_workspace(MemoryPlacement::SharedCoherent)
-            .with_workspace_alignment(mirx::ByteAlignment::new(64).unwrap()),
+            .with_workspace_alignment(mirx::types::ByteAlignment::new(64).unwrap()),
         )
         .unwrap();
         assert_eq!(report.memory.byte_len(), 192);

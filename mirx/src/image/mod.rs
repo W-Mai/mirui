@@ -3,7 +3,7 @@
 //! Logical dimensions remain unchanged when a backend needs padded storage:
 //!
 //! ```
-//! use mirx::{ByteAlignment, image::{ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements}};
+//! use mirx::{types::ByteAlignment, image::{ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements}};
 //!
 //! let surface = SurfaceDescriptor::new(
 //!     319, 181, SampleLayout::RGBA8888, ColorDescription::SRGB,

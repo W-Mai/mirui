@@ -1,13 +1,14 @@
-error[E0432]: unresolved imports `mirx::Color`, `mirx::Fixed`, `mirx::Point`, `mirx::Rect`, `mirx::Transform`
- --> tests/public_api_fail/root_shared_types.rs:1:12
+error[E0432]: unresolved imports `mirx::Color`, `mirx::Fixed`, `mirx::InvalidByteAlignment`, `mirx::Point`, `mirx::Rect`, `mirx::Transform`
+ --> tests/public_api_fail/root_shared_types.rs:1:27
   |
-1 | use mirx::{Color, Fixed, Point, Rect, Transform};
-  |            ^^^^^  ^^^^^  ^^^^^  ^^^^  ^^^^^^^^^ no `Transform` in the root
-  |            |      |      |      |
-  |            |      |      |      no `Rect` in the root
-  |            |      |      no `Point` in the root
-  |            |      no `Fixed` in the root
-  |            no `Color` in the root
+1 | use mirx::{ByteAlignment, Color, Fixed, InvalidByteAlignment, Point, Rect, Transform};
+  |                           ^^^^^  ^^^^^  ^^^^^^^^^^^^^^^^^^^^  ^^^^^  ^^^^  ^^^^^^^^^ no `Transform` in the root
+  |                           |      |      |                     |      |
+  |                           |      |      |                     |      no `Rect` in the root
+  |                           |      |      |                     no `Point` in the root
+  |                           |      |      no `InvalidByteAlignment` in the root
+  |                           |      no `Fixed` in the root
+  |                           no `Color` in the root
   |
   = help: consider importing one of these items instead:
           mirx::image::SurfaceError::Color
@@ -17,6 +18,8 @@ error[E0432]: unresolved imports `mirx::Color`, `mirx::Fixed`, `mirx::Point`, `m
   = help: consider importing one of these structs instead:
           mirx::types::Fixed
           ttf_parser::Fixed
+  = help: consider importing this enum instead:
+          mirx::types::InvalidByteAlignment
   = help: consider importing this struct instead:
           mirx::types::Point
   = help: consider importing one of these structs instead:
@@ -25,3 +28,19 @@ error[E0432]: unresolved imports `mirx::Color`, `mirx::Fixed`, `mirx::Point`, `m
   = help: consider importing one of these structs instead:
           mirx::types::Transform
           ttf_parser::Transform
+
+error[E0603]: struct `ByteAlignment` is private
+ --> tests/public_api_fail/root_shared_types.rs:1:12
+  |
+1 | use mirx::{ByteAlignment, Color, Fixed, InvalidByteAlignment, Point, Rect, Transform};
+  |            ^^^^^^^^^^^^^ private struct
+  |
+note: the struct `ByteAlignment` is defined here
+ --> src/lib.rs
+  |
+  | pub(crate) use alignment::ByteAlignment;
+  |                ^^^^^^^^^^^^^^^^^^^^^^^^
+help: import `ByteAlignment` directly
+  |
+1 | use mirx::{mirx::alignment::ByteAlignment, Color, Fixed, InvalidByteAlignment, Point, Rect, Transform};
+  |            +++++++++++++++++

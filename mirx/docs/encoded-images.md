@@ -8,7 +8,7 @@
 
 ```rust
 use mirui::render::texture::{MirxTextureOptions, Texture};
-use mirx::ByteAlignment;
+use mirx::types::ByteAlignment;
 
 #[repr(align(64))]
 struct Output([u8; 4096]);

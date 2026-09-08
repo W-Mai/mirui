@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Canonical MIRX coding identity.** Open profile identifiers live under `mirx::coding::CodingId`; duplicate crate-root and `media` paths have been removed.
 - **Canonical MIRX access errors.** Typed access errors live with their payload domains; IMAGE access uses `ImageAccessError`; duplicate crate-root exports and the misleading `ImageDecodeError` name have been removed.
 - **Canonical MIRX value paths.** Shared color and geometry values live under `mirx::types`; VECTOR paths live under `mirx::scene`; duplicate crate-root exports have been removed.
+- **Canonical MIRX alignment path.** `ByteAlignment` and `InvalidByteAlignment` live under `mirx::types`; duplicate crate-root exports have been removed.
 - **Canonical MIRX VECTOR paths.** Scene values, paint primitives, codec errors, and access errors live under `mirx::scene`; duplicate crate-root exports have been removed.
 - **Canonical MIRX FONT paths.** Font values, views, representation selection, and access errors live under `mirx::font`; duplicate crate-root exports have been removed.
 - **Private MIRX payload plumbing.** Typed payload codecs are exposed through their domain modules; the internal `payload` assembly module is no longer public.

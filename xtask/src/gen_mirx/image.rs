@@ -184,7 +184,7 @@ impl OutputReport {
         self.workspace.map_or(0, BufferRequirements::byte_len)
     }
 
-    fn workspace_alignment(&self) -> mirx::ByteAlignment {
+    fn workspace_alignment(&self) -> mirx::types::ByteAlignment {
         self.workspace.map_or_else(
             || self.contract.request().workspace_alignment(),
             BufferRequirements::base_alignment,
@@ -343,7 +343,7 @@ fn inspect_raw(
         .planes()
         .map(|plane| plane.memory().required_alignment())
         .max()
-        .unwrap_or(mirx::ByteAlignment::ONE);
+        .unwrap_or(mirx::types::ByteAlignment::ONE);
     Ok(OutputReport {
         memory,
         contract: memory::ContractReport::new(
@@ -574,7 +574,7 @@ mod tests {
         let surface =
             SurfaceDescriptor::new(4, 2, SampleLayout::A8, ColorDescription::NONE).unwrap();
         let asset = EncodedImageAsset::new(surface, Rle::new().record(), &[0x87, 42])
-            .with_input_alignment(mirx::ByteAlignment::new(64).unwrap());
+            .with_input_alignment(mirx::types::ByteAlignment::new(64).unwrap());
         let mut document = Document::new();
         let id = document.push_encoded_image(&asset).unwrap();
         document.set_primary(id).unwrap();
@@ -595,14 +595,14 @@ mod tests {
         );
         let request = DecodeRequest::new(
             SurfaceRequirements::new()
-                .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+                .with_base_alignment(mirx::types::ByteAlignment::new(64).unwrap())
                 .with_width_multiple(8)
                 .with_stride_multiple(64),
         )
         .with_input(MemoryPlacement::Flash)
         .with_output(MemoryPlacement::SharedNoncoherent)
         .with_workspace(MemoryPlacement::SharedCoherent)
-        .with_workspace_alignment(mirx::ByteAlignment::new(128).unwrap());
+        .with_workspace_alignment(mirx::types::ByteAlignment::new(128).unwrap());
         let report = inspect_output(&bytes, request).unwrap();
 
         assert_eq!(report.memory.byte_len(), 128);
@@ -653,10 +653,10 @@ mod tests {
         );
         let request = DecodeRequest::new(
             SurfaceRequirements::new()
-                .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+                .with_base_alignment(mirx::types::ByteAlignment::new(64).unwrap())
                 .with_stride_multiple(64),
         )
-        .with_workspace_alignment(mirx::ByteAlignment::new(64).unwrap());
+        .with_workspace_alignment(mirx::types::ByteAlignment::new(64).unwrap());
         let report = inspect_output(&bytes, request).unwrap();
 
         assert_eq!(report.memory.byte_len(), 64);

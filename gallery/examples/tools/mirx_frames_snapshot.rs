@@ -65,7 +65,7 @@ fn encode_timeline() -> Vec<u8> {
         .expect("valid frame encoder")
         .with_profiles(FrameEncodingSet::lossless())
         .expect("valid lossless profiles")
-        .with_input_alignment(mirx::ByteAlignment::new(64).unwrap())
+        .with_input_alignment(mirx::types::ByteAlignment::new(64).unwrap())
         .expect("valid input alignment");
     for (frame, duration) in [100, 250, 150].into_iter().enumerate() {
         encoder
@@ -98,9 +98,9 @@ fn main() {
         .with_input_memory(MemoryPlacement::Flash)
         .with_output_memory(MemoryPlacement::SharedNoncoherent)
         .with_workspace_memory(MemoryPlacement::SharedCoherent)
-        .with_workspace_alignment(mirx::ByteAlignment::new(64).unwrap())
-        .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
-        .with_plane_alignment(mirx::ByteAlignment::new(64).unwrap())
+        .with_workspace_alignment(mirx::types::ByteAlignment::new(64).unwrap())
+        .with_base_alignment(mirx::types::ByteAlignment::new(64).unwrap())
+        .with_plane_alignment(mirx::types::ByteAlignment::new(64).unwrap())
         .with_width_multiple(64)
         .with_stride_multiple(64);
     let mut groups = [None];

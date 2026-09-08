@@ -19,7 +19,7 @@ impl SurfaceDescriptor {
     /// Plans storage for an exact region in logical surface coordinates.
     ///
     /// ```
-    /// use mirx::{ByteAlignment, image::{ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements}};
+    /// use mirx::{types::ByteAlignment, image::{ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements}};
     /// let surface = SurfaceDescriptor::new(5, 3, SampleLayout::NV12,
     ///     ColorDescription::BT709_YUV_LIMITED).unwrap();
     /// let region = surface.region(2, 0, 3, 3).unwrap();

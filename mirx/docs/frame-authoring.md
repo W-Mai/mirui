@@ -8,9 +8,9 @@ Each `push` compares complete representations. RAW is the independent fallback; 
 
 ```rust
 use mirx::{
-    ByteAlignment,
     frames::{FrameSequence, FramesEncoder},
     image::{ColorDescription, SampleLayout, SurfaceDescriptor},
+    types::ByteAlignment,
 };
 
 let surface = SurfaceDescriptor::new(

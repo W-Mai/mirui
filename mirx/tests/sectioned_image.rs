@@ -21,8 +21,8 @@ fn planar_images_preserve_geometry_hints_alignment_and_noop_edits() {
         let plan = surface
             .memory_plan(
                 SurfaceRequirements::new()
-                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
-                    .with_plane_alignment(mirx::ByteAlignment::new(64).unwrap())
+                    .with_base_alignment(mirx::types::ByteAlignment::new(64).unwrap())
+                    .with_plane_alignment(mirx::types::ByteAlignment::new(64).unwrap())
                     .with_width_multiple(64)
                     .with_stride_multiple(64),
             )

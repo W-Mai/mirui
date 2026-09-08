@@ -165,7 +165,7 @@ impl<'source> MirxFramesPlan<'source> {
         self.inner.output_sync()
     }
 
-    pub const fn input_alignment(self) -> mirx::ByteAlignment {
+    pub const fn input_alignment(self) -> mirx::types::ByteAlignment {
         self.inner.input_alignment()
     }
 
@@ -281,14 +281,14 @@ mod tests {
         let options = MirxTextureOptions::new()
             .with_requirements(
                 SurfaceRequirements::new()
-                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+                    .with_base_alignment(mirx::types::ByteAlignment::new(64).unwrap())
                     .with_width_multiple(64)
                     .with_stride_multiple(64),
             )
             .with_input_memory(mirx::image::MemoryPlacement::Flash)
             .with_output_memory(mirx::image::MemoryPlacement::SharedNoncoherent)
             .with_workspace_memory(mirx::image::MemoryPlacement::SharedCoherent)
-            .with_workspace_alignment(mirx::ByteAlignment::new(64).unwrap());
+            .with_workspace_alignment(mirx::types::ByteAlignment::new(64).unwrap());
         let mut slots = [None];
         let plan = MirxFramesPlan::open(&bytes, options, &mut slots).unwrap();
         assert_eq!(plan.meta().width, 2);

@@ -1,6 +1,6 @@
 use mirx::{
-    ByteAlignment,
     image::{CacheSync, DecodeRequest, MemoryPlacement, SurfaceRequirements},
+    types::ByteAlignment,
 };
 
 use super::Result;

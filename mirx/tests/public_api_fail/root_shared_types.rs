@@ -1,3 +1,3 @@
-use mirx::{Color, Fixed, Point, Rect, Transform};
+use mirx::{ByteAlignment, Color, Fixed, InvalidByteAlignment, Point, Rect, Transform};
 
 fn main() {}

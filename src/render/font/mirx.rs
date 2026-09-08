@@ -434,7 +434,7 @@ mod tests {
             SurfaceDescriptor::new(8, 4, SampleLayout::A1, ColorDescription::NONE).unwrap();
         let memory = PlaneMemoryLayout::builder(surface.plane(0).unwrap())
             .with_stride(64)
-            .with_alignment(mirx::ByteAlignment::new(64).unwrap())
+            .with_alignment(mirx::types::ByteAlignment::new(64).unwrap())
             .build()
             .unwrap();
         let samples = [0xa5; 256];
@@ -591,7 +591,7 @@ mod tests {
         let storage = MirxFontStorage::new(surfaces, output, &mut groups, &mut workspace)
             .with_requirements(
                 SurfaceRequirements::new()
-                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+                    .with_base_alignment(mirx::types::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             );
         let provider =
@@ -642,7 +642,7 @@ mod tests {
         let storage = MirxFontStorage::new(surfaces, output, &mut groups, &mut workspace)
             .with_requirements(
                 SurfaceRequirements::new()
-                    .with_base_alignment(mirx::ByteAlignment::new(64).unwrap())
+                    .with_base_alignment(mirx::types::ByteAlignment::new(64).unwrap())
                     .with_stride_multiple(64),
             );
         assert!(matches!(

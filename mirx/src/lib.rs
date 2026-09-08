@@ -31,7 +31,7 @@ pub mod scene;
 pub mod types;
 mod wire;
 
-pub use alignment::{ByteAlignment, InvalidByteAlignment};
+pub(crate) use alignment::ByteAlignment;
 #[cfg(test)]
 pub(crate) use chunk::{ImageChunkInput, encode_chunk_image, encode_chunks};
 pub use crc32::compute as crc32;

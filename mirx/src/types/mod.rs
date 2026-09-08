@@ -1,8 +1,4 @@
-//! Geometry primitives used by the VECTOR chunk wire format.
-//!
-//! All types in this module are plain data — `pub` fields, no
-//! arithmetic, no methods beyond constructors and accessors. Consumers
-//! convert to their own runtime types via `From` and do math there.
+//! Shared validated value types.
 
 pub mod color;
 pub mod fixed;
@@ -10,6 +6,7 @@ pub mod point;
 pub mod rect;
 pub mod transform;
 
+pub use crate::alignment::{ByteAlignment, InvalidByteAlignment};
 pub use color::Color;
 pub use fixed::Fixed;
 pub use point::Point;

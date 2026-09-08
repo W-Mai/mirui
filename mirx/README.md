@@ -230,7 +230,7 @@ assert_eq!(output, samples);
 `SurfacePlane::row(y)` and `rows()` borrow logical sample rows without allocation. Row indices use each plane's own geometry, including chroma subsampling. Stride padding and allocation-only rows are excluded; unused low bits in a sub-byte row's last byte remain unchanged. Unknown physical storage flags are rejected. These CPU-readable slices do not imply that every row meets GPU address-alignment requirements.
 
 ```rust
-use mirx::{ByteAlignment, image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor, SurfaceRequirements}};
+use mirx::{types::ByteAlignment, image::{ColorDescription, RawImageAsset, SampleLayout, SurfaceDescriptor, SurfaceRequirements}};
 
 #[repr(align(64))]
 struct Buffer([u8; 256]);
@@ -389,7 +389,7 @@ Typed `push_*` methods use `ChunkFlags::NONE`. Their `push_*_with_flags(value, f
 FRAMES construction reuses the sectioned surface model:
 
 ```rust,no_run
-use mirx::{ByteAlignment, Document, frames::{FrameSequence, FramesEncoder}, image::{ColorDescription, SampleLayout, SurfaceDescriptor}};
+use mirx::{types::ByteAlignment, Document, frames::{FrameSequence, FramesEncoder}, image::{ColorDescription, SampleLayout, SurfaceDescriptor}};
 
 let surface = SurfaceDescriptor::new(2, 1, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
 let sequence = FrameSequence::new(1, 1_000, 40).unwrap();
