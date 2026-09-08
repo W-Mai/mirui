@@ -316,7 +316,7 @@ mod tests {
         let op = SceneOp::FillPath {
             path: crate::render::path::Path::from_owned(path),
             transform: Transform::IDENTITY,
-            paint: Paint::Color(mirx::Color {
+            paint: Paint::Color(mirx::types::Color {
                 r: 0,
                 g: 0,
                 b: 0,

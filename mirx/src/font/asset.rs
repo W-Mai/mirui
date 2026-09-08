@@ -10,7 +10,7 @@ use super::{
     REPRESENTATION_RECORD_LEN, RasterMetrics, RawGlyphs, RepresentationRecord, ShapingData,
 };
 use crate::{
-    ByteAlignment, Fixed, PayloadLimits,
+    ByteAlignment, PayloadLimits,
     image::{
         ATLAS_REGION_LEN, AtlasMap, ColorDescription, EncodedImageAsset, EncodedStoragePlan,
         PLANE_RECORD_LEN, PlaneMemoryLayout, SurfaceDescriptor,
@@ -20,6 +20,7 @@ use crate::{
         MEDIA_SECTION_LEN, MEDIA_VERSION, MediaFlags, MediaSectionKind, UnitIndex,
         output::PayloadOutput,
     },
+    types::Fixed,
     wire::write_u16_le,
 };
 

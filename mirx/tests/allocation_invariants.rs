@@ -12,11 +12,12 @@ use mirx::image::{
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::meta::{Meta, MetaEntry};
 use mirx::palette::Palette;
-use mirx::{ChunkFlags, ChunkType, Color, Document, EncodeOptions, PayloadLimits, Reader};
+use mirx::types::{Color, Fixed};
+use mirx::{ChunkFlags, ChunkType, Document, EncodeOptions, PayloadLimits, Reader};
 use support::encode_chunks;
 
-fn wire_fixed(bits: i32) -> mirx::Fixed {
-    mirx::Fixed::from_le_bytes(bits.to_le_bytes())
+fn wire_fixed(bits: i32) -> Fixed {
+    Fixed::from_le_bytes(bits.to_le_bytes())
 }
 
 struct TrackingAllocator;
@@ -171,11 +172,11 @@ fn frequency_authoring_preflight_and_aligned_decode_allocate_nothing() {
 #[test]
 fn owned_font_edits_and_emission_need_no_temporary_reference_arrays() {
     use mirx::{
-        Fixed,
         font::{
             CmapEntry, Font, FontAdvanceSource, FontAsset, FontFace, FontRepresentation, GlyphId,
             GlyphMap, GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
         },
+        types::Fixed,
     };
     let cmap = [CmapEntry::new('A', GlyphId::NOTDEF)];
     let advances = [wire_fixed(256)];
@@ -232,7 +233,6 @@ fn owned_font_edits_and_emission_need_no_temporary_reference_arrays() {
 #[test]
 fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
     use mirx::{
-        Fixed,
         coding::Rle,
         font::{
             CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontGlyphs, FontRepresentation,
@@ -240,6 +240,7 @@ fn native_font_emission_and_complete_borrowed_access_allocate_nothing() {
             RasterMetrics, RawGlyphs, RepresentationAsset,
         },
         image::{CoverageBudget, EncodedImageAsset},
+        types::Fixed,
     };
     let (_, allocations) = count_allocations(|| {
         let map = GlyphMap::cells(2, 2, 2).unwrap();

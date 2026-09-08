@@ -269,16 +269,16 @@ mod tests {
             1_000,
             GlyphId::NOTDEF,
             2,
-            crate::Fixed::ONE,
-            crate::Fixed::ZERO,
-            crate::Fixed::ZERO,
+            crate::types::Fixed::ONE,
+            crate::types::Fixed::ZERO,
+            crate::types::Fixed::ZERO,
         )
         .unwrap();
         let cmap = [
             CmapEntry::new('A', GlyphId::new(0)),
             CmapEntry::new('B', GlyphId::new(1)),
         ];
-        let advances = [crate::Fixed::ONE; 2];
+        let advances = [crate::types::Fixed::ONE; 2];
         let raster_metrics = [RasterMetrics::default(); 2];
         FontAsset::new(face, &cmap, FontAdvanceSource::Advances(&advances))
             .with_rasters(&representations, &raster_metrics, &surfaces)

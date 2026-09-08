@@ -17,11 +17,11 @@ use crate::render::raster::FillRule;
 use crate::types::{Color, Fixed, Point, Rect, Transform};
 
 pub use mirx::{
-    Color as MirxColor, Fixed as MirxFixed,
     scene::{
         GradientStop, GradientUnits, LineCap, LineJoin, LinearGradient, Paint, RadialGradient,
         SpreadMode,
     },
+    types::{Color as MirxColor, Fixed as MirxFixed},
 };
 
 /// Reference to a font / texture / subtree resource.
@@ -299,7 +299,7 @@ mod tests {
     static SCENE: &[SceneOp] = &[SceneOp::FillPath {
         path: Path::from_static(&GEOMETRY),
         transform: Transform::IDENTITY,
-        paint: Paint::Color(mirx::Color {
+        paint: Paint::Color(mirx::types::Color {
             r: 255,
             g: 0,
             b: 0,
@@ -326,7 +326,7 @@ mod tests {
         let owned = SceneOp::FillPath {
             path: Path::from_owned(GEOMETRY.to_vec()),
             transform: Transform::IDENTITY,
-            paint: Paint::Color(mirx::Color {
+            paint: Paint::Color(mirx::types::Color {
                 r: 255,
                 g: 0,
                 b: 0,

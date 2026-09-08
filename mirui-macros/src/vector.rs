@@ -53,7 +53,7 @@ fn fixed(raw: i32) -> TokenStream {
 }
 
 fn mirx_fixed(raw: i32) -> TokenStream {
-    quote! { ::mirx::Fixed::from_ratio(#raw, 256) }
+    quote! { ::mirx::types::Fixed::from_ratio(#raw, 256) }
 }
 
 fn parse_signed_f64(input: ParseStream) -> syn::Result<f64> {
@@ -1273,7 +1273,7 @@ fn stop_tokens(stops: &[(f64, u8, u8, u8, u8)]) -> Vec<TokenStream> {
             let off_raw = (*off * (1i32 << FRAC_BITS) as f64).round() as i32;
             quote! {
                 ::mirui::render::scene::GradientStop {
-                    offset: ::mirx::Fixed::from_ratio(#off_raw, 256),
+                    offset: ::mirx::types::Fixed::from_ratio(#off_raw, 256),
                     color: ::mirui::render::scene::MirxColor { r: #r, g: #g, b: #b, a: #a },
                 }
             }
@@ -1306,12 +1306,12 @@ fn paint_expr_tokens(p: &PaintExpr) -> TokenStream {
             quote! {
                 ::mirui::render::scene::Paint::LinearGradient(
                     ::mirui::render::scene::LinearGradient {
-                        start: ::mirx::Point { x: #sx, y: #sy },
-                        end: ::mirx::Point { x: #ex, y: #ey },
+                        start: ::mirx::types::Point { x: #sx, y: #sy },
+                        end: ::mirx::types::Point { x: #ex, y: #ey },
                         stops: ::mirui::__Cow::Borrowed(&[#(#stops_t),*]),
                         spread: #spread_t,
                         units: #units_t,
-                        transform: ::mirx::Transform::IDENTITY,
+                        transform: ::mirx::types::Transform::IDENTITY,
                     }
                 )
             }
@@ -1339,14 +1339,14 @@ fn paint_expr_tokens(p: &PaintExpr) -> TokenStream {
             quote! {
                 ::mirui::render::scene::Paint::RadialGradient(
                     ::mirui::render::scene::RadialGradient {
-                        center: ::mirx::Point { x: #cx_t, y: #cy_t },
+                        center: ::mirx::types::Point { x: #cx_t, y: #cy_t },
                         radius: #r_t,
-                        focal: ::mirx::Point { x: #fx_t, y: #fy_t },
+                        focal: ::mirx::types::Point { x: #fx_t, y: #fy_t },
                         focal_radius: #fr_t,
                         stops: ::mirui::__Cow::Borrowed(&[#(#stops_t),*]),
                         spread: #spread_t,
                         units: #units_t,
-                        transform: ::mirx::Transform::IDENTITY,
+                        transform: ::mirx::types::Transform::IDENTITY,
                     }
                 )
             }

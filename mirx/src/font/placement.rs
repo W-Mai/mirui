@@ -1,4 +1,4 @@
-use crate::Fixed;
+use crate::types::Fixed;
 
 pub const ADVANCE_RECORD_LEN: usize = 4;
 pub const RASTER_METRICS_RECORD_LEN: usize = 8;

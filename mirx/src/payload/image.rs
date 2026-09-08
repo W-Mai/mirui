@@ -503,7 +503,9 @@ mod tests {
     use crate::header::{Layout, MAGIC, VERSION_MAJOR, VERSION_MINOR};
     use crate::media::{MEDIA_HEADER_LEN, MediaPayload, MediaPayloadError, MediaSectionKind};
     use crate::wire::read_u32_le;
-    use crate::{ChunkType, Color, ImageChunkInput, Reader, encode_chunk_image, encode_chunks};
+    use crate::{
+        ChunkType, ImageChunkInput, Reader, encode_chunk_image, encode_chunks, types::Color,
+    };
 
     const FORMATS: [ColorFormat; 16] = [
         ColorFormat::I1,

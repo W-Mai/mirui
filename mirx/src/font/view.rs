@@ -201,7 +201,7 @@ impl<'a> FontView<'a> {
     pub fn raster_ordinal(self, glyph_id: GlyphId) -> Option<usize> {
         self.metadata.raster_ordinal(glyph_id)
     }
-    pub fn advance(self, glyph_id: GlyphId) -> Option<crate::Fixed> {
+    pub fn advance(self, glyph_id: GlyphId) -> Option<crate::types::Fixed> {
         self.metadata.advance(glyph_id)
     }
     pub fn raster_metrics(self, representation: usize, glyph_id: GlyphId) -> Option<RasterMetrics> {
@@ -571,7 +571,7 @@ impl<'a> FontRepresentationView<'a> {
     pub const fn map(self) -> GlyphMap<'a> {
         self.map
     }
-    pub fn advance(self, glyph_id: GlyphId) -> Option<crate::Fixed> {
+    pub fn advance(self, glyph_id: GlyphId) -> Option<crate::types::Fixed> {
         self.metadata.advance(glyph_id)
     }
     pub fn raster_metrics(self, glyph_id: GlyphId) -> Option<RasterMetrics> {

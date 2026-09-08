@@ -3,9 +3,9 @@ use core::{mem, mem::size_of};
 
 use super::{COLOR_LEN, HEADER_LEN, PaletteDecodeError, PaletteView, validate_payload_layout};
 use crate::{
-    Color,
     payload::envelope::{VERSION, checked_payload_len, write_crc_trailer},
     reader::PayloadLimits,
+    types::Color,
 };
 
 /// Editable ordered PALETTE color table.

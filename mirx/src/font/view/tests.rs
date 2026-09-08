@@ -1,6 +1,5 @@
 use super::*;
 use crate::{
-    Fixed,
     coding::Rle,
     font::{
         CmapEntry, FontAdvanceSource, FontAsset, FontFace, FontRepresentation,
@@ -10,6 +9,7 @@ use crate::{
     },
     image::{PlaneMemoryLayout, SampleLayout, SurfaceRequirements},
     media::{CodingTable, MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MEDIA_VERSION},
+    types::Fixed,
     wire::{write_u16_le, write_u32_le},
 };
 use alloc::{vec, vec::Vec};

@@ -1,10 +1,6 @@
-//! Byte-order RGBA colour. `{r, g, b, a}` — byte 0 = R, matching
-//! `mirui::types::Color` and every backend mirui ships today (SDL
-//! RGBA32, wgpu Rgba8Unorm, WebGL / Canvas ImageData).
+//! Byte-order RGBA color used by VECTOR and PALETTE records.
 //!
-//! Wire layout: 4 bytes `[r, g, b, a]`. This is the same layout the
-//! existing `mirui::render::scene::codec` writes, so old `.mirx`
-//! bytes decode identically through `mirx::Color`.
+//! Wire layout: four bytes `[r, g, b, a]`.
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Color {

@@ -13,22 +13,22 @@
 /// Q24.8 scalar used by VECTOR and FONT wire records.
 ///
 /// ```compile_fail
-/// use mirx::Fixed;
+/// use mirx::types::Fixed;
 /// let value = Fixed(128);
 /// ```
 ///
 /// ```compile_fail
-/// use mirx::Fixed;
+/// use mirx::types::Fixed;
 /// let value = Fixed::from_raw(128);
 /// ```
 ///
 /// ```compile_fail
-/// use mirx::Fixed;
+/// use mirx::types::Fixed;
 /// let value = Fixed::ONE.raw();
 /// ```
 ///
 /// ```compile_fail
-/// use mirx::Fixed;
+/// use mirx::types::Fixed;
 /// let value = Fixed::ONE.0;
 /// ```
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]

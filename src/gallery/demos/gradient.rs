@@ -12,7 +12,7 @@ use crate::render::scene::{
 };
 use crate::types::Transform;
 
-fn unit_point(x: f32, y: f32) -> mirx::Point {
+fn unit_point(x: f32, y: f32) -> mirx::types::Point {
     Point {
         x: Fixed::from_f32(x),
         y: Fixed::from_f32(y),
@@ -20,7 +20,7 @@ fn unit_point(x: f32, y: f32) -> mirx::Point {
     .into()
 }
 
-fn unit(v: f32) -> mirx::Fixed {
+fn unit(v: f32) -> mirx::types::Fixed {
     Fixed::from_f32(v).into()
 }
 

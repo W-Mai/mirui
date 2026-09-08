@@ -83,7 +83,11 @@ pub struct WebCanvasRenderer<'a> {
     viewport: Viewport,
 }
 
-fn map_point(c: mirx::Point, units: mirx::scene::GradientUnits, bbox: Option<Rect>) -> (f64, f64) {
+fn map_point(
+    c: mirx::types::Point,
+    units: mirx::scene::GradientUnits,
+    bbox: Option<Rect>,
+) -> (f64, f64) {
     match units {
         mirx::scene::GradientUnits::UserSpaceOnUse => (c.x.to_f32() as f64, c.y.to_f32() as f64),
         mirx::scene::GradientUnits::ObjectBoundingBox => {
@@ -98,7 +102,11 @@ fn map_point(c: mirx::Point, units: mirx::scene::GradientUnits, bbox: Option<Rec
     }
 }
 
-fn map_scalar_grad(v: mirx::Fixed, units: mirx::scene::GradientUnits, bbox: Option<Rect>) -> f64 {
+fn map_scalar_grad(
+    v: mirx::types::Fixed,
+    units: mirx::scene::GradientUnits,
+    bbox: Option<Rect>,
+) -> f64 {
     match units {
         mirx::scene::GradientUnits::UserSpaceOnUse => v.to_f32().max(0.0) as f64,
         mirx::scene::GradientUnits::ObjectBoundingBox => {
@@ -110,8 +118,8 @@ fn map_scalar_grad(v: mirx::Fixed, units: mirx::scene::GradientUnits, bbox: Opti
 }
 
 fn map_gradient_points(
-    start: mirx::Point,
-    end: mirx::Point,
+    start: mirx::types::Point,
+    end: mirx::types::Point,
     units: mirx::scene::GradientUnits,
     bbox: Option<Rect>,
 ) -> (f64, f64, f64, f64) {

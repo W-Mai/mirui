@@ -1,4 +1,4 @@
-error[E0432]: unresolved imports `mirx::CodecError`, `mirx::CompositeMode`, `mirx::FillRule`, `mirx::GradientStop`, `mirx::GradientUnits`, `mirx::LineCap`, `mirx::LineJoin`, `mirx::LinearGradient`, `mirx::Paint`, `mirx::RadialGradient`, `mirx::ResourceRef`, `mirx::Scene`, `mirx::SceneOp`, `mirx::SpreadMode`, `mirx::VectorAccessError`, `mirx::VectorChunkHeader`, `mirx::VectorEncodeError`, `mirx::VectorReadError`
+error[E0432]: unresolved imports `mirx::CodecError`, `mirx::CompositeMode`, `mirx::FillRule`, `mirx::GradientStop`, `mirx::GradientUnits`, `mirx::LineCap`, `mirx::LineJoin`, `mirx::LinearGradient`, `mirx::Paint`, `mirx::Path`, `mirx::PathCmd`, `mirx::RadialGradient`, `mirx::ResourceRef`, `mirx::Scene`, `mirx::SceneOp`, `mirx::SpreadMode`, `mirx::VectorAccessError`, `mirx::VectorChunkHeader`, `mirx::VectorEncodeError`, `mirx::VectorReadError`
  --> tests/public_api_fail/root_scene_types.rs:2:5
   |
 2 |     CodecError, CompositeMode, FillRule, GradientStop, GradientUnits, LineCap, LineJoin,
@@ -10,12 +10,12 @@ error[E0432]: unresolved imports `mirx::CodecError`, `mirx::CompositeMode`, `mir
   |     |           |              no `FillRule` in the root
   |     |           no `CompositeMode` in the root
   |     no `CodecError` in the root
-3 |     LinearGradient, Paint, RadialGradient, ResourceRef, Scene, SceneOp, SpreadMode,
-  |     ^^^^^^^^^^^^^^  ^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^  ^^^^^^^  ^^^^^^^^^^
+3 |     LinearGradient, Paint, Path, PathCmd, RadialGradient, ResourceRef, Scene, SceneOp, SpreadMode,
+  |     ^^^^^^^^^^^^^^  ^^^^^  ^^^^  ^^^^^^^  ^^^^^^^^^^^^^^  ^^^^^^^^^^^  ^^^^^  ^^^^^^^  ^^^^^^^^^^
   |     |               |      |
-  |     |               |      no `RadialGradient` in the root
+  |     |               |      no `Path` in the root
+  |     |               |      help: a similar name exists in the module: `path`
   |     |               no `Paint` in the root
-  |     |               help: a similar name exists in the module: `Point`
   |     no `LinearGradient` in the root
 4 |     VectorAccessError, VectorChunkHeader, VectorEncodeError, VectorReadError,
   |     ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^
@@ -43,8 +43,6 @@ error[E0432]: unresolved imports `mirx::CodecError`, `mirx::CompositeMode`, `mir
   = help: consider importing one of these enums instead:
           mirx::scene::Paint
           ttf_parser::colr::Paint
-  = help: consider importing one of these items instead:
-          mirx::scene::Paint::RadialGradient
-          mirx::scene::RadialGradient
-          ttf_parser::colr::Paint::RadialGradient
-          ttf_parser::colr::RadialGradient
+  = help: consider importing one of these structs instead:
+          std::path::Path
+          mirx::scene::Path

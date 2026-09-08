@@ -8,8 +8,8 @@ use crate::font::{
 };
 use crate::image::SampleLayout;
 use crate::{
-    ColorFormat, EncodeOptions, Fixed, ImageAsset, PayloadLimits, PayloadOrigin, RawChunkPolicy,
-    encode_chunks,
+    ColorFormat, EncodeOptions, ImageAsset, PayloadLimits, PayloadOrigin, RawChunkPolicy,
+    encode_chunks, types::Fixed,
 };
 
 fn font() -> Font {

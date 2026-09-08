@@ -20,7 +20,7 @@ fn paint_color(paint: &Paint) -> Color {
     }
 }
 
-fn map_units(c: mirx::Point, units: mirx::scene::GradientUnits, bbox: Rect) -> Fixed {
+fn map_units(c: mirx::types::Point, units: mirx::scene::GradientUnits, bbox: Rect) -> Fixed {
     let cx: Fixed = c.x.into();
     match units {
         mirx::scene::GradientUnits::UserSpaceOnUse => cx,
@@ -28,7 +28,7 @@ fn map_units(c: mirx::Point, units: mirx::scene::GradientUnits, bbox: Rect) -> F
     }
 }
 
-fn map_units_y(c: mirx::Point, units: mirx::scene::GradientUnits, bbox: Rect) -> Fixed {
+fn map_units_y(c: mirx::types::Point, units: mirx::scene::GradientUnits, bbox: Rect) -> Fixed {
     let cy: Fixed = c.y.into();
     match units {
         mirx::scene::GradientUnits::UserSpaceOnUse => cy,
@@ -37,7 +37,7 @@ fn map_units_y(c: mirx::Point, units: mirx::scene::GradientUnits, bbox: Rect) ->
 }
 
 fn map_scalar(
-    v: mirx::Fixed,
+    v: mirx::types::Fixed,
     units: mirx::scene::GradientUnits,
     bbox: Rect,
     axis_w: bool,
@@ -477,11 +477,11 @@ mod gradient_tests {
 
     fn linear_paint_obb() -> Paint {
         Paint::LinearGradient(LinearGradient {
-            start: mirx::Point {
+            start: mirx::types::Point {
                 x: Fixed::ZERO.into(),
                 y: Fixed::ZERO.into(),
             },
-            end: mirx::Point {
+            end: mirx::types::Point {
                 x: Fixed::ONE.into(),
                 y: Fixed::ONE.into(),
             },

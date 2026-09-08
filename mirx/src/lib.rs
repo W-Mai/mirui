@@ -24,7 +24,7 @@ pub mod meta;
 mod model;
 #[path = "payload/palette.rs"]
 pub mod palette;
-pub mod path;
+mod path;
 mod payload;
 pub mod reader;
 pub mod scene;
@@ -55,10 +55,8 @@ pub(crate) use header::{
 };
 pub use media::CodingId;
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
-pub use path::{Path, PathCmd};
 pub(crate) use payload::image::{ImageAsset, ImagePayloadError, ImageView};
 pub use reader::{
     ChunkRef, ComplianceFinding, EntryIter, FindingIter, PayloadLimits, PayloadLocation,
     PayloadValidationError, PayloadValidationFailure, ReadOptions, Reader, TrailingBytesPolicy,
 };
-pub use types::{Color, Fixed, Point, Rect, Transform};

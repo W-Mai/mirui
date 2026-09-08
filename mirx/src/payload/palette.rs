@@ -194,9 +194,9 @@ mod tests {
         assert_eq!(
             palette.colors().iter().collect::<Vec<_>>(),
             vec![
-                crate::Color::rgba(0x10, 0x20, 0x30, 0x40),
-                crate::Color::rgba(0xaa, 0xbb, 0xcc, 0xdd),
-                crate::Color::rgba(0x10, 0x20, 0x30, 0x40),
+                crate::types::Color::rgba(0x10, 0x20, 0x30, 0x40),
+                crate::types::Color::rgba(0xaa, 0xbb, 0xcc, 0xdd),
+                crate::types::Color::rgba(0x10, 0x20, 0x30, 0x40),
             ]
         );
         assert!(!needs_drop::<PaletteView<'_>>());

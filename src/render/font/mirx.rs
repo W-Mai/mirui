@@ -11,14 +11,14 @@ use mirx::{
     image::{CoverageBudget, SurfaceRequirements, SurfaceView, UnitGroup},
 };
 
-fn scale(value: mirx::Fixed, numerator: u16, denominator: u16) -> crate::types::Fixed {
+fn scale(value: mirx::types::Fixed, numerator: u16, denominator: u16) -> crate::types::Fixed {
     let raw = i64::from(i32::from_le_bytes(value.to_le_bytes())) * i64::from(numerator)
         / i64::from(denominator);
     let raw: i32 = raw
         .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
         .try_into()
         .unwrap();
-    mirx::Fixed::from_le_bytes(raw.to_le_bytes()).into()
+    mirx::types::Fixed::from_le_bytes(raw.to_le_bytes()).into()
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -407,7 +407,6 @@ pub fn font_from_mirx_with_storage(
 mod tests {
     use super::*;
     use mirx::{
-        Fixed,
         coding::Rle,
         font::{
             CmapEntry, FontAdvanceSource, FontAsset, FontFace, GlyphId, GlyphMap,
@@ -417,6 +416,7 @@ mod tests {
             AtlasMap, ColorDescription, EncodedImageAsset, PlaneMemoryLayout, Region, SampleLayout,
             SurfaceDescriptor,
         },
+        types::Fixed,
     };
 
     fn atlas_face() -> MirxFontProvider {

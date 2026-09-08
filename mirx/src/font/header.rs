@@ -1,5 +1,5 @@
 use crate::{
-    Fixed,
+    types::Fixed,
     wire::{read_u16_le, write_u16_le},
 };
 

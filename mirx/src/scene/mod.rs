@@ -4,6 +4,7 @@ pub mod op;
 pub mod paint;
 
 pub use crate::error::VectorAccessError;
+pub use crate::path::{Path, PathCmd};
 pub use codec::{CodecError, VectorEncodeError, VectorReadError};
 pub use header::VectorChunkHeader;
 pub use op::{CompositeMode, FillRule, LineCap, LineJoin, ResourceRef, Scene, SceneOp};

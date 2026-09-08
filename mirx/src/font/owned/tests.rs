@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
-    Fixed,
     coding::Rle,
     font::{FontGlyphs, FontRepresentation, FontView},
+    types::Fixed,
 };
 
 fn asset(check: impl FnOnce(FontAsset<'_>)) {

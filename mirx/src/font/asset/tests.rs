@@ -1,10 +1,10 @@
 use super::*;
 use crate::{
-    Fixed,
     coding::Rle,
     font::{FontGlyphs, FontRepresentationRequest, FontView},
     image::{AtlasMap, Region, SampleLayout, SurfaceRequirements},
     media::MediaPayload,
+    types::Fixed,
 };
 use alloc::vec;
 

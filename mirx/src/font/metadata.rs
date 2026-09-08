@@ -5,8 +5,9 @@ use super::{
     RepresentationTableError, ShapingData, ShapingDataError,
 };
 use crate::{
-    Fixed, PayloadLimits,
+    PayloadLimits,
     media::{MediaPayload, MediaPayloadError, MediaSection, MediaSectionFlags, MediaSectionKind},
+    types::Fixed,
 };
 
 const FONT_SECTION_COUNT: usize = 9;

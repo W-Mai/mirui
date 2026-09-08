@@ -7,20 +7,20 @@ use crate::render::raster::FillRule;
 use crate::render::scene::{ResourceRef, Scene, SceneOp};
 use crate::types::{Color, Fixed, Point, Rect, Transform, fixed::storage};
 
-impl From<mirx::Fixed> for Fixed {
-    fn from(v: mirx::Fixed) -> Self {
+impl From<mirx::types::Fixed> for Fixed {
+    fn from(v: mirx::types::Fixed) -> Self {
         storage::from_le_bytes(v.to_le_bytes())
     }
 }
 
-impl From<Fixed> for mirx::Fixed {
+impl From<Fixed> for mirx::types::Fixed {
     fn from(v: Fixed) -> Self {
-        mirx::Fixed::from_le_bytes(storage::to_le_bytes(v))
+        mirx::types::Fixed::from_le_bytes(storage::to_le_bytes(v))
     }
 }
 
-impl From<mirx::Point> for Point {
-    fn from(p: mirx::Point) -> Self {
+impl From<mirx::types::Point> for Point {
+    fn from(p: mirx::types::Point) -> Self {
         Self {
             x: p.x.into(),
             y: p.y.into(),
@@ -28,7 +28,7 @@ impl From<mirx::Point> for Point {
     }
 }
 
-impl From<Point> for mirx::Point {
+impl From<Point> for mirx::types::Point {
     fn from(p: Point) -> Self {
         Self {
             x: p.x.into(),
@@ -37,8 +37,8 @@ impl From<Point> for mirx::Point {
     }
 }
 
-impl From<mirx::Rect> for Rect {
-    fn from(r: mirx::Rect) -> Self {
+impl From<mirx::types::Rect> for Rect {
+    fn from(r: mirx::types::Rect) -> Self {
         Self {
             x: r.x.into(),
             y: r.y.into(),
@@ -48,7 +48,7 @@ impl From<mirx::Rect> for Rect {
     }
 }
 
-impl From<Rect> for mirx::Rect {
+impl From<Rect> for mirx::types::Rect {
     fn from(r: Rect) -> Self {
         Self {
             x: r.x.into(),
@@ -59,8 +59,8 @@ impl From<Rect> for mirx::Rect {
     }
 }
 
-impl From<mirx::Transform> for Transform {
-    fn from(t: mirx::Transform) -> Self {
+impl From<mirx::types::Transform> for Transform {
+    fn from(t: mirx::types::Transform) -> Self {
         Self {
             m00: t.m00.into(),
             m01: t.m01.into(),
@@ -72,7 +72,7 @@ impl From<mirx::Transform> for Transform {
     }
 }
 
-impl From<Transform> for mirx::Transform {
+impl From<Transform> for mirx::types::Transform {
     fn from(t: Transform) -> Self {
         Self {
             m00: t.m00.into(),
@@ -85,8 +85,8 @@ impl From<Transform> for mirx::Transform {
     }
 }
 
-impl From<mirx::Color> for Color {
-    fn from(c: mirx::Color) -> Self {
+impl From<mirx::types::Color> for Color {
+    fn from(c: mirx::types::Color) -> Self {
         Self {
             r: c.r,
             g: c.g,
@@ -96,7 +96,7 @@ impl From<mirx::Color> for Color {
     }
 }
 
-impl From<Color> for mirx::Color {
+impl From<Color> for mirx::types::Color {
     fn from(c: Color) -> Self {
         Self {
             r: c.r,
@@ -107,26 +107,26 @@ impl From<Color> for mirx::Color {
     }
 }
 
-impl From<mirx::PathCmd> for PathCmd {
-    fn from(c: mirx::PathCmd) -> Self {
+impl From<mirx::scene::PathCmd> for PathCmd {
+    fn from(c: mirx::scene::PathCmd) -> Self {
         match c {
-            mirx::PathCmd::MoveTo(p) => Self::MoveTo(p.into()),
-            mirx::PathCmd::LineTo(p) => Self::LineTo(p.into()),
-            mirx::PathCmd::QuadTo { ctrl, end } => Self::QuadTo {
+            mirx::scene::PathCmd::MoveTo(p) => Self::MoveTo(p.into()),
+            mirx::scene::PathCmd::LineTo(p) => Self::LineTo(p.into()),
+            mirx::scene::PathCmd::QuadTo { ctrl, end } => Self::QuadTo {
                 ctrl: ctrl.into(),
                 end: end.into(),
             },
-            mirx::PathCmd::CubicTo { ctrl1, ctrl2, end } => Self::CubicTo {
+            mirx::scene::PathCmd::CubicTo { ctrl1, ctrl2, end } => Self::CubicTo {
                 ctrl1: ctrl1.into(),
                 ctrl2: ctrl2.into(),
                 end: end.into(),
             },
-            mirx::PathCmd::Close => Self::Close,
+            mirx::scene::PathCmd::Close => Self::Close,
         }
     }
 }
 
-impl From<PathCmd> for mirx::PathCmd {
+impl From<PathCmd> for mirx::scene::PathCmd {
     fn from(c: PathCmd) -> Self {
         match c {
             PathCmd::MoveTo(p) => Self::MoveTo(p.into()),
@@ -145,8 +145,8 @@ impl From<PathCmd> for mirx::PathCmd {
     }
 }
 
-impl From<mirx::Path> for Path {
-    fn from(p: mirx::Path) -> Self {
+impl From<mirx::scene::Path> for Path {
+    fn from(p: mirx::scene::Path) -> Self {
         let cmds: Vec<PathCmd> = p.cmds.into_iter().map(Into::into).collect();
         Self {
             cmds: Cow::Owned(cmds),
@@ -154,9 +154,10 @@ impl From<mirx::Path> for Path {
     }
 }
 
-impl From<Path> for mirx::Path {
+impl From<Path> for mirx::scene::Path {
     fn from(p: Path) -> Self {
-        let cmds: Vec<mirx::PathCmd> = p.cmds.into_owned().into_iter().map(Into::into).collect();
+        let cmds: Vec<mirx::scene::PathCmd> =
+            p.cmds.into_owned().into_iter().map(Into::into).collect();
         Self::from_cmds(cmds)
     }
 }
@@ -592,9 +593,12 @@ mod tests {
     #[test]
     fn fixed_conversion_preserves_every_endpoint_bit() {
         for bits in [i32::MIN, -1, 0, 1, i32::MAX] {
-            let wire = mirx::Fixed::from_le_bytes(bits.to_le_bytes());
+            let wire = mirx::types::Fixed::from_le_bytes(bits.to_le_bytes());
             let runtime = Fixed::from(wire);
-            assert_eq!(mirx::Fixed::from(runtime).to_le_bytes(), bits.to_le_bytes());
+            assert_eq!(
+                mirx::types::Fixed::from(runtime).to_le_bytes(),
+                bits.to_le_bytes()
+            );
         }
     }
 }

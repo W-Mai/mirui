@@ -190,9 +190,9 @@ mod tests {
 
     use super::*;
     use crate::{
-        Color, ColorFormat, CriticalAssumption, EncodeOptions, ImageAsset, OpenOptions,
-        PayloadInput, PayloadLimits, PayloadOrigin, RawChunkInput, RawChunkPolicy, RawTypePolicy,
-        RelocationAssumption, ReservedBitsPolicy, crc32, encode_chunks,
+        ColorFormat, CriticalAssumption, EncodeOptions, ImageAsset, OpenOptions, PayloadInput,
+        PayloadLimits, PayloadOrigin, RawChunkInput, RawChunkPolicy, RawTypePolicy,
+        RelocationAssumption, ReservedBitsPolicy, crc32, encode_chunks, types::Color,
     };
 
     fn id(counter: u32) -> ChunkId {

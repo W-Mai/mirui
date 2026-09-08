@@ -7,12 +7,13 @@ use super::{
     GlyphSurfaceAsset, RasterMetrics, RawGlyphs, RepresentationAsset,
 };
 use crate::{
-    ByteAlignment, Fixed, PayloadLimits,
+    ByteAlignment, PayloadLimits,
     image::{
         AtlasMap, ColorDescription, EncodedImageAsset, ImageEncodeError, PlaneMemoryLayout, Region,
         SampleLayout, SurfaceDescriptor, UnitGroupRecord,
     },
     media::{CodingTable, DataIntegrity, output::PayloadOutput},
+    types::Fixed,
 };
 
 /// Owned face metadata and stored samples. Encoded surfaces remain encoded.
