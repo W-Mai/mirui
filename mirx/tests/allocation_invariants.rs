@@ -4,14 +4,15 @@ use std::cell::Cell;
 
 mod support;
 
+use mirx::frames::{FrameSequence, FramesEncoder};
 use mirx::image::{
     ColorDescription, ColorFormat, ImageAsset, PLANE_RECORD_LEN, PlaneMemoryLayout, RawImageAsset,
     RawImageView, SURFACE_RECORD_LEN, SampleLayout, SurfaceDescriptor, SurfaceRequirements,
 };
 use mirx::media::{MEDIA_CRC_LEN, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN, MediaPayload};
 use mirx::{
-    ChunkFlags, ChunkType, Color, Document, EncodeOptions, FrameSequence, FramesEncoder, Meta,
-    MetaEntry, Palette, PayloadLimits, Reader,
+    ChunkFlags, ChunkType, Color, Document, EncodeOptions, Meta, MetaEntry, Palette, PayloadLimits,
+    Reader,
 };
 use support::encode_chunks;
 
@@ -24,11 +25,12 @@ struct TrackingAllocator;
 #[test]
 fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
     use mirx::{
-        FramePolicy, FrameSequence, FramesView,
         coding::{FrameDelta, ScalarFrameDelta},
+        frames::{
+            FrameCandidate, FramePolicy, FrameSelector, FrameSequence, FramesAsset, FramesView,
+        },
         image::{CoverageBudget, DecodeRequest, MemoryPlacement, ReferenceMode, UnitGroupRecord},
         media::{CodingId, CodingRecord},
-        payload::frames::{FrameCandidate, FrameSelector, FramesAsset},
     };
     #[repr(align(64))]
     struct Aligned([u8; 64]);
@@ -105,7 +107,7 @@ fn sectioned_frames_authoring_and_inspection_allocate_nothing() {
         assert_eq!(plan.canvas_requirements().byte_len(), 64);
         assert_eq!(plan.workspace_requirements().byte_len(), 1);
         let mut session = plan
-            .bind(mirx::PlaybackStorage {
+            .bind(mirx::frames::PlaybackStorage {
                 groups: &mut slots,
                 canvas: &mut canvas.0,
                 workspace: &mut workspace.0,

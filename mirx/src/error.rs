@@ -23,8 +23,8 @@ pub enum ParseError {
 }
 
 use crate::font::FontError;
+use crate::frames::FramesError;
 use crate::model::{ChunkType, InvalidChunkType};
-use crate::payload::frames::FramesError;
 use crate::payload::image::ImagePayloadError;
 use crate::payload::meta::{MetaDecodeError, MetaEncodeError};
 use crate::payload::palette::{PaletteDecodeError, PaletteEncodeError};

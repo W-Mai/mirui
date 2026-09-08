@@ -108,8 +108,9 @@ impl FrameTimeline<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frames::{FrameEncodingSet, FrameSequence, FramesEncoder};
     use crate::{
-        FrameEncodingSet, FrameSequence, FramesEncoder, PayloadLimits,
+        PayloadLimits,
         image::{ColorDescription, SampleLayout, SurfaceDescriptor},
     };
 

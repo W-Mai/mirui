@@ -1,7 +1,8 @@
 use super::descriptor::descriptor_payload;
 use super::payload::ResolvedNodePayload;
 use super::{ChunkNode, ChunkSet, Document, DocumentState, PrimaryHintState};
-use crate::{ChunkId, ChunkType, EditError, FramesView, PayloadLimits, PrimaryHints};
+use crate::frames::FramesView;
+use crate::{ChunkId, ChunkType, EditError, PayloadLimits, PrimaryHints};
 
 const KNOWN_NON_IMAGE_HINTS: PrimaryHints =
     PrimaryHints::new(crate::image::SampleLayout::NONE, 0, 0, 0);

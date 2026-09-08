@@ -2,12 +2,12 @@ use alloc::vec;
 use alloc::vec::Vec;
 
 use super::*;
+use crate::frames::{EncodedFrames, FrameSequence, FramesEncoder};
 use crate::header::{CHUNK_FILE_HEADER_LEN, chunk_type};
 use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
 use crate::{
-    ColorFormat, CriticalAssumption, EncodedFrames, FrameSequence, FramesEncoder, ImageChunkInput,
-    PayloadInput, RawChunkInput, RelocationAssumption, ReservedBitsPolicy, crc32,
-    encode_chunk_image, encode_chunks,
+    ColorFormat, CriticalAssumption, ImageChunkInput, PayloadInput, RawChunkInput,
+    RelocationAssumption, ReservedBitsPolicy, crc32, encode_chunk_image, encode_chunks,
 };
 
 const CUSTOM: ChunkType = match ChunkType::new(0xbeef) {

@@ -8,7 +8,8 @@ Each `push` compares complete representations. RAW is the independent fallback; 
 
 ```rust
 use mirx::{
-    ByteAlignment, FrameSequence, FramesEncoder,
+    ByteAlignment,
+    frames::{FrameSequence, FramesEncoder},
     image::{ColorDescription, SampleLayout, SurfaceDescriptor},
 };
 

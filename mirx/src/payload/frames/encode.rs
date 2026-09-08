@@ -1444,8 +1444,8 @@ mod tests {
     use super::*;
     use crate::{
         PayloadLimits,
+        frames::FramesView,
         image::{ColorDescription, SampleLayout, SurfaceRequirements},
-        payload::frames::FramesView,
     };
     use alloc::vec;
 

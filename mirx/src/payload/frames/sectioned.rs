@@ -1207,14 +1207,14 @@ mod tests {
 
     use super::*;
     use crate::{
+        frames::{
+            BlendMode, DisposalMode, FrameCompositionAsset, FrameCompositionOverride,
+            FrameMapAsset, FrameTimingAsset, KeyframeIndexAsset,
+        },
         image::{ColorDescription, CoverageError, SampleLayout, UnitGroupRecord},
         media::{
             CodingId, CodingRecord, DataIntegrity, MEDIA_HEADER_LEN, MEDIA_SECTION_LEN,
             MEDIA_VERSION, MediaSectionKind, output::PayloadOutput,
-        },
-        payload::frames::{
-            BlendMode, DisposalMode, FrameCompositionAsset, FrameCompositionOverride,
-            FrameMapAsset, FrameTimingAsset, KeyframeIndexAsset,
         },
         wire::write_u16_le,
     };

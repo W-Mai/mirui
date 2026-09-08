@@ -1,14 +1,18 @@
 //! Allocation-free MIRX frame playback over caller-owned storage.
 
 use super::texture::{MirxLoadError, MirxTextureOptions, Texture, TextureMeta, map_mirx_format};
+use mirx::frames::{
+    FrameDecodeError, FramePosition, FrameSession, FrameTimeline, FramesError, FramesPlaybackPlan,
+    PlaybackStorage,
+};
 
 /// Failure while opening, planning, or presenting a MIRX frame sequence.
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum MirxFramesError {
     Read(mirx::ReadError),
-    Frames(mirx::FramesError),
-    Playback(mirx::FrameDecodeError),
+    Frames(FramesError),
+    Playback(FrameDecodeError),
     UnsupportedFormat(mirx::image::ColorFormat),
     UnsupportedLayout(mirx::image::SampleLayout),
     NoFramesChunk,
@@ -21,14 +25,14 @@ impl From<mirx::ReadError> for MirxFramesError {
     }
 }
 
-impl From<mirx::FramesError> for MirxFramesError {
-    fn from(error: mirx::FramesError) -> Self {
+impl From<FramesError> for MirxFramesError {
+    fn from(error: FramesError) -> Self {
         Self::Frames(error)
     }
 }
 
-impl From<mirx::FrameDecodeError> for MirxFramesError {
-    fn from(error: mirx::FrameDecodeError) -> Self {
+impl From<FrameDecodeError> for MirxFramesError {
+    fn from(error: FrameDecodeError) -> Self {
         Self::Playback(error)
     }
 }
@@ -47,7 +51,7 @@ impl From<MirxLoadError> for MirxFramesError {
 /// Preflighted MIRX frame sequence with exact reusable storage requirements.
 #[derive(Clone, Copy, Debug)]
 pub struct MirxFramesPlan<'source> {
-    inner: mirx::FramesPlaybackPlan<'source>,
+    inner: FramesPlaybackPlan<'source>,
     meta: TextureMeta,
 }
 
@@ -72,7 +76,7 @@ impl<'source> MirxFramesPlan<'source> {
         let request = options.decode_request();
         request
             .validate_reconstruction()
-            .map_err(mirx::FrameDecodeError::Request)?;
+            .map_err(FrameDecodeError::Request)?;
         let reader = mirx::Reader::open(bytes)?;
         let primary = reader.primary()?.ok_or(MirxFramesError::NoFramesChunk)?;
         let frames = primary
@@ -125,11 +129,11 @@ impl<'source> MirxFramesPlan<'source> {
             .map(|presentation| presentation.duration_ticks())
     }
 
-    pub const fn timeline(self) -> mirx::FrameTimeline<'source> {
+    pub const fn timeline(self) -> FrameTimeline<'source> {
         self.inner.frames().timeline()
     }
 
-    pub fn frame_at_ticks(self, elapsed_ticks: u64) -> Option<mirx::FramePosition> {
+    pub fn frame_at_ticks(self, elapsed_ticks: u64) -> Option<FramePosition> {
         self.timeline().locate(elapsed_ticks)
     }
 
@@ -182,7 +186,7 @@ impl<'source> MirxFramesPlan<'source> {
         } = storage;
         let timeline = self.timeline();
         Ok(MirxFramesSession {
-            inner: self.inner.bind(mirx::PlaybackStorage {
+            inner: self.inner.bind(PlaybackStorage {
                 groups,
                 canvas,
                 workspace,
@@ -195,8 +199,8 @@ impl<'source> MirxFramesPlan<'source> {
 
 /// Stateful MIRX frame decoder borrowing all mutable playback storage.
 pub struct MirxFramesSession<'source, 'storage> {
-    inner: mirx::FrameSession<'source, 'storage>,
-    timeline: mirx::FrameTimeline<'source>,
+    inner: FrameSession<'source, 'storage>,
+    timeline: FrameTimeline<'source>,
 }
 
 impl MirxFramesSession<'_, '_> {
@@ -232,7 +236,7 @@ impl MirxFramesSession<'_, '_> {
     pub fn present_at(
         &mut self,
         elapsed_ticks: u64,
-    ) -> Result<Option<(mirx::FramePosition, Texture<'_>)>, MirxFramesError> {
+    ) -> Result<Option<(FramePosition, Texture<'_>)>, MirxFramesError> {
         let Some(position) = self.timeline.locate(elapsed_ticks) else {
             return Ok(None);
         };
@@ -245,7 +249,8 @@ impl MirxFramesSession<'_, '_> {
 mod tests {
     use super::*;
     use mirx::{
-        Document, FrameEncodingSet, FrameSequence, FramesEncoder,
+        Document,
+        frames::{FrameEncodingSet, FrameSequence, FramesEncoder},
         image::{ColorDescription, SampleLayout, SurfaceDescriptor, SurfaceRequirements},
     };
 

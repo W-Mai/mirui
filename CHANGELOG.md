@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Canonical MIRX FRAMES paths.** Frame sequence, encoding, playback, and selection types live under `mirx::frames`; duplicate crate-root and `payload::frames` paths have been removed.
 - **Canonical MIRX IMAGE paths.** `ColorFormat`, `ImageAsset`, `ImageAssetEncodeError`, `ImageEncodeError`, `ImagePayloadError`, and `ImageView` live under `mirx::image`; duplicate crate-root exports have been removed.
 - **Checked typed authoring.** `Document::new_flat` and typed `Document::push_*` operations replace the panic-based `FlatImageInput`, `ImageChunkInput`, `encode_flat`, `encode_chunk_image`, `encode_chunk_generic`, and tuple-based `encode_chunks` surface.
 - **Semantic MIRX reader metadata.** `Reader` exposes version and file flags as scalar queries; wire header structs, byte lengths, magic bytes, and numeric chunk constants are internal.

@@ -9,7 +9,10 @@ use std::path::PathBuf;
 use mirui::render::mirx_frames::{MirxFramesPlan, MirxFramesStorage};
 use mirui::render::texture::MirxTextureOptions;
 use mirx::image::{CacheSync, ColorDescription, MemoryPlacement, SampleLayout, SurfaceDescriptor};
-use mirx::{Document, FrameEncodingSet, FrameSequence, FramesEncoder};
+use mirx::{
+    Document,
+    frames::{FrameEncodingSet, FrameSequence, FramesEncoder},
+};
 
 const WIDTH: usize = 64;
 const HEIGHT: usize = 48;

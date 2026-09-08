@@ -3,10 +3,11 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use mirx::{
-    ByteAlignment, ChunkFlags, ChunkType, Document, EncodeOptions, FrameEncoding, FrameEncodingSet,
-    FramePolicy, FrameSequence, FramesEncoder, PayloadLimits, Reader,
+    ByteAlignment, ChunkFlags, ChunkType, Document, EncodeOptions, PayloadLimits, Reader,
+    frames::{
+        FrameEncoding, FrameEncodingSet, FramePolicy, FrameSequence, FrameStorage, FramesEncoder,
+    },
     image::{BufferRequirements, DecodeRequest, SurfaceDescriptor, SurfaceMemoryPlan},
-    payload::frames::FrameStorage,
 };
 
 use super::{Result, icu_program, memory, probe_icu};

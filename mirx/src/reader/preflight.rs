@@ -1,8 +1,9 @@
 use super::{ChunkRef, ContainerHeader, PayloadLimits, Reader};
+use crate::frames::FramesError;
 use crate::image::{ImageReadError, ImageRef};
 use crate::{
-    ChunkType, FontError, FontView, FramesError, MetaDecodeError, PaletteDecodeError, ReadError,
-    Scene, VectorReadError,
+    ChunkType, FontError, FontView, MetaDecodeError, PaletteDecodeError, ReadError, Scene,
+    VectorReadError,
 };
 
 /// Source location of a payload validation result.
@@ -210,12 +211,12 @@ mod tests {
 
     use super::*;
     use crate::font::FontMetadataError;
+    use crate::frames::{FrameSequence, FramesEncoder};
     use crate::header::{CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, VERSION_MINOR, chunk_type};
     use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
     use crate::{
-        ChunkFlags, ColorFormat, FlatImageInput, FrameSequence, FramesEncoder, ImageChunkInput,
-        ReadOptions, SceneOp, TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks,
-        encode_flat,
+        ChunkFlags, ColorFormat, FlatImageInput, ImageChunkInput, ReadOptions, SceneOp,
+        TrailingBytesPolicy, crc32, encode_chunk_image, encode_chunks, encode_flat,
     };
 
     fn valid_image_payload() -> Vec<u8> {

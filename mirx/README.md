@@ -389,7 +389,7 @@ Typed `push_*` methods use `ChunkFlags::NONE`. Their `push_*_with_flags(value, f
 FRAMES construction reuses the sectioned surface model:
 
 ```rust,no_run
-use mirx::{ByteAlignment, Document, FrameSequence, FramesEncoder, image::{ColorDescription, SampleLayout, SurfaceDescriptor}};
+use mirx::{ByteAlignment, Document, frames::{FrameSequence, FramesEncoder}, image::{ColorDescription, SampleLayout, SurfaceDescriptor}};
 
 let surface = SurfaceDescriptor::new(2, 1, SampleLayout::RGBA8888, ColorDescription::SRGB).unwrap();
 let sequence = FrameSequence::new(1, 1_000, 40).unwrap();

@@ -2,9 +2,10 @@ use super::payload::{PayloadPlacement, ResolvedNodePayload, resolve_node_payload
 use super::primary::{PrimaryProjection, changed_primary_hint_state, ensure_primary_projection};
 use super::raw::{CriticalAssumption, RawChunkPolicy, RelocationAssumption, ReservedBitsPolicy};
 use super::{ChunkNode, Document, DocumentState, RewriteCapability};
+use crate::frames::FramesView;
 use crate::{
-    ChunkFlags, ChunkType, EditError, FramesView, MetaEncodeError, MetaView, PaletteEncodeError,
-    PaletteView, PayloadLimits, Scene, VectorEncodeError,
+    ChunkFlags, ChunkType, EditError, MetaEncodeError, MetaView, PaletteEncodeError, PaletteView,
+    PayloadLimits, Scene, VectorEncodeError,
 };
 
 #[cfg(test)]

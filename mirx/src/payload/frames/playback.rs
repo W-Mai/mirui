@@ -929,13 +929,13 @@ pub enum FrameDecodeError {
 mod tests {
     use super::*;
     use crate::{
+        frames::{
+            FrameComposition, FrameCompositionOverride, FrameSequence, FramesAsset, FramesView,
+        },
         image::{
             ColorDescription, CoverageBudget, SampleLayout, SurfaceDescriptor, UnitGroupRecord,
         },
         media::{CodingRecord, UnitSelectionEncoding},
-        payload::frames::{
-            FrameComposition, FrameCompositionOverride, FrameSequence, FramesAsset, FramesView,
-        },
     };
 
     #[repr(align(64))]

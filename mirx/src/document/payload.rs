@@ -28,15 +28,15 @@ impl<'a> ResolvedNodePayload<'a> {
     pub(super) fn frames_view(
         self,
         limits: &PayloadLimits,
-    ) -> Result<crate::FramesView<'a>, crate::FramesError> {
+    ) -> Result<crate::frames::FramesView<'a>, crate::frames::FramesError> {
         match self {
             Self::Contiguous { bytes, placement } => match placement {
                 PayloadPlacement::Fixed(offset) => {
-                    crate::FramesView::open_at(bytes, offset, limits)
+                    crate::frames::FramesView::open_at(bytes, offset, limits)
                 }
-                PayloadPlacement::Unplaced => crate::FramesView::open(bytes, limits),
+                PayloadPlacement::Unplaced => crate::frames::FramesView::open(bytes, limits),
             },
-            Self::PromotedImage(_) => Err(crate::FramesError::SizeOverflow),
+            Self::PromotedImage(_) => Err(crate::frames::FramesError::SizeOverflow),
         }
     }
 

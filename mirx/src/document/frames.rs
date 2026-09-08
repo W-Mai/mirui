@@ -2,10 +2,9 @@
 use super::DocumentState;
 use super::payload::resolve_node_payload;
 use super::{Compatibility, Document, DocumentChunkRef};
+use crate::frames::{EncodedFrames, FramesView};
 use crate::payload::image::ImagePayloadError;
-use crate::{
-    ChunkFlags, ChunkId, ChunkType, EditError, EncodedFrames, FramesAccessError, FramesView,
-};
+use crate::{ChunkFlags, ChunkId, ChunkType, EditError, FramesAccessError};
 
 impl<'a> DocumentChunkRef<'a> {
     /// Returns this chunk as a borrowed FRAMES view.
@@ -115,10 +114,9 @@ fn frames_edit_resolution_error(_: ImagePayloadError) -> EditError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::frames::{FrameEncodingSet, FrameSequence, FramesEncoder};
     use crate::image::{ColorDescription, SampleLayout, SurfaceDescriptor};
-    use crate::{
-        EncodeOptions, FrameEncodingSet, FrameSequence, FramesEncoder, PayloadLimits, Reader,
-    };
+    use crate::{EncodeOptions, PayloadLimits, Reader};
 
     fn encoded(value: u8, input_alignment: u32) -> EncodedFrames {
         let sequence = FrameSequence::new(2, 1_000, 40)

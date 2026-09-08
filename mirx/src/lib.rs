@@ -14,6 +14,8 @@ mod error;
 mod flat;
 pub mod font;
 mod format;
+#[path = "payload/frames.rs"]
+pub mod frames;
 mod header;
 pub mod image;
 pub mod media;
@@ -56,11 +58,6 @@ pub(crate) use header::{
 pub use media::CodingId;
 pub use model::{ChunkFlags, ChunkId, ChunkType, InvalidChunkType, PrimaryHints};
 pub use path::{Path, PathCmd};
-pub use payload::frames::{
-    BlendMode, DisposalMode, EncodedFrames, FrameDecodeError, FrameEncoding, FrameEncodingSet,
-    FramePolicy, FramePosition, FrameSequence, FrameSequenceError, FrameSession, FrameTimeline,
-    FrameWriteError, FramesEncoder, FramesError, FramesPlaybackPlan, FramesView, PlaybackStorage,
-};
 pub(crate) use payload::image::{ImageAsset, ImagePayloadError, ImageView};
 pub use payload::meta::{
     Meta, MetaDecodeError, MetaEncodeError, MetaEntry, MetaEntryIter, MetaEntryRef,

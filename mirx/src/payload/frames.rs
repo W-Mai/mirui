@@ -1,14 +1,24 @@
+#[path = "frames/composition.rs"]
 mod composition;
 #[doc = include_str!("../../docs/frame-authoring.md")]
+#[path = "frames/encode.rs"]
 mod encode;
+#[path = "frames/frame_map.rs"]
 mod frame_map;
+#[path = "frames/keyframes.rs"]
 mod keyframes;
+#[path = "frames/playback.rs"]
 mod playback;
+#[path = "frames/sectioned.rs"]
 mod sectioned;
 #[doc = include_str!("../../docs/frame-selection.md")]
+#[path = "frames/selection.rs"]
 mod selection;
+#[path = "frames/sequence.rs"]
 mod sequence;
+#[path = "frames/timeline.rs"]
 mod timeline;
+#[path = "frames/timing.rs"]
 mod timing;
 
 pub use composition::{

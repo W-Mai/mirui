@@ -3,8 +3,8 @@
 `FrameSelector` applies sequence recovery and resource policy before comparing already-encoded frame candidates. It does not run codecs, allocate buffers, infer target capabilities or inspect pixels. Generators retain ownership of those operations and offer only candidates that are semantically valid for the source frame.
 
 ```rust
-use mirx::{CodingId, FramePolicy};
-use mirx::payload::frames::{FrameCandidate, FrameSelector};
+use mirx::CodingId;
+use mirx::frames::{FrameCandidate, FramePolicy, FrameSelector};
 
 let policy = FramePolicy::new(2)
     .with_max_workspace_bytes(512 * 1024)
