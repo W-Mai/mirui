@@ -895,11 +895,8 @@ fn inspect_bytes(bytes: &[u8]) -> std::result::Result<String, String> {
     let mut report = String::new();
     writeln!(
         report,
-        "version={}.{} layout={} file_flags=0x{:02x} logical_size={} trailing_size={}",
-        reader.version_major(),
-        reader.version_minor(),
+        "layout={} logical_size={} trailing_size={}",
         layout_name(reader.layout()),
-        reader.file_flags(),
         reader.logical_len(),
         reader.trailing_bytes().len(),
     )
@@ -1063,7 +1060,7 @@ mod tests {
         set_primary(&mut bytes, ChunkType::META, hints);
 
         let report = inspect_bytes(&bytes).unwrap();
-        assert!(report.starts_with("version=1.0 layout=chunk file_flags=0x00 logical_size="));
+        assert!(report.starts_with("layout=chunk logical_size="));
         assert!(report.contains(
             "primary=index:0 type:0x0010(META) sample_layout=0x00ff width=12 height=8 stride=0\n"
         ));

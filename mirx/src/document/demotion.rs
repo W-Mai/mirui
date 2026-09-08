@@ -1,5 +1,5 @@
 use super::payload::{ResolvedImagePlanes, ResolvedNodePayload, resolve_node_payload};
-use super::{ChunkSet, Document, DocumentState, FileMeta, FlatRecord, PayloadStorage, SourceRange};
+use super::{ChunkSet, Document, DocumentState, FlatRecord, PayloadStorage, SourceRange};
 use crate::{ChunkFlags, ChunkType, EditError, FLAT_HEADER_LEN};
 
 #[derive(Clone, Copy)]
@@ -90,7 +90,7 @@ pub(super) fn flat_candidate<'document>(
     document: &'document Document<'_>,
     chunks: &'document ChunkSet<'_>,
 ) -> Result<FlatCandidate<'document>, EditError> {
-    if document.file != FileMeta::CURRENT || chunks.chunks.len() != 1 {
+    if chunks.chunks.len() != 1 {
         return Err(EditError::NotRepresentableAsFlat);
     }
     let node = &chunks.chunks[0];

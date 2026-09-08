@@ -1,0 +1,11 @@
+error[E0432]: unresolved import `mirx::FileMetadata`
+ --> tests/public_api_fail/file_metadata.rs:1:5
+  |
+1 | use mirx::FileMetadata;
+  |     ^^^^^^^^^^^^^^^^^^ no `FileMetadata` in the root
+
+error[E0432]: unresolved import `mirx::document::FileMetadata`
+ --> tests/public_api_fail/file_metadata.rs:2:5
+  |
+2 | use mirx::document::FileMetadata as DocumentFileMetadata;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ no `FileMetadata` in `document`

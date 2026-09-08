@@ -1,0 +1,23 @@
+error[E0599]: no method named `version_major` found for reference `&Reader<'_>` in the current scope
+ --> tests/public_api_fail/container_metadata.rs:4:20
+  |
+4 |     let _ = reader.version_major();
+  |                    ^^^^^^^^^^^^^ method not found in `&Reader<'_>`
+
+error[E0599]: no method named `version_minor` found for reference `&Reader<'_>` in the current scope
+ --> tests/public_api_fail/container_metadata.rs:5:20
+  |
+5 |     let _ = reader.version_minor();
+  |                    ^^^^^^^^^^^^^ method not found in `&Reader<'_>`
+
+error[E0599]: no method named `file_flags` found for reference `&Reader<'_>` in the current scope
+ --> tests/public_api_fail/container_metadata.rs:6:20
+  |
+6 |     let _ = reader.file_flags();
+  |                    ^^^^^^^^^^ method not found in `&Reader<'_>`
+
+error[E0599]: no method named `file_metadata` found for reference `&Document<'_>` in the current scope
+ --> tests/public_api_fail/container_metadata.rs:7:22
+  |
+7 |     let _ = document.file_metadata();
+  |                      ^^^^^^^^^^^^^ method not found in `&Document<'_>`

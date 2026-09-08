@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **No redundant MIRX container metadata.** Successful open proves MIRX 1.0 with zero file flags; Reader version/flag queries and Document metadata storage have been removed.
 - **Current MIRX container semantics.** Reader and document opening now reject unsupported minor versions and nonzero file flags; compatibility normalization and future-read-only states have been removed.
 - **Canonical MIRX coding identity.** Open profile identifiers live under `mirx::coding::CodingId`; duplicate crate-root and `media` paths have been removed.
 - **Canonical MIRX access errors.** Typed access errors live with their payload domains; IMAGE access uses `ImageAccessError`; duplicate crate-root exports and the misleading `ImageDecodeError` name have been removed.

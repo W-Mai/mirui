@@ -41,7 +41,6 @@ struct NodeSnapshot {
 #[derive(Debug, Eq, PartialEq)]
 struct DocumentSnapshot {
     logical_len: usize,
-    file: FileMeta,
     trailing: TrailingState,
     dirty: bool,
     next_id: u32,
@@ -193,7 +192,6 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
         };
     DocumentSnapshot {
         logical_len: document.logical_len,
-        file: document.file,
         trailing: document.trailing,
         dirty: document.dirty,
         next_id: document.next_id,

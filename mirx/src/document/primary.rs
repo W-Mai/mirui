@@ -384,8 +384,8 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::super::{
-        FileMeta, Origin, PayloadInput, PayloadStorage, RawChunkInput, RawChunkPolicy,
-        RelocationAssumption, RewriteCapability, TrailingState,
+        Origin, PayloadInput, PayloadStorage, RawChunkInput, RawChunkPolicy, RelocationAssumption,
+        RewriteCapability, TrailingState,
     };
     use super::*;
     use crate::{
@@ -427,7 +427,6 @@ mod tests {
     #[derive(Debug, Eq, PartialEq)]
     struct DocumentSnapshot {
         logical_len: usize,
-        file: FileMeta,
         trailing: TrailingState,
         dirty: bool,
         next_id: u32,
@@ -544,7 +543,6 @@ mod tests {
         };
         DocumentSnapshot {
             logical_len: document.logical_len,
-            file: document.file,
             trailing: document.trailing,
             dirty: document.dirty,
             next_id: document.next_id,
@@ -571,7 +569,6 @@ mod tests {
         after: &DocumentSnapshot,
     ) {
         assert_eq!(after.logical_len, before.logical_len);
-        assert_eq!(after.file, before.file);
         assert_eq!(after.trailing, before.trailing);
         assert_eq!(after.next_id, before.next_id);
         assert_eq!(after.origin_kind, before.origin_kind);

@@ -92,7 +92,6 @@ enum StateSnapshot {
 struct DocumentSnapshot {
     origin: OriginSnapshot,
     logical_len: usize,
-    file: FileMeta,
     layout: Layout,
     trailing: TrailingState,
     payload_limits: PayloadLimits,
@@ -288,7 +287,6 @@ fn snapshot(document: &Document<'_>) -> DocumentSnapshot {
     DocumentSnapshot {
         origin: origin_snapshot(&document.origin),
         logical_len: document.logical_len,
-        file: document.file,
         layout: document.layout(),
         trailing: document.trailing,
         payload_limits: document.payload_limits,

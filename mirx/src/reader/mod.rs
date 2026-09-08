@@ -131,21 +131,6 @@ impl<'a> Reader<'a> {
         self.header.file()
     }
 
-    /// Returns the file format major version.
-    pub const fn version_major(&self) -> u8 {
-        self.file_header().version_major
-    }
-
-    /// Returns the file format minor version.
-    pub const fn version_minor(&self) -> u8 {
-        self.file_header().version_minor
-    }
-
-    /// Returns the uninterpreted file-level flag bits.
-    pub const fn file_flags(&self) -> u8 {
-        self.file_header().flags
-    }
-
     pub const fn layout(&self) -> Layout {
         self.file_header().layout
     }

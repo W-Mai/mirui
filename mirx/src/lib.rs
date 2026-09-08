@@ -37,9 +37,8 @@ pub(crate) use chunk::{ImageChunkInput, encode_chunk_image, encode_chunks};
 pub use crc32::compute as crc32;
 pub use document::{
     ChunkIter, ChunksOfType, CriticalAssumption, Document, DocumentChunkMut, DocumentChunkRef,
-    EncodeOptions, FileMetadata, LayoutPolicy, OpenOptions, PayloadInput, PayloadOrigin,
-    RawChunkInput, RawChunkPolicy, RawTypePolicy, RelocationAssumption, RemovedChunkMetadata,
-    ReservedBitsPolicy,
+    EncodeOptions, LayoutPolicy, OpenOptions, PayloadInput, PayloadOrigin, RawChunkInput,
+    RawChunkPolicy, RawTypePolicy, RelocationAssumption, RemovedChunkMetadata, ReservedBitsPolicy,
 };
 pub use error::{DocumentError, EditError, EncodeError, ParseError, ReadError, TryEditError};
 #[cfg(test)]

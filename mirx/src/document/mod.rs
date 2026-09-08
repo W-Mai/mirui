@@ -46,57 +46,11 @@ use crate::payload::image::{ImageAssetParts, ImageMeta, validate_image_planes};
 use crate::reader::{PreflightStatus, preflight_chunk, require_understood_critical};
 use crate::{
     ChunkFlags, ChunkId, ChunkType, DocumentError, EditError, FLAT_HEADER_LEN, ImageAsset,
-    ImageView, Layout, PayloadLimits, PrimaryHints, ReadError, ReadOptions, Reader, VERSION_MAJOR,
-    VERSION_MINOR,
+    ImageView, Layout, PayloadLimits, PrimaryHints, ReadError, ReadOptions, Reader,
 };
 
 #[cfg(test)]
 const DEFAULT_MAX_CHUNKS: u16 = OpenOptions::DEFAULT_MAX_CHUNKS;
-
-/// Immutable MIRX file metadata retained by an editable document.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FileMetadata {
-    version_major: u8,
-    version_minor: u8,
-    file_flags: u8,
-}
-
-impl FileMetadata {
-    pub const fn version_major(self) -> u8 {
-        self.version_major
-    }
-
-    pub const fn version_minor(self) -> u8 {
-        self.version_minor
-    }
-
-    pub const fn file_flags(self) -> u8 {
-        self.file_flags
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct FileMeta {
-    version_major: u8,
-    version_minor: u8,
-    file_flags: u8,
-}
-
-impl FileMeta {
-    const CURRENT: Self = Self {
-        version_major: VERSION_MAJOR,
-        version_minor: VERSION_MINOR,
-        file_flags: 0,
-    };
-
-    const fn as_ref(self) -> FileMetadata {
-        FileMetadata {
-            version_major: self.version_major,
-            version_minor: self.version_minor,
-            file_flags: self.file_flags,
-        }
-    }
-}
 
 #[derive(Debug, Eq, PartialEq)]
 enum PlaneStorage<'a> {
@@ -284,7 +238,6 @@ impl DocumentState<'_> {
 
 struct OpenedDocument<'a> {
     logical_len: usize,
-    file: FileMeta,
     state: DocumentState<'a>,
     trailing: TrailingState,
     dirty: bool,
@@ -366,7 +319,6 @@ impl RewriteCapability {
 pub struct Document<'a> {
     origin: Origin<'a>,
     logical_len: usize,
-    file: FileMeta,
     state: DocumentState<'a>,
     trailing: TrailingState,
     payload_limits: PayloadLimits,
@@ -423,7 +375,6 @@ impl<'a> Document<'a> {
         Ok(Self {
             origin: Origin::New,
             logical_len: 0,
-            file: FileMeta::CURRENT,
             state: DocumentState::Flat(record),
             trailing: TrailingState::None,
             payload_limits,
@@ -442,7 +393,6 @@ impl<'a> Document<'a> {
         Self {
             origin: Origin::New,
             logical_len: 0,
-            file: FileMeta::CURRENT,
             state: DocumentState::Chunk(ChunkSet {
                 chunks: Vec::new(),
                 primary: None,
@@ -512,10 +462,6 @@ impl<'a> Document<'a> {
         self.state.layout()
     }
 
-    pub const fn file_metadata(&self) -> FileMetadata {
-        self.file.as_ref()
-    }
-
     pub const fn is_dirty(&self) -> bool {
         self.dirty
     }
@@ -582,7 +528,6 @@ impl<'a> Document<'a> {
         let document = Self {
             origin,
             logical_len: opened.logical_len,
-            file: opened.file,
             state: opened.state,
             trailing: opened.trailing,
             payload_limits: options.payload_limits(),
@@ -717,7 +662,6 @@ fn inspect_source<'document>(
         .with_payload_limits(options.payload_limits())
         .with_trailing_bytes(options.trailing_bytes_policy());
     let reader = Reader::open_structural_with(source, &read_options)?;
-    let header = reader.file_header();
     let trailing = if reader.has_trailing_bytes() {
         TrailingState::Preserved
     } else {
@@ -737,11 +681,6 @@ fn inspect_source<'document>(
     };
     Ok(OpenedDocument {
         logical_len: reader.logical_len(),
-        file: FileMeta {
-            version_major: header.version_major,
-            version_minor: header.version_minor,
-            file_flags: header.flags,
-        },
         state,
         trailing,
         dirty: state_dirty,
@@ -892,7 +831,8 @@ mod tests {
     use super::*;
     use crate::{
         CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, ColorFormat, FlatImageInput, ImageChunkInput,
-        crc32, encode_chunk_image, encode_chunks, encode_flat, header::chunk_type,
+        crc32, encode_chunk_image, encode_chunks, encode_flat,
+        header::{VERSION_MINOR, chunk_type},
     };
 
     fn flat_source() -> Vec<u8> {
@@ -987,7 +927,6 @@ mod tests {
         assert_eq!(borrowed.layout(), owned.layout());
         assert!(matches!(borrowed.state, DocumentState::Flat(_)));
         assert!(matches!(owned.state, DocumentState::Flat(_)));
-        assert_eq!(borrowed.file_metadata(), owned.file_metadata());
         assert_eq!(borrowed.logical_len, owned.logical_len);
         assert_eq!(borrowed.next_id, 0);
         assert_eq!(owned.next_id, 0);
@@ -1101,14 +1040,6 @@ mod tests {
                 primary_hints: PrimaryHintState::Missing,
                 promoted_flat: None,
             })
-        );
-        assert_eq!(
-            document.file_metadata(),
-            FileMetadata {
-                version_major: VERSION_MAJOR,
-                version_minor: VERSION_MINOR,
-                file_flags: 0,
-            }
         );
         assert!(document.is_dirty());
         assert_eq!(document.logical_len, 0);
