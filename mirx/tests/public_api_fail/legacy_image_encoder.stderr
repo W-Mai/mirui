@@ -1,0 +1,32 @@
+error[E0432]: unresolved imports `mirx::ImageChunkInput`, `mirx::encode_chunk_image`
+ --> tests/public_api_fail/legacy_image_encoder.rs:1:12
+  |
+1 | use mirx::{ImageChunkInput, encode_chunk_image};
+  |            ^^^^^^^^^^^^^^^  ^^^^^^^^^^^^^^^^^^ no `encode_chunk_image` in the root
+  |            |
+  |            no `ImageChunkInput` in the root
+  |
+note: found an item that was configured out
+ --> src/lib.rs
+  |
+  | #[cfg(test)]
+  |       ---- the item is gated here
+  | pub(crate) use chunk::{ImageChunkInput, encode_chunk_image};
+  |                        ^^^^^^^^^^^^^^^
+note: found an item that was configured out
+ --> src/lib.rs
+  |
+  | #[cfg(test)]
+  |       ---- the item is gated here
+  | pub(crate) use chunk::{ImageChunkInput, encode_chunk_image};
+  |                                         ^^^^^^^^^^^^^^^^^^
+help: a similar name exists in the module
+  |
+1 - use mirx::{ImageChunkInput, encode_chunk_image};
+1 + use mirx::{RawChunkInput, encode_chunk_image};
+  |
+help: a similar name exists in the module
+  |
+1 - use mirx::{ImageChunkInput, encode_chunk_image};
+1 + use mirx::{ImageChunkInput, encode_chunks};
+  |

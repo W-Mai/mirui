@@ -24,7 +24,9 @@ pub mod types;
 mod wire;
 
 pub use alignment::{ByteAlignment, InvalidByteAlignment};
-pub use chunk::{ImageChunkInput, encode_chunk_generic, encode_chunk_image, encode_chunks};
+#[cfg(test)]
+pub(crate) use chunk::{ImageChunkInput, encode_chunk_image};
+pub use chunk::{encode_chunk_generic, encode_chunks};
 pub use crc32::compute as crc32;
 pub use document::{
     ChunkIter, ChunksOfType, CompatibilityPolicy, CriticalAssumption, Document, DocumentChunkMut,

@@ -4,13 +4,14 @@ use alloc::vec::Vec;
 use crate::crc32;
 #[cfg(test)]
 use crate::error::ParseError;
+#[cfg(test)]
 use crate::format::ColorFormat;
 use crate::header::{
     CHUNK_FILE_HEADER_LEN, CHUNK_TABLE_ENTRY_LEN, FILE_HEADER_LEN, FileHeader, Layout,
-    VERSION_MAJOR, VERSION_MINOR, chunk_type,
+    VERSION_MAJOR, VERSION_MINOR,
 };
 #[cfg(test)]
-use crate::header::{ChunkEntry, ChunkFileHeader};
+use crate::header::{ChunkEntry, ChunkFileHeader, chunk_type};
 
 /// Borrows the chunk table and IMAGE chunk pixel data from the input buffer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,7 +73,8 @@ pub struct ImageChunk<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ImageChunkInput<'a> {
+#[cfg(test)]
+pub(crate) struct ImageChunkInput<'a> {
     pub width: u32,
     pub height: u32,
     pub format: ColorFormat,
@@ -198,11 +200,8 @@ fn parse_image_chunk<'a>(buf: &'a [u8], entry: &ChunkEntry) -> Result<ImageChunk
     })
 }
 
-/// Emits one checked RAW IMAGE in a single-chunk container.
-///
-/// Invalid image metadata or plane lengths panic. Fallible authoring uses
-/// [`crate::Document::push_image`] or [`crate::image::RawImageAsset`].
-pub fn encode_chunk_image(image: &ImageChunkInput<'_>) -> Vec<u8> {
+#[cfg(test)]
+pub(crate) fn encode_chunk_image(image: &ImageChunkInput<'_>) -> Vec<u8> {
     use crate::image::ImageSource;
     use crate::wire::{write_u16_le, write_u32_le};
     let mut asset = crate::ImageAsset::new(

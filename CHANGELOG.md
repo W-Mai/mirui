@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Checked RAW IMAGE authoring.** `ImageAsset` and `Document::push_image` replace the panic-based `ImageChunkInput` and `encode_chunk_image` surface.
 - **Semantic MIRX reader metadata.** `Reader` exposes version and file flags as scalar queries; wire header structs, byte lengths, magic bytes, and numeric chunk constants are internal.
 - **Chunk-bound MIRX projections.** `Document::get` returns the subject for IMAGE, FONT, VECTOR, META, PALETTE, and FRAMES access; document-level ID accessors have been removed, and VECTOR decoding is available directly from both chunk handle families.
 - **Checked VECTOR generation.** `cargo xtask gen-mirx vector` routes encoded scenes through `Document` admission before writing the container.
