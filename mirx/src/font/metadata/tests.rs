@@ -63,8 +63,7 @@ impl Fixture {
             record[..4].copy_from_slice(&(scalar as u32).to_le_bytes());
             record[4..].copy_from_slice(&glyph.to_le_bytes());
         }
-        let mut surfaces = [0; super::super::GLYPH_SURFACE_RECORD_LEN];
-        super::super::GlyphSurfaceRecord::new(
+        let surfaces = super::super::GlyphSurfaceRecord::new(
             SampleLayout::A8,
             super::super::GlyphPacking::GlyphMajor,
             1,
@@ -72,8 +71,7 @@ impl Fixture {
             6,
         )
         .unwrap()
-        .encode_record_into(&mut surfaces)
-        .unwrap();
+        .encode_record();
         let descriptor = crate::image::SurfaceDescriptor::new(
             1,
             2,
@@ -82,12 +80,11 @@ impl Fixture {
         )
         .unwrap();
         let representation = super::super::FontRepresentation::coverage(8, 16, 2).unwrap();
-        let mut representations = [0; super::super::REPRESENTATION_RECORD_LEN];
         super::super::RepresentationRecord::new(representation, 0)
             .validate_for(descriptor)
             .unwrap();
-        super::super::RepresentationRecord::new(representation, 0)
-            .encode_record_into(&mut representations)
+        let representations = super::super::RepresentationRecord::new(representation, 0)
+            .encode_record()
             .unwrap();
         let mut advances = [0; 2 * ADVANCE_RECORD_LEN];
         advances[..4].copy_from_slice(&Fixed::from_int(500).to_le_bytes());

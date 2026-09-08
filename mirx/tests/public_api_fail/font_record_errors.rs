@@ -1,4 +1,7 @@
-use mirx::font::{CmapIndexError, FontFaceError, PlacementError};
+use mirx::font::{
+    CmapIndexError, FontFaceError, GlyphSurfaceRecordError, PlacementError,
+    RepresentationRecordError,
+};
 
 fn main() {
     let _ = FontFaceError::BufferTooSmall {
@@ -10,6 +13,14 @@ fn main() {
         available: 0,
     };
     let _ = PlacementError::BufferTooSmall {
+        needed: 1,
+        available: 0,
+    };
+    let _ = RepresentationRecordError::BufferTooSmall {
+        needed: 1,
+        available: 0,
+    };
+    let _ = GlyphSurfaceRecordError::BufferTooSmall {
         needed: 1,
         available: 0,
     };

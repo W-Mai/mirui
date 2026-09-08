@@ -1,17 +1,29 @@
 error[E0599]: no variant named `BufferTooSmall` found for enum `FontFaceError`
- --> tests/public_api_fail/font_record_errors.rs:4:28
+ --> tests/public_api_fail/font_record_errors.rs:7:28
   |
-4 |     let _ = FontFaceError::BufferTooSmall {
+7 |     let _ = FontFaceError::BufferTooSmall {
   |                            ^^^^^^^^^^^^^^ variant not found in `FontFaceError`
 
 error[E0599]: no variant named `BufferTooSmall` found for enum `CmapIndexError`
- --> tests/public_api_fail/font_record_errors.rs:8:29
-  |
-8 |     let _ = CmapIndexError::BufferTooSmall {
-  |                             ^^^^^^^^^^^^^^ variant not found in `CmapIndexError`
+  --> tests/public_api_fail/font_record_errors.rs:11:29
+   |
+11 |     let _ = CmapIndexError::BufferTooSmall {
+   |                             ^^^^^^^^^^^^^^ variant not found in `CmapIndexError`
 
 error[E0599]: no variant named `BufferTooSmall` found for enum `PlacementError`
-  --> tests/public_api_fail/font_record_errors.rs:12:29
+  --> tests/public_api_fail/font_record_errors.rs:15:29
    |
-12 |     let _ = PlacementError::BufferTooSmall {
+15 |     let _ = PlacementError::BufferTooSmall {
    |                             ^^^^^^^^^^^^^^ variant not found in `PlacementError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `RepresentationRecordError`
+  --> tests/public_api_fail/font_record_errors.rs:19:40
+   |
+19 |     let _ = RepresentationRecordError::BufferTooSmall {
+   |                                        ^^^^^^^^^^^^^^ variant not found in `RepresentationRecordError`
+
+error[E0599]: no variant named `BufferTooSmall` found for enum `GlyphSurfaceRecordError`
+  --> tests/public_api_fail/font_record_errors.rs:23:38
+   |
+23 |     let _ = GlyphSurfaceRecordError::BufferTooSmall {
+   |                                      ^^^^^^^^^^^^^^ variant not found in `GlyphSurfaceRecordError`

@@ -15,10 +15,10 @@ fn surfaces() -> [u8; 48] {
     .into_iter()
     .enumerate()
     {
-        GlyphSurfaceRecord::new(layout, packing, width, height, 0)
+        let record = GlyphSurfaceRecord::new(layout, packing, width, height, 0)
             .unwrap()
-            .encode_record_into(&mut bytes[index * 24..])
-            .unwrap();
+            .encode_record();
+        bytes[index * 24..(index + 1) * 24].copy_from_slice(&record);
     }
     bytes
 }
@@ -35,10 +35,12 @@ fn representations() -> [FontRepresentation; 4] {
 fn records() -> [u8; REPRESENTATION_RECORD_LEN * 4] {
     let mut bytes = [0; REPRESENTATION_RECORD_LEN * 4];
     for (index, metadata) in representations().into_iter().enumerate() {
-        RepresentationRecord::new(metadata, u16::from(index > 1))
+        let record = RepresentationRecord::new(metadata, u16::from(index > 1))
             .with_atlas_map_range(if index > 1 { 2 } else { 0 }, if index > 1 { 2 } else { 0 })
-            .encode_record_into(&mut bytes[index * REPRESENTATION_RECORD_LEN..])
+            .encode_record()
             .unwrap();
+        bytes[index * REPRESENTATION_RECORD_LEN..(index + 1) * REPRESENTATION_RECORD_LEN]
+            .copy_from_slice(&record);
     }
     bytes
 }
@@ -111,9 +113,8 @@ fn scalar_application_classes_keep_full_identifiers_and_explicit_selection() {
     let surfaces = surfaces();
     for kind in [0, 1, u16::MAX] {
         let metadata = FontRepresentation::application(kind, 20, 10, 40, 64).unwrap();
-        let mut records = [0; REPRESENTATION_RECORD_LEN];
-        RepresentationRecord::new(metadata, 0)
-            .encode_record_into(&mut records)
+        let records = RepresentationRecord::new(metadata, 0)
+            .encode_record()
             .unwrap();
         let table =
             RepresentationTable::open(&records, &surfaces, 2, &PayloadLimits::EMBEDDED).unwrap();
@@ -196,16 +197,16 @@ fn limits_precede_record_interpretation_and_partial_tables_never_open() {
 
 #[test]
 fn surface_ordinals_geometry_and_derived_costs_have_one_authority() {
-    let mut bytes = [0; REPRESENTATION_RECORD_LEN];
-    RepresentationRecord::new(FontRepresentation::coverage(4, 16, 999).unwrap(), u16::MAX)
-        .encode_record_into(&mut bytes)
-        .unwrap();
+    let bytes =
+        RepresentationRecord::new(FontRepresentation::coverage(4, 16, 999).unwrap(), u16::MAX)
+            .encode_record()
+            .unwrap();
     let mut surfaces = alloc::vec![0xff; (usize::from(u16::MAX) + 1) * GLYPH_SURFACE_RECORD_LEN];
     let last = surfaces.len() - GLYPH_SURFACE_RECORD_LEN;
-    GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 3, 2, 0)
+    let surface = GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 3, 2, 0)
         .unwrap()
-        .encode_record_into(&mut surfaces[last..])
-        .unwrap();
+        .encode_record();
+    surfaces[last..].copy_from_slice(&surface);
     let table = RepresentationTable::open(
         &bytes,
         &surfaces,
@@ -227,20 +228,17 @@ fn surface_ordinals_geometry_and_derived_costs_have_one_authority() {
         RepresentationTable::open(&bytes, &surfaces, 3, &PayloadLimits::HOST),
         Err(RepresentationTableError::TooManySurfaces { actual: 65537 })
     ));
-    let mut record = [0; REPRESENTATION_RECORD_LEN];
-    RepresentationRecord::new(FontRepresentation::coverage(4, 16, 0).unwrap(), 0)
-        .encode_record_into(&mut record)
+    let record = RepresentationRecord::new(FontRepresentation::coverage(4, 16, 0).unwrap(), 0)
+        .encode_record()
         .unwrap();
-    let mut surface = [0; 24];
     for layout in [
         SampleLayout::RGB888,
         SampleLayout::NV12,
         SampleLayout::new(0xf001),
     ] {
-        GlyphSurfaceRecord::new(layout, GlyphPacking::GlyphMajor, 1, 1, 0)
+        let surface = GlyphSurfaceRecord::new(layout, GlyphPacking::GlyphMajor, 1, 1, 0)
             .unwrap()
-            .encode_record_into(&mut surface)
-            .unwrap();
+            .encode_record();
         assert!(matches!(
             RepresentationTable::open(&record, &surface, 1, &PayloadLimits::HOST),
             Err(RepresentationTableError::Surface {
@@ -249,10 +247,10 @@ fn surface_ordinals_geometry_and_derived_costs_have_one_authority() {
             })
         ));
     }
-    GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 1, u32::MAX, 0)
-        .unwrap()
-        .encode_record_into(&mut surface)
-        .unwrap();
+    let surface =
+        GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 1, u32::MAX, 0)
+            .unwrap()
+            .encode_record();
     assert!(matches!(
         RepresentationTable::open(&record, &surface, 2, &PayloadLimits::HOST),
         Err(RepresentationTableError::Surface {

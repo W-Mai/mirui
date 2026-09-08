@@ -117,19 +117,18 @@ error[E0624]: associated function `from_record` is private
    | |     ) -> Result<Self, RepresentationRecordError> {
    | |________________________________________________- private associated function defined here
 
-error[E0624]: method `encode_record_into` is private
+error[E0624]: method `encode_record` is private
   --> tests/public_api_fail/font_wire_authoring.rs:12:35
    |
-12 |       let _ = RepresentationRecord::encode_record_into;
-   |                                     ^^^^^^^^^^^^^^^^^^ private method
+12 |       let _ = RepresentationRecord::encode_record;
+   |                                     ^^^^^^^^^^^^^ private method
    |
   ::: src/font/record.rs
    |
-   | /     pub(in crate::font) fn encode_record_into(
+   | /     pub(in crate::font) fn encode_record(
    | |         self,
-   | |         out: &mut [u8],
-   | |     ) -> Result<usize, RepresentationRecordError> {
-   | |_________________________________________________- private method defined here
+   | |     ) -> Result<[u8; REPRESENTATION_RECORD_LEN], RepresentationRecordError> {
+   | |___________________________________________________________________________- private method defined here
 
 error[E0624]: associated function `new` is private
   --> tests/public_api_fail/font_wire_authoring.rs:13:33
@@ -159,19 +158,16 @@ error[E0624]: associated function `from_record` is private
    |     pub(in crate::font) fn from_record(bytes: &[u8]) -> Result<Self, GlyphSurfaceRecordError> {
    |     ----------------------------------------------------------------------------------------- private associated function defined here
 
-error[E0624]: method `encode_record_into` is private
+error[E0624]: method `encode_record` is private
   --> tests/public_api_fail/font_wire_authoring.rs:15:33
    |
-15 |       let _ = GlyphSurfaceRecord::encode_record_into;
-   |                                   ^^^^^^^^^^^^^^^^^^ private method
+15 |     let _ = GlyphSurfaceRecord::encode_record;
+   |                                 ^^^^^^^^^^^^^ private method
    |
   ::: src/font/surface.rs
    |
-   | /     pub(in crate::font) fn encode_record_into(
-   | |         self,
-   | |         out: &mut [u8],
-   | |     ) -> Result<usize, GlyphSurfaceRecordError> {
-   | |_______________________________________________- private method defined here
+   |     pub(in crate::font) fn encode_record(self) -> [u8; GLYPH_SURFACE_RECORD_LEN] {
+   |     ---------------------------------------------------------------------------- private method defined here
 
 error[E0624]: associated function `from_record` is private
   --> tests/public_api_fail/font_wire_authoring.rs:16:23

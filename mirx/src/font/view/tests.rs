@@ -101,9 +101,12 @@ impl Fixture {
         .into_iter()
         .enumerate()
         {
-            RepresentationRecord::new(metadata, u16::from(index == 2))
-                .encode_record_into(&mut result.records[index * REPRESENTATION_RECORD_LEN..])
+            let record = RepresentationRecord::new(metadata, u16::from(index == 2))
+                .encode_record()
                 .unwrap();
+            result.records
+                [index * REPRESENTATION_RECORD_LEN..(index + 1) * REPRESENTATION_RECORD_LEN]
+                .copy_from_slice(&record);
             for ordinal in 0..2 {
                 let offset = (index * 2 + ordinal) * RASTER_METRICS_RECORD_LEN;
                 result.raster_metrics[offset..offset + RASTER_METRICS_RECORD_LEN].copy_from_slice(
@@ -115,16 +118,18 @@ impl Fixture {
                 );
             }
         }
-        GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 7)
-            .unwrap()
-            .encode_record_into(&mut result.surfaces)
-            .unwrap();
-        GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 8)
-            .unwrap()
-            .with_codings(6)
-            .unwrap()
-            .encode_record_into(&mut result.surfaces[24..])
-            .unwrap();
+        result.surfaces[..24].copy_from_slice(
+            &GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 7)
+                .unwrap()
+                .encode_record(),
+        );
+        result.surfaces[24..].copy_from_slice(
+            &GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 2, 2, 8)
+                .unwrap()
+                .with_codings(6)
+                .unwrap()
+                .encode_record(),
+        );
         CodingTable::encode_into(&[Rle::new().record()], &mut result.codings).unwrap();
         result
     }
@@ -188,12 +193,12 @@ fn one_face_binds_multiple_representations_and_shared_raw_encoded_storage() {
 #[test]
 fn unique_surfaces_share_one_preflight_budget_without_duplicate_representation_work() {
     let mut fixture = Fixture::new();
-    GlyphSurfaceRecord::from_record(&fixture.surfaces)
+    let surface = GlyphSurfaceRecord::from_record(&fixture.surfaces)
         .unwrap()
         .with_codings(6)
         .unwrap()
-        .encode_record_into(&mut fixture.surfaces)
-        .unwrap();
+        .encode_record();
+    fixture.surfaces[..24].copy_from_slice(&surface);
     fixture.data = vec![0x87, 7];
     let bytes = fixture.bytes();
     let view = FontView::open(&bytes, &PayloadLimits::EMBEDDED).unwrap();
@@ -248,12 +253,12 @@ fn referenced_raw_alignment_checks_file_position_not_slice_alignment() {
         .encode_record_into(&mut fixture.planes)
         .unwrap();
     fixture.data.resize(256, 7);
-    GlyphSurfaceRecord::from_record(&fixture.surfaces)
+    let surface = GlyphSurfaceRecord::from_record(&fixture.surfaces)
         .unwrap()
         .with_planes(9)
         .unwrap()
-        .encode_record_into(&mut fixture.surfaces)
-        .unwrap();
+        .encode_record();
+    fixture.surfaces[..24].copy_from_slice(&surface);
     let bytes = fixture.bytes();
     let offset = MediaPayload::open(&bytes)
         .unwrap()
@@ -455,9 +460,7 @@ fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
         if index == 1 {
             record = record.with_codings(6).unwrap();
         }
-        record
-            .encode_record_into(&mut fixture.surfaces[index * 24..])
-            .unwrap();
+        fixture.surfaces[index * 24..(index + 1) * 24].copy_from_slice(&record.encode_record());
     }
     for (index, metadata) in [
         FontRepresentation::coverage(8, 12, 0).unwrap(),
@@ -467,10 +470,12 @@ fn atlas_maps_and_empty_samples_keep_exact_table_ownership() {
     .into_iter()
     .enumerate()
     {
-        RepresentationRecord::new(metadata, u16::from(index == 2))
+        let record = RepresentationRecord::new(metadata, u16::from(index == 2))
             .with_atlas_map_range(0, 2)
-            .encode_record_into(&mut fixture.records[index * REPRESENTATION_RECORD_LEN..])
+            .encode_record()
             .unwrap();
+        fixture.records[index * REPRESENTATION_RECORD_LEN..(index + 1) * REPRESENTATION_RECORD_LEN]
+            .copy_from_slice(&record);
     }
     let original = fixture.bytes();
     let media = MediaPayload::open(&original).unwrap();

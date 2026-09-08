@@ -9,10 +9,10 @@ use mirx::image::SampleLayout;
 fn main() {
     let _ = RepresentationRecord::new;
     let _ = RepresentationRecord::from_record;
-    let _ = RepresentationRecord::encode_record_into;
+    let _ = RepresentationRecord::encode_record;
     let _ = GlyphSurfaceRecord::new(SampleLayout::A8, GlyphPacking::GlyphMajor, 1, 1, 0);
     let _ = GlyphSurfaceRecord::from_record;
-    let _ = GlyphSurfaceRecord::encode_record_into;
+    let _ = GlyphSurfaceRecord::encode_record;
     let _ = FontFace::from_record;
     let _ = FontFace::encode_record;
     let _ = CmapEntry::encode_record;

@@ -112,18 +112,9 @@ impl RepresentationRecord {
         Ok(())
     }
 
-    /// Emits 20 canonical bytes without serializing derived surface facts.
-    /// Capacity errors leave output unchanged; successful writes preserve suffixes.
-    pub(in crate::font) fn encode_record_into(
+    pub(in crate::font) fn encode_record(
         self,
-        out: &mut [u8],
-    ) -> Result<usize, RepresentationRecordError> {
-        if out.len() < REPRESENTATION_RECORD_LEN {
-            return Err(RepresentationRecordError::BufferTooSmall {
-                needed: REPRESENTATION_RECORD_LEN,
-                available: out.len(),
-            });
-        }
+    ) -> Result<[u8; REPRESENTATION_RECORD_LEN], RepresentationRecordError> {
         self.validate_atlas_map_range()?;
         let fields = Fields::from_metadata(self.metadata);
         let mut record = [0; REPRESENTATION_RECORD_LEN];
@@ -135,8 +126,7 @@ impl RepresentationRecord {
         write_u16_le(&mut record, 10, self.surface_index);
         write_u32_le(&mut record, 12, self.atlas_map_offset);
         write_u32_le(&mut record, 16, self.atlas_map_count);
-        out[..REPRESENTATION_RECORD_LEN].copy_from_slice(&record);
-        Ok(REPRESENTATION_RECORD_LEN)
+        Ok(record)
     }
 
     fn validate_atlas_map_range(self) -> Result<(), RepresentationRecordError> {
@@ -236,7 +226,6 @@ impl Fields {
 #[non_exhaustive]
 pub enum RepresentationRecordError {
     Truncated { needed: usize, available: usize },
-    BufferTooSmall { needed: usize, available: usize },
     ReservedNonZero { offset: usize },
     EmptyAtlasMapRange { offset: u32 },
     AtlasMapRangeOverflow,

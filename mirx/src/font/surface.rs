@@ -221,18 +221,7 @@ impl GlyphSurfaceRecord {
         Ok(record)
     }
 
-    /// Emits canonical references, retaining any output suffix unchanged.
-    /// Insufficient capacity leaves all output untouched.
-    pub(in crate::font) fn encode_record_into(
-        self,
-        out: &mut [u8],
-    ) -> Result<usize, GlyphSurfaceRecordError> {
-        if out.len() < GLYPH_SURFACE_RECORD_LEN {
-            return Err(GlyphSurfaceRecordError::BufferTooSmall {
-                needed: GLYPH_SURFACE_RECORD_LEN,
-                available: out.len(),
-            });
-        }
+    pub(in crate::font) fn encode_record(self) -> [u8; GLYPH_SURFACE_RECORD_LEN] {
         let mut bytes = [0; GLYPH_SURFACE_RECORD_LEN];
         write_u16_le(&mut bytes, 0, self.layout.raw());
         bytes[2] = match self.packing {
@@ -246,8 +235,7 @@ impl GlyphSurfaceRecord {
         write_u16_le(&mut bytes, 16, self.codings_section().unwrap_or(u16::MAX));
         write_u16_le(&mut bytes, 18, self.groups_section().unwrap_or(u16::MAX));
         write_u16_le(&mut bytes, 20, self.index_section().unwrap_or(u16::MAX));
-        out[..GLYPH_SURFACE_RECORD_LEN].copy_from_slice(&bytes);
-        Ok(GLYPH_SURFACE_RECORD_LEN)
+        bytes
     }
 
     pub(crate) fn validate_sections(
@@ -309,10 +297,6 @@ impl SectionRef {
 #[non_exhaustive]
 pub enum GlyphSurfaceRecordError {
     Truncated {
-        needed: usize,
-        available: usize,
-    },
-    BufferTooSmall {
         needed: usize,
         available: usize,
     },

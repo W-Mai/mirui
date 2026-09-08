@@ -30,24 +30,13 @@ fn records_have_one_canonical_storage_state_and_exact_wire_layout() {
         for (index, value) in references.into_iter().enumerate() {
             expected[12 + index * 2..14 + index * 2].copy_from_slice(&value.to_le_bytes());
         }
-        let mut bytes = [0xcd; GLYPH_SURFACE_RECORD_LEN + 2];
-        assert_eq!(record.encode_record_into(&mut bytes[1..]).unwrap(), 24);
-        assert_eq!(&bytes[1..25], &expected);
-        assert_eq!((bytes[0], bytes[25]), (0xcd, 0xcd));
-        assert_eq!(
-            GlyphSurfaceRecord::from_record(&bytes[1..]).unwrap(),
-            record
-        );
+        let bytes = record.encode_record();
+        assert_eq!(bytes, expected);
+        assert_eq!(GlyphSurfaceRecord::from_record(&bytes).unwrap(), record);
         assert_eq!(record.sample_layout(), SampleLayout::A4);
         assert_eq!((record.width(), record.height()), (12, 16));
         assert_eq!(record.packing(), GlyphPacking::GlyphMajor);
         for length in 0..GLYPH_SURFACE_RECORD_LEN {
-            let mut output = [0xcd; GLYPH_SURFACE_RECORD_LEN];
-            assert!(matches!(
-                record.encode_record_into(&mut output[..length]),
-                Err(GlyphSurfaceRecordError::BufferTooSmall { .. })
-            ));
-            assert_eq!(output, [0xcd; GLYPH_SURFACE_RECORD_LEN]);
             assert!(matches!(
                 GlyphSurfaceRecord::from_record(&expected[..length]),
                 Err(GlyphSurfaceRecordError::Truncated { .. })
@@ -89,8 +78,7 @@ fn native_and_wire_paths_reject_conflicts_and_reserved_references() {
         GlyphSurfaceRecord::new(SampleLayout::A4, GlyphPacking::GlyphMajor, 1, 1, u16::MAX)
             .is_err()
     );
-    let mut bytes = [0; 24];
-    raw.encode_record_into(&mut bytes).unwrap();
+    let bytes = raw.encode_record();
     for mask in 0..16_u8 {
         let mut candidate = bytes;
         for field in 0..4 {
@@ -152,8 +140,7 @@ fn logical_geometry_uses_shared_maps_without_repeating_sample_assumptions() {
     .unwrap();
     assert_eq!(huge.logical_extent(1).unwrap(), (u32::MAX, u32::MAX));
     assert!(huge.logical_extent(2).is_err());
-    let mut bytes = [0; 24];
-    huge.encode_record_into(&mut bytes).unwrap();
+    let bytes = huge.encode_record();
     assert_eq!(GlyphSurfaceRecord::from_record(&bytes).unwrap(), huge);
 }
 

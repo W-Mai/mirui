@@ -728,7 +728,6 @@ impl<S: Source> Plan<S> {
             }
         }
         for r in self.asset.representations() {
-            let mut bytes = [0; REPRESENTATION_RECORD_LEN];
             let record = RepresentationRecord::new(r.metadata, r.surface);
             let record = match r.atlas_map {
                 Some(index) => {
@@ -738,10 +737,7 @@ impl<S: Source> Plan<S> {
                 }
                 None => record,
             };
-            record
-                .encode_record_into(&mut bytes)
-                .expect("validated representation");
-            output.write(&bytes);
+            output.write(&record.encode_record().expect("validated representation"));
         }
         match self.asset.advance_source() {
             FontAdvanceSource::Advances(values) => {
@@ -794,11 +790,7 @@ impl<S: Source> Plan<S> {
                     .with_groups(group, index_section)
                     .expect("encoded groups");
             }
-            let mut bytes = [0; GLYPH_SURFACE_RECORD_LEN];
-            record
-                .encode_record_into(&mut bytes)
-                .expect("validated surface record");
-            output.write(&bytes);
+            output.write(&record.encode_record());
         }
         for map in self.asset.atlas_maps() {
             for region in map {
