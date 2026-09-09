@@ -225,4 +225,109 @@ mod tests {
         assert_eq!(root.children[0].rect.x, Fixed::from_int(10));
         assert_eq!(root.children[0].rect.y, Fixed::from_int(10));
     }
+
+    #[test]
+    fn axis_gaps_reserve_space_before_grow() {
+        let mut row = LayoutNode::new(LayoutStyle {
+            direction: FlexDirection::Row,
+            column_gap: Dimension::px(10),
+            width: Dimension::px(100),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        for _ in 0..2 {
+            row.add_child(LayoutNode::new(LayoutStyle {
+                grow: Fixed::ONE,
+                ..Default::default()
+            }));
+        }
+
+        compute_layout(
+            &mut row,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(row.children[0].rect.w, Fixed::from_int(45));
+        assert_eq!(row.children[1].rect.x, Fixed::from_int(55));
+
+        let mut column = LayoutNode::new(LayoutStyle {
+            direction: FlexDirection::Column,
+            row_gap: Dimension::px(6),
+            width: Dimension::px(20),
+            height: Dimension::px(50),
+            ..Default::default()
+        });
+        for _ in 0..2 {
+            column.add_child(LayoutNode::new(LayoutStyle {
+                height: Dimension::px(12),
+                ..Default::default()
+            }));
+        }
+
+        compute_layout(
+            &mut column,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(20),
+            Fixed::from_int(50),
+        );
+
+        assert_eq!(column.children[1].rect.y, Fixed::from_int(18));
+    }
+
+    #[test]
+    fn fixed_gap_and_distributed_space_compose() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            justify: JustifyContent::SpaceBetween,
+            column_gap: Dimension::px(10),
+            width: Dimension::px(100),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        for _ in 0..2 {
+            root.add_child(LayoutNode::new(LayoutStyle {
+                width: Dimension::px(20),
+                ..Default::default()
+            }));
+        }
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(root.children[1].rect.x, Fixed::from_int(80));
+    }
+
+    #[test]
+    fn distributed_space_accepts_only_absolute_children() {
+        let mut root = LayoutNode::new(LayoutStyle {
+            justify: JustifyContent::SpaceAround,
+            width: Dimension::px(100),
+            height: Dimension::px(20),
+            ..Default::default()
+        });
+        root.add_child(LayoutNode::new(LayoutStyle {
+            position: Position::Absolute,
+            width: Dimension::px(10),
+            height: Dimension::px(10),
+            ..Default::default()
+        }));
+
+        compute_layout(
+            &mut root,
+            Fixed::ZERO,
+            Fixed::ZERO,
+            Fixed::from_int(100),
+            Fixed::from_int(20),
+        );
+
+        assert_eq!(root.children[0].rect, Rect::new(0, 0, 10, 10));
+    }
 }

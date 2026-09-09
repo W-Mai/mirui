@@ -44,14 +44,22 @@ fn compute_node(
     let is_row = node.style.direction == FlexDirection::Row;
     let main_size = if is_row { inner_w } else { inner_h };
     let cross_size = if is_row { inner_h } else { inner_w };
+    let base_gap = if is_row {
+        node.style.column_gap.resolve(inner_w)
+    } else {
+        node.style.row_gap.resolve(inner_h)
+    }
+    .unwrap_or(Fixed::ZERO)
+    .max(Fixed::ZERO);
 
-    // Calculate fixed sizes and total grow (only flex children)
     let mut fixed_total = Fixed::ZERO;
     let mut grow_total = Fixed::ZERO;
+    let mut child_count = 0usize;
     for child in &node.children {
         if child.style.position == Position::Absolute {
             continue;
         }
+        child_count += 1;
         let (dimension, intrinsic) = if is_row {
             (child.style.width, child.intrinsic_width)
         } else {
@@ -69,61 +77,24 @@ fn compute_node(
         }
     }
 
-    let remaining = (main_size - fixed_total).max(Fixed::ZERO);
+    let gap_total = if child_count > 1 {
+        base_gap * (child_count as i32 - 1)
+    } else {
+        Fixed::ZERO
+    };
+    let remaining = (main_size - fixed_total - gap_total).max(Fixed::ZERO);
 
-    // Compute each child's main axis size
-    let child_count = node
-        .children
-        .iter()
-        .filter(|c| c.style.position != Position::Absolute)
-        .count();
-    let mut sizes: alloc::vec::Vec<(Fixed, Fixed)> =
-        alloc::vec::Vec::with_capacity(node.children.len());
-
+    let mut total_main = gap_total;
     for child in &node.children {
         if child.style.position == Position::Absolute {
-            sizes.push((Fixed::ZERO, Fixed::ZERO));
             continue;
         }
-        let (main_dimension, main_intrinsic) = if is_row {
-            (child.style.width, child.intrinsic_width)
-        } else {
-            (child.style.height, child.intrinsic_height)
-        };
-        let child_main = if main_dimension == Dimension::Auto && child.style.grow > Fixed::ZERO {
-            None
-        } else {
-            resolve_dimension(main_dimension, main_size, main_intrinsic)
-        };
-        let m = if let Some(s) = child_main {
-            s
-        } else if child.style.grow > Fixed::ZERO && grow_total > Fixed::ZERO {
-            remaining * child.style.grow / grow_total
-        } else {
-            Fixed::ZERO
-        };
-
-        let (cross_dimension, cross_intrinsic) = if is_row {
-            (child.style.height, child.intrinsic_height)
-        } else {
-            (child.style.width, child.intrinsic_width)
-        };
-        let child_cross = resolve_dimension(cross_dimension, cross_size, cross_intrinsic);
-        let c = child_cross.unwrap_or(cross_size);
-
-        sizes.push((m, c));
+        total_main += child_size(child, is_row, main_size, cross_size, grow_total, remaining).0;
     }
 
-    // Justify: compute starting offset and gap (flex children only)
-    let total_main: Fixed = sizes
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| node.children[*i].style.position != Position::Absolute)
-        .map(|(_, (m, _))| *m)
-        .fold(Fixed::ZERO, |acc, v| acc + v);
     let free_space = (main_size - total_main).max(Fixed::ZERO);
 
-    let (mut offset, gap) = match node.style.justify {
+    let (mut offset, distributed_gap) = match node.style.justify {
         JustifyContent::FlexStart => (Fixed::ZERO, Fixed::ZERO),
         JustifyContent::FlexEnd => (free_space, Fixed::ZERO),
         JustifyContent::Center => (free_space / 2, Fixed::ZERO),
@@ -135,17 +106,20 @@ fn compute_node(
             }
         }
         JustifyContent::SpaceAround => {
-            let g = free_space / child_count as i32;
-            (g / 2, g)
+            if child_count == 0 {
+                (Fixed::ZERO, Fixed::ZERO)
+            } else {
+                let gap = free_space / child_count as i32;
+                (gap / 2, gap)
+            }
         }
         JustifyContent::SpaceEvenly => {
-            let g = free_space / (child_count as i32 + 1);
-            (g, g)
+            let gap = free_space / (child_count as i32 + 1);
+            (gap, gap)
         }
     };
 
-    // Position children
-    for (i, child) in node.children.iter_mut().enumerate() {
+    for child in &mut node.children {
         if child.style.position == Position::Absolute {
             let abs_x = x + child.style.left.resolve(w).unwrap_or(Fixed::ZERO);
             let abs_y = y + child.style.top.resolve(h).unwrap_or(Fixed::ZERO);
@@ -157,9 +131,8 @@ fn compute_node(
             continue;
         }
 
-        let (m, c) = sizes[i];
+        let (m, c) = child_size(child, is_row, main_size, cross_size, grow_total, remaining);
 
-        // Cross axis alignment
         let cross_offset = match node.style.align {
             AlignItems::FlexStart | AlignItems::Stretch => Fixed::ZERO,
             AlignItems::FlexEnd => cross_size - c,
@@ -173,8 +146,44 @@ fn compute_node(
         };
 
         compute_node(child, cx, cy, cw, ch, false);
-        offset += m + gap;
+        offset += m + base_gap + distributed_gap;
     }
+}
+
+fn child_size(
+    child: &LayoutNode,
+    is_row: bool,
+    main_size: Fixed,
+    cross_size: Fixed,
+    grow_total: Fixed,
+    remaining: Fixed,
+) -> (Fixed, Fixed) {
+    let (main_dimension, main_intrinsic) = if is_row {
+        (child.style.width, child.intrinsic_width)
+    } else {
+        (child.style.height, child.intrinsic_height)
+    };
+    let child_main = if main_dimension == Dimension::Auto && child.style.grow > Fixed::ZERO {
+        None
+    } else {
+        resolve_dimension(main_dimension, main_size, main_intrinsic)
+    };
+    let main = if let Some(size) = child_main {
+        size
+    } else if child.style.grow > Fixed::ZERO && grow_total > Fixed::ZERO {
+        remaining * child.style.grow / grow_total
+    } else {
+        Fixed::ZERO
+    };
+
+    let (cross_dimension, cross_intrinsic) = if is_row {
+        (child.style.height, child.intrinsic_height)
+    } else {
+        (child.style.width, child.intrinsic_width)
+    };
+    let cross =
+        resolve_dimension(cross_dimension, cross_size, cross_intrinsic).unwrap_or(cross_size);
+    (main, cross)
 }
 
 fn resolve_dimension(

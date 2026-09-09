@@ -226,6 +226,35 @@ mod tests {
     }
 
     #[test]
+    fn gap_shorthand_routes_to_both_axes() {
+        use mirui::types::Dimension;
+        use mirui::ui::Style;
+
+        let mut world = World::new();
+        world.insert_resource(IdMap::new());
+        let root = WidgetBuilder::new(&mut world).id();
+
+        ui! {
+            :(
+                parent: root
+                world: &mut world
+            :)
+
+            Column (gap: 12) {}
+        };
+
+        let entity = world
+            .query::<Style>()
+            .collect()
+            .into_iter()
+            .find(|entity| *entity != root)
+            .unwrap();
+        let layout = world.get::<Style>(entity).unwrap().layout;
+        assert_eq!(layout.row_gap, Dimension::px(12));
+        assert_eq!(layout.column_gap, Dimension::px(12));
+    }
+
+    #[test]
     fn lowercase_name_stays_layout_fallback() {
         let mut world = World::new();
         world.insert_resource(IdMap::new());

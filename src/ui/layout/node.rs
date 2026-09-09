@@ -42,12 +42,33 @@ pub struct LayoutStyle {
     pub justify: JustifyContent,
     pub align: AlignItems,
     pub padding: Padding,
+    pub row_gap: Dimension,
+    pub column_gap: Dimension,
     pub width: Dimension,
     pub height: Dimension,
     pub grow: Fixed,
     pub position: Position,
     pub left: Dimension,
     pub top: Dimension,
+}
+
+impl LayoutStyle {
+    pub fn with_gap(mut self, gap: impl Into<Dimension>) -> Self {
+        let gap = gap.into();
+        self.row_gap = gap;
+        self.column_gap = gap;
+        self
+    }
+
+    pub fn with_row_gap(mut self, gap: impl Into<Dimension>) -> Self {
+        self.row_gap = gap.into();
+        self
+    }
+
+    pub fn with_column_gap(mut self, gap: impl Into<Dimension>) -> Self {
+        self.column_gap = gap.into();
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]

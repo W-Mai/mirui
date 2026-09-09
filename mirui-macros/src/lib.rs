@@ -25,6 +25,9 @@ const LAYOUT_ATTRS: &[&str] = &[
     "justify",
     "align",
     "padding",
+    "gap",
+    "row_gap",
+    "column_gap",
     "position",
     "left",
     "top",
@@ -634,6 +637,17 @@ impl MiruiRune {
                 "justify" => layout_fields.push(quote! { justify: #value }),
                 "align" => layout_fields.push(quote! { align: #value }),
                 "padding" => layout_fields.push(quote! { padding: #value }),
+                "gap" => {
+                    layout_fields.push(quote! { row_gap: mirui::types::Dimension::from(#value) });
+                    layout_fields
+                        .push(quote! { column_gap: mirui::types::Dimension::from(#value) });
+                }
+                "row_gap" => {
+                    layout_fields.push(quote! { row_gap: mirui::types::Dimension::from(#value) })
+                }
+                "column_gap" => {
+                    layout_fields.push(quote! { column_gap: mirui::types::Dimension::from(#value) })
+                }
                 "position" => layout_fields.push(quote! { position: #value }),
                 "left" => {
                     layout_fields.push(quote! { left: mirui::types::Dimension::from(#value) })
