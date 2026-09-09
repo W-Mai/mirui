@@ -220,12 +220,9 @@ struct LaidOutText {
 }
 
 fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutText> {
-    use textflow::bidi::BaseDirection;
-
     use crate::render::font::ResolvedFontStack;
-    use crate::text::layout::{TextLayoutRequest, TextLayoutResource};
-    use crate::types::fixed::to_textflow;
-    use crate::ui::widgets::text::{Text, TextDirection, TextWrap};
+    use crate::text::layout::TextLayoutResource;
+    use crate::ui::widgets::text::Text;
 
     let text = world.get::<Text>(entity)?;
     let style = world.get::<Style>(entity)?;
@@ -235,25 +232,9 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
     let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
-    let paragraph = text.paragraph();
-    let direction = match paragraph.direction {
-        TextDirection::Auto => BaseDirection::Auto,
-        TextDirection::LeftToRight => BaseDirection::LeftToRight,
-        TextDirection::RightToLeft => BaseDirection::RightToLeft,
-    };
-    let max_width = match paragraph.wrap {
-        TextWrap::NoWrap => i32::MAX,
-        TextWrap::Word | TextWrap::Grapheme => to_textflow(width.max(Fixed::ZERO)),
-    };
-    let request = TextLayoutRequest {
-        text: &content,
-        max_width,
-        max_lines: paragraph.max_lines.map(usize::from).unwrap_or(usize::MAX),
-        line_height: to_textflow(paragraph.line_height.unwrap_or(metrics.line_height)),
-        baseline: to_textflow(metrics.ascender),
-        direction,
-        features: paragraph.features.as_slice(),
-    };
+    let request = text
+        .paragraph()
+        .layout_request(&content, metrics, Some(width));
     let handle = fonts
         .with_typefaces(|typefaces| resource.borrow_mut().layout(request, typefaces))
         .ok()?;
@@ -332,13 +313,11 @@ fn compute_layout_snapshot(
 }
 
 pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
-    use textflow::bidi::BaseDirection;
-
     use crate::render::font::ResolvedFontStack;
-    use crate::text::layout::{TextLayoutRequest, TextLayoutResource};
+    use crate::text::layout::TextLayoutResource;
     use crate::types::Dimension;
-    use crate::types::fixed::{from_textflow, to_textflow};
-    use crate::ui::widgets::text::{Text, TextDirection};
+    use crate::types::fixed::from_textflow;
+    use crate::ui::widgets::text::Text;
 
     let Some(text) = world.get::<Text>(entity) else {
         return;
@@ -357,25 +336,7 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
     let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
-    let line_height = text.paragraph().line_height.unwrap_or(metrics.line_height);
-    let direction = match text.paragraph().direction {
-        TextDirection::Auto => BaseDirection::Auto,
-        TextDirection::LeftToRight => BaseDirection::LeftToRight,
-        TextDirection::RightToLeft => BaseDirection::RightToLeft,
-    };
-    let request = TextLayoutRequest {
-        text: &content,
-        max_width: i32::MAX,
-        max_lines: text
-            .paragraph()
-            .max_lines
-            .map(usize::from)
-            .unwrap_or(usize::MAX),
-        line_height: to_textflow(line_height),
-        baseline: to_textflow(metrics.ascender),
-        direction,
-        features: text.paragraph().features.as_slice(),
-    };
+    let request = text.paragraph().layout_request(&content, metrics, None);
     let Ok(measure) = fonts.with_typefaces(|faces| cache.borrow_mut().measure(request, faces))
     else {
         return;

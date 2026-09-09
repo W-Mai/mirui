@@ -174,6 +174,40 @@ impl Default for ParagraphStyle {
     }
 }
 
+impl ParagraphStyle {
+    pub(crate) fn layout_request<'a>(
+        &'a self,
+        text: &'a str,
+        metrics: crate::render::font::FontMetrics,
+        width: Option<Fixed>,
+    ) -> crate::text::layout::TextLayoutRequest<'a> {
+        use textflow::bidi::BaseDirection;
+
+        use crate::types::fixed::to_textflow;
+
+        let direction = match self.direction {
+            TextDirection::Auto => BaseDirection::Auto,
+            TextDirection::LeftToRight => BaseDirection::LeftToRight,
+            TextDirection::RightToLeft => BaseDirection::RightToLeft,
+        };
+        let max_width = match (self.wrap, width) {
+            (TextWrap::NoWrap, _) | (_, None) => i32::MAX,
+            (TextWrap::Word | TextWrap::Grapheme, Some(width)) => {
+                to_textflow(width.max(Fixed::ZERO))
+            }
+        };
+        crate::text::layout::TextLayoutRequest {
+            text,
+            max_width,
+            max_lines: self.max_lines.map(usize::from).unwrap_or(usize::MAX),
+            line_height: to_textflow(self.line_height.unwrap_or(metrics.line_height)),
+            baseline: to_textflow(metrics.ascender),
+            direction,
+            features: self.features.as_slice(),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum TextContent {
     Plain(Cow<'static, str>),
