@@ -50,22 +50,16 @@ impl SwRenderer<'_> {
                     bearing_y,
                 } => {
                     if region.width() == 0 || region.height() == 0 {
-                        cx += scaled_fixed(
-                            g.advance,
-                            representation.design_ppem(),
-                            requested_size,
-                            viewport_scale,
-                        )
-                        .to_int();
+                        cx += (g.advance * viewport_scale).to_int();
                         continue;
                     }
                     let design = representation.design_ppem().max(1);
                     let glyph_scale = Fixed::from_int(i32::from(requested_size))
                         / Fixed::from_int(i32::from(design))
                         * viewport_scale;
-                    advance = (g.advance * glyph_scale).to_int();
-                    let x = cx + (*bearing_x * glyph_scale).to_int();
-                    let y = baseline - (*bearing_y * glyph_scale).to_int();
+                    advance = (g.advance * viewport_scale).to_int();
+                    let x = cx + (*bearing_x * viewport_scale).to_int();
+                    let y = baseline - (*bearing_y * viewport_scale).to_int();
                     let width = scaled_extent(region.width(), glyph_scale);
                     let height = scaled_extent(region.height(), glyph_scale);
                     match representation.kind() {
@@ -265,12 +259,6 @@ impl SwRenderer<'_> {
             }
         }
     }
-}
-
-fn scaled_fixed(value: Fixed, design_ppem: u16, requested_size: u16, viewport: Fixed) -> Fixed {
-    value * Fixed::from_int(i32::from(requested_size))
-        / Fixed::from_int(i32::from(design_ppem.max(1)))
-        * viewport
 }
 
 fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
@@ -483,5 +471,58 @@ mod tests {
         assert_eq!(metric_size.get(), 16);
         assert_eq!(glyph_size.get(), 16);
         assert!(buf.iter().all(|byte| *byte == 0));
+    }
+
+    struct SizedRasterProvider;
+
+    impl FontProvider for SizedRasterProvider {
+        fn glyph(&self, _ch: char, requested_size: u16) -> Option<Glyph> {
+            assert_eq!(requested_size, 8);
+            Some(Glyph {
+                advance: Fixed::from_int(4),
+                kind: GlyphKind::Raster {
+                    samples: &[0x80],
+                    stride: 1,
+                    region: mirx::image::Region::new(0, 0, 1, 1).unwrap(),
+                    representation: mirx::font::FontRepresentation::coverage(1, 16, 0).unwrap(),
+                    bearing_x: Fixed::ZERO,
+                    bearing_y: Fixed::ZERO,
+                },
+            })
+        }
+
+        fn metrics(&self, requested_size: u16) -> FontMetrics {
+            assert_eq!(requested_size, 8);
+            FontMetrics {
+                ascender: Fixed::ZERO,
+                descender: Fixed::ZERO,
+                line_height: Fixed::from_int(8),
+            }
+        }
+    }
+
+    #[test]
+    fn target_size_advance_is_not_scaled_by_the_raster_representation() {
+        let font = Font {
+            family: "sized-raster",
+            size: 8,
+            backend: FontBackend::Custom(Rc::new(SizedRasterProvider)),
+        };
+        let mut buf = vec![0u8; 12 * 2 * 4];
+        let tex = Texture::new(&mut buf, 12, 2, ColorFormat::RGBA8888);
+        let mut backend = SwRenderer::new(tex);
+
+        backend.draw_label_inner(
+            &Point::ZERO,
+            "AA",
+            &font,
+            &Rect::new(0, 0, 12, 2),
+            &Color::rgba(255, 255, 255, 255),
+            255,
+        );
+
+        assert_eq!(pixel_alpha(&buf, 12, 0, 0), 255);
+        assert_eq!(pixel_alpha(&buf, 12, 4, 0), 255);
+        assert_eq!(pixel_alpha(&buf, 12, 2, 0), 0);
     }
 }

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **MIRX font spacing below design size.** Glyph advances and bearings remain in requested-size logical pixels while coverage and SDF rasters scale from their representation size, preventing small text from receiving the size ratio twice.
+
 ### Changed
 
 - **No redundant MIRX container metadata.** Successful open proves MIRX 1.0 with zero file flags; Reader version/flag queries, Document metadata storage, and the legacy parser error have been removed.

@@ -156,22 +156,13 @@ impl WebCanvasRenderer<'_> {
     // Viewport scale 1), or the buffer clips the text. +1px row so the
     // AA bottom edge survives. Placeholder until a layout engine lands.
     fn measure_text_extent(&self, font: &crate::render::font::Font, text: &str) -> (i32, i32) {
-        use crate::render::font::GlyphKind;
         let requested = font.size.max(1);
         let mut w: i32 = 0;
         for ch in text.chars() {
             let Some(g) = font.glyph(ch, requested) else {
                 continue;
             };
-            w += match &g.kind {
-                GlyphKind::Raster { representation, .. } => (g.advance
-                    * crate::types::Fixed::from_int(i32::from(requested))
-                    / crate::types::Fixed::from_int(i32::from(
-                        representation.design_ppem().max(1),
-                    )))
-                .to_int(),
-                GlyphKind::Mono(_) => g.advance.to_int(),
-            };
+            w += g.advance.to_int();
         }
         let h = font
             .metrics(requested)

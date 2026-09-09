@@ -22,7 +22,7 @@ use crate::ecs::World;
 /// [`GlyphKind`] payload that selects the rasterization scheme.
 #[derive(Clone, Debug)]
 pub struct Glyph {
-    /// Horizontal advance at the representation's design ppem.
+    /// Horizontal advance in logical pixels at the requested size.
     pub advance: crate::types::Fixed,
     pub kind: GlyphKind,
 }
@@ -40,7 +40,9 @@ pub enum GlyphKind {
         stride: u32,
         region: ::mirx::image::Region,
         representation: ::mirx::font::FontRepresentation,
+        /// Horizontal offset in logical pixels at the requested size.
         bearing_x: crate::types::Fixed,
+        /// Baseline offset in logical pixels at the requested size.
         bearing_y: crate::types::Fixed,
     },
 }
