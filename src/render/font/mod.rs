@@ -221,6 +221,16 @@ pub(crate) fn positioned_glyph_bounds(
     feature = "wgpu",
     all(feature = "web-canvas", target_arch = "wasm32")
 ))]
+pub(crate) fn scaled_glyph_raster_extent(extent: u16, scale: Fixed) -> Option<u16> {
+    let pixels = (Fixed::from(extent) * scale).ceil().to_int();
+    u16::try_from(pixels).ok().filter(|value| *value > 0)
+}
+
+#[cfg(any(
+    feature = "sdl-gpu",
+    feature = "wgpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
 pub(crate) fn positioned_glyph_hash(glyphs: &[textflow::shaping::PositionedGlyph]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325;
     for glyph in glyphs {
@@ -920,6 +930,19 @@ pub fn resolve_or_default(world: &World, token: &FontToken) -> Option<Rc<Font>> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(any(feature = "sdl-gpu", feature = "wgpu"))]
+    #[test]
+    fn glyph_raster_extent_preserves_fractional_display_scale() {
+        assert_eq!(
+            scaled_glyph_raster_extent(17, Fixed::from_ratio(3, 2)),
+            Some(26)
+        );
+        assert_eq!(
+            scaled_glyph_raster_extent(17, Fixed::from_ratio(5, 4)),
+            Some(22)
+        );
+    }
 
     #[test]
     fn default_token_resolves_to_bitmap8x8() {

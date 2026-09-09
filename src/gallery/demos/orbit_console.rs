@@ -23,7 +23,7 @@ use crate::ui::widgets::{Slider, Text};
 
 pub const VIEWPORT: (u16, u16) = (1024, 640);
 
-const FONT_BYTES: &[u8] = include_bytes!("assets/misans_sdf_24.mirx");
+const FONT_BYTES: &[u8] = include_bytes!("assets/misans_ui.mirx");
 
 const BG: Color = Color::rgb(6, 16, 23);
 const SURFACE: Color = Color::rgba(16, 36, 51, 238);

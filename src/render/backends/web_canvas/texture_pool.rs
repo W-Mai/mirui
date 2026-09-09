@@ -9,6 +9,7 @@ use web_sys::{ImageData, OffscreenCanvas, OffscreenCanvasRenderingContext2d};
 
 use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 use crate::render::texture::{ColorFormat, Texture};
+use crate::types::Fixed;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TextureKey {
@@ -64,7 +65,7 @@ pub struct GlyphKey {
     pub size: u16,
     pub color: u32,
     pub opa: u8,
-    pub scale: u16,
+    pub scale: Fixed,
 }
 
 const GLYPH_BUDGET: usize = 8 * 1024 * 1024;

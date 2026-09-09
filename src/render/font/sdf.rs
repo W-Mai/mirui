@@ -24,10 +24,6 @@ impl<'a> SignedDistanceField<'a> {
         })
     }
 
-    pub(crate) fn sample(&self, x: Fixed, y: Fixed) -> Fixed {
-        (self.scalar.sample_bilinear(x, y) * 2 - Fixed::ONE) * self.spread
-    }
-
     pub(crate) fn width(&self) -> u32 {
         self.scalar.width()
     }
@@ -37,10 +33,13 @@ impl<'a> SignedDistanceField<'a> {
     }
 
     pub(crate) fn sample_with_gradient(&self, x: Fixed, y: Fixed) -> (Fixed, Fixed, Fixed) {
-        let center = self.sample(x, y);
-        let dx = (self.sample(x + Fixed::ONE, y) - self.sample(x - Fixed::ONE, y)) / 2;
-        let dy = (self.sample(x, y + Fixed::ONE) - self.sample(x, y - Fixed::ONE)) / 2;
-        (center, dx, dy)
+        let (sample, dx, dy) = self.scalar.sample_bilinear_with_gradient(x, y);
+        let distance_scale = self.spread * 2;
+        (
+            (sample * 2 - Fixed::ONE) * self.spread,
+            dx * distance_scale,
+            dy * distance_scale,
+        )
     }
 }
 
@@ -57,7 +56,7 @@ mod tests {
         let samples = [0x00, 0xee, 0x04, 0xfe];
         let field = SignedDistanceField::new(&samples, 2, region, 4, 2).unwrap();
 
-        assert!(field.sample(Fixed::ZERO, Fixed::ZERO) < Fixed::ZERO);
-        assert!(field.sample(Fixed::ONE, Fixed::ZERO) > Fixed::ZERO);
+        assert!(field.sample_with_gradient(Fixed::ZERO, Fixed::ZERO).0 < Fixed::ZERO);
+        assert!(field.sample_with_gradient(Fixed::ONE, Fixed::ZERO).0 > Fixed::ZERO);
     }
 }

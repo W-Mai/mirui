@@ -7,6 +7,7 @@ use mirx::reader::PayloadLimits;
 
 const ASCII_FONT: &[u8] = include_bytes!("fixtures/misans_sdf_ascii_32.mirx");
 const CJK_FONT: &[u8] = include_bytes!("fixtures/misans_sdf_cjk_32.mirx");
+const UI_FONT: &[u8] = include_bytes!("../src/gallery/demos/assets/misans_ui.mirx");
 
 fn open(bytes: &'static [u8]) -> MirxFontProvider {
     MirxFontProvider::from_mirx(bytes, &PayloadLimits::HOST).expect("SDF face")
@@ -20,7 +21,7 @@ fn face_retains_sdf_contract_and_sorted_cmap() {
     assert_eq!(record.design_ppem(), 32);
     assert!(matches!(
         record.kind(),
-        FontRepresentationKind::SignedDistance { bits: 4, spread: 4 }
+        FontRepresentationKind::SignedDistance { bits: 8, spread: 4 }
     ));
     let scalars: Vec<_> = view.cmap().iter().map(|entry| entry.scalar()).collect();
     assert!(scalars.windows(2).all(|pair| pair[0] < pair[1]));
@@ -38,11 +39,17 @@ fn resolves_ascii_with_explicit_stride_and_region() {
             .unwrap_or_else(|| panic!("missing glyph {ch:?}"));
         assert!(matches!(
             glyph.representation.kind(),
-            FontRepresentationKind::SignedDistance { bits: 4, .. }
+            FontRepresentationKind::SignedDistance { bits: 8, .. }
         ));
-        assert_eq!(glyph.surface.stride(), 16);
+        assert_eq!(glyph.surface.stride(), glyph.surface.width());
+        if ch == ' ' {
+            assert!(glyph.region.is_none());
+            continue;
+        }
         let region = glyph.region.unwrap();
-        assert_eq!((region.width(), region.height()), (32, 32));
+        assert!(region.width() > 0 && region.height() > 0);
+        assert!(region.x() + region.width() <= glyph.surface.width());
+        assert!(region.y() + region.height() <= glyph.surface.height());
     }
 }
 
@@ -53,12 +60,11 @@ fn atlas_contains_a_distance_gradient() {
         .raster(provider.map_char('A').unwrap(), 32)
         .unwrap();
     let samples = glyph.surface.samples();
-    let mut buckets = [0u32; 16];
+    let mut buckets = [false; 256];
     for &byte in samples {
-        buckets[(byte & 15) as usize] += 1;
-        buckets[(byte >> 4) as usize] += 1;
+        buckets[usize::from(byte)] = true;
     }
-    assert!(buckets.iter().filter(|count| **count > 0).count() >= 4);
+    assert!(buckets.iter().filter(|used| **used).count() > 16);
 }
 
 #[test]
@@ -74,5 +80,31 @@ fn cjk_face_resolves_common_glyphs_with_nonzero_advance() {
                 > Some(mirui::types::Fixed::ZERO)
         );
         assert!(glyph.region.is_some());
+    }
+}
+
+#[test]
+fn ui_face_routes_small_text_and_scalable_ranges_to_distinct_representations() {
+    let provider = open(UI_FONT);
+    let glyph = provider.map_char('A').unwrap();
+    let cases = [
+        (11, FontRepresentationKind::Coverage { bits: 8 }, 11),
+        (14, FontRepresentationKind::Coverage { bits: 8 }, 14),
+        (
+            24,
+            FontRepresentationKind::SignedDistance { bits: 8, spread: 4 },
+            24,
+        ),
+        (
+            96,
+            FontRepresentationKind::SignedDistance { bits: 8, spread: 8 },
+            64,
+        ),
+    ];
+
+    for (ppem, kind, design_ppem) in cases {
+        let raster = provider.raster(glyph, ppem).unwrap();
+        assert_eq!(raster.representation.kind(), kind);
+        assert_eq!(raster.representation.design_ppem(), design_ppem);
     }
 }

@@ -47,6 +47,14 @@ impl<'a> ScalarField<'a> {
     }
 
     pub(crate) fn sample_bilinear(&self, x: Fixed, y: Fixed) -> Fixed {
+        self.sample_bilinear_with_gradient(x, y).0
+    }
+
+    pub(crate) fn sample_bilinear_with_gradient(
+        &self,
+        x: Fixed,
+        y: Fixed,
+    ) -> (Fixed, Fixed, Fixed) {
         let max_x = i32::try_from(self.region.width()).unwrap_or(i32::MAX) - 1;
         let max_y = i32::try_from(self.region.height()).unwrap_or(i32::MAX) - 1;
         let x = x.max(Fixed::ZERO).min(Fixed::from_int(max_x));
@@ -57,9 +65,16 @@ impl<'a> ScalarField<'a> {
         let y1 = (y0 + 1).min(max_y);
         let fx = x - Fixed::from_int(x0);
         let fy = y - Fixed::from_int(y0);
-        let top = self.sample(x0, y0) * (Fixed::ONE - fx) + self.sample(x1, y0) * fx;
-        let bottom = self.sample(x0, y1) * (Fixed::ONE - fx) + self.sample(x1, y1) * fx;
-        top * (Fixed::ONE - fy) + bottom * fy
+        let q00 = self.sample(x0, y0);
+        let q10 = self.sample(x1, y0);
+        let q01 = self.sample(x0, y1);
+        let q11 = self.sample(x1, y1);
+        let top = q00 * (Fixed::ONE - fx) + q10 * fx;
+        let bottom = q01 * (Fixed::ONE - fx) + q11 * fx;
+        let value = top * (Fixed::ONE - fy) + bottom * fy;
+        let dx = (q10 - q00) * (Fixed::ONE - fy) + (q11 - q01) * fy;
+        let dy = (q01 - q00) * (Fixed::ONE - fx) + (q11 - q10) * fx;
+        (value, dx, dy)
     }
 
     fn quantized(&self, x: i32, y: i32) -> u16 {
@@ -107,5 +122,20 @@ mod tests {
             Fixed::from_ratio(1, 4)
         );
         assert_eq!(field.sample_bilinear(Fixed::ONE, Fixed::ZERO), Fixed::ONE);
+    }
+
+    #[test]
+    fn bilinear_gradient_is_derived_from_the_same_four_samples() {
+        let field =
+            ScalarField::new(&[0, 255, 255, 255], 2, Region::new(0, 0, 2, 2).unwrap(), 8).unwrap();
+
+        assert_eq!(
+            field.sample_bilinear_with_gradient(Fixed::from_ratio(1, 4), Fixed::HALF),
+            (
+                Fixed::from_ratio(5, 8),
+                Fixed::HALF,
+                Fixed::from_ratio(3, 4),
+            )
+        );
     }
 }

@@ -11,6 +11,7 @@ const CLIG: [u8; 4] = *b"clig";
 const DLIG: [u8; 4] = *b"dlig";
 const KERN: [u8; 4] = *b"kern";
 const LIGA: [u8; 4] = *b"liga";
+const IGNORE_MARKS: u16 = 0x0008;
 
 pub(super) fn shape(
     source: &impl GlyphSource,
@@ -48,8 +49,17 @@ pub(super) fn shape(
         *slot = ShapedGlyph::new(glyph, TextRange::new(start as u32, end as u32));
     }
 
+    let gdef = shaping.table(*b"GDEF").map(Table::new);
     if let Some(table) = shaping.table(*b"GSUB") {
-        count = apply_layout(table, LayoutKind::Substitution, request, output, count)?.glyph_count;
+        count = apply_layout(
+            table,
+            gdef,
+            LayoutKind::Substitution,
+            request,
+            output,
+            count,
+        )?
+        .glyph_count;
     }
     for glyph in &mut output[..count] {
         glyph.advance = source.glyph_advance(glyph.glyph_id())?;
@@ -57,7 +67,7 @@ pub(super) fn shape(
 
     let kern_enabled = feature_enabled(request, KERN, true)?;
     let positioned = if let Some(table) = shaping.table(*b"GPOS") {
-        apply_layout(table, LayoutKind::Positioning, request, output, count)?.kern_lookups > 0
+        apply_layout(table, gdef, LayoutKind::Positioning, request, output, count)?.kern_lookups > 0
     } else {
         false
     };
@@ -135,12 +145,14 @@ struct LayoutOutcome {
 struct FeatureApplication<'table, 'request, 'text> {
     feature_list: Table<'table>,
     lookup_list: Table<'table>,
+    gdef: Option<Table<'table>>,
     kind: LayoutKind,
     request: &'request ShapeRequest<'text>,
 }
 
 fn apply_layout(
     bytes: &[u8],
+    gdef: Option<Table<'_>>,
     kind: LayoutKind,
     request: &ShapeRequest<'_>,
     glyphs: &mut [ShapedGlyph],
@@ -167,6 +179,7 @@ fn apply_layout(
     let application = FeatureApplication {
         feature_list,
         lookup_list,
+        gdef,
         kind,
         request,
     };
@@ -196,6 +209,7 @@ fn apply_feature(
     let FeatureApplication {
         feature_list,
         lookup_list,
+        gdef,
         kind,
         request,
     } = application;
@@ -233,7 +247,7 @@ fn apply_feature(
                     apply_substitution_lookup(lookup, tag, glyphs, outcome.glyph_count)?;
             }
             LayoutKind::Positioning => {
-                apply_positioning_lookup(lookup, tag, glyphs, outcome.glyph_count)?;
+                apply_positioning_lookup(lookup, gdef, tag, glyphs, outcome.glyph_count)?;
                 if tag == KERN {
                     outcome.kern_lookups += 1;
                 }
@@ -328,11 +342,13 @@ fn apply_ligature(
 
 fn apply_positioning_lookup(
     lookup: Table<'_>,
+    gdef: Option<Table<'_>>,
     feature: [u8; 4],
     glyphs: &mut [ShapedGlyph],
     count: usize,
 ) -> Result<(), ShapeError> {
-    if lookup.u16(2).unwrap_or(0) != 0 {
+    let flags = lookup.u16(2).ok_or_else(malformed)?;
+    if flags & !IGNORE_MARKS != 0 {
         return Err(ShapeError::UnsupportedFeature { tag: feature });
     }
     let lookup_type = lookup.u16(0).ok_or_else(malformed)?;
@@ -345,8 +361,22 @@ fn apply_positioning_lookup(
         if lookup_type != 2 {
             return Err(ShapeError::UnsupportedFeature { tag: feature });
         }
-        for index in 0..count.saturating_sub(1) {
-            apply_pair(subtable, &mut glyphs[index..index + 2])?;
+        for first in 0..count.saturating_sub(1) {
+            if flags & IGNORE_MARKS != 0 && glyph_is_mark(gdef, glyphs[first].glyph_id().value())? {
+                continue;
+            }
+            let mut second = first + 1;
+            while second < count
+                && flags & IGNORE_MARKS != 0
+                && glyph_is_mark(gdef, glyphs[second].glyph_id().value())?
+            {
+                second += 1;
+            }
+            if second == count {
+                break;
+            }
+            let (left, right) = glyphs.split_at_mut(second);
+            apply_pair(subtable, &mut left[first], &mut right[0])?;
         }
     }
     Ok(())
@@ -368,9 +398,13 @@ fn extension(
     Ok((inner_type, inner))
 }
 
-fn apply_pair(table: Table<'_>, glyphs: &mut [ShapedGlyph]) -> Result<(), ShapeError> {
-    let first = glyphs[0].glyph_id().value();
-    let second = glyphs[1].glyph_id().value();
+fn apply_pair(
+    table: Table<'_>,
+    first_glyph: &mut ShapedGlyph,
+    second_glyph: &mut ShapedGlyph,
+) -> Result<(), ShapeError> {
+    let first = first_glyph.glyph_id().value();
+    let second = second_glyph.glyph_id().value();
     let coverage = table.offset16(2).ok_or_else(malformed)?;
     let Some(coverage_index) = coverage_index(coverage, first)? else {
         return Ok(());
@@ -394,8 +428,22 @@ fn apply_pair(table: Table<'_>, glyphs: &mut [ShapedGlyph]) -> Result<(), ShapeE
     let Some((first_value, second_value)) = pair else {
         return Ok(());
     };
-    apply_value(&mut glyphs[0], first_value, format1)?;
-    apply_value(&mut glyphs[1], second_value, format2)
+    apply_value(first_glyph, first_value, format1)?;
+    apply_value(second_glyph, second_value, format2)
+}
+
+fn glyph_is_mark(gdef: Option<Table<'_>>, glyph: u16) -> Result<bool, ShapeError> {
+    let Some(gdef) = gdef else {
+        return Ok(false);
+    };
+    if gdef.u16(0) != Some(1) {
+        return Err(malformed());
+    }
+    let offset = gdef.u16(4).ok_or_else(malformed)?;
+    if offset == 0 {
+        return Ok(false);
+    }
+    Ok(class_index(gdef.tail(usize::from(offset)).ok_or_else(malformed)?, glyph)? == 3)
 }
 
 fn pair_format_one<'a>(
@@ -737,7 +785,13 @@ mod tests {
     }
 
     fn pair_lookup() -> Vec<u8> {
-        let mut bytes = vec![0, 2, 0, 0, 0, 1, 0, 8];
+        pair_lookup_with_flags(0)
+    }
+
+    fn pair_lookup_with_flags(flags: u16) -> Vec<u8> {
+        let mut bytes = vec![0, 2];
+        write_u16(&mut bytes, flags);
+        bytes.extend_from_slice(&[0, 1, 0, 8]);
         bytes.extend_from_slice(&[
             0, 1, 0, 12, 0, 5, 0, 1, 0, 1, 0, 18, 0, 1, 0, 1, 0, 4, 0, 1, 0, 7, 0xff, 0xec, 0, 0,
             0, 5,
@@ -769,8 +823,15 @@ mod tests {
         let table = layout_table(LIGA, &lookups, &[1, 0]);
         let request = ShapeRequest::new("abc", 0..3, Direction::LeftToRight, Script::Latin);
         let mut glyphs = [glyph(4, 0, 1), glyph(5, 1, 2), glyph(6, 2, 3)];
-        let outcome =
-            apply_layout(&table, LayoutKind::Substitution, &request, &mut glyphs, 3).unwrap();
+        let outcome = apply_layout(
+            &table,
+            None,
+            LayoutKind::Substitution,
+            &request,
+            &mut glyphs,
+            3,
+        )
+        .unwrap();
         assert_eq!(outcome.glyph_count, 1);
         assert_eq!(glyphs[0].glyph_id(), GlyphId::new(9));
         assert_eq!(glyphs[0].cluster, TextRange::new(0, 3));
@@ -782,8 +843,15 @@ mod tests {
         let table = layout_table(KERN, &[pair_lookup()], &[0]);
         let request = ShapeRequest::new("ab", 0..2, Direction::LeftToRight, Script::Latin);
         let mut glyphs = [glyph(4, 0, 1), glyph(7, 1, 2)];
-        let outcome =
-            apply_layout(&table, LayoutKind::Positioning, &request, &mut glyphs, 2).unwrap();
+        let outcome = apply_layout(
+            &table,
+            None,
+            LayoutKind::Positioning,
+            &request,
+            &mut glyphs,
+            2,
+        )
+        .unwrap();
         assert_eq!(outcome.kern_lookups, 1);
         assert_eq!(glyphs[0].offset.x, -20 << 8);
         assert_eq!(glyphs[1].offset.x, 5 << 8);
@@ -791,8 +859,15 @@ mod tests {
         let features = [FontFeature::new(KERN, 0)];
         let request = request.with_features(&features);
         let mut glyphs = [glyph(4, 0, 1), glyph(7, 1, 2)];
-        let outcome =
-            apply_layout(&table, LayoutKind::Positioning, &request, &mut glyphs, 2).unwrap();
+        let outcome = apply_layout(
+            &table,
+            None,
+            LayoutKind::Positioning,
+            &request,
+            &mut glyphs,
+            2,
+        )
+        .unwrap();
         assert_eq!(outcome.kern_lookups, 0);
         assert_eq!(glyphs[0].offset.x, 0);
         assert_eq!(glyphs[1].offset.x, 0);
@@ -805,10 +880,35 @@ mod tests {
             0, 5,
         ];
         let mut glyphs = [glyph(4, 0, 1), glyph(7, 1, 2)];
-        apply_pair(Table::new(&table), &mut glyphs).unwrap();
+        let (left, right) = glyphs.split_at_mut(1);
+        apply_pair(Table::new(&table), &mut left[0], &mut right[0]).unwrap();
         assert_eq!(glyphs[0].offset.x, -20 << 8);
         assert_eq!(glyphs[0].advance.x, 100 << 8);
         assert_eq!(glyphs[1].offset.x, 5 << 8);
+    }
+
+    #[test]
+    fn ignore_marks_pairs_base_glyphs_across_gdef_marks() {
+        let table = layout_table(KERN, &[pair_lookup_with_flags(IGNORE_MARKS)], &[0]);
+        let gdef = [
+            0, 1, 0, 0, 0, 12, 0, 0, 0, 0, 0, 0, 0, 1, 0, 4, 0, 4, 0, 1, 0, 0, 0, 3, 0, 1,
+        ];
+        let request = ShapeRequest::new("abc", 0..3, Direction::LeftToRight, Script::Latin);
+        let mut glyphs = [glyph(4, 0, 1), glyph(6, 1, 2), glyph(7, 2, 3)];
+        let outcome = apply_layout(
+            &table,
+            Some(Table::new(&gdef)),
+            LayoutKind::Positioning,
+            &request,
+            &mut glyphs,
+            3,
+        )
+        .unwrap();
+
+        assert_eq!(outcome.kern_lookups, 1);
+        assert_eq!(glyphs[0].offset.x, -20 << 8);
+        assert_eq!(glyphs[1].offset.x, 0);
+        assert_eq!(glyphs[2].offset.x, 5 << 8);
     }
 
     #[test]

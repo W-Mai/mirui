@@ -1,11 +1,9 @@
-//! Multi-size font demo — three lines, each from a different bundled
-//! mirx atlas, showing how representation follows size:
+//! Multi-size font demo showing how representation follows size:
 //!
 //! - 10px / 12px lines use 1-bit pixel fonts baked at their design
 //!   size, so strokes land on whole pixels and stay crisp.
-//! - the 24px line uses an SDF atlas, which scales one source to the
-//!   target without the thin-stem softening that hurts SDF at tiny
-//!   sizes.
+//! - the 24px line uses the scalable representation from a multi-size
+//!   font bundle.
 //!
 //! Each font registers under its own [`FontToken`] and renders at its
 //! own design size; [`register_font`] must run before [`build_widgets`].
@@ -18,11 +16,19 @@ use crate::ui::widgets::Text;
 
 const PIXEL_10: &[u8] = include_bytes!("assets/fusion_pixel_10_1bit.mirx");
 const PIXEL_12: &[u8] = include_bytes!("assets/fusion_pixel_12_1bit.mirx");
-const SDF_24: &[u8] = include_bytes!("assets/misans_sdf_24.mirx");
+const UI_FONT: &[u8] = include_bytes!("assets/misans_ui.mirx");
 
 const TOKEN_10: FontToken = FontToken::Custom("pixel10");
 const TOKEN_12: FontToken = FontToken::Custom("pixel12");
 const TOKEN_24: FontToken = FontToken::Custom("sdf24");
+
+fn ui_font(size: u16) -> Font {
+    let mut font =
+        mirx_font::font_from_mirx("MiSans UI", UI_FONT, &mirx::reader::PayloadLimits::HOST)
+            .expect("UI font");
+    font.size = size;
+    font
+}
 
 /// Register the three demo fonts in the world's [`FontManager`], each
 /// under its own token. Idempotent — re-registering rebinds the keys.
@@ -42,12 +48,9 @@ pub fn register_font(world: &mut World) {
         &mirx::reader::PayloadLimits::HOST,
     )
     .expect("12px atlas");
-    let sdf24: Font =
-        mirx_font::font_from_mirx("MiSans-SDF-24", SDF_24, &mirx::reader::PayloadLimits::HOST)
-            .expect("24px atlas");
     mgr.add_static(TOKEN_10.cache_key(), pixel10);
     mgr.add_static(TOKEN_12.cache_key(), pixel12);
-    mgr.add_static(TOKEN_24.cache_key(), sdf24);
+    mgr.add_static(TOKEN_24.cache_key(), ui_font(24));
 }
 
 #[compose]
@@ -103,8 +106,7 @@ mod tests {
             mirx_font::font_from_mirx("p10", PIXEL_10, &mirx::reader::PayloadLimits::HOST).unwrap();
         let p12 =
             mirx_font::font_from_mirx("p12", PIXEL_12, &mirx::reader::PayloadLimits::HOST).unwrap();
-        let s24 =
-            mirx_font::font_from_mirx("s24", SDF_24, &mirx::reader::PayloadLimits::HOST).unwrap();
+        let s24 = ui_font(24);
         assert_eq!(p10.size, 10);
         assert_eq!(p12.size, 12);
         assert_eq!(s24.size, 24);

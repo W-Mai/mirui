@@ -19,7 +19,9 @@ pub fn cmd_gen_mirx(args: &[String]) -> Result {
             eprintln!(
                 "usage:\n  \
                  cargo xtask gen-mirx font --ttf <f.ttf> --charset <s> \\\n    \
-                     --size <px> --bit-depth <1|2|4|8> --format <sdf|gray> --out <atlas.mirx>\n  \
+                     --size <px> [--bit-depth <1|2|4|8>] --format <sdf|gray> \
+    \
+                     [--spread <px>] [--min-ppem <px>] [--max-ppem <px>] --out <atlas.mirx>\n  \
                  cargo xtask gen-mirx image --in <image> --out <image.mirx> \
     \
                      [--format <rgba8888|rgb888|rgb565|rgb565-swapped|bgra8888|xrgb8888|i1|i2|i4|i8>] \

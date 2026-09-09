@@ -6,6 +6,7 @@
 
 use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 use crate::render::texture::{ColorFormat, Texture};
+use crate::types::Fixed;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TextureKey {
@@ -59,6 +60,7 @@ pub struct GlyphRunKey {
     pub face_id: u64,
     pub size: u16,
     pub color: u32,
+    pub scale: Fixed,
 }
 
 pub type GlyphRunPool = Cache<GlyphRunKey, CachedTexture, Lru, HashLookup<GlyphRunKey>>;

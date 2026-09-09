@@ -13,6 +13,8 @@ pub fn run(args: &[String]) -> Result {
     let mut size: Option<String> = None;
     let mut bit_depth: Option<String> = None;
     let mut spread: Option<String> = None;
+    let mut min_ppem: Option<String> = None;
+    let mut max_ppem: Option<String> = None;
     let mut format: String = "sdf".to_string();
     let mut out: Option<PathBuf> = None;
 
@@ -48,6 +50,14 @@ pub fn run(args: &[String]) -> Result {
                 spread = Some(v()?.to_string());
                 i += 2;
             }
+            "--min-ppem" => {
+                min_ppem = Some(v()?.to_string());
+                i += 2;
+            }
+            "--max-ppem" => {
+                max_ppem = Some(v()?.to_string());
+                i += 2;
+            }
             "--format" => {
                 format = v()?.to_string();
                 i += 2;
@@ -63,7 +73,8 @@ pub fn run(args: &[String]) -> Result {
     let ttf = ttf.ok_or("missing --ttf")?;
     let size = size.ok_or("missing --size")?;
     let out = out.ok_or("missing --out")?;
-    let bit_depth = bit_depth.unwrap_or_else(|| "4".to_string());
+    let bit_depth =
+        bit_depth.unwrap_or_else(|| if format == "gray" { "4" } else { "8" }.to_string());
 
     let out_dir = out
         .parent()
@@ -98,6 +109,14 @@ pub fn run(args: &[String]) -> Result {
     if let Some(s) = &spread {
         icu_args.push("--spread".into());
         icu_args.push(s.clone());
+    }
+    if let Some(min) = &min_ppem {
+        icu_args.push("--min-ppem".into());
+        icu_args.push(min.clone());
+    }
+    if let Some(max) = &max_ppem {
+        icu_args.push("--max-ppem".into());
+        icu_args.push(max.clone());
     }
 
     let icu_args_ref: Vec<&str> = icu_args.iter().map(|s| s.as_str()).collect();

@@ -33,6 +33,7 @@ struct LabelKey {
     family_ptr: usize,
     size: u16,
     color_rgba: u32,
+    scale: Fixed,
 }
 
 /// SdlTexture wrapper carrying the rasterised byte count so the cache
@@ -135,6 +136,7 @@ impl LabelCache {
             family_ptr: font.family.as_ptr() as usize,
             size: font.size,
             color_rgba: pack_rgba(color),
+            scale,
         };
         let dst = sdl2::rect::Rect::new(
             (pos.x + Fixed::from_int(x0) * scale).to_int(),
@@ -238,21 +240,19 @@ impl LabelCache {
     }
 }
 
-fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture, ()> {
+fn rasterize_label(key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture, ()> {
     let logical_w = usize::from(ctx.width);
     let logical_h = usize::from(ctx.height);
-    let byte_stride = logical_w * 4;
-    let byte_len = byte_stride * logical_h;
+    let width = crate::render::font::scaled_glyph_raster_extent(ctx.width, key.scale).ok_or(())?;
+    let height = crate::render::font::scaled_glyph_raster_extent(ctx.height, key.scale).ok_or(())?;
+    let byte_stride = usize::from(width) * 4;
+    let byte_len = byte_stride * usize::from(height);
     ctx.raster_buf.clear();
     ctx.raster_buf.resize(byte_len, 0);
     {
-        let tex = MiruiTexture::new(
-            ctx.raster_buf,
-            logical_w as u16,
-            logical_h as u16,
-            ColorFormat::RGBA8888,
-        );
+        let tex = MiruiTexture::new(ctx.raster_buf, width, height, ColorFormat::RGBA8888);
         let mut sw = SwRenderer::new(tex);
+        sw.viewport = crate::types::Viewport::new(width, height, key.scale);
         let area = Rect::new(0, 0, logical_w as u16, logical_h as u16);
         let RasterContent::Positioned { glyphs, origin } = ctx.content;
         sw.draw_glyph_run(&origin, glyphs, ctx.font, &area, ctx.color, 255);
@@ -260,7 +260,7 @@ fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture,
 
     let mut new_tex = ctx
         .creator
-        .create_texture_streaming(PixelFormatEnum::RGBA32, logical_w as u32, logical_h as u32)
+        .create_texture_streaming(PixelFormatEnum::RGBA32, width.into(), height.into())
         .map_err(|_| ())?;
     new_tex
         .update(None, ctx.raster_buf, byte_stride)
@@ -279,7 +279,7 @@ fn rasterize_label(_key: &LabelKey, ctx: RasterCtx<'_>) -> Result<CachedTexture,
 }
 
 fn scaled_extent(value: u16, scale: Fixed) -> u32 {
-    (Fixed::from_int(i32::from(value)) * scale).to_int().max(1) as u32
+    u32::from(crate::render::font::scaled_glyph_raster_extent(value, scale).unwrap_or(1))
 }
 
 fn pack_rgba(c: &Color) -> u32 {

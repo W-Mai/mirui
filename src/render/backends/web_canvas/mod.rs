@@ -1065,6 +1065,13 @@ impl Canvas for WebCanvasRenderer<'_> {
         else {
             return;
         };
+        let scale = self.viewport.scale();
+        let Some(pw) = crate::render::font::scaled_glyph_raster_extent(tw, scale) else {
+            return;
+        };
+        let Some(ph) = crate::render::font::scaled_glyph_raster_extent(th, scale) else {
+            return;
+        };
         let key = GlyphKey {
             text_hash: crate::render::font::positioned_glyph_hash(glyphs),
             family_ptr: font.family.as_ptr() as usize,
@@ -1074,19 +1081,19 @@ impl Canvas for WebCanvasRenderer<'_> {
                 | (color.b as u32) << 8
                 | color.a as u32,
             opa,
-            scale: self.viewport.scale().to_int().clamp(1, u16::MAX as i32) as u16,
+            scale,
         };
         let handle = match self
             .factory
             .glyph_pool
             .entry(key)
             .or_try_insert_with::<_, ()>(|| {
-                let mut buf = alloc::vec![0u8; usize::from(tw) * usize::from(th) * 4];
+                let mut buf = alloc::vec![0u8; usize::from(pw) * usize::from(ph) * 4];
                 {
-                    let mut texture = Texture::new(&mut buf, tw, th, ColorFormat::RGBA8888);
+                    let mut texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
                     texture.alpha_mode = AlphaMode::Blend;
                     let mut sw = SwRenderer::new(texture);
-                    sw.viewport = Viewport::new(tw, th, Fixed::ONE);
+                    sw.viewport = Viewport::new(pw, ph, scale);
                     let origin = Point {
                         x: Fixed::from_int(-x0),
                         y: Fixed::from_int(-y0),
@@ -1095,7 +1102,7 @@ impl Canvas for WebCanvasRenderer<'_> {
                     sw.draw_glyph_run(&origin, glyphs, font, &full, color, opa);
                 }
                 unpremultiply_rgba(&mut buf);
-                let texture = Texture::new(&mut buf, tw, th, ColorFormat::RGBA8888);
+                let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
                 texture_pool::upload(&texture).ok_or(())
             }) {
             Ok(handle) => handle,
@@ -1108,8 +1115,8 @@ impl Canvas for WebCanvasRenderer<'_> {
                 &handle.get().canvas,
                 0.0,
                 0.0,
-                f64::from(tw),
-                f64::from(th),
+                f64::from(pw),
+                f64::from(ph),
                 (pos.x + Fixed::from_int(x0)).to_f32() as f64,
                 (pos.y + Fixed::from_int(y0)).to_f32() as f64,
                 f64::from(tw),

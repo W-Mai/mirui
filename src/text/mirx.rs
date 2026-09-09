@@ -295,7 +295,7 @@ mod tests {
     use textflow::shaping::{ShapeRequest, Typeface};
     use textflow::{bidi::Direction, unicode::Script};
 
-    const FONT: &[u8] = include_bytes!("../gallery/demos/assets/misans_sdf_24.mirx");
+    const FONT: &[u8] = include_bytes!("../gallery/demos/assets/misans_ui.mirx");
 
     fn source() -> MirxGlyphSource<'static> {
         let reader = ::mirx::Reader::open(FONT).unwrap();
@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn shapes_mirx_cmap_and_hmtx_into_caller_storage() {
+    fn shapes_mirx_cmap_hmtx_and_pair_positioning_into_caller_storage() {
         let source = source();
         let typeface = source.typeface(24);
         let request = ShapeRequest::new("AV", 0..2, Direction::LeftToRight, Script::Latin);
@@ -379,7 +379,7 @@ mod tests {
             .unwrap()
             .x;
         let units_per_em = i32::from(source.metrics().unwrap().units_per_em);
-        assert_eq!(glyphs[0].advance.x, source_advance * 24 / units_per_em);
+        assert!(glyphs[0].advance.x < source_advance * 24 / units_per_em);
         assert_eq!(typeface.ppem(), 24);
         assert!(glyphs.iter().all(|glyph| glyph.advance.x > 0));
     }

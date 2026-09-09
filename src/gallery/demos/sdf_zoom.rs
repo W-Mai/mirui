@@ -1,7 +1,5 @@
-//! SDF zoom demo — one word continuously scaling up and down from a
-//! single SDF atlas. This is what SDF buys over a bitmap: the same
-//! source resamples to any size, staying smooth at every frame, so a
-//! growing label never pixelates or re-bakes.
+//! SDF zoom demo — one word continuously scaling through two bounded
+//! SDF representations without re-baking at runtime.
 //!
 //! A `ZoomText` component holds the current pixel size; an `animate!`
 //! tween drives it and marks the entity dirty each frame. The custom
@@ -19,7 +17,7 @@ use crate::render::renderer::Renderer;
 use crate::ui::dirty::Dirty;
 use crate::ui::view::{View, ViewCtx};
 
-const SDF_ATLAS: &[u8] = include_bytes!("assets/misans_sdf_24.mirx");
+const UI_FONT: &[u8] = include_bytes!("assets/misans_ui.mirx");
 const ZOOM_TOKEN: FontToken = FontToken::Custom("sdf_zoom");
 
 #[derive(crate::Component)]
@@ -38,8 +36,8 @@ mirui_macros::animate!(ZoomSize, |world, entity, value| {
 pub fn register_font(world: &mut World) {
     if let Some(mgr) = world.resource::<FontManager>() {
         let font = mirx_font::font_from_mirx(
-            "MiSans-SDF-zoom",
-            SDF_ATLAS,
+            "MiSans UI Zoom",
+            UI_FONT,
             &mirx::reader::PayloadLimits::HOST,
         )
         .expect("zoom atlas");

@@ -1360,6 +1360,15 @@ impl WgpuRenderer<'_> {
         else {
             return;
         };
+        let scale = self.viewport.scale();
+        let Some(raster_width) = crate::render::font::scaled_glyph_raster_extent(width, scale)
+        else {
+            return;
+        };
+        let Some(raster_height) = crate::render::font::scaled_glyph_raster_extent(height, scale)
+        else {
+            return;
+        };
         if !self.begin_frame() {
             return;
         }
@@ -1375,6 +1384,7 @@ impl WgpuRenderer<'_> {
                 | (u32::from(color.g) << 16)
                 | (u32::from(color.b) << 8)
                 | u32::from(color.a),
+            scale,
         };
         let tex_view = {
             let state = self
@@ -1388,16 +1398,20 @@ impl WgpuRenderer<'_> {
                 .entry(key)
                 .or_try_insert_with::<_, ()>(|| {
                     raster.clear();
-                    raster.resize(usize::from(width) * usize::from(height) * 4, 0);
+                    raster.resize(
+                        usize::from(raster_width) * usize::from(raster_height) * 4,
+                        0,
+                    );
                     {
                         let mut texture = Texture::new(
                             raster,
-                            width,
-                            height,
+                            raster_width,
+                            raster_height,
                             crate::render::texture::ColorFormat::RGBA8888,
                         );
                         texture.alpha_mode = crate::render::texture::AlphaMode::Blend;
                         let mut sw = crate::render::SwRenderer::new(texture);
+                        sw.viewport = Viewport::new(raster_width, raster_height, scale);
                         let area = Rect::new(0, 0, width, height);
                         crate::render::canvas::Canvas::draw_glyph_run(
                             &mut sw,
@@ -1415,8 +1429,8 @@ impl WgpuRenderer<'_> {
                     unpremultiply_rgba(raster);
                     let texture = Texture::new(
                         raster,
-                        width,
-                        height,
+                        raster_width,
+                        raster_height,
                         crate::render::texture::ColorFormat::RGBA8888,
                     );
                     Ok(CachedTexture(upload_blit_source(
@@ -1435,9 +1449,9 @@ impl WgpuRenderer<'_> {
         };
         self.blit_view_inner(
             tex_view,
-            width,
-            height,
-            &Rect::new(0, 0, width, height),
+            raster_width,
+            raster_height,
+            &Rect::new(0, 0, raster_width, raster_height),
             Point {
                 x: pos.x + Fixed::from_int(x0),
                 y: pos.y + Fixed::from_int(y0),

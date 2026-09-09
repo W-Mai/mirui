@@ -1,12 +1,10 @@
-//! Render a string with the prebuilt MiSans SDF atlas to PNG.
+//! Render a string with the Gallery MiSans font bundle to PNG.
 //!
 //! Usage:
 //!   cargo run --release -p gallery --example sdf_label_snapshot -- \
-//!     [text] [out.png]
+//!     [text] [out.png] [size]
 //!
 //! Defaults to "Hello mirui!" → `.local/screenshots/sdf-hello.png`.
-//! The atlas comes from `tests/fixtures/misans_sdf_ascii_32.mirx`,
-//! baked from MiSans-Regular.ttf via `icu bake-font`.
 
 extern crate alloc;
 
@@ -22,15 +20,17 @@ use mirui::render::texture::ColorFormat;
 use mirui::surface::framebuf::FramebufSurface;
 use mirui::ui::widgets::Text;
 
-const ATLAS_BYTES: &[u8] = include_bytes!("../../../tests/fixtures/misans_sdf_ascii_32.mirx");
+const FONT_BYTES: &[u8] = include_bytes!("../../../src/gallery/demos/assets/misans_ui.mirx");
 
-fn load_misans_font() -> Font {
-    font_from_mirx(
+fn load_misans_font(size: u16) -> Font {
+    let mut font = font_from_mirx(
         "MiSans-Regular",
-        ATLAS_BYTES,
+        FONT_BYTES,
         &mirx::reader::PayloadLimits::HOST,
     )
-    .expect("parse font")
+    .expect("parse font");
+    font.size = size;
+    font
 }
 
 fn main() {
@@ -44,19 +44,20 @@ fn main() {
         p.push("sdf-hello.png");
         p
     });
+    let size = args
+        .next()
+        .map(|value| value.parse::<u16>().expect("size must be a u16"))
+        .unwrap_or(32);
 
-    let width: u16 = 480;
-    let height: u16 = 80;
+    let width: u16 = 640;
+    let height = size.saturating_mul(2).max(80);
     let backend = FramebufSurface::with_format(width, height, ColorFormat::RGBA8888, |_, _| {});
     let mut app = App::new(backend);
     app.with_default_widgets().with_default_systems();
 
-    // Register the SDF MiSans atlas under FontToken::Heading so the
-    // Text widget asks for it explicitly. FontToken::Default keeps
-    // the bundled bitmap path so untagged labels still render.
     {
         let mgr = app.world.resource::<FontManager>().expect("FontManager");
-        mgr.add_static(FontToken::Heading.cache_key(), load_misans_font());
+        mgr.add_static(FontToken::Heading.cache_key(), load_misans_font(size));
     }
 
     let root = WidgetBuilder::new(&mut app.world)
@@ -103,39 +104,15 @@ fn main() {
     use mirui::surface::FramebufferAccess;
     let tex = app.backend.framebuffer();
     let pixels = tex.buf.as_slice();
-    let stride = tex.stride;
-
-    let ppm_path = out_path.with_extension("ppm");
-    {
-        let f = File::create(&ppm_path).expect("create ppm");
-        let mut w = BufWriter::new(f);
-        use std::io::Write;
-        write!(w, "P6\n{width} {height}\n255\n").expect("ppm header");
-        for y in 0..(height as usize) {
-            for x in 0..(width as usize) {
-                let i = y * stride + x * 4;
-                w.write_all(&pixels[i..i + 3]).expect("ppm pixel");
-            }
-        }
+    assert_eq!(tex.stride, usize::from(width) * 4);
+    if let Some(parent) = out_path.parent() {
+        std::fs::create_dir_all(parent).expect("create output directory");
     }
-
-    let status = std::process::Command::new("python3")
-        .args([
-            "-c",
-            &format!(
-                "from PIL import Image; Image.open(r'{}').save(r'{}')",
-                ppm_path.display(),
-                out_path.display()
-            ),
-        ])
-        .status();
-    match status {
-        Ok(s) if s.success() => {
-            let _ = std::fs::remove_file(&ppm_path);
-            eprintln!("saved {}", out_path.display());
-        }
-        _ => {
-            eprintln!("PIL not available; PPM left at {}", ppm_path.display());
-        }
-    }
+    let file = BufWriter::new(File::create(&out_path).expect("create PNG"));
+    let mut encoder = png::Encoder::new(file, width.into(), height.into());
+    encoder.set_color(png::ColorType::Rgba);
+    encoder.set_depth(png::BitDepth::Eight);
+    let mut writer = encoder.write_header().expect("write PNG header");
+    writer.write_image_data(pixels).expect("write PNG pixels");
+    eprintln!("saved {}", out_path.display());
 }

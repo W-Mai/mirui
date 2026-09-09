@@ -6,7 +6,7 @@ use crate::render::font::{Font, FontManager, mirx as mirx_font};
 use crate::t;
 use crate::ui::dirty::Dirty;
 
-const SDF_24: &[u8] = include_bytes!("assets/misans_sdf_24.mirx");
+const UI_FONT: &[u8] = include_bytes!("assets/misans_ui.mirx");
 const TOKEN_CJK: FontToken = FontToken::Custom("misans24");
 
 const TRANSLATIONS: &[Translation] = &[
@@ -25,8 +25,8 @@ fn register_font(world: &mut World) {
         return;
     };
     let font: Font =
-        mirx_font::font_from_mirx("MiSans-SDF-24", SDF_24, &mirx::reader::PayloadLimits::HOST)
-            .expect("24px atlas");
+        mirx_font::font_from_mirx("MiSans UI", UI_FONT, &mirx::reader::PayloadLimits::HOST)
+            .expect("UI font");
     mgr.add_static(TOKEN_CJK.cache_key(), font);
 }
 
