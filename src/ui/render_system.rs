@@ -235,8 +235,15 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
     let request = text
         .paragraph()
         .layout_request(&content, metrics, Some(width));
+    let language = text
+        .paragraph()
+        .language
+        .as_ref()
+        .map(crate::ui::widgets::LanguageTag::as_str);
     let handle = fonts
-        .with_typefaces(|typefaces| resource.borrow_mut().layout(request, typefaces))
+        .with_typefaces(language, |typefaces| {
+            resource.borrow_mut().layout(request, typefaces)
+        })
         .ok()?;
     let measure = resource.borrow().get(handle)?.measure();
     Some(LaidOutText { handle, measure })
@@ -337,7 +344,13 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
     let request = text.paragraph().layout_request(&content, metrics, None);
-    let Ok(measure) = fonts.with_typefaces(|faces| cache.borrow_mut().measure(request, faces))
+    let language = text
+        .paragraph()
+        .language
+        .as_ref()
+        .map(crate::ui::widgets::LanguageTag::as_str);
+    let Ok(measure) =
+        fonts.with_typefaces(language, |faces| cache.borrow_mut().measure(request, faces))
     else {
         return;
     };

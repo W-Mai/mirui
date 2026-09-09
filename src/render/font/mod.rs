@@ -567,6 +567,7 @@ impl textflow::shaping::GlyphSource for FontGlyphSource<'_> {
 pub struct FontTypeface<'a> {
     font: &'a Font,
     ppem: u16,
+    language: Option<&'a str>,
 }
 
 pub(crate) const MAX_RESOLVED_FONT_STACK: usize = if cfg!(feature = "std") { 64 } else { 8 };
@@ -617,14 +618,15 @@ impl ResolvedFontStack {
             .find(|font| font.face_id() == id)
     }
 
-    pub(crate) fn with_typefaces<R>(
-        &self,
+    pub(crate) fn with_typefaces<'a, R>(
+        &'a self,
+        language: Option<&'a str>,
         f: impl FnOnce(&[&dyn textflow::shaping::Typeface]) -> R,
     ) -> R {
         let primary = self.primary();
         let faces: [FontTypeface<'_>; MAX_RESOLVED_FONT_STACK] = core::array::from_fn(|index| {
             let font = self.fonts[index].as_deref().unwrap_or(primary);
-            FontTypeface::new(font, font.size)
+            FontTypeface::new(font, font.size).with_language(language)
         });
         let typefaces: [&dyn textflow::shaping::Typeface; MAX_RESOLVED_FONT_STACK] =
             core::array::from_fn(|index| &faces[index] as &dyn textflow::shaping::Typeface);
@@ -634,7 +636,16 @@ impl ResolvedFontStack {
 
 impl<'a> FontTypeface<'a> {
     pub const fn new(font: &'a Font, ppem: u16) -> Self {
-        Self { font, ppem }
+        Self {
+            font,
+            ppem,
+            language: None,
+        }
+    }
+
+    pub const fn with_language(mut self, language: Option<&'a str>) -> Self {
+        self.language = language;
+        self
     }
 }
 
@@ -661,7 +672,18 @@ impl textflow::shaping::Typeface for FontTypeface<'_> {
         request: &textflow::shaping::ShapeRequest<'_>,
         output: &mut [textflow::shaping::ShapedGlyph],
     ) -> Result<usize, textflow::shaping::ShapeError> {
-        self.font.shape_into(self.ppem, request, output)
+        let mut adjusted = textflow::shaping::ShapeRequest::new(
+            request.text,
+            request.range.clone(),
+            request.direction,
+            request.script,
+        )
+        .with_features(request.features)
+        .with_line_edges(request.line_edges);
+        if let Some(language) = self.language.or(request.language) {
+            adjusted = adjusted.with_language(language);
+        }
+        self.font.shape_into(self.ppem, &adjusted, output)
     }
 }
 
@@ -1059,5 +1081,65 @@ mod tests {
         assert_eq!(font.shape_into(6, &request, &mut output), Ok(1));
         assert_eq!(output[0].glyph_id(), GlyphId::new(1));
         assert_eq!(output[0].advance.x, to_textflow(Fixed::from_int(6)));
+    }
+
+    #[test]
+    fn paragraph_language_reaches_the_font_adapter() {
+        struct LanguageProbe;
+
+        impl FontProvider for LanguageProbe {
+            fn face_id(&self) -> FontFaceId {
+                FontFaceId::new(3)
+            }
+
+            fn map_char(&self, _ch: char) -> Option<GlyphId> {
+                Some(GlyphId::new(1))
+            }
+
+            fn glyph_advance(&self, _glyph: GlyphId, _ppem: u16) -> Option<Fixed> {
+                Some(Fixed::from_int(6))
+            }
+
+            fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+                None
+            }
+
+            fn metrics(&self, _ppem: u16) -> FontMetrics {
+                BITMAP_8X8_METRICS
+            }
+
+            fn shape_into(
+                &self,
+                _ppem: u16,
+                request: &textflow::shaping::ShapeRequest<'_>,
+                output: &mut [textflow::shaping::ShapedGlyph],
+            ) -> Result<usize, textflow::shaping::ShapeError> {
+                assert_eq!(request.language, Some("zh-Hans"));
+                output[0] = textflow::shaping::ShapedGlyph::new(
+                    GlyphId::new(1),
+                    textflow::shaping::TextRange::new(0, 1),
+                );
+                Ok(1)
+            }
+        }
+
+        let font = Font {
+            family: "language-probe",
+            size: 8,
+            backend: FontBackend::Custom(Rc::new(LanguageProbe)),
+        };
+        let face = FontTypeface::new(&font, 8).with_language(Some("zh-Hans"));
+        let request = textflow::shaping::ShapeRequest::new(
+            "A",
+            0..1,
+            textflow::bidi::Direction::LeftToRight,
+            textflow::unicode::Script::Latin,
+        );
+        let mut output = [textflow::shaping::ShapedGlyph::default(); 1];
+
+        assert_eq!(
+            textflow::shaping::Typeface::shape_into(&face, &request, &mut output),
+            Ok(1)
+        );
     }
 }
