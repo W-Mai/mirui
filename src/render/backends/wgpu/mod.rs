@@ -51,6 +51,7 @@ pub struct WgpuRendererFactory {
     scalar_samples: alloc::vec::Vec<u8>,
     glyph_vertices: alloc::vec::Vec<GlyphVertex>,
     glyph_indices: alloc::vec::Vec<u16>,
+    glyph_buffers: GlyphBufferArena,
     /// Samplers are immutable; one instance covers every frame.
     linear_sampler: Option<wgpu::Sampler>,
     nearest_sampler: Option<wgpu::Sampler>,
@@ -66,6 +67,7 @@ impl WgpuRendererFactory {
             scalar_samples: alloc::vec::Vec::new(),
             glyph_vertices: alloc::vec::Vec::new(),
             glyph_indices: alloc::vec::Vec::new(),
+            glyph_buffers: GlyphBufferArena::new(),
             linear_sampler: None,
             nearest_sampler: None,
         }
@@ -89,6 +91,7 @@ impl RendererFactory<WgpuSurface> for WgpuRendererFactory {
         backend: &'a mut WgpuSurface,
         transform: &Viewport,
     ) -> WgpuRenderer<'a> {
+        self.glyph_buffers.reset();
         if self.cache.is_none() || self.linear_sampler.is_none() || self.nearest_sampler.is_none() {
             let state = backend
                 .state()
@@ -164,6 +167,109 @@ const UNIFORM_ARENA_SIZE: u64 = 1024 * 1024;
 /// align up to the limit so any device accepts the offset.
 const UNIFORM_ALIGN: u32 = 256;
 const GLYPHS_PER_BATCH: usize = 2_048;
+const GLYPH_BUFFER_CAPACITY: usize = GLYPHS_PER_BATCH * 2;
+
+struct GlyphBufferArena {
+    vertex: Option<wgpu::Buffer>,
+    index: Option<wgpu::Buffer>,
+    glyph_cursor: usize,
+}
+
+struct GlyphBufferUpload {
+    vertex: wgpu::Buffer,
+    vertex_range: core::ops::Range<u64>,
+    index: wgpu::Buffer,
+    index_range: core::ops::Range<u64>,
+}
+
+impl GlyphBufferArena {
+    const fn new() -> Self {
+        Self {
+            vertex: None,
+            index: None,
+            glyph_cursor: 0,
+        }
+    }
+
+    fn reset(&mut self) {
+        self.glyph_cursor = 0;
+    }
+
+    fn can_fit(&self, glyph_count: usize) -> bool {
+        self.glyph_cursor
+            .checked_add(glyph_count)
+            .is_some_and(|end| end <= GLYPH_BUFFER_CAPACITY)
+    }
+
+    fn ranges(
+        glyph_start: usize,
+        glyph_count: usize,
+    ) -> Option<(core::ops::Range<u64>, core::ops::Range<u64>)> {
+        let vertex_start = glyph_start
+            .checked_mul(4)?
+            .checked_mul(core::mem::size_of::<GlyphVertex>())? as u64;
+        let vertex_end = vertex_start.checked_add(
+            glyph_count
+                .checked_mul(4)?
+                .checked_mul(core::mem::size_of::<GlyphVertex>())? as u64,
+        )?;
+        let index_start = glyph_start
+            .checked_mul(6)?
+            .checked_mul(core::mem::size_of::<u16>())? as u64;
+        let index_end = index_start.checked_add(
+            glyph_count
+                .checked_mul(6)?
+                .checked_mul(core::mem::size_of::<u16>())? as u64,
+        )?;
+        Some((vertex_start..vertex_end, index_start..index_end))
+    }
+
+    fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        vertices: &[GlyphVertex],
+        indices: &[u16],
+    ) -> Option<GlyphBufferUpload> {
+        let glyph_count = vertices.len().checked_div(4)?;
+        if glyph_count * 4 != vertices.len()
+            || glyph_count * 6 != indices.len()
+            || !self.can_fit(glyph_count)
+        {
+            return None;
+        }
+        if self.vertex.is_none() {
+            self.vertex = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mirui-glyph-vertex-arena"),
+                size: (GLYPH_BUFFER_CAPACITY * 4 * core::mem::size_of::<GlyphVertex>()) as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+        }
+        if self.index.is_none() {
+            self.index = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("mirui-glyph-index-arena"),
+                size: (GLYPH_BUFFER_CAPACITY * 6 * core::mem::size_of::<u16>()) as u64,
+                usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+        }
+
+        let (vertex_range, index_range) = Self::ranges(self.glyph_cursor, glyph_count)?;
+        let vertex = self.vertex.as_ref()?;
+        let index = self.index.as_ref()?;
+        queue.write_buffer(vertex, vertex_range.start, bytemuck::cast_slice(vertices));
+        queue.write_buffer(index, index_range.start, bytemuck::cast_slice(indices));
+        self.glyph_cursor += glyph_count;
+
+        Some(GlyphBufferUpload {
+            vertex: vertex.clone(),
+            vertex_range,
+            index: index.clone(),
+            index_range,
+        })
+    }
+}
 
 /// wgpu pipelines / buffers / bind groups are `Arc`-backed clones, so
 /// owning them in the `Vec<DrawOp>` keeps them alive until
@@ -174,7 +280,9 @@ struct DrawOp {
     /// `Some` for textured blits and cached glyph runs.
     bind_group: BindGroupRef,
     vertex_buf: Option<wgpu::Buffer>,
+    vertex_range: Option<core::ops::Range<u64>>,
     index_buf: Option<wgpu::Buffer>,
+    index_range: Option<core::ops::Range<u64>>,
     index_format: wgpu::IndexFormat,
     /// `draw_indexed(0..count)` when `index_buf.is_some()`, else `draw(0..count)`.
     count: u32,
@@ -342,10 +450,18 @@ impl WgpuRenderer<'_> {
                     None => pass.set_bind_group(0, bg, &[]),
                 }
                 if let Some(vb) = &op.vertex_buf {
-                    pass.set_vertex_buffer(0, vb.slice(..));
+                    match &op.vertex_range {
+                        Some(range) => pass.set_vertex_buffer(0, vb.slice(range.clone())),
+                        None => pass.set_vertex_buffer(0, vb.slice(..)),
+                    }
                 }
                 if let Some(ib) = &op.index_buf {
-                    pass.set_index_buffer(ib.slice(..), op.index_format);
+                    match &op.index_range {
+                        Some(range) => {
+                            pass.set_index_buffer(ib.slice(range.clone()), op.index_format)
+                        }
+                        None => pass.set_index_buffer(ib.slice(..), op.index_format),
+                    }
                     pass.draw_indexed(0..op.count, 0, 0..1);
                 } else {
                     pass.draw(0..op.count, 0..1);
@@ -459,7 +575,9 @@ impl WgpuRenderer<'_> {
             pipeline,
             bind_group: BindGroupRef::Shared(0),
             vertex_buf: None,
+            vertex_range: None,
             index_buf: None,
+            index_range: None,
             index_format: wgpu::IndexFormat::Uint32,
             count: 4,
             scissor,
@@ -616,7 +734,9 @@ impl WgpuRenderer<'_> {
             pipeline,
             bind_group: BindGroupRef::Owned(bind_group),
             vertex_buf: None,
+            vertex_range: None,
             index_buf: None,
+            index_range: None,
             index_format: wgpu::IndexFormat::Uint32,
             count: 4,
             scissor,
@@ -995,7 +1115,9 @@ impl WgpuRenderer<'_> {
             pipeline,
             bind_group: BindGroupRef::Shared(1),
             vertex_buf: Some(vertex_buf),
+            vertex_range: None,
             index_buf: Some(index_buf),
+            index_range: None,
             index_format: wgpu::IndexFormat::Uint32,
             count,
             scissor,
@@ -1095,8 +1217,6 @@ impl WgpuRenderer<'_> {
             radius_stroke: [radius.to_f32(), stroke_width.to_f32(), 0.0, 0.0],
         };
         let Some(offset) = self.push_uniform(&uniform) else {
-            self.factory.glyph_vertices.clear();
-            self.factory.glyph_indices.clear();
             return;
         };
 
@@ -1163,7 +1283,9 @@ impl WgpuRenderer<'_> {
             pipeline,
             bind_group: BindGroupRef::Shared(0),
             vertex_buf: Some(vertex_buf),
+            vertex_range: None,
             index_buf: Some(index_buf),
+            index_range: None,
             index_format: wgpu::IndexFormat::Uint16,
             count: 6,
             scissor,
@@ -1348,7 +1470,9 @@ impl WgpuRenderer<'_> {
             pipeline,
             bind_group: BindGroupRef::Owned(bind_group),
             vertex_buf: Some(vertex_buf),
+            vertex_range: None,
             index_buf: Some(index_buf),
+            index_range: None,
             index_format: wgpu::IndexFormat::Uint16,
             count: 6,
             scissor,
@@ -1474,6 +1598,16 @@ impl WgpuRenderer<'_> {
         if self.factory.glyph_indices.is_empty() {
             return;
         }
+        let glyph_count = self.factory.glyph_indices.len() / 6;
+        if !self.factory.glyph_buffers.can_fit(glyph_count) {
+            self.flush_ops_to_swapchain(false);
+            self.factory.glyph_buffers.reset();
+        }
+        if !self.factory.glyph_buffers.can_fit(glyph_count) {
+            self.factory.glyph_vertices.clear();
+            self.factory.glyph_indices.clear();
+            return;
+        }
         let uniform = GlyphUniform {
             color: [
                 color.r as f32 / 255.0,
@@ -1537,20 +1671,16 @@ impl WgpuRenderer<'_> {
             .surface
             .state()
             .expect("WgpuSurface state missing in glyph batch");
-        let vertex_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-glyph-vertices"),
-                contents: bytemuck::cast_slice(&self.factory.glyph_vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        let index_buf = state
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("mirui-glyph-indices"),
-                contents: bytemuck::cast_slice(&self.factory.glyph_indices),
-                usage: wgpu::BufferUsages::INDEX,
-            });
+        let Some(upload) = self.factory.glyph_buffers.upload(
+            &state.device,
+            &state.queue,
+            &self.factory.glyph_vertices,
+            &self.factory.glyph_indices,
+        ) else {
+            self.factory.glyph_vertices.clear();
+            self.factory.glyph_indices.clear();
+            return;
+        };
         let frame = self
             .frame
             .as_mut()
@@ -1604,8 +1734,10 @@ impl WgpuRenderer<'_> {
         frame.ops.push(DrawOp {
             pipeline,
             bind_group: BindGroupRef::Owned(bind_group),
-            vertex_buf: Some(vertex_buf),
-            index_buf: Some(index_buf),
+            vertex_buf: Some(upload.vertex),
+            vertex_range: Some(upload.vertex_range),
+            index_buf: Some(upload.index),
+            index_range: Some(upload.index_range),
             index_format: wgpu::IndexFormat::Uint16,
             count: self.factory.glyph_indices.len() as u32,
             scissor,
@@ -1696,6 +1828,29 @@ fn append_glyph_quad(
 mod glyph_tests {
     use super::*;
     use crate::render::font::{FontSurfaceId, GlyphSurface};
+
+    #[test]
+    fn glyph_buffer_ranges_are_disjoint_and_capacity_is_bounded() {
+        let (first_vertices, first_indices) = GlyphBufferArena::ranges(0, 1).unwrap();
+        let (next_vertices, next_indices) = GlyphBufferArena::ranges(1, 2).unwrap();
+        assert_eq!(first_vertices.end, next_vertices.start);
+        assert_eq!(first_indices.end, next_indices.start);
+        assert_eq!(
+            next_vertices.end - next_vertices.start,
+            8 * core::mem::size_of::<GlyphVertex>() as u64
+        );
+        assert_eq!(
+            next_indices.end - next_indices.start,
+            12 * core::mem::size_of::<u16>() as u64
+        );
+
+        let mut arena = GlyphBufferArena::new();
+        arena.glyph_cursor = GLYPH_BUFFER_CAPACITY - 1;
+        assert!(arena.can_fit(1));
+        assert!(!arena.can_fit(2));
+        arena.reset();
+        assert!(arena.can_fit(GLYPH_BUFFER_CAPACITY));
+    }
 
     #[test]
     fn packed_surface_upload_removes_stride_and_expands_alpha() {
