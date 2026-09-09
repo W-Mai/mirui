@@ -341,32 +341,24 @@ fn text_render(
         return;
     };
     let color = ctx.style.text_color.resolve_in(ctx.theme(world), ctx.state);
-    let Some(font) = crate::render::font::resolve_or_default(world, ctx.style.font_stack.primary())
+    let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
+        return;
+    };
+    let face_limit = resource.borrow().limits().fallback_faces;
+    let Ok(Some(fonts)) =
+        crate::render::font::ResolvedFontStack::resolve(world, &ctx.style.font_stack, face_limit)
     else {
         return;
     };
     let content = text.resolve(world);
-    let metrics = font.metrics(font.size);
     let Some(handle) = world.get::<crate::text::TextLayoutHandle>(entity).copied() else {
-        return;
-    };
-    let Some(resource) = world.resource::<crate::text::layout::TextLayoutResource>() else {
         return;
     };
     let cache = resource.borrow();
     let Some(layout) = cache.get(handle) else {
         return;
     };
-    let max_lines = text
-        .paragraph
-        .max_lines
-        .map(usize::from)
-        .unwrap_or(usize::MAX);
-    for line in layout.lines().iter().take(max_lines) {
-        let range = line.text();
-        let Some(line_text) = content.get(range.start as usize..range.end as usize) else {
-            continue;
-        };
+    for line in layout.lines() {
         let offset = match text.paragraph.align {
             TextAlign::Start | TextAlign::Justify => Fixed::ZERO,
             TextAlign::Center => {
@@ -377,21 +369,40 @@ fn text_render(
                 (rect.w - crate::types::fixed::from_textflow(line.advance())).max(Fixed::ZERO)
             }
         };
-        let origin = line.origin();
-        renderer.draw(
-            &DrawCommand::Label {
-                pos: Point {
-                    x: rect.x + offset + crate::types::fixed::from_textflow(origin.x),
-                    y: rect.y + crate::types::fixed::from_textflow(origin.y) - metrics.ascender,
+        let Some(runs) = layout.runs_for(*line) else {
+            continue;
+        };
+        for run in runs {
+            let range = run.text();
+            let Some(run_text) = content.get(range.start as usize..range.end as usize) else {
+                continue;
+            };
+            let Some(font) = fonts.font(run.font_id()) else {
+                continue;
+            };
+            let Some(origin) = layout
+                .glyphs_for(*run)
+                .and_then(|glyphs| glyphs.first())
+                .map(|glyph| glyph.origin)
+            else {
+                continue;
+            };
+            let metrics = font.metrics(font.size);
+            renderer.draw(
+                &DrawCommand::Label {
+                    pos: Point {
+                        x: rect.x + offset + crate::types::fixed::from_textflow(origin.x),
+                        y: rect.y + crate::types::fixed::from_textflow(origin.y) - metrics.ascender,
+                    },
+                    transform: ctx.transform,
+                    text: run_text,
+                    font,
+                    color,
+                    opa: 255,
                 },
-                transform: ctx.transform,
-                text: line_text,
-                font: &font,
-                color,
-                opa: 255,
-            },
-            ctx.clip,
-        );
+                ctx.clip,
+            );
+        }
     }
 }
 

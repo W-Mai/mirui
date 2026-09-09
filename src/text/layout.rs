@@ -108,12 +108,23 @@ impl TextLayout<'_> {
     pub const fn measure(&self) -> TextMeasure {
         self.measure
     }
+
+    pub fn runs_for(&self, line: LayoutLine) -> Option<&[VisualRun]> {
+        let range = line.runs();
+        self.runs.get(range.start as usize..range.end as usize)
+    }
+
+    pub fn glyphs_for(&self, run: VisualRun) -> Option<&[PositionedGlyph]> {
+        let range = run.glyphs();
+        self.glyphs.get(range.start as usize..range.end as usize)
+    }
 }
 
 #[derive(Clone, Copy)]
 pub(crate) struct TextLayoutRequest<'a> {
     pub text: &'a str,
     pub max_width: i32,
+    pub max_lines: usize,
     pub line_height: i32,
     pub baseline: i32,
     pub direction: BaseDirection,
@@ -310,13 +321,10 @@ impl TextLayoutCache {
                 ),
             )
             .map_err(map_final)?;
-        let counts = OutputStarts {
-            lines: paragraph.lines().len(),
-            runs: paragraph.runs().len(),
-            glyphs: paragraph.glyphs().len(),
-            carets: paragraph.carets().len(),
-        };
-        let measure = measure(paragraph.lines(), request.line_height)?;
+        let visible_lines = paragraph.lines().len().min(request.max_lines);
+        let visible = &paragraph.lines()[..visible_lines];
+        let counts = visible_counts(visible);
+        let measure = measure(visible, request.line_height)?;
         self.truncate_outputs(starts.add(counts));
         Ok(LayoutOutput { measure })
     }
@@ -734,6 +742,18 @@ fn measure(lines: &[LayoutLine], line_height: i32) -> Result<TextMeasure, Attemp
     Ok(TextMeasure { width, height })
 }
 
+fn visible_counts(lines: &[LayoutLine]) -> OutputStarts {
+    let Some(last) = lines.last().copied() else {
+        return OutputStarts::ZERO;
+    };
+    OutputStarts {
+        lines: lines.len(),
+        runs: last.runs().end as usize,
+        glyphs: last.glyphs().end as usize,
+        carets: last.carets().end as usize,
+    }
+}
+
 fn reserve_slots<T: Clone>(
     slots: &mut Vec<T>,
     required: usize,
@@ -806,6 +826,7 @@ mod tests {
         TextLayoutRequest {
             text,
             max_width: width,
+            max_lines: usize::MAX,
             line_height: 256,
             baseline: 192,
             direction: BaseDirection::Auto,
@@ -854,5 +875,22 @@ mod tests {
             cache.layout(request("a paragraph that cannot fit", 4 * 256), &typefaces,),
             Err(TextLayoutError::CacheBudget { .. })
         ));
+    }
+
+    #[test]
+    fn max_lines_limits_retained_output_and_measurement() {
+        let source = Source;
+        let face = textflow::shaping::SimpleTypeface::new(&source);
+        let typefaces: [&dyn Typeface; 1] = [&face];
+        let mut cache = TextLayoutCache::default();
+        cache.begin_frame();
+        let mut limited = request("ab cd ef", 2 * 256);
+        limited.max_lines = 2;
+        let handle = cache.layout(limited, &typefaces).unwrap();
+        let layout = cache.get(handle).unwrap();
+        assert_eq!(layout.lines().len(), 2);
+        assert_eq!(layout.measure().height, 2 * 256);
+        assert_eq!(layout.runs().len(), 2);
+        assert_eq!(layout.glyphs().len(), 3);
     }
 }

@@ -222,14 +222,17 @@ struct LaidOutText {
 fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutText> {
     use textflow::bidi::BaseDirection;
 
-    use crate::render::font::{FontTypeface, resolve_or_default};
+    use crate::render::font::ResolvedFontStack;
     use crate::text::layout::{TextLayoutRequest, TextLayoutResource};
     use crate::types::fixed::to_textflow;
     use crate::ui::widgets::text::{Text, TextDirection, TextWrap};
 
     let text = world.get::<Text>(entity)?;
     let style = world.get::<Style>(entity)?;
-    let font = resolve_or_default(world, style.font_stack.primary())?;
+    let resource = world.resource::<TextLayoutResource>()?;
+    let face_limit = resource.borrow().limits().fallback_faces;
+    let fonts = ResolvedFontStack::resolve(world, &style.font_stack, face_limit).ok()??;
+    let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
     let paragraph = text.paragraph();
@@ -242,18 +245,18 @@ fn layout_text(world: &World, entity: Entity, width: Fixed) -> Option<LaidOutTex
         TextWrap::NoWrap => i32::MAX,
         TextWrap::Word | TextWrap::Grapheme => to_textflow(width.max(Fixed::ZERO)),
     };
-    let typeface = FontTypeface::new(&font, font.size);
-    let typefaces: [&dyn textflow::shaping::Typeface; 1] = [&typeface];
     let request = TextLayoutRequest {
         text: &content,
         max_width,
+        max_lines: paragraph.max_lines.map(usize::from).unwrap_or(usize::MAX),
         line_height: to_textflow(paragraph.line_height.unwrap_or(metrics.line_height)),
         baseline: to_textflow(metrics.ascender),
         direction,
         features: paragraph.features.as_slice(),
     };
-    let resource = world.resource::<TextLayoutResource>()?;
-    let handle = resource.borrow_mut().layout(request, &typefaces).ok()?;
+    let handle = fonts
+        .with_typefaces(|typefaces| resource.borrow_mut().layout(request, typefaces))
+        .ok()?;
     let measure = resource.borrow().get(handle)?.measure();
     Some(LaidOutText { handle, measure })
 }
@@ -331,7 +334,7 @@ fn compute_layout_snapshot(
 pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut LayoutNode) {
     use textflow::bidi::BaseDirection;
 
-    use crate::render::font::{FontTypeface, resolve_or_default};
+    use crate::render::font::ResolvedFontStack;
     use crate::text::layout::{TextLayoutRequest, TextLayoutResource};
     use crate::types::Dimension;
     use crate::types::fixed::{from_textflow, to_textflow};
@@ -344,9 +347,14 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
         return;
     }
     let style = world.get::<Style>(entity).expect("text widget style");
-    let Some(font) = resolve_or_default(world, style.font_stack.primary()) else {
+    let Some(cache) = world.resource::<TextLayoutResource>() else {
         return;
     };
+    let face_limit = cache.borrow().limits().fallback_faces;
+    let Ok(Some(fonts)) = ResolvedFontStack::resolve(world, &style.font_stack, face_limit) else {
+        return;
+    };
+    let font = fonts.primary();
     let content = text.resolve(world);
     let metrics = font.metrics(font.size);
     let line_height = text.paragraph().line_height.unwrap_or(metrics.line_height);
@@ -355,20 +363,21 @@ pub(crate) fn apply_text_intrinsic(world: &World, entity: Entity, node: &mut Lay
         TextDirection::LeftToRight => BaseDirection::LeftToRight,
         TextDirection::RightToLeft => BaseDirection::RightToLeft,
     };
-    let typeface = FontTypeface::new(&font, font.size);
-    let faces: [&dyn textflow::shaping::Typeface; 1] = [&typeface];
     let request = TextLayoutRequest {
         text: &content,
         max_width: i32::MAX,
+        max_lines: text
+            .paragraph()
+            .max_lines
+            .map(usize::from)
+            .unwrap_or(usize::MAX),
         line_height: to_textflow(line_height),
         baseline: to_textflow(metrics.ascender),
         direction,
         features: text.paragraph().features.as_slice(),
     };
-    let Some(cache) = world.resource::<TextLayoutResource>() else {
-        return;
-    };
-    let Ok(measure) = cache.borrow_mut().measure(request, &faces) else {
+    let Ok(measure) = fonts.with_typefaces(|faces| cache.borrow_mut().measure(request, faces))
+    else {
         return;
     };
     let intrinsic_w = from_textflow(measure.width);
@@ -1557,7 +1566,13 @@ fn collect_overlay_rects(world: &World) -> Vec<Rect> {
 
 #[cfg(all(test, feature = "std"))]
 mod text_layout_check {
+    use alloc::rc::Rc;
+
     use super::*;
+    use crate::render::font::{
+        Font, FontBackend, FontFaceId, FontManager, FontMetrics, FontProvider, FontStack,
+        FontToken, GlyphId, RasterGlyph,
+    };
     use crate::types::{Dimension, Viewport};
     use crate::ui::layout::{FlexDirection, LayoutStyle};
     use crate::ui::widgets::Text;
@@ -1659,6 +1674,138 @@ mod text_layout_check {
             .unwrap()
             .borrow();
         assert_eq!(cache.get(*handle).unwrap().lines().len(), 2);
+    }
+
+    #[test]
+    fn max_lines_constrains_content_height() {
+        let mut world = world();
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                layout: LayoutStyle {
+                    width: Dimension::px(16),
+                    height: Dimension::Content,
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(
+            label,
+            Text::from("ab cd ef").with_paragraph(crate::ui::widgets::ParagraphStyle {
+                max_lines: Some(2),
+                ..Default::default()
+            }),
+        );
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        assert_eq!(rect.h, Fixed::from_int(16));
+        let handle = world.get::<crate::text::TextLayoutHandle>(label).unwrap();
+        let cache = world
+            .resource::<crate::text::layout::TextLayoutResource>()
+            .unwrap()
+            .borrow();
+        assert_eq!(cache.get(*handle).unwrap().lines().len(), 2);
+    }
+
+    struct CjkFace;
+
+    impl FontProvider for CjkFace {
+        fn face_id(&self) -> FontFaceId {
+            FontFaceId::new(9)
+        }
+
+        fn map_char(&self, ch: char) -> Option<GlyphId> {
+            (ch == '日').then_some(GlyphId::new(1))
+        }
+
+        fn glyph_advance(&self, _glyph: GlyphId, _ppem: u16) -> Option<Fixed> {
+            Some(Fixed::from_int(10))
+        }
+
+        fn raster(&self, _glyph: GlyphId, _ppem: u16) -> Option<RasterGlyph<'_>> {
+            None
+        }
+
+        fn metrics(&self, _ppem: u16) -> FontMetrics {
+            FontMetrics {
+                ascender: Fixed::from_int(8),
+                descender: Fixed::from_int(-2),
+                line_height: Fixed::from_int(10),
+            }
+        }
+    }
+
+    #[test]
+    fn font_stack_falls_back_at_cluster_boundaries() {
+        static FALLBACKS: [FontToken; 1] = [FontToken::Custom("cjk")];
+
+        let mut world = world();
+        world.resource::<FontManager>().unwrap().add_static(
+            "cjk",
+            Font {
+                family: "cjk",
+                size: 10,
+                backend: FontBackend::Custom(Rc::new(CjkFace)),
+            },
+        );
+        let root = spawn(
+            &mut world,
+            None,
+            Style {
+                layout: LayoutStyle {
+                    direction: FlexDirection::Column,
+                    width: Dimension::px(64),
+                    height: Dimension::px(64),
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        let label = spawn(
+            &mut world,
+            Some(root),
+            Style {
+                font_stack: FontStack::new(FontToken::Default).with_fallbacks(&FALLBACKS[..]),
+                layout: LayoutStyle {
+                    width: Dimension::Content,
+                    height: Dimension::Content,
+                    ..LayoutStyle::default()
+                },
+                ..Style::default()
+            },
+        );
+        world.insert(label, Text::from("A日"));
+
+        update_layout(&mut world, root, &Viewport::new(64, 64, Fixed::ONE));
+
+        let rect = world.get::<super::super::ComputedRect>(label).unwrap().0;
+        assert_eq!(rect.w, Fixed::from_int(18));
+        let handle = world.get::<crate::text::TextLayoutHandle>(label).unwrap();
+        let cache = world
+            .resource::<crate::text::layout::TextLayoutResource>()
+            .unwrap()
+            .borrow();
+        let layout = cache.get(*handle).unwrap();
+        assert_eq!(layout.runs().len(), 2);
+        assert_eq!(layout.runs()[0].font_id(), FontFaceId::new(1));
+        assert_eq!(layout.runs()[1].font_id(), FontFaceId::new(9));
     }
 }
 

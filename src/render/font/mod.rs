@@ -461,6 +461,69 @@ pub struct FontTypeface<'a> {
     ppem: u16,
 }
 
+pub(crate) const MAX_RESOLVED_FONT_STACK: usize = if cfg!(feature = "std") { 64 } else { 8 };
+
+pub(crate) struct ResolvedFontStack {
+    fonts: [Option<Rc<Font>>; MAX_RESOLVED_FONT_STACK],
+    len: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct FontStackCapacityError {
+    pub required: usize,
+    pub limit: usize,
+}
+
+impl ResolvedFontStack {
+    pub(crate) fn resolve(
+        world: &World,
+        stack: &FontStack,
+        limit: usize,
+    ) -> Result<Option<Self>, FontStackCapacityError> {
+        let len = stack.iter().count();
+        let limit = limit.min(MAX_RESOLVED_FONT_STACK);
+        if len > limit {
+            return Err(FontStackCapacityError {
+                required: len,
+                limit,
+            });
+        }
+        let Some(manager) = world.resource::<FontManager>() else {
+            return Ok(None);
+        };
+        let mut fonts = core::array::from_fn(|_| None);
+        for (slot, token) in fonts.iter_mut().zip(stack.iter()) {
+            *slot = Some(manager.resolve(token.cache_key()));
+        }
+        Ok(Some(Self { fonts, len }))
+    }
+
+    pub(crate) fn primary(&self) -> &Font {
+        self.fonts[0].as_deref().expect("font stack has a primary")
+    }
+
+    pub(crate) fn font(&self, id: FontFaceId) -> Option<&Font> {
+        self.fonts[..self.len]
+            .iter()
+            .filter_map(Option::as_deref)
+            .find(|font| font.face_id() == id)
+    }
+
+    pub(crate) fn with_typefaces<R>(
+        &self,
+        f: impl FnOnce(&[&dyn textflow::shaping::Typeface]) -> R,
+    ) -> R {
+        let primary = self.primary();
+        let faces: [FontTypeface<'_>; MAX_RESOLVED_FONT_STACK] = core::array::from_fn(|index| {
+            let font = self.fonts[index].as_deref().unwrap_or(primary);
+            FontTypeface::new(font, font.size)
+        });
+        let typefaces: [&dyn textflow::shaping::Typeface; MAX_RESOLVED_FONT_STACK] =
+            core::array::from_fn(|index| &faces[index] as &dyn textflow::shaping::Typeface);
+        f(&typefaces[..self.len])
+    }
+}
+
 impl<'a> FontTypeface<'a> {
     pub const fn new(font: &'a Font, ppem: u16) -> Self {
         Self { font, ppem }
