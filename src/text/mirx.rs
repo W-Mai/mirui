@@ -28,9 +28,9 @@ impl<'a> MirxGlyphSource<'a> {
         self.face
     }
 
-    /// Creates the borrowed typeface used by textflow layout.
-    pub const fn typeface(&self) -> MirxTypeface<'_, 'a> {
-        MirxTypeface { source: self }
+    /// Creates a borrowed typeface whose output coordinates use Q24.8 pixels at `ppem`.
+    pub const fn typeface(&self, ppem: u16) -> MirxTypeface<'_, 'a> {
+        MirxTypeface { source: self, ppem }
     }
 
     const fn shaping_data(self) -> Option<::mirx::font::ShapingData<'a>> {
@@ -42,12 +42,27 @@ impl<'a> MirxGlyphSource<'a> {
 /// A borrowed textflow typeface backed by one MIRX glyph source.
 pub struct MirxTypeface<'source, 'font> {
     source: &'source MirxGlyphSource<'font>,
+    ppem: u16,
 }
 
 impl MirxTypeface<'_, '_> {
     /// Returns the glyph source backing this typeface.
     pub const fn source(&self) -> &MirxGlyphSource<'_> {
         self.source
+    }
+
+    /// Returns the pixel size used to normalize face-unit metrics and positions.
+    pub const fn ppem(&self) -> u16 {
+        self.ppem
+    }
+
+    fn scale(&self, value: i32) -> Result<i32, FontAccessError> {
+        crate::types::fixed::checked_scale_q24_8(
+            value,
+            self.ppem,
+            self.source.face.face().units_per_em(),
+        )
+        .ok_or(FontAccessError::Malformed)
     }
 }
 
@@ -57,7 +72,13 @@ impl Typeface for MirxTypeface<'_, '_> {
     }
 
     fn metrics(&self) -> Result<FontMetrics, FontAccessError> {
-        self.source.metrics()
+        let metrics = self.source.metrics()?;
+        Ok(FontMetrics {
+            units_per_em: metrics.units_per_em,
+            ascender: self.scale(metrics.ascender)?,
+            descender: self.scale(metrics.descender)?,
+            line_gap: self.scale(metrics.line_gap)?,
+        })
     }
 
     fn covers(&self, grapheme: &str) -> Result<bool, FontAccessError> {
@@ -76,10 +97,17 @@ impl Typeface for MirxTypeface<'_, '_> {
         request: &ShapeRequest<'_>,
         output: &mut [ShapedGlyph],
     ) -> Result<usize, ShapeError> {
-        match self.source.shaping_data() {
+        let count = match self.source.shaping_data() {
             Some(shaping) => crate::text::opentype::shape(self.source, shaping, request, output),
             None => SimpleTypeface::new(self.source).shape_into(request, output),
+        }?;
+        for glyph in &mut output[..count] {
+            glyph.advance.x = self.scale(glyph.advance.x)?;
+            glyph.advance.y = self.scale(glyph.advance.y)?;
+            glyph.offset.x = self.scale(glyph.offset.x)?;
+            glyph.offset.y = self.scale(glyph.offset.y)?;
         }
+        Ok(count)
     }
 }
 
@@ -291,6 +319,18 @@ mod tests {
     }
 
     #[test]
+    fn typeface_normalizes_face_metrics_to_ppem() {
+        let source = source();
+        let raw = source.metrics().unwrap();
+        let scaled = source.typeface(24).metrics().unwrap();
+        let units_per_em = i32::from(raw.units_per_em);
+        assert_eq!(scaled.units_per_em, raw.units_per_em);
+        assert_eq!(scaled.ascender, raw.ascender * 24 / units_per_em);
+        assert_eq!(scaled.descender, raw.descender * 24 / units_per_em);
+        assert_eq!(scaled.line_gap, raw.line_gap * 24 / units_per_em);
+    }
+
+    #[test]
     fn reads_shaping_backed_advances_without_an_owned_font() {
         let mut hhea = [0; 36];
         hhea[34..36].copy_from_slice(&2_u16.to_be_bytes());
@@ -318,7 +358,7 @@ mod tests {
     #[test]
     fn shapes_mirx_cmap_and_hmtx_into_caller_storage() {
         let source = source();
-        let typeface = source.typeface();
+        let typeface = source.typeface(24);
         let request = ShapeRequest::new("AV", 0..2, Direction::LeftToRight, Script::Latin);
         let mut glyphs = [textflow::shaping::ShapedGlyph::default(); 2];
         assert_eq!(typeface.shape_into(&request, &mut glyphs).unwrap(), 2);
@@ -330,6 +370,13 @@ mod tests {
             glyphs[1].glyph_id(),
             source.glyph_for('V').unwrap().unwrap()
         );
+        let source_advance = source
+            .glyph_advance(source.glyph_for('A').unwrap().unwrap())
+            .unwrap()
+            .x;
+        let units_per_em = i32::from(source.metrics().unwrap().units_per_em);
+        assert_eq!(glyphs[0].advance.x, source_advance * 24 / units_per_em);
+        assert_eq!(typeface.ppem(), 24);
         assert!(glyphs.iter().all(|glyph| glyph.advance.x > 0));
     }
 }

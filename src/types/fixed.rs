@@ -684,6 +684,28 @@ pub(crate) mod storage {
     }
 }
 
+#[inline]
+pub(crate) fn checked_scale_q24_8(value: i32, numerator: u16, denominator: u16) -> Option<i32> {
+    let scaled = i64::from(value)
+        .checked_mul(i64::from(numerator))?
+        .checked_div(i64::from(denominator))?;
+    i32::try_from(scaled).ok()
+}
+
+#[inline]
+pub(crate) fn checked_scale_mirx(
+    value: mirx::types::Fixed,
+    numerator: u16,
+    denominator: u16,
+) -> Option<Fixed> {
+    let raw = checked_scale_q24_8(
+        i32::from_le_bytes(value.to_le_bytes()),
+        numerator,
+        denominator,
+    )?;
+    Some(Fixed(raw))
+}
+
 impl fmt::Display for Fixed {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Show as decimal: integer.fraction
@@ -925,6 +947,21 @@ mod tests {
     fn div_precision_past_old_ceiling() {
         let q = (Fixed::from_int(1_000_000) / Fixed::from_int(7)).to_f32();
         assert!((q - 142857.142857).abs() < 1.0);
+    }
+
+    #[test]
+    fn checked_scale_ratio_preserves_fractional_font_units() {
+        let value = Fixed::from_ratio(625, 2);
+        assert_eq!(
+            checked_scale_q24_8(value.0, 24, 1_000),
+            Some(Fixed::from_ratio(15, 2).0)
+        );
+    }
+
+    #[test]
+    fn checked_scale_ratio_rejects_zero_denominator_and_overflow() {
+        assert_eq!(checked_scale_q24_8(Fixed::ONE.0, 1, 0), None);
+        assert_eq!(checked_scale_q24_8(Fixed::MAX.0, u16::MAX, 1), None);
     }
 
     #[test]

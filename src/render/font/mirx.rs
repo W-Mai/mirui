@@ -12,13 +12,13 @@ use mirx::{
 };
 
 fn scale(value: mirx::types::Fixed, numerator: u16, denominator: u16) -> crate::types::Fixed {
-    let raw = i64::from(i32::from_le_bytes(value.to_le_bytes())) * i64::from(numerator)
-        / i64::from(denominator);
-    let raw: i32 = raw
-        .clamp(i64::from(i32::MIN), i64::from(i32::MAX))
-        .try_into()
-        .unwrap();
-    mirx::types::Fixed::from_le_bytes(raw.to_le_bytes()).into()
+    crate::types::fixed::checked_scale_mirx(value, numerator, denominator).unwrap_or(
+        if value.is_negative() {
+            crate::types::Fixed::MIN
+        } else {
+            crate::types::Fixed::MAX
+        },
+    )
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
