@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Consistent accelerated text caches.** SDL GPU and Web Canvas rasterize fractional-DPR bounds after scaling, key entries by semantic font identity and revision, composite opacity outside cached pixels and retain affine glyph transforms.
 - **Direct WGPU glyph rendering.** Coverage and signed-distance glyphs use cached R8 font surfaces, positioned affine quads and GPU edge reconstruction without rasterizing complete runs through an intermediate RGBA texture.
 - **TextFlow 0.2 integration.** Word wrapping retains word-first grapheme fallback through `WordOrGrapheme`, and OpenType shaping maps Thai runs to the `thai` script tag.
 - **Explicit MIRX font construction.** `Font::from_mirx` and `Font::from_mirx_with_storage` require a nonzero logical ppem; raster representation sizes no longer determine the font resource size, and the free MIRX font constructors have been removed.

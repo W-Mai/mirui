@@ -103,7 +103,7 @@ impl SwRenderer<'_> {
         };
         let requested_size = run.font.size.max(1);
         let output_ppem =
-            crate::render::font::output_ppem(requested_size, transform_raster_scale(run.transform));
+            crate::render::font::output_ppem(requested_size, run.transform.raster_scale());
         let metrics = run.font.metrics(requested_size);
         for positioned in run.glyphs {
             let Some(glyph) =
@@ -526,12 +526,6 @@ fn scaled_extent(extent: u32, scale: Fixed) -> u16 {
     let raw_scale = u64::try_from(storage::to_i32(scale)).unwrap_or(0);
     let pixels = (u64::from(extent) * raw_scale).div_ceil(256);
     pixels.clamp(1, u64::from(u16::MAX)) as u16
-}
-
-fn transform_raster_scale(transform: &Transform) -> Fixed {
-    let x = (transform.m00 * transform.m00 + transform.m10 * transform.m10).sqrt();
-    let y = (transform.m01 * transform.m01 + transform.m11 * transform.m11).sqrt();
-    x.max(y).max(Fixed::ONE)
 }
 
 #[cfg(test)]

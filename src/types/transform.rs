@@ -133,6 +133,12 @@ impl Transform {
         ]
     }
 
+    pub(crate) fn raster_scale(&self) -> Fixed {
+        let x = (self.m00 * self.m00 + self.m10 * self.m10).sqrt();
+        let y = (self.m01 * self.m01 + self.m11 * self.m11).sqrt();
+        x.max(y).max(Fixed::ONE)
+    }
+
     #[inline]
     pub fn determinant(&self) -> Fixed {
         self.m00 * self.m11 - self.m01 * self.m10
@@ -336,6 +342,20 @@ mod tests {
     fn classify_general() {
         let t = Transform::rotate_deg(Fixed::from_int(30));
         assert_eq!(t.classify(), TransformClass::General);
+    }
+
+    #[test]
+    fn raster_scale_uses_the_largest_axis_without_downsampling() {
+        assert_eq!(
+            Transform::scale(Fixed::from_int(2), Fixed::from_int(3)).raster_scale(),
+            Fixed::from_int(3)
+        );
+        assert_eq!(
+            Transform::scale(Fixed::HALF, Fixed::HALF).raster_scale(),
+            Fixed::ONE
+        );
+        let rotated = Transform::rotate_deg(Fixed::from_int(30)).raster_scale();
+        assert!((rotated - Fixed::ONE).abs() < Fixed::from_ratio(1, 32));
     }
 
     #[test]

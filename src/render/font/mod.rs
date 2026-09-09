@@ -19,6 +19,12 @@ use crate::core::resource::{HasProbe, ResourceManager};
 use crate::ecs::World;
 use crate::types::{Fixed, fixed::to_textflow};
 
+#[cfg(any(
+    feature = "sdl-gpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+use crate::types::Point;
+
 pub use textflow::shaping::{FontId as FontFaceId, GlyphId};
 
 #[repr(transparent)]
@@ -156,66 +162,166 @@ pub struct Glyph<'a> {
     feature = "sdl-gpu",
     all(feature = "web-canvas", target_arch = "wasm32")
 ))]
-pub(crate) fn positioned_glyph_bounds(
-    font: &Font,
-    glyphs: &[textflow::shaping::PositionedGlyph],
-    output_ppem: u16,
-) -> Option<crate::types::Rect> {
-    let first = glyphs.first()?;
-    let requested_size = font.size.max(1);
-    let metrics = font.metrics(requested_size);
-    let mut bounds: Option<crate::types::Rect> = None;
-    for positioned in glyphs {
-        let Some(glyph) =
-            font.glyph_by_id_for_output(positioned.glyph_id(), requested_size, output_ppem)
-        else {
-            continue;
-        };
-        let dx = positioned
-            .origin
-            .x
-            .checked_sub(first.origin.x)?
-            .checked_add(positioned.offset.x)?;
-        let dy = positioned
-            .origin
-            .y
-            .checked_sub(first.origin.y)?
-            .checked_add(positioned.offset.y)?;
-        let dx = crate::types::fixed::from_textflow(dx);
-        let dy = crate::types::fixed::from_textflow(dy);
-        let rect = match glyph.kind {
-            GlyphKind::Mono(_) => crate::types::Rect {
-                x: dx,
-                y: dy,
-                w: Fixed::from_int(bitmap_8x8::CHAR_W as i32),
-                h: metrics.line_height,
-            },
-            GlyphKind::Raster {
-                region,
-                representation,
-                bearing_x,
-                bearing_y,
-                ..
-            } => {
-                if region.width() == 0 || region.height() == 0 {
-                    continue;
-                }
-                let scale = Fixed::from_int(i32::from(requested_size))
-                    / Fixed::from_int(i32::from(representation.design_ppem().max(1)));
-                crate::types::Rect {
-                    x: dx + bearing_x,
-                    y: metrics.ascender + dy - bearing_y,
-                    w: Fixed::from_int(i32::try_from(region.width()).ok()?) * scale,
-                    h: Fixed::from_int(i32::try_from(region.height()).ok()?) * scale,
-                }
-            }
-        };
-        bounds = Some(match bounds {
-            Some(current) => current.union(&rect),
-            None => rect,
-        });
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct RasterRunKey {
+    glyph_hash: u64,
+    face_id: FontFaceId,
+    revision: u64,
+    ppem: u16,
+    color_rgb: u32,
+    scale: Fixed,
+}
+
+#[cfg(any(
+    feature = "sdl-gpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+impl RasterRunKey {
+    fn new(
+        font: &Font,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        color: &crate::types::Color,
+        scale: Fixed,
+    ) -> Self {
+        let mut glyph_hash = 0xcbf2_9ce4_8422_2325;
+        for glyph in glyphs {
+            Self::extend(&mut glyph_hash, &glyph.glyph_id().value().to_le_bytes());
+            Self::extend(&mut glyph_hash, &glyph.origin.x.to_le_bytes());
+            Self::extend(&mut glyph_hash, &glyph.origin.y.to_le_bytes());
+            Self::extend(&mut glyph_hash, &glyph.offset.x.to_le_bytes());
+            Self::extend(&mut glyph_hash, &glyph.offset.y.to_le_bytes());
+        }
+        Self {
+            glyph_hash,
+            face_id: font.face_id(),
+            revision: font.revision(),
+            ppem: font.size,
+            color_rgb: u32::from_be_bytes([color.r, color.g, color.b, 0]),
+            scale,
+        }
     }
-    bounds
+
+    fn extend(hash: &mut u64, bytes: &[u8]) {
+        for byte in bytes {
+            *hash ^= u64::from(*byte);
+            *hash = hash.wrapping_mul(0x100_0000_01b3);
+        }
+    }
+}
+
+#[cfg(any(
+    feature = "sdl-gpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct RasterRunBounds {
+    pub offset: Point,
+    pub size: Point,
+    pub width: u16,
+    pub height: u16,
+}
+
+#[cfg(any(
+    feature = "sdl-gpu",
+    all(feature = "web-canvas", target_arch = "wasm32")
+))]
+impl RasterRunBounds {
+    fn from_logical(bounds: crate::types::Rect, scale: Fixed) -> Option<Self> {
+        if scale <= Fixed::ZERO {
+            return None;
+        }
+        let physical = crate::types::Rect {
+            x: bounds.x * scale,
+            y: bounds.y * scale,
+            w: bounds.w * scale,
+            h: bounds.h * scale,
+        };
+        let (x0, y0, x1, y1) = physical.pixel_bounds();
+        let width = u16::try_from(x1.checked_sub(x0)?)
+            .ok()
+            .filter(|value| *value > 0)?;
+        let height = u16::try_from(y1.checked_sub(y0)?)
+            .ok()
+            .filter(|value| *value > 0)?;
+        Some(Self {
+            offset: Point {
+                x: Fixed::from_int(x0) / scale,
+                y: Fixed::from_int(y0) / scale,
+            },
+            size: Point {
+                x: Fixed::from_int(i32::from(width)) / scale,
+                y: Fixed::from_int(i32::from(height)) / scale,
+            },
+            width,
+            height,
+        })
+    }
+
+    fn new(
+        font: &Font,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        output_ppem: u16,
+        scale: Fixed,
+    ) -> Option<Self> {
+        if scale <= Fixed::ZERO {
+            return None;
+        }
+        let first = glyphs.first()?;
+        let requested_size = font.size.max(1);
+        let metrics = font.metrics(requested_size);
+        let mut bounds: Option<crate::types::Rect> = None;
+        for positioned in glyphs {
+            let Some(glyph) =
+                font.glyph_by_id_for_output(positioned.glyph_id(), requested_size, output_ppem)
+            else {
+                continue;
+            };
+            let dx = positioned
+                .origin
+                .x
+                .checked_sub(first.origin.x)?
+                .checked_add(positioned.offset.x)?;
+            let dy = positioned
+                .origin
+                .y
+                .checked_sub(first.origin.y)?
+                .checked_add(positioned.offset.y)?;
+            let dx = crate::types::fixed::from_textflow(dx);
+            let dy = crate::types::fixed::from_textflow(dy);
+            let rect = match glyph.kind {
+                GlyphKind::Mono(_) => crate::types::Rect {
+                    x: dx,
+                    y: dy,
+                    w: Fixed::from_int(bitmap_8x8::CHAR_W as i32),
+                    h: metrics.line_height,
+                },
+                GlyphKind::Raster {
+                    region,
+                    representation,
+                    bearing_x,
+                    bearing_y,
+                    ..
+                } => {
+                    if region.width() == 0 || region.height() == 0 {
+                        continue;
+                    }
+                    let glyph_scale = Fixed::from_int(i32::from(requested_size))
+                        / Fixed::from_int(i32::from(representation.design_ppem().max(1)));
+                    crate::types::Rect {
+                        x: dx + bearing_x,
+                        y: metrics.ascender + dy - bearing_y,
+                        w: Fixed::from_int(i32::try_from(region.width()).ok()?) * glyph_scale,
+                        h: Fixed::from_int(i32::try_from(region.height()).ok()?) * glyph_scale,
+                    }
+                }
+            };
+            bounds = Some(match bounds {
+                Some(current) => current.union(&rect),
+                None => rect,
+            });
+        }
+        Self::from_logical(bounds?, scale)
+    }
 }
 
 pub(crate) fn scaled_glyph_raster_extent(extent: u16, scale: Fixed) -> Option<u16> {
@@ -226,33 +332,6 @@ pub(crate) fn scaled_glyph_raster_extent(extent: u16, scale: Fixed) -> Option<u1
 #[inline]
 pub(crate) fn output_ppem(ppem: u16, scale: Fixed) -> u16 {
     scaled_glyph_raster_extent(ppem.max(1), scale).unwrap_or(u16::MAX)
-}
-
-#[cfg(any(
-    feature = "sdl-gpu",
-    all(feature = "web-canvas", target_arch = "wasm32")
-))]
-pub(crate) fn positioned_glyph_hash(glyphs: &[textflow::shaping::PositionedGlyph]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325;
-    for glyph in glyphs {
-        extend_glyph_hash(&mut hash, &glyph.glyph_id().value().to_le_bytes());
-        extend_glyph_hash(&mut hash, &glyph.origin.x.to_le_bytes());
-        extend_glyph_hash(&mut hash, &glyph.origin.y.to_le_bytes());
-        extend_glyph_hash(&mut hash, &glyph.offset.x.to_le_bytes());
-        extend_glyph_hash(&mut hash, &glyph.offset.y.to_le_bytes());
-    }
-    hash
-}
-
-#[cfg(any(
-    feature = "sdl-gpu",
-    all(feature = "web-canvas", target_arch = "wasm32")
-))]
-fn extend_glyph_hash(hash: &mut u64, bytes: &[u8]) {
-    for byte in bytes {
-        *hash ^= u64::from(*byte);
-        *hash = hash.wrapping_mul(0x100_0000_01b3);
-    }
 }
 
 /// Rasterization scheme tag — renderers match on this to pick how to
@@ -446,6 +525,32 @@ impl Font {
             FontBackend::Bitmap8x8 => 0,
             FontBackend::Custom(provider) => provider.revision(),
         }
+    }
+
+    #[cfg(any(
+        feature = "sdl-gpu",
+        all(feature = "web-canvas", target_arch = "wasm32")
+    ))]
+    pub(crate) fn raster_run_key(
+        &self,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        color: &crate::types::Color,
+        scale: Fixed,
+    ) -> RasterRunKey {
+        RasterRunKey::new(self, glyphs, color, scale)
+    }
+
+    #[cfg(any(
+        feature = "sdl-gpu",
+        all(feature = "web-canvas", target_arch = "wasm32")
+    ))]
+    pub(crate) fn raster_run_bounds(
+        &self,
+        glyphs: &[textflow::shaping::PositionedGlyph],
+        output_ppem: u16,
+        scale: Fixed,
+    ) -> Option<RasterRunBounds> {
+        RasterRunBounds::new(self, glyphs, output_ppem, scale)
     }
 
     pub fn map_char(&self, ch: char) -> Option<GlyphId> {
@@ -999,6 +1104,45 @@ mod tests {
         assert_eq!(
             scaled_glyph_raster_extent(17, Fixed::from_ratio(5, 4)),
             Some(22)
+        );
+    }
+
+    #[cfg(feature = "sdl-gpu")]
+    #[test]
+    fn raster_run_bounds_quantize_after_fractional_scaling() {
+        let scale = Fixed::from_ratio(3, 2);
+        let bounds = RasterRunBounds::from_logical(
+            crate::types::Rect {
+                x: Fixed::from_ratio(-1, 2),
+                y: Fixed::from_ratio(1, 4),
+                w: Fixed::from_ratio(21, 2),
+                h: Fixed::from_ratio(15, 2),
+            },
+            scale,
+        )
+        .unwrap();
+
+        assert_eq!((bounds.width, bounds.height), (16, 12));
+        assert_eq!(bounds.offset.x, Fixed::from_int(-1) / scale);
+        assert_eq!(bounds.offset.y, Fixed::ZERO);
+        assert_eq!(bounds.size.x, Fixed::from_int(16) / scale);
+        assert_eq!(bounds.size.y, Fixed::from_int(12) / scale);
+    }
+
+    #[cfg(feature = "sdl-gpu")]
+    #[test]
+    fn raster_run_key_uses_font_identity_but_not_composite_alpha() {
+        let font = Font::bitmap_8x8();
+        let scale = Fixed::from_ratio(3, 2);
+        let faint = font.raster_run_key(&[], &crate::types::Color::rgba(1, 2, 3, 40), scale);
+        let opaque = font.raster_run_key(&[], &crate::types::Color::rgba(1, 2, 3, 255), scale);
+        assert_eq!(faint, opaque);
+
+        let mut larger = font.clone();
+        larger.size += 1;
+        assert_ne!(
+            faint,
+            larger.raster_run_key(&[], &crate::types::Color::rgba(1, 2, 3, 40), scale)
         );
     }
 

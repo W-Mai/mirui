@@ -541,6 +541,25 @@ impl Renderer for SdlGpuRenderer<'_> {
                 self.fill_path_transformed_inner(path, clip, transform, &color, *opa);
                 return;
             }
+            DrawCommand::GlyphRun {
+                pos,
+                glyphs,
+                font,
+                transform,
+                color,
+                opa,
+            } => {
+                self.draw_glyph_run_inner(label::GlyphRunDraw {
+                    pos,
+                    glyphs,
+                    font,
+                    transform,
+                    clip,
+                    color,
+                    opacity: *opa,
+                });
+                return;
+            }
             DrawCommand::StrokePath { .. } => {
                 unimplemented!("sdl_gpu backend: StrokePath not yet implemented");
             }
@@ -641,17 +660,7 @@ impl Renderer for SdlGpuRenderer<'_> {
                     *opa,
                 )
             }
-            DrawCommand::GlyphRun {
-                pos,
-                glyphs,
-                font,
-                color,
-                opa,
-                ..
-            } => {
-                let pos = offset_point(pos, tx, ty);
-                self.draw_glyph_run(&pos, glyphs, font, clip, color, *opa)
-            }
+            DrawCommand::GlyphRun { .. } => unreachable!("glyph runs return before dispatch"),
             DrawCommand::FillPath {
                 path, paint, opa, ..
             } => {
@@ -909,7 +918,15 @@ impl Canvas for SdlGpuRenderer<'_> {
         color: &Color,
         opa: u8,
     ) {
-        self.draw_glyph_run_inner(pos, glyphs, font, clip, color, opa);
+        self.draw_glyph_run_inner(label::GlyphRunDraw {
+            pos,
+            glyphs,
+            font,
+            transform: &Transform::IDENTITY,
+            clip,
+            color,
+            opacity: opa,
+        });
     }
 
     fn flush(&mut self) {}

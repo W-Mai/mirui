@@ -9,7 +9,6 @@ use web_sys::{ImageData, OffscreenCanvas, OffscreenCanvasRenderingContext2d};
 
 use crate::core::cache::{Cache, HasSize, HashLookup, Lru, MaxSize};
 use crate::render::texture::{ColorFormat, Texture};
-use crate::types::Fixed;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct TextureKey {
@@ -56,21 +55,14 @@ pub fn new_pool() -> TexturePool {
         .build()
 }
 
-/// Keys a rendered text label on content only — no clip / position —
-/// so a label keeps hitting the cache while resize reflows it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct GlyphKey {
-    pub text_hash: u64,
-    pub family_ptr: usize,
-    pub size: u16,
-    pub color: u32,
-    pub opa: u8,
-    pub scale: Fixed,
-}
-
 const GLYPH_BUDGET: usize = 8 * 1024 * 1024;
 
-pub type GlyphPool = Cache<GlyphKey, CachedOffscreen, Lru, HashLookup<GlyphKey>>;
+pub type GlyphPool = Cache<
+    crate::render::font::RasterRunKey,
+    CachedOffscreen,
+    Lru,
+    HashLookup<crate::render::font::RasterRunKey>,
+>;
 
 pub fn new_glyph_pool() -> GlyphPool {
     Cache::builder()

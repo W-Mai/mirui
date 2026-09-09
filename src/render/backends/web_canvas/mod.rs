@@ -10,7 +10,7 @@ use alloc::string::String;
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasGradient, CanvasRenderingContext2d, CanvasWindingRule};
 
-use self::texture_pool::{GlyphKey, GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
+use self::texture_pool::{GlyphPool, TextureKey, TexturePool, new_glyph_pool, new_pool};
 use crate::render::backends::sw::SwRenderer;
 use crate::render::canvas::{Canvas, Paint};
 use crate::render::command::{CompositeMode, DrawCommand};
@@ -81,6 +81,16 @@ pub struct WebCanvasRenderer<'a> {
     factory: &'a mut WebCanvasRendererFactory,
     surface: &'a mut WebCanvasSurface,
     viewport: Viewport,
+}
+
+struct GlyphRunDraw<'a> {
+    pos: &'a Point,
+    glyphs: &'a [textflow::shaping::PositionedGlyph],
+    font: &'a crate::render::font::Font,
+    transform: &'a Transform,
+    clip: &'a Rect,
+    color: &'a Color,
+    opacity: u8,
 }
 
 fn map_point(
@@ -816,11 +826,19 @@ impl Renderer for WebCanvasRenderer<'_> {
                 pos,
                 glyphs,
                 font,
+                transform,
                 color,
                 opa,
-                ..
             } => {
-                self.draw_glyph_run(pos, glyphs, font, clip, color, *opa);
+                self.draw_glyph_run_inner(GlyphRunDraw {
+                    pos,
+                    glyphs,
+                    font,
+                    transform,
+                    clip,
+                    color,
+                    opacity: *opa,
+                });
             }
             DrawCommand::PushClip { .. } | DrawCommand::PopClip | DrawCommand::ApplyBlur { .. } => {
             }
@@ -831,6 +849,76 @@ impl Renderer for WebCanvasRenderer<'_> {
 
     fn flush(&mut self) {
         Canvas::flush(self)
+    }
+}
+
+impl WebCanvasRenderer<'_> {
+    fn draw_glyph_run_inner(&mut self, draw: GlyphRunDraw<'_>) {
+        let GlyphRunDraw {
+            pos,
+            glyphs,
+            font,
+            transform,
+            clip,
+            color,
+            opacity,
+        } = draw;
+        let scale = self.viewport.scale() * transform.raster_scale();
+        let output_ppem = crate::render::font::output_ppem(font.size, scale);
+        let Some(bounds) = font.raster_run_bounds(glyphs, output_ppem, scale) else {
+            return;
+        };
+        let key = font.raster_run_key(glyphs, color, scale);
+        let pw = bounds.width;
+        let ph = bounds.height;
+        let handle = match self
+            .factory
+            .glyph_pool
+            .entry(key)
+            .or_try_insert_with::<_, ()>(|| {
+                let mut buf = alloc::vec![0u8; usize::from(pw) * usize::from(ph) * 4];
+                {
+                    let mut texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
+                    texture.alpha_mode = AlphaMode::Blend;
+                    let mut sw = SwRenderer::new(texture);
+                    sw.viewport = Viewport::new(pw, ph, scale);
+                    let origin = Point {
+                        x: -bounds.offset.x,
+                        y: -bounds.offset.y,
+                    };
+                    let full = Rect {
+                        x: Fixed::ZERO,
+                        y: Fixed::ZERO,
+                        w: bounds.size.x,
+                        h: bounds.size.y,
+                    };
+                    let raster_color = Color { a: 255, ..*color };
+                    sw.draw_glyph_run(&origin, glyphs, font, &full, &raster_color, 255);
+                }
+                unpremultiply_rgba(&mut buf);
+                let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
+                texture_pool::upload(&texture).ok_or(())
+            }) {
+            Ok(handle) => handle,
+            Err(_) => return,
+        };
+        self.push_rect_clip(clip);
+        self.ctx()
+            .set_global_alpha((color.a as f64 * opacity as f64) / (255.0 * 255.0));
+        let _ = self
+            .ctx()
+            .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
+                &handle.get().canvas,
+                0.0,
+                0.0,
+                f64::from(pw),
+                f64::from(ph),
+                (pos.x + bounds.offset.x).to_f32() as f64,
+                (pos.y + bounds.offset.y).to_f32() as f64,
+                bounds.size.x.to_f32() as f64,
+                bounds.size.y.to_f32() as f64,
+            );
+        self.pop_rect_clip();
     }
 }
 
@@ -1049,82 +1137,15 @@ impl Canvas for WebCanvasRenderer<'_> {
         color: &Color,
         opa: u8,
     ) {
-        let scale = self.viewport.scale();
-        let output_ppem = crate::render::font::output_ppem(font.size, scale);
-        let Some(bounds) = crate::render::font::positioned_glyph_bounds(font, glyphs, output_ppem)
-        else {
-            return;
-        };
-        let (x0, y0, x1, y1) = bounds.pixel_bounds();
-        let Some(tw) = u16::try_from(x1.saturating_sub(x0))
-            .ok()
-            .filter(|value| *value > 0)
-        else {
-            return;
-        };
-        let Some(th) = u16::try_from(y1.saturating_sub(y0))
-            .ok()
-            .filter(|value| *value > 0)
-        else {
-            return;
-        };
-        let Some(pw) = crate::render::font::scaled_glyph_raster_extent(tw, scale) else {
-            return;
-        };
-        let Some(ph) = crate::render::font::scaled_glyph_raster_extent(th, scale) else {
-            return;
-        };
-        let key = GlyphKey {
-            text_hash: crate::render::font::positioned_glyph_hash(glyphs),
-            family_ptr: font.family.as_ptr() as usize,
-            size: font.size,
-            color: (color.r as u32) << 24
-                | (color.g as u32) << 16
-                | (color.b as u32) << 8
-                | color.a as u32,
-            opa,
-            scale,
-        };
-        let handle = match self
-            .factory
-            .glyph_pool
-            .entry(key)
-            .or_try_insert_with::<_, ()>(|| {
-                let mut buf = alloc::vec![0u8; usize::from(pw) * usize::from(ph) * 4];
-                {
-                    let mut texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
-                    texture.alpha_mode = AlphaMode::Blend;
-                    let mut sw = SwRenderer::new(texture);
-                    sw.viewport = Viewport::new(pw, ph, scale);
-                    let origin = Point {
-                        x: Fixed::from_int(-x0),
-                        y: Fixed::from_int(-y0),
-                    };
-                    let full = Rect::new(0, 0, tw, th);
-                    sw.draw_glyph_run(&origin, glyphs, font, &full, color, opa);
-                }
-                unpremultiply_rgba(&mut buf);
-                let texture = Texture::new(&mut buf, pw, ph, ColorFormat::RGBA8888);
-                texture_pool::upload(&texture).ok_or(())
-            }) {
-            Ok(handle) => handle,
-            Err(_) => return,
-        };
-        self.push_rect_clip(clip);
-        let _ = self
-            .ctx()
-            .draw_image_with_offscreen_canvas_and_sw_and_sh_and_dx_and_dy_and_dw_and_dh(
-                &handle.get().canvas,
-                0.0,
-                0.0,
-                f64::from(pw),
-                f64::from(ph),
-                (pos.x + Fixed::from_int(x0)).to_f32() as f64,
-                (pos.y + Fixed::from_int(y0)).to_f32() as f64,
-                f64::from(tw),
-                f64::from(th),
-            );
-        self.pop_rect_clip();
+        self.draw_glyph_run_inner(GlyphRunDraw {
+            pos,
+            glyphs,
+            font,
+            transform: &Transform::IDENTITY,
+            clip,
+            color,
+            opacity: opa,
+        });
     }
 
     fn push_clip(

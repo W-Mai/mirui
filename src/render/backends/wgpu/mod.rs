@@ -1501,7 +1501,7 @@ impl WgpuRenderer<'_> {
             return;
         }
         let requested_size = font.size.max(1);
-        let raster_scale = glyph_raster_scale(transform, self.viewport.scale());
+        let raster_scale = self.viewport.scale() * transform.raster_scale();
         let output_ppem = crate::render::font::output_ppem(requested_size, raster_scale);
         let metrics = font.metrics(requested_size);
         let mut active: Option<GlyphBatch<'_>> = None;
@@ -1784,12 +1784,6 @@ fn unpack_scalar_surface(
         }
     }
     Some(())
-}
-
-fn glyph_raster_scale(transform: &crate::types::Transform, viewport_scale: Fixed) -> Fixed {
-    let x = (transform.m00 * transform.m00 + transform.m10 * transform.m10).sqrt();
-    let y = (transform.m01 * transform.m01 + transform.m11 * transform.m11).sqrt();
-    viewport_scale * x.max(y).max(Fixed::ONE)
 }
 
 fn append_glyph_quad(
