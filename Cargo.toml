@@ -19,7 +19,7 @@ members = [".", "xtask", "mirui-macros", "mirx", "gallery", "gallery/web"]
 [dependencies]
 mirui-macros = { version = "0.43.0", path = "mirui-macros" }
 mirx = { version = "0.43.0", path = "mirx" }
-textflow-rs = { version = "0.1.0", git = "https://github.com/W-Mai/textflow.git", rev = "4a0f1d09d61773e4f0149ea77d021945a6956601", default-features = false, features = ["shaping"] }
+textflow-rs = { version = "0.2.0", default-features = false, features = ["shaping"] }
 critical-section = { version = "1.2", default-features = false }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher"] }
 rustc-hash = { version = "2", default-features = false }

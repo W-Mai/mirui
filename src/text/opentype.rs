@@ -614,6 +614,7 @@ fn script_tag(script: Script) -> [u8; 4] {
         Script::Cyrillic => *b"cyrl",
         Script::Hebrew => *b"hebr",
         Script::Arabic => *b"arab",
+        Script::Thai => *b"thai",
         Script::Devanagari => *b"deva",
         Script::Han => *b"hani",
         Script::Hiragana | Script::Katakana => *b"kana",
@@ -707,6 +708,11 @@ mod tests {
     use super::*;
     use alloc::vec::Vec;
     use textflow::shaping::{FlowPoint, GlyphId};
+
+    #[test]
+    fn maps_thai_to_the_opentype_script_tag() {
+        assert_eq!(script_tag(Script::Thai), *b"thai");
+    }
 
     fn glyph(id: u16, start: u32, end: u32) -> ShapedGlyph {
         let mut glyph = ShapedGlyph::new(GlyphId::new(id), TextRange::new(start, end));

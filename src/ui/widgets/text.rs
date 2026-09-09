@@ -199,7 +199,7 @@ impl ParagraphStyle {
         };
         let wrap = match self.wrap {
             TextWrap::NoWrap => WrapMode::NoWrap,
-            TextWrap::Word => WrapMode::Word,
+            TextWrap::Word => WrapMode::WordOrGrapheme,
             TextWrap::Grapheme => WrapMode::Grapheme,
         };
         let alignment = match self.align {
@@ -718,6 +718,17 @@ mod tests {
         assert_eq!(paragraph.align, TextAlign::Start);
         assert_eq!(paragraph.shaping, ShapingPolicy::Auto);
         assert!(paragraph.features.as_slice().is_empty());
+
+        let request = paragraph.layout_request(
+            "unbroken",
+            crate::render::font::FontMetrics {
+                ascender: Fixed::from_int(7),
+                descender: Fixed::from_int(-1),
+                line_height: Fixed::from_int(8),
+            },
+            Some(Fixed::from_int(4)),
+        );
+        assert_eq!(request.wrap, textflow::layout::WrapMode::WordOrGrapheme);
     }
 
     #[test]

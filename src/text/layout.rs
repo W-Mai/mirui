@@ -848,6 +848,7 @@ impl LayoutKey {
             WrapMode::NoWrap => 0,
             WrapMode::Word => 1,
             WrapMode::Grapheme => 2,
+            WrapMode::WordOrGrapheme => 3,
         });
         hash.write_u8(match request.alignment {
             Alignment::Start => 0,
@@ -1149,7 +1150,7 @@ mod tests {
             line_height: 256,
             baseline: 192,
             direction: BaseDirection::Auto,
-            wrap: WrapMode::Word,
+            wrap: WrapMode::WordOrGrapheme,
             alignment: Alignment::Start,
             overflow: Overflow::Clip,
             spacing: TextSpacing::default(),

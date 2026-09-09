@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **TextFlow 0.2 integration.** Word wrapping retains word-first grapheme fallback through `WordOrGrapheme`, and OpenType shaping maps Thai runs to the `thai` script tag.
 - **Explicit MIRX font construction.** `Font::from_mirx` and `Font::from_mirx_with_storage` require a nonzero logical ppem; raster representation sizes no longer determine the font resource size, and the free MIRX font constructors have been removed.
 - **Mark-aware OpenType kerning.** Pair positioning honors `IgnoreMarks` through GDEF glyph classes and reports unsupported lookup semantics instead of silently approximating them.
 - **Authoritative glyph-run rendering.** `Text` sends shaped glyph IDs, origins, offsets, fallback faces, and raster bounds through a dedicated `GlyphRun` command; software, SDL GPU, WGPU, and Web Canvas consume those positions without measuring the source string again.
