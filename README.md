@@ -11,7 +11,7 @@ on top of SDL2 (CPU or hardware-accelerated) on desktop.
 
 ![Orbit Console interactive showcase](docs/assets/orbit-console.png)
 
-`cargo run -p gallery --example orbit_console_demo` launches the interactive showcase.
+[Open the interactive gallery](https://mirui.rs/) or run `cargo run -p gallery --example orbit_console_demo` locally.
 
 ## Features
 

@@ -1,0 +1,16 @@
+{
+  "name": "mirui gallery",
+  "short_name": "mirui",
+  "description": "Interactive demos for the mirui Rust UI framework.",
+  "start_url": "/?demo=orbit_console",
+  "display": "standalone",
+  "background_color": "#090b0f",
+  "theme_color": "#090b0f",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

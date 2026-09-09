@@ -39,6 +39,13 @@ jobs:
           test -n "$(find gallery/web/dist -maxdepth 1 -type f -name '*.js' -size +0c -print -quit)"
           test -n "$(find gallery/web/dist -maxdepth 1 -type f -name '*.wasm' -size +0c -print -quit)"
           test "$(cat gallery/web/dist/CNAME)" = "mirui.rs"
+          test -s gallery/web/dist/robots.txt
+          test -s gallery/web/dist/sitemap.xml
+          test -s gallery/web/dist/site.webmanifest
+          test -s gallery/web/dist/favicon.svg
+          test -s gallery/web/dist/orbit-console.png
+          grep --fixed-strings --quiet '<link rel="canonical" href="https://mirui.rs/"' gallery/web/dist/index.html
+          grep --fixed-strings --quiet 'property="og:image" content="https://mirui.rs/orbit-console.png"' gallery/web/dist/index.html
           grep --extended-regexp --quiet "from '/[^']+\\.js'" gallery/web/dist/index.html
           grep --extended-regexp --quiet "module_or_path: '/[^']+\\.wasm'" gallery/web/dist/index.html
       - name: Upload Pages artifact
